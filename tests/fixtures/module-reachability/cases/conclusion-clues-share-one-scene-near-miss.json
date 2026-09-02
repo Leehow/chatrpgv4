@@ -1,0 +1,75 @@
+{
+  "case": "conclusion-clues-share-one-scene-near-miss",
+  "intent": "The same two clues split across two reachable scenes give the conclusion a second location, so nothing fires.",
+  "documents": {
+    "story-graph.json": {
+      "scenes": [
+        {
+          "scene_id": "scene-a",
+          "display_name": "Scene A",
+          "is_start": true,
+          "origin": "source",
+          "available_clues": [
+            "clue-a"
+          ],
+          "scene_edges": [
+            {
+              "to": "scene-b",
+              "kind": "travel",
+              "when": {
+                "kind": "narrative"
+              }
+            }
+          ]
+        },
+        {
+          "scene_id": "scene-b",
+          "display_name": "Scene B",
+          "is_final": true,
+          "origin": "source",
+          "available_clues": [
+            "clue-b"
+          ],
+          "scene_edges": []
+        }
+      ]
+    },
+    "clue-graph.json": {
+      "conclusions": [
+        {
+          "conclusion_id": "conclusion-cellar-truth",
+          "importance": "core",
+          "minimum_routes": 2,
+          "origin": "source",
+          "clues": [
+            {
+              "clue_id": "clue-a",
+              "delivery_kind": "skill_check",
+              "origin": "source",
+              "skill": "Spot Hidden"
+            },
+            {
+              "clue_id": "clue-b",
+              "delivery_kind": "skill_check",
+              "origin": "source",
+              "skill": "Library Use"
+            }
+          ]
+        }
+      ]
+    },
+    "module-meta.json": {
+      "schema_version": 1,
+      "scenario_id": "fx-clues-share-one-scene-nm",
+      "title": "fx-clues-share-one-scene-nm",
+      "structure_type": "branching_investigation"
+    }
+  },
+  "expect": {
+    "findings": [],
+    "codes_not_measured": [
+      "front-scene-unknown",
+      "quest-destination-unknown"
+    ]
+  }
+}

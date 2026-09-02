@@ -3399,6 +3399,7 @@ _load_operation_module('world-time-effects', 'coc_operation_world_time_effects.p
 _load_operation_module('turn-output', 'coc_operation_turn_output.py')
 _load_operation_module('steward', 'coc_operation_steward.py')
 _load_operation_module('development', 'coc_operation_development.py')
+_load_operation_module('rulings', 'coc_operation_rulings.py')
 
 
 _MUTATING_TOOLS = frozenset({

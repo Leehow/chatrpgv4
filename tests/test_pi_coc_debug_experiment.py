@@ -304,7 +304,7 @@ def test_dispatch_starts_reads_and_cancels_one_closed_experiment(tmp_path: Path)
     [
         '"seed":7,',
         '"unknown":true,',
-        '"timeout_seconds":181,',
+        '"timeout_seconds":1801,',
         '"concurrency":5,',
     ],
 )
@@ -392,7 +392,7 @@ def test_dispatch_accepts_twenty_lanes_and_rejects_capacity_overflow(
         assert exc.value.code == "debug_request_invalid", label
 
 
-def test_dispatch_rejects_non_xai_busy_or_non_play_context(tmp_path: Path) -> None:
+def test_dispatch_rejects_relay_busy_or_non_play_context(tmp_path: Path) -> None:
     module = _module()
     experiment = module.DebugExperiment(
         store=module.FileRunStore(tmp_path / "debug-runs"),
@@ -404,7 +404,7 @@ def test_dispatch_rejects_non_xai_busy_or_non_play_context(tmp_path: Path) -> No
         '"lanes":[{"id":"production-1","profile":"production"}]}'
     )
     for key, value, code in (
-        ("provider", "openai", "debug_xai_required"),
+        ("provider", "openai", "debug_provider_unsupported"),
         ("host_is_idle", False, "debug_command_not_idle"),
         ("role", "setup", "debug_not_play"),
     ):
@@ -940,7 +940,7 @@ def test_rpc_lane_times_out_once_and_rejects_wrong_first_operation(tmp_path: Pat
 
     wrong_provider = _rpc_lane_run(tmp_path, mode="wrong-provider")
     assert wrong_provider["status"] == "failed"
-    assert wrong_provider["error"]["code"] == "xai_provider_mismatch"
+    assert wrong_provider["error"]["code"] == "debug_provider_mismatch"
 
 
 def test_cli_dispatch_returns_one_strict_error_envelope(tmp_path: Path) -> None:
@@ -1436,6 +1436,7 @@ def _rpc_situation_lane_run(
     situation: dict,
     workspace: Path,
     timeout: int = 60,
+    fake_mode: str = "success",
 ) -> tuple[dict, list[dict]]:
     module = _module()
     source_home = tmp_path / "source-home"
@@ -1452,7 +1453,7 @@ def _rpc_situation_lane_run(
             str(ROOT / "tests" / "pi" / "_lib" / "fake-debug-pi-rpc.py"),
         ],
         extra_env={
-            "FAKE_DEBUG_MODE": "success",
+            "FAKE_DEBUG_MODE": fake_mode,
             "FAKE_DEBUG_PROMPT_LOG": str(prompt_log),
         },
     )
@@ -1486,6 +1487,31 @@ def _rpc_situation_lane_run(
         for line in prompt_log.read_text(encoding="utf-8").splitlines()
     ] if prompt_log.is_file() else []
     return result, prompts
+
+
+def test_a_keeper_that_plays_a_turn_during_resume_fails_the_lane(
+    tmp_path: Path,
+) -> None:
+    """The resume prompt says to stop at awaiting_player. A Keeper that
+    journals or finalizes during it has played a turn of its own invention:
+    the budget is gone and the sandbox campaign has advanced, so any situation
+    seeded afterwards describes a state the probe never asked for. Observed on
+    2026-09-02 in two of six live lanes, which then reported a seed timeout
+    58 ms after starting."""
+    workspace = _quick_started_workspace(tmp_path, "debug-rpc-campaign")
+    result, _prompts = _rpc_situation_lane_run(
+        tmp_path,
+        situation=_STRUCTURAL_SITUATION,
+        workspace=workspace,
+        fake_mode="resume-plays-a-turn",
+    )
+    assert result["status"] == "failed"
+    assert result["error"]["code"] == "resume_acted_for_player"
+    assert result["error"]["details"]["operation"] in {
+        "state.journal", "turn.finalize",
+    }
+    assert result["final"]["situation"]["seeded"] is False
+    assert result["final"]["finalized"] is False
 
 
 def test_rpc_lane_seeds_a_structural_situation_through_the_canonical_toolbox(
@@ -1595,3 +1621,75 @@ def test_rpc_lane_prepends_the_host_instruction_for_a_prompt_situation(
     )
     assert "state.move_scene" in module._SITUATION_PROMPT_INSTRUCTION
     assert "never invented" in module._SITUATION_PROMPT_INSTRUCTION
+
+
+def test_the_provider_gate_is_a_closed_set_not_one_hardcoded_name(tmp_path: Path):
+    """Which first-party provider the account has quota on is the operator's
+    call; running through a relay or a silent fallback is not. The gate keeps
+    the second property while giving up the first."""
+    module = _module()
+    context = _context(tmp_path)
+
+    for provider in ("xai", "zai-coding-cn"):
+        module._validate_context(
+            {**context, "provider": provider}, require_run=True,
+        )
+
+    for refused in ("coding-relay", "grok-relay", "openai-codex", ""):
+        with pytest.raises(module.DebugExperimentError) as excinfo:
+            module._validate_context(
+                {**context, "provider": refused}, require_run=True,
+            )
+        assert excinfo.value.code == "debug_provider_unsupported"
+
+
+def test_the_lane_launches_on_the_declared_provider(tmp_path: Path):
+    """A hardcoded `xai/` prefix launched every lane on the wrong provider
+    while the context declared another; the lane's own verification then
+    failed all six with debug_provider_mismatch."""
+    module = _module()
+    adapter = module.PiRpcLaneAdapter(
+        repo_root=ROOT, private_root=tmp_path / "private",
+    )
+    for provider, model, expected in (
+        ("xai", "grok-4.5", "xai/grok-4.5"),
+        ("zai-coding-cn", "glm-5.3", "zai-coding-cn/glm-5.3"),
+        ("zai-coding-cn", "already/qualified", "already/qualified"),
+    ):
+        run = {
+            "context": {
+                "campaign_id": "c",
+                "provider": provider,
+                "model": model,
+                "thinking": "low",
+            },
+        }
+        argv = adapter._command({"id": "lane", "profile": "production"}, run, {})
+        assert expected in argv, (provider, model, argv)
+
+
+def test_a_diagnostic_may_outrun_the_product_budget_and_must_say_so(tmp_path: Path):
+    """Measuring how far a turn overruns the 180 s product budget is
+    impossible while the harness truncates at it. A diagnostic may therefore
+    ask for more, bounded — and a lane that used more has still failed the
+    product goal, so the result records the overrun rather than letting a slow
+    success read as a pass."""
+    module = _module()
+    assert module.PRODUCT_TURN_BUDGET_SECONDS == 180
+    assert module.MAX_DIAGNOSTIC_TIMEOUT_SECONDS > 180
+
+    spec = module._normalize_run_spec({
+        "player_input": "我转身就跑。",
+        "lanes": [{"id": "slow", "profile": "production"}],
+        "timeout_seconds": 900,
+    })
+    assert spec["timeout_seconds"] == 900
+
+    with pytest.raises(module.DebugExperimentError) as excinfo:
+        module._normalize_run_spec({
+            "player_input": "我转身就跑。",
+            "lanes": [{"id": "slow", "profile": "production"}],
+            "timeout_seconds": module.MAX_DIAGNOSTIC_TIMEOUT_SECONDS + 1,
+        })
+    assert excinfo.value.code == "debug_request_invalid"
+

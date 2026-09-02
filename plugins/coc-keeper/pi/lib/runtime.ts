@@ -1312,7 +1312,12 @@ export function completeLeafResultEnvelope(
   completed.contract_id = "coc.source-pack-worker.v1";
   completed.packet_id = expected.packetId;
   completed.work_group_id = expected.workGroupId;
-  completed.status = "usable";
+  // `status` is NOT injected. The Model-Facing Identifier Law covers machine
+  // ids the model should never transcribe; a leaf's status is its own
+  // verdict, and the worker instructions tell it to answer `abstain` when it
+  // cannot supply the required fields. Forcing "usable" here turned every
+  // abstention into fulfilled coverage and made leaf_result_status_invalid
+  // unreachable, so an abstain with rows was counted as source-backed work.
   if (Array.isArray(completed.results) && expected.jobIds.length === 1) {
     const onlyJobId = expected.jobIds[0];
     completed.results = (completed.results as unknown[]).map((row) => {

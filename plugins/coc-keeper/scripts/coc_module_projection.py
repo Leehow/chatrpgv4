@@ -16,6 +16,7 @@ import hashlib
 import json
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import coc_compiled_archive
 import coc_fileio
 import coc_module_graph
+import coc_module_reachability
 
 
 PROJECTION_CONTRACT_ID = "coc.module-graph-runtime-projection.v1"
@@ -63,6 +65,43 @@ COLLECTION_SPECS: dict[str, tuple[tuple[str, str, str | None], ...]] = {
 # Registered top-level record fields per document collection. A field lands
 # here only after its consumer is confirmed; an unregistered field is an exact
 # finding, never silently carried (the keeper_notes dead-field class).
+#
+# Jurisdiction — what this registry governs, and what it does not.
+#
+# It governs records that reach the runtime *through a ModuleGraph*: node
+# `properties` embedded in the graph (the committed starter's form) and the
+# digest-bound `runtime-projection.json` sidecar, plus one authored document
+# payload bound to graph node ids. The evidence is the call sites: all four of
+# them — `validate_module_projection`, `audit_projection_fields`,
+# `prepare_projection_packet`, `validate_projection_records` — take a `graph`
+# as their first parameter, and there is no path into any of them that starts
+# from a directory of scenario JSON. `check_projection_parity` is the only
+# function here that reads an `--ir-dir`, and it never consults the registry;
+# it compares committed files against `project_module_documents(graph, ...)`.
+# The `lint` verb also accepts a bare `--ir-dir`, and it hands that directory
+# to `coc_module_reachability`, not to any registry check.
+#
+# It does NOT govern the scenario documents written by the raw-PDF progressive
+# lane in `coc_module_project.py`. That lane writes
+# `<campaign>/scenario/story-graph.json` directly, imports nothing from this
+# module, and produces no `module-graph.json` for a registry call site to be
+# handed. Measured on the story-graph scenes of the four progressive campaigns
+# available locally: 7 to 9 top-level fields per set that this registry does
+# not list, union nine — `evidence_gap`, `keeper_only`, `keeper_secret_refs`,
+# `page_text_sha256`, `parse_state`, `source_context_mentions`,
+# `source_evidence`, `source_page_indices`, `source_span`. The committed
+# starter, which *is* graph-projected, carries zero. That asymmetry is the
+# proof: had those files ever reached `validate_module_projection`, every one
+# of them would have raised.
+#
+# So the nine are outside this registry rather than missing from it, and
+# registering them would assert a reach this module does not have — they would
+# be published to the extraction model by `prepare_projection_packet` as
+# fields it may author, while no graph carrier can ever emit them. They are
+# declared instead in `PROGRESSIVE_SCENE_FIELDS` in
+# `coc_module_reachability.py`, the first consumer to straddle both carriers.
+# The standing gap this records: two carriers, two document sets, and only one
+# of them has a field authority.
 RECORD_FIELD_REGISTRY: dict[str, dict[str, frozenset[str]]] = {
     "story-graph.json": {
         # Field set confirmed against coc-scenario-import's
@@ -902,6 +941,27 @@ def _print_json(payload: Any) -> None:
     sys.stdout.write("\n")
 
 
+def _lint_scenario_source(
+    ir_dir: str | None, graph_path: str | None, sidecar_path: str | None
+) -> dict[str, Any]:
+    """Lint one scenario set from either carrier: a scenario directory or a graph."""
+    if ir_dir is not None:
+        if not Path(ir_dir).is_dir():
+            raise ModuleProjectionError(f"{ir_dir!r} is not a scenario directory")
+        return coc_module_reachability.lint_scenario_dir(ir_dir)
+    graph = _read_json(str(graph_path))
+    sidecar = _read_json(sidecar_path) if sidecar_path else None
+    documents = project_module_documents(graph, sidecar)
+    # A graph is staged into a scenario directory so that both carriers reach
+    # the same loader; the lint itself never sees a carrier-specific shape.
+    with tempfile.TemporaryDirectory() as staged:
+        for filename, document in documents.items():
+            (Path(staged) / filename).write_text(
+                json.dumps(document, ensure_ascii=False), encoding="utf-8"
+            )
+        return coc_module_reachability.lint_scenario_dir(staged)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -929,6 +989,12 @@ def build_parser() -> argparse.ArgumentParser:
     records.add_argument("--graph", required=True)
     records.add_argument("--payload", required=True)
 
+    lint = sub.add_parser("lint")
+    carrier = lint.add_mutually_exclusive_group(required=True)
+    carrier.add_argument("--ir-dir")
+    carrier.add_argument("--graph")
+    lint.add_argument("--sidecar")
+
     attach = sub.add_parser("attach")
     attach.add_argument("--graph", required=True)
     attach.add_argument("--payload", action="append", required=True)
@@ -938,6 +1004,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "lint":
+        try:
+            _print_json(_lint_scenario_source(args.ir_dir, args.graph, args.sidecar))
+        except (
+            ModuleProjectionError,
+            coc_module_reachability.ModuleReachabilityError,
+        ) as exc:
+            _print_json({"error": str(exc)})
+            return 1
+        # The lint reports; it is not a gate. Findings never set the exit code.
+        return 0
     graph = _read_json(args.graph)
     sidecar = _read_json(args.sidecar) if getattr(args, "sidecar", None) else None
     try:

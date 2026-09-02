@@ -329,7 +329,15 @@ function canonicalLinkSetupResult(
   };
 }
 
-function guidedQuickFireCreateParams(campaignId, investigatorId) {
+// The Quick-Fire create must quote the canonical Luck receipt: its `roll_id`
+// is the semantic form the roll returned, never machine-attached identity
+// material (a `toolbox-` namespace is refused as opaque_identity_grammar,
+// because the model never authors one). `luck` accepts a live rules.roll_dice
+// result so a fixture that actually rolls binds to that exact receipt.
+function guidedQuickFireCreateParams(campaignId, investigatorId, luck = null) {
+  const luckDecisionId = luck?.decision_id ?? `luck-${investigatorId}`;
+  const luckRollId = luck?.roll_id ?? "roll:3d6";
+  const luckTotal = Number.isInteger(luck?.total) ? luck.total : 12;
   return {
     operation: "setup.invoke",
     campaign: campaignId,
@@ -345,11 +353,11 @@ function guidedQuickFireCreateParams(campaignId, investigatorId) {
           characteristic_assignment_order: [
             "DEX", "INT", "POW", "EDU", "CON", "SIZ", "APP", "STR",
           ],
-          luck_roll_total: 12,
+          luck_roll_total: luckTotal,
           luck_roll_receipt: {
             campaign_id: campaignId,
-            decision_id: `luck-${investigatorId}`,
-            roll_id: `toolbox-${campaignId}-${investigatorId}`,
+            decision_id: luckDecisionId,
+            roll_id: luckRollId,
           },
         },
       },
@@ -538,7 +546,7 @@ function bootstrapOpeningParams(campaignId) {
     operation: "progressive.opening_bootstrap",
     campaign: campaignId,
     arguments: {
-      start_location: { location_id: "opening", title: "Opening" },
+      start_location: { location_id: "location:opening", title: "Opening" },
       opening_pdf_indices: [0],
     },
   };
@@ -1061,6 +1069,22 @@ function realManagerHarness({ deferActivationKeys = [] } = {}) {
   };
 }
 
+// A host-control message is a JSON document whose `instruction` embeds the
+// exact registered tool call as an escaped JSON string, so a raw substring
+// search for `"campaign":"..."` misses it by one level of escaping. Read the
+// instruction after parsing, and fall back to the raw text for the messages
+// that are not documents.
+function messageDeclares(content, fragment) {
+  const text = String(content ?? "");
+  try {
+    const parsed = JSON.parse(text);
+    if (typeof parsed?.instruction === "string") {
+      return parsed.instruction.includes(fragment) || text.includes(fragment);
+    }
+  } catch { /* not a document; fall through to the raw text */ }
+  return text.includes(fragment);
+}
+
 async function nextTurn() {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -1112,6 +1136,19 @@ function mainExtensionHarness(responseForCall, options = {}) {
         return { ok: true, host: "pi" };
       }
       calls.push({ name, params });
+      // The host re-arms asynchronous memory extraction once after a startup
+      // resume. It is host bookkeeping, not part of any case under test, so
+      // answer it centrally unless a case wants to see it.
+      if (
+        params?.operation === "memory.extraction_status"
+        && options.recordMemoryStatus !== true
+      ) {
+        return {
+          ok: true,
+          tool: "memory.extraction_status",
+          data: { schema_version: 1, pending: [], status: "idle" },
+        };
+      }
       return responseForCall(name, params);
     },
     callToolWithTransportMeta: async (name, params) => ({
@@ -2321,7 +2358,7 @@ async function exerciseFailureDrain(mode) {
   check("scene/source-material gap is recorded without a hard gate or dispatch",
     scene.ok === true
     && harness.calls.map((call) => call.params.operation).join(",")
-      === "session.resume,scene.context"
+      === "session.resume,memory.extraction_status,scene.context"
     && harness.launches.length === 0
     && readinessAudit?.value?.semantic_compile?.status === "ready"
     && readinessAudit?.value?.current_scene_projection?.status === "missing"
@@ -2456,7 +2493,9 @@ async function exerciseFailureDrain(mode) {
     operation: "state.move_scene",
     root,
     campaign: campaignId,
-    arguments: { scene_id: "source-gap", decision_id: "seam-move" },
+    // `decision_id` is host-owned for state.move_scene (49aab6ae): the model
+    // surface refuses one, and the host attaches the destination-named key.
+    arguments: { scene_id: "source-gap" },
   };
   const moveHandled = supply.observeCanonical(
     "state.move_scene",
@@ -2631,7 +2670,8 @@ async function exerciseFailureDrain(mode) {
       operation: "state.move_scene",
       root,
       campaign: campaignId,
-      arguments: { scene_id: "source-gap", decision_id: "move-priority" },
+      // Host-owned key: the model surface carries only the destination.
+      arguments: { scene_id: "source-gap" },
     },
     undefined,
     undefined,
@@ -2648,7 +2688,7 @@ async function exerciseFailureDrain(mode) {
     && moved.data.next_operation.hard_gate === false
     && !JSON.stringify(moved).includes('"hard_gate":true')
     && harness.calls.map((call) => call.params.operation).join(",")
-      === "session.resume,state.move_scene,progressive.status"
+      === "session.resume,memory.extraction_status,state.move_scene,progressive.status"
     && harness.launches.join(",") === task.packet.packet_id
     && waiting?.message?.display === false
     && waiting?.message?.details?.scene_priority?.source_specific_facts
@@ -2839,7 +2879,7 @@ async function exerciseFailureDrain(mode) {
   check("already-ready source scene dispatches zero priority work",
     harness.launches.length === 0
     && harness.calls.map((call) => call.params.operation).join(",")
-      === "session.resume,scene.context");
+      === "session.resume,memory.extraction_status,scene.context");
   await harness.shutdown();
 }
 
@@ -3400,7 +3440,7 @@ async function exerciseFailureDrain(mode) {
         campaign: "auto-dispatch-fixture",
         arguments: {
           expression: "3D6",
-          decision_id: "not-creation-dice",
+          decision_id: "roll-not-creation-dice",
           reason: "ordinary random event",
         },
       },
@@ -3494,7 +3534,7 @@ async function exerciseFailureDrain(mode) {
       operation: "progressive.opening_bootstrap",
       campaign: "auto-dispatch-fixture",
       arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
+        start_location: { location_id: "location:opening", title: "Opening" },
         opening_pdf_indices: [0],
       },
     },
@@ -3511,7 +3551,7 @@ async function exerciseFailureDrain(mode) {
         campaign: "auto-dispatch-fixture",
         arguments: {
           expression: "3D6",
-          decision_id: "post-current-luck-detour",
+          decision_id: "roll-post-current-luck-detour",
           purpose: "investigator_creation_luck",
           reason: "Quick-Fire investigator Luck",
         },
@@ -3590,7 +3630,7 @@ async function exerciseFailureDrain(mode) {
           text: "[in_game]\n来源约束下的准确开场。\n[/in_game]",
           run_id: "source-opening-run",
           presented_roll_ids: [],
-          decision_id: "source-opening-evidence",
+          decision_id: "roll-source-opening-evidence",
         },
       },
       undefined,
@@ -3716,7 +3756,7 @@ async function exerciseFailureDrain(mode) {
       operation: "progressive.opening_bootstrap",
       campaign: "auto-dispatch-fixture",
       arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
+        start_location: { location_id: "location:opening", title: "Opening" },
         opening_pdf_indices: [0],
       },
     },
@@ -4512,10 +4552,9 @@ async function exerciseFailureDrain(mode) {
     harness.calls.length === 1
     && harness.calls[0].name === "coc_capabilities"
     && tableOpen?.options?.triggerTurn === true
-    && tableOpen?.message?.content.includes(
-      `"campaign":"${campaignId}"`,
-    )
-    && !tableOpen?.message?.content.includes(
+    && messageDeclares(tableOpen?.message?.content, `"campaign":"${campaignId}"`)
+    && !messageDeclares(
+      tableOpen?.message?.content,
       '"campaign":"different-pi-transcript"',
     ));
 
@@ -4588,10 +4627,9 @@ async function exerciseFailureDrain(mode) {
   check("startup gate suppresses tool-free menu and queues exact resume",
     hiddenMenu.content.every((part) => part.type !== "text")
     && forcedResume?.options?.triggerTurn === true
-    && forcedResume?.message?.content.includes(
-      `"campaign":"${campaignId}"`,
-    )
-    && forcedResume?.message?.content.includes(
+    && messageDeclares(forcedResume?.message?.content, `"campaign":"${campaignId}"`)
+    && messageDeclares(
+      forcedResume?.message?.content,
       "Before any menu, setup.inspect",
     ));
 
@@ -4659,7 +4697,7 @@ async function exerciseFailureDrain(mode) {
     && harness.calls.filter((call) => (
       call.name === "coc_invoke"
     )).map((call) => call.params.operation).join(",")
-      === "session.resume,progressive.prepare_opening"
+      === "session.resume,memory.extraction_status,progressive.prepare_opening"
     && !harness.calls.some((call) => (
       call.params.operation === "setup.inspect"
       || call.params.operation === "scenario.bind_pdf"
@@ -4737,7 +4775,7 @@ async function exerciseFailureDrain(mode) {
     && resumed.data.mode === "awaiting_player"
     && scene.ok === true
     && harness.calls.map((call) => call.params.operation).join(",")
-      === "session.resume,scene.context");
+      === "session.resume,memory.extraction_status,scene.context");
   await harness.shutdown();
 }
 
@@ -5105,7 +5143,7 @@ async function exerciseFailureDrain(mode) {
       campaign: campaignId,
       arguments: {
         expression: "3D6",
-        decision_id: "resume-empty-party-luck",
+        decision_id: "roll-resume-empty-party-luck",
         purpose: "investigator_creation_luck",
         reason: "Quick-Fire investigator Luck",
       },
@@ -5148,7 +5186,10 @@ async function exerciseFailureDrain(mode) {
     "coc_invoke",
   ).execute(
     "resume-empty-party-create",
-    guidedQuickFireCreateParams(campaignId, investigatorId),
+    guidedQuickFireCreateParams(campaignId, investigatorId, {
+      ...luck.data,
+      decision_id: "roll-resume-empty-party-luck",
+    }),
     undefined,
     undefined,
     harness.ctx,
@@ -5200,7 +5241,7 @@ async function exerciseFailureDrain(mode) {
         text: openingText,
         run_id: "resume-empty-party-run",
         presented_roll_ids: [],
-        decision_id: "resume-empty-party-opening",
+        decision_id: "record-resume-empty-party-opening",
       },
     },
     undefined,
@@ -5320,7 +5361,7 @@ async function exerciseFailureDrain(mode) {
       === "opening_character_setup_required"
     && contract.ok === true
     && harness.calls.map((call) => call.params.operation).join(",")
-      === "session.resume,setup.investigator_contract"
+      === "session.resume,memory.extraction_status,setup.investigator_contract"
     && !harness.sent.some((entry) => (
       entry.message?.customType === "coc-startup-resume-blocker"
     ))
@@ -6162,7 +6203,7 @@ for (const terminalCase of [
         text: "[in_game]\n来源约束下的准确开场。\n[/in_game]",
         run_id: "current-before-link-run",
         presented_roll_ids: [],
-        decision_id: "current-before-link-evidence",
+        decision_id: "roll-current-before-link-evidence",
       },
     }, "current-before-link-evidence") === null);
 }
@@ -6302,7 +6343,7 @@ for (const terminalCase of [
     campaign: campaignId,
     arguments: {
       expression: "3D6",
-      decision_id: "submitting-overlap-luck",
+      decision_id: "roll-submitting-overlap-luck",
       purpose: "investigator_creation_luck",
     },
   };
@@ -6332,7 +6373,7 @@ for (const terminalCase of [
           luck_roll_total: 12,
           luck_roll_receipt: {
             campaign_id: campaignId,
-            decision_id: "submitting-overlap-luck",
+            decision_id: "roll-submitting-overlap-luck",
             roll_id: "toolbox-submitting-overlap-000001",
           },
         },
@@ -6460,7 +6501,7 @@ for (const terminalCase of [
     luck_roll_total: 12,
     luck_roll_receipt: {
       campaign_id: campaignId,
-      decision_id: "submitting-overlap-luck",
+      decision_id: "roll-submitting-overlap-luck",
       roll_id: "toolbox-submitting-overlap-000001",
       total: 12,
     },
@@ -6722,7 +6763,7 @@ for (const terminalCase of [
           luck_roll_total: 12,
           luck_roll_receipt: {
             campaign_id: "terminal-before-link",
-            decision_id: "terminal-before-link-luck",
+            decision_id: "roll-terminal-before-link-luck",
             roll_id: "toolbox-terminal-before-link-000001",
           },
         },
@@ -7094,7 +7135,7 @@ for (const terminalCase of [
           luck_roll_total: 12,
           luck_roll_receipt: {
             campaign_id: "campaign-a",
-            decision_id: "campaign-a-luck",
+            decision_id: "roll-campaign-a-luck",
             roll_id: "toolbox-campaign-a-000001",
           },
         },
@@ -7500,31 +7541,31 @@ for (const terminalCase of [
       opening_pdf_indices: [0],
     }),
     bootstrapCard(
-      { start_location: { location_id: "opening", title: "Opening" } },
+      { start_location: { location_id: "location:opening", title: "Opening" } },
       ["opening_pdf_indices", "opening_pdf_indices"],
     ),
     bootstrapCard({
-      start_location: { location_id: "opening", title: "Opening" },
+      start_location: { location_id: "location:opening", title: "Opening" },
       opening_pdf_indices: [],
     }),
     bootstrapCard({
-      start_location: { location_id: "opening", title: "Opening" },
+      start_location: { location_id: "location:opening", title: "Opening" },
       opening_pdf_indices: [0, 1, 2, 3],
     }),
     bootstrapCard({
-      start_location: { location_id: "opening", title: "Opening" },
+      start_location: { location_id: "location:opening", title: "Opening" },
       opening_pdf_indices: [-1],
     }),
     bootstrapCard({
-      start_location: { location_id: "opening", title: "Opening" },
+      start_location: { location_id: "location:opening", title: "Opening" },
       opening_pdf_indices: [0.5],
     }),
     bootstrapCard({
-      start_location: { location_id: "opening", title: "Opening" },
+      start_location: { location_id: "location:opening", title: "Opening" },
       opening_pdf_indices: [0, 0],
     }),
     bootstrapCard({
-      start_location: { location_id: "opening", title: "Opening" },
+      start_location: { location_id: "location:opening", title: "Opening" },
       opening_pdf_indices: [0, 2],
     }),
   ];
@@ -7836,13 +7877,20 @@ for (const terminalCase of [
 // The live provider failure omitted this outer identity, so exercise both
 // omission and mismatch for the complete canonical campaign-bound set.
 {
+  // Single-token ids are refused by the closed identity grammar before the
+  // campaign binding is even reached, which is what this block is about:
+  // actor_id takes the `actor:`/`npc:` namespace or a multi-token slug, and
+  // scenario/investigator ids take a multi-token slug.
   const campaignBoundKinds = [
-    ["actor.create", { actor_id: "actor", sheet: {} }],
-    ["campaign.link_investigator", { investigator_ids: ["investigator"] }],
+    ["actor.create", { actor_id: "actor:campaign-bound", sheet: {} }],
+    [
+      "campaign.link_investigator",
+      { investigator_ids: ["investigator-campaign-bound"] },
+    ],
     [
       "scenario.bind_pdf",
       {
-        scenario_id: "scenario",
+        scenario_id: "scenario-campaign-bound",
         title: "Scenario",
         source_bundle_path: "/fixture/source-bundle",
       },
@@ -7850,7 +7898,7 @@ for (const terminalCase of [
     ["campaign.render_briefing", {}],
     [
       "investigator.render_card",
-      { investigator_id: "investigator" },
+      { investigator_id: "investigator-campaign-bound" },
     ],
   ];
   const harness = mainExtensionHarness(() => ({
@@ -9231,7 +9279,7 @@ for (const terminalCase of [
       operation: "progressive.opening_bootstrap",
       campaign: "auto-dispatch-fixture",
       arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
+        start_location: { location_id: "location:opening", title: "Opening" },
         opening_pdf_indices: [0],
       },
     },
@@ -9288,7 +9336,7 @@ for (const terminalCase of [
       operation: "progressive.opening_bootstrap",
       campaign: "auto-dispatch-fixture",
       arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
+        start_location: { location_id: "location:opening", title: "Opening" },
         opening_pdf_indices: [0],
       },
     },
@@ -9335,7 +9383,7 @@ for (const terminalCase of [
       operation: "progressive.opening_bootstrap",
       campaign: "auto-dispatch-fixture",
       arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
+        start_location: { location_id: "location:opening", title: "Opening" },
         opening_pdf_indices: [0],
       },
     },
@@ -10075,7 +10123,7 @@ for (const terminalCase of [
         operation: "progressive.opening_bootstrap",
         campaign: "auto-dispatch-fixture",
         arguments: {
-          start_location: { location_id: "opening", title: "Opening" },
+          start_location: { location_id: "location:opening", title: "Opening" },
           opening_pdf_indices: [0],
         },
       },
@@ -10130,7 +10178,7 @@ for (const terminalCase of [
       operation: "progressive.opening_bootstrap",
       campaign: "auto-dispatch-fixture",
       arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
+        start_location: { location_id: "location:opening", title: "Opening" },
         opening_pdf_indices: [0],
       },
     },
@@ -10177,7 +10225,7 @@ for (const terminalCase of [
         operation: "progressive.opening_bootstrap",
         campaign: "auto-dispatch-fixture",
         arguments: {
-          start_location: { location_id: "opening", title: "Opening" },
+          start_location: { location_id: "location:opening", title: "Opening" },
           opening_pdf_indices: [0],
         },
       },

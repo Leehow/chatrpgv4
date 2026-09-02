@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from coc_operation_kernel_runtime import (
+    register_context_enricher,
     Any,
     Ctx,
     ToolError,
@@ -708,6 +709,10 @@ def _tool_sanity_execute(ctx: Ctx, args: dict[str, Any]):
 def register_operations(registry) -> None:
     global TOOLS
     TOOLS = registry.legacy_tools
+    # `rules.context` for this family carries the canonical block this
+    # handler builds. Registering is what makes that happen; reaching for
+    # it through globals() silently did nothing (see the kernel registry).
+    register_context_enricher("sanity", _tool_sanity_context)
     registry.tool(
     "rules.sanity_check",
     "SAN check through the canonical SanitySession: success/failure loss expressions (e.g. '0' / '1D6'), with the chained 7e insanity pipeline (5+ loss INT check, bout of madness, daily 1/5 indefinite threshold, SAN 0 permanent) applied as authoritative state, not advisory.",

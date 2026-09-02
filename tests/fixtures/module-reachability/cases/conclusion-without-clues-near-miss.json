@@ -1,0 +1,65 @@
+{
+  "case": "conclusion-without-clues-near-miss",
+  "intent": "The same conclusion carrying exactly one placed clue is not empty; one clue is a module's design, not a defect.",
+  "documents": {
+    "story-graph.json": {
+      "scenes": [
+        {
+          "scene_id": "scene-a",
+          "display_name": "Scene A",
+          "is_start": true,
+          "origin": "source",
+          "available_clues": [
+            "clue-a"
+          ],
+          "scene_edges": [
+            {
+              "to": "scene-b",
+              "kind": "travel",
+              "when": {
+                "kind": "narrative"
+              }
+            }
+          ]
+        },
+        {
+          "scene_id": "scene-b",
+          "display_name": "Scene B",
+          "is_final": true,
+          "origin": "source",
+          "available_clues": [],
+          "scene_edges": []
+        }
+      ]
+    },
+    "clue-graph.json": {
+      "conclusions": [
+        {
+          "conclusion_id": "conclusion-hollow",
+          "origin": "source",
+          "clues": [
+            {
+              "clue_id": "clue-a",
+              "delivery_kind": "skill_check",
+              "origin": "source",
+              "skill": "Spot Hidden"
+            }
+          ]
+        }
+      ]
+    },
+    "module-meta.json": {
+      "schema_version": 1,
+      "scenario_id": "fx-conclusion-with-one-clue",
+      "title": "fx-conclusion-with-one-clue",
+      "structure_type": "branching_investigation"
+    }
+  },
+  "expect": {
+    "findings": [],
+    "codes_not_measured": [
+      "front-scene-unknown",
+      "quest-destination-unknown"
+    ]
+  }
+}

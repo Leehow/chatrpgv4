@@ -765,6 +765,55 @@ def _tool_setup_adopt_source_facts(ctx: Ctx, args: dict[str, Any]):
         "do not treat this receipt as investigator creation or linkage",
     ]
 
+def _tool_setup_player_vocabulary(ctx: Ctx, args: dict[str, Any]):
+    """Write the player-visible vocabulary a campaign renders itself with.
+
+    `localized_terms` was initialized empty at campaign creation and written by
+    nothing -- 249 preserved campaigns, 249 empty maps -- so the per-campaign
+    override path that opens the language space had no entrance. This is it.
+
+    Chrome labels are what the host emits around Keeper prose; a language with
+    no built-in table renders them in English until this supplies them. The
+    receipt reports coverage rather than success, because a partial vocabulary
+    renders some words in the table's language and the rest in English, which
+    is worse than either.
+    """
+    if set(args) - {"campaign_id", "language", "entries"}:
+        raise ToolError(
+            "invalid_param",
+            "setup.player_vocabulary accepts exactly campaign_id, language and entries",
+        )
+    campaign_id = str(args.get("campaign_id") or "").strip()
+    if not campaign_id:
+        raise ToolError("missing_param", "required parameter: campaign_id")
+    campaign_dir = ctx.root / ".coc" / "campaigns" / campaign_id
+    try:
+        campaign = coc_state.load_campaign_state(campaign_dir)
+    except Exception as exc:  # noqa: BLE001 - surfaced as a tool error
+        raise ToolError("unsupported_save_schema", str(exc)) from exc
+
+    language = str(args.get("language") or "").strip() or str(
+        campaign.get("play_language") or ""
+    ).strip()
+    try:
+        report = coc_state.set_campaign_player_vocabulary(
+            campaign, language, args.get("entries") or {},
+        )
+    except ValueError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+
+    coc_state.write_json_atomic(campaign_dir / "campaign.json", campaign)
+    coverage = report["chrome_coverage"]
+    hints = []
+    if not coverage["complete"]:
+        hints.append(
+            f"chrome coverage {coverage['overridden']}/{coverage['total']} for "
+            f"{coverage['language']}: the remaining labels render in English, so "
+            "player-visible mechanics blocks will mix languages until they are supplied"
+        )
+    return report, [], hints
+
+
 def _tool_setup_invoke(ctx: Ctx, args: dict[str, Any]):
     unsupported = sorted(set(args) - {"kind", "payload"})
     if unsupported:
@@ -2528,6 +2577,43 @@ def register_operations(registry) -> None:
     access="mutation",
     write_domains=("setup",),
 )(_tool_setup_adopt_source_facts)
+    registry.tool(
+    "setup.player_vocabulary",
+    "Supply the player-visible vocabulary this campaign renders itself with, "
+    "in the table's own language. Two kinds of key share one map: a bare key "
+    "is rulebook terminology the module and Keeper both use (`Spot Hidden`), "
+    "and a `chrome.` key is host render furniture only the finalizer emits "
+    "(`chrome.change_tag`). The prefix is what stops one overwriting the "
+    "other, and a misspelled `chrome.` key is rejected rather than ignored, "
+    "because ignoring it leaves the table one label short of complete forever. "
+    "The receipt reports chrome coverage rather than success: a partial "
+    "vocabulary renders some words in this language and the rest in English. "
+    "Languages with a built-in table (zh-Hans, en-US, ja-JP) are already "
+    "complete and need this only to override a specific label.",
+    {
+        "campaign_id": {
+            "type": "string",
+            "required": True,
+            "pattern": r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+        },
+        "language": {
+            "type": "string",
+            "desc": "language tag to write under; defaults to the campaign's play_language",
+        },
+        "entries": {
+            "type": "object",
+            "required": True,
+            "desc": (
+                "vocabulary map: bare keys are rulebook terms, `chrome.<label>` "
+                "keys are host render furniture. Values are the player-visible "
+                "strings in this campaign's language"
+            ),
+        },
+    },
+    needs_campaign=False,
+    access="mutation",
+    write_domains=("setup",),
+)(_tool_setup_player_vocabulary)
     registry.tool(
     "setup.invoke",
     "Invoke one existing canonical custom-campaign setup operation. This thin "

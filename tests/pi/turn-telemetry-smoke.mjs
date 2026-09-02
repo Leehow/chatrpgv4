@@ -57,7 +57,13 @@ const contextMessages = (call) => {
   return [...closed, ...live, ...appended];
 };
 
-const toolArgs = { operation: "rules.roll", campaign: "smoke", arguments: { skill: "斗殴", difficulty: "regular" } };
+const toolArgs = {
+  // rules.roll is host-private after the RuleGraph cutover and has no model
+  // wrapper, so a telemetry label derived from it carries no wrapper tool.
+  operation: "rules.settle",
+  campaign: "smoke",
+  arguments: { decision_ref: "decision:coc7:core-check:skill" },
+};
 
 // A provider request body shaped like the openai-responses adapter's `params`:
 // `instructions` (system prompt) + `tools` (advertised working set) + `input`
@@ -217,7 +223,7 @@ emit("message_end", { message: {
 // Two overlapping (parallel) tool calls: per-step durations stay, the
 // turn bucket must count the union, not the sum.
 tick(100);
-emit("tool_execution_start", { toolCallId: "p1", toolName: "coc_invoke", args: { operation: "rules.roll" } });
+emit("tool_execution_start", { toolCallId: "p1", toolName: "coc_invoke", args: { operation: "rules.settle" } });
 tick(200);
 emit("tool_execution_start", { toolCallId: "p2", toolName: "coc_invoke", args: { operation: "state.write" } });
 tick(2800);
@@ -277,8 +283,8 @@ try {
     secondCallNoThinking: second?.thinking_ms === null && second?.gen_ms === 32400,
     turnIndexStamped: first?.turn_index === 0 && second?.turn_index === 1
       && tool?.turn_index === 0,
-    toolStepDetail: tool?.label === "coc_invoke.rules.roll"
-      && tool?.canonical_operation === "rules.roll"
+    toolStepDetail: tool?.label === "coc_invoke.rules.settle"
+      && tool?.canonical_operation === "rules.settle"
       && tool?.wrapper_tool === "coc_rules"
       && tool?.transport_tool === "coc_invoke"
       && tool?.tool_call_id === "t1"
@@ -302,7 +308,7 @@ try {
       && summary.includes("模型 83.3s")
       && summary.includes("思考 30.0s")
       && summary.includes("工具 112.4s")
-      && summary.includes("coc_invoke.rules.roll"),
+      && summary.includes("coc_invoke.rules.settle"),
     summaryHasTokens: summary.includes("入 170.0k") && summary.includes("出 8,000")
       && summary.includes("缓存读 2.7M") && summary.includes("≈$0.22"),
     notifyLevel: notifies.at(-1)?.level === "info",

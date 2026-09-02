@@ -61,6 +61,18 @@ RULE_DECISION_CARD_FIELDS = frozenset({
     "possible_continuations",
     "authority",
 })
+#: Fields a card MAY carry. The required set above is compared exactly, and a
+#: card whose shape is unexpected is dropped whole by design, so an optional
+#: field has to be declared here or every card that omits it would vanish.
+#:
+#: ``answers_declared_intent`` is set only when the decision declares a
+#: trigger on the player's declared action and an intent was declared this
+#: turn. Without it on the wire the Keeper cannot tell which card answers what
+#: the player actually said, which is the whole point of declaring one.
+RULE_DECISION_OPTIONAL_CARD_FIELDS = frozenset({
+    "answers_declared_intent",
+    "settle_form",
+})
 RULE_DECISION_BLOCK_FIELDS = frozenset({
     "schema_version",
     "family",
@@ -1427,7 +1439,10 @@ def _compact_rule_decision_card(
     """
     if (
         not isinstance(value, dict)
-        or set(value) != RULE_DECISION_CARD_FIELDS
+        or not RULE_DECISION_CARD_FIELDS <= set(value)
+        or not set(value) <= (
+            RULE_DECISION_CARD_FIELDS | RULE_DECISION_OPTIONAL_CARD_FIELDS
+        )
         or value.get("schema_version") != 1
         or value.get("family") != family
         or not isinstance(value.get("label"), str)
@@ -1494,6 +1509,16 @@ def _compact_rule_decision_card(
         "effect_refs": effect_refs,
         "possible_continuations": continuations,
         "authority": authority,
+        **(
+            {"answers_declared_intent": bool(value["answers_declared_intent"])}
+            if isinstance(value.get("answers_declared_intent"), bool)
+            else {}
+        ),
+        **(
+            {"settle_form": _closed_settle_form(value["settle_form"])}
+            if _closed_settle_form(value.get("settle_form")) is not None
+            else {}
+        ),
     }
 
 
@@ -1508,6 +1533,32 @@ def _closed_rule_block_authority(value: Any) -> dict[str, Any] | None:
     ):
         return None
     return {"hard_gate": False, "role": "affordance"}
+
+
+def _closed_settle_form(value: Any) -> dict[str, Any] | None:
+    """Carry the runtime's per-card settle form, or nothing."""
+    if not isinstance(value, dict):
+        return None
+    prefilled = value.get("prefilled_arguments")
+    missing = value.get("missing_arguments")
+    if not isinstance(prefilled, dict) or not isinstance(missing, list):
+        return None
+    decision_ref = prefilled.get("decision_ref")
+    if not _semantic_prefixed_ref(decision_ref, "decision:"):
+        return None
+    if not all(isinstance(name, str) and name for name in missing):
+        return None
+    form: dict[str, Any] = {
+        "prefilled_arguments": {"decision_ref": decision_ref},
+        "missing_arguments": [str(name) for name in missing],
+    }
+    optional = value.get("optional_arguments")
+    if isinstance(optional, list) and all(
+        isinstance(name, str) and name for name in optional
+    ):
+        if optional:
+            form["optional_arguments"] = [str(name) for name in optional]
+    return form
 
 
 def _compact_rule_decision_card_block(value: Any) -> dict[str, Any] | None:
@@ -3801,6 +3852,41 @@ def _npc_query_tiered_rows(
     return identities, tiers
 
 
+# Repair payloads a failure envelope may carry inline. `rule_decision_stale`
+# embeds the whole refreshed card set (26 KB of the 27 KB envelope observed on
+# 2026-09-02): the collapse below only ever shrank ``data``, so such a failure
+# could never fit and fell through to the last-resort technical error — which
+# then told the Keeper the canonical operation had SUCCEEDED and to replay it,
+# losing the actual remedy. Bound the repair payload instead, keeping the
+# pointers that make the error actionable.
+_BULKY_ERROR_DETAIL_COLLECTIONS = ("refreshed_cards", "candidates", "cards")
+
+
+def _bounded_error_details(details: Any) -> Any:
+    """Keep an error's actionable pointers; summarize its bulky collections."""
+    if not isinstance(details, dict):
+        return details
+    bounded: dict[str, Any] = {}
+    for key, value in details.items():
+        if key in _BULKY_ERROR_DETAIL_COLLECTIONS and isinstance(value, list):
+            refs = [
+                row.get("decision_ref") or row.get("id") or row.get("ref")
+                for row in value
+                if isinstance(row, dict)
+            ]
+            bounded[f"{key}_count"] = len(value)
+            kept = [ref for ref in refs if isinstance(ref, str)]
+            if kept:
+                bounded[f"{key}_refs"] = kept[:12]
+            bounded[f"{key}_omitted"] = (
+                "the exact rows exceeded the transport budget; call the named "
+                "refresh operation to read them"
+            )
+            continue
+        bounded[key] = value
+    return bounded
+
+
 def project_envelope(
     operation: str,
     envelope: dict[str, Any],
@@ -4153,6 +4239,20 @@ def project_envelope(
         result["hints"] = result["hints"][:3]
         result["warnings"] = result["warnings"][:3]
 
+    # A failure envelope's repair payload is bounded before the data collapse:
+    # the collapse cannot reach `error.details`, and dropping the pointers is
+    # worse than dropping the rows.
+    if (
+        transport_bytes(result) > MAX_INLINE_BYTES
+        and isinstance(result.get("error"), dict)
+        and isinstance(result["error"].get("details"), dict)
+    ):
+        result["error"] = {
+            **result["error"],
+            "details": _bounded_error_details(result["error"]["details"]),
+        }
+        result["wire"]["error_details_bounded"] = True
+
     # turn.output_context must not collapse to a cardless identity stub.
     # If the review card itself cannot fit, fail closed below.
     if (
@@ -4196,10 +4296,31 @@ def project_envelope(
             },
             "error": {
                 "code": "mcp_wire_budget_exceeded",
+                # Only a canonical success may be reported as one. A failure
+                # that could not be inlined keeps its own code in
+                # `original_error` so the Keeper still learns what went wrong
+                # and does not replay an operation that will fail again.
                 "message": (
                     "The canonical operation succeeded, but its safe coding-host "
                     "projection could not fit the transport budget. Replay the "
                     "typed operation after narrowing its exact projection."
+                    if full.get("ok") is True
+                    else "The canonical operation failed, and even its bounded "
+                    "failure projection could not fit the transport budget. Do "
+                    "not replay it unchanged; read the named original error."
+                ),
+                **(
+                    {}
+                    if full.get("ok") is True
+                    else {
+                        "original_error": {
+                            key: value
+                            for key, value in (
+                                full.get("error") or {}
+                            ).items()
+                            if key in ("code", "message")
+                        },
+                    }
                 ),
             },
             "data": _minimal_identity(operation, data),

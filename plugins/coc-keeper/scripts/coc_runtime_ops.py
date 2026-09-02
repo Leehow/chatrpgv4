@@ -29,6 +29,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 import coc_creation_provenance
+import coc_house_rules
 
 SCHEMA_VERSION = 1
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -102,6 +103,11 @@ SETUP_OPERATION_KINDS = frozenset({
     "investigator.contract", "campaign.link_investigator",
     "campaign.adopt_source_facts", "campaign.complete",
     "setup.chargen_run",
+    # House rules are declared between sessions, not mid-turn, so they are
+    # setup operations rather than live tools: a table's standing rule costs
+    # nothing in the live working set, where every added tool re-bills the
+    # whole prefix.
+    "house_rule.propose", "house_rule.decide",
 })
 
 
@@ -6697,6 +6703,60 @@ def execute_setup_operation(
                 f".coc/campaigns/{campaign_id}/campaign.json",
                 rendered["briefing_path"],
             ],
+        }
+
+    if kind == "house_rule.propose":
+        campaign_dir = root / ".coc" / "campaigns" / _id(
+            payload.get("campaign_id"), "campaign_id"
+        )
+        if not campaign_dir.is_dir():
+            raise FileNotFoundError(f"unknown campaign: {payload.get('campaign_id')}")
+        request = payload.get("request")
+        result = payload.get("result")
+        if not isinstance(request, dict) or not isinstance(result, dict):
+            raise RuntimeOperationError(
+                "house_rule.propose requires the exact compile request and its "
+                "digest-bound result"
+            )
+        try:
+            outcome = coc_house_rules.propose_patch(
+                campaign_dir, request=request, result=result
+            )
+        except coc_house_rules.HouseRuleError as exc:
+            raise RuntimeOperationError(str(exc)) from exc
+        return {
+            "schema_version": 1, "status": "PASS", "kind": kind,
+            "result": {
+                "patch": outcome["record"]["patch"],
+                "status": outcome["record"]["status"],
+                "recorded": outcome["recorded"],
+                # The cases are the thing a human agrees to, so they come back
+                # with the proposal rather than having to be fetched.
+                "confirm_these_cases": outcome["record"]["patch"]["cases"],
+            },
+        }
+
+    if kind == "house_rule.decide":
+        campaign_dir = root / ".coc" / "campaigns" / _id(
+            payload.get("campaign_id"), "campaign_id"
+        )
+        if not campaign_dir.is_dir():
+            raise FileNotFoundError(f"unknown campaign: {payload.get('campaign_id')}")
+        accept = payload.get("accept")
+        if not isinstance(accept, bool):
+            raise RuntimeOperationError("house_rule.decide accept must be a boolean")
+        try:
+            outcome = coc_house_rules.decide_patch(
+                campaign_dir,
+                patch_id=str(payload.get("patch_id") or ""),
+                version=payload.get("version"),
+                accept=accept,
+                decided_reason=str(payload.get("decided_reason") or ""),
+            )
+        except coc_house_rules.HouseRuleError as exc:
+            raise RuntimeOperationError(str(exc)) from exc
+        return {
+            "schema_version": 1, "status": "PASS", "kind": kind, "result": outcome,
         }
 
     if kind == "setup.chargen_run":

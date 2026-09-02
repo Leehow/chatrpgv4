@@ -119,11 +119,24 @@ try {
   const rejects = {};
   for (const [name, events, task] of [
     ["multipleTerminal", [...terminal(result1), ...terminal(result1)], leaf1],
-    ["wrongPacket", terminal({ ...result1, packet_id: "other" }), leaf1],
+    // A leaf's own verdict is not machine truth: an abstain must fail
+    // validation rather than be rewritten into fulfilled coverage.
     ["wrongStatus", terminal(worker(leaf1, "abstain")), leaf1],
-    ["wrongJobs", terminal(worker(leaf1, "usable", "other-job")), leaf1],
   ]) {
     try { runtime.parseStrictWorkerResult(events, task); rejects[name] = false; } catch { rejects[name] = true; }
+  }
+  // The Model-Facing Identifier Law: machine ids the model should never have
+  // to transcribe are injected from task truth, so a drifted packet id or
+  // single-job row id is corrected rather than refused.
+  const corrected = {};
+  for (const [name, events, task] of [
+    ["wrongPacket", terminal({ ...result1, packet_id: "other" }), leaf1],
+    ["wrongJobs", terminal(worker(leaf1, "usable", "other-job")), leaf1],
+  ]) {
+    const out = runtime.parseStrictWorkerResult(events, task);
+    corrected[name] = out.packet_id === task.packet.packet_id
+      && out.work_group_id === task.packet.work_group_id
+      && out.results[0].job_id === task.packet.requests[0].job_id;
   }
 
   const calls = [];
@@ -334,6 +347,7 @@ try {
   process.stdout.write(JSON.stringify({
     strictHappy: strictHappy.status,
     rejects,
+  corrected,
     lifecycle,
     claimCount: calls.filter((call) => call.operation === "progressive.claim_host_work").length,
     fulfillCount: calls.filter((call) => call.operation === "progressive.fulfill_host_work").length,

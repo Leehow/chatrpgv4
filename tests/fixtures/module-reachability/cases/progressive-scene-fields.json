@@ -1,0 +1,169 @@
+{
+  "case": "progressive-scene-fields",
+  "intent": "One real progressive scene, reduced to the minimum that still carries all nine top-level fields the raw-PDF lane writes and RECORD_FIELD_REGISTRY does not govern, so a tenth such field is a test failure rather than a silence.",
+  "documents": {
+    "story-graph.json": {
+      "scenes": [
+        {
+          "scene_id": "smuggler-boat-dunwich-coast",
+          "display_name": "走私小艇，敦威治海岸",
+          "is_start": true,
+          "is_final": false,
+          "origin": "source",
+          "available_clues": [
+            "clue-hooded-figure-cliff",
+            "clue-underwater-church-bells",
+            "clue-arrival-dunwich-1287"
+          ],
+          "scene_edges": [
+            {
+              "to": "dunwich-1287",
+              "kind": "travel",
+              "when": {
+                "kind": "narrative"
+              },
+              "origin": "source",
+              "source_refs": [
+                {
+                  "source_id": "pdf:coc-an-amaranthine-desire",
+                  "pdf_index": 14,
+                  "text_sha256": "800ba4ad9a4fe36dbb8cc1713ec5cf597f07f2cbd6b424718d2d2529ae274f77"
+                }
+              ]
+            }
+          ],
+          "evidence_gap": false,
+          "keeper_only": [
+            {
+              "id": "keeper-boat-assignment",
+              "note": "守秘人应将所有调查员都安排在一条小艇上。思路：因",
+              "source_refs": [
+                {
+                  "source_id": "pdf:coc-an-amaranthine-desire",
+                  "pdf_index": 14,
+                  "text_sha256": "800ba4ad9a4fe36dbb8cc1713ec5cf597f07f2cbd6b424718d2d2529ae274f77"
+                }
+              ]
+            }
+          ],
+          "keeper_secret_refs": [],
+          "page_text_sha256": [
+            "800ba4ad9a4fe36dbb8cc1713ec5cf597f07f2cbd6b424718d2d2529ae274f77"
+          ],
+          "parse_state": "deep",
+          "source_context_mentions": [
+            {
+              "name": "莱维特",
+              "note": "因两名船员受伤，与马丁代尔前去帮忙；可靠岸后留下",
+              "source_refs": [
+                {
+                  "source_id": "pdf:coc-an-amaranthine-desire",
+                  "pdf_index": 14,
+                  "text_sha256": "800ba4ad9a4fe36dbb8cc1713ec5cf597f07f2cbd6b424718d2d2529ae274f77"
+                }
+              ],
+              "source_page_indices": [
+                14
+              ],
+              "page_text_sha256": [
+                "800ba4ad9a4fe36dbb8cc1713ec5cf597f07f2cbd6b424718d2d2529ae274f77"
+              ],
+              "source_span": {
+                "pdf_index_start": 14,
+                "pdf_index_end": 14
+              }
+            }
+          ],
+          "source_evidence": {
+            "schema_version": 1,
+            "source_id": "pdf:coc-an-amaranthine-desire",
+            "file_sha256": "b0b3b1772fadddf168e8f4d32497b045e40a33744838fef221167b3385516c4e",
+            "bundle_sha256s": [
+              "40e443fc9f4a4003cd00c9e06abb7b465a97b8e2431f300e444f1f940c6487ee",
+              "7ac2dd40f335c9ae29c31780b03266c02de5f131b34da483d7027d50fcce728b"
+            ],
+            "pdf_indices": [
+              14
+            ],
+            "page_text_sha256": [
+              "800ba4ad9a4fe36dbb8cc1713ec5cf597f07f2cbd6b424718d2d2529ae274f77"
+            ]
+          },
+          "source_page_indices": [
+            14
+          ],
+          "source_span": {
+            "pdf_index_start": 14,
+            "pdf_index_end": 14
+          }
+        }
+      ]
+    },
+    "clue-graph.json": {
+      "conclusions": [
+        {
+          "conclusion_id": "progressive-local",
+          "importance": "supporting",
+          "minimum_routes": 1,
+          "origin": "source",
+          "clues": [
+            {
+              "clue_id": "clue-hooded-figure-cliff",
+              "delivery_kind": "obvious",
+              "origin": "source"
+            },
+            {
+              "clue_id": "clue-underwater-church-bells",
+              "delivery_kind": "obvious",
+              "origin": "source"
+            },
+            {
+              "clue_id": "clue-arrival-dunwich-1287",
+              "delivery_kind": "obvious",
+              "origin": "source"
+            }
+          ]
+        }
+      ]
+    },
+    "module-meta.json": {
+      "schema_version": 1,
+      "scenario_id": "fx-progressive-scene-fields",
+      "title": "fx-progressive-scene-fields",
+      "structure_type": "branching_investigation",
+      "progressive": true,
+      "parse_tier": 1
+    }
+  },
+  "expect": {
+    "findings": [
+      {
+        "code": "conclusion-clues-share-one-scene",
+        "subject_id": "progressive-local",
+        "subject_kind": "conclusion",
+        "severity": "observation",
+        "completeness": "dead",
+        "related_ids": [
+          "clue-arrival-dunwich-1287",
+          "clue-hooded-figure-cliff",
+          "clue-underwater-church-bells",
+          "smuggler-boat-dunwich-coast"
+        ]
+      },
+      {
+        "code": "edge-target-unknown",
+        "subject_id": "smuggler-boat-dunwich-coast",
+        "subject_kind": "scene",
+        "severity": "observation",
+        "completeness": "pending-materialization",
+        "related_ids": [
+          "dunwich-1287"
+        ]
+      }
+    ],
+    "codes_not_measured": [
+      "front-scene-unknown",
+      "quest-destination-unknown"
+    ]
+  }
+}

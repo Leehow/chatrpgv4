@@ -3394,6 +3394,50 @@
         "span-chase-complete-source-page-160-block-50",
         "span-chase-complete-source-page-160-block-51"
       ]
+    },
+    {
+      "node_id": "continuation:coc7:chase:after-escaping-close-combat",
+      "node_kind": "continuation",
+      "name": "Escaping close combat with an escape route continues into a chase",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "chase"
+      },
+      "evidence_span_ids": [
+        "span-chase-complete-source-page-143-block-3",
+        "span-chase-complete-source-page-143-block-4",
+        "span-chase-complete-source-page-143-block-5"
+      ]
+    },
+    {
+      "node_id": "condition:coc7:chase:intent-flee",
+      "node_kind": "condition",
+      "name": "The player's accepted action is to break away and run",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "chase",
+        "expression": {
+          "op": "all",
+          "of": [
+            {
+              "op": "eq",
+              "path": "intent.action_kind",
+              "value": "flee"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-chase-complete-source-page-143-block-3",
+        "span-chase-complete-source-page-143-block-4",
+        "span-chase-complete-source-page-143-block-5"
+      ]
     }
   ],
   "relations": [
@@ -7240,6 +7284,28 @@
         "span-chase-complete-source-page-160-block-50",
         "span-chase-complete-source-page-160-block-51"
       ]
+    },
+    {
+      "relation_id": "relation:coc7:chase:continuation-start",
+      "relation_kind": "continues-as",
+      "from_node_id": "continuation:coc7:chase:after-escaping-close-combat",
+      "to_node_id": "decision:coc7:chase:start",
+      "evidence_span_ids": [
+        "span-chase-complete-source-page-143-block-3",
+        "span-chase-complete-source-page-143-block-4",
+        "span-chase-complete-source-page-143-block-5"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:chase:flee-intent-trigger",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:chase:start",
+      "to_node_id": "condition:coc7:chase:intent-flee",
+      "evidence_span_ids": [
+        "span-chase-complete-source-page-143-block-3",
+        "span-chase-complete-source-page-143-block-4",
+        "span-chase-complete-source-page-143-block-5"
+      ]
     }
   ],
   "evidence_span_ids": [
@@ -7768,8 +7834,8 @@
     "family_id": "chase",
     "section_id": "section-chase-complete-source",
     "shard_id": "shard:coc7:chase:section-chase-complete-source",
-    "candidate_sha256": "b117bfb7cbf68387b1e9742c249db5bbda688a79437d85aabdc47dce87725f17",
+    "candidate_sha256": "9bb482f953e0b6cc0c99328fea3bdc7acad712a529d2120c4e14a06d8d59baf6",
     "packet_sha256": "11bbf150d90d38fd3e7961008c2cd838b56085163337beee52e28d638590dec1",
-    "shard_sha256": "ea4f003bbc53ecc06450a626b45a6986f01166938aba27e3e9bcfc24fa3d7f00"
+    "shard_sha256": "bb5f7bb4546c6a3b5e5ff1ef8b5cc39556272d72cb87be13ae829b924f0e3949"
   }
 }

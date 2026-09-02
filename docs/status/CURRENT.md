@@ -56,7 +56,29 @@ injected trigger, or legacy operation (spec §14 Gate 9):
 | Development, Social | passed Gate 9 |
 | Core-check | settled naturally, but predates the corrected bundled-Pi launcher |
 | Push/Luck, Psychology, Sanity, Combat, Healing | settled live after the delivery fixes (16 KB wire overflow, dropped `semantic_inputs`, chase/combat NPC mechanics); recorded in `tests/fixtures/rules-settle-recorded/` (55 payloads, 8 families) and replayed by `tests/pi/rules-settle-recorded-projection.mjs` |
-| Chase, Magic | **no recorded settlement** — chase never fired because the Keeper's fiction never produced a pursuer; magic is a tome spell-inventory content gap |
+| Chase, Magic | **no recorded settlement** — see the chase finding below; magic is a tome spell-inventory content gap |
+
+**Why chase has never settled, measured.** A seeded diagnostic lane
+(2026-09-02) put the investigator in `corbitt-confrontation` with Walter
+Corbitt present and had the player flee. `rules.context` with family `chase`
+answers `decision:coc7:chase:start` in that exact campaign state, so the
+pipeline is not the blocker. The Keeper asks for family `combat` instead and
+reads the flight as `decision:coc7:combat:flee` — and the graph has no
+`continues-as` from `combat:flee` to `chase:start`, so nothing routes the
+settled flight into a chase. The same shape as the missing Social → Push
+relation: a source-graph completeness gap at a family junction, and the next
+chase work is that relation with its rulebook evidence, not more play.
+
+**Fine-grained live coverage: 9 of 43 decisions.** Family-level coverage
+overstates it. Recorded live settlements cover `core-check:ordinary-check`,
+`sanity:check`, `social:adjudicate-difficulty`,
+`development:end-session`, `push-luck:pushed-roll`, `combat:attack`,
+`combat:end`, `healing:first-aid-ordinary` and
+`psychology:observe-concealed`. The other 34 decisions — every chase and
+magic decision, combat aim/defend/flee/maneuver/reload/context, both dying
+clocks, medicine and weekly recovery, opposed and combined checks, luck-roll
+and luck-spend, the whole sanity bout chain, and `development:settle-ending`
+— have never settled in a real turn.
 
 **Ending is reached through `rules.settle`.** `state.end_session` is
 host-private; the Keeper settles `decision:coc7:development:end-session`. The
@@ -103,33 +125,49 @@ rejection costs one round trip. See spec §16.1.
 6. Rotate the `openai-codex` and `qoder-cn` OAuth credentials — one earlier
    diagnostic printed their refresh fields before redaction; the xAI credential
    was re-issued. No credential was committed.
-7. TextGraph T0–T5 is merged, and its own gates are not all met. Gate 1's
-   live half needs a non-`zh-Hans` table, which no operation can create:
-   mechanics chrome is still a closed three-language table that falls back to
-   English silently, so prose follows the player but chrome cannot. See
-   `docs/status/play-language-layer-is-unnecessary.md`. Gate 3 depends on gate
-   4, and gate 4 is unmeasured — `narration.review` fired 0 times in 60 calls
-   in one run and 7 times in another on the same day, path and model.
-   Attribution needs several runs per arm, not a verdict from n=1.
-8. Pre-existing on `0.8.1a` before the projector merge: 12 `tests/pi/*.mjs`
-   files and 11 further `tests/test_pi_package.py` cases fail, most because
-   they probe retired legacy names (`rules.roll`, `coc_rules_roll`,
-   `rules.social_adjudicate`, `combat.resolve`, `state.end_session`) and read
-   the `host_private_operation` gate as an ACL failure; a few
-   (`no-selector-typed-onboarding` accepting a forged `state_claim_compilation`,
-   `async-memory-extraction` never scheduling prepare) may be real gaps. Under
-   repair on worker branches; `role-acl.test.mjs`, `test_pi_package.py`
-   manifest, the ontology registry replay and `agent-loop-graph-replan` are
-   already green on `0.8.1a`.
+7. TextGraph T0–T5 is merged. Gate 1's live half was blocked on mechanics
+   chrome being a closed three-language table; that is now fixed —
+   `setup.player_vocabulary` lets a campaign carry chrome in any language, and
+   ja-JP no longer renders English bodies under Japanese tags. What remains is
+   gate 2 itself: a non-`zh-Hans` table played end to end with a live Keeper,
+   which no fixture can stand in for. Gate 3 depends on gate 4, and gate 4 is
+   answered rather than measured — see
+   `docs/status/why-narration-review-fired-zero-times.md`.
+
+8. The pre-existing `0.8.1a` test debt is cleared except one file.
+   `tests/test_pi_package.py` is 186/187, and the whole `tests/pi` suite
+   passes through its own wrappers. Five of those failures were real product
+   defects, now fixed with covering tests: a model-authored compiler receipt
+   accepted on the typed narration.review surface before its binding armed; a
+   ready source-bound `state.move_scene` collapsing to
+   `semantic_identity_unavailable` because the embedded scene bundle, the
+   result's `campaign_id` and the source mentions' `ref_id` were undeclared;
+   the leaf worker's `status=abstain` rewritten to `usable`, turning an
+   abstention into fulfilled coverage; the generic invoke surface missing the
+   host-owned scene-write key; and `coc_capabilities` failing the identity
+   boundary on its own contract digest, which broke the first call of a clean
+   packed install.
+   Still failing: `tests/pi/auto-dispatch-smoke.mjs`, down from a crash in its
+   second block to 14 failing checks, all in the opening-route family. Each
+   remaining one needs a judgment call about what the check should probe now
+   that the host-local typed role gates setup and play operations
+   independently of the retained route.
 9. A checkout whose `runtime/adapters/keeper/node_modules` predates
    `f596864c` carries only half of the vendored Pi patch; `patch-package`
    then refuses the whole package and the agent-loop replan hooks stay
    missing. Reinstall (`npm ci`) when no Keeper session runs from that
    checkout, or apply the missing hunks alone.
-10. The obligation namespace still has copies outside its owner, four of them
-   in the TypeScript projection. The TextGraph residue gate now counts them
-   cross-language and fails when a count moves, so they are pinned rather than
-   fixed.
+10. ~~The obligation namespace still has copies outside its owner.~~
+    **Partly repaired.** The TypeScript declarations are gone: `coc_text_graph.py
+    project` generates `obligation-namespace.generated.ts` from the graph and
+    the projection imports it, dropping that file's obligation-prefix count
+    63 -> 54, with a drift test forcing regeneration and the generated file
+    itself inside the scanned surface. What remains is not the same kind of
+    thing: three single-site Python usages that construct ids in the namespace,
+    and three model-facing copies in `host-system-play.md`, `SKILL.md` and
+    `turn-tooling-and-typed-ops.md` — prompts have to name the namespaces for
+    the Keeper, so those are documentation, not duplicate declarations.
+
 11. ~~The agency gate may have been retired by accident.~~ **Answered, and
     the premise was wrong.** `ab634acd` retired the second narration/rewrite
     pass deliberately and updated `test_turn_finalization.py` in the same

@@ -32,6 +32,7 @@ import coc_language
 import coc_npc_state
 import coc_epistemic_narration
 import coc_roll
+import coc_text_runtime
 
 
 _RENDER_MODES = frozenset({"investigation", "social", "pressure", "crisis"})
@@ -564,10 +565,8 @@ def build_rules_owned_public_roll_block(
             dice = raw.get("dice")
         else:
             raise ValueError(f"unsupported public roll_role: {roll_role!r}")
-        visibility = raw.get("visibility")
-        if visibility is None:
-            visibility = "keeper_only" if raw.get("hidden") is True else "public"
-        if visibility not in {"public", "consequence_public"}:
+        visibility = _resolved_roll_visibility(raw)
+        if not _roll_is_publicly_witnessed(raw):
             continue
         roll_id = str(raw.get("roll_id") or raw.get("command_id") or "").strip()
         if not roll_id or roll_id in seen_roll_ids:
@@ -1405,6 +1404,71 @@ def _project_storylet_moves(plan: dict[str, Any]) -> list[dict[str, Any]]:
     return projected
 
 
+def _resolved_roll_visibility(raw: dict[str, Any]) -> str:
+    """This roll's visibility, defaulting the way an unmarked roll is treated.
+
+    One place, because the residue gate caught the second copy of these
+    literals the moment it was written. `_project_rule_results` and the
+    NPC-reaction hook ask the same question and must not drift apart.
+    """
+    visibility = raw.get("visibility")
+    if visibility is None:
+        visibility = "keeper_only" if raw.get("hidden") is True else "public"
+    return str(visibility)
+
+
+def _roll_is_publicly_witnessed(raw: dict[str, Any]) -> bool:
+    """Did anyone at the table see this roll happen?"""
+    return _resolved_roll_visibility(raw) in coc_text_runtime.vocabulary()[
+        "player_facing_roll_visibilities"
+    ]
+
+
+def _failed_public_check_reactions(
+    rule_results: Any,
+    present_npc_ids: list[str],
+) -> list[dict[str, Any]]:
+    """Name the moment an NPC could react to, without writing the reaction.
+
+    `continuation.style_commitments` already tells the Keeper to keep table
+    banter and light ribbing "when the situation allows", and that reaches
+    every turn. What it never does is point at the situation. A publicly failed
+    check in front of a present NPC is the clearest one, and the Keeper was
+    being asked to notice it unaided while also composing the turn.
+
+    This is advisory and stays advisory. It reports WHO is present and WHAT
+    they saw fail; it does not supply a line, a tone, or a phrase list. Which
+    NPC would say anything, whether any of them would, and what that costs the
+    scene are the Keeper's judgment -- an NPC who has just watched the
+    investigator fumble may mock, may help, may not have noticed.
+    """
+    if not present_npc_ids:
+        return []
+    moments: list[dict[str, Any]] = []
+    for raw in rule_results if isinstance(rule_results, list) else []:
+        if not isinstance(raw, dict) or raw.get("skipped"):
+            continue
+        if not _roll_is_publicly_witnessed(raw):
+            # A concealed roll is not a moment anyone at the table watched.
+            continue
+        view = coc_roll.player_facing_roll_view(raw)
+        if view.get("passed") is not False:
+            continue
+        skill = str(
+            view.get("display_skill") or view.get("skill") or raw.get("skill") or ""
+        ).strip()
+        roll_id = str(raw.get("roll_id") or "").strip()
+        if not roll_id:
+            continue
+        moments.append({
+            "roll_id": roll_id,
+            "skill": skill,
+            "outcome": str(view.get("outcome") or "").strip(),
+            "witness_npc_ids": list(present_npc_ids),
+        })
+    return moments
+
+
 def build_narration_envelope(
     plan: dict[str, Any],
     *,
@@ -1623,6 +1687,11 @@ def build_narration_envelope(
         "keeper_plan": _sanitize_keeper_plan(directives.get("keeper_plan")),
         "typed_player_safe_limitation": None,
         "npc_moves": npc_moves,
+        # Advisory only: the failed public checks a present NPC just watched.
+        # Names the moment; never the line. See _failed_public_check_reactions.
+        "npc_reaction_openings": _failed_public_check_reactions(
+            plan.get("rule_results"), present_scene_npc_ids,
+        ),
         "disclosure_decisions": _sanitize_disclosure_decisions(
             disclosure_decisions
         ),
@@ -1836,14 +1905,18 @@ def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str
         policy = style.get("repetition_policy") or {}
         guard = style.get("style_guard") or {}
         render_contract = style.get("render_contract") or {}
-        required_avoid = {
-            "ai_summary_voice",
-            "log_style_summary",
-            "semantic_repetition",
-            "abstract_psychological_explanation",
-        }
-        if style.get("language") == "zh-Hans":
-            required_avoid.add("translationese")
+        # The graph already knows which craft failures each language must avoid,
+        # including that `translationese` is zh-specific -- the hand-written
+        # set and its language conditional reproduced `craft(language)["avoid"]`
+        # exactly, verified per value for both languages before this change.
+        required_avoid = set(
+            coc_text_runtime.craft(str(style.get("language") or "zh-Hans"))["avoid"]
+        )
+        # Deliberately a SUBSET of the graph's `prefer`, not a copy of it:
+        # `concrete_sensory_detail` is a craft aim the contract offers, not a
+        # floor a plan is rejected for missing. Reading the graph here would
+        # tighten the validator, which is a product change wearing the costume
+        # of a residue cleanup.
         required_prefer = {"short_sentences", "observable_behavior", "open_ended_prompt"}
         required_guard_rules = {
             "observable_before_interpretation",
@@ -1851,15 +1924,7 @@ def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str
             "crisis_scene_clarity",
             "final_prose_guard_before_output",
         }
-        required_render_slots = {
-            "viewpoint_anchor",
-            "spatial_anchor",
-            "active_motion",
-            "connection_or_force",
-            "risk_progression",
-            "visible_affordance",
-            "player_entry",
-        }
+        required_render_slots = set(coc_text_runtime.craft()["render_slots"])
         missing_avoid = sorted(required_avoid - avoid)
         missing_prefer = sorted(required_prefer - prefer)
         missing_guard_rules = sorted(required_guard_rules - set(guard.get("required_rules", []) or []))

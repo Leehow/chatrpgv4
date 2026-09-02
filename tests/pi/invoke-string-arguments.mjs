@@ -152,7 +152,15 @@ process.stdout.write(JSON.stringify({
   stringifiedDeliveredExact:
     JSON.stringify(clientCalls[0].params.arguments)
       === JSON.stringify(exactFactsArguments),
-  objectPathIdentityUnchanged: clientCalls[1].params.arguments === nativeArguments,
+  // The gateway copies the caller's object rather than mutating it — it
+  // attaches host-bound identity by provenance — so reference identity is
+  // deliberately not preserved. What must be preserved is the content: a
+  // native object path is forwarded exactly, never re-serialized or
+  // normalized.
+  objectPathForwardedExactly:
+    clientCalls[1].params.arguments !== nativeArguments
+    && JSON.stringify(clientCalls[1].params.arguments)
+      === JSON.stringify(nativeArguments),
   stringResultOk: JSON.parse(stringResult.content[0].text).ok,
   objectResultOk: JSON.parse(objectResult.content[0].text).ok,
   malformedRetainedAdoptRecovered:

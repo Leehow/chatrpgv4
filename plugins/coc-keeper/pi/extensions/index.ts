@@ -132,6 +132,7 @@ import {
   STARTUP_RESUME_CUSTOM_TYPE,
   startupResumeInstruction,
   tableOpenIntentFromEnv,
+  debugLaneEnabled,
 } from "../lib/welcome.ts";
 import { isCanonicalCampaignId } from "../lib/campaign-id.mjs";
 import {
@@ -7840,6 +7841,34 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       });
     } catch { /* working-set audit is best effort */ }
   };
+  // A DebugExperiment lane's first prompt is "resume and wait" — a turn with
+  // nothing in it for the Keeper to do. Measured across five lanes on
+  // 2026-09-02, the Keeper does it anyway: session.resume, scene.context,
+  // state.journal, turn.output_context, turn.finalize, a whole turn nobody
+  // asked for, burning the lane budget before the probe could seed anything.
+  // Strengthening the prompt to "do not journal, do not finalize, this turn is
+  // not yours to play" changed nothing, because a prompt IS a turn and the
+  // model holds the full Keeper surface while it runs.
+  //
+  // So the restriction stops being a request. Until this lane has seen real
+  // player input, the only tool bound is session.resume: the Keeper cannot
+  // journal or finalize because it has nothing to do it with. Real tables are
+  // untouched — they never get a do-nothing turn, because the host's startup
+  // instruction is delivered with triggerTurn:false.
+  // The lane's own resume prompt arrives as a user message too, so releasing
+  // on "any user message" released it immediately — measured: the lane's first
+  // op was session.resume (the restriction held) and everything after it ran
+  // on the full surface. The host marks its own prompts; only an unmarked one
+  // is the player's. The literal is duplicated in
+  // plugins/coc-keeper/pi/bin/pi_coc_debug_experiment.py and pinned by
+  // tests/pi/debug-lane-resume-surface.mjs.
+  const DEBUG_LANE_HOST_PROMPT_MARKER = "[coc-debug-lane-host-prompt]";
+  let debugLaneSawPlayerInput = false;
+  const debugLaneResumeOnlySurface = (): string[] | null => {
+    if (!debugLaneEnabled() || debugLaneSawPlayerInput) return null;
+    const resume = typedToolByOperation.get("session.resume");
+    return resume === undefined ? [] : [resume.name];
+  };
   applyKpActiveTools = () => {
     // A pi-subagents child (PI_SUBAGENT_CHILD=1 on every child it spawns)
     // loads this ambient package extension too, but owns its own active
@@ -7848,6 +7877,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     // set there would wipe that allowlist — at session_start the closed
     // awaiting_player stage would leave the steward with no tools at all.
     if (process.env.PI_SUBAGENT_CHILD === "1") return;
+    const resumeOnly = debugLaneResumeOnlySurface();
+    if (resumeOnly !== null) {
+      pi.setActiveTools(resumeOnly);
+      return;
+    }
     const role = effectiveTypedRole;
     if (operatorSystemInstructionScope !== null) {
       const operationTools = cocSystemInstructionOperations(role)
@@ -11446,8 +11480,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const identityScopeData = params.operation === "session.resume"
         ? objectOrNull(canonicalData?.scene_context) ?? canonicalData
         : canonicalData;
+      // Host tools such as coc_capabilities carry no `operation` argument, so
+      // their identity declarations are keyed by the tool name the canonical
+      // envelope reports; without this the boundary sees every field of such
+      // an envelope as undeclared and fails the whole result closed.
+      const identityOperation = typeof params.operation === "string"
+          && params.operation.trim()
+        ? params.operation
+        : (typeof objectOrNull(canonical)?.tool === "string"
+          ? String(objectOrNull(canonical)?.tool)
+          : params.operation);
       let baseVisible = modelVisibleCanonicalEnvelope(
-        params.operation,
+        identityOperation,
         canonical,
         liveSemanticIdMap(
           gatewayCampaign,
@@ -14353,6 +14397,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   });
   pi.on("message_start", (event) => {
     if (userMessageText(event.message) === null) return;
+    if (
+      debugLaneEnabled()
+      && !debugLaneSawPlayerInput
+      && !(userMessageText(event.message) ?? "").trimStart()
+        .startsWith(DEBUG_LANE_HOST_PROMPT_MARKER)
+    ) {
+      // The player's turn has arrived; the lane gets its normal surface back.
+      debugLaneSawPlayerInput = true;
+      applyKpActiveTools();
+    }
     const context = openingContinuationGate.openingTableDecisionContext();
     if (context === null) return;
     sendCocSystemInstruction(pi, {

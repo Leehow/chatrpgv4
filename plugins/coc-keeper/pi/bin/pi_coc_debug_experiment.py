@@ -56,6 +56,20 @@ _SITUATION_PROMPT_INSTRUCTION = (
     "never invented. Then adjudicate the message as the player's action in that "
     "situation."
 )
+# The lane's own resume prompt reaches the extension as a user message,
+# indistinguishable from the player's, so releasing the resume-only tool
+# surface on "any user message" released it immediately. The host marks its
+# own prompts; only an unmarked one is the player's. The same literal lives in
+# plugins/coc-keeper/pi/extensions/index.ts and is pinned by
+# tests/pi/debug-lane-resume-surface.mjs.
+DEBUG_LANE_HOST_PROMPT_MARKER = "[coc-debug-lane-host-prompt]"
+
+# Operations that mean the Keeper acted for the player. None of them may run
+# while the lane is still waiting for its resume to settle.
+_RESUME_FORBIDDEN_OPERATIONS = frozenset({
+    "state.journal", "turn.output_context", "turn.finalize", "rules.settle",
+})
+
 # Structural seeding lands after session.resume settled at awaiting_player.
 # Seeding before the resume was tried on the real host: the seed rows read as
 # an interrupted turn (open_turn_recovery), the Pi host then refused to act
@@ -520,10 +534,16 @@ def _normalize_run_spec(raw: Any) -> dict[str, Any]:
             "situation": lane_situation,
         })
 
-    timeout = spec.get("timeout_seconds", 180)
-    if not isinstance(timeout, int) or isinstance(timeout, bool) or not 1 <= timeout <= 180:
+    timeout = spec.get("timeout_seconds", PRODUCT_TURN_BUDGET_SECONDS)
+    if (
+        not isinstance(timeout, int)
+        or isinstance(timeout, bool)
+        or not 1 <= timeout <= MAX_DIAGNOSTIC_TIMEOUT_SECONDS
+    ):
         raise DebugExperimentError(
-            "debug_request_invalid", "timeout_seconds must be an integer from 1 to 180",
+            "debug_request_invalid",
+            "timeout_seconds must be an integer from 1 to "
+            f"{MAX_DIAGNOSTIC_TIMEOUT_SECONDS}",
         )
     concurrency = spec.get("concurrency", min(2, len(lanes)))
     if (
@@ -562,6 +582,44 @@ def _requested_situation(lane: dict[str, Any]) -> dict[str, Any]:
     return {"shape": situation["shape"], **({"requested": requested} if requested else {})}
 
 
+def _budget_accounting(started: float) -> dict[str, Any]:
+    """How long the lane took, and whether that beat the product's budget.
+
+    A lane granted a diagnostic budget larger than the product's can finish a
+    turn and still have failed the product goal, and a lane that failed early
+    still measured something. Every terminal path reports both, so no result
+    can quietly omit the comparison.
+    """
+    elapsed_ms = round((time.monotonic() - started) * 1000)
+    return {
+        "duration_ms": elapsed_ms,
+        "product_budget_seconds": PRODUCT_TURN_BUDGET_SECONDS,
+        "exceeded_product_budget": (
+            elapsed_ms > PRODUCT_TURN_BUDGET_SECONDS * 1000
+        ),
+    }
+
+
+#: The product's per-turn budget (spec §16.1). A lane that exceeds it has
+#: failed the product goal even when the turn itself completes, so every lane
+#: result records the overrun rather than letting a slow success read as a
+#: pass.
+PRODUCT_TURN_BUDGET_SECONDS = 180
+#: Diagnostic ceiling. Measuring how far a turn overruns the budget is
+#: impossible while the harness truncates at the budget, so a diagnostic may
+#: ask for more — bounded, because an unbounded lane just hangs.
+MAX_DIAGNOSTIC_TIMEOUT_SECONDS = 1800
+
+#: Providers a diagnostic lane may run on. The gate exists so a lane cannot
+#: quietly run through a relay or a fallback whose behaviour is not the
+#: product's, which would make every measurement describe something else. It
+#: is a closed set rather than one hardcoded name: which first-party provider
+#: the account has quota on is the operator's call, and the lane still
+#: verifies that the assistant messages actually came from the one that was
+#: declared, so a silent fallback fails exactly as before.
+_DEBUG_PROVIDERS = frozenset({"xai", "zai-coding-cn"})
+
+
 def _validate_context(raw: Any, *, require_run: bool = False) -> dict[str, Any]:
     context = _strict_object(raw, label="debug context")
     if require_run:
@@ -571,9 +629,11 @@ def _validate_context(raw: Any, *, require_run: bool = False) -> dict[str, Any]:
             raise DebugExperimentError(
                 "debug_command_not_idle", "the current Pi-Coc host must be idle",
             )
-        if context.get("provider") != "xai":
+        if context.get("provider") not in _DEBUG_PROVIDERS:
             raise DebugExperimentError(
-                "debug_xai_required", "debug experiments require the official xAI provider",
+                "debug_provider_unsupported",
+                "debug experiments require a declared first-party provider: "
+                + ", ".join(sorted(_DEBUG_PROVIDERS)),
             )
     campaign_id = context.get("campaign_id")
     if not isinstance(campaign_id, str) or _CAMPAIGN_ID.fullmatch(campaign_id) is None:
@@ -1296,7 +1356,12 @@ class PiRpcLaneAdapter:
             return value
         launcher = self.repo_root / "plugins" / "coc-keeper" / "pi" / "bin" / "pi-coc"
         model = str(run["context"]["model"])
-        model_ref = model if "/" in model else f"xai/{model}"
+        # The launcher takes `<provider>/<model>`. Pinning the prefix to xai
+        # launched every lane on the wrong provider while the context said
+        # otherwise; the lane's own provider check then failed all six, which
+        # is the gate working and the command builder not.
+        provider = str(run["context"]["provider"])
+        model_ref = model if "/" in model else f"{provider}/{model}"
         return [
             str(launcher),
             "--mode", "rpc",
@@ -1511,6 +1576,7 @@ class PiRpcLaneAdapter:
         provider_verified = False
         provider_identity_error: str | None = None
         first_operation: str | None = None
+        resume_acted_for_player: str | None = None
         current_phase = "launching"
         last_event_type = ""
         evidence_value = run.get("evidence_root")
@@ -1559,6 +1625,7 @@ class PiRpcLaneAdapter:
             nonlocal first_operation, resume_success, visible_text
             nonlocal rendered_text, finalized, last_event_type, abort_confirmed
             nonlocal provider_verified, provider_identity_error
+            nonlocal resume_acted_for_player
             event_type = event.get("type")
             last_event_type = str(event_type or "")
             if live_root is not None and "rpc" in run["spec"]["record"]:
@@ -1580,12 +1647,12 @@ class PiRpcLaneAdapter:
                     model = message.get("model")
                     if isinstance(provider, str) and isinstance(model, str):
                         if (
-                            provider == "xai"
+                            provider == str(run["context"]["provider"])
                             and model == str(run["context"]["model"])
                         ):
                             provider_verified = True
                         else:
-                            provider_identity_error = "xai_provider_mismatch"
+                            provider_identity_error = "debug_provider_mismatch"
             if event_type in {"tool_execution_start", "tool_execution_end"}:
                 operation = _semantic_operation(tool_name)
                 if (
@@ -1594,6 +1661,18 @@ class PiRpcLaneAdapter:
                     and "." in operation
                 ):
                     first_operation = operation
+                # The resume prompt says to stop at awaiting_player. A Keeper
+                # that journals or finalizes during it has played a turn of
+                # its own invention: the lane's budget is gone, the sandbox
+                # campaign has advanced, and any situation seeded afterwards
+                # describes a state the probe never asked for. Observed on
+                # 2026-09-02 in two of six lanes.
+                if (
+                    current_phase == "resume"
+                    and event_type == "tool_execution_start"
+                    and operation in _RESUME_FORBIDDEN_OPERATIONS
+                ):
+                    resume_acted_for_player = operation
                 tool_row = {
                     "category": "tools",
                     "phase": "start" if event_type.endswith("start") else "end",
@@ -1687,6 +1766,12 @@ class PiRpcLaneAdapter:
             environment.update({
                 "COC_WORKSPACE": str(materialized["workspace_root"]),
                 "PI_COC_AGENT_DIR": str(private_home),
+                # This session is a diagnostic lane: it drives its own
+                # resume prompt, so the host must not also hand it the
+                # startup instruction (the two compete and the Keeper
+                # follows the host's, spending the lane budget on skill-doc
+                # reads and tool discovery before any rule).
+                "PI_COC_DEBUG_LANE": "1",
                 "PI_COC_SESSION_ID": (
                     f"{run['experiment_id']}-{lane['id']}"
                 ),
@@ -1719,12 +1804,40 @@ class PiRpcLaneAdapter:
                 "type": "prompt",
                 "id": f"resume-{lane['id']}",
                 "message": (
+                    # The lane suppresses the host's startup instruction so the
+                    # two do not compete, which means this prompt has to carry
+                    # the clause that instruction owns. Without it the Keeper
+                    # filled the vacuum: given only "stop at awaiting_player",
+                    # it resumed, read the scene, journaled, built an output
+                    # context and finalized a turn nobody asked for — measured
+                    # 2026-09-02, four separate lanes.
+                    f"{DEBUG_LANE_HOST_PROMPT_MARKER} "
                     "Host debug resume. session.resume must be the first canonical "
-                    "campaign operation. Stop at awaiting_player and do not act for the player."
+                    "campaign operation. Branch only on that session.resume result. "
+                    "For awaiting_player, emit no new table prose and wait for the "
+                    "player: do not journal, do not build an output context, do not "
+                    "finalize, and do not act for the player in any way. This turn "
+                    "is not yours to play. Stop after the resume settles and wait."
                 ),
             })
             settled, failure = wait_terminal(phase="resume")
             resume_first = first_operation == "session.resume"
+            if resume_acted_for_player is not None:
+                return {
+                    "status": "failed",
+                    "resume_first": resume_first,
+                    **_budget_accounting(started),
+                    "abort_count": abort_count,
+                    "abort_confirmed": abort_confirmed,
+                    "error": {
+                        "code": "resume_acted_for_player",
+                        "details": {"operation": resume_acted_for_player},
+                    },
+                    "events": events,
+                    "final": final_payload(
+                        None, finalized=False, exact_delivery=False,
+                    ),
+                }
             if not settled or not resume_first or not resume_success or not provider_verified:
                 if failure == "timeout":
                     status = "timed_out"
@@ -1735,13 +1848,13 @@ class PiRpcLaneAdapter:
                 else:
                     status = "failed"
                     code = failure or (
-                        "xai_provider_unverified"
+                        "debug_provider_unverified"
                         if not provider_verified else "resume_failed"
                     )
                 return {
                     "status": status,
                     "resume_first": resume_first,
-                    "duration_ms": round((time.monotonic() - started) * 1000),
+                    **_budget_accounting(started),
                     "abort_count": abort_count,
                     "abort_confirmed": abort_confirmed,
                     "error": {"code": code},
@@ -1780,7 +1893,7 @@ class PiRpcLaneAdapter:
                     return {
                         "status": status,
                         "resume_first": resume_first,
-                        "duration_ms": round((time.monotonic() - started) * 1000),
+                        **_budget_accounting(started),
                         "abort_count": abort_count,
                         "abort_confirmed": abort_confirmed,
                         "error": {"code": code},
@@ -1830,7 +1943,7 @@ class PiRpcLaneAdapter:
             result = {
                 "status": status,
                 "resume_first": resume_first,
-                "duration_ms": round((time.monotonic() - started) * 1000),
+                **_budget_accounting(started),
                 "abort_count": abort_count,
                 "abort_confirmed": abort_confirmed,
                 "events": events,

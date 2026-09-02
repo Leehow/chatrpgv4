@@ -1249,6 +1249,46 @@ TABLE_MECHANICS_LABELS: dict[str, dict[str, str]] = {
         "weapon_mechanics_unavailable": "武器参数未配置",
         "weapon_range": "射程",
         "weapon_ammo": "弹药",
+        # Migrated out of inline `if language == "zh-Hans"` branches in
+        # coc_turn_finalization so every language resolves the same way. ja-JP
+        # took the English arm before this and rendered a Japanese tag over an
+        # English body.
+        # Exceptional-effect body. Two of these three fields are Keeper-authored
+        # prose; gluing them onto one line behind `｜因果：` / `｜边界：` turned
+        # good writing into a form. Line breaks carry the same information.
+        "exceptional_body": "{direction}·{kind}：{impact}\n{cause_label}：{causal}\n（{boundary}{status}）{target}",
+        "exceptional_target": "\n适用对象：{name}",
+        "exceptional_direction_benefit": "收益",
+        "exceptional_direction_cost": "代价",
+        "exceptional_kind_bonus_die": "奖励骰",
+        "exceptional_kind_penalty_die": "惩罚骰",
+        "exceptional_kind_condition": "状态",
+        "exceptional_kind_restriction": "限制",
+        "exceptional_kind_relationship_or_clock": "关系/时钟",
+        "exceptional_kind_scene_event": "场景事件",
+        "exceptional_kind_resource_delta": "资源",
+        "exceptional_boundary_immediate": "立即生效",
+        "exceptional_boundary_until_consumed": "下一次符合范围的检定（一次）",
+        "exceptional_boundary_until_scene_end": "持续至本场景结束",
+        "exceptional_boundary_until_time_marker": "持续至约定时限",
+        "exceptional_boundary_described": "持续至：{description}",
+        "exceptional_status_consumed": "；已用于本次检定",
+        "exceptional_status_resolved": "；解除条件已满足",
+        "exceptional_relationship_heading": "关系/印象奖励",
+        "rest_delta": "休息：完成安全的整夜睡眠{reset}",
+        "rest_reset": "；理智日计数已重置",
+        "condition_delta": "状态：{action}「{condition}」",
+        "condition_action_added": "新增",
+        "condition_action_cleared": "解除",
+        "ammo_delta": "当前弹匣·{weapon}：{before} → {after}（{action}；不含未建账的备用弹药）",
+        "ammo_action_load": "装填 {count} 发",
+        "ammo_action_expend": "消耗 {count} 发",
+        "item_count_delta": "物品：{action}「{label}」×{count}（剩余 {remaining}）",
+        "item_simple_delta": "物品：{action}「{label}」",
+        "item_action_used": "使用",
+        "item_action_consumed": "用尽",
+        "item_action_acquired": "获得",
+        "item_action_lost": "失去",
         "cash_delta": "{kind}：{sign}{amount} {currency}（{before} → {after}）",
         "purchase_spending_delta": "{kind}：「{label}」（{spending_level} {amount} {currency}；{cash_unchanged} {after}）",
         "purchase_cash_delta": "{kind}：「{label}」（-{charged} {currency}，{before} → {after}）",
@@ -1328,6 +1368,39 @@ TABLE_MECHANICS_LABELS: dict[str, dict[str, str]] = {
         "weapon_mechanics_unavailable": "Weapon mechanics unavailable",
         "weapon_range": "Range",
         "weapon_ammo": "Ammo",
+        "exceptional_body": "{direction}\u00b7{kind}: {impact}\n{cause_label}: {causal}\n({boundary}{status}){target}",
+        "exceptional_target": "\napplies to: {name}",
+        "exceptional_direction_benefit": "benefit",
+        "exceptional_direction_cost": "cost",
+        "exceptional_kind_bonus_die": "bonus die",
+        "exceptional_kind_penalty_die": "penalty die",
+        "exceptional_kind_condition": "condition",
+        "exceptional_kind_restriction": "restriction",
+        "exceptional_kind_relationship_or_clock": "relationship/clock",
+        "exceptional_kind_scene_event": "scene event",
+        "exceptional_kind_resource_delta": "resource",
+        "exceptional_boundary_immediate": "immediate",
+        "exceptional_boundary_until_consumed": "until next matching check (once)",
+        "exceptional_boundary_until_scene_end": "until the current scene ends",
+        "exceptional_boundary_until_time_marker": "until the recorded time limit",
+        "exceptional_boundary_described": "until: {description}",
+        "exceptional_status_consumed": "; consumed this check",
+        "exceptional_status_resolved": "; end condition met",
+        "exceptional_relationship_heading": "Relationship/impression reward",
+        "rest_delta": "rest: completed a safe full sleep{reset}",
+        "rest_reset": "; {san} day counter reset",
+        "condition_delta": "condition: {action} \u201c{condition}\u201d",
+        "condition_action_added": "added",
+        "condition_action_cleared": "cleared",
+        "ammo_delta": "magazine\u00b7{weapon}: {before} \u2192 {after} ({action}; excludes untracked spare ammo)",
+        "ammo_action_load": "load {count}",
+        "ammo_action_expend": "expend {count}",
+        "item_count_delta": "item: {action} \u201c{label}\u201d \u00d7{count} (remaining {remaining})",
+        "item_simple_delta": "item: {action} \u201c{label}\u201d",
+        "item_action_used": "used",
+        "item_action_consumed": "used up",
+        "item_action_acquired": "gained",
+        "item_action_lost": "lost",
         "cash_delta": "{kind}: {sign}{amount} {currency} ({before} → {after})",
         "purchase_spending_delta": "{kind}: “{label}” ({spending_level} {amount} {currency}; {cash_unchanged} {after})",
         "purchase_cash_delta": "{kind}: “{label}” (-{charged} {currency}, {before} → {after})",
@@ -1407,6 +1480,39 @@ TABLE_MECHANICS_LABELS: dict[str, dict[str, str]] = {
         "weapon_mechanics_unavailable": "武器データ未設定",
         "weapon_range": "射程",
         "weapon_ammo": "弾薬",
+        "exceptional_body": "{direction}・{kind}：{impact}\n{cause_label}：{causal}\n（{boundary}{status}）{target}",
+        "exceptional_target": "\n対象：{name}",
+        "exceptional_direction_benefit": "利得",
+        "exceptional_direction_cost": "代償",
+        "exceptional_kind_bonus_die": "ボーナス・ダイス",
+        "exceptional_kind_penalty_die": "ペナルティ・ダイス",
+        "exceptional_kind_condition": "状態",
+        "exceptional_kind_restriction": "制限",
+        "exceptional_kind_relationship_or_clock": "関係／時計",
+        "exceptional_kind_scene_event": "シーン事象",
+        "exceptional_kind_resource_delta": "資源",
+        "exceptional_boundary_immediate": "即時に適用",
+        "exceptional_boundary_until_consumed": "次の該当する判定まで（一回）",
+        "exceptional_boundary_until_scene_end": "このシーンが終わるまで",
+        "exceptional_boundary_until_time_marker": "記録された期限まで",
+        "exceptional_boundary_described": "次まで：{description}",
+        "exceptional_status_consumed": "；この判定で消費",
+        "exceptional_status_resolved": "；解除条件を満たした",
+        "exceptional_relationship_heading": "関係／印象の報酬",
+        "rest_delta": "休息：安全な一晩の睡眠を完了{reset}",
+        "rest_reset": "；正気度の日数カウントをリセット",
+        "condition_delta": "状態：「{condition}」を{action}",
+        "condition_action_added": "付与",
+        "condition_action_cleared": "解除",
+        "ammo_delta": "現在の弾倉・{weapon}：{before} → {after}（{action}；未計上の予備弾薬を含まない）",
+        "ammo_action_load": "{count} 発を装填",
+        "ammo_action_expend": "{count} 発を消費",
+        "item_count_delta": "アイテム：「{label}」を{action} ×{count}（残り {remaining}）",
+        "item_simple_delta": "アイテム：「{label}」を{action}",
+        "item_action_used": "使用",
+        "item_action_consumed": "使い切り",
+        "item_action_acquired": "入手",
+        "item_action_lost": "喪失",
         "cash_delta": "{kind}：{sign}{amount} {currency}（{before} → {after}）",
         "purchase_spending_delta": "{kind}：「{label}」（{spending_level} {amount} {currency}；{cash_unchanged} {after}）",
         "purchase_cash_delta": "{kind}：「{label}」（-{charged} {currency}，{before} → {after}）",
@@ -1487,13 +1593,87 @@ def player_facing_display_name(
     return localize_terms(value, vocabulary)
 
 
-def table_mechanics_labels(play_language: str | None = None) -> dict[str, str]:
-    """Chrome labels for public rolls / state deltas in the play language."""
+CHROME_TERM_PREFIX = "chrome."
+
+
+def table_mechanics_labels(
+    play_language: str | None = None,
+    terms: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Chrome labels for player-visible mechanics blocks in the play language.
+
+    The built-in table covers three languages. A campaign opens the rest by
+    carrying its own labels in `localized_terms[play_language]` under the
+    `chrome.` prefix -- `chrome.change_tag` overrides `change_tag` -- so the
+    language space is not a closed enum while rendering stays a deterministic
+    table lookup that a stored receipt can replay.
+
+    The prefix keeps render furniture from colliding with rulebook terminology
+    in the same map: `Spot Hidden` is a term the module and Keeper both use,
+    `change_tag` is a word only the host emits.
+    """
     language = play_language or DEFAULT_PLAY_LANGUAGE
     if language in TABLE_MECHANICS_LABELS:
-        return deepcopy(TABLE_MECHANICS_LABELS[language])
-    # Unknown language: English chrome, not Chinese.
-    return deepcopy(TABLE_MECHANICS_LABELS["en-US"])
+        labels = deepcopy(TABLE_MECHANICS_LABELS[language])
+    else:
+        # No built-in table: English chrome, and `chrome_is_substituted`
+        # reports it rather than letting the substitution pass unnoticed.
+        labels = deepcopy(TABLE_MECHANICS_LABELS["en-US"])
+    if isinstance(terms, dict):
+        for key, label in terms.items():
+            if not isinstance(key, str) or not key.startswith(CHROME_TERM_PREFIX):
+                continue
+            name = key[len(CHROME_TERM_PREFIX):]
+            if name and isinstance(label, str) and label.strip():
+                labels[name] = label
+    return labels
+
+
+def chrome_coverage(
+    play_language: str | None = None,
+    terms: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Report how much of the chrome this campaign actually renders itself.
+
+    Presence of overrides is the wrong question. A campaign that supplies six
+    of the labels gets six in its language and the rest in English -- the same
+    mixed-language output that made a ja-JP table read
+    `【変化】condition: added "prone"`. So this reports COVERAGE, and
+    `complete` is true only when nothing falls back.
+
+    A language with a built-in table is complete by definition; anything else
+    needs `chrome.` entries for every key.
+    """
+    language = play_language or DEFAULT_PLAY_LANGUAGE
+    total = len(TABLE_MECHANICS_LABELS["en-US"])
+    if language in TABLE_MECHANICS_LABELS:
+        return {
+            "language": language,
+            "source": "built_in",
+            "overridden": 0,
+            "total": total,
+            "substituted": False,
+            "complete": True,
+        }
+    overridden = 0
+    if isinstance(terms, dict):
+        overridden = sum(
+            1
+            for key, value in terms.items()
+            if isinstance(key, str)
+            and key.startswith(CHROME_TERM_PREFIX)
+            and key[len(CHROME_TERM_PREFIX):] in TABLE_MECHANICS_LABELS["en-US"]
+            and isinstance(value, str)
+            and value.strip()
+        )
+    return {
+        "language": language,
+        "source": "campaign_override" if overridden else "substituted_en_US",
+        "overridden": overridden,
+        "total": total,
+        "substituted": overridden < total,
+        "complete": overridden >= total,
+    }
 
 
 def living_standard_label(value: str, play_language: str | None = None) -> str:

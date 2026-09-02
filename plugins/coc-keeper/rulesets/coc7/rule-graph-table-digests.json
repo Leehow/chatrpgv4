@@ -1,0 +1,148 @@
+{
+  "contract_id": "coc.rule-graph-table-digests.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "note": "The graph's data-table nodes name a file and stop there, so the numbers a rule actually reads carry no evidence of their own. This manifest pins the bytes behind each named table, and records the tables the graph does not bind yet so that gap cannot grow silently.",
+  "bound_tables": [
+    {
+      "table_name": "chase.json",
+      "node_ids": [
+        "data-table:coc7:chase:table-1"
+      ],
+      "sha256": "sha256:81a13d4c6f77c97bf8f0f6285af7d3729d1446c41299bab7e000a25a84ec74f7"
+    },
+    {
+      "table_name": "combat.json",
+      "node_ids": [
+        "data-table:coc7:combat"
+      ],
+      "sha256": "sha256:2dbf824191d14162a0edffe1302bb60247d22ce27bff984cfb3921adb35b7894"
+    },
+    {
+      "table_name": "development.json",
+      "node_ids": [
+        "data-table:coc7:development:table-1"
+      ],
+      "sha256": "sha256:2c4bcc5d30ac76dfec3af0fd4e693d7ef83b3f0d7835d82222123982fe31c217"
+    },
+    {
+      "table_name": "difficulty-levels.json",
+      "node_ids": [
+        "data-table:coc7:difficulty-levels"
+      ],
+      "sha256": "sha256:d8964ca7d8a1a15b7a6959ee95d849b326ab7a9ec574564c5517a47bfccc0e28"
+    },
+    {
+      "table_name": "luck.json",
+      "node_ids": [
+        "data-table:coc7:development:table-2",
+        "data-table:coc7:luck"
+      ],
+      "sha256": "sha256:c9a0073acbaaeca703258f8d5ab34bdc04d8a65abe0c23c00fbc75be84b0348d"
+    },
+    {
+      "table_name": "manias.json",
+      "node_ids": [
+        "data-table:coc7:manias"
+      ],
+      "sha256": "sha256:0f0fa2ee17997c5dab971a8cbc6af56f719695ed66bfc48928761e9403c3f126"
+    },
+    {
+      "table_name": "percentile-check.json",
+      "node_ids": [
+        "data-table:coc7:percentile-check"
+      ],
+      "sha256": "sha256:a416aca3e6a375bb34182f97f217b70657ff1ff5f833e3e3608b3db57837e926"
+    },
+    {
+      "table_name": "phobias.json",
+      "node_ids": [
+        "data-table:coc7:phobias"
+      ],
+      "sha256": "sha256:c2b686d1b6d060495d74ef54a30064bd59a16c99f2c6ee2c090262662ff031c6"
+    },
+    {
+      "table_name": "pushed-roll.json",
+      "node_ids": [
+        "data-table:coc7:pushed-roll"
+      ],
+      "sha256": "sha256:63c01366232f033ce5f887d25d9d9085b02aef6e8c1ec5395a9679704b6f69c7"
+    },
+    {
+      "table_name": "roll-modifiers.json",
+      "node_ids": [
+        "data-table:coc7:roll-modifiers"
+      ],
+      "sha256": "sha256:cbc15fc9586970946a5cb63b53e8bef17f2683a7d836dcf40d1a32534d10ecbe"
+    },
+    {
+      "table_name": "sanity.json",
+      "node_ids": [
+        "data-table:coc7:sanity"
+      ],
+      "sha256": "sha256:e728de34170a2f13361735249ebb2639f8b691170f13a9529bf45ec0ef6f219c"
+    },
+    {
+      "table_name": "skill-descriptions.json",
+      "node_ids": [
+        "data-table:coc7:skill-descriptions"
+      ],
+      "sha256": "sha256:0c6314592978ab006c1ee5a7b7cca3741fcc6834d8c05bed3d3ce3ccc1d16c3f"
+    },
+    {
+      "table_name": "spells.json",
+      "node_ids": [
+        "data-table:coc7:magic:table-1"
+      ],
+      "sha256": "sha256:0d83987e0a518fb82796a5f508564794e2b468374c2727b3917ef4c5d957995e"
+    },
+    {
+      "table_name": "success-levels.json",
+      "node_ids": [
+        "data-table:coc7:success-levels"
+      ],
+      "sha256": "sha256:2486d01ac3edd9cdc382fff401075d42b167528275e8bd2d57dfe9aeaa23beff"
+    },
+    {
+      "table_name": "weapons.json",
+      "node_ids": [
+        "data-table:coc7:weapons"
+      ],
+      "sha256": "sha256:d0e3f1dcc30753f81b98a318c688d9ca27ea329d1349c49345e418fdd2561587"
+    }
+  ],
+  "unbound_tables": [
+    "age-adjustments.json",
+    "artifacts.json",
+    "bout-tables.json",
+    "build-scale.json",
+    "cash-assets.json",
+    "characteristic-dice.json",
+    "damage-bonus-build.json",
+    "damage.json",
+    "derived-attributes.json",
+    "equipment.json",
+    "half-fifth-values.json",
+    "hazards.json",
+    "metadata.json",
+    "monsters.json",
+    "movement-rate.json",
+    "npc-core-tags.json",
+    "npc-role-templates.json",
+    "npc-social-roles.json",
+    "npc-stat-archetypes.json",
+    "occupations.json",
+    "poisons.json",
+    "reward.json",
+    "rule-index.json",
+    "skills.json",
+    "storylet-library.json",
+    "structure-weights.json",
+    "the-haunting.json",
+    "the-white-war.json",
+    "time-costs.json",
+    "tomes.json",
+    "treatment.json"
+  ]
+}

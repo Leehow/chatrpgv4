@@ -264,6 +264,29 @@ if (!model) {
   );
 }
 
+// A reasoning model whose provider takes no effort parameter accepts every
+// level on the ladder and then ignores it. Measured 2026-09-02 on
+// zai-coding-cn: `--thinking low` and the model's own default produced the
+// same ~27k characters of reasoning per lane, because Pi's zai format sends
+// `thinking: {type: "enabled"}` for ANY non-null effort and only
+// `{type: "disabled"}` for off. The existing checks below catch "this level
+// is unsupported"; this one catches the quieter failure — the level is
+// accepted, transmitted, and has no effect, so an operator who set `low` to
+// save quota saved nothing and has no way to see it.
+if (
+  requestedThinking !== "off"
+  && model?.reasoning
+  && model?.compat?.supportsReasoningEffort === false
+) {
+  fail(
+    `${provider}/${modelId} takes no reasoning-effort parameter, so --thinking ` +
+      `"${requestedThinking}" is accepted and then ignored: the model reasons at its ` +
+      "own default and the level buys nothing. Use --thinking off for a real " +
+      "reduction (Pi sends the provider's documented disable parameter), or pick a " +
+      "model whose catalog declares supportsReasoningEffort",
+  );
+}
+
 // A model that ignores the disable request cannot honour "off" no matter what
 // its catalog declares. Refuse rather than let the request read as a saving.
 if (requestedThinking === "off") {

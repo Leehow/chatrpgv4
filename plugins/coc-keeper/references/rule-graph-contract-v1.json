@@ -122,6 +122,7 @@
     "subsystem.snapshot.active",
     "scene.id",
     "intent.method",
+    "intent.action_kind",
     "intent.pushed",
     "intent.complete_rest",
     "intent.poor_environment",

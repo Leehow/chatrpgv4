@@ -1,0 +1,91 @@
+{
+  "case": "clue-unplaced-trigger",
+  "intent": "A conclusion clue that appears in no scene's available_clues can never be obtained.",
+  "documents": {
+    "story-graph.json": {
+      "scenes": [
+        {
+          "scene_id": "scene-a",
+          "display_name": "Scene A",
+          "is_start": true,
+          "origin": "source",
+          "available_clues": [
+            "clue-a"
+          ],
+          "scene_edges": [
+            {
+              "to": "scene-b",
+              "kind": "travel",
+              "when": {
+                "kind": "narrative"
+              }
+            }
+          ]
+        },
+        {
+          "scene_id": "scene-b",
+          "display_name": "Scene B",
+          "is_final": true,
+          "origin": "source",
+          "available_clues": [
+            "clue-b"
+          ],
+          "scene_edges": []
+        }
+      ]
+    },
+    "clue-graph.json": {
+      "conclusions": [
+        {
+          "conclusion_id": "conclusion-cellar-truth",
+          "importance": "core",
+          "minimum_routes": 2,
+          "origin": "source",
+          "clues": [
+            {
+              "clue_id": "clue-a",
+              "delivery_kind": "skill_check",
+              "origin": "source",
+              "skill": "Spot Hidden"
+            },
+            {
+              "clue_id": "clue-b",
+              "delivery_kind": "npc_question",
+              "origin": "source"
+            },
+            {
+              "clue_id": "clue-orphan-deed",
+              "delivery_kind": "skill_check",
+              "origin": "source",
+              "skill": "Spot Hidden"
+            }
+          ]
+        }
+      ]
+    },
+    "module-meta.json": {
+      "schema_version": 1,
+      "scenario_id": "fx-clue-unplaced",
+      "title": "fx-clue-unplaced",
+      "structure_type": "branching_investigation"
+    }
+  },
+  "expect": {
+    "findings": [
+      {
+        "code": "clue-unplaced",
+        "subject_id": "clue-orphan-deed",
+        "subject_kind": "clue",
+        "severity": "defect",
+        "completeness": "dead",
+        "related_ids": [
+          "conclusion-cellar-truth"
+        ]
+      }
+    ],
+    "codes_not_measured": [
+      "front-scene-unknown",
+      "quest-destination-unknown"
+    ]
+  }
+}

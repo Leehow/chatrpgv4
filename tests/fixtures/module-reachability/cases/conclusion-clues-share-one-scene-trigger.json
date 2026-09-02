@@ -1,0 +1,87 @@
+{
+  "case": "conclusion-clues-share-one-scene-trigger",
+  "intent": "Two clues for one conclusion are both obtainable only in scene-a, so a single scene carries the whole conclusion.",
+  "documents": {
+    "story-graph.json": {
+      "scenes": [
+        {
+          "scene_id": "scene-a",
+          "display_name": "Scene A",
+          "is_start": true,
+          "origin": "source",
+          "available_clues": [
+            "clue-a",
+            "clue-b"
+          ],
+          "scene_edges": [
+            {
+              "to": "scene-b",
+              "kind": "travel",
+              "when": {
+                "kind": "narrative"
+              }
+            }
+          ]
+        },
+        {
+          "scene_id": "scene-b",
+          "display_name": "Scene B",
+          "is_final": true,
+          "origin": "source",
+          "available_clues": [],
+          "scene_edges": []
+        }
+      ]
+    },
+    "clue-graph.json": {
+      "conclusions": [
+        {
+          "conclusion_id": "conclusion-cellar-truth",
+          "importance": "core",
+          "minimum_routes": 2,
+          "origin": "source",
+          "clues": [
+            {
+              "clue_id": "clue-a",
+              "delivery_kind": "skill_check",
+              "origin": "source",
+              "skill": "Spot Hidden"
+            },
+            {
+              "clue_id": "clue-b",
+              "delivery_kind": "skill_check",
+              "origin": "source",
+              "skill": "Spot Hidden"
+            }
+          ]
+        }
+      ]
+    },
+    "module-meta.json": {
+      "schema_version": 1,
+      "scenario_id": "fx-clues-share-one-scene",
+      "title": "fx-clues-share-one-scene",
+      "structure_type": "branching_investigation"
+    }
+  },
+  "expect": {
+    "findings": [
+      {
+        "code": "conclusion-clues-share-one-scene",
+        "subject_id": "conclusion-cellar-truth",
+        "subject_kind": "conclusion",
+        "severity": "observation",
+        "completeness": "dead",
+        "related_ids": [
+          "clue-a",
+          "clue-b",
+          "scene-a"
+        ]
+      }
+    ],
+    "codes_not_measured": [
+      "front-scene-unknown",
+      "quest-destination-unknown"
+    ]
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "case": "available-clue-unknown-near-miss",
+  "intent": "A clue defined by a second conclusion is still defined; the check must scan every conclusion, not only the first.",
+  "documents": {
+    "story-graph.json": {
+      "scenes": [
+        {
+          "scene_id": "scene-a",
+          "display_name": "Scene A",
+          "is_start": true,
+          "origin": "source",
+          "available_clues": [
+            "clue-a",
+            "clue-side-note"
+          ],
+          "scene_edges": [
+            {
+              "to": "scene-b",
+              "kind": "travel",
+              "when": {
+                "kind": "narrative"
+              }
+            }
+          ]
+        },
+        {
+          "scene_id": "scene-b",
+          "display_name": "Scene B",
+          "is_final": true,
+          "origin": "source",
+          "available_clues": [
+            "clue-b"
+          ],
+          "scene_edges": []
+        }
+      ]
+    },
+    "clue-graph.json": {
+      "conclusions": [
+        {
+          "conclusion_id": "conclusion-cellar-truth",
+          "importance": "core",
+          "minimum_routes": 2,
+          "origin": "source",
+          "clues": [
+            {
+              "clue_id": "clue-a",
+              "delivery_kind": "skill_check",
+              "origin": "source",
+              "skill": "Spot Hidden"
+            },
+            {
+              "clue_id": "clue-b",
+              "delivery_kind": "npc_question",
+              "origin": "source"
+            }
+          ]
+        },
+        {
+          "conclusion_id": "conclusion-margin-note",
+          "origin": "source",
+          "clues": [
+            {
+              "clue_id": "clue-side-note",
+              "delivery_kind": "skill_check",
+              "origin": "source",
+              "skill": "Spot Hidden"
+            }
+          ]
+        }
+      ]
+    },
+    "module-meta.json": {
+      "schema_version": 1,
+      "scenario_id": "fx-available-clue-near-miss",
+      "title": "fx-available-clue-near-miss",
+      "structure_type": "branching_investigation"
+    }
+  },
+  "expect": {
+    "findings": [],
+    "codes_not_measured": [
+      "front-scene-unknown",
+      "quest-destination-unknown"
+    ]
+  }
+}

@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:7f79c570bd0594d84f20105ff562e56a2c165b2493dc6f963af22050b47d574c",
+  "content_sha256": "sha256:64fd0ea2e4015d9390a7ee295b6a024f0c6f8a382ef48993790bd8aa9b2fabc2",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 148,
+  "operation_count": 151,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -3395,6 +3395,23 @@
             "description": "investigator whose live state binds the card grant",
             "type": "string"
           },
+          "player_intent": {
+            "description": "what the player's accepted action is trying to do, from the canonical intent vocabulary; the host publishes it as the intent.action_kind fact so rule conditions can read it",
+            "enum": [
+              "investigate",
+              "social",
+              "move",
+              "combat",
+              "flee",
+              "meta",
+              "stuck",
+              "idle",
+              "ambiguous",
+              "montage",
+              "cast"
+            ],
+            "type": "string"
+          },
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
@@ -3782,6 +3799,46 @@
       },
       "summary": "NON-COMBAT opposed check only: higher success level wins; ties favor the higher value. Attacks, Dodge, and Fight Back must use combat.resolve."
     },
+    "rules.precedent": {
+      "access": "mutation",
+      "canonical_operation": "rules.precedent",
+      "description": "Read the live rulings and confirmed house rules bound to one decision, without asking for its cards. Ordinary play does not need this: rules.context already carries the same precedent for every card it returns. Reach for it when you want to check what this table has already decided about a specific decision. Canonical operation `rules.precedent`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_ref": {
+            "description": "the decision to read precedent for",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "decision_ref"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": true,
+        "audience": "keeper",
+        "contract": "none",
+        "discovery": "exact",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Read the live rulings and confirmed house rules bound to one decision, without asking for its cards. Ordinary play does not need this: rules.context already carries the same precedent for every card it returns. Reach for it when you want to check what this table has already decided about a specific decision."
+    },
     "rules.psychology_observe": {
       "access": "mutation",
       "canonical_operation": "rules.psychology_observe",
@@ -3932,6 +3989,77 @@
         ]
       },
       "summary": "Pushed re-roll bound to one ordinary-failure rules.roll receipt (never a fumble). Inherits that check's actor, target, required level, goal, stakes, basis, and dice modifiers; callers cannot substitute them."
+    },
+    "rules.record_ruling": {
+      "access": "mutation",
+      "canonical_operation": "rules.record_ruling",
+      "description": "Record a call you just made where the rules left room, bound to the decision it adjudicated, so the same situation is adjudicated the same way later in this campaign. Use it when you resolved an ambiguity at the table -- what a pushed roll costs here, what counts as cover in this room, whether this NPC's help grants a bonus die. It is precedent only: it changes no dice, no pools, and no settled result, and it never forces your hand later. It is handed back to you with that decision while it is still in scope. Canonical operation `rules.record_ruling`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "decision_ref": {
+            "description": "the decision this adjudicates, e.g. 'decision:coc7:push-luck:pushed-roll'; take it from a rules.context card",
+            "type": "string"
+          },
+          "expires": {
+            "description": "scene_end (default), session_end, or never; a campaign ruling must be never",
+            "type": "string"
+          },
+          "reason": {
+            "description": "why the fiction made this the right call",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "ruling_id": {
+            "description": "semantic id naming the call, e.g. 'ruling:warehouse-pushed-locksmith-noise'; two or more hyphenated words, never a digest",
+            "type": "string"
+          },
+          "scope_id": {
+            "description": "scene id for a scene ruling; defaults to the live scene",
+            "type": "string"
+          },
+          "scope_kind": {
+            "description": "scene (default), session, or campaign",
+            "type": "string"
+          },
+          "statement": {
+            "description": "the call itself, in the campaign's play language",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "ruling_id",
+          "decision_ref",
+          "statement",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": true,
+        "audience": "keeper",
+        "contract": "advisory",
+        "discovery": "surface",
+        "kp_surface": "rules",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Record a call you just made where the rules left room, bound to the decision it adjudicated, so the same situation is adjudicated the same way later in this campaign. Use it when you resolved an ambiguity at the table -- what a pushed roll costs here, what counts as cover in this room, whether this NPC's help grants a bonus die. It is precedent only: it changes no dice, no pools, and no settled result, and it never forces your hand later. It is handed back to you with that decision while it is still in scope."
     },
     "rules.resource_delta": {
       "access": "mutation",
@@ -6320,6 +6448,57 @@
         ]
       },
       "summary": "Read the single derived opening lifecycle phase for one campaign: module_preparation, character_creation, ready_for_table, or active, with the source sub-phase detail, the canonical next operation, and any blocking reason. Use this instead of inferring setup progress from files, party listings, or failed-call envelopes."
+    },
+    "setup.player_vocabulary": {
+      "access": "mutation",
+      "canonical_operation": "setup.player_vocabulary",
+      "description": "Supply the player-visible vocabulary this campaign renders itself with, in the table's own language. Two kinds of key share one map: a bare key is rulebook terminology the module and Keeper both use (`Spot Hidden`), and a `chrome.` key is host render furniture only the finalizer emits (`chrome.change_tag`). The prefix is what stops one overwriting the other, and a misspelled `chrome.` key is rejected rather than ignored, because ignoring it leaves the table one label short of complete forever. The receipt reports chrome coverage rather than success: a partial vocabulary renders some words in this language and the rest in English. Languages with a built-in table (zh-Hans, en-US, ja-JP) are already complete and need this only to override a specific label. Canonical operation `setup.player_vocabulary`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "campaign_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "type": "string"
+          },
+          "entries": {
+            "additionalProperties": true,
+            "description": "vocabulary map: bare keys are rulebook terms, `chrome.<label>` keys are host render furniture. Values are the player-visible strings in this campaign's language",
+            "type": "object"
+          },
+          "language": {
+            "description": "language tag to write under; defaults to the campaign's play_language",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "entries"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": false,
+      "policy": {
+        "advisory": false,
+        "audience": "setup",
+        "contract": "none",
+        "discovery": "surface",
+        "kp_surface": "setup",
+        "phases": [
+          "cold_start",
+          "opening",
+          "live_turn"
+        ]
+      },
+      "summary": "Supply the player-visible vocabulary this campaign renders itself with, in the table's own language. Two kinds of key share one map: a bare key is rulebook terminology the module and Keeper both use (`Spot Hidden`), and a `chrome.` key is host render furniture only the finalizer emits (`chrome.change_tag`). The prefix is what stops one overwriting the other, and a misspelled `chrome.` key is rejected rather than ignored, because ignoring it leaves the table one label short of complete forever. The receipt reports chrome coverage rather than success: a partial vocabulary renders some words in this language and the rest in English. Languages with a built-in table (zh-Hans, en-US, ja-JP) are already complete and need this only to override a specific label."
     },
     "setup.quick_start": {
       "access": "mutation",

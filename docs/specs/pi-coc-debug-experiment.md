@@ -68,7 +68,13 @@ Constraints:
 - `final` evidence is mandatory even when omitted from `record`.
 - RNG seeds, desired results, arbitrary tools, paths, environment overrides,
   provider fallbacks, and unknown fields are rejected.
-- The host context must be idle play mode with the official `xai` provider.
+- The host context must be idle play mode with a declared first-party
+  provider (`xai` or `zai-coding-cn`). The gate is a closed set rather than
+  one hardcoded name: which provider the account has quota on is the
+  operator's call, while a relay or a silent fallback is still refused. The
+  lane independently verifies that the assistant messages carry the declared
+  provider and model, so a fallback fails the lane with
+  `debug_provider_mismatch`.
 
 ## Situation (optional, diagnostic-only)
 

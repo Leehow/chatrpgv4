@@ -178,11 +178,17 @@ def test_combat_is_source_accepted_for_the_full_chapter_and_weapon_rules():
     assert review["unresolved_applicable_rules"] == []
     assert review["runtime_integration_blockers"] == []
     assert review["accepted_shard_digest"] == shard["receipt"]["shard_sha256"]
+    # Amended 2026-09-02: the shard gained the continuation that carries
+    # "Escaping Close Combat" (page 119: flee melee providing an escape route)
+    # into the chase family's Part 1, which assumes exactly that escape route.
+    # The reviewer identity names the original family review AND the
+    # amendment, so the earlier review is not silently re-attested.
     assert review["accepted_shard_digest"] == (
-        "dfdcc90660d5a10e55641356934b34a6ed2e95a557748f83fb3ab4ea511fac06"
+        "d5d25219ebfe3e0e5a9b63da11fa56c4ed8b2fc0212d723c23c32ef4f4e61138"
     )
     assert review["reviewer_identity"] == (
         "codex-worker-combat-end-slot-review-20260831-v2"
+        "+claude-flee-continues-as-chase-20260902"
     )
     assert review["source"]["file_sha256"] == gen.FILE_SHA256
     assert review["source"]["bundle_sha256"] == (

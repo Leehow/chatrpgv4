@@ -7,6 +7,14 @@
  * recovery metadata to an existing canonical failure envelope.
  */
 import type { JsonSchema } from "./operation-contracts.ts";
+import {
+  AGENCY_CLAIM_TYPES,
+  COVERAGE_FIELDS,
+  OBLIGATION_ID_PREFIXES,
+  PLAYER_INPUT_HANDLING_VALUES,
+  REALIZATION_VALUES,
+  VOLUNTARY_CLAIM_TYPES,
+} from "./text-vocabulary.generated.ts";
 import type { SemanticProjectionView } from "./semantic-identity-registry.ts";
 
 export type StateJournalBindingCard = {
@@ -33,15 +41,21 @@ export type NarrationReviewBindingCard = {
   state_claim_compilation: Record<string, unknown>;
 };
 
-export const REVIEWED_AGENCY_CLAIM_TYPES = [
-  "voluntary_action",
-  "voluntary_speech",
-  "voluntary_plan",
-  "voluntary_belief",
-  "voluntary_trust",
-  "voluntary_active_emotion",
-  "forced_behavior",
-  "involuntary_physiology",
+export const REVIEWED_AGENCY_CLAIM_TYPES = AGENCY_CLAIM_TYPES;
+
+/**
+ * The MODEL-FACING coverage row shape. Deliberately not generated from the
+ * TextGraph: seven of these nine are the graph's own coverage field names, but
+ * `obligation_ref` and `reviewed_span` are the model-facing renames of
+ * `obligation_id` and `exact_excerpt`, and the graph declares no such mapping.
+ * Generating it would mean hardcoding that rename in the generator -- moving
+ * the copy, and asserting an equivalence nothing owns. What IS fixable is that
+ * this list was written out twice in this file; it is written once.
+ */
+const MODEL_FACING_COVERAGE_FIELDS = [
+  "obligation_ref", "reviewed_span", "realization", "action_realization",
+  "response", "causal_explanation", "persona_fit",
+  "player_input_handling", "exceptional_beat",
 ] as const;
 
 export type ReviewedAgencyClaimType = typeof REVIEWED_AGENCY_CLAIM_TYPES[number];
@@ -566,15 +580,19 @@ const PI_SCHEMA_CODES = new Set<string>([
   "missing_parameters",
   "invalid_arguments",
   "invalid_param_type",
-  // A model-authored semantic input key that is not a declared slot. The
-  // envelope names the offending key AND lists every declared slot, so the
-  // correction is always "resend this call without that key" -- the most
-  // recoverable failure there is. Without this entry it fell through to
-  // invariant_terminal / recoverable_by "none" / no next action, the same way
-  // `rule_decision_stale` did before its own entry: the Keeper is told the
-  // turn is over while the way out is in its hand. Seen live on 2026-09-02,
+  // A settlement whose semantic_inputs name a slot the decision does not
+  // declare, or omit one it requires, is the model's own argument error and
+  // the host already hands back the exact declared/missing slot names. Left
+  // out of this set it projected as `invariant_terminal`, `recoverable_by:
+  // none`, with no allowed next action — the envelope handed over the fix and
+  // told the Keeper the failure was unrecoverable in the same breath.
+  // Observed live 2026-09-02 twice, independently: told `declared_slots:
+  // [affordance_id, candidate_ref, combat_revision, investigator_id]` for
+  // decision:coc7:combat:flee, the Keeper never retried with corrected
+  // arguments and went looking for other decisions to settle instead; and
   // settling a social difficulty adjudication with a stray `source_ref`.
   "unknown_semantic_input",
+  "missing_semantic_input",
   // A declared slot given a value in the wrong closed form. The message
   // always states the form ("commitment_ref must use commitment:<slug>"), so
   // the fix is to resend with the value respelled. Seen live on 2026-09-02:
@@ -597,6 +615,29 @@ export function isPiSchemaFailure(operation: string, code: string): boolean {
 }
 
 const DYNAMIC_CANDIDATE_ACTIONS: Record<string, readonly PiAllowedNextAction[]> = {
+  // A rejected chase ref is a choice from the wrong list, not a malformed
+  // argument: the host returns the present actors and connected locations in
+  // details. Classified terminal, the Keeper re-guessed the same refs twice
+  // and the chase family stayed at zero live settlements.
+  chase_candidate_invalid: [{
+    operation: "rules.settle",
+    action: "correct_model_arguments",
+    reason:
+      "choose pursuer_refs and quarry_refs from present_actor_refs and at "
+      + "least two location_refs from connected_location_refs, both returned "
+      + "in this error",
+    host_bound: false,
+  }],
+  // No opponent present is a state problem, not an argument problem: no ref
+  // the Keeper could pass would work until someone is there to give chase.
+  chase_no_present_opponent: [{
+    operation: "state.npc_presence",
+    action: "refresh_semantic_candidates",
+    reason:
+      "establish the pursuer in this scene before settling the chase, or "
+      + "settle it before the investigator leaves the scene they are fleeing",
+    host_bound: false,
+  }],
   unknown_combat_target: [{
     operation: "combat.context",
     action: "refresh_semantic_candidates",
@@ -674,6 +715,20 @@ const BUSINESS_PRECONDITION_ACTIONS: Record<string, readonly PiAllowedNextAction
     operation: "turn.output_context",
     action: "resume_pending_settlement",
     reason: "continue the exact pending turn settlement before another journal",
+    host_bound: true,
+  }],
+  // The canonical operation SUCCEEDED and its receipts are recorded; only the
+  // model-facing projection could not fit the transport budget. Telling the
+  // Keeper to "replay after narrowing" hands it an empty replay card, the
+  // identical retry is repeat-blocked, and the turn dead-ends with the state
+  // already advanced. The settled mechanics are readable from the turn's own
+  // receipts, so the way forward is to close the turn, not to settle again.
+  mcp_wire_budget_exceeded: [{
+    operation: "turn.output_context",
+    action: "read_recorded_settlement",
+    reason:
+      "the settlement is already recorded canonically; read this turn's "
+      + "receipts and continue the turn instead of settling again",
     host_bound: true,
   }],
   narration_review_required: [{
@@ -1350,10 +1405,7 @@ export function buildReviewedAgencyBinding(
     .sort((left, right) => left.obligation_id.localeCompare(right.obligation_id));
   const authorities: ReviewedAgencyAuthority[] = [{
     authority: "current-player-input",
-    claim_types: [
-      "voluntary_action", "voluntary_speech", "voluntary_plan",
-      "voluntary_belief", "voluntary_trust", "voluntary_active_emotion",
-    ],
+    claim_types: [...VOLUNTARY_CLAIM_TYPES],
     subject_ref: subjectRef,
     source_ref: playerSourceRef,
     override_id: null,
@@ -1817,7 +1869,7 @@ function validateReviewedAgencyBinding(
       || raw.allowed_reviewed_spans.length
         !== new Set(raw.allowed_reviewed_spans).size
       || ![
-        "fictional_beat", "concealed_no_player_visible_beat",
+        ...REALIZATION_VALUES,
       ].includes(String(raw.realization))
       || ![
         "host_safe_default_before_result", "canonical_repair_if_unsafe",
@@ -2504,11 +2556,7 @@ function projectReviewedCoverageSchema(
             ? { type: "string", minLength: 1 }
             : { type: ["string", "null"] },
       },
-      required: [
-        "obligation_ref", "reviewed_span", "realization",
-        "action_realization", "response", "causal_explanation", "persona_fit",
-        "player_input_handling", "exceptional_beat",
-      ],
+      required: [...MODEL_FACING_COVERAGE_FIELDS],
     };
   });
   schema.properties.coverage = {
@@ -2764,11 +2812,7 @@ export function bindRetainedTypedToolArguments(
       valid.reviewed_agency_binding.spans.map((row) => [row.reviewed_span, row]),
     );
     const seenCoverage = new Set<string>();
-    const coverageFields = [
-      "obligation_ref", "reviewed_span", "realization", "action_realization",
-      "response", "causal_explanation", "persona_fit",
-      "player_input_handling", "exceptional_beat",
-    ];
+    const coverageFields = [...MODEL_FACING_COVERAGE_FIELDS];
     const semanticString = (
       value: unknown,
       field: string,
@@ -3897,6 +3941,20 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["clue_id", "clue_ids", "npc_id", "npc_ids", "scene_id"],
     [],
   )],
+  // coc_capabilities carries no `operation` argument, so its identity key is
+  // the tool name the canonical envelope reports. Its wire block states the
+  // digest of the operation-contract archive it was projected from; that is
+  // host integrity evidence, details-only, never model content. Undeclared it
+  // was unknown evidence, and the first call of a clean install — the
+  // capability handshake itself — failed closed with
+  // semantic_identity_unavailable.
+  ["coc_capabilities", declaredIdentityTable(
+    [],
+    ["contract_archive_sha256"],
+    // A repository-relative evidence pointer, not a semantic id the Keeper
+    // can act on: host-only, so it stays in details and out of model content.
+    ["coc_source_coordinator_v1_grok_evidence_ref"],
+  )],
   // Supplied scenes are keyed by a bare `id` beside `scene_id`.
   ["steward.scene_supply", declaredIdentityTable(
     SCENE_SUPPLY_SEMANTIC_IDENTITY_FIELDS,
@@ -3975,9 +4033,14 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   // semantic_identity_unavailable at the KP.
   ["state.move_scene", declaredIdentityTable(
     [
-      "asset_root_id", "from_location_id", "from_scene_id", "scene_id",
-      "to_location_id", "to_scene_id",
+      "asset_root_id", "campaign_id", "from_location_id", "from_scene_id",
+      "scene_id", "to_location_id", "to_scene_id",
       ...SCENE_SUPPLY_SEMANTIC_IDENTITY_FIELDS,
+      // A scene keeps the source's own mentions under
+      // `scene.source_context_mentions`, each an entity kind plus its
+      // `ref_id`; the module projection writes them on every source-bound
+      // scene, so an undeclared ref_id failed the whole move closed.
+      "ref_id",
     ],
     [],
   )],
@@ -8135,8 +8198,8 @@ const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["presented_roll_ids", stringSet(["roll:"])],
   ["source_roll_id", stringSet(["roll:"])],
   ["source_ids", stringSet(["roll:"])],
-  ["obligation_id", stringSet(["roll:", "first-impression:", "sanity_bout:"])],
-  ["obligation_ids", stringSet(["roll:", "first-impression:", "sanity_bout:"])],
+  ["obligation_id", stringSet([...OBLIGATION_ID_PREFIXES])],
+  ["obligation_ids", stringSet([...OBLIGATION_ID_PREFIXES])],
   ["consuming_roll_id", stringSet(["roll:"])],
   ["resolution_roll_id", stringSet(["roll:"])],
   ["source_effect_id", stringSet(["roll:", "state:", "rule:", "check:", "narration_contract:", "effect:"])],
@@ -9040,9 +9103,8 @@ const RESTORE_ROLL_ARRAYS: ReadonlySet<string> = new Set([
 const OBLIGATION_ID_FIELDS: ReadonlySet<string> = new Set([
   "obligation_id", "obligation_ids", "required_obligation_ids",
 ]);
-const PYTHON_OBLIGATION_PREFIXES = [
-  "roll:", "first-impression:", "sanity_bout:",
-] as const;
+// Was a hand-copy of a TextGraph-owned vocabulary, under a name that said so.
+const PYTHON_OBLIGATION_PREFIXES = OBLIGATION_ID_PREFIXES;
 
 /** Coverage join keys must match Python's kind-prefixed obligation_id. */
 function toPythonObligationId(canonical: string): string {

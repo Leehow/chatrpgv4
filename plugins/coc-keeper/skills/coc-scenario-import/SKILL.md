@@ -347,6 +347,32 @@ uv run --frozen python plugins/coc-keeper/scripts/coc_module_reuse.py \
 is marked `progressive: true` and may not pass full
 `coc_scenario_compile --validate` until more packs fill multi-route clues.
 
+The same reachability lint reads a progressive scenario directory:
+
+```bash
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_projection.py \
+  lint --ir-dir .coc/campaigns/<id>/scenario
+```
+
+**Run it after the opening projection, not after the bind.** `scenario.bind_pdf`
+alone writes `scenario.json`, `clues.json`, `npcs.json`, `locations.json`,
+`keeper-secrets.json`, `timeline.json` and `handouts.json` — none of which this
+lint reads. It only becomes measurable once `coc_module_project.py skeleton`
+(or the opening deep projection) has written `story-graph.json`,
+`clue-graph.json` and `module-meta.json`. Check
+`summary.codes_measured` before reading anything else: `0` means the lint ran
+too early and measured nothing at all, which is not the same as finding
+nothing. `documents_present: []` says the same thing.
+
+On a skeleton most findings carry `completeness: pending-materialization`, which
+means **not built yet**, not broken — an edge into an unbuilt scene is expected
+while its `source_refs` still point at unparsed pages. `not-measured` means the
+scene was never parsed deeply enough for the check to mean anything, and only
+`dead` describes a complete scenario contradicting itself. Read the findings;
+never repair unfinished structure into invented content. The lint is a report,
+not a gate: it blocks no bind, projection, install, or play, and exits 0 with
+findings present.
+
 ### Cross-campaign reuse (no re-extract)
 
 ```bash
@@ -575,10 +601,40 @@ extraction retires per the unification spec's staged plan.
 4. 对 npc-agendas.json 跑 `coc_npc_roles.expand_from_dir`（按 relationship_to_investigators 注入 social_role，详见 references/compile-protocol.md）。
 5. 跑 `scripts/coc_scenario_compile.py --validate <dir>` 校验结构完整性。
 6. 校验报告的缺漏逐个补，直到 errors 为空。
-7. 写 player-safe recap + keeper-only recap。
-8. `coc_module_registry.py register` 写入模块库，并把当前 title/locale 记为 alias。
+7. 跑可达性 lint，把 findings 念给做 import 的人听：
+
+   ```bash
+   uv run --frozen python plugins/coc-keeper/scripts/coc_module_projection.py \
+     lint --ir-dir <scenario dir>
+   ```
+
+   它和第 5 步的 `--validate` **不是同一类东西**，不要合成一步：`--validate` 是结构
+   完整性闸门，errors 必须清零；lint 是一份**报告**，拿模组自己声明的东西
+   （`minimum_routes`、`importance`）跟 placements 实际提供的对账，findings 由人读、
+   由人判断。它不挡安装、建战役、注册模块库或开桌；有 findings 时 CLI 也**故意退出
+   码 0**，别把这条"修"成非零。finding ≠ 必须修的缺陷：先判断这个模组是不是真有那份
+   冗余，然后要么改声明、要么改 placement——为了凑数字凭空编一条线索是错误的修法。
+8. 写 player-safe recap + keeper-only recap。
+9. `coc_module_registry.py register` 写入模块库，并把当前 title/locale 记为 alias。
 
 关键约束：每个 critical conclusion 至少 3 条线索路径；keeper_secrets 与 player-safe 物理隔离。
+
+**`minimum_routes` 数的是线索条数，不是场景数。** 权威定义在
+`coc_scenario_compile.py --validate`（规则是 distinct clue_ids >=
+minimum_routes）和 `coc_belief_state.py`（玩家发现到这么多条线索，该结论才算被回答），
+schema 也把 `clues` 叫「线索路径数组」——在这套词汇里一条线索就是一条路径。
+字段名里的「routes」是个误导，不要照名字理解。满足这条规则由第 5 步的
+`--validate` 负责，lint 不重复查。
+
+lint 另外报一件 `--validate` 看不到的事：`conclusion-clues-share-one-scene`——
+某个结论有两条以上线索，但全部只能在同一个场景拿到。已提交的 The Haunting
+就有一处：`corbitt-house-documentary-history` 的三条线索全躺在 `central-library`、
+全在 Library Use 后面。它**合规**（声明 3、给了 3 条线索），但玩家没走到那个场景、
+或者那一次检定失败，三条会一起没。所以这是 `observation`，永远不是 defect，
+也**不要求**你去补第二条路线——编一条线索来凑数是错的修法。要不要给它第二个
+位置，是读的人根据模组本身判断。参考计数：`scene_independent_routes`（去重场景数）
+与 `context_independent_routes`（去重的 场景/delivery_kind/skill 三元组数），
+两个都只是事实，不参与任何对账。
 
 ## Product Identity 存储边界
 

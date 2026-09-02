@@ -1,0 +1,91 @@
+{
+  "case": "scene-unreachable-trigger",
+  "intent": "A compiled scene with no inbound edge is reached by no path from the start.",
+  "documents": {
+    "story-graph.json": {
+      "scenes": [
+        {
+          "scene_id": "scene-a",
+          "display_name": "Scene A",
+          "is_start": true,
+          "origin": "source",
+          "available_clues": [
+            "clue-a"
+          ],
+          "scene_edges": [
+            {
+              "to": "scene-b",
+              "kind": "travel",
+              "when": {
+                "kind": "narrative"
+              }
+            }
+          ]
+        },
+        {
+          "scene_id": "scene-b",
+          "display_name": "Scene B",
+          "is_final": true,
+          "origin": "source",
+          "available_clues": [
+            "clue-b"
+          ],
+          "scene_edges": []
+        },
+        {
+          "scene_id": "scene-c",
+          "display_name": "Scene C",
+          "is_final": true,
+          "origin": "source",
+          "available_clues": [],
+          "scene_edges": []
+        }
+      ]
+    },
+    "clue-graph.json": {
+      "conclusions": [
+        {
+          "conclusion_id": "conclusion-cellar-truth",
+          "importance": "core",
+          "minimum_routes": 2,
+          "origin": "source",
+          "clues": [
+            {
+              "clue_id": "clue-a",
+              "delivery_kind": "skill_check",
+              "origin": "source",
+              "skill": "Spot Hidden"
+            },
+            {
+              "clue_id": "clue-b",
+              "delivery_kind": "npc_question",
+              "origin": "source"
+            }
+          ]
+        }
+      ]
+    },
+    "module-meta.json": {
+      "schema_version": 1,
+      "scenario_id": "fx-scene-unreachable",
+      "title": "fx-scene-unreachable",
+      "structure_type": "branching_investigation"
+    }
+  },
+  "expect": {
+    "findings": [
+      {
+        "code": "scene-unreachable",
+        "subject_id": "scene-c",
+        "subject_kind": "scene",
+        "severity": "observation",
+        "completeness": "dead",
+        "related_ids": []
+      }
+    ],
+    "codes_not_measured": [
+      "front-scene-unknown",
+      "quest-destination-unknown"
+    ]
+  }
+}

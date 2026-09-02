@@ -335,6 +335,23 @@ export function attachedUiEnabled(
   return value === "1" || value === "true";
 }
 
+/** A DebugExperiment lane drives its own resume prompt.
+
+The host normally hands a resuming session a startup instruction that tells
+the Keeper how to branch on the resume result. A debug lane sends its own
+prompt first ("resume, stop at awaiting_player"), so the two instructions
+compete and the Keeper follows the host's: on a campaign with history it
+reads skill docs, discovers tools, re-reads the scene and opens an output
+context — four round trips and the whole lane budget — before the lane can
+seed anything. Diagnostic lanes therefore suppress the host instruction and
+own the resume themselves. Never set this for a real table.
+*/
+export function debugLaneEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return env.PI_COC_DEBUG_LANE === "1";
+}
+
 export function registerCocWelcome(
   pi: ExtensionAPI,
   getClient: (ctx: ExtensionContext) => McpJsonlClient,
@@ -440,6 +457,10 @@ export function registerCocWelcome(
     // not auto-open (triggerTurn would block the prompt channel). The web /
     // Electron UI sets COC_PI_ATTACHED_UI=1 because it *is* the player.
     const attachedUi = attachedUiEnabled();
+    if (debugLaneEnabled()) {
+      // The lane's own prompt is the only instruction this session gets.
+      return;
+    }
     const mayAutoOpen = (
       (ctx.mode === "tui" || attachedUi)
       && shouldAutoOpenTable(reason, fresh, {

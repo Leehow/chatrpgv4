@@ -65,6 +65,11 @@ def main() -> int:
             if mode == "preflight-read":
                 tool("read")
             tool("coc_scene_context" if mode == "wrong-resume" else "coc_session_resume")
+            if mode == "resume-plays-a-turn":
+                # The Keeper ignores "stop at awaiting_player" and journals a
+                # turn of its own invention during the resume phase.
+                tool("coc_state_journal")
+                tool("coc_turn_finalize", rendered_text="他自己演了一回合。")
             emit({"type": "agent_end", "willRetry": False})
             emit({"type": "agent_settled"})
             resumed = True
