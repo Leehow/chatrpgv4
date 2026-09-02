@@ -329,7 +329,15 @@ function canonicalLinkSetupResult(
   };
 }
 
-function guidedQuickFireCreateParams(campaignId, investigatorId) {
+// The Quick-Fire create must quote the canonical Luck receipt: its `roll_id`
+// is the semantic form the roll returned, never machine-attached identity
+// material (a `toolbox-` namespace is refused as opaque_identity_grammar,
+// because the model never authors one). `luck` accepts a live rules.roll_dice
+// result so a fixture that actually rolls binds to that exact receipt.
+function guidedQuickFireCreateParams(campaignId, investigatorId, luck = null) {
+  const luckDecisionId = luck?.decision_id ?? `luck-${investigatorId}`;
+  const luckRollId = luck?.roll_id ?? "roll:3d6";
+  const luckTotal = Number.isInteger(luck?.total) ? luck.total : 12;
   return {
     operation: "setup.invoke",
     campaign: campaignId,
@@ -345,11 +353,11 @@ function guidedQuickFireCreateParams(campaignId, investigatorId) {
           characteristic_assignment_order: [
             "DEX", "INT", "POW", "EDU", "CON", "SIZ", "APP", "STR",
           ],
-          luck_roll_total: 12,
+          luck_roll_total: luckTotal,
           luck_roll_receipt: {
             campaign_id: campaignId,
-            decision_id: `luck-${investigatorId}`,
-            roll_id: `toolbox-${campaignId}-${investigatorId}`,
+            decision_id: luckDecisionId,
+            roll_id: luckRollId,
           },
         },
       },
@@ -2456,7 +2464,9 @@ async function exerciseFailureDrain(mode) {
     operation: "state.move_scene",
     root,
     campaign: campaignId,
-    arguments: { scene_id: "source-gap", decision_id: "seam-move" },
+    // `decision_id` is host-owned for state.move_scene (49aab6ae): the model
+    // surface refuses one, and the host attaches the destination-named key.
+    arguments: { scene_id: "source-gap" },
   };
   const moveHandled = supply.observeCanonical(
     "state.move_scene",
@@ -2631,7 +2641,8 @@ async function exerciseFailureDrain(mode) {
       operation: "state.move_scene",
       root,
       campaign: campaignId,
-      arguments: { scene_id: "source-gap", decision_id: "move-priority" },
+      // Host-owned key: the model surface carries only the destination.
+      arguments: { scene_id: "source-gap" },
     },
     undefined,
     undefined,
@@ -3400,7 +3411,7 @@ async function exerciseFailureDrain(mode) {
         campaign: "auto-dispatch-fixture",
         arguments: {
           expression: "3D6",
-          decision_id: "not-creation-dice",
+          decision_id: "roll-not-creation-dice",
           reason: "ordinary random event",
         },
       },
@@ -3511,7 +3522,7 @@ async function exerciseFailureDrain(mode) {
         campaign: "auto-dispatch-fixture",
         arguments: {
           expression: "3D6",
-          decision_id: "post-current-luck-detour",
+          decision_id: "roll-post-current-luck-detour",
           purpose: "investigator_creation_luck",
           reason: "Quick-Fire investigator Luck",
         },
@@ -3590,7 +3601,7 @@ async function exerciseFailureDrain(mode) {
           text: "[in_game]\n来源约束下的准确开场。\n[/in_game]",
           run_id: "source-opening-run",
           presented_roll_ids: [],
-          decision_id: "source-opening-evidence",
+          decision_id: "roll-source-opening-evidence",
         },
       },
       undefined,
@@ -5105,7 +5116,7 @@ async function exerciseFailureDrain(mode) {
       campaign: campaignId,
       arguments: {
         expression: "3D6",
-        decision_id: "resume-empty-party-luck",
+        decision_id: "roll-resume-empty-party-luck",
         purpose: "investigator_creation_luck",
         reason: "Quick-Fire investigator Luck",
       },
@@ -5148,7 +5159,10 @@ async function exerciseFailureDrain(mode) {
     "coc_invoke",
   ).execute(
     "resume-empty-party-create",
-    guidedQuickFireCreateParams(campaignId, investigatorId),
+    guidedQuickFireCreateParams(campaignId, investigatorId, {
+      ...luck.data,
+      decision_id: "roll-resume-empty-party-luck",
+    }),
     undefined,
     undefined,
     harness.ctx,
@@ -5200,7 +5214,7 @@ async function exerciseFailureDrain(mode) {
         text: openingText,
         run_id: "resume-empty-party-run",
         presented_roll_ids: [],
-        decision_id: "resume-empty-party-opening",
+        decision_id: "record-resume-empty-party-opening",
       },
     },
     undefined,
@@ -6162,7 +6176,7 @@ for (const terminalCase of [
         text: "[in_game]\n来源约束下的准确开场。\n[/in_game]",
         run_id: "current-before-link-run",
         presented_roll_ids: [],
-        decision_id: "current-before-link-evidence",
+        decision_id: "roll-current-before-link-evidence",
       },
     }, "current-before-link-evidence") === null);
 }
@@ -6302,7 +6316,7 @@ for (const terminalCase of [
     campaign: campaignId,
     arguments: {
       expression: "3D6",
-      decision_id: "submitting-overlap-luck",
+      decision_id: "roll-submitting-overlap-luck",
       purpose: "investigator_creation_luck",
     },
   };
@@ -6332,7 +6346,7 @@ for (const terminalCase of [
           luck_roll_total: 12,
           luck_roll_receipt: {
             campaign_id: campaignId,
-            decision_id: "submitting-overlap-luck",
+            decision_id: "roll-submitting-overlap-luck",
             roll_id: "toolbox-submitting-overlap-000001",
           },
         },
@@ -6460,7 +6474,7 @@ for (const terminalCase of [
     luck_roll_total: 12,
     luck_roll_receipt: {
       campaign_id: campaignId,
-      decision_id: "submitting-overlap-luck",
+      decision_id: "roll-submitting-overlap-luck",
       roll_id: "toolbox-submitting-overlap-000001",
       total: 12,
     },
@@ -6722,7 +6736,7 @@ for (const terminalCase of [
           luck_roll_total: 12,
           luck_roll_receipt: {
             campaign_id: "terminal-before-link",
-            decision_id: "terminal-before-link-luck",
+            decision_id: "roll-terminal-before-link-luck",
             roll_id: "toolbox-terminal-before-link-000001",
           },
         },
@@ -7094,7 +7108,7 @@ for (const terminalCase of [
           luck_roll_total: 12,
           luck_roll_receipt: {
             campaign_id: "campaign-a",
-            decision_id: "campaign-a-luck",
+            decision_id: "roll-campaign-a-luck",
             roll_id: "toolbox-campaign-a-000001",
           },
         },

@@ -2191,7 +2191,7 @@ def _render_public_roll(
     terms: dict[str, str] | None = None,
 ) -> str:
     language = play_language or coc_language.DEFAULT_PLAY_LANGUAGE
-    chrome = coc_language.table_mechanics_labels(language)
+    chrome = coc_language.table_mechanics_labels(language, terms=terms)
     vocabulary = terms if terms is not None else coc_language.resolved_localized_terms(language)
     tag = chrome.get("public_check_tag", "Public roll")
     view = coc_roll.player_facing_roll_view(raw)
@@ -2330,10 +2330,13 @@ def _render_public_roll(
 
 
 def _render_state_delta(
-    effect: dict[str, Any], *, play_language: str | None = None
+    effect: dict[str, Any],
+    *,
+    play_language: str | None = None,
+    terms: dict[str, str] | None = None,
 ) -> str:
     language = play_language or coc_language.DEFAULT_PLAY_LANGUAGE
-    chrome = coc_language.table_mechanics_labels(language)
+    chrome = coc_language.table_mechanics_labels(language, terms=terms)
     tag = chrome.get("change_tag", "Change")
     kind = effect["effect_kind"]
     if kind == "scalar":
@@ -2354,35 +2357,40 @@ def _render_state_delta(
         )
         return f"【{tag}】{phase_l}：{label}"
     if kind == "rest":
-        if language == "zh-Hans" or language.startswith("zh"):
-            reset = "；理智日计数已重置" if effect.get("sanity_day_reset") else ""
-            return f"【{tag}】休息：完成安全的整夜睡眠{reset}"
-        reset = (
-            f"; {_resource_display_map().get('san', 'SAN')} day counter reset"
-            if effect.get("sanity_day_reset") else ""
-        )
-        return f"【{tag}】rest: completed a safe full sleep{reset}"
+        reset = ""
+        if effect.get("sanity_day_reset"):
+            try:
+                san_label = _resource_display_map().get("san", "SAN")
+            except ValueError:
+                san_label = "SAN"
+            reset = chrome.get(
+                "rest_reset", "; {san} day counter reset"
+            ).format(san=san_label)
+        body = chrome.get("rest_delta", "rest: completed a safe full sleep{reset}")
+        return f"【{tag}】" + body.format(reset=reset)
     if kind == "item":
         action_key = str(effect.get("action") or "")
         if action_key in {"used", "consumed"}:
-            count = effect.get("count")
-            remaining = effect.get("remaining")
-            if language == "zh-Hans" or language.startswith("zh"):
-                action = "用尽" if action_key == "consumed" else "使用"
-                return (
-                    f"【{tag}】物品：{action}「{effect['label']}」×{count}"
-                    f"（剩余 {remaining}）"
-                )
-            action = "used up" if action_key == "consumed" else "used"
-            return (
-                f"【{tag}】item: {action} “{effect['label']}” ×{count}"
-                f" (remaining {remaining})"
+            action = chrome.get(
+                "item_action_consumed" if action_key == "consumed" else "item_action_used",
+                "used up" if action_key == "consumed" else "used",
             )
-        if language == "zh-Hans" or language.startswith("zh"):
-            action = "获得" if action_key == "acquired" else "失去"
-            return f"【{tag}】物品：{action}「{effect['label']}」"
-        action = "gained" if action_key == "acquired" else "lost"
-        return f"【{tag}】item: {action} “{effect['label']}”"
+            body = chrome.get(
+                "item_count_delta",
+                "item: {action} \u201c{label}\u201d \u00d7{count} (remaining {remaining})",
+            )
+            return f"【{tag}】" + body.format(
+                action=action,
+                label=effect["label"],
+                count=effect.get("count"),
+                remaining=effect.get("remaining"),
+            )
+        action = chrome.get(
+            "item_action_acquired" if action_key == "acquired" else "item_action_lost",
+            "gained" if action_key == "acquired" else "lost",
+        )
+        body = chrome.get("item_simple_delta", "item: {action} \u201c{label}\u201d")
+        return f"【{tag}】" + body.format(action=action, label=effect["label"])
     if kind == "cash":
         amount = effect.get("amount")
         currency = effect.get("currency")
@@ -2480,32 +2488,44 @@ def _render_state_delta(
             body += f"{reason_sep}{reason}"
         return body
     if kind == "condition":
-        if language == "zh-Hans" or language.startswith("zh"):
-            action = "新增" if effect["action"] == "added" else "解除"
-            return f"【{tag}】状态：{action}「{effect['condition']}」"
-        action = "added" if effect["action"] == "added" else "cleared"
-        return f"【{tag}】condition: {action} “{effect['condition']}”"
+        added = effect["action"] == "added"
+        action = chrome.get(
+            "condition_action_added" if added else "condition_action_cleared",
+            "added" if added else "cleared",
+        )
+        body = chrome.get(
+            "condition_delta", "condition: {action} \u201c{condition}\u201d"
+        )
+        return f"【{tag}】" + body.format(action=action, condition=effect["condition"])
     if kind == "loaded_ammunition":
         delta = effect["change"]
-        if language == "zh-Hans" or language.startswith("zh"):
-            action = f"装填 {delta} 发" if delta > 0 else f"消耗 {-delta} 发"
-            return (
-                f"【{tag}】当前弹匣·{effect['weapon_label']}：{effect['before']} → "
-                f"{effect['after']}（{action}；不含未建账的备用弹药）"
-            )
-        action = f"load {delta}" if delta > 0 else f"expend {-delta}"
-        return (
-            f"【{tag}】magazine·{effect['weapon_label']}: {effect['before']} → "
-            f"{effect['after']} ({action}; excludes untracked spare ammo)"
+        loading = delta > 0
+        action = chrome.get(
+            "ammo_action_load" if loading else "ammo_action_expend",
+            "load {count}" if loading else "expend {count}",
+        ).format(count=delta if loading else -delta)
+        body = chrome.get(
+            "ammo_delta",
+            "magazine\u00b7{weapon}: {before} \u2192 {after} "
+            "({action}; excludes untracked spare ammo)",
+        )
+        return f"【{tag}】" + body.format(
+            weapon=effect["weapon_label"],
+            before=effect["before"],
+            after=effect["after"],
+            action=action,
         )
     raise TurnContractError("state_corrupt", f"unknown player state delta kind: {kind}")
 
 
 def _render_exceptional_effect(
-    effect: dict[str, Any], *, play_language: str | None = None
+    effect: dict[str, Any],
+    *,
+    play_language: str | None = None,
+    terms: dict[str, str] | None = None,
 ) -> str:
     language = play_language or coc_language.DEFAULT_PLAY_LANGUAGE
-    chrome = coc_language.table_mechanics_labels(language)
+    chrome = coc_language.table_mechanics_labels(language, terms=terms)
     zh = language == "zh-Hans" or language.startswith("zh")
     if zh:
         kind_labels = {
@@ -3210,11 +3230,11 @@ def _mechanic_source_lines(
     for effect in bundle.get("state_delta") or []:
         bucket = "asset_delta" if _is_asset_effect(effect) else "state_delta"
         sources[bucket][str(effect["effect_id"])] = _render_state_delta(
-            effect, play_language=language
+            effect, play_language=language, terms=terms
         )
     for effect in bundle.get("exceptional_effect") or []:
         sources["exceptional_effect"][str(effect["event_id"])] = (
-            _render_exceptional_effect(effect, play_language=language)
+            _render_exceptional_effect(effect, play_language=language, terms=terms)
         )
     return sources
 

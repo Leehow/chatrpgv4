@@ -49,6 +49,21 @@ const lifecycleClient = {
 const lifecycleAgentDir = mkdtempSync(
   resolve(tmpdir(), "pi-coc-welcome-smoke-"),
 );
+// The table-open instruction is a JSON document whose `instruction` embeds
+// the exact registered tool call as an escaped JSON string, so a raw
+// substring search for `"operation":"session.resume"` misses it by one level
+// of escaping. Read the structure instead: the document names the first
+// campaign operation, and the embedded call must be that same resume.
+const opensWithSessionResume = (entry) => {
+  if (entry?.options?.triggerTurn !== true) return false;
+  let parsed = null;
+  try {
+    parsed = JSON.parse(String(entry?.message?.content ?? ""));
+  } catch { return false; }
+  return parsed?.first_campaign_operation === "session.resume"
+    && String(parsed?.instruction ?? "").includes('"operation":"session.resume"');
+};
+
 let startupInstructionTriggered = false;
 let resumedHiddenResumeInstruction = false;
 let loadingFirst = false;
@@ -92,12 +107,7 @@ try {
   const tableOpenEntry = lifecycleSent.find((entry) => (
     entry.message.customType === mod.TABLE_OPEN_CUSTOM_TYPE
   ));
-  startupInstructionTriggered = (
-    tableOpenEntry?.options?.triggerTurn === true
-    && tableOpenEntry?.message?.content.includes(
-      '"operation":"session.resume"',
-    )
-  );
+  startupInstructionTriggered = opensWithSessionResume(tableOpenEntry);
 
   lifecycleSent.length = 0;
   await startWelcome(
@@ -122,12 +132,7 @@ try {
   const resumedEntry = lifecycleSent.find((entry) => (
     entry.message.customType === mod.TABLE_OPEN_CUSTOM_TYPE
   ));
-  resumedHiddenResumeInstruction = (
-    resumedEntry?.options?.triggerTurn === true
-    && resumedEntry?.message?.content.includes(
-      '"operation":"session.resume"',
-    )
-  );
+  resumedHiddenResumeInstruction = opensWithSessionResume(resumedEntry);
   const rpcPi = {
     registerCommand: () => {},
     sendMessage: (message, options) => {

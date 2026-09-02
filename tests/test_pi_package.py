@@ -1929,7 +1929,11 @@ def test_pi_coc_user_can_re_enable_update_checks(tmp_path: Path):
 def test_revision_component_chain_bindings_activation_roles_and_secrets():
     result = _node(ROOT / "tests/pi/revision-probe.mjs", str(ROOT))
     assert result["strictHappy"] == "usable"
+    # A leaf's status is its own verdict: an abstain fails validation instead
+    # of being rewritten into fulfilled coverage. Machine ids the model should
+    # never transcribe are corrected from task truth instead of refused.
     assert all(result["rejects"].values())
+    assert all(result["corrected"].values())
     assert result["lifecycle"] == {
         "schema_version": 1,
         "contract_id": "coc.source-coordinator-result.v1",
@@ -2104,8 +2108,11 @@ def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
             "stage": "validation",
             "failure_class": "leaf_result_invalid",
             "diagnostic": {
-                "code": "leaf_result_packet_binding_drift",
-                "path": "$.packet_id|$.work_group_id",
+                # Packet and work-group bindings are injected from task
+                # truth under the Model-Facing Identifier Law, so the drift
+                # that still surfaces is the job binding.
+                "code": "leaf_result_job_binding_drift",
+                "path": "$.results[].job_id",
             },
         },
         {"kind": "failure", "stage": "activation", "failure_class": "leaf_dispatch_failed"},
@@ -2297,6 +2304,20 @@ def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
             "continuation_class": "blocking_opening",
             "dispatch_class": "blocking_opening",
             "player_turn_epoch": 1,
+            # Host control travels in one coc.pi-system-instruction.v1
+            # envelope, so every hidden continuation carries its declaration
+            # beside the receipt fields.
+            "schema_version": 1,
+            "contract_id": "coc.pi-system-instruction.v1",
+            "kind": "system_instruction",
+            "audience": "keeper_only",
+            "source_type": "coc-source-coordinator-terminal-continuation",
+            "instruction": (
+                "Consume this exact terminal dependency receipt through its "
+                "documented continuation; it is host control, not player input."
+            ),
+            "player_input": False,
+            "journal_policy": "never",
         },
         "details": {
             "dispatch_key": "coord-manager",
@@ -2307,6 +2328,20 @@ def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
             "continuation_class": "blocking_opening",
             "dispatch_class": "blocking_opening",
             "player_turn_epoch": 1,
+            # Host control travels in one coc.pi-system-instruction.v1
+            # envelope, so every hidden continuation carries its declaration
+            # beside the receipt fields.
+            "schema_version": 1,
+            "contract_id": "coc.pi-system-instruction.v1",
+            "kind": "system_instruction",
+            "audience": "keeper_only",
+            "source_type": "coc-source-coordinator-terminal-continuation",
+            "instruction": (
+                "Consume this exact terminal dependency receipt through its "
+                "documented continuation; it is host control, not player input."
+            ),
+            "player_input": False,
+            "journal_policy": "never",
         },
         "customTypes": [
             "coc-source-coordinator-terminal",
@@ -2410,6 +2445,19 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
                 "continuation_class": "blocking_opening",
                 "dispatch_class": "blocking_opening",
                 "player_turn_epoch": 2,
+                # One coc.pi-system-instruction.v1 envelope carries every
+                # host control message, receipt fields included.
+                "schema_version": 1,
+                "contract_id": "coc.pi-system-instruction.v1",
+                "kind": "system_instruction",
+                "audience": "keeper_only",
+                "source_type": "coc-source-coordinator-terminal-continuation",
+                "instruction": (
+                    "Consume this exact terminal dependency receipt through its "
+                    "documented continuation; it is host control, not player input."
+                ),
+                "player_input": False,
+                "journal_policy": "never",
             },
             "details": {
                 "dispatch_key": "coord-player-boundary",
@@ -2420,6 +2468,19 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
                 "continuation_class": "blocking_opening",
                 "dispatch_class": "blocking_opening",
                 "player_turn_epoch": 2,
+                # One coc.pi-system-instruction.v1 envelope carries every
+                # host control message, receipt fields included.
+                "schema_version": 1,
+                "contract_id": "coc.pi-system-instruction.v1",
+                "kind": "system_instruction",
+                "audience": "keeper_only",
+                "source_type": "coc-source-coordinator-terminal-continuation",
+                "instruction": (
+                    "Consume this exact terminal dependency receipt through its "
+                    "documented continuation; it is host control, not player input."
+                ),
+                "player_input": False,
+                "journal_policy": "never",
             },
             "leaksPrivate": False,
             "report": {
@@ -2576,7 +2637,10 @@ def test_pi_empty_terminal_recovery_is_bounded_and_fail_closed():
             "recoveryOptions": {"triggerTurn": True, "deliverAs": "followUp"},
             "recoveryHidden": True,
             "recoveryDetails": {
-                "kind": "empty_terminal_recovery",
+                # One system-instruction envelope carries every host control
+                # message; the payload's own kind is context_kind.
+                "kind": "system_instruction",
+                "contextKind": "empty_terminal_recovery",
                 "playerTurnEpoch": 1,
             },
             "recoveryAppended": 1,
@@ -2670,6 +2734,8 @@ def test_pi_mechanical_output_gate_intercepts_unbound_markers():
         "gate": {
             "noReceiptIntercepted": True,
             "noReceiptEnvelope": {
+                # Read straight off the gate, before the host wraps it for
+                # delivery, so this one keeps its own kind.
                 "kind": "mechanical_output_gate",
                 "status": "intercepted",
                 "action": "execute_then_render",
@@ -2711,7 +2777,15 @@ def test_pi_mechanical_output_gate_intercepts_unbound_markers():
             "options": {"triggerTurn": True, "deliverAs": "followUp"},
             "contentParsed": {
                 "schema_version": 1,
-                "kind": "mechanical_output_gate",
+                # Host control travels in one coc.pi-system-instruction.v1
+                # envelope; the gate's own kind is context_kind.
+                "kind": "system_instruction",
+                "context_kind": "mechanical_output_gate",
+                "contract_id": "coc.pi-system-instruction.v1",
+                "audience": "keeper_only",
+                "source_type": "coc-mechanical-output-gate",
+                "player_input": False,
+                "journal_policy": "never",
                 "status": "intercepted",
                 "player_turn_epoch": 1,
                 "uncovered_markers": [
@@ -2747,11 +2821,15 @@ def test_pi_mechanical_output_gate_intercepts_unbound_markers():
                     },
                 ],
                 "action": "execute_then_render",
+                # The gate teaches the post-cutover route: checks and rolls go
+                # through rules.context/rules.settle, not the retired
+                # rules.roll / rules.opposed / sanity.execute.
                 "instruction": (
                     "你的上一条输出包含正式机械标记（【明骰】／掷骰：N／SAN·HP 数值转移），"
                     "但本回合没有对应的权威收据，已被门禁拦截、未送达玩家。"
-                    "机械数字只能来自规则/状态收据：先经 coc_rules / coc_state 执行——骰点走 "
-                    "rules.roll / rules.opposed / sanity.execute / rules.damage 等并取得返回的 "
+                    "机械数字只能来自规则/状态收据：先经 coc_rules / coc_state 执行——检定与骰点走 "
+                    "rules.context 取当前决策卡并以 rules.settle 结算（rules.damage 等仍在 rules 面"
+                    "的操作同理），取得返回的 "
                     "roll_id，结算与 SAN/HP 落账走 state.* 并取得 decision_id——"
                     "再按收据数字渲染正式标记；禁止凭叙述编造或推算骰点与数值变动。"
                     "执行完成后重新输出即可放行。"
@@ -2801,68 +2879,157 @@ def test_real_pi_gateway_uses_canonical_finalizer_string_digest():
     result = _node(ROOT / "tests/pi/finalization-gateway.mjs", str(ROOT))
     assert result == {
         "piVersion": "0.81.1",
+        # The probe drives the post-cutover route end to end: it boots the
+        # host (capabilities, startup resume, memory status), settles an
+        # ordinary check through rules.settle, and finalizes from that
+        # receipt — twice, for two turns. The retired rules.roll/state.journal
+        # pair it used before is gone from the model surface.
         "gatewayCalls": [
-            {
-                "name": "coc_invoke",
-                "params": {
-                    "operation": "state.journal",
-                    "campaign": "hoyk-pi-grok-fix7-20260727",
-                    "arguments": {},
+        {
+            "name": "coc_capabilities",
+            "params": {}
+        },
+        {
+            "name": "coc_invoke",
+            "params": {
+                "operation": "session.resume",
+                "campaign": "hoyk-pi-grok-fix7-20260727",
+                "arguments": {
+                    "host_session_id": "finalization-gateway-probe"
                 },
-            },
-            {
-                "name": "coc_invoke",
-                "params": {
-                    "operation": "turn.finalize",
-                    "campaign": "hoyk-pi-grok-fix7-20260727",
-                    "arguments": {
-                        "revision": 1,
-                        "narration_review_id": "narration-review-v1:probe",
-                        "agency_claims": [{
+                "root": "/Users/haoli/leehow/code/chatrpgv4"
+            }
+        },
+        {
+            "name": "coc_invoke",
+            "params": {
+                "operation": "memory.extraction_status",
+                "campaign": "hoyk-pi-grok-fix7-20260727",
+                "arguments": {}
+            }
+        },
+        {
+            "name": "coc_invoke",
+            "params": {
+                "operation": "rules.settle",
+                "campaign": "hoyk-pi-grok-fix7-20260727",
+                "arguments": {
+                    "decision_ref": "decision:coc7:core-check:ordinary-check",
+                    "decision_id": "roll-finalization-gw-probe",
+                    "semantic_inputs": {
+                        "skill": "侦查",
+                        "difficulty": "regular",
+                        "difficulty_basis": "keeper_judgment",
+                        "goal": "找到火漆封印并读出内容",
+                        "stakes": {
+                            "on_success": "封印读出",
+                            "on_failure": "封印拒绝开口"
+                        },
+                        "bonus": 0,
+                        "penalty": 0
+                    }
+                },
+                "root": "/Users/haoli/leehow/code/chatrpgv4"
+            }
+        },
+        {
+            "name": "coc_invoke",
+            "params": {
+                "operation": "turn.finalize",
+                "campaign": "hoyk-pi-grok-fix7-20260727",
+                "arguments": {
+                    "draft": "你接过那份蜡封卷轴；火漆在指尖碎裂，屋里仍黑着。",
+                    "coverage": [
+                        {
+                            "obligation_id": "roll:toolbox-finalization-gw-000001",
+                            "player_input_handling": "abstract_completed",
+                            "realization": "fictional_beat",
+                            "exact_excerpt": "你接过那份蜡封卷轴",
+                            "action_realization": "卷轴入手，蜡封碎裂",
+                            "causal_explanation": "侦查成功后你注意并取走了卷轴",
+                            "exceptional_beat": None,
+                            "persona_fit": None,
+                            "response": None
+                        }
+                    ],
+                    "agency_claims": [
+                        {
                             "claim_id": "claim-probe",
-                            "subject_ref": "pc:probe",
+                            "subject_ref": "pc:inv-finalization-probe-1",
                             "claim_type": "voluntary_action",
                             "exact_excerpt": "你接过那份蜡封卷轴",
-                            "source_ref": "player_input:probe",
-                            "override_id": None,
-                        }],
-                    },
+                            "source_ref": "narration_contract:probe",
+                            "override_id": None
+                        }
+                    ]
                 },
-            },
-            {
-                "name": "coc_invoke",
-                "params": {
-                    "operation": "state.journal",
-                    "campaign": "hoyk-pi-grok-fix7-20260727",
-                    "arguments": {},
+                "root": "/Users/haoli/leehow/code/chatrpgv4"
+            }
+        },
+        {
+            "name": "coc_invoke",
+            "params": {
+                "operation": "rules.settle",
+                "campaign": "hoyk-pi-grok-fix7-20260727",
+                "arguments": {
+                    "decision_ref": "decision:coc7:core-check:ordinary-check",
+                    "decision_id": "roll-finalization-gw-probe-new-turn",
+                    "semantic_inputs": {
+                        "skill": "侦查",
+                        "difficulty": "regular",
+                        "difficulty_basis": "keeper_judgment",
+                        "goal": "新回合再次核对封印",
+                        "stakes": {
+                            "on_success": "封印读出",
+                            "on_failure": "封印拒绝开口"
+                        },
+                        "bonus": 0,
+                        "penalty": 0
+                    }
                 },
-            },
-            {
-                "name": "coc_invoke",
-                "params": {
-                    "operation": "turn.finalize",
-                    "campaign": "hoyk-pi-grok-fix7-20260727",
-                    "arguments": {
-                        "revision": 1,
-                        "narration_review_id": "narration-review-v1:probe",
-                        "agency_claims": [{
+                "root": "/Users/haoli/leehow/code/chatrpgv4"
+            }
+        },
+        {
+            "name": "coc_invoke",
+            "params": {
+                "operation": "turn.finalize",
+                "campaign": "hoyk-pi-grok-fix7-20260727",
+                "arguments": {
+                    "draft": "你接过那份蜡封卷轴；火漆在指尖碎裂，屋里仍黑着。",
+                    "coverage": [
+                        {
+                            "obligation_id": "roll:toolbox-finalization-gw-000002",
+                            "player_input_handling": "abstract_completed",
+                            "realization": "fictional_beat",
+                            "exact_excerpt": "你接过那份蜡封卷轴",
+                            "action_realization": "卷轴入手，蜡封碎裂",
+                            "causal_explanation": "侦查成功后你注意并取走了卷轴",
+                            "exceptional_beat": None,
+                            "persona_fit": None,
+                            "response": None
+                        }
+                    ],
+                    "agency_claims": [
+                        {
                             "claim_id": "claim-probe",
-                            "subject_ref": "pc:probe",
+                            "subject_ref": "pc:inv-finalization-probe-1",
                             "claim_type": "voluntary_action",
                             "exact_excerpt": "你接过那份蜡封卷轴",
-                            "source_ref": "player_input:probe",
-                            "override_id": None,
-                        }],
-                    },
+                            "source_ref": "narration_contract:probe",
+                            "override_id": None
+                        }
+                    ]
                 },
-            },
-        ],
+                "root": "/Users/haoli/leehow/code/chatrpgv4"
+            }
+        }
+    ],
         "gatewayEnvelope": {
             "ok": True,
             "tool": "turn.finalize",
-            "canonicalOperation": "turn.finalize",
             "renderedTextExact": True,
-            "renderedDigestExact": True,
+            "machineFieldsHiddenFromModelView": True,
         },
         "digest": {
             "receipt": (
@@ -2883,19 +3050,25 @@ def test_real_pi_gateway_uses_canonical_finalizer_string_digest():
         "exactVisible": True,
         "redundantSuppressed": True,
         "queuedCustomObserved": True,
+        # A forged receipt digest is refused by the host and neither the
+        # exact nor the follow-up delivery reaches the player.
         "rawGatewayRejected": {
-            "exactVisible": False,
-            "followUpVisible": False,
+            "code": "finalization_receipt_invalid",
+            "exactSuppressed": True,
+            "followUpSuppressed": True,
         },
     }
 
 
 def test_pi_gateway_accepts_only_object_or_plain_object_json_arguments():
     result = _node(ROOT / "tests/pi/invoke-string-arguments.mjs", str(ROOT))
+    # The registered envelope is one operation-discriminated schema, so its
+    # branch count tracks the operation surface and is not pinned here.
+    assert isinstance(result.pop("branchCount"), int)
     assert result == {
-        "schemaTypes": ["object", "string"],
+        "discriminated": True,
         "stringifiedDeliveredExact": True,
-        "objectPathIdentityUnchanged": True,
+        "objectPathForwardedExactly": True,
         "stringResultOk": True,
         "objectResultOk": True,
         "malformedRetainedAdoptRecovered": True,
@@ -2955,6 +3128,11 @@ def test_pi_gateway_projects_development_end_session_semantics():
         "developmentStatus": "PASS",
         "mechanicsComplete": True,
         "opaqueFieldsAbsent": True,
+        # The cutover ends a session through rules.settle, so the probe also
+        # proves the settle-first path replays safely and that an undeclared
+        # identity fails the whole envelope closed rather than leaking.
+        "rulesSettleFirstAndReplaySafe": True,
+        "unknownIdentityFailureCode": "semantic_identity_unavailable",
     }
 
 

@@ -118,8 +118,13 @@ def test_play_prompt_has_contract_driven_single_draft_finalize_guidance() -> Non
 
 def test_play_prompt_gives_the_exact_ending_closure_chain() -> None:
     play = PLAY.read_text(encoding="utf-8")
-    assert "state.end_session` → `state.journal` → `turn.output_context` → `turn.finalize" in play
-    assert "Never call `turn.finalize` directly after `state.end_session`" in play
+    # 3d8125ea: state.end_session is host-private since the ten-family
+    # cutover, so the ending is settled as the development end-session card.
+    assert "`decision:coc7:development:end-session` card" in play
+    assert "`development`, then `rules.settle`) → `state.journal` →" in play
+    assert "`turn.output_context` → `turn.finalize`" in play
+    assert "`turn.finalize` directly after that settlement" in play
+    assert "state.end_session" not in play
 
 
 def test_setup_guided_chargen_forbids_first_turn_delegate() -> None:

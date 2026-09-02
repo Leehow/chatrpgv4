@@ -1375,10 +1375,14 @@ process.stdout.write(JSON.stringify({
   gatewayEnvelope: {
     ok: returnedEnvelope.ok,
     tool: returnedEnvelope.tool,
-    canonicalOperation: returnedEnvelope.wire?.canonical_operation,
+    // The model view carries the text the Keeper must echo verbatim and
+    // nothing machine-only: the wire's canonical_operation and the receipt
+    // digest are projected out. The digest contract is proved below against
+    // the canonical receipt, where it lives.
     renderedTextExact: returnedEnvelope.data?.rendered_text === renderedText,
-    renderedDigestExact:
-      returnedEnvelope.data?.rendered_text_sha256 === renderedSha256,
+    machineFieldsHiddenFromModelView:
+      returnedEnvelope.wire?.canonical_operation === undefined
+      && returnedEnvelope.data?.rendered_text_sha256 === undefined,
   },
   digest: {
     receipt: renderedSha256,

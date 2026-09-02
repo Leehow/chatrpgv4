@@ -1,6 +1,7 @@
 # Campaign chrome vocabulary — specification
 
-> **Status:** specification only. No slice authorized, nothing built.
+> **Status:** built, except the model-facing writer. Two premises in §2 and
+> §3 were wrong and are corrected in place — see *Corrections*.
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`
 > **Date:** 2026-09-01
 
@@ -122,3 +123,48 @@ blocked today for exactly this reason.
   is small, but `npc.query` collapsed on size once already.
 - Does a module's own language interact with the table's? A French table
   running an English-source module is the normal case, not an edge one.
+
+
+## Corrections
+
+Written after building it. Two arguments in this document were wrong, and one
+measurement it relied on was of a dead mechanism.
+
+**"Let the Keeper render the blocks" was rejected for the wrong reason.** §2
+says `_reject_mechanics_in_draft` exists specifically to stop the Keeper
+authoring mechanics blocks. Reading it: *"prevents an otherwise valid placement
+from rendering the same authoritative roll or state delta twice."* It is a
+de-duplication guard. Combined with the fact that receipt validation consumes
+`_mechanic_source_lines` for its source-id keys and discards the rendered
+values, the label words are neither authoritative nor structurally
+host-owned. The design here is still right — a deterministic table replays and
+model-authored prose does not — but the reason given was not the reason.
+
+**"Canonicalizing breaks replay of every stored receipt" overstated it.**
+Measured: 534 of 546 preserved mechanics segments re-render byte-for-byte
+through current code, and 12 come from three receipts predating a public-roll
+format change. Replay is a per-version property that has already survived one
+deliberate format change, not a permanent guarantee.
+
+**`localized_terms` was cited as the working precedent. It had no writer.**
+249 preserved campaigns, 249 empty maps: initialized at creation and written by
+nothing. The per-campaign override story was true of the read side only. That
+is now fixed rather than worked around.
+
+**The case was stronger than this document claimed.** §1 argues from a
+hypothetical fourth language. Japanese — a language the product already
+supports — was rendering a Japanese TAG over an English BODY for every effect
+kind whose labels sat in an inline `if language == "zh-Hans"` branch. No fourth
+language was needed to make this a present defect.
+
+## What was built
+
+| slice | state |
+| --- | --- |
+| chrome render gate over the preserved corpus | done, 534 segments pinned, 3 stale receipts recorded |
+| inline labels migrated into the table | done; ja-JP fixed, zh/en byte-identical |
+| per-campaign `chrome.` overrides, any language | done |
+| coverage reporting instead of silent substitution | done |
+| `set_campaign_player_vocabulary()` writer | done |
+| a model-facing operation that calls it | **not done** — moves the surface 148 → 149, which several agents' tests pin |
+| gate 2: a fourth-language table in real play | **not done** — needs a live Keeper session |

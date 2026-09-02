@@ -652,6 +652,77 @@ def _read_json_object(
     return payload
 
 
+PLAYER_VOCABULARY_CHROME_PREFIX = "chrome."
+
+
+def set_campaign_player_vocabulary(
+    campaign: dict[str, Any],
+    language: str,
+    entries: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge player-visible vocabulary into ``localized_terms[language]``.
+
+    `localized_terms` has been initialized empty at campaign creation and
+    written by nothing since -- 249 preserved campaigns, 249 empty maps -- so
+    the per-campaign override path that was supposed to open the language space
+    never had an entrance. This is that entrance.
+
+    Two kinds of key share the map. A bare key is rulebook terminology
+    (`Spot Hidden`), which the module and Keeper both use. A `chrome.` key is
+    host render furniture (`chrome.change_tag`), which only the finalizer
+    emits. The prefix is what stops one overwriting the other.
+
+    A misspelled `chrome.` key is REJECTED rather than ignored. Ignoring it
+    leaves a campaign one label short of complete forever, rendering that one
+    word in English while everything around it is not -- the mixed-language
+    output this whole line of work exists to remove. Failing here is how the
+    author finds out.
+
+    Returns a report; the caller persists ``campaign``.
+    """
+    import coc_language
+
+    tag = str(language or "").strip()
+    if not tag:
+        raise ValueError("language must be a non-empty tag")
+    if not isinstance(entries, dict) or not entries:
+        raise ValueError("entries must be a non-empty object")
+
+    known_chrome = coc_language.TABLE_MECHANICS_LABELS["en-US"]
+    cleaned: dict[str, str] = {}
+    for key, value in entries.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("every vocabulary key must be a non-empty string")
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"vocabulary value for {key!r} must be a non-empty string")
+        if key.startswith(PLAYER_VOCABULARY_CHROME_PREFIX):
+            name = key[len(PLAYER_VOCABULARY_CHROME_PREFIX):]
+            if name not in known_chrome:
+                raise ValueError(
+                    f"unknown chrome label {name!r}; a misspelled key would leave "
+                    "this campaign permanently one label short of complete"
+                )
+        cleaned[key] = value
+
+    localized = campaign.get("localized_terms")
+    if not isinstance(localized, dict):
+        localized = {}
+        campaign["localized_terms"] = localized
+    bucket = localized.get(tag)
+    if not isinstance(bucket, dict):
+        bucket = {}
+        localized[tag] = bucket
+    bucket.update(cleaned)
+
+    coverage = coc_language.chrome_coverage(tag, bucket)
+    return {
+        "language": tag,
+        "written": len(cleaned),
+        "terms_total": len(bucket),
+        "chrome_coverage": coverage,
+    }
+
+
 def load_campaign_state(campaign_dir: Path) -> dict[str, Any]:
     """Load exact-current identity-bound ``campaign.json``."""
     campaign_dir = Path(campaign_dir)
