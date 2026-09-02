@@ -1,0 +1,56 @@
+{
+  "decision_ref": "decision:coc7:core-check:ordinary-check",
+  "family": "core-check",
+  "status": "settled",
+  "rule_refs": [
+    "rule:coc7:core-check:canonical-target-binding",
+    "rule:coc7:core-check:combined",
+    "rule:coc7:push-luck:luck-roll"
+  ],
+  "investigator_id": "thomas-hayes",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "bound_check": {
+        "base_target": 60,
+        "target": 60,
+        "required_level": "regular",
+        "difficulty": "regular",
+        "required_target": 60,
+        "effective_target": 60,
+        "achieved_level": "regular",
+        "passed": true,
+        "success": true,
+        "surplus_levels": 0,
+        "outcome": "regular",
+        "bonus": 0,
+        "penalty": 0,
+        "roll": 46,
+        "unmodified_roll": 46,
+        "tens_values": [],
+        "units": null,
+        "investigator_id": "thomas-hayes",
+        "skill": "STR",
+        "target_source": "explicit",
+        "pushed": false,
+        "goal": "smash the pallet-side iron ring with a furnace bar and break the throat chain",
+        "stakes": {
+          "on_success": "iron ring splits; chain slackens",
+          "on_failure": "bar glances; ring holds; noise wakes the chamber further"
+        },
+        "difficulty_basis": "environment",
+        "roll_id": "toolbox-gate9-depth-10-000008"
+      },
+      "outcome": "regular",
+      "pushed": false,
+      "next_continuations": []
+    }
+  },
+  "next_decisions": [],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:3445c593dfc83d436287b2fc9478704de127feb5c3504306a7636b1be30c3291"
+}
