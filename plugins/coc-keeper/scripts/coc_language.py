@@ -1569,28 +1569,51 @@ def table_mechanics_labels(
     return labels
 
 
-def chrome_is_substituted(
+def chrome_coverage(
     play_language: str | None = None,
     terms: dict[str, str] | None = None,
-) -> bool:
-    """True when the table is rendering chrome in a language nobody chose.
+) -> dict[str, Any]:
+    """Report how much of the chrome this campaign actually renders itself.
 
-    A campaign whose language has no built-in table and no `chrome.` overrides
-    silently gets English furniture around its prose. Silent is the defect;
-    this makes it answerable.
+    Presence of overrides is the wrong question. A campaign that supplies six
+    of the labels gets six in its language and the rest in English -- the same
+    mixed-language output that made a ja-JP table read
+    `【変化】condition: added "prone"`. So this reports COVERAGE, and
+    `complete` is true only when nothing falls back.
+
+    A language with a built-in table is complete by definition; anything else
+    needs `chrome.` entries for every key.
     """
     language = play_language or DEFAULT_PLAY_LANGUAGE
+    total = len(TABLE_MECHANICS_LABELS["en-US"])
     if language in TABLE_MECHANICS_LABELS:
-        return False
+        return {
+            "language": language,
+            "source": "built_in",
+            "overridden": 0,
+            "total": total,
+            "substituted": False,
+            "complete": True,
+        }
+    overridden = 0
     if isinstance(terms, dict):
-        return not any(
-            isinstance(key, str)
+        overridden = sum(
+            1
+            for key, value in terms.items()
+            if isinstance(key, str)
             and key.startswith(CHROME_TERM_PREFIX)
+            and key[len(CHROME_TERM_PREFIX):] in TABLE_MECHANICS_LABELS["en-US"]
             and isinstance(value, str)
             and value.strip()
-            for key, value in terms.items()
         )
-    return True
+    return {
+        "language": language,
+        "source": "campaign_override" if overridden else "substituted_en_US",
+        "overridden": overridden,
+        "total": total,
+        "substituted": overridden < total,
+        "complete": overridden >= total,
+    }
 
 
 def living_standard_label(value: str, play_language: str | None = None) -> str:

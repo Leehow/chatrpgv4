@@ -263,11 +263,54 @@ def test_a_substituted_chrome_language_is_answerable_not_silent():
     """The defect was never English chrome; it was English chrome with no signal."""
     import coc_language
 
-    assert coc_language.chrome_is_substituted("zh-Hans") is False
-    assert coc_language.chrome_is_substituted("en-US") is False
-    assert coc_language.chrome_is_substituted("ja-JP") is False
-    assert coc_language.chrome_is_substituted("fr-FR") is True
-    assert coc_language.chrome_is_substituted("fr-FR", FRENCH_CHROME) is False
+    for language in ("zh-Hans", "en-US", "ja-JP"):
+        report = coc_language.chrome_coverage(language)
+        assert report["substituted"] is False, language
+        assert report["complete"] is True, language
+        assert report["source"] == "built_in", language
+
+    bare = coc_language.chrome_coverage("fr-FR")
+    assert bare["substituted"] is True
+    assert bare["complete"] is False
+    assert bare["source"] == "substituted_en_US"
+
+
+def test_partial_chrome_is_reported_as_incomplete_not_as_covered():
+    """Presence of overrides is the wrong question; coverage is the right one.
+
+    A campaign supplying five of the labels renders five in its language and
+    the rest in English -- exactly the mixed-language output that made a ja-JP
+    table read `【変化】condition: added "prone"`. Reporting that as "covered"
+    would reintroduce the defect this work removed, with the user supplying it
+    instead of the code.
+    """
+    import coc_language
+
+    partial = coc_language.chrome_coverage("fr-FR", FRENCH_CHROME)
+    assert partial["overridden"] == len(FRENCH_CHROME)
+    assert partial["overridden"] < partial["total"]
+    assert partial["complete"] is False
+    assert partial["substituted"] is True
+    assert partial["source"] == "campaign_override"
+
+    full = dict.fromkeys(
+        (
+            f"chrome.{key}"
+            for key in coc_language.TABLE_MECHANICS_LABELS["en-US"]
+        ),
+        "x",
+    )
+    assert coc_language.chrome_coverage("fr-FR", full)["complete"] is True
+
+
+def test_an_unknown_chrome_key_does_not_count_as_coverage():
+    """A typo must not read as progress toward a complete vocabulary."""
+    import coc_language
+
+    report = coc_language.chrome_coverage(
+        "fr-FR", {"chrome.chagne_tag": "Changement"},
+    )
+    assert report["overridden"] == 0, "a misspelled key counted as covered"
 
 
 @pytest.mark.parametrize("language", ["zh-Hans", "en-US", "ja-JP"])
