@@ -1,6 +1,6 @@
 {
-  "case": "declared-minimum-shortfall-trigger",
-  "intent": "A conclusion declaring two routes whose single clue sits in one scene contradicts its own declared redundancy.",
+  "case": "conclusion-clues-share-one-scene-trigger",
+  "intent": "Two clues for one conclusion are both obtainable only in scene-a, so a single scene carries the whole conclusion.",
   "documents": {
     "story-graph.json": {
       "scenes": [
@@ -10,7 +10,8 @@
           "is_start": true,
           "origin": "source",
           "available_clues": [
-            "clue-a"
+            "clue-a",
+            "clue-b"
           ],
           "scene_edges": [
             {
@@ -45,6 +46,12 @@
               "delivery_kind": "skill_check",
               "origin": "source",
               "skill": "Spot Hidden"
+            },
+            {
+              "clue_id": "clue-b",
+              "delivery_kind": "skill_check",
+              "origin": "source",
+              "skill": "Spot Hidden"
             }
           ]
         }
@@ -52,21 +59,22 @@
     },
     "module-meta.json": {
       "schema_version": 1,
-      "scenario_id": "fx-declared-minimum-shortfall",
-      "title": "fx-declared-minimum-shortfall",
+      "scenario_id": "fx-clues-share-one-scene",
+      "title": "fx-clues-share-one-scene",
       "structure_type": "branching_investigation"
     }
   },
   "expect": {
     "findings": [
       {
-        "code": "declared-minimum-shortfall",
+        "code": "conclusion-clues-share-one-scene",
         "subject_id": "conclusion-cellar-truth",
         "subject_kind": "conclusion",
-        "severity": "defect",
+        "severity": "observation",
         "completeness": "dead",
         "related_ids": [
           "clue-a",
+          "clue-b",
           "scene-a"
         ]
       }

@@ -87,7 +87,7 @@ some scene is unreachable, so `scene-unreachable` co-occurs by construction.
   trapped in for `gate-self-locks`; the declaring scenes for
   `start-scene-count`; the unreachable scenes for
   `conclusion-behind-unreachable-scenes`; the placed clues and their scenes for
-  `declared-minimum-shortfall`; the holding document for `duplicate-record-id`;
+  `conclusion-clues-share-one-scene`; the holding document for `duplicate-record-id`;
   empty for the rest.
 
 ## Cases beyond the thirty

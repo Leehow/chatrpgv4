@@ -138,6 +138,19 @@
   "expect": {
     "findings": [
       {
+        "code": "conclusion-clues-share-one-scene",
+        "subject_id": "progressive-local",
+        "subject_kind": "conclusion",
+        "severity": "observation",
+        "completeness": "dead",
+        "related_ids": [
+          "clue-arrival-dunwich-1287",
+          "clue-hooded-figure-cliff",
+          "clue-underwater-church-bells",
+          "smuggler-boat-dunwich-coast"
+        ]
+      },
+      {
         "code": "edge-target-unknown",
         "subject_id": "smuggler-boat-dunwich-coast",
         "subject_kind": "scene",

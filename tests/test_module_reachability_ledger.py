@@ -128,5 +128,5 @@ def test_the_starter_finding_set_is_the_golden_expectation(generator):
     assert not report["progressive"]
     assert [(f["code"], f["subject_id"], f["completeness"])
             for f in report["findings"]] == [
-        ("declared-minimum-shortfall", "corbitt-house-documentary-history", "dead")
+        ("conclusion-clues-share-one-scene", "corbitt-house-documentary-history", "dead")
     ]

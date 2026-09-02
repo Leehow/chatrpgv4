@@ -58,7 +58,7 @@ CHECK_CODES: tuple[str, ...] = (
     "scene-terminal-undeclared",
     "conclusion-behind-unreachable-scenes",
     "gate-self-locks",
-    "declared-minimum-shortfall",
+    "conclusion-clues-share-one-scene",
     "routes-not-declared",
     "conclusion-without-clues",
 )
@@ -88,8 +88,8 @@ REASONS: dict[str, str] = {
         "every clue of this conclusion sits only in unreachable scenes",
     "gate-self-locks":
         "the gate's clue is only placed beyond the gate it opens",
-    "declared-minimum-shortfall":
-        "declared minimum route count exceeds distinct scene placements",
+    "conclusion-clues-share-one-scene":
+        "every clue for this conclusion is obtainable in only one scene",
     "routes-not-declared":
         "conclusion declares importance but no minimum_routes",
     "conclusion-without-clues":
@@ -109,7 +109,7 @@ SEVERITY_WHEN_DEAD: dict[str, str] = {
     "scene-terminal-undeclared": "observation",
     "conclusion-behind-unreachable-scenes": "observation",
     "gate-self-locks": "defect",
-    "declared-minimum-shortfall": "defect",
+    "conclusion-clues-share-one-scene": "observation",
     "routes-not-declared": "observation",
     "conclusion-without-clues": "observation",
 }
@@ -135,7 +135,7 @@ _CODE_DOCUMENTS: dict[str, tuple[str, ...]] = {
     "scene-terminal-undeclared": (STORY_GRAPH,),
     "conclusion-behind-unreachable-scenes": (STORY_GRAPH, CLUE_GRAPH),
     "gate-self-locks": (STORY_GRAPH,),
-    "declared-minimum-shortfall": (STORY_GRAPH, CLUE_GRAPH),
+    "conclusion-clues-share-one-scene": (STORY_GRAPH, CLUE_GRAPH),
     "routes-not-declared": (CLUE_GRAPH,),
     "conclusion-without-clues": (CLUE_GRAPH,),
 }
@@ -165,7 +165,7 @@ _CODE_SCENE_SCOPE: dict[str, str] = {
     "scene-terminal-undeclared": _SUBJECT_SCENE,
     "conclusion-behind-unreachable-scenes": _ALL_SCENES,
     "gate-self-locks": _ALL_SCENES,
-    "declared-minimum-shortfall": _ALL_SCENES,
+    "conclusion-clues-share-one-scene": _ALL_SCENES,
     "routes-not-declared": _NO_SCENES,
     "conclusion-without-clues": _ALL_SCENES,
 }
@@ -1000,30 +1000,52 @@ def _route_counts(
     return len(scenes), len(contexts), scenes
 
 
-def _check_declared_minimum_shortfall(
+def _check_conclusion_clues_share_one_scene(
     scenario: _Scenario,
 ) -> list[dict[str, Any]]:
+    """Several clues for one conclusion, all obtainable in a single scene.
+
+    This deliberately does NOT compare anything against ``minimum_routes``.
+    That field's operative meaning in this repository is a *clue count*, not
+    a count of independent acquisition routes: ``coc_scenario_compile.py``'s
+    validator requires "distinct clue_ids >= minimum_routes", the runtime in
+    ``coc_belief_state.py`` answers a question once that many of its clues
+    are discovered, and the authoring schema calls ``clues`` the array of
+    clue paths.  The field's name is the outlier, and an earlier version of
+    this check believed the name instead of the contract -- it reported the
+    committed starter, which satisfies the real rule exactly, as a defect.
+
+    So no declared threshold for locational redundancy exists anywhere in the
+    records, and inventing one would break the declared-never-inferred law.
+    What remains is a fact worth surfacing without a verdict: more than one
+    clue, and a single scene behind all of them.  If the players never reach
+    that scene, every clue for the conclusion is lost together.  That is an
+    observation for a human to weigh, never a defect, and never a demand for
+    a second route.
+    """
     findings: list[dict[str, Any]] = []
     for conclusion in scenario.conclusions:
         conclusion_id = _semantic_id(conclusion.get("conclusion_id"))
-        minimum = _int(conclusion.get("minimum_routes"))
-        if conclusion_id is None or minimum is None:
+        if conclusion_id is None:
+            continue
+        clue_ids, _placed = _conclusion_placements(scenario, conclusion)
+        if len(clue_ids) < 2:
             continue
         scene_routes, context_routes, scenes = _route_counts(
             scenario, conclusion
         )
-        if scene_routes >= minimum:
+        if scene_routes != 1:
             continue
-        clue_ids, _placed = _conclusion_placements(scenario, conclusion)
         findings.append(
             _make_finding(
                 scenario,
-                "declared-minimum-shortfall",
+                "conclusion-clues-share-one-scene",
                 subject_id=conclusion_id,
                 subject_kind="conclusion",
                 related_ids=tuple(clue_ids) + tuple(scenes),
-                declared={"minimum_routes": minimum},
+                declared={},
                 counted={
+                    "clues": len(clue_ids),
                     "scene_independent_routes": scene_routes,
                     "context_independent_routes": context_routes,
                 },
@@ -1092,7 +1114,7 @@ _CHECKS: dict[str, Any] = {
     "conclusion-behind-unreachable-scenes":
         _check_conclusion_behind_unreachable_scenes,
     "gate-self-locks": _check_gate_self_locks,
-    "declared-minimum-shortfall": _check_declared_minimum_shortfall,
+    "conclusion-clues-share-one-scene": _check_conclusion_clues_share_one_scene,
     "routes-not-declared": _check_routes_not_declared,
     "conclusion-without-clues": _check_conclusion_without_clues,
 }

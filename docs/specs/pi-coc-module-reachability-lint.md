@@ -6,8 +6,10 @@
 > the L3 edit to the shared `coc-scenario-import` skill explicitly; no other
 > shared kernel, state, registry, contract, Codex-track, or historical
 > playtest-evidence file was touched, and the model-facing operation surface is
-> unchanged. Five statements in the original draft were refuted during
-> implementation and are corrected in place; see the revision log.
+> unchanged. Six statements in the original draft were refuted during
+> implementation and verification and are corrected in place, including the
+> headline R3 check, which was built on a misreading of `minimum_routes`; see
+> the revision log.
 > **ID:** `pi-coc-module-reachability-lint`
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`; Codex-host implementation,
 > adapters, prompts, launchers, tests, and documentation remain off-limits.
@@ -30,8 +32,8 @@ The words MUST, MUST NOT, SHOULD, and MAY below are acceptance requirements.
 
 A compiled scenario can be structurally broken in ways no current check
 notices: a scene nothing routes to, a clue nobody can obtain, an exit gated on
-a clue that only exists behind that exit, a conclusion that declares three
-independent acquisition routes and has one. None of these are prose problems
+a clue that only exists behind that exit, a conclusion whose every clue hangs
+off a single scene and one roll. None of these are prose problems
 and none of them need a model to detect. They are arithmetic over structure
 that the scenario already declares, and today nobody does that arithmetic.
 
@@ -44,9 +46,10 @@ Success looks like:
 - every structural claim the scenario makes about routes, placements, and gates
   is checked against the rest of the scenario, and a contradiction is named with
   the exact ids involved;
-- criticality and route redundancy come **from what the module declares**
-  (`importance`, `minimum_routes`), never from a phrase list, a keyword scan, or
-  a compiler opinion about which clue matters;
+- criticality and redundancy come **from what the module declares**, never from
+  a phrase list, a keyword scan, or a compiler opinion about which clue matters
+  — and where the records declare no threshold at all, the lint reports the
+  counts and leaves the judgment to a human;
 - a progressive skeleton that has not been deepened yet is reported as
   *not yet materialized*, never as a broken module;
 - a finding is a reviewable data statement, and a clean report is a real
@@ -84,16 +87,17 @@ and `pdf-coc-an-amaranthine-desire-20260824T132450`.
 
 | Scenario | Scenes | Findings | Classes |
 | --- | --- | --- | --- |
-| the-haunting (complete) | 12 | 1 `declared-minimum-shortfall` — a conclusion declares `minimum_routes: 3` and all three of its clues sit in one scene behind one skill | 1 `dead` |
+| the-haunting (complete) | 12 | 1 `conclusion-clues-share-one-scene` — a conclusion's three clues all sit in `central-library` behind one Library Use roll | 1 `dead` |
 | king-of-shreds-and-patches | 2 | 1 `scene-unreachable` (`london-bridge-vandervick-shop`), 2 `scene-terminal-undeclared` | 3 `dead` |
 | amaranthine-20260822 | 1 | 1 `edge-target-unknown` — an edge points at `dunwich-1287`, which no scene record defines | 1 `pending-materialization` |
-| let-the-children-come-to-me | 1 | 1 `conclusion-without-clues`, 1 `declared-minimum-shortfall`, 1 `scene-terminal-undeclared` | 3 `not-measured` |
-| an-amaranthine-desire (later import) | 1 | same three codes | 3 `not-measured` |
+| let-the-children-come-to-me | 1 | 1 `conclusion-without-clues`, 1 `scene-terminal-undeclared` | 2 `not-measured` |
+| an-amaranthine-desire (later import) | 1 | same two codes | 2 `not-measured` |
 
-All five produce findings, and the classes separate the two shapes cleanly. The
-one and only `defect` in the entire corpus is on the complete starter, which
-contradicts its own declared redundancy. Every finding on a progressive skeleton
-comes back as an `observation` — `pending-materialization` where the target is
+All five produce findings, and the classes separate the two shapes cleanly.
+The corpus contains no `defect` at all: no module here contradicts itself, and
+after the `minimum_routes` correction in §5 R3 the starter's finding is an
+observation about where its clues sit rather than a contract violation. Every
+finding on a progressive skeleton likewise comes back as an `observation` — `pending-materialization` where the target is
 source-bound, `not-measured` where the scene was parsed only to
 `parse_state: "partial"`. §3.2 is the rule that produces that separation, and
 this table is the evidence that it works: a skeleton is never reported as a
@@ -144,9 +148,11 @@ false positives on the shipped starter. Duplicate detection is out of scope
 ### 3.1 Declared, never inferred
 
 Every threshold the lint applies MUST come from a registered field the scenario
-itself declares. The only thresholds in this specification are
-`clue-graph.json` conclusions' `minimum_routes` and the presence of
-`importance`, both already in `RECORD_FIELD_REGISTRY`.
+itself declares. After the §5 R3 correction this specification applies **no
+numeric threshold at all**: `minimum_routes` turned out to mean a clue count
+that `coc_scenario_compile.py --validate` already enforces, so the lint reads it
+only to report whether a conclusion declared one. Route independence is counted
+and published, never compared against a bar.
 
 - The lint MUST NOT decide that a clue, conclusion, scene, or NPC is important.
 - The lint MUST NOT apply a default minimum route count. A conclusion that
@@ -322,30 +328,42 @@ edge, so the starter produces no finding here. On a scenario where `is_final`
 is absent from every scene the check MUST report `not-measured` rather than
 flagging every leaf.
 
-### R3 — Declared-minimum accounting
-
-Pure accounting against the module's own declaration.
+### R3 — Conclusion accounting
 
 | Code | Statement |
 | --- | --- |
-| `declared-minimum-shortfall` | counted independent routes are fewer than `minimum_routes` |
+| `conclusion-clues-share-one-scene` | a conclusion has two or more clues and every one of them is obtainable in a single scene |
 | `routes-not-declared` | a conclusion declares `importance` but no `minimum_routes` |
 | `conclusion-without-clues` | a conclusion carries an empty `clues[]` |
 
-Route independence MUST be reported at two granularities and neither may be
-invented by the lint:
+**`minimum_routes` is a clue count, not a route count, and this lint MUST NOT
+compare it against scene placements.** The draft of this specification asserted
+the opposite and was wrong. The operative meaning is fixed by two pieces of
+executable code and the authoring schema, all agreeing:
+`coc_scenario_compile.py`'s validator requires "distinct clue_ids >=
+minimum_routes"; `coc_belief_state.py` answers a conclusion's question once that
+many of its clues have been discovered; and the schema calls `clues` the array
+of clue paths, so in this vocabulary one clue *is* one path. The field's name is
+the outlier. A check built on the name reported the committed starter — which
+satisfies the real rule exactly, three declared and three clues — as a defect.
 
-- **scene-independent routes**: the count of distinct scenes in which any of the
-  conclusion's clues is available. This is the count compared against
-  `minimum_routes`, because a route the players cannot reach separately is not a
-  separate route.
-- **context-independent routes**: the count of distinct
-  `(scene, delivery_kind, skill)` triples, reported alongside for review.
+Consequently there is **no declared threshold for locational redundancy
+anywhere in the records**, and §3.1 forbids inventing one. What survives is a
+fact reported without a verdict: more than one clue, and one scene behind all of
+them. If the players never reach that scene, every clue for the conclusion is
+lost together. That is worth a human's attention and is never a defect, so
+`conclusion-clues-share-one-scene` is severity `observation` in every
+completeness class. Checking `clues.length >= minimum_routes` is deliberately
+not duplicated here; `--validate` already owns it.
 
-`declared-minimum-shortfall` is severity `defect` when its class is `dead`,
-because it is an internal contradiction rather than a design opinion: the module
-states a redundancy that its own placements do not provide. The measured
-Haunting case declares 3 and provides 1.
+Two counts are reported, neither of them a threshold:
+
+- **scene-independent routes**: distinct scenes in which any of the conclusion's
+  clues is available. The check fires when this is exactly 1 and the conclusion
+  has at least two clues — the precise boundary of "several clues, no locational
+  redundancy", not a tunable number.
+- **context-independent routes**: distinct `(scene, delivery_kind, skill)`
+  triples, reported alongside for review.
 
 ---
 
@@ -355,13 +373,13 @@ A finding MUST be a closed record:
 
 ```json
 {
-  "code": "declared-minimum-shortfall",
+  "code": "conclusion-clues-share-one-scene",
   "severity": "defect",
   "completeness": "dead",
   "subject_id": "corbitt-house-documentary-history",
   "subject_kind": "conclusion",
   "related_ids": ["central-library", "clue-house-built-1835"],
-  "declared": {"minimum_routes": 3},
+  "declared": {},
   "counted": {"scene_independent_routes": 1, "context_independent_routes": 1},
   "reason": "declared minimum route count exceeds distinct scene placements"
 }
@@ -435,7 +453,7 @@ findings" and "nothing measurable".
   the check is deleted. A suite that stays green with a check removed does not
   cover it, and a worker report of "all green" is not evidence of coverage.
 - **Golden real input.** The committed starter is a fixture with an exact
-  expected finding set: one `declared-minimum-shortfall` on
+  expected finding set: one `conclusion-clues-share-one-scene` on
   `corbitt-house-documentary-history`, and nothing else. If a later starter
   change alters that set, the change is reviewed, not the expectation quietly
   updated.
@@ -498,7 +516,7 @@ Each exclusion below has a measured reason, not a preference.
 | --- | --- | --- |
 | L0 | Findings contract, ProjectionSet input, R1 codes, `lint` CLI verb | yes — `edge-target-unknown` fires on `amaranthine-20260822` naming `dunwich-1287` and R1 is silent on the other four sets |
 | L1 | R2 codes, completeness classification (§3.2), progressive fixtures | yes — `scene-unreachable` fires on `king-of-shreds-and-patches`; the progressive/complete fixture pair separates `pending-materialization` from `dead` |
-| L2 | R3 codes, route-independence counting, ledger and drift test | yes — the starter produces exactly one `declared-minimum-shortfall`, and the ledger regenerates byte-identically |
+| L2 | R3 codes, route-independence counting, ledger and drift test | yes — the starter produces exactly one `conclusion-clues-share-one-scene`, and the ledger regenerates byte-identically |
 | L3 | `coc-scenario-import` surfaces findings to the human running an import | yes — both import tracks carry the shell step, and the skill's existing "at least 3 clue paths" doctrine is connected to the check |
 
 Delivered artifacts: the lint module; a `lint` verb on `coc_module_projection.py`;
@@ -531,4 +549,6 @@ the exact failure §3.2 exists to prevent.
 | Date | Change |
 | --- | --- |
 | 2026-09-02 | Initial specification. Evidence base measured on `0.8.1a@5a51c84a` across five scenario sets. Originating idea: the compiler-lint section of `docs/新 pi-coc 的重新设计.md`, narrowed to the checks the existing records can actually answer. |
+| 2026-09-02 | **R3 rebuilt after the check was found to be wrong.** `declared-minimum-shortfall` compared `minimum_routes` against distinct scene placements, on the strength of the field's name. Its operative meaning is a clue count, fixed by `coc_scenario_compile.py`'s validator ("distinct clue_ids >= minimum_routes"), by `coc_belief_state.py` answering a question once that many clues are discovered, and by the authoring schema calling `clues` the array of clue paths. The committed starter satisfies that rule exactly, so the lint's headline finding was a false positive on a conforming module. Replaced by `conclusion-clues-share-one-scene`, always an observation, which reports the surviving fact — several clues, one scene — without inventing a threshold the records do not carry. The corpus now contains no defect at all. |
+| 2026-09-02 | Real-import verification. Running the lint against a campaign built by `campaign.create` + `scenario.bind_pdf` measured nothing at all: that path writes none of the three documents the lint reads, which arrive only with the opening projection. The all-zero summary was indistinguishable from a clean pass, which §3.2 forbids, so the summary gained `codes_measured` / `codes_total` and the import skill gained the missing "run it after the projection, not after the bind". |
 | 2026-09-02 | Implemented L0–L3. An independent verification pass re-derived every §2 measurement from the raw JSON and confirmed all of them, then refuted five statements elsewhere in the draft, all corrected here: §2.1 undercounted the findings on four of the five sets; §5's `gate-self-locks` was not computable as written, because the starter's two `flag_set` gates are opened by a reachable affordance and treating them as closed manufactures a false finding; §6's worked example used a module-graph node id where the scenario record id differs; §7 cited a `parity --ir-dir` precedent that does not exist, since all eight pre-existing verbs require `--graph`; and §3.2's `mentions` disjunct is inert because no producer populates that field. Two rules that implementation settled by agreement rather than by specification are now written down: the zero-start-scene rule in §5, and the flag-gate scope in §5 and §10. |

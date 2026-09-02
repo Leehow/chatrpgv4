@@ -619,17 +619,22 @@ extraction retires per the unification spec's staged plan.
 
 关键约束：每个 critical conclusion 至少 3 条线索路径；keeper_secrets 与 player-safe 物理隔离。
 
-**「3 条路径」指路径，不是线索条数。** 三条线索挤在同一个场景、同一个技能后面，只是
-一条获取路径：玩家没走到那个场景、或者那一次检定失败，三条一起没了。已提交的
-The Haunting 就是这个反例——`corbitt-house-documentary-history` 声明
-`minimum_routes: 3`，三条线索全部躺在 `central-library`、全部在 Library Use 后面，
-lint 报 `declared-minimum-shortfall`。让路径独立要靠**不同场景**，最好连 delivery_kind
-也不同。lint 报两个计数：`scene_independent_routes`（去重后的场景数，**用它**跟
-`minimum_routes` 对账）和 `context_independent_routes`（去重后的
-场景/delivery_kind/skill 三元组数，只供复核，不参与对账）。
-注意两件事分属两层：「critical 至少 3 条」是给编译者的作者规范，lint 只做对账、不强制
-任何最小路径数——老实声明 `minimum_routes: 1` 且提供一条路径的模组是正确的，不产生
-shortfall。
+**`minimum_routes` 数的是线索条数，不是场景数。** 权威定义在
+`coc_scenario_compile.py --validate`（规则是 distinct clue_ids >=
+minimum_routes）和 `coc_belief_state.py`（玩家发现到这么多条线索，该结论才算被回答），
+schema 也把 `clues` 叫「线索路径数组」——在这套词汇里一条线索就是一条路径。
+字段名里的「routes」是个误导，不要照名字理解。满足这条规则由第 5 步的
+`--validate` 负责，lint 不重复查。
+
+lint 另外报一件 `--validate` 看不到的事：`conclusion-clues-share-one-scene`——
+某个结论有两条以上线索，但全部只能在同一个场景拿到。已提交的 The Haunting
+就有一处：`corbitt-house-documentary-history` 的三条线索全躺在 `central-library`、
+全在 Library Use 后面。它**合规**（声明 3、给了 3 条线索），但玩家没走到那个场景、
+或者那一次检定失败，三条会一起没。所以这是 `observation`，永远不是 defect，
+也**不要求**你去补第二条路线——编一条线索来凑数是错的修法。要不要给它第二个
+位置，是读的人根据模组本身判断。参考计数：`scene_independent_routes`（去重场景数）
+与 `context_independent_routes`（去重的 场景/delivery_kind/skill 三元组数），
+两个都只是事实，不参与任何对账。
 
 ## Product Identity 存储边界
 

@@ -1,6 +1,6 @@
 {
-  "case": "declared-minimum-shortfall-near-miss",
-  "intent": "A conclusion whose clues sit in exactly minimum_routes distinct scenes meets its declaration; equality is not a shortfall.",
+  "case": "conclusion-clues-share-one-scene-near-miss",
+  "intent": "The same two clues split across two reachable scenes give the conclusion a second location, so nothing fires.",
   "documents": {
     "story-graph.json": {
       "scenes": [
@@ -50,8 +50,9 @@
             },
             {
               "clue_id": "clue-b",
-              "delivery_kind": "npc_question",
-              "origin": "source"
+              "delivery_kind": "skill_check",
+              "origin": "source",
+              "skill": "Library Use"
             }
           ]
         }
@@ -59,8 +60,8 @@
     },
     "module-meta.json": {
       "schema_version": 1,
-      "scenario_id": "fx-routes-exactly-met",
-      "title": "fx-routes-exactly-met",
+      "scenario_id": "fx-clues-share-one-scene-nm",
+      "title": "fx-clues-share-one-scene-nm",
       "structure_type": "branching_investigation"
     }
   },

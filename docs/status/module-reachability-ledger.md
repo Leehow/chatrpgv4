@@ -37,8 +37,8 @@ reproduce byte-for-byte: the one scenario set the repository ships.
 | ...`not-measured` | 0 |
 | ...measured and silent | 14 |
 | Findings | 1 |
-| ...severity `defect` | 1 |
-| ...severity `observation` | 0 |
+| ...severity `defect` | 0 |
+| ...severity `observation` | 1 |
 | ...completeness `dead` | 1 |
 | ...completeness `pending-materialization` | 0 |
 | ...completeness `not-measured` | 0 |
@@ -70,7 +70,7 @@ Such a code yields no findings and no pass; it is simply not evidence.
 | `scene-terminal-undeclared` | observation | yes | 0 | 0 | 0 | 0 |
 | `conclusion-behind-unreachable-scenes` | observation | yes | 0 | 0 | 0 | 0 |
 | `gate-self-locks` | defect | yes | 0 | 0 | 0 | 0 |
-| `declared-minimum-shortfall` | defect | yes | 1 | 1 | 0 | 0 |
+| `conclusion-clues-share-one-scene` | observation | yes | 1 | 1 | 0 | 0 |
 | `routes-not-declared` | observation | yes | 0 | 0 | 0 | 0 |
 | `conclusion-without-clues` | observation | yes | 0 | 0 | 0 | 0 |
 
@@ -84,10 +84,10 @@ what a progressive import will fill — but this starter does not exercise it.
 
 | code | severity | completeness | subject | declared | counted |
 | --- | --- | --- | --- | --- | --- |
-| `declared-minimum-shortfall` | defect | `dead` | `corbitt-house-documentary-history` (conclusion) | `{"minimum_routes": 3}` | `{"context_independent_routes": 1, "scene_independent_routes": 1}` |
+| `conclusion-clues-share-one-scene` | observation | `dead` | `corbitt-house-documentary-history` (conclusion) | `{}` | `{"clues": 3, "context_independent_routes": 1, "scene_independent_routes": 1}` |
 
-`declared-minimum-shortfall` on `corbitt-house-documentary-history`:
-declared minimum route count exceeds distinct scene placements. Related ids:
+`conclusion-clues-share-one-scene` on `corbitt-house-documentary-history`:
+every clue for this conclusion is obtainable in only one scene. Related ids:
 `central-library`, `clue-house-built-1835`, `clue-neighbor-lawsuit-1852`,
 `clue-second-lawsuit-outcome-unrecorded`.
 

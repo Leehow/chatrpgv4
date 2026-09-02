@@ -71,7 +71,7 @@ EXPECTED_CHECK_CODES = (
     "scene-terminal-undeclared",
     "conclusion-behind-unreachable-scenes",
     "gate-self-locks",
-    "declared-minimum-shortfall",
+    "conclusion-clues-share-one-scene",
     "routes-not-declared",
     "conclusion-without-clues",
 )
@@ -89,7 +89,7 @@ EXPECTED_SEVERITY_WHEN_DEAD = {
     "scene-terminal-undeclared": "observation",
     "conclusion-behind-unreachable-scenes": "observation",
     "gate-self-locks": "defect",
-    "declared-minimum-shortfall": "defect",
+    "conclusion-clues-share-one-scene": "observation",
     "routes-not-declared": "observation",
     "conclusion-without-clues": "observation",
 }
@@ -379,12 +379,16 @@ def test_committed_starter_produces_exactly_one_finding():
     )
 
     finding = findings[0]
-    assert finding["code"] == "declared-minimum-shortfall"
+    assert finding["code"] == "conclusion-clues-share-one-scene"
     assert finding["subject_id"] == "corbitt-house-documentary-history"
     assert finding["subject_kind"] == "conclusion"
     assert finding["completeness"] == "dead"
-    assert finding["severity"] == "defect"
-    assert finding["declared"]["minimum_routes"] == 3
+    # An observation, never a defect: the starter satisfies the real
+    # minimum_routes contract (distinct clue_ids >= minimum_routes) exactly.
+    # What this reports is that all three of those clues live in one scene.
+    assert finding["severity"] == "observation"
+    assert finding["declared"] == {}
+    assert finding["counted"]["clues"] == 3
     assert finding["counted"]["scene_independent_routes"] == 1
     assert report["scenario_id"] == "the-haunting"
     assert report["progressive"] is False
