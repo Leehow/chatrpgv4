@@ -56,7 +56,29 @@ injected trigger, or legacy operation (spec §14 Gate 9):
 | Development, Social | passed Gate 9 |
 | Core-check | settled naturally, but predates the corrected bundled-Pi launcher |
 | Push/Luck, Psychology, Sanity, Combat, Healing | settled live after the delivery fixes (16 KB wire overflow, dropped `semantic_inputs`, chase/combat NPC mechanics); recorded in `tests/fixtures/rules-settle-recorded/` (55 payloads, 8 families) and replayed by `tests/pi/rules-settle-recorded-projection.mjs` |
-| Chase, Magic | **no recorded settlement** — chase never fired because the Keeper's fiction never produced a pursuer; magic is a tome spell-inventory content gap |
+| Chase, Magic | **no recorded settlement** — see the chase finding below; magic is a tome spell-inventory content gap |
+
+**Why chase has never settled, measured.** A seeded diagnostic lane
+(2026-09-02) put the investigator in `corbitt-confrontation` with Walter
+Corbitt present and had the player flee. `rules.context` with family `chase`
+answers `decision:coc7:chase:start` in that exact campaign state, so the
+pipeline is not the blocker. The Keeper asks for family `combat` instead and
+reads the flight as `decision:coc7:combat:flee` — and the graph has no
+`continues-as` from `combat:flee` to `chase:start`, so nothing routes the
+settled flight into a chase. The same shape as the missing Social → Push
+relation: a source-graph completeness gap at a family junction, and the next
+chase work is that relation with its rulebook evidence, not more play.
+
+**Fine-grained live coverage: 9 of 43 decisions.** Family-level coverage
+overstates it. Recorded live settlements cover `core-check:ordinary-check`,
+`sanity:check`, `social:adjudicate-difficulty`,
+`development:end-session`, `push-luck:pushed-roll`, `combat:attack`,
+`combat:end`, `healing:first-aid-ordinary` and
+`psychology:observe-concealed`. The other 34 decisions — every chase and
+magic decision, combat aim/defend/flee/maneuver/reload/context, both dying
+clocks, medicine and weekly recovery, opposed and combined checks, luck-roll
+and luck-spend, the whole sanity bout chain, and `development:settle-ending`
+— have never settled in a real turn.
 
 **Ending is reached through `rules.settle`.** `state.end_session` is
 host-private; the Keeper settles `decision:coc7:development:end-session`. The
