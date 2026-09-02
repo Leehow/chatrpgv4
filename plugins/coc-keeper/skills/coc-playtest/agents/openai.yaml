@@ -1,3 +1,0 @@
-interface:
-  display_name: "COC Plugin Playtest"
-  short_description: "Run real Codex Keeper play with a context-free subagent player"
