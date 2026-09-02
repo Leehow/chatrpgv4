@@ -43,6 +43,21 @@ export type NarrationReviewBindingCard = {
 
 export const REVIEWED_AGENCY_CLAIM_TYPES = AGENCY_CLAIM_TYPES;
 
+/**
+ * The MODEL-FACING coverage row shape. Deliberately not generated from the
+ * TextGraph: seven of these nine are the graph's own coverage field names, but
+ * `obligation_ref` and `reviewed_span` are the model-facing renames of
+ * `obligation_id` and `exact_excerpt`, and the graph declares no such mapping.
+ * Generating it would mean hardcoding that rename in the generator -- moving
+ * the copy, and asserting an equivalence nothing owns. What IS fixable is that
+ * this list was written out twice in this file; it is written once.
+ */
+const MODEL_FACING_COVERAGE_FIELDS = [
+  "obligation_ref", "reviewed_span", "realization", "action_realization",
+  "response", "causal_explanation", "persona_fit",
+  "player_input_handling", "exceptional_beat",
+] as const;
+
 export type ReviewedAgencyClaimType = typeof REVIEWED_AGENCY_CLAIM_TYPES[number];
 
 export type ReviewedAgencySpan = {
@@ -2498,11 +2513,7 @@ function projectReviewedCoverageSchema(
             ? { type: "string", minLength: 1 }
             : { type: ["string", "null"] },
       },
-      required: [
-        "obligation_ref", "reviewed_span", "realization",
-        "action_realization", "response", "causal_explanation", "persona_fit",
-        "player_input_handling", "exceptional_beat",
-      ],
+      required: [...MODEL_FACING_COVERAGE_FIELDS],
     };
   });
   schema.properties.coverage = {
@@ -2758,11 +2769,7 @@ export function bindRetainedTypedToolArguments(
       valid.reviewed_agency_binding.spans.map((row) => [row.reviewed_span, row]),
     );
     const seenCoverage = new Set<string>();
-    const coverageFields = [
-      "obligation_ref", "reviewed_span", "realization", "action_realization",
-      "response", "causal_explanation", "persona_fit",
-      "player_input_handling", "exceptional_beat",
-    ];
+    const coverageFields = [...MODEL_FACING_COVERAGE_FIELDS];
     const semanticString = (
       value: unknown,
       field: string,
