@@ -574,6 +574,24 @@ def _requested_situation(lane: dict[str, Any]) -> dict[str, Any]:
     return {"shape": situation["shape"], **({"requested": requested} if requested else {})}
 
 
+def _budget_accounting(started: float) -> dict[str, Any]:
+    """How long the lane took, and whether that beat the product's budget.
+
+    A lane granted a diagnostic budget larger than the product's can finish a
+    turn and still have failed the product goal, and a lane that failed early
+    still measured something. Every terminal path reports both, so no result
+    can quietly omit the comparison.
+    """
+    elapsed_ms = round((time.monotonic() - started) * 1000)
+    return {
+        "duration_ms": elapsed_ms,
+        "product_budget_seconds": PRODUCT_TURN_BUDGET_SECONDS,
+        "exceeded_product_budget": (
+            elapsed_ms > PRODUCT_TURN_BUDGET_SECONDS * 1000
+        ),
+    }
+
+
 #: The product's per-turn budget (spec §16.1). A lane that exceeds it has
 #: failed the product goal even when the turn itself completes, so every lane
 #: result records the overrun rather than letting a slow success read as a
@@ -1778,8 +1796,19 @@ class PiRpcLaneAdapter:
                 "type": "prompt",
                 "id": f"resume-{lane['id']}",
                 "message": (
+                    # The lane suppresses the host's startup instruction so the
+                    # two do not compete, which means this prompt has to carry
+                    # the clause that instruction owns. Without it the Keeper
+                    # filled the vacuum: given only "stop at awaiting_player",
+                    # it resumed, read the scene, journaled, built an output
+                    # context and finalized a turn nobody asked for — measured
+                    # 2026-09-02, four separate lanes.
                     "Host debug resume. session.resume must be the first canonical "
-                    "campaign operation. Stop at awaiting_player and do not act for the player."
+                    "campaign operation. Branch only on that session.resume result. "
+                    "For awaiting_player, emit no new table prose and wait for the "
+                    "player: do not journal, do not build an output context, do not "
+                    "finalize, and do not act for the player in any way. This turn "
+                    "is not yours to play. Stop after the resume settles and wait."
                 ),
             })
             settled, failure = wait_terminal(phase="resume")
@@ -1788,7 +1817,7 @@ class PiRpcLaneAdapter:
                 return {
                     "status": "failed",
                     "resume_first": resume_first,
-                    "duration_ms": round((time.monotonic() - started) * 1000),
+                    **_budget_accounting(started),
                     "abort_count": abort_count,
                     "abort_confirmed": abort_confirmed,
                     "error": {
@@ -1816,7 +1845,7 @@ class PiRpcLaneAdapter:
                 return {
                     "status": status,
                     "resume_first": resume_first,
-                    "duration_ms": round((time.monotonic() - started) * 1000),
+                    **_budget_accounting(started),
                     "abort_count": abort_count,
                     "abort_confirmed": abort_confirmed,
                     "error": {"code": code},
@@ -1855,7 +1884,7 @@ class PiRpcLaneAdapter:
                     return {
                         "status": status,
                         "resume_first": resume_first,
-                        "duration_ms": round((time.monotonic() - started) * 1000),
+                        **_budget_accounting(started),
                         "abort_count": abort_count,
                         "abort_confirmed": abort_confirmed,
                         "error": {"code": code},
@@ -1902,18 +1931,10 @@ class PiRpcLaneAdapter:
                     state_diff = {"changed_paths": paths}
                 except DebugExperimentError:
                     state_diff = {"status": "unavailable"}
-            elapsed_ms = round((time.monotonic() - started) * 1000)
             result = {
                 "status": status,
                 "resume_first": resume_first,
-                "duration_ms": elapsed_ms,
-                # A lane granted a diagnostic budget larger than the product's
-                # can complete a turn and still have failed the product goal.
-                # Record that here so a slow success cannot read as a pass.
-                "product_budget_seconds": PRODUCT_TURN_BUDGET_SECONDS,
-                "exceeded_product_budget": (
-                    elapsed_ms > PRODUCT_TURN_BUDGET_SECONDS * 1000
-                ),
+                **_budget_accounting(started),
                 "abort_count": abort_count,
                 "abort_confirmed": abort_confirmed,
                 "events": events,
