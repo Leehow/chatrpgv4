@@ -58,6 +58,27 @@ import coc_temporal_memory
 
 _SESSION_RESUME_DATA_MAX_BYTES = 40 * 1024
 
+# Every reduction name the ladder below can append. The budget metadata block
+# is appended *after* the ladder finishes, so the ladder must trim to a ceiling
+# that already accounts for it -- otherwise a payload that lands just under the
+# raw ceiling is declared small enough, then pushed back over by the very block
+# recording that it was small enough. That is not hypothetical: a campaign at
+# turn 51 reduced to 40769 bytes, 191 under the ceiling, and the metadata took
+# it to 41006. The campaign stayed durable and became permanently unresumable,
+# and the error blamed the metadata rather than the undershooting ladder.
+_SESSION_RESUME_REDUCTION_NAMES: tuple[str, ...] = (
+    "host_input_text_to_ref",
+    "delivery_text_to_typed_read",
+    "current_turn_rows_to_refs",
+    "scene_context_to_core_projection",
+    "older_semantic_summaries_to_count",
+    "recent_semantic_summaries_to_typed_refs",
+    "temporal_capsule_to_counts",
+    "pending_output_context_to_typed_read",
+    "scene_context_to_minimal_ref",
+    "current_turn_to_receipt_refs",
+)
+
 def _wire_bytes(value: Any) -> int:
     return len(json.dumps(
         value,
@@ -66,6 +87,25 @@ def _wire_bytes(value: Any) -> int:
         separators=(",", ":"),
         default=str,
     ).encode("utf-8"))
+
+
+def _resume_budget_metadata_reserve() -> int:
+    """Upper bound on the wire cost of the appended budget metadata block.
+
+    Derived from the exhaustive reduction-name list rather than a magic
+    constant, so a new rung cannot silently shrink the reserve below what its
+    own name costs.
+    """
+    return _wire_bytes({
+        "resume_budget": {
+            "schema_version": 1,
+            "max_data_bytes": _SESSION_RESUME_DATA_MAX_BYTES,
+            "measured_data_bytes": _SESSION_RESUME_DATA_MAX_BYTES,
+            "reductions": list(_SESSION_RESUME_REDUCTION_NAMES),
+            "canonical_sources_unchanged": True,
+        },
+    })
+
 
 def _bound_session_resume_data(data: dict[str, Any]) -> dict[str, Any]:
     """Keep the recovery working set inside one explicit wire budget.
@@ -76,8 +116,12 @@ def _bound_session_resume_data(data: dict[str, Any]) -> dict[str, Any]:
     bounded = deepcopy(data)
     reductions: list[str] = []
 
+    # The ladder trims to the ceiling minus what the budget metadata will cost,
+    # so "small enough" stays true once that block is appended.
+    effective_max = _SESSION_RESUME_DATA_MAX_BYTES - _resume_budget_metadata_reserve()
+
     def over() -> bool:
-        return _wire_bytes(bounded) > _SESSION_RESUME_DATA_MAX_BYTES
+        return _wire_bytes(bounded) > effective_max
 
     host_input = bounded.get("host_input")
     if over() and isinstance(host_input, dict) and isinstance(
@@ -241,7 +285,7 @@ def _bound_session_resume_data(data: dict[str, Any]) -> dict[str, Any]:
         reductions.append("current_turn_to_receipt_refs")
 
     measured = _wire_bytes(bounded)
-    if measured > _SESSION_RESUME_DATA_MAX_BYTES:
+    if measured > effective_max:
         raise ToolError(
             "resume_budget_exceeded",
             "bounded recovery identities still exceed the fixed resume budget; "

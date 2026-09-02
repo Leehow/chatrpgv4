@@ -425,6 +425,62 @@ one player (this session), one turn at a time through the repo's own
     does not have. That instance fix was not sufficient on its own, which is
     what produced finding 23.
 
+25. **A required argument nobody could supply.** `timeline.fork_confirm`
+    requires `request_decision_id`. The field is never-model-authored: the
+    model-owned schema projection strips it, and raw validation rejects it as
+    host identity. No host lane attached it either. The confirm half of every
+    worldline fork was structurally uncallable -- the runtime demanded a field
+    nobody could write -- and nothing reported that as a defect.
+
+    Live, the KP requested the fork successfully (`tl-before-pyre` from
+    `tl-main` at turn 35, `ok`), then called `fork_confirm` and received
+    `missing_param: request_decision_id` whose attached `expected_schema`
+    listed `required: [campaign, decision_id]`. The failing field was absent
+    from the very schema the envelope told it to correct itself with, so it
+    changed `decision_id` instead -- three times. The non-retry circuit
+    normalizes `decision_id` as host-owned, so all four calls shared one
+    fingerprint and the last three came back `nonretryable_repeat_blocked`.
+    The fork was requested and never confirmed; the campaign stayed on
+    `tl-main`.
+
+    Two more operations had the same hole: `state.assets_liquidate`
+    (`linked_time_decision_id`) and `memory.extraction_settle`
+    (`backlog_id`). The second was found by the accounting test, not by
+    reading code -- `memory.extraction_settle` works in practice only because
+    the live path is a host bridge inside `MemoryExtractionDispatcher` that
+    never touches the operation surface, while the operation stays
+    `discovery: surface` for a Keeper that would die on it.
+
+    `pi/lib/host-provenance-pledges.ts` declares, per operation pair, where
+    the host reads the value and which argument it attaches it to. A pledge is
+    a property of the operation pair, not of any campaign -- nothing here is
+    module-specific. When no pledge is retained the consumer now fails naming
+    its producer, rather than reporting a missing parameter on an unwritable
+    field.
+
+    `tests/pi/host-provenance-pledge-accounting.mjs` checks accounting, not
+    content: it does not decide which fields belong to the host, only that
+    every keeper-facing required field the model cannot author is claimed by
+    a named supplier -- the gateway, the `HOST_OWNED_FIELDS` binding table, or
+    the pledge table. A newly added one fails there instead of at a table.
+
+26. **Two `transcript.locate` defects, recorded and not yet fixed.** Nine
+    calls in one turn: two returned a raw `MCP request timed out`, seven
+    returned `semantic_identity_unavailable`. The identity failure reproduces
+    exactly -- journal-backed candidates carry
+    `transcript_ref: "xscript:tl-main:turn-48:player:player_turn:pi-state-journal%3A...%3Arevision-1"`.
+    The escaping is deliberate (`coc_transcript_history.py:141` percent-encodes
+    `:` because the locator is colon-delimited), but `%` is not a legal slug
+    character, so every such candidate fails the identity grammar and the
+    whole envelope collapses to `semantic_identity_unavailable`. The second is
+    performance: 35.2s to locate across 21 turns, with the timeout surfacing
+    under the same identity error code, so a slow call and an illegal
+    identifier are indistinguishable to the Keeper.
+
+    Neither blocked the fork -- `timeline.fork_request` needs a turn number,
+    not a transcript ref -- which is why they are recorded here rather than
+    fixed under finding 25.
+
 ## 5. Open defect that stopped deeper play (not owned by this work)
 
 On a fumbled STR roll the turn could not settle:
