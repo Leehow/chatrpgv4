@@ -5849,6 +5849,13 @@ function projectSanityCheckData(
   // `rules.settle` branch in the extension's roll registry); these fields
   // belong to the Keeper.
   delete view.trigger_id;
+  // A triggered bout adds host-owned bout identity: the subsystem's
+  // `active_bout_id`, and per-event `bout_id` / `trigger_id`. The Keeper
+  // narrates from `bout_triggered`, `bout_rounds_remaining` and each event's
+  // summary; the bout continuation itself is offered through
+  // `next_decisions`, never by echoing this id. First seen live when an
+  // investigator failed SAN at Corbitt's pallet and dropped into a bout.
+  delete view.active_bout_id;
   if (isPlainObject(view.check)) {
     const check = { ...view.check };
     delete check.trigger_id;
@@ -5860,6 +5867,8 @@ function projectSanityCheckData(
       .map((row) => {
         const event = { ...row };
         delete event.event_id;
+        delete event.bout_id;
+        delete event.trigger_id;
         return event;
       });
   }
