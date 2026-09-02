@@ -96,7 +96,8 @@ def test_compiler_round_trip_is_byte_stable():
 def test_built_node_counts_match_the_contract_census():
     counts = collections.Counter(node["node_kind"] for node in ARTIFACT["nodes"])
     assert dict(counts) == CONTRACT["expected_node_counts"]
-    assert sum(counts.values()) == 116
+    # 116 through T4; slice T5 added three craft directives.
+    assert sum(counts.values()) == 119
 
 
 def test_expected_node_counts_law_rejects_a_lost_vocabulary():
@@ -1322,16 +1323,18 @@ def test_the_review_vocabulary_is_published_as_a_closed_enum():
 
 # --- gate 5: no value retuned ---------------------------------------------
 
-def test_the_narration_budget_numbers_moved_unchanged():
-    """The eight numbers and their ten trigger event types, bit-identical."""
+def test_the_narration_budget_numbers_match_the_recorded_ladder():
+    """T1-T4 moved the eight numbers bit-identical; slice T5 retuned the two
+    lower rungs (the graph nodes carry the retune origin) and this table is
+    the recorded ladder every build must reproduce."""
     expected = {
         "climax_or_madness": (1500, 8, {
             "bout_of_madness", "indefinite_insanity",
             "permanent_insanity", "session_ending"}),
         "reveal_or_transition": (900, 5, {
             "scene_transition", "major_reveal", "exceptional_effect_apply"}),
-        "costly_result": (550, 3, {"hp_change", "sanity_loss", "luck_spend"}),
-        "routine_resolution": (350, 2, set()),
+        "costly_result": (750, 4, {"hp_change", "sanity_loss", "luck_spend"}),
+        "routine_resolution": (600, 3, set()),
     }
     ladder = _craft()["budget_modes"]
     assert [rung["mode"] for rung in ladder] == list(expected)
@@ -1340,6 +1343,29 @@ def test_the_narration_budget_numbers_moved_unchanged():
         assert rung["max_chars"] == chars, rung["mode"]
         assert rung["max_paragraphs"] == paras, rung["mode"]
         assert set(rung["triggers"]) == triggers, rung["mode"]
+
+
+def test_slice_t5_directives_and_retune_origins_are_recorded():
+    """The T5 craft additions and the budget retune carry their provenance."""
+    graph = json.loads(ARTIFACT_PATH.read_text(encoding="utf-8"))
+    nodes = {row["node_id"]: row for row in graph["nodes"]}
+    for directive in (
+        "craft-directive:npc-direct-speech",
+        "craft-directive:scene-sensory-anchor",
+        "craft-directive:spend-budget-on-scene-texture",
+    ):
+        node = nodes[directive]
+        assert node["evidence_class"] == "authored-house-doctrine", directive
+        assert node["properties"]["declares"] == "required_rule", directive
+        assert "let-the-children-come-to-me" in node["origin"], directive
+    for mode in (
+        "narration-budget-mode:routine-resolution",
+        "narration-budget-mode:costly-result",
+    ):
+        assert "slice-T5 retune" in nodes[mode]["origin"], mode
+    # Untouched rungs keep the legacy origin token.
+    reveal = nodes["narration-budget-mode:reveal-or-transition"]
+    assert reveal["origin"] == "unknown-legacy-tuning"
 
 
 def test_the_thresholds_moved_unchanged():

@@ -2524,6 +2524,33 @@ class RulesRuntime:
             envelope["warnings"] = warnings
         if hints:
             envelope["hints"] = hints
+        # The continuations were projected from the facts as they stood BEFORE
+        # this settlement ran, and no grant covered them -- so the envelope
+        # told the Keeper "bout-tick is what comes next" and the settle
+        # pre-check then refused it as a decision no grant covered. Two
+        # host-authored statements, opposite answers; measured 2026-09-02 r37,
+        # once per lane, each costing a rules.context the Keeper had just been
+        # told it did not need.
+        #
+        # Recomputed against the facts this settlement produced -- the bout it
+        # opened is why bout-tick is offerable at all -- and granted, so the
+        # card the envelope hands over is a card that settles.
+        settled_facts = (
+            self._facts_provider() if self._facts_provider is not None else {}
+        )
+        continued: list[dict[str, Any]] = []
+        for next_ref in list(plan["next_decisions"])[:8]:
+            next_node = self._nodes.get(str(next_ref))
+            if next_node is None or next_node.get("node_kind") != "decision":
+                continue
+            applicable, _hard = self.applicability(str(next_ref), settled_facts)
+            if not applicable:
+                continue
+            continued.append(self._card(str(next_ref), settled_facts))
+        continued = sorted(continued, key=lambda card: str(card["decision_ref"]))
+        envelope["next_decisions"] = continued
+        if continued:
+            self._issue_card_grant(continued, source_decision_id=decision_id)
         return envelope
 
 

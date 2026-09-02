@@ -148,3 +148,115 @@ def test_a_card_still_dies_when_its_own_gate_moves(campaign_ws):
         "a chase starting elsewhere is not a reason to withdraw this card"
     )
     assert grant["state_scope"], grant
+
+
+def test_a_continuation_the_settlement_hands_over_is_one_that_settles(campaign_ws):
+    """`next_decisions` is the host saying what comes next. It must be true.
+
+    The continuations were projected from the facts as they stood BEFORE the
+    settlement ran, and no grant covered them -- so the envelope named
+    bout-tick and the settle pre-check refused it as a decision no grant
+    covered. Two host-authored statements, opposite answers. Measured
+    2026-09-02 r37, once per lane, each costing a rules.context the Keeper had
+    just been told it did not need.
+
+    Recomputed against the facts the settlement produced: the bout it opened
+    is the reason bout-tick is offerable at all, so the pre-execution facts
+    could never have offered it.
+    """
+    ws, cid = campaign_ws["workspace"], campaign_ws["campaign_id"]
+    coc_toolbox.run_tool(
+        "rules.context", ws, cid,
+        {"family": "sanity", "investigator": "thomas-hayes"},
+    )
+    opened = coc_toolbox.run_tool(
+        "rules.settle", ws, cid,
+        {
+            "decision_ref": "decision:coc7:sanity:check",
+            "decision_id": "continuation-open",
+            "investigator": "thomas-hayes",
+            "seed": 10,
+            "semantic_inputs": {
+                "source": "the sealed-chamber corpse sits up",
+                "loss_success": "20", "loss_failure": "20",
+                "involuntary_kind": "freeze",
+                "involuntary_summary": "the flashlight beam stops moving",
+            },
+        },
+    )
+    assert opened.get("ok"), opened
+    offered = [
+        card["decision_ref"]
+        for card in (opened["data"].get("next_decisions") or [])
+    ]
+    assert "decision:coc7:sanity:bout-tick" in offered, opened["data"]
+
+    # No refresh in between: the envelope said this is what comes next.
+    followed = coc_toolbox.run_tool(
+        "rules.settle", ws, cid,
+        {
+            "decision_ref": "decision:coc7:sanity:bout-tick",
+            "decision_id": "continuation-follow",
+            "investigator": "thomas-hayes",
+            "semantic_inputs": {},
+        },
+    )
+    assert followed.get("ok"), (
+        "the host offered this continuation and then refused it: "
+        f"{followed.get('error')}"
+    )
+
+
+def test_a_continuation_that_the_settlement_made_impossible_is_not_offered(
+    campaign_ws,
+):
+    """The recompute is against the settled facts, so it withholds as well as
+    offers: a bout that ends on its last round leaves nothing to tick."""
+    ws, cid = campaign_ws["workspace"], campaign_ws["campaign_id"]
+    coc_toolbox.run_tool(
+        "rules.context", ws, cid,
+        {"family": "sanity", "investigator": "thomas-hayes"},
+    )
+    coc_toolbox.run_tool(
+        "rules.settle", ws, cid,
+        {
+            "decision_ref": "decision:coc7:sanity:check",
+            "decision_id": "wind-down-open",
+            "investigator": "thomas-hayes",
+            "seed": 10,
+            "semantic_inputs": {
+                "source": "the sealed-chamber corpse sits up",
+                "loss_success": "20", "loss_failure": "20",
+                "involuntary_kind": "freeze",
+                "involuntary_summary": "the flashlight beam stops moving",
+            },
+        },
+    )
+    snapshot_path = campaign_ws["workspace"] / ".coc" / "campaigns" / cid \
+        / "save" / "sanity.json"
+    last = None
+    for turn in range(1, 20):
+        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        if not snapshot.get("bout_active"):
+            break
+        last = coc_toolbox.run_tool(
+            "rules.settle", ws, cid,
+            {
+                "decision_ref": "decision:coc7:sanity:bout-tick",
+                "decision_id": f"wind-down-{turn:02d}",
+                "investigator": "thomas-hayes",
+                "semantic_inputs": {},
+            },
+        )
+        if not last.get("ok"):
+            break
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    if snapshot.get("bout_active") or last is None or not last.get("ok"):
+        pytest.skip("the bout did not run to its end within the bound")
+    offered = [
+        card["decision_ref"]
+        for card in (last["data"].get("next_decisions") or [])
+    ]
+    assert "decision:coc7:sanity:bout-tick" not in offered, (
+        "the bout is over; ticking it is not what comes next"
+    )

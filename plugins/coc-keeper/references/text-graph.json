@@ -411,6 +411,21 @@
       }
     },
     {
+      "node_id": "craft-directive:npc-direct-speech",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive npc-direct-speech",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "when an NPC delivers new information or a refusal, render at least one of their utterances as direct quoted speech in their own voice instead of indirect summary; a scene where every NPC line is reported is a scene with no NPCs in it",
+      "origin": "text-quality finding, campaign pdf-coc-let-the-children-come-to-me-20260826T232901: routine turns resolved inside the budget floor with no NPC direct speech and no scene sensory anchor",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "npc-direct-speech",
+        "ordinal": 14,
+        "declares": "required_rule"
+      }
+    },
+    {
       "node_id": "craft-directive:observable-before-interpretation",
       "node_kind": "craft-directive",
       "plane": "craft",
@@ -546,6 +561,21 @@
       }
     },
     {
+      "node_id": "craft-directive:scene-sensory-anchor",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive scene-sensory-anchor",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "when the investigator enters a new scene, place at least one concrete sensory detail they can perceive before any interpretation or summary of what the scene means",
+      "origin": "text-quality finding, campaign pdf-coc-let-the-children-come-to-me-20260826T232901: routine turns resolved inside the budget floor with no NPC direct speech and no scene sensory anchor",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "scene-sensory-anchor",
+        "ordinal": 15,
+        "declares": "required_rule"
+      }
+    },
+    {
       "node_id": "craft-directive:skill-interpretation-after-visible-evidence",
       "node_kind": "craft-directive",
       "plane": "craft",
@@ -557,6 +587,21 @@
       "properties": {
         "directive_id": "skill-interpretation-after-visible-evidence",
         "ordinal": 3,
+        "declares": "required_rule"
+      }
+    },
+    {
+      "node_id": "craft-directive:spend-budget-on-scene-texture",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive spend-budget-on-scene-texture",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "the length budget is scene room, not event count: spend it on texture, voice, space and motion; never cram extra events to fill it, and never restate the player's own action",
+      "origin": "text-quality finding, campaign pdf-coc-let-the-children-come-to-me-20260826T232901: routine turns resolved inside the budget floor with no NPC direct speech and no scene sensory anchor",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "spend-budget-on-scene-texture",
+        "ordinal": 16,
         "declares": "required_rule"
       }
     },
@@ -583,13 +628,13 @@
       "name": "length budget costly_result",
       "evidence_class": "authored-house-doctrine",
       "rationale": "how long a turn of this kind should run before length becomes an advisory finding",
-      "origin": "unknown-legacy-tuning",
+      "origin": "slice-T5 retune after the 2026-08-26 playtest of pdf-coc-let-the-children-come-to-me-20260826T232901: every routine turn sat on the 350-char budget floor and read as a log of event clauses with no NPC direct speech and no scene texture",
       "falsifiable_by": "change the rung's max_chars for one arm and measure whether over_length findings and player follow-up questions move together",
       "properties": {
         "legacy_key": "costly_result",
         "ordinal": 2,
-        "max_chars": 550,
-        "max_paragraphs": 3
+        "max_chars": 750,
+        "max_paragraphs": 4
       }
     },
     {
@@ -615,13 +660,13 @@
       "name": "length budget routine_resolution",
       "evidence_class": "authored-house-doctrine",
       "rationale": "how long a turn of this kind should run before length becomes an advisory finding",
-      "origin": "unknown-legacy-tuning",
+      "origin": "slice-T5 retune after the 2026-08-26 playtest of pdf-coc-let-the-children-come-to-me-20260826T232901: every routine turn sat on the 350-char budget floor and read as a log of event clauses with no NPC direct speech and no scene texture",
       "falsifiable_by": "change the rung's max_chars for one arm and measure whether over_length findings and player follow-up questions move together",
       "properties": {
         "legacy_key": "routine_resolution",
         "ordinal": 3,
-        "max_chars": 350,
-        "max_paragraphs": 2
+        "max_chars": 600,
+        "max_paragraphs": 3
       }
     },
     {
