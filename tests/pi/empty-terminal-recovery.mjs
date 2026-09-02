@@ -207,7 +207,11 @@ const appendedKinds = (h, kind) => h.appended.filter(([entryKind]) => (
     recoveryOptions: firstSend?.[1],
     recoveryHidden: firstSend?.[0].display === false,
     recoveryDetails: {
+      // Host control travels in one coc.pi-system-instruction.v1 envelope, so
+      // the payload's own kind moved to context_kind beside kind:
+      // "system_instruction".
       kind: firstSend?.[0].details.kind,
+      contextKind: firstSend?.[0].details.context_kind,
       playerTurnEpoch: firstSend?.[0].details.player_turn_epoch,
     },
     recoveryAppended: appendedKinds(
