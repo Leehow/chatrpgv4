@@ -184,7 +184,7 @@ def test_combat_is_source_accepted_for_the_full_chapter_and_weapon_rules():
     # The reviewer identity names the original family review AND the
     # amendment, so the earlier review is not silently re-attested.
     assert review["accepted_shard_digest"] == (
-        "363566d7b39b7078e5793a16eb3bf073302ff1521f35899ecb9f69113c5a9cdb"
+        "d5d25219ebfe3e0e5a9b63da11fa56c4ed8b2fc0212d723c23c32ef4f4e61138"
     )
     assert review["reviewer_identity"] == (
         "codex-worker-combat-end-slot-review-20260831-v2"

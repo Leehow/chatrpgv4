@@ -151,3 +151,143 @@ def test_the_keeper_contract_publishes_the_same_vocabulary():
     spec = dict(coc_toolbox.TOOLS["rules.context"])
     enum = spec["params"]["player_intent"]["enum"]
     assert enum == list(coc_intent_router.PRIMARY_INTENT_ENUM)
+
+
+def test_a_card_that_answers_the_declared_intent_says_so(campaign_ws):
+    """The trigger only earns its place if the Keeper can see the answer. A
+    decision that declares no intent trigger stays silent, so an undeclared
+    turn and an unrelated decision look exactly as they did before."""
+    with_intent = _context(
+        campaign_ws, family="combat", player_intent="flee",
+    )
+    assert with_intent["ok"] is True, with_intent.get("error")
+    marked = {
+        card["decision_ref"]: card["answers_declared_intent"]
+        for card in with_intent["data"]["cards"]
+        if "answers_declared_intent" in card
+    }
+    assert marked.get("decision:coc7:combat:flee") is True
+    assert "decision:coc7:combat:attack" not in marked
+
+    unrelated = _context(campaign_ws, family="combat", player_intent="social")
+    assert unrelated["data"]["cards"], unrelated
+    assert all(
+        card.get("answers_declared_intent") is not True
+        for card in unrelated["data"]["cards"]
+    )
+
+    silent = _context(campaign_ws, family="combat")
+    assert all(
+        "answers_declared_intent" not in card
+        for card in silent["data"]["cards"]
+    )
+
+
+def test_the_trigger_never_gates_the_card(campaign_ws):
+    """Cards are affordances. Declaring an intent must not remove a card that
+    was offered without one, or the Keeper loses moves by answering a
+    question it was asked."""
+    without = _context(campaign_ws, family="combat")
+    with_other = _context(campaign_ws, family="combat", player_intent="social")
+    refs = lambda env: sorted(c["decision_ref"] for c in env["data"]["cards"])
+    assert refs(with_other) == refs(without)
+
+
+def test_every_intent_trigger_reads_the_registered_fact(campaign_ws):
+    """A trigger keyed on an unregistered path would silently never fire."""
+    import json as _json  # noqa: PLC0415
+
+    graph = _json.loads(
+        (
+            ROOT / "plugins/coc-keeper/rulesets/coc7/rule-graph.json"
+        ).read_text(encoding="utf-8")
+    )
+    contract = _json.loads(
+        (
+            ROOT / "plugins/coc-keeper/references/rule-graph-contract-v1.json"
+        ).read_text(encoding="utf-8")
+    )
+    registered = set(contract["registered_condition_paths"])
+    assert "intent.action_kind" in registered
+    triggers = [
+        node for node in graph["nodes"]
+        if node["node_kind"] == "condition"
+        and "intent.action_kind" in _json.dumps(node.get("properties") or {})
+    ]
+    assert triggers, "no decision declares an intent trigger"
+    for node in triggers:
+        assert node["hard_gate"] is False, node["node_id"]
+        expression = _json.dumps(node["properties"]["expression"])
+        for intent in coc_intent_router.PRIMARY_INTENT_ENUM:
+            if f'"value": "{intent}"' in expression:
+                break
+        else:
+            raise AssertionError(
+                f"{node['node_id']} tests a value outside the intent vocabulary"
+            )
+
+
+def test_the_mark_survives_the_transport_projection(campaign_ws):
+    """A card field the Keeper never sees is not a feature. The card
+    projection compares the field set exactly and drops an unexpected shape
+    whole, so an optional field must be declared optional: declaring it
+    required would silently delete every card in a turn with no declared
+    intent, which is every turn until the Keeper starts declaring one."""
+    import coc_mcp_wire as wire  # noqa: PLC0415
+
+    def projected(**extra):
+        envelope = _context(campaign_ws, family="combat", **extra)
+        assert envelope["ok"] is True, envelope.get("error")
+        view = wire.project_envelope(
+            "rules.context", envelope, contract_digest="sha256:test",
+        )
+        cards = (view.get("data") or {}).get("cards") or []
+        assert cards, view
+        return {card["decision_ref"]: card for card in cards}
+
+    silent = projected()
+    assert len(silent) == 8
+    assert all("answers_declared_intent" not in c for c in silent.values())
+
+    fleeing = projected(player_intent="flee")
+    assert set(fleeing) == set(silent), "declaring an intent dropped a card"
+    assert fleeing["decision:coc7:combat:flee"]["answers_declared_intent"] is True
+    assert "answers_declared_intent" not in fleeing["decision:coc7:combat:attack"]
+
+
+def test_the_scene_card_block_treats_the_mark_as_optional(campaign_ws):
+    """scene.context embeds the same RuleDecisionCards, and that block's
+    projector compares the field set exactly and drops an unexpected card
+    whole. So the mark has to be declared OPTIONAL there: declared required it
+    would delete every card in a turn with no declared intent, and undeclared
+    it would delete every card that carries one."""
+    import coc_mcp_wire as wire  # noqa: PLC0415
+
+    envelope = coc_toolbox.run_tool(
+        "scene.context",
+        campaign_ws["workspace"],
+        campaign_ws["campaign_id"],
+        {"investigator": "thomas-hayes"},
+    )
+    block = envelope["data"]["rule_decision_cards"]
+    assert block["cards"], envelope
+
+    plain = wire._compact_rule_decision_card_block(json.loads(json.dumps(block)))
+    assert plain and len(plain["cards"]) == len(block["cards"])
+
+    marked = json.loads(json.dumps(block))
+    for card in marked["cards"]:
+        card["answers_declared_intent"] = True
+    kept = wire._compact_rule_decision_card_block(marked)
+    assert kept, "a card carrying the mark must survive the block projection"
+    assert len(kept["cards"]) == len(block["cards"])
+    assert all(card["answers_declared_intent"] is True for card in kept["cards"])
+
+    undeclared = json.loads(json.dumps(block))
+    for card in undeclared["cards"]:
+        card["surprise_field"] = "x"
+    dropped = wire._compact_rule_decision_card_block(undeclared)
+    assert not (dropped or {}).get("cards"), (
+        "the optional set buys one declared field, not a hole"
+    )
+

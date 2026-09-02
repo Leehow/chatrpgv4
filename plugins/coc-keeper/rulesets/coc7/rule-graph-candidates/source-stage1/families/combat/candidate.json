@@ -2940,6 +2940,31 @@
       "evidence_span_ids": [
         "span-combat-complete-source-page-119-block-89"
       ]
+    },
+    {
+      "node_id": "condition:coc7:combat:intent-flee",
+      "node_kind": "condition",
+      "name": "The player's accepted action is to break away and run",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "combat",
+        "expression": {
+          "op": "all",
+          "of": [
+            {
+              "op": "eq",
+              "path": "intent.action_kind",
+              "value": "flee"
+            }
+          ]
+        }
+      },
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-89"
+      ]
     }
   ],
   "relations": [
@@ -7563,6 +7588,15 @@
       "relation_kind": "continues-as",
       "from_node_id": "decision:coc7:combat:flee",
       "to_node_id": "continuation:coc7:chase:after-escaping-close-combat",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-89"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:combat:flee-intent-trigger",
+      "relation_kind": "available-when",
+      "from_node_id": "decision:coc7:combat:flee",
+      "to_node_id": "condition:coc7:combat:intent-flee",
       "evidence_span_ids": [
         "span-combat-complete-source-page-119-block-89"
       ]

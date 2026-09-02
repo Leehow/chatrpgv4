@@ -1107,6 +1107,40 @@ class RulesRuntime:
         )
         return bool(passed), hard_gated
 
+    # -- declared-intent triggers ------------------------------------------ #
+    #: A condition whose expression reads this path is a trigger on the
+    #: player's declared action rather than on campaign state. Such a
+    #: condition is deliberately not a hard gate: a card stays an affordance,
+    #: so a decision that answers the declared action is *marked*, never made
+    #: the only legal one, and a decision that does not answer it stays
+    #: available exactly as before.
+    INTENT_FACT_PATH = "intent.action_kind"
+
+    def _intent_conditions_for(self, node_id: str) -> list[dict[str, Any]]:
+        out = []
+        for condition in self._conditions_for(node_id):
+            if condition.get("hard_gate") is True:
+                continue
+            expression = (condition.get("properties") or {}).get("expression")
+            if self.INTENT_FACT_PATH in json.dumps(expression, sort_keys=True):
+                out.append(condition)
+        return out
+
+    def answers_declared_intent(
+        self, node_id: str, facts: Mapping[str, Any],
+    ) -> bool | None:
+        """True/False when this decision declares an intent trigger; None when
+        it declares none, or when no intent was declared this turn."""
+        conditions = self._intent_conditions_for(node_id)
+        if not conditions or not facts.get(self.INTENT_FACT_PATH):
+            return None
+        return any(
+            evaluate_condition(
+                (condition.get("properties") or {}).get("expression"), facts,
+            )
+            for condition in conditions
+        )
+
     # -- cards -------------------------------------------------------------- #
     def _card(self, node_id: str, facts: Mapping[str, Any]) -> dict[str, Any]:
         node = self._nodes[node_id]
@@ -1148,6 +1182,9 @@ class RulesRuntime:
                 "hard_gate": hard_gated,
             },
         }
+        answers_intent = self.answers_declared_intent(node_id, facts)
+        if answers_intent is not None:
+            card["answers_declared_intent"] = answers_intent
         if active:
             card["active_exceptions"] = active
         if unevaluated:

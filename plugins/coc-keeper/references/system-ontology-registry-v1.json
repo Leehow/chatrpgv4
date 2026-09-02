@@ -253,6 +253,14 @@
       "locator": "development.settlement.pending"
     },
     {
+      "ref_id": "ref:live-state:intent-action-kind",
+      "graph_id": "graph:live-state:campaign",
+      "semantic_id": "fact:live-state:intent-action-kind",
+      "reference_kind": "registered-condition-path",
+      "node_kind": "live-state-fact",
+      "locator": "intent.action_kind"
+    },
+    {
       "ref_id": "ref:live-state:intent-pushed",
       "graph_id": "graph:live-state:campaign",
       "semantic_id": "fact:live-state:intent-pushed",
@@ -472,6 +480,13 @@
       "ref_id": "ref:rule:coc7:decision-coc7-chase-start",
       "graph_id": "graph:rule:coc7",
       "semantic_id": "decision:coc7:chase:start",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-combat-flee",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:combat:flee",
       "reference_kind": "artifact-node",
       "node_kind": "decision"
     },
@@ -1053,6 +1068,12 @@
       "to_ref": "ref:rule:coc7:effect-coc7-chase-end-chase-ended"
     },
     {
+      "relation_id": "relation:system:relation-coc7-chase-flee-intent-trigger:requires:intent-action-kind",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-chase-start",
+      "to_ref": "ref:live-state:intent-action-kind"
+    },
+    {
       "relation_id": "relation:system:relation-coc7-chase-hazard-available-when:requires:chase-pending-kind",
       "relation_kind": "requires-live-state-fact",
       "from_ref": "ref:rule:coc7:decision-coc7-chase-hazard",
@@ -1105,6 +1126,12 @@
       "relation_kind": "may-emit-effect",
       "from_ref": "ref:rule:coc7:decision-coc7-chase-start",
       "to_ref": "ref:rule:coc7:effect-coc7-chase-start-chase-started"
+    },
+    {
+      "relation_id": "relation:system:relation-coc7-combat-flee-intent-trigger:requires:intent-action-kind",
+      "relation_kind": "requires-live-state-fact",
+      "from_ref": "ref:rule:coc7:decision-coc7-combat-flee",
+      "to_ref": "ref:live-state:intent-action-kind"
     },
     {
       "relation_id": "relation:system:relation-coc7-combat-no-push-guards-pushed-roll:requires:receipt-push-eligible",

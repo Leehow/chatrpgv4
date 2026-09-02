@@ -2029,6 +2029,33 @@
       "visibility": "public"
     },
     {
+      "audience": "host-internal",
+      "authority": "deterministic",
+      "evidence_span_ids": [
+        "span-chase-complete-source-page-143-block-3",
+        "span-chase-complete-source-page-143-block-4",
+        "span-chase-complete-source-page-143-block-5"
+      ],
+      "hard_gate": false,
+      "name": "The player's accepted action is to break away and run",
+      "node_id": "condition:coc7:chase:intent-flee",
+      "node_kind": "condition",
+      "properties": {
+        "expression": {
+          "of": [
+            {
+              "op": "eq",
+              "path": "intent.action_kind",
+              "value": "flee"
+            }
+          ],
+          "op": "all"
+        },
+        "family_id": "chase"
+      },
+      "visibility": "keeper-only"
+    },
+    {
       "audience": "keeper",
       "authority": "deterministic",
       "evidence_span_ids": [
@@ -2187,6 +2214,31 @@
         "family_id": "chase"
       },
       "visibility": "public"
+    },
+    {
+      "audience": "host-internal",
+      "authority": "deterministic",
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-89"
+      ],
+      "hard_gate": false,
+      "name": "The player's accepted action is to break away and run",
+      "node_id": "condition:coc7:combat:intent-flee",
+      "node_kind": "condition",
+      "properties": {
+        "expression": {
+          "of": [
+            {
+              "op": "eq",
+              "path": "intent.action_kind",
+              "value": "flee"
+            }
+          ],
+          "op": "all"
+        },
+        "family_id": "combat"
+      },
+      "visibility": "keeper-only"
     },
     {
       "audience": "host-internal",
@@ -24182,6 +24234,17 @@
     },
     {
       "evidence_span_ids": [
+        "span-chase-complete-source-page-143-block-3",
+        "span-chase-complete-source-page-143-block-4",
+        "span-chase-complete-source-page-143-block-5"
+      ],
+      "from_node_id": "decision:coc7:chase:start",
+      "relation_id": "relation:coc7:chase:flee-intent-trigger",
+      "relation_kind": "available-when",
+      "to_node_id": "condition:coc7:chase:intent-flee"
+    },
+    {
+      "evidence_span_ids": [
         "span-chase-complete-source-page-141-block-1",
         "span-chase-complete-source-page-142-block-2",
         "span-chase-complete-source-page-143-block-3",
@@ -29117,6 +29180,15 @@
       "relation_id": "relation:coc7:combat:flee-continues-as-chase",
       "relation_kind": "continues-as",
       "to_node_id": "continuation:coc7:chase:after-escaping-close-combat"
+    },
+    {
+      "evidence_span_ids": [
+        "span-combat-complete-source-page-119-block-89"
+      ],
+      "from_node_id": "decision:coc7:combat:flee",
+      "relation_id": "relation:coc7:combat:flee-intent-trigger",
+      "relation_kind": "available-when",
+      "to_node_id": "condition:coc7:combat:intent-flee"
     },
     {
       "evidence_span_ids": [

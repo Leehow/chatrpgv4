@@ -61,6 +61,17 @@ RULE_DECISION_CARD_FIELDS = frozenset({
     "possible_continuations",
     "authority",
 })
+#: Fields a card MAY carry. The required set above is compared exactly, and a
+#: card whose shape is unexpected is dropped whole by design, so an optional
+#: field has to be declared here or every card that omits it would vanish.
+#:
+#: ``answers_declared_intent`` is set only when the decision declares a
+#: trigger on the player's declared action and an intent was declared this
+#: turn. Without it on the wire the Keeper cannot tell which card answers what
+#: the player actually said, which is the whole point of declaring one.
+RULE_DECISION_OPTIONAL_CARD_FIELDS = frozenset({
+    "answers_declared_intent",
+})
 RULE_DECISION_BLOCK_FIELDS = frozenset({
     "schema_version",
     "family",
@@ -1380,7 +1391,10 @@ def _compact_rule_decision_card(
     """
     if (
         not isinstance(value, dict)
-        or set(value) != RULE_DECISION_CARD_FIELDS
+        or not RULE_DECISION_CARD_FIELDS <= set(value)
+        or not set(value) <= (
+            RULE_DECISION_CARD_FIELDS | RULE_DECISION_OPTIONAL_CARD_FIELDS
+        )
         or value.get("schema_version") != 1
         or value.get("family") != family
         or not isinstance(value.get("label"), str)
@@ -1447,6 +1461,11 @@ def _compact_rule_decision_card(
         "effect_refs": effect_refs,
         "possible_continuations": continuations,
         "authority": authority,
+        **(
+            {"answers_declared_intent": bool(value["answers_declared_intent"])}
+            if isinstance(value.get("answers_declared_intent"), bool)
+            else {}
+        ),
     }
 
 

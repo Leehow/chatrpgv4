@@ -4964,10 +4964,35 @@
           "family_id": "chase"
         },
         "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-combat-complete-source-page-119-block-89"
+        ],
+        "hard_gate": false,
+        "name": "The player's accepted action is to break away and run",
+        "node_id": "condition:coc7:combat:intent-flee",
+        "node_kind": "condition",
+        "properties": {
+          "expression": {
+            "of": [
+              {
+                "op": "eq",
+                "path": "intent.action_kind",
+                "value": "flee"
+              }
+            ],
+            "op": "all"
+          },
+          "family_id": "combat"
+        },
+        "visibility": "keeper-only"
       }
     ],
     "receipt": {
-      "candidate_sha256": "7257f9607838d6620d6104a96f8682348ecaa17ceb763a351bdcb44e5a054ff3",
+      "candidate_sha256": "4c7c5b70b602d515b8137bac544cf462833cab2991c9e6cb8ddcb6b749e358c2",
       "contract_id": "coc.rule-graph-review-receipt.v1",
       "family_id": "combat",
       "packet_sha256": "4480d501cedc9e85669dfa0f9ca7f0d1d4c64508e553942b03d281e356dff9ea",
@@ -4975,7 +5000,7 @@
       "schema_version": 1,
       "section_id": "section-combat-complete-source",
       "shard_id": "shard:coc7:combat:section-combat-complete-source",
-      "shard_sha256": "363566d7b39b7078e5793a16eb3bf073302ff1521f35899ecb9f69113c5a9cdb"
+      "shard_sha256": "d5d25219ebfe3e0e5a9b63da11fa56c4ed8b2fc0212d723c23c32ef4f4e61138"
     },
     "relations": [
       {
@@ -9601,6 +9626,15 @@
         "relation_id": "relation:coc7:combat:flee-continues-as-chase",
         "relation_kind": "continues-as",
         "to_node_id": "continuation:coc7:chase:after-escaping-close-combat"
+      },
+      {
+        "evidence_span_ids": [
+          "span-combat-complete-source-page-119-block-89"
+        ],
+        "from_node_id": "decision:coc7:combat:flee",
+        "relation_id": "relation:coc7:combat:flee-intent-trigger",
+        "relation_kind": "available-when",
+        "to_node_id": "condition:coc7:combat:intent-flee"
       }
     ],
     "ruleset_id": "coc7",
