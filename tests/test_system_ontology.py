@@ -196,13 +196,16 @@ def test_coverage_ledger_states_real_director_and_text_availability_gap():
     assert rows["director"]["composition_status"] == "instance-linked"
     # The reason must keep naming why grounding stops where it does.
     assert "unresolved" in rows["director"]["reason"].lower()
-    assert rows["text"]["status"] == "absent-production-artifact"
-    assert rows["text"]["composition_status"] == "not-applicable"
+    # TextGraph T0-T5 (5427bd26) made the text layer a production artifact.
+    # Its measured outcome is that no RuleGraph effect has a rendering path,
+    # so it is production-linked with no proven instance — not absent.
+    assert rows["text"]["status"] == "production-linked"
+    assert rows["text"]["composition_status"] == "no-proven-instance"
     assert rows["module"]["composition_status"] == "no-proven-instance"
     assert not any(
         row["relation_kind"] == "uses-rule" for row in REGISTRY["relations"]
     )
-    assert "no production" in rows["text"]["reason"].lower()
+    assert "no rendering path" in rows["text"]["reason"].lower()
 
 
 def test_director_graph_is_registered_as_an_advisory_production_artifact():
@@ -235,7 +238,12 @@ def test_validator_detects_missing_target():
 
 def test_validator_detects_wrong_graph_kind():
     broken = deepcopy(REGISTRY)
-    broken["relations"][0]["to_ref"] = "ref:rule:coc7:effect-first-aid-stabilization"
+    # Pick the relation by intent, not by position: a live-state requirement
+    # retargeted at a RuleGraph ref must be rejected as the wrong graph kind.
+    relation = next(
+        row for row in broken["relations"] if row["relation_kind"] == "requires-live-state-fact"
+    )
+    relation["to_ref"] = "ref:rule:coc7:effect-first-aid-stabilization"
     assert "wrong_target_graph_kind" in _codes(broken)
 
 
@@ -267,6 +275,8 @@ def test_explicit_module_rule_ref_to_rulegraph_semantic_id_is_valid(tmp_path: Pa
     )
     resolver_relative = Path("plugins/coc-keeper/rulesets/coc7/resolver.py")
     director_relative = Path("plugins/coc-keeper/references/director-graph.json")
+
+    text_relative = Path("plugins/coc-keeper/references/text-graph.json")
     for relative in (
         module_relative, rule_relative, contract_relative, resolver_relative,
         director_relative,
@@ -275,6 +285,10 @@ def test_explicit_module_rule_ref_to_rulegraph_semantic_id_is_valid(tmp_path: Pa
     # The registry now declares a production DirectorGraph, so the synthetic
     # repository must carry one for artifact resolution to succeed.
     shutil.copy2(ROOT / director_relative, tmp_path / director_relative)
+
+    (tmp_path / text_relative).parent.mkdir(parents=True, exist_ok=True)
+
+    shutil.copy2(ROOT / text_relative, tmp_path / text_relative)
     module_graph = {
         "contract_id": "coc.module-graph.v3",
         "schema_version": 3,
