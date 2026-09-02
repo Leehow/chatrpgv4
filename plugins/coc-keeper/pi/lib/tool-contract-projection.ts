@@ -567,6 +567,18 @@ const PI_SCHEMA_CODES = new Set<string>([
   "missing_parameters",
   "invalid_arguments",
   "invalid_param_type",
+  // A settlement whose semantic_inputs name a slot the decision does not
+  // declare, or omit one it requires, is the model's own argument error and
+  // the host already hands back the exact declared/missing slot names. Left
+  // out of this set it projected as `invariant_terminal`, `recoverable_by:
+  // none`, with no allowed next action — the envelope handed over the fix and
+  // told the Keeper the failure was unrecoverable in the same breath.
+  // Observed live 2026-09-02: told `declared_slots: [affordance_id,
+  // candidate_ref, combat_revision, investigator_id]` for
+  // decision:coc7:combat:flee, the Keeper never retried with corrected
+  // arguments and went looking for other decisions to settle instead.
+  "unknown_semantic_input",
+  "missing_semantic_input",
 ]);
 
 /** Single schema-code policy shared by classification and schema attachment. */
