@@ -2684,6 +2684,14 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
     # Timing signals for player-visible prose, on the operation the Keeper
     # actually reaches. Advisory: they name the moment, never the line.
     data["banter_signals"] = _banter_signals(ctx, data)
+    # Slice T5: the craft vocabulary used to reach the model only through
+    # narration.brief, which normal play never calls, so the narrator drafted
+    # blind. The style contract rides the live operation instead; the host
+    # projection keeps it on the model-visible view of this result.
+    data["style_contract"] = coc_narration_style.player_facing_style_contract(
+        _campaign_play_language(ctx),
+        play_register=_campaign_play_register(ctx),
+    )
     data["pending_narration_draft_status"] = {
         "schema_version": 1,
         "secrecy": "keeper_only",

@@ -258,6 +258,13 @@ def test_settled_multi_stage_public_checks_fit_budget_and_finalize_first_try(
     output = _run(campaign_ws, "turn.output_context")
     assert output["ok"] is True, output
     data = output["data"]
+    # Slice T5: the craft vocabulary must ride the live operation, not the
+    # narration.brief path normal play never calls.
+    style = data["style_contract"]
+    assert style["style_guard"]["required_rule_text"][
+        "spend_budget_on_scene_texture"
+    ]
+    assert "npc_direct_speech" in style["style_guard"]["required_rules"]
     public_checks = data["mechanics_bundle"]["public_check"]
     assert len(public_checks) == 3
     assert data["contract_projection"]["narration_budget"]["max_paragraphs"] >= 4
