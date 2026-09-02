@@ -8248,10 +8248,17 @@ def dispatch_rules_settle(
         # already knows how to compute never reached the Keeper: the model saw
         # a terminal error while the host was holding the current cards. Build
         # the same envelope here and carry the cards through.
+        # Say WHICH of the two it is. "No live grant" reads the same whether
+        # the Keeper settled a decision it never asked cards for or whether a
+        # grant existed and canonical state moved underneath it, and those
+        # need different answers. Five stale settlements across three lanes on
+        # 2026-09-02 came through here with no reason attached.
+        why = runtime.explain_missing_grant(decision_ref)
         stale = runtime.stale_decision_envelope(
             decision_ref,
-            "no_live_card_grant",
-            "no live machine-issued card grant covers this decision",
+            str(why.get("reason") or "no_live_card_grant"),
+            str(why.get("detail") or "no live machine-issued card grant covers this decision"),
+            **({"drifted": why["drifted"]} if why.get("drifted") else {}),
         )
         # Grants stay host-internal (see dispatch_rules_context); only the
         # public card projection crosses the boundary. The refreshed grant is

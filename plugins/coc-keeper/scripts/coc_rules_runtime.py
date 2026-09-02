@@ -1622,6 +1622,60 @@ class RulesRuntime:
             return False
         return node.get("node_kind") != "decision"
 
+    def explain_missing_grant(self, decision_ref: str) -> dict[str, Any]:
+        """Why `latest_grant_covering` found nothing.
+
+        The caller's pre-check only reported "no live grant", which reads the
+        same whether the Keeper settled a decision it never asked cards for or
+        whether a grant existed and its binding moved underneath it. Those
+        need different answers — refresh this family, versus canonical state
+        advanced mid-turn — and the runtime already holds both facts.
+        """
+        current = self._grant_binding()
+        covering = [
+            grant for grant in self._grants.values()
+            if decision_ref in (grant.get("decision_refs") or [])
+        ]
+        if not covering:
+            return {
+                "reason": "no_grant_for_decision",
+                "detail": (
+                    "no card grant issued this turn covers this decision; "
+                    "rules.context for its family issues one"
+                ),
+            }
+        live = [
+            grant for grant in covering
+            if (grant.get("binding") or {}) == current
+        ]
+        if live:
+            # The caller only asks after its own lookup failed, so a covering
+            # grant whose binding matches NOW means the two reads disagreed —
+            # canonical state moved between them, or moved and moved back.
+            # Say that instead of inventing a drift with an empty key list,
+            # which is what the first version of this method reported.
+            return {
+                "reason": "grant_binding_unstable",
+                "detail": (
+                    "a covering grant matches the binding read now but did not "
+                    "at lookup; canonical state moved between the two reads"
+                ),
+            }
+        drifted = sorted({
+            key
+            for grant in covering
+            for key in set(grant.get("binding") or {}) | set(current)
+            if (grant.get("binding") or {}).get(key) != current.get(key)
+        })
+        return {
+            "reason": "grant_binding_drifted",
+            "drifted": drifted,
+            "detail": (
+                "a grant covering this decision exists but canonical state "
+                "moved since it was issued"
+            ),
+        }
+
     def latest_grant_covering(self, decision_ref: str) -> dict[str, Any] | None:
         current = self._grant_binding()
         for grant_id in reversed(list(self._grants)):
