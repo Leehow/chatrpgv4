@@ -340,9 +340,9 @@ def test_graph_settle_rejects_unregistered_or_malformed_decision_namespace() -> 
     wrong_family = _healing_settle_call("future-heal-1")
     wrong_family["data"]["family"] = "vitality"
 
-    assert _both_reasons(effect, [unregistered]) == "mismatch"
-    assert _both_reasons(effect, [malformed]) == "mismatch"
-    assert _both_reasons(effect, [wrong_family]) == "mismatch"
+    assert _both_reasons(effect, [unregistered]) == "operation_cannot_write"
+    assert _both_reasons(effect, [malformed]) == "operation_cannot_write"
+    assert _both_reasons(effect, [wrong_family]) == "operation_cannot_write"
 
 
 def test_graph_healing_settle_fails_closed_without_exact_canonical_receipt() -> None:
@@ -419,7 +419,7 @@ def test_graph_healing_settle_fails_closed_without_exact_canonical_receipt() -> 
     invalid_calls.append(missing_nested_envelope)
 
     for call in invalid_calls:
-        assert _both_reasons(effect, [call]) == "mismatch"
+        assert _both_reasons(effect, [call]) == "operation_cannot_write"
 
 
 def test_graph_settle_rejects_malformed_condition_values() -> None:
@@ -448,7 +448,7 @@ def test_graph_settle_rejects_malformed_condition_values() -> None:
         call["data"]["settlement"]["result"]["player_state_receipt"][
             "conditions_before"
         ] = list(malformed)
-        assert _both_reasons(effect, [call]) == "mismatch"
+        assert _both_reasons(effect, [call]) == "operation_cannot_write"
 
 
 def test_graph_settle_rejects_boolean_hp_mirrors_and_effect_values() -> None:
@@ -483,10 +483,14 @@ def test_graph_settle_rejects_boolean_hp_mirrors_and_effect_values() -> None:
         "hp_gained": True,
     })
 
-    assert _both_reasons(effect, [boolean_mirrors]) == "mismatch"
-    assert _both_reasons(boolean_effect, [valid]) == "mismatch"
-    assert _both_reasons(effect, [nested_receipt_bools]) == "mismatch"
-    assert _both_reasons(effect, [nested_event_bools]) == "mismatch"
+    # A boolean where an integer belongs makes the settlement not a writer of
+    # that pool at all -- there is no number for it to have written.
+    assert _both_reasons(effect, [boolean_mirrors]) == "operation_cannot_write"
+    # The settlement wrote real numbers; the EFFECT is the one carrying
+    # booleans, so the two disagree rather than the writer being wrong.
+    assert _both_reasons(boolean_effect, [valid]) == "delta_disagrees"
+    assert _both_reasons(effect, [nested_receipt_bools]) == "operation_cannot_write"
+    assert _both_reasons(effect, [nested_event_bools]) == "operation_cannot_write"
 
 
 def test_graph_healing_settle_failed_or_replay_only_never_proves() -> None:
@@ -515,8 +519,19 @@ def test_invalid_non_writer_fails_both() -> None:
             data={"player_state_receipt": _hp_receipt()},
         )
         reason = _both_reasons(effect, [call])
-        assert reason in {"mismatch", "advisory", "unknown"}
-        assert coc_turn_finalization._state_delta_proof_violations([call], [effect])
+        assert reason in {"operation_cannot_write", "wrong_subject", "delta_disagrees", "advisory", "unknown"}
+        # The authority still reports it; finalization treats a host-projected
+        # delta the host cannot evidence as its own bookkeeping shortfall
+        # rather than a Keeper violation, because failing that closed leaves
+        # the campaign unable to deliver any turn ever again.
+        assert authority.state_delta_proof_violations([call], [effect])
+        # An advisory operation wrote nothing at all, so that one still fails
+        # the turn closed; the rest are the host unable to evidence its own
+        # projection, which must not shut the table.
+        blocked = coc_turn_finalization._state_delta_proof_violations(
+            [call], [effect],
+        )
+        assert (blocked != []) == (reason == "advisory"), (tool, reason)
         assert _export()._state_diff_rows([call], [{
             "finalization_id": "fin-1",
             "bundle": {"state_delta": [effect], "asset_delta": []},
@@ -616,13 +631,15 @@ def test_condition_item_cash_time_exceptional_and_ammo_matrix() -> None:
     for effect, call in cases:
         assert _both_reasons(effect, [call]) is None, effect["effect_kind"]
         journal = _call("state.journal", effect["source_decision_id"], data=call["data"])
-        assert _both_reasons(effect, [journal]) in {"mismatch", "advisory"}
+        assert _both_reasons(effect, [journal]) in {"operation_cannot_write", "wrong_subject", "delta_disagrees", "advisory"}
 
 
 def test_rules_damage_without_structured_hp_does_not_prove() -> None:
     effect = _hp_effect()
     bare = _call("rules.damage", "hp-1")
-    assert _both_reasons(effect, [bare]) == "mismatch"
+    # rules.damage may write hp; with no structured receipt its numbers simply
+    # do not agree with the effect's.
+    assert _both_reasons(effect, [bare]) == "delta_disagrees"
     proven = _call("rules.damage", "hp-1", data={"hp_before": 10, "hp_after": 8})
     assert _both_reasons(effect, [proven]) is None
 
@@ -702,10 +719,10 @@ def test_empty_or_unknown_kind_never_proves() -> None:
     empty = {**typed_shape, "effect_kind": ""}
     missing = dict(typed_shape)
     unknown = {**typed_shape, "effect_kind": "not_a_kind"}
-    assert _both_reasons(empty, [journal]) == "mismatch"
-    assert _both_reasons(missing, [journal]) == "mismatch"
-    assert _both_reasons(unknown, [journal]) == "mismatch"
-    assert authority.receipt_proves_effect(journal, empty) == "mismatch"
+    assert _both_reasons(empty, [journal]) == "operation_cannot_write"
+    assert _both_reasons(missing, [journal]) == "operation_cannot_write"
+    assert _both_reasons(unknown, [journal]) == "operation_cannot_write"
+    assert authority.receipt_proves_effect(journal, empty) == "operation_cannot_write"
     unknown_op = _call(
         "state.not_a_registered_op",
         "hp-1",

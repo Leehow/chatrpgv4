@@ -2519,10 +2519,17 @@ def test_exporter_and_finalizer_share_valid_and_invalid_state_proof():
         "bundle": {"state_delta": [effect], "asset_delta": []},
     }])[0]["source_tool"] == "combat.resolve"
 
-    assert coc_turn_finalization._state_delta_proof_violations(invalid, [effect])
+    # The exporter and the authority still agree that nothing here proves the
+    # effect. Finalization is the one that differs on purpose: a delta the
+    # host projected and cannot evidence is its own bookkeeping shortfall, and
+    # failing that closed leaves the campaign unable to deliver any turn.
+    assert module._state_effect_authority().state_delta_proof_violations(
+        invalid, [effect], registry=module._toolbox_registry(),
+    )
+    assert coc_turn_finalization._state_delta_proof_violations(invalid, [effect]) == []
     assert module._state_effect_authority().state_delta_proof_reason(
         effect, invalid, registry=module._toolbox_registry(),
-    ) == "mismatch"
+    ) == "operation_cannot_write"
     assert module._state_diff_rows(invalid, [{
         "finalization_id": "fin-hp",
         "bundle": {"state_delta": [effect], "asset_delta": []},
