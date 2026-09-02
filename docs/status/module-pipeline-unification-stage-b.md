@@ -505,7 +505,15 @@ one player (this session), one turn at a time through the repo's own
     resolve it back to the canonical token host-side, through the
     `SemanticIdMap` / `restoreSemanticEntityHandles` lane this projection
     already runs for entity handles. That is a design change, not a table
-    edit, and it is left unstarted rather than half-done.
+    edit, and it was recorded here before being attempted.
+
+    **Fixed the same day.** `transcript` became a registry domain: a row is
+    named to the model by a handle minted from its turn and speaker, and the
+    canonical locator stays host-side, exactly as rolls, items and routes
+    already work. Two existing tests caught the rest of the wiring -- the
+    identity sweep needed `transcript` listed as a registry domain, and the
+    closed-grammar doc test required the field's grammar on both KP-facing
+    surfaces before it could ship.
 
 27. **The player's evidence cannot reach the difficulty adjudicator.** Three
     consecutive rescue attempts on the forked worldline came back Extreme
