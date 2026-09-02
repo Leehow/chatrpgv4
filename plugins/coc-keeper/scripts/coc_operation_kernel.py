@@ -8279,7 +8279,15 @@ def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: st
     binding: dict[str, Any] = {"actor_id": actor_id, "revision": chase.get("revision")}
     if "chase_id" in declared:
         binding["chase_id"] = chase.get("chase_id")
-    if suffix == "move": binding["action_id"] = "advance"
+    # `move:advance`, not `advance`. The executor holds chase action ids to a
+    # namespaced form and refuses anything else as `untrusted_chase_action`
+    # ("unknown move action ID"); the hazard and barrier branches below bind
+    # theirs namespaced already, and move was the one outlier. Every slot on
+    # decision:coc7:chase:move is host-locked, so the Keeper sends nothing and
+    # could do nothing about it -- chase:move was simply unsettleable.
+    # Measured 2026-09-02 r40, the first run in which a chase move ever
+    # reached the executor at all.
+    if suffix == "move": binding["action_id"] = "move:advance"
     elif suffix == "hazard":
         hazard = nxt.get("hazard") if isinstance(nxt, Mapping) else None
         if not isinstance(hazard, Mapping): raise ToolError("chase_action_unavailable", "next location has no hazard")

@@ -223,3 +223,48 @@ def test_the_refusal_says_what_went_wrong_and_where_the_refs_are(monkeypatch):
     assert "1 actor ref(s) are not in this scene" in message, message
     assert "details.rejected_actor_refs" in message, message
     assert "1 location ref(s) are not connected" in message, message
+
+
+def test_the_move_action_id_is_the_form_the_executor_accepts(tmp_path):
+    """`chase:move` binds a host-locked action_id, and the executor holds chase
+    action ids to a namespaced form -- `move:advance`, beside `hazard:<id>`
+    and `barrier:<id>:<method>`, which the sibling branches bind namespaced
+    already. Move alone was bound bare, so the executor refused it as
+    `untrusted_chase_action` and chase:move could not be settled at all. The
+    Keeper sends nothing for this decision, so nothing it did could have
+    helped. Measured 2026-09-02 r40, the first run in which a chase move
+    reached the executor.
+    """
+    import json as _json  # noqa: PLC0415
+
+    save = tmp_path / "save"
+    save.mkdir(parents=True)
+    (save / "chase.json").write_text(_json.dumps({
+        "status": "active",
+        "revision": 3,
+        "chase_id": "chase:corbitt-confrontation:thomas-hayes-vs-corbitt",
+        "initiative_cursor": 0,
+        "rounds": [{"dex_order": ["thomas-hayes"]}],
+        "participants": [{"actor_id": "thomas-hayes", "position": 0}],
+        "location_chain": [{}, {}],
+    }), encoding="utf-8")
+
+    class _ChaseCtx:
+        campaign_id = "chase-move-probe"
+        campaign_dir = tmp_path
+
+    binding = kernel._canonical_chase_binding(
+        _ChaseCtx(),
+        decision_ref="decision:coc7:chase:move",
+        investigator_id="thomas-hayes",
+        semantic_inputs={},
+    )
+    assert binding["action_id"] == "move:advance", binding
+
+    # The executor's own guard is the authority on the form; read it rather
+    # than restating the string here.
+    import coc_subsystem_executor  # noqa: PLC0415
+    source = Path(coc_subsystem_executor.__file__).read_text(encoding="utf-8")
+    assert 'payload["action_id"] != "move:advance"' in source, (
+        "the executor's accepted move action id moved; this binding must follow"
+    )
