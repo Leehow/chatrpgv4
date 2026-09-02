@@ -8212,8 +8212,30 @@ function rawIdentityFieldRule(
  * pregen): single-token values are legal because canonical validation owns
  * the vocabulary — but the values still reject machine namespaces/entropy.
  */
-const RAW_VOCABULARY_FIELDS: ReadonlySet<string> = new Set([
-  "pregen_id",
+/**
+ * Published closed vocabularies. Membership is enforced by each operation
+ * schema's own `enum`, so the accepted values are deliberately NOT re-listed
+ * here: a second copy in TypeScript would drift from the source that publishes
+ * them (`narration.review.findings.rule_id` comes from TextGraph). This map
+ * carries only what the grammar overlay needs to describe the field.
+ */
+const RAW_VOCABULARY_FIELDS: ReadonlyMap<string, {
+  acceptedForm: string;
+  right: string;
+  wrong: string;
+}> = new Map([
+  ["pregen_id", {
+    acceptedForm:
+      "canonical vocabulary token; machine namespaces and opaque tokens rejected",
+    right: "starter",
+    wrong: "job-not-a-pregen",
+  }],
+  ["rule_id", {
+    acceptedForm:
+      "one of the published narration.review rule ids in the operation schema's enum",
+    right: "agency_violation",
+    wrong: "prose_feels_off",
+  }],
 ]);
 
 export type ClosedIdentityGrammarKind =
@@ -8457,12 +8479,9 @@ export function closedIdentityGrammarSpec(
       description: grammarOverlayDescription(marker, acceptedForm, right),
     };
   }
-  if (RAW_VOCABULARY_FIELDS.has(field)) {
-    const acceptedForm = (
-      "canonical vocabulary token; machine namespaces and opaque tokens rejected"
-    );
-    const right = "starter";
-    const wrong = "job-not-a-pregen";
+  const vocabulary = RAW_VOCABULARY_FIELDS.get(field);
+  if (vocabulary !== undefined) {
+    const { acceptedForm, right, wrong } = vocabulary;
     const marker = `Closed ${field} grammar`;
     return {
       field,
@@ -8487,7 +8506,7 @@ export function closedIdentityGrammarCatalog(): readonly ClosedIdentityGrammarSp
     ...RAW_HANDLE_ONLY.keys(),
     ...RAW_HANDLE_OR_NAMESPACE.keys(),
     ...RAW_PROVENANCE_FIELDS,
-    ...RAW_VOCABULARY_FIELDS,
+    ...RAW_VOCABULARY_FIELDS.keys(),
   ]);
   const rows: ClosedIdentityGrammarSpec[] = [];
   for (const field of [...fields].sort((a, b) => {

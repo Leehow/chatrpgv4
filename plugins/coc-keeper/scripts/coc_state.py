@@ -18,7 +18,7 @@ from coc_fileio import (
     advisory_file_lock as _advisory_file_lock,
     write_json_atomic as _fileio_write_json_atomic,
 )
-from coc_language import DEFAULT_PLAY_LANGUAGE, language_profile
+from coc_language import DEFAULT_PLAY_LANGUAGE
 import coc_investigator_guard
 import coc_flag_state
 import coc_rulesets
@@ -1812,7 +1812,6 @@ def _create_campaign_at(
         "dice_mode": "codex",
         "spoiler_policy": "warn_before_reveal",
         "play_language": play_language,
-        "language_profile": language_profile(play_language),
         "localized_terms": {play_language: {}},
         "active_subsystem": "setup",
         "created_at": created_at,

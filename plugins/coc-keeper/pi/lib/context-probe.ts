@@ -21,11 +21,29 @@
  *      `rewritten` is observed rather than assumed. This is the baseline any
  *      future folding has to be judged against.
  *
- * Sizes are model-visible characters (exact): host-side `details` and protocol
- * scaffolding are excluded, so the numbers track what the provider is actually
- * billed for. `est_tokens` is pi's own
- * conservative chars/4 heuristic, kept only so probe numbers are comparable
- * with pi's compaction threshold; it underestimates Chinese prose.
+ * Sizes are model-visible characters of the **message array only** (exact):
+ * host-side `details` and protocol scaffolding are excluded.
+ *
+ * They do **not** track what the provider is billed for, and an earlier
+ * version of this docstring wrongly claimed they did. The message array is
+ * one of four sections of a provider request; the system prompt, the
+ * advertised tool definitions, and the provider's own scaffolding are all
+ * outside it. Measured on `dirgraph-smoke-20260901`, the first model call of a
+ * fresh play process scanned 717 chars / 180 `est_tokens` here while the
+ * provider billed 33,000 tokens for that call, and a mid-turn call reported
+ * 39,967 `est_tokens` against 58,191 billed. The gap is not noise: it is where
+ * the largest cost in that session lived, and this probe is structurally
+ * unable to see it. `lib/request-prefix-probe.ts` measures the request body
+ * itself and is the number to reach for when the question is billing.
+ *
+ * `prefix.status` has the same boundary. It observes whether the *transcript*
+ * moved; it reported `rewritten_calls: 0` for a session whose provider cache
+ * missed repeatedly, because the invalidation came from the `tools` field,
+ * which is not in this array.
+ *
+ * `est_tokens` is pi's own conservative chars/4 heuristic, kept only so probe
+ * numbers are comparable with pi's compaction threshold; it underestimates
+ * Chinese prose.
  */
 
 /** Assumed size of the stub that would replace one folded tool round trip. */

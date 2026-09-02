@@ -1,0 +1,383 @@
+{
+  "contract_id": "coc.text-graph-contract.v1",
+  "schema_version": 1,
+  "graph_contract_id": "coc.text-graph.v1",
+  "shard_contract_id": "coc.text-graph-shard.v1",
+  "packet_contract_id": "coc.text-graph-packet.v1",
+  "build_manifest_contract_id": "coc.text-graph-build-manifest.v1",
+  "compiler_identity": "coc.text-graph-compiler.v1",
+  "semantic_id_law": "Every identifier is a namespaced semantic id. Node ids begin with the exact node_kind plus a colon; relation ids begin with relation:. Tokens after the kind are lowercase ASCII kebab-case. A vocabulary node that replaces a differently-punctuated legacy token carries the exact original token in properties.legacy_key; the graph never renames a runtime value. This matters more here than in any other graph, because these tokens cross the model-visible contract surface: turn.finalize and narration.review reject an unknown token, so a rename is a live protocol break.",
+  "semantic_id_pattern": "^[a-z][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)+$",
+  "planes": [
+    "obligation",
+    "craft"
+  ],
+  "node_kinds": [
+    "obligation-kind",
+    "obligation-source-kind",
+    "coverage-field",
+    "realization-mode",
+    "player-input-handling",
+    "segment-type",
+    "agency-claim-type",
+    "roll-visibility-class",
+    "substantive-effect-status",
+    "review-rule",
+    "craft-directive",
+    "render-slot",
+    "render-prohibition",
+    "style-axis",
+    "narration-budget-mode",
+    "text-threshold",
+    "narration-budget-trigger"
+  ],
+  "obligation_node_kinds": [
+    "obligation-kind",
+    "obligation-source-kind",
+    "coverage-field",
+    "realization-mode",
+    "player-input-handling",
+    "segment-type",
+    "agency-claim-type",
+    "roll-visibility-class",
+    "substantive-effect-status"
+  ],
+  "craft_node_kinds": [
+    "review-rule",
+    "craft-directive",
+    "render-slot",
+    "render-prohibition",
+    "style-axis",
+    "narration-budget-mode",
+    "text-threshold",
+    "narration-budget-trigger"
+  ],
+  "relation_kinds": [
+    "part-of",
+    "orders",
+    "constrains",
+    "advises",
+    "applies-to-language",
+    "triggered-by",
+    "supersedes",
+    "renders-settled-output"
+  ],
+  "relation_endpoints": {
+    "part-of": {
+      "from": [
+        "obligation-source-kind",
+        "coverage-field",
+        "realization-mode",
+        "player-input-handling",
+        "substantive-effect-status",
+        "narration-budget-trigger"
+      ],
+      "to": [
+        "obligation-kind",
+        "narration-budget-mode"
+      ]
+    },
+    "orders": {
+      "from": [
+        "segment-type",
+        "narration-budget-mode",
+        "render-slot"
+      ],
+      "to": [
+        "segment-type",
+        "narration-budget-mode",
+        "render-slot"
+      ]
+    },
+    "constrains": {
+      "from": [
+        "roll-visibility-class",
+        "render-prohibition",
+        "agency-claim-type"
+      ],
+      "to": [
+        "obligation-kind",
+        "segment-type",
+        "review-rule"
+      ]
+    },
+    "advises": {
+      "from": [
+        "craft-directive",
+        "style-axis"
+      ],
+      "to": [
+        "review-rule",
+        "render-slot",
+        "narration-budget-mode"
+      ]
+    },
+    "applies-to-language": {
+      "from": [
+        "craft-directive",
+        "style-axis",
+        "review-rule"
+      ],
+      "to": [
+        "craft-directive",
+        "style-axis"
+      ]
+    },
+    "triggered-by": {
+      "from": [
+        "narration-budget-mode",
+        "review-rule"
+      ],
+      "to": [
+        "segment-type",
+        "obligation-kind"
+      ]
+    },
+    "supersedes": {
+      "from": [
+        "review-rule",
+        "craft-directive",
+        "text-threshold"
+      ],
+      "to": [
+        "review-rule",
+        "craft-directive",
+        "text-threshold"
+      ]
+    },
+    "renders-settled-output": {
+      "from": [
+        "obligation-kind",
+        "segment-type"
+      ],
+      "to": [
+        "rule-effect-ref",
+        "live-state-fact-ref"
+      ]
+    }
+  },
+  "evidence_classes": [
+    "settled-effect-derived",
+    "rulebook-source",
+    "authored-house-doctrine"
+  ],
+  "evidence_class_required_keys": {
+    "settled-effect-derived": [
+      "derived_from"
+    ],
+    "rulebook-source": [
+      "source_refs"
+    ],
+    "authored-house-doctrine": [
+      "rationale",
+      "origin",
+      "falsifiable_by"
+    ]
+  },
+  "origin_tokens": [
+    "unknown-legacy-tuning"
+  ],
+  "accountability_law": "Every node declares exactly one evidence_class. A settled-effect-derived node MUST name, in derived_from, the exact receipt field or RuleGraph effect that produces it — the obligation plane is derived, so a node that cannot name its derivation is authored and must say so. A rulebook-source node MUST cite real evidence spans. An authored-house-doctrine node MUST carry a non-empty rationale, origin and falsifiable_by; origin is a commit id, a playtest finding reference, a live document path, or the exact token unknown-legacy-tuning. Inventing an origin, a rationale, or a page citation for a value whose provenance was not found is prohibited; recording unknown-legacy-tuning is the correct outcome.",
+  "authority_laws": [
+    "TextGraph is presentation-only. It never gates, blocks, reorders or vetoes a player action, a Keeper choice, a scene transition, or a rules settlement. It never mutates state.",
+    "TextGraph never pattern-matches player or Keeper prose. No regular expression, phrase list, substitution table, keyword set, or style score may exist in this layer or in its artifact. The graph computes obligations from settled state and hands the model a vocabulary of constraint and review-rule semantic ids. Whether prose is good is a semantic judgment that belongs to the Keeper.",
+    "TextGraph never rewrites Keeper-authored text. It may declare an obligation uncovered and it may carry an advisory finding; it may not substitute words.",
+    "TextGraph supplies data to the existing finalization implementation. It is never traversed to produce an obligation, a coverage decision, or an output, and no universal graph interpreter may be built over it.",
+    "Coverage verification is presence, closed-vocabulary membership, and verbatim binding. It is never a prose-quality judgment.",
+    "Obligations are derived from settled receipts and RuleGraph effects. TextGraph authors no obligation and invents no effect.",
+    "Absence is not prohibition. A beat, a register, or a craft directive not present in the graph is not thereby forbidden to the Keeper.",
+    "TextGraph is language-independent. An obligation MUST NOT depend on play_language, and no node may be reachable in one language only. A craft directive MAY declare language applicability; an obligation may not."
+  ],
+  "identity_law": "Migration slices T1 through T4 MUST be behaviour-preserving. Every token carried into this graph is byte-identical to the literal it replaces, and every set reconstructed from the graph compares equal to the frozenset it replaced. Retuning requires slice T5 and a recorded result.",
+  "fail_closed_law": "A missing, unparsable, or contract-invalid TextGraph fails closed at load. The runtime MUST NOT fall back to embedded literals. This matters more here than for any other graph: turn.finalize is the product's most-called operation, so a silent fallback would be both invisible and universal.",
+  "no_body_copy_law": "Vocabulary nodes carry identity and order, never the body of the record they name. A RuleGraph effect stays in rule-graph.json and is referenced by semantic id through renders-settled-output; a settled receipt stays in the campaign log; a coverage row stays in turn-finalizations.jsonl. Copying any of those bodies into this graph would create two copies of one semantics with no retirement owner, which is the pattern this refactor exists to remove.",
+  "ordinal_law": "Every node carries ordinal, its zero-based index in the source declaration it was migrated from. Two of these orders are behaviourally observable and MUST be reconstructed from ordinal rather than from node_id sort order or artifact order: segment placement order (SEGMENT_TYPE_ORDER, carried as mechanic_placement_order) and the leading-segment law (the segment type whose must_lead is true is required to be segments[0]). The remaining vocabularies were declared as frozensets, so their declaration order is not observable today; their ordinal pins the artifact against silent reordering and makes review diffs stable, and the runtime MUST rebuild those as unordered sets so that no consumer can start depending on an order the source never had.",
+  "surface_law": "TextGraph adds no model-visible operation. The canonical operation count is 147 before and after every slice. The vocabularies this graph owns already cross the model-visible surface through turn.output_context, turn.finalize and narration.review schemas; the graph becomes their single source without changing a schema shape.",
+  "residue_law": "The residue gate covers the whole text surface from the first slice, in every language, not only the functions a slice migrates. DirectorGraph's first gate covered only its own ten functions, which made it a gate that could confirm nothing but its own work; extending it later immediately exposed an entire unmigrated scoring engine and four duplicate values in a file declared out of scope. Every occurrence of an owned token inside the declared surface MUST be classified as migrated, reads-from-graph, or explicitly-excluded-with-a-reason. A silent omission is a gate failure. The surface includes TypeScript, Markdown and JSON, because four copies of the obligation namespace live in pi/lib/tool-contract-projection.ts and a Python-only gate cannot see them.",
+  "node_keys": [
+    "node_id",
+    "node_kind",
+    "plane",
+    "name",
+    "evidence_class",
+    "properties"
+  ],
+  "optional_node_keys": [
+    "derived_from",
+    "rationale",
+    "origin",
+    "falsifiable_by",
+    "source_refs",
+    "renders"
+  ],
+  "relation_keys": [
+    "relation_id",
+    "relation_kind",
+    "from_node_id",
+    "to_node_id"
+  ],
+  "graph_keys": [
+    "contract_id",
+    "schema_version",
+    "graph_id",
+    "nodes",
+    "relations",
+    "coverage"
+  ],
+  "shard_keys": [
+    "contract_id",
+    "schema_version",
+    "shard_id",
+    "plane",
+    "nodes",
+    "relations"
+  ],
+  "packet_keys": [
+    "contract_id",
+    "schema_version",
+    "plane",
+    "available_node_kinds",
+    "legacy_sources"
+  ],
+  "build_manifest_keys": [
+    "contract_id",
+    "schema_version",
+    "graph_id",
+    "graph_content_digest",
+    "shards",
+    "plane_coverage",
+    "compiler_identity",
+    "node_counts"
+  ],
+  "node_property_keys": {
+    "obligation-kind": [
+      "legacy_key",
+      "ordinal",
+      "id_prefix",
+      "builder"
+    ],
+    "obligation-source-kind": [
+      "legacy_key",
+      "ordinal",
+      "obligation_kind"
+    ],
+    "coverage-field": [
+      "legacy_key",
+      "ordinal"
+    ],
+    "realization-mode": [
+      "legacy_key",
+      "ordinal"
+    ],
+    "player-input-handling": [
+      "legacy_key",
+      "ordinal"
+    ],
+    "segment-type": [
+      "legacy_key",
+      "ordinal",
+      "mechanic",
+      "mechanic_placement_order",
+      "must_lead"
+    ],
+    "agency-claim-type": [
+      "legacy_key",
+      "ordinal",
+      "voluntary"
+    ],
+    "roll-visibility-class": [
+      "legacy_key",
+      "ordinal",
+      "player_facing",
+      "superseded"
+    ],
+    "substantive-effect-status": [
+      "legacy_key",
+      "ordinal"
+    ],
+    "review-rule": [
+      "legacy_key",
+      "ordinal",
+      "hard_gate",
+      "citable"
+    ],
+    "craft-directive": [
+      "directive_id",
+      "ordinal",
+      "declares"
+    ],
+    "render-slot": [
+      "legacy_key",
+      "ordinal"
+    ],
+    "render-prohibition": [
+      "legacy_key",
+      "ordinal"
+    ],
+    "style-axis": [
+      "legacy_key",
+      "ordinal",
+      "axis",
+      "language_applicability"
+    ],
+    "narration-budget-mode": [
+      "legacy_key",
+      "ordinal",
+      "max_chars",
+      "max_paragraphs"
+    ],
+    "text-threshold": [
+      "threshold_id",
+      "ordinal",
+      "value",
+      "comparison",
+      "subject"
+    ],
+    "narration-budget-trigger": [
+      "legacy_key",
+      "ordinal",
+      "budget_mode"
+    ]
+  },
+  "comparisons": [
+    "gte",
+    "gt",
+    "lte",
+    "lt",
+    "eq"
+  ],
+  "coverage_status": [
+    "accepted",
+    "partial",
+    "absent",
+    "unresolved"
+  ],
+  "coverage_law": "A shard may only assign accepted or partial to the plane it declared. Every other plane is unresolved on the built graph. The craft plane is unresolved until slice T4.",
+  "expected_node_counts": {
+    "obligation-kind": 3,
+    "obligation-source-kind": 5,
+    "coverage-field": 9,
+    "realization-mode": 2,
+    "player-input-handling": 3,
+    "segment-type": 5,
+    "agency-claim-type": 8,
+    "roll-visibility-class": 6,
+    "substantive-effect-status": 3,
+    "review-rule": 9,
+    "craft-directive": 14,
+    "render-slot": 7,
+    "render-prohibition": 3,
+    "style-axis": 9,
+    "narration-budget-mode": 4,
+    "narration-budget-trigger": 10,
+    "text-threshold": 5
+  },
+  "expected_node_counts_law": "expected_node_counts pins the T1 obligation-plane migration against the measured inventory. A build whose counts differ from this table is rejected: either the source declaration changed and the table must be updated in the same reviewed change, or the migration lost something. The census that motivated this law is real — the commissioning brief for this work listed eight tables in coc_narration_style.py and the file has twelve.",
+  "empty_relations_law": "The T1 obligation plane shipped zero relations deliberately: its vocabularies were flat, and the two structural facts that could have been edges — the voluntary subset of agency claim types and the player-facing versus superseded split of roll visibility classes — are node properties because that is exactly how the source reconstructs both frozensets. T2 adds the first five real relations, obligation-source-kind part-of obligation-kind, because that edge is load-bearing: the derivation reads it to decide which source_kind an obligation may carry. Relations are added when a consumer reads them and never to make the artifact look more graph-shaped.",
+  "derivation_law": "Slice T2 moves the obligation derivation's id grammars, closed vocabularies and ordering laws into this graph. The derivation keeps its control flow: _build_obligations, _build_sanity_bout_obligations and validate_coverage still decide what to emit; they read the id_prefix, the permitted source kinds, the leading segment type and the substantive effect statuses from here instead of spelling them as literals. An obligation id is composed as id_prefix + source id and never parsed by splitting on a colon, because source ids contain colons.",
+  "renders_settled_output_law": "A renders-settled-output edge may target only a RuleGraph node whose node_kind is effect and whose visibility is public, or a registered live-state fact. Targeting a keeper-only effect is rejected: this graph's authority plane is presentation, so an edge here is a declaration that the effect reaches the player, and declaring that for keeper-only material is a secrecy defect that reaches the table rather than a validator warning. The compiler resolves every target against the production RuleGraph, so a dangling id, a non-effect node kind, or a keeper-only target fails the build.",
+  "grounding_gap_law": "An edge is drawn when a rendering path exists, never to reach a target count. Slice T3 measured the production RuleGraph's twenty-three effect nodes against the text layer and found no rendering path for any of them: the text layer renders turn-effect-v1 and exceptional-effect-v1 state effects, a disjoint namespace, and no code in the tree reads an effect:coc7 id. T3 therefore ships zero renders-settled-output edges and records the gap, rather than fabricating twenty-two declarations that no consumer could honour. The validator above is live, so the first real bridge is checkable the day it is built.",
+  "review_rule_law": "A review-rule node exists only if narration.review can actually raise it: every citable review-rule MUST appear in the operation's accepted rule-id set, and that set is built from this graph. The check runs in both directions. None lost: the five semantic rule ids the deleted matchers emitted survive as nodes. None invented: unnatural_spatial_phrase does NOT get a node, because both entries of the table that raised it were fragments of one sentence from one playtest, and a rule that exists only because of one sentence is an instance patch rather than a craft rule.",
+  "no_matcher_law": "Slice T4 deletes the prose matchers outright. No regular expression, phrase list, substitution table, or style score may exist in the text layer or in this artifact afterwards, and none may be reintroduced behind a flag, a shim, or a commented-out block. A craft directive carries the rewrite guidance as prose for the Keeper to reason about; it never matches text itself.",
+  "language_law": "A review-rule and an obligation are language-independent: the vocabulary is a set of semantic ids, and the Keeper reasons in whatever language the table uses. Only a style-axis may declare language_applicability, and exactly one does: translationese, which the zh-Hans register names and the generic register does not. Before T4 the whole layer was zh-only, because the matchers returned nothing for any other language."
+}

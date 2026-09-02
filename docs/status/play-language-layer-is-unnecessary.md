@@ -1,6 +1,6 @@
 # The play_language layer solves a problem that should not exist
 
-> **Status:** Finding, recorded. Nothing repaired. No code changed.
+> **Status:** Finding recorded, then acted on. See *What was actually removed*.
 > **Date:** 2026-09-01
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`
 > **Origin:** surfaced by TextGraph T5 gate 1, then reframed by the user.
@@ -76,14 +76,106 @@ setup.quick_start"**, and the operation description recorded the zh-Hans
 default as settled. The gap was deliberate, not an oversight — which is why
 widening it needed a design decision rather than a patch.
 
-## What this is not
+## What was actually removed
 
-This is not a plan to delete `coc_language.py`. Removing a layer that renders
-every player-visible host string is a change to all player-facing output and
-needs its own specification, its own slices, and its own acceptance. The point
-here is only that **adding to that layer is the wrong direction**, and that the
-TextGraph T5 finding should be recorded as "the layer should not exist" rather
-than "the layer is missing an input".
+| removed | size | evidence it was safe |
+| --- | --- | --- |
+| 13 unread label groups in `LANGUAGE_PROFILES` | 193 entries × 3 languages = **579 strings** | zero readers anywhere in `plugins/`, `scripts/`, `tests/` |
+| `LANGUAGE_PROFILES` and `language_profile()` entirely | remaining 9 keys × 3 languages | **every one of the 9 had zero production readers** (below) |
+| the `language_profile` blob written into `campaign.json` | one persisted object per campaign | written at creation, read only by `tests/test_state.py` |
+| `_infer_play_language_from_rendered` | the standing-rule violation | both call sites did not need it (below) |
+| the duplicated `if language == "zh-Hans": ... else: ...` branches in `player_facing_style_contract` | two near-identical dicts | they differed by exactly `translationese` and `deterministic_guard` |
+
+`coc_language.py`: **2381 → 1593 lines.**
+
+### The nine "live" keys were not live
+
+An early scan counted string occurrences and reported 8 of 21 keys as still
+used. That was wrong: they were substring hits, not reads. Checked individually:
+
+- `outcome_labels`, `difficulty_labels` — `export_battle_report.py` defines its
+  **own inline zh-only copy** at the point of use and never reads the profile.
+- `speaker_labels`, `output_instruction`, `name_policy`, `term_policy`,
+  `raw_payload_fallback` — no reader at all.
+
+So `output_instruction` — the string that said *"Use X for player-visible
+narration"*, the whole point of the layer — **was never delivered to anyone.**
+The KP followed the player into English anyway, which is the observation this
+document opens with.
+
+### Why the language inference could just go
+
+- **`_valid_finalization_contract`**: the recomputed `_mechanic_source_lines`
+  result is consumed for its **keys only** (`roll_id` / `effect_id` /
+  `event_id`), and the rendered values are discarded. The validation is
+  language-independent; nothing is passed now.
+- **`replay_matches`**: the only production caller always passes
+  `campaign_dir`, so the inference branch was unreachable in production. It now
+  falls back to `DEFAULT_PLAY_LANGUAGE`. The two tests that omit `campaign_dir`
+  both use `zh-Hans` campaigns and are actually testing `localized_terms`
+  overrides, so their assertions are unchanged.
+
+## What was deliberately kept, and why it is not the same thing
+
+Two tables survive. **They are not leftovers, and removing them is not a
+follow-up slice.** A later reader who deletes them will regress the product.
+
+| kept | size | why |
+| --- | --- | --- |
+| `DEFAULT_LOCALIZED_TERMS` | 127 entries | CoC7 rulebook terminology (`Spot Hidden` → `侦查`). A model translating freely renders the same skill as 侦查/察觉/发现隐物 across a campaign. Cross-turn terminology consistency is the whole job, and a table is the right tool for it. |
+| `TABLE_MECHANICS_LABELS` | 231 entries | Chrome for **deterministic mechanics blocks** — `【变化】理智：55 → 50（-5）`. |
+
+The mechanics blocks are the load-bearing case. They are:
+
+1. **not model output** — composed by `compose_segments`, and
+   `_reject_mechanics_in_draft` exists specifically to stop the Keeper from
+   authoring them;
+2. **hashed** — they land in `rendered_text`, which is covered by
+   `rendered_text_sha256` and `integrity_digest`.
+
+So "tell the model to write in the player's language" cannot reach them by
+construction, and canonicalizing them to one language was considered and
+**rejected**: it would (a) break replay of every stored receipt, including real
+playtest evidence under `.coc/`, and (b) demote the zh-Hans-first audience to
+English chrome. That works against the goal — playing in the player's language —
+rather than toward it.
+
+The honest residual limitation, recorded rather than hidden: mechanics chrome
+exists in three languages and silently falls back to English chrome for a
+fourth. Prose is unrestricted; **chrome is not yet.** Closing that means
+resolving the ~77 chrome labels once per campaign and persisting them next to
+`localized_terms`, so rendering stays a deterministic table lookup while the
+language space opens up. That is a real slice with a real design; it is not
+done, and nothing here pretends otherwise.
+
+## The replacement mechanism
+
+`player_facing_style_contract()` now carries the instruction the user asked
+for, and it reaches the Keeper through `turn.narration_brief`'s
+`style_contract` — a path that actually has a consumer, unlike
+`output_instruction`:
+
+```json
+"output_language": {
+  "play_language": "<tag>",
+  "instruction": "Write every player-visible sentence in the language the
+    player is using ... This is a writing instruction, not a lookup: there is
+    no translation table to consult and no supported-language list to stay
+    inside. Machine-facing identifiers, JSON keys, canonical skill keys, and
+    stable ids stay canonical in every language."
+}
+```
+
+`play_language` remains a free-form tag with a `zh-Hans` default. It was never
+an enum; the restriction people ran into was the silent English fallback, not a
+rejected value.
+
+## Guards against restoring this
+
+- `tests/test_state.py` asserts `"language_profile" not in campaign` for both a
+  default and a custom-language campaign.
+- `AGENTS-coc-mode-template.md`, `mode-protocol.md`, and `state-schema.md` no
+  longer instruct anyone to persist a `language_profile`; each says not to.
 
 ## Consequence for TextGraph T5
 

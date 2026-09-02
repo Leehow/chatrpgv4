@@ -209,7 +209,39 @@ record). A `record:"session"` header opens each session (label, mode, agent dir)
   `append_only` or `rewritten` — the prefix-cache baseline. Observation only;
   see `lib/context-probe.ts`;
 - `context_fold` on each model step and per turn: standing epoch-fold state
-  (epochs, folded results, chars reclaimed, pending pile, threshold).
+  (epochs, folded results, chars reclaimed, pending pile, threshold);
+- `request_prefix` on each model step plus a per-turn roll-up: the composition
+  of the **provider request body itself**. Observation only; see
+  `lib/request-prefix-probe.ts` and the section below.
+
+### Request prefix probe
+
+`context_probe` measures the message array. The provider bills for a request
+body with four sections, and the message array is one of them. On the
+`dirgraph-smoke-20260901` play session the first model call of a fresh process
+scanned 717 chars / 180 `est_tokens` in `context_probe` while the provider
+billed **33,000 tokens** for that same call; a mid-turn call read 39,967
+`est_tokens` against 58,191 billed. The gap is where that session's largest
+cost lived, and the message-array probe is structurally unable to see it.
+
+`lib/request-prefix-probe.ts` reads pi's `before_provider_request` payload —
+the assembled provider params, the one object that holds system prompt,
+advertised tools and transcript at once — and records per model call:
+
+| field | what it settles |
+|---|---|
+| `instructions_bytes` | system prompt as the provider received it, not reconstructed |
+| `tools_count` / `tools_bytes` / `tools` | the advertised working set **including the first call of a session**, which the `coc-tool-working-set` audit entry cannot cover because it is emitted after that call |
+| `tools_status` | `stable` / `changed` versus the previous call, next to that call's `usage.cache_read` on the same step |
+| `tool_names_digest` vs `tools_digest` | separates a membership change from a reschema of the same names |
+| `input_messages` / `input_bytes` | the transcript actually sent, post-fold |
+| `other_bytes` | the residual — model id, sampling, reasoning config, tool_choice, cache directives |
+
+It is an observation and nothing else: a `before_provider_request` handler that
+returns a value *replaces* the provider payload, so this one returns nothing;
+only byte counts, tool names and digests are recorded, never prompt text,
+message content or schema bodies; and a payload it cannot serialize yields
+`null` rather than throwing. Nothing it produces reaches the model.
 
 ### Epoch context fold
 
@@ -245,6 +277,7 @@ it, so this is an **epoch fold**, not a sliding window.
 |---|---|---|
 | `PI_COC_CONTEXT_FOLD` | on | `off` / `0` / `false` disables folding |
 | `PI_COC_CONTEXT_FOLD_TOKENS` | `20000` | est_tokens of closed-turn pile that opens a fold |
+| `PI_COC_REQUEST_PREFIX_PROBE` | on | `off` / `0` / `false` stops measuring the provider request body |
 
 Size a threshold against recorded play before changing it — the replay runs the
 shipped fold, so its predictions are the live policy:

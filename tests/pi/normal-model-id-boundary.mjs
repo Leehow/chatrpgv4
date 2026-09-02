@@ -2697,7 +2697,15 @@ assert.equal(
     "capability:coc7:medicine",
   );
   assert.equal(settleVisible.data.settlement.result.events[1].dice.total, 8);
-  assert.equal(settleVisible.data.settlement.result.events[1].roll_id, undefined);
+  // `33290a09` deliberately stopped hiding this field. A settled roll that
+  // stays host-only cannot be echoed back as `source_roll_id`, which
+  // deadlocked a live table on a fumbled STR check. The roll now presents its
+  // SEMANTIC handle; the opaque minted id is still absent (asserted below),
+  // and an unmappable roll id still fails closed (section 4c).
+  assert.equal(
+    settleVisible.data.settlement.result.events[1].roll_id,
+    "roll:healing",
+  );
   assert.equal(settleVisible.data.settlement.result.events[1].actor_id, "thomas-hayes");
   assert.equal(
     settleVisible.data.settlement.result.events[1].source_command_id,

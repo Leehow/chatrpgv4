@@ -21,9 +21,10 @@ Do not ask about COC mode during unrelated coding or repository work.
 ## Language
 
 At campaign setup, allow the player to choose the visible play language. If
-they do not choose one, set `play_language` to `zh-Hans`. Persist the matching
-`language_profile` so resumed campaigns keep the same output instruction,
-name policy, term policy, and report labels.
+they do not choose one, set `play_language` to `zh-Hans`. `play_language` is a
+free-form language tag, not a choice from a supported list; the Keeper writes
+player-visible prose in the player's language directly. There is no
+`language_profile` label bundle to persist or consult.
 
 Player-visible narration, NPC speech, player prompts, player-view transcript
 text, recaps, and report prose follow `play_language`. Event-level
@@ -36,13 +37,10 @@ scenario titles, player-visible module source labels, player-visible skill displ
 use `localized_terms` with Chinese transliterations or conventional translated names.
 For other languages, use customary local forms for that language.
 
-`language_profile.empty_report_lines` stores player-visible text for empty
-report states such as no combat, no chase, no chase tracker, or no sanity
-events in the selected language.
-`language_profile.speaker_labels` stores player-visible speaker labels such as
-KP, player, and system. `language_profile.transcript_mode_labels` stores
-player-visible mode values such as play, roll, and meta while transcript JSON
-keeps the canonical enum values.
+Player-visible chrome that is not deterministic mechanics — speaker labels,
+empty-report states, transcript mode words, report headings — is written by the
+Keeper in the player's own language, not looked up from a translation table.
+Transcript JSON keeps its canonical enum values regardless of that prose.
 
 Keep machine-facing markers, JSON keys, filenames, canonical skill keys, rule enum values, stable IDs, and hidden Mechanical Log audit anchors stable. Stored transcript payload fields also stay canonical. Do not translate those fields even when ordinary dialogue is Chinese; render player-visible skill display names, system roll summaries, success-level labels, difficulty labels, visible Mechanical Log summaries, profile display fields such as `player_profile_display`, and transcript detail display fields such as `intent_display`/`ruling_display` in `player-view.jsonl`, reports, and `player-feedback.jsonl` through `play_language`.
 

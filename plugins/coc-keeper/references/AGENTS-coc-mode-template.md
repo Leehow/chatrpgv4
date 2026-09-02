@@ -52,7 +52,7 @@ Rule-craft skills (`coc-character`, `coc-combat`, `coc-chase`, `coc-sanity`, `co
 
 At campaign setup, let the player choose the visible play language. If the player does not choose, set `play_language` to `zh-Hans`.
 
-Persist `language_profile` and `localized_terms` in `campaign.json` so resumed campaigns keep the same output instruction, name policy, term policy, report labels, and name/term localization.
+Persist `localized_terms` in `campaign.json` so resumed campaigns keep the same name and term vocabulary. Do **not** add a `language_profile` label bundle back: player-visible prose is written by the Keeper in the player's language, not assembled from translated labels. See `docs/status/play-language-layer-is-unnecessary.md`.
 
 For `zh-Hans`, player-visible foreign names, places, factions, handouts, scenario titles, module source labels, skill display names, and special terms should use Chinese transliterations or conventional translated names.
 
