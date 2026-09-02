@@ -4115,9 +4115,28 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["catalog_skill_ids", "id"],
     [],
   )],
+  // Beside the cards, a family's context carries `canonical_context.snapshot`
+  // -- for sanity that is the live bout: rounds remaining, the madness table
+  // result, each involuntary action and its rule. The Keeper narrates from it.
+  // Its identity fields were undeclared, so the WHOLE envelope collapsed to
+  // `semantic_identity_unavailable` exactly when there was something to
+  // narrate: a bout was underway. Measured 2026-09-02, three lanes out of
+  // three, every sanity context of the run. Handed no cards and no reason,
+  // the Keeper settled decision refs from memory and rewrote arguments for a
+  // bout it could not see.
+  //
+  // `rule_ref` is the meaning-bearing dotted rule path
+  // (`core.sanity.failure_involuntary_action`) the Keeper can cite, so it
+  // stays semantic beside the `rule_refs` the cards already carry. The bout
+  // and event ids are host-owned: fb98f0ac settled that disposition for the
+  // settled view -- the Keeper narrates from `bout_triggered`,
+  // `bout_rounds_remaining` and each event's summary, and continues the bout
+  // through `next_decisions`, never by echoing an id. Declaring them here
+  // drops them the same way instead of failing the result closed.
   ["rules.context", declaredIdentityTable(
-    RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS,
+    [...RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS, "rule_ref"],
     [],
+    ["active_bout_id", "bout_id", "trigger_id", "event_id"],
   )],
   // `roll_id` is deliberately NOT host-only here: a graph-settled
   // critical/fumble is the source roll `state.exceptional_effect` must bind,
