@@ -8880,6 +8880,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           + "Preserve the current campaign evidence and retry only session.resume."
         );
       }
+      if (gate.failureClass === "resume_budget_exceeded") {
+        // Not a launch-argument problem: the recovery payload exceeded the
+        // fixed resume budget, which relaunching cannot change. Saying
+        // "relaunch with the corrected --campaign" sent an operator after the
+        // command line while a durable campaign sat unreachable.
+        return (
+          "Pi startup continuation is terminally blocked "
+          + "(failure_class=resume_budget_exceeded). The campaign's canonical "
+          + "state is intact and unchanged; the bounded recovery projection "
+          + "does not fit the fixed resume budget, so relaunching reproduces "
+          + "this exactly. This is a host-side reduction defect, not a "
+          + "campaign selection or launch-argument problem."
+        );
+      }
       return (
         "Pi startup continuation is terminally blocked "
         + `(failure_class=${gate.failureClass ?? "startup_resume_failed"}). `
