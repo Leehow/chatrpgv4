@@ -376,6 +376,48 @@ canonical 通路可以落账**——属性在建卡后从不被写，`rules.reso
 做不到的循环。要么先实现 F1，要么另开一局走「救下莎拉」那条结局（模组有两个
 结局，后者今天就可达）。
 
+### F1 验收结果（2026-09-02，同一战役 amaranthine-run3）
+
+接线完成，同一处出现了真实分叉。证据
+`.rpc-evidence-run3/turn-p-7850e0be4473.json`：
+
+- 场景上下文里出现了授权循环边导出的那一句：「when the module's own
+  conditions say a reset is due, fork the worldline with
+  `timeline.fork_request` and confirm it with `timeline.fork_confirm`」——
+  提示读回的是模组自己写下的边，没有自带词汇；
+- KP 依提示调 `timeline.fork_request` → `ok`，`timeline.fork_confirm` →
+  `ok`，回执 `activated: true` / `active_timeline_id: tl-pre-pyre-branch`；
+- 世界线仓库里旧线只读保留、新线继续推进：
+
+  ```
+  * main                         9442fc8 coc turn 0051
+    timelines/tl-pre-pyre-branch 25e4f1a coc turn 0052
+  ```
+
+- `coc_git_history.active_timeline_id` 返回 `tl-pre-pyre-branch`，回合正常
+  `turn.finalize`，游玩在新线上继续。
+
+打通这条链路要先修掉三个缺陷，都不是模组问题（stage-B 状态文档 findings 25、
+新增 `tests/pi/host-provenance-pledge-accounting.mjs` 与
+`tests/test_resume_budget_metadata_reserve.py`）：
+
+1. `timeline.fork_confirm` 必填 `request_decision_id`，模型面 schema 剥掉了
+   它、宿主也不填——确认这一半结构性不可调用，分叉只能请求、永远无法确认；
+2. `session.resume` 的削减阶梯没把自己追加的预算元数据计入天花板，本战役在
+   第 51 回合落进那 191 字节的窗口，整个战役永久不可恢复；
+3. 那次失败给的指引是「用正确的 --campaign 重启」，把字节预算问题指向了命令行。
+
+**仍未做（不影响本次验收）：** 调查员按 `on_full` 老化、末日时钟走满触发，是
+循环的另外两半；本次是玩家显式要求分叉，不是时钟满格自动触发。
+
+**留给下一个动世界线的人的坑：** 存在两条 fork 路径。活的那条是
+`timeline.fork_confirm` → `coc_git_history.fork_timeline`；`coc_time._fork_timeline`
+是唯一会同步 `time-state.json` 的 `timeline_id` / `branch_id` / `forked_from`
+的写入方，而它没有任何调用者。因此分叉后 `time-state` 会一直停在 `tl-main`。
+今天这不影响游玩：没有投影把该字段给 KP 看，`timeline.fork_request` 的源时间线
+取自 `coc_git_history.active_timeline_id` 而非它。但谁要让 `time-state` 参与
+世界线判断，先把这两条路径合并。
+
 ## External Prior Art
 
 以下系统提供的是**借鉴而非依赖**：借鉴其用户面语义与数据模型思想，不引入任何外部数据库服务或运行时依赖。
