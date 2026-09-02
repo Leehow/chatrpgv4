@@ -234,6 +234,11 @@ import {
   type UnmappedIdentityRef,
 } from "../lib/typed-tools.ts";
 import {
+  HOST_PROVENANCE_PLEDGES,
+  pledgeConsumersOf,
+  pledgedValue,
+} from "../lib/host-provenance-pledges.ts";
+import {
   createSemanticIdentityRegistry,
   type SemanticIdentityRegistry,
   type SemanticIdentityScope,
@@ -4172,6 +4177,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     return null;
   };
   const retainedTypedBindings = new Map<string, TypedToolBindingCard>();
+  /**
+   * Retained host provenance pledges (see host-provenance-pledges.ts):
+   * never-model-authored required arguments the host attaches by provenance
+   * after raw validation. Keyed `campaign\u0000consumerOperation`; the last
+   * accepted producer wins, and a committed consumer clears its own row.
+   */
+  const retainedHostPledges = new Map<string, string>();
+  const hostPledgeKey = (campaign: string, consumer: string): string =>
+    `${campaign}\u0000${consumer}`;
   const currentTypedBindingFactories = new Map<
     string,
     () => CurrentTypedToolHostContext | null
@@ -11033,6 +11047,50 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         return result(blocked);
       }
     }
+    if (isCanonicalInvokeSurface(name)) {
+      const pledge = HOST_PROVENANCE_PLEDGES[String(params.operation || "")];
+      if (pledge !== undefined) {
+        // Runs after raw model-identity validation, so the attached value is
+        // host material by provenance rather than a model-authored identity.
+        const pledgeCampaign = typeof params.campaign === "string"
+          ? params.campaign.trim()
+          : "";
+        const retained = pledgeCampaign === ""
+          ? undefined
+          : retainedHostPledges.get(
+            hostPledgeKey(pledgeCampaign, String(params.operation)),
+          );
+        if (retained === undefined) {
+          return result({
+            ok: false,
+            tool: String(params.operation),
+            error: {
+              code: "host_pledge_unavailable",
+              message: pledge.missingMessage,
+              class: "business_precondition",
+              recoverable_by: "model_next_action",
+              allowed_next_actions: [{
+                operation: pledge.producer,
+                action: "call_operation",
+                reason: "mint the host-attached identity this call requires",
+                host_bound: false,
+              }],
+              retryable: false,
+              details: { pledged_field: pledge.field, producer: pledge.producer },
+            },
+            warnings: [],
+            hints: [],
+          });
+        }
+        params = {
+          ...params,
+          arguments: {
+            ...(objectOrNull(params.arguments) ?? {}),
+            [pledge.field]: retained,
+          },
+        } as JsonObject;
+      }
+    }
     if (
       isCanonicalInvokeSurface(name)
       && params.operation === "narration.review"
@@ -12244,6 +12302,32 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           playerTurnEpoch: canonicalProgress.playerTurnEpoch,
           canonicalProgress,
         });
+      }
+      {
+        // Retain/clear the host provenance pledges consumers are attached from.
+        const pledgeCampaign = typeof params.campaign === "string"
+          ? params.campaign.trim()
+          : "";
+        const pledgeEnvelope = objectOrNull(value);
+        if (pledgeCampaign !== "" && pledgeEnvelope?.ok === true) {
+          const producedFor = pledgeConsumersOf(String(params.operation || ""));
+          for (const consumer of producedFor) {
+            const minted = pledgedValue(HOST_PROVENANCE_PLEDGES[consumer], {
+              data: objectOrNull(pledgeEnvelope.data),
+              arguments: objectOrNull(params.arguments),
+            });
+            if (minted === null) continue;
+            retainedHostPledges.set(
+              hostPledgeKey(pledgeCampaign, consumer),
+              minted,
+            );
+          }
+          if (HOST_PROVENANCE_PLEDGES[String(params.operation || "")]) {
+            retainedHostPledges.delete(
+              hostPledgeKey(pledgeCampaign, String(params.operation)),
+            );
+          }
+        }
       }
       const reviewEnvelope = objectOrNull(value);
       const reviewData = objectOrNull(reviewEnvelope?.data);
