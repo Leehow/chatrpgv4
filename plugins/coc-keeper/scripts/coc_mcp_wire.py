@@ -2743,6 +2743,19 @@ def _project_scene_recovery_index(scene: Any) -> dict[str, Any] | None:
                 "turn_number",
                 "exit_ready",
                 "progressive",
+                # A collapsed Keeper still has to run the scene, so the small
+                # decision-critical blocks ride along instead of being traded
+                # for an index of things it can look up. Both are bounded: the
+                # clocks this scene's own moves name, and the module's loop
+                # declaration. The collapsed envelope sits around 7 KB against
+                # a 16 KB cap, and losing these is what made a doom clock and a
+                # declared time loop invisible at a table whose whole remaining
+                # path ran through them.
+                "threat_clocks",
+                "worldline_loop",
+                # Authored SAN triggers the Keeper still owes a
+                # rules.sanity_check. Pending authoritative work, not a lookup.
+                "pending_san_triggers",
             ),
         ),
         "scene_identity": scene_identity,
