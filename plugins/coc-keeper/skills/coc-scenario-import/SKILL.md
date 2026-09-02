@@ -347,6 +347,22 @@ uv run --frozen python plugins/coc-keeper/scripts/coc_module_reuse.py \
 is marked `progressive: true` and may not pass full
 `coc_scenario_compile --validate` until more packs fill multi-route clues.
 
+The same reachability lint reads a progressive scenario directory:
+
+```bash
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_projection.py \
+  lint --ir-dir .coc/campaigns/<id>/scenario
+```
+
+On a skeleton most findings carry `completeness: pending-materialization`, which
+means **not built yet**, not broken — an edge into an unbuilt scene is expected
+while its `source_refs` still point at unparsed pages. `not-measured` means the
+scene was never parsed deeply enough for the check to mean anything, and only
+`dead` describes a complete scenario contradicting itself. Read the findings;
+never repair unfinished structure into invented content. The lint is a report,
+not a gate: it blocks no bind, projection, install, or play, and exits 0 with
+findings present.
+
 ### Cross-campaign reuse (no re-extract)
 
 ```bash
@@ -575,10 +591,35 @@ extraction retires per the unification spec's staged plan.
 4. 对 npc-agendas.json 跑 `coc_npc_roles.expand_from_dir`（按 relationship_to_investigators 注入 social_role，详见 references/compile-protocol.md）。
 5. 跑 `scripts/coc_scenario_compile.py --validate <dir>` 校验结构完整性。
 6. 校验报告的缺漏逐个补，直到 errors 为空。
-7. 写 player-safe recap + keeper-only recap。
-8. `coc_module_registry.py register` 写入模块库，并把当前 title/locale 记为 alias。
+7. 跑可达性 lint，把 findings 念给做 import 的人听：
+
+   ```bash
+   uv run --frozen python plugins/coc-keeper/scripts/coc_module_projection.py \
+     lint --ir-dir <scenario dir>
+   ```
+
+   它和第 5 步的 `--validate` **不是同一类东西**，不要合成一步：`--validate` 是结构
+   完整性闸门，errors 必须清零；lint 是一份**报告**，拿模组自己声明的东西
+   （`minimum_routes`、`importance`）跟 placements 实际提供的对账，findings 由人读、
+   由人判断。它不挡安装、建战役、注册模块库或开桌；有 findings 时 CLI 也**故意退出
+   码 0**，别把这条"修"成非零。finding ≠ 必须修的缺陷：先判断这个模组是不是真有那份
+   冗余，然后要么改声明、要么改 placement——为了凑数字凭空编一条线索是错误的修法。
+8. 写 player-safe recap + keeper-only recap。
+9. `coc_module_registry.py register` 写入模块库，并把当前 title/locale 记为 alias。
 
 关键约束：每个 critical conclusion 至少 3 条线索路径；keeper_secrets 与 player-safe 物理隔离。
+
+**「3 条路径」指路径，不是线索条数。** 三条线索挤在同一个场景、同一个技能后面，只是
+一条获取路径：玩家没走到那个场景、或者那一次检定失败，三条一起没了。已提交的
+The Haunting 就是这个反例——`corbitt-house-documentary-history` 声明
+`minimum_routes: 3`，三条线索全部躺在 `central-library`、全部在 Library Use 后面，
+lint 报 `declared-minimum-shortfall`。让路径独立要靠**不同场景**，最好连 delivery_kind
+也不同。lint 报两个计数：`scene_independent_routes`（去重后的场景数，**用它**跟
+`minimum_routes` 对账）和 `context_independent_routes`（去重后的
+场景/delivery_kind/skill 三元组数，只供复核，不参与对账）。
+注意两件事分属两层：「critical 至少 3 条」是给编译者的作者规范，lint 只做对账、不强制
+任何最小路径数——老实声明 `minimum_routes: 1` 且提供一条路径的模组是正确的，不产生
+shortfall。
 
 ## Product Identity 存储边界
 
