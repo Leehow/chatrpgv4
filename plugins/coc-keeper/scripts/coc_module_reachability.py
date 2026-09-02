@@ -1184,6 +1184,15 @@ def lint_scenario_set(scenario_set: dict[str, Any]) -> dict[str, Any]:
         "codes_not_measured": sorted(not_measured_codes),
         "findings": findings,
         "summary": {
+            # `codes_measured` separates the two reports that otherwise look
+            # identical: one where every check ran and found nothing, and one
+            # where nothing could be checked at all. Measured on a real import,
+            # a scenario directory bound but not yet projected carries none of
+            # the documents this lint reads, so every count below is zero and
+            # the report reads exactly like a clean bill. Zero here means the
+            # lint was run too early, not that the module is sound.
+            "codes_measured": len(CHECK_CODES) - len(not_measured_codes),
+            "codes_total": len(CHECK_CODES),
             "defect": defects,
             "observation": observations,
             "by_completeness": summary_completeness,

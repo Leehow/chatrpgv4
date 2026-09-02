@@ -179,6 +179,17 @@ progressive skeleton. Each finding MUST carry exactly one class:
 MUST NOT be reported as a defect. A report whose findings are entirely
 `not-measured` MUST say so in its summary rather than presenting a clean bill.
 
+That rule needs a mechanism, not just prose. The report's summary therefore
+carries `codes_measured` and `codes_total`. Without them, a scenario where all
+fifteen checks ran and found nothing and a scenario where nothing could be
+checked at all produce byte-identical summaries — every count zero, reading as
+a pass. This was not hypothetical. It is exactly what the lint returned the
+first time it was pointed at a real campaign that had been bound but not yet
+projected: `documents_present` empty, all fifteen codes unmeasured, and a
+summary of zeros. `codes_measured: 0` is the signal that the lint ran too
+early, and a reader MUST NOT have to derive it by counting
+`codes_not_measured` themselves.
+
 The measured `dunwich-1287` case in §2.1 is `pending-materialization`: the edge
 carries `source_refs` to a real source page and a matching clue exists in the
 campaign's compiled archive, while the destination scene has not been built yet.

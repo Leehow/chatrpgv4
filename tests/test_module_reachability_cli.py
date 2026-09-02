@@ -80,7 +80,13 @@ def _assert_report_shape(report: dict) -> None:
         assert isinstance(report[key], list)
         assert report[key] == sorted(report[key])
     summary = report["summary"]
-    assert set(summary) == {"defect", "observation", "by_completeness"}
+    assert set(summary) == {
+        "codes_measured",
+        "codes_total",
+        "defect",
+        "observation",
+        "by_completeness",
+    }
     assert set(summary["by_completeness"]) == {
         "dead", "pending-materialization", "not-measured"
     }

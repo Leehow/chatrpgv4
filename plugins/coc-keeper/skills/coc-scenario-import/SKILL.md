@@ -354,6 +354,16 @@ uv run --frozen python plugins/coc-keeper/scripts/coc_module_projection.py \
   lint --ir-dir .coc/campaigns/<id>/scenario
 ```
 
+**Run it after the opening projection, not after the bind.** `scenario.bind_pdf`
+alone writes `scenario.json`, `clues.json`, `npcs.json`, `locations.json`,
+`keeper-secrets.json`, `timeline.json` and `handouts.json` — none of which this
+lint reads. It only becomes measurable once `coc_module_project.py skeleton`
+(or the opening deep projection) has written `story-graph.json`,
+`clue-graph.json` and `module-meta.json`. Check
+`summary.codes_measured` before reading anything else: `0` means the lint ran
+too early and measured nothing at all, which is not the same as finding
+nothing. `documents_present: []` says the same thing.
+
 On a skeleton most findings carry `completeness: pending-materialization`, which
 means **not built yet**, not broken — an edge into an unbuilt scene is expected
 while its `source_refs` still point at unparsed pages. `not-measured` means the

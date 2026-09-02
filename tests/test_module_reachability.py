@@ -338,6 +338,34 @@ def test_every_triggered_code_actually_fires_on_its_fixture():
 # 3. Golden real input: the committed starter
 # --------------------------------------------------------------------------
 
+def test_a_report_that_measured_nothing_does_not_read_as_a_clean_bill() -> None:
+    """The failure this guards was found by running the lint on a real import.
+
+    A scenario directory that has been bound but not yet projected carries
+    none of the documents the lint reads. Every count in the summary is then
+    zero, which is indistinguishable from a module where all fifteen checks
+    ran and found nothing -- and the spec forbids presenting that as a clean
+    bill. `codes_measured` is what separates them.
+    """
+    nothing = reachability.lint_scenario_set(
+        {"documents": {}, "absent": list(reachability.LINT_DOCUMENTS)}
+    )
+    assert nothing["findings"] == []
+    assert nothing["summary"]["defect"] == 0
+    assert nothing["summary"]["observation"] == 0
+    assert nothing["summary"]["codes_measured"] == 0
+    assert nothing["summary"]["codes_total"] == len(reachability.CHECK_CODES)
+    assert sorted(nothing["codes_not_measured"]) == sorted(reachability.CHECK_CODES)
+
+    measured = reachability.lint_scenario_dir(STARTER)
+    assert measured["summary"]["codes_measured"] == len(reachability.CHECK_CODES)
+    # Same zero defect/observation shape is NOT what distinguishes them.
+    assert (
+        nothing["summary"]["codes_measured"]
+        != measured["summary"]["codes_measured"]
+    )
+
+
 def test_committed_starter_produces_exactly_one_finding():
     report = reachability.lint_scenario_dir(STARTER)
     _assert_report_shape(report, "the-haunting")
