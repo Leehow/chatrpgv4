@@ -479,7 +479,33 @@ one player (this session), one turn at a time through the repo's own
 
     Neither blocked the fork -- `timeline.fork_request` needs a turn number,
     not a transcript ref -- which is why they are recorded here rather than
-    fixed under finding 25.
+    fixed under finding 25. They do cost real play: four more collapses in the
+    turn that finally forked, each one a call the Keeper spent and got nothing
+    back from.
+
+    The identity half was diagnosed to the point of naming the fix, and the
+    fix is not a one-line declaration change. `transcript_ref` is declared
+    `semantic` for `transcript.locate` / `transcript.read`, and the other two
+    dispositions do not fit: `integrity` is a closed universe of digest-named
+    fields that a readable coordinate cannot enter, and `hostOnly` strips the
+    field from the model-visible result, which would leave the Keeper holding
+    rows it cannot name and make `transcript.read` unreachable outright.
+
+    The mismatch is at the source. The locator's own declared grammar is
+    `xscript:<timeline>:turn-N:<side>:<kind>:<slug>` -- "a readable
+    coordinate, not a digest" -- but `_row_source_token` fills that last
+    component with the canonical owning decision (`journal_decision_id` for a
+    player row, `finalization_id` for a finalized Keeper row). Those are
+    machine identity, which is exactly what makes the row identity canonical
+    and non-positional, and exactly what the semantic grammar must refuse. So
+    the field cannot satisfy its own contract for any journal-backed row, and
+    the percent-escaping is only what makes it visible.
+
+    The fix is a semantic handle: mint a stable slug-shaped alias per row and
+    resolve it back to the canonical token host-side, through the
+    `SemanticIdMap` / `restoreSemanticEntityHandles` lane this projection
+    already runs for entity handles. That is a design change, not a table
+    edit, and it is left unstarted rather than half-done.
 
 ## 5. Open defect that stopped deeper play (not owned by this work)
 
