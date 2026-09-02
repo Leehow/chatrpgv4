@@ -270,8 +270,33 @@ def bind_campaign_runtime(
     *,
     subject_ref: str | None = None,
 ) -> None:
-    if campaign_id:
-        _CAMPAIGN_RUNTIMES[_campaign_runtime_key(campaign_id, subject_ref)] = runtime
+    if not campaign_id:
+        return
+    key = _campaign_runtime_key(campaign_id, subject_ref)
+    # Card grants live on the instance, so a rebuild used to destroy every
+    # grant the Keeper was holding. `scene.context` rebuilds the runtime to
+    # project healing cards (`refresh=True`), and the Keeper reads the scene
+    # constantly, so the ordinary sequence `rules.context` -> `scene.context`
+    # -> `rules.settle` lost the grant and the settlement was refused as
+    # `no_grant_for_decision` — true of the new instance, meaningless to the
+    # Keeper, who had just been handed the card. Measured 2026-09-02: eight
+    # such interleavings across seven diagnostic lanes.
+    #
+    # Carrying them over does not weaken the check. A grant states its own
+    # binding (ruleset, graph generation, state revision, turn context) and
+    # `_check_card_grant` still validates it on use; instance identity was
+    # never part of that contract. Grants the new runtime issued itself win a
+    # key collision.
+    previous = _CAMPAIGN_RUNTIMES.get(key)
+    if previous is not None and previous is not runtime:
+        carried = {
+            grant_id: grant
+            for grant_id, grant in previous._grants.items()
+            if grant_id not in runtime._grants
+        }
+        if carried:
+            runtime._grants = {**carried, **runtime._grants}
+    _CAMPAIGN_RUNTIMES[key] = runtime
 
 
 def campaign_runtime(

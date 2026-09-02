@@ -8271,6 +8271,16 @@ def dispatch_rules_settle(
             details={
                 "family": family or stale.get("family") or "",
                 "decision_ref": decision_ref,
+                # The reason the runtime worked out. Without it every refusal
+                # reads the same to the Keeper and to anyone reading a lane
+                # afterwards; the first wiring of this diagnosis computed the
+                # reason and then dropped it here, so eleven refused
+                # settlements on 2026-09-02 still explained nothing.
+                **{
+                    key: value
+                    for key, value in (stale.get("failure") or {}).items()
+                    if key in ("reason", "drifted") and value
+                },
                 "refresh_operation": "rules.context",
                 "refreshed_cards": [
                     coc_rules_runtime.public_card_projection(card)

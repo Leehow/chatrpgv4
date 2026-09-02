@@ -20,6 +20,9 @@ sys.path.insert(0, str(SCRIPTS))
 
 import coc_rules_runtime as runtime_module  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_player_intent_fact import campaign_ws  # noqa: E402,F401
+
 GRAPH = json.loads(
     (ROOT / "plugins/coc-keeper/rulesets/coc7/rule-graph.json").read_text(
         encoding="utf-8",
@@ -72,3 +75,69 @@ def test_a_matching_grant_is_not_reported_as_drift():
     assert why["reason"] == "grant_binding_unstable"
     assert why.get("drifted") in (None, [])
     assert "moved between the two reads" in why["detail"]
+
+
+def test_the_reason_reaches_the_keeper_not_just_the_runtime(campaign_ws):
+    """The diagnosis is only worth having if it crosses the host boundary.
+
+    Its first wiring computed the reason, handed it to the stale envelope, and
+    then built the raised error's `details` from four fixed keys that did not
+    include it. Eleven refused settlements across three lanes on 2026-09-02
+    carried `reason: null` — the instrument was in place and reported nothing.
+    """
+    import coc_toolbox  # noqa: PLC0415
+
+    result = coc_toolbox.run_tool(
+        "rules.settle",
+        campaign_ws["workspace"],
+        campaign_ws["campaign_id"],
+        {
+            "decision_ref": REF,
+            "decision_id": "never-granted-0001",
+            "investigator": "thomas-hayes",
+            "semantic_inputs": {},
+        },
+    )
+    error = result.get("error") or {}
+    assert error.get("code") == "rule_decision_stale", result
+    assert error["details"]["reason"] == "no_grant_for_decision", error["details"]
+
+
+def test_reading_the_scene_does_not_void_a_card_the_keeper_holds(campaign_ws):
+    """The root cause of the refused settlements, found 2026-09-02.
+
+    Card grants live on the RulesRuntime instance. `scene.context` rebuilds
+    that instance to project healing cards, so the everyday sequence
+    `rules.context` -> `scene.context` -> `rules.settle` handed the Keeper a
+    card and then destroyed the grant behind it. The refusal said
+    `no_grant_for_decision`, which was true of the new instance and useless to
+    the Keeper. Eight such interleavings across seven diagnostic lanes.
+    """
+    import coc_toolbox  # noqa: PLC0415
+
+    ws, cid = campaign_ws["workspace"], campaign_ws["campaign_id"]
+    context = coc_toolbox.run_tool(
+        "rules.context", ws, cid,
+        {"family": "core-check", "investigator": "thomas-hayes"},
+    )
+    cards = (context.get("data") or {}).get("cards") or []
+    assert cards, context
+    decision_ref = cards[0]["decision_ref"]
+
+    scene = coc_toolbox.run_tool("scene.context", ws, cid, {})
+    assert scene.get("ok"), scene
+
+    settled = coc_toolbox.run_tool(
+        "rules.settle", ws, cid,
+        {
+            "decision_ref": decision_ref,
+            "decision_id": "carried-grant-0001",
+            "investigator": "thomas-hayes",
+            "semantic_inputs": {},
+        },
+    )
+    code = (settled.get("error") or {}).get("code")
+    assert code != "rule_decision_stale", (
+        "reading the scene voided a card the Keeper was still holding: "
+        f"{settled.get('error')}"
+    )
