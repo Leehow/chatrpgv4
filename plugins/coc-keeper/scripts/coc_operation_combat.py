@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from coc_operation_kernel_runtime import (
+    register_context_enricher,
     Any,
     Ctx,
     ToolError,
@@ -798,6 +799,10 @@ def _tool_combat_end(ctx: Ctx, args: dict[str, Any]):
 def register_operations(registry) -> None:
     global TOOLS
     TOOLS = registry.legacy_tools
+    # `rules.context` for this family carries the canonical block this
+    # handler builds. Registering is what makes that happen; reaching for
+    # it through globals() silently did nothing (see the kernel registry).
+    register_context_enricher("combat", _tool_combat_context)
     registry.tool(
     "combat.context",
     "Read the canonical combat snapshot, initiative cursor, and pending defense choice.",

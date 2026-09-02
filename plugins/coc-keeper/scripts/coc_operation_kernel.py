@@ -372,6 +372,35 @@ coc_table_precedent = _load_sibling(
     "coc_table_precedent_kernel", "coc_table_precedent.py"
 )
 
+#: Per-family enrichment for `rules.context`, registered by the operation cell
+#: that owns the family.
+#:
+#: This exists because the obvious spelling does not work. `dispatch_rules_context`
+#: used to reach for `globals().get("_tool_combat_context")`, but an operation
+#: cell's exports are written into the toolbox's globals by the loader, and the
+#: kernel is loaded a second time under the alias `coc_operation_kernel_runtime`
+#: that the cells import from -- so the lookup returned None and the branch never
+#: ran. It was born that way: the branch landed in bf08ad6b, after ab463b58 had
+#: already moved combat out of this file, so combat and sanity `canonical_context`
+#: reached a Keeper exactly zero times.
+#:
+#: An explicit registry cannot fail that way silently: registration is a call
+#: someone writes, and `tests/test_context_enrichers.py` asserts the families
+#: that own an enricher have actually registered one.
+_CONTEXT_ENRICHERS: dict[str, Any] = {}
+
+
+def register_context_enricher(family: str, handler: Any) -> None:
+    """Bind one family's `rules.context` enricher. Idempotent per family."""
+    if not callable(handler):
+        raise TypeError(f"context enricher for {family!r} must be callable")
+    _CONTEXT_ENRICHERS[str(family)] = handler
+
+
+def registered_context_enrichers() -> tuple[str, ...]:
+    """Families that have registered an enricher, for tests and diagnostics."""
+    return tuple(sorted(_CONTEXT_ENRICHERS))
+
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 
 coc_rules_runtime = _load_sibling("coc_rules_runtime", "coc_rules_runtime.py")
@@ -7452,28 +7481,16 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
         if isinstance(lookup_ref, str) and lookup_ref.strip():
             question["lookup_ref"] = lookup_ref.strip()
     result = runtime.context(question)
-    if family == "combat":
-        handler = globals().get("_tool_combat_context")
-        if callable(handler):
-            context_data, context_warnings, context_hints = handler(
-                ctx, {"investigator": investigator_id},
-            )
-            result["canonical_context"] = context_data
-            if context_warnings:
-                result.setdefault("warnings", []).extend(context_warnings)
-            if context_hints:
-                result.setdefault("hints", []).extend(context_hints)
-    elif family == "sanity":
-        handler = globals().get("_tool_sanity_context")
-        if callable(handler):
-            context_data, context_warnings, context_hints = handler(
-                ctx, {"investigator": investigator_id},
-            )
-            result["canonical_context"] = context_data
-            if context_warnings:
-                result.setdefault("warnings", []).extend(context_warnings)
-            if context_hints:
-                result.setdefault("hints", []).extend(context_hints)
+    enricher = _CONTEXT_ENRICHERS.get(family)
+    if enricher is not None:
+        context_data, context_warnings, context_hints = enricher(
+            ctx, {"investigator": investigator_id},
+        )
+        result["canonical_context"] = context_data
+        if context_warnings:
+            result.setdefault("warnings", []).extend(context_warnings)
+        if context_hints:
+            result.setdefault("hints", []).extend(context_hints)
     # What this table already decided about these decisions, handed back with
     # them. A ruling that only lived in the transcript was the whole reason a
     # long session drifted: the Keeper had no way to see their own earlier call
