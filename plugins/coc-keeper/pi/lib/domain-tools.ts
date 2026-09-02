@@ -645,7 +645,18 @@ export function resumeShouldOpenUnopenedTable(
   const identity = resumeWorkspaceCampaign(data, context);
   if (!identity) return false;
   const campaign = readCampaignLifecycle(identity.root, identity.campaignId);
-  if (!campaign || !campaign.hasSetupHandoff) return false;
+  if (!campaign) return false;
+  // A campaign still in `setup` has never opened either -- it has not even
+  // finished being made. Requiring the handoff receipt recognised only the
+  // later kind of unopened table (setup done, curtain not yet up), so a setup
+  // that failed mid-way resumed as `open_turn_recovery` and the phase read
+  // `recovery` from then on. That is unrecoverable for a setup-role session:
+  // `setup.complete` and `progressive.prepare_opening` are phase-forbidden
+  // there while every play operation is role-forbidden, so the table can
+  // never open. Seen live on 2026-09-02 -- chargen failed on an unrecognized
+  // occupation skill and locked the campaign shut.
+  if (campaign.status === "setup") return true;
+  if (!campaign.hasSetupHandoff) return false;
   return campaign.status === "ready_for_table" || campaign.status === "active";
 }
 

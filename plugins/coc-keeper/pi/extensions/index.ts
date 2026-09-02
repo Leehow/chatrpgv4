@@ -7684,7 +7684,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       }));
   };
   const workingSetSnapshot = (role: SessionRole): ToolWorkingSetSnapshot => {
-    const phase = resolveAclPhase();
+    // Pass the campaign: the per-campaign branches of resolveAclPhase (an
+    // active opening setup, or a campaign whose canonical status is still
+    // `setup`) are skipped without one, and this snapshot is what the tool
+    // working set gates every operation on. Calling it bare made a fresh
+    // campaign's whole surface read `recovery` no matter what the campaign
+    // itself said, which is how a failed chargen locked the table shut.
+    const phase = resolveAclPhase(canonicalProgressCampaignId);
     const verifiedOpenTurnRecovery = (
       role === "play"
       && phase === "recovery"
