@@ -200,13 +200,24 @@ def player_visible_style_guard_contract(language: str = "zh-Hans") -> dict[str, 
         "authority": "advisory",
         "hard_gate": False,
     }
+    required_rule_rows = {
+        directive_id: row
+        for directive_id, row in _CRAFT["craft_directives"].items()
+        if row["declares"] == "required_rule"
+    }
     return {
         "language": language,
         "required_rules": [
             directive_id.replace("-", "_")
-            for directive_id, row in _CRAFT["craft_directives"].items()
-            if row["declares"] == "required_rule"
+            for directive_id in required_rule_rows
         ],
+        # The ids alone are handles; this carries each rule's semantic text
+        # from the graph so the style contract reaches the narrator as
+        # guidance, not as unexplained tokens.
+        "required_rule_text": {
+            directive_id.replace("-", "_"): row["rationale"]
+            for directive_id, row in required_rule_rows.items()
+        },
         "final_output_pass": final_output_pass,
         "action_uptake_review": action_uptake_review,
         "not_for": ["scene_routing", "storylet_selection", "rules_adjudication"],

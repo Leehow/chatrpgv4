@@ -144,3 +144,19 @@ def test_horror_profile_rejects_secret_or_non_numeric_overrides():
         coc_narration_style.build_horror_profile(
             {"horror_profile": {"dread": "secret prose"}}, {}, {}
         )
+
+
+def test_required_rule_text_carries_the_slice_t5_directives():
+    guard = coc_narration_style.player_visible_style_guard_contract("zh-Hans")
+    text = guard["required_rule_text"]
+    for key in (
+        "npc_direct_speech",
+        "scene_sensory_anchor",
+        "spend_budget_on_scene_texture",
+    ):
+        assert key in guard["required_rules"]
+        assert text.get(key, "").strip(), key
+    # The semantic text is the graph rationale, not a second authored copy.
+    assert "direct quoted speech" in text["npc_direct_speech"]
+    assert "sensory detail" in text["scene_sensory_anchor"]
+    assert "scene room, not event count" in text["spend_budget_on_scene_texture"]
