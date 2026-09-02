@@ -91,9 +91,41 @@ Each of these was invisible to the suites and fatal at the table.
 | Binding a module returned nothing readable | `setup.invoke` declared 2 identity fields; a bind returns 10 |
 | Adopting source facts worked or failed by machine | An absolute briefing path in `state_refs`; the identity grammar refuses entropy, so it passed under `/Users/x/code/repo` and collapsed under a mkdtemp root |
 
+## Both blockers, resolved
+
+**The loop turn.** Three seams, each fatal on its own: the oversized
+projection shed the identities the coverage binding is built from; two of the
+three obligation namespaces are not roll handles and were mapped through the
+roll registry anyway; and the input grammar judged a minted handle as an
+authored slug, refusing the host's own presented value. Fixed and verified
+live -- the turn that had spun thirty tool calls delivers a full scene with
+two first-impression rolls, `recovery_markers 0`, and play has since carried
+through a burning mill (HP 11 -> 9), a corpse with carved marks (SAN 49 ->
+47), and into the 1287 town.
+
+**The source-review gate.** The chain was broken in four places and every one
+of them was the host asking for something it had not provided:
+
+1. The refusal dumped a route whose `next_operation` is null, so a Keeper
+   reading it correctly concluded there was nothing to call. It now carries
+   the dispatch.
+2. A listed `allowed_action` refused for wrong arguments got the same generic
+   refusal. It now says what the contract is.
+3. `coc_capabilities` -- where the dispatch task lives -- was not in the setup
+   role's working set. Added; the Keeper immediately called it and dispatched.
+4. `subagent` resolves agents from the AGENT HOME, and the coordinator was
+   mirrored nowhere. The launcher now installs it beside the stewards.
+
+With those, the coordinator dispatched, ran, and rendered 180 markdown pages
+before failing on `401: Authentication Fails, Your api key: ****9121` -- the
+`deepseek` credential, which the adapter uses for opening-facts extraction.
+That is a key to rotate, not a defect. The campaign holds a terminal
+review-transport failure for generation 1, so a retry needs a new generation.
+
 ## Still open
 
-- The source-review gate above.
+- The `deepseek` API key is invalid, which is what the coordinator now stops
+  on. Everything the host controls is repaired.
 - `amaranthine-loop` reaches `review_ready` with neither `narration.review`
   nor `turn.finalize` bound, so the only tool offered is the producer, and
   calling it does not bind them. **Root cause found:**
