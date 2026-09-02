@@ -8931,7 +8931,10 @@ for (const terminalCase of [
   const task = coordinatorTask("fulfilled-before-chargen-luck");
   const campaignId = "auto-dispatch-fixture";
   const investigatorId = "fulfilled-chargen-investigator";
-  const luckDecisionId = "fulfilled-before-chargen-luck-roll";
+  // `luck-` is one of the closed DECISION_ID_PREFIXES; the old id carried
+  // none, so this detour was refused on its decision_id's shape and never
+  // reached the opening-setup hard gate this check is about.
+  const luckDecisionId = "luck-fulfilled-before-chargen";
   const luckRollId = "toolbox-auto-dispatch-fixture-000009";
   const harness = mainExtensionHarness((_name, params) => {
     if (

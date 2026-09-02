@@ -4035,7 +4035,13 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       "bundle_sha256", "file_sha256", "public_setup_sha256", "text_sha256",
     ],
   )],
-  ["setup.adopt_source_facts", declaredIdentityTable(["campaign_id"], [])],
+  // `state_refs` rides back on the adoption receipt exactly as it does on
+  // setup.complete, which declares it semantic. Undeclared here, it failed the
+  // whole adoption result closed -- another required setup step returning
+  // nothing the Keeper could read.
+  ["setup.adopt_source_facts", declaredIdentityTable(
+    ["campaign_id", "state_refs"], [],
+  )],
   ["setup.investigator_contract", declaredIdentityTable(
     // The ruleset the contract is bound to ("coc7") is an ordinary slug.
     ["campaign_id", "ruleset_id"],

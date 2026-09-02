@@ -4613,6 +4613,23 @@ def _campaign_summaries(workspace: Path) -> list[dict[str, Any]]:
     return [summary for _, summary in entries]
 
 
+def _workspace_relative_ref(root: Path, value: str) -> str:
+    """State refs are workspace-relative everywhere else in this module.
+
+    `briefing_path` arrives absolute from coc_module_project, and it rode into
+    `state_refs` unchanged beside two relative siblings. The Pi identity
+    projection reads `*_refs` as identity-bearing and refuses a path whose
+    segments carry entropy, so whether the whole adoption envelope survived
+    depended on what the workspace's parent directories happened to be named:
+    fine under /Users/<name>/code/<repo>, closed under a mkdtemp root. Same
+    call, same code, different machine.
+    """
+    try:
+        return Path(value).relative_to(root).as_posix()
+    except ValueError:
+        return value
+
+
 def _adopt_source_facts_locked(
     root: Path,
     payload: dict[str, Any],
@@ -4742,7 +4759,10 @@ def _adopt_source_facts_locked(
                     [f".coc/campaigns/{campaign_id}/save/module-init.json"]
                     if module_init_document is not None else []
                 ),
-                *([briefing_path] if briefing_path else []),
+                *(
+                    [_workspace_relative_ref(root, briefing_path)]
+                    if briefing_path else []
+                ),
             ],
         }
 
