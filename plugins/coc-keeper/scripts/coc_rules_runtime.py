@@ -1122,6 +1122,32 @@ class RulesRuntime:
         return bool(passed), hard_gated
 
     # -- cards -------------------------------------------------------------- #
+    def _slot_shape(self, slot_name: str) -> dict[str, Any] | None:
+        """Authored shape for one slot, asked of the ruleset adapter.
+
+        Duck-typed exactly like `augment_facts` and `context_lookup`: this
+        runtime stays ruleset-agnostic and never learns what a slot means, and
+        the ruleset never learns the card format. An adapter that does not
+        answer simply yields no shape.
+
+        A slot typed `object` -- whose `type` is itself guessed from the slot
+        name -- is unusable without one. `supporting_action` is the case that
+        cost: the Keeper filled a reasonable-looking object, it adjudicated as
+        level 0, and the player's earned clue granted no leverage across three
+        Extreme rescue checks, with the module's rescue ending behind it.
+        """
+        adapter = self._ruleset_adapter
+        if adapter is None:
+            return None
+        lookup = getattr(adapter, "semantic_input_shape", None)
+        if not callable(lookup):
+            return None
+        try:
+            shape = lookup(slot_name)
+        except Exception:
+            return None
+        return shape if isinstance(shape, dict) and shape else None
+
     def _card(self, node_id: str, facts: Mapping[str, Any]) -> dict[str, Any]:
         node = self._nodes[node_id]
         props = node.get("properties") or {}
@@ -1144,6 +1170,11 @@ class RulesRuntime:
                     **(
                         {"description": slot["description"]}
                         if slot.get("description")
+                        else {}
+                    ),
+                    **(
+                        {"shape": shape}
+                        if (shape := self._slot_shape(slot["name"])) is not None
                         else {}
                     ),
                 }

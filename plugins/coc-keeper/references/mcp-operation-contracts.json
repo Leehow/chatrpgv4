@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:85f6cb0d7dc91e6b1c68eacfc6c247c430aa11e3b73b298eec148e87c843aab3",
+  "content_sha256": "sha256:b24e4b0ede48adae1646c20606202b95c04cca1eb2ea2bd500e3bc54c7571ddb",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -4583,6 +4583,27 @@
               },
               "supporting_action": {
                 "additionalProperties": true,
+                "description": "one-level support: send level 1 WITH a canonical source_ref of a player-known source to reduce the difficulty one level; level 0 (the default) records the conduct and grants no leverage",
+                "properties": {
+                  "description": {
+                    "type": "string"
+                  },
+                  "level": {
+                    "description": "0 = conduct described, no leverage; 1 = claim the one-level reduction, requires source_ref",
+                    "enum": [
+                      0,
+                      1
+                    ],
+                    "type": "integer"
+                  },
+                  "provenance": {
+                    "type": "string"
+                  },
+                  "source_ref": {
+                    "description": "canonical id of the player-known source the support rests on; required when level is 1",
+                    "type": "string"
+                  }
+                },
                 "type": "object"
               },
               "target_ref": {

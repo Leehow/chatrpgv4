@@ -397,7 +397,53 @@ class Coc7RuleGraphAdapter:
                         "enum": ["support", "neutral", "oppose"],
                     },
                     "motive_intensity": {"type": "integer"},
-                    "supporting_action": {"type": "object"},
+                    # The one-level support contract, stated where the
+                    # Keeper can read it. `level` defaults to 0 -- conduct
+                    # described, no leverage claimed -- and only `level: 1`
+                    # with a canonical `source_ref` builds the leverage row
+                    # that grants the one-level reduction. Projected onto the
+                    # rule card as the slot's shape; before that the card said
+                    # only `type: object` and the contract lived nowhere the
+                    # Keeper could see it.
+                    "supporting_action": {
+                        "type": "object",
+                        "desc": (
+                            "one-level support: send level 1 WITH a canonical "
+                            "source_ref of a player-known source to reduce the "
+                            "difficulty one level; level 0 (the default) "
+                            "records the conduct and grants no leverage"
+                        ),
+                        "properties": {
+                            "level": {
+                                "type": "integer",
+                                "enum": [0, 1],
+                                "desc": (
+                                    "0 = conduct described, no leverage; "
+                                    "1 = claim the one-level reduction, "
+                                    "requires source_ref"
+                                ),
+                            },
+                            "source_ref": {
+                                "type": "string",
+                                "desc": (
+                                    "canonical id of the player-known source "
+                                    "the support rests on; required when "
+                                    "level is 1"
+                                ),
+                            },
+                            "description": {"type": "string"},
+                            "provenance": {"type": "string"},
+                            # `leverage_id`, `independence_group` and `type`
+                            # are accepted but deliberately not published:
+                            # the host defaults all three from `source_ref`,
+                            # and one `supporting_action` yields exactly one
+                            # leverage row, so independence grouping decides
+                            # nothing here. They carry no Keeper decision, and
+                            # publishing an identity-shaped name obliges a
+                            # declaration in the model-owned identity
+                            # inventory for no gain.
+                        },
+                    },
                     "feasibility": {
                         "type": "string",
                         "enum": ["automatic", "roll", "conditional", "impossible"],
@@ -444,6 +490,28 @@ class Coc7RuleGraphAdapter:
                 "desc": "idempotency key",
             },
         }
+
+    @staticmethod
+    def semantic_input_shape(slot_name: str) -> dict[str, Any] | None:
+        """Authored shape for one keeper-semantic slot, or None.
+
+        The generic runtime is ruleset-agnostic and asks for this by duck
+        typing, the same way it asks for `augment_facts` and `context_lookup`.
+        The shape's home is this adapter's own `settle_schema`, so the runtime
+        never learns a coc7 rule and the ruleset never learns the card format.
+
+        Only slots whose shape is not evident from the type word are worth
+        carrying: a `string` slot needs no schema, an `object` slot with a
+        contract inside it is unusable without one.
+        """
+        semantic = Coc7RuleGraphAdapter.settle_schema().get("semantic_inputs") or {}
+        properties = semantic.get("properties") or {}
+        shape = properties.get(slot_name)
+        if not isinstance(shape, dict):
+            return None
+        if not isinstance(shape.get("properties"), dict) and "enum" not in shape:
+            return None
+        return deepcopy(shape)
 
     @staticmethod
     def state_effect_domains(decision_ref: str) -> tuple[str, ...]:

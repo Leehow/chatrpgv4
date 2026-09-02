@@ -79,8 +79,15 @@ RULE_DECISION_REF_TABLE_FIELDS = frozenset({
 # no contract at all, and this whitelist is exact-match, so an unregistered key
 # does not degrade: it returns None and drops EVERY card in the block.
 RULE_DECISION_INPUT_FIELDS = frozenset({"name", "owner", "type"})
-RULE_DECISION_INPUT_OPTIONAL_FIELDS = frozenset({"description"})
+RULE_DECISION_INPUT_OPTIONAL_FIELDS = frozenset({"description", "shape"})
 RULE_DECISION_INPUT_DESCRIPTION_MAX = 400
+# The slot's authored JSON-schema fragment, for slots whose contract is not
+# evident from the type word. Bounded by serialized size rather than by a key
+# whitelist: it is a schema, and the Keeper already reads schemas everywhere
+# else (`expected_schema` on a failure). Registered here because this
+# projector is exact-match on keys and drops the WHOLE block on one unmatched
+# row -- an unregistered `shape` would take every card with it.
+RULE_DECISION_INPUT_SHAPE_MAX_BYTES = 2048
 RULE_DECISION_INPUT_OWNERS = frozenset({
     "keeper-semantic", "player-source", "optional-semantic",
 })
@@ -1355,12 +1362,25 @@ def _closed_rule_required_inputs(value: Any) -> list[dict[str, str]] | None:
             or len(description) > RULE_DECISION_INPUT_DESCRIPTION_MAX
         ):
             return None
+        shape = raw.get("shape")
+        if shape is not None:
+            if not isinstance(shape, dict) or not shape:
+                return None
+            try:
+                encoded = json.dumps(
+                    shape, ensure_ascii=False, sort_keys=True, default=str,
+                )
+            except (TypeError, ValueError):
+                return None
+            if len(encoded.encode("utf-8")) > RULE_DECISION_INPUT_SHAPE_MAX_BYTES:
+                return None
         names.add(raw["name"])
         rows.append({
             "name": raw["name"],
             "owner": raw["owner"],
             "type": raw["type"],
             **({"description": description.strip()} if description else {}),
+            **({"shape": deepcopy(shape)} if shape else {}),
         })
     return rows
 

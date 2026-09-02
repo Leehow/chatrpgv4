@@ -160,6 +160,93 @@ def test_nothing_was_loosened(row: dict) -> None:
     assert wire._closed_rule_required_inputs([row]) is None
 
 
+def _adapter():
+    return _load(
+        "coc7_adapter_rule_card_slot_tests",
+        ROOT / "plugins" / "coc-keeper" / "rulesets" / "coc7" / "rule_graph_adapter.py",
+    ).Coc7RuleGraphAdapter
+
+
+def test_the_support_contract_is_stated_where_the_keeper_can_read_it() -> None:
+    """`level: 1` plus `source_ref` is the whole point of the slot.
+
+    The authored sentence alone does not carry it: "one substantive argument,
+    bribe, threat, or other source-grounded support" does not tell a Keeper to
+    write `level: 1`. The shape must.
+    """
+    shape = _adapter().semantic_input_shape("supporting_action")
+    assert isinstance(shape, dict), "the object slot must carry a shape"
+    props = shape.get("properties") or {}
+    assert props.get("level", {}).get("enum") == [0, 1]
+    assert "source_ref" in props
+    stated = json.dumps(shape, ensure_ascii=False)
+    assert "level 1" in stated and "source_ref" in stated, (
+        "the shape must say that level 1 requires a source_ref, which is the "
+        "only path to the one-level reduction"
+    )
+
+
+def test_a_slot_whose_type_word_says_everything_carries_no_shape() -> None:
+    """Carried only where it adds something: a plain string needs no schema."""
+    adapter = _adapter()
+    assert adapter.semantic_input_shape("goal") is None
+    assert adapter.semantic_input_shape("no_such_slot") is None
+    # An enum's members ARE the contract, so it does carry one.
+    assert (adapter.semantic_input_shape("difficulty") or {}).get("enum") == [
+        "regular", "hard", "extreme",
+    ]
+
+
+def test_the_card_carries_the_shape_through_the_runtime() -> None:
+    rt = runtime.RulesRuntime(
+        GRAPH, ruleset_id="coc7", ruleset_adapter=_adapter(),
+    )
+    card = rt._card("decision:coc7:social:adjudicate-difficulty", {})
+    rows = {row["name"]: row for row in card["required_inputs"]}
+    assert "shape" in rows["supporting_action"]
+    assert rows["supporting_action"]["shape"]["properties"]["level"]["enum"] == [0, 1]
+    # The enum slot gains its actual members, which the type word never gave.
+    assert rows["approach"]["shape"]["enum"] == [
+        "charm", "fast_talk", "intimidate", "persuade",
+    ]
+    assert "shape" not in rows["goal"]
+
+
+def test_a_runtime_without_an_adapter_simply_carries_no_shape() -> None:
+    """The runtime stays ruleset-agnostic: it asks, and takes no answer."""
+    rt = runtime.RulesRuntime(GRAPH, ruleset_id="coc7")
+    card = rt._card("decision:coc7:social:adjudicate-difficulty", {})
+    assert all("shape" not in row for row in card["required_inputs"])
+
+
+def test_the_shape_survives_the_wire_and_stays_bounded() -> None:
+    shape = _adapter().semantic_input_shape("supporting_action")
+    projected = _project(_card([
+        {
+            "name": "supporting_action",
+            "owner": "keeper-semantic",
+            "type": "object",
+            "shape": shape,
+        },
+    ]))
+    assert projected is not None
+    assert projected["required_inputs"][0]["shape"] == shape
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        {},
+        "not-an-object",
+        {"blob": "x" * (wire.RULE_DECISION_INPUT_SHAPE_MAX_BYTES + 1)},
+    ],
+)
+def test_a_bad_shape_still_fails_closed(shape) -> None:
+    assert wire._closed_rule_required_inputs([
+        {"name": "a", "owner": "keeper-semantic", "type": "object", "shape": shape},
+    ]) is None
+
+
 def test_the_runtime_carries_the_input_slot_sentence_onto_the_card() -> None:
     """The sentence is authored in the graph; the card must not drop it."""
     node = next(
