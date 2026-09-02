@@ -554,6 +554,16 @@ one player (this session), one turn at a time through the repo's own
     block, the same whitelist-gating shape as the NPC mechanics defect. Four
     layers and a test, with one genuine design call inside it.
 
+    The smaller half is done. `_settle_social` now returns a hint whenever a
+    `supporting_action` arrives with no `level` at all and no leverage was
+    granted, naming both halves of the contract (`level: 1` plus a canonical
+    `source_ref`). It changes no rule -- level 0 stays the default, and a
+    Keeper that writes `level: 0` outright is not second-guessed -- and it
+    reaches the Keeper through the existing hints channel, which
+    `_compact_messages` carries at up to six per envelope with no per-message
+    truncation. What remains is the card carrying the slot's shape, so the
+    Keeper learns the contract before spending a turn rather than after.
+
 ## 5. Open defect that stopped deeper play (not owned by this work)
 
 On a fumbled STR roll the turn could not settle:
