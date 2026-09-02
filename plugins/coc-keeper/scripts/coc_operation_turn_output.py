@@ -38,6 +38,7 @@ from coc_operation_kernel_runtime import (
     coc_development,
     coc_fileio,
     coc_npc_event_chain,
+    coc_npc_state,
     coc_runtime_ops,
     coc_state,
     coc_turn_finalization,
@@ -630,6 +631,53 @@ def _turn_contract_projection(
     }
     return projection
 
+def _envelope_present_npc_ids(envelope: dict[str, Any]) -> list[str]:
+    """Present NPC ids, wherever the envelope carries them this revision."""
+    for container in (envelope.get("state_grounding") or {}, envelope):
+        if not isinstance(container, dict):
+            continue
+        values = container.get("present_npc_ids")
+        if isinstance(values, list):
+            return [
+                str(value).strip() for value in values if str(value or "").strip()
+            ]
+    return []
+
+
+def _npc_rapport(ctx: Ctx, npc_ids: list[str]) -> list[dict[str, Any]]:
+    """How well each present NPC currently knows this table.
+
+    The trust/fear/suspicion model is maintained turn by turn from structured
+    social tactics, and `npc.query` already projects it -- but the narration
+    brief did not, so the Keeper wrote every line of NPC dialogue without
+    knowing whether this person has been warming to the investigators for six
+    scenes or just met them.
+
+    That is the difference between banter that lands and banter that reads as
+    a stranger being oddly familiar. It is reported as the structured state it
+    is: no `banter_allowed` flag, no suggested register, no line. Whether a
+    warm NPC jokes, and what a frightened one does instead, is the Keeper's
+    call.
+    """
+    if not npc_ids:
+        return []
+    rows: list[dict[str, Any]] = []
+    for npc_id in npc_ids:
+        try:
+            entry = coc_npc_state.get_npc_entry(ctx.campaign_dir, npc_id)
+        except Exception:  # noqa: BLE001 - absent state is not a turn failure
+            continue
+        if not isinstance(entry, dict):
+            continue
+        rows.append({
+            "npc_id": npc_id,
+            "trust": int(entry.get("trust") or 0),
+            "fear": int(entry.get("fear") or 0),
+            "suspicion": int(entry.get("suspicion") or 0),
+        })
+    return rows
+
+
 def _tool_narration_brief(ctx: Ctx, args: dict[str, Any]):
     plan = args.get("candidate_plan")
     if not isinstance(plan, dict):
@@ -658,6 +706,7 @@ def _tool_narration_brief(ctx: Ctx, args: dict[str, Any]):
         "the KP owns the final narration and must preserve authoritative numerical results exactly",
         f"length budget ({budget['mode']}): ≤{budget['max_chars']} chars / ≤{budget['max_paragraphs']} paragraphs — write only what changed; never restate the player's own action",
     ]
+    rapport = _npc_rapport(ctx, _envelope_present_npc_ids(envelope))
     openings = envelope.get("npc_reaction_openings") or []
     if openings:
         watched = ", ".join(
@@ -670,6 +719,27 @@ def _tool_narration_brief(ctx: Ctx, args: dict[str, Any]):
             "skip here — an NPC may mock, may help, may not have noticed. No "
             "line is supplied and none is required"
         )
+    if rapport:
+        warm = [row for row in rapport if row["trust"] > 0 and row["fear"] <= 0]
+        wary = [row for row in rapport if row["fear"] > 0 or row["suspicion"] > 0]
+        if warm:
+            hints.append(
+                "npc_rapport: "
+                + ", ".join(f"{row['npc_id']} trust {row['trust']}" for row in warm[:3])
+                + " — these have been warming to this table across turns, which is "
+                "what makes familiarity land instead of reading as a stranger "
+                "being oddly chummy. Their voice line says how each one is warm"
+            )
+        if wary:
+            hints.append(
+                "npc_rapport: "
+                + ", ".join(
+                    f"{row['npc_id']} fear {row['fear']}/suspicion {row['suspicion']}"
+                    for row in wary[:3]
+                )
+                + " — a joke costs something here; that is a scene fact, not a "
+                "prohibition"
+            )
     if control_overrides:
         hints.append(
             "portray investigator involuntary behavior ONLY within the listed "
@@ -685,6 +755,7 @@ def _tool_narration_brief(ctx: Ctx, args: dict[str, Any]):
     return {
         "schema_version": 1,
         "authority": "drafting_brief",
+        "npc_rapport": rapport,
         "narration_envelope": envelope,
         "budget": budget,
         "control_overrides": control_overrides,

@@ -75,3 +75,36 @@ def test_every_present_npc_is_offered_not_one_chosen():
         [dict(_FAILED)], ["npc:kauffman", "npc:corbitt"],
     )
     assert openings[0]["witness_npc_ids"] == ["npc:kauffman", "npc:corbitt"]
+
+
+# ---------------------------------------------------------------------------
+# Rapport: how well this NPC knows the table, at the moment of writing
+# ---------------------------------------------------------------------------
+
+def test_present_npc_ids_are_read_from_where_the_envelope_puts_them():
+    """The envelope nests them under `state_grounding`, not at top level.
+
+    A reader that guesses the wrong container returns an empty list and the
+    whole feature silently does nothing -- the failure mode this session has
+    hit twice already, once in a fixture that patched the wrong module and once
+    here on the first attempt.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "coc_toolbox_rapport", SCRIPTS / "coc_toolbox.py"
+    )
+    toolbox = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(toolbox)
+    turn_output = sys.modules[
+        toolbox.TOOLS["narration.brief"]["handler"].__module__
+    ]
+
+    nested = {"state_grounding": {"present_npc_ids": ["npc:dooley", "npc:ruth"]}}
+    assert turn_output._envelope_present_npc_ids(nested) == [
+        "npc:dooley", "npc:ruth",
+    ]
+    assert turn_output._envelope_present_npc_ids({}) == []
+    assert turn_output._envelope_present_npc_ids(
+        {"state_grounding": {}, "present_npc_ids": ["npc:knott"]}
+    ) == ["npc:knott"], "a top-level list is still honoured as a fallback"
