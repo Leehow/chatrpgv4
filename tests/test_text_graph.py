@@ -367,13 +367,27 @@ def test_the_model_visible_contract_archive_is_byte_identical():
     assert rebuilt == on_disk
 
 
-def test_the_operation_surface_is_still_147():
-    """surface_law: TextGraph adds no model-visible operation."""
+def test_the_operation_surface_grows_only_on_purpose():
+    """surface_law: TextGraph adds no model-visible operation.
+
+    The count is 148, not TextGraph's 147. The one addition since is
+    `state.characteristic_delta`, and it is deliberate: no operation could
+    change a stat after chargen, so an authored consequence that costs one --
+    a spell's POW cost, a drain, time-loop ageing -- had no canonical path and
+    a live Keeper recorded a POW drain as HP damage instead.
+
+    The law this guards is that the surface does not grow by accident. Moving
+    the number is allowed; moving it without saying which operation arrived,
+    and why, is not.
+    """
     contracts = json.loads(
         (REFERENCES / "mcp-operation-contracts.json").read_text("utf-8")
     )
-    assert contracts["operation_count"] == 147
-    assert len(contracts["operations"]) == 147
+    assert contracts["operation_count"] == 148
+    assert len(contracts["operations"]) == 148
+    assert "state.characteristic_delta" in contracts["operations"]
+    # TextGraph itself still publishes nothing model-visible.
+    assert not [op for op in contracts["operations"] if op.startswith("text.")]
 
 
 # ---------------------------------------------------------------------------
