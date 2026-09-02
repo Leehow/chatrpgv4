@@ -1069,6 +1069,22 @@ function realManagerHarness({ deferActivationKeys = [] } = {}) {
   };
 }
 
+// A host-control message is a JSON document whose `instruction` embeds the
+// exact registered tool call as an escaped JSON string, so a raw substring
+// search for `"campaign":"..."` misses it by one level of escaping. Read the
+// instruction after parsing, and fall back to the raw text for the messages
+// that are not documents.
+function messageDeclares(content, fragment) {
+  const text = String(content ?? "");
+  try {
+    const parsed = JSON.parse(text);
+    if (typeof parsed?.instruction === "string") {
+      return parsed.instruction.includes(fragment) || text.includes(fragment);
+    }
+  } catch { /* not a document; fall through to the raw text */ }
+  return text.includes(fragment);
+}
+
 async function nextTurn() {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -4536,10 +4552,9 @@ async function exerciseFailureDrain(mode) {
     harness.calls.length === 1
     && harness.calls[0].name === "coc_capabilities"
     && tableOpen?.options?.triggerTurn === true
-    && tableOpen?.message?.content.includes(
-      `"campaign":"${campaignId}"`,
-    )
-    && !tableOpen?.message?.content.includes(
+    && messageDeclares(tableOpen?.message?.content, `"campaign":"${campaignId}"`)
+    && !messageDeclares(
+      tableOpen?.message?.content,
       '"campaign":"different-pi-transcript"',
     ));
 
@@ -4612,10 +4627,9 @@ async function exerciseFailureDrain(mode) {
   check("startup gate suppresses tool-free menu and queues exact resume",
     hiddenMenu.content.every((part) => part.type !== "text")
     && forcedResume?.options?.triggerTurn === true
-    && forcedResume?.message?.content.includes(
-      `"campaign":"${campaignId}"`,
-    )
-    && forcedResume?.message?.content.includes(
+    && messageDeclares(forcedResume?.message?.content, `"campaign":"${campaignId}"`)
+    && messageDeclares(
+      forcedResume?.message?.content,
       "Before any menu, setup.inspect",
     ));
 
@@ -7863,13 +7877,20 @@ for (const terminalCase of [
 // The live provider failure omitted this outer identity, so exercise both
 // omission and mismatch for the complete canonical campaign-bound set.
 {
+  // Single-token ids are refused by the closed identity grammar before the
+  // campaign binding is even reached, which is what this block is about:
+  // actor_id takes the `actor:`/`npc:` namespace or a multi-token slug, and
+  // scenario/investigator ids take a multi-token slug.
   const campaignBoundKinds = [
-    ["actor.create", { actor_id: "actor", sheet: {} }],
-    ["campaign.link_investigator", { investigator_ids: ["investigator"] }],
+    ["actor.create", { actor_id: "actor:campaign-bound", sheet: {} }],
+    [
+      "campaign.link_investigator",
+      { investigator_ids: ["investigator-campaign-bound"] },
+    ],
     [
       "scenario.bind_pdf",
       {
-        scenario_id: "scenario",
+        scenario_id: "scenario-campaign-bound",
         title: "Scenario",
         source_bundle_path: "/fixture/source-bundle",
       },
@@ -7877,7 +7898,7 @@ for (const terminalCase of [
     ["campaign.render_briefing", {}],
     [
       "investigator.render_card",
-      { investigator_id: "investigator" },
+      { investigator_id: "investigator-campaign-bound" },
     ],
   ];
   const harness = mainExtensionHarness(() => ({

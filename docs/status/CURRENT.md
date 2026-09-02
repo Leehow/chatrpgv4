@@ -111,16 +111,24 @@ rejection costs one round trip. See spec §16.1.
    4, and gate 4 is unmeasured — `narration.review` fired 0 times in 60 calls
    in one run and 7 times in another on the same day, path and model.
    Attribution needs several runs per arm, not a verdict from n=1.
-8. Pre-existing on `0.8.1a` before the projector merge: 12 `tests/pi/*.mjs`
-   files and 11 further `tests/test_pi_package.py` cases fail, most because
-   they probe retired legacy names (`rules.roll`, `coc_rules_roll`,
-   `rules.social_adjudicate`, `combat.resolve`, `state.end_session`) and read
-   the `host_private_operation` gate as an ACL failure; a few
-   (`no-selector-typed-onboarding` accepting a forged `state_claim_compilation`,
-   `async-memory-extraction` never scheduling prepare) may be real gaps. Under
-   repair on worker branches; `role-acl.test.mjs`, `test_pi_package.py`
-   manifest, the ontology registry replay and `agent-loop-graph-replan` are
-   already green on `0.8.1a`.
+8. The pre-existing `0.8.1a` test debt is cleared except one file.
+   `tests/test_pi_package.py` is 186/187, and the whole `tests/pi` suite
+   passes through its own wrappers. Five of those failures were real product
+   defects, now fixed with covering tests: a model-authored compiler receipt
+   accepted on the typed narration.review surface before its binding armed; a
+   ready source-bound `state.move_scene` collapsing to
+   `semantic_identity_unavailable` because the embedded scene bundle, the
+   result's `campaign_id` and the source mentions' `ref_id` were undeclared;
+   the leaf worker's `status=abstain` rewritten to `usable`, turning an
+   abstention into fulfilled coverage; the generic invoke surface missing the
+   host-owned scene-write key; and `coc_capabilities` failing the identity
+   boundary on its own contract digest, which broke the first call of a clean
+   packed install.
+   Still failing: `tests/pi/auto-dispatch-smoke.mjs`, down from a crash in its
+   second block to 14 failing checks, all in the opening-route family. Each
+   remaining one needs a judgment call about what the check should probe now
+   that the host-local typed role gates setup and play operations
+   independently of the retained route.
 9. A checkout whose `runtime/adapters/keeper/node_modules` predates
    `f596864c` carries only half of the vendored Pi patch; `patch-package`
    then refuses the whole package and the agent-loop replan hooks stay
