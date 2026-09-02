@@ -110,6 +110,20 @@ _GRANT_CONTEXT_KEYS = frozenset({
     "role", "phase", "stage", "player_turn_epoch", "progress_revision",
 })
 
+#: Facts that describe the CALL rather than the campaign. A card grant binds
+#: "canonical state has not moved since these cards were issued", and with no
+#: separate state-revision provider that binding degrades to a digest of the
+#: whole fact set — so any fact carried only by the asking call invalidates
+#: every grant issued under it.
+#:
+#: `intent.action_kind` is exactly that: rules.context publishes the Keeper's
+#: declared player intent, rules.settle does not, so the digest differed
+#: between issuing a grant and using it and `latest_grant_covering` matched
+#: nothing. Measured 2026-09-02: eight of fifteen failed settlements across
+#: three lanes were this, and the chase that had settled once stopped settling
+#: at all.
+_CALL_SCOPED_FACT_KEYS = frozenset({"intent.action_kind"})
+
 # Closed v1 settle enum: compiled healing decision refs only. Exclusion
 # exception nodes are intentionally absent (spec §15 no_candidate).
 HEALING_SETTLE_DECISION_REFS = (
@@ -256,8 +270,33 @@ def bind_campaign_runtime(
     *,
     subject_ref: str | None = None,
 ) -> None:
-    if campaign_id:
-        _CAMPAIGN_RUNTIMES[_campaign_runtime_key(campaign_id, subject_ref)] = runtime
+    if not campaign_id:
+        return
+    key = _campaign_runtime_key(campaign_id, subject_ref)
+    # Card grants live on the instance, so a rebuild used to destroy every
+    # grant the Keeper was holding. `scene.context` rebuilds the runtime to
+    # project healing cards (`refresh=True`), and the Keeper reads the scene
+    # constantly, so the ordinary sequence `rules.context` -> `scene.context`
+    # -> `rules.settle` lost the grant and the settlement was refused as
+    # `no_grant_for_decision` — true of the new instance, meaningless to the
+    # Keeper, who had just been handed the card. Measured 2026-09-02: eight
+    # such interleavings across seven diagnostic lanes.
+    #
+    # Carrying them over does not weaken the check. A grant states its own
+    # binding (ruleset, graph generation, state revision, turn context) and
+    # `_check_card_grant` still validates it on use; instance identity was
+    # never part of that contract. Grants the new runtime issued itself win a
+    # key collision.
+    previous = _CAMPAIGN_RUNTIMES.get(key)
+    if previous is not None and previous is not runtime:
+        carried = {
+            grant_id: grant
+            for grant_id, grant in previous._grants.items()
+            if grant_id not in runtime._grants
+        }
+        if carried:
+            runtime._grants = {**carried, **runtime._grants}
+    _CAMPAIGN_RUNTIMES[key] = runtime
 
 
 def campaign_runtime(
@@ -1306,7 +1345,11 @@ class RulesRuntime:
         if self._state_revision_provider is not None:
             revision = self._state_revision_provider()
         else:
-            revision = f"sha256:{_json_digest(facts)}"
+            state_facts = {
+                key: value for key, value in facts.items()
+                if key not in _CALL_SCOPED_FACT_KEYS
+            }
+            revision = f"sha256:{_json_digest(state_facts)}"
         binding = {
             "campaign_id": self._campaign_id,
             "ruleset_id": self._ruleset_id,
@@ -1603,6 +1646,128 @@ class RulesRuntime:
         if node is None:
             return False
         return node.get("node_kind") != "decision"
+
+    def _unmet_availability(self, decision_ref: str) -> list[dict[str, Any]]:
+        """The leaf availability conditions this decision fails right now.
+
+        Reports the fact path, what it holds and what the graph asks for --
+        never a bare "not applicable", which names nothing the Keeper can act
+        on or narrate around.
+        """
+        facts = (
+            dict(self._facts_provider() or {})
+            if self._facts_provider is not None else {}
+        )
+        unmet: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def walk(expression: Any) -> None:
+            if not isinstance(expression, Mapping):
+                return
+            children = _condition_children(expression)
+            if children is not None:
+                for child in children:
+                    walk(child)
+                return
+            path = expression.get("path")
+            if not isinstance(path, str) or path in seen:
+                return
+            if evaluate_condition(expression, facts) is True:
+                return
+            seen.add(path)
+            unmet.append({
+                "path": path,
+                "actual": facts.get(path),
+                "expected": expression.get("value"),
+            })
+
+        # Only hard gates decide whether a card is offered -- `applicability`
+        # evaluates nothing else. Walking every condition made this method
+        # blame the intent trigger, which marks a card as answering the
+        # declared intent and deliberately never gates it: it reported
+        # decision:coc7:combat:flee as unavailable for want of
+        # `intent.action_kind` while that very card was in the Keeper's hand.
+        for condition in self._conditions_for(decision_ref):
+            if condition.get("hard_gate") is not True:
+                continue
+            walk((condition.get("properties") or {}).get("expression"))
+        return unmet
+
+    def explain_missing_grant(self, decision_ref: str) -> dict[str, Any]:
+        """Why `latest_grant_covering` found nothing.
+
+        The caller's pre-check only reported "no live grant", which reads the
+        same whether the Keeper settled a decision it never asked cards for or
+        whether a grant existed and its binding moved underneath it. Those
+        need different answers — refresh this family, versus canonical state
+        advanced mid-turn — and the runtime already holds both facts.
+        """
+        current = self._grant_binding()
+        covering = [
+            grant for grant in self._grants.values()
+            if decision_ref in (grant.get("decision_refs") or [])
+        ]
+        if not covering:
+            # Usually the decision was never offered, and usually that is
+            # because its own availability conditions do not hold. Saying only
+            # "no grant" sends the Keeper to rules.context for a card that
+            # will not be there either. Measured 2026-09-02: a Keeper settled
+            # decision:coc7:chase:end three times across two lanes while chase
+            # context offered only `move` -- a chase ends when someone escapes
+            # or is caught, never on the Keeper's say-so, and nothing said so.
+            unmet = self._unmet_availability(decision_ref)
+            if unmet:
+                return {
+                    "reason": "decision_not_available",
+                    "detail": (
+                        "this decision is not currently available, so no card "
+                        "was offered for it: "
+                        + "; ".join(
+                            f"{row['path']} is {row['actual']!r}, needs "
+                            f"{row['expected']!r}"
+                            for row in unmet
+                        )
+                    ),
+                    "unmet": unmet,
+                }
+            return {
+                "reason": "no_grant_for_decision",
+                "detail": (
+                    "no card grant issued this turn covers this decision; "
+                    "rules.context for its family issues one"
+                ),
+            }
+        live = [
+            grant for grant in covering
+            if (grant.get("binding") or {}) == current
+        ]
+        if live:
+            # The caller only asks after its own lookup failed, so a covering
+            # grant whose binding matches NOW means the two reads disagreed —
+            # canonical state moved between them, or moved and moved back.
+            # Say that instead of inventing a drift with an empty key list,
+            # which is what the first version of this method reported.
+            return {
+                "reason": "grant_binding_unstable",
+                "detail": (
+                    "a covering grant matches the binding read now but did not "
+                    "at lookup; canonical state moved between the two reads"
+                ),
+            }
+        drifted = sorted({
+            key
+            for grant in covering
+            for key in set(grant.get("binding") or {}) | set(current)
+            if (grant.get("binding") or {}).get(key) != current.get(key)
+        })
+        return {
+            "reason": "grant_binding_drifted",
+            "drifted": drifted,
+            "detail": (
+                "a grant covering this decision exists but canonical state "
+                "moved since it was issued"
+            ),
+        }
 
     def latest_grant_covering(self, decision_ref: str) -> dict[str, Any] | None:
         current = self._grant_binding()

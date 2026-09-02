@@ -224,7 +224,9 @@ def player_visible_style_guard_contract(language: str = "zh-Hans") -> dict[str, 
     }
 
 
-def player_facing_style_contract(language: str = "zh-Hans") -> dict[str, Any]:
+def player_facing_style_contract(
+    language: str = "zh-Hans", play_register: str | None = None,
+) -> dict[str, Any]:
     """Return narrator-facing style constraints for player-visible prose."""
     repetition_policy = {
         "established_fact_mode": "compress",
@@ -261,6 +263,31 @@ def player_facing_style_contract(language: str = "zh-Hans") -> dict[str, Any]:
         "repetition_policy": repetition_policy,
         "style_guard": guard,
         "render_contract": crisis_scene_render_contract(language),
+        # Robin Laws' nine beat types (Hamlet's Hit Points, 2010). Offered as a
+        # frame for the question "what is this beat FOR", which is the question
+        # that decides whether a light moment lands or grates. Naming the beat
+        # is the Keeper's judgment; the host neither guesses it nor supplies a
+        # line for it.
+        "beat_frame": {
+            # The campaign register is the baseline a beat is read against: the
+            # same wisecrack is the wrong game in a Purist scene and the point
+            # of a Pulp one. Undeclared stays undeclared -- the core rulebook
+            # supports the range between the poles, and telling the Keeper a
+            # pole this table never chose would be worse than telling it
+            # nothing.
+            "play_register": play_register or "undeclared",
+            "registers": craft["play_registers"],
+            "types": craft["beat_types"],
+            "instruction": (
+                "Before drafting, name what this beat is for. A `gratification` "
+                "beat is where wit, warmth and table banter belong; a "
+                "`bringdown` beat is where the same line would grate. "
+                "`procedural` and `dramatic` carry most turns and are neither. "
+                "This is a frame for your own judgment, not a quota: most beats "
+                "want no joke at all, and a beat that wants one wants it in "
+                "this NPC's voice rather than a generic quip."
+            ),
+        },
         "output_language": {
             "play_language": language,
             "instruction": (

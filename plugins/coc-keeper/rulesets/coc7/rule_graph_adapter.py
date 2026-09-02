@@ -1259,6 +1259,15 @@ class Coc7RuleGraphAdapter:
         }:
             suffix = str(plan.get("decision_ref") or "").rsplit(":", 1)[-1]
             kind = {
+                # A bout has to be opened by the engine that can advance it.
+                # `check` used to invoke `rules.sanity_check`, which persists
+                # the bout to save/sanity.json and tells the subsystem
+                # executor nothing -- so no `bout_keeper_action` choice was
+                # ever registered, `sanity.bout.pending` stayed false,
+                # rules.context never offered bout-tick, and the bout could be
+                # neither advanced nor ended. Because p.157 blocks further SAN
+                # checks while a bout runs, the family wedged on the first one.
+                "check": "sanity_check",
                 "bout-tick": "bout_tick",
                 "bout-end": "bout_end",
                 "reality-check": "reality_check",
@@ -1281,6 +1290,17 @@ class Coc7RuleGraphAdapter:
                     "terminal_command_ids": [command_id],
                 })
                 phase = "resolve"
+            elif kind == "sanity_check":
+                # The graph's authored slot names; the executor's SanitySession
+                # takes its own. `loss_success` is optional-semantic and
+                # defaults to no loss on a successful roll.
+                command_payload.update({
+                    "source": payload.get("source"),
+                    "san_loss_success": payload.get("loss_success", 0),
+                    "san_loss_fail_expr": payload.get("loss_failure"),
+                    "involuntary_kind": payload.get("involuntary_kind"),
+                    "involuntary_summary": payload.get("involuntary_summary"),
+                })
             elif kind == "reality_check":
                 command_payload["request_reality_check"] = payload.get(
                     "request_reality_check"

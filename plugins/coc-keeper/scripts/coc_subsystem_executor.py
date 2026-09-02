@@ -2303,6 +2303,7 @@ _RESULT_RECEIPT_LOG = Path("logs/subsystem-results.jsonl")
 _PUSH_OFFER_EVIDENCE_LOG = Path("logs/push-offers.jsonl")
 _CHASE_OFFER_EVIDENCE_LOG = Path("logs/chase-offers.jsonl")
 _CHASE_CONFLICT_LEDGER = Path("logs/chase-conflicts.jsonl")
+_ORPHAN_BOUT_LEDGER = Path("logs/orphan-bouts.jsonl")
 _CHASE_GENESIS_LEDGER = Path("logs/chase-genesis.jsonl")
 
 
@@ -5835,6 +5836,34 @@ def _settle_sanity_check(
         module_bout_override=_json_copy(payload.get("module_bout_override")),
         creature_type=creature_type if isinstance(creature_type, str) else None,
     )
+    # p.157: no SAN is lost while a bout of madness runs, and a permanently
+    # insane investigator checks nothing ever again. SanitySession says so by
+    # returning `sanity_check_skipped` -- with no roll. This path then read
+    # `san_roll.get("roll", 0)` and carried a roll of 0 into the percentile
+    # projection, where success_level() rejects it: "roll must be between 1
+    # and 100". The branch was unreachable while the graph settled SAN checks
+    # through the advisory `rules.sanity_check` surface, which handled the
+    # skip itself; rewiring `decision:coc7:sanity:check` onto this executor
+    # made it live, and every SAN check in three lanes died here.
+    #
+    # Fail closed with the remedy instead of inventing a roll. A bout is
+    # resolvable now -- settle bout-tick or bout-end -- so the Keeper has
+    # somewhere to go; permanent insanity has nowhere, and says so.
+    if str(event.get("type") or "") == "sanity_check_skipped":
+        if session.permanently_insane:
+            raise _error(
+                "sanity_check_unavailable",
+                "commands[0].payload",
+                "the investigator is permanently insane and makes no further "
+                "Sanity rolls (p.160)",
+            )
+        raise _error(
+            "sanity_check_blocked_by_bout",
+            "commands[0].payload",
+            "no Sanity is lost while a bout of madness runs (p.157): settle "
+            "decision:coc7:sanity:bout-tick or decision:coc7:sanity:bout-end "
+            "to carry the bout forward, then check Sanity again",
+        )
     event_payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
     san_roll = next(
         (
@@ -8908,6 +8937,71 @@ def _append_integrity_evidence(campaign_dir: Path, relative: Path, evidence: dic
         os.fsync(handle.fileno())
 
 
+def _reconcile_orphan_bout(
+    campaign_dir: Path,
+    character: dict[str, Any],
+    investigator_id: str,
+    state: dict[str, Any],
+    rng: random.Random,
+) -> None:
+    """Close a bout of madness no engine owns.
+
+    Until decision:coc7:sanity:check was rewired onto this executor, the graph
+    opened bouts through the advisory `rules.sanity_check` surface. That wrote
+    `bout_active` into save/sanity.json and told this executor nothing, so a
+    campaign can hold a live bout with no `bout_keeper_action` choice behind
+    it. Nothing can then advance or end that bout, and p.157 blocks every
+    further Sanity check while it runs: the family is wedged, and the refusal
+    that names bout-tick as the way out points at a choice that does not
+    exist.
+
+    The bout is not adopted into this executor. Doing so would mean writing an
+    origin command, a revision and a private pending context that no command
+    ever produced -- exactly what `_migrate_schema_v2` already refuses ("schema
+    v2 pending choices cannot be migrated without private context"), and what
+    the bout contract cross-checks on use.
+
+    So it is ended through the session's own `end_bout`, which returns control
+    to the player and leaves the underlying-insanity phase running (p.158).
+    Nothing settled is erased: the SAN loss, the madness table result, the
+    duration and the backstory-amendment suggestion all stay in
+    `bouts_of_madness`; only the ownerless in-progress marker is cleared, and
+    the reconciliation is recorded.
+    """
+    if any(
+        isinstance(row, dict) and row.get("kind") == "bout_keeper_action"
+        for row in (state.get("pending_choices") or {}).values()
+    ):
+        return
+    if not coc_sanity.sanity_snapshot_exists(campaign_dir, investigator_id):
+        return
+    characteristics = (
+        character.get("characteristics")
+        if isinstance(character.get("characteristics"), dict) else {}
+    )
+    skills = character.get("skills") if isinstance(character.get("skills"), dict) else {}
+    session = coc_sanity.SanitySession.load(
+        campaign_dir,
+        investigator_id,
+        int_value=int(characteristics.get("INT", 50)),
+        rng=rng,
+        cm_value=int(skills.get("Cthulhu Mythos", 0)),
+    )
+    if not session.bout_active:
+        return
+    orphan_id = session.active_bout_id
+    rounds_left = int(session.bout_rounds_remaining)
+    session.end_bout()
+    session.save(campaign_dir, strict_mirror=True)
+    _append_integrity_evidence(campaign_dir, _ORPHAN_BOUT_LEDGER, {
+        "investigator_id": investigator_id,
+        "bout_id": orphan_id,
+        "rounds_remaining_when_closed": rounds_left,
+        "reason": "no bout_keeper_action choice owned this bout",
+        "resolution": "ended through SanitySession.end_bout (p.158)",
+    })
+
+
 def _preflight_new_pending_capacity(
     commands_with_hashes: list[tuple[dict[str, Any], str]],
 ) -> None:
@@ -9330,11 +9424,28 @@ def execute_commands(
         campaign_dir=campaign,
         investigator_id=investigator_id,
     )
+    _reconcile_orphan_bout(campaign, character, investigator_id, state, rng)
     if state["pending_choices"] and new_commands_with_hashes and not resolving_pending:
+        # Name the choice that is blocking. "resolve the current subsystem
+        # choice" tells a Keeper holding no choice list nothing about which
+        # one, who answers it, or what settles it; the kinds waiting here are
+        # the whole answer.
+        waiting = sorted({
+            str(row.get("kind") or "")
+            for row in state["pending_choices"].values()
+            if isinstance(row, dict) and row.get("kind")
+        })
         raise _error(
             "blocked_by_pending_choice",
             "commands",
-            "resolve the current subsystem choice before submitting new commands",
+            "resolve the open subsystem choice before submitting new "
+            f"commands; waiting on: {', '.join(waiting) or 'unknown'}"
+            + (
+                " (a bout of madness is running: settle "
+                "decision:coc7:sanity:bout-tick or "
+                "decision:coc7:sanity:bout-end to carry it forward)"
+                if "bout_keeper_action" in waiting else ""
+            ),
         )
     _preflight_new_pending_capacity(new_commands_with_hashes)
 
@@ -9572,10 +9683,20 @@ def execute_commands(
                 STATE_RELATIVE_PATH.as_posix(),
                 f"transaction error={exc}; rollback error={rollback_error}",
             ) from rollback_error
-        # An exception may name the code it should surface as. A precondition
-        # ("no combat has started") is not a transaction failure, and wrapping
-        # it as one tells the Keeper a write broke when nothing was attempted.
-        # The executor stays ignorant of each subsystem: the raiser declares.
+        # A business rejection is not a transaction failure. Rolled back
+        # cleanly, it keeps its own code and path: `subsystem_transaction_failed`
+        # sits in the toolbox's transient-error set, so a refusal that can
+        # never succeed -- checking Sanity during a bout of madness (p.157) --
+        # was handed back as retryable and retried three times a lane, and the
+        # code the Keeper needed to act on survived only as prose inside the
+        # wrapper's message.
+        if isinstance(exc, SubsystemExecutorError):
+            raise
+        # An exception that is not already an executor error may still name the
+        # code it should surface as. A precondition ("no combat has started")
+        # is not a transaction failure either, and wrapping it as one tells the
+        # Keeper a write broke when nothing was attempted. The executor stays
+        # ignorant of each subsystem: the raiser declares.
         declared = getattr(exc, "subsystem_error_code", None)
         raise _error(
             declared if isinstance(declared, str) and declared else

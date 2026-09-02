@@ -2631,7 +2631,11 @@ def register_operations(registry) -> None:
             "required": True,
             "desc": (
                 "exact payload for the selected kind: campaign.create requires "
-                "campaign_id/title and optionally ruleset_id/era/play_language/start_clock, "
+                "campaign_id/title and optionally ruleset_id/era/play_language/start_clock/play_register, "
+                "where play_register is 'purist' or 'pulp' and decides how much "
+                "levity the table's register carries -- omit it when the table "
+                "has not chosen, because the core rulebook supports the range "
+                "between them and a guessed pole reads as authored intent; "
                 "and an omitted era stays unestablished rather than defaulting; "
                 "actor.create requires campaign_id/actor_id/sheet and delegates "
                 "validation to that campaign's ruleset; "

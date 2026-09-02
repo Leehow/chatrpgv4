@@ -11606,6 +11606,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       ) {
         const operation = String(params.operation || "");
         const domains = [...new Set(diagnostics.unmapped.map((entry) => entry.domain))];
+        // Which fields, not which values. The values are the identity this
+        // gate exists to withhold and stay host-only; the field NAMES are
+        // schema the Keeper already reads everywhere else, and without them
+        // the refusal is unfalsifiable — "(undeclared)" names nothing, so a
+        // whole family can go dark and the only way to learn which field did
+        // it is to reconstruct it afterwards from host-internal evidence the
+        // diagnostic lanes do not even record. On 2026-09-02 every
+        // `rules.context` for the sanity family collapsed this way through a
+        // full run: the Keeper, handed no cards and no reason, settled
+        // decision refs from memory and spent five round trips guessing
+        // arguments for a bout that was not underway.
+        const undeclaredFields = [...new Set(
+          diagnostics.unmapped.map((entry) => entry.path ?? entry.field),
+        )].sort().slice(0, 12);
         return {
           ...hostFailureResult({
             ok: false,
@@ -11613,7 +11627,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             error: {
               code: "semantic_identity_unavailable",
               message: "this canonical result names identity-bearing fields "
-                + `whose semantic identity is unavailable (${domains.join(", ")}); `
+                + `whose semantic identity is unavailable (${domains.join(", ")}: `
+                + `${undeclaredFields.join(", ")}); `
                 + "the host keeps the exact canonical result in internal "
                 + "details instead of projecting partial mechanics. Refresh "
                 + "the turn context before continuing.",
@@ -11622,6 +11637,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
                 class: "business_precondition",
                 recoverable_by: "refresh_turn_context",
                 semantic_domains: domains,
+                undeclared_fields: undeclaredFields,
               },
             },
             warnings: [],

@@ -105,6 +105,30 @@ def _make_valid_scenario(tmp_path: Path, *, with_identity: bool = True) -> Path:
         ),
         encoding="utf-8",
     )
+    # Clue "a" declares delivery_kind=handout, so it needs a real card to be
+    # delivered by. Without one the whole scenario is invalid to register:
+    # `handout_link_missing` has been an error since 7934a716 (2026-08-22),
+    # and this fixture never wrote a handouts.json at all.
+    (sc / "handouts.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "handouts": [
+                    {
+                        "asset_id": "h1",
+                        "kind": "document",
+                        "content_origin": "authored_derivative",
+                        "title": "A note left at the scene",
+                        "summary": "A short in-world note written for this fixture.",
+                        "authored_text": "Come at once. Tell no one.",
+                        "player_visible": True,
+                        "clue_refs": ["a"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     (sc / "npc-agendas.json").write_text(
         json.dumps({"npcs": [{"npc_id": "n1", "agenda": "watch the party"}]}),
         encoding="utf-8",

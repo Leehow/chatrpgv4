@@ -7902,9 +7902,26 @@ def _canonical_sanity_binding(
             if isinstance(row, Mapping) and row.get("kind") == "bout_keeper_action"
         ]
         if len(choices) != 1:
+            # This is canonical state, not arguments. The old wording read
+            # like a slot the Keeper had filled in wrong, so on 2026-09-02 one
+            # lane rewrote semantic_inputs five times in a row -- kind, goal,
+            # outcome, changed_method -- against a decision whose every slot
+            # is host-locked. No argument could have worked: bout-tick exists
+            # only while a bout is waiting on a Keeper decision.
             raise ToolError(
                 "sanity_bout_choice_unavailable",
-                "exactly one canonical Keeper bout choice is required",
+                "no sanity bout is waiting on a Keeper decision"
+                if not choices else
+                "more than one sanity bout is waiting on a Keeper decision",
+                details={
+                    "pending_keeper_bout_choices": len(choices),
+                    "required": 1,
+                    "note": (
+                        "this decision's inputs are all host-locked; it is "
+                        "gated on canonical state, so no semantic_inputs "
+                        "change can satisfy it"
+                    ),
+                },
             )
         choice = choices[0]
         binding.update({
@@ -8248,22 +8265,48 @@ def dispatch_rules_settle(
         # already knows how to compute never reached the Keeper: the model saw
         # a terminal error while the host was holding the current cards. Build
         # the same envelope here and carry the cards through.
+        # Say WHICH of the two it is. "No live grant" reads the same whether
+        # the Keeper settled a decision it never asked cards for or whether a
+        # grant existed and canonical state moved underneath it, and those
+        # need different answers. Five stale settlements across three lanes on
+        # 2026-09-02 came through here with no reason attached.
+        why = runtime.explain_missing_grant(decision_ref)
         stale = runtime.stale_decision_envelope(
             decision_ref,
-            "no_live_card_grant",
-            "no live machine-issued card grant covers this decision",
+            str(why.get("reason") or "no_live_card_grant"),
+            str(why.get("detail") or "no live machine-issued card grant covers this decision"),
+            **({"drifted": why["drifted"]} if why.get("drifted") else {}),
+            **({"unmet": why["unmet"]} if why.get("unmet") else {}),
         )
         # Grants stay host-internal (see dispatch_rules_context); only the
         # public card projection crosses the boundary. The refreshed grant is
         # re-registered on this runtime, so the named rules.context call
         # returns the same live card set.
+        # "call rules.context, then settle a decision_ref it returns" is the
+        # right instruction for a grant that was never asked for or has
+        # drifted. It is the wrong one for a decision whose own hard gate is
+        # shut: refreshing produces the same card list without it. Say which
+        # fact is shut instead.
         raise ToolError(
             "rule_decision_stale",
+            str(why.get("detail"))
+            + "; refresh this family with rules.context once it holds"
+            if why.get("reason") == "decision_not_available" else
             "no live machine-issued card grant covers this decision; call "
             "rules.context for this family, then settle a decision_ref it returns",
             details={
                 "family": family or stale.get("family") or "",
                 "decision_ref": decision_ref,
+                # The reason the runtime worked out. Without it every refusal
+                # reads the same to the Keeper and to anyone reading a lane
+                # afterwards; the first wiring of this diagnosis computed the
+                # reason and then dropped it here, so eleven refused
+                # settlements on 2026-09-02 still explained nothing.
+                **{
+                    key: value
+                    for key, value in (stale.get("failure") or {}).items()
+                    if key in ("reason", "drifted", "unmet") and value
+                },
                 "refresh_operation": "rules.context",
                 "refreshed_cards": [
                     coc_rules_runtime.public_card_projection(card)
@@ -13009,15 +13052,24 @@ def _execute_subsystem_command(
             "command.payload.decision_id must equal the toolbox decision_id",
         )
     investigator_id = _resolve_investigator(ctx, args)
-    results = coc_subsystem_executor.execute_commands(
-        ctx.campaign_dir,
-        _investigator_character_path(ctx, investigator_id),
-        investigator_id,
-        [command],
-        rng=_rng(args),
-        append_jsonl=coc_state.append_jsonl,
-        character_snapshot=ctx.sheet(investigator_id),
-    )
+    try:
+        results = coc_subsystem_executor.execute_commands(
+            ctx.campaign_dir,
+            _investigator_character_path(ctx, investigator_id),
+            investigator_id,
+            [command],
+            rng=_rng(args),
+            append_jsonl=coc_state.append_jsonl,
+            character_snapshot=ctx.sheet(investigator_id),
+        )
+    except coc_subsystem_executor.SubsystemExecutorError as exc:
+        # SubsystemExecutorError subclasses ValueError, so without this the
+        # toolbox's generic ValueError catch flattened every typed subsystem
+        # refusal into `invalid_request` with the real code surviving only as
+        # prose inside the message. `_execute_subsystem_requests` already
+        # converts it; this path -- the one every sanity, chase and combat
+        # command takes -- never did.
+        raise ToolError(exc.code, exc.message) from exc
     data = {
         "schema_version": 1,
         "authority": "deterministic_subsystem",

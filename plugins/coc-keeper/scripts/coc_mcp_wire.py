@@ -2418,6 +2418,12 @@ def _compact_output_context(value: Any, *, tight: bool = False) -> Any:
         isinstance(contract_projection, dict)
         and contract_projection.get("agency_review_required") is True
     )
+    # This projection is built field by field, so anything the operation adds
+    # and nobody registers here never reaches the model. Three timing signals
+    # were written, tested, and delivered into a payload that dropped them --
+    # the same whitelist gap this repository has hit before.
+    if "banter_signals" in value:
+        projected["banter_signals"] = deepcopy(value.get("banter_signals"))
     agency_review_operation = value.get("agency_review_operation")
     if "agency_review_operation" in value:
         projected["agency_review_operation"] = deepcopy(agency_review_operation)

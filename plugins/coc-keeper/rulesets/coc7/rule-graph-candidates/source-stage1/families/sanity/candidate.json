@@ -1133,8 +1133,8 @@
         "family_id": "sanity",
         "implementation": {
           "adapter": "subsystem",
-          "kind": "rules.sanity_check",
-          "phase": "settle",
+          "kind": "sanity.execute",
+          "phase": "resolve",
           "payload_constants": {},
           "payload_slots": [
             {
@@ -5279,7 +5279,7 @@
       "relation_id": "relation:coc7:sanity:check-invokes",
       "relation_kind": "invokes",
       "from_node_id": "decision:coc7:sanity:check",
-      "to_node_id": "capability:coc7:sanity-check",
+      "to_node_id": "capability:coc7:sanity-execute",
       "evidence_span_ids": [
         "span-sanity-complete-source-page-165-block-17",
         "span-sanity-complete-source-page-165-block-2",

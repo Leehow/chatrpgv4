@@ -7436,7 +7436,7 @@
         "family_id": "sanity",
         "implementation": {
           "adapter": "subsystem",
-          "kind": "rules.sanity_check",
+          "kind": "sanity.execute",
           "payload_constants": {},
           "payload_slots": [
             {
@@ -7480,7 +7480,7 @@
               "ownership": "host-locked"
             }
           ],
-          "phase": "settle"
+          "phase": "resolve"
         }
       },
       "visibility": "public"
@@ -42113,7 +42113,7 @@
       "from_node_id": "decision:coc7:sanity:check",
       "relation_id": "relation:coc7:sanity:check-invokes",
       "relation_kind": "invokes",
-      "to_node_id": "capability:coc7:sanity-check"
+      "to_node_id": "capability:coc7:sanity-execute"
     },
     {
       "evidence_span_ids": [

@@ -75,6 +75,19 @@ coc_epistemic_compile = _load_sibling(
 _RUNTIME_ADAPTERS: dict[str, Any] = {}
 
 REQUIRED_FILES = tuple(coc_scenario_compile.REQUIRED_FILES)
+#: Registered optional scenario documents a compiler may also return.
+#:
+#: The bundle key set used to be exactly the seven required files, which made a
+#: module with a handout-delivered clue impossible to compile: `handouts.json`
+#: is where its card lives, and a clue graph that arrives without its card store
+#: fails `handout_link_missing` at the target. Every other path already carries
+#: these two -- `coc_module_project` writes them, `install_to_campaign` copies
+#: them, and `STARTER_OPTIONAL_SCENARIO_FILES` registers them -- so the seven-key
+#: equality was the one place that disagreed.
+#:
+#: The set stays closed. A compiler still cannot smuggle an arbitrary file in;
+#: it may only add these two.
+OPTIONAL_FILES = tuple(coc_starter.STARTER_OPTIONAL_SCENARIO_FILES)
 EPISTEMIC_FILES = tuple(coc_epistemic_compile.SIDECAR_FILES)
 MAX_SOURCE_PAGES = 32
 MAX_SOURCE_CHARACTERS = 300_000
@@ -161,6 +174,14 @@ def _bundle_digest(scenario_dir: Path) -> str:
     for name in REQUIRED_FILES:
         digest.update(name.encode("utf-8"))
         digest.update((scenario_dir / name).read_bytes())
+    # An optional document is part of what was published, so a change to the
+    # card store has to move this digest. Absence is hashed distinctly from an
+    # empty file so "no handouts" and "handouts removed" are not the same
+    # bundle.
+    for name in OPTIONAL_FILES:
+        path = scenario_dir / name
+        digest.update(name.encode("utf-8"))
+        digest.update(path.read_bytes() if path.is_file() else b"\x00absent")
     return digest.hexdigest()
 
 
@@ -406,6 +427,16 @@ def _copy_validated_bundle(source_dir: Path, destination_dir: Path) -> None:
     for name in REQUIRED_FILES:
         payload = json.loads((source_dir / name).read_text(encoding="utf-8"))
         _write_json(destination_dir / name, payload)
+    # The registered optional documents travel with the bundle. Copying only
+    # the required seven meant installing the built-in starter produced a
+    # campaign whose own validation failed: The Haunting delivers two clues
+    # through a handout card, and the card store stayed behind.
+    for name in OPTIONAL_FILES:
+        source = source_dir / name
+        if source.is_file():
+            _write_json(destination_dir / name, json.loads(
+                source.read_text(encoding="utf-8")
+            ))
     for name in coc_module_registry.discover_optional_scenario_sidecars(source_dir):
         payload = json.loads((source_dir / name).read_text(encoding="utf-8"))
         _write_json(destination_dir / name, payload)
@@ -657,26 +688,38 @@ def _stage_bundle(
     source: dict[str, Any],
     pages: list[dict[str, Any]],
 ) -> Path:
-    if set(bundle) != set(REQUIRED_FILES):
+    bundle_keys = {str(key) for key in bundle}
+    missing = sorted(set(REQUIRED_FILES) - bundle_keys)
+    unexpected = sorted(bundle_keys - set(REQUIRED_FILES) - set(OPTIONAL_FILES))
+    if missing or unexpected:
         validation = {"findings": [{
             "code": "invalid_bundle_keys",
             "severity": "error",
             "path": "scenario_bundle",
-            "message": "compiler bundle keys must exactly equal the canonical seven files",
+            "message": (
+                "compiler bundle keys must carry every required scenario "
+                "file and nothing beyond the registered optional ones"
+            ),
             "details": {
                 "required_files": list(REQUIRED_FILES),
-                "actual_files": sorted(str(key) for key in bundle),
+                "optional_files": list(OPTIONAL_FILES),
+                "missing_files": missing,
+                "unexpected_files": unexpected,
+                "actual_files": sorted(bundle_keys),
             },
         }]}
         raise ScenarioHydrationError(
-            "compiler bundle keys must exactly equal the canonical seven files",
+            "compiler bundle keys must carry every required scenario file "
+            "and nothing beyond the registered optional ones",
             validation=validation,
         )
     staging_root = Path(tempfile.mkdtemp(prefix=".scenario-compile-", dir=parent))
     staging = staging_root / "scenario"
     staging.mkdir()
     try:
-        for name in REQUIRED_FILES:
+        for name in (*REQUIRED_FILES, *OPTIONAL_FILES):
+            if name not in bundle:
+                continue
             payload = bundle[name]
             if not isinstance(payload, dict):
                 validation = {"findings": [{
@@ -1005,6 +1048,7 @@ def _publication_paths(campaign_dir: Path) -> list[Path]:
     """Files that form the base Scenario IR publication transaction."""
     return [
         *(campaign_dir / "scenario" / name for name in REQUIRED_FILES),
+        *(campaign_dir / "scenario" / name for name in OPTIONAL_FILES),
         *(campaign_dir / "scenario" / name for name in EPISTEMIC_FILES),
         campaign_dir / "scenario" / "resolution-receipt.json",
         *(campaign_dir / "index" / name for name in coc_module_registry.SOURCE_INDEX_FILES),
@@ -1050,6 +1094,19 @@ def _publish_validated_base(
         for name in REQUIRED_FILES:
             payload = json.loads((staging / name).read_text(encoding="utf-8"))
             _write_json(scenario_dir / name, payload)
+        # Publish the optional documents the compiler produced, and remove one
+        # it stopped producing. Writing only the required seven left a
+        # published scenario whose handout-delivered clues had no card store,
+        # so the very next validation called it `unknown_handout` -- the
+        # compiler's own output was discarded between staging and publication.
+        for name in OPTIONAL_FILES:
+            staged = staging / name
+            if staged.is_file():
+                _write_json(scenario_dir / name, json.loads(
+                    staged.read_text(encoding="utf-8")
+                ))
+            else:
+                (scenario_dir / name).unlink(missing_ok=True)
         for name in EPISTEMIC_FILES:
             (scenario_dir / name).unlink(missing_ok=True)
         _persist_source_bundle(campaign_dir, seed, source, pages)

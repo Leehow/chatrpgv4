@@ -638,6 +638,43 @@ const DYNAMIC_CANDIDATE_ACTIONS: Record<string, readonly PiAllowedNextAction[]> 
       + "settle it before the investigator leaves the scene they are fleeing",
     host_bound: false,
   }],
+  // p.157: no Sanity is lost while a bout of madness runs. That is the
+  // rulebook answering, not an argument fault, and the way forward is to
+  // carry the bout -- which is settleable now that the same engine opens it.
+  // The subsystem holds one open choice at a time and refuses new commands
+  // until it is answered. The refusal now names which kind is waiting, so the
+  // Keeper can settle it rather than re-sending the blocked command.
+  blocked_by_pending_choice: [{
+    operation: "rules.settle",
+    action: "resume_pending_settlement",
+    reason:
+      "settle the decision that answers the open subsystem choice the refusal "
+      + "names (a running bout is carried by bout-tick or bout-end), then "
+      + "re-send this command",
+    host_bound: true,
+  }],
+  sanity_check_blocked_by_bout: [{
+    operation: "rules.settle",
+    action: "resume_pending_settlement",
+    reason:
+      "settle decision:coc7:sanity:bout-tick or decision:coc7:sanity:bout-end "
+      + "to carry the running bout forward, then check Sanity again",
+    host_bound: true,
+  }],
+  // A sanity bout tick/end exists only while a bout is waiting on a Keeper
+  // decision. Classified nowhere, it fell through to invariant_terminal /
+  // recoverable_by "none" while its message read like an argument complaint,
+  // and on 2026-09-02 one lane rewrote semantic_inputs five times against a
+  // decision whose every slot is host-locked before giving up on the bout.
+  sanity_bout_choice_unavailable: [{
+    operation: "rules.context",
+    action: "refresh_semantic_candidates",
+    reason:
+      "ask the sanity family for cards: bout-tick and bout-end are offered "
+      + "only while a bout is actually waiting on a Keeper decision, so if "
+      + "neither comes back there is no bout to advance",
+    host_bound: true,
+  }],
   unknown_combat_target: [{
     operation: "combat.context",
     action: "refresh_semantic_candidates",
@@ -4113,9 +4150,28 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["catalog_skill_ids", "id"],
     [],
   )],
+  // Beside the cards, a family's context carries `canonical_context.snapshot`
+  // -- for sanity that is the live bout: rounds remaining, the madness table
+  // result, each involuntary action and its rule. The Keeper narrates from it.
+  // Its identity fields were undeclared, so the WHOLE envelope collapsed to
+  // `semantic_identity_unavailable` exactly when there was something to
+  // narrate: a bout was underway. Measured 2026-09-02, three lanes out of
+  // three, every sanity context of the run. Handed no cards and no reason,
+  // the Keeper settled decision refs from memory and rewrote arguments for a
+  // bout it could not see.
+  //
+  // `rule_ref` is the meaning-bearing dotted rule path
+  // (`core.sanity.failure_involuntary_action`) the Keeper can cite, so it
+  // stays semantic beside the `rule_refs` the cards already carry. The bout
+  // and event ids are host-owned: fb98f0ac settled that disposition for the
+  // settled view -- the Keeper narrates from `bout_triggered`,
+  // `bout_rounds_remaining` and each event's summary, and continues the bout
+  // through `next_decisions`, never by echoing an id. Declaring them here
+  // drops them the same way instead of failing the result closed.
   ["rules.context", declaredIdentityTable(
-    RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS,
+    [...RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS, "rule_ref"],
     [],
+    ["active_bout_id", "bout_id", "trigger_id", "event_id"],
   )],
   // `roll_id` is deliberately NOT host-only here: a graph-settled
   // critical/fumble is the source roll `state.exceptional_effect` must bind,

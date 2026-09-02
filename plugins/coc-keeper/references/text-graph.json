@@ -108,6 +108,141 @@
       }
     },
     {
+      "node_id": "beat-type:anticipation",
+      "node_kind": "beat-type",
+      "plane": "craft",
+      "name": "beat type anticipation",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "looks forward to a hoped-for outcome",
+      "origin": "robin-laws-hamlets-hit-points-2010",
+      "falsifiable_by": "label one arm of a multi-turn session with beat types and leave the other unlabelled, then ask a reader who is not told which arm a turn came from whether its lighter moments land. Laws' own claim -- that readers agree on what a beat is FOR -- is separately checkable by having two people label the same preserved turns and comparing",
+      "properties": {
+        "legacy_key": "anticipation",
+        "ordinal": 3,
+        "family": "mood"
+      }
+    },
+    {
+      "node_id": "beat-type:bringdown",
+      "node_kind": "beat-type",
+      "plane": "craft",
+      "name": "beat type bringdown",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "lowers the mood, often accentuating what the protagonist already feels",
+      "origin": "robin-laws-hamlets-hit-points-2010",
+      "falsifiable_by": "label one arm of a multi-turn session with beat types and leave the other unlabelled, then ask a reader who is not told which arm a turn came from whether its lighter moments land. Laws' own claim -- that readers agree on what a beat is FOR -- is separately checkable by having two people label the same preserved turns and comparing",
+      "properties": {
+        "legacy_key": "bringdown",
+        "ordinal": 5,
+        "family": "mood"
+      }
+    },
+    {
+      "node_id": "beat-type:commentary",
+      "node_kind": "beat-type",
+      "plane": "craft",
+      "name": "beat type commentary",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "a pause that brings out the story's themes, chorus-like",
+      "origin": "robin-laws-hamlets-hit-points-2010",
+      "falsifiable_by": "label one arm of a multi-turn session with beat types and leave the other unlabelled, then ask a reader who is not told which arm a turn came from whether its lighter moments land. Laws' own claim -- that readers agree on what a beat is FOR -- is separately checkable by having two people label the same preserved turns and comparing",
+      "properties": {
+        "legacy_key": "commentary",
+        "ordinal": 2,
+        "family": "substantive"
+      }
+    },
+    {
+      "node_id": "beat-type:dramatic",
+      "node_kind": "beat-type",
+      "plane": "craft",
+      "name": "beat type dramatic",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "the protagonist deals with an emotional conflict",
+      "origin": "robin-laws-hamlets-hit-points-2010",
+      "falsifiable_by": "label one arm of a multi-turn session with beat types and leave the other unlabelled, then ask a reader who is not told which arm a turn came from whether its lighter moments land. Laws' own claim -- that readers agree on what a beat is FOR -- is separately checkable by having two people label the same preserved turns and comparing",
+      "properties": {
+        "legacy_key": "dramatic",
+        "ordinal": 1,
+        "family": "substantive"
+      }
+    },
+    {
+      "node_id": "beat-type:gratification",
+      "node_kind": "beat-type",
+      "plane": "craft",
+      "name": "beat type gratification",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "revels in a pleasant emotional stimulus; where levity belongs",
+      "origin": "robin-laws-hamlets-hit-points-2010",
+      "falsifiable_by": "label one arm of a multi-turn session with beat types and leave the other unlabelled, then ask a reader who is not told which arm a turn came from whether its lighter moments land. Laws' own claim -- that readers agree on what a beat is FOR -- is separately checkable by having two people label the same preserved turns and comparing",
+      "properties": {
+        "legacy_key": "gratification",
+        "ordinal": 4,
+        "family": "mood"
+      }
+    },
+    {
+      "node_id": "beat-type:pipe",
+      "node_kind": "beat-type",
+      "plane": "craft",
+      "name": "beat type pipe",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "lays in information for later use without paying it off now",
+      "origin": "robin-laws-hamlets-hit-points-2010",
+      "falsifiable_by": "label one arm of a multi-turn session with beat types and leave the other unlabelled, then ask a reader who is not told which arm a turn came from whether its lighter moments land. Laws' own claim -- that readers agree on what a beat is FOR -- is separately checkable by having two people label the same preserved turns and comparing",
+      "properties": {
+        "legacy_key": "pipe",
+        "ordinal": 6,
+        "family": "expository"
+      }
+    },
+    {
+      "node_id": "beat-type:procedural",
+      "node_kind": "beat-type",
+      "plane": "craft",
+      "name": "beat type procedural",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "the protagonist advances toward the goal in a practical way",
+      "origin": "robin-laws-hamlets-hit-points-2010",
+      "falsifiable_by": "label one arm of a multi-turn session with beat types and leave the other unlabelled, then ask a reader who is not told which arm a turn came from whether its lighter moments land. Laws' own claim -- that readers agree on what a beat is FOR -- is separately checkable by having two people label the same preserved turns and comparing",
+      "properties": {
+        "legacy_key": "procedural",
+        "ordinal": 0,
+        "family": "substantive"
+      }
+    },
+    {
+      "node_id": "beat-type:question",
+      "node_kind": "beat-type",
+      "plane": "craft",
+      "name": "beat type question",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "raises a question the story will answer",
+      "origin": "robin-laws-hamlets-hit-points-2010",
+      "falsifiable_by": "label one arm of a multi-turn session with beat types and leave the other unlabelled, then ask a reader who is not told which arm a turn came from whether its lighter moments land. Laws' own claim -- that readers agree on what a beat is FOR -- is separately checkable by having two people label the same preserved turns and comparing",
+      "properties": {
+        "legacy_key": "question",
+        "ordinal": 7,
+        "family": "expository"
+      }
+    },
+    {
+      "node_id": "beat-type:reveal",
+      "node_kind": "beat-type",
+      "plane": "craft",
+      "name": "beat type reveal",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "answers a question the story raised",
+      "origin": "robin-laws-hamlets-hit-points-2010",
+      "falsifiable_by": "label one arm of a multi-turn session with beat types and leave the other unlabelled, then ask a reader who is not told which arm a turn came from whether its lighter moments land. Laws' own claim -- that readers agree on what a beat is FOR -- is separately checkable by having two people label the same preserved turns and comparing",
+      "properties": {
+        "legacy_key": "reveal",
+        "ordinal": 8,
+        "family": "expository"
+      }
+    },
+    {
       "node_id": "coverage-field:action-realization",
       "node_kind": "coverage-field",
       "plane": "obligation",
@@ -744,6 +879,34 @@
         "legacy_key": "sanity_bout",
         "ordinal": 4,
         "obligation_kind": "sanity_bout"
+      }
+    },
+    {
+      "node_id": "play-register:pulp",
+      "node_kind": "play-register",
+      "plane": "craft",
+      "name": "play register pulp",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "desperate two-fisted action in the Robert E. Howard idiom; investigators are more capable and survival is expected",
+      "origin": "chaosium-call-of-cthulhu-play-styles",
+      "falsifiable_by": "run the same scenario for one arm declared purist and one declared pulp, and ask readers who are not told which arm a turn came from to say which game it reads as. A register that readers cannot tell apart is not carrying anything",
+      "properties": {
+        "legacy_key": "pulp",
+        "ordinal": 1
+      }
+    },
+    {
+      "node_id": "play-register:purist",
+      "node_kind": "play-register",
+      "plane": "craft",
+      "name": "play register purist",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "philosophical horror where uncovering the truth dooms seeker and bystander alike; atmosphere of menace and dread over action",
+      "origin": "chaosium-call-of-cthulhu-play-styles",
+      "falsifiable_by": "run the same scenario for one arm declared purist and one declared pulp, and ask readers who are not told which arm a turn came from to say which game it reads as. A register that readers cannot tell apart is not carrying anything",
+      "properties": {
+        "legacy_key": "purist",
+        "ordinal": 0
       }
     },
     {

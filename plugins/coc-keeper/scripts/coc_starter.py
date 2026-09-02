@@ -1279,6 +1279,7 @@ def quick_start(
     campaign_id: str | None = None,
     title: str | None = None,
     decision_id: str | None = None,
+    play_register: str | None = None,
 ) -> dict[str, Any]:
     """Create a campaign, install a starter, and optionally bind a pregen.
 
@@ -1424,6 +1425,7 @@ def quick_start(
                     camp_id,
                     camp_title,
                     era=era,
+                    play_register=play_register,
                     start_clock=(
                         meta.get("start_clock")
                         if isinstance(meta.get("start_clock"), dict)

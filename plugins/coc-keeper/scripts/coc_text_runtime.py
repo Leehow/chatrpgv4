@@ -236,6 +236,21 @@ def craft(language: str = "zh-Hans") -> dict[str, Any]:
             row["properties"]["legacy_key"]
             for row in _ordered(_nodes_of_kind("render-prohibition"))
         ),
+        # Laws' nine beat types, carrying what each beat is FOR. The Keeper
+        # names the beat; the host never guesses it. `gratification` and
+        # `bringdown` are the levity dial that no collected library of witty
+        # lines can supply, because the question is timing, not material.
+        "play_registers": {
+            row["properties"]["legacy_key"]: row["rationale"]
+            for row in _ordered(_nodes_of_kind("play-register"))
+        },
+        "beat_types": {
+            row["properties"]["legacy_key"]: {
+                "family": row["properties"]["family"],
+                "rationale": row["rationale"],
+            }
+            for row in _ordered(_nodes_of_kind("beat-type"))
+        },
         "avoid": tuple(
             row["properties"]["legacy_key"]
             for row in _ordered(_nodes_of_kind("style-axis"))
