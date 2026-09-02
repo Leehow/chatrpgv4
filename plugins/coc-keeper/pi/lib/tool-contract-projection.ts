@@ -638,6 +638,20 @@ const DYNAMIC_CANDIDATE_ACTIONS: Record<string, readonly PiAllowedNextAction[]> 
       + "settle it before the investigator leaves the scene they are fleeing",
     host_bound: false,
   }],
+  // A sanity bout tick/end exists only while a bout is waiting on a Keeper
+  // decision. Classified nowhere, it fell through to invariant_terminal /
+  // recoverable_by "none" while its message read like an argument complaint,
+  // and on 2026-09-02 one lane rewrote semantic_inputs five times against a
+  // decision whose every slot is host-locked before giving up on the bout.
+  sanity_bout_choice_unavailable: [{
+    operation: "rules.context",
+    action: "refresh_semantic_candidates",
+    reason:
+      "ask the sanity family for cards: bout-tick and bout-end are offered "
+      + "only while a bout is actually waiting on a Keeper decision, so if "
+      + "neither comes back there is no bout to advance",
+    host_bound: true,
+  }],
   unknown_combat_target: [{
     operation: "combat.context",
     action: "refresh_semantic_candidates",

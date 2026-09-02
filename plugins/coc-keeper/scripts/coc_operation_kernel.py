@@ -7902,9 +7902,26 @@ def _canonical_sanity_binding(
             if isinstance(row, Mapping) and row.get("kind") == "bout_keeper_action"
         ]
         if len(choices) != 1:
+            # This is canonical state, not arguments. The old wording read
+            # like a slot the Keeper had filled in wrong, so on 2026-09-02 one
+            # lane rewrote semantic_inputs five times in a row -- kind, goal,
+            # outcome, changed_method -- against a decision whose every slot
+            # is host-locked. No argument could have worked: bout-tick exists
+            # only while a bout is waiting on a Keeper decision.
             raise ToolError(
                 "sanity_bout_choice_unavailable",
-                "exactly one canonical Keeper bout choice is required",
+                "no sanity bout is waiting on a Keeper decision"
+                if not choices else
+                "more than one sanity bout is waiting on a Keeper decision",
+                details={
+                    "pending_keeper_bout_choices": len(choices),
+                    "required": 1,
+                    "note": (
+                        "this decision's inputs are all host-locked; it is "
+                        "gated on canonical state, so no semantic_inputs "
+                        "change can satisfy it"
+                    ),
+                },
             )
         choice = choices[0]
         binding.update({

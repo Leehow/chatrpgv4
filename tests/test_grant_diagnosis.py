@@ -141,3 +141,32 @@ def test_reading_the_scene_does_not_void_a_card_the_keeper_holds(campaign_ws):
         "reading the scene voided a card the Keeper was still holding: "
         f"{settled.get('error')}"
     )
+
+
+def test_a_bout_that_is_not_underway_is_not_an_argument_complaint(campaign_ws):
+    """`sanity_bout_choice_unavailable` is canonical state, not arguments.
+
+    Every payload slot on decision:coc7:sanity:bout-tick is host-locked, so no
+    semantic_inputs value can satisfy it — the decision exists only while a
+    bout is waiting on a Keeper decision. The old wording ("exactly one
+    canonical Keeper bout choice is required") read like a slot filled in
+    wrong: on 2026-09-02 one lane rewrote semantic_inputs five times in a row
+    (kind, goal, outcome, changed_method) before abandoning the bout.
+    """
+    import coc_toolbox  # noqa: PLC0415
+
+    settled = coc_toolbox.run_tool(
+        "rules.settle",
+        campaign_ws["workspace"],
+        campaign_ws["campaign_id"],
+        {
+            "decision_ref": "decision:coc7:sanity:bout-tick",
+            "decision_id": "no-bout-underway-0001",
+            "investigator": "thomas-hayes",
+            "semantic_inputs": {},
+        },
+    )
+    error = settled.get("error") or {}
+    assert error.get("code") == "sanity_bout_choice_unavailable", settled
+    assert "no sanity bout is waiting" in error.get("message", ""), error
+    assert error["details"]["pending_keeper_bout_choices"] == 0, error["details"]

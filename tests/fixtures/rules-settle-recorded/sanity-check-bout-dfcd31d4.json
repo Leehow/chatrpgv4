@@ -1,0 +1,201 @@
+{
+ "decision_ref": "decision:coc7:sanity:check",
+ "family": "sanity",
+ "status": "settled",
+ "rule_refs": [
+  "rule:coc7:sanity:failed-roll-involuntary-action",
+  "rule:coc7:sanity:fumble-maximum-loss",
+  "rule:coc7:sanity:getting-used-to-awfulness",
+  "rule:coc7:sanity:indefinite-daily-fraction",
+  "rule:coc7:sanity:max-san",
+  "rule:coc7:sanity:mythos-insanity-gain",
+  "rule:coc7:sanity:optional-multiple-san-rolls",
+  "rule:coc7:sanity:optional-mythos-hardened",
+  "rule:coc7:sanity:permanent-at-zero",
+  "rule:coc7:sanity:san-roll",
+  "rule:coc7:sanity:temporary-threshold-and-int"
+ ],
+ "investigator_id": "thomas-hayes",
+ "event": null,
+ "player_state_receipt": null,
+ "current_hp": null,
+ "conditions": null,
+ "settlement": {
+  "existing_result_envelope": true,
+  "result": {
+   "investigator_id": "thomas-hayes",
+   "source": "wizened sealed-chamber corpse sits up and moves when the throat chain is broken",
+   "check": {
+    "skill": "SAN",
+    "target": 52,
+    "roll": 57,
+    "outcome": "failure",
+    "source": "wizened sealed-chamber corpse sits up and moves when the throat chain is broken",
+    "trigger_id": null,
+    "san_loss": 5,
+    "san_before": 52,
+    "san_after": 47,
+    "involuntary_action": {
+     "kind": "freeze",
+     "summary": "body locks for a beat as the corpse sits upright",
+     "source": "wizened sealed-chamber corpse sits up and moves when the throat chain is broken",
+     "rule_ref": "core.sanity.failure_involuntary_action"
+    }
+   },
+   "success": false,
+   "san_loss": 5,
+   "loss_detail": {
+    "rolls": [
+     5
+    ],
+    "resolution": "rolled",
+    "raw_total": 5,
+    "expression": "1D8"
+   },
+   "san_before": 52,
+   "san_after": 47,
+   "trigger_id": null,
+   "sanity_check_skipped": false,
+   "bout_triggered": true,
+   "bout_active": true,
+   "active_bout_id": "thomas-hayes:bout:1",
+   "bout_rounds_remaining": 2,
+   "temporary_insane": true,
+   "indefinite_insane": false,
+   "permanently_insane": false,
+   "daily_san_lost": 8,
+   "day_start_san": 55,
+   "session_roll_ids": [
+    "toolbox-gate9-depth-10-000009",
+    "toolbox-gate9-depth-10-000010",
+    "toolbox-gate9-depth-10-000011",
+    "toolbox-gate9-depth-10-000012",
+    "toolbox-gate9-depth-10-000013"
+   ],
+   "session_events": [
+    {
+     "event_id": "se3",
+     "event_type": "sanity",
+     "source": "wizened sealed-chamber corpse sits up and moves when the throat chain is broken",
+     "san_before": 52,
+     "san_loss": 5,
+     "san_after": 47,
+     "roll_outcome": "failure",
+     "mythos_hardened": false,
+     "creature_type": null,
+     "summary": "thomas-hayes wizened sealed-chamber corpse sits up and moves when the throat chain is broken: SAN 52->47 (lost 5).",
+     "involuntary_action": {
+      "kind": "freeze",
+      "summary": "body locks for a beat as the corpse sits upright",
+      "source": "wizened sealed-chamber corpse sits up and moves when the throat chain is broken",
+      "rule_ref": "core.sanity.failure_involuntary_action"
+     }
+    },
+    {
+     "event_id": "se4",
+     "event_type": "involuntary_action",
+     "kind": "freeze",
+     "summary": "thomas-hayes freeze: body locks for a beat as the corpse sits upright",
+     "source": "wizened sealed-chamber corpse sits up and moves when the throat chain is broken",
+     "rule_ref": "core.sanity.failure_involuntary_action"
+    },
+    {
+     "event_id": "se5",
+     "event_type": "bout_of_madness",
+     "bout_id": "thomas-hayes:bout:1",
+     "mode": "real_time",
+     "summary_table": "table_vii_realtime",
+     "bout_roll": 6,
+     "bout_result": "Faint",
+     "bout_kind": "physical",
+     "duration_hours": 9,
+     "source": "wizened sealed-chamber corpse sits up and moves when the throat chain is broken",
+     "duration_rounds": 2,
+     "backstory_amend_suggestion": {
+      "mode": "corrupt_existing",
+      "backstory_field": "significant_people",
+      "keeper_note": "Tie the madness to this investigator's own story: twist an existing entry in the 'significant_people' backstory category, binding it to what just caused the bout. Negotiate the wording with the player (p.157)."
+     },
+     "summary": "thomas-hayes bout of madness (real_time): roll 6, duration 9h. Faint"
+    },
+    {
+     "event_id": "se6",
+     "event_type": "recovery_trigger_scheduled",
+     "trigger_id": "trg-bd538f81eb43",
+     "due_elapsed_minutes": 540,
+     "remaining_hours": 9,
+     "summary": "thomas-hayes temporary-insanity recovery scheduled for elapsed>540 (auto_apply_if_safe)."
+    }
+   ],
+   "check_roll_id": "toolbox-gate9-depth-10-000009",
+   "int_roll_id": "toolbox-gate9-depth-10-000010",
+   "bout_duration_roll_id": "toolbox-gate9-depth-10-000011",
+   "bout_table_roll_id": "toolbox-gate9-depth-10-000012",
+   "bout_rounds_roll_id": "toolbox-gate9-depth-10-000013",
+   "involuntary_action": {
+    "kind": "freeze",
+    "summary": "body locks for a beat as the corpse sits upright",
+    "source": "wizened sealed-chamber corpse sits up and moves when the throat chain is broken",
+    "rule_ref": "core.sanity.failure_involuntary_action"
+   },
+   "loss_roll_id": "toolbox-gate9-depth-10-000014"
+  }
+ },
+ "next_decisions": [
+  {
+   "schema_version": 1,
+   "decision_ref": "decision:coc7:sanity:bout-tick",
+   "family": "sanity",
+   "label": "Sanity bout-tick through an existing resolver/subsystem phase",
+   "applicability": "not_applicable",
+   "required_inputs": [],
+   "locked_inputs": [
+    "bout_revision",
+    "investigator_id",
+    "origin_command_id",
+    "pending_choice_ref"
+   ],
+   "rule_refs": [
+    "rule:coc7:sanity:bout-real-time",
+    "rule:coc7:sanity:bout-summary",
+    "rule:coc7:sanity:phobia-and-mania",
+    "rule:coc7:sanity:underlying-repeat-bout"
+   ],
+   "source_refs": [
+    "span-sanity-complete-source-page-166-block-33",
+    "span-sanity-complete-source-page-167-block-39",
+    "span-sanity-complete-source-page-167-block-54",
+    "span-sanity-complete-source-page-168-block-60",
+    "span-sanity-complete-source-page-168-block-61",
+    "span-sanity-complete-source-page-168-block-81",
+    "span-sanity-complete-source-page-168-block-82",
+    "span-sanity-complete-source-page-169-block-83",
+    "span-sanity-complete-source-page-169-block-84",
+    "span-sanity-complete-source-page-169-block-89",
+    "span-sanity-complete-source-page-169-block-91",
+    "span-sanity-complete-source-page-170-block-104",
+    "span-sanity-complete-source-page-170-block-105",
+    "span-sanity-complete-source-page-170-block-108",
+    "span-sanity-complete-source-page-170-block-111",
+    "span-sanity-complete-source-page-170-block-112",
+    "span-sanity-complete-source-page-170-block-98",
+    "span-sanity-complete-source-page-171-block-114",
+    "span-sanity-complete-source-page-172-block-120",
+    "span-sanity-complete-source-page-175-block-139"
+   ],
+   "capability_ref": "capability:coc7:sanity-execute",
+   "effect_refs": [],
+   "possible_continuations": [
+    "decision:coc7:sanity:bout-end",
+    "decision:coc7:sanity:bout-tick"
+   ],
+   "authority": {
+    "selection": "keeper-semantic",
+    "execution": "current-ruleset-adapter",
+    "hard_gate": false
+   }
+  }
+ ],
+ "authority": "canonical-resolver-state-receipts",
+ "request_digest": "sha256:5b8c984ae2a70937a5ee72ea6f014f3ea2a73dac8c531958e3c9444bdd6a8c03"
+}

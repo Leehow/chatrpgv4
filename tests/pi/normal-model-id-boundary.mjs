@@ -2197,6 +2197,30 @@ assertModelSafeContent(
     "a classified field still rejects an opaque canonical value",
   );
   assert.ok(!modelContents.at(-1).text.includes("7c9e6679"));
+  // The refusal must name WHICH field failed closed -- the names are schema,
+  // the values are the identity being withheld and stay out (asserted just
+  // above). Without the names the refusal is unfalsifiable: on 2026-09-02
+  // every rules.context for the sanity family collapsed through a whole run
+  // saying only "(undeclared)", so the Keeper got no cards and no reason,
+  // settled decision refs from memory, and burned five round trips guessing
+  // arguments for a bout that was not underway. Recovering the field name
+  // afterwards meant digging through host-internal evidence the diagnostic
+  // lanes do not record at all.
+  assert.ok(
+    Array.isArray(opaqueCashVisible.error.details.undeclared_fields)
+      && opaqueCashVisible.error.details.undeclared_fields.length > 0,
+    "the collapse must name the fields that failed closed",
+  );
+  assert.ok(
+    opaqueCashVisible.error.details.undeclared_fields.some(
+      (field) => String(field).includes("decision_id"),
+    ),
+    "and they must be the actual offending fields",
+  );
+  assert.ok(
+    opaqueCashVisible.error.message.includes("decision_id"),
+    "the message the Keeper reads names them too",
+  );
   assert.deepEqual(
     opaqueCashResult.details.canonical,
     opaqueCashGrant,

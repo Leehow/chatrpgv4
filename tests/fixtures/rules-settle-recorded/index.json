@@ -303,6 +303,12 @@
       "recorded_in": "pi-coc-gate9-depth-20260901/evidence/turn-p-d0a7c7895d70.json"
     },
     {
+      "file": "sanity-check-bout-dfcd31d4.json",
+      "decision_ref": "decision:coc7:sanity:check",
+      "family": "sanity",
+      "recorded_in": "pi-coc-gate9-depth-20260901-10/evidence (a sanity check that triggered a bout)"
+    },
+    {
       "file": "sanity-check-da76d64d.json",
       "decision_ref": "decision:coc7:sanity:check",
       "family": "sanity",
