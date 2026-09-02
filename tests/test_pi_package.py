@@ -2892,10 +2892,13 @@ def test_real_pi_gateway_uses_canonical_finalizer_string_digest():
 
 def test_pi_gateway_accepts_only_object_or_plain_object_json_arguments():
     result = _node(ROOT / "tests/pi/invoke-string-arguments.mjs", str(ROOT))
+    # The registered envelope is one operation-discriminated schema, so its
+    # branch count tracks the operation surface and is not pinned here.
+    assert isinstance(result.pop("branchCount"), int)
     assert result == {
-        "schemaTypes": ["object", "string"],
+        "discriminated": True,
         "stringifiedDeliveredExact": True,
-        "objectPathIdentityUnchanged": True,
+        "objectPathForwardedExactly": True,
         "stringResultOk": True,
         "objectResultOk": True,
         "malformedRetainedAdoptRecovered": True,
@@ -2955,6 +2958,11 @@ def test_pi_gateway_projects_development_end_session_semantics():
         "developmentStatus": "PASS",
         "mechanicsComplete": True,
         "opaqueFieldsAbsent": True,
+        # The cutover ends a session through rules.settle, so the probe also
+        # proves the settle-first path replays safely and that an undeclared
+        # identity fails the whole envelope closed rather than leaking.
+        "rulesSettleFirstAndReplaySafe": True,
+        "unknownIdentityFailureCode": "semantic_identity_unavailable",
     }
 
 
