@@ -4236,7 +4236,7 @@ def _answer(value, *, pdf_index: int = 1) -> dict:
     return {
         "status": "source",
         "value": value,
-        "source_refs": [{"source_id": "pdf:raw", "pdf_index": pdf_index}],
+        "source_refs": [{"source_id": "pdf:fast-facts-fixture", "pdf_index": pdf_index}],
     }
 
 
@@ -4244,7 +4244,7 @@ def _unresolved(*, pdf_index: int = 1) -> dict:
     return {
         "status": "unresolved",
         "inspected_source_refs": [
-            {"source_id": "pdf:raw", "pdf_index": pdf_index}
+            {"source_id": "pdf:fast-facts-fixture", "pdf_index": pdf_index}
         ],
     }
 
@@ -4256,7 +4256,12 @@ def _bind_fast_facts_source(
     tmp_path: Path,
     campaign_id: str,
     *,
-    source_id: str = "pdf:raw",
+    # Not `pdf:raw`: the Keeper reads this id through `source_refs`, so a
+    # bundle manifest must carry a model-projectable one (at least four
+    # characters after `pdf:`). This fixture predated that rule and had been
+    # failing closed at bind time ever since, which made three tests about
+    # gating facts fail for a reason that had nothing to do with gating.
+    source_id: str = "pdf:fast-facts-fixture",
     scenario_id: str | None = None,
     page_text: str = "# Source\n\nAccepted setup evidence.\n",
 ) -> dict:
@@ -4413,7 +4418,7 @@ def test_fast_facts_unblock_character_creation_and_reach_the_briefing(tmp_path):
     assert campaign["era_source"] == "authored"
     assert campaign["source_fast_facts"]["place"]["value"] == "英格兰惠特比"
     canonical_ref = campaign["source_fast_facts"]["place"]["source_refs"][0]
-    assert canonical_ref["source_id"] == "pdf:raw"
+    assert canonical_ref["source_id"] == "pdf:fast-facts-fixture"
     assert len(canonical_ref["file_sha256"]) == 64
     assert len(canonical_ref["bundle_sha256"]) == 64
     assert len(canonical_ref["text_sha256"]) == 64
@@ -4484,12 +4489,12 @@ def test_link_investigator_blocks_until_fast_facts_answer_the_gates(tmp_path):
 
 @pytest.mark.parametrize("facts,match", [
     (_fast_facts(era={"status": "source", "value": "  ",
-                      "source_refs": [{"source_id": "pdf:raw", "pdf_index": 0}]}),
+                      "source_refs": [{"source_id": "pdf:fast-facts-fixture", "pdf_index": 0}]}),
      "'era' value must be a non-empty string"),
     (_fast_facts(place={"status": "source", "value": "X", "source_refs": []}),
      "'place' requires non-empty source evidence"),
     (_fast_facts(era={"status": "source", "value": "1920s",
-                      "source_refs": [{"source_id": "pdf:raw", "pdf_index": -1}]}),
+                      "source_refs": [{"source_id": "pdf:fast-facts-fixture", "pdf_index": -1}]}),
      "zero-based pdf_index"),
     (_fast_facts(place={"status": "unresolved"}),
      "'place' is unresolved and requires"),
@@ -4548,7 +4553,7 @@ def test_adopt_source_facts_projects_source_content_out_of_campaign_and_result(
         assert "raw_excerpt" not in serialized
         assert source_body not in serialized
         ref = facts["place"]["source_refs"][0]
-        assert ref["source_id"] == "pdf:raw"
+        assert ref["source_id"] == "pdf:fast-facts-fixture"
         assert len(ref["file_sha256"]) == 64
         assert len(ref["bundle_sha256"]) == 64
         assert len(ref["text_sha256"]) == 64
@@ -4625,7 +4630,7 @@ def test_later_unresolved_era_revokes_authored_era_at_every_campaign_gate(
     "bad_ref,match",
     [
         ({"source_id": "pdf:foreign", "pdf_index": 1}, "different source_id"),
-        ({"source_id": "pdf:raw", "pdf_index": 9}, "uncached pdf_index 9"),
+        ({"source_id": "pdf:fast-facts-fixture", "pdf_index": 9}, "uncached pdf_index 9"),
     ],
 )
 def test_adopt_source_facts_rejects_foreign_or_uncached_refs(

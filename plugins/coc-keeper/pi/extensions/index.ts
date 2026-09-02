@@ -6713,15 +6713,25 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     }
   };
   const resolveAclPhase = (campaignId?: string): PlayPhase => {
-    if (startupResumeGate !== null && startupResumeGate.phase === "pending") {
-      return "recovery";
-    }
+    // An active opening setup decides the phase before a pending startup
+    // resume does. `recovery` describes an unclosed PLAY turn, and the
+    // operations that answer it are play operations; a setup that has not
+    // finished has none of them. Ordering the resume gate first deadlocked a
+    // fresh campaign outright: chargen failed, the turn never closed, the
+    // phase read `recovery`, and then `setup.complete` (cold_start/opening/
+    // live_turn) and `progressive.prepare_opening` (opening) were both
+    // phase-forbidden while every play operation was role-forbidden for
+    // `setup`. Six operations tried, no way forward, and the table could
+    // never open. Seen live on 2026-09-02 in campaign amaranthine-loop.
     const campaign = typeof campaignId === "string" ? campaignId : "";
     if (campaign && openingContinuationGate.hasActiveOpeningSetupFor(campaign)) {
       return "opening";
     }
     if (!campaign && openingContinuationGate.hasActiveOpeningSetup()) {
       return "opening";
+    }
+    if (startupResumeGate !== null && startupResumeGate.phase === "pending") {
+      return "recovery";
     }
     return kpPlayPhase;
   };
