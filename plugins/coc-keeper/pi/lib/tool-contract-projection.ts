@@ -5582,6 +5582,18 @@ function worldlineLoopHint(edges: readonly unknown[]): string {
       + "with timeline.fork_request and confirm it with timeline.fork_confirm; "
       + "narrating a reset without forking leaves the old night as the only "
       + "one that ever existed",
+    // Confirming the fork rewinds canonical state to the fork point, which
+    // resets the carried-across facts too -- the host cannot tell an aged
+    // characteristic from any other changed number, and a table here mapping
+    // an authored rule to state keys would bind the host to one module. So
+    // the split is: the host rewinds, the Keeper re-applies what the module
+    // declared persists, through the ordinary operations.
+    persists.length
+      ? "the rewind is mechanical and total, so after confirming a fork "
+        + "re-apply what this module carries across (" + persists.join("、")
+        + ") through the ordinary state operations — the host cannot tell a "
+        + "carried-across cost from any other number it rewound"
+      : "",
   ].filter(Boolean);
   return parts.join("; ");
 }

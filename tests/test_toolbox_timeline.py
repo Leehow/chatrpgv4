@@ -710,11 +710,16 @@ def build_confluence_workspace(tmp_path: Path):
         root, CAMPAIGN, timeline_id="tl-right", game_reason="右线硬闯",
         source_timeline_id="tl-main", source_turn=1, activate=True,
     )
-    # The fresh fork inherits the whole fork-moment worktree. Reset both
-    # faces so the right tree contains exactly tl-main@turn-1 + its own
-    # writes: never leftover left-line files or log rows, or canonical-row
-    # lineage binding would depend on scan order instead of authorship.
-    (worktree / "logs" / "rolls-left.jsonl").unlink()
+    # Activation now materializes the line being switched to, so the right
+    # tree already contains exactly tl-main@turn-1 and the left-only file is
+    # gone. This cleanup used to be load-bearing -- the fork inherited the
+    # whole previous worktree, and without it canonical-row lineage binding
+    # would have depended on scan order instead of authorship. It is kept as
+    # an idempotent assertion of that property: if a leftover ever reappears,
+    # the tests below fail on content rather than silently passing.
+    assert not (worktree / "logs" / "rolls-left.jsonl").exists(), (
+        "activating tl-right must not leave tl-left's files in the worktree"
+    )
     _write(worktree, "logs/turn-finalizations.jsonl",
            json.dumps({"finalization_id": "fin-t1"}) + "\n")
     right_state = {"day": 3, "era": "1925", "turn": 2,

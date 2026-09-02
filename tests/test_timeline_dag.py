@@ -732,8 +732,14 @@ def test_confluence_forged_drop_fails_closed_touching_nothing(tmp_path):
     before = refs_snapshot()
     confluence_id = f"confluence-{CAMPAIGN_ID}-tl-merged"
     conflicts = _confluence_conflicts(confluence_id)  # world-state only
+    # Once activation materializes the line being switched to, the left-only
+    # file really is one-sided -- before that fix it leaked into the right
+    # line's commit, so this path was identical on both sides and the drop was
+    # refused for having no conflict at all. The refusal still fails closed and
+    # now names the truer reason: a sacrifice contradicts the manifest's
+    # additive disposition for one-sided content.
     with pytest.raises(
-        hist.GitHistoryError, match="does not correspond to any conflict"
+        hist.GitHistoryError, match="contradicts the manifest disposition"
     ):
         _run_confluence(
             tmp_path,
@@ -760,8 +766,13 @@ def test_confluence_semantic_only_refs_earn_no_drop(tmp_path):
     )
     # Phase 1: forged drop rejected (nothing registered).
     forged_id = f"confluence-{CAMPAIGN_ID}-tl-merged-forged"
+    # The left-only file is genuinely one-sided now that activation carries the
+    # line being switched to; its manifest disposition is therefore `additive`,
+    # and the explicit drop contradicts it. Same failure-closed outcome, named
+    # for what is actually wrong -- which is the behaviour this test's own
+    # docstring describes.
     with pytest.raises(
-        hist.GitHistoryError, match="does not correspond to any conflict"
+        hist.GitHistoryError, match="contradicts the manifest disposition"
     ):
         _run_confluence(
             tmp_path,

@@ -1975,7 +1975,14 @@ def set_active_timeline(
     campaign_id: str,
     timeline_id: str,
 ) -> str:
-    """Persist the active timeline pointer. Never ``git reset`` or force-push."""
+    """Switch the active timeline, materializing its tip into the worktree.
+
+    Never rewrites or deletes a commit. Moving the pointer without moving the
+    campaign directory left the previous line's state in place, so a switched
+    line inherited content it never committed and the next finalized turn
+    snapshotted it. Confluence already synced on activation for exactly this
+    reason; fork and this pointer did not.
+    """
     campaign_id = _require_campaign_id(campaign_id)
     timeline_id = _require_timeline_id(timeline_id)
     repo = ensure_repo(root, campaign_id)
@@ -1993,6 +2000,9 @@ def set_active_timeline(
             state["active_timeline_id"] = timeline_id
             _validate_state_timelines(state)
             _write_timeline_state(worktree, state)
+            target = _rev_sha(repo, worktree, timeline_ref_name(timeline_id))
+            if target is not None:
+                _sync_worktree_to_tree(repo, worktree, target)
             return timeline_id
     except coc_fileio.CampaignLockError as exc:
         raise GitHistoryError(f"campaign lock failed: {exc}") from exc
@@ -2010,7 +2020,12 @@ def fork_timeline(
     created_by: str = "kp_decision",
     activate: bool = False,
 ) -> dict[str, Any]:
-    """Point a new timeline ref at an existing commit. No rewrite, no reset.
+    """Point a new timeline ref at an existing commit; activation rewinds.
+
+    No commit is ever rewritten or deleted. ``activate=True`` additionally
+    materializes the fork point into the campaign worktree, because activating
+    a fork means playing it: leaving the source line's later state in place
+    made the new worldline claim a fork point it did not carry.
 
     Transactional like confluence: the record is validated before
     ``update-ref``; a timeline-state persistence failure afterwards rolls
@@ -2086,6 +2101,10 @@ def fork_timeline(
                     state["active_timeline_id"] = timeline_id
                     _validate_state_timelines(state)
                     _write_timeline_state(worktree, state)
+                    # Same rule: activating a line means carrying it. An
+                    # existing fork may already own turns, so its own tip is
+                    # the state, not the fork point.
+                    _sync_worktree_to_tree(repo, worktree, current or source_sha)
                 return {
                     "timeline_id": timeline_id,
                     "ref": ref,
@@ -2141,6 +2160,18 @@ def fork_timeline(
                     state["active_timeline_id"] = timeline_id
                 _validate_state_timelines(state)
                 _write_timeline_state(worktree, state)
+                if activate:
+                    # Activating a fork means playing it, and playing it with
+                    # the source line's later state is the whole bug: the ref
+                    # moved back to the fork point while the campaign
+                    # directory kept the state it had. Confluence already
+                    # syncs here for the same reason its helper documents --
+                    # otherwise the next finalized turn snapshots whatever
+                    # stale content was lying around. Measured 2026-09-02: a
+                    # fork taken to before a pyre began its new worldline with
+                    # the victim already dead, and a dozen live turns ran on
+                    # that contradiction.
+                    _sync_worktree_to_tree(repo, worktree, source_sha)
             except Exception as exc:
                 rollback_error = _rollback_created_ref(repo, worktree, ref)
                 if rollback_error is not None:
