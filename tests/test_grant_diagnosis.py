@@ -20,8 +20,39 @@ sys.path.insert(0, str(SCRIPTS))
 
 import coc_rules_runtime as runtime_module  # noqa: E402
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_player_intent_fact import campaign_ws  # noqa: E402,F401
+import coc_starter  # noqa: E402
+import pytest  # noqa: E402
+
+
+@pytest.fixture
+def campaign_ws(tmp_path: Path):
+    """Its own campaign id, deliberately. RulesRuntime is cached in a module
+    global keyed by (campaign_id, investigator) with no workspace in the key,
+    so two test files sharing an id hand each other a runtime built over a
+    different tmp_path: importing test_player_intent_fact's fixture made this
+    file's combat:flee settlement find a live grant from that file's campaign
+    and reach the combat executor instead of the grant pre-check -- passing
+    alone and failing in a batch.
+    """
+    workspace = tmp_path / "workspace"
+    coc_root = workspace / ".coc"
+    coc_root.mkdir(parents=True)
+    (coc_root / "runtime.json").write_text(
+        json.dumps({
+            "schema_version": 2,
+            "planner": {"kind": "deterministic"},
+            "rules": {"kind": "deterministic"},
+            "narrator": {"kind": "template"},
+            "player": {"kind": "human"},
+        }),
+        encoding="utf-8",
+    )
+    campaign_id = "grant-diagnosis-test"
+    coc_starter.quick_start(
+        coc_root, "the-haunting", "thomas-hayes",
+        campaign_id=campaign_id, title="Grant Diagnosis",
+    )
+    return {"workspace": workspace, "campaign_id": campaign_id}
 
 GRAPH = json.loads(
     (ROOT / "plugins/coc-keeper/rulesets/coc7/rule-graph.json").read_text(

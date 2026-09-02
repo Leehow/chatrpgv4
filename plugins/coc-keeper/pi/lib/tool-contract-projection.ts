@@ -4159,7 +4159,14 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   ["rules.context", declaredIdentityTable(
     [...RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS, "rule_ref"],
     [],
-    ["active_bout_id", "bout_id", "trigger_id", "event_id"],
+    // Once a bout registers its Keeper choice, the family's context carries
+    // it: `canonical_context.pending_choices`. `choice_id` and `command_id`
+    // are the executor's own transaction handles -- the Keeper settles
+    // bout-tick and the host fills those slots from the choice, never by
+    // echoing an id -- so they follow the bout ids above rather than failing
+    // the whole context closed, which is what they did five times in one run.
+    ["active_bout_id", "bout_id", "trigger_id", "event_id",
+     "choice_id", "command_id"],
   )],
   // `roll_id` is deliberately NOT host-only here: a graph-settled
   // critical/fumble is the source roll `state.exceptional_effect` must bind,
@@ -4197,7 +4204,16 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       "barrier_id", "hazard_id", "action_id", "choice_id",
     ],
     ["request_digest"],
-    ["command_id", "source_command_id", "state_refs"],
+    // A sanity settlement now returns the executor's own envelope --
+    // `results[].events[]` -- rather than the advisory surface's flat view,
+    // so the bout and event ids sit one level deeper than the shape fb98f0ac
+    // deleted them from, and its key-by-key deletion no longer reaches them.
+    // Same disposition, declared instead of deleted so nesting cannot outrun
+    // it again: the Keeper narrates from bout_triggered, the rounds remaining
+    // and each event's summary, and continues the bout through
+    // next_decisions.
+    ["command_id", "source_command_id", "state_refs",
+     "bout_id", "event_id", "active_bout_id"],
   )],
   // `state.npc_update` had no entry at all, so even `npc_id` — the most
   // ordinary authored slug in the system — failed the whole result closed.

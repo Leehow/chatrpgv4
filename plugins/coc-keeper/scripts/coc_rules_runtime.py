@@ -1989,7 +1989,41 @@ class RulesRuntime:
         implementation = (node.get("properties") or {}).get("implementation")
         slots = self._slots_for(decision_ref)
         slot_names = {slot["name"] for slot in slots}
-        for key in semantic_inputs:
+        model_owned = sorted(
+            slot["name"] for slot in slots
+            if slot["ownership"] != "host-locked"
+        )
+        unknown = sorted(key for key in semantic_inputs if key not in slot_names)
+        if unknown:
+            # Every offending key at once, and what the Keeper may actually
+            # send. One key per refusal made a Keeper strip its arguments one
+            # at a time -- four round trips for one decision on 2026-09-02 --
+            # and `declared_slots` alone is worse than nothing for a decision
+            # whose slots are all host-locked: it reads as a list to fill in,
+            # so the Keeper answered by sending host-locked names back.
+            # `model_owned_slots` is empty for those, which is the true answer.
+            return {
+                "failure": {
+                    "code": "unknown_semantic_input",
+                    "message": (
+                        "not declared slots of this decision: "
+                        + ", ".join(repr(key) for key in unknown)
+                        + "; this decision takes "
+                        + (
+                            ", ".join(model_owned)
+                            if model_owned else
+                            "no semantic input at all (every slot is filled by "
+                            "the host)"
+                        )
+                    ),
+                    "declared_slots": sorted(slot_names),
+                    "model_owned_slots": model_owned,
+                    "unknown": unknown,
+                    "decision_ref": decision_ref,
+                    "family": family,
+                }
+            }
+        for key in ():
             if key not in slot_names:
                 # No generic arguments bag: an undeclared semantic input is
                 # rejected rather than forwarded into the payload. The

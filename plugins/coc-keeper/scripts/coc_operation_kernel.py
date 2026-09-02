@@ -7868,6 +7868,24 @@ def _canonical_combat_binding(
     return binding
 
 
+def _declared_payload_slots(decision_ref: str) -> frozenset[str]:
+    """The payload slot names one decision declares in the RuleGraph."""
+    loaded = coc_rules_runtime.load_ruleset_graph("coc7")
+    graph = loaded.get("graph") if isinstance(loaded.get("graph"), Mapping) else None
+    for node in (graph or {}).get("nodes") or []:
+        if not isinstance(node, Mapping) or node.get("node_id") != decision_ref:
+            continue
+        implementation = (node.get("properties") or {}).get("implementation")
+        if not isinstance(implementation, Mapping):
+            break
+        return frozenset(
+            str(slot.get("name"))
+            for slot in (implementation.get("payload_slots") or [])
+            if isinstance(slot, Mapping) and slot.get("name")
+        )
+    return frozenset()
+
+
 def _canonical_sanity_binding(
     ctx: Ctx,
     *,
@@ -7882,11 +7900,24 @@ def _canonical_sanity_binding(
         {},
     )
     state = ctx.inv_state(investigator_id)
-    binding: dict[str, Any] = {
-        "investigator_id": investigator_id,
-        "san_before": snapshot.get("san_current", state.get("current_san")),
-        "san_max": snapshot.get("san_max", state.get("max_san")),
-    }
+    # Only what this decision declares. Four of the nine sanity decisions --
+    # bout-tick, bout-end, apply-treatment, recover-temporary -- carry no
+    # san_before/san_max slot, and the runtime rejects a host-locked input the
+    # decision never declared. It surfaces as `unknown_semantic_input`, which
+    # reads as the Keeper's argument error: on 2026-09-02 a Keeper was told
+    # "host-locked input 'san_before' is not a declared slot" for bout-tick
+    # six times across three lanes and stripped its own arguments one by one
+    # trying to satisfy a value it had never sent. The branch was unreachable
+    # until decision:coc7:sanity:check was rewired and bouts began registering
+    # the choice bout-tick needs.
+    declared = _declared_payload_slots(decision_ref)
+    binding: dict[str, Any] = {"investigator_id": investigator_id}
+    for slot, value in (
+        ("san_before", snapshot.get("san_current", state.get("current_san"))),
+        ("san_max", snapshot.get("san_max", state.get("max_san"))),
+    ):
+        if slot in declared:
+            binding[slot] = value
     if suffix == "check":
         trigger_ref = str(semantic_inputs.get("trigger_ref") or "").strip()
         if trigger_ref:
