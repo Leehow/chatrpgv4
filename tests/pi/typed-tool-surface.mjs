@@ -160,8 +160,20 @@ test("live play exposes the agency review then finalize contract", () => {
   );
   assert.equal(stateReview.properties.claims.items.additionalProperties, false);
   assert.ok(stateReview.properties.claims.items.required.includes("source_effect_id"));
-  assert.match(finalize.description, /first call the narration\.review operation/);
-  assert.match(finalize.description, /never rerun rules\/state\/journal/);
+  // a23254aa: the normal Pi-play path is a direct single draft, so finalize
+  // must say review is not offered unless agency_review_required is true —
+  // instructing an unconditional narration.review named a step the host
+  // retired.
+  assert.match(
+    finalize.description,
+    /the normal Pi-play path — draft once and call this operation directly/,
+  );
+  assert.match(finalize.description, /narration\.review is not offered/);
+  assert.match(
+    finalize.description,
+    /Only when it is true, first call the agency_review_operation/,
+  );
+  assert.match(finalize.description, /[Nn]ever rerun rules\/state\/journal/);
   assert.match(finalize.description, /Prose-quality review findings stay advisory/);
 });
 
