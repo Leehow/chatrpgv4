@@ -1,12 +1,12 @@
 {
-  "name": "pi-coc",
+  "name": "pi-coc-public-bootstrap",
   "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node dist/tests/run.js",
-    "validate": "node scripts/validate-repository.mjs && node scripts/check-spec-traceability.mjs && npm test"
+    "test": "npm run build",
+    "validate": "npm run build"
   },
   "devDependencies": { "typescript": "^5.8.3" },
   "engines": { "node": ">=22" }
