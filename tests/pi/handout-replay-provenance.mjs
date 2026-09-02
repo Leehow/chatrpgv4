@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// The embedded Pi runtime must resolve before any extension module is
+// imported; without it this file cannot load tool-render.ts at all.
+import "./_lib/preload-embedded-pi.mjs";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { pathToFileURL } from "node:url";

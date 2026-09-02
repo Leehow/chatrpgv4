@@ -4132,6 +4132,19 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["attempt_id", "decision_id", "original_check_decision_id", "scene_id"],
     ["integrity_digest"],
   )],
+  // The rulings cell shipped without a disposition for the identities its own
+  // arguments carry, so the first Keeper to pass one would have had the whole
+  // result collapse to `semantic_identity_unavailable`. Both are authored and
+  // Keeper-read: `decision_ref` is the `decision:` RuleGraph node it copies
+  // out of a rules.context card, `scope_id` is a scene id.
+  ["rules.precedent", declaredIdentityTable(
+    ["decision_ref"],
+    [],
+  )],
+  ["rules.record_ruling", declaredIdentityTable(
+    ["decision_ref", "scope_id"],
+    [],
+  )],
   ["rules.luck_spend", declaredIdentityTable(
     ["decision_id", "rule_ref"],
     ["integrity_digest"],
