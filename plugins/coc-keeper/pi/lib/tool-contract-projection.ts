@@ -4212,8 +4212,14 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     // it again: the Keeper narrates from bout_triggered, the rounds remaining
     // and each event's summary, and continues the bout through
     // next_decisions.
+    // `trigger_id` is host-only HERE and semantic in scene.context, because
+    // the values differ: a scene carries the authored `san-trigger:<slug>` a
+    // Keeper can cite, while a settlement carries the generated `trg-<hex>`
+    // handle of the time trigger that fired. Undeclared, it collapsed two
+    // settled Sanity checks in r36 -- and it reaches the envelope through the
+    // executor's nesting whatever else is trimmed.
     ["command_id", "source_command_id", "state_refs",
-     "bout_id", "event_id", "active_bout_id"],
+     "bout_id", "event_id", "active_bout_id", "trigger_id"],
   )],
   // `state.npc_update` had no entry at all, so even `npc_id` — the most
   // ordinary authored slug in the system — failed the whole result closed.
@@ -6499,6 +6505,24 @@ function projectEndSessionData(
   ) as Record<string, unknown>;
 }
 
+/**
+ * Closed craft view of the turn's `style_contract`: the text layer's
+ * vocabulary (avoid/prefer axes, beat frame, repetition policy, required
+ * rules) reaches the narrator here. Identities never appear in a style
+ * contract, so the view is a plain field selection with no identity map.
+ */
+const STYLE_CONTRACT_KEPT_FIELDS = [
+  "language",
+  "register",
+  "avoid",
+  "prefer",
+  "repetition_policy",
+  "style_guard",
+  "render_contract",
+  "beat_frame",
+  "output_language",
+] as const;
+
 function projectOutputContextContractProjection(data: Record<string, unknown>): unknown {
   const raw = isPlainObject(data.contract_projection)
     ? data.contract_projection
@@ -6900,6 +6924,12 @@ function projectOutputContextData(
     });
   }
   projected.contract_projection = projectOutputContextContractProjection(data);
+  if (isPlainObject(data.style_contract)) {
+    projected.style_contract = selectedFields(
+      data.style_contract,
+      STYLE_CONTRACT_KEPT_FIELDS,
+    );
+  }
   if (data.agency_review_operation !== undefined) {
     projected.agency_review_operation = projectOperationDescriptor(
       data.agency_review_operation,

@@ -327,6 +327,12 @@
       "recorded_in": "pi-coc-gate9-depth-20260901-09/evidence/turn-p-4b4392f47c16.json"
     },
     {
+      "file": "sanity-check-trigger-df198a61.json",
+      "decision_ref": "decision:coc7:sanity:check",
+      "family": "sanity",
+      "recorded_in": "generated on the product path 2026-09-02: a SAN check carrying trigger_ref, whose settlement carries the generated trg-<hex> handles that collapsed r36"
+    },
+    {
       "file": "social-adjudicate-difficulty-105f8dfa.json",
       "decision_ref": "decision:coc7:social:adjudicate-difficulty",
       "family": "social",

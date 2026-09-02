@@ -13217,8 +13217,13 @@ def _execute_subsystem_command(
         data["conditions"] = list(after_state.get("conditions") or [])
     primary_types = _SUBSYSTEM_PRIMARY_EVENT_TYPES.get(kind)
     if primary_types:
+        # The primary only. A flattened `events` list beside it duplicated the
+        # executor's own `results[].events[]` -- nothing reads it (the turn's
+        # bout obligation walks every dict in the envelope and reaches the
+        # nested copy already), while it doubled the identity surface the
+        # projection has to declare and the bytes the transport carries. It
+        # collapsed two settlements on its first run out.
         events = coc_subsystem_executor.flatten_result_events(results)
-        data["events"] = events
         data["event"] = next(
             (
                 deepcopy(event) for event in events
