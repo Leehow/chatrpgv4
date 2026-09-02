@@ -207,13 +207,26 @@ def compose_ontology(graph: dict[str, Any]) -> dict[str, Any]:
     # Module links are authored instances and survive rebuild. Rule,
     # execution, and live-state refs are generated afresh from the current
     # production graph/registries so stale identities cannot accumulate.
-    references = {
-        row["ref_id"]: row for row in registry["references"]
-        if row.get("graph_id") == "graph:module:the-haunting"
-    }
+    # Director grounding instances are authored the same way module links
+    # are: the Director track registers a craft directive and the RuleGraph
+    # rule that grounds it, and those rows must survive a rule-graph rebuild.
+    # The rule-side targets of a preserved `grounded-by` are kept too, since
+    # the generator only re-derives rule refs that a rule-graph relation
+    # names, and a directive may ground on a rule nothing else references.
+    authored_graphs = {"graph:module:the-haunting", "graph:director:production"}
+    authored_kinds = {"uses-rule", "requires-module-fact", "grounded-by"}
     relations = {
         row["relation_id"]: row for row in registry["relations"]
-        if row.get("relation_kind") in {"uses-rule", "requires-module-fact"}
+        if row.get("relation_kind") in authored_kinds
+    }
+    grounded_targets = {
+        row["to_ref"] for row in relations.values()
+        if row.get("relation_kind") == "grounded-by"
+    }
+    references = {
+        row["ref_id"]: row for row in registry["references"]
+        if row.get("graph_id") in authored_graphs
+        or row["ref_id"] in grounded_targets
     }
     nodes = {node["node_id"]: node for node in graph["nodes"]}
     capabilities = _resolver_capabilities()
@@ -284,7 +297,11 @@ def compose_ontology(graph: dict[str, Any]) -> dict[str, Any]:
         if row.get("graph_kind") == "rule":
             row["reason"] = "The production coc7 RuleGraph contains ten source-accepted families; ontology links only proven artifact-to-runtime instances."
         elif row.get("graph_kind") in {"director", "text"}:
-            row["composition_status"] = "not-applicable"
+            # These rows are authored by their own tracks (the Director's
+            # measured grounding, the TextGraph's measured absence of a
+            # rendering bridge). A rule-graph rebuild neither knows nor
+            # overrides that outcome; it only asserts the status is present.
+            row.setdefault("composition_status", "not-applicable")
     return registry
 
 
