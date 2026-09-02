@@ -249,9 +249,9 @@ def player_facing_style_contract(language: str = "zh-Hans") -> dict[str, Any]:
     guard = player_visible_style_guard_contract(language)
     # `avoid` / `prefer` come from TextGraph (T4), not from literals here.
     # The two former language branches returned identical bodies apart from the
-    # `language` value itself, so there is one body.  `deterministic_guard` is
-    # gone with the matchers T4 deleted: this module hands over a vocabulary and
-    # no longer judges prose.
+    # `language` value itself, so there is one body.  The field that used to
+    # name the surface-smoke checks went with the matchers T4 deleted: this
+    # module hands over a vocabulary and no longer judges prose.
     craft = coc_text_runtime.craft(language)
     return {
         "language": language,

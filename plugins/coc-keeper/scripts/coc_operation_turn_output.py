@@ -816,6 +816,49 @@ def _valid_narration_review_digest(review: dict[str, Any]) -> bool:
     payload.pop("ts", None)
     return digest == _canonical_digest(payload)
 
+def _over_length_finding(
+    ctx: Ctx, args: dict[str, Any], draft: str, *, extra_fields: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Advisory over-length finding, or None when the draft is inside budget.
+
+    Both review surfaces need this and used to carry their own copy, with the
+    multiplier written into the prose as a literal "2x" while the value itself
+    comes from TextGraph -- so raising the threshold silently produced a
+    message that lied. The multiplier is now rendered from the same value the
+    comparison uses.
+    """
+    investigator_id = (
+        _resolve_investigator(ctx, args)
+        if args.get("investigator") is not None
+        else ((ctx.party_ids() or [None])[0])
+    )
+    if investigator_id is None:
+        return None
+    recent_events: list[dict[str, Any]] = []
+    events_path = ctx.campaign_dir / "logs" / "events.jsonl"
+    if events_path.is_file():
+        for raw in events_path.read_text(encoding="utf-8").splitlines()[-_RECENT_EVENT_WINDOW:]:
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict):
+                recent_events.append(row)
+    budget = _narration_budget(ctx, investigator_id, recent_events)
+    if len(draft) <= _OVER_LENGTH_MULTIPLIER * int(budget["max_chars"]):
+        return None
+    multiplier = _OVER_LENGTH_MULTIPLIER
+    rendered = f"{multiplier:g}x"
+    finding: dict[str, Any] = {"rule_id": "over_length"}
+    finding.update(extra_fields or {})
+    finding["reason"] = (
+        f"draft is {len(draft)} chars, over {rendered} the '{budget['mode']}' "
+        f"length budget ({budget['max_chars']}); recorded for audit, "
+        "delivery not blocked"
+    )
+    return finding
+
+
 def _tool_narration_advisory_review(
     ctx: Ctx, args: dict[str, Any]
 ) -> tuple[dict[str, Any], list[str], list[str]]:
@@ -846,32 +889,9 @@ def _tool_narration_advisory_review(
                 f"findings[{index}] requires rule_id and semantic reason",
             )
         findings.append({"rule_id": rule_id, "reason": reason})
-    investigator_id = (
-        _resolve_investigator(ctx, args)
-        if args.get("investigator") is not None
-        else ((ctx.party_ids() or [None])[0])
-    )
-    if investigator_id is not None:
-        recent_events: list[dict[str, Any]] = []
-        events_path = ctx.campaign_dir / "logs" / "events.jsonl"
-        if events_path.is_file():
-            for raw in events_path.read_text(encoding="utf-8").splitlines()[-_RECENT_EVENT_WINDOW:]:
-                try:
-                    row = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(row, dict):
-                    recent_events.append(row)
-        budget = _narration_budget(ctx, investigator_id, recent_events)
-        if len(draft) > _OVER_LENGTH_MULTIPLIER * int(budget["max_chars"]):
-            findings.append({
-                "rule_id": "over_length",
-                "reason": (
-                    f"draft is {len(draft)} chars, over 2x the '{budget['mode']}' "
-                    f"length budget ({budget['max_chars']}); recorded for audit, "
-                    "delivery not blocked"
-                ),
-            })
+    over_length = _over_length_finding(ctx, args, draft)
+    if over_length is not None:
+        findings.append(over_length)
     data = {
         "schema_version": 1,
         "visibility": "keeper_internal",
@@ -1260,34 +1280,11 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
             "turn_source_changed",
             "narration.review does not match the current frozen turn/source/next revision",
         )
-    investigator_id = (
-        _resolve_investigator(ctx, args)
-        if args.get("investigator") is not None
-        else ((ctx.party_ids() or [None])[0])
+    over_length = _over_length_finding(
+        ctx, args, draft, extra_fields={"subject_ref": None, "source_ref": None},
     )
-    if investigator_id is not None:
-        recent_events: list[dict[str, Any]] = []
-        events_path = ctx.campaign_dir / "logs" / "events.jsonl"
-        if events_path.is_file():
-            for raw in events_path.read_text(encoding="utf-8").splitlines()[-_RECENT_EVENT_WINDOW:]:
-                try:
-                    row = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(row, dict):
-                    recent_events.append(row)
-        budget = _narration_budget(ctx, investigator_id, recent_events)
-        if len(draft) > _OVER_LENGTH_MULTIPLIER * int(budget["max_chars"]):
-            findings.append({
-                "rule_id": "over_length",
-                "subject_ref": None,
-                "source_ref": None,
-                "reason": (
-                    f"draft is {len(draft)} chars, over 2x the '{budget['mode']}' "
-                    f"length budget ({budget['max_chars']}); recorded for audit, "
-                    "delivery not blocked"
-                ),
-            })
+    if over_length is not None:
+        findings.append(over_length)
     pc_subject_refs = {f"pc:{value}" for value in ctx.party_ids()}
     for index, finding in enumerate(findings):
         if finding["rule_id"] != "agency_violation":
