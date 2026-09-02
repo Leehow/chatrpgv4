@@ -499,7 +499,7 @@ CENSUS: dict[str, dict[str, tuple[int, str, str]]] = {
         'obligation-kind': (11, 'usage-only', 'source_kind comparisons. Count grew 10 -> 11 when the TextGraph branch merged into 0.8.1a: the eleventh is `domain: "roll" | "effect" | ...`, a union of REGISTRY DOMAIN names that happens to spell one obligation kind. Coincidental spelling, not a copy -- the scanner over-reports by design'),
         'obligation-prefix': (54, 'usage-only', 'the three declarations are gone: `PYTHON_OBLIGATION_PREFIXES` -- a hand-copy under a name that admitted it -- and two `stringSet([...])` literals now read `OBLIGATION_ID_PREFIXES` from the generated projection, dropping the count 63 -> 54. What remains is `roll:` at roughly thirty comparison and composed-id sites, which construct or match ids rather than declaring the vocabulary. Earlier growth this gate caught and which the census recorded: 59 -> 61 at the 0.8.1a@bb0575d5 merge, 61 -> 63 at the TextGraph merge'),
         'obligation-source-kind': (3, 'usage-only', 'one source_kind comparison in the TypeScript projection. Count grew 1 -> 3 in the TextGraph merge, and both new hits are backtick-quoted English inside code comments (`check` at lines 5822 and 7981). The scanner accepts backticks as quotes, so comment prose counts; left counted rather than filtered, per SCANNER_LIMITS'),
-        'player-input-handling': (9, 'second-declaration', 're-declared as a TypeScript union and projection literals (lines 2435, 2797)'),
+        'player-input-handling': (3, 'usage-only', "~~re-declared as a TypeScript union and projection literals~~ **repaired.** Both full-list declarations -- the schema enum and the closed-enum validation -- now spread the generated PLAYER_INPUT_HANDLING_VALUES, taking the count 9 -> 3. The remaining three are single-value comparisons and one concealed-branch const"),
         'realization-mode': (7, 'second-declaration', 'the literal pair at line 1756 now spreads the generated REALIZATION_VALUES (9 -> 7); the TypeScript UNION TYPE at line 99 and the single literal at 1276 remain, because a union type is a compile-time shape a generated const cannot replace without changing how callers type-check'),
         'roll-visibility-class': (2, 'usage-only', 'two comparisons'),
     },
@@ -849,6 +849,13 @@ def test_the_second_declarations_this_gate_found_are_recorded():
         for kind, (_, classification, _) in per_kind.items()
         if classification == "second-declaration"
     }
+    assert (
+        "plugins/coc-keeper/pi/lib/tool-contract-projection.ts",
+        "player-input-handling",
+    ) not in second, (
+        "both full-list declarations now spread the generated const; a second "
+        "declaration here is a regression"
+    )
     assert (
         "plugins/coc-keeper/pi/lib/tool-contract-projection.ts",
         "agency-claim-type",
