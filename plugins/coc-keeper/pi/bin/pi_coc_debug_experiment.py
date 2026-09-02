@@ -568,6 +568,16 @@ def _requested_situation(lane: dict[str, Any]) -> dict[str, Any]:
     return {"shape": situation["shape"], **({"requested": requested} if requested else {})}
 
 
+#: Providers a diagnostic lane may run on. The gate exists so a lane cannot
+#: quietly run through a relay or a fallback whose behaviour is not the
+#: product's, which would make every measurement describe something else. It
+#: is a closed set rather than one hardcoded name: which first-party provider
+#: the account has quota on is the operator's call, and the lane still
+#: verifies that the assistant messages actually came from the one that was
+#: declared, so a silent fallback fails exactly as before.
+_DEBUG_PROVIDERS = frozenset({"xai", "zai-coding-cn"})
+
+
 def _validate_context(raw: Any, *, require_run: bool = False) -> dict[str, Any]:
     context = _strict_object(raw, label="debug context")
     if require_run:
@@ -577,9 +587,11 @@ def _validate_context(raw: Any, *, require_run: bool = False) -> dict[str, Any]:
             raise DebugExperimentError(
                 "debug_command_not_idle", "the current Pi-Coc host must be idle",
             )
-        if context.get("provider") != "xai":
+        if context.get("provider") not in _DEBUG_PROVIDERS:
             raise DebugExperimentError(
-                "debug_xai_required", "debug experiments require the official xAI provider",
+                "debug_provider_unsupported",
+                "debug experiments require a declared first-party provider: "
+                + ", ".join(sorted(_DEBUG_PROVIDERS)),
             )
     campaign_id = context.get("campaign_id")
     if not isinstance(campaign_id, str) or _CAMPAIGN_ID.fullmatch(campaign_id) is None:
@@ -1588,12 +1600,12 @@ class PiRpcLaneAdapter:
                     model = message.get("model")
                     if isinstance(provider, str) and isinstance(model, str):
                         if (
-                            provider == "xai"
+                            provider == str(run["context"]["provider"])
                             and model == str(run["context"]["model"])
                         ):
                             provider_verified = True
                         else:
-                            provider_identity_error = "xai_provider_mismatch"
+                            provider_identity_error = "debug_provider_mismatch"
             if event_type in {"tool_execution_start", "tool_execution_end"}:
                 operation = _semantic_operation(tool_name)
                 if (
@@ -1777,7 +1789,7 @@ class PiRpcLaneAdapter:
                 else:
                     status = "failed"
                     code = failure or (
-                        "xai_provider_unverified"
+                        "debug_provider_unverified"
                         if not provider_verified else "resume_failed"
                     )
                 return {

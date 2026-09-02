@@ -392,7 +392,7 @@ def test_dispatch_accepts_twenty_lanes_and_rejects_capacity_overflow(
         assert exc.value.code == "debug_request_invalid", label
 
 
-def test_dispatch_rejects_non_xai_busy_or_non_play_context(tmp_path: Path) -> None:
+def test_dispatch_rejects_relay_busy_or_non_play_context(tmp_path: Path) -> None:
     module = _module()
     experiment = module.DebugExperiment(
         store=module.FileRunStore(tmp_path / "debug-runs"),
@@ -404,7 +404,7 @@ def test_dispatch_rejects_non_xai_busy_or_non_play_context(tmp_path: Path) -> No
         '"lanes":[{"id":"production-1","profile":"production"}]}'
     )
     for key, value, code in (
-        ("provider", "openai", "debug_xai_required"),
+        ("provider", "openai", "debug_provider_unsupported"),
         ("host_is_idle", False, "debug_command_not_idle"),
         ("role", "setup", "debug_not_play"),
     ):
@@ -940,7 +940,7 @@ def test_rpc_lane_times_out_once_and_rejects_wrong_first_operation(tmp_path: Pat
 
     wrong_provider = _rpc_lane_run(tmp_path, mode="wrong-provider")
     assert wrong_provider["status"] == "failed"
-    assert wrong_provider["error"]["code"] == "xai_provider_mismatch"
+    assert wrong_provider["error"]["code"] == "debug_provider_mismatch"
 
 
 def test_cli_dispatch_returns_one_strict_error_envelope(tmp_path: Path) -> None:
@@ -1621,3 +1621,24 @@ def test_rpc_lane_prepends_the_host_instruction_for_a_prompt_situation(
     )
     assert "state.move_scene" in module._SITUATION_PROMPT_INSTRUCTION
     assert "never invented" in module._SITUATION_PROMPT_INSTRUCTION
+
+
+def test_the_provider_gate_is_a_closed_set_not_one_hardcoded_name(tmp_path: Path):
+    """Which first-party provider the account has quota on is the operator's
+    call; running through a relay or a silent fallback is not. The gate keeps
+    the second property while giving up the first."""
+    module = _module()
+    context = _context(tmp_path)
+
+    for provider in ("xai", "zai-coding-cn"):
+        module._validate_context(
+            {**context, "provider": provider}, require_run=True,
+        )
+
+    for refused in ("coding-relay", "grok-relay", "openai-codex", ""):
+        with pytest.raises(module.DebugExperimentError) as excinfo:
+            module._validate_context(
+                {**context, "provider": refused}, require_run=True,
+            )
+        assert excinfo.value.code == "debug_provider_unsupported"
+
