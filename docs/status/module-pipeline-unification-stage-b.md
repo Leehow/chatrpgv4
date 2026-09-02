@@ -572,6 +572,28 @@ one player (this session), one turn at a time through the repo's own
     truncation. What remains is the card carrying the slot's shape, so the
     Keeper learns the contract before spending a turn rather than after.
 
+28. **A verification hazard worth knowing before trusting any baseline here.**
+    `tests/test_plugin_mcp.py::test_mcp_wire_resume_uses_typed_recovery_index_before_identity_only`
+    passes under `.venv/bin/python -m pytest` and fails under
+    `uv run --frozen python -m pytest` **in this worktree**, reproducibly, with
+    identical `plugins/` content, identical `sys.path`, identical package
+    versions, identical interpreter flags and version, and the difference
+    surviving every environment variable and PATH permutation tried. It also
+    passes both ways in a fresh worktree at the same commit.
+
+    It cost real time here: the failure appeared exactly when a rule-card
+    change landed and read as that change's regression. It is not. Three
+    independent checks say so -- with both edited files restored to their git
+    contents the test still fails under `uv run`; the same edit passes in a
+    clean worktree at the same commit; and the direct interpreter passes in
+    this worktree with the edit in place.
+
+    The root cause is unidentified and left that way rather than guessed at.
+    The operational rule: when a baseline here looks surprising, re-check it
+    with the direct interpreter before believing it. Three long-standing
+    failures were re-checked that way and fail under both, so the baselines
+    quoted elsewhere in this document stand.
+
 ## 5. Open defect that stopped deeper play (not owned by this work)
 
 On a fumbled STR roll the turn could not settle:
