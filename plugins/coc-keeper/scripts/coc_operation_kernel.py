@@ -8399,6 +8399,16 @@ def dispatch_rules_settle(
         if status == "settled" else None
     )
     adapter_row = adapter_data if isinstance(adapter_data, dict) else {}
+    # The envelope was shaped for the first graph-owned family (healing), so it
+    # published one hardcoded resource and whatever single `event` that family
+    # set. Every family promoted afterwards writes something else: a Sanity
+    # check moves `san`, and the state-effect authority requires
+    # `current_<resource>` on both this data and the settlement result plus an
+    # event carrying <resource>_before/_after. None of that existed for san, so
+    # the SAN delta this settlement itself produced could not be proven and the
+    # whole turn failed to finalize -- seen live on 2026-09-02 in campaign
+    # amaranthine-loop, four identical retries and nothing delivered.
+    _publish_settled_resources(adapter_row, adapter_data)
     data = {
         "decision_ref": result.get("decision_ref"),
         "family": result.get("family") or family,
@@ -8407,8 +8417,12 @@ def dispatch_rules_settle(
         "investigator_id": adapter_row.get("investigator_id") or investigator_id,
         "event": adapter_row.get("event"),
         "player_state_receipt": adapter_row.get("player_state_receipt"),
-        "current_hp": adapter_row.get("current_hp"),
         "conditions": adapter_row.get("conditions"),
+        **{
+            key: value
+            for key, value in adapter_row.items()
+            if key.startswith("current_")
+        },
         "settlement": {
             "existing_result_envelope": bool(settlement.get("existing_result_envelope")),
             "result": adapter_data,
@@ -8425,6 +8439,104 @@ def dispatch_rules_settle(
     warnings = list(result.get("warnings") or [])
     hints = list(result.get("hints") or [])
     return data, warnings, hints
+
+_SETTLED_RESOURCE_KEYS = ("hp", "san", "mp", "luck")
+
+
+def _publish_settled_resources(
+    adapter_row: dict[str, Any],
+    adapter_data: Any,
+) -> None:
+    """Name, on the settlement itself, every resource this settlement moved.
+
+    The state-effect authority proves a delta only when the settlement says
+    what it wrote: `current_<resource>` on both the envelope data and the
+    settlement result, and one event carrying `<resource>_before/_after`. The
+    receipt already records each pool's before/after, so read the answer off
+    the receipt rather than asking each family to remember to publish it --
+    the first family to forget makes its own writes unprovable, and the turn
+    that contains one cannot be delivered at all.
+
+    Strict by construction: only pools the receipt itself reports as changed
+    are published, and an event is elected only when exactly one command event
+    carries that change. Anything ambiguous is left absent and still fails
+    closed.
+    """
+    if not isinstance(adapter_row, dict):
+        return
+    receipt = adapter_row.get("player_state_receipt")
+    if not isinstance(receipt, dict):
+        return
+    # Conditions travel with the receipt too, and a family that declares the
+    # `condition` domain has its WHOLE proof voided when the settlement does
+    # not restate them -- the SAN loss beside them dies with it.
+    conditions_after = receipt.get("conditions_after")
+    if isinstance(conditions_after, list):
+        if adapter_row.get("conditions") is None:
+            adapter_row["conditions"] = list(conditions_after)
+        if isinstance(adapter_data, dict) and adapter_data.get("conditions") is None:
+            adapter_data["conditions"] = list(conditions_after)
+    changed: dict[str, int] = {}
+    for resource in _SETTLED_RESOURCE_KEYS:
+        pool = receipt.get(resource)
+        if not isinstance(pool, dict):
+            continue
+        before, after = pool.get("before"), pool.get("after")
+        if not (isinstance(before, int) and isinstance(after, int)):
+            continue
+        if isinstance(before, bool) or isinstance(after, bool):
+            continue
+        if before == after:
+            continue
+        changed[resource] = after
+    if not changed:
+        return
+    for resource, after in changed.items():
+        key = f"current_{resource}"
+        if adapter_row.get(key) is None:
+            adapter_row[key] = after
+        if isinstance(adapter_data, dict) and adapter_data.get(key) is None:
+            adapter_data[key] = after
+    if adapter_row.get("event") is None:
+        elected = _settled_primary_event(adapter_row, changed)
+        if elected is not None:
+            adapter_row["event"] = elected
+            if isinstance(adapter_data, dict) and adapter_data.get("event") is None:
+                adapter_data["event"] = elected
+
+
+def _settled_primary_event(
+    adapter_row: dict[str, Any],
+    changed: dict[str, int],
+) -> dict[str, Any] | None:
+    """The one command event that reports exactly the change the receipt did.
+
+    A settlement emits several events that mention the same pool -- the
+    percentile check that caused the loss names `san_after` just as the loss
+    event does. The authority requires the proving event to carry a non-empty
+    `event_type`, so electing among only those applies its own rule rather
+    than loosening it; anything still ambiguous is left unelected.
+    """
+    candidates: list[dict[str, Any]] = []
+    for row in adapter_row.get("results") or []:
+        if not isinstance(row, dict):
+            continue
+        for event in row.get("events") or []:
+            if not isinstance(event, dict):
+                continue
+            if not str(event.get("event_type") or "").strip():
+                continue
+            if all(
+                event.get(f"{resource}_after") == after
+                for resource, after in changed.items()
+            ) and any(
+                f"{resource}_after" in event for resource in changed
+            ):
+                candidates.append(event)
+    if len(candidates) != 1:
+        return None
+    return candidates[0]
+
 
 def _execute_subsystem_requests(
     ctx: Ctx,

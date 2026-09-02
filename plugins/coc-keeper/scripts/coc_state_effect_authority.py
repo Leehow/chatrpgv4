@@ -54,7 +54,22 @@ _SCALAR_RESOURCE_KEYS = {
     "MP": "mp",
     "mp": "mp",
 }
-_REASON_PRIORITY = ("mismatch", "advisory", "unknown", "failed", "replay", "missing")
+# One token per thing that can actually be wrong. "mismatch" used to cover four
+# of them at once, so the Keeper was told a write it had just made successfully
+# did not prove its effect, with nothing to say which part disagreed. Seen live
+# on 2026-09-02: four identical finalize retries, then the repeat circuit shut
+# the turn, and the player received nothing at all for that turn.
+_REASON_PRIORITY = (
+    "delta_disagrees",
+    "wrong_subject",
+    "operation_cannot_write",
+    "wrong_decision",
+    "advisory",
+    "unknown",
+    "failed",
+    "replay",
+    "missing",
+)
 
 
 def is_typed_state_delta(effect: Any) -> bool:
@@ -283,14 +298,14 @@ def receipt_proves_effect(
         return "failed"
     decision_id = str(effect.get("source_decision_id") or "").strip()
     if not decision_id or call_decision_id(call) != decision_id:
-        return "mismatch"
+        return "wrong_decision"
     kind = _effect_kind(effect)
     if not _operation_may_write(tool, kind, call, effect):
-        return "mismatch"
+        return "operation_cannot_write"
     if not _subject_matches(call, effect, kind):
-        return "mismatch"
+        return "wrong_subject"
     if not _structured_delta_matches(call, effect, kind, tool):
-        return "mismatch"
+        return "delta_disagrees"
     return None
 
 
@@ -365,12 +380,101 @@ def state_delta_proof_violations(
         violations.append({
             "stage": "state_proof",
             "code": "unproven_state_delta",
+            # The reason is a field, not a word to be sliced back out of the
+            # message: consumers routed on it by parsing prose, which made the
+            # sentence unchangeable and the distinction invisible to code.
+            "reason": reason,
             "message": (
                 f"{effect_id}: typed state effect lacks a successful registered "
-                f"canonical state operation ({reason})"
+                f"canonical state operation ({reason}); "
+                + _proof_remedy(effect, window, reason, registry=tools)
             ),
         })
     return violations
+
+
+def _proof_remedy(
+    effect: dict[str, Any],
+    window: Iterable[Any],
+    reason: str,
+    *,
+    registry: dict[str, Any] | None = None,
+) -> str:
+    """Say what did not line up, in the terms the Keeper can act on.
+
+    The reason token alone names a category. What the Keeper needs is which of
+    its own calls were considered, and what the effect asked for that they did
+    not deliver -- without that it can only resend the identical finalize, which
+    is exactly what happened live before this existed.
+    """
+    decision_id = str(effect.get("source_decision_id") or "").strip()
+    kind = _effect_kind(effect) or "(no effect_kind)"
+    seen = sorted({
+        str(call.get("tool") or "")
+        for call in window
+        if isinstance(call, dict) and call_decision_id(call) == decision_id
+        and call.get("tool")
+    })
+    seen_text = ", ".join(seen) if seen else "no state operation"
+    if reason == "wrong_decision":
+        return (
+            f"the effect cites decision_id {decision_id!r}, which none of this "
+            "turn's state writes used -- settle the write under that exact "
+            "decision_id, or cite the one the write actually carried"
+        )
+    if reason == "operation_cannot_write":
+        allowed = STATE_KIND_OPERATION_NAMES.get(kind)
+        resource = _effect_scalar_resource(effect)
+        wanted = (
+            ", ".join(sorted(allowed)) if allowed
+            else (f"an operation that writes {resource}" if resource
+                  else "an operation that owns this effect kind")
+        )
+        return (
+            f"under decision_id {decision_id!r} this turn called {seen_text}, "
+            f"and none of those may write a {kind!r} effect; call {wanted}"
+        )
+    if reason == "wrong_subject":
+        subject = str(effect.get("investigator_id") or "").strip() or "(none)"
+        wrote_for = sorted({
+            found
+            for call in window
+            if isinstance(call, dict) and call_decision_id(call) == decision_id
+            for found in _investigator_ids(call)
+        })
+        return (
+            f"the effect is for investigator {subject!r} but the write under "
+            f"decision_id {decision_id!r} recorded "
+            + (", ".join(repr(x) for x in wrote_for) if wrote_for
+               else "no investigator")
+            + " -- settle the write for the investigator the effect names"
+        )
+    if reason == "delta_disagrees":
+        before, after = effect.get("before"), effect.get("after")
+        return (
+            f"{seen_text} recorded a different change than the effect declares "
+            f"(effect says before={before!r} after={after!r}); narrate the "
+            "numbers the receipt returned rather than restating your own"
+        )
+    if reason == "advisory":
+        return (
+            f"{seen_text} is advisory and writes nothing; an advisory result "
+            "cannot prove a state change"
+        )
+    if reason == "failed":
+        return (
+            f"{seen_text} was called under decision_id {decision_id!r} but did "
+            "not succeed; a failed write proves nothing"
+        )
+    if reason == "replay":
+        return (
+            f"{seen_text} returned an idempotent replay, not a fresh write; "
+            "the change it describes was recorded in an earlier turn"
+        )
+    return (
+        f"no successful state write was made under decision_id {decision_id!r} "
+        f"this turn (calls seen: {seen_text})"
+    )
 
 
 def _effect_kind(effect: dict[str, Any]) -> str:

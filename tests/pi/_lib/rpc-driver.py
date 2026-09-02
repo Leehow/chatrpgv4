@@ -1542,8 +1542,19 @@ def serve() -> int:
 
 def start() -> int:
     if PID.exists():
-        raise SystemExit(f"refusing: existing daemon pid file: {PID}")
+        # A pid file outlives the process it names. `stop` used to leave both
+        # the pid file and the FIFO behind, so every ordinary restart failed
+        # twice in a row: once refusing on the stale pid, then crashing on
+        # `mkfifo` because the FIFO was still there. Refuse only for a daemon
+        # that is actually running.
+        stale = _daemon_pid()
+        if _pid_alive(stale):
+            raise SystemExit(f"refusing: daemon pid {stale} is still running")
+        PID.unlink(missing_ok=True)
     EVIDENCE.mkdir(exist_ok=True)
+    # A FIFO left by a killed daemon carries no state worth keeping.
+    if FIFO.exists():
+        FIFO.unlink()
     os.mkfifo(FIFO)
     DRIVER_LOG.parent.mkdir(exist_ok=True)
     driver_log = DRIVER_LOG.open("a", encoding="utf-8")
@@ -1565,8 +1576,23 @@ def stop() -> int:
     if not PID.exists():
         raise SystemExit("no RPC daemon pid file")
     pid = int(PID.read_text(encoding="utf-8").strip())
-    os.kill(pid, 15)
-    print(f"sent SIGTERM to pi pid {pid}")
+    try:
+        os.kill(pid, 15)
+    except ProcessLookupError:
+        print(f"pi pid {pid} was already gone")
+    else:
+        print(f"sent SIGTERM to pi pid {pid}")
+    # Clear what the next `start` would trip over, but only once the process
+    # is really gone -- removing the pid file while pi still runs would let a
+    # second daemon take the same campaign.
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and _pid_alive(pid):
+        time.sleep(0.2)
+    if _pid_alive(pid):
+        print(f"pi pid {pid} still running after SIGTERM; leaving {PID} in place")
+        return 1
+    PID.unlink(missing_ok=True)
+    FIFO.unlink(missing_ok=True)
     return 0
 
 

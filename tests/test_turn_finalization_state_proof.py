@@ -133,7 +133,7 @@ def _call(
 
 def _reasons(window, effects) -> list[str]:
     return [
-        row["message"].rsplit("(", 1)[-1].rstrip(")")
+        row["reason"]
         for row in coc_turn_finalization._state_delta_proof_violations(window, effects)
     ]
 
@@ -208,7 +208,10 @@ def test_combat_receipt_proves_loaded_ammunition_not_item() -> None:
         },
     )]
     assert coc_turn_finalization._state_delta_proof_violations(window, [ammo]) == []
-    assert _reasons(window, [_item_effect(decision_id="combat-shot")]) == ["mismatch"]
+    # combat.resolve writes ammunition, never an item grant.
+    assert _reasons(window, [_item_effect(decision_id="combat-shot")]) == [
+        "operation_cannot_write"
+    ]
 
 
 def test_rules_owned_scalar_accepts_registered_rules_receipt() -> None:
@@ -231,7 +234,7 @@ def test_rules_owned_scalar_accepts_registered_rules_receipt() -> None:
         [_call("rules.roll", "dmg-001", extra_data={"hp_before": 10, "hp_after": 8})],
         [_scalar_effect()],
     )
-    assert non_writer == ["mismatch"]
+    assert non_writer == ["operation_cannot_write"]
 
 
 def test_decision_effect_and_subject_mismatch_are_rejected() -> None:
@@ -245,7 +248,7 @@ def test_decision_effect_and_subject_mismatch_are_rejected() -> None:
         [_call("state.cash_grant", "shared", extra_data=_cash_data())],
         [item],
     )
-    assert wrong_effect == ["mismatch"]
+    assert wrong_effect == ["operation_cannot_write"]
     wrong_subject = _reasons(
         [_call(
             "state.item_grant",
@@ -255,7 +258,7 @@ def test_decision_effect_and_subject_mismatch_are_rejected() -> None:
         )],
         [item],
     )
-    assert wrong_subject == ["mismatch"]
+    assert wrong_subject == ["wrong_subject"]
 
 
 def test_idempotent_replay_links_to_original_success() -> None:
@@ -287,9 +290,11 @@ def test_same_valid_and_invalid_receipt_match_exporter_authority() -> None:
         extra_data={"player_state_receipt": _hp_receipt()},
     )
     assert coc_turn_finalization._state_delta_proof_violations([valid], [effect]) == []
-    assert _reasons([invalid], [effect]) == ["mismatch"]
+    assert _reasons([invalid], [effect]) == ["operation_cannot_write"]
     assert coc_state_effect_authority.state_delta_proof_reason(effect, [valid]) is None
-    assert coc_state_effect_authority.state_delta_proof_reason(effect, [invalid]) == "mismatch"
+    assert coc_state_effect_authority.state_delta_proof_reason(
+        effect, [invalid]
+    ) == "operation_cannot_write"
 
 
 def test_combat_receipt_projects_and_proves_hp_and_luck() -> None:
@@ -326,7 +331,7 @@ def test_combat_receipt_projects_and_proves_hp_and_luck() -> None:
     assert _reasons(
         [_call("state.journal", "combat-luck", extra_data=window[0]["data"])],
         [blank],
-    ) == ["mismatch"]
+    ) == ["operation_cannot_write"]
 
 
 def test_multi_effect_window_proves_each_effect_once() -> None:
@@ -399,3 +404,43 @@ def test_multi_effect_window_proves_each_effect_once() -> None:
     assert mechanic_ids == [row["effect_id"] for row in projected]
     assert rendered.count("获得「钥匙」") == 1
     assert rendered.count("+20.00 USD") == 1
+
+
+def test_proof_failure_names_the_calls_made_and_the_operation_to_call() -> None:
+    """A reason token alone made the Keeper resend the identical finalize.
+
+    Seen live on 2026-09-02 in campaign amaranthine-loop: `state.journal`
+    proved nothing for a scalar effect, the rejection said only "(mismatch)",
+    and the Keeper retried the same finalize four times until the repeat
+    circuit shut the turn. The player received nothing for that turn. The
+    rejection must name what this turn actually called and what would prove
+    the effect.
+    """
+    effect = _scalar_effect()
+    rows = coc_turn_finalization._state_delta_proof_violations(
+        [_call("state.journal", "dmg-001", extra_data={"hp_before": 10, "hp_after": 8})],
+        [effect],
+    )
+    assert len(rows) == 1
+    assert rows[0]["reason"] == "operation_cannot_write"
+    message = rows[0]["message"]
+    assert "state.journal" in message, message
+    assert "hp" in message, message
+    assert "dmg-001" in message, message
+
+
+def test_wrong_subject_names_both_investigators() -> None:
+    item = _item_effect(decision_id="shared", investigator_id="hero")
+    rows = coc_turn_finalization._state_delta_proof_violations(
+        [_call(
+            "state.item_grant",
+            "shared",
+            investigator="other",
+            extra_data=_item_data(investigator="other"),
+        )],
+        [item],
+    )
+    assert len(rows) == 1
+    assert rows[0]["reason"] == "wrong_subject"
+    assert "'hero'" in rows[0]["message"]
+    assert "'other'" in rows[0]["message"]
