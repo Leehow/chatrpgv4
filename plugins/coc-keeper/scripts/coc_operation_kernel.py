@@ -7868,6 +7868,55 @@ def _canonical_combat_binding(
     return binding
 
 
+def _canonical_pending_resolution(
+    ctx: Ctx, investigator_id: str, command: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Answer a pending subsystem choice with the executor's own continuation.
+
+    Resolving a pending choice is not a free-form command: the executor
+    rebuilds the expected batch from canonical state and refuses anything that
+    differs (`invalid_pending_resolution_batch`). Its command_id is
+    `resume:<digest>:confirm` and its payload carries a derived `decision_id`
+    and `request_index` -- all computed from the pending context, none of them
+    knowable to a caller composing a command by hand. The RuleGraph adapter
+    composed one from the Keeper's own decision_id, so it could never match.
+
+    That branch was unreachable until decision:coc7:sanity:check was rewired
+    onto this executor and bouts began registering the choice bout-tick
+    answers; the first run that reached it lost six settlements this way.
+
+    Deriving the batch here does not hollow out that check. Every slot the
+    graph declares for these decisions is host-locked -- the Keeper names the
+    decision and nothing else -- so canonical state IS the authority on the
+    command, and the check still refuses a batch that reaches the executor by
+    any other route.
+    """
+    kind = str(command.get("kind") or "")
+    if kind not in {"bout_tick", "bout_end"}:
+        return [command]
+    payload = command.get("payload")
+    choice_id = payload.get("choice_id") if isinstance(payload, Mapping) else None
+    if not isinstance(choice_id, str) or not choice_id:
+        return [command]
+    try:
+        plan = coc_subsystem_executor.plan_from_pending_choice_response(
+            ctx.campaign_dir,
+            investigator_id,
+            {
+                "choice_id": choice_id,
+                "responder": "keeper",
+                "revision": payload.get("revision"),
+                "action": payload.get("action"),
+            },
+        )
+        canonical = coc_subsystem_executor.commands_from_rules_requests(plan)
+    except coc_subsystem_executor.SubsystemExecutorError:
+        # Let the executor raise its own typed refusal on the submitted batch
+        # rather than swallowing it here.
+        return [command]
+    return canonical or [command]
+
+
 def _declared_payload_slots(decision_ref: str) -> frozenset[str]:
     """The payload slot names one decision declares in the RuleGraph."""
     loaded = coc_rules_runtime.load_ruleset_graph("coc7")
@@ -13083,12 +13132,13 @@ def _execute_subsystem_command(
             "command.payload.decision_id must equal the toolbox decision_id",
         )
     investigator_id = _resolve_investigator(ctx, args)
+    commands = _canonical_pending_resolution(ctx, investigator_id, command)
     try:
         results = coc_subsystem_executor.execute_commands(
             ctx.campaign_dir,
             _investigator_character_path(ctx, investigator_id),
             investigator_id,
-            [command],
+            commands,
             rng=_rng(args),
             append_jsonl=coc_state.append_jsonl,
             character_snapshot=ctx.sheet(investigator_id),

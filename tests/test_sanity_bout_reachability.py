@@ -367,3 +367,90 @@ def test_a_bout_its_engine_owns_is_never_closed_behind_the_keepers_back(campaign
         )
         if c.get("kind") == "bout_keeper_action"
     ]
+
+
+def test_a_bout_can_be_carried_round_by_round_to_its_end(campaign_ws):
+    """The whole point of the family: open a bout, see it, carry it.
+
+    Answering a pending subsystem choice is not a free-form command. The
+    executor rebuilds the expected batch from canonical state and refuses
+    anything that differs; its command_id is `resume:<digest>:confirm` and its
+    payload carries a derived decision_id and request_index, none of which a
+    caller composing a command by hand can know. The RuleGraph adapter built
+    one from the Keeper's own decision_id, so bout-tick could never match --
+    six refusals in the first run that ever reached this branch, which is also
+    the first run in which bouts registered a choice to answer at all.
+    """
+    import coc_subsystem_executor  # noqa: PLC0415
+    import coc_toolbox  # noqa: PLC0415
+
+    ws, cid = campaign_ws["workspace"], campaign_ws["campaign_id"]
+    snapshot_path = campaign_ws["campaign_dir"] / "save" / "sanity.json"
+
+    def snapshot():
+        return json.loads(snapshot_path.read_text(encoding="utf-8"))
+
+    coc_toolbox.run_tool(
+        "rules.context", ws, cid,
+        {"family": "sanity", "investigator": "thomas-hayes"},
+    )
+    opened = coc_toolbox.run_tool(
+        "rules.settle", ws, cid,
+        {
+            "decision_ref": "decision:coc7:sanity:check",
+            "decision_id": "carry-bout-open",
+            "investigator": "thomas-hayes",
+            "seed": 10,
+            "semantic_inputs": {
+                "source": "the sealed-chamber corpse sits up",
+                "loss_success": "20", "loss_failure": "20",
+                "involuntary_kind": "freeze",
+                "involuntary_summary": "the flashlight beam stops moving",
+            },
+        },
+    )
+    assert opened.get("ok"), opened
+    assert snapshot()["bout_active"] is True, snapshot()
+
+    rounds = [snapshot()["bout_rounds_remaining"]]
+    for turn in range(1, 15):
+        if not snapshot()["bout_active"]:
+            break
+        cards = coc_toolbox.run_tool(
+            "rules.context", ws, cid,
+            {"family": "sanity", "investigator": "thomas-hayes"},
+        )
+        offered = {
+            card["decision_ref"].rsplit(":", 1)[-1]
+            for card in ((cards.get("data") or {}).get("cards") or [])
+        }
+        assert "bout-tick" in offered, offered
+        assert "bout-end" in offered, offered
+        ticked = coc_toolbox.run_tool(
+            "rules.settle", ws, cid,
+            {
+                "decision_ref": "decision:coc7:sanity:bout-tick",
+                "decision_id": f"carry-bout-{turn:02d}",
+                "investigator": "thomas-hayes",
+                "semantic_inputs": {},
+            },
+        )
+        assert ticked.get("ok"), ticked
+        rounds.append(snapshot()["bout_rounds_remaining"])
+
+    assert len(rounds) > 3, f"the bout never advanced: {rounds}"
+    assert rounds == sorted(rounds, reverse=True), rounds
+    assert all(
+        later == earlier - 1
+        for earlier, later in zip(rounds, rounds[1:])
+    ), f"each tick must spend exactly one round: {rounds}"
+
+    # While it runs the Keeper's choice stays live; when it ends, nothing is
+    # left waiting.
+    live = [
+        row for row in coc_subsystem_executor.get_current_pending_choices(
+            campaign_ws["campaign_dir"],
+        )
+        if row.get("kind") == "bout_keeper_action"
+    ]
+    assert bool(live) == bool(snapshot()["bout_active"]), (snapshot(), live)
