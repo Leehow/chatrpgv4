@@ -38,6 +38,44 @@ coc_turn_output = _load(
 )
 
 
+@pytest.fixture()
+def pi_review_enabled(monkeypatch):
+    """Exercise the Pi agency-review path, which production no longer takes.
+
+    `ab634acd` made normal Pi play a direct single draft and hardcoded
+    `_pi_play_agency_review_required()` to False. The machinery it gated was
+    NOT removed: the review operation, the rewrite loop, the pending-draft
+    receipt and its recovery all still exist and are still reachable when the
+    flag is true. Deleting these tests would leave that live code uncovered,
+    and rewriting them onto the direct path would only duplicate
+    `test_turn_finalization.py::test_pi_play_is_direct_single_draft_and_finalizes_once_without_review`,
+    which is where the production default is pinned.
+
+    Before that commit the flag read `COC_PI_SESSION_ROLE`, so the
+    `monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")` these tests already
+    carry used to be the switch. This restores what that line meant. Three
+    modules hold their own reference to the function -- `coc_toolbox` uses it
+    to answer `stage_forbidden` -- so all three are patched.
+    """
+    # The registry's handler does NOT live in the module this file loaded:
+    # coc_toolbox imports each operation cell under a generated name
+    # (`coc_toolbox_..._operation_turn_output_<hex>`), so `coc_turn_output`
+    # here is a second, unused copy. Patching only the visible modules leaves
+    # the executing one untouched and the fixture silently does nothing.
+    # Patch every loaded module that holds a reference.
+    patched = 0
+    for module in list(sys.modules.values()):
+        if module is None:
+            continue
+        if getattr(module, "_pi_play_agency_review_required", None) is not None:
+            monkeypatch.setattr(
+                module, "_pi_play_agency_review_required", lambda: True
+            )
+            patched += 1
+    assert patched, "no module exposed _pi_play_agency_review_required to patch"
+    return patched
+
+
 def _write_json(path: Path, payload) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -310,6 +348,12 @@ def _trigger_bout(ws) -> None:
             "loss_failure": "5",
             "decision_id": "san-bout-for-budget",
             "seed": 10,
+            # Required since `b8534c8c`: a failed SAN roll must carry the
+            # involuntary action the rulebook gives it (p.154/F5).
+            "involuntary_action": {
+                "kind": "freeze",
+                "summary": "locks up as the shape leaves the dark",
+            },
         },
     )
     assert result["ok"] is True, result
@@ -638,8 +682,7 @@ def _finalize_agency_turn(
 
 
 def test_pi_state_authority_blocks_captured_cash_key_and_address_without_receipts(
-    campaign_ws, monkeypatch
-):
+    campaign_ws, monkeypatch, pi_review_enabled):
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
     context = _open_agency_turn(
         campaign_ws,
@@ -709,8 +752,7 @@ def test_pi_state_authority_blocks_captured_cash_key_and_address_without_receipt
 
 
 def test_pi_state_authority_accepts_grounded_cash_key_address_and_separate_clue(
-    campaign_ws, monkeypatch
-):
+    campaign_ws, monkeypatch, pi_review_enabled):
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
     investigator = campaign_ws["investigator_id"]
     cash = _run(campaign_ws, "state.cash_grant", {
@@ -1467,8 +1509,7 @@ def test_pi_state_claim_compiler_rejects_duplicate_kp_match(
 
 
 def test_pi_state_claim_compiler_allows_extra_grounded_kp_claims(
-    campaign_ws, monkeypatch
-):
+    campaign_ws, monkeypatch, pi_review_enabled):
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
     investigator = campaign_ws["investigator_id"]
     for suffix, label in (("key", "黄铜钥匙"), ("note", "地址便签")):
@@ -1587,8 +1628,7 @@ def test_pi_state_claim_compiler_enforces_local_result_bounds(
 
 
 def test_pi_agency_violation_requires_prose_only_revision_two(
-    campaign_ws, monkeypatch
-):
+    campaign_ws, monkeypatch, pi_review_enabled):
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
     context = _open_agency_turn(
         campaign_ws,
@@ -1713,8 +1753,7 @@ def test_pi_agency_violation_requires_prose_only_revision_two(
 
 
 def test_pi_agency_and_state_rejection_share_one_frozen_revision_two(
-    campaign_ws, monkeypatch
-):
+    campaign_ws, monkeypatch, pi_review_enabled):
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
     context = _open_agency_turn(
         campaign_ws,
@@ -1875,7 +1914,7 @@ def test_pi_agency_review_allows_physiology_and_frozen_override(
     assert finalized["ok"] is True, finalized
 
 
-def test_pi_finalization_requires_exact_bound_agency_review(campaign_ws, monkeypatch):
+def test_pi_finalization_requires_exact_bound_agency_review(campaign_ws, monkeypatch, pi_review_enabled):
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
     context = _open_agency_turn(
         campaign_ws,
@@ -1981,8 +2020,7 @@ def test_output_context_lists_finalize_injections_before_drafting(
 
 
 def test_clear_review_replays_same_draft_without_recompile(
-    campaign_ws, monkeypatch
-):
+    campaign_ws, monkeypatch, pi_review_enabled):
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
     context = _open_agency_turn(
         campaign_ws,
@@ -2029,8 +2067,7 @@ def test_clear_review_replays_same_draft_without_recompile(
 
 
 def test_changed_kp_review_does_not_replay_clear_draft(
-    campaign_ws, monkeypatch
-):
+    campaign_ws, monkeypatch, pi_review_enabled):
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
     context = _open_agency_turn(
         campaign_ws,
@@ -2076,8 +2113,7 @@ def test_changed_kp_review_does_not_replay_clear_draft(
 
 
 def test_rewrite_required_returns_excerpt_only_span_repairs(
-    campaign_ws, monkeypatch
-):
+    campaign_ws, monkeypatch, pi_review_enabled):
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
     context = _open_agency_turn(
         campaign_ws,
@@ -2152,8 +2188,7 @@ def test_rewrite_required_returns_excerpt_only_span_repairs(
 
 
 def test_pending_draft_receipt_is_exact_idempotent_and_keeper_only(
-    campaign_ws, monkeypatch
-):
+    campaign_ws, monkeypatch, pi_review_enabled):
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
     context = _open_agency_turn(
         campaign_ws,
@@ -2259,8 +2294,7 @@ def test_pending_draft_receipt_is_exact_idempotent_and_keeper_only(
 
 
 def test_explicit_pending_draft_recovery_uses_only_structured_review_audit(
-    campaign_ws, monkeypatch
-):
+    campaign_ws, monkeypatch, pi_review_enabled):
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
     context = _open_agency_turn(
         campaign_ws,
@@ -2525,8 +2559,7 @@ def test_pending_draft_materializer_rejects_divergent_and_identity_mismatch(
 
 
 def test_pending_draft_corrupt_receipt_fails_closed_everywhere(
-    campaign_ws, monkeypatch
-):
+    campaign_ws, monkeypatch, pi_review_enabled):
     _context, _review = _pending_draft_negative_setup(
         campaign_ws, monkeypatch, review_decision_id="review-neg-corrupt"
     )
@@ -2552,7 +2585,7 @@ def test_pending_draft_corrupt_receipt_fails_closed_everywhere(
     assert corrupt_adopt["error"]["code"] == "pending_draft_corrupt"
 
 
-def test_pending_draft_corrupt_provenance_fails_closed(campaign_ws, monkeypatch):
+def test_pending_draft_corrupt_provenance_fails_closed(campaign_ws, monkeypatch, pi_review_enabled):
     # Corrupt provenance (unexpected extra field) invalidates the receipt
     # the same way — closed provenance is part of the canonical schema.
     _pending_draft_negative_setup(
@@ -2575,7 +2608,7 @@ def test_pending_draft_corrupt_provenance_fails_closed(campaign_ws, monkeypatch)
     )
 
 
-def test_pending_draft_non_string_identity_fails_closed(campaign_ws, monkeypatch):
+def test_pending_draft_non_string_identity_fails_closed(campaign_ws, monkeypatch, pi_review_enabled):
     """A truthy non-string semantic identity is rejected even with the
     integrity digest recomputed around it: the field type itself is the
     single isolated defect."""
@@ -2600,7 +2633,7 @@ def test_pending_draft_non_string_identity_fails_closed(campaign_ws, monkeypatch
     assert status["actionable"] is False
 
 
-def test_pending_draft_materialization_identity_fails_closed(campaign_ws, monkeypatch):
+def test_pending_draft_materialization_identity_fails_closed(campaign_ws, monkeypatch, pi_review_enabled):
     """A submission receipt whose materialization decision diverges from the
     review decision is not accepted even with a recomputed digest."""
     _pending_draft_negative_setup(
@@ -2928,8 +2961,7 @@ def test_span_repairs_producer_drops_overbound_evidence_fail_closed(
 
 
 def test_pending_draft_crash_order_is_recoverable_and_orphans_harmless(
-    campaign_ws, monkeypatch
-):
+    campaign_ws, monkeypatch, pi_review_enabled):
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
     context = _open_agency_turn(
         campaign_ws,
