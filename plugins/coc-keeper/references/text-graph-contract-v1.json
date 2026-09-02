@@ -13,23 +13,24 @@
     "craft"
   ],
   "node_kinds": [
+    "agency-claim-type",
+    "beat-type",
+    "coverage-field",
+    "craft-directive",
+    "narration-budget-mode",
+    "narration-budget-trigger",
     "obligation-kind",
     "obligation-source-kind",
-    "coverage-field",
-    "realization-mode",
     "player-input-handling",
-    "segment-type",
-    "agency-claim-type",
-    "roll-visibility-class",
-    "substantive-effect-status",
-    "review-rule",
-    "craft-directive",
-    "render-slot",
+    "realization-mode",
     "render-prohibition",
+    "render-slot",
+    "review-rule",
+    "roll-visibility-class",
+    "segment-type",
     "style-axis",
-    "narration-budget-mode",
-    "text-threshold",
-    "narration-budget-trigger"
+    "substantive-effect-status",
+    "text-threshold"
   ],
   "obligation_node_kinds": [
     "obligation-kind",
@@ -43,14 +44,15 @@
     "substantive-effect-status"
   ],
   "craft_node_kinds": [
-    "review-rule",
+    "beat-type",
     "craft-directive",
-    "render-slot",
-    "render-prohibition",
-    "style-axis",
     "narration-budget-mode",
-    "text-threshold",
-    "narration-budget-trigger"
+    "narration-budget-trigger",
+    "render-prohibition",
+    "render-slot",
+    "review-rule",
+    "style-axis",
+    "text-threshold"
   ],
   "relation_kinds": [
     "part-of",
@@ -175,6 +177,7 @@
     ]
   },
   "origin_tokens": [
+    "robin-laws-hamlets-hit-points-2010",
     "unknown-legacy-tuning"
   ],
   "accountability_law": "Every node declares exactly one evidence_class. A settled-effect-derived node MUST name, in derived_from, the exact receipt field or RuleGraph effect that produces it — the obligation plane is derived, so a node that cannot name its derivation is authored and must say so. A rulebook-source node MUST cite real evidence spans. An authored-house-doctrine node MUST carry a non-empty rationale, origin and falsifiable_by; origin is a commit id, a playtest finding reference, a live document path, or the exact token unknown-legacy-tuning. Inventing an origin, a rationale, or a page citation for a value whose provenance was not found is prohibited; recording unknown-legacy-tuning is the correct outcome.",
@@ -337,6 +340,11 @@
       "legacy_key",
       "ordinal",
       "budget_mode"
+    ],
+    "beat-type": [
+      "legacy_key",
+      "ordinal",
+      "family"
     ]
   },
   "comparisons": [
@@ -370,7 +378,8 @@
     "style-axis": 9,
     "narration-budget-mode": 4,
     "narration-budget-trigger": 10,
-    "text-threshold": 5
+    "text-threshold": 5,
+    "beat-type": 9
   },
   "expected_node_counts_law": "expected_node_counts pins the T1 obligation-plane migration against the measured inventory. A build whose counts differ from this table is rejected: either the source declaration changed and the table must be updated in the same reviewed change, or the migration lost something. The census that motivated this law is real — the commissioning brief for this work listed eight tables in coc_narration_style.py and the file has twelve.",
   "empty_relations_law": "The T1 obligation plane shipped zero relations deliberately: its vocabularies were flat, and the two structural facts that could have been edges — the voluntary subset of agency claim types and the player-facing versus superseded split of roll visibility classes — are node properties because that is exactly how the source reconstructs both frozensets. T2 adds the first five real relations, obligation-source-kind part-of obligation-kind, because that edge is load-bearing: the derivation reads it to decide which source_kind an obligation may carry. Relations are added when a consumer reads them and never to make the artifact look more graph-shaped.",

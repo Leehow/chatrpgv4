@@ -96,7 +96,7 @@ def test_compiler_round_trip_is_byte_stable():
 def test_built_node_counts_match_the_contract_census():
     counts = collections.Counter(node["node_kind"] for node in ARTIFACT["nodes"])
     assert dict(counts) == CONTRACT["expected_node_counts"]
-    assert sum(counts.values()) == 105
+    assert sum(counts.values()) == 114
 
 
 def test_expected_node_counts_law_rejects_a_lost_vocabulary():
@@ -519,6 +519,8 @@ CENSUS: dict[str, dict[str, tuple[int, str, str]]] = {
         'review-rule': (1, 'model-facing-copy', 'host prompt names agency_violation'),
     },
     'plugins/coc-keeper/references/mcp-operation-contracts.json': {
+        'beat-type': (3, 'usage-only', "`question` is an ordinary English word and three operation descriptions use it as one. Laws' beat vocabulary carries four such words -- question, reveal, commentary, pipe -- which is the real cost of citing an outside taxonomy instead of coining private tokens: the scanner cannot tell the beat from the noun, and per SCANNER_LIMITS it counts rather than filters"),
+
         'agency-claim-type': (8, 'reads-from-graph', 'generated archive: the enum is built from the migrated frozenset and rebuilds byte-identically'),
         'coverage-field': (27, 'reads-from-graph', 'generated archive'),
         'obligation-kind': (2, 'reads-from-graph', 'generated archive'),
@@ -532,10 +534,14 @@ CENSUS: dict[str, dict[str, tuple[int, str, str]]] = {
         'style-axis': (3, 'reads-from-graph', 'generated archive'),
     },
     'plugins/coc-keeper/scripts/coc_live_turn_runner.py': {
+        'beat-type': (1, 'usage-only', "`reveal` as the ordinary verb, not the beat"),
+
         'narration-budget-trigger': (9, 'usage-only', 'event-type spellings in the legacy headless runtime path'),
         'substantive-effect-status': (5, 'usage-only', "FALSE POSITIVE: these are {'applied': bool} dict keys in the legacy runtime path, not the substantive-effect-status token. Kept in the census so the count is pinned rather than filtered away by a heuristic"),
     },
     'plugins/coc-keeper/scripts/coc_narration_contract.py': {
+        'beat-type': (6, 'usage-only', "`reveal` as the ordinary word: clue disclosure outcomes, which predate this vocabulary and mean something else"),
+
         'coverage-field': (1, 'usage-only', 'a single field access'),
         'narration-budget-trigger': (1, 'usage-only', 'one event-type spelling'),
         'obligation-kind': (9, 'usage-only', 'roll and first_impression labels on narration envelope rows'),
@@ -547,9 +553,13 @@ CENSUS: dict[str, dict[str, tuple[int, str, str]]] = {
         'style-axis': (5, 'second-declaration', "the required_avoid half is repaired: it reproduced `craft(language)['avoid']` exactly, zh-specific translationese included, verified per value for both languages, and now reads the graph (8 -> 5). `required_prefer` deliberately stays a hand-written SUBSET -- three of the graph's four, because `concrete_sensory_detail` is a craft aim the contract offers rather than a floor a plan is rejected for missing. Reading the graph there would tighten the validator, which is a product change, not a residue cleanup"),
     },
     'plugins/coc-keeper/scripts/coc_narration_style.py': {
+        'beat-type': (4, 'model-facing-copy', 'the beat_frame instruction names the four types whose distinction the Keeper acts on: gratification and bringdown as the levity dial, procedural and dramatic as the pair carrying most turns. The nine types themselves are read from the graph'),
+
         'render-slot': (7, 'declaration-migrated', 'build_crisis_scene_render_frame names each slot as a keyword argument; the membership list itself reads the graph'),
     },
     'plugins/coc-keeper/scripts/coc_npc_state.py': {
+        'beat-type': (2, 'usage-only', "`reveal` as the disclosure outcome, not the beat"),
+
         'coverage-field': (1, 'usage-only', 'a single field access'),
         'obligation-prefix': (1, 'second-declaration', 'line 1290 builds a first-impression: memory id in the same namespace; owned by slice T2'),
     },
@@ -583,6 +593,8 @@ CENSUS: dict[str, dict[str, tuple[int, str, str]]] = {
     'plugins/coc-keeper/scripts/coc_turn_manifest.py': {
     },
     'plugins/coc-keeper/skills/coc-export-battle-report/scripts/export_battle_report.py': {
+        'beat-type': (3, 'usage-only', "`question` as the ordinary noun in report prose"),
+
         'agency-claim-type': (8, 'usage-only', 'report rendering reads claim_type values off accepted finalizations'),
         'coverage-field': (3, 'usage-only', 'field accesses'),
         'narration-budget-trigger': (9, 'usage-only', 'event-type spellings in report rendering'),

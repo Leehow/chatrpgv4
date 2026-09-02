@@ -895,6 +895,38 @@ def _craft_node(
     }
 
 
+# Robin D. Laws, *Hamlet's Hit Points* (Gameplay Press, 2010). Nine beat types
+# in three families. This is the standard tabletop vocabulary for "what is this
+# beat FOR", it predates this project by fifteen years, and unlike most craft
+# doctrine here it has a citable origin rather than `unknown-legacy-tuning`.
+#
+# It earns its place for one reason: `gratification` and `bringdown` are the
+# levity dial. A quip belongs in the first and is wrong in the second, and no
+# amount of collected witty lines can tell those apart -- which is why this is
+# a vocabulary the Keeper names a beat with, not a library the host inserts
+# from.
+LAWS_BEAT_TYPES: tuple[tuple[str, str, str], ...] = (
+    ("procedural", "substantive",
+     "the protagonist advances toward the goal in a practical way"),
+    ("dramatic", "substantive",
+     "the protagonist deals with an emotional conflict"),
+    ("commentary", "substantive",
+     "a pause that brings out the story's themes, chorus-like"),
+    ("anticipation", "mood",
+     "looks forward to a hoped-for outcome"),
+    ("gratification", "mood",
+     "revels in a pleasant emotional stimulus; where levity belongs"),
+    ("bringdown", "mood",
+     "lowers the mood, often accentuating what the protagonist already feels"),
+    ("pipe", "expository",
+     "lays in information for later use without paying it off now"),
+    ("question", "expository",
+     "raises a question the story will answer"),
+    ("reveal", "expository",
+     "answers a question the story raised"),
+)
+
+
 _FALSIFIABLE_BY = {
     "review-rule": (
         "run a production-profile session with the rule published in the "
@@ -925,6 +957,13 @@ _FALSIFIABLE_BY = {
     "narration-budget-trigger": (
         "remove the event type from the rung for one arm and check whether the "
         "turns it used to select are now under-written"
+    ),
+    "beat-type": (
+        "label one arm of a multi-turn session with beat types and leave the "
+        "other unlabelled, then ask a reader who is not told which arm a turn "
+        "came from whether its lighter moments land. Laws' own claim -- that "
+        "readers agree on what a beat is FOR -- is separately checkable by "
+        "having two people label the same preserved turns and comparing"
     ),
     "text-threshold": (
         "perturb the value and replay the preserved corpus: a threshold no "
@@ -963,6 +1002,13 @@ def craft_shard() -> dict[str, Any]:
             {"legacy_key": key, "ordinal": ordinal},
             "one blocking slot of the crisis render frame, checked for "
             "presence only and never for wording", UNKNOWN,
+        ))
+
+    for ordinal, (key, family, why) in enumerate(LAWS_BEAT_TYPES):
+        nodes.append(_craft_node(
+            "beat-type", key, f"beat type {key}", ordinal,
+            {"legacy_key": key, "ordinal": ordinal, "family": family},
+            why, "robin-laws-hamlets-hit-points-2010",
         ))
 
     for ordinal, key in enumerate(LEGACY_RENDER_PROHIBITIONS):

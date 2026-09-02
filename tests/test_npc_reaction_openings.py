@@ -108,3 +108,61 @@ def test_present_npc_ids_are_read_from_where_the_envelope_puts_them():
     assert turn_output._envelope_present_npc_ids(
         {"state_grounding": {}, "present_npc_ids": ["npc:knott"]}
     ) == ["npc:knott"], "a top-level list is still honoured as a fallback"
+
+
+# ---------------------------------------------------------------------------
+# Beat frame: what is this beat FOR
+# ---------------------------------------------------------------------------
+
+def test_the_beat_vocabulary_is_laws_nine_with_a_citable_origin():
+    """Nine types in three families, cited rather than invented.
+
+    Almost every craft node in this graph carries `origin:
+    unknown-legacy-tuning` -- a value somebody tuned once and nobody can now
+    justify. This one has a source that predates the project by fifteen years
+    and is checkable outside it, which is the difference between doctrine and
+    taste.
+    """
+    import json
+
+    graph = json.loads(
+        (REPO / "plugins" / "coc-keeper" / "references" / "text-graph.json")
+        .read_text(encoding="utf-8")
+    )
+    beats = [row for row in graph["nodes"] if row["node_kind"] == "beat-type"]
+    assert len(beats) == 9, [row["node_id"] for row in beats]
+
+    families = {row["properties"]["family"] for row in beats}
+    assert families == {"substantive", "mood", "expository"}
+
+    for row in beats:
+        assert row["origin"] == "robin-laws-hamlets-hit-points-2010", row["node_id"]
+        assert row["falsifiable_by"].strip(), row["node_id"]
+
+
+def test_the_levity_dial_is_the_pair_that_makes_this_worth_carrying():
+    """`gratification` and `bringdown` are why the beat frame exists.
+
+    A collected library of witty lines cannot tell these apart, because the
+    question is timing rather than material -- the same line lands in one and
+    grates in the other.
+    """
+    import coc_text_runtime
+
+    beats = coc_text_runtime.craft()["beat_types"]
+    assert beats["gratification"]["family"] == "mood"
+    assert beats["bringdown"]["family"] == "mood"
+    assert "levity" in beats["gratification"]["rationale"]
+
+
+def test_the_frame_reaches_the_keeper_and_supplies_no_line():
+    """Delivered where the craft vocabulary already arrives, carrying no quip."""
+    import coc_narration_style
+
+    frame = coc_narration_style.player_facing_style_contract("zh-Hans")["beat_frame"]
+    assert set(frame) == {"types", "instruction"}
+    assert len(frame["types"]) == 9
+    assert "not a quota" in frame["instruction"], (
+        "the instruction has to say most beats want no joke, or it reads as a "
+        "demand for one every turn"
+    )
