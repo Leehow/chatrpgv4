@@ -56,31 +56,78 @@ An A/B pair confirmed the register survives the whole path: one table declared
 `pulp` and one `purist`, each received its own value back, neither received
 `undeclared`.
 
-## Not verified: that any of this changes the writing
+## The clean trial: run, recorded, verdict pending
 
-This is the honest gap, and it is the whole point of the feature.
+The first A/B pair in this document was not clean — different NPCs in different
+scenes — and is left below as the flawed sample it was. A controlled one has
+since been run.
 
-The two arms produced these, and a reader is invited to say which is which:
+**Design.** Same scenario, the **same shipped pregen** (`thomas-hayes`, so the
+investigator is identical rather than separately generated), byte-identical
+player inputs in the same order, arms run sequentially. Which arm declared
+which register was randomised into
+`.coc/playtests/register-trial-KEY.json` by a script that reads it and never
+echoes it. Both arms confirmed `play_register` set and produced three settled
+turns each. Evidence: `.coc/playtests/register-trial-arm-{alpha,beta}/`, paired
+text in `register-trial-pairs.json`.
 
-> **A.** 他看了一眼证件，眉头皱了皱，像是被你钉在了事实上。「麦卡里奥一家。」他吐出这个姓氏，声音短促……
+**Verdict: not yet read.** The pairs are recorded so the reading can happen at
+any time, by anyone who has not seen the key.
 
-> **B.** 杜利先生啐了口烟沫，嗓子却松了半寸。他压低音量说，街坊都叫它科比特宅——里头不太平……
+### Two things that weaken it, stated because they would otherwise be invisible
 
-**That sample does not settle it, and it is not offered as though it does.**
-The two turns have different NPCs in different scenes, so any difference is as
-easily explained by Knott versus Dooley as by pulp versus purist. A clean test
-needs the same NPC in the same scene, and the reading has to be done by someone
-who does not know which arm produced which text — which excludes the author of
-the feature.
+**The author is not fully blind.** An earlier failed attempt surfaced one arm's
+model thinking in an error log, naming its register. The key was reshuffled and
+the arms renamed afterwards, and the extraction script masks the register words
+before printing — but a prior mapping was seen, so the author's reading of
+these pairs should not count as the blind one.
 
-The graph node's `falsifiable_by` already states the test:
+**The first roll diverged.** Arm alpha's opening first-impression check
+succeeded (50 against 50) and beta's failed (52 against 50). A first beat that
+lands versus one that does not can set the tone of everything after it, which
+is a difference between the arms that is not the register. Any difference a
+reader finds is therefore attributable to register OR to that roll, and telling
+them apart needs several pairs with the opening outcome held equal.
 
-> run the same scenario for one arm declared purist and one declared pulp, and
-> ask readers who are not told which arm a turn came from to say which game it
-> reads as. A register that readers cannot tell apart is not carrying anything.
+So even a correct blind identification would establish "these two arms read
+differently", not "the register caused it". That is a weaker claim than the
+node's `falsifiable_by` asks for, and it is the honest ceiling of this trial.
 
-That test has **not** been run. What has been shown is that the signals arrive,
-which is a precondition for the effect and not evidence of it.
+### Three failures before it ran, two of them misdiagnosed
+
+1. **`undelivered_settle_with_tools` on every turn.** Diagnosed as two arms
+   contending on a shared `PI_HOME` and changed to run sequentially. It failed
+   again: the real cause was `OpenAI API error (403): You have run out of
+   credits`. The error message was in the events the whole time.
+2. **No campaign created, after credits were restored.** The campaign ids
+   `register-trial-A-20260902` carry a single-letter segment, which the
+   model-facing identity grammar refuses — `campaign_id must use its closed
+   semantic form: multi-token semantic slug`. Renaming the arms to
+   `register-trial-arm-alpha` fixed it.
+
+Both failures carried a result worth keeping. The refused call shows the Keeper
+passing `"play_register": "pulp"` correctly, so the parameter path works and
+was blocked downstream of it. And the refusal itself came from the identity
+grammar extended earlier the same day for `ruling_id`/`scope_id` — working as
+intended, with an actionable message.
+
+## How to finish this
+
+The trial is set up and the data is on disk. What remains is not code:
+
+1. Read `.coc/playtests/register-trial-pairs.json` — three pairs, alpha and
+   beta — WITHOUT opening `register-trial-KEY.json`, and write down which arm
+   reads as pulp.
+2. Then open the key.
+3. If the reading is wrong or a coin toss, the node's own standard applies:
+   *"a register that readers cannot tell apart is not carrying anything"*, and
+   `play-register` should be retired rather than kept as a field nobody can
+   feel.
+4. If it is right, run more pairs with the opening roll outcome held equal
+   before calling the register the cause.
+
+The author cannot do step 1 — a prior arm-to-register mapping was seen, and
+that disqualifies the reading regardless of how the pairs are masked now.
 
 ## Four wrong diagnoses on the way here, recorded because they cost the most
 
