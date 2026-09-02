@@ -31,6 +31,7 @@ a projection or wording change, so it is recorded rather than papered over.
 from __future__ import annotations
 
 import json
+import random
 import sys
 from pathlib import Path
 
@@ -202,3 +203,167 @@ def test_a_check_during_a_bout_says_so_and_names_the_way_out(campaign_ws):
         "blocked_by_pending_choice", "sanity_check_blocked_by_bout",
     ), settled
     assert "bout-tick" in error.get("message", ""), error
+
+
+def _open_an_orphan_bout(campaign_ws):
+    """Reproduce, faithfully, the state every campaign that opened a bout
+    under the old wiring is in: the bout written straight into
+    save/sanity.json by the session, and no executor history at all.
+
+    Deleting subsystem-state.json after an executor-opened bout is NOT the
+    same thing -- the result ledger still references it, and the executor
+    catches that hand-made corruption on the next load.
+    """
+    import coc_sanity  # noqa: PLC0415
+
+    campaign_dir = campaign_ws["campaign_dir"]
+    session = coc_sanity.SanitySession.load(
+        campaign_dir, "thomas-hayes", int_value=50, rng=random.Random(2),
+        cm_value=0,
+    )
+    session.sanity_check(
+        source="the sealed-chamber corpse sits up",
+        san_loss_success="20",
+        san_loss_fail_expr="20",
+        involuntary_kind="freeze",
+        involuntary_summary="the flashlight beam stops moving",
+    )
+    session.save(campaign_dir, strict_mirror=True)
+    snapshot = json.loads(
+        (campaign_dir / "save" / "sanity.json").read_text(encoding="utf-8")
+    )
+    assert snapshot["bout_active"] is True, snapshot
+    assert not (campaign_dir / "save" / "subsystem-state.json").is_file()
+    return snapshot
+
+
+def test_a_bout_no_engine_owns_is_closed_instead_of_wedging_the_family(campaign_ws):
+    """Until the rewiring the graph opened bouts through the advisory surface,
+    which wrote `bout_active` and told the executor nothing. Nothing can
+    advance such a bout, and p.157 blocks every further Sanity check while it
+    runs, so the family is wedged -- and the refusal that names bout-tick as
+    the way out points at a choice that does not exist. Measured live
+    2026-09-02: eight blocked checks and six unavailable bout-ticks across
+    three lanes, and not one settlement.
+
+    It is ended, never adopted: adopting means writing an origin command, a
+    revision and a private pending context no command ever produced, which
+    `_migrate_schema_v2` already refuses on principle.
+    """
+    import coc_subsystem_executor  # noqa: PLC0415
+    import coc_toolbox  # noqa: PLC0415
+
+    before = _open_an_orphan_bout(campaign_ws)
+    orphan_id = before["active_bout_id"]
+
+    ws, cid = campaign_ws["workspace"], campaign_ws["campaign_id"]
+    settled = coc_toolbox.run_tool(
+        "rules.settle", ws, cid,
+        {
+            "decision_ref": "decision:coc7:sanity:check",
+            "decision_id": "after-orphan-0001",
+            "investigator": "thomas-hayes",
+            "seed": 5,
+            "semantic_inputs": {
+                "source": "the corridor light dies",
+                "loss_success": "1", "loss_failure": "1D8",
+                "involuntary_kind": "freeze",
+                "involuntary_summary": "the beam stops moving",
+            },
+        },
+    )
+    assert settled.get("ok"), settled
+
+    after = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "sanity.json")
+        .read_text(encoding="utf-8")
+    )
+    # Nothing settled is erased: the orphan keeps its table result, duration
+    # and backstory suggestion, and the insanity it caused still stands.
+    kept = {row["bout_id"]: row for row in after["bouts_of_madness"]}
+    assert orphan_id in kept, after
+    assert kept[orphan_id]["bout_result"] == before["bouts_of_madness"][-1]["bout_result"]
+    assert kept[orphan_id].get("backstory_amend_suggestion")
+    assert after["temporary_insane"] is True
+
+    ledger = (campaign_ws["campaign_dir"] / "logs" / "orphan-bouts.jsonl")
+    assert ledger.is_file(), "the reconciliation must leave a receipt"
+    row = json.loads(ledger.read_text(encoding="utf-8").splitlines()[0])
+    assert row["bout_id"] == orphan_id
+    assert row["rounds_remaining_when_closed"] == before["bout_rounds_remaining"]
+
+    # And whatever bout is live now is one this executor owns.
+    if after["bout_active"]:
+        assert [
+            c for c in coc_subsystem_executor.get_current_pending_choices(
+                campaign_ws["campaign_dir"],
+            )
+            if c.get("kind") == "bout_keeper_action"
+        ], after
+
+
+def test_a_bout_its_engine_owns_is_never_closed_behind_the_keepers_back(campaign_ws):
+    """The reconciliation must fire only on an ownerless bout. A running bout
+    with its Keeper choice waiting is the normal case and must survive."""
+    import coc_subsystem_executor  # noqa: PLC0415
+    import coc_toolbox  # noqa: PLC0415
+
+    ws, cid = campaign_ws["workspace"], campaign_ws["campaign_id"]
+    _open_an_orphan_bout(campaign_ws)
+    # Reconcile it, which leaves a real executor-owned bout in its place.
+    coc_toolbox.run_tool(
+        "rules.settle", ws, cid,
+        {
+            "decision_ref": "decision:coc7:sanity:check",
+            "decision_id": "owned-bout-0001",
+            "investigator": "thomas-hayes",
+            "seed": 2,
+            "semantic_inputs": {
+                "source": "the corridor light dies",
+                "loss_success": "20", "loss_failure": "20",
+                "involuntary_kind": "freeze",
+                "involuntary_summary": "the beam stops moving",
+            },
+        },
+    )
+    snapshot = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "sanity.json")
+        .read_text(encoding="utf-8")
+    )
+    if not snapshot.get("bout_active"):
+        pytest.skip("this seed closed its bout on the same turn")
+    owned_id = snapshot["active_bout_id"]
+
+    coc_toolbox.run_tool(
+        "rules.settle", ws, cid,
+        {
+            "decision_ref": "decision:coc7:sanity:check",
+            "decision_id": "owned-bout-0002",
+            "investigator": "thomas-hayes",
+            "seed": 6,
+            "semantic_inputs": {
+                "source": "something moves in the dark",
+                "loss_success": "1", "loss_failure": "1D8",
+                "involuntary_kind": "freeze",
+                "involuntary_summary": "the beam stops moving",
+            },
+        },
+    )
+    still = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "sanity.json")
+        .read_text(encoding="utf-8")
+    )
+    assert still["bout_active"] is True, "an owned bout must not be reconciled away"
+    assert still["active_bout_id"] == owned_id
+    assert not (campaign_ws["campaign_dir"] / "logs" / "orphan-bouts.jsonl").is_file() \
+        or all(
+            json.loads(line)["bout_id"] != owned_id
+            for line in (campaign_ws["campaign_dir"] / "logs" / "orphan-bouts.jsonl")
+            .read_text(encoding="utf-8").splitlines()
+        )
+    assert [
+        c for c in coc_subsystem_executor.get_current_pending_choices(
+            campaign_ws["campaign_dir"],
+        )
+        if c.get("kind") == "bout_keeper_action"
+    ]

@@ -2303,6 +2303,7 @@ _RESULT_RECEIPT_LOG = Path("logs/subsystem-results.jsonl")
 _PUSH_OFFER_EVIDENCE_LOG = Path("logs/push-offers.jsonl")
 _CHASE_OFFER_EVIDENCE_LOG = Path("logs/chase-offers.jsonl")
 _CHASE_CONFLICT_LEDGER = Path("logs/chase-conflicts.jsonl")
+_ORPHAN_BOUT_LEDGER = Path("logs/orphan-bouts.jsonl")
 _CHASE_GENESIS_LEDGER = Path("logs/chase-genesis.jsonl")
 
 
@@ -8909,6 +8910,71 @@ def _append_integrity_evidence(campaign_dir: Path, relative: Path, evidence: dic
         os.fsync(handle.fileno())
 
 
+def _reconcile_orphan_bout(
+    campaign_dir: Path,
+    character: dict[str, Any],
+    investigator_id: str,
+    state: dict[str, Any],
+    rng: random.Random,
+) -> None:
+    """Close a bout of madness no engine owns.
+
+    Until decision:coc7:sanity:check was rewired onto this executor, the graph
+    opened bouts through the advisory `rules.sanity_check` surface. That wrote
+    `bout_active` into save/sanity.json and told this executor nothing, so a
+    campaign can hold a live bout with no `bout_keeper_action` choice behind
+    it. Nothing can then advance or end that bout, and p.157 blocks every
+    further Sanity check while it runs: the family is wedged, and the refusal
+    that names bout-tick as the way out points at a choice that does not
+    exist.
+
+    The bout is not adopted into this executor. Doing so would mean writing an
+    origin command, a revision and a private pending context that no command
+    ever produced -- exactly what `_migrate_schema_v2` already refuses ("schema
+    v2 pending choices cannot be migrated without private context"), and what
+    the bout contract cross-checks on use.
+
+    So it is ended through the session's own `end_bout`, which returns control
+    to the player and leaves the underlying-insanity phase running (p.158).
+    Nothing settled is erased: the SAN loss, the madness table result, the
+    duration and the backstory-amendment suggestion all stay in
+    `bouts_of_madness`; only the ownerless in-progress marker is cleared, and
+    the reconciliation is recorded.
+    """
+    if any(
+        isinstance(row, dict) and row.get("kind") == "bout_keeper_action"
+        for row in (state.get("pending_choices") or {}).values()
+    ):
+        return
+    if not coc_sanity.sanity_snapshot_exists(campaign_dir, investigator_id):
+        return
+    characteristics = (
+        character.get("characteristics")
+        if isinstance(character.get("characteristics"), dict) else {}
+    )
+    skills = character.get("skills") if isinstance(character.get("skills"), dict) else {}
+    session = coc_sanity.SanitySession.load(
+        campaign_dir,
+        investigator_id,
+        int_value=int(characteristics.get("INT", 50)),
+        rng=rng,
+        cm_value=int(skills.get("Cthulhu Mythos", 0)),
+    )
+    if not session.bout_active:
+        return
+    orphan_id = session.active_bout_id
+    rounds_left = int(session.bout_rounds_remaining)
+    session.end_bout()
+    session.save(campaign_dir, strict_mirror=True)
+    _append_integrity_evidence(campaign_dir, _ORPHAN_BOUT_LEDGER, {
+        "investigator_id": investigator_id,
+        "bout_id": orphan_id,
+        "rounds_remaining_when_closed": rounds_left,
+        "reason": "no bout_keeper_action choice owned this bout",
+        "resolution": "ended through SanitySession.end_bout (p.158)",
+    })
+
+
 def _preflight_new_pending_capacity(
     commands_with_hashes: list[tuple[dict[str, Any], str]],
 ) -> None:
@@ -9331,6 +9397,7 @@ def execute_commands(
         campaign_dir=campaign,
         investigator_id=investigator_id,
     )
+    _reconcile_orphan_bout(campaign, character, investigator_id, state, rng)
     if state["pending_choices"] and new_commands_with_hashes and not resolving_pending:
         # Name the choice that is blocking. "resolve the current subsystem
         # choice" tells a Keeper holding no choice list nothing about which
