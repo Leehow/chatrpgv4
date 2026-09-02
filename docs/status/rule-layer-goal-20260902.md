@@ -28,7 +28,17 @@ Track: `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`。造景诊断 lane，真 Grok KP，
 | r37 | 3/3 | 9 | 1 类 | next_decisions 递出的牌被拒 |
 | r38 | 3/3 | 7 | 2 类 | 消息里的 ref 被清洗；requires 被自己的身份规则删空 |
 | r39 | 3/3 | 6 | **0** | 第一轮达标 |
-| r40 | — | — | — | 待记 |
+| r40 | 3/3 | 11 | 1 | `chase:move` 完全不可结算（内核绑 `advance`，执行器要 `move:advance`） |
+| r41 | 3/3 | 12 | 1 | 首次 `bout-end`；追逐走到链尾/屏障时收据被自己的校验器拒 |
+| r42 | 3/3 | **13** | **0** | 首次 `start → move → move`，追逐族可玩 |
+| r43 | 3/3 | 6 | 1 | `involuntary_kind` 拒绝不报 enum 成员 |
+| r44 | 3/3 | 8 | **0** | enum 修复生效（Keeper 猜 `flee_impulse`，一次拿到全部六项） |
+| r45 | 3/3 | 6 | **0** | **连续第二轮达标 → 停止条件满足** |
+
+**结论：连续两轮（r44、r45）满足全部三条，按既定停止条件收工。**
+剩余失败全部落在下面「非宿主责任」那一节列举的类别里，无新类别出现。
+
+耗时 228–318 秒对 180 秒预算——**仍未达标**，这是明确未完成的一项。
 
 `rules.context` 调用数 r37→r38 从 12 降到 7：续接授权省下的往返。
 
@@ -40,6 +50,9 @@ Track: `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`。造景诊断 lane，真 Grok KP，
 - `8210c8d1` settle-ending 金丝雀缩到仍然开着的三个字段
 - `2fea8a5a` ref 从消息串移回 details（Pi 会把规范 id 从错误散文里删掉）；`requires` 从「以字段名为键的 map」改成字符串列表（键名是身份字段，值是散文，被 ref 语法判死）
 - `58e9da65` 提示词点名 `settle_form` 是参数权威，并说明标识语法表不是字段菜单
+- `940ea2ac` `chase:move` 绑定改成执行器接受的 `move:advance`（槽位全 host-locked，Keeper 无从补救）
+- `b5598e61` + `6cb309b5` 「没前进的前进」收据（链尾 / 屏障阻挡）获得自己的精确契约；伪造判定改为**证据绑定**（对照重放位置与地点链），比原来「连真货一起拒」更强
+- `c2466263` `involuntary_kind` 拒绝列出全部六个成员，并说明如何表达「没有非自愿动作」
 
 ## 判定为「非宿主责任」的（附理由）
 
