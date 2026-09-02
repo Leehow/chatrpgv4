@@ -537,6 +537,14 @@ one player (this session), one turn at a time through the repo's own
     `invalid_semantic_input` naming the requirement); the entirely-wrong shape
     is silent.
 
+    There is no second door. `rules.social_adjudicate` does accept a full
+    `leverage` array -- "resolved player-known sources and distinct groups
+    count once, capped at two" -- but `coc_discover` answers it with
+    `policy_forbidden: operation rules.social_adjudicate is not on a KP
+    surface`. The card path is the Keeper's only route to a social
+    adjudication, and `supporting_action.level` is that route's only leverage
+    channel.
+
     This is finding 23 again in a different subsystem: a capability the Keeper
     cannot name is one it does not have. Here a leverage level the Keeper
     cannot express is one the player cannot earn -- and the module's rescue
