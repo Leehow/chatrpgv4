@@ -983,6 +983,15 @@ def install_to_campaign(
     scenario_dir.mkdir(parents=True, exist_ok=True)
     for fname in SCENARIO_FILES:
         shutil.copy2(src_dir / fname, scenario_dir / fname)
+    # The optional IR files travel with the install for the reason
+    # `_copy_registered_scenario` already states: a registered clue graph whose
+    # handout-linked clues lose their card store validates as broken at the
+    # target. This loop was missing here while the sibling copier had it, so
+    # installing a module with a handout clue produced a campaign whose
+    # scenario could not pass its own validation.
+    for fname in coc_starter.STARTER_OPTIONAL_SCENARIO_FILES:
+        if (src_dir / fname).is_file():
+            shutil.copy2(src_dir / fname, scenario_dir / fname)
     sidecars = discover_optional_scenario_sidecars(src_dir)
     for fname in sidecars:
         shutil.copy2(src_dir / fname, scenario_dir / fname)
