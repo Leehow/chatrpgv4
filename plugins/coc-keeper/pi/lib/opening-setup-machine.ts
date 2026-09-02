@@ -823,6 +823,60 @@ export function createOpeningSetupMachineMethods(
   // Rejection text for a create attempt the gate refused. Returns null when the
   // attempt is not an investigator.create the caller should explain, so the
   // caller falls back to the retained route.
+  /**
+   * Say why a listed allowed_action was refused.
+   *
+   * `opening_gate.allowed_actions` names what the Keeper may call while the
+   * hard gate holds, and each of those has an exact argument contract in
+   * `openingSetupCharacterInvocation`. When the arguments do not match, the
+   * call fell through to the generic "unavailable while the Pi opening setup
+   * hard gate is active" plus a dump of the retained route -- which does not
+   * say what was wrong with a call the card itself invited. Seen live on
+   * 2026-09-02: the Keeper called `setup.adopt_source_facts` with only
+   * `campaign_id`, was told the gate was active, and had nothing to correct.
+   */
+  allowedActionArgumentRejection(this: any,
+    params: JsonObject,
+    state: OpeningSetupState,
+  ): string | null {
+    if (!this.characterSetupAllowed(state)) return null;
+    if (state.characterSetupComplete) return null;
+    const operation = String(params.operation ?? "");
+    const args = objectOrNull(params.arguments);
+    const campaignId = state.route.campaign_id;
+    if (params.campaign !== undefined && params.campaign !== campaignId) {
+      return null;
+    }
+    if (operation === "setup.adopt_source_facts") {
+      if (args !== null && exactKeysMatch(args, ["campaign_id", "facts"])
+        && args.campaign_id === campaignId
+        && objectOrNull(args.facts) !== null) {
+        return null;
+      }
+      const present = args === null ? "none" : Object.keys(args).sort().join(", ");
+      return (
+        "setup.adopt_source_facts takes exactly campaign_id and facts; this "
+        + `call carried ${present || "no arguments"}. `
+        + `campaign_id must be ${JSON.stringify(campaignId)} and facts must `
+        + "be the opening fast-facts object the typed schema describes -- an "
+        + "empty or absent facts object is not a source adoption."
+      );
+    }
+    if (operation === "setup.investigator_contract") {
+      if (args !== null && exactKeysMatch(args, ["campaign_id"])
+        && args.campaign_id === campaignId) {
+        return null;
+      }
+      const present = args === null ? "none" : Object.keys(args).sort().join(", ");
+      return (
+        "setup.investigator_contract takes exactly campaign_id "
+        + `(${JSON.stringify(campaignId)}); this call carried `
+        + `${present || "no arguments"}.`
+      );
+    }
+    return null;
+  },
+
   openingInvestigatorCreateRejection(this: any,
     params: JsonObject,
     state: OpeningSetupState,
@@ -2423,6 +2477,33 @@ export function createOpeningSetupMachineMethods(
       params, state,
     );
     if (createRejection !== null) return createRejection;
+    const allowedActionRejection = this.allowedActionArgumentRejection(
+      params, state,
+    );
+    if (allowedActionRejection !== null) return allowedActionRejection;
+    // `opening_source_review_required` does not advance through any Keeper
+    // operation: the source coordinator must review and rebind first. The
+    // generic refusal dumped the retained route, whose `next_operation` is
+    // null in this phase, so a Keeper reading it correctly concluded there
+    // was nothing to call -- and the dispatch it actually needs lives in a
+    // DIFFERENT call it had no reason to make. Seen live on 2026-09-02:
+    // campaign too-many-1920 sat here while the Keeper tried every action the
+    // card listed and never once called coc_capabilities.
+    if (state.route.phase === "opening_source_review_required") {
+      return (
+        `${String(params.operation || "coc_invoke")} is unavailable until the `
+        + "opening source coordinator has visually reviewed and rebound the "
+        + "player-facing opening window. No Keeper operation advances this "
+        + "phase. Spawn exactly one context-free "
+        + "`coc-opening-source-coordinator` with fork_turns=none and one bare "
+        + "`coc.codex-opening-source-task.v1` object: call `coc_capabilities` "
+        + "and copy `data.cold_start.opening_source_coordinator.task_static` "
+        + "verbatim, adding every `task_variable_fields` entry; both fields in "
+        + "`pdf_identity_before_dispatch` must be present before dispatch. "
+        + "Tell the player it is running and wait for its result -- do not "
+        + "retry this operation, and do not fall back to a built-in starter."
+      );
+    }
     return (
       `${String(params.operation || "coc_invoke")} is unavailable while the `
       + "Pi opening setup hard gate is active; follow this exact retained "
