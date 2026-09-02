@@ -4067,6 +4067,17 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       "rescuer_id", "rule_ref", "rule_refs", "wound_id",
       // Who a combat exchange targeted — the Keeper narrates with it.
       "target_actor_id",
+      // A chase settlement carries the session it opened and the features of
+      // the route it runs through. None were declared, so the first chase
+      // this system ever started — canonical state written, chase.json
+      // active, Corbitt as pursuer — reached the Keeper as
+      // semantic_identity_unavailable. It retried, went stale, and finalized
+      // a turn that had in fact begun a chase it could not see. Every value
+      // is composed of authored slugs: chase_id is
+      // `chase:<scene>:<quarry>-vs-<pursuer>`, and the vehicle refs are an
+      // actor id and a catalog key.
+      "chase_id", "vehicle_actor_id", "vehicle_key",
+      "barrier_id", "hazard_id", "action_id", "choice_id",
     ],
     ["request_digest"],
     ["command_id", "source_command_id", "state_refs"],
