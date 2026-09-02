@@ -319,10 +319,16 @@ def test_the_play_prompt_teaches_the_intent_vocabulary():
 def test_each_card_states_the_arguments_that_settle_it(campaign_ws):
     """rules.settle takes one flat semantic_inputs schema whose property map is
     the union of every slot of every decision — legal for the tool, wrong for
-    the decision. Observed live: settling decision:coc7:combat:flee, whose only
-    model-owned slot is an OPTIONAL candidate_ref, the Keeper passed
-    `source_ref` — another family's key, in the union, so the schema accepted
-    it and the graph rejected it."""
+    the decision. Observed live: settling decision:coc7:combat:flee, which
+    takes no model-owned slot at all, the Keeper passed `source_ref` — another
+    family's key, in the union, so the schema accepted it and the graph
+    rejected it.
+
+    flee listed an optional `candidate_ref` until 2026-09-02. Nothing consumed
+    it: `_canonical_combat_binding` binds it for attack and maneuver only, and
+    combat.resolve refuses an affordance or target outright for any other
+    action. The card advertised it, the Keeper sent it, and two host-authored
+    statements told it the opposite thing (r36)."""
     envelope = _context(campaign_ws, family="combat")
     forms = {
         card["decision_ref"]: card["settle_form"]
@@ -334,7 +340,7 @@ def test_each_card_states_the_arguments_that_settle_it(campaign_ws):
     }
     # nothing to invent: the id is the only thing the Keeper must supply
     assert flee["missing_arguments"] == ["decision_id"]
-    assert flee["optional_arguments"] == ["candidate_ref"]
+    assert flee.get("optional_arguments", []) == []
     assert "source_ref" not in json.dumps(flee)
 
     attack = forms["decision:coc7:combat:attack"]

@@ -183,12 +183,18 @@ def test_combat_is_source_accepted_for_the_full_chapter_and_weapon_rules():
     # into the chase family's Part 1, which assumes exactly that escape route.
     # The reviewer identity names the original family review AND the
     # amendment, so the earlier review is not silently re-attested.
+    # Moved 2026-09-02 again: decision:coc7:combat:flee no longer declares a
+    # `candidate_ref` nothing consumed. `_canonical_combat_binding` binds it
+    # for attack and maneuver only, and combat.resolve refuses an affordance
+    # or target outright for any other action -- so the card advertised an
+    # input two other host-authored statements always refused.
     assert review["accepted_shard_digest"] == (
-        "d5d25219ebfe3e0e5a9b63da11fa56c4ed8b2fc0212d723c23c32ef4f4e61138"
+        "c96a605c4586cc850375a4fc278aec7b75517eb5c4b338616706d22d28796d59"
     )
     assert review["reviewer_identity"] == (
         "codex-worker-combat-end-slot-review-20260831-v2"
         "+claude-flee-continues-as-chase-20260902"
+        "+claude-flee-drops-unconsumed-candidate-ref-20260902"
     )
     assert review["source"]["file_sha256"] == gen.FILE_SHA256
     assert review["source"]["bundle_sha256"] == (
@@ -345,8 +351,12 @@ def test_sanity_is_source_accepted_with_one_precise_runtime_blocker():
     assert review["accepted_shard_digest"] == (
         "4906a5ca5b0526693a9c999defae1173e3c0c70149a76820c4a9f7b7ec7b4362"
     )
+    # 35f7aa45 rewired this family's check onto sanity.execute without marking
+    # the identity, which re-attested the original review over an engine
+    # change it never saw. Named now.
     assert review["reviewer_identity"] == (
         "codex-worker-sanity-applicability-review-20260831-v2"
+        "+claude-sanity-check-opens-bouts-through-the-executor-20260902"
     )
     assert review["source"]["file_sha256"] == gen.FILE_SHA256
     assert review["source"]["bundle_sha256"] == (

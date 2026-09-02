@@ -3,7 +3,7 @@
   "schema_version": 1,
   "ruleset_id": "coc7",
   "family_id": "sanity",
-  "reviewer_identity": "codex-worker-sanity-applicability-review-20260831-v2",
+  "reviewer_identity": "codex-worker-sanity-applicability-review-20260831-v2+claude-sanity-check-opens-bouts-through-the-executor-20260902",
   "review_status": "accepted",
   "source": {
     "source_id": "pdf:coc7-keeper-rulebook-40th",
