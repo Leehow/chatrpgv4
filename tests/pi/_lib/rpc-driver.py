@@ -85,7 +85,17 @@ import threading
 import time
 import uuid
 
-ROOT = Path(__file__).resolve().parent
+# The workspace this driver serves. It defaults to the directory the driver
+# lives in, which is what the unit-test (bare) mode wants. A live playtest runs
+# from a repository worktree instead, and pointing this at that worktree is what
+# keeps ONE tracked copy serving both -- without it the only way to drive a
+# campaign from a checkout was to copy this file there, which is exactly the
+# divergence the launch-configuration work removed and which recurred on
+# 2026-09-02: an untracked copy at a worktree root, already several fixes
+# behind, drove a whole night of acceptance turns.
+ROOT = Path(
+    os.environ.get("RPC_WORKSPACE") or Path(__file__).resolve().parent
+).resolve()
 EVIDENCE = ROOT / os.environ.get("RPC_EVIDENCE_DIR", "evidence")
 FIFO = EVIDENCE / "rpc-control.fifo"
 PID = EVIDENCE / "rpc-daemon.pid"
@@ -1363,7 +1373,12 @@ def _launch_plan(environ: dict) -> tuple[list[str], dict[str, str]]:
     """
     home_bin = str(Path.home() / ".local/bin")
     overrides = {
-        "PI_CODING_AGENT_DIR": str(ROOT / "agent-home"),
+        # The agent home defaults to the playtest-workspace layout. A repository
+        # worktree keeps it at `.pi/coc-agent` instead, so an explicit value from
+        # the caller wins -- the same environment-driven rule the launch shape
+        # already follows, and what lets one tracked driver serve both layouts.
+        "PI_CODING_AGENT_DIR": environ.get("PI_CODING_AGENT_DIR")
+        or str(ROOT / "agent-home"),
         "COC_HOST": "pi",
         "PATH": home_bin + os.pathsep + environ.get("PATH", ""),
         "COC_KEEPER_ENV_FILE": str(Path.home() / ".config/coc-keeper/secrets.env"),

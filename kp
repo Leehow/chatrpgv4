@@ -7,8 +7,17 @@
 #   ./kp key <名字> 放一把 key(不回显,不进终端历史)
 set -e
 cd "${0:A:h}"
+
+# ONE tracked driver serves every workspace. RPC_WORKSPACE points it at this
+# worktree instead of its own directory; an untracked copy at this root is
+# exactly the divergence the driver's own docstring warns about, and which
+# recurred on 2026-09-02.
+DRIVER="tests/pi/_lib/rpc-driver.py"
+export RPC_WORKSPACE="$PWD"
 export RPC_EVIDENCE_DIR="${RPC_EVIDENCE_DIR:-.rpc-evidence-run3}"
-export COC_PI_CAMPAIGN_ID="${COC_PI_CAMPAIGN_ID:-amaranthine-run3}"
+export PI_COC_LAUNCHER="$PWD/plugins/coc-keeper/pi/bin/pi-coc"
+export PI_CODING_AGENT_DIR="$PWD/.pi/coc-agent"
+export PI_COC_CAMPAIGN_ID="${PI_COC_CAMPAIGN_ID:-${COC_PI_CAMPAIGN_ID:-amaranthine-run3}}"
 
 case "$1" in
   key)
@@ -22,6 +31,7 @@ d[os.environ['P']]={'type':'api_key','key':os.environ['K']}
 p.write_text(json.dumps(d,indent=2)+chr(10))
 print('已写入',os.environ['P'],'凭据')"
     unset K
+    exit 0
     ;;
   ""|list)
     python3 -c "
@@ -33,37 +43,21 @@ for name,p in d['providers'].items():
     mark='✓' if name in auth else '  (缺 key)'
     for m in (p.get('models') or [])[:6]:
         print(f\"  {mark} {name}/{m['id']}\")"
+    exit 0
     ;;
-  glm)  MODEL=zai-coding-cn/glm-5.2;         THINK=off ;;
+  # Thinking level travels with the model on the LAUNCHER's own command line,
+  # so no settings.json rewrite is needed: pi validates the pair it is given.
+  glm)   MODEL=zai-coding-cn/glm-5.2;        THINK=off ;;
   glm53) MODEL=zai-coding-cn/glm-5.3-flash;  THINK=off ;;
-  grok) MODEL=xai/grok-4.5;                  THINK=low ;;
-  *)    MODEL="$1" ;;
+  grok)  MODEL=xai/grok-4.5;                 THINK=low ;;
+  *)     MODEL="$1";                         THINK="${2:-off}" ;;
 esac
 
-if [[ -n "$MODEL" ]]; then
-  # Thinking level travels with the model: pi refuses to start when the
-  # session default names a level the model does not support (it will not
-  # silently clamp). glm-5.3-flash supports only "off"; grok-4.5 takes "low".
-  # Provider, model and thinking level are written together. pi validates the
-  # REMEMBERED model against the session's thinking level at startup and
-  # refuses rather than silently clamping, so setting the level alone bricks
-  # the launch: the new level is judged against the old model.
-  if [[ -n "$THINK" ]]; then
-    THINK="$THINK" MODEL="$MODEL" python3 -c "
-import json,os,pathlib
-p=pathlib.Path('.pi/coc-agent/settings.json')
-d=json.loads(p.read_text())
-provider,_,model=os.environ['MODEL'].partition('/')
-d['defaultProvider']=provider
-d['defaultModel']=model
-d['defaultThinkingLevel']=os.environ['THINK']
-p.write_text(json.dumps(d,indent=2)+chr(10))"
-  fi
-  uv run --frozen python rpc-driver.py stop >/dev/null 2>&1 || true
-  rm -f "$RPC_EVIDENCE_DIR/rpc-control.fifo" "$RPC_EVIDENCE_DIR/rpc-daemon.pid"
-  uv run --frozen python rpc-driver.py start >/dev/null
-  sleep 3
-  uv run --frozen python rpc-driver.py set-model "$MODEL" 2>&1 | grep -q '"success": true' \
-    && echo "已切到 $MODEL,可以继续玩了" \
-    || { echo "切换失败: $MODEL"; exit 1; }
-fi
+export PI_COC_MODEL="$MODEL" PI_COC_THINKING="$THINK"
+uv run --frozen python "$DRIVER" stop >/dev/null 2>&1 || true
+rm -f "$RPC_EVIDENCE_DIR/rpc-control.fifo" "$RPC_EVIDENCE_DIR/rpc-daemon.pid"
+uv run --frozen python "$DRIVER" start >/dev/null
+sleep 3
+uv run --frozen python "$DRIVER" set-model "$MODEL" 2>&1 | grep -q '"success": true' \
+  && echo "已切到 $MODEL (thinking $THINK),可以继续玩了" \
+  || { echo "切换失败: $MODEL"; tail -2 "$RPC_EVIDENCE_DIR/pi-stderr.log" 2>/dev/null; exit 1; }

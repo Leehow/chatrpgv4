@@ -27,3 +27,7 @@ archives/**/*.tar.gz
 # Local scratch / playtest workspaces — do not commit
 tmp/
 .scratch/
+
+# Live playtest evidence: retained in the workspace, never committed (see
+# docs/status/module-pipeline-unification-stage-b.md). Hundreds of MB per run.
+.rpc-evidence-*/
