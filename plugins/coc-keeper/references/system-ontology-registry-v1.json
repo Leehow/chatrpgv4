@@ -1652,7 +1652,7 @@
       "graph_ids": [
         "graph:module:the-haunting"
       ],
-      "reason": "The production The Haunting ModuleGraph is available, but its authored module.haunting.* rules have no Rule/Decision semantic id that is exactly equal to one in the production coc7 RuleGraph, which now carries all ten source-accepted families; no Module-to-Rule instance is claimed."
+      "reason": "Slice W3 measured all seven unique module.haunting.* authored mechanism identities (eleven occurrences) in the production The Haunting ModuleGraph against the ten-family production coc7 RuleGraph and judged each one module-specific: none adopts a coc7 Rule/Decision semantic, so no uses-rule edge is drawn. The weak-floor Luck/Jump cascade, the own-dagger kill exception, the damaged Liber Ivonis read, Flesh Ward, Animate Body, the floating knife MP upkeep, and the conclusion SAN reward each invoke or bound rule mechanics without adopting them, which ADR 0003 decision 4 excludes. Landing a uses-rule edge would also require the authored payload rule_ref to equal the target semantic id, and these rule_refs are runtime-pinned provenance identifiers (authored_operation payloads splatted into rules requests, development.settle roll and event logs, and rules-json source_rule_id rows asserted verbatim by tests), so any future alignment that renames them is a behavior slice, not an ontology edit. See docs/status/module-rule-alignment-haunting.md."
     },
     {
       "graph_kind": "rule",
