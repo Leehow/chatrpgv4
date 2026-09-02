@@ -64,6 +64,43 @@ const row = granted.out.settlement.result.adjudication.leverage[0];
 assert.equal(row.source_ref, "clue:clue-crown-slab-heraldry");
 assert.equal(row.leverage_id, "support:clue:clue-crown-slab-heraldry");
 
+// The GRANTED row the resolver actually returns carries a resolved companion
+// with the host's proof digest. `rules.social_adjudicate` and
+// `rules.psychology_observe` declare `record_digest` integrity; `rules.settle`
+// reaches the same resolver through the rule-graph card and did not, so the
+// first fix here passed its own test and still collapsed live. Only a granted
+// row carries it -- an adjudication that gives the player nothing has no
+// resolved row at all -- which is exactly why it survived that fix.
+const resolved = project({
+  settlement: {
+    result: {
+      adjudication: {
+        leverage: LEVERAGE,
+        resolved_leverage: [{
+          kind: "clue",
+          identifier: "clue-crown-slab-heraldry",
+          player_known: true,
+          source_ref: "clue:clue-crown-slab-heraldry",
+          record_digest: `sha256:${"a".repeat(64)}`,
+        }],
+        leverage_delta: 1,
+        final_difficulty: "hard",
+      },
+    },
+  },
+});
+assert.deepEqual(
+  resolved.unmapped.filter((u) => (u.path ?? "").includes("resolved")),
+  [],
+  "the resolved leverage row must not collapse the envelope",
+);
+const resolvedRow = resolved.out.settlement.result.adjudication.resolved_leverage[0];
+assert.equal(resolvedRow.identifier, "clue-crown-slab-heraldry");
+assert.ok(
+  !("record_digest" in resolvedRow),
+  "the proof digest is host evidence: declared integrity, stripped from the model view",
+);
+
 // The empty case, which always worked, still works.
 assert.deepEqual(project(adjudication([])).unmapped, []);
 

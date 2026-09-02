@@ -4140,7 +4140,15 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       "chase_id", "vehicle_actor_id", "vehicle_key",
       "barrier_id", "hazard_id", "action_id", "choice_id",
     ],
-    ["request_digest"],
+    // `record_digest` is the host's proof that a resolved leverage/motive row
+    // really names the record it claims. `rules.social_adjudicate` and
+    // `rules.psychology_observe` both declare it integrity; `rules.settle`
+    // reaches the same resolver through the rule-graph card and did not, so a
+    // GRANTED leverage row collapsed the whole envelope here while the same
+    // row projected fine through the direct operation. Only the granted case
+    // carries it, which is why this survived the first fix: an adjudication
+    // that gave the player nothing has no resolved row at all.
+    ["request_digest", "record_digest"],
     ["command_id", "source_command_id", "state_refs"],
   )],
   // `state.npc_update` had no entry at all, so even `npc_id` — the most
