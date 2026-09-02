@@ -1109,6 +1109,19 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
       "live_turn"
     ]
   },
+  "setup.player_vocabulary": {
+    "advisory": false,
+    "audience": "setup",
+    "contract": "none",
+    "discovery": "surface",
+    "execution_class": "serial_campaign",
+    "kp_surface": "setup",
+    "phases": [
+      "cold_start",
+      "opening",
+      "live_turn"
+    ]
+  },
   "setup.quick_start": {
     "advisory": false,
     "audience": "setup",
@@ -1858,6 +1871,7 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "setup.investigator_contract",
     "setup.invoke",
     "setup.phase",
+    "setup.player_vocabulary",
     "setup.quick_start"
   ],
   "state": [

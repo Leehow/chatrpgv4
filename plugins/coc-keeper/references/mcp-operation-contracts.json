@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:85f6cb0d7dc91e6b1c68eacfc6c247c430aa11e3b73b298eec148e87c843aab3",
+  "content_sha256": "sha256:97e1418f57a698649e415332636fbdf4090bb05b5ad7d4c9c68654e3efbb6a2b",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 148,
+  "operation_count": 149,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -6298,6 +6298,57 @@
         ]
       },
       "summary": "Read the single derived opening lifecycle phase for one campaign: module_preparation, character_creation, ready_for_table, or active, with the source sub-phase detail, the canonical next operation, and any blocking reason. Use this instead of inferring setup progress from files, party listings, or failed-call envelopes."
+    },
+    "setup.player_vocabulary": {
+      "access": "mutation",
+      "canonical_operation": "setup.player_vocabulary",
+      "description": "Supply the player-visible vocabulary this campaign renders itself with, in the table's own language. Two kinds of key share one map: a bare key is rulebook terminology the module and Keeper both use (`Spot Hidden`), and a `chrome.` key is host render furniture only the finalizer emits (`chrome.change_tag`). The prefix is what stops one overwriting the other, and a misspelled `chrome.` key is rejected rather than ignored, because ignoring it leaves the table one label short of complete forever. The receipt reports chrome coverage rather than success: a partial vocabulary renders some words in this language and the rest in English. Languages with a built-in table (zh-Hans, en-US, ja-JP) are already complete and need this only to override a specific label. Canonical operation `setup.player_vocabulary`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "campaign_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "type": "string"
+          },
+          "entries": {
+            "additionalProperties": true,
+            "description": "vocabulary map: bare keys are rulebook terms, `chrome.<label>` keys are host render furniture. Values are the player-visible strings in this campaign's language",
+            "type": "object"
+          },
+          "language": {
+            "description": "language tag to write under; defaults to the campaign's play_language",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "entries"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": false,
+      "policy": {
+        "advisory": false,
+        "audience": "setup",
+        "contract": "none",
+        "discovery": "surface",
+        "kp_surface": "setup",
+        "phases": [
+          "cold_start",
+          "opening",
+          "live_turn"
+        ]
+      },
+      "summary": "Supply the player-visible vocabulary this campaign renders itself with, in the table's own language. Two kinds of key share one map: a bare key is rulebook terminology the module and Keeper both use (`Spot Hidden`), and a `chrome.` key is host render furniture only the finalizer emits (`chrome.change_tag`). The prefix is what stops one overwriting the other, and a misspelled `chrome.` key is rejected rather than ignored, because ignoring it leaves the table one label short of complete forever. The receipt reports chrome coverage rather than success: a partial vocabulary renders some words in this language and the rest in English. Languages with a built-in table (zh-Hans, en-US, ja-JP) are already complete and need this only to override a specific label."
     },
     "setup.quick_start": {
       "access": "mutation",

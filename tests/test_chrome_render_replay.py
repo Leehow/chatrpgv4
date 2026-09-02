@@ -431,3 +431,90 @@ def test_the_writer_reports_incompleteness_rather_than_declaring_success():
     )
     assert report["chrome_coverage"]["complete"] is False
     assert report["chrome_coverage"]["substituted"] is True
+
+
+# ---------------------------------------------------------------------------
+# The model-facing entrance
+# ---------------------------------------------------------------------------
+
+def test_a_campaign_can_be_given_its_own_language_through_the_operation(tmp_path):
+    """End to end: create a fr-FR campaign, supply chrome, render French.
+
+    Every piece of this existed separately before the operation landed -- the
+    renderer read overrides, the writer validated them, the campaign persisted
+    them -- and none of it was reachable by anything a Keeper could call. This
+    is the test that would have failed on all four earlier commits.
+    """
+    import coc_state
+    import coc_toolbox
+
+    coc_state.ensure_workspace(tmp_path)
+    coc_state.create_campaign(
+        tmp_path, "fr-table", "Table Francaise", play_language="fr-FR",
+    )
+    result = coc_toolbox.run_tool(
+        "setup.player_vocabulary", tmp_path, "fr-table", {
+            "campaign_id": "fr-table",
+            "entries": {
+                "chrome.change_tag": "Changement",
+                "chrome.condition_delta": "état : {action} « {condition} »",
+                "chrome.condition_action_added": "ajouté",
+            },
+        },
+    )
+    assert result["ok"] is True, result
+    assert result["data"]["written"] == 3
+
+    stored = json.loads(
+        (tmp_path / ".coc" / "campaigns" / "fr-table" / "campaign.json")
+        .read_text(encoding="utf-8")
+    )["localized_terms"]["fr-FR"]
+    assert coc_turn._render_state_delta(
+        {
+            "effect_kind": "condition", "action": "added",
+            "condition": "prone", "effect_id": "e",
+        },
+        play_language="fr-FR", terms=stored,
+    ) == "【Changement】état : ajouté « prone »"
+
+
+def test_the_operation_warns_that_a_partial_vocabulary_mixes_languages(tmp_path):
+    """Three of ninety-one is not a French table, and the receipt must say so."""
+    import coc_state
+    import coc_toolbox
+
+    coc_state.ensure_workspace(tmp_path)
+    coc_state.create_campaign(
+        tmp_path, "fr-partial", "Partielle", play_language="fr-FR",
+    )
+    result = coc_toolbox.run_tool(
+        "setup.player_vocabulary", tmp_path, "fr-partial", {
+            "campaign_id": "fr-partial",
+            "entries": {"chrome.change_tag": "Changement"},
+        },
+    )
+    assert result["ok"] is True, result
+    assert result["data"]["chrome_coverage"]["complete"] is False
+    assert any("mix languages" in hint for hint in result.get("hints") or []), (
+        "a partial vocabulary must be reported, not returned as plain success"
+    )
+
+
+def test_the_operation_rejects_a_misspelled_chrome_key(tmp_path):
+    """A typo at the entrance, not one label short of complete forever."""
+    import coc_state
+    import coc_toolbox
+
+    coc_state.ensure_workspace(tmp_path)
+    coc_state.create_campaign(
+        tmp_path, "fr-typo", "Typo", play_language="fr-FR",
+    )
+    result = coc_toolbox.run_tool(
+        "setup.player_vocabulary", tmp_path, "fr-typo", {
+            "campaign_id": "fr-typo",
+            "entries": {"chrome.chagne_tag": "Changement"},
+        },
+    )
+    assert result["ok"] is False
+    assert result["error"]["code"] == "invalid_param"
+    assert "unknown chrome label" in result["error"]["message"]
