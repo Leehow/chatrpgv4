@@ -43,9 +43,17 @@ function semanticViewFor(data) {
   const registry = createSemanticIdentityRegistry();
   const scope = { sessionEpoch: 1, campaign: "recorded", playerTurnEpoch: 1 };
   const result = data?.settlement?.result ?? {};
-  const rows = [result, result.bound_check, result.check].filter(
-    (row) => row && typeof row === "object",
-  );
+  // The host registers every roll a settlement carries, wherever it sits —
+  // combat exchanges nest theirs under results[] and events[]. Walk the whole
+  // settled result the way the extension's `rules.settle` branch does.
+  const rows = [];
+  const walk = (value) => {
+    if (Array.isArray(value)) { for (const v of value) walk(v); return; }
+    if (!value || typeof value !== "object") return;
+    rows.push(value);
+    for (const v of Object.values(value)) walk(v);
+  };
+  walk(result);
   for (const row of rows) {
     const register = (canonicalId, facts) => {
       if (typeof canonicalId !== "string" || !canonicalId.trim()) return;

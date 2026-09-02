@@ -4638,7 +4638,7 @@
               ],
               "provenance": {
                 "authority": "source_authored",
-                "basis": "Stat block, skills, spells, armor rule and Sanity loss are printed verbatim on page 459 (Walter Corbitt, Undead Fiend). The floating dagger's damage and impale line are printed on page 456."
+                "basis": "Stat block, skills, spells, armor rule and Sanity loss are printed verbatim on page 459 (Walter Corbitt, Undead Fiend). The floating dagger's damage and impale line are printed on page 456. Printed armor rule (p.459): \"Each point of armor reduces the damage received by 1 point. Corbitt has cast Flesh Ward already: roll 2D6 for his armor. Reduce his armor by one point for each point of damage he suffers.\" — the per-damage degradation is the armor_rule enum; the 2D6 initial value is rolled by the flesh-ward preparation."
               },
               "fields_observed": [
                 "characteristics.STR",
@@ -4755,7 +4755,7 @@
                   "Summon/Bind Dimensional Shambler"
                 ],
                 "san_loss_to_see": "1/1D8 Sanity points to see him move",
-                "armor_rule": "Each point of armor reduces the damage received by 1 point. Corbitt has cast Flesh Ward already: roll 2D6 for his armor. Reduce his armor by one point for each point of damage he suffers."
+                "armor_rule": "degrades_1_per_damage"
               }
             }
           }
@@ -5864,7 +5864,7 @@
                     "actor_id": "walter-corbitt",
                     "monster_ref": "Walter Corbitt",
                     "side": "monster",
-                    "combat_skill": 90,
+                    "combat_skill": 50,
                     "dodge_skill": 17,
                     "magic_points": 18,
                     "weapons": [
@@ -5926,7 +5926,7 @@
                     "actor_id": "walter-corbitt",
                     "monster_ref": "Walter Corbitt",
                     "side": "monster",
-                    "combat_skill": 90,
+                    "combat_skill": 50,
                     "dodge_skill": 17,
                     "magic_points": 18,
                     "weapons": [

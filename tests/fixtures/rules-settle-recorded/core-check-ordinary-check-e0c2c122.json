@@ -1,0 +1,59 @@
+{
+  "decision_ref": "decision:coc7:core-check:ordinary-check",
+  "family": "core-check",
+  "status": "settled",
+  "rule_refs": [
+    "rule:coc7:core-check:canonical-target-binding",
+    "rule:coc7:core-check:combined",
+    "rule:coc7:push-luck:luck-roll"
+  ],
+  "investigator_id": "inv-thomas-hayes-096fee77",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "bound_check": {
+        "base_target": 30,
+        "target": 30,
+        "required_level": "regular",
+        "difficulty": "regular",
+        "required_target": 30,
+        "effective_target": 30,
+        "achieved_level": "failure",
+        "passed": false,
+        "success": false,
+        "surplus_levels": 0,
+        "outcome": "failure",
+        "bonus": 0,
+        "penalty": 0,
+        "roll": 77,
+        "unmodified_roll": 77,
+        "tens_values": [],
+        "units": null,
+        "investigator_id": "inv-thomas-hayes-096fee77",
+        "skill": "Dodge",
+        "target_source": "explicit",
+        "pushed": false,
+        "goal": "break free of Corbitt claw and bolt through the passage up the cellar stairs toward the front door",
+        "stakes": {
+          "on_success": "reach the ground floor ahead of the thrashing undead",
+          "on_failure": "claw rakes or trip on stairs, Corbitt closes"
+        },
+        "difficulty_basis": "environment",
+        "push_eligible": false,
+        "roll_id": "toolbox-gate9-depth-09-000011"
+      },
+      "outcome": "failure",
+      "pushed": false,
+      "next_continuations": [
+        "decision:coc7:push-luck:luck-spend"
+      ]
+    }
+  },
+  "next_decisions": [],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:97ee2644a31f89a33133e417a8b163fbc5f1f9580901bd8fa29eb9f5293cb851"
+}

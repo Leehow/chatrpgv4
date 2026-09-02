@@ -4568,7 +4568,10 @@ def test_combat_resolve_uses_compiled_module_npc_mechanics(campaign_ws):
         row for row in result["data"]["combat"]["participants"]
         if row["actor_id"] == "npc-walter-corbitt"
     )
-    assert pinned["combat_skill"] == 90
+    # p.459 of the bound source prints "Fighting 50% (Hard 25%/Extreme10%)";
+    # the 90 this used to pin was the affordance spec lifting STR/POW instead
+    # of the printed skill line.
+    assert pinned["combat_skill"] == 50
     assert pinned["dodge_skill"] == 17
     assert pinned["mechanics_revision_ref"]["authority"] == "source_authored"
     assert pinned["mechanics_revision_ref"]["stable_id"] == (
@@ -4910,7 +4913,13 @@ def test_floating_knife_roll_keeps_authored_pow_semantics(campaign_ws):
     )
     turn = turn_event["turn"]
     assert turn["defense_kind"] == "dodge"
-    assert turn["opposed_outcome"] == "tie_defender_wins"
+    # p.459 prints Corbitt's Fighting at 50%; the executor rolls the knife
+    # through `combat_skill`, and POW is never an attack skill here (it only
+    # feeds SAN). The old pin of `tie_defender_wins` encoded the affordance
+    # spec's mistaken 90 — STR/POW lifted into combat_skill — under which the
+    # attacker's 74 was a success. At the printed 50 it is a failure against
+    # the defender's regular 22: the defender is simply higher.
+    assert turn["opposed_outcome"] == "defender_higher"
     assert turn["outcome"] == "miss"
     assert turn["damage_roll_id"] is None
     assert resolved["data"]["player_state_receipt"]["hp"] == {
@@ -4918,8 +4927,9 @@ def test_floating_knife_roll_keeps_authored_pow_semantics(campaign_ws):
         "after": 12,
     }
     percentile_rolls = turn_event["roll_evidence"]
+    # Same seeds, same faces; only the attacker's target moved 90 -> 50.
     assert [row["achieved_level"] for row in percentile_rolls] == [
-        "regular", "regular",
+        "failure", "regular",
     ]
     assert [row["roll"] for row in percentile_rolls] == [74, 22]
     knife_rolls = [
@@ -4929,7 +4939,8 @@ def test_floating_knife_roll_keeps_authored_pow_semantics(campaign_ws):
         and row.get("payload", {}).get("skill") == "POW"
     ]
     assert len(knife_rolls) == 1
-    assert knife_rolls[0]["payload"]["target"] == 90
+    # Printed Fighting 50% (p.459), not the STR/POW-lifted 90 this once pinned.
+    assert knife_rolls[0]["payload"]["target"] == 50
 
 def test_cli_list_prints_parseable_json():
     proc = subprocess.run(

@@ -1,0 +1,56 @@
+{
+  "decision_ref": "decision:coc7:core-check:ordinary-check",
+  "family": "core-check",
+  "status": "settled",
+  "rule_refs": [
+    "rule:coc7:core-check:canonical-target-binding",
+    "rule:coc7:core-check:combined",
+    "rule:coc7:push-luck:luck-roll"
+  ],
+  "investigator_id": "inv-thomas-hayes-096fee77",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "bound_check": {
+        "base_target": 49,
+        "target": 49,
+        "required_level": "regular",
+        "difficulty": "regular",
+        "required_target": 49,
+        "effective_target": 49,
+        "achieved_level": "regular",
+        "passed": true,
+        "success": true,
+        "surplus_levels": 0,
+        "outcome": "regular",
+        "bonus": 0,
+        "penalty": 0,
+        "roll": 27,
+        "unmodified_roll": 27,
+        "tens_values": [],
+        "units": null,
+        "investigator_id": "inv-thomas-hayes-096fee77",
+        "skill": "Climb",
+        "target_source": "explicit",
+        "pushed": false,
+        "goal": "descend the neglected basement stairs without falling",
+        "stakes": {
+          "on_success": "reach the cellar floor intact",
+          "on_failure": "slip on the stairs taking a bruise"
+        },
+        "difficulty_basis": "environment",
+        "roll_id": "toolbox-gate9-depth-09-000006"
+      },
+      "outcome": "regular",
+      "pushed": false,
+      "next_continuations": []
+    }
+  },
+  "next_decisions": [],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:a5f27ab387bb3b813fbed9fadd01a00a0e65374be7b82f985e828c7a06e7376f"
+}

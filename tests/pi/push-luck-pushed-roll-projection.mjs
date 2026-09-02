@@ -210,10 +210,14 @@ assert.equal(
 // empty one it would pass for the wrong reason, since an unregistered roll
 // drops regardless. That distinction is not academic — an unregistered roll
 // is what left a fumbled turn unjournalable at a live table.
-assert.equal(
-  Object.hasOwn(boundCheck, "roll_id"),
-  false,
-  "a settled roll's canonical id stays host-side even once registered",
+// 33290a09 gives graph-settled rolls a live handle: the registered canonical
+// id maps to a `roll:` handle the Keeper can reference, and the raw
+// `toolbox-` id never reaches the model. This pin previously encoded the
+// older host-only contract; the registered path is the real one.
+assert.match(
+  String(boundCheck.roll_id),
+  /^roll:/,
+  "the pushed roll is referenceable through its registered semantic handle",
 );
 // Nothing anywhere in the model view may carry the receipt integrity digest.
 const rendered = JSON.stringify(visible);

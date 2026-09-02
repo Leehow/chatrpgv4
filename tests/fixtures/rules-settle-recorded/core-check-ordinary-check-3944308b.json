@@ -1,0 +1,109 @@
+{
+  "decision_ref": "decision:coc7:core-check:ordinary-check",
+  "family": "core-check",
+  "status": "settled",
+  "rule_refs": [
+    "rule:coc7:core-check:canonical-target-binding",
+    "rule:coc7:core-check:combined",
+    "rule:coc7:push-luck:luck-roll"
+  ],
+  "investigator_id": "inv-thomas-hayes-096fee77",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "bound_check": {
+        "base_target": 50,
+        "target": 50,
+        "required_level": "hard",
+        "difficulty": "hard",
+        "required_target": 25,
+        "effective_target": 25,
+        "achieved_level": "failure",
+        "passed": false,
+        "success": false,
+        "surplus_levels": 0,
+        "outcome": "failure",
+        "bonus": 0,
+        "penalty": 0,
+        "roll": 68,
+        "unmodified_roll": 68,
+        "tens_values": [],
+        "units": null,
+        "investigator_id": "inv-thomas-hayes-096fee77",
+        "skill": "CON",
+        "target_source": "explicit",
+        "pushed": false,
+        "goal": "tear free when grip slackens and outrun Corbitt through cellar and ground floor to the front door",
+        "stakes": {
+          "on_success": "burst out the front door ahead of the undead",
+          "on_failure": "trip or catch on the stairs; Corbitt remains on him inside the house"
+        },
+        "difficulty_basis": "opponent_skill",
+        "operation_opportunities": [
+          {
+            "schema_version": 1,
+            "kind": "open_push_or_context_change",
+            "authority": "advisory",
+            "hard_gate": false,
+            "reason_code": "ordinary_failure_has_unresolved_attempt",
+            "source": {
+              "decision_id": "roll-con-sprint-escape-front-door-v1",
+              "roll_id": "toolbox-gate9-depth-09-000013",
+              "attempt_id": null,
+              "scene_id": null,
+              "route_id": null,
+              "roll_density_group": null
+            },
+            "suggested_operation": {
+              "operation": "rules.context",
+              "invoke_via": "coc_rules",
+              "model_invocable": true,
+              "prefilled_arguments": {
+                "family": "push-luck"
+              },
+              "missing_arguments": [],
+              "reason": "the legacy push operation is host-private for this ruleset; discover the applicable push decision and settle it through rules.settle",
+              "contract_ref": "rules.context@3917db63e82accdf",
+              "discovery_required": false
+            },
+            "attempt_pressure": {
+              "schema_version": 1,
+              "same_goal_no_progress_count": 1,
+              "level": "first_ordinary_failure",
+              "authority": "advisory",
+              "hard_gate": false
+            },
+            "retry_status": {
+              "schema_version": 1,
+              "authority": "advisory",
+              "hard_gate": false,
+              "eligible": false,
+              "policy": null,
+              "status": "no_authored_reset_policy",
+              "reason": "Use the open Push, change method or goal, or let the failed consequence stand."
+            },
+            "alternatives": [
+              "accept the failed result and let its consequence change play",
+              "change the fictional method or goal",
+              "record structured reset_evidence after time, access, position, or circumstances materially change"
+            ]
+          }
+        ],
+        "roll_id": "toolbox-gate9-depth-09-000013"
+      },
+      "outcome": "failure",
+      "pushed": false,
+      "next_continuations": [
+        "decision:coc7:push-luck:pushed-roll",
+        "decision:coc7:push-luck:luck-spend"
+      ]
+    }
+  },
+  "next_decisions": [],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:8b3203f4b9d57e65c0f33f245ff655aea18c97e2f1bc6cdaf6ae66372d1be042"
+}

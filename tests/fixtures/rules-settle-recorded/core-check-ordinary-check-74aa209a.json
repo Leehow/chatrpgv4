@@ -1,0 +1,59 @@
+{
+  "decision_ref": "decision:coc7:core-check:ordinary-check",
+  "family": "core-check",
+  "status": "settled",
+  "rule_refs": [
+    "rule:coc7:core-check:canonical-target-binding",
+    "rule:coc7:core-check:combined",
+    "rule:coc7:push-luck:luck-roll"
+  ],
+  "investigator_id": "inv-thomas-hayes-096fee77",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "bound_check": {
+        "base_target": 30,
+        "target": 30,
+        "required_level": "regular",
+        "difficulty": "regular",
+        "required_target": 30,
+        "effective_target": 30,
+        "achieved_level": "failure",
+        "passed": false,
+        "success": false,
+        "surplus_levels": 0,
+        "outcome": "failure",
+        "bonus": 0,
+        "penalty": 0,
+        "roll": 55,
+        "unmodified_roll": 55,
+        "tens_values": [],
+        "units": null,
+        "investigator_id": "inv-thomas-hayes-096fee77",
+        "skill": "Dodge",
+        "target_source": "explicit",
+        "pushed": false,
+        "goal": "put space between himself and the pursuing corpse-thing and keep moving toward an exit from the cellar ritual chamber",
+        "stakes": {
+          "on_success": "Hayes reaches the far side of the ritual chamber with enough lead to choose stairs, seal attempt, or another desperate move before Corbitt closes",
+          "on_failure": "Corbitt closes the gap in the ritual chamber; furniture or a clawing lunge forces a stop and the pursuit becomes immediate contact again"
+        },
+        "difficulty_basis": "environment",
+        "push_eligible": false,
+        "roll_id": "toolbox-gate9-depth-09-000014"
+      },
+      "outcome": "failure",
+      "pushed": false,
+      "next_continuations": [
+        "decision:coc7:push-luck:luck-spend"
+      ]
+    }
+  },
+  "next_decisions": [],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:71ef215c432d6b0260b995f0c741be9a0cd5cebb00452ea443458d511d6ec69e"
+}

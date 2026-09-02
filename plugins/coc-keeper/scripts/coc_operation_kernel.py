@@ -6775,8 +6775,42 @@ def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
             "build": int(state.get("build", 0)),
             "conditions": list(state.get("conditions") or []),
         }
+    # NPC chase actors come from the same presence authority combat uses:
+    # the authored scene roster PLUS the live presence overlay, minus anyone
+    # the overlay marks elsewhere. Reading only `scene.npc_ids` made a
+    # pursuit structurally impossible the first time it was actually played:
+    # the Keeper marked the pursuer present in the fled-through scene with
+    # `state.npc_presence` — the overlay combat honors — and the chase
+    # candidates ignored it, so `rules.context(chase)` returned no cards
+    # while the fiction had claws on the investigator's coat.
+    try:
+        presence_overlay = _load_npc_presence_document(ctx).get("presence") or {}
+    except (AttributeError, ToolError):
+        # A caller that supplies only world/story_graph (focused runtime
+        # tests, projection probes) has no campaign_dir; the authored scene
+        # roster alone is then the presence authority, exactly as before.
+        presence_overlay = {}
+    npc_candidate_ids: list[str] = []
     for npc_id in (scene.get("npc_ids") or []):
         npc_id = str(npc_id)
+        live = presence_overlay.get(npc_id)
+        if isinstance(live, Mapping) and (
+            live.get("status") != "present"
+            or str(live.get("scene_id") or "") != scene_id
+        ):
+            continue
+        npc_candidate_ids.append(npc_id)
+    for npc_id, live in presence_overlay.items():
+        npc_id = str(npc_id)
+        if npc_id in npc_candidate_ids:
+            continue
+        if (
+            isinstance(live, Mapping)
+            and live.get("status") == "present"
+            and str(live.get("scene_id") or "") == scene_id
+        ):
+            npc_candidate_ids.append(npc_id)
+    for npc_id in npc_candidate_ids:
         npc = _npc_by_id(ctx.npc_agendas, npc_id)
         mechanics = npc.get("mechanics") if isinstance(npc, Mapping) else None
         profile = mechanics.get("profile") if isinstance(mechanics, Mapping) else None
@@ -7625,7 +7659,13 @@ def _canonical_combat_binding(
         "combat_revision": int(combat.get("revision", 0)),
     }
     if action == "end":
-        binding["combat_outcome"] = combat.get("outcome")
+        # No `combat_outcome` here: the graph's end decision declares only
+        # investigator_id / outcome / combat_revision, so this host-locked
+        # extra was rejected as an undeclared slot the moment the subsystem
+        # had recorded an outcome — the second end of a live fight failed
+        # with "host-locked input 'combat_outcome' is not a declared slot"
+        # while the first (outcome still null) had slipped through. The
+        # resolver reads the concluded outcome from combat state itself.
         return binding
     candidate_ref = str(semantic_inputs.get("candidate_ref") or "").strip()
     if action in {"attack", "maneuver"}:
@@ -9618,7 +9658,20 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         mechanics = agenda.get("mechanics") if isinstance(agenda.get("mechanics"), dict) else {}
         mechanics_status = str(mechanics.get("status") or "unresolved")
         if mechanics_status == "authored" and isinstance(mechanics.get("profile"), dict):
-            current_npc_mechanics[str(npc_id)] = deepcopy(mechanics["profile"])
+            # Keeper view of the stat block. Weapon rows keep their names and
+            # numbers but drop the catalog ids: those are ruleset-internal
+            # vocabulary ("claws", "revolver_38_or_9mm") that the model-view
+            # identity grammar rightly refuses, and the first scene that ever
+            # carried an authored NPC profile failed its whole scene.context
+            # on exactly that. The host resolves weapons by id itself; the
+            # Keeper narrates by name.
+            profile_view = deepcopy(mechanics["profile"])
+            weapon_rows = profile_view.get("weapons")
+            if isinstance(weapon_rows, list):
+                for weapon_row in weapon_rows:
+                    if isinstance(weapon_row, dict):
+                        weapon_row.pop("weapon_id", None)
+            current_npc_mechanics[str(npc_id)] = profile_view
         npcs.append({
             "npc_id": npc_id,
             "name": agenda.get("name") or campaign_names.get(str(npc_id)),

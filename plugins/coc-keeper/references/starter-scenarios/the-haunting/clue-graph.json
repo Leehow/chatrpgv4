@@ -250,7 +250,9 @@
           "clue_id": "clue-dooley-macario-madness",
           "delivery": "neighborhood gossip",
           "delivery_kind": "npc_dialogue",
-          "source_npc_ids": ["npc-dooley"],
+          "source_npc_ids": [
+            "npc-dooley"
+          ],
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Dooley says the Macario father went violently mad after an accident, babbling about a haunting form with burning eyes; Mrs. Macario followed him into Roxbury Sanitarium.",
@@ -266,7 +268,9 @@
           "clue_id": "clue-gabriela-night-visitor",
           "delivery": "interview at Roxbury Sanitarium",
           "delivery_kind": "npc_dialogue",
-          "source_npc_ids": ["npc-gabriela-macario"],
+          "source_npc_ids": [
+            "npc-gabriela-macario"
+          ],
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Gabriela describes waking to find 'it' leaning over her; when angry it hurled dishes, and it hated Vittorio most of all.",
@@ -461,7 +465,9 @@
           "clue_id": "clue-vittorio-bible-weapon",
           "delivery": "Vittorio at the sanitarium",
           "delivery_kind": "npc_dialogue",
-          "source_npc_ids": ["npc-vittorio-macario"],
+          "source_npc_ids": [
+            "npc-vittorio-macario"
+          ],
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Vittorio points to a bible passage that is not scripture: 'By his own weapon is the devil worsted!'",
@@ -535,7 +541,9 @@
           "clue_id": "clue-knott-commission",
           "delivery": "opening briefing",
           "delivery_kind": "npc_dialogue",
-          "source_npc_ids": ["npc-steven-knott"],
+          "source_npc_ids": [
+            "npc-steven-knott"
+          ],
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Landlord Steven Knott pays $20/day to examine the Corbitt House, understand the Macario tragedy, and restore the property's name.",
@@ -551,7 +559,9 @@
           "clue_id": "clue-knott-research-leads",
           "delivery": "opening briefing",
           "delivery_kind": "npc_dialogue",
-          "source_npc_ids": ["npc-steven-knott"],
+          "source_npc_ids": [
+            "npc-steven-knott"
+          ],
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Knott points them toward the Boston Globe, the Central Library / Hall of Records, and other paper trails before they rush the house.",
@@ -598,7 +608,9 @@
           "clue_id": "clue-globe-fire-cutoff",
           "delivery": "Ruth Blake aside",
           "delivery_kind": "npc_dialogue",
-          "source_npc_ids": ["npc-ruth-blake"],
+          "source_npc_ids": [
+            "npc-ruth-blake"
+          ],
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Globe files go back no further than a fire in 1878 — earlier Corbitt House mentions are not here.",
@@ -629,7 +641,10 @@
           "clue_id": "clue-burning-eyes-form",
           "delivery": "Dooley / Macario boys",
           "delivery_kind": "npc_dialogue",
-          "source_npc_ids": ["npc-dooley", "npc-gabriela-macario"],
+          "source_npc_ids": [
+            "npc-dooley",
+            "npc-gabriela-macario"
+          ],
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Witnesses speak of a strange man with burning eyes haunting dreams and mad rants alike.",
@@ -645,7 +660,9 @@
           "clue_id": "clue-chapel-ruins-location",
           "delivery": "Dooley directions",
           "delivery_kind": "npc_dialogue",
-          "source_npc_ids": ["npc-dooley"],
+          "source_npc_ids": [
+            "npc-dooley"
+          ],
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "Dooley can point out where the Chapel of Contemplation stood a few blocks away — now rubble and painted signs.",
@@ -661,7 +678,9 @@
           "clue_id": "clue-boys-burning-eyes",
           "delivery": "sanitarium / relatives",
           "delivery_kind": "npc_dialogue",
-          "source_npc_ids": ["npc-gabriela-macario"],
+          "source_npc_ids": [
+            "npc-gabriela-macario"
+          ],
           "visibility": "player-safe",
           "origin": "source",
           "player_safe_summary": "The Macario boys had nightmares of a strange man with burning eyes in their former home.",

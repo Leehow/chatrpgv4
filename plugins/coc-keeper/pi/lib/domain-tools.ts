@@ -894,5 +894,5 @@ export const DOMAIN_TOOL_DESCRIPTIONS: Record<DomainToolName, string> = {
   coc_turn: "Build output context, journal, or hash-bound turn.finalize.",
   coc_setup: "Campaign inspect/create, opening, resume, and source-facts setup.",
   coc_advice: "Optional advisory Director/narration/action suggestions. Never a gate.",
-  coc_subsystem: "Enter or advance combat, chase, sanity, or mechanics.ensure. Player attacks and shots require combat.resolve; never substitute rules.roll.",
+  coc_subsystem: "Resolve one NPC or item into its source-bound mechanics profile (mechanics.ensure). Combat, chase, and sanity are entered through rules.context cards and settled with rules.settle via coc_rules; never substitute a plain skill roll for an attack.",
 };
