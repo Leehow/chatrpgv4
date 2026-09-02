@@ -24,6 +24,7 @@ import coc_fileio
 import coc_language
 import coc_roll
 import coc_exceptional_effects
+import coc_rules_runtime
 import coc_rulesets
 import coc_state_effect_authority
 import coc_text_runtime
@@ -1017,6 +1018,61 @@ def _superseded_roll_ids(campaign_dir: Path) -> set[str]:
     return hidden
 
 
+_GRAPH_OWNED_FAMILY_CACHE: dict[str, frozenset[str]] = {}
+
+
+def _graph_owned_families(ruleset_id: str | None) -> frozenset[str]:
+    """Families the compiled RuleGraph owns at runtime (W1 bridge gate).
+
+    Attachment of ``rule_effect_refs`` is audit-only and must never break
+    finalization: any graph load failure degrades to "nothing is graph
+    owned" and no receipt gains the field.
+    """
+    resolved = ruleset_id or coc_rulesets.DEFAULT_RULESET_ID
+    cached = _GRAPH_OWNED_FAMILY_CACHE.get(resolved)
+    if cached is not None:
+        return cached
+    families: frozenset[str] = frozenset()
+    try:
+        loaded = coc_rules_runtime.load_ruleset_graph(resolved)
+    except Exception:
+        loaded = None
+    if isinstance(loaded, dict) and loaded.get("ok"):
+        owner_map = (loaded.get("graph") or {}).get("family_runtime_ownership") or {}
+        if isinstance(owner_map, dict):
+            families = frozenset(
+                str(family)
+                for family, owner in owner_map.items()
+                if str(owner) == "graph"
+            )
+    _GRAPH_OWNED_FAMILY_CACHE[resolved] = families
+    return families
+
+
+def _settle_rule_effect_refs(
+    tool: str,
+    data: dict[str, Any],
+    *,
+    ruleset_id: str | None,
+) -> list[str] | None:
+    """Public RuleGraph effect refs for one graph-owned settle receipt.
+
+    Returns ``None`` (attach nothing) for non-settle calls, non-graph
+    families, or receipts lacking ``family``/``decision_ref``; otherwise the
+    deterministic public-effect list, which may be empty.  Old receipts
+    without these fields replay byte-identically (no key is added).
+    """
+    if tool != "rules.settle":
+        return None
+    family = str(data.get("family") or "").strip()
+    decision_ref = str(data.get("decision_ref") or "").strip()
+    if not family or not decision_ref:
+        return None
+    if family not in _graph_owned_families(ruleset_id):
+        return None
+    return coc_rules_runtime.public_effect_refs_for_decision(decision_ref)
+
+
 def _project_state_deltas(
     window: list[dict[str, Any]],
     *,
@@ -1039,6 +1095,11 @@ def _project_state_deltas(
         if not decision_id:
             continue
         investigator_id = str(data.get("investigator_id") or args.get("investigator") or "").strip()
+        prior_effect_ids = set(effects)
+        # W1 runtime bridge: graph-owned settle receipts carry their public
+        # RuleGraph effect semantic ids onto every effect this call derives.
+        # Audit field only: effect ids, digests and rendering are untouched.
+        rule_effect_refs = _settle_rule_effect_refs(tool, data, ruleset_id=ruleset_id)
         if tool == "rules.damage" and investigator_id:
             roll_id = str(data.get("roll_id") or "").strip()
             if (
@@ -1401,6 +1462,10 @@ def _project_state_deltas(
             data.get("player_state_receipt"),
             resource_projection_order=resource_projection_order,
         )
+        if rule_effect_refs is not None:
+            for effect_id in effects:
+                if effect_id not in prior_effect_ids:
+                    effects[effect_id]["rule_effect_refs"] = list(rule_effect_refs)
     # Dict insertion order is the canonical successful toolbox-call order from
     # ``window``.  Keep it for non-time effects: effect ids are content hashes
     # and sorting by them can scramble causal chains such as
