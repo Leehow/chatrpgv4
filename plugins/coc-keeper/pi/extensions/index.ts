@@ -7798,6 +7798,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   // journal or finalize because it has nothing to do it with. Real tables are
   // untouched — they never get a do-nothing turn, because the host's startup
   // instruction is delivered with triggerTurn:false.
+  // The lane's own resume prompt arrives as a user message too, so releasing
+  // on "any user message" released it immediately — measured: the lane's first
+  // op was session.resume (the restriction held) and everything after it ran
+  // on the full surface. The host marks its own prompts; only an unmarked one
+  // is the player's. The literal is duplicated in
+  // plugins/coc-keeper/pi/bin/pi_coc_debug_experiment.py and pinned by
+  // tests/pi/debug-lane-resume-surface.mjs.
+  const DEBUG_LANE_HOST_PROMPT_MARKER = "[coc-debug-lane-host-prompt]";
   let debugLaneSawPlayerInput = false;
   const debugLaneResumeOnlySurface = (): string[] | null => {
     if (!debugLaneEnabled() || debugLaneSawPlayerInput) return null;
@@ -14247,7 +14255,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   });
   pi.on("message_start", (event) => {
     if (userMessageText(event.message) === null) return;
-    if (debugLaneEnabled() && !debugLaneSawPlayerInput) {
+    if (
+      debugLaneEnabled()
+      && !debugLaneSawPlayerInput
+      && !(userMessageText(event.message) ?? "").trimStart()
+        .startsWith(DEBUG_LANE_HOST_PROMPT_MARKER)
+    ) {
       // The player's turn has arrived; the lane gets its normal surface back.
       debugLaneSawPlayerInput = true;
       applyKpActiveTools();

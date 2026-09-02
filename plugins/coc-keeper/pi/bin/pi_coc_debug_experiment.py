@@ -56,6 +56,14 @@ _SITUATION_PROMPT_INSTRUCTION = (
     "never invented. Then adjudicate the message as the player's action in that "
     "situation."
 )
+# The lane's own resume prompt reaches the extension as a user message,
+# indistinguishable from the player's, so releasing the resume-only tool
+# surface on "any user message" released it immediately. The host marks its
+# own prompts; only an unmarked one is the player's. The same literal lives in
+# plugins/coc-keeper/pi/extensions/index.ts and is pinned by
+# tests/pi/debug-lane-resume-surface.mjs.
+DEBUG_LANE_HOST_PROMPT_MARKER = "[coc-debug-lane-host-prompt]"
+
 # Operations that mean the Keeper acted for the player. None of them may run
 # while the lane is still waiting for its resume to settle.
 _RESUME_FORBIDDEN_OPERATIONS = frozenset({
@@ -1803,6 +1811,7 @@ class PiRpcLaneAdapter:
                     # it resumed, read the scene, journaled, built an output
                     # context and finalized a turn nobody asked for — measured
                     # 2026-09-02, four separate lanes.
+                    f"{DEBUG_LANE_HOST_PROMPT_MARKER} "
                     "Host debug resume. session.resume must be the first canonical "
                     "campaign operation. Branch only on that session.resume result. "
                     "For awaiting_player, emit no new table prose and wait for the "
