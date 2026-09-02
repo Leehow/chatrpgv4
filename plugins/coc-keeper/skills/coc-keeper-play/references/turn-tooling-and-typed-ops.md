@@ -31,118 +31,118 @@ neighboring namespace (`route:` is not `affordance:`; `claim:` is not `claim-`).
 | --- | --- | --- | --- |
 | `decision_id` | `{prefix}{slug}` with prefix one of the listed DECISION_ID_PREFIXES; or `quick-start:` / `setup-complete:` colon forms; `tN-` on prefixed forms only; `:finalize` on prefixed and colon forms | `roll-persuade-arty-access-v1` | ✗ never `first-impression-arty-wilmot` |
 | `actor_check_ref` | namespace `skill:`, `characteristic:` only | `skill:example-slug` | ✗ never `route:example-slug` |
-| `actor_id` | multi-token semantic slug or namespace `actor:`, `npc:` | `actor:example-slug` | ✗ never `route:example-slug` |
+| `actor_id` | lowercase multi-token semantic slug or namespace `actor:`, `npc:` | `actor:example-slug` | ✗ never `route:example-slug` |
 | `advice_id` | exact handle `storylet:current-advice` or namespace `advice:`, `storylet:` | `storylet:current-advice` | ✗ never `current-advice` |
-| `affordance_id` | multi-token semantic slug or namespace `affordance:` | `affordance:example-slug` | ✗ never `route:example-slug` |
-| `assistant_rescuer_ref` | multi-token semantic slug or namespace `npc:`, `person:`, `actor:` | `npc:example-slug` | ✗ never `route:example-slug` |
-| `base_weapon_id` | multi-token semantic slug or namespace `weapon:`, `item:` | `weapon:example-slug` | ✗ never `route:example-slug` |
-| `campaign_id` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `candidate_id` | multi-token semantic slug or namespace `scene-route:`, `attack:`, `combat-route:`, `combat:`, `storylet-candidate:`, `advice:` | `scene-route:example-slug` | ✗ never `route:example-slug` |
+| `affordance_id` | lowercase multi-token semantic slug or namespace `affordance:` | `affordance:example-slug` | ✗ never `route:example-slug` |
+| `assistant_rescuer_ref` | lowercase multi-token semantic slug or namespace `npc:`, `person:`, `actor:` | `npc:example-slug` | ✗ never `route:example-slug` |
+| `base_weapon_id` | lowercase multi-token semantic slug or namespace `weapon:`, `item:` | `weapon:example-slug` | ✗ never `route:example-slug` |
+| `campaign_id` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `candidate_id` | lowercase multi-token semantic slug or namespace `scene-route:`, `attack:`, `combat-route:`, `combat:`, `storylet-candidate:`, `advice:` | `scene-route:example-slug` | ✗ never `route:example-slug` |
 | `candidate_ref` | exact handle `storylet:current-candidate` or namespace `storylet-candidate:`, `attack:`, `combat-route:` | `storylet:current-candidate` | ✗ never `current-candidate` |
-| `caregiver_id` | multi-token semantic slug or namespace `npc:`, `person:` | `npc:example-slug` | ✗ never `route:example-slug` |
+| `caregiver_id` | lowercase multi-token semantic slug or namespace `npc:`, `person:` | `npc:example-slug` | ✗ never `route:example-slug` |
 | `claim_id` | `{prefix}{slug}` with prefix `claim-`, `agency-` | `claim-sit-notebook-smoke` | ✗ never `sit-notebook-smoke` |
 | `ruling_id` | `{prefix}{slug}` with prefix `ruling:` | `ruling:example-slug` | ✗ never `example-slug` |
-| `clock_id` | multi-token semantic slug or namespace `clock:` | `clock:example-slug` | ✗ never `route:example-slug` |
-| `clue_id` | multi-token semantic slug or namespace `clue:` | `clue:example-slug` | ✗ never `route:example-slug` |
-| `clue_ids` | multi-token semantic slug or namespace `clue:` | `clue:example-slug` | ✗ never `route:example-slug` |
+| `clock_id` | lowercase multi-token semantic slug or namespace `clock:` | `clock:example-slug` | ✗ never `route:example-slug` |
+| `clue_id` | lowercase multi-token semantic slug or namespace `clue:` | `clue:example-slug` | ✗ never `route:example-slug` |
+| `clue_ids` | lowercase multi-token semantic slug or namespace `clue:` | `clue:example-slug` | ✗ never `route:example-slug` |
 | `combined_target_refs` | namespace `skill:`, `characteristic:` only | `skill:example-slug` | ✗ never `route:example-slug` |
-| `commitment_id` | multi-token semantic slug or namespace `commitment:` | `commitment:example-slug` | ✗ never `route:example-slug` |
+| `commitment_id` | lowercase multi-token semantic slug or namespace `commitment:` | `commitment:example-slug` | ✗ never `route:example-slug` |
 | `commitment_ref` | namespace `commitment:` only | `commitment:example-slug` | ✗ never `route:example-slug` |
-| `committed_clue_ids` | multi-token semantic slug or namespace `clue:` | `clue:example-slug` | ✗ never `route:example-slug` |
-| `consuming_roll_id` | multi-token semantic slug or namespace `roll:` | `roll:example-slug` | ✗ never `route:example-slug` |
-| `contract_id` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `decision_ref` | multi-token semantic slug or namespace `decision:` | `decision:example-slug` | ✗ never `route:example-slug` |
-| `delivery_id` | multi-token semantic slug or namespace `delivery:` | `delivery:example-slug` | ✗ never `route:example-slug` |
-| `dependency_ref` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `effect_id` | multi-token semantic slug or namespace `effect:` | `effect:example-slug` | ✗ never `route:example-slug` |
-| `ending_id` | multi-token semantic slug or namespace `ending:` | `ending:example-slug` | ✗ never `route:example-slug` |
-| `entity_refs` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `evidence_ref` | multi-token semantic slug or namespace `evidence:` | `evidence:example-slug` | ✗ never `route:example-slug` |
-| `evidence_refs` | multi-token semantic slug or namespace `evidence:` | `evidence:example-slug` | ✗ never `route:example-slug` |
-| `fallback_archetype_id` | multi-token semantic slug or namespace `archetype:` | `archetype:example-slug` | ✗ never `route:example-slug` |
-| `feasibility_refs` | multi-token semantic slug or namespace `evidence:` | `evidence:example-slug` | ✗ never `route:example-slug` |
-| `flag_id` | multi-token semantic slug or namespace `flag:` | `flag:example-slug` | ✗ never `route:example-slug` |
-| `handout_id` | multi-token semantic slug or namespace `handout:` | `handout:example-slug` | ✗ never `route:example-slug` |
-| `hook_id` | multi-token semantic slug or namespace `hook:` | `hook:example-slug` | ✗ never `route:example-slug` |
-| `ids` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `insight_id` | multi-token semantic slug or namespace `insight:` | `insight:example-slug` | ✗ never `route:example-slug` |
+| `committed_clue_ids` | lowercase multi-token semantic slug or namespace `clue:` | `clue:example-slug` | ✗ never `route:example-slug` |
+| `consuming_roll_id` | lowercase multi-token semantic slug or namespace `roll:` | `roll:example-slug` | ✗ never `route:example-slug` |
+| `contract_id` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `decision_ref` | lowercase multi-token semantic slug or namespace `decision:` | `decision:example-slug` | ✗ never `route:example-slug` |
+| `delivery_id` | lowercase multi-token semantic slug or namespace `delivery:` | `delivery:example-slug` | ✗ never `route:example-slug` |
+| `dependency_ref` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `effect_id` | lowercase multi-token semantic slug or namespace `effect:` | `effect:example-slug` | ✗ never `route:example-slug` |
+| `ending_id` | lowercase multi-token semantic slug or namespace `ending:` | `ending:example-slug` | ✗ never `route:example-slug` |
+| `entity_refs` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `evidence_ref` | lowercase multi-token semantic slug or namespace `evidence:` | `evidence:example-slug` | ✗ never `route:example-slug` |
+| `evidence_refs` | lowercase multi-token semantic slug or namespace `evidence:` | `evidence:example-slug` | ✗ never `route:example-slug` |
+| `fallback_archetype_id` | lowercase multi-token semantic slug or namespace `archetype:` | `archetype:example-slug` | ✗ never `route:example-slug` |
+| `feasibility_refs` | lowercase multi-token semantic slug or namespace `evidence:` | `evidence:example-slug` | ✗ never `route:example-slug` |
+| `flag_id` | lowercase multi-token semantic slug or namespace `flag:` | `flag:example-slug` | ✗ never `route:example-slug` |
+| `handout_id` | lowercase multi-token semantic slug or namespace `handout:` | `handout:example-slug` | ✗ never `route:example-slug` |
+| `hook_id` | lowercase multi-token semantic slug or namespace `hook:` | `hook:example-slug` | ✗ never `route:example-slug` |
+| `ids` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `insight_id` | lowercase multi-token semantic slug or namespace `insight:` | `insight:example-slug` | ✗ never `route:example-slug` |
 | `inspected_source_refs` | `pdf_index-<n>` or namespace `pdf:`, `module:`, `source:`, `handout:` | `pdf:haunting-full` | ✗ never `foo` |
 | `investigator` | exact handle `current-investigator` | `current-investigator` | ✗ never `investigator-1` |
-| `investigator_id` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `investigator_ids` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `item_id` | multi-token semantic slug or namespace `item:` | `item:example-slug` | ✗ never `route:example-slug` |
-| `item_ids` | multi-token semantic slug or namespace `item:` | `item:example-slug` | ✗ never `route:example-slug` |
-| `transcript_ref` | multi-token semantic slug or namespace `transcript:` | `transcript:example-slug` | ✗ never `route:example-slug` |
-| `location_id` | multi-token semantic slug or namespace `location:` | `location:example-slug` | ✗ never `route:example-slug` |
+| `investigator_id` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `investigator_ids` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `item_id` | lowercase multi-token semantic slug or namespace `item:` | `item:example-slug` | ✗ never `route:example-slug` |
+| `item_ids` | lowercase multi-token semantic slug or namespace `item:` | `item:example-slug` | ✗ never `route:example-slug` |
+| `transcript_ref` | lowercase multi-token semantic slug or namespace `transcript:` | `transcript:example-slug` | ✗ never `route:example-slug` |
+| `location_id` | lowercase multi-token semantic slug or namespace `location:` | `location:example-slug` | ✗ never `route:example-slug` |
 | `location_refs` | namespace `scene:` only | `scene:example-slug` | ✗ never `route:example-slug` |
-| `lookup_ref` | multi-token semantic slug or namespace `decision:` | `decision:example-slug` | ✗ never `route:example-slug` |
-| `lost_equipment_ids` | multi-token semantic slug or namespace `item:` | `item:example-slug` | ✗ never `route:example-slug` |
-| `lost_weapon_ids` | multi-token semantic slug or namespace `weapon:` | `weapon:example-slug` | ✗ never `route:example-slug` |
-| `marker_id` | multi-token semantic slug or namespace `marker:` | `marker:example-slug` | ✗ never `route:example-slug` |
+| `lookup_ref` | lowercase multi-token semantic slug or namespace `decision:` | `decision:example-slug` | ✗ never `route:example-slug` |
+| `lost_equipment_ids` | lowercase multi-token semantic slug or namespace `item:` | `item:example-slug` | ✗ never `route:example-slug` |
+| `lost_weapon_ids` | lowercase multi-token semantic slug or namespace `weapon:` | `weapon:example-slug` | ✗ never `route:example-slug` |
+| `marker_id` | lowercase multi-token semantic slug or namespace `marker:` | `marker:example-slug` | ✗ never `route:example-slug` |
 | `matched_affordance_ids` | the exact affordance_id handle copied verbatim from scene.context action_routes[*].affordance_id (namespace `affordance:`); never synthesized from route_id or any bare route id | `affordance:example-slug` | ✗ never `route:example-slug` |
-| `mechanics_ref` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `notebook_entry_ids` | multi-token semantic slug or namespace `notebook:` | `notebook:example-slug` | ✗ never `route:example-slug` |
-| `npc_id` | multi-token semantic slug or namespace `npc:` | `npc:example-slug` | ✗ never `route:example-slug` |
-| `npc_ids` | multi-token semantic slug or namespace `npc:` | `npc:example-slug` | ✗ never `route:example-slug` |
+| `mechanics_ref` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `notebook_entry_ids` | lowercase multi-token semantic slug or namespace `notebook:` | `notebook:example-slug` | ✗ never `route:example-slug` |
+| `npc_id` | lowercase multi-token semantic slug or namespace `npc:` | `npc:example-slug` | ✗ never `route:example-slug` |
+| `npc_ids` | lowercase multi-token semantic slug or namespace `npc:` | `npc:example-slug` | ✗ never `route:example-slug` |
 | `obligation_id` | the exact obligation handle copied verbatim from turn.output_context required_obligation_ids (namespace `roll:`, `first-impression:`, or `sanity_bout:`); when turn.output_context presents no obligations, submit `coverage` as an empty array instead of any placeholder row | `roll:example-slug` | ✗ never `route:example-slug` |
 | `obligation_ids` | the exact obligation handle copied verbatim from turn.output_context required_obligation_ids (namespace `roll:`, `first-impression:`, or `sanity_bout:`); when turn.output_context presents no obligations, submit `coverage` as an empty array instead of any placeholder row | `roll:example-slug` | ✗ never `route:example-slug` |
-| `observable_fact_refs` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `opening_required_npc_ids` | multi-token semantic slug or namespace `npc:` | `npc:example-slug` | ✗ never `route:example-slug` |
-| `opening_required_secret_ids` | multi-token semantic slug or namespace `secret:` | `secret:example-slug` | ✗ never `route:example-slug` |
+| `observable_fact_refs` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `opening_required_npc_ids` | lowercase multi-token semantic slug or namespace `npc:` | `npc:example-slug` | ✗ never `route:example-slug` |
+| `opening_required_secret_ids` | lowercase multi-token semantic slug or namespace `secret:` | `secret:example-slug` | ✗ never `route:example-slug` |
 | `opponent_check_ref` | namespace `npc:` only | `npc:example-slug` | ✗ never `route:example-slug` |
-| `override_id` | multi-token semantic slug or namespace `override:` | `override:example-slug` | ✗ never `route:example-slug` |
+| `override_id` | lowercase multi-token semantic slug or namespace `override:` | `override:example-slug` | ✗ never `route:example-slug` |
 | `pregen_id` | canonical vocabulary token; machine namespaces and opaque tokens rejected | `starter` | ✗ never `job-not-a-pregen` |
-| `presented_roll_ids` | multi-token semantic slug or namespace `roll:` | `roll:example-slug` | ✗ never `route:example-slug` |
-| `price_ref` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `promise_id` | multi-token semantic slug or namespace `promise:` | `promise:example-slug` | ✗ never `route:example-slug` |
+| `presented_roll_ids` | lowercase multi-token semantic slug or namespace `roll:` | `roll:example-slug` | ✗ never `route:example-slug` |
+| `price_ref` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `promise_id` | lowercase multi-token semantic slug or namespace `promise:` | `promise:example-slug` | ✗ never `route:example-slug` |
 | `pursuer_refs` | namespace `investigator:`, `npc:` only | `investigator:example-slug` | ✗ never `route:example-slug` |
 | `quarry_refs` | namespace `investigator:`, `npc:` only | `investigator:example-slug` | ✗ never `route:example-slug` |
-| `quest_id` | multi-token semantic slug or namespace `quest:` | `quest:example-slug` | ✗ never `route:example-slug` |
-| `record_id` | multi-token semantic slug or namespace `record:` | `record:example-slug` | ✗ never `route:example-slug` |
-| `refs` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `rescuer_id` | multi-token semantic slug or namespace `npc:`, `person:` | `npc:example-slug` | ✗ never `route:example-slug` |
-| `rescuer_ref` | multi-token semantic slug or namespace `npc:`, `person:`, `actor:` | `npc:example-slug` | ✗ never `route:example-slug` |
-| `resolution_event_ids` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `resolution_roll_id` | multi-token semantic slug or namespace `roll:` | `roll:example-slug` | ✗ never `route:example-slug` |
-| `revision_event_ref` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `roll_ids` | multi-token semantic slug or namespace `roll:` | `roll:example-slug` | ✗ never `route:example-slug` |
-| `route_id` | multi-token semantic slug or namespace `route:` | `route:example-slug` | ✗ never `affordance:example-slug` |
-| `route_ids` | multi-token semantic slug or namespace `route:` | `route:example-slug` | ✗ never `affordance:example-slug` |
-| `route_ref` | multi-token semantic slug or namespace `route:` | `route:example-slug` | ✗ never `affordance:example-slug` |
-| `route_refs` | multi-token semantic slug or namespace `route:` | `route:example-slug` | ✗ never `affordance:example-slug` |
+| `quest_id` | lowercase multi-token semantic slug or namespace `quest:` | `quest:example-slug` | ✗ never `route:example-slug` |
+| `record_id` | lowercase multi-token semantic slug or namespace `record:` | `record:example-slug` | ✗ never `route:example-slug` |
+| `refs` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `rescuer_id` | lowercase multi-token semantic slug or namespace `npc:`, `person:` | `npc:example-slug` | ✗ never `route:example-slug` |
+| `rescuer_ref` | lowercase multi-token semantic slug or namespace `npc:`, `person:`, `actor:` | `npc:example-slug` | ✗ never `route:example-slug` |
+| `resolution_event_ids` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `resolution_roll_id` | lowercase multi-token semantic slug or namespace `roll:` | `roll:example-slug` | ✗ never `route:example-slug` |
+| `revision_event_ref` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `roll_ids` | lowercase multi-token semantic slug or namespace `roll:` | `roll:example-slug` | ✗ never `route:example-slug` |
+| `route_id` | lowercase multi-token semantic slug or namespace `route:` | `route:example-slug` | ✗ never `affordance:example-slug` |
+| `route_ids` | lowercase multi-token semantic slug or namespace `route:` | `route:example-slug` | ✗ never `affordance:example-slug` |
+| `route_ref` | lowercase multi-token semantic slug or namespace `route:` | `route:example-slug` | ✗ never `affordance:example-slug` |
+| `route_refs` | lowercase multi-token semantic slug or namespace `route:` | `route:example-slug` | ✗ never `affordance:example-slug` |
 | `rule_id` | one of the published narration.review rule ids in the operation schema's enum | `an id copied verbatim from this field's enum` | ✗ never `prose_feels_off` |
-| `ruleset_id` | multi-token semantic slug or namespace `ruleset:` | `ruleset:example-slug` | ✗ never `route:example-slug` |
+| `ruleset_id` | lowercase multi-token semantic slug or namespace `ruleset:` | `ruleset:example-slug` | ✗ never `route:example-slug` |
 | `run_id` | `{prefix}{slug}` with prefix `run-` | `run-example-slug` | ✗ never `example-slug` |
-| `scenario_id` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `scene_id` | multi-token semantic slug or namespace `scene:` | `scene:example-slug` | ✗ never `route:example-slug` |
-| `scope_id` | multi-token semantic slug or namespace `scene:` | `scene:example-slug` | ✗ never `route:example-slug` |
-| `seed_ids` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `scenario_id` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `scene_id` | lowercase multi-token semantic slug or namespace `scene:` | `scene:example-slug` | ✗ never `route:example-slug` |
+| `scope_id` | lowercase multi-token semantic slug or namespace `scene:` | `scene:example-slug` | ✗ never `route:example-slug` |
+| `seed_ids` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
 | `selected_affordance_ids` | the exact affordance_id handle copied verbatim from scene.context action_routes[*].affordance_id (namespace `affordance:`); never synthesized from route_id or any bare route id | `affordance:example-slug` | ✗ never `route:example-slug` |
-| `social_adjudication_ref` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `source_effect_id` | multi-token semantic slug or namespace `roll:`, `state:`, `rule:`, `check:`, `narration_contract:`, `effect:` | `roll:example-slug` | ✗ never `route:example-slug` |
-| `source_event_ids` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `social_adjudication_ref` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `source_effect_id` | lowercase multi-token semantic slug or namespace `roll:`, `state:`, `rule:`, `check:`, `narration_contract:`, `effect:` | `roll:example-slug` | ✗ never `route:example-slug` |
+| `source_event_ids` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
 | `source_id` | `pdf_index-<n>` or namespace `pdf:`, `module:`, `source:`, `handout:` | `pdf:haunting-full` | ✗ never `foo` |
-| `source_ids` | multi-token semantic slug or namespace `roll:` | `roll:example-slug` | ✗ never `route:example-slug` |
+| `source_ids` | lowercase multi-token semantic slug or namespace `roll:` | `roll:example-slug` | ✗ never `route:example-slug` |
 | `source_ref` | exact handle `player_input:current` or namespace `narration_contract:` | `player_input:current` | ✗ never `player_input:other` |
 | `source_refs` | `pdf_index-<n>` or namespace `pdf:`, `module:`, `source:`, `handout:` | `pdf:haunting-full` | ✗ never `foo` |
-| `source_roll_id` | multi-token semantic slug or namespace `roll:` | `roll:example-slug` | ✗ never `route:example-slug` |
-| `source_roll_ids` | multi-token semantic slug or namespace `roll:` | `roll:example-slug` | ✗ never `route:example-slug` |
-| `start_location` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `start_location_id` | multi-token semantic slug or namespace `location:` | `location:example-slug` | ✗ never `route:example-slug` |
-| `subject_id` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `source_roll_id` | lowercase multi-token semantic slug or namespace `roll:` | `roll:example-slug` | ✗ never `route:example-slug` |
+| `source_roll_ids` | lowercase multi-token semantic slug or namespace `roll:` | `roll:example-slug` | ✗ never `route:example-slug` |
+| `start_location` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `start_location_id` | lowercase multi-token semantic slug or namespace `location:` | `location:example-slug` | ✗ never `route:example-slug` |
+| `subject_id` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
 | `subject_ref` | exact handle `pc:current-investigator` | `pc:current-investigator` | ✗ never `pc:inv-other` |
-| `substantive_effect_ids` | multi-token semantic slug or namespace `effect:` | `effect:example-slug` | ✗ never `route:example-slug` |
-| `target_id` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `target_npc_id` | multi-token semantic slug or namespace `npc:` | `npc:example-slug` | ✗ never `route:example-slug` |
+| `substantive_effect_ids` | lowercase multi-token semantic slug or namespace `effect:` | `effect:example-slug` | ✗ never `route:example-slug` |
+| `target_id` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `target_npc_id` | lowercase multi-token semantic slug or namespace `npc:` | `npc:example-slug` | ✗ never `route:example-slug` |
 | `target_ref` | namespace `social-target:`, `psychology-target:` only | `social-target:example-slug` | ✗ never `route:example-slug` |
-| `thread_id` | multi-token semantic slug or namespace `thread:` | `thread:example-slug` | ✗ never `route:example-slug` |
-| `trigger` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
-| `trigger_id` | multi-token semantic slug or namespace `trigger:` | `trigger:example-slug` | ✗ never `route:example-slug` |
-| `trigger_ref` | multi-token semantic slug or namespace `san-trigger:` | `san-trigger:example-slug` | ✗ never `route:example-slug` |
-| `weapon_effect_ids` | multi-token semantic slug or namespace `effect:` | `effect:example-slug` | ✗ never `route:example-slug` |
-| `weapon_effect_refs` | multi-token semantic slug or namespace `effect:` | `effect:example-slug` | ✗ never `route:example-slug` |
+| `thread_id` | lowercase multi-token semantic slug or namespace `thread:` | `thread:example-slug` | ✗ never `route:example-slug` |
+| `trigger` | lowercase multi-token semantic slug (no capitals, no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
+| `trigger_id` | lowercase multi-token semantic slug or namespace `trigger:` | `trigger:example-slug` | ✗ never `route:example-slug` |
+| `trigger_ref` | lowercase multi-token semantic slug or namespace `san-trigger:` | `san-trigger:example-slug` | ✗ never `route:example-slug` |
+| `weapon_effect_ids` | lowercase multi-token semantic slug or namespace `effect:` | `effect:example-slug` | ✗ never `route:example-slug` |
+| `weapon_effect_refs` | lowercase multi-token semantic slug or namespace `effect:` | `effect:example-slug` | ✗ never `route:example-slug` |
 | `weapon_id` | literal `unarmed`, a multi-token semantic slug, or namespace `weapon:`, `item:` | `unarmed` | ✗ never `route:example-slug` |
-| `weapon_ref` | multi-token semantic slug or namespace `weapon:`, `item:` | `weapon:example-slug` | ✗ never `route:example-slug` |
+| `weapon_ref` | lowercase multi-token semantic slug or namespace `weapon:`, `item:` | `weapon:example-slug` | ✗ never `route:example-slug` |
 
 ### A Typical Turn
 

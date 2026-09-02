@@ -8787,8 +8787,12 @@ export function closedIdentityGrammarSpec(
       : RAW_NAMESPACE_ONLY_ECHOED_FIELDS.has(field)
       ? `namespace ${namespaces.map((n) => `\`${n}\``).join(", ")} only`
       : namespaces.length > 0
-      ? `multi-token semantic slug or namespace ${namespaces.map((n) => `\`${n}\``).join(", ")}`
-      : "multi-token semantic slug (no colon namespace)";
+      ? `lowercase multi-token semantic slug or namespace ${namespaces.map((n) => `\`${n}\``).join(", ")}`
+      // The slug grammar is lowercase-only, and saying "multi-token, no colon"
+      // alone left a caller holding `register-trial-A-20260902` -- which
+      // satisfies both stated rules -- with nothing to correct. Name the case
+      // requirement where the value is judged.
+      : "lowercase multi-token semantic slug (no capitals, no colon namespace)";
     // Campaign-09 point of use: a coverage handle is never authored, it is
     // copied verbatim from the presented output context — and a turn with no
     // presented obligations is represented structurally as `coverage: []`,

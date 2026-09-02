@@ -56,3 +56,27 @@ assert.equal(catalog.get("scope_id")?.kind, "echoed",
   "a scope is a scene the host already showed");
 
 console.log("record-ruling-identity: all assertions passed");
+
+// The refusal message has to name the rule that actually refused. A caller
+// holding `register-trial-A-20260902` satisfies "multi-token" and "no colon"
+// and is still refused, so a message naming only those two leaves nothing to
+// correct. That cost a failed playtest and a wrong diagnosis before the real
+// constraint -- lowercase-only -- was found.
+{
+  const catalog = new Map(
+    closedIdentityGrammarCatalog().map((row) => [row.field, row]),
+  );
+  const campaign = catalog.get("campaign_id");
+  if (campaign) {
+    assert.ok(
+      /lowercase/i.test(campaign.acceptedForm),
+      `campaign_id accepted form must name the case rule: ${campaign.acceptedForm}`,
+    );
+  }
+  assert.ok(!accepts("campaign_id", "Register-Trial-Alpha"),
+    "capitals are refused");
+  assert.ok(accepts("campaign_id", "register-trial-alpha"),
+    "the lowercase form is accepted");
+}
+
+console.log("record-ruling-identity: grammar message assertions passed");

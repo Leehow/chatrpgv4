@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:92bebcf34a5d56ae91d763599f6c0d0c947a8aa768fff77cbb7a0d1946cf647f",
+  "content_sha256": "sha256:9973f93f85d92fa35e7428d958c25fe6498e61f920834101fd3639db4facf34e",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -6519,6 +6519,14 @@
           "decision_id": {
             "description": "optional semantic retry identity such as quick-start:the-haunting:attempt-1; retain it unchanged only when retrying the exact same request after an unavailable response. When omitted, canonical runtime owns the stable campaign-scoped semantic decision id",
             "pattern": "^quick-start:[A-Za-z0-9][A-Za-z0-9._:-]{0,130}:attempt-[1-9][0-9]{0,5}$",
+            "type": "string"
+          },
+          "play_register": {
+            "description": "the table's register: 'purist' for philosophical horror where uncovering the truth dooms the seeker, 'pulp' for desperate two-fisted action. Pass it only when the player states a preference; omit it otherwise, because the core rulebook supports the range between them and a guessed pole reads as authored intent",
+            "enum": [
+              "purist",
+              "pulp"
+            ],
             "type": "string"
           },
           "pregen_id": {
