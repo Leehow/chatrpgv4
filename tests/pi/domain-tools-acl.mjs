@@ -332,6 +332,44 @@ assert.equal(
   ),
   "ending",
 );
+// Post-cutover ending: rules.settle on the development end-session decision.
+const endSessionRef = "decision:coc7:development:end-session";
+assert.equal(
+  mod.inferPhaseFromEnvelope(
+    "rules.settle",
+    { ok: true, data: { decision_ref: endSessionRef, status: "settled", settlement: { result: { session_ending: true } } } },
+    "live_turn",
+  ),
+  "ending",
+  "raw settled end-session envelope must move the table to ending",
+);
+assert.equal(
+  mod.inferPhaseFromEnvelope(
+    "rules.settle",
+    { ok: true, data: { decision_ref: endSessionRef, status: "settled", session_ending: true } },
+    "live_turn",
+  ),
+  "ending",
+  "projected end-session envelope must move the table to ending",
+);
+assert.equal(
+  mod.inferPhaseFromEnvelope(
+    "rules.settle",
+    { ok: true, data: { decision_ref: "decision:coc7:core-check:skill", status: "settled" } },
+    "live_turn",
+  ),
+  "live_turn",
+  "an ordinary settlement must not end the session",
+);
+assert.equal(
+  mod.inferPhaseFromEnvelope(
+    "rules.settle",
+    { ok: false, error: { code: "stale_decision_envelope" }, data: { decision_ref: endSessionRef } },
+    "live_turn",
+  ),
+  "live_turn",
+  "a refused end-session settle must not end the session",
+);
 assert.equal(
   mod.inferPhaseFromEnvelope(
     "state.journal",
