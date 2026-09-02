@@ -142,11 +142,12 @@ rather than toward it.
 
 The honest residual limitation, recorded rather than hidden: mechanics chrome
 exists in three languages and silently falls back to English chrome for a
-fourth. Prose is unrestricted; **chrome is not yet.** Closing that means
-resolving the ~77 chrome labels once per campaign and persisting them next to
-`localized_terms`, so rendering stays a deterministic table lookup while the
-language space opens up. That is a real slice with a real design; it is not
-done, and nothing here pretends otherwise.
+fourth. Prose is unrestricted; **chrome is not yet.** That limitation now has a
+specification — `docs/specs/pi-coc-campaign-chrome-vocabulary.md` — which also
+measures a part this document had not: the table's 77 keys are only a third of
+the chrome. Another 45 literals are inline in three renderer functions behind
+nine `if language == "zh-Hans"` branches, and a slice that migrated the table
+alone would leave them. Specified, not built.
 
 ## The replacement mechanism
 
