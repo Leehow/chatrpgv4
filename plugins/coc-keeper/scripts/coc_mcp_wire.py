@@ -73,13 +73,29 @@ RULE_DECISION_BLOCK_FIELDS = frozenset({
 RULE_DECISION_REF_TABLE_FIELDS = frozenset({
     "rule_refs", "source_refs", "resolution",
 })
+# `description` is optional: the authored input-slot sentence saying what the
+# slot wants. Carried, not required -- a slot with no authored description is
+# still a valid row. Without it a slot typed `object` reached the Keeper with
+# no contract at all, and this whitelist is exact-match, so an unregistered key
+# does not degrade: it returns None and drops EVERY card in the block.
 RULE_DECISION_INPUT_FIELDS = frozenset({"name", "owner", "type"})
+RULE_DECISION_INPUT_OPTIONAL_FIELDS = frozenset({"description"})
+RULE_DECISION_INPUT_DESCRIPTION_MAX = 400
 RULE_DECISION_INPUT_OWNERS = frozenset({
     "keeper-semantic", "player-source", "optional-semantic",
 })
+# The authored graph's own slot vocabulary. Five model-facing types were
+# missing -- `enum`, `object`, `array`, `semantic`, `semantic-ref-array`, 20
+# slots across the coc7 ruleset -- and this list is exact-match on a projector
+# that returns None for the WHOLE block on one unmatched row. So any card with
+# an enum or object slot vanished from scene.context entirely, including
+# `social:adjudicate-difficulty`, whose `approach` is an enum and whose
+# `supporting_action` is an object. That is the same failure already recorded
+# a few hundred lines below for `possible_continuations`: one unmatched member
+# drops the entire card rather than degrading it.
 RULE_DECISION_INPUT_TYPES = frozenset({
     "actor-ref", "boolean", "bool", "integer", "int", "number", "scalar",
-    "string",
+    "string", "enum", "object", "array", "semantic", "semantic-ref-array",
 })
 RULE_DECISION_AUTHORITY_FIELDS = frozenset({
     "selection", "execution", "hard_gate",
@@ -1322,11 +1338,21 @@ def _closed_rule_required_inputs(value: Any) -> list[dict[str, str]] | None:
     for raw in value:
         if (
             not isinstance(raw, dict)
-            or set(raw) != RULE_DECISION_INPUT_FIELDS
+            or not RULE_DECISION_INPUT_FIELDS <= set(raw)
+            or not set(raw) <= (
+                RULE_DECISION_INPUT_FIELDS | RULE_DECISION_INPUT_OPTIONAL_FIELDS
+            )
             or not _model_semantic_identifier(raw.get("name"))
             or raw.get("owner") not in RULE_DECISION_INPUT_OWNERS
             or raw.get("type") not in RULE_DECISION_INPUT_TYPES
             or raw["name"] in names
+        ):
+            return None
+        description = raw.get("description")
+        if description is not None and (
+            not isinstance(description, str)
+            or not description.strip()
+            or len(description) > RULE_DECISION_INPUT_DESCRIPTION_MAX
         ):
             return None
         names.add(raw["name"])
@@ -1334,6 +1360,7 @@ def _closed_rule_required_inputs(value: Any) -> list[dict[str, str]] | None:
             "name": raw["name"],
             "owner": raw["owner"],
             "type": raw["type"],
+            **({"description": description.strip()} if description else {}),
         })
     return rows
 

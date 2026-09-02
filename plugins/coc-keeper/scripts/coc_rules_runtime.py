@@ -1076,6 +1076,17 @@ class RulesRuntime:
             canonical = _canonical_slot_name(str(target.get("node_id")))
             node_ownership = props.get("ownership") or "keeper-semantic"
             node_type = props.get("value_type") or "scalar"
+            # The input-slot node carries an authored, evidence-backed
+            # sentence describing what the slot wants. The card projected only
+            # (name, owner, type) and dropped it, so a slot typed `object` --
+            # whose `type` is itself guessed from the slot name -- reached the
+            # Keeper with no contract at all. `supporting_action` is the case
+            # that cost: the Keeper filled a reasonable-looking object, it
+            # adjudicated as level 0, and the player's earned clue granted no
+            # leverage on any of three Extreme rescue checks.
+            node_description = target.get("name")
+            if not isinstance(node_description, str) or not node_description.strip():
+                node_description = None
             existing = slots.get(canonical)
             if existing is not None:
                 # The same logical slot is already declared by the
@@ -1083,12 +1094,15 @@ class RulesRuntime:
                 if existing["type"] in (None, "scalar") and node_type != "scalar":
                     existing["type"] = node_type
                 existing.setdefault("path", props.get("path"))
+                if node_description and not existing.get("description"):
+                    existing["description"] = node_description
                 continue
             slots[canonical] = {
                 "name": canonical,
                 "ownership": node_ownership,
                 "type": node_type,
                 "path": props.get("path"),
+                **({"description": node_description} if node_description else {}),
             }
         return sorted(slots.values(), key=lambda slot: slot["name"])
 
@@ -1127,6 +1141,11 @@ class RulesRuntime:
                     "name": slot["name"],
                     "owner": slot["ownership"],
                     "type": slot["type"],
+                    **(
+                        {"description": slot["description"]}
+                        if slot.get("description")
+                        else {}
+                    ),
                 }
                 for slot in slots
                 if slot["ownership"] in _SEMANTIC_SLOT_OWNERSHIPS
