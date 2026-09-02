@@ -2,7 +2,8 @@
 
 > **Status:** Spec accepted (user-authorized 2026-09-01) — Stage A implemented;
 > Stage B forward path proven on a real module at a live table, natural play
-> partial; Stages C–E pending. Evidence:
+> through five of seven scenes; Stage C repo side implemented and unblocked
+> (外部删除 pending)，且经复核**不阻塞 Stage D**；Stage D/E pending. Evidence:
 > [Stage A](../status/module-pipeline-unification-stage-a.md)、
 > [Stage B](../status/module-pipeline-unification-stage-b.md)。
 > **ID:** `pi-coc-module-source-pipeline-unification`
@@ -252,10 +253,28 @@ shard 经真实模型抽取、独立审查、确定性接受，图 86 节点，�
 到第二回合：一个既有的「大失败 → 特殊影响 → roll handle 失效」引擎缺陷卡住封账，
 与模组投影无关，留给其归属轨。详见 Stage B 状态文档。
 
-### Stage C — L1 迁入仓库 + 渐进统一
+### Stage C — L1 迁入仓库 + 渐进统一（repo side implemented; 外部删除 pending）
 
 structure/sections 规划进 `coc-scenario-import`；OCR 需求走 host-work 请求；
 外部工具删 structure/sections 索引；两套渐进合一（D3）。
+
+**2026-09-01 复核**：仓库侧不是 pending，早已实现且接线——
+`coc_module_sections.py` 拥有 `coc.section-index.v1`（全书 section 索引，
+建在 `coc_source_outline` 的确定性大纲 + 一次受限模型分类之上，其 11 本模组
+语料依据与 D3 同源）、`coc_module_section_requests.py` 造包、
+`coc_module_assets.py` 以 `SECTION_INDEX_TARGET_ID` 接入既有 host-work 生命
+周期。图谱优先构建只吃「parent 撰写的请求 + L0 证据包」，
+`coc_module_graph.py prepare` 的参数即为此；仓库内**没有任何代码消费外部的
+structure/sections 产物**。因此外部那套索引是 Stage D 所删 extract 波次的
+配件，不是本仓库的前置——**Stage D 不被 Stage C 阻塞**。
+
+复核同时发现这条通道在**新模组上根本跑不通**，三道守卫互锁：空实体目录被当成
+「不许命名任何实体」（`or []` 把 absent 压成 empty），于是实体绑定全被拒；
+而 `build_section_index` 另外拒绝空目录下的全 global 答案——两者同时生效时
+新模组无合法答案；队列侧又在目录为空时直接推迟该 pass，于是模组永久无索引而
+队列显示健康。九本模组的怪物数值正躺在这种无边可达的后置章节里，也就是说这条
+通道在它唯一存在的理由上是死的。已修复，`test_section_lane` 等 58 个用例全绿。
+仍待办：外部工具删除其 structure/sections 索引。
 
 ### Stage D — cutover 与删除
 
