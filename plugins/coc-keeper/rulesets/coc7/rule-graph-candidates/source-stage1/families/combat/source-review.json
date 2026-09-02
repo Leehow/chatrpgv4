@@ -3,7 +3,7 @@
   "schema_version": 1,
   "ruleset_id": "coc7",
   "family_id": "combat",
-  "reviewer_identity": "codex-worker-combat-end-slot-review-20260831-v2",
+  "reviewer_identity": "codex-worker-combat-end-slot-review-20260831-v2+claude-flee-continues-as-chase-20260902",
   "review_status": "accepted",
   "source": {
     "source_id": "pdf:coc7-keeper-rulebook-40th",
@@ -37,7 +37,7 @@
     ]
   },
   "accepted_shard_id": "shard:coc7:combat:section-combat-complete-source",
-  "accepted_shard_digest": "dfdcc90660d5a10e55641356934b34a6ed2e95a557748f83fb3ab4ea511fac06",
+  "accepted_shard_digest": "363566d7b39b7078e5793a16eb3bf073302ff1521f35899ecb9f69113c5a9cdb",
   "coverage": "accepted",
   "unresolved_applicable_rules": [],
   "applicability_ledger": [

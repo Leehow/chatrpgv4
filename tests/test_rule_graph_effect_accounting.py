@@ -213,3 +213,57 @@ def test_the_unbound_table_gap_cannot_grow_silently():
         "table in the graph, or record it in rule-graph-table-digests.json "
         "with the reason"
     )
+
+
+# ---------------------------------------------------------------------------
+# Family junctions: a family the fiction reaches must be reachable in the graph.
+# ---------------------------------------------------------------------------
+
+def test_escaping_close_combat_continues_into_a_chase():
+    """Chase had never settled in a live turn. A seeded probe showed why: the
+    Keeper reads a flight as `combat:flee`, and nothing routed that into the
+    chase family. The rulebook joins them on one hinge — combat page 119
+    ("A character can use their action to flee melee combat ... providing they
+    have an escape route"), chase Part 1 ("These rules assume the fleeing
+    character has an escape route"). This pins the two-hop continuation that
+    carries it, in the same shape as the social to push-luck junction."""
+    graph = _graph()
+    runtime_nodes = {node["node_id"] for node in graph["nodes"]}
+    continuation = "continuation:coc7:chase:after-escaping-close-combat"
+    assert continuation in runtime_nodes
+
+    hops = {
+        (relation["from_node_id"], relation["to_node_id"])
+        for relation in graph["relations"]
+        if relation["relation_kind"] == "continues-as"
+    }
+    assert ("decision:coc7:combat:flee", continuation) in hops
+    assert (continuation, "decision:coc7:chase:start") in hops
+
+    # Both hops carry their own side's evidence, never a bare assertion.
+    by_id = {relation["relation_id"]: relation for relation in graph["relations"]}
+    combat_hop = by_id["relation:coc7:combat:flee-continues-as-chase"]
+    chase_hop = by_id["relation:coc7:chase:continuation-start"]
+    assert combat_hop["evidence_span_ids"] == [
+        "span-combat-complete-source-page-119-block-89",
+    ]
+    assert chase_hop["evidence_span_ids"] == [
+        "span-chase-complete-source-page-143-block-3",
+        "span-chase-complete-source-page-143-block-4",
+        "span-chase-complete-source-page-143-block-5",
+    ]
+
+
+def test_the_runtime_walks_the_flee_to_chase_chain():
+    """The graph edge is only useful if the rules runtime follows it."""
+    import json as _json  # noqa: PLC0415
+
+    sys.path.insert(0, str(SCRIPTS))
+    import coc_rules_runtime  # noqa: PLC0415
+
+    runtime = coc_rules_runtime.RulesRuntime(
+        _json.loads(GRAPH.read_text(encoding="utf-8")),
+    )
+    first = runtime._continuations_for("decision:coc7:combat:flee")
+    assert first == ["continuation:coc7:chase:after-escaping-close-combat"]
+    assert runtime._continuations_for(first[0]) == ["decision:coc7:chase:start"]

@@ -4949,10 +4949,25 @@
           "subsystem_kind": "combat"
         },
         "visibility": "keeper-only"
+      },
+      {
+        "audience": "host-internal",
+        "authority": "deterministic",
+        "evidence_span_ids": [
+          "span-combat-complete-source-page-119-block-89"
+        ],
+        "hard_gate": false,
+        "name": "Escaping close combat with an escape route continues into a chase",
+        "node_id": "continuation:coc7:chase:after-escaping-close-combat",
+        "node_kind": "continuation",
+        "properties": {
+          "family_id": "chase"
+        },
+        "visibility": "keeper-only"
       }
     ],
     "receipt": {
-      "candidate_sha256": "d7353ecc035a10305ca171383a503f92627b042aeaff5a0e5130446f9c38d385",
+      "candidate_sha256": "7257f9607838d6620d6104a96f8682348ecaa17ceb763a351bdcb44e5a054ff3",
       "contract_id": "coc.rule-graph-review-receipt.v1",
       "family_id": "combat",
       "packet_sha256": "4480d501cedc9e85669dfa0f9ca7f0d1d4c64508e553942b03d281e356dff9ea",
@@ -4960,7 +4975,7 @@
       "schema_version": 1,
       "section_id": "section-combat-complete-source",
       "shard_id": "shard:coc7:combat:section-combat-complete-source",
-      "shard_sha256": "dfdcc90660d5a10e55641356934b34a6ed2e95a557748f83fb3ab4ea511fac06"
+      "shard_sha256": "363566d7b39b7078e5793a16eb3bf073302ff1521f35899ecb9f69113c5a9cdb"
     },
     "relations": [
       {
@@ -9577,6 +9592,15 @@
         "relation_id": "relation:coc7:combat:weapon-profile-columns-part-of",
         "relation_kind": "part-of",
         "to_node_id": "rule-family:coc7:combat"
+      },
+      {
+        "evidence_span_ids": [
+          "span-combat-complete-source-page-119-block-89"
+        ],
+        "from_node_id": "decision:coc7:combat:flee",
+        "relation_id": "relation:coc7:combat:flee-continues-as-chase",
+        "relation_kind": "continues-as",
+        "to_node_id": "continuation:coc7:chase:after-escaping-close-combat"
       }
     ],
     "ruleset_id": "coc7",

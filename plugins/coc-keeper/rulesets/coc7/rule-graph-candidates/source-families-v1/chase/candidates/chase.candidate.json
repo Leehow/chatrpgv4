@@ -3392,6 +3392,23 @@
         "span-chase-complete-source-page-160-block-50",
         "span-chase-complete-source-page-160-block-51"
       ]
+    },
+    {
+      "node_id": "continuation:coc7:chase:after-escaping-close-combat",
+      "node_kind": "continuation",
+      "name": "Escaping close combat with an escape route continues into a chase",
+      "authority": "deterministic",
+      "audience": "host-internal",
+      "visibility": "keeper-only",
+      "hard_gate": false,
+      "properties": {
+        "family_id": "chase"
+      },
+      "evidence_span_ids": [
+        "span-chase-complete-source-page-143-block-3",
+        "span-chase-complete-source-page-143-block-4",
+        "span-chase-complete-source-page-143-block-5"
+      ]
     }
   ],
   "relations": [
@@ -7237,6 +7254,17 @@
         "span-chase-complete-source-page-160-block-49",
         "span-chase-complete-source-page-160-block-50",
         "span-chase-complete-source-page-160-block-51"
+      ]
+    },
+    {
+      "relation_id": "relation:coc7:chase:continuation-start",
+      "relation_kind": "continues-as",
+      "from_node_id": "continuation:coc7:chase:after-escaping-close-combat",
+      "to_node_id": "decision:coc7:chase:start",
+      "evidence_span_ids": [
+        "span-chase-complete-source-page-143-block-3",
+        "span-chase-complete-source-page-143-block-4",
+        "span-chase-complete-source-page-143-block-5"
       ]
     }
   ]
