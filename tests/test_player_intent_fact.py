@@ -310,3 +310,84 @@ def test_the_play_prompt_teaches_the_intent_vocabulary():
             continue  # director-internal; never Keeper-declared
         assert f"`{intent}`" in prompt, intent
     assert "answers_declared_intent" in prompt
+
+
+# ---------------------------------------------------------------------------
+# The settle form: what to put in the call, per decision.
+# ---------------------------------------------------------------------------
+
+def test_each_card_states_the_arguments_that_settle_it(campaign_ws):
+    """rules.settle takes one flat semantic_inputs schema whose property map is
+    the union of every slot of every decision — legal for the tool, wrong for
+    the decision. Observed live: settling decision:coc7:combat:flee, whose only
+    model-owned slot is an OPTIONAL candidate_ref, the Keeper passed
+    `source_ref` — another family's key, in the union, so the schema accepted
+    it and the graph rejected it."""
+    envelope = _context(campaign_ws, family="combat")
+    forms = {
+        card["decision_ref"]: card["settle_form"]
+        for card in envelope["data"]["cards"]
+    }
+    flee = forms["decision:coc7:combat:flee"]
+    assert flee["prefilled_arguments"] == {
+        "decision_ref": "decision:coc7:combat:flee",
+    }
+    # nothing to invent: the id is the only thing the Keeper must supply
+    assert flee["missing_arguments"] == ["decision_id"]
+    assert flee["optional_arguments"] == ["candidate_ref"]
+    assert "source_ref" not in json.dumps(flee)
+
+    attack = forms["decision:coc7:combat:attack"]
+    assert attack["missing_arguments"] == ["decision_id", "candidate_ref"]
+
+
+def test_the_form_names_only_slots_the_decision_declares(campaign_ws):
+    """A form that named a slot the graph does not declare would send the
+    Keeper straight into unknown_semantic_input, which is the failure the form
+    exists to prevent."""
+    import coc_rules_runtime  # noqa: PLC0415
+
+    graph = json.loads(
+        (
+            ROOT / "plugins/coc-keeper/rulesets/coc7/rule-graph.json"
+        ).read_text(encoding="utf-8")
+    )
+    runtime = coc_rules_runtime.RulesRuntime(graph)
+    decisions = [
+        node["node_id"] for node in graph["nodes"]
+        if node["node_kind"] == "decision"
+    ]
+    assert len(decisions) == 43
+    for decision in decisions:
+        slots = runtime._slots_for(decision)
+        declared = {slot["name"] for slot in slots}
+        form = runtime._settle_form(decision, slots)
+        assert form["prefilled_arguments"]["decision_ref"] == decision
+        named = set(form["missing_arguments"][1:]) | set(
+            form.get("optional_arguments") or []
+        )
+        assert named <= declared, (decision, named - declared)
+        # and every required model-owned slot is asked for
+        required = {
+            slot["name"] for slot in slots
+            if slot["ownership"] in coc_rules_runtime._REQUIRED_SEMANTIC_OWNERSHIPS
+        }
+        assert required <= set(form["missing_arguments"]), decision
+
+
+def test_the_form_survives_transport_within_the_budget(campaign_ws):
+    import coc_mcp_wire as wire  # noqa: PLC0415
+
+    envelope = _context(campaign_ws, family="combat")
+    view = wire.project_envelope(
+        "rules.context", envelope, contract_digest="sha256:test",
+    )
+    size = len(json.dumps(view, ensure_ascii=False).encode("utf-8"))
+    assert size <= wire.MAX_INLINE_BYTES, size
+    cards = view["data"]["cards"]
+    assert cards and all("settle_form" in card for card in cards)
+    flee = next(
+        card for card in cards
+        if card["decision_ref"] == "decision:coc7:combat:flee"
+    )
+    assert flee["settle_form"]["missing_arguments"] == ["decision_id"]
