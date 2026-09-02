@@ -42,6 +42,11 @@ const exitCodes = [];
 const observedCompilerContexts = [];
 const compiledReviews = [];
 let durableSetupCompleteReceipt = null;
+// The host arms the narration.review binding only from a complete output
+// context whose mechanics digest is an exact sha256 (cbabcf05); a label
+// standing in for the digest leaves the binding unarmed and turn identity
+// unattached.
+const noSelectorMechanicsDigest = `sha256:${"5a".repeat(32)}`;
 const hostCompilationReceipt = {
   schema_version: 1,
   contract_id: "coc.pi-state-claim-compilation-receipt.v1",
@@ -50,7 +55,7 @@ const hostCompilationReceipt = {
     campaign_id: campaign,
     turn_id: "turn-no-selector-review-1",
     source_digest: "sha256:no-selector-source-1",
-    mechanics_bundle_sha256: "sha256:no-selector-mechanics-1",
+    mechanics_bundle_sha256: noSelectorMechanicsDigest,
   },
   disposition: "no_claims_detected",
   claims: [],
@@ -191,10 +196,24 @@ const canonicalCall = async (name, params) => {
         turn_id: "turn-no-selector-review-1",
         source_digest: "sha256:no-selector-source-1",
         settlement_snapshot_id: "turn-settlement-v1:no-selector-review-1",
-        mechanics_bundle_sha256: "sha256:no-selector-mechanics-1",
+        mechanics_bundle_sha256: noSelectorMechanicsDigest,
+        // The wire always projects mechanics_summary; the host arms the
+        // narration.review binding only from a complete output context
+        // (cbabcf05), and that binding is what attaches turn identity.
+        mechanics_summary: {
+          public_check: [],
+          state_delta: [],
+          exceptional_effect: [],
+          concealed_consequence: [],
+        },
         contract_projection: {
           agency_review_required: true,
           agency_authority: { pc_subject_refs: [`pc:${investigator}`] },
+          player_input: {
+            source_ref: "player_input:no-selector-review-1",
+            text: "我把刚才发现的线索记进调查日志。",
+          },
+          control_overrides: [],
         },
         agency_review_operation: {
           operation: "narration.review",
@@ -212,6 +231,10 @@ const canonicalCall = async (name, params) => {
       params.arguments.state_claim_compilation,
       hostCompilationReceipt,
     );
+    // A clear review arms the reviewed finalize binding only from the exact
+    // canonical review receipt: turn/source identity, the reviewed draft
+    // digest, and both gates clear (d3c6736a). The host-private compiler
+    // receipt still rides along and must be scrubbed from the model view.
     return {
       ok: true,
       tool: "narration.review",
@@ -219,7 +242,15 @@ const canonicalCall = async (name, params) => {
         schema_version: 1,
         accepted: true,
         review_id: "narration-review:no-selector-review-1",
+        turn_id: "turn-no-selector-review-1",
+        source_digest: "sha256:no-selector-source-1",
         revision: 1,
+        draft_sha256: canonicalJsonSha256(params.arguments.draft_text),
+        findings: [],
+        agency_gate: "clear",
+        state_authority_review: params.arguments.state_authority_review,
+        state_authority_gate: "clear",
+        recommendation: "no_revision_suggested",
         state_claim_compilation: { private: "must-be-scrubbed" },
       },
     };
@@ -1148,11 +1179,13 @@ try {
   assert.equal(compiledReviews[0].arguments.revision, 1);
   assert.equal(compiledReviews[0].arguments.draft_text, reviewDraft);
 
+  // After a clear review the frozen draft is host-bound on the finalize
+  // binding; the model selects semantic spans only ([] when the draft holds
+  // no authorized PC proposition).
   const finalized = await invokeValidated(
     "coc_turn_finalize",
     "finalize",
     {
-      draft: reviewDraft,
       coverage: [],
       agency_claims: [],
     },

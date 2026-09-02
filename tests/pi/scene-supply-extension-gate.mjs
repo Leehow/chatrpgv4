@@ -199,6 +199,9 @@ await invoke.execute("resume", {
   arguments: {},
 }, undefined, undefined, ctx);
 
+// `decision_id` is host-owned for state.move_scene: the gateway derives it
+// from the destination (49aab6ae) and refuses a model-supplied one as
+// `unknown_model_argument`, so the model surface carries only the scene.
 let moveAttempt = 0;
 function move(sceneId) {
   moveAttempt += 1;
@@ -206,7 +209,7 @@ function move(sceneId) {
     operation: "state.move_scene",
     root,
     campaign: "supply-camp",
-    arguments: { scene_id: sceneId, decision_id: `move-${sceneId}-${moveAttempt}` },
+    arguments: { scene_id: sceneId },
   }, undefined, undefined, ctx);
 }
 
@@ -276,9 +279,22 @@ supplies.set("tower-scene", {
   },
 });
 const moved = await move("tower-scene");
-assert.equal(moved.details.ok, true);
+assert.equal(moved.details.ok, true, JSON.stringify(moved.details));
 assert.equal(moved.details.data.scene_supply.cache_hit, true);
 assert.equal(calls.filter((call) => call.params.operation === "state.move_scene").length, 1);
+// The model surface hides the host-owned `decision_id`, so a generic-surface
+// move arrives without one and the canonical operation would refuse it with
+// missing_param — the Keeper would then retry identically, be repeat-blocked,
+// and narrate a transition that never landed. The host attaches the key by
+// provenance, after raw model validation, naming the destination so two
+// different moves in one turn stay distinct and a repeat stays idempotent.
+{
+  const forwardedMove = calls.find(
+    (call) => call.params.operation === "state.move_scene",
+  );
+  assert.equal(typeof forwardedMove.params.arguments.decision_id, "string");
+  assert.match(forwardedMove.params.arguments.decision_id, /tower-scene/);
+}
 
 // A readiness result owned by the old session must become inert if it settles
 // after shutdown/restart: no dispatch cache write, hidden message, audit, or

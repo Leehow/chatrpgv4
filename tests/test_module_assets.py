@@ -3244,8 +3244,21 @@ def test_cli_init_and_lookup(tmp_path: Path):
     assert code == 0
 
 
-def test_resolve_asset_root_id_from_sha():
-    assert assets.resolve_asset_root_id(file_sha256=FAKE_SHA) == f"pdf-{FAKE_SHA[:16]}"
+def test_resolve_asset_root_id_needs_a_readable_name():
+    """A digest-derived root is refused; the Keeper has to be able to read it.
+
+    `asset_root_id` travels into `setup.phase`, `progressive.status` and
+    `session.resume`, all of which declare it semantic, and a 16-character hex
+    token is exactly what the closed identity grammar refuses — so a campaign
+    rooted `pdf-<sha[:16]>` failed those results closed, session.resume
+    included. The root now derives from the bundle's semantic `source_id`,
+    which the bind contract already guarantees is projectable.
+    """
+    with pytest.raises(assets.ModuleAssetsError):
+        assets.resolve_asset_root_id(file_sha256=FAKE_SHA)
+    assert assets.resolve_asset_root_id(
+        file_sha256=FAKE_SHA, source_id="pdf:cold-harvest",
+    ) == "cold-harvest"
     assert assets.resolve_asset_root_id(canonical_module_id="cold-harvest") == "cold-harvest"
 
 

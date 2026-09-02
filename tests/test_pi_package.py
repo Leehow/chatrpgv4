@@ -430,25 +430,34 @@ def test_pi_open_turn_recovery_host_guidance_is_structured_and_pairing_safe():
 
 def test_pi_coc_exposes_subagents_only_on_the_live_kp_surface():
     result = _node(ROOT / "tests/pi/steward-subagent-routing.mjs", str(ROOT))
-    assert result == {
-        "ok": True,
-        "activeTools": [
-            "subagent", "subagent_wait",
-            "coc_source_assets",
-            "coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state",
-            "coc_chargen_delegate",
-            # Path-restricted canonical skill-doc read (skill-doc-read.ts).
-            "read",
-        ],
-    }
+    assert result["ok"] is True
+    # awaiting_player is a closed stage: nothing binds before the first
+    # player message opens the turn.
+    assert result["startupActiveTools"] == []
+    live = result["activeTools"]
+    assert "subagent" in live
+    assert "subagent_wait" in live
+    # Path-restricted canonical skill-doc read (skill-doc-read.ts).
+    assert "read" in live
+    assert "coc_source_assets" in live
+    # Generic wrappers and the host boundary never reach the model surface.
+    for wrapper in ("coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state"):
+        assert wrapper not in live
+    assert "coc_invoke" not in live
 
 
 def test_pi_steward_tools_bind_keeps_child_allowlist_and_typed_role_surface():
     result = _node(ROOT / "tests/pi/steward-tools-bind.mjs", str(ROOT))
     assert result["ok"] is True
     assert result["childSessionSetActiveToolsCalls"] == 0
-    assert "coc_rules" in result["kpActiveTools"]
+    # session_start binds the closed awaiting_player set; the acting surface
+    # binds on the first player message and never shows a generic wrapper or
+    # the retired rules.roll typed name.
+    assert result["startupActiveTools"] == []
+    assert "coc_rules" not in result["kpActiveTools"]
     assert "coc_rules_roll" not in result["kpActiveTools"]
+    assert "coc_setup_inspect" in result["kpActiveTools"]
+    assert result["kpActiveTools"] == result["setupActiveTools"]
     assert "coc_setup_inspect" in result["setupActiveTools"]
     assert "coc_rules" not in result["setupActiveTools"]
     assert "coc_session_resume" in result["playActiveTools"]

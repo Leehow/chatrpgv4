@@ -37,13 +37,34 @@ test("phase activation keeps the restricted skill-doc read active and unrestrict
   }
 });
 
+// RuleGraph cutover: the Keeper rolls through rules.context / rules.settle.
+// The legacy roll family is host-private and must never reach a role surface.
+const RETIRED_TO_HOST = [
+  ["coc_rules", "rules.roll"],
+  ["coc_rules", "rules.push"],
+  ["coc_rules", "rules.psychology_observe"],
+];
+
+test("retired legacy rules operations are host-private, not recovery-gated", async () => {
+  const mod = await loadDomain();
+  for (const phase of ["recovery", "live_turn"]) {
+    for (const [toolName, operation] of RETIRED_TO_HOST) {
+      const denied = mod.evaluateExecuteAcl({ toolName, operation, phase });
+      assert.equal(denied.ok, false, `${phase} ${operation}`);
+      assert.equal(denied.code, "host_private_operation", `${phase} ${operation}`);
+    }
+  }
+});
+
 test("pending non-resume requires recovery binding while schema unions projected tools", async () => {
   const mod = await loadDomain();
-  assert.equal(mod.evaluateExecuteAcl({
-    toolName: "coc_rules",
-    operation: "rules.roll",
-    phase: "recovery",
-  }).code, "recovery_authorization_required");
+  for (const operation of ["rules.settle", "rules.context"]) {
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_rules",
+      operation,
+      phase: "recovery",
+    }).code, "recovery_authorization_required", operation);
+  }
   assert.equal(mod.evaluateExecuteAcl({
     toolName: "coc_turn",
     operation: "state.journal",
@@ -91,13 +112,16 @@ test("pending non-resume requires recovery binding while schema unions projected
   assert.ok(mod.domainToolSchema("coc_turn").properties.operation.enum.includes("state.journal"));
   assert.ok(mod.domainToolSchema("coc_turn").properties.operation.enum.includes("turn.finalize"));
   assert.ok(played.includes("coc_session_resume"));
-  assert.ok(played.includes("coc_rules_roll"));
-  assert.ok(played.includes("coc_rules_psychology_observe"));
+  assert.ok(played.includes("coc_rules_settle"));
+  assert.ok(played.includes("coc_rules_context"));
   assert.ok(played.includes("coc_turn_finalize"));
   assert.ok(played.includes("coc_npc_reaction"));
   assert.ok(!played.includes("coc_rules"));
+  assert.ok(!played.includes("coc_rules_roll"));
+  assert.ok(!played.includes("coc_rules_psychology_observe"));
   assert.ok(!recovery.includes("coc_rules"));
-  assert.ok(!recovery.includes("coc_rules_roll"));
+  assert.ok(!recovery.includes("coc_rules_settle"));
+  assert.ok(!recovery.includes("coc_rules_context"));
   assert.ok(!recovery.includes("coc_turn"));
   assert.notDeepEqual(played, recovery);
 });
@@ -128,14 +152,17 @@ test("already live fallback does not collapse to recovery-only", async () => {
     role: "play",
   });
   const recovery = mod.activeToolsForPhase("recovery", "play");
-  assert.ok(tools.includes("coc_rules_roll"));
-  assert.ok(tools.includes("coc_rules_psychology_observe"));
+  assert.ok(tools.includes("coc_rules_settle"));
+  assert.ok(tools.includes("coc_rules_context"));
   assert.ok(tools.includes("coc_session_resume"));
   assert.ok(!tools.includes("coc_rules"));
+  assert.ok(!tools.includes("coc_rules_roll"));
   assert.notDeepEqual(tools, recovery);
-  assert.equal(mod.evaluateExecuteAcl({
-    toolName: "coc_rules",
-    operation: "rules.roll",
-    phase: "live_turn",
-  }).ok, true);
+  for (const operation of ["rules.settle", "rules.context"]) {
+    assert.equal(mod.evaluateExecuteAcl({
+      toolName: "coc_rules",
+      operation,
+      phase: "live_turn",
+    }).ok, true, operation);
+  }
 });

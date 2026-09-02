@@ -4142,6 +4142,35 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     const properties = objectOrNull(inputSchema?.properties);
     return properties !== null && Object.hasOwn(properties, "campaign");
   };
+  // `decision_id` is declared host-owned for state.move_scene and
+  // state.advance_time, so neither model schema shows it — but the canonical
+  // operations require one. Without a host-supplied value the Keeper fails
+  // the write with missing_param, retries identically, is repeat-blocked,
+  // and narrates a transition that never landed: fiction and authoritative
+  // scene diverge, which is the one outcome the state contract exists to
+  // prevent. Observed on a live table (2026-09-01) and once before it. The
+  // move key names the destination so two different moves in one turn stay
+  // distinct while a repeated identical move stays idempotent. Supplied on
+  // BOTH the typed and generic invoke surfaces, only after raw model
+  // validation, so model input is never confused with host provenance.
+  const hostSceneWriteDecisionId = (
+    operation: string,
+    args: JsonObject,
+  ): string | null => {
+    if (Object.hasOwn(args, "decision_id")) return null;
+    if (operation === "state.move_scene") {
+      const destination = typeof args.scene_id === "string" && args.scene_id.trim()
+        ? args.scene_id.trim()
+        : typeof args.candidate_id === "string" && args.candidate_id.trim()
+          ? args.candidate_id.trim()
+          : "scene";
+      return semanticDecisionId(`state.move_scene:${destination}`);
+    }
+    if (operation === "state.advance_time") {
+      return semanticDecisionId("state.advance_time");
+    }
+    return null;
+  };
   const retainedTypedBindings = new Map<string, TypedToolBindingCard>();
   const currentTypedBindingFactories = new Map<
     string,
@@ -7755,7 +7784,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     } catch { /* working-set audit is best effort */ }
   };
   applyKpActiveTools = () => {
-
+    // A pi-subagents child (PI_SUBAGENT_CHILD=1 on every child it spawns)
+    // loads this ambient package extension too, but owns its own active
+    // surface: the agent's --tools allowlist (steward agents carry
+    // bash/read/grep/find on the host filesystem). Projecting the KP working
+    // set there would wipe that allowlist — at session_start the closed
+    // awaiting_player stage would leave the steward with no tools at all.
+    if (process.env.PI_SUBAGENT_CHILD === "1") return;
     const role = effectiveTypedRole;
     if (operatorSystemInstructionScope !== null) {
       const operationTools = cocSystemInstructionOperations(role)
@@ -10190,6 +10225,30 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           ),
         ));
       }
+      if (
+        typedDefinition.operation === "narration.review"
+        && Object.hasOwn(params, STATE_CLAIM_HOST_FIELD)
+      ) {
+        // The compiler receipt is attached by the host after its own
+        // state-claim compilation. The retained review binding rejects it
+        // as forged, but that binding is armed only once a complete output
+        // context has been observed; before that the canonical surface used
+        // to drop the value silently, so a caller could probe a host-owned
+        // field without ever seeing a refusal. Fail closed regardless of
+        // binding state.
+        return hostFailureResult(hostBindingFailure(
+          typedDefinition.operation,
+          new ToolContractProjectionError(
+            "forged_host_argument",
+            "narration.review state_claim_compilation is the host compiler "
+              + "receipt and is never model-authored",
+            {
+              operation: typedDefinition.operation,
+              fields: [STATE_CLAIM_HOST_FIELD],
+            },
+          ),
+        ));
+      }
       // Raw model-identity validation runs BEFORE any host injection or
       // restoration: host-attached identity reaches arguments only after
       // this gate, by provenance. Model-authored `pi-*` values are always
@@ -10349,43 +10408,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           return hostFailureResult(hostBindingFailure(typedDefinition.operation, error));
         }
       }
-      if (
-        typedDefinition.operation === "state.move_scene"
-        && !Object.hasOwn(params, "decision_id")
-      ) {
-        // `decision_id` is declared host-owned for state.move_scene, so the
-        // model schema hides it — but nothing supplied a value, and the
-        // canonical operation requires one. The Keeper then fails the write,
-        // retries identically, is repeat-blocked, and narrates a transition
-        // that never landed: fiction and authoritative scene diverge, which
-        // is the one outcome the state contract exists to prevent. Observed
-        // on a live table (2026-09-01) and once before it. The key names the
-        // destination so two different moves in one turn stay distinct while
-        // a repeated identical move stays idempotent.
-        const destination = typeof params.scene_id === "string"
-            && params.scene_id.trim()
-          ? params.scene_id.trim()
-          : typeof params.candidate_id === "string" && params.candidate_id.trim()
-          ? params.candidate_id.trim()
-          : "scene";
-        params = {
-          ...params,
-          decision_id: semanticDecisionId(`state.move_scene:${destination}`),
-        };
-      }
-      if (
-        typedDefinition.operation === "state.advance_time"
-        && !Object.hasOwn(params, "decision_id")
-      ) {
-        // The model schema intentionally omits decision_id. A precise scene
-        // card supplies the retained host binding; ordinary unbound time
-        // advances still need the same stable host-owned idempotency key.
-        // Attach it only after raw model validation/binding so model input is
-        // never confused with host provenance.
-        params = {
-          ...params,
-          decision_id: semanticDecisionId("state.advance_time"),
-        };
+      {
+        // A precise scene card supplies the retained host binding; an
+        // ordinary unbound move or time advance still needs the same stable
+        // host-owned idempotency key (see hostSceneWriteDecisionId).
+        const hostDecisionId = hostSceneWriteDecisionId(
+          typedDefinition.operation,
+          params,
+        );
+        if (hostDecisionId !== null) {
+          params = { ...params, decision_id: hostDecisionId };
+        }
       }
       if (armedRecoveryCampaign !== null && !Object.hasOwn(params, "campaign")) {
         // Host-derived routing identity only, so the wrapped envelope names
@@ -10441,12 +10474,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       // closed at the canonical layer.
       if (typedDefinition === undefined && !Object.hasOwn(params, "campaign")) {
         const boundArguments = objectOrNull(params.arguments);
+        // setup.invoke campaign.create is pre-campaign: the campaign it names
+        // does not exist yet, so a transport selector would only try to
+        // hydrate a campaign that cannot be found, and the fresh-setup gate
+        // rightly refuses a selector on this route. The selected identity
+        // travels in the payload alone (exactStartupFreshCampaignCreateInvocation).
+        const preCampaignCreate = (
+          params.operation === "setup.invoke"
+          && boundArguments?.kind === "campaign.create"
+        );
         const argumentCampaign = typeof boundArguments?.campaign_id === "string"
           && boundArguments.campaign_id.trim()
           ? boundArguments.campaign_id.trim()
           : "";
         const boundCampaign = argumentCampaign || canonicalProgressCampaignId;
-        if (boundCampaign) {
+        if (boundCampaign && !preCampaignCreate) {
           params = { ...params, campaign: boundCampaign } as JsonObject;
         }
       }
@@ -10866,6 +10908,24 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             arguments: { ...resumeArgs, host_session_id: hostSessionId } as JsonObject,
           };
         }
+      }
+    }
+    // Host-owned scene-write idempotency key on the generic surface: the
+    // registered envelope hides decision_id for state.move_scene and
+    // state.advance_time (host-owned), so a generic call arrives without one
+    // and the canonical operation would refuse it with missing_param — the
+    // same fiction/state divergence the typed surface already closes.
+    // Attached after raw validation, by provenance, like host_session_id.
+    if (typedDefinition === undefined && isCanonicalInvokeSurface(name)) {
+      const sceneWriteArgs = objectOrNull(params.arguments);
+      const hostDecisionId = sceneWriteArgs === null
+        ? null
+        : hostSceneWriteDecisionId(String(params.operation || ""), sceneWriteArgs);
+      if (hostDecisionId !== null) {
+        params = {
+          ...params,
+          arguments: { ...sceneWriteArgs, decision_id: hostDecisionId } as JsonObject,
+        };
       }
     }
     const startupResumeAttempt = exactStartupResumeInvocation(name, params);

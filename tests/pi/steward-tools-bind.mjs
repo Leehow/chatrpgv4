@@ -5,8 +5,12 @@
 // a pi-subagents child process wiped the agent's own --tools allowlist
 // (bash/read/grep/find) and left the steward without host FS tools.
 //
-// After typed operation tools: setup/play hide generic wrappers and expose
-// operation-specific names; unset role stays on the legacy generic surface.
+// Post-cutover surface: the working set is stage-gated, not role-static.
+// session_start binds the closed awaiting_player set (no tools: the Keeper
+// has no turn to act on yet, and the generic wrappers / coc_invoke never
+// reach the model). The first real player message opens the acting stage
+// and binds the launcher role's typed surface; an unset role is the setup
+// default. A pi-subagents child never has its allowlist touched.
 import "./_lib/preload-embedded-pi.mjs";
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -19,102 +23,136 @@ const domain = await import(
 );
 
 const ROLE_ENV = "COC_PI_SESSION_ROLE";
-const handlers = new Map();
-const activeTools = [];
-const tools = new Map();
-const fakePi = {
-  registerTool: (tool) => tools.set(tool.name, tool),
-  registerCommand() {},
-  registerShortcut() {},
-  on: (name, handler) => handlers.set(name, [...(handlers.get(name) || []), handler]),
-  appendEntry() {},
-  sendMessage() {},
-  setActiveTools: (names) => activeTools.push([...names]),
-  getThinkingLevel: () => "off",
-};
-extension.default(fakePi, {
-  coordinatorEnabled: () => false,
-  welcomeAgentDir: path.join(root, ".pi", "steward-tools-bind-probe"),
-  createClient: () => ({
-    async callTool() { return { ok: true, host: "pi" }; },
-    async close() {},
-  }),
-});
-
-const ctx = {
-  cwd: root,
-  mode: "rpc",
-  model: { provider: "probe", id: "probe" },
-  sessionManager: { getSessionId: () => "steward-tools-bind-probe", getEntries: () => [] },
-  hasUI: false,
-};
-const sessionStartHandlers = handlers.get("session_start") || [];
-const fire = async () => {
-  for (const handler of sessionStartHandlers) {
-    await handler({ reason: "probe" }, ctx);
-  }
-};
-
 const priorChildEnv = process.env.PI_SUBAGENT_CHILD;
 const priorRole = process.env[ROLE_ENV];
-delete process.env.PI_SUBAGENT_CHILD;
 
-const assertNoGenericWrappers = (names, label) => {
+// The launcher role is read once when the extension instance is created, so
+// every role probe boots its own instance against its own fake host.
+function bootInstance(role) {
+  if (role === undefined) delete process.env[ROLE_ENV];
+  else process.env[ROLE_ENV] = role;
+  const handlers = new Map();
+  const activeTools = [];
+  const tools = new Map();
+  const fakePi = {
+    registerTool: (tool) => tools.set(tool.name, tool),
+    registerCommand() {},
+    registerShortcut() {},
+    on: (name, handler) => handlers.set(name, [...(handlers.get(name) || []), handler]),
+    appendEntry() {},
+    sendMessage() {},
+    setActiveTools: (names) => activeTools.push([...names]),
+    getThinkingLevel: () => "off",
+  };
+  extension.default(fakePi, {
+    coordinatorEnabled: () => false,
+    welcomeAgentDir: path.join(root, ".pi", "steward-tools-bind-probe"),
+    createClient: () => ({
+      async callTool() { return { ok: true, host: "pi" }; },
+      async close() {},
+    }),
+  });
+  const ctx = {
+    cwd: root,
+    mode: "rpc",
+    model: { provider: "probe", id: "probe" },
+    sessionManager: { getSessionId: () => "steward-tools-bind-probe", getEntries: () => [] },
+    hasUI: false,
+  };
+  const emit = async (name, event) => {
+    for (const handler of handlers.get(name) || []) {
+      await handler(event, ctx);
+    }
+  };
+  return { activeTools, tools, emit };
+}
+
+const playerMessage = () => ({
+  type: "message_start",
+  message: {
+    role: "user",
+    content: [{ type: "text", text: "我推开门走进去。" }],
+    timestamp: Date.now(),
+  },
+});
+
+const assertNeverOnModelSurface = (names, label) => {
   for (const wrapper of domain.DOMAIN_TOOL_NAMES) {
     assert.ok(!names.includes(wrapper), `${label} must hide generic ${wrapper}`);
   }
+  // rules.roll is host-private after the RuleGraph cutover: its typed name
+  // must not exist on any role surface. coc_invoke is the host boundary.
+  for (const hidden of ["coc_invoke", "coc_rules_roll"]) {
+    assert.ok(!names.includes(hidden), `${label} must hide ${hidden}`);
+  }
 };
 
+const startup = {};
+const acting = {};
+let childSessionSetActiveToolsCalls = null;
+let registered = null;
 try {
-  delete process.env[ROLE_ENV];
-  await fire();
-  assert.equal(activeTools.length, 1, "unset KP session must call setActiveTools exactly once");
-  const unsetActive = activeTools[0];
-  assert.deepEqual(unsetActive, [
-    "subagent", "subagent_wait", "coc_source_assets",
-    "coc_setup", "coc_context", "coc_turn", "coc_rules", "coc_state",
-    "coc_chargen_delegate", "read",
-  ]);
-  assert.ok(unsetActive.includes("read"), "legacy KP surface keeps the restricted canonical skill-doc read active");
-  assert.ok(!unsetActive.includes("coc_rules_roll"), "unset legacy must not activate typed names");
-  assert.ok(!unsetActive.includes("coc_discover"));
-  assert.ok(!unsetActive.includes("coc_invoke"));
+  delete process.env.PI_SUBAGENT_CHILD;
+  for (const role of [undefined, "setup", "play"]) {
+    const label = role ?? "unset";
+    const instance = bootInstance(role);
+    registered = instance.tools;
+    await instance.emit("session_start", { reason: "probe" });
+    assert.equal(
+      instance.activeTools.length,
+      1,
+      `${label} KP session_start must call setActiveTools exactly once`,
+    );
+    assert.deepEqual(
+      instance.activeTools[0],
+      [],
+      `${label} awaiting_player stage is closed: no tools before the first player message`,
+    );
+    await instance.emit("message_start", playerMessage());
+    assert.equal(
+      instance.activeTools.length,
+      2,
+      `${label} first player message must bind the acting working set exactly once`,
+    );
+    startup[label] = instance.activeTools[0];
+    acting[label] = instance.activeTools[1];
+    assertNeverOnModelSurface(acting[label], label);
+    assert.ok(acting[label].includes("read"), `${label} KP surface keeps the restricted canonical skill-doc read active`);
+    assert.ok(acting[label].includes("subagent"), `${label} keeps subagent`);
+    assert.ok(acting[label].includes("subagent_wait"), `${label} keeps subagent_wait`);
+    assert.ok(acting[label].includes("coc_source_assets"), `${label} keeps coc_source_assets`);
+  }
 
-  process.env[ROLE_ENV] = "setup";
-  await fire();
-  const setupActive = activeTools.at(-1);
-  assertNoGenericWrappers(setupActive, "setup");
-  assert.ok(setupActive.includes("read"), "setup KP surface keeps the restricted canonical skill-doc read active");
-  assert.ok(setupActive.includes("coc_setup_inspect"));
-  assert.ok(setupActive.includes("coc_session_resume"));
-  assert.ok(setupActive.includes("coc_rules_roll_dice"));
-  assert.ok(setupActive.includes("coc_chargen_delegate"));
-  assert.ok(setupActive.includes("coc_source_assets"));
-  assert.ok(!setupActive.includes("coc_rules_roll"));
-  assert.ok(!setupActive.includes("coc_npc_reaction"));
-  assert.ok(!setupActive.includes("coc_turn_finalize"));
+  // Unset role is the setup default: the same acting surface.
+  assert.deepEqual(acting.unset, acting.setup);
+  for (const name of [
+    "coc_setup_quick_start", "coc_setup_inspect", "coc_session_resume",
+    "coc_rules_roll_dice", "coc_chargen_delegate",
+  ]) {
+    assert.ok(acting.setup.includes(name), `setup acting surface must expose ${name}`);
+  }
+  for (const name of ["coc_npc_reaction", "coc_turn_finalize", "coc_rules_settle"]) {
+    assert.ok(!acting.setup.includes(name), `setup acting surface must not expose ${name}`);
+  }
 
-  process.env[ROLE_ENV] = "play";
-  await fire();
-  const playActive = activeTools.at(-1);
-  assertNoGenericWrappers(playActive, "play");
-  assert.ok(playActive.includes("read"), "play KP surface keeps the restricted canonical skill-doc read active");
-  assert.ok(playActive.includes("coc_source_assets"));
-  assert.ok(playActive.includes("coc_session_resume"));
-  assert.ok(playActive.includes("coc_setup_inspect"));
-  assert.ok(playActive.includes("coc_rules_roll_dice"));
-  assert.ok(!playActive.includes("coc_setup_complete"));
-  assert.ok(!playActive.includes("coc_chargen_delegate"));
-  assert.ok(!playActive.includes("coc_npc_reaction"));
+  // Play with no campaign bound is resume-first: nothing to adjudicate yet.
+  assert.ok(acting.play.includes("coc_session_resume"));
+  for (const name of [
+    "coc_setup_complete", "coc_setup_quick_start", "coc_chargen_delegate",
+    "coc_npc_reaction", "coc_turn_finalize",
+  ]) {
+    assert.ok(!acting.play.includes(name), `play acting surface must not expose ${name}`);
+  }
 
   process.env.PI_SUBAGENT_CHILD = "1";
-  const beforeChild = activeTools.length;
-  await fire();
+  const child = bootInstance(undefined);
+  await child.emit("session_start", { reason: "probe" });
   assert.equal(
-    activeTools.length,
-    beforeChild,
+    child.activeTools.length,
+    0,
     "subagent child must not trigger setActiveTools (would wipe its allowlist)",
   );
+  childSessionSetActiveToolsCalls = child.activeTools.length;
 } finally {
   if (priorChildEnv === undefined) delete process.env.PI_SUBAGENT_CHILD;
   else process.env.PI_SUBAGENT_CHILD = priorChildEnv;
@@ -122,14 +160,22 @@ try {
   else process.env[ROLE_ENV] = priorRole;
 }
 
-for (const name of ["coc_capabilities", "coc_discover", "coc_invoke", "coc_rules", "coc_rules_roll"]) {
-  assert.ok(tools.has(name), `coc extension must still register ${name}`);
+for (const name of [
+  "coc_capabilities", "coc_discover", "coc_invoke", "coc_rules",
+  "coc_rules_settle", "coc_rules_context", "coc_rules_roll_dice",
+]) {
+  assert.ok(registered.has(name), `coc extension must still register ${name}`);
 }
+assert.ok(
+  !registered.has("coc_rules_roll"),
+  "the retired rules.roll typed tool must not be registered",
+);
 
 process.stdout.write(JSON.stringify({
   ok: true,
-  kpActiveTools: activeTools[0],
-  setupActiveTools: activeTools[1],
-  playActiveTools: activeTools[2],
-  childSessionSetActiveToolsCalls: 0,
+  startupActiveTools: startup.unset,
+  kpActiveTools: acting.unset,
+  setupActiveTools: acting.setup,
+  playActiveTools: acting.play,
+  childSessionSetActiveToolsCalls,
 }));

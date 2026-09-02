@@ -137,7 +137,16 @@ def _validate_binding(
             raise SectionIndexError(
                 f"{prefix}.binding entity requires at least one entity id"
             )
-        if entity_catalog is not None and any(
+        # An absent catalog means the module's entities are not known yet, which
+        # is the normal state on the first classification pass: this lane runs
+        # before anything has parsed the sections that would reveal them. Empty
+        # was being treated as "nothing is permitted" rather than "unconstrained",
+        # and together with the all-global guard in `build_section_index` that
+        # left no legal answer at all — a classifier could neither bind a section
+        # to an NPC nor mark them all global. Nine of eleven surveyed modules
+        # keep their stat blocks in exactly such a section, so the lane could not
+        # do the job it exists for on a fresh module.
+        if entity_catalog and any(
             entity_id.strip() not in entity_catalog.get(str(entity_kind), set())
             for entity_id in entity_ids
         ):
