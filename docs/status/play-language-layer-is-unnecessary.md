@@ -115,6 +115,30 @@ document opens with.
   both use `zh-Hans` campaigns and are actually testing `localized_terms`
   overrides, so their assertions are unchanged.
 
+## Correction: one of the two tables did not earn it
+
+> The section below argued that `TABLE_MECHANICS_LABELS` was load-bearing and
+> should stay hardcoded. That was wrong, and the user pushed back on exactly
+> this: if the point was to stop restricting language, why is chrome still a
+> closed three-language table?
+>
+> The argument rested on `_reject_mechanics_in_draft` proving the Keeper must
+> not author mechanics blocks. It is a **de-duplication** guard —
+> *"rendering the same authoritative roll or state delta twice"* — and receipt
+> validation discards the rendered label text entirely. Determinism does
+> require the labels to be fixed per campaign; it never required them to be
+> hardcoded.
+>
+> It was also worse than a missed opportunity: **ja-JP, a supported language,
+> was rendering English bodies under Japanese tags** for every effect kind
+> behind an inline `if language == "zh-Hans"` branch.
+>
+> Fixed. The labels are consolidated into the table, a campaign can override
+> any of them under a `chrome.` prefix in any language, coverage is reported
+> instead of silently substituted, and `localized_terms` — which had no writer
+> at all, 249 campaigns and 249 empty maps — now has one. See
+> `docs/specs/pi-coc-campaign-chrome-vocabulary.md`.
+
 ## What was deliberately kept, and why it is not the same thing
 
 Two tables survive. **They are not leftovers, and removing them is not a
