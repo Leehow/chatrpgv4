@@ -3,7 +3,8 @@
 > **Status:** Spec accepted (user-authorized 2026-09-01) — Stage A implemented;
 > Stage B forward path proven on a real module at a live table, natural play
 > through five of seven scenes; Stage C repo side implemented and unblocked
-> (外部删除 pending)，且经复核**不阻塞 Stage D**；Stage D/E pending. Evidence:
+> (外部 structure/sections 删除 pending)；**Stage D done 2026-09-02（双脊柱已
+> 消除）**；Stage E pending. Evidence:
 > [Stage A](../status/module-pipeline-unification-stage-a.md)、
 > [Stage B](../status/module-pipeline-unification-stage-b.md)。
 > **ID:** `pi-coc-module-source-pipeline-unification`
@@ -276,11 +277,34 @@ structure/sections 产物**。因此外部那套索引是 Stage D 所删 extract
 通道在它唯一存在的理由上是死的。已修复，`test_section_lane` 等 58 个用例全绿。
 仍待办：外部工具删除其 structure/sections 索引。
 
-### Stage D — cutover 与删除
+### Stage D — cutover 与删除（done 2026-09-02）
 
 graph-backed 模组禁止直抽七文件；外部工具删 `extract.mjs` 与七套
 prompts/validators（教义并入图谱侧 review 清单与本 spec §3-D5）；此后
 七份 IR 只能来自投影。
+
+**已完成。** 外部工具提交 `8707be4`，删除 2165 行：`lib/extract.mjs`、五份
+extract prompts、整个 `validators/` 目录。`extract` 子命令保留为一句指向仓库侧
+图谱路径的拒绝，而不是变成「未知命令」。L0 面（pipeline / pages / inspect /
+route / structure / serve / repair-unreadable）未动——D2 规定它保留的正是这些。
+
+删除前的四项核对：
+
+1. **仓库无消费者**：没有任何代码读 extract 波次的产物。
+2. **无战役依赖**：13 个战役里 7 个有图支撑，5 个直抽产物全部属于
+   《不息的渴望》——而它现在有图，是双脊柱时期的残留而非活依赖。
+3. **工具内自包含**：`extractIR` / `TARGETS` 只被 `extract` 一个子命令 import；
+   `validators/common.py` 只被这五个 validator 使用；五份 prompts 只被
+   `extract.mjs` 引用。
+4. **教义已平移（D5）**：`coc_module_graph.py` 的 `_validate_source_refs` 比被删
+   的 validators 更严——强制每个节点有源证据、按契约白名单校验 ref 键、并核对
+   被引用页面的文字确实哈希成 ref 所声称的值。删除不丢教义。
+
+仓库侧的另一半早已就位：`_materialize_starter_files` 在 starter 目录存在
+`module-graph.json` 时写**投影文本**而非拷贝 committed 文件，所以 the-haunting
+的七份文件已是 parity 夹具而非安装源（parity 逐字节全等）。
+
+**至此双脊柱消除**：一本模组的原文只被语义读一次。
 
 ### Stage F — 模组循环进世界线（抽取侧；运行时半边见世界线 spec）
 
