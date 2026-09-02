@@ -240,6 +240,10 @@ def craft(language: str = "zh-Hans") -> dict[str, Any]:
         # names the beat; the host never guesses it. `gratification` and
         # `bringdown` are the levity dial that no collected library of witty
         # lines can supply, because the question is timing, not material.
+        "play_registers": {
+            row["properties"]["legacy_key"]: row["rationale"]
+            for row in _ordered(_nodes_of_kind("play-register"))
+        },
         "beat_types": {
             row["properties"]["legacy_key"]: {
                 "family": row["properties"]["family"],

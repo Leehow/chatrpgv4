@@ -882,6 +882,34 @@
       }
     },
     {
+      "node_id": "play-register:pulp",
+      "node_kind": "play-register",
+      "plane": "craft",
+      "name": "play register pulp",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "desperate two-fisted action in the Robert E. Howard idiom; investigators are more capable and survival is expected",
+      "origin": "chaosium-call-of-cthulhu-play-styles",
+      "falsifiable_by": "run the same scenario for one arm declared purist and one declared pulp, and ask readers who are not told which arm a turn came from to say which game it reads as. A register that readers cannot tell apart is not carrying anything",
+      "properties": {
+        "legacy_key": "pulp",
+        "ordinal": 1
+      }
+    },
+    {
+      "node_id": "play-register:purist",
+      "node_kind": "play-register",
+      "plane": "craft",
+      "name": "play register purist",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "philosophical horror where uncovering the truth dooms seeker and bystander alike; atmosphere of menace and dread over action",
+      "origin": "chaosium-call-of-cthulhu-play-styles",
+      "falsifiable_by": "run the same scenario for one arm declared purist and one declared pulp, and ask readers who are not told which arm a turn came from to say which game it reads as. A register that readers cannot tell apart is not carrying anything",
+      "properties": {
+        "legacy_key": "purist",
+        "ordinal": 0
+      }
+    },
+    {
       "node_id": "player-input-handling:abstract-completed",
       "node_kind": "player-input-handling",
       "plane": "obligation",

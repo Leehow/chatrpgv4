@@ -631,6 +631,20 @@ def _turn_contract_projection(
     }
     return projection
 
+def _campaign_play_register(ctx: Ctx) -> str | None:
+    """Chaosium's purist/pulp register for this campaign, if the table chose one.
+
+    Absent is a real answer and is passed through as absent. Defaulting it to a
+    pole would tell the Keeper this table picked a register it never picked.
+    """
+    try:
+        campaign = coc_state.load_campaign_state(ctx.campaign_dir)
+    except Exception:  # noqa: BLE001 - an unreadable campaign is not a turn failure
+        return None
+    value = campaign.get("play_register") if isinstance(campaign, dict) else None
+    return str(value).strip() or None if isinstance(value, str) else None
+
+
 def _envelope_present_npc_ids(envelope: dict[str, Any]) -> list[str]:
     """Present NPC ids, wherever the envelope carries them this revision."""
     for container in (envelope.get("state_grounding") or {}, envelope):
@@ -760,7 +774,8 @@ def _tool_narration_brief(ctx: Ctx, args: dict[str, Any]):
         "budget": budget,
         "control_overrides": control_overrides,
         "style_contract": coc_narration_style.player_facing_style_contract(
-            _campaign_play_language(ctx)
+            _campaign_play_language(ctx),
+            play_register=_campaign_play_register(ctx),
         ),
     }, [], hints
 

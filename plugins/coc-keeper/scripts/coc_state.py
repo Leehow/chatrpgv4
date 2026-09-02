@@ -1851,6 +1851,7 @@ def _create_campaign_at(
     title: str,
     era: str | None = None,
     play_language: str = DEFAULT_PLAY_LANGUAGE,
+    play_register: str | None = None,
     start_clock: dict[str, Any] | None = None,
     *,
     ruleset_id: str = coc_rulesets.DEFAULT_RULESET_ID,
@@ -1885,6 +1886,12 @@ def _create_campaign_at(
         "dice_mode": "codex",
         "spoiler_policy": "warn_before_reveal",
         "play_language": play_language,
+        # Chaosium's own purist/pulp axis. Absent by default and deliberately
+        # NOT defaulted to a pole: the core Keeper Rulebook supports the range
+        # between them, and a table that has not chosen has not chosen. The
+        # Keeper is told it is undeclared rather than told a pole it never
+        # picked.
+        **({"play_register": play_register} if play_register else {}),
         "localized_terms": {play_language: {}},
         "active_subsystem": "setup",
         "created_at": created_at,
@@ -2038,6 +2045,7 @@ def create_campaign(
     title: str,
     era: str | None = None,
     play_language: str = DEFAULT_PLAY_LANGUAGE,
+    play_register: str | None = None,
     start_clock: dict[str, Any] | None = None,
     *,
     ruleset_id: str = coc_rulesets.DEFAULT_RULESET_ID,
@@ -2061,6 +2069,7 @@ def create_campaign(
         title,
         era=era,
         play_language=play_language,
+        play_register=play_register,
         start_clock=start_clock,
         ruleset_id=ruleset_id,
         update_index=True,

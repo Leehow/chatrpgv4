@@ -21,6 +21,7 @@
     "narration-budget-trigger",
     "obligation-kind",
     "obligation-source-kind",
+    "play-register",
     "player-input-handling",
     "realization-mode",
     "render-prohibition",
@@ -48,6 +49,7 @@
     "craft-directive",
     "narration-budget-mode",
     "narration-budget-trigger",
+    "play-register",
     "render-prohibition",
     "render-slot",
     "review-rule",
@@ -177,6 +179,7 @@
     ]
   },
   "origin_tokens": [
+    "chaosium-call-of-cthulhu-play-styles",
     "robin-laws-hamlets-hit-points-2010",
     "unknown-legacy-tuning"
   ],
@@ -345,6 +348,10 @@
       "legacy_key",
       "ordinal",
       "family"
+    ],
+    "play-register": [
+      "legacy_key",
+      "ordinal"
     ]
   },
   "comparisons": [
@@ -379,7 +386,8 @@
     "narration-budget-mode": 4,
     "narration-budget-trigger": 10,
     "text-threshold": 5,
-    "beat-type": 9
+    "beat-type": 9,
+    "play-register": 2
   },
   "expected_node_counts_law": "expected_node_counts pins the T1 obligation-plane migration against the measured inventory. A build whose counts differ from this table is rejected: either the source declaration changed and the table must be updated in the same reviewed change, or the migration lost something. The census that motivated this law is real — the commissioning brief for this work listed eight tables in coc_narration_style.py and the file has twelve.",
   "empty_relations_law": "The T1 obligation plane shipped zero relations deliberately: its vocabularies were flat, and the two structural facts that could have been edges — the voluntary subset of agency claim types and the player-facing versus superseded split of roll visibility classes — are node properties because that is exactly how the source reconstructs both frozensets. T2 adds the first five real relations, obligation-source-kind part-of obligation-kind, because that edge is load-bearing: the derivation reads it to decide which source_kind an obligation may carry. Relations are added when a consumer reads them and never to make the artifact look more graph-shaped.",

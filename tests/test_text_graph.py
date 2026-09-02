@@ -96,7 +96,7 @@ def test_compiler_round_trip_is_byte_stable():
 def test_built_node_counts_match_the_contract_census():
     counts = collections.Counter(node["node_kind"] for node in ARTIFACT["nodes"])
     assert dict(counts) == CONTRACT["expected_node_counts"]
-    assert sum(counts.values()) == 114
+    assert sum(counts.values()) == 116
 
 
 def test_expected_node_counts_law_rejects_a_lost_vocabulary():

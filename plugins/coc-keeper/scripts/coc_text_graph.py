@@ -927,6 +927,26 @@ LAWS_BEAT_TYPES: tuple[tuple[str, str, str], ...] = (
 )
 
 
+# Chaosium's own two named play styles for this game. The Purist idiom models
+# Lovecraft's starker later work, where uncovering the truth dooms the seeker;
+# the Pulp idiom aims at Robert E. Howard's desperate action, and Pulp Cthulhu
+# (Chaosium, 2016) is a whole supplement for it. The core Keeper Rulebook
+# supports the range between them rather than picking one.
+#
+# It matters here for one reason: the same beat carries a different amount of
+# levity in each. A wisecrack in a Purist scene reads as the wrong game; the
+# same line in a Pulp scene is the point. This is the campaign-level baseline
+# that Laws' per-beat frame is read against.
+CHAOSIUM_PLAY_REGISTERS: tuple[tuple[str, str], ...] = (
+    ("purist",
+     "philosophical horror where uncovering the truth dooms seeker and "
+     "bystander alike; atmosphere of menace and dread over action"),
+    ("pulp",
+     "desperate two-fisted action in the Robert E. Howard idiom; investigators "
+     "are more capable and survival is expected"),
+)
+
+
 _FALSIFIABLE_BY = {
     "review-rule": (
         "run a production-profile session with the rule published in the "
@@ -957,6 +977,12 @@ _FALSIFIABLE_BY = {
     "narration-budget-trigger": (
         "remove the event type from the rung for one arm and check whether the "
         "turns it used to select are now under-written"
+    ),
+    "play-register": (
+        "run the same scenario for one arm declared purist and one declared "
+        "pulp, and ask readers who are not told which arm a turn came from to "
+        "say which game it reads as. A register that readers cannot tell apart "
+        "is not carrying anything"
     ),
     "beat-type": (
         "label one arm of a multi-turn session with beat types and leave the "
@@ -1002,6 +1028,13 @@ def craft_shard() -> dict[str, Any]:
             {"legacy_key": key, "ordinal": ordinal},
             "one blocking slot of the crisis render frame, checked for "
             "presence only and never for wording", UNKNOWN,
+        ))
+
+    for ordinal, (key, why) in enumerate(CHAOSIUM_PLAY_REGISTERS):
+        nodes.append(_craft_node(
+            "play-register", key, f"play register {key}", ordinal,
+            {"legacy_key": key, "ordinal": ordinal},
+            why, "chaosium-call-of-cthulhu-play-styles",
         ))
 
     for ordinal, (key, family, why) in enumerate(LAWS_BEAT_TYPES):

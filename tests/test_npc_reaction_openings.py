@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -160,9 +161,73 @@ def test_the_frame_reaches_the_keeper_and_supplies_no_line():
     import coc_narration_style
 
     frame = coc_narration_style.player_facing_style_contract("zh-Hans")["beat_frame"]
-    assert set(frame) == {"types", "instruction"}
+    assert set(frame) == {"types", "instruction", "play_register", "registers"}, (
+        "the frame grew a key; if it is a suggested line or a quota, it does "
+        "not belong here"
+    )
     assert len(frame["types"]) == 9
     assert "not a quota" in frame["instruction"], (
         "the instruction has to say most beats want no joke, or it reads as a "
         "demand for one every turn"
     )
+
+
+# ---------------------------------------------------------------------------
+# Play register: the baseline a beat is read against
+# ---------------------------------------------------------------------------
+
+def test_the_registers_are_chaosium_s_two_named_styles():
+    """Purist and Pulp, cited. Pulp Cthulhu is a Chaosium supplement."""
+    import coc_text_runtime
+
+    registers = coc_text_runtime.craft()["play_registers"]
+    assert set(registers) == {"purist", "pulp"}
+    assert "dread" in registers["purist"]
+    assert "action" in registers["pulp"]
+
+
+def test_an_undeclared_register_stays_undeclared():
+    """The core rulebook supports the range between the poles.
+
+    Defaulting to one would tell the Keeper this table chose a register it
+    never chose -- worse than telling it nothing, because it reads as authored
+    intent. A campaign that has not picked does not get a pole invented for it,
+    and the field is absent from campaign.json rather than present-and-guessed.
+    """
+    import coc_narration_style
+    import coc_state
+    import tempfile
+    from pathlib import Path as _Path
+
+    frame = coc_narration_style.player_facing_style_contract("zh-Hans")["beat_frame"]
+    assert frame["play_register"] == "undeclared"
+
+    root = _Path(tempfile.mkdtemp())
+    coc_state.ensure_workspace(root)
+    coc_state.create_campaign(root, "plain", "Plain")
+    coc_state.create_campaign(root, "pulpy", "Pulpy", play_register="pulp")
+    plain = json.loads(
+        (root / ".coc" / "campaigns" / "plain" / "campaign.json").read_text("utf-8")
+    )
+    pulpy = json.loads(
+        (root / ".coc" / "campaigns" / "pulpy" / "campaign.json").read_text("utf-8")
+    )
+    assert "play_register" not in plain
+    assert pulpy["play_register"] == "pulp"
+
+
+def test_a_declared_register_reaches_the_beat_frame():
+    """The register and the beat frame travel together or neither is usable.
+
+    A beat type without a register is a question with no baseline: the same
+    wisecrack is the wrong game in Purist and the point in Pulp.
+    """
+    import coc_narration_style
+
+    for register in ("purist", "pulp"):
+        frame = coc_narration_style.player_facing_style_contract(
+            "zh-Hans", play_register=register,
+        )["beat_frame"]
+        assert frame["play_register"] == register
+        assert set(frame["registers"]) == {"purist", "pulp"}
+        assert len(frame["types"]) == 9

@@ -224,7 +224,9 @@ def player_visible_style_guard_contract(language: str = "zh-Hans") -> dict[str, 
     }
 
 
-def player_facing_style_contract(language: str = "zh-Hans") -> dict[str, Any]:
+def player_facing_style_contract(
+    language: str = "zh-Hans", play_register: str | None = None,
+) -> dict[str, Any]:
     """Return narrator-facing style constraints for player-visible prose."""
     repetition_policy = {
         "established_fact_mode": "compress",
@@ -267,6 +269,14 @@ def player_facing_style_contract(language: str = "zh-Hans") -> dict[str, Any]:
         # is the Keeper's judgment; the host neither guesses it nor supplies a
         # line for it.
         "beat_frame": {
+            # The campaign register is the baseline a beat is read against: the
+            # same wisecrack is the wrong game in a Purist scene and the point
+            # of a Pulp one. Undeclared stays undeclared -- the core rulebook
+            # supports the range between the poles, and telling the Keeper a
+            # pole this table never chose would be worse than telling it
+            # nothing.
+            "play_register": play_register or "undeclared",
+            "registers": craft["play_registers"],
             "types": craft["beat_types"],
             "instruction": (
                 "Before drafting, name what this beat is for. A `gratification` "

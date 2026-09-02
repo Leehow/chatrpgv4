@@ -2,7 +2,7 @@
   "contract_id": "coc.text-graph-build-manifest.v1",
   "schema_version": 1,
   "graph_id": "graph:text:production",
-  "graph_content_digest": "c72411565805fc0d5e7784fc2b1b0c9fcf84f3e6705b2cfe44b47a53d875557d",
+  "graph_content_digest": "0e1f475538f0e3ad234f7fc15867a2e47fe1b542388595328f363b15fe3aadcd",
   "shards": [
     "shard:text:craft-doctrine",
     "shard:text:obligation-vocabulary"
@@ -21,6 +21,7 @@
     "narration-budget-trigger": 10,
     "obligation-kind": 3,
     "obligation-source-kind": 5,
+    "play-register": 2,
     "player-input-handling": 3,
     "realization-mode": 2,
     "render-prohibition": 3,
