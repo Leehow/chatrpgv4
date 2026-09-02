@@ -2505,7 +2505,7 @@ function projectReviewedCoverageSchema(
           ? { type: "string", const: "not_applicable" }
           : {
               type: "string",
-              enum: ["abstract_completed", "not_applicable", "specific_preserved"],
+              enum: [...PLAYER_INPUT_HANDLING_VALUES],
             },
         exceptional_beat: concealed
           ? { type: "null", const: null }
@@ -2858,9 +2858,8 @@ export function bindRetainedTypedToolArguments(
         );
       }
       const handling = raw.player_input_handling;
-      if (![
-        "abstract_completed", "not_applicable", "specific_preserved",
-      ].includes(String(handling))) {
+      if (!(PLAYER_INPUT_HANDLING_VALUES as readonly string[])
+        .includes(String(handling))) {
         throw new ToolContractProjectionError(
           "reviewed_coverage_invalid",
           "coverage player_input_handling is outside the closed canonical enum",
