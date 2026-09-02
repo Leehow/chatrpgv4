@@ -575,6 +575,13 @@ const PI_SCHEMA_CODES = new Set<string>([
   // turn is over while the way out is in its hand. Seen live on 2026-09-02,
   // settling a social difficulty adjudication with a stray `source_ref`.
   "unknown_semantic_input",
+  // A model-authored identity in the wrong closed form. The message always
+  // names the accepted form and a RIGHT example, so the correction is always
+  // "resend this call with the value respelled" -- the same shape as every
+  // other entry here. Seen live on 2026-09-02: a correctly reasoned
+  // `clue:<clue_id>` leverage ref was refused by the name-keyed grammar, and
+  // the Keeper -- told recovery was impossible -- dropped its claim instead.
+  "opaque_identity_grammar",
 ]);
 
 /** Single schema-code policy shared by classification and schema attachment. */
@@ -8794,13 +8801,67 @@ export type RawIdentityValidationResult =
  * always rejected — that namespace is machine-attached and reaches arguments
  * only after this validation, by provenance. Failures name only the field.
  */
+/**
+ * Field grammars that belong to a PATH, not a name.
+ *
+ * `source_ref` under `supporting_action` is not the `source_ref` of a
+ * narration agency claim: it names the player-known record a leverage claim
+ * rests on, and the resolver dispatches on a closed set of kinds. The
+ * name-keyed grammar demanded `player_input:current` or `narration_contract:`,
+ * neither of which resolves as leverage -- so the two layers demanded mutually
+ * exclusive forms of the same name and the Keeper could not satisfy both.
+ *
+ * Live on 2026-09-02, in consecutive turns: it wrote `player_input:current`
+ * (obeying this grammar) and the resolver refused it; it then wrote
+ * `clue:clue-crown-slab-heraldry` -- correct, and the right clue -- and this
+ * grammar refused that. Both times the player's earned clue counted for
+ * nothing. The same failure is already recorded a few hundred lines above for
+ * `candidate_ref`, which cost four settle round trips in the first live
+ * combat.
+ */
+const LEVERAGE_SOURCE_NAMESPACES = stringSet([
+  "npc_agenda:", "npc_fact:", "npc_state:", "clue:", "event:",
+]);
+
+const NESTED_IDENTITY_FIELD_RULES: ReadonlyMap<string, {
+  accepts: (value: string) => boolean;
+  message: string;
+}> = new Map([
+  ["supporting_action.source_ref", {
+    // `npc_fact:` addresses a fact inside an NPC as `<npc_id>/<fact_id>` --
+    // the resolver partitions on the slash -- so each side is judged as slug
+    // material in its own right. Every other kind carries one identifier.
+    accepts: (value: string) => {
+      const separator = value.indexOf(":");
+      if (separator <= 0) return false;
+      const namespace = value.slice(0, separator + 1);
+      if (!LEVERAGE_SOURCE_NAMESPACES.has(namespace)) return false;
+      const identifier = value.slice(separator + 1);
+      if (!identifier) return false;
+      return identifier.split("/").every((part) =>
+        part !== "" && isNamespacedSemantic(`${namespace}${part}`, LEVERAGE_SOURCE_NAMESPACES)
+      );
+    },
+    message: (
+      "supporting_action.source_ref names the player-known record the "
+      + "leverage rests on: use namespace `npc_agenda:`, `npc_fact:`, "
+      + "`npc_state:`, `clue:` or `event:` (e.g. `clue:<clue_id>`). The "
+      + "narration `source_ref` handles do not resolve as leverage."
+    ),
+  }],
+]);
+
 export function validateRawModelIdentityPayload(
   container: Record<string, unknown>,
 ): RawIdentityValidationResult {
-  const visit = (value: unknown, field: string | null): RawIdentityValidationResult | null => {
+  const visit = (
+    value: unknown,
+    field: string | null,
+    parentField: string | null = null,
+  ): RawIdentityValidationResult | null => {
     if (Array.isArray(value)) {
       for (const item of value) {
-        const hit = visit(item, field);
+        const hit = visit(item, field, parentField);
         if (hit !== null) return hit;
       }
       return null;
@@ -8818,7 +8879,15 @@ export function validateRawModelIdentityPayload(
             + "it is never model-authored. Pass the semantic form instead.",
         };
       }
-      const rule = rawIdentityFieldRule(field);
+      // Looked up here, applied AFTER the machine-namespace scan below: a
+      // path-keyed grammar narrows which semantic form is legal, and must
+      // never become a way to smuggle machine identity past that scan.
+      const nested = NESTED_IDENTITY_FIELD_RULES.get(
+        `${parentField ?? ""}.${field}`,
+      );
+      const rule = nested !== undefined
+        ? ((candidate: string) => nested.accepts(candidate))
+        : rawIdentityFieldRule(field);
       if (rule === null) {
         // Unclassified identity-shaped fields still reject machine-attached
         // namespaces and entropy material before any nullable-rule pass —
@@ -8852,18 +8921,20 @@ export function validateRawModelIdentityPayload(
         return {
           ok: false,
           field,
-          message: closedIdentityGrammarError(field),
+          message: nested !== undefined
+            ? nested.message
+            : closedIdentityGrammarError(field),
         };
       }
       return null;
     }
     for (const [key, child] of Object.entries(value)) {
-      const hit = visit(child, key);
+      const hit = visit(child, key, field);
       if (hit !== null) return hit;
     }
     return null;
   };
-  const hit = visit(container, null);
+  const hit = visit(container, null, null);
   return hit ?? { ok: true };
 }
 
