@@ -10767,7 +10767,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             phase: aclPhase,
           });
         } catch { /* acl audit is best effort */ }
-        throw new Error(acl.message);
+        // Say what the session still owes. An active opening setup holds one
+        // exact route; without it the KP hears only that its operation is
+        // forbidden here and has no way to learn which single call opens the
+        // way. Reading the retained route touches no registry state, so the
+        // ACL-first invariant above holds.
+        const retainedRoute = openingContinuationGate.retainedOpeningRouteFor(
+          typeof params.campaign === "string" ? params.campaign : "",
+        );
+        throw new Error(
+          retainedRoute === null
+            ? acl.message
+            : `${acl.message}; follow this exact retained route: `
+              + JSON.stringify(retainedRoute),
+        );
       }
       try {
         pi.appendEntry("coc-tool-telemetry", {

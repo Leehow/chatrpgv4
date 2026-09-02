@@ -3628,9 +3628,7 @@ async function exerciseFailureDrain(mode) {
         campaign: "auto-dispatch-fixture",
         arguments: {
           text: "[in_game]\n来源约束下的准确开场。\n[/in_game]",
-          run_id: "source-opening-run",
           presented_roll_ids: [],
-          decision_id: "roll-source-opening-evidence",
         },
       },
       undefined,
@@ -5239,9 +5237,7 @@ async function exerciseFailureDrain(mode) {
       campaign: campaignId,
       arguments: {
         text: openingText,
-        run_id: "resume-empty-party-run",
         presented_roll_ids: [],
-        decision_id: "record-resume-empty-party-opening",
       },
     },
     undefined,
@@ -6201,9 +6197,7 @@ for (const terminalCase of [
       campaign: "current-before-link",
       arguments: {
         text: "[in_game]\n来源约束下的准确开场。\n[/in_game]",
-        run_id: "current-before-link-run",
         presented_roll_ids: [],
-        decision_id: "roll-current-before-link-evidence",
       },
     }, "current-before-link-evidence") === null);
 }
@@ -6978,9 +6972,7 @@ for (const terminalCase of [
     campaign: campaignId,
     arguments: {
       text: openingText,
-      run_id: "opening-activation-run",
       presented_roll_ids: [],
-      decision_id: "opening-activation-evidence",
     },
   };
   check("exact table-opening card is admitted before activation",
@@ -9965,9 +9957,7 @@ for (const terminalCase of [
     campaign: campaignId,
     arguments: {
       text: openingText,
-      run_id: "opening-refresh-run",
       presented_roll_ids: [],
-      decision_id: "opening-refresh-evidence",
     },
   };
   let setupHandoffRetained = false;

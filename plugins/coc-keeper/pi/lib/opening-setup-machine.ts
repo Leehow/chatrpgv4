@@ -186,6 +186,21 @@ export function createOpeningSetupMachineMethods(
   },
 
 
+  // The exact route an active opening setup is holding, read without touching
+  // attempt bookkeeping or audits. The role/phase ACL runs before any registry
+  // code and may not call `openingSetupToolError` (which registers attempts),
+  // but a refusal that does not say what the session still owes leaves the KP
+  // guessing: it hears "not allowed in session role setup" for every play
+  // operation and never learns that one exact call would open the way.
+  retainedOpeningRouteFor(this: any, campaignId: string): unknown | null {
+    const id = campaignId.trim();
+    const state = id
+      ? this.openingSetupStates.get(id) ?? null
+      : this.openingSetupStateForTranscript();
+    return state?.route ?? null;
+  },
+
+
   // setup.chargen_run commits create + link atomically. Its successful result
   // is therefore a canonical completion receipt even though the delegate
   // reaches MCP without passing through observeOpeningSetupInvocation.
@@ -1314,11 +1329,19 @@ export function createOpeningSetupMachineMethods(
       operation: "evidence.table_opening",
       invoke_via: "coc_invoke",
       prefilled_arguments: {},
+      // Only what the model owns. `run_id` and `decision_id` are in
+      // HOST_ATTACHED_ARGUMENTS for this operation, so the wrapper refuses
+      // them as `unknown_model_argument`: asking the KP for them here made
+      // the one card that opens the table teach a call that cannot succeed.
       missing_arguments: [
         "text",
-        "run_id",
         "presented_roll_ids",
+      ],
+      host_bound_auto_attached_arguments: [
+        "campaign",
         "decision_id",
+        "root",
+        "run_id",
       ],
       hard_gate: true,
       authority: "canonical_setup",
