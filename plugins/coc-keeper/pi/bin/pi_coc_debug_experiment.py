@@ -56,6 +56,12 @@ _SITUATION_PROMPT_INSTRUCTION = (
     "never invented. Then adjudicate the message as the player's action in that "
     "situation."
 )
+# Operations that mean the Keeper acted for the player. None of them may run
+# while the lane is still waiting for its resume to settle.
+_RESUME_FORBIDDEN_OPERATIONS = frozenset({
+    "state.journal", "turn.output_context", "turn.finalize", "rules.settle",
+})
+
 # Structural seeding lands after session.resume settled at awaiting_player.
 # Seeding before the resume was tried on the real host: the seed rows read as
 # an interrupted turn (open_turn_recovery), the Pi host then refused to act
@@ -1511,6 +1517,7 @@ class PiRpcLaneAdapter:
         provider_verified = False
         provider_identity_error: str | None = None
         first_operation: str | None = None
+        resume_acted_for_player: str | None = None
         current_phase = "launching"
         last_event_type = ""
         evidence_value = run.get("evidence_root")
@@ -1559,6 +1566,7 @@ class PiRpcLaneAdapter:
             nonlocal first_operation, resume_success, visible_text
             nonlocal rendered_text, finalized, last_event_type, abort_confirmed
             nonlocal provider_verified, provider_identity_error
+            nonlocal resume_acted_for_player
             event_type = event.get("type")
             last_event_type = str(event_type or "")
             if live_root is not None and "rpc" in run["spec"]["record"]:
@@ -1594,6 +1602,18 @@ class PiRpcLaneAdapter:
                     and "." in operation
                 ):
                     first_operation = operation
+                # The resume prompt says to stop at awaiting_player. A Keeper
+                # that journals or finalizes during it has played a turn of
+                # its own invention: the lane's budget is gone, the sandbox
+                # campaign has advanced, and any situation seeded afterwards
+                # describes a state the probe never asked for. Observed on
+                # 2026-09-02 in two of six lanes.
+                if (
+                    current_phase == "resume"
+                    and event_type == "tool_execution_start"
+                    and operation in _RESUME_FORBIDDEN_OPERATIONS
+                ):
+                    resume_acted_for_player = operation
                 tool_row = {
                     "category": "tools",
                     "phase": "start" if event_type.endswith("start") else "end",
@@ -1731,6 +1751,22 @@ class PiRpcLaneAdapter:
             })
             settled, failure = wait_terminal(phase="resume")
             resume_first = first_operation == "session.resume"
+            if resume_acted_for_player is not None:
+                return {
+                    "status": "failed",
+                    "resume_first": resume_first,
+                    "duration_ms": round((time.monotonic() - started) * 1000),
+                    "abort_count": abort_count,
+                    "abort_confirmed": abort_confirmed,
+                    "error": {
+                        "code": "resume_acted_for_player",
+                        "details": {"operation": resume_acted_for_player},
+                    },
+                    "events": events,
+                    "final": final_payload(
+                        None, finalized=False, exact_delivery=False,
+                    ),
+                }
             if not settled or not resume_first or not resume_success or not provider_verified:
                 if failure == "timeout":
                     status = "timed_out"

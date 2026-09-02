@@ -1436,6 +1436,7 @@ def _rpc_situation_lane_run(
     situation: dict,
     workspace: Path,
     timeout: int = 60,
+    fake_mode: str = "success",
 ) -> tuple[dict, list[dict]]:
     module = _module()
     source_home = tmp_path / "source-home"
@@ -1452,7 +1453,7 @@ def _rpc_situation_lane_run(
             str(ROOT / "tests" / "pi" / "_lib" / "fake-debug-pi-rpc.py"),
         ],
         extra_env={
-            "FAKE_DEBUG_MODE": "success",
+            "FAKE_DEBUG_MODE": fake_mode,
             "FAKE_DEBUG_PROMPT_LOG": str(prompt_log),
         },
     )
@@ -1486,6 +1487,31 @@ def _rpc_situation_lane_run(
         for line in prompt_log.read_text(encoding="utf-8").splitlines()
     ] if prompt_log.is_file() else []
     return result, prompts
+
+
+def test_a_keeper_that_plays_a_turn_during_resume_fails_the_lane(
+    tmp_path: Path,
+) -> None:
+    """The resume prompt says to stop at awaiting_player. A Keeper that
+    journals or finalizes during it has played a turn of its own invention:
+    the budget is gone and the sandbox campaign has advanced, so any situation
+    seeded afterwards describes a state the probe never asked for. Observed on
+    2026-09-02 in two of six live lanes, which then reported a seed timeout
+    58 ms after starting."""
+    workspace = _quick_started_workspace(tmp_path, "debug-rpc-campaign")
+    result, _prompts = _rpc_situation_lane_run(
+        tmp_path,
+        situation=_STRUCTURAL_SITUATION,
+        workspace=workspace,
+        fake_mode="resume-plays-a-turn",
+    )
+    assert result["status"] == "failed"
+    assert result["error"]["code"] == "resume_acted_for_player"
+    assert result["error"]["details"]["operation"] in {
+        "state.journal", "turn.finalize",
+    }
+    assert result["final"]["situation"]["seeded"] is False
+    assert result["final"]["finalized"] is False
 
 
 def test_rpc_lane_seeds_a_structural_situation_through_the_canonical_toolbox(
