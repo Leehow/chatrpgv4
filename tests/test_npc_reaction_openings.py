@@ -231,3 +231,35 @@ def test_a_declared_register_reaches_the_beat_frame():
         assert frame["play_register"] == register
         assert set(frame["registers"]) == {"purist", "pulp"}
         assert len(frame["types"]) == 9
+
+
+# ---------------------------------------------------------------------------
+# The projection whitelist: an operation can return a field the model never sees
+# ---------------------------------------------------------------------------
+
+def test_banter_signals_survive_the_wire_projection():
+    """`turn.output_context`'s model projection is built field by field.
+
+    Anything the operation adds and nobody registers in `coc_mcp_wire` is
+    dropped between the operation and the model, silently and with the
+    operation still returning `ok: true`. Three signals were written, unit
+    tested, and delivered into a payload that discarded them; a live run showed
+    `coc_turn_output_context` returning 10544 bytes with `obligations` present
+    and `banter_signals` absent.
+
+    This asserts the projection carries it, which no unit test of the operation
+    itself can catch.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "coc_mcp_wire_banter", SCRIPTS / "coc_mcp_wire.py"
+    )
+    wire = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wire)
+
+    source = (SCRIPTS / "coc_mcp_wire.py").read_text(encoding="utf-8")
+    assert '"banter_signals" in value' in source, (
+        "the field is not registered in the output_context projection; the "
+        "operation will return it and the model will never see it"
+    )
