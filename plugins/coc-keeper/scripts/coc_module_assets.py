@@ -7239,6 +7239,10 @@ def put_section_index_and_fulfill_host_work(
         ):
             request["classification_incomplete"] = {
                 "reason": "entity_catalog_empty",
+                # This is a judged answer, not the standing observation the
+                # claim refresh writes. Re-dispatching the identical request
+                # would loop on it, so only this form defers.
+                "rejected_answer": True,
                 "entity_catalog_provenance": json.loads(json.dumps(
                     classification.get("entity_catalog_provenance") or {}
                 )),
@@ -7452,6 +7456,14 @@ def _refresh_classification_entity_catalog(
             "reason": "entity_catalog_empty",
             "entity_catalog_provenance": json.loads(json.dumps(provenance)),
         }
+        # "the catalog is empty right now" and "an answer was judged
+        # incomplete" were written into this one field in the same shape, so
+        # nothing downstream could tell an unanswered request from a rejected
+        # one. A rejection carries `rejected_answer` and survives this
+        # observation; only the rejection defers dispatch.
+        existing = request.get("classification_incomplete")
+        if isinstance(existing, dict) and existing.get("rejected_answer") is True:
+            incomplete["rejected_answer"] = True
         if request.get("classification_incomplete") != incomplete:
             request["classification_incomplete"] = incomplete
             changed = True
@@ -7522,10 +7534,20 @@ def host_work_operational_class(request: dict[str, Any]) -> str:
     if str(request.get("kind") or "") == CLASSIFY_SECTIONS_KIND:
         # A structure pass answers from its own packet of headings and
         # previews, so it holds no page window and can never satisfy the
-        # cached-scope gate below. A missing canonical identity catalog is an
-        # explicit defer: all-global output would otherwise falsely complete
-        # an index that cannot yet bind authored entity sections.
-        if _classification_catalog_is_empty(request):
+        # cached-scope gate below.
+        #
+        # An empty identity catalog used to defer the pass outright. That is
+        # the normal state of a fresh module — this lane runs before anything
+        # has parsed the sections that would reveal its entities — so the
+        # module stayed permanently unindexed while the queue reported health.
+        #
+        # The real thing worth deferring is a repeat of an answer already
+        # judged incomplete: an all-global classification over an empty
+        # catalog is rejected at fulfillment and recorded durably, and
+        # re-dispatching the identical request would loop on it. So the gate
+        # is the recorded answer, not the missing catalog.
+        incomplete = request.get("classification_incomplete")
+        if isinstance(incomplete, dict) and incomplete.get("rejected_answer") is True:
             return "awaiting_scope"
         return "runnable"
     if str(request.get("kind") or "") == ANNOTATE_IMAGES_KIND:
