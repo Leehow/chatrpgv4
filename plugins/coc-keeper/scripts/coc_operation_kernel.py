@@ -7532,10 +7532,32 @@ def _canonical_social_binding(
     )
     explicitly_absent = isinstance(live, Mapping) and not explicitly_present
     if (npc_id not in authored_present and not explicitly_present) or explicitly_absent:
+        # Name who IS here. The absent target is usually a real authored NPC
+        # the Keeper has been narrating (2026-09-02: `npc-joseph-fynche`, an
+        # authored priest, addressed in a scene he is not in), so the fix is
+        # to pick a present target -- but the Keeper cannot pick from a list
+        # it was never shown, and the refusal carried only the ids it had just
+        # been given back.
+        present_ids = sorted(authored_present | {
+            str(candidate)
+            for candidate, row in (presence.items() if isinstance(presence, Mapping) else ())
+            if isinstance(row, Mapping)
+            and row.get("status") == "present"
+            and str(row.get("scene_id") or "") == active_scene_id
+        })
         raise ToolError(
             "social_candidate_stale",
-            "the semantic social target is not present in the active scene",
-            details={"target_ref": target_ref, "active_scene_id": active_scene_id},
+            "the semantic social target is not present in the active scene; "
+            + (
+                "present targets: " + ", ".join(present_ids)
+                if present_ids
+                else "no NPC is present in this scene"
+            ),
+            details={
+                "target_ref": target_ref,
+                "active_scene_id": active_scene_id,
+                "present_npc_ids": present_ids,
+            },
         )
     if not isinstance(_npc_by_id(ctx.npc_agendas, npc_id), Mapping):
         raise ToolError(

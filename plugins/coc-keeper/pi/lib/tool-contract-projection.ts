@@ -636,6 +636,19 @@ const BUSINESS_PRECONDITION_ACTIONS: Record<string, readonly PiAllowedNextAction
   // having written `level: 1` correctly on the first try -- read that as
   // "this cannot be done", downgraded its own claim to level 0, and the
   // player's earned clue counted for nothing on the roll that followed.
+  // The social target is not in the scene. The refusal now names who is, so
+  // the correction is to settle against one of them -- or bring the intended
+  // NPC into the scene first. It fell through to invariant_terminal, and the
+  // absent target is usually a real authored NPC the Keeper has been
+  // narrating, so "no recovery" ended a negotiation that had a way forward.
+  social_candidate_stale: [{
+    operation: "rules.settle",
+    action: "correct_model_arguments",
+    reason:
+      "target a social candidate the scene actually holds (the refusal names "
+      + "them), or move the intended NPC into the scene first",
+    host_bound: false,
+  }],
   leverage_source_invalid: [{
     operation: "rules.settle",
     action: "correct_model_arguments",
