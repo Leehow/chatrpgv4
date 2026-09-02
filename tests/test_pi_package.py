@@ -222,7 +222,11 @@ def test_root_manifest_loads_only_main_extension_and_canonical_skills():
     assert result["extensionCount"] == 1
     assert result["toolNames"] == result["expectedToolNames"]
     assert "coc_rules" in result["toolNames"]
-    assert "coc_rules_roll" in result["toolNames"]
+    # RuleGraph cutover: the Keeper rolls through rules.context / rules.settle;
+    # rules.roll is a host-private adapter and must not surface as a tool.
+    assert "coc_rules_context" in result["toolNames"]
+    assert "coc_rules_settle" in result["toolNames"]
+    assert "coc_rules_roll" not in result["toolNames"]
     assert "coc_npc_reaction" in result["toolNames"]
     assert "coc_turn_finalize" in result["toolNames"]
     assert set(result["genericToolNames"]) <= set(result["toolNames"])
