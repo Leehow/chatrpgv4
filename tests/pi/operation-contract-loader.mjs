@@ -58,8 +58,24 @@ test("spotlight schemas match archive inputSchema exactly", () => {
 
 test("policy filters are pure and do not invent operations", () => {
   const catalog = mod.loadOperationContracts(archivePath);
+  // `domain` asks which operations belong to a KP surface. That is a wider
+  // question than which operations the surface lists: an operation reached
+  // only by exact name (`discovery: "exact"`) belongs to its surface without
+  // being browsable there. The two sets coincided until the first exact-
+  // discovery rules operation shipped, so assert each against its own source.
   const rules = mod.filterOperationNames(catalog, { domain: "rules" });
-  assert.deepEqual(rules, [...policyMod.OPERATIONS_BY_SURFACE.rules].sort());
+  assert.deepEqual(
+    rules,
+    Object.keys(policyMod.OPERATION_POLICY)
+      .filter((name) => catalog.operations.has(name))
+      .filter((name) => policyMod.OPERATION_POLICY[name].kp_surface === "rules")
+      .sort(),
+  );
+  const browsable = [...policyMod.OPERATIONS_BY_SURFACE.rules].sort();
+  assert.deepEqual(
+    browsable,
+    rules.filter((name) => policyMod.OPERATION_POLICY[name].discovery === "surface"),
+  );
   const live = mod.filterOperationNames(catalog, { phase: "live_turn" });
   for (const name of live) {
     assert.ok(policyMod.OPERATION_POLICY[name].phases.includes("live_turn"), name);
