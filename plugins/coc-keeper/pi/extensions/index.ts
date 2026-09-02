@@ -12329,6 +12329,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             const minted = pledgedValue(HOST_PROVENANCE_PLEDGES[consumer], {
               data: objectOrNull(pledgeEnvelope.data),
               arguments: objectOrNull(params.arguments),
+              call: params,
             });
             if (minted === null) continue;
             retainedHostPledges.set(

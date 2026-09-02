@@ -98,14 +98,38 @@ export function pledgeConsumersOf(producer: string): string[] {
     .map(([consumer]) => consumer);
 }
 
-/** Read the pledged value from an accepted producer call, or null. */
+/**
+ * Read the pledged value from an accepted producer call, or null.
+ *
+ * `from: "argument"` looks in the wrapped `arguments` object and then at the
+ * top level. A typed tool carries its arguments flat until the invoke wrapper
+ * nests them, and host-minted keys such as `decision_id` are attached on
+ * whichever side of that wrap the minting code runs — so reading only one
+ * shape would mint the pledge for some producers and silently skip others.
+ */
 export function pledgedValue(
   pledge: HostProvenancePledge,
-  args: { data: JsonRecord | null; arguments: JsonRecord | null },
+  args: {
+    data: JsonRecord | null;
+    arguments: JsonRecord | null;
+    call?: JsonRecord | null;
+  },
 ): string | null {
   if (pledge.accepts !== undefined && !pledge.accepts(args.data)) return null;
-  const source = pledge.from === "result" ? args.data : args.arguments;
-  const value = pledge.key.split(".").reduce<unknown>(
+  if (pledge.from === "argument") {
+    for (const source of [args.arguments, args.call ?? null]) {
+      const found = readPath(source, pledge.key);
+      if (found !== null) return found;
+    }
+    return null;
+  }
+  const source = args.data;
+  return readPath(source, pledge.key);
+}
+
+/** Dotted-path string read; empty and non-string values read as absent. */
+function readPath(source: JsonRecord | null, key: string): string | null {
+  const value = key.split(".").reduce<unknown>(
     (node, segment) => (node && typeof node === "object")
       ? (node as JsonRecord)[segment]
       : undefined,

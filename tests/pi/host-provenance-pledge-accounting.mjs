@@ -109,6 +109,17 @@ assert.equal(
   }),
   "confirm-fork-v1",
 );
+// A never-model-authored field lands on either side of the invoke wrap, so
+// the reader must find it in both shapes -- reading one would mint the pledge
+// for some producers and silently skip others.
+assert.equal(
+  pledgedValue(HOST_PROVENANCE_PLEDGES["state.assets_liquidate"], {
+    data: { delta_minutes: 5 },
+    arguments: null,
+    call: { operation: "state.advance_time", decision_id: "flat-time-v1" },
+  }),
+  "flat-time-v1",
+);
 const liquidate = HOST_PROVENANCE_PLEDGES["state.assets_liquidate"];
 assert.equal(
   pledgedValue(liquidate, {
