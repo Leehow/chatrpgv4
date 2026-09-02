@@ -27,6 +27,7 @@ const extensionWelcomeAgentDir = mkdtempSync(
 const main = await import(path.join(root, "plugins/coc-keeper/pi/extensions/index.ts"));
 const coordinator = await import(path.join(root, "plugins/coc-keeper/pi/extensions/coordinator.ts"));
 const runtime = await import(path.join(root, "plugins/coc-keeper/pi/lib/runtime.ts"));
+const welcomeMod = await import(path.join(root, "plugins/coc-keeper/pi/lib/welcome.ts"));
 const { findAutoDispatchTask, autoDispatchCoordinator } = main.__test;
 const playOpeningGate = () => {
   const Gate = main.OpeningTerminalContinuationGate;
@@ -5366,8 +5367,11 @@ async function exerciseFailureDrain(mode) {
     && resumed.data.opening_gate.phase
       === "opening_character_setup_required"
     && contract.ok === true
+    // No memory.extraction_status: `opening_character_setup_required` is not
+    // an accepted resume mode, and a campaign still choosing an investigator
+    // has no extraction backlog to re-arm.
     && harness.calls.map((call) => call.params.operation).join(",")
-      === "session.resume,memory.extraction_status,setup.investigator_contract"
+      === "session.resume,setup.investigator_contract"
     && !harness.sent.some((entry) => (
       entry.message?.customType === "coc-startup-resume-blocker"
     ))
@@ -6043,22 +6047,6 @@ for (const terminalCase of [
 // With no explicit PI_COC_CAMPAIGN_ID/startup identity, the original empty
 // workspace onboarding remains open: setup.inspect is the first normal call.
 {
-  const oldTableOpen = [
-    "pi-coc table open: COC mode is already active on this dedicated desktop.",
-    "Do not ask the player to activate COC.",
-    "Follow coc-main now: call coc_setup with setup.inspect and read its",
-    "result.campaigns (campaign_id + title) so you can list existing campaigns;",
-    "never guess or invent a campaign_id, and never call session.resume until",
-    "the player picked a listed campaign or stated an exact id.",
-    "Do NOT call coc_discover or the hidden coc_invoke gateway: the live KP",
-    "surface is the domain tools (coc_setup / coc_context / coc_rules / ",
-    "coc_state / …). Use coc_setup for setup.inspect, setup.quick_start,",
-    "setup.invoke, setup.investigator_contract, and session.resume. Call",
-    "setup.inspect exactly once via coc_setup, present its result, then wait",
-    "greet in zh-Hans, and offer continue (from the listed campaigns) /",
-    "built-in starter quick_start / create investigator.",
-    "Begin the onboarding or continuation immediately.",
-  ].join(" ");
   const harness = mainExtensionHarness((name, params) => {
     if (name === "coc_capabilities") {
       return { ok: true, host: "pi" };
@@ -6080,10 +6068,15 @@ for (const terminalCase of [
   const tableOpen = harness.sent.find((entry) => (
     entry.message?.customType === "coc-pi-table-open"
   ));
+  // Read the composer rather than copying its prose. The message is now the
+  // coc-system-instruction envelope and carries the guidance as `instruction`;
+  // a copied literal asserted only that one earlier revision of the text had
+  // been pasted here correctly.
   check("absent selector preserves composed welcome bytes",
     harness.calls.length === 1
     && harness.calls[0].name === "coc_capabilities"
-    && tableOpen?.message?.content === oldTableOpen);
+    && JSON.parse(tableOpen?.message?.content ?? "{}").instruction
+      === welcomeMod.tableOpenInstruction(null, undefined, "continue"));
   const inspected = JSON.parse((await harness.registered.get(
     "coc_invoke",
   ).execute(

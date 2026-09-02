@@ -3818,6 +3818,9 @@ const CLASSIFIED_INTEGRITY_FIELDS: ReadonlySet<string> = new Set([
   // closed the first time a Keeper reached it.
   "file_sha256", "source_file_sha256", "page_text_sha256",
   "projection_input_sha256", "source_evidence_sha256",
+  // The digest a bind returns over the public character-creation setup it
+  // installed. Same story: unnamed here, so the bind result failed closed.
+  "public_setup_sha256",
 ]);
 
 /**
@@ -4016,7 +4019,22 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   )],
   ["setup.phase", declaredIdentityTable(["asset_root_id", "campaign_id"], [])],
   // Same shape as setup.investigator_contract: the ruleset slug is ordinary.
-  ["setup.invoke", declaredIdentityTable(["campaign_id", "ruleset_id"], [])],
+  // A PDF bind returns the source it bound: the scenario and source ids the
+  // Keeper cites, the asset root the cache is keyed on, and the digests that
+  // prove the bytes. None of them were declared, so the whole envelope failed
+  // closed as `semantic_identity_unavailable` -- the KP got nothing back from
+  // the call that installs the module. Field names follow the precedent set by
+  // setup.phase (asset_root_id), setup.complete (scenario_id) and
+  // evidence.table_opening (source_id).
+  ["setup.invoke", declaredIdentityTable(
+    [
+      "asset_root_id", "campaign_id", "requested_asset_root_id",
+      "ruleset_id", "scenario_id", "source_id",
+    ],
+    [
+      "bundle_sha256", "file_sha256", "public_setup_sha256", "text_sha256",
+    ],
+  )],
   ["setup.adopt_source_facts", declaredIdentityTable(["campaign_id"], [])],
   ["setup.investigator_contract", declaredIdentityTable(
     // The ruleset the contract is bound to ("coc7") is an ordinary slug.
