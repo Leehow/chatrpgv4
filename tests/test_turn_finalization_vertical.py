@@ -714,6 +714,12 @@ def test_real_toolbox_turn_finalizes_causal_fiction_and_exact_player_receipts(
             "loss_failure": "1",
             "seed": 5,
             "decision_id": "san-check",
+            # Required since `b8534c8c`: a failed SAN roll must carry the
+            # involuntary action the rulebook gives it (p.154/F5).
+            "involuntary_action": {
+                "kind": "jump_in_fright",
+                "summary": "recoils a step from the thing on the stairs",
+            },
         },
     )
     failed = call(
@@ -1947,9 +1953,11 @@ def test_pc_subject_refs_corrupt_party_fails_closed(tmp_path: Path) -> None:
 
 
 def test_mixed_combat_pending_turn_keeps_pc_subject_refs(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path, monkeypatch, pi_review_enabled,
 ) -> None:
-    # Membership only. Does not claim to restore a missing agency_review_operation card.
+    # Membership only. The `pi_review_enabled` fixture is what actually seats
+    # the agency_review_operation card; the setenv below no longer switches
+    # anything, and is kept only because the operation reads the role.
     monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")
     workspace = tmp_path / "workspace"
     coc_root = workspace / ".coc"

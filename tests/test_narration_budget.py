@@ -38,44 +38,6 @@ coc_turn_output = _load(
 )
 
 
-@pytest.fixture()
-def pi_review_enabled(monkeypatch):
-    """Exercise the Pi agency-review path, which production no longer takes.
-
-    `ab634acd` made normal Pi play a direct single draft and hardcoded
-    `_pi_play_agency_review_required()` to False. The machinery it gated was
-    NOT removed: the review operation, the rewrite loop, the pending-draft
-    receipt and its recovery all still exist and are still reachable when the
-    flag is true. Deleting these tests would leave that live code uncovered,
-    and rewriting them onto the direct path would only duplicate
-    `test_turn_finalization.py::test_pi_play_is_direct_single_draft_and_finalizes_once_without_review`,
-    which is where the production default is pinned.
-
-    Before that commit the flag read `COC_PI_SESSION_ROLE`, so the
-    `monkeypatch.setenv("COC_PI_SESSION_ROLE", "play")` these tests already
-    carry used to be the switch. This restores what that line meant. Three
-    modules hold their own reference to the function -- `coc_toolbox` uses it
-    to answer `stage_forbidden` -- so all three are patched.
-    """
-    # The registry's handler does NOT live in the module this file loaded:
-    # coc_toolbox imports each operation cell under a generated name
-    # (`coc_toolbox_..._operation_turn_output_<hex>`), so `coc_turn_output`
-    # here is a second, unused copy. Patching only the visible modules leaves
-    # the executing one untouched and the fixture silently does nothing.
-    # Patch every loaded module that holds a reference.
-    patched = 0
-    for module in list(sys.modules.values()):
-        if module is None:
-            continue
-        if getattr(module, "_pi_play_agency_review_required", None) is not None:
-            monkeypatch.setattr(
-                module, "_pi_play_agency_review_required", lambda: True
-            )
-            patched += 1
-    assert patched, "no module exposed _pi_play_agency_review_required to patch"
-    return patched
-
-
 def _write_json(path: Path, payload) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
