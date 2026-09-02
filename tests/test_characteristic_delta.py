@@ -324,3 +324,83 @@ def test_the_operation_keeps_the_name_the_keeper_guesses():
     # ...and the argument must say it is not limited to STR..EDU, or the
     # Keeper will not try it for Luck or a house-rule stat.
     assert "house-rule" in schema["properties"]["characteristic"]["description"]
+
+
+# ---------------------------------------------------------------------------
+# The proof half: a visible delta must be provable, and only the real one.
+# ---------------------------------------------------------------------------
+
+def _authority():
+    return _load(
+        "coc_state_effect_authority_characteristic_tests",
+        SCRIPTS / "coc_state_effect_authority.py",
+    )
+
+
+PROVING_CALL = {
+    "ok": True,
+    "tool": "state.characteristic_delta",
+    "args": {"decision_id": "npc-ghost-drain-1", "investigator": "probe"},
+    "data": {
+        "investigator_id": "probe",
+        "stat": "POW", "before": 48, "after": 36,
+        "derived_before": {"HP": 11, "MP": 9, "SAN": 48},
+        "derived_after": {"HP": 11, "MP": 7, "SAN": 36},
+        "clamped_pools": {
+            "current_mp": {"before": 9, "after": 7},
+            "current_san": {"before": 48, "after": 36},
+        },
+    },
+}
+
+
+def _effect(resource, before, after, key=None):
+    effect = {
+        "schema_version": 1, "category": "state_delta",
+        "effect_id": f"e-{resource}", "effect_kind": "scalar",
+        "resource": resource, "investigator_id": "probe",
+        "before": before, "delta": after - before, "after": after,
+        "source_decision_id": "npc-ghost-drain-1",
+    }
+    if key:
+        effect["resource_key"] = key
+    return effect
+
+
+def test_every_projected_effect_can_be_proven():
+    """Otherwise turn.finalize refuses and the player gets nothing at all.
+
+    That is what happened live: POW 48 -> 36 landed, `turn.finalize` rejected
+    the turn with `unproven_state_delta` because the state-proof authority did
+    not know the operation, and the turn ended with zero characters delivered.
+    """
+    finalization = _load(
+        "coc_turn_finalization_proof_tests", SCRIPTS / "coc_turn_finalization.py",
+    )
+    effects = finalization._project_state_deltas([PROVING_CALL], ruleset_id="coc7")
+    assert {row["resource"] for row in effects} == {
+        "POW", "max MP", "max SAN", "MP", "SAN",
+    }
+    assert _authority().state_delta_proof_violations([PROVING_CALL], effects) == []
+
+
+def test_the_proof_is_as_narrow_as_the_write():
+    """A registered operation must not become a blanket permit."""
+    authority = _authority()
+    for label, effect in [
+        ("a pool it never touched", _effect("HP", 11, 3)),
+        ("a stat it never moved", _effect("STR", 40, 20, "STR")),
+        ("the right stat, invented numbers", _effect("POW", 48, 10, "POW")),
+        ("a maximum that did not move", _effect("max HP", 11, 5, "max HP")),
+    ]:
+        assert authority.state_delta_proof_violations([PROVING_CALL], [effect]), (
+            f"{label} was accepted as proven"
+        )
+
+
+def test_the_writer_domains_come_from_the_receipt():
+    domains = _authority().writer_domains("state.characteristic_delta", PROVING_CALL)
+    assert set(domains) == {"POW", "max MP", "max SAN", "mp", "san"}
+    # HP did not move, so it is not claimable.
+    assert "hp" not in domains
+    assert "max HP" not in domains

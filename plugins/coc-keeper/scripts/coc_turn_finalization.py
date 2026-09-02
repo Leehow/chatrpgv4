@@ -818,10 +818,11 @@ def _scalar_effect(
     after: Any,
     *,
     investigator_id: str,
+    resource_key: str | None = None,
 ) -> dict[str, Any] | None:
     if not (_exact_int(before) and _exact_int(after)) or before == after:
         return None
-    return {
+    effect = {
         "schema_version": 1,
         "category": "state_delta",
         "effect_id": _stable_effect_id(decision_id, "scalar", resource),
@@ -833,6 +834,12 @@ def _scalar_effect(
         "after": after,
         "source_decision_id": decision_id,
     }
+    # Resources outside the shared pool vocabulary (a characteristic, a derived
+    # maximum, a house-rule stat) carry their own key so the state-proof
+    # authority can resolve them; the pools keep resolving by display name.
+    if resource_key:
+        effect["resource_key"] = resource_key
+    return effect
 
 
 def _project_conditions(
@@ -1071,6 +1078,7 @@ def _project_state_deltas(
                     decision_id, stat_name,
                     data.get("before"), data.get("after"),
                     investigator_id=investigator_id,
+                    resource_key=stat_name,
                 )
                 if effect:
                     _add_effect(effects, effect)
@@ -1087,6 +1095,7 @@ def _project_state_deltas(
                     decision_id, f"max {derived_key}",
                     derived_before.get(derived_key), derived_after.get(derived_key),
                     investigator_id=investigator_id,
+                    resource_key=f"max {derived_key}",
                 )
                 if effect:
                     _add_effect(effects, effect)
