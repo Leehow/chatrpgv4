@@ -1314,7 +1314,12 @@ class PiRpcLaneAdapter:
             return value
         launcher = self.repo_root / "plugins" / "coc-keeper" / "pi" / "bin" / "pi-coc"
         model = str(run["context"]["model"])
-        model_ref = model if "/" in model else f"xai/{model}"
+        # The launcher takes `<provider>/<model>`. Pinning the prefix to xai
+        # launched every lane on the wrong provider while the context said
+        # otherwise; the lane's own provider check then failed all six, which
+        # is the gate working and the command builder not.
+        provider = str(run["context"]["provider"])
+        model_ref = model if "/" in model else f"{provider}/{model}"
         return [
             str(launcher),
             "--mode", "rpc",

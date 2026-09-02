@@ -1642,3 +1642,28 @@ def test_the_provider_gate_is_a_closed_set_not_one_hardcoded_name(tmp_path: Path
             )
         assert excinfo.value.code == "debug_provider_unsupported"
 
+
+def test_the_lane_launches_on_the_declared_provider(tmp_path: Path):
+    """A hardcoded `xai/` prefix launched every lane on the wrong provider
+    while the context declared another; the lane's own verification then
+    failed all six with debug_provider_mismatch."""
+    module = _module()
+    adapter = module.PiRpcLaneAdapter(
+        repo_root=ROOT, private_root=tmp_path / "private",
+    )
+    for provider, model, expected in (
+        ("xai", "grok-4.5", "xai/grok-4.5"),
+        ("zai-coding-cn", "glm-5.3", "zai-coding-cn/glm-5.3"),
+        ("zai-coding-cn", "already/qualified", "already/qualified"),
+    ):
+        run = {
+            "context": {
+                "campaign_id": "c",
+                "provider": provider,
+                "model": model,
+                "thinking": "low",
+            },
+        }
+        argv = adapter._command({"id": "lane", "profile": "production"}, run, {})
+        assert expected in argv, (provider, model, argv)
+
