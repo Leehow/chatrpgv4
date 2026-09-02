@@ -2176,6 +2176,42 @@ class ChaseSession:
                         locations=locations,
                     )
                     action_roll_ids.extend(receipt_rolls)
+                    # An advance that reports going nowhere must be able to
+                    # show why. These receipts carry no position keys, so the
+                    # shape alone cannot say whether the chain really ran out
+                    # or a barrier really blocked the way -- the replayed
+                    # position and the location chain can, and both are here.
+                    #
+                    # Without this the widening that let the engine's own
+                    # end_of_chain receipt load would also have let a forged
+                    # one load: appending it to a turn that already advanced
+                    # is a claim the chain ended where the actor plainly kept
+                    # moving.
+                    outcome = action.get("result") if isinstance(action, dict) else None
+                    if action.get("type") == "advance" and outcome is not None:
+                        standing = replayed_positions[turn["actor_id"]]
+                        following = (
+                            locations[standing + 1]
+                            if 0 <= standing + 1 < len(locations) else None
+                        )
+                        if outcome == "end_of_chain":
+                            if following is not None:
+                                raise ValueError(
+                                    "chase snapshot end-of-chain claim is inconsistent"
+                                )
+                        else:
+                            barrier = (
+                                following.get("barrier")
+                                if isinstance(following, dict) else None
+                            )
+                            if (
+                                not isinstance(barrier, dict)
+                                or int(barrier.get("hp") or 0) <= 0
+                                or barrier.get("barrier_id") != action.get("barrier_id")
+                            ):
+                                raise ValueError(
+                                    "chase snapshot barrier-block claim is inconsistent"
+                                )
                     if position_before is not None:
                         actor_id = turn["actor_id"]
                         previous = replayed_positions[actor_id]
