@@ -336,6 +336,21 @@ function stageAllows(operation: string, snapshot: ToolWorkingSetSnapshot): boole
   const capability = STAGE_CAPABILITIES[snapshot.stage];
   if (capability.allowedOperations === null) return true;
   if (capability.allowedOperations.has(operation)) return true;
+  // `output_context_ready` means the output context was produced and bound
+  // finalize. If finalize is NOT bound, that stage's whole purpose is unmet
+  // and its closed set leaves the Keeper nothing at all: finalize is filtered
+  // out above, review with it, and the producer is excluded because it is
+  // supposed to have already run. Seen live on 2026-09-02 -- an output context
+  // that failed closed left campaign amaranthine-loop spinning twenty
+  // discovery calls against a stage with no legal operation, and the turn was
+  // never delivered. Keep the producer reachable exactly while its product is
+  // missing.
+  if (
+    operation === "turn.output_context"
+    && snapshot.stage === "output_context_ready"
+    && snapshot.boundOperations !== undefined
+    && !snapshot.boundOperations.includes("turn.finalize")
+  ) return true;
   return capability.allowFaultRoute && faultRecoveryOperation(snapshot) === operation;
 }
 
@@ -373,10 +388,30 @@ function baselineOperations(snapshot: ToolWorkingSetSnapshot): readonly string[]
     : STAGE_CAPABILITIES[snapshot.stage].operations;
   if (snapshot.boundOperations === undefined) return baseline;
   const bound = new Set(snapshot.boundOperations);
-  return baseline.filter((operation) => (
+  const filtered = baseline.filter((operation) => (
     (operation !== "narration.review" && operation !== "turn.finalize")
     || bound.has(operation)
   ));
+  // `output_context_ready` is named for a product it may not have: when the
+  // output context failed closed, nothing bound finalize, and this filter then
+  // removes finalize and narration.review both. What remains -- scene.context
+  // -- cannot advance the turn, and the stage's own producer is excluded
+  // because it is supposed to have already run. That is a dead turn, and
+  // nothing can abandon or repair one. Seen live on 2026-09-02 in campaign
+  // amaranthine-loop: twenty discovery calls, nothing delivered. Keep the
+  // producer available exactly while its product is missing.
+  if (
+    snapshot.stage === "output_context_ready"
+    // Neither closure operation bound: review-then-finalize is the ordinary
+    // flow and finalize alone being unbound is normal, so only the case where
+    // NOTHING can advance the turn brings the producer back.
+    && !bound.has("turn.finalize")
+    && !bound.has("narration.review")
+    && !filtered.includes("turn.output_context")
+  ) {
+    return [...filtered, "turn.output_context"];
+  }
+  return filtered;
 }
 
 function workingSetBudget(

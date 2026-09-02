@@ -6859,7 +6859,16 @@ def execute_setup_operation(
         host_bundle = coc_pdf_bundle.load_host_bundle(source_bundle_path)
     except coc_pdf_bundle.PdfSourceBundleError as exc:
         raise RuntimeOperationError(
-            f"scenario.bind_pdf requires a valid Codex pdf-skill source bundle: {exc}"
+            f"scenario.bind_pdf requires a valid Codex pdf-skill source bundle: {exc}. "
+            "This operation binds an already-built bundle; it does not read a "
+            "PDF. A raw .pdf path is never valid here. The bundle is produced "
+            "outside the table by the pdf pipeline "
+            "(`coc-pdf-pipeline pipeline --pdf <file> --work <dir>`), which "
+            "writes the directory to pass as source_bundle_path. Say that to "
+            "the player and wait -- there is no in-table operation that turns "
+            "a PDF into a bundle, so retrying, guessing a path, or falling "
+            "back to a built-in starter under the requested module's name are "
+            "all wrong."
         ) from exc
     campaign_dir = root / ".coc" / "campaigns" / campaign_id
     if not campaign_dir.is_dir():

@@ -5034,6 +5034,32 @@ const SEMANTIC_ID_ARRAY_FIELDS: ReadonlyMap<string, string> = new Map([
   ["route_refs", "route:"],
 ]);
 
+/**
+ * Fields whose members are ECHOED handles: minted by the host, copied back
+ * verbatim by the Keeper, and opaque by design -- an obligation id ends in a
+ * content digest precisely so it cannot be authored.
+ *
+ * The input grammar already says so (`RAW_ECHOED_FIELDS`), and the namespaces
+ * here are the same `OBLIGATION_ID_PREFIXES` it uses. The result side did not
+ * know, so it judged them as authored slugs and refused the digest tail: a
+ * turn with any NPC first-impression obligation collapsed
+ * `turn.output_context` to `semantic_identity_unavailable`, and with no output
+ * context there is no finalize -- the turn could not be delivered at all.
+ * Seen live on 2026-09-02 in campaign amaranthine-loop, on the first turn that
+ * had NPCs in the scene.
+ */
+const ECHOED_HANDLE_ARRAY_FIELDS: ReadonlyMap<string, ReadonlySet<string>> =
+  new Map([
+    ["obligation_ids", new Set<string>(OBLIGATION_ID_PREFIXES)],
+    ["required_obligation_ids", new Set<string>(OBLIGATION_ID_PREFIXES)],
+  ]);
+
+const ECHOED_HANDLE_SCALAR_FIELDS: ReadonlyMap<string, ReadonlySet<string>> =
+  new Map([
+    ["obligation_id", new Set<string>(OBLIGATION_ID_PREFIXES)],
+    ["obligation_ref", new Set<string>(OBLIGATION_ID_PREFIXES)],
+  ]);
+
 /** Structured namespaces that may pass projection without registry mapping. */
 const APPROVED_SEMANTIC_NAMESPACES: ReadonlySet<string> = new Set([
   "roll:", "effect:", "item:", "route:", "state:", "rule:", "check:",
@@ -5164,6 +5190,26 @@ function projectSemanticIdField(
       return { action: "drop" };
     }
     return { action: "keep", value: handle };
+  }
+  const echoedScalar = ECHOED_HANDLE_SCALAR_FIELDS.get(field);
+  if (echoedScalar !== undefined && typeof value === "string") {
+    if (isNamespacedSemantic(value, echoedScalar)) {
+      return { action: "keep", value };
+    }
+    diagnostics?.unmapped.push({ field, parentField, domain: "obligation" });
+    return { action: "drop" };
+  }
+  const echoedArray = ECHOED_HANDLE_ARRAY_FIELDS.get(field);
+  if (echoedArray !== undefined && Array.isArray(value)) {
+    const members: string[] = [];
+    for (const entry of value) {
+      if (typeof entry === "string" && isNamespacedSemantic(entry, echoedArray)) {
+        members.push(entry);
+        continue;
+      }
+      diagnostics?.unmapped.push({ field, parentField, domain: "obligation" });
+    }
+    return { action: "keep", value: members };
   }
   const arrayPrefix = SEMANTIC_ID_ARRAY_FIELDS.get(field);
   if (arrayPrefix !== undefined && Array.isArray(value)) {
