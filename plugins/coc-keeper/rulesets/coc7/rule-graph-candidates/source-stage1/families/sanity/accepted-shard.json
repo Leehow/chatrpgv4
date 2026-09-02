@@ -2769,7 +2769,7 @@
           "family_id": "sanity",
           "implementation": {
             "adapter": "subsystem",
-            "kind": "rules.sanity_check",
+            "kind": "sanity.execute",
             "payload_constants": {},
             "payload_slots": [
               {
@@ -2813,7 +2813,7 @@
                 "ownership": "host-locked"
               }
             ],
-            "phase": "settle"
+            "phase": "resolve"
           }
         },
         "visibility": "public"
@@ -5500,7 +5500,7 @@
       }
     ],
     "receipt": {
-      "candidate_sha256": "73b51c52fa26a3c70f6d3eba6d6e1469575409a30b12c769b587a888379876bd",
+      "candidate_sha256": "49b6a0805224d8768fa0d095c438f74fb8c2f7cb820513e9a57df1752dbb6c71",
       "contract_id": "coc.rule-graph-review-receipt.v1",
       "family_id": "sanity",
       "packet_sha256": "7517ff7951d061547ea614fbe6705cfa6879d3c30c68ad344ff79cb73fdf4cb1",
@@ -5508,7 +5508,7 @@
       "schema_version": 1,
       "section_id": "section-sanity-complete-source",
       "shard_id": "shard:coc7:sanity:section-sanity-complete-source",
-      "shard_sha256": "7e5f37f22f87284b7ef20e637d767036474e747a25ca1b69007c663de9c78087"
+      "shard_sha256": "4906a5ca5b0526693a9c999defae1173e3c0c70149a76820c4a9f7b7ec7b4362"
     },
     "relations": [
       {
@@ -6927,7 +6927,7 @@
         "from_node_id": "decision:coc7:sanity:check",
         "relation_id": "relation:coc7:sanity:check-invokes",
         "relation_kind": "invokes",
-        "to_node_id": "capability:coc7:sanity-check"
+        "to_node_id": "capability:coc7:sanity-execute"
       },
       {
         "evidence_span_ids": [

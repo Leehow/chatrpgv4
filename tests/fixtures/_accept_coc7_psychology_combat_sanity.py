@@ -697,7 +697,17 @@ def _sanity_executable(
         ))
     decisions = {
         "context": ("context", "sanity.context", "context", [], "keeper-only"),
-        "check": ("check", "rules.sanity_check", "settle", [
+        # A bout has to be opened by the engine that can advance it. This
+        # decision used to invoke `rules.sanity_check`, the advisory surface
+        # the module itself describes as not persisting ("use sanity.execute
+        # for full checks, bouts, and their persisted consequences"). It does
+        # write the bout to save/sanity.json, but tells the subsystem executor
+        # nothing -- so no `bout_keeper_action` choice was registered,
+        # `sanity.bout.pending` stayed false, rules.context never offered
+        # bout-tick, and the bout could be neither advanced nor ended. Because
+        # p.157 blocks further SAN checks while a bout runs, the family wedged
+        # on the first one. Measured 2026-09-02.
+        "check": ("execute", "sanity.execute", "resolve", [
             ("source", "keeper-semantic"),
             ("loss_success", "optional-semantic"),
             ("loss_failure", "keeper-semantic"),

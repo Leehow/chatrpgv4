@@ -337,8 +337,13 @@ def test_sanity_is_source_accepted_with_one_precise_runtime_blocker():
     assert review["coverage"] == "accepted"
     assert review["unresolved_applicable_rules"] == []
     assert review["accepted_shard_digest"] == shard["receipt"]["shard_sha256"]
+    # Moved 2026-09-02 when decision:coc7:sanity:check was rewired from
+    # rules.sanity_check to sanity.execute: a bout must be opened by the
+    # engine that can advance it. Nothing else in the shard changed -- the
+    # twenty accepted rules, the empty blocker list and the decision set below
+    # all still hold.
     assert review["accepted_shard_digest"] == (
-        "7e5f37f22f87284b7ef20e637d767036474e747a25ca1b69007c663de9c78087"
+        "4906a5ca5b0526693a9c999defae1173e3c0c70149a76820c4a9f7b7ec7b4362"
     )
     assert review["reviewer_identity"] == (
         "codex-worker-sanity-applicability-review-20260831-v2"
