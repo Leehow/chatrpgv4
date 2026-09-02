@@ -4692,10 +4692,13 @@ async function exerciseFailureDrain(mode) {
     prepared.ok === true
     && prepared.data.next_operation.operation
       === "progressive.opening_bootstrap"
+    // No memory.extraction_status: the re-arm fires only after a resume that
+    // succeeded and projected, and this scenario's resume fails closed with
+    // `opening_setup_incomplete`. The expectation predated that guard.
     && harness.calls.filter((call) => (
       call.name === "coc_invoke"
     )).map((call) => call.params.operation).join(",")
-      === "session.resume,memory.extraction_status,progressive.prepare_opening"
+      === "session.resume,progressive.prepare_opening"
     && !harness.calls.some((call) => (
       call.params.operation === "setup.inspect"
       || call.params.operation === "scenario.bind_pdf"
@@ -4830,7 +4833,14 @@ async function exerciseFailureDrain(mode) {
       operation: "evidence.table_opening",
       root,
       campaign: campaignId,
-      arguments: { decision_id: "opening-1" },
+      // Model-owned arguments only: decision_id and run_id are host-attached
+      // for this operation, and text is required. The fixture predated both
+      // and failed closed on shape before it could reach the resume gate this
+      // check exists to exercise.
+      arguments: {
+        text: "[in_game]\n恢复后的准确开场。\n[/in_game]",
+        presented_roll_ids: [],
+      },
     },
     undefined,
     undefined,
@@ -8469,7 +8479,7 @@ for (const terminalCase of [
         campaign: campaignId,
         arguments: {
           start_location: {
-            location_id: "opening",
+            location_id: "location:opening",
             title: "Opening",
           },
           opening_pdf_indices: [3],
@@ -8491,7 +8501,7 @@ for (const terminalCase of [
       campaign: campaignId,
       arguments: {
         start_location: {
-          location_id: "opening",
+          location_id: "location:opening",
           title: "Opening",
         },
         opening_pdf_indices: [3, 4],
