@@ -1394,16 +1394,6 @@ def _run_one_turn(
         "tension": tension,
         "tension_after": tension,
     }
-    # N3: prose-style audit trail over player-visible envelope fields.
-    # Findings with severity "rewrite" never gate the turn; only "block" would.
-    audit = narration_contract.audit_player_visible_fields(
-        narration_envelope,
-        turn=turn_record,
-        decision_id=decision_id,
-    )
-    for record in audit.get("records") or []:
-        _append_jsonl_sync(campaign_dir / "logs" / "narration-audit.jsonl", record)
-    turn_record["narration_audit"] = {"findings": int(audit.get("findings_count") or 0)}
     # Slot for player-visible final prose (filled by live_match narrator /
     # template path). Mapper reads narration.final_text first.
     turn_record["narration"] = dict(turn_record.get("narration") or {})
@@ -1412,11 +1402,6 @@ def _run_one_turn(
         "rules_ms": max(0.0, rules_ms),
         "persistence_ms": max(0.0, persistence_ms),
     }
-    if audit.get("blocking"):
-        raise narration_contract.NarrationGuardBlockedError(
-            f"player-visible narration guard blocked decision_id={decision_id} "
-            f"with {audit.get('findings_count')} finding(s)"
-        )
     return turn_record
 
 
@@ -1649,7 +1634,6 @@ def _pending_choice_blocked_result(
         "active_scene_after": scene_id,
         "tension": tension,
         "tension_after": tension,
-        "narration_audit": {"findings": 0},
         "narration": {},
     }
     pending_batches = _pending_record_count(campaign)
@@ -1706,7 +1690,6 @@ def _pending_choice_blocked_result(
             "requested": bool(state_patch),
         },
         "stop_actionability": stop_actionability,
-        "narration_audit": {"findings": 0},
         "final_state": {
             "active_scene": scene_id,
             "tension": tension,
@@ -2071,7 +2054,6 @@ def _run_pending_choice_response(
         "active_scene_after": world.get("active_scene_id"),
         "tension": pacing.get("tension_level"),
         "tension_after": pacing.get("tension_level"),
-        "narration_audit": {"findings": 0},
         "narration": {},
     }
     stop_reason = "pending_subsystem_choice" if pending_choice else "awaiting_player_input"
@@ -2130,7 +2112,6 @@ def _run_pending_choice_response(
             }] if pending_choice else []),
             "must_surface_handles": bool(pending_choice),
         },
-        "narration_audit": {"findings": 0},
         "final_state": {
             "active_scene": world.get("active_scene_id"),
             "tension": pacing.get("tension_level"),
@@ -2775,11 +2756,6 @@ def _run_live_turn_impl(
         "sync_state_writes_completed": True,
         "deferred_pending_batches": pending_before_flush if mode != "sync" else 0,
     }
-    narration_findings = sum(
-        int((turn.get("narration_audit") or {}).get("findings") or 0)
-        for turn in turns
-        if isinstance(turn, dict)
-    )
     result = {
         "schema_version": 1,
         "campaign_dir": str(campaign),
@@ -2822,7 +2798,6 @@ def _run_live_turn_impl(
             else None
         ),
         "stop_actionability": stop_actionability,
-        "narration_audit": {"findings": narration_findings},
         "final_state": {
             "active_scene": world.get("active_scene_id"),
             "tension": pacing.get("tension_level"),
@@ -2869,7 +2844,6 @@ def _run_live_turn_impl(
         ],
         "stop_actionability": stop_actionability,
         "pending_choice": result["pending_choice"],
-        "narration_audit": result["narration_audit"],
         "final_state": result["final_state"],
     }
     result["runtime_receipt_sha256"] = _append_jsonl_sync(

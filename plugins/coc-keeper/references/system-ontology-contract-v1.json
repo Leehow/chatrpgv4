@@ -26,7 +26,7 @@
     },
     "text": {
       "authority_plane": "presentation",
-      "node_ontology_contract": null
+      "node_ontology_contract": "coc.text-graph.v1"
     }
   },
   "relation_kinds": {
