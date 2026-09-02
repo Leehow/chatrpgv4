@@ -61,16 +61,27 @@ function parseSetKeys(source, constName) {
   return keys;
 }
 
+// A `readonly string[]` literal; may legitimately be empty.
+function parseStringArray(source, constName) {
+  const match = new RegExp(
+    `const ${constName}: readonly string\\[\\] = \\[([\\s\\S]*?)\\];`,
+  ).exec(source);
+  assert.ok(match, `${constName} not found in validator source`);
+  return [...match[1].matchAll(/"([^"]+)"/g)].map((row) => row[1]);
+}
+
 function parseClosedGrammarFieldsFromValidatorSource(source) {
   const never = new Set(parseSetKeys(source, "RAW_NEVER_MODEL_AUTHORED_FIELDS"));
   const fields = new Set([
     "decision_id",
+    ...parseStringArray(source, "MODEL_FACING_SUFFIX_DECISION_ID_FIELDS"),
     ...parseMapKeys(source, "RAW_COMPOSED_FIELDS"),
     ...parseMapKeys(source, "RAW_ECHOED_FIELDS"),
     ...parseMapKeys(source, "RAW_HANDLE_ONLY"),
     ...parseMapKeys(source, "RAW_HANDLE_OR_NAMESPACE"),
     ...parseSetKeys(source, "RAW_PROVENANCE_FIELDS"),
-    ...parseSetKeys(source, "RAW_VOCABULARY_FIELDS"),
+    // A Map carrying accepted/right/wrong prose: only its keys are fields.
+    ...parseMapKeys(source, "RAW_VOCABULARY_FIELDS"),
   ]);
   return [...fields].filter((field) => !never.has(field)).sort(sortIdentityFields);
 }
@@ -192,6 +203,37 @@ function collectFieldDescriptions(schema, acc = new Map()) {
   return acc;
 }
 
+// Presented enum per field name (an enum-bound vocabulary's closed set).
+function collectFieldEnums(schema, acc = new Map()) {
+  if (!schema || typeof schema !== "object") return acc;
+  if (schema.properties && typeof schema.properties === "object") {
+    for (const [field, prop] of Object.entries(schema.properties)) {
+      if (!prop || typeof prop !== "object") continue;
+      if (Array.isArray(prop.enum) && prop.enum.every((value) => typeof value === "string")) {
+        const list = acc.get(field) ?? [];
+        list.push(prop.enum);
+        acc.set(field, list);
+      }
+      collectFieldEnums(prop, acc);
+    }
+  }
+  if (Object.hasOwn(schema, "items")) {
+    if (Array.isArray(schema.items)) {
+      for (const item of schema.items) collectFieldEnums(item, acc);
+    } else {
+      collectFieldEnums(schema.items, acc);
+    }
+  }
+  if (schema.additionalProperties && typeof schema.additionalProperties === "object") {
+    collectFieldEnums(schema.additionalProperties, acc);
+  }
+  for (const key of ["anyOf", "oneOf", "allOf", "prefixItems"]) {
+    if (!Array.isArray(schema[key])) continue;
+    for (const entry of schema[key]) collectFieldEnums(entry, acc);
+  }
+  return acc;
+}
+
 test("documented decision_id prefixes equal validator DECISION_ID_PREFIXES", () => {
   const validatorSource = readFileSync(VALIDATOR_SOURCE, "utf8");
   const validator = parseValidatorPrefixes(validatorSource);
@@ -211,7 +253,12 @@ test("typed tool decision_id descriptions carry the closed grammar at point of u
   const catalog = typed.defaultTypedToolCatalog();
   const prefixes = typed.DECISION_ID_PREFIXES;
   assert.ok(Array.isArray(prefixes) && prefixes.length > 0);
-  for (const operation of ["rules.roll", "npc.reaction"]) {
+  // RuleGraph cutover: the Keeper rolls through rules.settle / rules.roll_dice;
+  // the legacy roll family is host-private and has no typed tool at all.
+  for (const retired of ["rules.roll", "rules.push", "rules.psychology_observe"]) {
+    assert.equal(catalog.byOperation.has(retired), false, `${retired} must not be presented`);
+  }
+  for (const operation of ["rules.settle", "rules.roll_dice", "npc.reaction"]) {
     const tool = catalog.byOperation.get(operation);
     assert.ok(tool, operation);
     const field = tool.parameters.properties.decision_id;
@@ -317,10 +364,21 @@ test("closed-grammar fields from validator source are covered by docs, overlays,
   assert.ok(sourceFields.includes("matched_affordance_ids"));
   assert.equal(sourceFields.includes("run_segment_id"), false);
   assert.equal(sourceFields.includes("first_impression_ref"), false);
-  assert.ok(
-    suffixFields.has("original_check_decision_id"),
-    "presented schemas must still expose original_check_decision_id",
+  // The model-facing suffix list is locked to the live presented surface in
+  // both directions. After the RuleGraph cutover rules.push is host-private
+  // and its original_check_decision_id is a host-locked push-luck input, so
+  // no presented schema carries a *_decision_id field any more.
+  const modelFacingSuffix = parseStringArray(
+    validatorSource,
+    "MODEL_FACING_SUFFIX_DECISION_ID_FIELDS",
   );
+  assert.deepEqual([...typed.MODEL_FACING_SUFFIX_DECISION_ID_FIELDS], modelFacingSuffix);
+  assert.deepEqual(
+    [...modelFacingSuffix].sort(),
+    [...suffixFields].sort(),
+    "MODEL_FACING_SUFFIX_DECISION_ID_FIELDS drifted from the presented *_decision_id fields",
+  );
+  assert.equal(suffixFields.has("original_check_decision_id"), false);
   for (const field of suffixFields) {
     assert.ok(
       liveFields.includes(field),
@@ -402,7 +460,32 @@ test("closed-grammar fields from validator source are covered by docs, overlays,
   const live = (field, value) => (
     typed.validateRawModelIdentityPayload({ [field]: value }).ok === true
   );
+  const fieldEnums = new Map();
+  for (const tool of presented.byOperation.values()) {
+    collectFieldEnums(tool.parameters, fieldEnums);
+  }
   for (const spec of catalog) {
+    const enums = fieldEnums.get(spec.field) ?? [];
+    if (spec.kind === "vocabulary" && enums.length > 0) {
+      // The identity validator only screens machine namespaces and entropy
+      // off a vocabulary field; the closed set itself lives on the presented
+      // schema's enum (never copied into TypeScript). The row's RIGHT column
+      // is prose pointing at that enum, so the live probe is the enum: the
+      // WRONG sample must be outside it and every member must pass the
+      // identity validator.
+      for (const values of enums) {
+        assert.ok(values.length > 0, `${spec.field} presented enum is empty`);
+        assert.equal(
+          values.includes(spec.wrongExample),
+          false,
+          `${spec.field} enum must not contain WRONG ${spec.wrongExample}`,
+        );
+        for (const value of values) {
+          assert.equal(live(spec.field, value), true, `${spec.field} enum member ${value}`);
+        }
+      }
+      continue;
+    }
     assert.equal(
       live(spec.field, spec.rightExample),
       true,
@@ -434,14 +517,11 @@ test("closed-grammar fields from validator source are covered by docs, overlays,
     }
   }
 
-  const push = presented.byOperation.get("rules.push");
-  assert.ok(push);
-  const originalCheck = push.parameters.properties.original_check_decision_id
-    ?.description ?? "";
-  assert.ok(originalCheck.includes("Closed decision_id grammar"));
-  assert.ok(originalCheck.includes("roll-persuade-arty-access-v1"));
-  assert.equal(originalCheck.includes("first-impression-arty-wilmot"), false);
-  assert.equal(originalCheck.includes("WRONG:"), false);
+  // The push is settled through rules.settle; its decision_id carries the same
+  // overlay as every other typed decision id (checked above), and the retired
+  // rules.push typed tool must not be presented.
+  assert.equal(presented.byOperation.has("rules.push"), false);
+  assert.equal(liveFields.includes("original_check_decision_id"), false);
 
   const bannedPresentedLiterals = [
     "route:commission-briefing-8",
@@ -474,8 +554,6 @@ test("closed-grammar fields from validator source are covered by docs, overlays,
     ["matched_affordance_ids", "search-clippings", false],
     ["matched_affordance_ids", "route:<route_id>", false],
     ["decision_id", "quick-start:x:finalize", true],
-    ["original_check_decision_id", "roll-persuade-arty-access-v1", true],
-    ["original_check_decision_id", "first-impression-arty-wilmot", false],
   ];
   for (const [field, value, expect] of campaign04) {
     assert.equal(

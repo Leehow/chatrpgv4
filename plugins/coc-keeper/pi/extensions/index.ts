@@ -7755,7 +7755,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     } catch { /* working-set audit is best effort */ }
   };
   applyKpActiveTools = () => {
-
+    // A pi-subagents child (PI_SUBAGENT_CHILD=1 on every child it spawns)
+    // loads this ambient package extension too, but owns its own active
+    // surface: the agent's --tools allowlist (steward agents carry
+    // bash/read/grep/find on the host filesystem). Projecting the KP working
+    // set there would wipe that allowlist — at session_start the closed
+    // awaiting_player stage would leave the steward with no tools at all.
+    if (process.env.PI_SUBAGENT_CHILD === "1") return;
     const role = effectiveTypedRole;
     if (operatorSystemInstructionScope !== null) {
       const operationTools = cocSystemInstructionOperations(role)

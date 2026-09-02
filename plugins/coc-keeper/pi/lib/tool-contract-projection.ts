@@ -5637,8 +5637,10 @@ function projectDevelopmentEndSessionRulesSettleData(
  * Hidden here, with the model-facing substitute in brackets:
  * - `original_check` — the raw `rules.roll` receipt (`roll_id` under the
  *   machine `toolbox-` namespace plus its `integrity_digest`). The push
- *   already consumed it; the model's join is the sibling
- *   `original_check_decision_id`, which is a model-facing decision id.
+ *   already consumed it. Its sibling `original_check_decision_id` is not a
+ *   model substitute either: `rules.push` is host-private after the RuleGraph
+ *   cutover and that field lives only on its host contract, so the push-luck
+ *   decision carries the join itself and the Keeper never authors one.
  * - `social_adjudication_ref` / `social_goal_key` — the digest-backed
  *   correlation into the one canonical social roll. The Social projector
  *   hides the same value as `goal_key`; relaying it here
@@ -8204,12 +8206,17 @@ const isDecisionIdField = (field: string): boolean =>
  * Model-facing `*_decision_id` fields besides literal `decision_id`.
  * `isDecisionIdField` also matches host-bound suffix names; those stay in
  * `RAW_NEVER_MODEL_AUTHORED_FIELDS` and are not cataloged. Completeness of
- * this list against the live presented surface is locked by walking typed
- * tool schemas in `tests/pi/decision-id-prefix-consistency.mjs`.
+ * this list against the live presented surface is locked in both directions
+ * by walking typed tool schemas in `tests/pi/decision-id-prefix-consistency.mjs`.
+ *
+ * Empty since the RuleGraph cutover: `original_check_decision_id` was the
+ * Keeper's join for the retired `rules.push` typed tool. The push is now
+ * settled through `rules.settle`, where the coc7 push-luck decisions declare
+ * that slot `ownership: "host-locked"` (rule_graph_adapter fills it from the
+ * source check), so the Keeper never authors it and the grammar catalog must
+ * not tell it how to.
  */
-export const MODEL_FACING_SUFFIX_DECISION_ID_FIELDS: readonly string[] = [
-  "original_check_decision_id",
-];
+export const MODEL_FACING_SUFFIX_DECISION_ID_FIELDS: readonly string[] = [];
 
 export type ModelIdentityFieldClass =
   | "composed"

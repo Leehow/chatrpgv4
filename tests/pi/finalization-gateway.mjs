@@ -185,37 +185,96 @@ for (const handler of handlers.get("message_start") || []) {
     },
   }, ctx);
 }
-// Observe one real roll first: finalize coverage rows reference obligation
-// roll identity through the registry, so the handle must be live.
-clientEnvelope = {
-  ok: true,
-  tool: "rules.roll",
-  data: {
-    roll_id: "toolbox-finalization-gw-000001",
+// Observe one real settled check first: finalize coverage rows reference
+// obligation roll identity through the registry, so the handle must be live.
+// RuleGraph cutover: the Keeper rolls through rules.settle (rules.roll is a
+// host-private adapter); the canonical roll sits under
+// settlement.result.bound_check and is what the gateway registers.
+const ORDINARY_CHECK = "decision:coc7:core-check:ordinary-check";
+const settleArguments = (decisionId, goal) => ({
+  decision_ref: ORDINARY_CHECK,
+  decision_id: decisionId,
+  semantic_inputs: {
     skill: "侦查",
-    passed: true,
-    resolution_context: { attempt_id: "attempt-finalization-gw-probe" },
+    difficulty: "regular",
+    difficulty_basis: "keeper_judgment",
+    goal,
+    stakes: { on_success: "封印读出", on_failure: "封印拒绝开口" },
+    bonus: 0,
+    penalty: 0,
   },
-};
+});
+const settledCheckEnvelope = (rollId, goal, passed) => ({
+  ok: true,
+  tool: "rules.settle",
+  data: {
+    decision_ref: ORDINARY_CHECK,
+    family: "core-check",
+    status: "settled",
+    rule_refs: ["rule:coc7:core-check:canonical-target-binding"],
+    investigator_id: "inv-finalization-probe-1",
+    event: null,
+    player_state_receipt: null,
+    current_hp: null,
+    conditions: null,
+    settlement: {
+      existing_result_envelope: true,
+      result: {
+        bound_check: {
+          base_target: 50,
+          target: 50,
+          required_level: "regular",
+          difficulty: "regular",
+          required_target: 50,
+          effective_target: 50,
+          achieved_level: passed ? "success" : "failure",
+          passed,
+          success: passed,
+          surplus_levels: 0,
+          outcome: passed ? "success" : "failure",
+          bonus: 0,
+          penalty: 0,
+          roll: passed ? 32 : 74,
+          unmodified_roll: passed ? 32 : 74,
+          tens_values: [],
+          units: null,
+          investigator_id: "inv-finalization-probe-1",
+          skill: "侦查",
+          target_source: "explicit",
+          pushed: false,
+          goal,
+          stakes: { on_success: "封印读出", on_failure: "封印拒绝开口" },
+          difficulty_basis: "keeper_judgment",
+          roll_id: rollId,
+        },
+        outcome: passed ? "success" : "failure",
+        pushed: false,
+        next_continuations: [],
+      },
+    },
+    next_decisions: [],
+    authority: "canonical-resolver-state-receipts",
+  },
+});
+const settledRollHandle = (result) => JSON.parse(result.content[0].text)
+  .data?.settlement?.result?.bound_check?.roll_id;
+clientEnvelope = settledCheckEnvelope(
+  "toolbox-finalization-gw-000001",
+  "找到火漆封印并读出内容",
+  true,
+);
 const rollFixtureResult = await tools.get("coc_invoke").execute(
   "roll-live-fixture",
   {
-    operation: "rules.roll",
+    operation: "rules.settle",
     campaign: "hoyk-pi-grok-fix7-20260727",
-    arguments: {
-      difficulty: "regular",
-      goal: "找到火漆封印并读出内容",
-      stakes: { on_success: "封印读出", on_failure: "封印拒绝开口" },
-      difficulty_basis: "keeper_judgment",
-      decision_id: "roll-finalization-gw-probe",
-    },
+    arguments: settleArguments("roll-finalization-gw-probe", "找到火漆封印并读出内容"),
   },
   undefined,
   undefined,
   ctx,
 );
-const observedRollHandle = JSON.parse(rollFixtureResult.content[0].text)
-  .data?.roll_id;
+const observedRollHandle = settledRollHandle(rollFixtureResult);
 assert.ok(
   typeof observedRollHandle === "string" && observedRollHandle.startsWith("roll:"),
   "the observed roll projects a semantic handle",
@@ -376,36 +435,28 @@ clientEnvelope = {
 // The first settle advanced the player turn: the prior turn's roll handle
 // is dead by design. Observe the new turn's roll so the tampered-receipt
 // probe below tests the RECEIPT gate — not a stale obligation handle.
-clientEnvelope = {
-  ok: true,
-  tool: "rules.roll",
-  data: {
-    roll_id: "toolbox-finalization-gw-000002",
-    skill: "侦查",
-    passed: false,
-    resolution_context: { attempt_id: "attempt-finalization-gw-probe-2" },
-  },
-};
+clientEnvelope = settledCheckEnvelope(
+  "toolbox-finalization-gw-000002",
+  "新回合再次核对封印",
+  false,
+);
 const rollFixtureResult2 = await tools.get("coc_invoke").execute(
   "roll-live-fixture-new-turn",
   {
-    operation: "rules.roll",
+    operation: "rules.settle",
     campaign: "hoyk-pi-grok-fix7-20260727",
-    arguments: {
-      difficulty: "regular",
-      goal: "新回合再次核对封印",
-      stakes: { on_success: "封印读出", on_failure: "封印拒绝开口" },
-      difficulty_basis: "keeper_judgment",
-      decision_id: "roll-finalization-gw-probe-new-turn",
-    },
+    arguments: settleArguments("roll-finalization-gw-probe-new-turn", "新回合再次核对封印"),
   },
   undefined,
   undefined,
   ctx,
 );
-finalizationArguments.coverage[0].obligation_id = JSON.parse(
-  rollFixtureResult2.content[0].text,
-).data?.roll_id;
+const observedRollHandle2 = settledRollHandle(rollFixtureResult2);
+assert.ok(
+  typeof observedRollHandle2 === "string" && observedRollHandle2.startsWith("roll:"),
+  "the new turn's settled roll projects a semantic handle",
+);
+finalizationArguments.coverage[0].obligation_id = observedRollHandle2;
 const rawGatewayResult = await tools.get("coc_invoke").execute(
   "finalize-raw-digest-fixture",
   {
@@ -961,7 +1012,7 @@ const baseProbeAssistant = {
   stopReason: "stop",
 };
 const quarantineRejections = {};
-for (const operation of ["state.journal", "rules.roll", "turn.finalize", "narration.review"]) {
+for (const operation of ["state.journal", "rules.settle", "turn.finalize", "narration.review"]) {
   const rejected = await replayProbe.probeTools.get("coc_invoke").execute(
     `replay-quarantine-${operation}`,
     { operation, campaign: ATTEMPT05_CAMPAIGN, arguments: {} },
@@ -974,14 +1025,14 @@ for (const operation of ["state.journal", "rules.roll", "turn.finalize", "narrat
 }
 assert.deepEqual(quarantineRejections, {
   "state.journal": "delivery_replay_owns_delivery",
-  "rules.roll": "delivery_replay_owns_delivery",
+  "rules.settle": "delivery_replay_owns_delivery",
   "turn.finalize": "delivery_replay_owns_delivery",
   "narration.review": "delivery_replay_owns_delivery",
 });
 assert.equal(
   replayProbe.probeCalls.some((row) => [
     "state.journal",
-    "rules.roll",
+    "rules.settle",
     "turn.finalize",
     "narration.review",
   ].includes(row.params?.operation)),
