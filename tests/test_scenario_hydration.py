@@ -19,6 +19,19 @@ def _load():
 hydration = _load()
 HAUNTING = Path("plugins/coc-keeper/references/starter-scenarios/the-haunting")
 
+#: What a real installed campaign scenario carries. `REQUIRED_FILES` alone is
+#: not a valid scenario for this starter: its clue graph delivers two clues
+#: through `handout-globe-unpublished-1918`, and without the card store those
+#: are `unknown_handout` errors. `install_to_campaign` copies the optional IR
+#: files for exactly this reason, so a fixture that copies only the required
+#: seven is modelling a campaign that cannot exist.
+def _install_starter_scenario(campaign: Path) -> None:
+    for name in (*hydration.REQUIRED_FILES, "handouts.json", "quests.json"):
+        source = HAUNTING / name
+        if source.is_file():
+            shutil.copy2(source, campaign / "scenario" / name)
+
+
 
 def _campaign(tmp_path: Path) -> Path:
     campaign = tmp_path / ".coc" / "campaigns" / "cold"
@@ -33,10 +46,24 @@ def _campaign(tmp_path: Path) -> Path:
 
 
 def _haunting_bundle() -> dict[str, dict]:
-    return {
+    """What a compiler must return for this starter to be installable.
+
+    The required seven are not enough for the same reason
+    `_install_starter_scenario` copies more than seven: this clue graph
+    delivers two clues through `handout-globe-unpublished-1918`, so a bundle
+    without the card store is `unknown_handout` at validation. The bundle key
+    contract admits the registered optional files precisely so a compiler can
+    say this.
+    """
+    bundle = {
         name: json.loads((HAUNTING / name).read_text(encoding="utf-8"))
         for name in hydration.REQUIRED_FILES
     }
+    for name in hydration.OPTIONAL_FILES:
+        source = HAUNTING / name
+        if source.is_file():
+            bundle[name] = json.loads(source.read_text(encoding="utf-8"))
+    return bundle
 
 
 def _retarget_source_refs(value):
@@ -46,10 +73,18 @@ def _retarget_source_refs(value):
         return value
     result = {key: _retarget_source_refs(item) for key, item in value.items()}
     if isinstance(result.get("source_refs"), list):
-        result["source_refs"] = [{
-            "source_id": "pdf:keeper-rulebook",
-            "pdf_index": 446,
-        } for _item in result["source_refs"]]
+        # Retarget onto the synthetic single-page source, and emit ONE ref
+        # rather than one per original. The fixture's source declares
+        # pdf_index_start == pdf_index_end == 446, so every rewritten ref is
+        # the same page; keeping one per original produced records citing 446
+        # several times, which canonical validation rejects as
+        # `provenance.source_refs contains duplicate pdf_index 446`. A record
+        # that cites one page cites it once.
+        if result["source_refs"]:
+            result["source_refs"] = [{
+                "source_id": "pdf:keeper-rulebook",
+                "pdf_index": 446,
+            }]
     return result
 
 
@@ -84,8 +119,7 @@ def _bundle_with_dangling_refs(count: int, prefix: str) -> dict[str, dict]:
 
 def test_valid_campaign_is_warm_hit_without_compiler(tmp_path):
     campaign = _campaign(tmp_path)
-    for name in hydration.REQUIRED_FILES:
-        shutil.copy2(HAUNTING / name, campaign / "scenario" / name)
+    _install_starter_scenario(campaign)
 
     receipt = hydration.ensure_scenario_ready(
         campaign,
@@ -100,8 +134,7 @@ def test_valid_campaign_is_warm_hit_without_compiler(tmp_path):
 
 def test_warm_check_does_not_rewrite_identical_resolution_receipt(tmp_path):
     campaign = _campaign(tmp_path)
-    for name in hydration.REQUIRED_FILES:
-        shutil.copy2(HAUNTING / name, campaign / "scenario" / name)
+    _install_starter_scenario(campaign)
     hydration.ensure_scenario_ready(campaign)
     path = campaign / "scenario" / "resolution-receipt.json"
     before = path.read_bytes()
@@ -373,8 +406,7 @@ def test_base_publication_failure_restores_all_current_files(tmp_path, monkeypat
         "resolution_policy": "source_first",
         "source": {"path": "/private/local/module.pdf", "pdf_index_start": 446},
     }), encoding="utf-8")
-    for name in hydration.REQUIRED_FILES:
-        shutil.copy2(HAUNTING / name, campaign / "scenario" / name)
+    _install_starter_scenario(campaign)
     for name in hydration.EPISTEMIC_FILES:
         (campaign / "scenario" / name).write_text('{"old_sidecar":true}\n', encoding="utf-8")
     (campaign / "scenario" / "resolution-receipt.json").write_text(
@@ -681,10 +713,11 @@ def test_duplicate_clue_finding_keeps_id_and_all_definition_paths():
 
 def test_base_revision_exhausts_all_five_attempts_without_publish_or_epistemic(tmp_path, monkeypatch):
     campaign = _campaign(tmp_path)
-    original = {}
-    for name in hydration.REQUIRED_FILES:
-        shutil.copy2(HAUNTING / name, campaign / "scenario" / name)
-        original[name] = (campaign / "scenario" / name).read_bytes()
+    _install_starter_scenario(campaign)
+    original = {
+        path.name: path.read_bytes()
+        for path in sorted((campaign / "scenario").glob("*.json"))
+    }
     monkeypatch.setattr(hydration, "_extract_source", lambda _seed: _source_fixture())
     calls = []
 
