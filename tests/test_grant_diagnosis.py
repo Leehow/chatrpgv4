@@ -177,15 +177,21 @@ def test_reading_the_scene_does_not_void_a_card_the_keeper_holds(campaign_ws):
     )
 
 
-def test_a_bout_that_is_not_underway_is_not_an_argument_complaint(campaign_ws):
-    """`sanity_bout_choice_unavailable` is canonical state, not arguments.
+def test_a_bout_that_is_not_underway_names_the_fact_not_the_arguments(campaign_ws):
+    """Settling bout-tick before any bout exists must answer with the gate.
 
     Every payload slot on decision:coc7:sanity:bout-tick is host-locked, so no
-    semantic_inputs value can satisfy it — the decision exists only while a
-    bout is waiting on a Keeper decision. The old wording ("exactly one
+    semantic_inputs value can satisfy it. The old wording ("exactly one
     canonical Keeper bout choice is required") read like a slot filled in
     wrong: on 2026-09-02 one lane rewrote semantic_inputs five times in a row
-    (kind, goal, outcome, changed_method) before abandoning the bout.
+    before abandoning the bout.
+
+    Rewording it was not enough. `_canonical_sanity_binding` runs while the
+    host fills host-locked slots, which happened before the card grant was
+    checked, so its precondition error shadowed the answer that actually
+    decides whether the card can ever appear. Two settlements in r35 were
+    still told about bout choices when what they needed was
+    `sanity.bout.pending is False, needs True`.
     """
     import coc_toolbox  # noqa: PLC0415
 
@@ -201,9 +207,14 @@ def test_a_bout_that_is_not_underway_is_not_an_argument_complaint(campaign_ws):
         },
     )
     error = settled.get("error") or {}
-    assert error.get("code") == "sanity_bout_choice_unavailable", settled
-    assert "no sanity bout is waiting" in error.get("message", ""), error
-    assert error["details"]["pending_keeper_bout_choices"] == 0, error["details"]
+    assert error.get("code") == "rule_decision_stale", settled
+    details = error["details"]
+    assert details["reason"] == "decision_not_available", details
+    unmet = {row["path"]: row for row in details["unmet"]}
+    assert "sanity.bout.pending" in unmet, details
+    assert unmet["sanity.bout.pending"]["expected"] is True, unmet
+    assert "not currently available" in error["message"], error["message"]
+
 
 
 def test_an_ungated_decision_the_keeper_never_asked_for_says_exactly_that():

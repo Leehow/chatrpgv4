@@ -8315,47 +8315,16 @@ def dispatch_rules_settle(
             investigator_id=investigator_id,
             semantic_inputs=semantic_inputs,
         )
-    if family == "combat":
-        selected["_host_combat_binding"] = _canonical_combat_binding(
-            ctx,
-            decision_ref=decision_ref,
-            investigator_id=investigator_id,
-            semantic_inputs=semantic_inputs,
-        )
-    if family == "sanity":
-        selected["_host_sanity_binding"] = _canonical_sanity_binding(
-            ctx,
-            decision_ref=decision_ref,
-            investigator_id=investigator_id,
-            semantic_inputs=semantic_inputs,
-        )
-    if family == "magic":
-        selected["_host_family_binding"] = {
-            "investigator": investigator_id,
-            "is_npc": False,
-        }
-    if family == "development":
-        binding: dict[str, Any] = {"investigator": investigator_id}
-        if decision_ref.endswith(":settle-ending"):
-            ending = coc_development.structured_ending_evidence(ctx.campaign_dir)
-            if not isinstance(ending, Mapping):
-                raise ToolError(
-                    "settlement_unavailable",
-                    "development.settle requires a persisted ending receipt",
-                )
-            binding["ending_id"] = ending.get("ending_id")
-        selected["_host_family_binding"] = binding
-    if family == "chase":
-        selected["_host_chase_binding"] = _canonical_chase_binding(
-            ctx, decision_ref=decision_ref, investigator_id=investigator_id,
-            semantic_inputs=semantic_inputs,
-        )
-    ruleset_adapter = getattr(runtime, "_ruleset_adapter", None)
-    if ruleset_adapter is None:
-        raise ToolError(
-            "rules_graph_unavailable",
-            "graph settlement requires the active ruleset adapter",
-        )
+    # Before any family binding. Each one reads canonical state to fill
+    # host-locked slots and raises its own precondition error on the way --
+    # `sanity_bout_choice_unavailable`, `chase_candidate_invalid`,
+    # `combat_not_started` -- which shadowed the more useful answer for a
+    # decision the Keeper was never offered at all. Measured 2026-09-02 r35:
+    # two settlements of decision:coc7:sanity:bout-tick made before any bout
+    # existed were told "exactly one Keeper bout choice is required" instead
+    # of "sanity.bout.pending is False, needs True", which is the fact that
+    # decides whether the card can ever appear. Binding canonical inputs for a
+    # decision that cannot settle is also work nobody needed.
     grant = runtime.latest_grant_covering(decision_ref)
     if grant is None:
         # This pre-check short-circuits before settle() can reach
@@ -8412,6 +8381,47 @@ def dispatch_rules_settle(
                     if isinstance(card, Mapping)
                 ],
             },
+        )
+    if family == "combat":
+        selected["_host_combat_binding"] = _canonical_combat_binding(
+            ctx,
+            decision_ref=decision_ref,
+            investigator_id=investigator_id,
+            semantic_inputs=semantic_inputs,
+        )
+    if family == "sanity":
+        selected["_host_sanity_binding"] = _canonical_sanity_binding(
+            ctx,
+            decision_ref=decision_ref,
+            investigator_id=investigator_id,
+            semantic_inputs=semantic_inputs,
+        )
+    if family == "magic":
+        selected["_host_family_binding"] = {
+            "investigator": investigator_id,
+            "is_npc": False,
+        }
+    if family == "development":
+        binding: dict[str, Any] = {"investigator": investigator_id}
+        if decision_ref.endswith(":settle-ending"):
+            ending = coc_development.structured_ending_evidence(ctx.campaign_dir)
+            if not isinstance(ending, Mapping):
+                raise ToolError(
+                    "settlement_unavailable",
+                    "development.settle requires a persisted ending receipt",
+                )
+            binding["ending_id"] = ending.get("ending_id")
+        selected["_host_family_binding"] = binding
+    if family == "chase":
+        selected["_host_chase_binding"] = _canonical_chase_binding(
+            ctx, decision_ref=decision_ref, investigator_id=investigator_id,
+            semantic_inputs=semantic_inputs,
+        )
+    ruleset_adapter = getattr(runtime, "_ruleset_adapter", None)
+    if ruleset_adapter is None:
+        raise ToolError(
+            "rules_graph_unavailable",
+            "graph settlement requires the active ruleset adapter",
         )
     source_decision_id = str(grant.get("source_decision_id") or "")
     if source_decision_id:
