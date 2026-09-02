@@ -1,0 +1,40 @@
+{
+  "decision_ref": "decision:coc7:chase:start",
+  "family": "chase",
+  "status": "settled",
+  "rule_refs": [],
+  "investigator_id": "current-investigator",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "schema_version": 1,
+      "authority": "deterministic_subsystem",
+      "investigator_id": "current-investigator",
+      "results": [
+        {
+          "kind": "chase_start",
+          "status": "completed",
+          "events": [
+            {
+              "event_type": "chase_started",
+              "chase_id": "chase:corbitt-confrontation:investigator-thomas-hayes-vs-npc-npc-walter-corbitt",
+              "revision": 1,
+              "round": 1,
+              "initiative": [
+                "thomas-hayes",
+                "npc-walter-corbitt"
+              ]
+            }
+          ],
+          "pending_choice": null
+        }
+      ]
+    }
+  },
+  "next_decisions": [],
+  "authority": "canonical-resolver-state-receipts"
+}
