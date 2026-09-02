@@ -19,6 +19,10 @@ const {
   root,
   "plugins/coc-keeper/pi/lib/state-claim-compiler.ts",
 ));
+const { VOLUNTARY_CLAIM_TYPES } = await import(path.join(
+  root,
+  "plugins/coc-keeper/pi/lib/text-vocabulary.generated.ts",
+));
 
 const ROLE_ENV = "COC_PI_SESSION_ROLE";
 const CAMPAIGN_ENV = "PI_COC_CAMPAIGN_ID";
@@ -4776,11 +4780,12 @@ test("accepted-review hydration projects finalize-only and host-binds exact revi
       authorities: [
         {
           authority: "current-player-input",
-          claim_types: [
-            "voluntary_action", "voluntary_speech", "voluntary_plan",
-            "voluntary_belief", "voluntary_trust",
-            "voluntary_active_emotion",
-          ],
+          // Whatever the generated vocabulary holds, in its order. Copying
+          // the members here duplicated a closed vocabulary that is generated
+          // from the text graph, and the copy kept the hand-authored order
+          // after 9d30fa69 made the generator the source: the assertion then
+          // failed over ordering alone while the projection was correct.
+          claim_types: [...VOLUNTARY_CLAIM_TYPES],
         },
         {
           authority: "involuntary-physiology",

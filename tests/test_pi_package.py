@@ -2897,7 +2897,7 @@ def test_real_pi_gateway_uses_canonical_finalizer_string_digest():
                 "arguments": {
                     "host_session_id": "finalization-gateway-probe"
                 },
-                "root": "/Users/haoli/leehow/code/chatrpgv4"
+                "root": str(ROOT)
             }
         },
         {
@@ -2929,7 +2929,7 @@ def test_real_pi_gateway_uses_canonical_finalizer_string_digest():
                         "penalty": 0
                     }
                 },
-                "root": "/Users/haoli/leehow/code/chatrpgv4"
+                "root": str(ROOT)
             }
         },
         {
@@ -2963,7 +2963,7 @@ def test_real_pi_gateway_uses_canonical_finalizer_string_digest():
                         }
                     ]
                 },
-                "root": "/Users/haoli/leehow/code/chatrpgv4"
+                "root": str(ROOT)
             }
         },
         {
@@ -2987,7 +2987,7 @@ def test_real_pi_gateway_uses_canonical_finalizer_string_digest():
                         "penalty": 0
                     }
                 },
-                "root": "/Users/haoli/leehow/code/chatrpgv4"
+                "root": str(ROOT)
             }
         },
         {
@@ -3021,7 +3021,7 @@ def test_real_pi_gateway_uses_canonical_finalizer_string_digest():
                         }
                     ]
                 },
-                "root": "/Users/haoli/leehow/code/chatrpgv4"
+                "root": str(ROOT)
             }
         }
     ],
