@@ -87,6 +87,18 @@ KNOWN_STALE_SOURCE_IDS = frozenset({
     "toolbox-zai-glm53-full-e2e-20260821-5-000020",
 })
 
+# The second deliberate format change this corpus has seen, and the reason it
+# is listed by SEGMENT TYPE rather than by id: the exceptional-effect block used
+# to glue three fields onto one line behind `｜因果：` and `｜边界：`, two of them
+# Keeper-authored prose. It now uses line breaks and a parenthesised boundary.
+# Same information, and the 168-character single line that made the measurement
+# obvious is gone. Every preserved exceptional_effect segment predates it.
+#
+# This is an escape hatch and it is deliberately narrow: only this one type,
+# and only until the corpus is regrown. Widening it to silence a failure would
+# turn the gate into decoration.
+REFORMATTED_SEGMENT_TYPES = frozenset({"exceptional_effect"})
+
 
 def test_every_preserved_mechanics_segment_re_renders_byte_for_byte(corpus):
     """The gate. One byte of drift breaks a stored receipt's replay.
@@ -98,6 +110,7 @@ def test_every_preserved_mechanics_segment_re_renders_byte_for_byte(corpus):
     """
     mismatches: list[str] = []
     stale_seen: set[str] = set()
+    reformatted_seen: set[str] = set()
     checked = 0
     for row in corpus:
         try:
@@ -122,6 +135,9 @@ def test_every_preserved_mechanics_segment_re_renders_byte_for_byte(corpus):
                 if source_id in KNOWN_STALE_SOURCE_IDS:
                     stale_seen.add(source_id)
                     continue
+                if kind in REFORMATTED_SEGMENT_TYPES:
+                    reformatted_seen.add(kind)
+                    continue
                 mismatches.append(
                     f"{row.get('finalization_id')} {kind}/{source_id}:\n"
                     f"    stored:   {seg.get('text')!r}\n"
@@ -129,6 +145,13 @@ def test_every_preserved_mechanics_segment_re_renders_byte_for_byte(corpus):
                 )
     assert checked >= 500, f"only {checked} segments actually compared"
     assert not mismatches, "chrome render drift:\n  " + "\n  ".join(mismatches[:10])
+    assert reformatted_seen == REFORMATTED_SEGMENT_TYPES, (
+        "the reformatted set moved: "
+        f"{sorted(REFORMATTED_SEGMENT_TYPES - reformatted_seen)} now match again, "
+        f"{sorted(reformatted_seen - REFORMATTED_SEGMENT_TYPES)} newly reformatted. "
+        "A type that starts matching again means the format moved back; a new "
+        "one means a change landed without being recorded here."
+    )
     assert stale_seen == KNOWN_STALE_SOURCE_IDS, (
         "the pinned pre-format-change set moved: "
         f"{sorted(KNOWN_STALE_SOURCE_IDS - stale_seen)} now match, "
@@ -518,3 +541,60 @@ def test_the_operation_rejects_a_misspelled_chrome_key(tmp_path):
     assert result["ok"] is False
     assert result["error"]["code"] == "invalid_param"
     assert "unknown chrome label" in result["error"]["message"]
+
+
+def test_the_exceptional_block_reads_as_lines_not_as_a_form():
+    """Two of its three fields are Keeper-authored prose.
+
+    The old shape glued them onto one line behind `｜因果：` and `｜边界：`,
+    producing 168-character rows in real play. Measured across 136 preserved
+    turns, host-composed blocks were 14.8% of what the player read and carried
+    one separator every 5.5 characters. The information is unchanged; the
+    layout stops turning good writing into a form.
+    """
+    rendered = coc_turn._render_exceptional_effect(
+        {
+            "effect_kind": "scene_event", "direction": "cost",
+            "player_visible_impact": "竖井深处似乎有什么被惊动。",
+            "causal_link": "推碎冰试探时脚下一个失稳。",
+            "boundary": {"kind": "until_scene_end", "description": ""},
+            "event_id": "x", "status": "active",
+        },
+        play_language="zh-Hans",
+    )
+    assert "｜" not in rendered, f"the pipe separators are back: {rendered!r}"
+    assert rendered.count("\n") == 2, rendered
+    assert rendered.endswith("（持续至本场景结束）"), rendered
+    assert "边界：" not in rendered, "the boundary is parenthesised, not a labelled field"
+
+
+@pytest.mark.parametrize("language", ["zh-Hans", "en-US", "ja-JP"])
+def test_the_exceptional_block_is_whole_in_every_built_in_language(language):
+    """ja-JP used to get a Japanese tag over an English body here too.
+
+    `_render_state_delta` was migrated first and this renderer was not, so the
+    earlier claim that ja-JP was fixed was true of one renderer and not the
+    other. This is the assertion that would have caught it.
+    """
+    rendered = coc_turn._render_exceptional_effect(
+        {
+            "effect_kind": "scene_event", "direction": "cost",
+            "player_visible_impact": "IMPACT",
+            "causal_link": "CAUSAL",
+            "boundary": {"kind": "until_scene_end", "description": ""},
+            "event_id": "x", "status": "active",
+        },
+        play_language=language,
+    )
+    # The CURRENT English form. The first draft of this listed `boundary:`,
+    # which the reformatting had already replaced with a parenthetical -- a
+    # test written against a shape that no longer exists fails on correct
+    # output and says nothing about the defect it was aimed at.
+    english_only = ("cost\u00b7scene event", "cause:", "until the current scene ends")
+    if language == "en-US":
+        assert all(token in rendered for token in english_only), rendered[:120]
+    else:
+        for token in english_only:
+            assert token not in rendered, (
+                f"{language} carries the English form {token!r}: {rendered!r}"
+            )
