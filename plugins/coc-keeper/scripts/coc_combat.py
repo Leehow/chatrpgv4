@@ -3583,6 +3583,13 @@ class CombatSession:
 
 
 class CombatNotStartedError(FileNotFoundError):
+    #: Surfaced under this code instead of the executor's generic transaction
+    #: failure. "Nothing has begun" is an ordinary precondition with an obvious
+    #: next step, and `combat.end` already answers it this way; routing it
+    #: through `subsystem_transaction_failed` told the Keeper the write had
+    #: broken when nothing had been attempted.
+    subsystem_error_code = "combat_not_started"
+
     """No combat snapshot exists yet: nothing is wrong, nothing has begun.
 
     Distinguished from a corrupt snapshot so the absence can be answered with

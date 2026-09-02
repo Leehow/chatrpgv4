@@ -4365,7 +4365,17 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
             if hint not in {
                 "opposed_melee", "firearm_attack", "aim", "reload", "maneuver", "flee",
             }:
-                raise _error("invalid_command_payload", f"{base}.resolution_hint", "unsupported structured combat action")
+                # Name the closed set. "unsupported" alone leaves the Keeper
+                # guessing at a vocabulary it cannot see.
+                raise _error(
+                    "invalid_command_payload",
+                    f"{base}.resolution_hint",
+                    "unsupported structured combat action; use one of: "
+                    + ", ".join(sorted({
+                        "opposed_melee", "firearm_attack", "aim", "reload",
+                        "maneuver", "flee",
+                    })),
+                )
             if hint in {"opposed_melee", "firearm_attack", "maneuver"} and (
                 not isinstance(payload.get("target_actor_id"), str)
                 or not payload["target_actor_id"].strip()
@@ -4373,9 +4383,26 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
                 raise _error("invalid_command_payload", f"{base}.target_actor_id", "target is required for attack or maneuver")
             if hint == "maneuver":
                 if payload.get("goal") not in coc_combat.CombatSession.VALID_MANEUVER_GOALS:
-                    raise _error("invalid_command_payload", f"{base}.goal", "invalid maneuver goal")
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.goal",
+                        "invalid maneuver goal; use one of: "
+                        + ", ".join(sorted(
+                            coc_combat.CombatSession.VALID_MANEUVER_GOALS
+                        )),
+                    )
                 if payload.get("defense_kind") not in coc_combat.VALID_DEFENSE:
-                    raise _error("invalid_command_payload", f"{base}.defense_kind", "invalid maneuver defense")
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.defense_kind",
+                        # VALID_DEFENSE contains None for "no defence", so the
+                        # members are rendered rather than sorted as strings.
+                        "invalid maneuver defense; use one of: "
+                        + ", ".join(sorted({
+                            "none" if value is None else str(value)
+                            for value in coc_combat.VALID_DEFENSE
+                        })),
+                    )
             if "resource_cost" in payload:
                 cost = payload["resource_cost"]
                 if (
@@ -9545,7 +9572,13 @@ def execute_commands(
                 STATE_RELATIVE_PATH.as_posix(),
                 f"transaction error={exc}; rollback error={rollback_error}",
             ) from rollback_error
+        # An exception may name the code it should surface as. A precondition
+        # ("no combat has started") is not a transaction failure, and wrapping
+        # it as one tells the Keeper a write broke when nothing was attempted.
+        # The executor stays ignorant of each subsystem: the raiser declares.
+        declared = getattr(exc, "subsystem_error_code", None)
         raise _error(
+            declared if isinstance(declared, str) and declared else
             "subsystem_transaction_failed",
             "commands",
             str(exc),

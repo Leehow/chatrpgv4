@@ -677,6 +677,18 @@ const BUSINESS_PRECONDITION_ACTIONS: Record<string, readonly PiAllowedNextAction
   // having written `level: 1` correctly on the first try -- read that as
   // "this cannot be done", downgraded its own claim to level 0, and the
   // player's earned clue counted for nothing on the roll that followed.
+  // Nothing has begun. The refusal already names what to read and what to
+  // call, and starting the exchange is the whole correction -- but classed
+  // terminal, a Keeper that reached a combat decision first (the ordinary way
+  // to open one) was told the beat could not happen at all. Seen live on
+  // 2026-09-02: five settles across maneuver/attack/end before it gave up and
+  // fell back to a plain check.
+  combat_not_started: [{
+    operation: "combat.resolve",
+    action: "call_operation",
+    reason: "begin the exchange; a combat decision cannot settle before one has started",
+    host_bound: false,
+  }],
   // The social target is not in the scene. The refusal now names who is, so
   // the correction is to settle against one of them -- or bring the intended
   // NPC into the scene first. It fell through to invariant_terminal, and the

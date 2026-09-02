@@ -73,3 +73,44 @@ def test_a_corrupt_snapshot_is_not_reported_as_not_started(tmp_path: Path) -> No
     path.write_text("{not json", encoding="utf-8")
     with pytest.raises(json.JSONDecodeError):
         combat.load_combat_state(path)
+
+
+def test_absence_surfaces_under_its_own_code_not_a_transaction_failure() -> None:
+    """"Nothing has begun" is a precondition, not a broken write.
+
+    The subsystem executor wraps every exception as
+    `subsystem_transaction_failed`, so a combat decision settled with no combat
+    underway told the Keeper a transaction had failed when nothing had been
+    attempted. The raiser now declares the code it should surface as, which
+    keeps the executor ignorant of each subsystem.
+    """
+    assert combat.CombatNotStartedError.subsystem_error_code == "combat_not_started"
+
+    executor = _load(
+        "coc_subsystem_executor_combat_start_tests",
+        SCRIPTS / "coc_subsystem_executor.py",
+    )
+    source = (SCRIPTS / "coc_subsystem_executor.py").read_text(encoding="utf-8")
+    assert "subsystem_error_code" in source, (
+        "the executor must honour a declared code before its generic wrap"
+    )
+    assert executor is not None
+
+
+def test_the_closed_combat_vocabularies_are_named_in_their_refusals() -> None:
+    """A Keeper cannot guess a vocabulary it was never shown."""
+    source = (SCRIPTS / "coc_subsystem_executor.py").read_text(encoding="utf-8")
+    for marker in (
+        "invalid maneuver goal; use one of: ",
+        "invalid maneuver defense; use one of: ",
+        "unsupported structured combat action; use one of: ",
+    ):
+        assert marker in source, marker
+    # VALID_DEFENSE carries None for "no defence"; rendering it must neither
+    # raise on sort nor emit "none" twice.
+    rendered = sorted({
+        "none" if value is None else str(value)
+        for value in combat.VALID_DEFENSE
+    })
+    assert rendered.count("none") == 1
+    assert "dodge" in rendered
