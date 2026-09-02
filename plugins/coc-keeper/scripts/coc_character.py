@@ -2750,11 +2750,29 @@ def resolve_occupation_skill_list(
         else:
             _add(catalog_name)
     if unresolved:
+        # Name the nearest catalog entries. The catalog is closed and small
+        # (79 skills), and the miss is usually one word off -- 2026-09-02, a
+        # fisherman's sheet failed on 'Pilot (Boat)' when the entry is
+        # 'Pilot'. Reporting only "unrecognized" leaves the Keeper to guess a
+        # vocabulary it cannot see, and chargen is the one place a wrong guess
+        # blocks the table from opening at all.
+        import difflib
+
+        suggestions: dict[str, list[str]] = {}
+        for name in unresolved:
+            close = difflib.get_close_matches(name, list(catalog), n=3, cutoff=0.5)
+            if close:
+                suggestions[name] = close
+        detail = ", ".join(repr(name) for name in unresolved)
+        if suggestions:
+            detail += "; nearest catalog names: " + "; ".join(
+                f"{name!r} -> {', '.join(repr(c) for c in close)}"
+                for name, close in suggestions.items()
+            )
         raise ChargenRunError(
             "occupation",
-            "unrecognized occupation_skill_names: "
-            + ", ".join(repr(name) for name in unresolved),
-            expected={"unrecognized": unresolved},
+            "unrecognized occupation_skill_names: " + detail,
+            expected={"unrecognized": unresolved, "suggestions": suggestions},
         )
     _add("Credit Rating")
     return resolved
