@@ -112,7 +112,11 @@ for (const forbidden of ["toolbox-", "integrity_digest", "record_digest"]) {
 // ...but it drops the identity a Keeper needs to know which ending settled,
 // which is what forces `semantic_identity_unavailable`.
 const rejected = new Set(diagnostics.unmapped.map((row) => row.field));
-for (const field of ["ending_id", "event_id", "scene_id", "scenario_id"]) {
+// `event_id` left this list on 2026-09-02: rules.settle now declares it
+// host-only, so it is dropped by declaration rather than rejected as unmapped.
+// That shrinks the gap without closing it — the three below still collapse a
+// settle-ending envelope, and the projector is still owed.
+for (const field of ["ending_id", "scene_id", "scenario_id"]) {
   assert.ok(
     rejected.has(field),
     `expected the generic sanitizer to reject ${field}; if it no longer does, `
