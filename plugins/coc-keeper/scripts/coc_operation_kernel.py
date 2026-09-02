@@ -13043,15 +13043,24 @@ def _execute_subsystem_command(
             "command.payload.decision_id must equal the toolbox decision_id",
         )
     investigator_id = _resolve_investigator(ctx, args)
-    results = coc_subsystem_executor.execute_commands(
-        ctx.campaign_dir,
-        _investigator_character_path(ctx, investigator_id),
-        investigator_id,
-        [command],
-        rng=_rng(args),
-        append_jsonl=coc_state.append_jsonl,
-        character_snapshot=ctx.sheet(investigator_id),
-    )
+    try:
+        results = coc_subsystem_executor.execute_commands(
+            ctx.campaign_dir,
+            _investigator_character_path(ctx, investigator_id),
+            investigator_id,
+            [command],
+            rng=_rng(args),
+            append_jsonl=coc_state.append_jsonl,
+            character_snapshot=ctx.sheet(investigator_id),
+        )
+    except coc_subsystem_executor.SubsystemExecutorError as exc:
+        # SubsystemExecutorError subclasses ValueError, so without this the
+        # toolbox's generic ValueError catch flattened every typed subsystem
+        # refusal into `invalid_request` with the real code surviving only as
+        # prose inside the message. `_execute_subsystem_requests` already
+        # converts it; this path -- the one every sanity, chase and combat
+        # command takes -- never did.
+        raise ToolError(exc.code, exc.message) from exc
     data = {
         "schema_version": 1,
         "authority": "deterministic_subsystem",

@@ -5808,6 +5808,34 @@ def _settle_sanity_check(
         module_bout_override=_json_copy(payload.get("module_bout_override")),
         creature_type=creature_type if isinstance(creature_type, str) else None,
     )
+    # p.157: no SAN is lost while a bout of madness runs, and a permanently
+    # insane investigator checks nothing ever again. SanitySession says so by
+    # returning `sanity_check_skipped` -- with no roll. This path then read
+    # `san_roll.get("roll", 0)` and carried a roll of 0 into the percentile
+    # projection, where success_level() rejects it: "roll must be between 1
+    # and 100". The branch was unreachable while the graph settled SAN checks
+    # through the advisory `rules.sanity_check` surface, which handled the
+    # skip itself; rewiring `decision:coc7:sanity:check` onto this executor
+    # made it live, and every SAN check in three lanes died here.
+    #
+    # Fail closed with the remedy instead of inventing a roll. A bout is
+    # resolvable now -- settle bout-tick or bout-end -- so the Keeper has
+    # somewhere to go; permanent insanity has nowhere, and says so.
+    if str(event.get("type") or "") == "sanity_check_skipped":
+        if session.permanently_insane:
+            raise _error(
+                "sanity_check_unavailable",
+                "commands[0].payload",
+                "the investigator is permanently insane and makes no further "
+                "Sanity rolls (p.160)",
+            )
+        raise _error(
+            "sanity_check_blocked_by_bout",
+            "commands[0].payload",
+            "no Sanity is lost while a bout of madness runs (p.157): settle "
+            "decision:coc7:sanity:bout-tick or decision:coc7:sanity:bout-end "
+            "to carry the bout forward, then check Sanity again",
+        )
     event_payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
     san_roll = next(
         (
@@ -9304,10 +9332,26 @@ def execute_commands(
         investigator_id=investigator_id,
     )
     if state["pending_choices"] and new_commands_with_hashes and not resolving_pending:
+        # Name the choice that is blocking. "resolve the current subsystem
+        # choice" tells a Keeper holding no choice list nothing about which
+        # one, who answers it, or what settles it; the kinds waiting here are
+        # the whole answer.
+        waiting = sorted({
+            str(row.get("kind") or "")
+            for row in state["pending_choices"].values()
+            if isinstance(row, dict) and row.get("kind")
+        })
         raise _error(
             "blocked_by_pending_choice",
             "commands",
-            "resolve the current subsystem choice before submitting new commands",
+            "resolve the open subsystem choice before submitting new "
+            f"commands; waiting on: {', '.join(waiting) or 'unknown'}"
+            + (
+                " (a bout of madness is running: settle "
+                "decision:coc7:sanity:bout-tick or "
+                "decision:coc7:sanity:bout-end to carry it forward)"
+                if "bout_keeper_action" in waiting else ""
+            ),
         )
     _preflight_new_pending_capacity(new_commands_with_hashes)
 
@@ -9545,6 +9589,15 @@ def execute_commands(
                 STATE_RELATIVE_PATH.as_posix(),
                 f"transaction error={exc}; rollback error={rollback_error}",
             ) from rollback_error
+        # A business rejection is not a transaction failure. Rolled back
+        # cleanly, it keeps its own code and path: `subsystem_transaction_failed`
+        # sits in the toolbox's transient-error set, so a refusal that can
+        # never succeed -- checking Sanity during a bout of madness (p.157) --
+        # was handed back as retryable and retried three times a lane, and the
+        # code the Keeper needed to act on survived only as prose inside the
+        # wrapper's message.
+        if isinstance(exc, SubsystemExecutorError):
+            raise
         raise _error(
             "subsystem_transaction_failed",
             "commands",

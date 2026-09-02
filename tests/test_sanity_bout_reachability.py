@@ -147,3 +147,58 @@ def test_an_active_bout_always_has_a_keeper_choice_waiting(campaign_ws, seed):
         "remaining) and nothing can advance or end it; further SAN checks are "
         "blocked while it runs (p.157), so the family is wedged"
     )
+
+
+def test_a_check_during_a_bout_says_so_and_names_the_way_out(campaign_ws):
+    """p.157 blocks Sanity loss during a bout. The engine says so by returning
+    `sanity_check_skipped` with no roll; this path read `roll` as 0 and carried
+    it into the percentile projection, where success_level() rejects it --
+    "roll must be between 1 and 100". The branch was unreachable while the
+    graph settled checks through the advisory surface, so rewiring made it
+    live and every SAN check in three lanes died there.
+
+    Two further layers hid the answer even once it was raised.
+    SubsystemExecutorError subclasses ValueError, so the toolbox's generic
+    catch flattened the typed code into `invalid_request`; and the executor's
+    transaction wrapper relabelled every rolled-back rejection
+    `subsystem_transaction_failed`, which the toolbox treats as transient --
+    so a refusal that can never succeed was retried three times a lane.
+    """
+    import coc_toolbox  # noqa: PLC0415
+
+    ws, cid = campaign_ws["workspace"], campaign_ws["campaign_id"]
+    inputs = {
+        "source": "the sealed-chamber corpse sits up",
+        "loss_success": "20",
+        "loss_failure": "20",
+        "involuntary_kind": "freeze",
+        "involuntary_summary": "the flashlight beam stops moving",
+    }
+    for attempt in (1, 2):
+        coc_toolbox.run_tool(
+            "rules.context", ws, cid,
+            {"family": "sanity", "investigator": "thomas-hayes"},
+        )
+        settled = coc_toolbox.run_tool(
+            "rules.settle", ws, cid,
+            {
+                "decision_ref": "decision:coc7:sanity:check",
+                "decision_id": f"during-bout-{attempt}",
+                "investigator": "thomas-hayes",
+                "seed": 2,
+                "semantic_inputs": inputs,
+            },
+        )
+        if attempt == 1:
+            assert settled.get("ok"), settled
+
+    # Two guards can answer, and both must name the way out. A bout with its
+    # choice still waiting is refused earlier, by the executor's one-open-
+    # choice rule; a bout left active with no pending choice -- the shape every
+    # campaign that opened one under the old wiring is in -- reaches the
+    # skip itself.
+    error = settled.get("error") or {}
+    assert error.get("code") in (
+        "blocked_by_pending_choice", "sanity_check_blocked_by_bout",
+    ), settled
+    assert "bout-tick" in error.get("message", ""), error

@@ -638,6 +638,29 @@ const DYNAMIC_CANDIDATE_ACTIONS: Record<string, readonly PiAllowedNextAction[]> 
       + "settle it before the investigator leaves the scene they are fleeing",
     host_bound: false,
   }],
+  // p.157: no Sanity is lost while a bout of madness runs. That is the
+  // rulebook answering, not an argument fault, and the way forward is to
+  // carry the bout -- which is settleable now that the same engine opens it.
+  // The subsystem holds one open choice at a time and refuses new commands
+  // until it is answered. The refusal now names which kind is waiting, so the
+  // Keeper can settle it rather than re-sending the blocked command.
+  blocked_by_pending_choice: [{
+    operation: "rules.settle",
+    action: "resume_pending_settlement",
+    reason:
+      "settle the decision that answers the open subsystem choice the refusal "
+      + "names (a running bout is carried by bout-tick or bout-end), then "
+      + "re-send this command",
+    host_bound: true,
+  }],
+  sanity_check_blocked_by_bout: [{
+    operation: "rules.settle",
+    action: "resume_pending_settlement",
+    reason:
+      "settle decision:coc7:sanity:bout-tick or decision:coc7:sanity:bout-end "
+      + "to carry the running bout forward, then check Sanity again",
+    host_bound: true,
+  }],
   // A sanity bout tick/end exists only while a bout is waiting on a Keeper
   // decision. Classified nowhere, it fell through to invariant_terminal /
   // recoverable_by "none" while its message read like an argument complaint,
