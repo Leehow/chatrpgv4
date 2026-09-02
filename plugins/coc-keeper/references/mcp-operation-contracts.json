@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:97e1418f57a698649e415332636fbdf4090bb05b5ad7d4c9c68654e3efbb6a2b",
+  "content_sha256": "sha256:bfa9ac3ea5a12cc2ed4c6a8f460565acc1ee90ca311ef4d3d4105de3c3f6e6ed",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -3393,6 +3393,23 @@
           },
           "investigator": {
             "description": "investigator whose live state binds the card grant",
+            "type": "string"
+          },
+          "player_intent": {
+            "description": "what the player's accepted action is trying to do, from the canonical intent vocabulary; the host publishes it as the intent.action_kind fact so rule conditions can read it",
+            "enum": [
+              "investigate",
+              "social",
+              "move",
+              "combat",
+              "flee",
+              "meta",
+              "stuck",
+              "idle",
+              "ambiguous",
+              "montage",
+              "cast"
+            ],
             "type": "string"
           },
           "root": {

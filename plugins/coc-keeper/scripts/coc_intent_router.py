@@ -80,6 +80,12 @@ _PRIMARY_INTENT_ENUM = (
     "ambiguous", "montage", "cast",
 )
 
+#: Public alias. The Keeper-facing `rules.context` argument, the toolbox
+#: contract's enum and any graph condition keyed on `intent.action_kind` all
+#: read this one tuple, so the vocabulary cannot drift between the router that
+#: parses an intent and the surfaces that consume it.
+PRIMARY_INTENT_ENUM = _PRIMARY_INTENT_ENUM
+
 
 def _load_time_category_enum() -> tuple[str, ...]:
     """Load exact structured time categories from the canonical rule catalog."""

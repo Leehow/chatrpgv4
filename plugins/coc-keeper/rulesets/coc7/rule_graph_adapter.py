@@ -19,6 +19,7 @@ from types import MappingProxyType, MethodType
 from typing import Any, Callable, Mapping
 from weakref import WeakKeyDictionary
 
+import coc_intent_router
 import coc_rules_runtime as _generic_runtime
 
 FamilyOwnershipMismatch = _generic_runtime.FamilyOwnershipMismatch
@@ -481,6 +482,15 @@ class Coc7RuleGraphAdapter:
             "semantic_inputs": {
                 "type": "object",
                 "desc": "structured candidate semantics used to evaluate exact applicability",
+            },
+            "player_intent": {
+                "type": "string",
+                "enum": list(coc_intent_router.PRIMARY_INTENT_ENUM),
+                "desc": (
+                    "what the player's accepted action is trying to do, from "
+                    "the canonical intent vocabulary; the host publishes it as "
+                    "the intent.action_kind fact so rule conditions can read it"
+                ),
             },
         }
 

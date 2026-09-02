@@ -391,6 +391,7 @@ coc_async_recorder = _load_sibling(
     "coc_async_recorder_toolbox", "coc_async_recorder.py"
 )
 
+coc_intent_router = _load_sibling("coc_intent_router", "coc_intent_router.py")
 coc_time = _load_sibling("coc_time", "coc_time.py")
 
 coc_storylets = _load_sibling("coc_storylets", "coc_storylets.py")
@@ -6863,12 +6864,24 @@ def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
             "actor_errors": actor_errors, "scene_id": scene_id}
 
 
-def _facts_provider_for(ctx: Ctx, investigator_id: str, ruleset_id: str):
+def _facts_provider_for(
+    ctx: Ctx,
+    investigator_id: str,
+    ruleset_id: str,
+    *,
+    player_intent: str | None = None,
+):
     """Live facts for card projection: investigator state + campaign clock.
 
     Named gap dual-rescuer-context-intent: this provider has no scene/NPC
     composition input. Dual-rescuer intent exists only on settle as
     ``semantic_inputs.assistant_rescuer_ref``.
+
+    ``player_intent`` is what the Keeper declared the player's accepted action
+    is trying to do. It is published as the ``intent.action_kind`` fact so a
+    rule condition can be written against the action itself, not only against
+    campaign state. It is never defaulted: an undeclared intent leaves the
+    fact absent, exactly as ``coc_intent_router`` refuses to guess.
     """
     def provider() -> Mapping[str, Any]:
         try:
@@ -6890,6 +6903,8 @@ def _facts_provider_for(ctx: Ctx, investigator_id: str, ruleset_id: str):
             ruleset_id=ruleset_id,
             elapsed_minutes=elapsed,
         )
+        if player_intent:
+            facts["intent.action_kind"] = player_intent
         snapshot = _read_optional_json(
             ctx.campaign_dir / "save" / "sanity-state" / f"{investigator_id}.json",
             {},
@@ -7059,6 +7074,7 @@ def _rules_runtime_for_ctx(
     investigator_id: str,
     family: str = "healing",
     refresh: bool = False,
+    player_intent: str | None = None,
 ) -> tuple[Any, str, str, dict[str, Any]]:
     """Load or reuse the campaign RulesRuntime. Never raises on missing graph."""
     ruleset_id = _active_ruleset_id(ctx)
@@ -7147,7 +7163,9 @@ def _rules_runtime_for_ctx(
         graph_manifest=loaded.get("graph_manifest"),
         package_manifest=package_manifest,
         campaign_id=campaign_id,
-        facts_provider=_facts_provider_for(ctx, investigator_id, ruleset_id),
+        facts_provider=_facts_provider_for(
+            ctx, investigator_id, ruleset_id, player_intent=player_intent,
+        ),
         grant_context_provider=_grant_context_provider_for(ctx),
         resolver_index=index if isinstance(index, dict) else None,
         ruleset_adapter=ruleset_adapter,
@@ -7339,9 +7357,37 @@ def _project_healing_decision_cards(
         return empty
 
 
+def _declared_player_intent(args: Mapping[str, Any]) -> str | None:
+    """Validate the Keeper's declared intent against the canonical vocabulary.
+
+    Fails closed on anything outside it rather than coercing: a wrong intent
+    would publish a wrong fact, and a rule condition reading it would then be
+    wrong for a reason nothing else could see. Absent stays absent — the
+    router itself refuses to guess an intent from missing evidence, and the
+    host must not guess one either.
+    """
+    raw = args.get("player_intent")
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    if not value:
+        return None
+    if value not in coc_intent_router.PRIMARY_INTENT_ENUM:
+        raise ToolError(
+            "invalid_param",
+            "player_intent must be one of the canonical intent classes",
+            details={
+                "player_intent": value,
+                "allowed": list(coc_intent_router.PRIMARY_INTENT_ENUM),
+            },
+        )
+    return value
+
+
 def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
     """Keeper-visible ``rules.context``. Grants stay host-internal."""
     family = str(args.get("family") or "healing").strip() or "healing"
+    player_intent = _declared_player_intent(args)
     investigator_id: str | None = None
     try:
         investigator_id = _resolve_investigator(ctx, args)
@@ -7351,7 +7397,11 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
     if not investigator_id:
         raise ToolError("missing_param", "investigator is required for rules.context")
     runtime, owner, _surface, loaded = _rules_runtime_for_ctx(
-        ctx, investigator_id=investigator_id, family=family, refresh=True,
+        ctx,
+        investigator_id=investigator_id,
+        family=family,
+        refresh=True,
+        player_intent=player_intent,
     )
     if owner == "graph" and (runtime is None or not loaded.get("ok")):
         raise ToolError(
