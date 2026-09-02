@@ -1,6 +1,6 @@
 # COC Keeper Current Status
 
-**Last updated:** 2026-09-02
+**Last updated:** 2026-09-02 (chase settled live)
 
 **Current manifest version:** `0.4.0-alpha.0`
 
@@ -56,9 +56,36 @@ injected trigger, or legacy operation (spec §14 Gate 9):
 | Development, Social | passed Gate 9 |
 | Core-check | settled naturally, but predates the corrected bundled-Pi launcher |
 | Push/Luck, Psychology, Sanity, Combat, Healing | settled live after the delivery fixes (16 KB wire overflow, dropped `semantic_inputs`, chase/combat NPC mechanics); recorded in `tests/fixtures/rules-settle-recorded/` (55 payloads, 8 families) and replayed by `tests/pi/rules-settle-recorded-projection.mjs` |
-| Chase, Magic | **no recorded settlement** — see the chase finding below; magic is a tome spell-inventory content gap |
+| Chase | **settled live 2026-09-02** — `decision:coc7:chase:start`, recorded in the corpus; see below for the six doors it took |
+| Magic | **no recorded settlement** — a tome spell-inventory content gap |
 
-**Why chase has never settled, measured.** A seeded diagnostic lane
+**Chase settled, and what it took.** The `combat:flee → chase:start`
+continuation (132fb7c3) was necessary and not sufficient. Five more doors
+stood behind it, each surfaced by a seeded probe and none visible from the
+code alone:
+
+1. The lane's resume prompt is a turn, and a Keeper handed a turn plays it —
+   prompt strengthening did not help; the resume surface is now structurally
+   restricted to `session.resume`.
+2. The lane's own prompt reached the extension as a user message, releasing
+   that restriction immediately; host prompts are marked now.
+3. `chase_candidate_invalid` named neither the present actors nor the
+   connected locations, so the Keeper re-guessed the same refs. Told the
+   lists, it corrected both on the next attempt.
+4. The settle adapter map was keyed by the compiler's command kinds
+   (`chase_start`…) rather than the capability the graph declares
+   (`chase.execute`): all six chase decisions could never reach the executor.
+5. The resolver index had the identical spelling problem, so fixing the map
+   only moved the refusal one step later.
+6. `chase_id` was undeclared on `rules.settle`, so the FIRST successful chase
+   start — canonical state written, chase.json active — reached the Keeper as
+   `semantic_identity_unavailable`. It retried, went stale, and finalized a
+   turn that had begun a chase it could not see.
+
+A turn on that lane took 255–540 s against the 180 s budget, inflated by the
+Keeper working around those doors; not re-measured since they closed.
+
+**The earlier reading, kept because it was wrong in an instructive way.** A seeded diagnostic lane
 (2026-09-02) put the investigator in `corbitt-confrontation` with Walter
 Corbitt present and had the player flee. `rules.context` with family `chase`
 answers `decision:coc7:chase:start` in that exact campaign state, so the
@@ -69,13 +96,13 @@ settled flight into a chase. The same shape as the missing Social → Push
 relation: a source-graph completeness gap at a family junction, and the next
 chase work is that relation with its rulebook evidence, not more play.
 
-**Fine-grained live coverage: 9 of 43 decisions.** Family-level coverage
+**Fine-grained live coverage: 10 of 43 decisions.** Family-level coverage
 overstates it. Recorded live settlements cover `core-check:ordinary-check`,
 `sanity:check`, `social:adjudicate-difficulty`,
 `development:end-session`, `push-luck:pushed-roll`, `combat:attack`,
 `combat:end`, `healing:first-aid-ordinary` and
-`psychology:observe-concealed`. The other 34 decisions — every chase and
-magic decision, combat aim/defend/flee/maneuver/reload/context, both dying
+`psychology:observe-concealed` and `chase:start`. The other 33 decisions —
+the five remaining chase decisions, every magic decision, combat aim/defend/flee/maneuver/reload/context, both dying
 clocks, medicine and weekly recovery, opposed and combined checks, luck-roll
 and luck-spend, the whole sanity bout chain, and `development:settle-ending`
 — have never settled in a real turn.
