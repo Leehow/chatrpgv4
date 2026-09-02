@@ -64,10 +64,10 @@ def _operation_literals(node: ast.AST) -> set[str]:
 def test_manifest_is_complete_and_all_cells_are_migrated():
     summary = ownership.validate_manifest(manifest)
     assert summary == {
-        "module_count": 25,
-        "python_module_count": 22,
+        "module_count": 27,
+        "python_module_count": 24,
         "pi_module_count": 3,
-        "operation_count": 145,
+        "operation_count": 151,
     }
     assert {row["migration_state"] for row in ownership.all_modules(manifest)} == {
         "migrated"

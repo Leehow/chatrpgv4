@@ -83,12 +83,24 @@ def test_combat_resolve_rejects_invalid_action_and_stale_revision(campaign_ws):
     assert stale["error"]["code"] == "stale_combat_revision"
 
 
-def test_combat_resolve_explicit_attack_preserves_legacy_route_and_replay(campaign_ws):
+def _move_to_confrontation(campaign_ws):
+    """Arrange-only: put the investigator where the fight happens.
+
+    `state.move_scene` belongs to the scene-advisory cell. Keeping the call in
+    a helper rather than a test body is what lets this file's tests exercise
+    only combat operations, which is the ownership seam the architecture suite
+    enforces.
+    """
     moved = _run(campaign_ws, "state.move_scene", {
         "scene_id": "corbitt-confrontation",
         "decision_id": "typed-actions-move-to-corbitt",
     })
     assert moved["ok"] is True
+    return moved
+
+
+def test_combat_resolve_explicit_attack_preserves_legacy_route_and_replay(campaign_ws):
+    _move_to_confrontation(campaign_ws)
     args = {
         "action_kind": "attack",
         "affordance_id": "conventional-assault",

@@ -8,7 +8,7 @@
     "migration_source_commit": "affeedc3a78ac6da82e0c47ce5dafa95bf12d7fd",
     "verified_on": "2026-08-25",
     "canonical_operation_source": "plugins/coc-keeper/scripts/coc_toolbox.py",
-    "canonical_operation_count": 145
+    "canonical_operation_count": 151
   },
   "migration_states": {
     "planned": "Handlers or tests still occupy shared files; no parallel implementation edit is allowed.",
@@ -50,41 +50,298 @@
   ],
   "python_modules": [
     {
-      "module_id": "setup-session",
+      "module_id": "canonical-events",
       "migration_state": "migrated",
       "owned_paths": [
-        "plugins/coc-keeper/scripts/coc_operation_setup_session.py",
-        "tests/test_toolbox_setup_session.py"
+        "plugins/coc-keeper/scripts/coc_operation_canonical_events.py",
+        "tests/test_canonical_events_projection.py"
       ],
       "operation_ids": [
-        "evidence.table_opening",
-        "session.begin",
-        "session.continuation_detail",
-        "session.delivery_ack",
-        "session.delivery_text",
-        "session.resume",
-        "setup.adopt_source_facts",
-        "setup.chargen_run",
-        "setup.complete",
-        "setup.inspect",
-        "setup.investigator_contract",
-        "setup.invoke",
-        "setup.phase",
-        "setup.quick_start"
+        "events.query"
       ],
       "implementation_dependencies": [
-        "plugins/coc-keeper/scripts/coc_character.py",
-        "plugins/coc-keeper/scripts/coc_character_creation_briefing.py",
-        "plugins/coc-keeper/scripts/coc_session_role.py",
-        "plugins/coc-keeper/scripts/coc_starter.py"
+        "plugins/coc-keeper/scripts/coc_canonical_events.py"
       ],
       "may_depend_on": [
         "operation-kernel"
       ],
       "focused_validation": [
-        "tests/test_setup_complete_op.py",
-        "tests/test_setup_play_handoff.py",
-        "tests/test_session_role.py"
+        "tests/test_canonical_events_contract.py",
+        "tests/test_canonical_events_emit.py",
+        "tests/test_canonical_events_projection.py"
+      ]
+    },
+    {
+      "module_id": "chase",
+      "migration_state": "migrated",
+      "owned_paths": [
+        "plugins/coc-keeper/scripts/coc_operation_chase.py",
+        "tests/test_toolbox_chase.py"
+      ],
+      "operation_ids": [
+        "chase.context",
+        "chase.execute"
+      ],
+      "implementation_dependencies": [
+        "plugins/coc-keeper/scripts/coc_chase.py"
+      ],
+      "may_depend_on": [
+        "operation-kernel"
+      ],
+      "focused_validation": [
+        "tests/test_chase_session.py"
+      ]
+    },
+    {
+      "module_id": "combat",
+      "migration_state": "migrated",
+      "owned_paths": [
+        "plugins/coc-keeper/scripts/coc_operation_combat.py",
+        "tests/test_toolbox_combat.py"
+      ],
+      "operation_ids": [
+        "combat.context",
+        "combat.end",
+        "combat.resolve"
+      ],
+      "implementation_dependencies": [
+        "plugins/coc-keeper/scripts/coc_combat.py"
+      ],
+      "may_depend_on": [
+        "operation-kernel"
+      ],
+      "focused_validation": [
+        "tests/test_combat_state.py"
+      ]
+    },
+    {
+      "module_id": "continuity-memory",
+      "migration_state": "migrated",
+      "owned_paths": [
+        "plugins/coc-keeper/scripts/coc_operation_continuity_memory.py",
+        "tests/test_toolbox_continuity_memory.py"
+      ],
+      "operation_ids": [
+        "epistemic.query",
+        "personal_horror.query",
+        "quest.activate",
+        "quest.improvise",
+        "quest.map",
+        "quest.offer",
+        "quest.settle",
+        "state.backstory_corruption_add",
+        "state.belief_apply",
+        "state.characteristic_delta",
+        "state.personal_horror_add",
+        "state.personal_horror_mark_woven",
+        "state.threat_tick",
+        "threat.query"
+      ],
+      "implementation_dependencies": [
+        "plugins/coc-keeper/scripts/coc_epistemic_resolve.py",
+        "plugins/coc-keeper/scripts/coc_quest_state.py",
+        "plugins/coc-keeper/scripts/coc_threat_state.py"
+      ],
+      "may_depend_on": [
+        "operation-kernel"
+      ],
+      "focused_validation": [
+        "tests/test_belief_state.py",
+        "tests/test_threat_mechanics.py"
+      ]
+    },
+    {
+      "module_id": "development",
+      "migration_state": "migrated",
+      "owned_paths": [
+        "plugins/coc-keeper/scripts/coc_operation_development.py",
+        "tests/test_toolbox_development.py"
+      ],
+      "operation_ids": [
+        "development.settle"
+      ],
+      "implementation_dependencies": [
+        "plugins/coc-keeper/scripts/coc_development.py"
+      ],
+      "may_depend_on": [
+        "operation-kernel"
+      ],
+      "focused_validation": [
+        "tests/test_development.py",
+        "tests/test_development_session_idempotency.py"
+      ]
+    },
+    {
+      "module_id": "finance",
+      "migration_state": "migrated",
+      "owned_paths": [
+        "plugins/coc-keeper/scripts/coc_operation_finance.py",
+        "tests/test_toolbox_finance.py"
+      ],
+      "operation_ids": [
+        "rules.cash_assets",
+        "state.assets_liquidate",
+        "state.cash_grant",
+        "state.cash_query",
+        "state.cash_semantic",
+        "state.cash_spend",
+        "state.finance_query",
+        "state.purchase"
+      ],
+      "implementation_dependencies": [
+        "plugins/coc-keeper/scripts/coc_cash.py",
+        "plugins/coc-keeper/scripts/coc_finance.py"
+      ],
+      "may_depend_on": [
+        "operation-kernel"
+      ],
+      "focused_validation": [
+        "tests/test_purchase_liquidation.py",
+        "tests/test_character.py"
+      ]
+    },
+    {
+      "module_id": "handouts-clues",
+      "migration_state": "migrated",
+      "owned_paths": [
+        "plugins/coc-keeper/scripts/coc_operation_handouts_clues.py",
+        "tests/test_toolbox_handouts_clues.py"
+      ],
+      "operation_ids": [
+        "clues.query",
+        "state.deliver_handout",
+        "state.record_clue",
+        "state.replay_handout"
+      ],
+      "implementation_dependencies": [
+        "plugins/coc-keeper/scripts/coc_handouts.py",
+        "plugins/coc-keeper/scripts/coc_scenario.py"
+      ],
+      "may_depend_on": [
+        "operation-kernel"
+      ],
+      "focused_validation": [
+        "tests/test_source_evidence_bridge.py",
+        "tests/pi/handout-replay-provenance.mjs"
+      ]
+    },
+    {
+      "module_id": "inventory-mechanics",
+      "migration_state": "migrated",
+      "owned_paths": [
+        "plugins/coc-keeper/scripts/coc_operation_inventory_mechanics.py",
+        "tests/test_toolbox_inventory_mechanics.py"
+      ],
+      "operation_ids": [
+        "mechanics.ensure",
+        "state.inventory_list",
+        "state.item_grant",
+        "state.item_remove",
+        "state.item_use"
+      ],
+      "implementation_dependencies": [
+        "plugins/coc-keeper/scripts/coc_inventory.py",
+        "plugins/coc-keeper/scripts/coc_mechanics.py"
+      ],
+      "may_depend_on": [
+        "operation-kernel"
+      ],
+      "focused_validation": [
+        "tests/test_coc_mechanics.py"
+      ]
+    },
+    {
+      "module_id": "magic",
+      "migration_state": "migrated",
+      "owned_paths": [
+        "plugins/coc-keeper/scripts/coc_operation_magic.py",
+        "tests/test_magic.py"
+      ],
+      "operation_ids": [
+        "magic.cast",
+        "magic.learn"
+      ],
+      "implementation_dependencies": [],
+      "may_depend_on": [
+        "operation-kernel"
+      ],
+      "focused_validation": [
+        "tests/test_magic.py"
+      ]
+    },
+    {
+      "module_id": "memory-extraction",
+      "migration_state": "migrated",
+      "owned_paths": [
+        "plugins/coc-keeper/scripts/coc_operation_memory_extraction.py",
+        "tests/test_toolbox_memory_extraction_ops.py"
+      ],
+      "operation_ids": [
+        "memory.extraction_settle",
+        "memory.extraction_status"
+      ],
+      "implementation_dependencies": [
+        "plugins/coc-keeper/scripts/coc_memory_extraction.py",
+        "plugins/coc-keeper/scripts/coc_temporal_memory.py",
+        "plugins/coc-keeper/scripts/coc_temporal_memory_contract.py"
+      ],
+      "may_depend_on": [
+        "operation-kernel"
+      ],
+      "focused_validation": [
+        "tests/test_memory_extraction.py",
+        "tests/test_temporal_memory.py",
+        "tests/test_toolbox_memory_extract_hook.py"
+      ]
+    },
+    {
+      "module_id": "module-graph",
+      "migration_state": "migrated",
+      "owned_paths": [
+        "plugins/coc-keeper/scripts/coc_operation_module_graph.py",
+        "tests/test_toolbox_module_graph_context.py"
+      ],
+      "operation_ids": [
+        "module.context"
+      ],
+      "implementation_dependencies": [
+        "plugins/coc-keeper/scripts/coc_module_graph.py",
+        "plugins/coc-keeper/scripts/coc_module_project.py"
+      ],
+      "may_depend_on": [
+        "operation-kernel"
+      ],
+      "focused_validation": [
+        "tests/test_module_graph.py"
+      ]
+    },
+    {
+      "module_id": "npc-world",
+      "migration_state": "migrated",
+      "owned_paths": [
+        "plugins/coc-keeper/scripts/coc_operation_npc_world.py",
+        "tests/test_toolbox_npc_world.py"
+      ],
+      "operation_ids": [
+        "npc.advise",
+        "npc.query",
+        "npc.reaction",
+        "state.npc_presence",
+        "state.npc_update",
+        "state.record_npc_engagement"
+      ],
+      "implementation_dependencies": [
+        "plugins/coc-keeper/scripts/coc_npc_identity.py",
+        "plugins/coc-keeper/scripts/coc_npc_persona.py",
+        "plugins/coc-keeper/scripts/coc_npc_state.py"
+      ],
+      "may_depend_on": [
+        "operation-kernel"
+      ],
+      "focused_validation": [
+        "tests/test_npc_identity_progressive.py",
+        "tests/test_npc_persona.py",
+        "tests/test_npc_state.py"
       ]
     },
     {
@@ -169,69 +426,22 @@
       ]
     },
     {
-      "module_id": "social-psychology",
+      "module_id": "rulings",
       "migration_state": "migrated",
       "owned_paths": [
-        "plugins/coc-keeper/scripts/coc_operation_social_psychology.py",
-        "tests/test_toolbox_social_psychology.py"
+        "plugins/coc-keeper/scripts/coc_operation_rulings.py",
+        "tests/test_session_rulings.py"
       ],
       "operation_ids": [
-        "rules.psychology_observe",
-        "rules.social_adjudicate"
+        "rules.precedent",
+        "rules.record_ruling"
       ],
-      "implementation_dependencies": [
-        "plugins/coc-keeper/scripts/coc_rules.py",
-        "plugins/coc-keeper/scripts/coc_npc_state.py"
-      ],
+      "implementation_dependencies": [],
       "may_depend_on": [
         "operation-kernel"
       ],
       "focused_validation": [
-        "tests/test_rules.py",
-        "tests/test_npc_state.py"
-      ]
-    },
-    {
-      "module_id": "combat",
-      "migration_state": "migrated",
-      "owned_paths": [
-        "plugins/coc-keeper/scripts/coc_operation_combat.py",
-        "tests/test_toolbox_combat.py"
-      ],
-      "operation_ids": [
-        "combat.context",
-        "combat.end",
-        "combat.resolve"
-      ],
-      "implementation_dependencies": [
-        "plugins/coc-keeper/scripts/coc_combat.py"
-      ],
-      "may_depend_on": [
-        "operation-kernel"
-      ],
-      "focused_validation": [
-        "tests/test_combat_state.py"
-      ]
-    },
-    {
-      "module_id": "chase",
-      "migration_state": "migrated",
-      "owned_paths": [
-        "plugins/coc-keeper/scripts/coc_operation_chase.py",
-        "tests/test_toolbox_chase.py"
-      ],
-      "operation_ids": [
-        "chase.context",
-        "chase.execute"
-      ],
-      "implementation_dependencies": [
-        "plugins/coc-keeper/scripts/coc_chase.py"
-      ],
-      "may_depend_on": [
-        "operation-kernel"
-      ],
-      "focused_validation": [
-        "tests/test_chase_session.py"
+        "tests/test_session_rulings.py"
       ]
     },
     {
@@ -256,85 +466,6 @@
         "tests/test_sanity_pipeline_wiring.py",
         "tests/test_sanity_session.py",
         "tests/test_sanity_single_track.py"
-      ]
-    },
-    {
-      "module_id": "finance",
-      "migration_state": "migrated",
-      "owned_paths": [
-        "plugins/coc-keeper/scripts/coc_operation_finance.py",
-        "tests/test_toolbox_finance.py"
-      ],
-      "operation_ids": [
-        "rules.cash_assets",
-        "state.assets_liquidate",
-        "state.cash_grant",
-        "state.cash_query",
-        "state.cash_semantic",
-        "state.cash_spend",
-        "state.finance_query",
-        "state.purchase"
-      ],
-      "implementation_dependencies": [
-        "plugins/coc-keeper/scripts/coc_cash.py",
-        "plugins/coc-keeper/scripts/coc_finance.py"
-      ],
-      "may_depend_on": [
-        "operation-kernel"
-      ],
-      "focused_validation": [
-        "tests/test_purchase_liquidation.py",
-        "tests/test_character.py"
-      ]
-    },
-    {
-      "module_id": "inventory-mechanics",
-      "migration_state": "migrated",
-      "owned_paths": [
-        "plugins/coc-keeper/scripts/coc_operation_inventory_mechanics.py",
-        "tests/test_toolbox_inventory_mechanics.py"
-      ],
-      "operation_ids": [
-        "mechanics.ensure",
-        "state.inventory_list",
-        "state.item_grant",
-        "state.item_remove",
-        "state.item_use"
-      ],
-      "implementation_dependencies": [
-        "plugins/coc-keeper/scripts/coc_inventory.py",
-        "plugins/coc-keeper/scripts/coc_mechanics.py"
-      ],
-      "may_depend_on": [
-        "operation-kernel"
-      ],
-      "focused_validation": [
-        "tests/test_coc_mechanics.py"
-      ]
-    },
-    {
-      "module_id": "handouts-clues",
-      "migration_state": "migrated",
-      "owned_paths": [
-        "plugins/coc-keeper/scripts/coc_operation_handouts_clues.py",
-        "tests/test_toolbox_handouts_clues.py"
-      ],
-      "operation_ids": [
-        "clues.query",
-        "state.deliver_handout",
-        "state.record_clue",
-        "state.replay_handout"
-      ],
-      "implementation_dependencies": [
-        "plugins/coc-keeper/scripts/coc_handouts.py",
-        "plugins/coc-keeper/scripts/coc_scenario.py"
-      ],
-      "may_depend_on": [
-        "operation-kernel"
-      ],
-      "focused_validation": [
-        "tests/test_source_evidence_bridge.py",
-        "tests/pi/handout-replay-provenance.mjs"
       ]
     },
     {
@@ -371,88 +502,94 @@
       ]
     },
     {
-      "module_id": "module-graph",
+      "module_id": "setup-session",
       "migration_state": "migrated",
       "owned_paths": [
-        "plugins/coc-keeper/scripts/coc_operation_module_graph.py",
-        "tests/test_toolbox_module_graph_context.py"
+        "plugins/coc-keeper/scripts/coc_operation_setup_session.py",
+        "tests/test_toolbox_setup_session.py"
       ],
       "operation_ids": [
-        "module.context"
+        "evidence.table_opening",
+        "session.begin",
+        "session.continuation_detail",
+        "session.delivery_ack",
+        "session.delivery_text",
+        "session.resume",
+        "setup.adopt_source_facts",
+        "setup.chargen_run",
+        "setup.complete",
+        "setup.inspect",
+        "setup.investigator_contract",
+        "setup.invoke",
+        "setup.phase",
+        "setup.player_vocabulary",
+        "setup.quick_start"
       ],
       "implementation_dependencies": [
-        "plugins/coc-keeper/scripts/coc_module_graph.py",
-        "plugins/coc-keeper/scripts/coc_module_project.py"
+        "plugins/coc-keeper/scripts/coc_character.py",
+        "plugins/coc-keeper/scripts/coc_character_creation_briefing.py",
+        "plugins/coc-keeper/scripts/coc_session_role.py",
+        "plugins/coc-keeper/scripts/coc_starter.py"
       ],
       "may_depend_on": [
         "operation-kernel"
       ],
       "focused_validation": [
-        "tests/test_module_graph.py"
+        "tests/test_setup_complete_op.py",
+        "tests/test_setup_play_handoff.py",
+        "tests/test_session_role.py"
       ]
     },
     {
-      "module_id": "npc-world",
+      "module_id": "social-psychology",
       "migration_state": "migrated",
       "owned_paths": [
-        "plugins/coc-keeper/scripts/coc_operation_npc_world.py",
-        "tests/test_toolbox_npc_world.py"
+        "plugins/coc-keeper/scripts/coc_operation_social_psychology.py",
+        "tests/test_toolbox_social_psychology.py"
       ],
       "operation_ids": [
-        "npc.advise",
-        "npc.query",
-        "npc.reaction",
-        "state.npc_presence",
-        "state.npc_update",
-        "state.record_npc_engagement"
+        "rules.psychology_observe",
+        "rules.social_adjudicate"
       ],
       "implementation_dependencies": [
-        "plugins/coc-keeper/scripts/coc_npc_identity.py",
-        "plugins/coc-keeper/scripts/coc_npc_persona.py",
+        "plugins/coc-keeper/scripts/coc_rules.py",
         "plugins/coc-keeper/scripts/coc_npc_state.py"
       ],
       "may_depend_on": [
         "operation-kernel"
       ],
       "focused_validation": [
-        "tests/test_npc_identity_progressive.py",
-        "tests/test_npc_persona.py",
+        "tests/test_rules.py",
         "tests/test_npc_state.py"
       ]
     },
     {
-      "module_id": "continuity-memory",
+      "module_id": "steward",
       "migration_state": "migrated",
       "owned_paths": [
-        "plugins/coc-keeper/scripts/coc_operation_continuity_memory.py",
-        "tests/test_toolbox_continuity_memory.py"
+        "plugins/coc-keeper/scripts/coc_operation_steward.py",
+        "tests/test_toolbox_steward.py"
       ],
       "operation_ids": [
-        "epistemic.query",
-        "personal_horror.query",
-        "quest.activate",
-        "quest.improvise",
-        "quest.map",
-        "quest.offer",
-        "quest.settle",
-        "state.backstory_corruption_add",
-        "state.belief_apply",
-        "state.personal_horror_add",
-        "state.personal_horror_mark_woven",
-        "state.threat_tick",
-        "threat.query"
+        "steward.deliver",
+        "steward.deliveries",
+        "steward.domain_put",
+        "steward.mark_consumed",
+        "steward.notebook",
+        "steward.notebook_pay",
+        "steward.notebook_put",
+        "steward.scene_bundle_put",
+        "steward.scene_supply"
       ],
       "implementation_dependencies": [
-        "plugins/coc-keeper/scripts/coc_epistemic_resolve.py",
-        "plugins/coc-keeper/scripts/coc_quest_state.py",
-        "plugins/coc-keeper/scripts/coc_threat_state.py"
+        "plugins/coc-keeper/scripts/coc_module_project.py"
       ],
       "may_depend_on": [
         "operation-kernel"
       ],
       "focused_validation": [
-        "tests/test_belief_state.py",
-        "tests/test_threat_mechanics.py"
+        "tests/test_steward.py",
+        "tests/pi/steward-tools-bind.mjs"
       ]
     },
     {
@@ -489,53 +626,6 @@
         "tests/test_temporal_retrieval.py",
         "tests/test_history_projection.py",
         "tests/test_toolbox_transcript.py"
-      ]
-    },
-    {
-      "module_id": "canonical-events",
-      "migration_state": "migrated",
-      "owned_paths": [
-        "plugins/coc-keeper/scripts/coc_operation_canonical_events.py",
-        "tests/test_canonical_events_projection.py"
-      ],
-      "operation_ids": [
-        "events.query"
-      ],
-      "implementation_dependencies": [
-        "plugins/coc-keeper/scripts/coc_canonical_events.py"
-      ],
-      "may_depend_on": [
-        "operation-kernel"
-      ],
-      "focused_validation": [
-        "tests/test_canonical_events_contract.py",
-        "tests/test_canonical_events_emit.py",
-        "tests/test_canonical_events_projection.py"
-      ]
-    },
-    {
-      "module_id": "memory-extraction",
-      "migration_state": "migrated",
-      "owned_paths": [
-        "plugins/coc-keeper/scripts/coc_operation_memory_extraction.py",
-        "tests/test_toolbox_memory_extraction_ops.py"
-      ],
-      "operation_ids": [
-        "memory.extraction_settle",
-        "memory.extraction_status"
-      ],
-      "implementation_dependencies": [
-        "plugins/coc-keeper/scripts/coc_memory_extraction.py",
-        "plugins/coc-keeper/scripts/coc_temporal_memory.py",
-        "plugins/coc-keeper/scripts/coc_temporal_memory_contract.py"
-      ],
-      "may_depend_on": [
-        "operation-kernel"
-      ],
-      "focused_validation": [
-        "tests/test_memory_extraction.py",
-        "tests/test_temporal_memory.py",
-        "tests/test_toolbox_memory_extract_hook.py"
       ]
     },
     {
@@ -576,34 +666,6 @@
       ]
     },
     {
-      "module_id": "world-time-effects",
-      "migration_state": "migrated",
-      "owned_paths": [
-        "plugins/coc-keeper/scripts/coc_operation_world_time_effects.py",
-        "tests/test_toolbox_world_time_effects.py"
-      ],
-      "operation_ids": [
-        "state.advance_time",
-        "state.clear_transient_condition",
-        "state.clock_discontinuity",
-        "state.exceptional_effect",
-        "state.mark_safe_rest",
-        "state.set_flag",
-        "state.time_appearance",
-        "state.time_marker"
-      ],
-      "implementation_dependencies": [
-        "plugins/coc-keeper/scripts/coc_time.py"
-      ],
-      "may_depend_on": [
-        "operation-kernel"
-      ],
-      "focused_validation": [
-        "tests/test_sanity_time_integration.py",
-        "tests/test_state_effect_authority.py"
-      ]
-    },
-    {
       "module_id": "turn-output",
       "migration_state": "migrated",
       "owned_paths": [
@@ -635,53 +697,31 @@
       ]
     },
     {
-      "module_id": "steward",
+      "module_id": "world-time-effects",
       "migration_state": "migrated",
       "owned_paths": [
-        "plugins/coc-keeper/scripts/coc_operation_steward.py",
-        "tests/test_toolbox_steward.py"
+        "plugins/coc-keeper/scripts/coc_operation_world_time_effects.py",
+        "tests/test_toolbox_world_time_effects.py"
       ],
       "operation_ids": [
-        "steward.deliver",
-        "steward.deliveries",
-        "steward.domain_put",
-        "steward.mark_consumed",
-        "steward.notebook",
-        "steward.notebook_pay",
-        "steward.notebook_put",
-        "steward.scene_bundle_put",
-        "steward.scene_supply"
+        "state.advance_time",
+        "state.clear_transient_condition",
+        "state.clock_discontinuity",
+        "state.exceptional_effect",
+        "state.mark_safe_rest",
+        "state.set_flag",
+        "state.time_appearance",
+        "state.time_marker"
       ],
       "implementation_dependencies": [
-        "plugins/coc-keeper/scripts/coc_module_project.py"
+        "plugins/coc-keeper/scripts/coc_time.py"
       ],
       "may_depend_on": [
         "operation-kernel"
       ],
       "focused_validation": [
-        "tests/test_steward.py",
-        "tests/pi/steward-tools-bind.mjs"
-      ]
-    },
-    {
-      "module_id": "development",
-      "migration_state": "migrated",
-      "owned_paths": [
-        "plugins/coc-keeper/scripts/coc_operation_development.py",
-        "tests/test_toolbox_development.py"
-      ],
-      "operation_ids": [
-        "development.settle"
-      ],
-      "implementation_dependencies": [
-        "plugins/coc-keeper/scripts/coc_development.py"
-      ],
-      "may_depend_on": [
-        "operation-kernel"
-      ],
-      "focused_validation": [
-        "tests/test_development.py",
-        "tests/test_development_session_idempotency.py"
+        "tests/test_sanity_time_integration.py",
+        "tests/test_state_effect_authority.py"
       ]
     }
   ],
