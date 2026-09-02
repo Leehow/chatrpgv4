@@ -22,6 +22,7 @@ from coc_language import DEFAULT_PLAY_LANGUAGE
 import coc_investigator_guard
 import coc_flag_state
 import coc_rulesets
+import coc_house_rules
 import coc_session_rulings
 
 
@@ -2183,6 +2184,10 @@ def _initialize_campaign_runtime_files(
     _write_json_if_missing(
         campaign_dir / "save" / coc_session_rulings.DOCUMENT_NAME,
         coc_session_rulings.new_document(campaign_id=campaign_id),
+    )
+    _write_json_if_missing(
+        campaign_dir / "save" / coc_house_rules.DOCUMENT_NAME,
+        coc_house_rules.new_document(campaign_id=campaign_id),
     )
     _write_json_if_missing(
         campaign_dir / "save" / "pacing-state.json",

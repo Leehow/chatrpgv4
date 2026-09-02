@@ -368,6 +368,9 @@ coc_language = _load_sibling("coc_language", "coc_language.py")
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
 
 coc_rulesets = _load_sibling("coc_rulesets", "coc_rulesets.py")
+coc_table_precedent = _load_sibling(
+    "coc_table_precedent_kernel", "coc_table_precedent.py"
+)
 
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 
@@ -7471,6 +7474,25 @@ def dispatch_rules_context(ctx: Ctx, args: dict[str, Any]):
                 result.setdefault("warnings", []).extend(context_warnings)
             if context_hints:
                 result.setdefault("hints", []).extend(context_hints)
+    # What this table already decided about these decisions, handed back with
+    # them. A ruling that only lived in the transcript was the whole reason a
+    # long session drifted: the Keeper had no way to see their own earlier call
+    # when the same decision came round again. It is advisory -- it changes no
+    # card, no applicability and no arithmetic -- and it is attached only when
+    # there is something to say, so an ordinary read is unchanged.
+    if isinstance(result.get("cards"), list):
+        decision_refs = [
+            str(card["decision_ref"])
+            for card in result["cards"]
+            if isinstance(card, Mapping) and card.get("decision_ref")
+        ]
+        if decision_refs:
+            precedent = coc_table_precedent.precedent_for_decisions(
+                ctx.campaign_dir, decision_refs,
+            )
+            if precedent.get("rulings") or precedent.get("house_rules"):
+                result["table_precedent"] = precedent
+
     findings = result.get("findings") if isinstance(result.get("findings"), list) else []
     if findings:
         coc_rules_runtime.record_host_internal_findings(

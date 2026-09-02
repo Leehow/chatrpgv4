@@ -311,18 +311,28 @@ A patch declares, and validation rejects it otherwise:
 
 | Field | Meaning |
 | --- | --- |
-| `patch_id` | semantic id |
+| `patch_id` | semantic id, same grammar and same reasoning as a ruling id (§4.1) |
 | `relation` | `overrides` \| `augments` \| `disables` \| `enables` |
 | `target` | an existing rule or decision id in the production graph |
 | `layer` | one of the eight layers in §2.4 |
 | `scope` | campaign, or narrower |
 | `version` | monotonic per patch id |
 | `reason` | why the table wants it |
+| `statement` | what the patch does, in the table's own terms |
 | `cases` | §5.3, non-empty |
 
-A patch naming a target that does not exist is a hard failure, not a warning. A
-patch whose `relation` conflicts with another declared patch at the same layer
-and target raises `RuleConflict`.
+A patch naming a target that does not exist is a hard failure, not a warning.
+The request carries a **closed catalogue** of every rule and decision id in the
+active graph, and a target outside it is refused: that is what stops the
+semantic step inventing a plausible-sounding rule id instead of admitting it
+could not find one. A patch whose `relation` conflicts with another declared
+patch at the same layer and target raises `RuleConflict`.
+
+**Only `house_rule` and `campaign_patch` are authorable from prose.** A table's
+sentence may not write `system_safety` or `core` — those are not negotiable
+from the table — nor `session_ruling`, which has its own path and its own
+lifetime rules in §4. The remaining supplement layers describe where content
+came from, not something a house rule declares about itself.
 
 ### 5.3 Cases are what the user confirms
 
@@ -334,9 +344,27 @@ The compile step MUST generate, and the user MUST see before confirming:
   and it does not;
 - at least one **boundary** case where its scope ends.
 
+Each case states the situation, the outcome `without_patch`, and the outcome
+`with_patch`. Two of those relationships are checkable and MUST be checked: a
+`positive` case whose two outcomes are identical is not positive, and a
+`negative` case whose outcomes differ is not negative. Both are refused. This is
+deterministic structure, not a judgment about the prose — the check compares the
+two fields to each other and never reads what they say.
+
 Cases become executable regression tests when the patch is admitted. A patch
 whose behaviour cannot be stated as a case has not been understood well enough
 to admit, and MUST be refused rather than admitted with an empty `cases`.
+
+### 5.4 Confirmation is a state, not a moment
+
+A validated candidate is recorded `proposed` and is **not in force**. Only
+`decide_patch(accept=True)` makes it `confirmed`, and only confirmed patches are
+ever surfaced. A rejected patch is kept rather than deleted: a table that said
+no to a house rule said something, and re-proposing it later without that
+history would lose the fact that it was already considered and declined.
+
+Confirming a higher version supersedes the confirmed lower version rather than
+removing it.
 
 ---
 
@@ -420,6 +448,15 @@ re-checked against that session's state immediately before starting.
 | R2 | Patch relations and `RuleConflict` in the contract and compiler, proven on fixtures with no production patch | two same-layer conflicting patches fail the build with a named actionable error; compatible ones build |
 | R3 | Layer assignment for the production graph's 126 rules | every rule carries a layer, `official_optional` rules carry `enabled_by_default`, and the graph rebuilds byte-stably |
 | R4 | House-rule import: semantic compile, validation, generated cases, confirmation, versioned patch | a natural-language house rule reaches the graph only after the user confirms its positive, negative and boundary cases, and those cases run as tests |
+
+R1 and R4 each split at the same seam. Their **a** halves — record, validate,
+persist, retrieve as a library — need nothing the other session owns and are
+delivered. Their **b** halves both need the Keeper-facing wiring: an operation
+to record with, and `rules.context` to surface through. That is one job, in
+`coc_operation_kernel.py` and the operation archive, and it lands once for both
+rather than twice. Until it does, a confirmed house rule and a live ruling are
+records with a library reader and no table reader, which is stated here rather
+than described as finished.
 
 ---
 
