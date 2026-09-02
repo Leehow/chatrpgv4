@@ -10190,6 +10190,30 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           ),
         ));
       }
+      if (
+        typedDefinition.operation === "narration.review"
+        && Object.hasOwn(params, STATE_CLAIM_HOST_FIELD)
+      ) {
+        // The compiler receipt is attached by the host after its own
+        // state-claim compilation. The retained review binding rejects it
+        // as forged, but that binding is armed only once a complete output
+        // context has been observed; before that the canonical surface used
+        // to drop the value silently, so a caller could probe a host-owned
+        // field without ever seeing a refusal. Fail closed regardless of
+        // binding state.
+        return hostFailureResult(hostBindingFailure(
+          typedDefinition.operation,
+          new ToolContractProjectionError(
+            "forged_host_argument",
+            "narration.review state_claim_compilation is the host compiler "
+              + "receipt and is never model-authored",
+            {
+              operation: typedDefinition.operation,
+              fields: [STATE_CLAIM_HOST_FIELD],
+            },
+          ),
+        ));
+      }
       // Raw model-identity validation runs BEFORE any host injection or
       // restoration: host-attached identity reaches arguments only after
       // this gate, by provenance. Model-authored `pi-*` values are always

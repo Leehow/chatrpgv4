@@ -3718,6 +3718,13 @@ const declaredIdentityTable = (
 });
 
 /**
+ * Identity fields of a steward SceneBundle (`current.id`, `neighbors[].scene.id`
+ * beside `scene_id`). Shared by steward.scene_supply and by state.move_scene,
+ * whose ready result embeds the same bundle as `data.scene_supply`.
+ */
+const SCENE_SUPPLY_SEMANTIC_IDENTITY_FIELDS = ["id", "scene_id"] as const;
+
+/**
  * Authored RuleGraph identities carried by every model-visible
  * RuleDecisionCard. These are meaning-bearing graph node ids, not registry
  * handles: the model copies `decision_ref` into rules.settle while
@@ -3834,7 +3841,10 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     [],
   )],
   // Supplied scenes are keyed by a bare `id` beside `scene_id`.
-  ["steward.scene_supply", declaredIdentityTable(["id", "scene_id"], [])],
+  ["steward.scene_supply", declaredIdentityTable(
+    SCENE_SUPPLY_SEMANTIC_IDENTITY_FIELDS,
+    [],
+  )],
   // `projection_sha256` is NOT declared here: it is transport-authored and
   // covered once by TRANSPORT_COLLAPSE_INTEGRITY_FIELDS for every operation.
   ["setup.inspect", declaredIdentityTable(
@@ -3901,10 +3911,16 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     [],
     ["decision_id", "monster_ref"],
   )],
+  // A ready source-bound move carries the steward supply bundle under
+  // `data.scene_supply` (attached by the extension), so the embedded
+  // SceneBundle identities are declared exactly as steward.scene_supply
+  // declares them; otherwise every ready move collapses to
+  // semantic_identity_unavailable at the KP.
   ["state.move_scene", declaredIdentityTable(
     [
       "asset_root_id", "from_location_id", "from_scene_id", "scene_id",
       "to_location_id", "to_scene_id",
+      ...SCENE_SUPPLY_SEMANTIC_IDENTITY_FIELDS,
     ],
     [],
   )],

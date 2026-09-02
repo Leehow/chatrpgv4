@@ -246,25 +246,26 @@ test("output-context observation is play-only and remains fail-closed in play", 
       };
       const h = harness(compiler);
       await initialize(h);
-      if (role === undefined) {
-        const response = await invoke(
-          h, "context-unset", "turn.output_context", {},
+      // A missing launcher role is no longer "ACL disabled": the host-local
+      // typed role starts as setup and becomes play only through the
+      // no-selector opening handoff (setup.complete) or an accepted startup
+      // resume behind an explicit campaign selector. Neither happened here,
+      // so the unset and setup cases are the same setup-role ACL rejection,
+      // thrown before the play-only observer can run.
+      let rejected = null;
+      try {
+        await invoke(
+          h, `context-${role ?? "unset"}`, "turn.output_context", {},
         );
-        assert.equal(JSON.parse(response.content[0].text).ok, true);
-      } else {
-        let rejected = null;
-        try {
-          await invoke(h, "context-setup", "turn.output_context", {});
-        } catch (error) {
-          rejected = error;
-        }
-        assert.ok(
-          rejected !== null
-            && /not allowed|unavailable/.test(String(rejected)),
-          "setup-role output_context must reject: "
-            + JSON.stringify(String(rejected ?? "<no rejection>")),
-        );
+      } catch (error) {
+        rejected = error;
       }
+      assert.ok(
+        rejected !== null
+          && /not allowed in session role setup/.test(String(rejected)),
+        `${role ?? "unset"}-role output_context must reject as setup: `
+          + JSON.stringify(String(rejected ?? "<no rejection>")),
+      );
       assert.equal(observations, 0, `${role ?? "unset"} role observed compiler context`);
     }
 
@@ -376,6 +377,29 @@ test("all invoke surfaces overwrite input and scrub host receipt from output", a
         );
         continue;
       }
+      // The typed surface carries no generic `arguments` envelope, so the
+      // registered schema cannot refuse the host-owned receipt for it. The
+      // host-binding gate must refuse it there by name instead: the compiler
+      // receipt is attached by the host after its own compilation and is
+      // never model-authored, whether or not the retained review binding is
+      // already armed.
+      const forgedTyped = await invokeReviewSurface(
+        h,
+        surface,
+        `review-${index}-forged`,
+        { ...modelOwnedReview, state_claim_compilation: forged },
+      );
+      const forgedTypedEnvelope = JSON.parse(forgedTyped.content[0].text);
+      assert.equal(forgedTypedEnvelope.ok, false, JSON.stringify(forgedTypedEnvelope));
+      assert.equal(forgedTypedEnvelope.error.code, "forged_host_argument");
+      assert.equal(
+        h.clientCalls.some((call) => (
+          call.params.operation === "narration.review"
+          && call.params.arguments?.state_claim_compilation === forged
+        )),
+        false,
+        "the forged typed receipt never reaches transport",
+      );
       const result = await invokeReviewSurface(
         h,
         surface,
@@ -398,6 +422,54 @@ test("all invoke surfaces overwrite input and scrub host receipt from output", a
       assert.deepEqual(forwarded.state_claim_compilation, hostReceipt);
       assert.equal(forwarded.state_claim_compilation.binding.mechanics_bundle_sha256, mechanicsDigest);
     }
+  } finally {
+    if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
+    else process.env.COC_PI_SESSION_ROLE = previousRole;
+  }
+});
+
+test("an unarmed review binding still refuses a model-authored host receipt", async () => {
+  // The retained review binding refuses a forged `state_claim_compilation`
+  // only once a complete output context has armed it. Before that the typed
+  // surface used to accept the model's own value and forward it to
+  // transport, so a caller could author the host compiler receipt by calling
+  // narration.review first. The host-binding gate refuses the field by name,
+  // independent of binding state.
+  const previousRole = process.env.COC_PI_SESSION_ROLE;
+  process.env.COC_PI_SESSION_ROLE = "play";
+  try {
+    const compiler = {
+      clear() {},
+      beginExternalTurn() {},
+      observeOutputContext() {},
+      async compileReview() {
+        throw new Error("compiler_must_not_run_for_a_forged_receipt");
+      },
+    };
+    const h = harness(compiler);
+    await initialize(h);
+    // Deliberately no turn.output_context: the binding stays unarmed.
+    const {
+      turn_id: _turnId,
+      source_digest: _sourceDigest,
+      revision: _revision,
+      decision_id: _decisionId,
+      ...modelOwnedReview
+    } = baseReview;
+    const refused = await invokeReviewSurface(
+      h,
+      "coc_narration_review",
+      "unarmed-forged",
+      { ...modelOwnedReview, state_claim_compilation: { forged: true } },
+    );
+    const envelope = JSON.parse(refused.content[0].text);
+    assert.equal(envelope.ok, false, JSON.stringify(envelope));
+    assert.equal(envelope.error.code, "forged_host_argument");
+    assert.equal(
+      h.clientCalls.some((call) => call.params.operation === "narration.review"),
+      false,
+      "an unarmed forged receipt must never reach transport",
+    );
   } finally {
     if (previousRole === undefined) delete process.env.COC_PI_SESSION_ROLE;
     else process.env.COC_PI_SESSION_ROLE = previousRole;

@@ -1941,10 +1941,13 @@ for (const [label, envelope, resumeData, expectNull] of [
   ["review-required finalize via coc_invoke", liveEnvelope((d) => {
     d.finalize_operation = liveFinalizeCard("coc_invoke");
   }), null, true],
+  // Normal Pi play finalizes a direct single draft through coc_turn_finalize
+  // (ab634acd); coc_invoke stays accepted only as the legacy/non-Pi direct
+  // receipt. Both are valid direct chains, so neither fails closed here.
   ["direct finalize via coc_turn_finalize", liveEnvelope((d) => {
     d.contract_projection = { agency_review_required: false };
     delete d.agency_review_operation;
-  }), null, true],
+  }), null, false],
   ["finalize card without revision", liveEnvelope((d) => {
     delete d.finalize_operation.prefilled_arguments.revision;
   }), null, true],
@@ -3753,12 +3756,13 @@ for (const mode of ["already_acknowledged", "awaiting_player"]) {
     `${mode}: startup pending gate arms a tool surface`,
   );
   // A silent settled resume replays a session whose transcript already
-  // holds the historical player turn; the replayed message_start marks the
-  // external player epoch before the auto-open resume settles silently.
-  await h.emit("message_start", {
-    role: "user",
-    content: [{ type: "text", text: "我推开了教堂的大门，里面一片漆黑。" }],
-  });
+  // holds the historical player turn. That fact is read once from the
+  // persistent branch snapshot at initialize; a role=user message_start
+  // reaching the process while the startup gate is still pending is, by
+  // contract, LIVE player input that owns the turn and disarms this
+  // quarantine (8fe56baf). So no message is emitted here: the block covers
+  // the silent path, and the live-input path is pinned in
+  // tool-affordance-extension.mjs.
   const toolsBeforeResume = h.activeTools.length;
   const resumed = await invoke(
     h,
@@ -3898,10 +3902,24 @@ for (const mode of ["already_acknowledged", "awaiting_player"]) {
     [],
     `${mode}: tools stay empty after the thinking-only final`,
   );
+  const projectionsBeforeRelease = h.audits.filter(
+    (entry) => entry.name === "coc-tool-working-set",
+  ).length;
   await h.shutdown();
+  // agent_end releases the quarantine and runs the NORMAL audited
+  // projection path again. With no live player input this session sits at
+  // player epoch 0 in the play role with no loaded module grants, which
+  // honestly projects to tools-none (see keepsNormalProjectionSurface), so
+  // the release is observable as a fresh audited projection, not as a
+  // non-empty tool count; the next genuine player turn below carries the
+  // tool-count check.
+  const releasedProjections = h.audits
+    .filter((entry) => entry.name === "coc-tool-working-set")
+    .slice(projectionsBeforeRelease);
   assert.ok(
-    h.activeTools.at(-1).length > 0,
-    `${mode}: normal tool surface returns after agent_end`,
+    releasedProjections.length > 0
+      && releasedProjections.every((entry) => entry.value?.status === "projected"),
+    `${mode}: normal audited projection returns after agent_end`,
   );
   // The next genuine external player turn (a real role=user message, not a
   // replay) must find the normal tool surface available and settle through
