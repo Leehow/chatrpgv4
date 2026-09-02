@@ -590,7 +590,7 @@ CENSUS: dict[str, dict[str, tuple[int, str, str]]] = {
         'obligation-prefix': (1, 'second-declaration', 'line 485 parses the sanity_bout: prefix; owned by slice T2'),
         'obligation-source-kind': (2, 'usage-only', 'source_kind comparisons while rendering evidence'),
         'review-rule': (1, 'usage-only', 'agency_violation check while rendering evidence'),
-        'roll-visibility-class': (15, 'second-declaration', "lines 684-689 reimplement the visibility classification and return 'superseded'/'public'/'keeper_only' independently, alongside a documented import of SUPERSEDED_ROLL_VISIBILITIES; recorded, not repaired in T1"),
+        'roll-visibility-class': (13, 'second-declaration', "partly repaired. The player-facing set was its own copy sitting NEXT TO a loader whose docstring already said the enum is shared so later write-side additions keep working here -- the copy predated the loader and would have gone stale on the first addition. It now reads PLAYER_FACING_ROLL_VISIBILITIES dynamically (15 -> 13). Still recorded: the classification helper around line 690 derives its own labels, and the corrected-settlement set is a deliberate subset of SUPERSEDED_ROLL_VISIBILITIES because the secrecy case is filtered on another path"),
         'segment-type': (4, 'usage-only', 'segment rendering comparisons'),
         'substantive-effect-status': (3, 'usage-only', 'status labels rendered into the report'),
     },

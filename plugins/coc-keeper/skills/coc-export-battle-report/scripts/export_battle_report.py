@@ -23,9 +23,11 @@ PLAYER_ROLES = {"player", "player_simulator"}
 DIALOGUE_ROLES = KEEPER_ROLES | PLAYER_ROLES
 TABLE_OPENING_RECORD_KIND = "table_opening"
 TABLE_OPENING_SOURCE_PREFIX = "table.opening#"
-PUBLIC_VISIBILITIES = {"public", "consequence_public"}
 # Corrected settlements remain in the audit log but must not reappear as
-# player-facing battle-report dice or HP chains.
+# player-facing battle-report dice or HP chains. Deliberately a SUBSET of the
+# write side's SUPERSEDED_ROLL_VISIBILITIES: that set also covers the secrecy
+# case, which is hidden for a different reason and filtered on its own path, so
+# widening this would change what the report suppresses.
 HIDDEN_PUBLIC_VISIBILITIES = {"superseded", "voided", "corrected_hidden"}
 MARKDOWN_HIDDEN_KEYS = {
     "clue_graph",
@@ -85,6 +87,17 @@ def _turn_finalization() -> Any:
 
         _TURN_FINALIZATION_MODULE = coc_turn_finalization
     return _TURN_FINALIZATION_MODULE
+
+
+def _public_visibilities() -> frozenset[str]:
+    """The write side's player-facing visibility enum, read dynamically.
+
+    This file used to keep its own two-value copy beside a loader whose
+    docstring already said the enum is shared "so values added later by the
+    write side keep working here unchanged". The copy predated that loader and
+    would have gone stale the first time a value was added.
+    """
+    return frozenset(_turn_finalization().PLAYER_FACING_ROLL_VISIBILITIES)
 
 
 _TOOLBOX_MODULE: Any = None
@@ -1146,7 +1159,7 @@ def _exceptional_effect_projection(document: Any) -> list[dict[str, Any]]:
         source_roll = effect.get("source_roll")
         if (
             isinstance(source_roll, dict)
-            and source_roll.get("visibility") in PUBLIC_VISIBILITIES
+            and source_roll.get("visibility") in _public_visibilities()
             and isinstance(source_roll.get("roll_id"), str)
         ):
             row["source_roll_id"] = source_roll["roll_id"]
@@ -1678,7 +1691,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             else {}
         )
         for source_line, row in enumerate(all_rolls or [], start=1):
-            if _roll_visibility(row).casefold() not in PUBLIC_VISIBILITIES:
+            if _roll_visibility(row).casefold() not in _public_visibilities():
                 if isinstance(row, dict):
                     roll_id = _roll_id(row)
                     visibility = _roll_visibility(row).casefold()
@@ -2622,7 +2635,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     concealed_identifiers = sorted({
         identifier
         for row in (all_rolls or [])
-        if isinstance(row, dict) and _roll_visibility(row).casefold() not in PUBLIC_VISIBILITIES
+        if isinstance(row, dict) and _roll_visibility(row).casefold() not in _public_visibilities()
         for identifier in [_roll_id(row)]
         if isinstance(identifier, str) and identifier
     } | {
