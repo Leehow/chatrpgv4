@@ -1348,9 +1348,17 @@ def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
             "magic.learn": magic_learn,
             "state.end_session": end_session,
             "development.settle": development_settle,
-            **{kind: chase_execute for kind in (
-                "chase_start", "chase_move", "chase_hazard", "chase_barrier", "chase_conflict", "chase_end"
-            )},
+            # Keyed by the capability node's `resolver_capability`, which is
+            # what the settle executor looks up. The chase capability declares
+            # `chase.execute`; the underscore names below are the compiler's
+            # command kinds and match nothing here, so all six chase decisions
+            # reached the executor and were refused with
+            # unsupported_ruleset_operation — the whole family unsettleable,
+            # after its candidate validation had already passed. Measured
+            # 2026-09-02. combat.context had the same shape.
+            "chase.execute": chase_execute,
+            "chase.context": _registered_adapter("chase.context"),
+            "combat.context": _registered_adapter("combat.context"),
         },
     )
 
