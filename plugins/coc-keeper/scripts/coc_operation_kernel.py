@@ -7961,11 +7961,57 @@ def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: st
                 "npc_profile_invalid",
                 "; ".join(f"{ref}: {actor_errors[ref]}" for ref in blocked),
             )
+        # A chase needs someone to run from. When the current scene holds no
+        # actor besides the investigator there is no ref the Keeper could pass
+        # that would work, so saying "refs must resolve" sends it to re-guess a
+        # set that cannot exist. Observed live 2026-09-02: the Keeper narrated
+        # the flight, moved the scene, and only then tried to start the chase —
+        # leaving the pursuer behind in the scene it fled, with the generic
+        # message giving it no way to know that was the problem.
+        opponents = [ref for ref in actors if ref not in quarries]
+        if len(actors) < 2 or not opponents:
+            raise ToolError(
+                "chase_no_present_opponent",
+                "a chase needs a pursuer present in the current scene; only "
+                f"{sorted(actors) or 'no actor'} is present in "
+                f"{candidates.get('scene_id') or 'the current scene'}",
+                details={
+                    "scene_id": candidates.get("scene_id"),
+                    "present_actor_refs": sorted(actors),
+                    "hint": (
+                        "establish the pursuer in this scene first (state.npc_presence), "
+                        "or settle the chase before moving the investigator away from it"
+                    ),
+                },
+            )
+        rejected_actors = sorted(
+            {ref for ref in [*pursuers, *quarries] if ref not in actors}
+        )
+        rejected_locations = sorted(
+            {ref for ref in location_refs if ref not in locations}
+        )
         if (not pursuers or not quarries or len(location_refs) < 2
                 or set(pursuers) & set(quarries)
-                or any(ref not in actors for ref in [*pursuers, *quarries])
-                or any(ref not in locations for ref in location_refs)):
-            raise ToolError("chase_candidate_invalid", "chase refs must resolve to current actors and current/connected locations")
+                or rejected_actors or rejected_locations):
+            # The candidate sets are in hand here, so name them: a rejected ref
+            # is a choice from the wrong list, not a malformed argument, and
+            # the Keeper cannot read the right list from anywhere else.
+            raise ToolError(
+                "chase_candidate_invalid",
+                "chase refs must resolve to current actors and current/connected locations",
+                details={
+                    "scene_id": candidates.get("scene_id"),
+                    "rejected_actor_refs": rejected_actors,
+                    "rejected_location_refs": rejected_locations,
+                    "present_actor_refs": sorted(actors)[:12],
+                    "connected_location_refs": sorted(locations)[:12],
+                    "requires": {
+                        "pursuer_refs": "at least one, from present_actor_refs",
+                        "quarry_refs": "at least one, from present_actor_refs, disjoint from pursuer_refs",
+                        "location_refs": "at least two, from connected_location_refs",
+                    },
+                },
+            )
         participants = []
         for side, refs, position in (("pursuer", pursuers, 0), ("quarry", quarries, 1)):
             for ref in refs:

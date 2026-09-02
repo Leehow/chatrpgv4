@@ -7,7 +7,14 @@
  * recovery metadata to an existing canonical failure envelope.
  */
 import type { JsonSchema } from "./operation-contracts.ts";
-import { OBLIGATION_ID_PREFIXES } from "./obligation-namespace.generated.ts";
+import {
+  AGENCY_CLAIM_TYPES,
+  COVERAGE_FIELDS,
+  OBLIGATION_ID_PREFIXES,
+  PLAYER_INPUT_HANDLING_VALUES,
+  REALIZATION_VALUES,
+  VOLUNTARY_CLAIM_TYPES,
+} from "./text-vocabulary.generated.ts";
 import type { SemanticProjectionView } from "./semantic-identity-registry.ts";
 
 export type StateJournalBindingCard = {
@@ -34,16 +41,7 @@ export type NarrationReviewBindingCard = {
   state_claim_compilation: Record<string, unknown>;
 };
 
-export const REVIEWED_AGENCY_CLAIM_TYPES = [
-  "voluntary_action",
-  "voluntary_speech",
-  "voluntary_plan",
-  "voluntary_belief",
-  "voluntary_trust",
-  "voluntary_active_emotion",
-  "forced_behavior",
-  "involuntary_physiology",
-] as const;
+export const REVIEWED_AGENCY_CLAIM_TYPES = AGENCY_CLAIM_TYPES;
 
 export type ReviewedAgencyClaimType = typeof REVIEWED_AGENCY_CLAIM_TYPES[number];
 
@@ -588,6 +586,29 @@ export function isPiSchemaFailure(operation: string, code: string): boolean {
 }
 
 const DYNAMIC_CANDIDATE_ACTIONS: Record<string, readonly PiAllowedNextAction[]> = {
+  // A rejected chase ref is a choice from the wrong list, not a malformed
+  // argument: the host returns the present actors and connected locations in
+  // details. Classified terminal, the Keeper re-guessed the same refs twice
+  // and the chase family stayed at zero live settlements.
+  chase_candidate_invalid: [{
+    operation: "rules.settle",
+    action: "correct_model_arguments",
+    reason:
+      "choose pursuer_refs and quarry_refs from present_actor_refs and at "
+      + "least two location_refs from connected_location_refs, both returned "
+      + "in this error",
+    host_bound: false,
+  }],
+  // No opponent present is a state problem, not an argument problem: no ref
+  // the Keeper could pass would work until someone is there to give chase.
+  chase_no_present_opponent: [{
+    operation: "state.npc_presence",
+    action: "refresh_semantic_candidates",
+    reason:
+      "establish the pursuer in this scene before settling the chase, or "
+      + "settle it before the investigator leaves the scene they are fleeing",
+    host_bound: false,
+  }],
   unknown_combat_target: [{
     operation: "combat.context",
     action: "refresh_semantic_candidates",
@@ -1326,10 +1347,7 @@ export function buildReviewedAgencyBinding(
     .sort((left, right) => left.obligation_id.localeCompare(right.obligation_id));
   const authorities: ReviewedAgencyAuthority[] = [{
     authority: "current-player-input",
-    claim_types: [
-      "voluntary_action", "voluntary_speech", "voluntary_plan",
-      "voluntary_belief", "voluntary_trust", "voluntary_active_emotion",
-    ],
+    claim_types: [...VOLUNTARY_CLAIM_TYPES],
     subject_ref: subjectRef,
     source_ref: playerSourceRef,
     override_id: null,
@@ -1793,7 +1811,7 @@ function validateReviewedAgencyBinding(
       || raw.allowed_reviewed_spans.length
         !== new Set(raw.allowed_reviewed_spans).size
       || ![
-        "fictional_beat", "concealed_no_player_visible_beat",
+        ...REALIZATION_VALUES,
       ].includes(String(raw.realization))
       || ![
         "host_safe_default_before_result", "canonical_repair_if_unsafe",

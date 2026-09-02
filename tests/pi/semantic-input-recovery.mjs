@@ -70,3 +70,52 @@ process.stdout.write(JSON.stringify({
   unknown: unknown.recoverable_by,
   missing: missing.recoverable_by,
 }));
+
+// A rejected chase ref is a choice from the wrong list, not a malformed
+// argument, and "no opponent present" is a state problem no ref can fix.
+// Observed live 2026-09-02: both came back `recoverable_by: "none"` with no
+// next action, the Keeper re-guessed the same refs twice, and the chase family
+// stayed at zero live settlements.
+const chaseCandidate = projection.projectPiToolFailure(
+  {
+    ok: false,
+    tool: "rules.settle",
+    error: {
+      code: "chase_candidate_invalid",
+      message: "chase refs must resolve to current actors and current/connected locations",
+      details: {
+        scene_id: "corbitt-house-ground",
+        rejected_actor_refs: ["npc:npc-walter-corbitt"],
+        present_actor_refs: ["investigator:thomas-hayes"],
+        connected_location_refs: ["scene:corbitt-house-ground", "scene:basement-rites"],
+      },
+    },
+  },
+  "rules.settle",
+).error;
+assert.equal(chaseCandidate.recoverable_by, "model_next_action");
+assert.equal(chaseCandidate.allowed_next_actions[0].operation, "rules.settle");
+// the lists the host already computed must stay in hand
+assert.deepEqual(
+  chaseCandidate.details.present_actor_refs,
+  ["investigator:thomas-hayes"],
+);
+
+const noOpponent = projection.projectPiToolFailure(
+  {
+    ok: false,
+    tool: "rules.settle",
+    error: {
+      code: "chase_no_present_opponent",
+      message: "a chase needs a pursuer present in the current scene",
+      details: { scene_id: "corbitt-house-ground" },
+    },
+  },
+  "rules.settle",
+).error;
+assert.equal(noOpponent.recoverable_by, "model_next_action");
+assert.equal(
+  noOpponent.allowed_next_actions[0].operation,
+  "state.npc_presence",
+  "no ref fixes an empty scene; someone has to be there to give chase",
+);
