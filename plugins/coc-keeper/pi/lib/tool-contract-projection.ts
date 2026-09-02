@@ -8068,6 +8068,11 @@ const RAW_COMPOSED_FIELDS: ReadonlyMap<string, readonly string[]> = new Map([
   // `claim-` is the documented claim namespace; `agency-` is the semantic
   // claim namespace real campaigns author (attempt-02).
   ["claim_id", ["claim-", "agency-"]],
+  // The Keeper NAMES a ruling when recording it, rather than echoing one the
+  // host showed, so it is composed rather than echoed. Undeclared, its required
+  // `ruling_id` made the whole envelope fail closed as
+  // `semantic_identity_unavailable` -- on a mutation the rules surface offers.
+  ["ruling_id", ["ruling:"]],
   ["run_id", ["run-"]],
   ["run_segment_id", ["run-"]],
 ]);
@@ -8075,6 +8080,9 @@ const RAW_COMPOSED_FIELDS: ReadonlyMap<string, readonly string[]> = new Map([
 /** Echoed canonical entity refs: multi-token slug or field namespace. */
 const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["scene_id", stringSet(["scene:"])],
+  // `scope_id` is the scene a scene-scoped ruling applies to, copied from a
+  // scene the host already showed: the same namespace as scene_id.
+  ["scope_id", stringSet(["scene:"])],
   ["clue_id", stringSet(["clue:"])],
   ["clue_ids", stringSet(["clue:"])],
   ["committed_clue_ids", stringSet(["clue:"])],

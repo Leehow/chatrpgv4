@@ -84,6 +84,7 @@ Take over from the ready table and open play.
   | `candidate_ref` | exact handle `storylet:current-candidate` or namespace `storylet-candidate:`, `attack:`, `combat-route:` | `storylet:current-candidate` | ✗ never `current-candidate` |
   | `caregiver_id` | multi-token semantic slug or namespace `npc:`, `person:` | `npc:example-slug` | ✗ never `route:example-slug` |
   | `claim_id` | `{prefix}{slug}` with prefix `claim-`, `agency-` | `claim-sit-notebook-smoke` | ✗ never `sit-notebook-smoke` |
+  | `ruling_id` | `{prefix}{slug}` with prefix `ruling:` | `ruling:example-slug` | ✗ never `example-slug` |
   | `clock_id` | multi-token semantic slug or namespace `clock:` | `clock:example-slug` | ✗ never `route:example-slug` |
   | `clue_id` | multi-token semantic slug or namespace `clue:` | `clue:example-slug` | ✗ never `route:example-slug` |
   | `clue_ids` | multi-token semantic slug or namespace `clue:` | `clue:example-slug` | ✗ never `route:example-slug` |
@@ -156,6 +157,7 @@ Take over from the ready table and open play.
   | `run_id` | `{prefix}{slug}` with prefix `run-` | `run-example-slug` | ✗ never `example-slug` |
   | `scenario_id` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
   | `scene_id` | multi-token semantic slug or namespace `scene:` | `scene:example-slug` | ✗ never `route:example-slug` |
+  | `scope_id` | multi-token semantic slug or namespace `scene:` | `scene:example-slug` | ✗ never `route:example-slug` |
   | `seed_ids` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
   | `selected_affordance_ids` | the exact affordance_id handle copied verbatim from scene.context action_routes[*].affordance_id (namespace `affordance:`); never synthesized from route_id or any bare route id | `affordance:example-slug` | ✗ never `route:example-slug` |
   | `social_adjudication_ref` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
