@@ -925,6 +925,14 @@ test("settled-output recovery schedules exactly two hidden follow-ups then fault
   });
 });
 
+// A padded stream is not a runaway one. This used to send 40 single-character
+// newlines and require an abort, which encoded the delta bound that a live
+// table disproved on 2026-09-01: every abort there was 32 one-character
+// deltas from a Keeper that narrated correctly the moment it was re-prompted,
+// and a later measured stream led with 42 characters and finished normally.
+// The guard's invariants — one abort, exactly one same-epoch recovery, the
+// right audit and delivery options — are unchanged and still asserted; only
+// the stream that triggers them is now genuinely unbounded.
 test("leading whitespace stream aborts early and schedules one same-epoch recovery", async () => {
   await withPlayHarness(async (h) => {
     await h.emit("message_start", {
@@ -939,6 +947,12 @@ test("leading whitespace stream aborts early and schedules one same-epoch recove
     for (let index = 0; index < 40; index += 1) {
       await h.emit("message_update", streaming, {
         assistantMessageEvent: { type: "text_delta", delta: "\n" },
+      });
+    }
+    assert.equal(h.aborts, 0, "40 newlines is padding, not a runaway stream");
+    for (let index = 0; index < 40; index += 1) {
+      await h.emit("message_update", streaming, {
+        assistantMessageEvent: { type: "text_delta", delta: "\n".repeat(32) },
       });
     }
     assert.equal(h.aborts, 1);

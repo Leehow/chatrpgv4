@@ -146,7 +146,14 @@ contract above still applies. This is the natural rhythm:
    selection does not switch that contract on or off.
 2. If you need grounding, call `scene.context` (scene, NPCs present, clues
    here, exits, time, tension). Use `clues.query`, `npc.query`, `actions.list`,
-   `scene.map` for deeper reference. Resolve each witnessed
+   `scene.map` for deeper reference.
+   `npc.query` without an `npc_id` is the cast list, not nine dossiers: when
+   the whole cast does not fit the transport budget, every NPC still returns
+   with its identity, authored role, scene provenance, facts and relationship
+   state, and the rows too deep to inline carry `dossier_required: true`.
+   Call the returned `dossier_operation` with that row's exact `npc_id` to get
+   that NPC complete. Never read campaign files or re-derive an NPC because a
+   row was thin. Resolve each witnessed
    `pending_san_triggers` entry with an exact `sanity_check` command through
    `sanity.execute` (pass its authored id as `san_trigger_id`);
    fields under `keeper_only` / `keeper_mechanics` are execution reference and
@@ -179,7 +186,11 @@ contract above still applies. This is the natural rhythm:
    percentile fumble has a foreseeable complication, pass it as
    `fumble_consequence` so public roll evidence is complete.
    When the result is critical/fumble, or a pushed roll fails, settle its
-   source-bound `state.exceptional_effect` before journaling. Link
+   source-bound `state.exceptional_effect` before journaling. Its
+   `source_roll_id` is the exact `roll_id` handle presented on that settled
+   check's own result (`rules.settle` returns it inside
+   `settlement.result.bound_check`); copy it verbatim — never compose, guess,
+   or abbreviate a roll handle. Link
    `resource_delta` to the actual HP/SAN/MP/Luck/ammunition/item/condition
    write; link `relationship_or_clock` to a real NPC/threat/time-marker change
    (plain elapsed time or `set_flag` is not enough). A bounded

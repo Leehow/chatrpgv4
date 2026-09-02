@@ -625,4 +625,8 @@ def test_narration_brief_uses_campaign_play_language(campaign_ws, play_language)
     assert narration["ok"] is True, narration
     style = narration["data"]["style_contract"]
     assert style["language"] == play_language
-    assert style["deterministic_guard"] == "unavailable"
+    # deterministic_guard was removed in TextGraph slice T4 along with the
+    # matcher whose availability it reported. The register a non-zh table gets
+    # is now the same contract, minus the one language-scoped axis.
+    assert "deterministic_guard" not in style
+    assert "translationese" not in style["avoid"]

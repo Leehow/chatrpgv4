@@ -1188,6 +1188,10 @@ def _model_semantic_identifier(value: Any) -> bool:
     )
 
 
+# The two node kinds a `continues-as` relation may name.
+RULE_CONTINUATION_REF_PREFIXES = ("decision:", "continuation:")
+
+
 def _semantic_prefixed_ref(value: Any, prefix: str) -> bool:
     return (
         _model_semantic_identifier(value)
@@ -1200,13 +1204,17 @@ def _semantic_prefixed_ref(value: Any, prefix: str) -> bool:
 def _closed_rule_decision_ref_list(
     value: Any,
     *,
-    prefix: str,
+    prefix: str | tuple[str, ...],
     limit: int = RULE_DECISION_REF_LIMIT,
 ) -> list[str] | None:
+    prefixes = (prefix,) if isinstance(prefix, str) else prefix
     if (
         not isinstance(value, list)
         or len(value) > limit
-        or any(not _semantic_prefixed_ref(ref, prefix) for ref in value)
+        or any(
+            not any(_semantic_prefixed_ref(ref, one) for one in prefixes)
+            for ref in value
+        )
         or len(set(value)) != len(value)
     ):
         return None
@@ -1398,8 +1406,15 @@ def _compact_rule_decision_card(
     effect_refs = _closed_rule_decision_ref_list(
         value.get("effect_refs"), prefix="effect:",
     )
+    # A `continues-as` edge points at either a decision or a `continuation`
+    # node -- the rule graph authors both (11 and 3 of them in coc7). This
+    # accepted only `decision:`, and a single unmatched ref returns None for
+    # the whole list, which drops the ENTIRE card: `social:adjudicate-difficulty`
+    # continues as `continuation:coc7:push-luck:after-fail-push`, so the core
+    # social rule vanished from every Keeper's rules context.
     continuations = _closed_rule_decision_ref_list(
-        value.get("possible_continuations"), prefix="decision:",
+        value.get("possible_continuations"),
+        prefix=RULE_CONTINUATION_REF_PREFIXES,
     )
     authority = _closed_rule_card_authority(value.get("authority"))
     if (
@@ -1536,6 +1551,18 @@ def _compact_scene(
             "keeper_mechanics",
             "exit_ready",
             "drilldown_refs",
+            # The live reading of the clocks this scene's own pressure moves
+            # name. Third time this whitelist has been the reason an authored
+            # mechanic never reached a table: the block was correct at the
+            # producer and correct at the Keeper's identity projection, and
+            # arrived as null because the RPC path did not name it.
+            "threat_clocks",
+            # The forward nudge the kernel has computed on every scene read
+            # since it was written, and that nothing has ever delivered: one
+            # producer line, no consumer anywhere. The comment beside it
+            # promised the KP a beat "without a separate director.advise
+            # call"; the RPC path did not name it, so no Keeper ever saw one.
+            "recommended_next_beat",
         ),
     )
     # Where the main line stands. This is the second projection between the
@@ -3588,6 +3615,129 @@ def _project_investigator_contract(data: Any) -> Any:
     return projected
 
 
+# ``npc.query`` without an ``npc_id`` returns one complete dossier per authored
+# NPC, so its size is the cast list times the authored depth of a person.  The
+# product's own Keeper guidance is per-target ("call npc.query for the exact
+# target"), and a single-target query measures 7,423 bytes against the 16 KiB
+# budget; the live 9-NPC roster of `pi-coc-gate9-depth-20260901-03` measures
+# 22,458 and used to collapse to an identity-only envelope, which is how the
+# Keeper ended up with no cast at all.  So when a roster does not fit, keep
+# every NPC present and demote the deep dossier material by tier, leaving one
+# exact typed route back to any complete dossier.
+NPC_QUERY_ROSTER_FIELDS = (
+    "npc_id",
+    "name",
+    "origin",
+    "identity_ref",
+    "profile_revision_ref",
+    "identity_contract",
+    "relationship_to_investigators",
+    "role_label",
+    # The Pi host reads facts[].fact_id off every row to offer
+    # ``npc_fact:<npc_id>/<fact_id>`` evidence refs, and the Keeper forms the
+    # same ref by hand for rules.psychology_observe. Losing it here would
+    # silently strip the evidence grammar rather than shrink a payload.
+    "facts",
+    "known_fact_ids",
+    "revealable_fact_ids",
+    "psych",
+    # Only a single-target query carries this, and the Pi host arms
+    # state.record_npc_engagement from it.
+    "first_contact_readiness",
+)
+NPC_QUERY_INDEX_FIELDS = (
+    "npc_id",
+    "name",
+    "origin",
+    "identity_ref",
+)
+
+
+def _npc_query_relationship_started(row: dict[str, Any]) -> bool:
+    """Whether this NPC already has investigator-facing relationship state.
+
+    ``availability`` is excluded on purpose: the normalizer sets it for every
+    NPC, so it says nothing about whether anyone has met this person.
+    """
+    psych = row.get("psych")
+    if not isinstance(psych, dict):
+        return False
+    if isinstance(psych.get("impression"), dict):
+        return True
+    if any(psych.get(field) for field in ("trust", "fear", "suspicion")):
+        return True
+    return any(
+        psych.get(field)
+        for field in ("known_facts", "lies_told", "promises")
+    )
+
+
+def _npc_query_retention_rank(row: dict[str, Any]) -> tuple[int, int, int]:
+    """Deterministic structural priority for keeping a dossier inline.
+
+    Every term reads a structured field the producer already emits.  Nothing
+    here inspects a name, a role label, or any other free prose.
+    """
+    contract = row.get("identity_contract")
+    provenance = (
+        contract.get("location_provenance") if isinstance(contract, dict) else None
+    )
+    in_scene = (
+        isinstance(provenance, dict)
+        and provenance.get("active_scene_matches_schedule") is True
+    )
+    return (
+        0 if in_scene else 1,
+        0 if _npc_query_relationship_started(row) else 1,
+        0 if isinstance(row.get("first_contact_readiness"), dict) else 1,
+    )
+
+
+def _npc_query_row(row: Any, *, fields: tuple[str, ...]) -> Any:
+    if not isinstance(row, dict):
+        return deepcopy(row)
+    projected = {
+        key: deepcopy(row[key]) for key in fields if key in row
+    }
+    projected["dossier_required"] = True
+    return projected
+
+
+def _npc_query_tiered_rows(
+    rows: list[Any],
+    *,
+    decorate: Callable[[Any], Any],
+) -> tuple[list[Any], list[dict[str, Any]]]:
+    """Project and decorate every row once per tier, in producer order.
+
+    The ``roster`` tier keeps the working-set fields the host and the Keeper
+    bind on; ``index`` is a bare name, reached only by a cast too large for
+    even a bounded roster.  It does give up the per-row fact grammar, but
+    naming that NPC still beats losing the cast.
+
+    The fit search below runs over sizes, not over rebuilt payloads: a cast is
+    unbounded, and re-serializing the whole result once per candidate made the
+    projection quadratic in the number of NPCs.
+    """
+    tiers: list[dict[str, Any]] = []
+    identities: list[Any] = []
+    for row in rows:
+        npc_id = row.get("npc_id") if isinstance(row, dict) else None
+        identities.append(npc_id if isinstance(npc_id, str) else None)
+        if not isinstance(npc_id, str):
+            # A row without a stable id cannot be re-queried, so it is never
+            # demoted and never carries a dossier card.
+            projected = decorate(deepcopy(row))
+            tiers.append({"full": projected, "roster": projected, "index": projected})
+            continue
+        tiers.append({
+            "full": decorate(deepcopy(row)),
+            "roster": decorate(_npc_query_row(row, fields=NPC_QUERY_ROSTER_FIELDS)),
+            "index": decorate(_npc_query_row(row, fields=NPC_QUERY_INDEX_FIELDS)),
+        })
+    return identities, tiers
+
+
 def project_envelope(
     operation: str,
     envelope: dict[str, Any],
@@ -3813,6 +3963,128 @@ def project_envelope(
             *result["hints"][:2],
         ]
         result["warnings"] = result["warnings"][:3]
+
+    if (
+        transport_bytes(result) > MAX_INLINE_BYTES
+        and operation == "npc.query"
+        and isinstance(data, dict)
+        and isinstance(data.get("npcs"), list)
+    ):
+        # Demote by tier from the least-bound NPC inward, keeping the largest
+        # shape that fits.  The identity-only collapse below would hand the
+        # Keeper no cast at all, so any surviving roster row is strictly more
+        # than this operation used to deliver.
+        order = [
+            row["npc_id"]
+            for row in sorted(
+                (
+                    row for row in data["npcs"]
+                    if isinstance(row, dict) and isinstance(row.get("npc_id"), str)
+                ),
+                key=_npc_query_retention_rank,
+            )
+        ]
+        roster_hint = (
+            "the full cast did not fit the transport budget; every NPC is "
+            "still listed with its authored identity, role, scene provenance "
+            "and relationship state — call the returned dossier_operation "
+            "with the exact npc_id for any row marked dossier_required"
+        )
+        # Measure the exact shape that will ship, wire flags included: the
+        # final-measurement reserve covers ``measured_inline_bytes`` alone, not
+        # a projection marker added after the fit was decided.
+        wire = {
+            **result["wire"],
+            "payload_projected": True,
+            "npc_roster_projection": True,
+        }
+        warnings = result["warnings"][:2]
+
+        def decorate(row: Any) -> Any:
+            return _decorate_cards(
+                row,
+                contract_digest=contract_digest,
+                argument_schemas=argument_schemas,
+            )
+
+        identities, tiers = _npc_query_tiered_rows(data["npcs"], decorate=decorate)
+        shell = {
+            key: deepcopy(value) for key, value in data.items() if key != "npcs"
+        }
+        shell["dossier_operation"] = decorate(
+            _operation_card("npc.query", missing=["npc_id"])
+        )
+
+        def trial_for(tier_by_row: list[str]) -> dict[str, Any]:
+            return {
+                **result,
+                "wire": wire,
+                "data": {
+                    **shell,
+                    "npcs": [
+                        tiers[index][tier]
+                        for index, tier in enumerate(tier_by_row)
+                    ],
+                },
+                "hints": [roster_hint],
+                "warnings": warnings,
+            }
+
+        # Swapping one array element for another leaves every separator in
+        # place, so a tier change costs exactly the two rows' byte difference.
+        # Measure the all-index floor once, then price every candidate from
+        # prefix sums instead of rebuilding the payload for each one.
+        floor_bytes = transport_bytes(trial_for(["index"] * len(tiers)))
+        budget = MAX_INLINE_BYTES - FINAL_MEASUREMENT_RESERVE_BYTES
+        position = {npc_id: index for index, npc_id in enumerate(identities)}
+        ranked = [position[npc_id] for npc_id in order]
+        full_prefix = [0]
+        roster_prefix = [0]
+        for index in ranked:
+            index_cost = transport_bytes(tiers[index]["index"])
+            full_prefix.append(
+                full_prefix[-1]
+                + transport_bytes(tiers[index]["full"]) - index_cost
+            )
+            roster_prefix.append(
+                roster_prefix[-1]
+                + transport_bytes(tiers[index]["roster"]) - index_cost
+            )
+
+        def spend(full_count: int, roster_count: int) -> int:
+            return (
+                floor_bytes
+                + full_prefix[full_count]
+                + roster_prefix[roster_count] - roster_prefix[full_count]
+            )
+
+        # Every NPC gets the working-set roster tier if the budget allows it;
+        # the deeper dossiers are what a tight budget gives up first.
+        roster_count = len(ranked)
+        full_count = len(ranked)
+        while full_count and spend(full_count, roster_count) > budget:
+            full_count -= 1
+        while roster_count and spend(0, roster_count) > budget:
+            roster_count -= 1
+        full_count = min(full_count, roster_count)
+
+        if spend(full_count, roster_count) <= budget:
+            chosen = ["index"] * len(tiers)
+            for rank, index in enumerate(ranked):
+                if rank < full_count:
+                    chosen[index] = "full"
+                elif rank < roster_count:
+                    chosen[index] = "roster"
+            fitted = trial_for(chosen)
+            # The arithmetic is exact, but never ship an unverified shape.
+            if not _exceeds_inline_budget(
+                fitted,
+                reserve_bytes=FINAL_MEASUREMENT_RESERVE_BYTES,
+            ):
+                result = fitted
+        # Otherwise even a bare index of this cast cannot fit; leave the result
+        # alone so the identity-only collapse below stays the single last
+        # resort rather than claiming a roster projection.
 
     if transport_bytes(result) > MAX_INLINE_BYTES:
         result["hints"] = result["hints"][:3]

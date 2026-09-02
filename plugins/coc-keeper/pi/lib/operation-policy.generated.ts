@@ -1212,6 +1212,17 @@ export const OPERATION_POLICY: Record<string, OperationPolicy> = {
       "live_turn"
     ]
   },
+  "state.characteristic_delta": {
+    "advisory": false,
+    "audience": "keeper",
+    "contract": "state",
+    "discovery": "surface",
+    "execution_class": "serial_campaign",
+    "kp_surface": "state",
+    "phases": [
+      "live_turn"
+    ]
+  },
   "state.clear_transient_condition": {
     "advisory": false,
     "audience": "keeper",
@@ -1865,6 +1876,7 @@ export const OPERATIONS_BY_SURFACE: Record<Exclude<KpSurface, "none">, readonly 
     "state.cash_query",
     "state.cash_semantic",
     "state.cash_spend",
+    "state.characteristic_delta",
     "state.clear_transient_condition",
     "state.clock_discontinuity",
     "state.deliver_handout",

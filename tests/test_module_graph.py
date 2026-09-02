@@ -24,7 +24,7 @@ def _load():
 
 def _source_ref(page: int, anchor: str, digest: str) -> dict:
     return {
-        "source_id": "pdf:Demo-Module",
+        "source_id": "pdf:demo-module",
         "pdf_index": page,
         "grep_anchor": anchor,
         "text_sha256": digest,
@@ -120,7 +120,7 @@ def _write_real_source_bundle(tmp_path: Path) -> Path:
                 "schema_version": 1,
                 "producer": "codex-pdf-skill",
                 "source": {
-                    "source_id": "pdf:Demo-Module",
+                    "source_id": "pdf:demo-module",
                     "title": "Demo Module",
                     "path": str(source_pdf),
                     "file_sha256": hashlib.sha256(source_pdf.read_bytes()).hexdigest(),
@@ -426,7 +426,7 @@ def test_source_bundle_builds_semantic_evidence_packet_without_model_hash_echo(t
                 "schema_version": 1,
                 "producer": "codex-pdf-skill",
                 "source": {
-                    "source_id": "pdf:Demo-Module",
+                    "source_id": "pdf:demo-module",
                     "title": "Demo",
                     "path": "/local/demo.pdf",
                     "file_sha256": "c" * 64,
@@ -448,7 +448,7 @@ def test_source_bundle_builds_semantic_evidence_packet_without_model_hash_echo(t
     packet = graph.build_evidence_packet(
         pages_catalog,
         section_id="section-archive-opening",
-        page_keys=[("pdf:Demo-Module", 3)],
+        page_keys=[("pdf:demo-module", 3)],
     )
     evidence = graph.load_evidence_catalog([packet], page_catalog=pages_catalog)
     model_view = graph.project_evidence_for_model(packet)
@@ -482,7 +482,7 @@ def test_prepare_returns_one_closed_model_safe_extraction_packet(tmp_path):
                 "schema_version": 1,
                 "producer": "codex-pdf-skill",
                 "source": {
-                    "source_id": "pdf:Demo-Module",
+                    "source_id": "pdf:demo-module",
                     "title": "Demo",
                     "path": "/local/demo.pdf",
                     "file_sha256": "c" * 64,
@@ -518,7 +518,7 @@ def test_prepare_returns_one_closed_model_safe_extraction_packet(tmp_path):
             "visibility": "player-safe",
         }],
         output_budget={"max_nodes": 8, "max_relations": 10},
-        page_keys=[("pdf:Demo-Module", 1)],
+        page_keys=[("pdf:demo-module", 1)],
     )
 
     packet = prepared["extraction_packet"]
@@ -551,7 +551,7 @@ def test_prepare_can_narrow_a_page_to_exact_machine_span_ids(tmp_path):
         approved_player_safe_span_ids=[],
         known_nodes=[],
         output_budget={"max_nodes": 4, "max_relations": 4},
-        page_keys=[("pdf:Demo-Module", 0)],
+        page_keys=[("pdf:demo-module", 0)],
     )
     selected_id = full["evidence_packet"]["spans"][1]["span_id"]
 
@@ -566,7 +566,7 @@ def test_prepare_can_narrow_a_page_to_exact_machine_span_ids(tmp_path):
         approved_player_safe_span_ids=[],
         known_nodes=[],
         output_budget={"max_nodes": 4, "max_relations": 4},
-        page_keys=[("pdf:Demo-Module", 0)],
+        page_keys=[("pdf:demo-module", 0)],
         selected_evidence_span_ids=[selected_id],
     )
 
@@ -673,19 +673,19 @@ def test_build_installs_one_reproducible_asset_root_generation(tmp_path):
     }
     source_bundles = [
         {
-            "source_id": "pdf:Demo-Module",
+            "source_id": "pdf:demo-module",
             "bundle_sha256": "c" * 64,
             "file_sha256": "d" * 64,
         },
         {
-            "source_id": "pdf:Demo-Module",
+            "source_id": "pdf:demo-module",
             "bundle_sha256": "e" * 64,
             "file_sha256": "d" * 64,
         },
     ]
     page_catalog = {
-        ("pdf:Demo-Module", 3): {
-            "source_id": "pdf:Demo-Module",
+        ("pdf:demo-module", 3): {
+            "source_id": "pdf:demo-module",
             "pdf_index": 3,
             "text": "The investigators arrive at the archive.",
             "text_sha256": "a" * 64,
@@ -762,13 +762,13 @@ def test_build_keeps_missing_planned_shards_explicitly_partial(tmp_path):
             "evidence_packet": _evidence_packet(),
         }],
         source_bundles=[{
-            "source_id": "pdf:Demo-Module",
+            "source_id": "pdf:demo-module",
             "bundle_sha256": "c" * 64,
             "file_sha256": "d" * 64,
         }],
         page_catalog={
-            ("pdf:Demo-Module", 3): {
-                "source_id": "pdf:Demo-Module",
+            ("pdf:demo-module", 3): {
+                "source_id": "pdf:demo-module",
                 "pdf_index": 3,
                 "text": "The investigators arrive at the archive.",
                 "text_sha256": "a" * 64,
@@ -858,7 +858,7 @@ def test_cli_prepare_accept_build_installs_reviewed_graph(tmp_path, capsys):
             "selected_evidence_span_ids": [],
             "known_nodes": [],
             "output_budget": {"max_nodes": 8, "max_relations": 10},
-            "page_refs": [{"source_id": "pdf:Demo-Module", "pdf_index": 0}],
+            "page_refs": [{"source_id": "pdf:demo-module", "pdf_index": 0}],
         }),
         encoding="utf-8",
     )

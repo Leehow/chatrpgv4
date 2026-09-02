@@ -1,0 +1,11 @@
+{
+ "npc.query": [
+  "campaign_id"
+ ],
+ "scene.context": [
+  "campaign_id"
+ ],
+ "setup.phase": [
+  "campaign_id"
+ ]
+}

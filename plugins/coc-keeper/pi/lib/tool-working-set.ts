@@ -766,6 +766,64 @@ function validateLoadRequest(request: unknown): NamespaceLoadRequest | ToolWorki
   });
 }
 
+/**
+ * Operations whose names share meaning-bearing tokens with a miss.
+ *
+ * An exact `coc_discover` lookup that fails returns `unknown_operation` and
+ * nothing else, so a Keeper one synonym away from the real name has no way
+ * back. That is not hypothetical: on 2026-09-01 a Keeper needed to record a
+ * POW drain, guessed `state.characteristic_adjust` (the operation is
+ * `state.characteristic_delta`), got a bare miss, gave up, and recorded the
+ * drain as HP damage it then had to undo. Earlier in the same session it
+ * burned four guesses -- `state.characteristic_adjust`,
+ * `state.adjust_characteristic`, `rules.characteristic_damage`,
+ * `state.resource_adjust` -- and narrated a stat loss that never reached the
+ * sheet. Listing the namespace is not a fallback either: the busy ones are
+ * over the discovery budget.
+ *
+ * Structural only: shared name tokens, no synonym table and no guess about
+ * what the Keeper meant. A name sharing a distinctive token ranks above one
+ * sharing only the namespace, and only operations this session could actually
+ * load are offered.
+ */
+export function nearestLoadableOperations(
+  operation: string,
+  snapshot: ToolWorkingSetSnapshot,
+  catalog: TypedToolCatalog,
+  limit = 3,
+): string[] {
+  const tokensOf = (value: string): string[] =>
+    value.toLowerCase().split(/[._]+/).filter((token) => token.length > 0);
+  const wanted = tokensOf(operation);
+  if (wanted.length === 0) return [];
+  const wantedNamespace = wanted[0];
+  const scored: { name: string; score: number }[] = [];
+  for (const [candidate, policy] of Object.entries(OPERATION_POLICY)) {
+    if (!policy || policy.kp_surface === "none") continue;
+    if (!sessionRolesForPolicy(candidate, policy).includes(snapshot.role)) continue;
+    if (!typedOperationExists(candidate, catalog)) continue;
+    const tokens = tokensOf(candidate);
+    let score = 0;
+    for (const token of new Set(wanted)) {
+      if (!tokens.includes(token)) continue;
+      // The namespace is shared by dozens of operations; a token past it is
+      // what actually identifies one.
+      score += token === wantedNamespace ? 1 : 4;
+    }
+    if (score > 0) scored.push({ name: candidate, score });
+  }
+  scored.sort((left, right) =>
+    right.score - left.score || left.name.localeCompare(right.name));
+  const best = scored[0]?.score ?? 0;
+  // A namespace-only match is noise; offer it only when nothing shares more.
+  const floor = best >= 4 ? 4 : 1;
+  return scored
+    .filter((row) => row.score >= floor)
+    .slice(0, limit)
+    .map((row) => row.name);
+}
+
+
 function exactLoadDenied(
   snapshot: ToolWorkingSetSnapshot,
   operation: string,
@@ -773,9 +831,15 @@ function exactLoadDenied(
 ): ToolWorkingSetLoadResult | null {
   const policy = OPERATION_POLICY[operation];
   if (!policy) {
-    return loadFailure("unknown_operation", `unknown model-visible operation ${operation}`, {
-      operation,
-    });
+    const nearest = nearestLoadableOperations(operation, snapshot, catalog);
+    return loadFailure(
+      "unknown_operation",
+      `unknown model-visible operation ${operation}`
+        + (nearest.length
+          ? `; the closest loadable operations are ${nearest.join(", ")}`
+          : ""),
+      { operation, ...(nearest.length ? { nearest_operations: nearest } : {}) },
+    );
   }
   if (policy.kp_surface === "none" || sessionRolesForPolicy(operation, policy).length === 0) {
     return loadFailure("policy_forbidden", `operation ${operation} is not on a KP surface`, {

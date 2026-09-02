@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:3917db63e82accdfeb257a7541fb42279879d71422188b269ce39a4598b22bc5",
+  "content_sha256": "sha256:5e8b1f62b5cebd5c0e7a5891fb5f1e18d06c2c6f7c734a9d9e2fc50a92499250",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 147,
+  "operation_count": 148,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -1567,7 +1567,46 @@
             "type": "string"
           },
           "findings": {
-            "description": "closed semantic findings {rule_id,subject_ref,source_ref,reason}. For agency_violation, subject_ref must be the exact current pc:<id> and source_ref must be null because no player_input/active override authorizes it. Authorized PC propositions are not findings: bind them in turn.finalize.agency_claims. Other findings remain advisory",
+            "description": "closed semantic findings. rule_id must be one of the published ids. For agency_violation, subject_ref must be the exact current pc:<id> and source_ref must be null because no player_input/active override authorizes it; it is the only hard gate. Authorized PC propositions are not findings: bind them in turn.finalize.agency_claims. Every other rule_id is advisory and never blocks delivery. Judge the draft semantically; there is no keyword matcher behind these ids",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "reason": {
+                  "description": "concrete semantic reason, never a matched fragment",
+                  "type": "string"
+                },
+                "rule_id": {
+                  "description": "the semantic rule this finding cites",
+                  "enum": [
+                    "agency_violation",
+                    "semantic_repetition",
+                    "scope_overreach",
+                    "over_length",
+                    "ai_summary_voice",
+                    "expository_choice_summary",
+                    "camera_direction_staging",
+                    "passive_translation_ese",
+                    "abstract_psychological_explanation"
+                  ],
+                  "type": "string"
+                },
+                "source_ref": {
+                  "description": "null for agency_violation",
+                  "type": "string"
+                },
+                "subject_ref": {
+                  "description": "pc:<id> for agency_violation, otherwise null",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "rule_id",
+                "subject_ref",
+                "source_ref",
+                "reason"
+              ],
+              "type": "object"
+            },
             "type": "array"
           },
           "investigator": {
@@ -6830,6 +6869,64 @@
         ]
       },
       "summary": "Debit the investigator runtime cash ledger before narrating. Fails closed on insufficient funds. Idempotent on decision_id."
+    },
+    "state.characteristic_delta": {
+      "access": "mutation",
+      "canonical_operation": "state.characteristic_delta",
+      "description": "Apply a signed change to any numeric stat on an investigator (the `characteristic` argument takes any stat name, not only STR..EDU). A core characteristic (STR/CON/SIZ/DEX/APP/INT/POW/EDU) re-derives everything that reads from it; a derived value (HP/MP/SAN/Luck/Build/MOV) is recorded as an override that survives later recomputation; any other name is a house-rule stat. Current pools above a dropped maximum are clamped. Use for authored consequences that cost a stat: a spell's POW cost, a drain, time-loop ageing, or whatever this table's rules cost. Canonical operation `state.characteristic_delta`; the result envelope is authoritative.",
+      "execution_class": "serial_campaign",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "characteristic": {
+            "description": "any stat name: a characteristic (STR..EDU), a derived value (HP/MP/SAN/Luck/Build/MOV), or this table's own house-rule stat",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "delta": {
+            "description": "signed change; negative drains, positive restores",
+            "type": "integer"
+          },
+          "investigator": {
+            "description": "investigator id; defaults to the active PC",
+            "type": "string"
+          },
+          "reason": {
+            "description": "in-fiction cause of the change, in the campaign's play language",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "characteristic",
+          "delta",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "policy": {
+        "advisory": false,
+        "audience": "keeper",
+        "contract": "state",
+        "discovery": "surface",
+        "kp_surface": "state",
+        "phases": [
+          "live_turn"
+        ]
+      },
+      "summary": "Apply a signed change to any numeric stat on an investigator (the `characteristic` argument takes any stat name, not only STR..EDU). A core characteristic (STR/CON/SIZ/DEX/APP/INT/POW/EDU) re-derives everything that reads from it; a derived value (HP/MP/SAN/Luck/Build/MOV) is recorded as an override that survives later recomputation; any other name is a house-rule stat. Current pools above a dropped maximum are clamped. Use for authored consequences that cost a stat: a spell's POW cost, a drain, time-loop ageing, or whatever this table's rules cost."
     },
     "state.clear_transient_condition": {
       "access": "mutation",

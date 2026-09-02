@@ -33,6 +33,24 @@ OCR_REVISION_KEYS = frozenset({
 })
 _HEX = frozenset("0123456789abcdef")
 _SOURCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+
+# A bundle's source_id is not private bookkeeping: it rides in `source_refs`
+# all the way to the Keeper's model-facing context. The Pi identity grammar
+# (`isNamespacedSemantic` / `isSemanticSlugShape` in
+# `plugins/coc-keeper/pi/lib/tool-contract-projection.ts`) drops any value it
+# cannot read as a namespaced semantic slug, and a dropped identity makes the
+# whole canonical result fail closed. A producer id that satisfies the loose
+# charset above but not this grammar therefore stays legal at bind time and
+# only breaks at the table, on every Keeper read.
+#
+# So the contract that accepts the bundle is the place to say no. Segments are
+# lowercase kebab/dot/underscore slug material; the namespace is one of the
+# provenance namespaces the consumer projects. `tests/test_pdf_bundle_source_id.py`
+# pins this rule against the consumer's own regex so the two cannot drift.
+SOURCE_ID_NAMESPACES = ("pdf:", "module:", "source:", "handout:")
+_SEMANTIC_SEGMENT = re.compile(r"^[a-z0-9㐀-鿿]+(?:[-._][a-z0-9㐀-鿿]+)*$")
+
+
 IMAGE_MEDIA_BY_SUFFIX = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -43,6 +61,38 @@ IMAGE_MEDIA_BY_SUFFIX = {
 
 class PdfSourceBundleError(ValueError):
     """The host-produced source bundle does not satisfy the contract."""
+
+
+def semantic_source_id_problem(value: str) -> str | None:
+    """Return why ``value`` is not model-projectable, or None when it is."""
+    namespace = next(
+        (row for row in SOURCE_ID_NAMESPACES if value.startswith(row)), None
+    )
+    if namespace is None:
+        return (
+            "must start with one of "
+            + ", ".join(SOURCE_ID_NAMESPACES)
+        )
+    remainder = value[len(namespace):]
+    minimum = 2 if re.search(r"[㐀-鿿]", remainder) else 4
+    if len(remainder) < minimum:
+        return f"needs at least {minimum} characters after {namespace}"
+    if not all(_SEMANTIC_SEGMENT.fullmatch(part) for part in remainder.split(":")):
+        return (
+            "must be lowercase semantic slug segments after the namespace "
+            "(a-z, 0-9, CJK, single - . _ separators)"
+        )
+    # Stricter than the consumer's provenance path on purpose: a hash-shaped
+    # id is readable but meaningless to a Keeper, and the consumer's own
+    # discovery path (violatesSemanticIdentityGrammar) refuses it elsewhere.
+    for token in re.split(r"[^0-9a-zA-Z]+", remainder):
+        if not token:
+            continue
+        if len(token) >= 16 and all(char in _HEX for char in token.lower()):
+            return "must not carry hash-shaped tokens"
+        if len(token) >= 20 and token.isalnum():
+            return "must not carry high-entropy tokens"
+    return None
 
 
 def sha256_file(path: Path) -> str:
@@ -533,6 +583,16 @@ def load_host_bundle(bundle: Path | str) -> dict[str, Any]:
     source_id = raw_source.get("source_id")
     if not isinstance(source_id, str) or not _SOURCE_ID.fullmatch(source_id.strip()):
         raise PdfSourceBundleError("manifest.source.source_id has an invalid identifier")
+    semantic_problem = semantic_source_id_problem(source_id.strip())
+    if semantic_problem is not None:
+        raise PdfSourceBundleError(
+            f"manifest.source.source_id {source_id.strip()!r} is not "
+            f"model-projectable: it {semantic_problem}. The Keeper reads this "
+            "id through source_refs, and an id it cannot read makes every "
+            "scene/NPC/clue read fail closed at the table. Relabel the bundle "
+            "manifest (for example 'pdf:an-amaranthine-desire'); page and file "
+            "hashes are unaffected."
+        )
     title = raw_source.get("title")
     if not isinstance(title, str) or not title.strip():
         raise PdfSourceBundleError("manifest.source.title must be non-empty")

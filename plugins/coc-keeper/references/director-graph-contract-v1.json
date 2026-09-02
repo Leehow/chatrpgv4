@@ -1,0 +1,331 @@
+{
+  "contract_id": "coc.director-graph-contract.v1",
+  "schema_version": 1,
+  "graph_contract_id": "coc.director-graph.v1",
+  "shard_contract_id": "coc.director-graph-shard.v1",
+  "packet_contract_id": "coc.director-graph-packet.v1",
+  "build_manifest_contract_id": "coc.director-graph-build-manifest.v1",
+  "compiler_identity": "coc.director-graph-compiler.v1",
+  "semantic_id_law": "Every identifier is a namespaced semantic id. Node ids begin with the exact node_kind plus a colon; relation ids begin with relation:. Tokens after the kind are lowercase ASCII kebab-case. A vocabulary node that replaces a differently-cased legacy constant carries the exact original token in properties.legacy_key; the graph never renames a runtime value.",
+  "semantic_id_pattern": "^[a-z][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)+$",
+  "planes": [
+    "vocabulary",
+    "doctrine"
+  ],
+  "node_kinds": [
+    "director-action",
+    "player-signal",
+    "structure-type",
+    "conflict-level",
+    "storylet",
+    "time-cost-category",
+    "scoring-rule",
+    "structure-weight",
+    "tiebreak-order",
+    "threshold",
+    "affinity-ladder",
+    "craft-directive",
+    "multiplier"
+  ],
+  "vocabulary_node_kinds": [
+    "director-action",
+    "player-signal",
+    "structure-type",
+    "conflict-level",
+    "storylet",
+    "time-cost-category"
+  ],
+  "doctrine_node_kinds": [
+    "scoring-rule",
+    "structure-weight",
+    "tiebreak-order",
+    "threshold",
+    "affinity-ladder",
+    "craft-directive",
+    "multiplier"
+  ],
+  "relation_kinds": [
+    "part-of",
+    "sourced-from",
+    "scores",
+    "weights",
+    "gates",
+    "ranks",
+    "advises",
+    "supersedes"
+  ],
+  "relation_endpoints": {
+    "part-of": {
+      "from": [
+        "storylet",
+        "player-signal",
+        "scoring-rule",
+        "threshold"
+      ],
+      "to": [
+        "director-action",
+        "structure-type",
+        "conflict-level"
+      ]
+    },
+    "sourced-from": {
+      "from": [
+        "scoring-rule",
+        "threshold",
+        "craft-directive",
+        "structure-weight",
+        "affinity-ladder"
+      ],
+      "to": [
+        "craft-directive"
+      ]
+    },
+    "scores": {
+      "from": [
+        "scoring-rule"
+      ],
+      "to": [
+        "director-action"
+      ]
+    },
+    "weights": {
+      "from": [
+        "structure-weight"
+      ],
+      "to": [
+        "director-action"
+      ]
+    },
+    "gates": {
+      "from": [
+        "threshold"
+      ],
+      "to": [
+        "affinity-ladder",
+        "director-action",
+        "multiplier",
+        "scoring-rule"
+      ]
+    },
+    "ranks": {
+      "from": [
+        "affinity-ladder"
+      ],
+      "to": [
+        "director-action"
+      ]
+    },
+    "advises": {
+      "from": [
+        "craft-directive"
+      ],
+      "to": [
+        "director-action",
+        "structure-type"
+      ]
+    },
+    "supersedes": {
+      "from": [
+        "scoring-rule",
+        "threshold",
+        "structure-weight"
+      ],
+      "to": [
+        "scoring-rule",
+        "threshold",
+        "structure-weight"
+      ]
+    }
+  },
+  "evidence_classes": [
+    "rule-derived",
+    "module-derived",
+    "authored-doctrine"
+  ],
+  "evidence_class_required_keys": {
+    "rule-derived": [
+      "source_refs"
+    ],
+    "module-derived": [
+      "source_refs"
+    ],
+    "authored-doctrine": [
+      "rationale",
+      "origin",
+      "falsifiable_by"
+    ]
+  },
+  "origin_tokens": [
+    "unknown-legacy-tuning"
+  ],
+  "accountability_law": "Every doctrine node declares exactly one evidence_class. An authored-doctrine node MUST carry a non-empty rationale, origin and falsifiable_by. origin is a commit id, a playtest finding reference, a live document path, or the exact token unknown-legacy-tuning. Inventing an origin or a rationale for a value whose provenance was not found is prohibited; recording unknown-legacy-tuning is the correct outcome.",
+  "authority_laws": [
+    "DirectorGraph is advisory. It never gates, blocks, reorders or vetoes a player action, a Keeper choice, a scene transition, or a rules settlement.",
+    "DirectorGraph supplies data to the existing scoring implementation. It is never traversed to produce a decision, and no universal graph interpreter may be built over it.",
+    "DirectorGraph never reads module, scene, or player prose. Only structured ids, enums, counters, thresholds and booleans.",
+    "DirectorGraph never selects player intent, clue relevance, NPC motive, or narration content. Those remain Keeper or LLM semantic judgments.",
+    "Absence is not prohibition. An action, beat, or pacing move not present in the graph is not thereby forbidden to the Keeper.",
+    "DirectorGraph holds no execution or state authority. Receipts, NPC agency persistence, clue-gate disclosure and state commits stay in coc_director_apply.py. That file reads doctrine values from the runtime like any other consumer; reading a value moves no authority and keeping a private copy of one defeats the single source."
+  ],
+  "identity_law": "Migration slices D1 through D4 MUST be behaviour-preserving. Every value carried into this graph is bit-identical to the literal it replaces. Retuning requires slice D5 and a recorded DebugExperiment result.",
+  "fail_closed_law": "A missing, unparsable, or contract-invalid DirectorGraph fails closed at load. The runtime MUST NOT fall back to embedded literals, because a silent fallback reintroduces the untracked values this contract exists to eliminate.",
+  "node_keys": [
+    "node_id",
+    "node_kind",
+    "plane",
+    "name",
+    "properties"
+  ],
+  "optional_node_keys": [
+    "evidence_class",
+    "rationale",
+    "origin",
+    "falsifiable_by",
+    "source_refs",
+    "grounded_by"
+  ],
+  "relation_keys": [
+    "relation_id",
+    "relation_kind",
+    "from_node_id",
+    "to_node_id"
+  ],
+  "graph_keys": [
+    "contract_id",
+    "schema_version",
+    "graph_id",
+    "nodes",
+    "relations",
+    "coverage"
+  ],
+  "shard_keys": [
+    "contract_id",
+    "schema_version",
+    "shard_id",
+    "plane",
+    "nodes",
+    "relations"
+  ],
+  "packet_keys": [
+    "contract_id",
+    "schema_version",
+    "plane",
+    "available_node_kinds",
+    "legacy_sources"
+  ],
+  "build_manifest_keys": [
+    "contract_id",
+    "schema_version",
+    "graph_id",
+    "graph_content_digest",
+    "shards",
+    "plane_coverage",
+    "compiler_identity",
+    "node_counts"
+  ],
+  "node_property_keys": {
+    "director-action": [
+      "legacy_key",
+      "ordinal"
+    ],
+    "player-signal": [
+      "legacy_key",
+      "signal_group",
+      "ordinal"
+    ],
+    "structure-type": [
+      "legacy_key",
+      "ordinal"
+    ],
+    "conflict-level": [
+      "legacy_key",
+      "ordinal"
+    ],
+    "storylet": [
+      "legacy_key",
+      "ordinal"
+    ],
+    "time-cost-category": [
+      "legacy_key",
+      "ordinal"
+    ],
+    "scoring-rule": [
+      "action_ref",
+      "condition_id",
+      "value",
+      "value_kind"
+    ],
+    "structure-weight": [
+      "structure_ref",
+      "action_ref",
+      "value"
+    ],
+    "tiebreak-order": [
+      "order"
+    ],
+    "threshold": [
+      "threshold_id",
+      "value",
+      "comparison",
+      "subject"
+    ],
+    "affinity-ladder": [
+      "ladder_id",
+      "rungs"
+    ],
+    "craft-directive": [
+      "directive_id",
+      "declares"
+    ],
+    "multiplier": [
+      "scope",
+      "condition_id",
+      "value",
+      "value_kind"
+    ]
+  },
+  "signal_groups": [
+    "low-agency",
+    "low-agency-recent-class",
+    "routine-progress",
+    "dramatic-progress-advance-until",
+    "non-blocking-rule-request",
+    "social-reveal-delivery"
+  ],
+  "value_kinds": [
+    "constant",
+    "linear",
+    "capped-linear",
+    "fraction"
+  ],
+  "comparisons": [
+    "gte",
+    "gt",
+    "lte",
+    "lt",
+    "eq"
+  ],
+  "coverage_status": [
+    "accepted",
+    "partial",
+    "absent",
+    "unresolved"
+  ],
+  "coverage_law": "A shard may only assign accepted or partial to the plane it declared. Every other plane is unresolved on the built graph.",
+  "expected_node_counts": {
+    "director-action": 10,
+    "player-signal": 34,
+    "structure-type": 7,
+    "conflict-level": 4,
+    "storylet": 77,
+    "time-cost-category": 16
+  },
+  "expected_node_counts_law": "expected_node_counts pins the D1 vocabulary migration against the measured inventory. A build whose counts differ from this table is rejected: either the source data changed and the table must be updated in the same reviewed change, or the migration lost something.",
+  "ordinal_law": "Every vocabulary node carries ordinal, its zero-based index in the legacy declaration it was migrated from. Declaration order is behaviourally observable: select_action seeds its score dict from ACTIONS order, falls back to ACTIONS as the tiebreak order when the weights table omits one, and returns candidates[0] when the tiebreak order cannot resolve a tie. The runtime MUST reconstruct legacy order from ordinal rather than from node_id sort order.",
+  "craft_directive_law": "A craft-directive declares, as structured data, a Director control decision that the scoring implementation performs in code. It is not documentation: its declares payload must agree with the branch it describes, and that agreement is asserted by test so the two cannot drift. A craft-directive never changes control flow.",
+  "no_body_copy_law": "Vocabulary nodes carry identity and order, never the body of the record they name. storylet-library.json and time-costs.json remain the owning sources for storylet and time-cost content, and coc_storylets and coc_time keep reading them. Copying those bodies into this graph would create two copies of one semantics with no retirement owner, which is the pattern this refactor exists to remove. The round-trip build still reads those files live, so an added or removed record fails the build.",
+  "multiplier_scopes": [
+    "storylet-selection"
+  ],
+  "multiplier_law": "A multiplier is a doctrine value applied outside the director-action scoring engine — the storylet scheduler multiplies candidate weights rather than scoring the ten director actions, so its values carry a scope instead of an action_ref. The same accountability rules apply."
+}

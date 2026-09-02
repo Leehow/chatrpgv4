@@ -106,6 +106,8 @@ def operation_is_advisory(name: str, spec: dict[str, Any]) -> bool:
 def writer_domains(tool: str, call: dict[str, Any] | None = None) -> frozenset[str]:
     if tool == "rules.settle":
         return _rules_settle_writer_domains(call or {})
+    if tool == "state.characteristic_delta":
+        return _characteristic_delta_writer_domains(call or {})
     domains = PLAYER_STATE_WRITER_DOMAINS.get(tool)
     if domains is None:
         return frozenset()
@@ -122,6 +124,34 @@ def writer_domains(tool: str, call: dict[str, Any] | None = None) -> frozenset[s
     if canonical and canonical in domains:
         return frozenset({canonical})
     return frozenset({raw})
+
+
+def _characteristic_delta_writer_domains(call: dict[str, Any]) -> frozenset[str]:
+    """Exactly what this one stat change wrote, read off its own receipt.
+
+    A blanket domain set would let the operation prove effects it never
+    produced. The stat it moved, the derived maxima that moved with it, and
+    the pools it had to clamp are all named in the receipt, so the proof stays
+    as narrow as the write.
+    """
+    data = _data(call)
+    domains: set[str] = set()
+    stat = str(data.get("stat") or "").strip()
+    if stat:
+        domains.add(_scalar_resource_key(stat) or stat)
+    before = data.get("derived_before")
+    after = data.get("derived_after")
+    if isinstance(before, dict) and isinstance(after, dict):
+        for key in ("HP", "MP", "SAN"):
+            if before.get(key) != after.get(key):
+                domains.add(f"max {key}")
+    clamped = data.get("clamped_pools")
+    if isinstance(clamped, dict):
+        for pool in clamped:
+            canonical = _scalar_resource_key(str(pool).replace("current_", ""))
+            if canonical:
+                domains.add(canonical)
+    return frozenset(domains)
 
 
 def _rules_settle_writer_domains(call: dict[str, Any]) -> frozenset[str]:
@@ -468,6 +498,27 @@ def _scalar_pairs(
         pairs.append((data.get("san_before"), data.get("san_after")))
     elif tool == "rules.luck_spend" and resource == "luck":
         pairs.append((data.get("luck_before"), data.get("luck_after")))
+    elif tool == "state.characteristic_delta":
+        stat = str(data.get("stat") or "").strip()
+        derived_before = data.get("derived_before")
+        derived_after = data.get("derived_after")
+        clamped = data.get("clamped_pools")
+        if stat and resource in {stat, _scalar_resource_key(stat)}:
+            pairs.append((data.get("before"), data.get("after")))
+        if (
+            resource.startswith("max ")
+            and isinstance(derived_before, dict)
+            and isinstance(derived_after, dict)
+        ):
+            key = resource[len("max "):]
+            pairs.append((derived_before.get(key), derived_after.get(key)))
+        if isinstance(clamped, dict):
+            for pool, row in clamped.items():
+                if not isinstance(row, dict):
+                    continue
+                canonical = _scalar_resource_key(str(pool).replace("current_", ""))
+                if canonical and resource == canonical:
+                    pairs.append((row.get("before"), row.get("after")))
     elif tool == "rules.resource_delta":
         result = data.get("result") if isinstance(data.get("result"), dict) else {}
         result_key = str(result.get("resource") or "").strip()

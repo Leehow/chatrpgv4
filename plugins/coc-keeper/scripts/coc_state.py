@@ -18,7 +18,7 @@ from coc_fileio import (
     advisory_file_lock as _advisory_file_lock,
     write_json_atomic as _fileio_write_json_atomic,
 )
-from coc_language import DEFAULT_PLAY_LANGUAGE, language_profile
+from coc_language import DEFAULT_PLAY_LANGUAGE
 import coc_investigator_guard
 import coc_flag_state
 import coc_rulesets
@@ -1290,6 +1290,157 @@ def mark_hook_woven(campaign_dir: Path, investigator_id: str, hook_id: str) -> P
     return inv_path
 
 
+CHARACTERISTIC_FLOOR = 0
+# Derived values that are computed from characteristics. An override on one of
+# these must survive the next recomputation, or a house rule would silently
+# revert the first time any characteristic moved.
+DERIVED_STAT_KEYS = ("HP", "MP", "SAN", "Luck", "DB", "Build", "MOV")
+
+
+def _effective_derived(sheet: dict[str, Any]) -> dict[str, Any]:
+    """Computed derived values with this sheet's overrides applied on top."""
+    import coc_character
+
+    derived = dict(sheet.get("derived") or {})
+    overrides = dict(sheet.get("stat_overrides") or {})
+    computed = coc_character.derive_values(
+        dict(sheet.get("characteristics") or {}),
+        luck=int(overrides.get("Luck", derived.get("Luck") or 0)),
+    )
+    for key, value in overrides.items():
+        if key in computed:
+            computed[key] = value
+    return computed
+
+
+def apply_stat_delta(
+    campaign_dir: Path,
+    investigator_id: str,
+    *,
+    stat: str,
+    delta: int,
+) -> dict[str, Any]:
+    """Change any numeric stat on an investigator during play.
+
+    Nothing could change a stat after chargen. `rules.resource_delta` declares
+    only the four coc7 pools, and no rule-graph decision touches a
+    characteristic, so an authored consequence that costs one -- a spell's POW
+    cost, a ghost's drain, the time-loop ageing this module's own reset
+    requires -- had no canonical path for anyone, host included. At a live
+    table on 2026-09-01 the Keeper recorded a POW drain as HP damage because
+    that was the only writer it had.
+
+    Three kinds of stat, because tables run house rules and the answer to
+    "which stats exist" is not this function's to decide:
+
+    * A core characteristic (STR..EDU) moves, and everything derived from it is
+      recomputed -- HP, MP, SAN, damage bonus, Build and MOV all read from
+      characteristics, so writing one without re-deriving would desync the
+      sheet silently, which is worse than the missing capability.
+    * A derived value (including Luck, which is rolled rather than derived) is
+      recorded as an override that survives every later recomputation.
+    * Anything else is a house-rule stat: stored, returned, and never allowed
+      to feed a derivation it was not part of.
+
+    Current pools are clamped only when a maximum drops below them. A pool
+    already under its new maximum is never topped up: losing POW does not heal
+    you.
+    """
+    import coc_character
+
+    key = str(stat).strip()
+    if not key:
+        raise ValueError("stat must be a non-empty name")
+    canonical = key.upper()
+    is_characteristic = canonical in coc_character.REQUIRED_CHARACTERISTICS
+    if is_characteristic:
+        key = canonical
+    if not isinstance(delta, int) or isinstance(delta, bool) or delta == 0:
+        raise ValueError("delta must be a non-zero integer")
+
+    base = campaign_dir.parents[1]
+    character_path = base / "investigators" / investigator_id / "character.json"
+    if not character_path.is_file():
+        raise FileNotFoundError(
+            f"missing character sheet for investigator: {investigator_id}"
+        )
+    sheet = coc_investigator_guard.read_reusable_character(
+        base, investigator_id, character_path
+    )
+    derived_before = _effective_derived(sheet)
+    overrides = dict(sheet.get("stat_overrides") or {})
+
+    if is_characteristic:
+        characteristics = dict(sheet.get("characteristics") or {})
+        if key not in characteristics:
+            raise ValueError(f"character sheet has no {key}")
+        before_value = int(characteristics[key])
+        after_value = max(CHARACTERISTIC_FLOOR, before_value + int(delta))
+        characteristics[key] = after_value
+        sheet["characteristics"] = characteristics
+        kind = "characteristic"
+    else:
+        # Match a derived key case-insensitively so "mov" and "MOV" are one
+        # stat; a house-rule name keeps whatever case the table wrote it in.
+        derived_match = next(
+            (row for row in DERIVED_STAT_KEYS if row.lower() == key.lower()), None,
+        )
+        kind = "derived_override" if derived_match else "house_rule"
+        if derived_match:
+            key = derived_match
+        current = overrides.get(key, derived_before.get(key))
+        if current is None:
+            current = 0
+        if not isinstance(current, int) or isinstance(current, bool):
+            raise ValueError(
+                f"{key} is {current!r}, which is not a number a delta can move"
+            )
+        before_value = int(current)
+        after_value = before_value + int(delta)
+        overrides[key] = after_value
+        sheet["stat_overrides"] = overrides
+
+    derived_after = _effective_derived(sheet)
+    sheet["derived"] = {
+        row: value for row, value in derived_after.items()
+    }
+    write_json_atomic(character_path, sheet)
+
+    # A dropped maximum must not leave a current pool above it.
+    state = load_investigator_state(campaign_dir, investigator_id)
+    clamped: dict[str, dict[str, int]] = {}
+    for pool, derived_key in (
+        ("current_hp", "HP"), ("current_mp", "MP"),
+        ("current_san", "SAN"), ("current_luck", "Luck"),
+    ):
+        ceiling = derived_after.get(derived_key)
+        if not isinstance(ceiling, int) or isinstance(ceiling, bool):
+            continue
+        current_pool = state.get(pool)
+        if isinstance(current_pool, int) and current_pool > ceiling:
+            clamped[pool] = {"before": current_pool, "after": ceiling}
+            state[pool] = ceiling
+    if clamped:
+        write_json_atomic(_investigator_state_path(campaign_dir, investigator_id), state)
+
+    return {
+        "investigator_id": investigator_id,
+        "stat": key,
+        "stat_kind": kind,
+        "delta": int(delta),
+        "before": before_value,
+        "after": after_value,
+        "floored": after_value != before_value + int(delta),
+        "derived_before": derived_before,
+        "derived_after": derived_after,
+        "house_rule_stats": {
+            row: value for row, value in overrides.items()
+            if row not in DERIVED_STAT_KEYS
+        },
+        "clamped_pools": clamped,
+    }
+
+
 def add_backstory_corruption(campaign_dir: Path, investigator_id: str, *,
                              mode: str, backstory_field: str,
                              keeper_note: str) -> Path:
@@ -1661,7 +1812,6 @@ def _create_campaign_at(
         "dice_mode": "codex",
         "spoiler_policy": "warn_before_reveal",
         "play_language": play_language,
-        "language_profile": language_profile(play_language),
         "localized_terms": {play_language: {}},
         "active_subsystem": "setup",
         "created_at": created_at,

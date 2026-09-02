@@ -604,6 +604,29 @@ OPERATION_POLICY_EXCEPTIONS: dict[str, dict[str, Any]] = {
         "kp_surface": "none",
         "phases": ("live_turn",),
     },
+    # A stat is the Keeper's to change when the source says so: a spell's POW
+    # cost, a drain, time-loop ageing, or whatever this table's house rules
+    # cost. Nothing could reach one before -- `rules.resource_delta` declares
+    # only the four coc7 pools and no rule-graph decision touches a
+    # characteristic -- so an authored consequence had no canonical path and
+    # the Keeper improvised with HP damage at a live table. This is a KP
+    # surface, not a host adapter.
+    #
+    # The name is the word the Keeper actually reaches for. Renaming it to
+    # `state.stat_delta` -- more accurate, since it takes derived values and
+    # house-rule stats too -- made it undiscoverable in one live turn: the
+    # Keeper guessed `state.characteristic_adjust`,
+    # `state.adjust_characteristic`, `rules.characteristic_damage` and
+    # `state.resource_adjust`, never found it, and narrated a STR loss that
+    # never reached the sheet. Listing the namespace is not a fallback either
+    # (`state` is over the discovery budget). Under the old name it guessed
+    # right on the first try, twice.
+    "state.characteristic_delta": {
+        "audience": "keeper",
+        "kp_surface": "state",
+        "contract": "state",
+        "phases": ("live_turn",),
+    },
     "rules.roll_dice": {
         "phases": ("cold_start", "opening", "live_turn"),
     },

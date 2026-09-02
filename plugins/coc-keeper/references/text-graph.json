@@ -1,0 +1,1644 @@
+{
+  "contract_id": "coc.text-graph.v1",
+  "schema_version": 1,
+  "graph_id": "graph:text:production",
+  "nodes": [
+    {
+      "node_id": "agency-claim-type:forced-behavior",
+      "node_kind": "agency-claim-type",
+      "plane": "obligation",
+      "name": "agency claim forced_behavior",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled control-override receipts and the player-authored input that authorize a proposition about the investigator",
+      "properties": {
+        "legacy_key": "forced_behavior",
+        "ordinal": 6,
+        "voluntary": false
+      }
+    },
+    {
+      "node_id": "agency-claim-type:involuntary-physiology",
+      "node_kind": "agency-claim-type",
+      "plane": "obligation",
+      "name": "agency claim involuntary_physiology",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled control-override receipts and the player-authored input that authorize a proposition about the investigator",
+      "properties": {
+        "legacy_key": "involuntary_physiology",
+        "ordinal": 7,
+        "voluntary": false
+      }
+    },
+    {
+      "node_id": "agency-claim-type:voluntary-action",
+      "node_kind": "agency-claim-type",
+      "plane": "obligation",
+      "name": "agency claim voluntary_action",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled control-override receipts and the player-authored input that authorize a proposition about the investigator",
+      "properties": {
+        "legacy_key": "voluntary_action",
+        "ordinal": 0,
+        "voluntary": true
+      }
+    },
+    {
+      "node_id": "agency-claim-type:voluntary-active-emotion",
+      "node_kind": "agency-claim-type",
+      "plane": "obligation",
+      "name": "agency claim voluntary_active_emotion",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled control-override receipts and the player-authored input that authorize a proposition about the investigator",
+      "properties": {
+        "legacy_key": "voluntary_active_emotion",
+        "ordinal": 5,
+        "voluntary": true
+      }
+    },
+    {
+      "node_id": "agency-claim-type:voluntary-belief",
+      "node_kind": "agency-claim-type",
+      "plane": "obligation",
+      "name": "agency claim voluntary_belief",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled control-override receipts and the player-authored input that authorize a proposition about the investigator",
+      "properties": {
+        "legacy_key": "voluntary_belief",
+        "ordinal": 3,
+        "voluntary": true
+      }
+    },
+    {
+      "node_id": "agency-claim-type:voluntary-plan",
+      "node_kind": "agency-claim-type",
+      "plane": "obligation",
+      "name": "agency claim voluntary_plan",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled control-override receipts and the player-authored input that authorize a proposition about the investigator",
+      "properties": {
+        "legacy_key": "voluntary_plan",
+        "ordinal": 2,
+        "voluntary": true
+      }
+    },
+    {
+      "node_id": "agency-claim-type:voluntary-speech",
+      "node_kind": "agency-claim-type",
+      "plane": "obligation",
+      "name": "agency claim voluntary_speech",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled control-override receipts and the player-authored input that authorize a proposition about the investigator",
+      "properties": {
+        "legacy_key": "voluntary_speech",
+        "ordinal": 1,
+        "voluntary": true
+      }
+    },
+    {
+      "node_id": "agency-claim-type:voluntary-trust",
+      "node_kind": "agency-claim-type",
+      "plane": "obligation",
+      "name": "agency claim voluntary_trust",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled control-override receipts and the player-authored input that authorize a proposition about the investigator",
+      "properties": {
+        "legacy_key": "voluntary_trust",
+        "ordinal": 4,
+        "voluntary": true
+      }
+    },
+    {
+      "node_id": "coverage-field:action-realization",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field action_realization",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "action_realization",
+        "ordinal": 2
+      }
+    },
+    {
+      "node_id": "coverage-field:causal-explanation",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field causal_explanation",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "causal_explanation",
+        "ordinal": 4
+      }
+    },
+    {
+      "node_id": "coverage-field:exact-excerpt",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field exact_excerpt",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "exact_excerpt",
+        "ordinal": 7
+      }
+    },
+    {
+      "node_id": "coverage-field:exceptional-beat",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field exceptional_beat",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "exceptional_beat",
+        "ordinal": 8
+      }
+    },
+    {
+      "node_id": "coverage-field:obligation-id",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field obligation_id",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "obligation_id",
+        "ordinal": 0
+      }
+    },
+    {
+      "node_id": "coverage-field:persona-fit",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field persona_fit",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "persona_fit",
+        "ordinal": 5
+      }
+    },
+    {
+      "node_id": "coverage-field:player-input-handling",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field player_input_handling",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "player_input_handling",
+        "ordinal": 6
+      }
+    },
+    {
+      "node_id": "coverage-field:realization",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field realization",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "realization",
+        "ordinal": 1
+      }
+    },
+    {
+      "node_id": "coverage-field:response",
+      "node_kind": "coverage-field",
+      "plane": "obligation",
+      "name": "coverage row field response",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the closed coverage row schema turn.finalize accepts, validated by coc_turn_finalization.validate_coverage",
+      "properties": {
+        "legacy_key": "response",
+        "ordinal": 3
+      }
+    },
+    {
+      "node_id": "craft-directive:action-uptake-review",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive action-uptake-review",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "check semantically that the draft enacts the player action without cloning the player's sentence structure",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "action-uptake-review",
+        "ordinal": 7,
+        "declares": "policy"
+      }
+    },
+    {
+      "node_id": "craft-directive:crisis-scene-clarity",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive crisis-scene-clarity",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "draft urgent physical scenes through the render frame so space, force, risk and handles are clear before prose is sent",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "crisis-scene-clarity",
+        "ordinal": 4,
+        "declares": "required_rule"
+      }
+    },
+    {
+      "node_id": "craft-directive:final-output-pass",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive final-output-pass",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "narration.review is advisory and invoked when the draft is hard, not on every routine turn",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "final-output-pass",
+        "ordinal": 8,
+        "declares": "policy"
+      }
+    },
+    {
+      "node_id": "craft-directive:final-prose-guard-before-output",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive final-prose-guard-before-output",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "review a genuinely difficult draft semantically before release",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "final-prose-guard-before-output",
+        "ordinal": 5,
+        "declares": "required_rule"
+      }
+    },
+    {
+      "node_id": "craft-directive:observable-before-interpretation",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive observable-before-interpretation",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "show observable behaviour before interpreting it",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "observable-before-interpretation",
+        "ordinal": 0,
+        "declares": "required_rule"
+      }
+    },
+    {
+      "node_id": "craft-directive:player-action-uptake",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive player-action-uptake",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "enact a committed player action as world-perspective prose before or alongside its settled outcome",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "player-action-uptake",
+        "ordinal": 1,
+        "declares": "required_rule"
+      }
+    },
+    {
+      "node_id": "craft-directive:repetition-policy",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive repetition-policy",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "compress an established fact; the current player action is not repetition and must still be enacted in the Keeper's own words",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "repetition-policy",
+        "ordinal": 6,
+        "declares": "policy"
+      }
+    },
+    {
+      "node_id": "craft-directive:rewrite-abstract-explanation-to-action",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive rewrite-abstract-explanation-to-action",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "replace abstract inner-state explanation with action, voice, posture, gaze, hesitation or physical evidence",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "rewrite-abstract-explanation-to-action",
+        "ordinal": 2,
+        "declares": "required_rule"
+      }
+    },
+    {
+      "node_id": "craft-directive:rewrite-abstract-psychological-explanation",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive rewrite-abstract-psychological-explanation",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "lead with observable behaviour and add interpretation only after visible evidence or a relevant skill result",
+      "origin": "coc_narration_style.audit_player_visible_text, deleted in slice T4",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "rewrite-abstract-psychological-explanation",
+        "ordinal": 13,
+        "declares": "rewrite_guidance"
+      }
+    },
+    {
+      "node_id": "craft-directive:rewrite-ai-summary-voice",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive rewrite-ai-summary-voice",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "express the same information through scene detail or NPC speech instead of report phrasing",
+      "origin": "coc_narration_style.audit_player_visible_text, deleted in slice T4",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "rewrite-ai-summary-voice",
+        "ordinal": 9,
+        "declares": "rewrite_guidance"
+      }
+    },
+    {
+      "node_id": "craft-directive:rewrite-camera-direction-staging",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive rewrite-camera-direction-staging",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "name the person and the visible focus in one natural sentence",
+      "origin": "coc_narration_style.audit_player_visible_text, deleted in slice T4",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "rewrite-camera-direction-staging",
+        "ordinal": 11,
+        "declares": "rewrite_guidance"
+      }
+    },
+    {
+      "node_id": "craft-directive:rewrite-expository-choice-summary",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive rewrite-expository-choice-summary",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "render the spatial setup, motion, force, worsening risk and visible handles as scene prose",
+      "origin": "coc_narration_style.audit_player_visible_text, deleted in slice T4",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "rewrite-expository-choice-summary",
+        "ordinal": 10,
+        "declares": "rewrite_guidance"
+      }
+    },
+    {
+      "node_id": "craft-directive:rewrite-passive-translation-ese",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive rewrite-passive-translation-ese",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "rewrite into active voice with a clear subject and concrete action",
+      "origin": "coc_narration_style.audit_player_visible_text, deleted in slice T4",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "rewrite-passive-translation-ese",
+        "ordinal": 12,
+        "declares": "rewrite_guidance"
+      }
+    },
+    {
+      "node_id": "craft-directive:skill-interpretation-after-visible-evidence",
+      "node_kind": "craft-directive",
+      "plane": "craft",
+      "name": "craft directive skill-interpretation-after-visible-evidence",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "place a skill-justified interpretation after the visible evidence, not before it",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the directive from the style contract for one arm of a multi-turn production-profile session and compare the drafts blind",
+      "properties": {
+        "directive_id": "skill-interpretation-after-visible-evidence",
+        "ordinal": 3,
+        "declares": "required_rule"
+      }
+    },
+    {
+      "node_id": "narration-budget-mode:climax-or-madness",
+      "node_kind": "narration-budget-mode",
+      "plane": "craft",
+      "name": "length budget climax_or_madness",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "how long a turn of this kind should run before length becomes an advisory finding",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "change the rung's max_chars for one arm and measure whether over_length findings and player follow-up questions move together",
+      "properties": {
+        "legacy_key": "climax_or_madness",
+        "ordinal": 0,
+        "max_chars": 1500,
+        "max_paragraphs": 8
+      }
+    },
+    {
+      "node_id": "narration-budget-mode:costly-result",
+      "node_kind": "narration-budget-mode",
+      "plane": "craft",
+      "name": "length budget costly_result",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "how long a turn of this kind should run before length becomes an advisory finding",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "change the rung's max_chars for one arm and measure whether over_length findings and player follow-up questions move together",
+      "properties": {
+        "legacy_key": "costly_result",
+        "ordinal": 2,
+        "max_chars": 550,
+        "max_paragraphs": 3
+      }
+    },
+    {
+      "node_id": "narration-budget-mode:reveal-or-transition",
+      "node_kind": "narration-budget-mode",
+      "plane": "craft",
+      "name": "length budget reveal_or_transition",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "how long a turn of this kind should run before length becomes an advisory finding",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "change the rung's max_chars for one arm and measure whether over_length findings and player follow-up questions move together",
+      "properties": {
+        "legacy_key": "reveal_or_transition",
+        "ordinal": 1,
+        "max_chars": 900,
+        "max_paragraphs": 5
+      }
+    },
+    {
+      "node_id": "narration-budget-mode:routine-resolution",
+      "node_kind": "narration-budget-mode",
+      "plane": "craft",
+      "name": "length budget routine_resolution",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "how long a turn of this kind should run before length becomes an advisory finding",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "change the rung's max_chars for one arm and measure whether over_length findings and player follow-up questions move together",
+      "properties": {
+        "legacy_key": "routine_resolution",
+        "ordinal": 3,
+        "max_chars": 350,
+        "max_paragraphs": 2
+      }
+    },
+    {
+      "node_id": "narration-budget-trigger:bout-of-madness",
+      "node_kind": "narration-budget-trigger",
+      "plane": "craft",
+      "name": "budget trigger bout_of_madness",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "a settled event type that selects this length rung",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the event type from the rung for one arm and check whether the turns it used to select are now under-written",
+      "properties": {
+        "legacy_key": "bout_of_madness",
+        "ordinal": 0,
+        "budget_mode": "climax_or_madness"
+      }
+    },
+    {
+      "node_id": "narration-budget-trigger:exceptional-effect-apply",
+      "node_kind": "narration-budget-trigger",
+      "plane": "craft",
+      "name": "budget trigger exceptional_effect_apply",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "a settled event type that selects this length rung",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the event type from the rung for one arm and check whether the turns it used to select are now under-written",
+      "properties": {
+        "legacy_key": "exceptional_effect_apply",
+        "ordinal": 6,
+        "budget_mode": "reveal_or_transition"
+      }
+    },
+    {
+      "node_id": "narration-budget-trigger:hp-change",
+      "node_kind": "narration-budget-trigger",
+      "plane": "craft",
+      "name": "budget trigger hp_change",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "a settled event type that selects this length rung",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the event type from the rung for one arm and check whether the turns it used to select are now under-written",
+      "properties": {
+        "legacy_key": "hp_change",
+        "ordinal": 7,
+        "budget_mode": "costly_result"
+      }
+    },
+    {
+      "node_id": "narration-budget-trigger:indefinite-insanity",
+      "node_kind": "narration-budget-trigger",
+      "plane": "craft",
+      "name": "budget trigger indefinite_insanity",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "a settled event type that selects this length rung",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the event type from the rung for one arm and check whether the turns it used to select are now under-written",
+      "properties": {
+        "legacy_key": "indefinite_insanity",
+        "ordinal": 1,
+        "budget_mode": "climax_or_madness"
+      }
+    },
+    {
+      "node_id": "narration-budget-trigger:luck-spend",
+      "node_kind": "narration-budget-trigger",
+      "plane": "craft",
+      "name": "budget trigger luck_spend",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "a settled event type that selects this length rung",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the event type from the rung for one arm and check whether the turns it used to select are now under-written",
+      "properties": {
+        "legacy_key": "luck_spend",
+        "ordinal": 9,
+        "budget_mode": "costly_result"
+      }
+    },
+    {
+      "node_id": "narration-budget-trigger:major-reveal",
+      "node_kind": "narration-budget-trigger",
+      "plane": "craft",
+      "name": "budget trigger major_reveal",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "a settled event type that selects this length rung",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the event type from the rung for one arm and check whether the turns it used to select are now under-written",
+      "properties": {
+        "legacy_key": "major_reveal",
+        "ordinal": 5,
+        "budget_mode": "reveal_or_transition"
+      }
+    },
+    {
+      "node_id": "narration-budget-trigger:permanent-insanity",
+      "node_kind": "narration-budget-trigger",
+      "plane": "craft",
+      "name": "budget trigger permanent_insanity",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "a settled event type that selects this length rung",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the event type from the rung for one arm and check whether the turns it used to select are now under-written",
+      "properties": {
+        "legacy_key": "permanent_insanity",
+        "ordinal": 2,
+        "budget_mode": "climax_or_madness"
+      }
+    },
+    {
+      "node_id": "narration-budget-trigger:sanity-loss",
+      "node_kind": "narration-budget-trigger",
+      "plane": "craft",
+      "name": "budget trigger sanity_loss",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "a settled event type that selects this length rung",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the event type from the rung for one arm and check whether the turns it used to select are now under-written",
+      "properties": {
+        "legacy_key": "sanity_loss",
+        "ordinal": 8,
+        "budget_mode": "costly_result"
+      }
+    },
+    {
+      "node_id": "narration-budget-trigger:scene-transition",
+      "node_kind": "narration-budget-trigger",
+      "plane": "craft",
+      "name": "budget trigger scene_transition",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "a settled event type that selects this length rung",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the event type from the rung for one arm and check whether the turns it used to select are now under-written",
+      "properties": {
+        "legacy_key": "scene_transition",
+        "ordinal": 4,
+        "budget_mode": "reveal_or_transition"
+      }
+    },
+    {
+      "node_id": "narration-budget-trigger:session-ending",
+      "node_kind": "narration-budget-trigger",
+      "plane": "craft",
+      "name": "budget trigger session_ending",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "a settled event type that selects this length rung",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the event type from the rung for one arm and check whether the turns it used to select are now under-written",
+      "properties": {
+        "legacy_key": "session_ending",
+        "ordinal": 3,
+        "budget_mode": "climax_or_madness"
+      }
+    },
+    {
+      "node_id": "obligation-kind:first-impression",
+      "node_kind": "obligation-kind",
+      "plane": "obligation",
+      "name": "obligations in the first-impression: namespace",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "settled receipts in the pending turn window: rules.roll/rules.push roll receipts, first-impression context effects, and sanity bout events",
+      "properties": {
+        "legacy_key": "first-impression",
+        "ordinal": 1,
+        "id_prefix": "first-impression:",
+        "builder": "_build_obligations"
+      }
+    },
+    {
+      "node_id": "obligation-kind:roll",
+      "node_kind": "obligation-kind",
+      "plane": "obligation",
+      "name": "obligations in the roll: namespace",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "settled receipts in the pending turn window: rules.roll/rules.push roll receipts, first-impression context effects, and sanity bout events",
+      "properties": {
+        "legacy_key": "roll",
+        "ordinal": 0,
+        "id_prefix": "roll:",
+        "builder": "_build_obligations"
+      }
+    },
+    {
+      "node_id": "obligation-kind:sanity-bout",
+      "node_kind": "obligation-kind",
+      "plane": "obligation",
+      "name": "obligations in the sanity_bout: namespace",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "settled receipts in the pending turn window: rules.roll/rules.push roll receipts, first-impression context effects, and sanity bout events",
+      "properties": {
+        "legacy_key": "sanity_bout",
+        "ordinal": 2,
+        "id_prefix": "sanity_bout:",
+        "builder": "_build_sanity_bout_obligations"
+      }
+    },
+    {
+      "node_id": "obligation-source-kind:amount",
+      "node_kind": "obligation-source-kind",
+      "plane": "obligation",
+      "name": "source kind amount",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the source_kind written onto each obligation row by _build_obligations and _build_sanity_bout_obligations: the roll's visibility decides concealed_roll, otherwise _roll_kind returns amount or check",
+      "properties": {
+        "legacy_key": "amount",
+        "ordinal": 1,
+        "obligation_kind": "roll"
+      }
+    },
+    {
+      "node_id": "obligation-source-kind:check",
+      "node_kind": "obligation-source-kind",
+      "plane": "obligation",
+      "name": "source kind check",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the source_kind written onto each obligation row by _build_obligations and _build_sanity_bout_obligations: the roll's visibility decides concealed_roll, otherwise _roll_kind returns amount or check",
+      "properties": {
+        "legacy_key": "check",
+        "ordinal": 0,
+        "obligation_kind": "roll"
+      }
+    },
+    {
+      "node_id": "obligation-source-kind:concealed-roll",
+      "node_kind": "obligation-source-kind",
+      "plane": "obligation",
+      "name": "source kind concealed_roll",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the source_kind written onto each obligation row by _build_obligations and _build_sanity_bout_obligations: the roll's visibility decides concealed_roll, otherwise _roll_kind returns amount or check",
+      "properties": {
+        "legacy_key": "concealed_roll",
+        "ordinal": 2,
+        "obligation_kind": "roll"
+      }
+    },
+    {
+      "node_id": "obligation-source-kind:first-impression",
+      "node_kind": "obligation-source-kind",
+      "plane": "obligation",
+      "name": "source kind first_impression",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the source_kind written onto each obligation row by _build_obligations and _build_sanity_bout_obligations: the roll's visibility decides concealed_roll, otherwise _roll_kind returns amount or check",
+      "properties": {
+        "legacy_key": "first_impression",
+        "ordinal": 3,
+        "obligation_kind": "first-impression"
+      }
+    },
+    {
+      "node_id": "obligation-source-kind:sanity-bout",
+      "node_kind": "obligation-source-kind",
+      "plane": "obligation",
+      "name": "source kind sanity_bout",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the source_kind written onto each obligation row by _build_obligations and _build_sanity_bout_obligations: the roll's visibility decides concealed_roll, otherwise _roll_kind returns amount or check",
+      "properties": {
+        "legacy_key": "sanity_bout",
+        "ordinal": 4,
+        "obligation_kind": "sanity_bout"
+      }
+    },
+    {
+      "node_id": "player-input-handling:abstract-completed",
+      "node_kind": "player-input-handling",
+      "plane": "obligation",
+      "name": "player input handling abstract_completed",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "how the settled turn's player_action was carried into the rendered beat",
+      "properties": {
+        "legacy_key": "abstract_completed",
+        "ordinal": 0
+      }
+    },
+    {
+      "node_id": "player-input-handling:not-applicable",
+      "node_kind": "player-input-handling",
+      "plane": "obligation",
+      "name": "player input handling not_applicable",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "how the settled turn's player_action was carried into the rendered beat",
+      "properties": {
+        "legacy_key": "not_applicable",
+        "ordinal": 2
+      }
+    },
+    {
+      "node_id": "player-input-handling:specific-preserved",
+      "node_kind": "player-input-handling",
+      "plane": "obligation",
+      "name": "player input handling specific_preserved",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "how the settled turn's player_action was carried into the rendered beat",
+      "properties": {
+        "legacy_key": "specific_preserved",
+        "ordinal": 1
+      }
+    },
+    {
+      "node_id": "realization-mode:concealed-no-player-visible-beat",
+      "node_kind": "realization-mode",
+      "plane": "obligation",
+      "name": "realization concealed_no_player_visible_beat",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "whether the settled roll was player-facing; a concealed roll may close without a visible beat, every other obligation may not",
+      "properties": {
+        "legacy_key": "concealed_no_player_visible_beat",
+        "ordinal": 1
+      }
+    },
+    {
+      "node_id": "realization-mode:fictional-beat",
+      "node_kind": "realization-mode",
+      "plane": "obligation",
+      "name": "realization fictional_beat",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "whether the settled roll was player-facing; a concealed roll may close without a visible beat, every other obligation may not",
+      "properties": {
+        "legacy_key": "fictional_beat",
+        "ordinal": 0
+      }
+    },
+    {
+      "node_id": "render-prohibition:expository-choice-summary",
+      "node_kind": "render-prohibition",
+      "plane": "craft",
+      "name": "render prohibition expository_choice_summary",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "a shape player-visible text must not take",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "permit the prohibited shape for one arm and compare whether readers can still tell what the scene offers",
+      "properties": {
+        "legacy_key": "expository_choice_summary",
+        "ordinal": 1
+      }
+    },
+    {
+      "node_id": "render-prohibition:if-then-option-dump",
+      "node_kind": "render-prohibition",
+      "plane": "craft",
+      "name": "render prohibition if_then_option_dump",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "a shape player-visible text must not take",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "permit the prohibited shape for one arm and compare whether readers can still tell what the scene offers",
+      "properties": {
+        "legacy_key": "if_then_option_dump",
+        "ordinal": 2
+      }
+    },
+    {
+      "node_id": "render-prohibition:slot-labels",
+      "node_kind": "render-prohibition",
+      "plane": "craft",
+      "name": "render prohibition slot_labels",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "a shape player-visible text must not take",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "permit the prohibited shape for one arm and compare whether readers can still tell what the scene offers",
+      "properties": {
+        "legacy_key": "slot_labels",
+        "ordinal": 0
+      }
+    },
+    {
+      "node_id": "render-slot:active-motion",
+      "node_kind": "render-slot",
+      "plane": "craft",
+      "name": "render slot active_motion",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "one blocking slot of the crisis render frame, checked for presence only and never for wording",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "drop the slot from the crisis render frame for one arm and check whether players ask more clarifying questions about the scene",
+      "properties": {
+        "legacy_key": "active_motion",
+        "ordinal": 2
+      }
+    },
+    {
+      "node_id": "render-slot:connection-or-force",
+      "node_kind": "render-slot",
+      "plane": "craft",
+      "name": "render slot connection_or_force",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "one blocking slot of the crisis render frame, checked for presence only and never for wording",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "drop the slot from the crisis render frame for one arm and check whether players ask more clarifying questions about the scene",
+      "properties": {
+        "legacy_key": "connection_or_force",
+        "ordinal": 3
+      }
+    },
+    {
+      "node_id": "render-slot:player-entry",
+      "node_kind": "render-slot",
+      "plane": "craft",
+      "name": "render slot player_entry",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "one blocking slot of the crisis render frame, checked for presence only and never for wording",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "drop the slot from the crisis render frame for one arm and check whether players ask more clarifying questions about the scene",
+      "properties": {
+        "legacy_key": "player_entry",
+        "ordinal": 6
+      }
+    },
+    {
+      "node_id": "render-slot:risk-progression",
+      "node_kind": "render-slot",
+      "plane": "craft",
+      "name": "render slot risk_progression",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "one blocking slot of the crisis render frame, checked for presence only and never for wording",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "drop the slot from the crisis render frame for one arm and check whether players ask more clarifying questions about the scene",
+      "properties": {
+        "legacy_key": "risk_progression",
+        "ordinal": 4
+      }
+    },
+    {
+      "node_id": "render-slot:spatial-anchor",
+      "node_kind": "render-slot",
+      "plane": "craft",
+      "name": "render slot spatial_anchor",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "one blocking slot of the crisis render frame, checked for presence only and never for wording",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "drop the slot from the crisis render frame for one arm and check whether players ask more clarifying questions about the scene",
+      "properties": {
+        "legacy_key": "spatial_anchor",
+        "ordinal": 1
+      }
+    },
+    {
+      "node_id": "render-slot:viewpoint-anchor",
+      "node_kind": "render-slot",
+      "plane": "craft",
+      "name": "render slot viewpoint_anchor",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "one blocking slot of the crisis render frame, checked for presence only and never for wording",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "drop the slot from the crisis render frame for one arm and check whether players ask more clarifying questions about the scene",
+      "properties": {
+        "legacy_key": "viewpoint_anchor",
+        "ordinal": 0
+      }
+    },
+    {
+      "node_id": "render-slot:visible-affordance",
+      "node_kind": "render-slot",
+      "plane": "craft",
+      "name": "render slot visible_affordance",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "one blocking slot of the crisis render frame, checked for presence only and never for wording",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "drop the slot from the crisis render frame for one arm and check whether players ask more clarifying questions about the scene",
+      "properties": {
+        "legacy_key": "visible_affordance",
+        "ordinal": 5
+      }
+    },
+    {
+      "node_id": "review-rule:abstract-psychological-explanation",
+      "node_kind": "review-rule",
+      "plane": "craft",
+      "name": "review rule abstract_psychological_explanation",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "inner state was explained abstractly instead of shown through observable behaviour first",
+      "origin": "coc_narration_style.audit_player_visible_text, deleted in slice T4",
+      "falsifiable_by": "run a production-profile session with the rule published in the narration.review enum and one without it, over more than one turn per arm, and compare whether the Keeper cites it and whether the cited drafts read worse to a reader who is not told which arm they came from",
+      "properties": {
+        "legacy_key": "abstract_psychological_explanation",
+        "ordinal": 8,
+        "hard_gate": false,
+        "citable": true
+      }
+    },
+    {
+      "node_id": "review-rule:agency-violation",
+      "node_kind": "review-rule",
+      "plane": "craft",
+      "name": "review rule agency_violation",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "the sole hard narrative finding: prose claimed a player-owned proposition without an authorizing override",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "run a production-profile session with the rule published in the narration.review enum and one without it, over more than one turn per arm, and compare whether the Keeper cites it and whether the cited drafts read worse to a reader who is not told which arm they came from",
+      "properties": {
+        "legacy_key": "agency_violation",
+        "ordinal": 0,
+        "hard_gate": true,
+        "citable": true
+      }
+    },
+    {
+      "node_id": "review-rule:ai-summary-voice",
+      "node_kind": "review-rule",
+      "plane": "craft",
+      "name": "review rule ai_summary_voice",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "the draft read as report or log voice rather than table narration",
+      "origin": "coc_narration_style.audit_player_visible_text, deleted in slice T4",
+      "falsifiable_by": "run a production-profile session with the rule published in the narration.review enum and one without it, over more than one turn per arm, and compare whether the Keeper cites it and whether the cited drafts read worse to a reader who is not told which arm they came from",
+      "properties": {
+        "legacy_key": "ai_summary_voice",
+        "ordinal": 4,
+        "hard_gate": false,
+        "citable": true
+      }
+    },
+    {
+      "node_id": "review-rule:camera-direction-staging",
+      "node_kind": "review-rule",
+      "plane": "craft",
+      "name": "review rule camera_direction_staging",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "body parts were staged like camera directions instead of naming the person and what they look at",
+      "origin": "coc_narration_style.audit_player_visible_text, deleted in slice T4",
+      "falsifiable_by": "run a production-profile session with the rule published in the narration.review enum and one without it, over more than one turn per arm, and compare whether the Keeper cites it and whether the cited drafts read worse to a reader who is not told which arm they came from",
+      "properties": {
+        "legacy_key": "camera_direction_staging",
+        "ordinal": 6,
+        "hard_gate": false,
+        "citable": true
+      }
+    },
+    {
+      "node_id": "review-rule:expository-choice-summary",
+      "node_kind": "review-rule",
+      "plane": "craft",
+      "name": "review rule expository_choice_summary",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "option or blocking logic was exposed as explanation instead of being rendered as scene",
+      "origin": "coc_narration_style.audit_player_visible_text, deleted in slice T4",
+      "falsifiable_by": "run a production-profile session with the rule published in the narration.review enum and one without it, over more than one turn per arm, and compare whether the Keeper cites it and whether the cited drafts read worse to a reader who is not told which arm they came from",
+      "properties": {
+        "legacy_key": "expository_choice_summary",
+        "ordinal": 5,
+        "hard_gate": false,
+        "citable": true
+      }
+    },
+    {
+      "node_id": "review-rule:over-length",
+      "node_kind": "review-rule",
+      "plane": "craft",
+      "name": "review rule over_length",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "the draft ran past twice its derived length budget; advisory, and the only finding the code raises on its own",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "run a production-profile session with the rule published in the narration.review enum and one without it, over more than one turn per arm, and compare whether the Keeper cites it and whether the cited drafts read worse to a reader who is not told which arm they came from",
+      "properties": {
+        "legacy_key": "over_length",
+        "ordinal": 3,
+        "hard_gate": false,
+        "citable": true
+      }
+    },
+    {
+      "node_id": "review-rule:passive-translation-ese",
+      "node_kind": "review-rule",
+      "plane": "craft",
+      "name": "review rule passive_translation_ese",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "literary passive construction read as translated prose rather than spoken narration",
+      "origin": "coc_narration_style.audit_player_visible_text, deleted in slice T4",
+      "falsifiable_by": "run a production-profile session with the rule published in the narration.review enum and one without it, over more than one turn per arm, and compare whether the Keeper cites it and whether the cited drafts read worse to a reader who is not told which arm they came from",
+      "properties": {
+        "legacy_key": "passive_translation_ese",
+        "ordinal": 7,
+        "hard_gate": false,
+        "citable": true
+      }
+    },
+    {
+      "node_id": "review-rule:scope-overreach",
+      "node_kind": "review-rule",
+      "plane": "craft",
+      "name": "review rule scope_overreach",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "the draft reached past the settled turn into material the turn did not settle",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "run a production-profile session with the rule published in the narration.review enum and one without it, over more than one turn per arm, and compare whether the Keeper cites it and whether the cited drafts read worse to a reader who is not told which arm they came from",
+      "properties": {
+        "legacy_key": "scope_overreach",
+        "ordinal": 2,
+        "hard_gate": false,
+        "citable": true
+      }
+    },
+    {
+      "node_id": "review-rule:semantic-repetition",
+      "node_kind": "review-rule",
+      "plane": "craft",
+      "name": "review rule semantic_repetition",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "an already established fact, clue or quotation was restated in full instead of compressed",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "run a production-profile session with the rule published in the narration.review enum and one without it, over more than one turn per arm, and compare whether the Keeper cites it and whether the cited drafts read worse to a reader who is not told which arm they came from",
+      "properties": {
+        "legacy_key": "semantic_repetition",
+        "ordinal": 1,
+        "hard_gate": false,
+        "citable": true
+      }
+    },
+    {
+      "node_id": "roll-visibility-class:consequence-public",
+      "node_kind": "roll-visibility-class",
+      "plane": "obligation",
+      "name": "roll visibility consequence_public",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the visibility field written on each settled roll receipt",
+      "properties": {
+        "legacy_key": "consequence_public",
+        "ordinal": 1,
+        "player_facing": true,
+        "superseded": false
+      }
+    },
+    {
+      "node_id": "roll-visibility-class:corrected-hidden",
+      "node_kind": "roll-visibility-class",
+      "plane": "obligation",
+      "name": "roll visibility corrected_hidden",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the visibility field written on each settled roll receipt",
+      "properties": {
+        "legacy_key": "corrected_hidden",
+        "ordinal": 4,
+        "player_facing": false,
+        "superseded": true
+      }
+    },
+    {
+      "node_id": "roll-visibility-class:keeper-only",
+      "node_kind": "roll-visibility-class",
+      "plane": "obligation",
+      "name": "roll visibility keeper_only",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the visibility field written on each settled roll receipt",
+      "properties": {
+        "legacy_key": "keeper_only",
+        "ordinal": 5,
+        "player_facing": false,
+        "superseded": true
+      }
+    },
+    {
+      "node_id": "roll-visibility-class:public",
+      "node_kind": "roll-visibility-class",
+      "plane": "obligation",
+      "name": "roll visibility public",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the visibility field written on each settled roll receipt",
+      "properties": {
+        "legacy_key": "public",
+        "ordinal": 0,
+        "player_facing": true,
+        "superseded": false
+      }
+    },
+    {
+      "node_id": "roll-visibility-class:superseded",
+      "node_kind": "roll-visibility-class",
+      "plane": "obligation",
+      "name": "roll visibility superseded",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the visibility field written on each settled roll receipt",
+      "properties": {
+        "legacy_key": "superseded",
+        "ordinal": 2,
+        "player_facing": false,
+        "superseded": true
+      }
+    },
+    {
+      "node_id": "roll-visibility-class:voided",
+      "node_kind": "roll-visibility-class",
+      "plane": "obligation",
+      "name": "roll visibility voided",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the visibility field written on each settled roll receipt",
+      "properties": {
+        "legacy_key": "voided",
+        "ordinal": 3,
+        "player_facing": false,
+        "superseded": true
+      }
+    },
+    {
+      "node_id": "segment-type:asset-delta",
+      "node_kind": "segment-type",
+      "plane": "obligation",
+      "name": "output segment asset_delta",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled mechanics projection: public rolls, state deltas, asset deltas and exceptional effect applications, plus the fiction body",
+      "properties": {
+        "legacy_key": "asset_delta",
+        "ordinal": 3,
+        "mechanic": true,
+        "mechanic_placement_order": 2,
+        "must_lead": false
+      }
+    },
+    {
+      "node_id": "segment-type:exceptional-effect",
+      "node_kind": "segment-type",
+      "plane": "obligation",
+      "name": "output segment exceptional_effect",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled mechanics projection: public rolls, state deltas, asset deltas and exceptional effect applications, plus the fiction body",
+      "properties": {
+        "legacy_key": "exceptional_effect",
+        "ordinal": 4,
+        "mechanic": true,
+        "mechanic_placement_order": 3,
+        "must_lead": false
+      }
+    },
+    {
+      "node_id": "segment-type:fiction",
+      "node_kind": "segment-type",
+      "plane": "obligation",
+      "name": "output segment fiction",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled mechanics projection: public rolls, state deltas, asset deltas and exceptional effect applications, plus the fiction body",
+      "properties": {
+        "legacy_key": "fiction",
+        "ordinal": 0,
+        "mechanic": false,
+        "mechanic_placement_order": null,
+        "must_lead": true
+      }
+    },
+    {
+      "node_id": "segment-type:public-check",
+      "node_kind": "segment-type",
+      "plane": "obligation",
+      "name": "output segment public_check",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled mechanics projection: public rolls, state deltas, asset deltas and exceptional effect applications, plus the fiction body",
+      "properties": {
+        "legacy_key": "public_check",
+        "ordinal": 1,
+        "mechanic": true,
+        "mechanic_placement_order": 0,
+        "must_lead": false
+      }
+    },
+    {
+      "node_id": "segment-type:state-delta",
+      "node_kind": "segment-type",
+      "plane": "obligation",
+      "name": "output segment state_delta",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "the settled mechanics projection: public rolls, state deltas, asset deltas and exceptional effect applications, plus the fiction body",
+      "properties": {
+        "legacy_key": "state_delta",
+        "ordinal": 2,
+        "mechanic": true,
+        "mechanic_placement_order": 1,
+        "must_lead": false
+      }
+    },
+    {
+      "node_id": "style-axis:avoid-abstract-psychological-explanation",
+      "node_kind": "style-axis",
+      "plane": "craft",
+      "name": "avoid abstract_psychological_explanation",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "register guidance: avoid abstract_psychological_explanation",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
+      "properties": {
+        "legacy_key": "abstract_psychological_explanation",
+        "ordinal": 4,
+        "axis": "avoid",
+        "language_applicability": "all"
+      }
+    },
+    {
+      "node_id": "style-axis:avoid-ai-summary-voice",
+      "node_kind": "style-axis",
+      "plane": "craft",
+      "name": "avoid ai_summary_voice",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "register guidance: avoid ai_summary_voice",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
+      "properties": {
+        "legacy_key": "ai_summary_voice",
+        "ordinal": 1,
+        "axis": "avoid",
+        "language_applicability": "all"
+      }
+    },
+    {
+      "node_id": "style-axis:avoid-log-style-summary",
+      "node_kind": "style-axis",
+      "plane": "craft",
+      "name": "avoid log_style_summary",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "register guidance: avoid log_style_summary",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
+      "properties": {
+        "legacy_key": "log_style_summary",
+        "ordinal": 2,
+        "axis": "avoid",
+        "language_applicability": "all"
+      }
+    },
+    {
+      "node_id": "style-axis:avoid-semantic-repetition",
+      "node_kind": "style-axis",
+      "plane": "craft",
+      "name": "avoid semantic_repetition",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "register guidance: avoid semantic_repetition",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
+      "properties": {
+        "legacy_key": "semantic_repetition",
+        "ordinal": 3,
+        "axis": "avoid",
+        "language_applicability": "all"
+      }
+    },
+    {
+      "node_id": "style-axis:avoid-translationese",
+      "node_kind": "style-axis",
+      "plane": "craft",
+      "name": "avoid translationese",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "register guidance: avoid translationese",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
+      "properties": {
+        "legacy_key": "translationese",
+        "ordinal": 0,
+        "axis": "avoid",
+        "language_applicability": "zh-Hans"
+      }
+    },
+    {
+      "node_id": "style-axis:prefer-concrete-sensory-detail",
+      "node_kind": "style-axis",
+      "plane": "craft",
+      "name": "prefer concrete_sensory_detail",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "register guidance: prefer concrete_sensory_detail",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
+      "properties": {
+        "legacy_key": "concrete_sensory_detail",
+        "ordinal": 6,
+        "axis": "prefer",
+        "language_applicability": "all"
+      }
+    },
+    {
+      "node_id": "style-axis:prefer-observable-behavior",
+      "node_kind": "style-axis",
+      "plane": "craft",
+      "name": "prefer observable_behavior",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "register guidance: prefer observable_behavior",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
+      "properties": {
+        "legacy_key": "observable_behavior",
+        "ordinal": 7,
+        "axis": "prefer",
+        "language_applicability": "all"
+      }
+    },
+    {
+      "node_id": "style-axis:prefer-open-ended-prompt",
+      "node_kind": "style-axis",
+      "plane": "craft",
+      "name": "prefer open_ended_prompt",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "register guidance: prefer open_ended_prompt",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
+      "properties": {
+        "legacy_key": "open_ended_prompt",
+        "ordinal": 8,
+        "axis": "prefer",
+        "language_applicability": "all"
+      }
+    },
+    {
+      "node_id": "style-axis:prefer-short-sentences",
+      "node_kind": "style-axis",
+      "plane": "craft",
+      "name": "prefer short_sentences",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "register guidance: prefer short_sentences",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "remove the axis from the register for one arm of a multi-turn session and compare drafts blind",
+      "properties": {
+        "legacy_key": "short_sentences",
+        "ordinal": 5,
+        "axis": "prefer",
+        "language_applicability": "all"
+      }
+    },
+    {
+      "node_id": "substantive-effect-status:applied",
+      "node_kind": "substantive-effect-status",
+      "plane": "obligation",
+      "name": "substantive effect status applied",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "whether an exceptional_effect apply receipt exists for the settled critical/fumble/pushed-failure roll it must be bound to",
+      "properties": {
+        "legacy_key": "applied",
+        "ordinal": 0
+      }
+    },
+    {
+      "node_id": "substantive-effect-status:missing",
+      "node_kind": "substantive-effect-status",
+      "plane": "obligation",
+      "name": "substantive effect status missing",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "whether an exceptional_effect apply receipt exists for the settled critical/fumble/pushed-failure roll it must be bound to",
+      "properties": {
+        "legacy_key": "missing",
+        "ordinal": 1
+      }
+    },
+    {
+      "node_id": "substantive-effect-status:not-required",
+      "node_kind": "substantive-effect-status",
+      "plane": "obligation",
+      "name": "substantive effect status not_required",
+      "evidence_class": "settled-effect-derived",
+      "derived_from": "whether an exceptional_effect apply receipt exists for the settled critical/fumble/pushed-failure roll it must be bound to",
+      "properties": {
+        "legacy_key": "not_required",
+        "ordinal": 2
+      }
+    },
+    {
+      "node_id": "text-threshold:excerpt-repair-min-match",
+      "node_kind": "text-threshold",
+      "plane": "craft",
+      "name": "threshold excerpt-repair-min-match",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "the shortest run that may be treated as a recovered verbatim excerpt",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "perturb the value and replay the preserved corpus: a threshold no replay outcome is sensitive to is a candidate for retirement",
+      "properties": {
+        "threshold_id": "excerpt-repair-min-match",
+        "ordinal": 3,
+        "value": 8,
+        "comparison": "gte",
+        "subject": "longest common run length"
+      }
+    },
+    {
+      "node_id": "text-threshold:excerpt-repair-similarity",
+      "node_kind": "text-threshold",
+      "plane": "craft",
+      "name": "threshold excerpt-repair-similarity",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "how close a near-miss excerpt must be before it is repaired rather than rejected",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "perturb the value and replay the preserved corpus: a threshold no replay outcome is sensitive to is a candidate for retirement",
+      "properties": {
+        "threshold_id": "excerpt-repair-similarity",
+        "ordinal": 2,
+        "value": 0.5,
+        "comparison": "gte",
+        "subject": "excerpt to paragraph ratio"
+      }
+    },
+    {
+      "node_id": "text-threshold:max-accepted-revision",
+      "node_kind": "text-threshold",
+      "plane": "craft",
+      "name": "threshold max-accepted-revision",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "how many narration-only revisions one settlement allows",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "perturb the value and replay the preserved corpus: a threshold no replay outcome is sensitive to is a candidate for retirement",
+      "properties": {
+        "threshold_id": "max-accepted-revision",
+        "ordinal": 4,
+        "value": 2,
+        "comparison": "lte",
+        "subject": "accepted narration revisions"
+      }
+    },
+    {
+      "node_id": "text-threshold:over-length-multiplier",
+      "node_kind": "text-threshold",
+      "plane": "craft",
+      "name": "threshold over-length-multiplier",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "how far past its budget a draft runs before over_length is recorded",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "perturb the value and replay the preserved corpus: a threshold no replay outcome is sensitive to is a candidate for retirement",
+      "properties": {
+        "threshold_id": "over-length-multiplier",
+        "ordinal": 0,
+        "value": 2,
+        "comparison": "gt",
+        "subject": "draft chars over budget max_chars"
+      }
+    },
+    {
+      "node_id": "text-threshold:recent-event-window",
+      "node_kind": "text-threshold",
+      "plane": "craft",
+      "name": "threshold recent-event-window",
+      "evidence_class": "authored-house-doctrine",
+      "rationale": "how much recent event history the length budget is derived from",
+      "origin": "unknown-legacy-tuning",
+      "falsifiable_by": "perturb the value and replay the preserved corpus: a threshold no replay outcome is sensitive to is a candidate for retirement",
+      "properties": {
+        "threshold_id": "recent-event-window",
+        "ordinal": 1,
+        "value": 12,
+        "comparison": "lte",
+        "subject": "recent events read for budget"
+      }
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "relation:text:budget-trigger-bout-of-madness:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "narration-budget-trigger:bout-of-madness",
+      "to_node_id": "narration-budget-mode:climax-or-madness"
+    },
+    {
+      "relation_id": "relation:text:budget-trigger-exceptional-effect-apply:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "narration-budget-trigger:exceptional-effect-apply",
+      "to_node_id": "narration-budget-mode:reveal-or-transition"
+    },
+    {
+      "relation_id": "relation:text:budget-trigger-hp-change:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "narration-budget-trigger:hp-change",
+      "to_node_id": "narration-budget-mode:costly-result"
+    },
+    {
+      "relation_id": "relation:text:budget-trigger-indefinite-insanity:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "narration-budget-trigger:indefinite-insanity",
+      "to_node_id": "narration-budget-mode:climax-or-madness"
+    },
+    {
+      "relation_id": "relation:text:budget-trigger-luck-spend:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "narration-budget-trigger:luck-spend",
+      "to_node_id": "narration-budget-mode:costly-result"
+    },
+    {
+      "relation_id": "relation:text:budget-trigger-major-reveal:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "narration-budget-trigger:major-reveal",
+      "to_node_id": "narration-budget-mode:reveal-or-transition"
+    },
+    {
+      "relation_id": "relation:text:budget-trigger-permanent-insanity:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "narration-budget-trigger:permanent-insanity",
+      "to_node_id": "narration-budget-mode:climax-or-madness"
+    },
+    {
+      "relation_id": "relation:text:budget-trigger-sanity-loss:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "narration-budget-trigger:sanity-loss",
+      "to_node_id": "narration-budget-mode:costly-result"
+    },
+    {
+      "relation_id": "relation:text:budget-trigger-scene-transition:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "narration-budget-trigger:scene-transition",
+      "to_node_id": "narration-budget-mode:reveal-or-transition"
+    },
+    {
+      "relation_id": "relation:text:budget-trigger-session-ending:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "narration-budget-trigger:session-ending",
+      "to_node_id": "narration-budget-mode:climax-or-madness"
+    },
+    {
+      "relation_id": "relation:text:rewrite-abstract-psychological-explanation:advises",
+      "relation_kind": "advises",
+      "from_node_id": "craft-directive:rewrite-abstract-psychological-explanation",
+      "to_node_id": "review-rule:abstract-psychological-explanation"
+    },
+    {
+      "relation_id": "relation:text:rewrite-ai-summary-voice:advises",
+      "relation_kind": "advises",
+      "from_node_id": "craft-directive:rewrite-ai-summary-voice",
+      "to_node_id": "review-rule:ai-summary-voice"
+    },
+    {
+      "relation_id": "relation:text:rewrite-camera-direction-staging:advises",
+      "relation_kind": "advises",
+      "from_node_id": "craft-directive:rewrite-camera-direction-staging",
+      "to_node_id": "review-rule:camera-direction-staging"
+    },
+    {
+      "relation_id": "relation:text:rewrite-expository-choice-summary:advises",
+      "relation_kind": "advises",
+      "from_node_id": "craft-directive:rewrite-expository-choice-summary",
+      "to_node_id": "review-rule:expository-choice-summary"
+    },
+    {
+      "relation_id": "relation:text:rewrite-passive-translation-ese:advises",
+      "relation_kind": "advises",
+      "from_node_id": "craft-directive:rewrite-passive-translation-ese",
+      "to_node_id": "review-rule:passive-translation-ese"
+    },
+    {
+      "relation_id": "relation:text:source-kind-amount:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "obligation-source-kind:amount",
+      "to_node_id": "obligation-kind:roll"
+    },
+    {
+      "relation_id": "relation:text:source-kind-check:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "obligation-source-kind:check",
+      "to_node_id": "obligation-kind:roll"
+    },
+    {
+      "relation_id": "relation:text:source-kind-concealed-roll:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "obligation-source-kind:concealed-roll",
+      "to_node_id": "obligation-kind:roll"
+    },
+    {
+      "relation_id": "relation:text:source-kind-first-impression:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "obligation-source-kind:first-impression",
+      "to_node_id": "obligation-kind:first-impression"
+    },
+    {
+      "relation_id": "relation:text:source-kind-sanity-bout:part-of",
+      "relation_kind": "part-of",
+      "from_node_id": "obligation-source-kind:sanity-bout",
+      "to_node_id": "obligation-kind:sanity-bout"
+    }
+  ],
+  "coverage": {
+    "obligation": "accepted",
+    "craft": "accepted"
+  }
+}

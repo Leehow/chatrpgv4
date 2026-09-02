@@ -74,10 +74,11 @@ artifact 缺失的 Effect nodes 与 `emits` relations。它们引用已有 sourc
 >   是「RuleGraph 只有 healing」，而是 The Haunting 的 `module.haunting.*`
 >   authored identity 至今没有与任一 RuleGraph Rule/Decision semantic id 精确
 >   相等。弱地板伤害仍不足以伪造 `uses-rule`。
-> - `plugins/coc-keeper/references/system-ontology-registry-v1.json` 里 module
->   那一行的 `reason` 仍写着 "the current production healing-only RuleGraph"，
->   与同文件 rule 行的 "ten source-accepted families" 自相矛盾。该字符串是
->   registry（跨轨共享文件）内容，未在本次改动中修正——见 CURRENT.md 的待办。
+> - ~~`plugins/coc-keeper/references/system-ontology-registry-v1.json` 里 module
+>   那一行的 `reason` 仍写着 "the current production healing-only RuleGraph"。~~
+>   **已修复（2026-09-01 核实）。** 该行现在写的是 "The production coc7
+>   RuleGraph contains ten source-accepted families"，与同文件 rule 行不再矛盾。
+>   本条修正只更新记述，不改变本 ADR 的决策。
 >
 > 另外记录一条本 ADR 当时未预见、但由十族 cutover 暴露的边界：一个 family 进入
 > production graph 并不等于它可玩。settlement 的 canonical result 还必须有闭合的

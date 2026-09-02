@@ -23,42 +23,21 @@ if str(SCRIPT_DIR) not in sys.path:
 import coc_fileio
 import coc_module_assets
 import coc_module_graph
+import coc_module_projection
 import coc_pdf_bundle
 
 
-PROJECTION_CONTRACT_ID = "coc.module-graph-runtime-projection.v1"
+# The projection contract is module-agnostic and owned by the projection core;
+# these aliases keep the starter's public surface stable.
+PROJECTION_CONTRACT_ID = coc_module_projection.PROJECTION_CONTRACT_ID
+PROJECTED_DOCUMENTS = coc_module_projection.PROJECTED_DOCUMENTS
+COLLECTION_SPECS = coc_module_projection.COLLECTION_SPECS
+
 ASSET_CATALOG_CONTRACT_ID = "coc.starter-graph-assets.v1"
 GRAPH_FILENAME = "module-graph.json"
 ASSET_CATALOG_FILENAME = "module-graph-assets.json"
 ASSET_ROOT_ID = "the-haunting-keeper-rulebook-40th-full-v1"
 SOURCE_ID = "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting"
-
-PROJECTED_DOCUMENTS: tuple[str, ...] = (
-    "module-meta.json",
-    "story-graph.json",
-    "clue-graph.json",
-    "npc-agendas.json",
-    "threat-fronts.json",
-    "pacing-map.json",
-    "improvisation-boundaries.json",
-    "quests.json",
-    "handouts.json",
-)
-
-COLLECTION_SPECS: dict[str, tuple[tuple[str, str, str | None], ...]] = {
-    "story-graph.json": (("scenes", "scene", "scene_id"),),
-    "clue-graph.json": (("conclusions", "conclusion", "conclusion_id"),),
-    "npc-agendas.json": (("npcs", "npc", "npc_id"),),
-    "threat-fronts.json": (("fronts", "threat", "front_id"),),
-    "pacing-map.json": (("pacing_curve", "beat", "scene_id"),),
-    "improvisation-boundaries.json": (
-        ("invent_allowed", "concept", None),
-        ("keeper_secrets", "secret", "id"),
-        ("never_invent", "concept", None),
-    ),
-    "quests.json": (("quests", "quest", "quest_id"),),
-    "handouts.json": (("handouts", "handout", "asset_id"),),
-}
 
 _SEMANTIC_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 _CJK = re.compile(r"[\u3400-\u9fff\u3040-\u30ff]")
@@ -660,84 +639,28 @@ def validate_starter_graph(graph: dict[str, Any]) -> dict[str, Any]:
         raise StarterGraphError("starter graph schema mismatch")
     if graph.get("source_languages") != ["en"] or _contains_cjk(graph):
         raise StarterGraphError("starter graph must remain English-only")
-    nodes = graph.get("nodes")
-    if not isinstance(nodes, list) or not nodes:
-        raise StarterGraphError("starter graph requires nodes")
-    by_id: dict[str, dict[str, Any]] = {}
-    for node in nodes:
-        if not isinstance(node, dict):
-            raise StarterGraphError("starter graph node must be an object")
-        node_id = str(node.get("node_id") or "")
-        kind = str(node.get("node_kind") or "")
-        if not _SEMANTIC_ID.fullmatch(node_id) or not node_id.startswith(f"{kind}-"):
-            raise StarterGraphError(f"invalid starter graph node {node_id!r}")
-        if node_id in by_id:
-            raise StarterGraphError(f"duplicate starter graph node {node_id}")
-        by_id[node_id] = node
-    module = by_id.get("module-the-haunting")
-    projection = (
-        module.get("properties", {}).get("runtime_projection")
-        if isinstance(module, dict) else None
-    )
-    if not isinstance(projection, dict) or projection.get("contract_id") != PROJECTION_CONTRACT_ID:
-        raise StarterGraphError("starter graph runtime projection missing")
-    for document in projection.get("documents") or []:
-        if not isinstance(document, dict) or document.get("filename") not in PROJECTED_DOCUMENTS:
-            raise StarterGraphError("starter graph projected document invalid")
-        for collection in document.get("collections") or []:
-            for node_id in collection.get("node_ids") or []:
-                if node_id not in by_id:
-                    raise StarterGraphError(
-                        f"starter graph projection references missing node {node_id}"
-                    )
-    for relation in graph.get("relations") or []:
-        if relation.get("from_node_id") not in by_id or relation.get("to_node_id") not in by_id:
-            raise StarterGraphError("starter graph relation endpoint missing")
-    claims = {
-        claim.get("claim_id"): claim
-        for claim in graph.get("claims") or []
-        if isinstance(claim, dict)
-    }
-    if len(claims) != len(graph.get("claims") or []):
-        raise StarterGraphError("starter graph claim identities are invalid")
-    for relation in graph.get("relations") or []:
-        claim = claims.get(relation.get("claim_id"))
-        if (
-            not isinstance(claim, dict)
-            or claim.get("subject_id") != relation.get("from_node_id")
-            or claim.get("predicate") != relation.get("relation_kind")
-            or claim.get("object") != {"node_id": relation.get("to_node_id")}
-        ):
-            raise StarterGraphError("starter graph relation claim binding is invalid")
+    try:
+        summary = coc_module_projection.validate_module_projection(graph)
+    except coc_module_projection.ModuleProjectionError as exc:
+        raise StarterGraphError(f"starter graph {exc}") from exc
+    if summary["module_id"] != "module-the-haunting":
+        raise StarterGraphError("starter graph module identity mismatch")
+    if not summary["complete_document_set"]:
+        raise StarterGraphError("starter graph projected document set is incomplete")
     return {
         "module_id": graph["module_id"],
-        "node_count": len(by_id),
-        "relation_count": len(graph.get("relations") or []),
-        "document_count": len(projection.get("documents") or []),
+        "node_count": summary["node_count"],
+        "relation_count": summary["relation_count"],
+        "document_count": summary["document_count"],
     }
 
 
 def project_starter_documents(graph: dict[str, Any]) -> dict[str, dict[str, Any]]:
     validate_starter_graph(graph)
-    by_id = {node["node_id"]: node for node in graph["nodes"]}
-    projection = by_id["module-the-haunting"]["properties"]["runtime_projection"]
-    documents: dict[str, dict[str, Any]] = {}
-    for spec in projection["documents"]:
-        filename = str(spec["filename"])
-        document = _deepcopy(spec.get("root") or {})
-        for collection in spec.get("collections") or []:
-            name = str(collection["name"])
-            records: list[Any] = []
-            for node_id in collection.get("node_ids") or []:
-                node = by_id[node_id]
-                runtime = node.get("properties", {}).get("runtime_projection")
-                if not isinstance(runtime, dict) or runtime.get("document") != filename:
-                    raise StarterGraphError(
-                        f"projection node {node_id} is not bound to {filename}"
-                    )
-                records.append(_deepcopy(runtime.get("record")))
-            document[name] = records
-        documents[filename] = document
+    try:
+        documents = coc_module_projection.project_module_documents(graph)
+    except coc_module_projection.ModuleProjectionError as exc:
+        raise StarterGraphError(f"starter graph {exc}") from exc
     if set(documents) != set(PROJECTED_DOCUMENTS):
         raise StarterGraphError("starter graph projected document set is incomplete")
     return documents

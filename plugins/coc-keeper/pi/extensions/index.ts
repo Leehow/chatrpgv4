@@ -1845,9 +1845,22 @@ export function registerPlayerTranscriptGate(
     details: { deltaCount: number; charCount: number },
     ctx: ExtensionContext,
   ) => void,
+  onLeadingWhitespaceObserved?: (
+    details: { deltaCount: number; charCount: number },
+  ) => void,
 ): void {
-  const LEADING_WHITESPACE_DELTA_LIMIT = 32;
-  const LEADING_WHITESPACE_CHAR_LIMIT = 128;
+  // Bound a stream that emits leading whitespace forever, and nothing else.
+  //
+  // Only the character count is a trigger. A counted delta always carries at
+  // least one character, so `charCount >= deltaCount` always holds and a delta
+  // bound can only ever fire FIRST — four times sooner when a provider streams
+  // one character at a time, which is exactly what happened: every abort in
+  // the 2026-09-01 run3 table was 32 deltas of 32 characters, and the Keeper
+  // re-prompted by the empty-terminal recovery then produced its narration
+  // immediately. The stream was padding, not runaway, and the host's own abort
+  // was what emptied the turn: eight of 28 turns paid an extra model round
+  // trip for it. The character bound alone says what the guard means.
+  const LEADING_WHITESPACE_CHAR_LIMIT = 512;
   let whitespaceDeltaCount = 0;
   let whitespaceCharCount = 0;
   let streamHasSemanticOutput = false;
@@ -1876,10 +1889,7 @@ export function registerPlayerTranscriptGate(
         whitespaceCharCount += update.delta.length;
         if (
           !whitespaceLimitDelivered
-          && (
-            whitespaceDeltaCount >= LEADING_WHITESPACE_DELTA_LIMIT
-            || whitespaceCharCount >= LEADING_WHITESPACE_CHAR_LIMIT
-          )
+          && whitespaceCharCount >= LEADING_WHITESPACE_CHAR_LIMIT
         ) {
           whitespaceLimitDelivered = true;
           onLeadingWhitespaceStreamLimit?.({
@@ -1899,6 +1909,12 @@ export function registerPlayerTranscriptGate(
   pi.on("message_end", (event) => {
     const assistant = assistantContentMessage(event.message);
     if (!assistant) return;
+    if (whitespaceCharCount > 0) {
+      onLeadingWhitespaceObserved?.({
+        deltaCount: whitespaceDeltaCount,
+        charCount: whitespaceCharCount,
+      });
+    }
     const stopReason = (assistant as { stopReason?: unknown }).stopReason;
     if (stopReason === "error" || stopReason === "aborted") {
       // A terminal provider failure is not a player-visible assistant final.
@@ -3930,6 +3946,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     anchor: OpenTurnAnchor;
     turnNumber: number;
   } | null = null;
+  // The live player message for the current turn, kept in memory regardless of
+  // phase. A restart leaves the durable open-turn input cache empty for the
+  // first message of the new process (no anchor existed when it arrived), and
+  // recovery cannot exit without that input: the journal it requires is denied,
+  // so the campaign stays in `recovery` forever. Holding the message here lets
+  // the resume path adopt what the player just said instead of stranding the
+  // table on a turn nobody can reconstruct.
+  let livePlayerMessageForOpenTurn: {
+    campaignId: string;
+    text: string;
+    playerTurnEpoch: number;
+  } | null = null;
   let openTurnRecoveryAuthorization: {
     campaignId: string;
     sessionEpoch: number;
@@ -5284,6 +5312,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           "random-dice-roll",
         ]);
       }
+      if (operation === "rules.settle") {
+        // RuleGraph settlement records its canonical percentile evidence in
+        // nested result rows (settlement.result.bound_check and family
+        // variants), never through a rules.roll envelope this gateway would
+        // observe. Without registration a graph-settled critical/fumble has
+        // no live roll handle: state.exceptional_effect can never bind the
+        // source roll and the turn cannot close.
+        const settleArguments = objectOrNull(params.arguments);
+        walkCanonicalRows(data, (row) => {
+          registerRoll(row.roll_id, [
+            settleArguments?.decision_id,
+            row.skill,
+            row.outcome ?? row.achieved_level,
+            "settled-check",
+          ]);
+        });
+      }
       if (operation === "rules.opposed") {
         registerRoll(data.investigator_roll_id, [
           data.skill,
@@ -6479,6 +6524,42 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               source: "host_open_turn_input_cache",
             });
           } catch { /* recovery binding audit is best effort */ }
+        } else if (
+          resumedAnchor !== null
+          && livePlayerMessageForOpenTurn !== null
+          && livePlayerMessageForOpenTurn.campaignId === campaignId
+        ) {
+          // The durable cache is empty because the message arrived before this
+          // process had an anchor. The player is right here and just spoke, so
+          // adopt that message as the open turn's input rather than leaving the
+          // table in a recovery it can never exit. Recorded durably now, so the
+          // next restart recovers it the ordinary way, and audited as adopted
+          // rather than recovered — the provenance difference is real.
+          const adopted = recordOpenTurnPlayerInput({
+            root: recoveryRoot,
+            campaignId,
+            sessionId: currentHostSessionId ?? "",
+            playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+            text: livePlayerMessageForOpenTurn.text,
+            anchor: resumedAnchor,
+          });
+          if (adopted === "recorded" || adopted === "replaced_stale" || adopted === "idempotent") {
+            openingContinuationGate.currentExternalPlayerText =
+              livePlayerMessageForOpenTurn.text;
+            armJournalBinding(campaignId);
+            try {
+              pi.appendEntry("coc-open-turn-player-input-rebound", {
+                schema_version: 1,
+                status: "adopted_live_message",
+                campaign_id: campaignId,
+                player_turn_epoch: canonicalProgress.playerTurnEpoch,
+                source: "live_player_message_after_restart",
+              });
+            } catch { /* recovery binding audit is best effort */ }
+          } else {
+            openingContinuationGate.currentExternalPlayerText = null;
+            clearTypedBinding("state.journal");
+          }
         } else {
           openingContinuationGate.currentExternalPlayerText = null;
           clearTypedBinding("state.journal");
@@ -10269,6 +10350,30 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         }
       }
       if (
+        typedDefinition.operation === "state.move_scene"
+        && !Object.hasOwn(params, "decision_id")
+      ) {
+        // `decision_id` is declared host-owned for state.move_scene, so the
+        // model schema hides it — but nothing supplied a value, and the
+        // canonical operation requires one. The Keeper then fails the write,
+        // retries identically, is repeat-blocked, and narrates a transition
+        // that never landed: fiction and authoritative scene diverge, which
+        // is the one outcome the state contract exists to prevent. Observed
+        // on a live table (2026-09-01) and once before it. The key names the
+        // destination so two different moves in one turn stay distinct while
+        // a repeated identical move stays idempotent.
+        const destination = typeof params.scene_id === "string"
+            && params.scene_id.trim()
+          ? params.scene_id.trim()
+          : typeof params.candidate_id === "string" && params.candidate_id.trim()
+          ? params.candidate_id.trim()
+          : "scene";
+        params = {
+          ...params,
+          decision_id: semanticDecisionId(`state.move_scene:${destination}`),
+        };
+      }
+      if (
         typedDefinition.operation === "state.advance_time"
         && !Object.hasOwn(params, "decision_id")
       ) {
@@ -11241,7 +11346,29 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       // While an armed recovery owns this result, its closed semantic
       // whitelist is the projection — the hostile canonical payload never
       // reaches the identity discovery path.
-      if (diagnostics.unmapped.length > 0 && !recoveryFinalizeActive) {
+      //
+      // A canonical FAILURE envelope with a structured code is exempt from
+      // the wholesale identity mask: nothing is being narrated from it, and
+      // replacing an actionable code (e.g.
+      // substantive_exceptional_effect_required, which names its exact
+      // recovery operation) with the generic identity error leaves the model
+      // no path to close the turn. The projected error has already dropped
+      // every unmapped identity field and scrubbed residual machine ids from
+      // its prose, so it is safe to deliver; the diagnostics ride along
+      // host-only in `details`.
+      const canonicalErrorCode = canonical.ok === false
+        ? objectOrNull(canonical.error)?.code
+        : undefined;
+      const actionableCanonicalError = (
+        typeof canonicalErrorCode === "string"
+        && canonicalErrorCode.trim() !== ""
+        && objectOrNull(objectOrNull(baseVisible)?.error) !== null
+      );
+      if (
+        diagnostics.unmapped.length > 0
+        && !recoveryFinalizeActive
+        && !actionableCanonicalError
+      ) {
         const operation = String(params.operation || "");
         const domains = [...new Set(diagnostics.unmapped.map((entry) => entry.domain))];
         return {
@@ -11281,9 +11408,26 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const visible = recoveryFinalizeActive
         ? projectRecoveryFinalizeResult(baseVisible, recoveryVisibleRecovery)
         : baseVisible;
-      const internalDetails = recoveryCanonicalDetails
+      const baseInternalDetails = recoveryCanonicalDetails
         ?? canonicalDetailsOverride
         ?? canonical;
+      // Identity diagnostics on a delivered actionable error stay host-only,
+      // exactly as the masked path records them (same pattern as
+      // `coc_transport` below). An armed recovery keeps its exact preserved
+      // canonical envelope untouched.
+      const internalDetails = actionableCanonicalError
+          && !recoveryFinalizeActive
+          && diagnostics.unmapped.length > 0
+        ? {
+          ...baseInternalDetails,
+          semantic_identity_diagnostics: diagnostics.unmapped.map((entry) => ({
+            field: entry.field,
+            parent_field: entry.parentField,
+            domain: entry.domain,
+            ...(entry.path !== undefined ? { path: entry.path } : {}),
+          })),
+        }
+        : baseInternalDetails;
       const rendered = { ...result(visible), details: internalDetails };
       const resumeData = objectOrNull(canonical.data);
       const resumeCampaign = typeof params.campaign === "string"
@@ -12307,6 +12451,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
                 mode: disposition.mode,
               };
             }
+          }
+          if (
+            startupSilentResumeQuarantine === null
+            && livePlayerMessageForOpenTurn !== null
+            && livePlayerMessageForOpenTurn.campaignId === selectedCampaignId
+            && livePlayerMessageForOpenTurn.playerTurnEpoch
+              === canonicalProgress.playerTurnEpoch
+          ) {
+            // The player message that reached this process before the startup
+            // resume classified it owns this turn — the quarantine above is
+            // disarmed precisely so the agent finishes it with ordinary tools.
+            // state.journal is one of those tools and its player_text is
+            // host-owned, so without arming here the Keeper spends the whole
+            // turn on missing_param and the player gets an empty reply.
+            openingContinuationGate.currentExternalPlayerText =
+              livePlayerMessageForOpenTurn.text;
+            armJournalBinding(selectedCampaignId);
           }
           startupResumeGate = null;
           if (startupGateOrigin === "role_null_handoff") {
@@ -13881,6 +14042,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           reprojectTools: false,
         });
         rearmCurrentCombatBinding(campaignId);
+        livePlayerMessageForOpenTurn = (
+          campaignId && externalPlayerText !== null && externalPlayerText !== ""
+        ) ? {
+          campaignId,
+          text: externalPlayerText,
+          playerTurnEpoch: canonicalProgress.playerTurnEpoch,
+        } : null;
         if (
           startupResumeGate === null
           && kpPlayPhase === "live_turn"
@@ -13962,6 +14130,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       } catch { /* watchdog audit is best effort */ }
       ctx.abort();
       recoverEmptyAssistantOutput();
+    },
+    (details) => {
+      try {
+        pi.appendEntry("coc-leading-whitespace-observed", {
+          schema_version: 1,
+          player_turn_epoch: canonicalProgress.playerTurnEpoch,
+          whitespace_delta_count: details.deltaCount,
+          whitespace_char_count: details.charCount,
+        });
+      } catch { /* watchdog evidence is best effort */ }
     },
   );
   // Forced raw-PDF bind injection: the KP must not need to read coc-module-init

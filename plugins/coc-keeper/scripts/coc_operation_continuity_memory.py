@@ -88,6 +88,56 @@ def _tool_state_backstory_corruption_add(ctx: Ctx, args: dict[str, Any]):
     ctx.ledger_record(args["decision_id"], "state.backstory_corruption_add", data)
     return data, [], ["this records an accepted consequence; it does not author one automatically"]
 
+def _tool_state_characteristic_delta(ctx: Ctx, args: dict[str, Any]):
+    prior = ctx.ledger_lookup("state.characteristic_delta", args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), ["duplicate decision_id: returning the previous receipt"], []
+    investigator_id = _resolve_investigator(ctx, args)
+    try:
+        delta = int(args["delta"])
+    except (TypeError, ValueError) as exc:
+        raise ToolError("invalid_param", "delta must be a non-zero integer") from exc
+    reason = str(args.get("reason") or "").strip()
+    if not reason:
+        raise ToolError(
+            "invalid_param",
+            "reason must state the in-fiction cause of the characteristic change",
+        )
+    try:
+        result = coc_state.apply_stat_delta(
+            ctx.campaign_dir,
+            investigator_id,
+            stat=str(args["characteristic"]),
+            delta=delta,
+        )
+    except ValueError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise ToolError("unknown_investigator", str(exc)) from exc
+    data = {**result, "reason": reason}
+    ctx.ledger_record(args["decision_id"], "state.characteristic_delta", data)
+    hints = [
+        "derived values were recomputed and are authoritative; do not restate "
+        "or recompute HP/MP/SAN/DB/Build/MOV yourself",
+    ]
+    if result["stat_kind"] == "house_rule":
+        hints.append(
+            "this is a house-rule stat: it is stored and reported, and it "
+            "never feeds a derivation it was not part of"
+        )
+    if result["clamped_pools"]:
+        hints.append(
+            "a maximum dropped below its current pool, so the pool was clamped; "
+            "narrate that loss rather than a separate injury"
+        )
+    if result["floored"]:
+        hints.append(
+            "the requested delta would have taken the stat below its floor, "
+            "so it stopped there"
+        )
+    return data, [], hints
+
+
 def _tool_threat_query(ctx: Ctx, args: dict[str, Any]):
     definitions = ctx.scenario("threat-fronts.json") or {"fronts": []}
     persisted = coc_threat_state.load_threat_state(ctx.campaign_dir / "save")
@@ -382,6 +432,29 @@ def register_operations(registry) -> None:
     "Read authored threat fronts with verified live current_segments projected onto them.",
     {},
 )(_tool_threat_query)
+    registry.tool(
+    "state.characteristic_delta",
+    "Apply a signed change to any numeric stat on an investigator (the `characteristic` argument takes any stat name, not only STR..EDU). A core characteristic (STR/CON/SIZ/DEX/APP/INT/POW/EDU) re-derives everything that reads from it; a derived value (HP/MP/SAN/Luck/Build/MOV) is recorded as an override that survives later recomputation; any other name is a house-rule stat. Current pools above a dropped maximum are clamped. Use for authored consequences that cost a stat: a spell's POW cost, a drain, time-loop ageing, or whatever this table's rules cost.",
+    {
+        "investigator": {"type": "string", "desc": "investigator id; defaults to the active PC"},
+        "characteristic": {
+            "type": "string",
+            "required": True,
+            "desc": "any stat name: a characteristic (STR..EDU), a derived value (HP/MP/SAN/Luck/Build/MOV), or this table's own house-rule stat",
+        },
+        "delta": {
+            "type": "integer",
+            "required": True,
+            "desc": "signed change; negative drains, positive restores",
+        },
+        "reason": {
+            "type": "string",
+            "required": True,
+            "desc": "in-fiction cause of the change, in the campaign's play language",
+        },
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+)(_tool_state_characteristic_delta)
     registry.tool(
     "state.threat_tick",
     "Advance one authored threat clock segment transactionally. Consequences are returned as advice, never auto-narrated.",

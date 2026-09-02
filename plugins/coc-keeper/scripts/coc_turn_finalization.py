@@ -26,8 +26,15 @@ import coc_roll
 import coc_exceptional_effects
 import coc_rulesets
 import coc_state_effect_authority
+import coc_text_runtime
 import coc_turn_manifest
 
+# TextGraph obligation plane (spec docs/specs/pi-coc-text-graph-runtime.md §7).
+# These closed vocabularies cross the model-visible surface — turn.output_context
+# publishes several of them as JSON Schema enums and turn.finalize rejects an
+# unknown token — so the graph is their single source and a rename is a protocol
+# break, not a refactor. Fails closed: there is no fallback to embedded literals.
+_TEXT = coc_text_runtime.vocabulary()
 
 FINALIZATION_SCHEMA_VERSION = 2
 MAX_ACCEPTED_REVISION = 2
@@ -50,29 +57,60 @@ LEGACY_FINALIZATION_FIELDS = frozenset({
     "draft_sha256", "coverage_sha256", "bundle_sha256", "rendered_sha256",
     "bundle", "coverage", "segments", "rendered_text", "integrity_digest",
 })
-COVERAGE_FIELDS = frozenset({
-    "obligation_id", "realization", "action_realization", "response",
-    "causal_explanation", "persona_fit", "player_input_handling",
-    "exact_excerpt", "exceptional_beat",
-})
-REALIZATION_VALUES = frozenset({
-    "fictional_beat", "concealed_no_player_visible_beat",
-})
-PLAYER_INPUT_HANDLING_VALUES = frozenset({
-    "abstract_completed", "specific_preserved", "not_applicable",
-})
-MECHANIC_SEGMENT_TYPES = frozenset({
-    "public_check", "state_delta", "asset_delta", "exceptional_effect",
-})
-ASSET_EFFECT_KINDS = frozenset({"cash", "item", "purchase", "assets_liquidate"})
+COVERAGE_FIELDS = _TEXT["coverage_fields"]
+REALIZATION_VALUES = _TEXT["realization_values"]
+PLAYER_INPUT_HANDLING_VALUES = _TEXT["player_input_handling_values"]
+MECHANIC_SEGMENT_TYPES = _TEXT["mechanic_segment_types"]
 # Structured registry identities that may prove a projected effect_kind.
 # Unknown kinds fail closed unless a registered state.* mutation matches.
-SEGMENT_TYPE_ORDER = {
-    "public_check": 0,
-    "state_delta": 1,
-    "asset_delta": 2,
-    "exceptional_effect": 3,
-}
+# Deliberately NOT a TextGraph vocabulary: these name state mutation kinds owned
+# by the rules and state layers, not presentation tokens. Recorded as an
+# explicit exclusion in the residue gate rather than left unexamined.
+ASSET_EFFECT_KINDS = frozenset({"cash", "item", "purchase", "assets_liquidate"})
+SEGMENT_TYPE_ORDER = _TEXT["segment_type_order"]
+SEGMENT_TYPES = _TEXT["segment_types"]
+# The segment type that must lead player-visible output. Carried as graph data
+# rather than a bare string at eight sites, because a silent change here lands
+# in what the player reads, not in an internal loop.
+LEADING_SEGMENT_TYPE = _TEXT["leading_segment_type"]
+
+_OBLIGATION_KINDS = _TEXT["obligation_kinds"]
+ROLL_OBLIGATION_PREFIX = _OBLIGATION_KINDS["roll"]["id_prefix"]
+FIRST_IMPRESSION_OBLIGATION_PREFIX = _OBLIGATION_KINDS["first-impression"]["id_prefix"]
+SANITY_BOUT_OBLIGATION_PREFIX = _OBLIGATION_KINDS["sanity_bout"]["id_prefix"]
+OBLIGATION_SOURCE_KINDS = _TEXT["obligation_source_kinds"]
+SUBSTANTIVE_EFFECT_STATUSES = _TEXT["substantive_effect_statuses"]
+
+
+def _graph_token(vocabulary: frozenset[str], name: str) -> str:
+    """Return a token after checking the graph still declares it.
+
+    For the id prefixes above the graph supplies the value itself. For these
+    the value equals the name, so what the graph supplies is membership: drop
+    the token from the artifact and this fails closed at import instead of
+    silently writing a source_kind nothing recognises.
+    """
+    if name not in vocabulary:
+        raise coc_text_runtime.TextGraphUnavailable(
+            f"TextGraph no longer declares {name!r}"
+        )
+    return name
+
+
+CONCEALED_ROLL_SOURCE_KIND = _graph_token(OBLIGATION_SOURCE_KINDS, "concealed_roll")
+FIRST_IMPRESSION_SOURCE_KIND = _graph_token(OBLIGATION_SOURCE_KINDS, "first_impression")
+SANITY_BOUT_SOURCE_KIND = _graph_token(OBLIGATION_SOURCE_KINDS, "sanity_bout")
+_STATUS_APPLIED = _graph_token(SUBSTANTIVE_EFFECT_STATUSES, "applied")
+_STATUS_MISSING = _graph_token(SUBSTANTIVE_EFFECT_STATUSES, "missing")
+_STATUS_NOT_REQUIRED = _graph_token(SUBSTANTIVE_EFFECT_STATUSES, "not_required")
+CONCEALED_REALIZATION = _graph_token(
+    REALIZATION_VALUES, "concealed_no_player_visible_beat"
+)
+# Synthetic source_kind for the undelivered-narration repair path. Deliberately
+# NOT a TextGraph obligation-source-kind: no settled receipt produces it, so
+# calling it settled-effect-derived would be false. Recorded as an explicit
+# exclusion in the residue gate rather than quietly migrated.
+_REPAIR_SOURCE_KIND = "repair"
 _CASH_GAME_TIME_PUBLIC = (
     "elapsed_minutes", "display", "display_sub", "local_datetime", "day_phase",
 )
@@ -86,13 +124,8 @@ AGENCY_CLAIM_FIELDS = frozenset({
     "claim_id", "subject_ref", "claim_type", "exact_excerpt", "source_ref",
     "override_id",
 })
-VOLUNTARY_CLAIM_TYPES = frozenset({
-    "voluntary_action", "voluntary_speech", "voluntary_plan",
-    "voluntary_belief", "voluntary_trust", "voluntary_active_emotion",
-})
-AGENCY_CLAIM_TYPES = frozenset({
-    *VOLUNTARY_CLAIM_TYPES, "forced_behavior", "involuntary_physiology",
-})
+VOLUNTARY_CLAIM_TYPES = _TEXT["voluntary_claim_types"]
+AGENCY_CLAIM_TYPES = _TEXT["agency_claim_types"]
 NARRATION_REVIEW_REF_FIELDS = frozenset({
     "review_id", "review_digest", "draft_sha256",
 })
@@ -251,15 +284,6 @@ def _campaign_player_terms(campaign_dir: Path, play_language: str | None = None)
     return coc_language.resolved_localized_terms(
         language, _campaign_document(campaign_dir)
     )
-
-
-def _infer_play_language_from_rendered(rendered_text: str) -> str:
-    """Best-effort language recovery for validating stored finalization receipts."""
-    if "【Public roll】" in rendered_text or "【Change】" in rendered_text:
-        return "en-US"
-    if "【公開ロール】" in rendered_text or "【変化】" in rendered_text:
-        return "ja-JP"
-    return coc_language.DEFAULT_PLAY_LANGUAGE
 
 
 def _structured_skill_labels(
@@ -534,7 +558,7 @@ def _valid_finalization_contract(
         return False
     seen_sources: set[tuple[str, str]] = set()
     fiction_parts: list[str] = []
-    allowed_segment_types = {"fiction", *MECHANIC_SEGMENT_TYPES}
+    allowed_segment_types = set(SEGMENT_TYPES)
     if allow_legacy_context_effect:
         allowed_segment_types.add("context_effect")
     for segment in segments:
@@ -549,7 +573,7 @@ def _valid_finalization_contract(
         ):
             return False
         segment_type = str(segment["segment_type"])
-        if segment_type == "fiction":
+        if segment_type == LEADING_SEGMENT_TYPE:
             if segment["source_ids"]:
                 return False
             fiction_parts.append(segment["text"])
@@ -560,7 +584,7 @@ def _valid_finalization_contract(
         if len(identities) != len(segment["source_ids"]) or seen_sources & identities:
             return False
         seen_sources.update(identities)
-    if segments[0].get("segment_type") != "fiction":
+    if segments[0].get("segment_type") != LEADING_SEGMENT_TYPE:
         return False
     if canonical_digest("\n\n".join(fiction_parts)) != row[hash_fields[0]]:
         return False
@@ -568,12 +592,9 @@ def _valid_finalization_contract(
         return False
     source_lines: dict[str, dict[str, str]] = {}
     try:
-        play_language = _infer_play_language_from_rendered(
-            str(row.get("rendered_text") or "")
-        )
-        source_lines = _mechanic_source_lines(
-            row["bundle"], play_language=play_language
-        )
+        # Only the source-id keys are read below; the rendered values are
+        # discarded, so this validation is language-independent.
+        source_lines = _mechanic_source_lines(row["bundle"])
         expected_sources = {
             (segment_type, source_id)
             for segment_type, values in source_lines.items()
@@ -797,10 +818,11 @@ def _scalar_effect(
     after: Any,
     *,
     investigator_id: str,
+    resource_key: str | None = None,
 ) -> dict[str, Any] | None:
     if not (_exact_int(before) and _exact_int(after)) or before == after:
         return None
-    return {
+    effect = {
         "schema_version": 1,
         "category": "state_delta",
         "effect_id": _stable_effect_id(decision_id, "scalar", resource),
@@ -812,6 +834,12 @@ def _scalar_effect(
         "after": after,
         "source_decision_id": decision_id,
     }
+    # Resources outside the shared pool vocabulary (a characteristic, a derived
+    # maximum, a house-rule stat) carry their own key so the state-proof
+    # authority can resolve them; the pools keep resolving by display name.
+    if resource_key:
+        effect["resource_key"] = resource_key
+    return effect
 
 
 def _project_conditions(
@@ -1039,6 +1067,55 @@ def _project_state_deltas(
             )
             if effect:
                 _add_effect(effects, effect)
+        elif tool == "state.characteristic_delta" and investigator_id:
+            # The stat itself, plus every derived maximum that moved with it.
+            # Without this the player is never told a drain happened: the write
+            # lands, the sheet changes, and the turn's visible state block stays
+            # silent about it.
+            stat_name = str(data.get("stat") or "").strip()
+            if stat_name:
+                effect = _scalar_effect(
+                    decision_id, stat_name,
+                    data.get("before"), data.get("after"),
+                    investigator_id=investigator_id,
+                    resource_key=stat_name,
+                )
+                if effect:
+                    _add_effect(effects, effect)
+            derived_before = (
+                data.get("derived_before")
+                if isinstance(data.get("derived_before"), dict) else {}
+            )
+            derived_after = (
+                data.get("derived_after")
+                if isinstance(data.get("derived_after"), dict) else {}
+            )
+            for derived_key in ("HP", "MP", "SAN"):
+                effect = _scalar_effect(
+                    decision_id, f"max {derived_key}",
+                    derived_before.get(derived_key), derived_after.get(derived_key),
+                    investigator_id=investigator_id,
+                    resource_key=f"max {derived_key}",
+                )
+                if effect:
+                    _add_effect(effects, effect)
+            clamped = (
+                data.get("clamped_pools")
+                if isinstance(data.get("clamped_pools"), dict) else {}
+            )
+            for pool, display in (
+                ("current_hp", "hp"), ("current_mp", "mp"), ("current_san", "san"),
+            ):
+                row = clamped.get(pool)
+                if not isinstance(row, dict):
+                    continue
+                effect = _scalar_effect(
+                    decision_id, resource_display.get(display, display.upper()),
+                    row.get("before"), row.get("after"),
+                    investigator_id=investigator_id,
+                )
+                if effect:
+                    _add_effect(effects, effect)
         elif tool == "rules.luck_spend" and investigator_id:
             effect = _scalar_effect(
                 decision_id, resource_display.get("luck", "Luck"), data.get("luck_before"), data.get("luck_after"),
@@ -1574,11 +1651,11 @@ def _build_obligations(
             if (effect.get("source_roll") or {}).get("roll_id") == roll_id
             and effect.get("direction") == effect_direction
         ]
-        obligation_id = f"roll:{roll_id}"
+        obligation_id = f"{ROLL_OBLIGATION_PREFIX}{roll_id}"
         npc_name = raw.get("npc_display_name")
         obligations.append({
             "obligation_id": obligation_id,
-            "source_kind": "concealed_roll" if hidden else _roll_kind(raw),
+            "source_kind": CONCEALED_ROLL_SOURCE_KIND if hidden else _roll_kind(raw),
             "source_id": roll_id,
             "npc_display_name": (
                 str(npc_name).strip() or None
@@ -1599,7 +1676,9 @@ def _build_obligations(
                 str(effect["effect_id"]) for effect in source_effects
             ),
             "substantive_effect_status": (
-                "applied" if source_effects else "missing" if effect_direction else "not_required"
+                _STATUS_APPLIED if source_effects
+                else _STATUS_MISSING if effect_direction
+                else _STATUS_NOT_REQUIRED
             ),
         })
         if hidden:
@@ -1614,8 +1693,8 @@ def _build_obligations(
         source_id = str(effect["source_receipt_id"])
         npc_name = effect.get("npc_display_name")
         obligations.append({
-            "obligation_id": f"first-impression:{source_id}",
-            "source_kind": "first_impression",
+            "obligation_id": f"{FIRST_IMPRESSION_OBLIGATION_PREFIX}{source_id}",
+            "source_kind": FIRST_IMPRESSION_SOURCE_KIND,
             "source_id": source_id,
             "npc_display_name": (
                 str(npc_name).strip() or None
@@ -1633,7 +1712,7 @@ def _build_obligations(
             "substantive_effect_required": False,
             "substantive_effect_direction": None,
             "substantive_effect_ids": [],
-            "substantive_effect_status": "not_required",
+            "substantive_effect_status": _STATUS_NOT_REQUIRED,
         })
     obligations.sort(key=lambda row: row["obligation_id"])
     return obligations, concealed
@@ -1670,8 +1749,8 @@ def _build_sanity_bout_obligations(
                 continue
             seen.add(bout_id)
             obligations.append({
-                "obligation_id": f"sanity_bout:{bout_id}",
-                "source_kind": "sanity_bout",
+                "obligation_id": f"{SANITY_BOUT_OBLIGATION_PREFIX}{bout_id}",
+                "source_kind": SANITY_BOUT_SOURCE_KIND,
                 "source_id": bout_id,
                 "visibility": "context_effect",
                 "skill": "SAN",
@@ -1688,18 +1767,16 @@ def _build_sanity_bout_obligations(
                 "substantive_effect_required": False,
                 "substantive_effect_direction": None,
                 "substantive_effect_ids": [],
-                "substantive_effect_status": "not_required",
+                "substantive_effect_status": _STATUS_NOT_REQUIRED,
             })
     return obligations
 
 
-PLAYER_FACING_ROLL_VISIBILITIES = frozenset({"public", "consequence_public"})
+PLAYER_FACING_ROLL_VISIBILITIES = _TEXT["player_facing_roll_visibilities"]
 # Settlements corrected after the fact stay in the audit log but must not face
 # the player again (battle report, turn.finalize public block, development
 # hard output).
-SUPERSEDED_ROLL_VISIBILITIES = frozenset({
-    "superseded", "voided", "corrected_hidden", "keeper_only",
-})
+SUPERSEDED_ROLL_VISIBILITIES = _TEXT["superseded_roll_visibilities"]
 
 
 def is_player_facing_roll(raw: dict[str, Any]) -> bool:
@@ -2919,14 +2996,16 @@ def _obligation_public_label(row: dict[str, Any]) -> str:
     kind = str(row.get("source_kind") or "")
     name = _semantic_slug(row.get("npc_display_name") or "")
     skill = _semantic_slug(row.get("skill") or "")
-    if kind == "first_impression":
-        return f"first-impression:{name}" if name else "first-impression"
-    if kind == "sanity_bout":
-        return "sanity_bout"
+    fi_prefix = FIRST_IMPRESSION_OBLIGATION_PREFIX
+    roll_prefix = ROLL_OBLIGATION_PREFIX
+    if kind == FIRST_IMPRESSION_SOURCE_KIND:
+        return f"{fi_prefix}{name}" if name else fi_prefix.rstrip(":")
+    if kind == SANITY_BOUT_SOURCE_KIND:
+        return SANITY_BOUT_OBLIGATION_PREFIX.rstrip(":")
     if skill:
-        return f"roll:{skill}"
+        return f"{roll_prefix}{skill}"
     kind_slug = _semantic_slug(kind.replace("_", "-"))
-    return f"roll:{kind_slug}" if kind_slug else "roll"
+    return f"{roll_prefix}{kind_slug}" if kind_slug else roll_prefix.rstrip(":")
 
 
 def _disambiguate_labels(labels: list[str]) -> list[str]:
@@ -2986,9 +3065,9 @@ def _resolve_coverage_obligation_id(
         source_id = str(row.get("source_id") or "")
         if not source_id:
             continue
-        if obligation_id == source_id or obligation_id == f"roll:{source_id}":
+        if obligation_id == source_id or obligation_id == f"{ROLL_OBLIGATION_PREFIX}{source_id}":
             matches.append(key)
-        elif key == f"roll:{obligation_id}":
+        elif key == f"{ROLL_OBLIGATION_PREFIX}{obligation_id}":
             matches.append(key)
     unique = list(dict.fromkeys(matches))
     if len(unique) == 1:
@@ -3031,8 +3110,8 @@ def validate_coverage(
         handling = bound.get("player_input_handling")
         if handling not in PLAYER_INPUT_HANDLING_VALUES:
             raise TurnContractError("invalid_coverage", f"invalid player_input_handling for {canonical}")
-        if realization == "concealed_no_player_visible_beat":
-            if required[canonical]["source_kind"] != "concealed_roll":
+        if realization == CONCEALED_REALIZATION:
+            if required[canonical]["source_kind"] != CONCEALED_ROLL_SOURCE_KIND:
                 raise TurnContractError(
                     "invalid_coverage", "only a concealed roll may close without a visible beat"
                 )
@@ -3283,7 +3362,7 @@ def _default_mechanics_placements(
     coverage_by_id = {row["obligation_id"]: row for row in coverage}
     grouped: dict[tuple[int, str], list[str]] = {}
     for source_id in sources["public_check"]:
-        row = coverage_by_id.get(f"roll:{source_id}")
+        row = coverage_by_id.get(f"{ROLL_OBLIGATION_PREFIX}{source_id}")
         excerpt = str((row or {}).get("exact_excerpt") or "")
         result_indices = [
             index
@@ -3331,7 +3410,7 @@ def _placements_from_segments(receipt: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(segment, dict):
             continue
         segment_type = segment.get("segment_type")
-        if segment_type == "fiction":
+        if segment_type == LEADING_SEGMENT_TYPE:
             paragraph_index += 1
         elif segment_type in MECHANIC_SEGMENT_TYPES:
             placements.append({
@@ -3360,8 +3439,8 @@ def _validate_roll_result_placement(
                 "roll_after_consequence",
                 f"public roll {roll_id} must be followed by a fictional result paragraph",
             )
-        row = coverage_by_id.get(f"roll:{roll_id}")
-        if row is None or row.get("realization") == "concealed_no_player_visible_beat":
+        row = coverage_by_id.get(f"{ROLL_OBLIGATION_PREFIX}{roll_id}")
+        if row is None or row.get("realization") == CONCEALED_REALIZATION:
             continue
         excerpt = str(row.get("exact_excerpt") or "")
         result_paragraphs = [
@@ -3422,8 +3501,8 @@ def _collect_coverage_violations(
         handling = bound.get("player_input_handling")
         if handling not in PLAYER_INPUT_HANDLING_VALUES:
             add("invalid_coverage", f"invalid player_input_handling for {canonical}")
-        if realization == "concealed_no_player_visible_beat":
-            if required[canonical]["source_kind"] != "concealed_roll":
+        if realization == CONCEALED_REALIZATION:
+            if required[canonical]["source_kind"] != CONCEALED_ROLL_SOURCE_KIND:
                 add(
                     "invalid_coverage",
                     "only a concealed roll may close without a visible beat",
@@ -3507,7 +3586,7 @@ def _collect_default_placements(
     coverage_by_id = {row["obligation_id"]: row for row in coverage}
     grouped: dict[tuple[int, str], list[str]] = {}
     for source_id in sources["public_check"]:
-        row = coverage_by_id.get(f"roll:{source_id}")
+        row = coverage_by_id.get(f"{ROLL_OBLIGATION_PREFIX}{source_id}")
         excerpt = str((row or {}).get("exact_excerpt") or "")
         result_indices = [
             index
@@ -3685,8 +3764,8 @@ def _collect_roll_after_violations(
                 "message": f"public roll {roll_id} must be followed by a fictional result paragraph",
             })
             continue
-        row = coverage_by_id.get(f"roll:{roll_id}")
-        if row is None or row.get("realization") == "concealed_no_player_visible_beat":
+        row = coverage_by_id.get(f"{ROLL_OBLIGATION_PREFIX}{roll_id}")
+        if row is None or row.get("realization") == CONCEALED_REALIZATION:
             continue
         excerpt = str(row.get("exact_excerpt") or "")
         result_paragraphs = [
@@ -3905,7 +3984,7 @@ def compose_segments(
         })
     for index, paragraph in enumerate(paragraphs):
         segments.append({
-            "segment_type": "fiction",
+            "segment_type": LEADING_SEGMENT_TYPE,
             "text": coc_language.localize_terms(paragraph, terms),
             "source_ids": [],
         })
@@ -4140,9 +4219,9 @@ def build_undelivered_repair_receipt(
         {
             "obligation_id": row["obligation_id"],
             "source_kind": (
-                "concealed_roll"
-                if row.get("realization") == "concealed_no_player_visible_beat"
-                else "repair"
+                CONCEALED_ROLL_SOURCE_KIND
+                if row.get("realization") == CONCEALED_REALIZATION
+                else _REPAIR_SOURCE_KIND
             ),
             "exceptional_required": bool(row.get("exceptional_beat")),
         }
@@ -4199,7 +4278,7 @@ def build_undelivered_repair_receipt(
             "\n\n".join(
                 segment["text"]
                 for segment in segments
-                if segment["segment_type"] == "fiction"
+                if segment["segment_type"] == LEADING_SEGMENT_TYPE
             )
         ),
         "coverage_sha256": canonical_digest(normalized_coverage),
@@ -4331,7 +4410,7 @@ def build_finalization_receipt(
             "\n\n".join(
                 segment["text"]
                 for segment in segments
-                if segment["segment_type"] == "fiction"
+                if segment["segment_type"] == LEADING_SEGMENT_TYPE
             )
         ),
         "coverage_sha256": canonical_digest(normalized_coverage),
@@ -4370,9 +4449,7 @@ def replay_matches(
         play_language = (
             _campaign_play_language(campaign_dir)
             if campaign_dir is not None
-            else _infer_play_language_from_rendered(
-                str(receipt.get("rendered_text") or "")
-            )
+            else coc_language.DEFAULT_PLAY_LANGUAGE
         )
         _segments, rendered, _placements = compose_segments(
             draft,
@@ -4395,7 +4472,7 @@ def replay_matches(
             "\n\n".join(
                 segment["text"]
                 for segment in _segments
-                if segment["segment_type"] == "fiction"
+                if segment["segment_type"] == LEADING_SEGMENT_TYPE
             )
         )
         and receipt.get("coverage_sha256") == canonical_digest(normalized)

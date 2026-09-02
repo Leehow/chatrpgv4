@@ -117,6 +117,82 @@ def _lane_id(value: Any) -> str:
     return token
 
 
+_DIRECTOR_GRAPH_PATH = (
+    _PLUGIN_ROOT / "references" / "director-graph.json"
+)
+
+
+def _normalize_doctrine_overrides(raw: Any, *, label: str) -> dict[str, Any]:
+    """Validate a lane's per-value doctrine overrides against the real graph.
+
+    An override may only change the value of a doctrine node that already
+    exists. It cannot add a node, change a node kind, or introduce a value of
+    a different shape — so a lane can differ from production by exactly one
+    recorded number and nothing else.
+    """
+    if raw is None:
+        return {}
+    overrides = _strict_object(raw, label=label)
+    if not overrides:
+        raise DebugExperimentError(
+            "debug_request_invalid", f"{label} must not be empty when present",
+        )
+    try:
+        graph = json.loads(_DIRECTOR_GRAPH_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise DebugExperimentError(
+            "debug_request_invalid", f"DirectorGraph is unreadable: {exc}",
+        ) from exc
+    nodes = {
+        row["node_id"]: row
+        for row in graph.get("nodes", [])
+        if isinstance(row, dict) and row.get("plane") == "doctrine"
+    }
+    normalized: dict[str, Any] = {}
+    for node_id, value in overrides.items():
+        node = nodes.get(node_id)
+        if node is None:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label}: {node_id!r} is not a doctrine node in the DirectorGraph",
+            )
+        current = (node.get("properties") or {}).get("value")
+        if current is None:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label}: {node_id!r} carries no value to override",
+            )
+        if type(value) is not type(current) or (
+            isinstance(current, list) and len(value) != len(current)
+        ):
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label}: {node_id!r} expects a value shaped like {current!r}",
+            )
+        if value == current:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label}: {node_id!r} override equals the production value",
+            )
+        normalized[node_id] = value
+    return normalized
+
+
+def _write_lane_director_graph(
+    destination: Path, overrides: dict[str, Any]
+) -> Path:
+    """Write a lane-private DirectorGraph carrying the lane's overrides."""
+    graph = json.loads(_DIRECTOR_GRAPH_PATH.read_text(encoding="utf-8"))
+    for row in graph.get("nodes", []):
+        if isinstance(row, dict) and row.get("node_id") in overrides:
+            row["properties"]["value"] = overrides[row["node_id"]]
+    destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    destination.write_text(
+        json.dumps(graph, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return destination
+
+
 def _normalize_run_spec(raw: Any) -> dict[str, Any]:
     spec = _strict_object(raw, label="run spec")
     _exact_keys(
@@ -135,7 +211,11 @@ def _normalize_run_spec(raw: Any) -> dict[str, Any]:
     seen: set[str] = set()
     for index, item in enumerate(raw_lanes):
         lane = _strict_object(item, label=f"lanes[{index}]")
-        _exact_keys(lane, {"id", "profile", "player_input"}, label=f"lanes[{index}]")
+        _exact_keys(
+            lane,
+            {"id", "profile", "player_input", "doctrine_overrides"},
+            label=f"lanes[{index}]",
+        )
         semantic_id = _lane_id(lane.get("id"))
         if semantic_id in seen:
             raise DebugExperimentError("debug_request_invalid", "lane ids must be unique")
@@ -150,7 +230,15 @@ def _normalize_run_spec(raw: Any) -> dict[str, Any]:
             if "player_input" not in lane
             else _nonempty_text(lane["player_input"], label=f"lanes[{index}].player_input")
         )
-        lanes.append({"id": semantic_id, "profile": profile, "player_input": lane_input})
+        overrides = _normalize_doctrine_overrides(
+            lane.get("doctrine_overrides"), label=f"lanes[{index}].doctrine_overrides"
+        )
+        lanes.append({
+            "id": semantic_id,
+            "profile": profile,
+            "player_input": lane_input,
+            "doctrine_overrides": overrides,
+        })
 
     timeout = spec.get("timeout_seconds", 180)
     if not isinstance(timeout, int) or isinstance(timeout, bool) or not 1 <= timeout <= 180:
@@ -1006,6 +1094,12 @@ class PiRpcLaneAdapter:
         })
         if lane.get("profile") != "production":
             environment["COC_PI_ACCEPTANCE_PROFILE"] = str(lane["profile"])
+        overrides = lane.get("doctrine_overrides") or {}
+        if overrides:
+            environment["COC_DIRECTOR_GRAPH"] = str(_write_lane_director_graph(
+                Path(materialized["workspace_root"]) / ".coc" / "director-graph.json",
+                overrides,
+            ))
         command = self._command(lane, run, materialized)
         process: subprocess.Popen[str] | None = None
         stderr_thread: threading.Thread | None = None
