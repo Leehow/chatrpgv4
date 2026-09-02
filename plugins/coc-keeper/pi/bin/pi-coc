@@ -224,6 +224,26 @@ for steward_agent in "$STEWARD_AGENT_SOURCE"/steward-*.md; do
   fi
 done
 
+# The subagent extension resolves agents from the AGENT HOME (`getAgentDir()`
+# + /agents), not from the project `.pi/agents` surface above. The opening
+# source coordinator is the only way past `opening_source_review_required`,
+# and it was never mirrored anywhere: dispatching it failed with
+# `Unknown agent: "coc-opening-source-coordinator"` while the campaign sat at
+# that gate. Mirror the dispatchable coordinators into the home the extension
+# actually reads.
+COORDINATOR_AGENT_SOURCE=$REPO_ROOT/plugins/coc-keeper/agents
+COORDINATOR_AGENT_RUNTIME=$PI_CODING_AGENT_DIR/agents
+if [ -d "$COORDINATOR_AGENT_SOURCE" ]; then
+  mkdir -p "$COORDINATOR_AGENT_RUNTIME"
+  for coordinator_agent in "$COORDINATOR_AGENT_SOURCE"/coc-*-coordinator.md; do
+    [ -f "$coordinator_agent" ] || continue
+    target_agent=$COORDINATOR_AGENT_RUNTIME/$(basename "$coordinator_agent")
+    if [ ! -f "$target_agent" ] || ! cmp -s "$coordinator_agent" "$target_agent"; then
+      cp "$coordinator_agent" "$target_agent"
+    fi
+  done
+fi
+
 # Play workspace (campaign `.coc/`) may differ from the package repo root.
 # The web/Electron UI sets COC_WORKSPACE to the player workspace; TUI and
 # repo-local `pi-coc` keep the historical "cwd is the package root" default.
