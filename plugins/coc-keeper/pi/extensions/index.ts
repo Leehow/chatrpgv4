@@ -11331,8 +11331,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const identityScopeData = params.operation === "session.resume"
         ? objectOrNull(canonicalData?.scene_context) ?? canonicalData
         : canonicalData;
+      // Host tools such as coc_capabilities carry no `operation` argument, so
+      // their identity declarations are keyed by the tool name the canonical
+      // envelope reports; without this the boundary sees every field of such
+      // an envelope as undeclared and fails the whole result closed.
+      const identityOperation = typeof params.operation === "string"
+          && params.operation.trim()
+        ? params.operation
+        : (typeof objectOrNull(canonical)?.tool === "string"
+          ? String(objectOrNull(canonical)?.tool)
+          : params.operation);
       let baseVisible = modelVisibleCanonicalEnvelope(
-        params.operation,
+        identityOperation,
         canonical,
         liveSemanticIdMap(
           gatewayCampaign,

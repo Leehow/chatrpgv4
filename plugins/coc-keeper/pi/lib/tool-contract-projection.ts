@@ -3841,6 +3841,20 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     ["clue_id", "clue_ids", "npc_id", "npc_ids", "scene_id"],
     [],
   )],
+  // coc_capabilities carries no `operation` argument, so its identity key is
+  // the tool name the canonical envelope reports. Its wire block states the
+  // digest of the operation-contract archive it was projected from; that is
+  // host integrity evidence, details-only, never model content. Undeclared it
+  // was unknown evidence, and the first call of a clean install — the
+  // capability handshake itself — failed closed with
+  // semantic_identity_unavailable.
+  ["coc_capabilities", declaredIdentityTable(
+    [],
+    ["contract_archive_sha256"],
+    // A repository-relative evidence pointer, not a semantic id the Keeper
+    // can act on: host-only, so it stays in details and out of model content.
+    ["coc_source_coordinator_v1_grok_evidence_ref"],
+  )],
   // Supplied scenes are keyed by a bare `id` beside `scene_id`.
   ["steward.scene_supply", declaredIdentityTable(
     SCENE_SUPPLY_SEMANTIC_IDENTITY_FIELDS,
