@@ -94,7 +94,15 @@ def test_a_wrong_ref_is_answered_with_the_right_lists(monkeypatch):
         "investigator:thomas-hayes", "npc:walter-corbitt",
     ]
     assert details["connected_location_refs"] == ["scene:a", "scene:b"]
-    assert "at least two" in details["requires"]["location_refs"]
+    # A list, not a map keyed by the argument names. Keyed that way the whole
+    # block arrived model-side as `{}`: those names are identity-bearing, so
+    # the projection held their values to the ref grammar and prose is not a
+    # ref (tests/pi/chase-candidate-guidance-survives.mjs).
+    requires = details["requires"]
+    assert isinstance(requires, list), requires
+    assert any(
+        "location_refs" in row and "at least two" in row for row in requires
+    ), requires
 
 
 def test_a_valid_start_still_binds(monkeypatch):
@@ -169,13 +177,14 @@ def test_the_host_binds_only_slots_the_chase_decision_declares(tmp_path):
     )
 
 
-def test_the_refusal_names_which_ref_failed_not_just_that_one_did(monkeypatch):
+def test_the_refusal_says_what_went_wrong_and_where_the_refs_are(monkeypatch):
     """The model reads the message before the details.
 
     "chase refs must resolve to current actors and current/connected
-    locations" names nothing it can act on, and the lists that would have
-    answered it were already in hand. Two chase starts were refused this way
-    in r36.
+    locations" names nothing it can act on. Two chase starts were refused that
+    way in r36 -- but the refs cannot go in the message either, because Pi
+    rewrites canonical ids out of error prose. So the message carries counts
+    and points at the details keys that hold the refs.
     """
     with pytest.raises(kernel.ToolError) as excinfo:
         _binding(
@@ -196,7 +205,21 @@ def test_the_refusal_names_which_ref_failed_not_just_that_one_did(monkeypatch):
             },
         )
     message = excinfo.value.message
-    assert "npc:someone-not-here" in message, message
-    assert "scene:elsewhere" in message, message
-    assert "npc:npc-walter-corbitt" in message, "it must name who IS present"
-    assert "scene:a" in message, "and where IS connected"
+    details = excinfo.value.details
+
+    # The refs live in details, which is declared and projected. Naming them
+    # in the message does NOT reach the Keeper: Pi rewrites canonical ids out
+    # of error prose, and the first version of this fix arrived reading
+    # "not present in this scene: (present:, )" -- a host-level test asserting
+    # the message held the refs passed while the Keeper saw punctuation.
+    assert "npc:someone-not-here" not in message, message
+    assert "scene:elsewhere" not in message, message
+    assert details["rejected_actor_refs"] == ["npc:someone-not-here"], details
+    assert details["rejected_location_refs"] == ["scene:elsewhere"], details
+    assert "npc:npc-walter-corbitt" in details["present_actor_refs"], details
+    assert "scene:a" in details["connected_location_refs"], details
+
+    # ...and the message says what went wrong and where the refs are.
+    assert "1 actor ref(s) are not in this scene" in message, message
+    assert "details.rejected_actor_refs" in message, message
+    assert "1 location ref(s) are not connected" in message, message

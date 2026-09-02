@@ -8202,15 +8202,24 @@ def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: st
                     "the same actor cannot be pursuer and quarry: "
                     + ", ".join(overlap)
                 )
+            # Counts and details keys, never the refs themselves. Pi rewrites
+            # canonical ids out of error prose (`rewriteCanonicalIdsInError`),
+            # so refs named in the message are DELETED on the way to the
+            # Keeper: the first version of this read
+            # "not present in this scene: (present:, )" by the time it
+            # arrived. The refs travel in `details`, which is declared and
+            # projected, and the message says where to look.
             if rejected_actors:
                 trouble.append(
-                    "not present in this scene: " + ", ".join(rejected_actors)
-                    + f" (present: {', '.join(sorted(actors)[:6]) or 'none'})"
+                    f"{len(rejected_actors)} actor ref(s) are not in this "
+                    "scene: see details.rejected_actor_refs against "
+                    "details.present_actor_refs"
                 )
             if rejected_locations:
                 trouble.append(
-                    "not connected to this scene: " + ", ".join(rejected_locations)
-                    + f" (connected: {', '.join(sorted(locations)[:6]) or 'none'})"
+                    f"{len(rejected_locations)} location ref(s) are not "
+                    "connected to this scene: see details.rejected_location_refs "
+                    "against details.connected_location_refs"
                 )
             raise ToolError(
                 "chase_candidate_invalid",
@@ -8224,11 +8233,19 @@ def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: st
                     "rejected_location_refs": rejected_locations,
                     "present_actor_refs": sorted(actors)[:12],
                     "connected_location_refs": sorted(locations)[:12],
-                    "requires": {
-                        "pursuer_refs": "at least one, from present_actor_refs",
-                        "quarry_refs": "at least one, from present_actor_refs, disjoint from pursuer_refs",
-                        "location_refs": "at least two, from connected_location_refs",
-                    },
+                    # A list, not a map keyed by the argument names. Keyed
+                    # that way the guidance arrived EMPTY: `pursuer_refs`,
+                    # `quarry_refs` and `location_refs` are identity-bearing
+                    # field names, so the projection held their values to the
+                    # ref grammar, and prose is not a ref -- the host's own
+                    # instructions were deleted by the host's own identity
+                    # rules. Seen model-side in r38 as `"requires": {}`.
+                    "requires": [
+                        "pursuer_refs: at least one, chosen from present_actor_refs",
+                        "quarry_refs: at least one, chosen from present_actor_refs, "
+                        "and none of them also a pursuer",
+                        "location_refs: at least two, chosen from connected_location_refs",
+                    ],
                 },
             )
         participants = []
