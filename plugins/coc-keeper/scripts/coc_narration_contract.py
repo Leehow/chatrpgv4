@@ -1905,14 +1905,18 @@ def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str
         policy = style.get("repetition_policy") or {}
         guard = style.get("style_guard") or {}
         render_contract = style.get("render_contract") or {}
-        required_avoid = {
-            "ai_summary_voice",
-            "log_style_summary",
-            "semantic_repetition",
-            "abstract_psychological_explanation",
-        }
-        if style.get("language") == "zh-Hans":
-            required_avoid.add("translationese")
+        # The graph already knows which craft failures each language must avoid,
+        # including that `translationese` is zh-specific -- the hand-written
+        # set and its language conditional reproduced `craft(language)["avoid"]`
+        # exactly, verified per value for both languages before this change.
+        required_avoid = set(
+            coc_text_runtime.craft(str(style.get("language") or "zh-Hans"))["avoid"]
+        )
+        # Deliberately a SUBSET of the graph's `prefer`, not a copy of it:
+        # `concrete_sensory_detail` is a craft aim the contract offers, not a
+        # floor a plan is rejected for missing. Reading the graph here would
+        # tighten the validator, which is a product change wearing the costume
+        # of a residue cleanup.
         required_prefer = {"short_sentences", "observable_behavior", "open_ended_prompt"}
         required_guard_rules = {
             "observable_before_interpretation",
@@ -1920,15 +1924,7 @@ def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str
             "crisis_scene_clarity",
             "final_prose_guard_before_output",
         }
-        required_render_slots = {
-            "viewpoint_anchor",
-            "spatial_anchor",
-            "active_motion",
-            "connection_or_force",
-            "risk_progression",
-            "visible_affordance",
-            "player_entry",
-        }
+        required_render_slots = set(coc_text_runtime.craft()["render_slots"])
         missing_avoid = sorted(required_avoid - avoid)
         missing_prefer = sorted(required_prefer - prefer)
         missing_guard_rules = sorted(required_guard_rules - set(guard.get("required_rules", []) or []))
