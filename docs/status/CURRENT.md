@@ -130,18 +130,18 @@ rejection costs one round trip. See spec §16.1.
    in the TypeScript projection. The TextGraph residue gate now counts them
    cross-language and fails when a count moves, so they are pinned rather than
    fixed.
-11. `_pi_play_agency_review_required()` returns `False` unconditionally since
-    `ab634acd`, whose comment retires the second narration/rewrite pass. The
-    `narration.review` schema still describes `agency_violation` as "the only
-    hard gate", yet with the flag false `agency_gate` is always `advisory`,
-    `turn.finalize` never refuses with `agency_review_blocked`, and the host
-    never offers `agency_review_operation`. Either the agency gate went with
-    the rewrite loop — making three `tests/test_narration_budget.py` cases and
-    the schema description stale — or it did not, and production has no hard
-    gate on unauthorized PC agency. Those three tests assert the whole flow,
-    not a value, so they are left failing rather than rewritten to match
-    whichever answer is convenient. This also explains TextGraph gate 4's zero
-    mechanically: `docs/status/why-narration-review-fired-zero-times.md`.
+11. ~~The agency gate may have been retired by accident.~~ **Answered, and
+    the premise was wrong.** `ab634acd` retired the second narration/rewrite
+    pass deliberately and updated `test_turn_finalization.py` in the same
+    commit to assert `agency_review_required is False`; it simply missed
+    `tests/test_narration_budget.py`. That file's 17 failures are closed: a
+    `pi_review_enabled` fixture keeps the still-present review machinery
+    covered, and one unrelated failure needed `involuntary_action`, required
+    on `rules.sanity_check` since `b8534c8c`. What remains true and worth
+    watching is that `narration.review`'s schema still calls
+    `agency_violation` "the only hard gate" while the operation is not offered
+    in normal play — the descriptions now say so explicitly, but the wording
+    inside `findings.rule_id` has not been revisited.
 
 ## Whole-product acceptance
 

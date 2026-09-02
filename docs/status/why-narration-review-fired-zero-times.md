@@ -102,8 +102,17 @@ answering a question this document deliberately does not:
 > gate on unauthorized PC agency, and these tests are the ones telling the
 > truth.
 
-That is a product decision, and rewriting a test suite is the wrong instrument
-for making it. Recorded as CURRENT.md open item 9.
+**That framing was wrong, and the correction belongs here.** `ab634acd`
+updated `test_turn_finalization.py` in the same commit — renaming a test to
+`..._is_direct_single_draft_and_finalizes_once_without_review` and asserting
+`agency_review_required is False`. The decision was made and documented; this
+file was missed by the sweep, nothing more. All 17 failures are now closed
+without weakening an assertion: a `pi_review_enabled` fixture keeps the
+still-present review machinery covered, since the code was retired from the
+default path but not deleted.
+
+One thing did survive from the wrong framing, as a real defect found while
+checking it — see the next section.
 
 ## Method note
 
@@ -113,3 +122,26 @@ which a grep of the evidence immediately contradicted — 1111 occurrences. Most
 were prompt prose; some were real. Only separating *populated data fields* from
 *instruction text*, per run, produced the actual discriminator. A confirmed
 value in preserved evidence beats a plausible code path, again.
+
+
+## The defect this actually surfaced
+
+`turn.finalize`'s model-visible description still said:
+
+> "In Pi play, first call the narration.review operation returned by
+> turn.output_context ..."
+
+In `textgraph-t5-en-20260901` the Keeper did exactly that, called
+`coc_discover` for `narration.review`, and was refused three times:
+
+```json
+{"code": "stage_forbidden",
+ "message": "operation narration.review is not available in stage output_context_ready"}
+```
+
+`host-system-play.md` had been updated for the direct path and carries both
+branches correctly; the two operation descriptions had not. They are the
+model-visible contract, so the cost is a wasted round trip in live play rather
+than a stale test. Both now read the flag first, and `narration.review`'s own
+description names the `stage_forbidden` refusal so the failure mode is legible
+before it happens.
