@@ -26,10 +26,14 @@ import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { classifyToolCall } from "./domain-tools.ts";
 import { createContextProbe, type ContextProbe } from "./context-probe.ts";
+import {
+  createRequestPrefixProbe,
+  type RequestPrefixProbe,
+} from "./request-prefix-probe.ts";
 import type { ContextFoldStats } from "./context-fold.ts";
 import type { McpTransportMeta } from "./runtime.ts";
 
-export const TURN_TELEMETRY_SCHEMA_VERSION = 5;
+export const TURN_TELEMETRY_SCHEMA_VERSION = 6;
 
 export type TelemetryUsage = {
   input: number;
@@ -81,6 +85,13 @@ export type ModelCallStep = {
   stop_reason: string | null;
   /** Composition of the context actually sent on this call (post-fold). */
   context_probe: ContextProbe | null;
+  /**
+   * Composition of the provider request body itself — system prompt,
+   * advertised tools, transcript, residual. `context_probe` measures only the
+   * message array; this measures everything the provider bills for. Null when
+   * the host emitted no `before_provider_request` payload or the probe is off.
+   */
+  request_prefix: RequestPrefixProbe | null;
   /** Standing epoch-fold state at this call; null when folding is not wired. */
   context_fold: ContextFoldStats | null;
 };
@@ -120,6 +131,28 @@ export type TurnContextProbeSummary = {
   probe_ms: number;
 };
 
+/**
+ * Per-turn roll-up of the request-prefix probe.
+ *
+ * `tools_changed_calls` is the number that matters: a prefix-cache miss and a
+ * moved `tools` field are the same event seen from two sides, and this puts
+ * both on one turn record next to `tokens.input` / `tokens.cache_read`.
+ */
+export type TurnRequestPrefixSummary = {
+  calls: number;
+  tools_changed_calls: number;
+  instructions_changed_calls: number;
+  /** Composition of the last call of the turn. */
+  payload_bytes: number;
+  instructions_bytes: number;
+  tools_count: number;
+  tools_bytes: number;
+  input_messages: number;
+  input_bytes: number;
+  other_bytes: number;
+  probe_ms: number;
+};
+
 export type TurnTelemetryRecord = {
   record: "turn";
   schema_version: number;
@@ -141,6 +174,8 @@ export type TurnTelemetryRecord = {
   context_probe: TurnContextProbeSummary | null;
   /** Standing epoch-fold state after this turn; null when folding is off. */
   context_fold: ContextFoldStats | null;
+  /** Roll-up of the per-call provider request body probe for this turn. */
+  request_prefix: TurnRequestPrefixSummary | null;
   /** Last known effective thinking level; null when the host never reported one. */
   thinking_level: string | null;
   tokens: TelemetryUsage | null;
@@ -247,6 +282,13 @@ export function formatTokens(tokens: number): string {
   return tokens.toLocaleString("en-US");
 }
 
+/** Request-body sizes are exact bytes, never token estimates. */
+export function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${Math.max(0, Math.round(bytes))}B`;
+}
+
 /** One-line zh-Hans summary shown after each settled turn (and in /timing). */
 export function formatTurnSummaryLine(record: TurnTelemetryRecord): string {
   const modelThinking = record.steps
@@ -350,6 +392,23 @@ export function formatTimingPanel(
         + (record.tokens.cost_usd > 0 ? ` · ≈$${record.tokens.cost_usd.toFixed(2)}` : ""),
     );
   }
+  if (record.request_prefix) {
+    const prefix = record.request_prefix;
+    // Operator-facing only. This is the half of the request `context_probe`
+    // never looked at, and the line that would have made the fixed prefix
+    // visible before it cost a session.
+    lines.push(
+      `请求体：${formatBytes(prefix.payload_bytes)}`
+        + `（系统提示 ${formatBytes(prefix.instructions_bytes)}`
+        + ` · 工具 ${prefix.tools_count} 个/${formatBytes(prefix.tools_bytes)}`
+        + ` · 转录 ${prefix.input_messages} 条/${formatBytes(prefix.input_bytes)}`
+        + ` · 其余 ${formatBytes(prefix.other_bytes)}）`,
+    );
+    lines.push(
+      `请求前缀变动：工具集 ${prefix.tools_changed_calls}/${prefix.calls} 次调用改变`
+        + ` · 系统提示 ${prefix.instructions_changed_calls}/${prefix.calls} 次`,
+    );
+  }
   if (record.context_usage) {
     lines.push(
       `上下文：${formatTokens(record.context_usage.tokens)} / `
@@ -415,6 +474,33 @@ function summarizeContextProbe(
   };
 }
 
+/** Roll up per-call request-prefix probes. Last call wins on composition. */
+function summarizeRequestPrefix(
+  steps: Array<ModelCallStep | ToolCallStep>,
+): TurnRequestPrefixSummary | null {
+  const probes = steps
+    .filter((step): step is ModelCallStep => (
+      step.kind === "model" && step.request_prefix !== null
+    ))
+    .map((step) => step.request_prefix as RequestPrefixProbe);
+  if (!probes.length) return null;
+  const last = probes[probes.length - 1];
+  return {
+    calls: probes.length,
+    tools_changed_calls: probes.filter((probe) => probe.tools_status === "changed").length,
+    instructions_changed_calls: probes
+      .filter((probe) => probe.instructions_status === "changed").length,
+    payload_bytes: last.payload_bytes,
+    instructions_bytes: last.instructions_bytes,
+    tools_count: last.tools_count,
+    tools_bytes: last.tools_bytes,
+    input_messages: last.input_messages,
+    input_bytes: last.input_bytes,
+    other_bytes: last.other_bytes,
+    probe_ms: probes.reduce((sum, probe) => sum + probe.observe_ms, 0),
+  };
+}
+
 type OpenModelCall = {
   phases: ModelCallPhases;
   sawThinking: boolean;
@@ -425,12 +511,15 @@ type OpenModelCall = {
   model: string;
   context: ContextProbe | null;
   fold: ContextFoldStats | null;
+  requestPrefix: RequestPrefixProbe | null;
 };
 
 type PendingProvider = {
   request: TelemetryMark;
   response: TelemetryMark | null;
   status: number | null;
+  /** Measured off the request body this call is about to send. */
+  prefix: RequestPrefixProbe | null;
 };
 
 type ActiveTurn = {
@@ -482,6 +571,7 @@ export function registerTurnTelemetry(
   let active: ActiveTurn | null = null;
   let pendingProvider: PendingProvider | null = null;
   const contextProbe = createContextProbe({ now });
+  const requestPrefixProbe = createRequestPrefixProbe({ now });
   let pendingContext: ContextProbe | null = null;
   let pendingFold: ContextFoldStats | null = null;
   let sessionLabel: string | null = null;
@@ -579,6 +669,7 @@ export function registerTurnTelemetry(
         .map((step) => step.context_fold)
         .filter((stats): stats is ContextFoldStats => stats !== null)
         .at(-1) ?? null,
+      request_prefix: summarizeRequestPrefix(turn.steps),
       thinking_level: thinkingLevel,
       tokens: sumUsage(
         turn.steps
@@ -660,12 +751,20 @@ export function registerTurnTelemetry(
     }
   });
 
-  pi.on("before_provider_request", () => {
+  // Observation only. `before_provider_request` handlers that RETURN a value
+  // replace the provider payload; this one must never return anything. The
+  // probe runs even without an active turn so its call-to-call `stable` /
+  // `changed` verdicts stay true to the real request sequence.
+  pi.on("before_provider_request", (event: unknown) => {
+    const prefix = requestPrefixProbe.observe(
+      (event as { payload?: unknown } | undefined)?.payload,
+    );
     if (!active) return;
     pendingProvider = {
       request: mark(active.startMono),
       response: null,
       status: null,
+      prefix,
     };
   });
 
@@ -706,6 +805,7 @@ export function registerTurnTelemetry(
         : "unknown-model",
       context: pendingContext,
       fold: pendingFold,
+      requestPrefix: provider?.prefix ?? null,
     };
     pendingContext = null;
     pendingFold = null;
@@ -795,6 +895,7 @@ export function registerTurnTelemetry(
       stop_reason: typeof message.stopReason === "string" ? message.stopReason : null,
       context_probe: call.context,
       context_fold: call.fold,
+      request_prefix: call.requestPrefix,
     });
   });
 

@@ -59,6 +59,35 @@ const contextMessages = (call) => {
 
 const toolArgs = { operation: "rules.roll", campaign: "smoke", arguments: { skill: "斗殴", difficulty: "regular" } };
 
+// A provider request body shaped like the openai-responses adapter's `params`:
+// `instructions` (system prompt) + `tools` (advertised working set) + `input`
+// (transcript). Call 2 drops one tool, which is exactly the prefix move the
+// request probe exists to catch — the message array stays append-only, so
+// `context_probe` cannot see it.
+const systemPrompt = "你是守秘人。".repeat(400);
+const toolDefinition = (name, size) => ({
+  type: "function",
+  name,
+  parameters: { type: "object", properties: { payload: { type: "string", description: "d".repeat(size) } } },
+});
+const advertisedTools = (call) => (call === 1
+  ? [toolDefinition("coc_invoke", 400), toolDefinition("coc_discover", 200), toolDefinition("read", 100)]
+  : [toolDefinition("coc_invoke", 400), toolDefinition("coc_discover", 200)]);
+const providerPayload = (call) => ({
+  model: "grok-4.5",
+  instructions: systemPrompt,
+  tools: advertisedTools(call),
+  input: contextMessages(call),
+  stream: true,
+});
+const payloadSnapshots = [];
+const emitProviderRequest = (call) => {
+  const payload = providerPayload(call);
+  const before = JSON.stringify(payload);
+  const returned = emit("before_provider_request", { type: "before_provider_request", payload });
+  payloadSnapshots.push({ before, after: JSON.stringify(payload), returned });
+};
+
 const uiCtx = (hasUI) => ({
   hasUI,
   mode: "tui",
@@ -100,7 +129,7 @@ tick(30);
 emit("turn_start", { turnIndex: 0 });
 tick(20);
 emit("context", { messages: contextMessages(1) });
-emit("before_provider_request");
+emitProviderRequest(1);
 tick(200);
 emit("after_provider_response", { status: 200 });
 tick(10);
@@ -146,7 +175,7 @@ tick(200);
 emit("turn_start", { turnIndex: 1 });
 tick(100);
 emit("context", { messages: contextMessages(2) });
-emit("before_provider_request");
+emitProviderRequest(2);
 tick(150);
 emit("after_provider_response", { status: 200 });
 tick(10);
@@ -211,10 +240,10 @@ try {
     ok: true,
     hasTimingCommand: commands.has("timing"),
     sessionLineFirst: sessionLine?.record === "session"
-      && sessionLine.schema_version === 5 && sessionLine.mode === "tui"
+      && sessionLine.schema_version === 6 && sessionLine.mode === "tui"
       && sessionLine.thinking_level === "off",
     recordShape: record !== null && record.record === "turn"
-      && record.schema_version === 5 && record.host === "pi-coc"
+      && record.schema_version === 6 && record.host === "pi-coc"
       && record.mode === "tui" && record.thinking_level === "off",
     sessionLabeled: record?.session === "telemetry-smoke",
     promptExcerpt: record?.prompt_excerpt === "我推门进去看看门后有什么",
@@ -312,6 +341,49 @@ try {
     foldStateAbsent: first?.context_fold === null && record?.context_fold === null,
     leanTurnHasNoProbe: leanModel?.context_probe === null
       && leanTurn?.context_probe === null,
+    // The request-prefix probe reads the real provider body, so it sees the
+    // sections `context_probe` structurally cannot: system prompt, advertised
+    // tools, and the residual.
+    requestPrefixOnSteps: first?.request_prefix?.shape === "openai-responses"
+      // The system prompt is measured as the provider receives it: the raw
+      // string, not its JSON encoding.
+      && first?.request_prefix?.instructions_bytes
+        === Buffer.byteLength(systemPrompt, "utf8")
+      && first?.request_prefix?.tools_count === 3
+      && first?.request_prefix?.tools_status === "first"
+      && first?.request_prefix?.instructions_status === "first"
+      && first?.request_prefix?.input_messages === 4
+      && first?.request_prefix?.other_bytes > 0
+      && second?.request_prefix?.tools_count === 2
+      // The tool set moved between the two calls; the transcript did not.
+      && second?.request_prefix?.tools_status === "changed"
+      && second?.request_prefix?.instructions_status === "stable"
+      && second?.context_probe?.prefix.status === "append_only",
+    requestPrefixPerToolCost: JSON.stringify(first?.request_prefix?.tools.map((t) => t.name))
+      === JSON.stringify(["coc_invoke", "coc_discover", "read"])
+      && first?.request_prefix?.tools[0].bytes > first?.request_prefix?.tools[2].bytes,
+    requestPrefixSectionsSumToPayload: first?.request_prefix !== null
+      && first?.request_prefix.instructions_bytes
+        + first?.request_prefix.tools_bytes
+        + first?.request_prefix.input_bytes
+        + first?.request_prefix.other_bytes === first?.request_prefix.payload_bytes,
+    requestPrefixRollup: record?.request_prefix?.calls === 2
+      && record?.request_prefix?.tools_changed_calls === 1
+      && record?.request_prefix?.instructions_changed_calls === 0
+      && record?.request_prefix?.tools_count === 2,
+    // Observation only: the payload is not mutated and the handler returns
+    // nothing, because a returned value REPLACES the provider request.
+    requestPayloadUntouched: payloadSnapshots.length === 2
+      && payloadSnapshots.every((snap) => snap.before === snap.after
+        && snap.returned === undefined),
+    // No prompt text, message content, or schema body reaches the log.
+    requestPrefixCopiesNoContent: !JSON.stringify(first?.request_prefix ?? {})
+      .includes("守秘人")
+      && !JSON.stringify(first?.request_prefix ?? {}).includes("dddd"),
+    panelShowsRequestPrefix: panelTurn1.some((l) => l.includes("请求体："))
+      && panelTurn1.some((l) => l.includes("请求前缀变动：")),
+    leanTurnHasNoRequestPrefix: leanModel?.request_prefix === null
+      && leanTurn?.request_prefix === null,
     totalsAfterTwoTurns: totals.turns === 2 && totals.model_ms === 85810,
     summaryEnabledFlag: telemetry.isSummaryEnabled() === false,
   }, null, 2));
