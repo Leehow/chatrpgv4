@@ -29,6 +29,19 @@ RULE_GRAPH = PLUGIN / "rulesets" / "coc7" / "rule-graph.json"
 TEXT_GRAPH = PLUGIN / "references" / "text-graph.json"
 LEDGER = ROOT / "docs" / "status" / "text-grounding-gap.md"
 
+# Measured from dispatch_rules_settle (coc_operation_kernel.py) and its
+# adapter map (coc_operation_rules_core.py): the graph-owned families whose
+# settle receipts carry a top-level player_state_receipt -- the only receipt
+# field coc_turn_finalization._project_player_state_receipt renders for a
+# rules.settle call. A public effect whose family is not listed has no
+# rendered consumer today, whatever the RuleGraph says the settlement emits.
+SETTLE_RECEIPT_CONSUMER_FAMILIES = frozenset({"combat", "healing", "sanity"})
+
+REASON_KEEPER_ONLY = "keeper-only"
+REASON_RENDERED = "rendered"
+REASON_NO_RENDERING_COUNTERPART = "no-rendering-counterpart"
+REASON_NO_CONSUMER_YET = "no-consumer-yet"
+
 
 def _text_layer_effect_vocabulary() -> set[str]:
     """Every effect-kind token the text layer actually uses.
@@ -67,20 +80,39 @@ def build() -> dict:
         if node.get("node_kind") != "effect":
             continue
         kind = str(node.get("properties", {}).get("effect_kind") or "")
+        effect_id = node["node_id"]
+        visibility = node.get("visibility")
+        family = effect_id.split(":")[2] if effect_id.count(":") >= 2 else ""
+        if visibility != "public":
+            reason = REASON_KEEPER_ONLY
+        elif effect_id in rendered:
+            reason = REASON_RENDERED
+        elif family in SETTLE_RECEIPT_CONSUMER_FAMILIES:
+            # A consumer chain exists for this family, but this effect has
+            # no rendering counterpart: no segment renders it.
+            reason = REASON_NO_RENDERING_COUNTERPART
+        else:
+            reason = REASON_NO_CONSUMER_YET
         rows.append({
-            "effect": node["node_id"],
-            "visibility": node.get("visibility"),
+            "effect": effect_id,
+            "family": family,
+            "visibility": visibility,
             "audience": node.get("audience"),
             "effect_kind": kind,
-            "rendered_by_textgraph": node["node_id"] in rendered,
+            "rendered_by_textgraph": effect_id in rendered,
             "text_layer_token_match": kind in vocabulary,
+            "reason": reason,
         })
+    reasons = {}
+    for row in rows:
+        reasons[row["reason"]] = reasons.get(row["reason"], 0) + 1
     return {
         "effects": rows,
         "edges": len(rendered),
         "public": sum(1 for r in rows if r["visibility"] == "public"),
         "keeper_only": sum(1 for r in rows if r["visibility"] != "public"),
         "token_matches": sorted(r["effect_kind"] for r in rows if r["text_layer_token_match"]),
+        "reasons": reasons,
     }
 
 
@@ -94,36 +126,50 @@ def render(data: dict) -> str:
         f"- RuleGraph effect nodes: **{len(data['effects'])}** "
         f"({data['public']} public, {data['keeper_only']} keeper-only)",
         f"- `renders-settled-output` edges from TextGraph: **{data['edges']}**",
+        "- Grounding reasons: "
+        + ", ".join(
+            f"**{reason}** × {data['reasons'][reason]}"
+            for reason in sorted(data["reasons"])
+        ),
         f"- Effect kinds with an exact token match in the text layer: "
         f"**{', '.join(data['token_matches']) or 'none'}**",
         "",
-        "| effect | visibility | effect_kind | rendered by TextGraph | text-layer token match |",
-        "| --- | --- | --- | :-: | :-: |",
+        "| effect | visibility | effect_kind | rendered by TextGraph | text-layer token match | grounding reason |",
+        "| --- | --- | --- | :-: | :-: | --- |",
     ]
     for row in data["effects"]:
         lines.append(
             f"| `{row['effect']}` | {row['visibility']} | `{row['effect_kind']}` | "
             f"{'yes' if row['rendered_by_textgraph'] else 'no'} | "
-            f"{'yes' if row['text_layer_token_match'] else 'no'} |"
+            f"{'yes' if row['text_layer_token_match'] else 'no'} | "
+            f"{row['reason']} |"
         )
     lines += [
         "",
         "## What this measures",
         "",
         "An edge is drawn when a rendering path exists, never to reach a target",
-        "count. Today none exists: the text layer renders `turn-effect-v1` and",
-        "`exceptional-effect-v1` state effects, a namespace disjoint from",
-        "`effect:coc7:*`, and no code in the tree reads a RuleGraph effect id.",
+        "count. Slice W1 built the first one: the healing decisions emit three",
+        "public effects, and their graph-owned settlements carry a",
+        "`player_state_receipt` that `coc_turn_finalization` projects into the",
+        "`state_delta` mechanics segment — the chain `segment-type:state-delta`",
+        "renders. The W1 runtime bridge tags those derived effects with",
+        "`rule_effect_refs`, so the rendered mechanics block is auditable back",
+        "to the exact RuleGraph effect.",
         "",
-        "The single exact correspondence between the two vocabularies is",
-        "`luck_spend`, and it belongs to the one **keeper-only** effect. The text",
-        "layer names it only in `_narration_budget`, where it selects a length",
-        "budget and is never rendered. So the only place the two graphs touch is",
-        "the effect that must not reach the player.",
+        "The unbridged public effects are measured, not promised: their family's",
+        "settle receipt carries no rendered state delta (`no-consumer-yet`), or",
+        "a consumer exists but nothing renders this effect",
+        "(`no-rendering-counterpart`). Drawing their edges before a consumer",
+        "exists is the hollow delivery the wiring spec forbids.",
         "",
-        "The compiler's `renders-settled-output` validator is live regardless: a",
-        "dangling id, a non-effect node kind, or a keeper-only target fails the",
-        "build. The first real bridge is checkable the day it is built.",
+        "The single exact correspondence between the two vocabularies remains",
+        "`luck_spend`, and it belongs to the one **keeper-only** effect. The",
+        "text layer names it only in `_narration_budget`, where it selects a",
+        "length budget and is never rendered; presentation may never claim it.",
+        "",
+        "The compiler's `renders-settled-output` validator is live: a dangling",
+        "id, a non-effect node kind, or a keeper-only target fails the build.",
     ]
     return "\n".join(lines) + "\n"
 

@@ -628,6 +628,24 @@ def _node(
     }
 
 
+# W1 cross-graph wiring (docs/specs/pi-coc-cross-graph-wiring.md §5): the
+# settled public RuleGraph effects the state-delta mechanics segment actually
+# renders. Every row is a consumer chain that exists today, not a target
+# count: the healing decisions emit these public effects, and their
+# graph-owned settlements carry a top-level player_state_receipt (the healing
+# adapters in coc_operation_rules_core.py), which
+# coc_turn_finalization._project_player_state_receipt projects into the
+# state_delta segment — the same derived effects the W1 runtime bridge tags
+# with rule_effect_refs. An effect whose settlement produces no rendered
+# derived effect stays undrawn and is accounted for in
+# docs/status/text-grounding-gap.md (empty_relations_law).
+RENDERED_RULE_EFFECTS: tuple[tuple[str, str], ...] = (
+    ("state_delta", "effect:coc7:healing:first-aid-stabilization"),
+    ("state_delta", "effect:coc7:healing:medicine-stabilization"),
+    ("state_delta", "effect:coc7:healing:weekly-hp-recovery"),
+)
+
+
 def obligation_shard() -> dict[str, Any]:
     """Compose the T1 obligation shard from the frozen legacy declarations."""
     nodes: list[dict[str, Any]] = []
@@ -699,6 +717,20 @@ def obligation_shard() -> dict[str, Any]:
         }
         for key, owner in LEGACY_OBLIGATION_SOURCE_KINDS
     ]
+
+    # W1: presentation declares which settled public effects it renders.
+    # The compiler's renders-settled-output validator checks every target
+    # against the live RuleGraph (exists, is an effect node, is public).
+    for segment_key, effect_ref in RENDERED_RULE_EFFECTS:
+        relations.append({
+            "relation_id": (
+                f"relation:text:segment-type-{_slug(segment_key)}"
+                f":renders-{effect_ref.replace(':', '-')}"
+            ),
+            "relation_kind": "renders-settled-output",
+            "from_node_id": f"segment-type:{_slug(segment_key)}",
+            "to_node_id": effect_ref,
+        })
 
     return {
         "contract_id": SHARD_CONTRACT_ID,
