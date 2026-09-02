@@ -546,7 +546,7 @@ function bootstrapOpeningParams(campaignId) {
     operation: "progressive.opening_bootstrap",
     campaign: campaignId,
     arguments: {
-      start_location: { location_id: "opening", title: "Opening" },
+      start_location: { location_id: "location:opening", title: "Opening" },
       opening_pdf_indices: [0],
     },
   };
@@ -1120,6 +1120,19 @@ function mainExtensionHarness(responseForCall, options = {}) {
         return { ok: true, host: "pi" };
       }
       calls.push({ name, params });
+      // The host re-arms asynchronous memory extraction once after a startup
+      // resume. It is host bookkeeping, not part of any case under test, so
+      // answer it centrally unless a case wants to see it.
+      if (
+        params?.operation === "memory.extraction_status"
+        && options.recordMemoryStatus !== true
+      ) {
+        return {
+          ok: true,
+          tool: "memory.extraction_status",
+          data: { schema_version: 1, pending: [], status: "idle" },
+        };
+      }
       return responseForCall(name, params);
     },
     callToolWithTransportMeta: async (name, params) => ({
@@ -2329,7 +2342,7 @@ async function exerciseFailureDrain(mode) {
   check("scene/source-material gap is recorded without a hard gate or dispatch",
     scene.ok === true
     && harness.calls.map((call) => call.params.operation).join(",")
-      === "session.resume,scene.context"
+      === "session.resume,memory.extraction_status,scene.context"
     && harness.launches.length === 0
     && readinessAudit?.value?.semantic_compile?.status === "ready"
     && readinessAudit?.value?.current_scene_projection?.status === "missing"
@@ -2659,7 +2672,7 @@ async function exerciseFailureDrain(mode) {
     && moved.data.next_operation.hard_gate === false
     && !JSON.stringify(moved).includes('"hard_gate":true')
     && harness.calls.map((call) => call.params.operation).join(",")
-      === "session.resume,state.move_scene,progressive.status"
+      === "session.resume,memory.extraction_status,state.move_scene,progressive.status"
     && harness.launches.join(",") === task.packet.packet_id
     && waiting?.message?.display === false
     && waiting?.message?.details?.scene_priority?.source_specific_facts
@@ -2850,7 +2863,7 @@ async function exerciseFailureDrain(mode) {
   check("already-ready source scene dispatches zero priority work",
     harness.launches.length === 0
     && harness.calls.map((call) => call.params.operation).join(",")
-      === "session.resume,scene.context");
+      === "session.resume,memory.extraction_status,scene.context");
   await harness.shutdown();
 }
 
@@ -3505,7 +3518,7 @@ async function exerciseFailureDrain(mode) {
       operation: "progressive.opening_bootstrap",
       campaign: "auto-dispatch-fixture",
       arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
+        start_location: { location_id: "location:opening", title: "Opening" },
         opening_pdf_indices: [0],
       },
     },
@@ -3727,7 +3740,7 @@ async function exerciseFailureDrain(mode) {
       operation: "progressive.opening_bootstrap",
       campaign: "auto-dispatch-fixture",
       arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
+        start_location: { location_id: "location:opening", title: "Opening" },
         opening_pdf_indices: [0],
       },
     },
@@ -4670,7 +4683,7 @@ async function exerciseFailureDrain(mode) {
     && harness.calls.filter((call) => (
       call.name === "coc_invoke"
     )).map((call) => call.params.operation).join(",")
-      === "session.resume,progressive.prepare_opening"
+      === "session.resume,memory.extraction_status,progressive.prepare_opening"
     && !harness.calls.some((call) => (
       call.params.operation === "setup.inspect"
       || call.params.operation === "scenario.bind_pdf"
@@ -4748,7 +4761,7 @@ async function exerciseFailureDrain(mode) {
     && resumed.data.mode === "awaiting_player"
     && scene.ok === true
     && harness.calls.map((call) => call.params.operation).join(",")
-      === "session.resume,scene.context");
+      === "session.resume,memory.extraction_status,scene.context");
   await harness.shutdown();
 }
 
@@ -5334,7 +5347,7 @@ async function exerciseFailureDrain(mode) {
       === "opening_character_setup_required"
     && contract.ok === true
     && harness.calls.map((call) => call.params.operation).join(",")
-      === "session.resume,setup.investigator_contract"
+      === "session.resume,memory.extraction_status,setup.investigator_contract"
     && !harness.sent.some((entry) => (
       entry.message?.customType === "coc-startup-resume-blocker"
     ))
@@ -7514,31 +7527,31 @@ for (const terminalCase of [
       opening_pdf_indices: [0],
     }),
     bootstrapCard(
-      { start_location: { location_id: "opening", title: "Opening" } },
+      { start_location: { location_id: "location:opening", title: "Opening" } },
       ["opening_pdf_indices", "opening_pdf_indices"],
     ),
     bootstrapCard({
-      start_location: { location_id: "opening", title: "Opening" },
+      start_location: { location_id: "location:opening", title: "Opening" },
       opening_pdf_indices: [],
     }),
     bootstrapCard({
-      start_location: { location_id: "opening", title: "Opening" },
+      start_location: { location_id: "location:opening", title: "Opening" },
       opening_pdf_indices: [0, 1, 2, 3],
     }),
     bootstrapCard({
-      start_location: { location_id: "opening", title: "Opening" },
+      start_location: { location_id: "location:opening", title: "Opening" },
       opening_pdf_indices: [-1],
     }),
     bootstrapCard({
-      start_location: { location_id: "opening", title: "Opening" },
+      start_location: { location_id: "location:opening", title: "Opening" },
       opening_pdf_indices: [0.5],
     }),
     bootstrapCard({
-      start_location: { location_id: "opening", title: "Opening" },
+      start_location: { location_id: "location:opening", title: "Opening" },
       opening_pdf_indices: [0, 0],
     }),
     bootstrapCard({
-      start_location: { location_id: "opening", title: "Opening" },
+      start_location: { location_id: "location:opening", title: "Opening" },
       opening_pdf_indices: [0, 2],
     }),
   ];
@@ -9245,7 +9258,7 @@ for (const terminalCase of [
       operation: "progressive.opening_bootstrap",
       campaign: "auto-dispatch-fixture",
       arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
+        start_location: { location_id: "location:opening", title: "Opening" },
         opening_pdf_indices: [0],
       },
     },
@@ -9302,7 +9315,7 @@ for (const terminalCase of [
       operation: "progressive.opening_bootstrap",
       campaign: "auto-dispatch-fixture",
       arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
+        start_location: { location_id: "location:opening", title: "Opening" },
         opening_pdf_indices: [0],
       },
     },
@@ -9349,7 +9362,7 @@ for (const terminalCase of [
       operation: "progressive.opening_bootstrap",
       campaign: "auto-dispatch-fixture",
       arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
+        start_location: { location_id: "location:opening", title: "Opening" },
         opening_pdf_indices: [0],
       },
     },
@@ -10089,7 +10102,7 @@ for (const terminalCase of [
         operation: "progressive.opening_bootstrap",
         campaign: "auto-dispatch-fixture",
         arguments: {
-          start_location: { location_id: "opening", title: "Opening" },
+          start_location: { location_id: "location:opening", title: "Opening" },
           opening_pdf_indices: [0],
         },
       },
@@ -10144,7 +10157,7 @@ for (const terminalCase of [
       operation: "progressive.opening_bootstrap",
       campaign: "auto-dispatch-fixture",
       arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
+        start_location: { location_id: "location:opening", title: "Opening" },
         opening_pdf_indices: [0],
       },
     },
@@ -10191,7 +10204,7 @@ for (const terminalCase of [
         operation: "progressive.opening_bootstrap",
         campaign: "auto-dispatch-fixture",
         arguments: {
-          start_location: { location_id: "opening", title: "Opening" },
+          start_location: { location_id: "location:opening", title: "Opening" },
           opening_pdf_indices: [0],
         },
       },
