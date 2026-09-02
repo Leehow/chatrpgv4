@@ -571,7 +571,7 @@ CENSUS: dict[str, dict[str, tuple[int, str, str]]] = {
         'player-input-handling': (1, 'reads-from-graph', 'published as a schema enum from the migrated frozenset'),
         'review-rule': (3, 'declaration-migrated', 'allowed_rule_ids and the published enum are built from the graph; the remaining occurrences are agency_violation branch checks. Count fell 4 -> 3 when the two duplicated over_length blocks were folded into _over_length_finding()'),
         'roll-visibility-class': (9, 'usage-only', 'per-value comparisons in the output projection'),
-        'segment-type': (8, 'usage-only', 'per-type comparisons in mechanics placement'),
+        'segment-type': (9, 'usage-only', 'per-type comparisons in mechanics placement, plus one bundle bucket read in _banter_signals to find the turn\'s public checks'),
         'substantive-effect-status': (2, 'usage-only', 'status labels copied onto the projection'),
     },
     'plugins/coc-keeper/scripts/coc_state_authority.py': {
