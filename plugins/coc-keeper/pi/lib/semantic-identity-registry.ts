@@ -39,6 +39,7 @@ export type SemanticIdentityDomain =
   | "weapon"
   | "route"
   | "affordance"
+  | "transcript"
   | "provenance";
 
 /** Handle prefix presented to the model for each mappable domain. */
@@ -52,6 +53,16 @@ const DOMAIN_HANDLE_PREFIX: ReadonlyMap<
   ["weapon", "weapon:"],
   ["route", "route:"],
   ["affordance", "affordance:"],
+  // A transcript locator's last component is the canonical owning decision --
+  // a journal decision id or a finalization id -- which is machine identity by
+  // design: that is what makes a row's identity canonical rather than
+  // positional. Declared `semantic`, it could never satisfy the semantic
+  // grammar, so every journal-backed candidate collapsed the whole
+  // `transcript.locate` envelope to `semantic_identity_unavailable` (7 of 9
+  // calls in one live turn on 2026-09-01). The row is named to the model by a
+  // handle minted from what the row MEANS -- its turn and speaker -- and the
+  // canonical locator stays host-side.
+  ["transcript", "transcript:"],
 ]);
 
 export type MappableSemanticIdentityDomain =
@@ -226,6 +237,9 @@ export type SemanticProjectionView = {
    * set (scene.context `action_routes`/`route_index` rows). Same canonical
    * ids as the route family, independently projected per family. */
   affordances: ReadonlyMap<string, string>;
+  /** Transcript rows named by turn and speaker; the canonical locator, whose
+   * last component is the row's owning decision, never reaches the model. */
+  transcripts: ReadonlyMap<string, string>;
   /** Last-known handles for retired/lost snapshot entities: content may NAME
    * them (lost-id arrays) but resolution stays dead — they cannot be used. */
   lost: {
@@ -243,6 +257,7 @@ export function emptySemanticProjectionView(): SemanticProjectionView {
     weapons: new Map(),
     routes: new Map(),
     affordances: new Map(),
+    transcripts: new Map(),
     lost: { items: new Map(), weapons: new Map() },
   };
 }
@@ -606,6 +621,7 @@ export function createSemanticIdentityRegistry(): SemanticIdentityRegistry {
       weapons: Map<string, string>;
       routes: Map<string, string>;
       affordances: Map<string, string>;
+      transcripts: Map<string, string>;
       lost: {
         items: Map<string, string>;
         weapons: Map<string, string>;
@@ -617,11 +633,13 @@ export function createSemanticIdentityRegistry(): SemanticIdentityRegistry {
       weapons: new Map(),
       routes: new Map(),
       affordances: new Map(),
+      transcripts: new Map(),
       lost: { items: new Map(), weapons: new Map() },
     };
     const viewProperty: ReadonlyMap<
       string,
-      "rolls" | "effects" | "items" | "weapons" | "routes" | "affordances"
+      | "rolls" | "effects" | "items" | "weapons" | "routes" | "affordances"
+      | "transcripts"
     > = new Map([
       ["roll", "rolls"],
       ["effect", "effects"],
@@ -629,6 +647,7 @@ export function createSemanticIdentityRegistry(): SemanticIdentityRegistry {
       ["weapon", "weapons"],
       ["route", "routes"],
       ["affordance", "affordances"],
+      ["transcript", "transcripts"],
     ]);
     for (const [domain, byDomain] of records) {
       const property = viewProperty.get(domain);

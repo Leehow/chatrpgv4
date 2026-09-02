@@ -4337,7 +4337,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (!invocationCampaign) return null;
     const scope = scopedRegistryScope(invocationCampaign, invocationArguments);
     const resolve = (
-      domain: "roll" | "effect" | "item" | "weapon" | "route" | "affordance",
+      domain:
+        | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+        | "transcript",
       handle: string,
     ): string | null => {
       const result = semanticRegistry.resolveHandle(domain, handle, scope);
@@ -4349,7 +4351,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     // between campaigns. Each message names the real cause and only promises a
     // refresh where a refresh is genuinely the route out.
     const failureReason = (
-      domain: "roll" | "effect" | "item" | "weapon" | "route" | "affordance",
+      domain:
+        | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+        | "transcript",
       handle: string,
     ): string | null => {
       const result = semanticRegistry.resolveHandle(domain, handle, scope);
@@ -4386,6 +4390,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       resolveWeapon: (handle) => resolve("weapon", handle),
       resolveRoute: (handle) => resolve("route", handle),
       resolveAffordance: (handle) => resolve("affordance", handle),
+      resolveTranscript: (handle) => resolve("transcript", handle),
       describeFailure: failureReason,
     };
   };
@@ -5226,6 +5231,44 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           lifetime: "player_turn",
         });
       };
+      // transcript.locate candidates: name each row by what it MEANS -- its
+      // turn and speaker -- and keep the canonical locator host-side. The
+      // locator's last component is the row's owning decision (a journal
+      // decision id, or a finalization id for a settled Keeper row), which is
+      // machine identity by design: it is what makes row identity canonical
+      // instead of positional. Declared `semantic`, it could never satisfy the
+      // semantic grammar, so a single journal-backed candidate collapsed the
+      // WHOLE envelope to `semantic_identity_unavailable` -- 7 of 9 calls in
+      // one live turn, and 4 more in the turn that forked the worldline.
+      // `authoritative` lifetime: a transcript row is settled history and does
+      // not retire when the player turn advances.
+      if (operation === "transcript.locate" && envelope?.ok === true) {
+        for (const raw of Array.isArray(data?.candidates) ? data.candidates : []) {
+          const candidate = objectOrNull(raw);
+          const canonical = candidate?.transcript_ref;
+          if (typeof canonical !== "string" || !canonical.trim()) continue;
+          const turn = candidate?.turn;
+          const role = typeof candidate?.role === "string" ? candidate.role : "";
+          const kind = typeof candidate?.record_kind === "string"
+            ? candidate.record_kind
+            : "";
+          const speaker = typeof candidate?.speaker === "string"
+            ? candidate.speaker
+            : "";
+          semanticRegistry.register({
+            domain: "transcript",
+            canonicalId: canonical.trim(),
+            facts: [
+              Number.isInteger(turn) && role ? `turn-${turn}-${role}` : "",
+              Number.isInteger(turn) ? `turn-${turn}` : "",
+              speaker,
+              kind,
+            ],
+            scope,
+            lifetime: "authoritative",
+          });
+        }
+      }
       const walkCanonicalRows = (
         value: unknown,
         visit: (row: Record<string, unknown>) => void,

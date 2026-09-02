@@ -114,6 +114,7 @@ Take over from the ready table and open play.
   | `investigator_ids` | multi-token semantic slug (no colon namespace) | `example-slug` | ✗ never `route:example-slug` |
   | `item_id` | multi-token semantic slug or namespace `item:` | `item:example-slug` | ✗ never `route:example-slug` |
   | `item_ids` | multi-token semantic slug or namespace `item:` | `item:example-slug` | ✗ never `route:example-slug` |
+  | `transcript_ref` | multi-token semantic slug or namespace `transcript:` | `transcript:example-slug` | ✗ never `route:example-slug` |
   | `location_id` | multi-token semantic slug or namespace `location:` | `location:example-slug` | ✗ never `route:example-slug` |
   | `location_refs` | namespace `scene:` only | `scene:example-slug` | ✗ never `route:example-slug` |
   | `lookup_ref` | multi-token semantic slug or namespace `decision:` | `decision:example-slug` | ✗ never `route:example-slug` |

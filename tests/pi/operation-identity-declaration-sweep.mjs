@@ -44,6 +44,10 @@ const outstanding = fixture("operation-identity-outstanding.json");
 // separable from a genuine declaration gap and are not this test's subject.
 const REGISTRY_DOMAINS = new Set([
   "roll", "effect", "item", "weapon", "route", "affordance", "evidence",
+  // A transcript row is named by a registry handle minted from its turn and
+  // speaker; with no live registration it drops like any registry domain,
+  // which is the designed fail-closed path and not a declaration gap.
+  "transcript",
 ]);
 
 /** Declaration gaps this corpus exhibits right now, by operation. */

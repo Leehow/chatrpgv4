@@ -4767,6 +4767,10 @@ const SEMANTIC_ID_SCALAR_FIELDS: ReadonlyMap<string, string> = new Map([
   ["item_id", "item:"],
   ["route_id", "route:"],
   ["route_ref", "route:"],
+  // The canonical locator's last component is the row's owning decision --
+  // machine identity by design -- so the model names a row by a handle minted
+  // from its turn and speaker instead.
+  ["transcript_ref", "transcript:"],
 ]);
 
 /** Lost/removed-id arrays: project through the lost last-known handles. */
@@ -4809,6 +4813,7 @@ function projectionDomainMap(
     case "item:": return semanticIds.items;
     case "weapon:": return semanticIds.weapons;
     case "route:": return semanticIds.routes;
+    case "transcript:": return semanticIds.transcripts;
     default: return semanticIds.rolls;
   }
 }
@@ -8068,6 +8073,7 @@ const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["opening_required_secret_ids", stringSet(["secret:"])],
   ["handout_id", stringSet(["handout:"])],
   ["item_id", stringSet(["item:"])],
+  ["transcript_ref", stringSet(["transcript:"])],
   ["weapon_id", stringSet(["weapon:", "item:"])],
   ["weapon_effect_ids", stringSet(["effect:"])],
   ["effect_id", stringSet(["effect:"])],
@@ -8886,6 +8892,9 @@ export type SemanticIdentityHandleResolver = {
   resolveWeapon: (handle: string) => string | null;
   resolveRoute: (handle: string) => string | null;
   resolveAffordance: (handle: string) => string | null;
+  /** Transcript rows are named by turn and speaker; the canonical locator
+   * carries the row's owning decision and never reaches the model. */
+  resolveTranscript: (handle: string) => string | null;
   /**
    * Why a resolve failed, when the host can say. The registry distinguishes
    * seven causes; a resolver that collapses them to `null` leaves the Keeper
@@ -8894,7 +8903,9 @@ export type SemanticIdentityHandleResolver = {
    * refresh fixes. Optional so existing resolvers keep working unchanged.
    */
   describeFailure?: (
-    domain: "roll" | "effect" | "item" | "weapon" | "route" | "affordance",
+    domain:
+      | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+      | "transcript",
     handle: string,
   ) => string | null;
 };
@@ -9119,10 +9130,15 @@ export function restoreSemanticEntityHandles(
       ) {
         return "affordance";
       }
+      if (field === "transcript_ref" && value.startsWith("transcript:")) {
+        return "transcript";
+      }
       return "";
     };
     const restoreOne = (
-      domain: "roll" | "effect" | "item" | "weapon" | "route" | "affordance",
+      domain:
+        | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+        | "transcript",
       value: string,
     ): { ok: true; value: string } | { ok: false; reason: string } => {
       const resolve = domain === "roll"
@@ -9135,6 +9151,8 @@ export function restoreSemanticEntityHandles(
         ? resolver.resolveWeapon
         : domain === "route"
         ? resolver.resolveRoute
+        : domain === "transcript"
+        ? resolver.resolveTranscript
         : resolver.resolveAffordance;
       const canonical = resolve(value);
       if (canonical === null) {
@@ -9162,7 +9180,9 @@ export function restoreSemanticEntityHandles(
           const domain = classify(field, value);
           if (domain === "") return null;
           const restored = restoreOne(
-            domain as "roll" | "effect" | "item" | "weapon" | "route" | "affordance",
+            domain as
+              | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+              | "transcript",
             value,
           );
           return restored.ok ? null : restored.reason;
@@ -9191,7 +9211,9 @@ export function restoreSemanticEntityHandles(
         const domain = classify(field, value);
         if (domain === "") return value;
         const restored = restoreOne(
-          domain as "roll" | "effect" | "item" | "weapon" | "route" | "affordance",
+          domain as
+            | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+            | "transcript",
           value,
         );
         if (!restored.ok) return value;
