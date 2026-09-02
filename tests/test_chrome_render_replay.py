@@ -97,7 +97,14 @@ KNOWN_STALE_SOURCE_IDS = frozenset({
 # This is an escape hatch and it is deliberately narrow: only this one type,
 # and only until the corpus is regrown. Widening it to silence a failure would
 # turn the gate into decoration.
-REFORMATTED_SEGMENT_TYPES = frozenset({"exceptional_effect"})
+REFORMATTED_SEGMENT_TYPES = frozenset({"exceptional_effect", "public_check"})
+
+# Excusing a whole segment type against the historical corpus would leave 93 of
+# 123 mechanics segments unchecked -- at which point the gate is decoration. So
+# the reformatted types are pinned against a golden file of their CURRENT
+# rendering instead: history stops being the reference for them, and unintended
+# drift from here on still fails.
+GOLDEN_PATH = REPO / "tests" / "fixtures" / "chrome-reformatted-golden.json"
 
 
 def test_every_preserved_mechanics_segment_re_renders_byte_for_byte(corpus):
@@ -598,3 +605,80 @@ def test_the_exceptional_block_is_whole_in_every_built_in_language(language):
             assert token not in rendered, (
                 f"{language} carries the English form {token!r}: {rendered!r}"
             )
+
+
+def test_reformatted_blocks_are_pinned_to_their_current_rendering():
+    """The historical corpus can no longer check these; something has to.
+
+    `public_check` and `exceptional_effect` were both deliberately reformatted,
+    so 93 of 123 preserved mechanics segments no longer re-render byte-for-byte
+    and the corpus gate excuses them by type. Left there, the gate would cover
+    30 segments and call it coverage. This golden file is the replacement
+    reference: regenerate it only in a commit that means to change the format.
+    """
+    golden = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
+    assert len(golden) >= 90, f"golden file only pins {len(golden)} renderings"
+
+    mismatches: list[str] = []
+    seen: set[str] = set()
+    for row in _corpus():
+        try:
+            sources = coc_turn._mechanic_source_lines(row["bundle"])
+        except Exception:  # noqa: BLE001
+            continue
+        for seg in row["segments"]:
+            kind = seg.get("segment_type")
+            if kind not in REFORMATTED_SEGMENT_TYPES:
+                continue
+            for source_id in seg.get("source_ids") or []:
+                rendered = sources.get(kind, {}).get(source_id)
+                if rendered is None:
+                    continue
+                key = f"{kind}\t{source_id}"
+                expected = golden.get(key)
+                if expected is None:
+                    mismatches.append(f"{key}: not in the golden file")
+                    continue
+                seen.add(key)
+                if rendered != expected:
+                    mismatches.append(
+                        f"{key}:\n    golden:   {expected!r}\n"
+                        f"    rendered: {rendered!r}"
+                    )
+    assert not mismatches, (
+        "reformatted-block drift:\n  " + "\n  ".join(mismatches[:8])
+    )
+    assert seen == set(golden), (
+        f"golden file has {len(set(golden) - seen)} rows the corpus no longer "
+        f"produces: {sorted(set(golden) - seen)[:4]}"
+    )
+
+
+def test_the_regular_difficulty_threshold_no_longer_repeats_the_base():
+    """`基础值：44；门槛：普通（≤44）` said one number twice.
+
+    Measured across the corpus: 82 of 82 rolls repeated it and not one carried
+    a different value, because every preserved check was at Regular. The
+    parenthetical is kept where it earns its place -- at Hard and Extreme the
+    required target differs from the base and still prints.
+    """
+    import coc_roll
+
+    def render(level: str, language: str) -> str:
+        result = {"roll": 29, "base_target": 44, "required_level": level}
+        result.update(coc_roll.resolve_percentile_roll(29, 44, level))
+        return coc_roll.format_player_facing_percentile(
+            result, language=language, compact=True
+        )
+
+    assert render("regular", "zh-Hans") == (
+        "掷骰：29；基础值：44；门槛：普通；达到：成功；通过"
+    )
+    assert "（≤22）" in render("hard", "zh-Hans")
+    assert "（≤8）" in render("extreme", "zh-Hans")
+    assert "(≤22)" in render("hard", "en-US")
+    assert "(≤44)" not in render("regular", "en-US")
+
+    # And the pair this work deliberately did NOT collapse: at Hard, reaching
+    # Regular is a success that did not pass.
+    assert "达到：成功；未通过" in render("hard", "zh-Hans")
