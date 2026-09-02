@@ -84,16 +84,22 @@ replaces the run-level one, like `player_input`. Two shapes:
                "flags": {"basement-unlocked": true}}}
 ```
 
-Structural seeding. Before the fixed resume prompt, the lane adapter applies
-the fields **inside the sandbox lane through the canonical toolbox gateway**
+Structural seeding. After the fixed resume prompt settled at
+`awaiting_player` and before the player message, the lane adapter applies the
+fields **inside the sandbox lane through the canonical toolbox gateway**
 (`coc_toolbox.py`, the same `run_tool` path the Pi MCP server uses, with the
 host variables play sets): `state.move_scene`, then `state.npc_presence`
 (`present`, per listed NPC; requires `scene_id`), then `state.record_clue`,
 then `state.set_flag`. Decision ids are semantic and lane-scoped
-(`debug-situation:<lane>:<op>:<id>`). Campaign state is therefore canonical
-and `session.resume` presents the seeded receipts as the open turn's context;
-the resume prompt names them as host seeding and still stops at
-awaiting-player. Scene, NPC, and clue ids are validated at planning against
+(`debug-situation:<lane>:<op>:<id>`). Campaign state is therefore canonical:
+the seed receipts belong to the player's turn window and the Keeper's next
+`scene.context` presents the seeded scene, NPC, and clue exactly as after a
+real move. The player message is prefixed with a short host note naming the
+seeding and asking for a `scene.context` re-read. Seeding before the resume
+was tried on the real host and is refused by design: the seed rows read as an
+interrupted turn (`open_turn_recovery`), the host then refused to act
+(`acting_authorized=false`, player input unbindable) and the lane deadlocked.
+Scene, NPC, and clue ids are validated at planning against
 the sealed campaign's compiled `scenario/` tables; an unknown id fails closed
 with `situation_unknown_scene` / `situation_unknown_npc` /
 `situation_unknown_clue` before any lane spawns. Flags are only
@@ -127,7 +133,10 @@ Planning verifies:
 1. no pending player turn;
 2. active tip is a canonical turn commit with matching campaign/timeline/
    finalization trailers;
-3. no tracked state drift outside the known post-finalization audit logs;
+3. no tracked state drift outside the known post-finalization audit logs
+   (`logs/canonical-events*`, `logs/toolbox-calls.jsonl`,
+   `logs/delivery-receipts.jsonl`, and `logs/events.jsonl`, which a
+   restart-time `session.resume` quarantine appends to);
 4. the matching exact-delivery receipt is confirmed.
 
 Each lane receives:

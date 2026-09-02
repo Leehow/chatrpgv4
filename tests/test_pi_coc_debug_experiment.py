@@ -541,6 +541,43 @@ def test_git_checkpoint_allows_only_post_finalization_audit_log_drift(
     assert checkpoint["post_finalization_audit_paths"] == [
         "logs/toolbox-calls.jsonl"
     ]
+    # A restart-time session.resume quarantines unbound rolls and appends a
+    # turn_tail_abandoned audit row; that must not make the tip unsealable.
+    events = campaign / "logs" / "events.jsonl"
+    events.write_text(
+        '{"event_type":"turn_tail_abandoned","reason":"unfinalized_turn_tail"}\n',
+        encoding="utf-8",
+    )
+    coc_git_history.commit_finalized_turn(
+        workspace,
+        campaign_id,
+        turn_number=2,
+        finalization_id="final-debug-turn-2",
+        journal_decision_id="journal-debug-turn-2",
+        settlement_snapshot_id="settlement-debug-turn-2",
+        rendered_text_sha256="sha256:" + "2" * 64,
+        schema_generation="campaign-3/world-2/pacing-1/investigator-1",
+    )
+    (campaign / "save" / "continuation" / "delivery-receipts.jsonl").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "kind": "coc_delivery_receipt",
+            "campaign_id": campaign_id,
+            "finalization_id": "final-debug-turn-2",
+            "rendered_text_sha256": "sha256:" + "2" * 64,
+            "status": "confirmed",
+            "ack_kind": "replayed",
+        }) + "\n",
+        encoding="utf-8",
+    )
+    with events.open("a", encoding="utf-8") as handle:
+        handle.write('{"event_type":"turn_tail_abandoned","reason":"unfinalized_turn_tail"}\n')
+    resumed = module.GitCheckpointAdapter().seal_latest(context)
+    assert resumed["turn"] == 2
+    assert resumed["post_finalization_audit_paths"] == [
+        "logs/events.jsonl",
+        "save/continuation/delivery-receipts.jsonl",
+    ]
 
 
 def test_git_checkpoint_hashes_and_materializes_tracked_post_finalization_overlays(
@@ -1411,18 +1448,28 @@ def test_rpc_lane_seeds_a_structural_situation_through_the_canonical_toolbox(
     assert {"state.move_scene", "state.npc_presence", "state.record_clue", "state.set_flag"} <= set(
         seeded_tools
     )
-    # Seeding happened before the resume prompt, which names it as host seeding.
+    # The resume prompt stays untouched; seeding lands after the resume settled
+    # and the player message carries the host note naming it.
     assert prompts[0]["id"] == "resume-seeded-lane"
-    assert "pre-established a situation" in prompts[0]["message"]
-    assert prompts[1]["message"] == "我举起提灯走向祭坛。"
-    seed_events = [
+    assert "pre-established" not in prompts[0]["message"]
+    assert prompts[1]["message"] == (
+        module._SITUATION_SEEDED_TURN_NOTE + "\n\n我举起提灯走向祭坛。"
+    )
+    assert situation["instruction"] == module._SITUATION_SEEDED_TURN_NOTE
+    tool_rows = [
         row for row in result["events"]
-        if row.get("category") == "tools" and row.get("phase") == "seed"
+        if row.get("category") == "tools" and row.get("phase") in {"seed", "start"}
     ]
-    assert [row["operation"] for row in seed_events] == [
+    ordered = [(row["phase"], row["operation"]) for row in tool_rows]
+    assert ordered.index(("start", "session.resume")) < ordered.index(
+        ("seed", "state.move_scene")
+    )
+    assert [op for phase, op in ordered if phase == "seed"] == [
         "state.move_scene", "state.npc_presence", "state.record_clue", "state.set_flag",
     ]
-    assert module._SITUATION_RESUME_NOTE.strip() in prompts[0]["message"]
+    assert ordered.index(("seed", "state.set_flag")) < ordered.index(
+        ("start", "rules.settle")
+    )
 
 
 def test_rpc_lane_fails_closed_when_seeding_is_refused(tmp_path: Path) -> None:
@@ -1433,15 +1480,17 @@ def test_rpc_lane_fails_closed_when_seeding_is_refused(tmp_path: Path) -> None:
     )
     assert result["status"] == "failed"
     assert result["error"] == {"code": "situation_seed_failed"}
-    assert result["resume_first"] is False
+    assert result["resume_first"] is True
     situation = result["final"]["situation"]
     assert situation["seeded"] is False
     assert len(situation["applied"]) == 1
     assert situation["applied"][0]["ok"] is False
     assert situation["applied"][0]["error"]["code"] == "unknown_campaign"
-    # No Pi process was spawned for a lane whose situation never landed.
-    assert prompts == []
-    assert not (tmp_path / "private").exists()
+    # The lane resumed, the seed was refused, and no player message was sent.
+    assert [row["id"] for row in prompts] == ["resume-seeded-lane"]
+    assert not (
+        tmp_path / "private" / "debug-situation-r1" / "seeded-lane" / "pi-home"
+    ).exists()
 
 
 def test_rpc_lane_prepends_the_host_instruction_for_a_prompt_situation(

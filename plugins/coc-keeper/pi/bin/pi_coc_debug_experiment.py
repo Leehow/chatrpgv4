@@ -56,11 +56,15 @@ _SITUATION_PROMPT_INSTRUCTION = (
     "never invented. Then adjudicate the message as the player's action in that "
     "situation."
 )
-_SITUATION_RESUME_NOTE = (
-    " This diagnostic lane pre-established a situation through canonical state "
-    "operations before you started; their receipts in current_turn are host "
-    "seeding, not the player's action. Still stop after resuming: do not "
-    "journal, finalize, or act for the player."
+# Structural seeding lands after session.resume settled at awaiting_player.
+# Seeding before the resume was tried on the real host: the seed rows read as
+# an interrupted turn (open_turn_recovery), the Pi host then refused to act
+# (acting_authorized=false, player input unbindable) and the lane deadlocked.
+_SITUATION_SEEDED_TURN_NOTE = (
+    "[Host diagnostic note — not a player action] After your resume, the host "
+    "pre-established a situation through canonical state operations (scene, NPC "
+    "presence, clues, flags). Re-read scene.context before adjudicating the "
+    "player's message below, and do not treat its situation as an unearned claim."
 )
 _PROFILE_IDS = frozenset({
     "production",
@@ -87,6 +91,10 @@ _POST_FINALIZATION_AUDIT_PATHS = frozenset({
     "logs/canonical-events-sequence.json",
     "logs/canonical-events.jsonl",
     "logs/delivery-receipts.jsonl",
+    # session.resume's orphan-roll quarantine appends `turn_tail_abandoned`
+    # here after restoring save/ from the tip; the committed state is
+    # untouched, so this is audit drift like the canonical event log.
+    "logs/events.jsonl",
     "logs/toolbox-calls.jsonl",
 })
 _POST_FINALIZATION_OVERLAY_PATHS = frozenset({
@@ -1295,8 +1303,9 @@ class PiRpcLaneAdapter:
 
         Every write goes through ``coc_toolbox.py`` (the same ``run_tool``
         gateway the Pi MCP server uses) inside the sandbox lane, with the
-        host variables play sets, so the campaign state is canonical and
-        the Keeper's resume presents exactly what a real game would.
+        host variables play sets, so the campaign state is canonical and the
+        Keeper's next ``scene.context`` presents exactly what a real game
+        would after those moves. Runs after the resume settled.
         Returns the applied rows and the failure kind, if any.
         """
         campaign_id = str(run["context"]["campaign_id"])
@@ -1389,8 +1398,10 @@ class PiRpcLaneAdapter:
         if situation_shape == "prompt":
             situation_evidence["instruction"] = _SITUATION_PROMPT_INSTRUCTION
         elif situation_shape == "structural":
+            situation_evidence["instruction"] = _SITUATION_SEEDED_TURN_NOTE
             situation_evidence["applied"] = []
             situation_evidence["seeded"] = False
+        turn_instruction = situation_evidence.get("instruction")
 
         def final_payload(
             rendered_text: str | None, *, finalized: bool, exact_delivery: bool,
@@ -1590,48 +1601,7 @@ class PiRpcLaneAdapter:
                     return True, None
 
         try:
-            if situation_shape == "structural":
-                current_phase = "seeding"
-                progress("seeding")
-                applied, seed_failure = self._seed_situation(
-                    lane=lane,
-                    run=run,
-                    materialized=materialized,
-                    deadline=deadline,
-                    cancelled=cancelled,
-                )
-                situation_evidence["applied"] = applied
-                situation_evidence["seeded"] = seed_failure is None
-                for row in applied:
-                    events.append({
-                        "category": "tools",
-                        "phase": "seed",
-                        "operation": row["operation"],
-                        "event": row,
-                    })
-                if seed_failure is not None:
-                    if seed_failure == "timeout":
-                        status, code = "timed_out", "lane_absolute_budget_exceeded"
-                    elif seed_failure == "cancelled":
-                        status, code = "cancelled", "debug_cancelled"
-                    else:
-                        status, code = "failed", "situation_seed_failed"
-                    return {
-                        "status": status,
-                        "resume_first": False,
-                        "duration_ms": round((time.monotonic() - started) * 1000),
-                        "abort_count": 0,
-                        "abort_confirmed": False,
-                        "error": {"code": code},
-                        "events": events,
-                        "final": final_payload(
-                            None, finalized=False, exact_delivery=False,
-                        ),
-                    }
-            current_phase = "launching"
             progress("launching")
-            # The credential-bearing private home exists only for a lane that
-            # actually spawns; a refused seed never copies it.
             private_home = self._private_home(run, lane)
             environment = self._safe_env()
             environment.update({
@@ -1665,7 +1635,6 @@ class PiRpcLaneAdapter:
                 "message": (
                     "Host debug resume. session.resume must be the first canonical "
                     "campaign operation. Stop at awaiting_player and do not act for the player."
-                    + (_SITUATION_RESUME_NOTE if situation_shape == "structural" else "")
                 ),
             })
             settled, failure = wait_terminal(phase="resume")
@@ -1693,13 +1662,54 @@ class PiRpcLaneAdapter:
                     "events": events,
                     "final": final_payload(None, finalized=False, exact_delivery=False),
                 }
+            if situation_shape == "structural":
+                # The resume settled at awaiting_player; seed now so the seed
+                # rows belong to the player's turn window, not to a phantom
+                # interrupted turn the host would refuse to continue.
+                current_phase = "seeding"
+                progress("seeding")
+                applied, seed_failure = self._seed_situation(
+                    lane=lane,
+                    run=run,
+                    materialized=materialized,
+                    deadline=deadline,
+                    cancelled=cancelled,
+                )
+                situation_evidence["applied"] = applied
+                situation_evidence["seeded"] = seed_failure is None
+                for row in applied:
+                    events.append({
+                        "category": "tools",
+                        "phase": "seed",
+                        "operation": row["operation"],
+                        "event": row,
+                    })
+                if seed_failure is not None:
+                    if seed_failure == "timeout":
+                        status, code = "timed_out", "lane_absolute_budget_exceeded"
+                    elif seed_failure == "cancelled":
+                        status, code = "cancelled", "debug_cancelled"
+                    else:
+                        status, code = "failed", "situation_seed_failed"
+                    return {
+                        "status": status,
+                        "resume_first": resume_first,
+                        "duration_ms": round((time.monotonic() - started) * 1000),
+                        "abort_count": abort_count,
+                        "abort_confirmed": abort_confirmed,
+                        "error": {"code": code},
+                        "events": events,
+                        "final": final_payload(
+                            None, finalized=False, exact_delivery=False,
+                        ),
+                    }
             first_operation = None
             send({
                 "type": "prompt",
                 "id": f"turn-{lane['id']}",
                 "message": (
-                    f"{_SITUATION_PROMPT_INSTRUCTION}\n\n{lane['player_input']}"
-                    if situation_shape == "prompt"
+                    f"{turn_instruction}\n\n{lane['player_input']}"
+                    if turn_instruction
                     else lane["player_input"]
                 ),
             })
