@@ -2623,58 +2623,7 @@ def test_pi_opening_character_setup_allows_only_canonical_chargen_dice_recipes()
         ) is False
 
 
-def test_rules_patch_records_a_house_rule_and_reports_the_effective_set(campaign_ws):
-    described = coc_toolbox._describe("rules.patch")
-    assert described["needs_campaign"] is True
-    for field in ("patch_id", "layer", "operation", "target", "reason"):
-        assert described["params"][field]["required"] is True
-    args = {
-        "patch_id": "house:no-luck-spend",
-        "layer": "house_rule",
-        "operation": "DISABLES",
-        "target": "luck-spend",
-        "reason": "classic resource pressure",
-    }
-    first = _run(campaign_ws, "rules.patch", args)
-    assert first["ok"] is True, first
-    assert first["data"]["status"] == "recorded"
-    assert first["data"]["patch"]["scope"] == "campaign"
-    effective = {row["option_id"]: row for row in first["data"]["effective_optional_rules"]}
-    assert effective["luck-spend"]["enabled"] is False
-    assert effective["luck-spend"]["decided_by"] == "house:no-luck-spend"
-    assert effective["luck-recovery"]["enabled"] is True
-    patches = json.loads(
-        (campaign_ws["campaign_dir"] / "save" / "rule-patches.json").read_text(encoding="utf-8")
-    )
-    assert [row["patch_id"] for row in patches["patches"]] == ["house:no-luck-spend"]
-    events = [
-        row for row in _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "events.jsonl")
-        if row.get("event_type") == "rule_patch_recorded"
-    ]
-    assert len(events) == 1
-    second = _run(campaign_ws, "rules.patch", args)
-    assert second["ok"] is True and second["data"]["status"] == "duplicate"
-    assert any("duplicate patch_id" in warning for warning in second["warnings"])
-    assert second["data"]["patch_count"] == 1
-    conflict = _run(campaign_ws, "rules.patch", {**args, "operation": "ENABLES"})
-    assert conflict["ok"] is False
-    assert conflict["error"]["code"] == "rule_patch_conflict"
-
-
-def test_rules_patch_refuses_an_undeclared_target(campaign_ws):
-    result = _run(campaign_ws, "rules.patch", {
-        "patch_id": "house:free-rerolls",
-        "layer": "house_rule",
-        "operation": "ENABLES",
-        "target": "free-rerolls",
-        "reason": "we like rerolls",
-    })
-    assert result["ok"] is False
-    assert result["error"]["code"] == "unknown_optional_rule"
-    assert not (campaign_ws["campaign_dir"] / "save" / "rule-patches.json").exists()
-
-
-def test_disabled_luck_spend_refuses_the_spend_and_hides_the_card(campaign_ws):
+def test_confirmed_house_rule_disables_luck_spend_and_hides_the_card(campaign_ws):
     source = _run(campaign_ws, "rules.roll", {
         "investigator": campaign_ws["investigator_id"],
         "skill": "Library Use",
@@ -2683,14 +2632,13 @@ def test_disabled_luck_spend_refuses_the_spend_and_hides_the_card(campaign_ws):
         "seed": 88,
     })
     assert source["ok"] is True and source["data"]["passed"] is False
-    ruling = _run(campaign_ws, "rules.patch", {
-        "patch_id": "ruling:no-luck-tonight",
-        "layer": "session_ruling",
-        "operation": "DISABLES",
-        "target": "luck-spend",
-        "reason": "the Keeper called it at the table",
-    })
-    assert ruling["ok"] is True, ruling
+    confirm_house_rule(
+        campaign_ws["campaign_dir"],
+        patch_id="patch:no-luck-spend",
+        relation="disables",
+        target="rule:coc7:push-luck:luck-spend",
+        reason="classic resource pressure",
+    )
     refused = _run(campaign_ws, "rules.luck_spend", {
         "investigator": campaign_ws["investigator_id"],
         "points": 1,
@@ -2699,7 +2647,7 @@ def test_disabled_luck_spend_refuses_the_spend_and_hides_the_card(campaign_ws):
     })
     assert refused["ok"] is False
     assert refused["error"]["code"] == "optional_rule_disabled"
-    assert "ruling:no-luck-tonight" in refused["error"]["message"]
+    assert "patch:no-luck-spend" in refused["error"]["message"]
     context = _run(campaign_ws, "rules.context", {
         "family": "push-luck",
         "investigator": campaign_ws["investigator_id"],
@@ -2709,16 +2657,15 @@ def test_disabled_luck_spend_refuses_the_spend_and_hides_the_card(campaign_ws):
     assert "decision:coc7:push-luck:luck-spend" not in refs
     gates = context["data"]["disabled_by_optional_rules"]
     assert [row["decision_ref"] for row in gates] == ["decision:coc7:push-luck:luck-spend"]
-    assert gates[0]["decided_by"] == "ruling:no-luck-tonight"
-    # A later house rule does not outrank the session ruling.
-    lower = _run(campaign_ws, "rules.patch", {
-        "patch_id": "house:luck-back",
-        "layer": "house_rule",
-        "operation": "ENABLES",
-        "target": "luck-spend",
-        "reason": "standing table agreement",
-    })
-    assert lower["ok"] is True and lower["hints"]
+    assert gates[0]["decided_by"] == "patch:no-luck-spend"
+    # A campaign patch does not outrank the house rule.
+    confirm_house_rule(
+        campaign_ws["campaign_dir"],
+        patch_id="patch:campaign-luck-back",
+        relation="enables",
+        target="rule:coc7:push-luck:luck-spend",
+        layer="campaign_patch",
+    )
     still = _run(campaign_ws, "rules.luck_spend", {
         "investigator": campaign_ws["investigator_id"],
         "points": 1,
@@ -2728,37 +2675,52 @@ def test_disabled_luck_spend_refuses_the_spend_and_hides_the_card(campaign_ws):
     assert still["ok"] is False and still["error"]["code"] == "optional_rule_disabled"
 
 
-def test_enabled_luck_spend_after_a_scene_scoped_ruling_expires_with_the_scene(campaign_ws):
-    campaign_path = campaign_ws["campaign_dir"] / "campaign.json"
-    campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
-    scene_id = campaign.get("active_scene_id") or "opening"
-    campaign["active_scene_id"] = scene_id
-    campaign_path.write_text(json.dumps(campaign, indent=2), encoding="utf-8")
-    ruling = _run(campaign_ws, "rules.patch", {
-        "patch_id": "ruling:cellar-no-luck",
-        "layer": "session_ruling",
-        "scope": f"scene:{scene_id}",
-        "operation": "DISABLES",
-        "target": "luck-spend",
-        "reason": "no Luck in the cellar",
-    })
-    assert ruling["ok"] is True, ruling
-    effective = {row["option_id"]: row for row in ruling["data"]["effective_optional_rules"]}
-    assert effective["luck-spend"]["enabled"] is False
-    campaign["active_scene_id"] = "attic"
-    campaign_path.write_text(json.dumps(campaign, indent=2), encoding="utf-8")
+def test_conflicting_confirmed_house_rules_refuse_luck_spend_as_rule_conflict(campaign_ws):
     source = _run(campaign_ws, "rules.roll", {
         "investigator": campaign_ws["investigator_id"],
         "skill": "Library Use",
         "target": 50,
-        "decision_id": "luck-source-attic",
+        "decision_id": "luck-source-conflict",
         "seed": 88,
     })
     assert source["ok"] is True and source["data"]["passed"] is False
+    for patch_id, relation in (("patch:luck-off", "disables"), ("patch:luck-on", "enables")):
+        confirm_house_rule(
+            campaign_ws["campaign_dir"],
+            patch_id=patch_id,
+            relation=relation,
+            target="rule:coc7:push-luck:luck-spend",
+        )
+    refused = _run(campaign_ws, "rules.luck_spend", {
+        "investigator": campaign_ws["investigator_id"],
+        "points": 1,
+        "source_roll_id": source["data"]["roll_id"],
+        "decision_id": "luck-conflict",
+    })
+    assert refused["ok"] is False
+    assert refused["error"]["code"] == "rule_conflict"
+    assert "patch:luck-off" in refused["error"]["message"]
+
+
+def test_unenforced_house_rule_relation_leaves_luck_spend_available(campaign_ws):
+    source = _run(campaign_ws, "rules.roll", {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use",
+        "target": 50,
+        "decision_id": "luck-source-augment",
+        "seed": 88,
+    })
+    assert source["ok"] is True and source["data"]["passed"] is False
+    confirm_house_rule(
+        campaign_ws["campaign_dir"],
+        patch_id="patch:luck-costs-time",
+        relation="augments",
+        target="rule:coc7:push-luck:luck-spend",
+    )
     spend = _run(campaign_ws, "rules.luck_spend", {
         "investigator": campaign_ws["investigator_id"],
         "points": 1,
         "source_roll_id": source["data"]["roll_id"],
-        "decision_id": "luck-attic",
+        "decision_id": "luck-augment",
     })
     assert spend["ok"] is True, spend

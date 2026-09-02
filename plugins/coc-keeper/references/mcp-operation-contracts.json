@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:b97ba8e4bf1903323f29d75d8febadae20189ca313c8177de53d5b9817ec95bf",
+  "content_sha256": "sha256:a6e78751f0117b986be4d12fd97595d3ceef2954005ca040fd7f0bd81374c545",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 152,
+  "operation_count": 151,
   "operations": {
     "actions.advise": {
       "access": "mutation",
@@ -3798,71 +3798,6 @@
         ]
       },
       "summary": "NON-COMBAT opposed check only: higher success level wins; ties favor the higher value. Attacks, Dodge, and Fight Back must use combat.resolve."
-    },
-    "rules.patch": {
-      "access": "mutation",
-      "canonical_operation": "rules.patch",
-      "description": "Record a house rule or session ruling that ENABLES or DISABLES one ruleset-declared optional rule (see rules.context disabled_by_optional_rules). Idempotent by patch_id; a different ruling under the same id conflicts. Canonical operation `rules.patch`; the result envelope is authoritative.",
-      "execution_class": "serial_campaign",
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "campaign": {
-            "description": "Campaign id. Required for campaign-bound operations.",
-            "type": "string"
-          },
-          "layer": {
-            "description": "session_ruling | house_rule | campaign_patch (specificity wins in that order)",
-            "type": "string"
-          },
-          "operation": {
-            "description": "ENABLES | DISABLES",
-            "type": "string"
-          },
-          "patch_id": {
-            "description": "ruling id, lowercase kebab-case, optionally namespaced (house:no-luck-spend)",
-            "type": "string"
-          },
-          "reason": {
-            "description": "the table's own words for the ruling",
-            "type": "string"
-          },
-          "root": {
-            "description": "Project root containing .coc; defaults to the host workspace.",
-            "type": "string"
-          },
-          "scope": {
-            "description": "campaign (default) or scene:<scene_id>",
-            "type": "string"
-          },
-          "target": {
-            "description": "declared optional rule id of the active ruleset (coc7: luck-spend, luck-recovery)",
-            "type": "string"
-          }
-        },
-        "required": [
-          "campaign",
-          "patch_id",
-          "layer",
-          "operation",
-          "target",
-          "reason"
-        ],
-        "type": "object"
-      },
-      "needs_campaign": true,
-      "policy": {
-        "advisory": false,
-        "audience": "keeper",
-        "contract": "state",
-        "discovery": "surface",
-        "kp_surface": "rules",
-        "phases": [
-          "opening",
-          "live_turn"
-        ]
-      },
-      "summary": "Record a house rule or session ruling that ENABLES or DISABLES one ruleset-declared optional rule (see rules.context disabled_by_optional_rules). Idempotent by patch_id; a different ruling under the same id conflicts."
     },
     "rules.precedent": {
       "access": "mutation",

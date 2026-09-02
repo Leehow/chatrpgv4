@@ -1,34 +1,41 @@
-"""Optional rules and rule patches (house rules, session rulings).
+"""Optional rules: what a ruleset declares, and what confirmed patches decide.
 
-The rulebook separates core rules from *optional* rules (for CoC 7e: Spending
+The rulebook separates core rules from *optional* rules (CoC 7e: Spending
 Luck and Luck Recovery, p.99). Before this module the ruleset flagged them
 (``luck.json`` ``recovery.optional_rule: true``) but nothing read the flag: a
-table could neither switch an optional rule off nor record a house rule, and a
-Keeper ruling lived only in chat.
+table could neither switch an optional rule off nor have a house rule change
+what the kernel does.
 
-Three pieces, all ruleset-agnostic:
+Two pieces, both ruleset-agnostic:
 
 - **Declaration.** A ruleset package lists its optional rules in
-  ``manifest.json`` ``optional_rules`` (``docs/ruleset-contract.md`` §2). Each
-  row names the graph rule nodes it covers, the decision cards it gates, the
-  operations / settlements it gates, and its package default.
-- **Patches.** A campaign records ``RulePatch`` rows in
-  ``save/rule-patches.json``. A patch ``ENABLES`` or ``DISABLES`` one declared
-  option at one layer (``campaign_patch`` < ``house_rule`` < ``session_ruling``)
-  and one scope (the campaign, or one scene). Only declared targets are
-  accepted, so a patch can never invent a rule.
-- **Effective set.** ``effective_optional_rules`` resolves the declared
-  defaults plus the applicable patches by layer precedence; ties inside one
-  layer go to the latest recorded patch. The RuleGraph runtime, the Luck
-  spend operation and the development settlement consult that set.
+  ``manifest.json`` ``optional_rules`` (``docs/ruleset-contract.md`` §2.3).
+  Each row names the graph rule and decision nodes it covers, the operations
+  and settlements it gates, and the package default.
+- **Effective set.** A house rule is recorded once, by ``coc_house_rules``
+  (spec ``pi-coc-rule-override-and-session-rulings`` §5): prose compiled
+  through a semantic step into a case-backed ``RulePatch`` the user confirms.
+  This module reads the *confirmed* patches back. A confirmed ``disables`` or
+  ``enables`` patch whose target is one of a declared option's nodes decides
+  that option; the RuleGraph runtime, the Luck spend operation and the
+  development settlement consult the result.
 
-``AUGMENTS`` / ``OVERRIDES`` (replacing a rule body) are deliberately absent:
-they need a replacement rule node with its own evidence, which is compiler
-work, not a campaign-state toggle.
+Laws carried over from that spec:
+
+- one store (``save/house-rules.json``), one grammar, one confirmation path;
+  nothing here writes a patch;
+- layer precedence orders *declared* toggles; two confirmed toggles at the
+  same layer that disagree are a ``rule_conflict`` and every gate they touch
+  fails closed, never a quiet guess;
+- a session ruling is precedent, never an authority over results, so the
+  ``session_ruling`` layer cannot switch an option (``coc_house_rules`` refuses
+  to author it, and this module ignores it if one ever appears);
+- ``overrides`` / ``augments`` need a replacement rule body with its own
+  evidence and are the compiler's (slice R2), so they are reported as
+  present-but-not-enforced rather than silently applied.
 """
 from __future__ import annotations
 
-import re
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Mapping
@@ -47,28 +54,24 @@ def _load_sibling(name: str, filename: str):
 
 
 coc_rulesets = _load_sibling("coc_rulesets_rule_options", "coc_rulesets.py")
-coc_fileio = _load_sibling("coc_fileio_rule_options", "coc_fileio.py")
+coc_house_rules = _load_sibling("coc_house_rules_rule_options", "coc_house_rules.py")
 
-RULE_PATCHES_SCHEMA_VERSION = 1
-RULE_PATCHES_RELATIVE = Path("save") / "rule-patches.json"
-
-#: Highest precedence first. A session ruling is the table's most specific
-#: decision; a house rule is a standing table agreement; a campaign patch is
-#: the imported campaign's own adjustment. The package default sits below all.
-LAYER_PRECEDENCE: tuple[str, ...] = ("session_ruling", "house_rule", "campaign_patch")
+#: Most specific first; the one ladder, owned by coc_house_rules.
+LAYERS: tuple[str, ...] = tuple(coc_house_rules.LAYERS)
 DEFAULT_LAYER = "ruleset_default"
-OPERATIONS: frozenset[str] = frozenset({"ENABLES", "DISABLES"})
-SCOPE_CAMPAIGN = "campaign"
-SCENE_SCOPE_PREFIX = "scene:"
+#: Relations this module can enforce, and what they set ``enabled`` to.
+TOGGLE_RELATIONS: dict[str, bool] = {"disables": False, "enables": True}
+#: The only scope with a definite extent today. ``session`` and ``scene``
+#: patches carry no session or scene id, so they cannot be bound to a moment
+#: and are reported instead of enforced.
+ENFORCED_SCOPE = "campaign"
+#: Layers a table may not use to switch an option: not negotiable from the
+#: table (system_safety, core) or precedent-only (session_ruling).
+NON_TOGGLE_LAYERS: frozenset[str] = frozenset({"system_safety", "core", "session_ruling"})
 
-_PATCH_ID_RE = re.compile(r"^[a-z][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)*$")
-_OPTION_ID_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
-_SCENE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
-_PATCH_FIELDS = ("patch_id", "layer", "scope", "operation", "target", "reason")
 
-
-class RulePatchError(ValueError):
-    """A patch that cannot be recorded; ``code`` is the operation error code."""
+class OptionalRuleError(ValueError):
+    """A gate that cannot be evaluated; ``code`` is the operation error code."""
 
     def __init__(self, code: str, message: str, *, details: dict[str, Any] | None = None):
         super().__init__(message)
@@ -112,248 +115,160 @@ def declared_option(ruleset_id: str, option_id: str) -> dict[str, Any] | None:
     return None
 
 
-# -- patches --------------------------------------------------------------- #
-
-def rule_patches_path(campaign_dir: Path) -> Path:
-    return Path(campaign_dir) / RULE_PATCHES_RELATIVE
-
-
-def _empty_document(campaign_id: str) -> dict[str, Any]:
-    return {
-        "schema_version": RULE_PATCHES_SCHEMA_VERSION,
-        "campaign_id": campaign_id,
-        "patches": [],
-    }
+def option_for_target(ruleset_id: str, target: str) -> dict[str, Any] | None:
+    """The declared option a patch target (rule or decision node id) belongs to."""
+    for row in declared_optional_rules(ruleset_id):
+        if target in row["rule_refs"] or target in row["decision_refs"]:
+            return row
+    return None
 
 
-def load_rule_patches(campaign_dir: Path) -> dict[str, Any]:
-    """Exact-current ``save/rule-patches.json``; absent file = no patches.
+# -- toggles from confirmed patches ---------------------------------------- #
 
-    The file is created lazily by the first recorded patch, like a package
-    state directory with ``create_on_init: false``. A present file must match
-    the current schema and the campaign identity; anything else fails closed.
+def _patch_body(row: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Accept either a house-rules record (``{"patch": ...}``) or a bare patch."""
+    inner = row.get("patch")
+    return inner if isinstance(inner, Mapping) else row
+
+
+def toggles_from_patches(
+    ruleset_id: str, patches: list[Mapping[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """One row per confirmed patch, saying whether and how it toggles an option.
+
+    Nothing is dropped silently: a patch this module cannot enforce is returned
+    with ``applicable: False`` and a reason, so a reader can see that the table
+    confirmed something the kernel does not act on yet.
     """
-    campaign_dir = Path(campaign_dir)
-    path = rule_patches_path(campaign_dir)
-    if path.is_symlink():
-        raise RulePatchError("rule_patches_corrupt", f"unsafe symlink at {path}")
-    if not path.exists():
-        return _empty_document(campaign_dir.name)
-    try:
-        import json
-
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise RulePatchError("rule_patches_corrupt", f"unreadable {path}: {exc}") from exc
-    if (
-        not isinstance(payload, dict)
-        or payload.get("schema_version") != RULE_PATCHES_SCHEMA_VERSION
-        or payload.get("campaign_id") != campaign_dir.name
-        or not isinstance(payload.get("patches"), list)
-        or not all(isinstance(row, dict) for row in payload["patches"])
-    ):
-        raise RulePatchError(
-            "rule_patches_corrupt",
-            f"{path} is not a schema-{RULE_PATCHES_SCHEMA_VERSION} rule patch "
-            f"document for campaign {campaign_dir.name!r}",
-        )
-    return payload
-
-
-def normalize_patch(patch: Mapping[str, Any], ruleset_id: str) -> dict[str, Any]:
-    """Validate one caller-authored patch against the ruleset's declarations."""
-    if not isinstance(patch, Mapping):
-        raise RulePatchError("invalid_param", "rule patch must be an object")
-    unknown = sorted(set(patch) - set(_PATCH_FIELDS))
-    if unknown:
-        raise RulePatchError(
-            "invalid_param", f"rule patch has unknown fields: {', '.join(unknown)}",
-        )
-    missing = [field for field in _PATCH_FIELDS if field not in patch]
-    if missing:
-        raise RulePatchError(
-            "missing_param", f"rule patch requires {', '.join(missing)}",
-        )
-    patch_id = patch["patch_id"]
-    if not isinstance(patch_id, str) or _PATCH_ID_RE.fullmatch(patch_id) is None:
-        raise RulePatchError(
-            "invalid_param",
-            "patch_id must be a lowercase kebab-case id, optionally namespaced "
-            "with colons (for example house:no-luck-spend)",
-        )
-    layer = patch["layer"]
-    if layer not in LAYER_PRECEDENCE:
-        raise RulePatchError(
-            "invalid_param",
-            f"layer must be one of {', '.join(LAYER_PRECEDENCE)}",
-        )
-    scope = patch["scope"]
-    if not isinstance(scope, str) or not (
-        scope == SCOPE_CAMPAIGN
-        or (
-            scope.startswith(SCENE_SCOPE_PREFIX)
-            and _SCENE_ID_RE.fullmatch(scope[len(SCENE_SCOPE_PREFIX):]) is not None
-        )
-    ):
-        raise RulePatchError(
-            "invalid_param", "scope must be 'campaign' or 'scene:<scene_id>'",
-        )
-    operation = patch["operation"]
-    if operation not in OPERATIONS:
-        raise RulePatchError(
-            "invalid_param", f"operation must be one of {', '.join(sorted(OPERATIONS))}",
-        )
-    target = patch["target"]
-    declared = declared_option(ruleset_id, target) if isinstance(target, str) else None
-    if declared is None:
-        raise RulePatchError(
-            "unknown_optional_rule",
-            f"{target!r} is not an optional rule declared by ruleset {ruleset_id!r}",
-            details={
-                "declared": [row["option_id"] for row in declared_optional_rules(ruleset_id)],
-            },
-        )
-    reason = patch["reason"]
-    if not isinstance(reason, str) or not reason.strip():
-        raise RulePatchError("missing_param", "reason must be a non-empty string")
-    return {
-        "patch_id": patch_id,
-        "layer": layer,
-        "scope": scope,
-        "operation": operation,
-        "target": target,
-        "reason": reason.strip(),
-    }
-
-
-def record_rule_patch(
-    campaign_dir: Path,
-    ruleset_id: str,
-    patch: Mapping[str, Any],
-    *,
-    recorded_at: str,
-) -> tuple[dict[str, Any], str]:
-    """Append one patch; returns ``(document, "recorded" | "duplicate")``.
-
-    Idempotent by ``patch_id``: an identical patch is a no-op, a different
-    patch under the same id is a ``rule_patch_conflict`` (the id is the
-    ruling's identity, so silently replacing it would rewrite history).
-    """
-    normalized = normalize_patch(patch, ruleset_id)
-    document = load_rule_patches(campaign_dir)
-    for existing in document["patches"]:
-        if existing.get("patch_id") != normalized["patch_id"]:
+    rows: list[dict[str, Any]] = []
+    for raw in patches or []:
+        if not isinstance(raw, Mapping):
             continue
-        comparable = {key: existing.get(key) for key in _PATCH_FIELDS}
-        if comparable == normalized:
-            return document, "duplicate"
-        raise RulePatchError(
-            "rule_patch_conflict",
-            f"patch_id {normalized['patch_id']!r} already records a different ruling",
-            details={"existing": deepcopy(existing)},
-        )
-    row = {**normalized, "recorded_at": str(recorded_at), "ruleset_id": ruleset_id}
-    document["patches"].append(row)
-    path = rule_patches_path(campaign_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    coc_fileio.write_json_atomic(
-        path, document, indent=2, ensure_ascii=True, trailing_newline=True,
-    )
-    return document, "recorded"
-
-
-# -- effective set --------------------------------------------------------- #
-
-def _scope_applies(scope: str, scene_id: str | None) -> bool:
-    if scope == SCOPE_CAMPAIGN:
-        return True
-    return scene_id is not None and scope == f"{SCENE_SCOPE_PREFIX}{scene_id}"
+        patch = _patch_body(raw)
+        target = str(patch.get("target") or "")
+        relation = str(patch.get("relation") or "")
+        layer = str(patch.get("layer") or "")
+        scope = str(patch.get("scope") or "")
+        option = option_for_target(ruleset_id, target)
+        row: dict[str, Any] = {
+            "patch_id": str(patch.get("patch_id") or ""),
+            "version": patch.get("version"),
+            "layer": layer,
+            "scope": scope,
+            "relation": relation,
+            "target": target,
+            "option_id": option["option_id"] if option else None,
+            "reason": str(patch.get("reason") or ""),
+            "statement": str(patch.get("statement") or ""),
+            "applicable": False,
+        }
+        if option is None:
+            row["inapplicable_reason"] = "target_not_an_optional_rule"
+        elif relation not in TOGGLE_RELATIONS:
+            row["inapplicable_reason"] = "relation_not_enforced"
+        elif layer not in LAYERS or layer in NON_TOGGLE_LAYERS:
+            row["inapplicable_reason"] = "layer_cannot_toggle"
+        elif scope != ENFORCED_SCOPE:
+            row["inapplicable_reason"] = "scope_not_enforced"
+        else:
+            row["applicable"] = True
+            row["enabled"] = TOGGLE_RELATIONS[relation]
+        rows.append(row)
+    return rows
 
 
 def effective_optional_rules(
-    ruleset_id: str,
-    patches: list[Mapping[str, Any]] | None,
-    *,
-    scene_id: str | None = None,
+    ruleset_id: str, patches: list[Mapping[str, Any]] | None,
 ) -> dict[str, dict[str, Any]]:
-    """Resolve every declared option to ``{enabled, decided_by, layer, scope}``.
+    """Resolve every declared option to its status.
 
-    Precedence: ``session_ruling`` > ``house_rule`` > ``campaign_patch`` >
-    package default. Inside one layer the latest recorded patch wins, so a
-    table can revise its own ruling without editing history. Patches whose
-    scope is another scene, or whose target the package no longer declares,
-    are ignored (they are reported by ``inapplicable_patches``).
+    ``{option_id, display, enabled, decided_by, layer, ...}``; ``enabled`` is
+    ``None`` and ``conflict`` is ``True`` when two applicable toggles at the
+    winning layer disagree. Precedence is the ``coc_house_rules.LAYERS``
+    ladder; inside one layer the toggles must agree (a newer *version* of the
+    same patch supersedes the older one at confirmation time, so agreement
+    here is between different patch ids).
     """
+    toggles = toggles_from_patches(ruleset_id, patches)
     out: dict[str, dict[str, Any]] = {}
     for declared in declared_optional_rules(ruleset_id):
         option_id = declared["option_id"]
-        winner: dict[str, Any] | None = None
-        winner_rank = len(LAYER_PRECEDENCE)
-        for patch in patches or []:
-            if not isinstance(patch, Mapping) or patch.get("target") != option_id:
-                continue
-            layer = patch.get("layer")
-            if layer not in LAYER_PRECEDENCE:
-                continue
-            if not _scope_applies(str(patch.get("scope") or ""), scene_id):
-                continue
-            rank = LAYER_PRECEDENCE.index(layer)
-            if rank <= winner_rank:
-                winner, winner_rank = dict(patch), rank
-        if winner is None:
+        mine = [row for row in toggles if row["applicable"] and row["option_id"] == option_id]
+        if not mine:
             out[option_id] = {
                 "option_id": option_id,
                 "display": declared["display"],
                 "enabled": declared["enabled_by_default"],
                 "decided_by": DEFAULT_LAYER,
                 "layer": DEFAULT_LAYER,
-                "scope": SCOPE_CAMPAIGN,
+                "scope": ENFORCED_SCOPE,
             }
-        else:
+            continue
+        best = min(LAYERS.index(row["layer"]) for row in mine)
+        winners = sorted(
+            (row for row in mine if LAYERS.index(row["layer"]) == best),
+            key=lambda row: row["patch_id"],
+        )
+        verdicts = {row["enabled"] for row in winners}
+        if len(verdicts) > 1:
             out[option_id] = {
                 "option_id": option_id,
                 "display": declared["display"],
-                "enabled": winner.get("operation") == "ENABLES",
-                "decided_by": str(winner.get("patch_id")),
-                "layer": str(winner.get("layer")),
-                "scope": str(winner.get("scope")),
-                "reason": str(winner.get("reason") or ""),
+                "enabled": None,
+                "conflict": True,
+                "decided_by": None,
+                "layer": winners[0]["layer"],
+                "scope": ENFORCED_SCOPE,
+                "conflicting": [
+                    {"patch_id": row["patch_id"], "relation": row["relation"]}
+                    for row in winners
+                ],
             }
+            continue
+        winner = winners[0]
+        out[option_id] = {
+            "option_id": option_id,
+            "display": declared["display"],
+            "enabled": winner["enabled"],
+            "decided_by": winner["patch_id"],
+            "layer": winner["layer"],
+            "scope": winner["scope"],
+            "reason": winner["reason"],
+            "statement": winner["statement"],
+        }
     return out
 
 
-def inapplicable_patches(
-    ruleset_id: str, patches: list[Mapping[str, Any]] | None,
-) -> list[dict[str, Any]]:
-    declared = {row["option_id"] for row in declared_optional_rules(ruleset_id)}
-    return [
-        {"patch_id": patch.get("patch_id"), "target": patch.get("target"),
-         "reason": "target_not_declared"}
-        for patch in patches or []
-        if isinstance(patch, Mapping) and patch.get("target") not in declared
-    ]
+def confirmed_patches(campaign_dir: Path) -> list[dict[str, Any]]:
+    """Confirmed house-rule patch bodies, read through the one store."""
+    try:
+        records = coc_house_rules.confirmed_patches(campaign_dir)
+    except coc_house_rules.HouseRuleError as exc:
+        raise OptionalRuleError("house_rules_corrupt", str(exc)) from exc
+    return [deepcopy(dict(_patch_body(record))) for record in records]
 
 
 def campaign_effective_optional_rules(
-    campaign_dir: Path,
-    ruleset_id: str,
-    *,
-    scene_id: str | None = None,
+    campaign_dir: Path, ruleset_id: str,
 ) -> dict[str, dict[str, Any]]:
-    document = load_rule_patches(campaign_dir)
-    return effective_optional_rules(
-        ruleset_id, document["patches"], scene_id=scene_id,
-    )
+    return effective_optional_rules(ruleset_id, confirmed_patches(campaign_dir))
+
+
+# -- gates ----------------------------------------------------------------- #
+
+def _gating(status: Mapping[str, Any] | None) -> bool:
+    return status is not None and (status.get("conflict") is True or status.get("enabled") is False)
 
 
 def disabled_decision_gates(
     ruleset_id: str, effective: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    """``decision_ref -> status row`` for every card a disabled option gates."""
+    """``decision_ref -> status row`` for every card a disabled or conflicted
+    option covers."""
     gates: dict[str, dict[str, Any]] = {}
     for declared in declared_optional_rules(ruleset_id):
         status = effective.get(declared["option_id"])
-        if status is None or status.get("enabled"):
+        if not _gating(status):
             continue
         for decision_ref in declared["decision_refs"]:
             gates[decision_ref] = dict(status)
@@ -367,7 +282,7 @@ def gate_for(
     operation: str | None = None,
     settlement: str | None = None,
 ) -> dict[str, Any] | None:
-    """The disabling status row for one operation / settlement gate, or None."""
+    """The gating status row for one operation / settlement gate, or None."""
     for declared in declared_optional_rules(ruleset_id):
         if operation is not None and operation not in declared["operation_gates"]:
             continue
@@ -376,20 +291,33 @@ def gate_for(
         if operation is None and settlement is None:
             continue
         status = effective.get(declared["option_id"])
-        if status is not None and not status.get("enabled"):
+        if _gating(status):
             return dict(status)
     return None
 
 
-def disabled_message(status: Mapping[str, Any]) -> str:
+def gate_code(status: Mapping[str, Any]) -> str:
+    return "rule_conflict" if status.get("conflict") else "optional_rule_disabled"
+
+
+def gate_message(status: Mapping[str, Any]) -> str:
+    option = status.get("option_id")
+    if status.get("conflict"):
+        names = ", ".join(
+            f"{row.get('patch_id')} ({row.get('relation')})"
+            for row in status.get("conflicting") or []
+        )
+        return (
+            f"optional rule {option!r} has conflicting confirmed patches at layer "
+            f"{status.get('layer')}: {names}; supersede one before this rule can settle"
+        )
     by = status.get("decided_by")
     if by == DEFAULT_LAYER:
         return (
-            f"optional rule {status.get('option_id')!r} is off by ruleset default; "
-            "record rules.patch ENABLES to switch it on for this campaign"
+            f"optional rule {option!r} is off by ruleset default; a confirmed "
+            "house rule with relation enables switches it on for this campaign"
         )
     return (
-        f"optional rule {status.get('option_id')!r} is disabled by "
-        f"{status.get('layer')} {by!r} ({status.get('scope')}): "
-        f"{status.get('reason') or 'no reason recorded'}"
+        f"optional rule {option!r} is disabled by {status.get('layer')} "
+        f"{by!r}: {status.get('reason') or 'no reason recorded'}"
     )

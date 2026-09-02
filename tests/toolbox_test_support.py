@@ -1447,4 +1447,56 @@ def _project_partial_opening_to_current_receipt(ws: dict) -> str:
     assert isinstance(scenario.get("opening_projection_source_binding"), dict)
     return job_id
 
+def confirm_house_rule(
+    campaign_dir: Path,
+    *,
+    patch_id: str,
+    relation: str,
+    target: str,
+    layer: str = "house_rule",
+    scope: str = "campaign",
+    version: int = 1,
+    reason: str = "the table agreed",
+) -> dict:
+    """Confirm one house-rule patch through the real compile/confirm path."""
+    coc_house_rules = _load("coc_house_rules_test_support", SCRIPTS / "coc_house_rules.py")
+    ruleset_dir = REPO / "plugins" / "coc-keeper" / "rulesets" / "coc7"
+    request = coc_house_rules.build_compile_request(
+        campaign_id=Path(campaign_dir).name,
+        source_text=f"table sentence for {patch_id}",
+        ruleset_dir=ruleset_dir,
+    )
+    result = {
+        "schema_version": coc_house_rules.SCHEMA_VERSION,
+        "evaluator_id": coc_house_rules.EVALUATOR_ID,
+        "evaluation_provenance": {
+            "kind": coc_house_rules.PROVENANCE_KIND,
+            "request_sha256": coc_house_rules.request_sha256(request),
+            "reviewed_artifact": coc_house_rules.REQUEST_FILENAME,
+        },
+        "patch": {
+            "patch_id": patch_id,
+            "relation": relation,
+            "target": target,
+            "layer": layer,
+            "scope": scope,
+            "version": version,
+            "reason": reason,
+            "statement": f"{relation} {target}",
+            "cases": [
+                {"kind": "positive", "situation": "a failed roll",
+                 "without_patch": "the option applies", "with_patch": "the option is changed"},
+                {"kind": "negative", "situation": "an unrelated roll",
+                 "without_patch": "unchanged", "with_patch": "unchanged"},
+                {"kind": "boundary", "situation": "another campaign",
+                 "without_patch": "unchanged", "with_patch": "unchanged"},
+            ],
+        },
+    }
+    coc_house_rules.propose_patch(campaign_dir, request=request, result=result)
+    return coc_house_rules.decide_patch(
+        campaign_dir, patch_id=patch_id, version=version, accept=True,
+        decided_reason="confirmed in test",
+    )
+
 __all__ = [name for name in globals() if not name.startswith('__')]

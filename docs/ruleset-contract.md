@@ -83,7 +83,7 @@ Optional fields (absent means the documented default, never an error):
   when absent: the package declares none, and `rules.patch` accepts no
   target.
 
-### 2.3 Optional rules and rule patches (optional)
+### 2.3 Optional rules and house-rule patches (optional)
 
 A rulebook separates core rules from optional ones (coc7: Spending Luck and
 Luck Recovery, Keeper Rulebook p.99). A package declares each optional rule
@@ -102,192 +102,41 @@ once, in `optional_rules`:
 }
 ```
 
-- `option_id` is the only name a campaign may enable or disable; a patch
-  naming anything else is `unknown_optional_rule`. A patch can never invent
-  a rule.
 - `rule_refs` / `decision_refs` must resolve to `rule` / `decision` nodes of
-  the package graph when one is declared (conformance item 6). A disabled
-  option projects its `decision_refs` cards as `not_applicable` with
-  `disabled_by_optional_rule`, and `rules.settle` on one of them fails closed
-  with `optional_rule_disabled`.
-- `operation_gates` name canonical operations a disabled option refuses
-  (`optional_rule_disabled`); `settlement_gates` name settlement steps it
-  skips as a recorded skip row (coc7: `development.luck_recovery`).
+  the package graph when one is declared (conformance item 6). They are also
+  the only patch targets that can switch the option.
+- A disabled option projects its `decision_refs` cards as `not_applicable`
+  with `disabled_by_optional_rule`, `rules.context` lists them under
+  `disabled_by_optional_rules`, and `rules.settle` on one of them fails
+  closed with `optional_rule_disabled`.
+- `operation_gates` name canonical operations a disabled option refuses;
+  `settlement_gates` name settlement steps it skips as a recorded skip row
+  (coc7: `development.luck_recovery`).
 - `enabled_by_default` is the package's product profile, not the rulebook's
   word: when a rulebook-optional rule defaults to `true`, `source_note`
   states why.
 
-A campaign records its decisions as **rule patches** in
-`save/rule-patches.json` (`scripts/coc_rule_options.py`), written only by
-the Keeper operation `rules.patch`:
+What decides an option is a **confirmed house-rule patch**, and only that.
+Patches have one store and one path, `scripts/coc_house_rules.py`
+(`save/house-rules.json`; spec `pi-coc-rule-override-and-session-rulings`
+§5): the table's sentence is compiled through a semantic step into a
+`RulePatch` with positive, negative and boundary cases, and the user confirms
+the cases. `scripts/coc_rule_options.py` reads the confirmed patches back and
+enforces the subset it can:
 
-```json
-{
-  "patch_id": "house:no-luck-spend",
-  "layer": "house_rule",
-  "scope": "campaign",
-  "operation": "DISABLES",
-  "target": "luck-spend",
-  "reason": "this table plays classic resource pressure"
-}
-```
+- relation `disables` / `enables` on a target inside a declared option's
+  `rule_refs` or `decision_refs`, at layer `house_rule` or `campaign_patch`,
+  scope `campaign`;
+- precedence is the `coc_house_rules.LAYERS` ladder; two confirmed toggles at
+  the winning layer that disagree are a `rule_conflict`, and every gate they
+  touch fails closed until one is superseded;
+- `overrides` / `augments`, non-campaign scopes and targets outside the
+  declared options are reported (`toggles_from_patches`, `applicable:
+  false`) and not enforced. Enforcing a replacement rule body is compiler
+  work (spec slice R2), not campaign state.
 
-Layers resolve by specificity, `session_ruling` > `house_rule` >
-`campaign_patch` > package default; inside one layer the latest recorded
-patch wins. `scope` is `campaign` or `scene:<scene_id>` (a scene-scoped
-ruling applies only while that scene is active). Operations are `ENABLES`
-and `DISABLES` only: replacing a rule body (`AUGMENTS` / `OVERRIDES`) needs a
-replacement rule node with its own evidence and is compiler work, not
-campaign state. A `patch_id` is the ruling's identity: recording it again
-with the same content is a no-op, with different content a
-`rule_patch_conflict`. The kernel reads the patch file on every rules
-context, settle, Luck spend and development capsule freeze; a corrupt file
-fails closed (`rule_patches_corrupt`) rather than silently re-enabling
-every option.
-
-### 2.1 RuleGraph artifacts (optional)
-
-A graph-backed ruleset package MAY add exactly two artifacts, referenced as
-optional `entry_points` keys:
-
-```
-plugins/coc-keeper/rulesets/<id>/rule-graph.json
-plugins/coc-keeper/rulesets/<id>/rule-graph-manifest.json
-```
-
-It MAY also expose `entry_points.rule_graph_adapter`. Its primary interface is
-`settle(runtime, executor, plan, decision_id, selected, facts, envelope)`,
-returning either a completed settlement envelope or `None` to use the generic
-one-plan/one-executor path. Optional package hooks own context lookup, schema,
-operation-surface, fact augmentation, and host-binding details. Rule-family
-decision IDs and composed choreography belong in this package adapter, never
-in the generic `coc_rules_runtime.py` dispatch path.
-
-A package whose graph settlement can mutate player-visible actor state exposes
-`state_effect_domains(decision_ref) -> tuple[str, ...]` on that adapter. Each
-returned token is either a resource key declared by this package's `resources`
-registry or the kernel domain `condition`; unknown decisions return the empty
-tuple. The shared finalizer/exporter treats this package declaration as the
-write-capability boundary, then independently verifies the exact semantic
-decision namespace, actor identity, original (non-replay) call, and matching
-top-level/nested state receipt before accepting any delta. Receipt fields never
-grant their own domains, and the generic kernel contains no family-name map.
-
-`rule-graph-manifest.json` carries the machine-owned identity fields:
-
-- `contract_id` — the rule-graph build manifest contract id
-  (`coc.rule-graph-build-manifest.v1`).
-- `schema_version` — the contract schema version.
-- `ruleset_id` — equals the package directory name; `ruleset_version` the
-  exact package version.
-- `source_bundles` — accepted source-bundle identity + machine digest.
-- `graph_content_digest` — the graph's deterministic content digest.
-- `shards` — accepted shard identities (`shard_id`) and digests.
-- `family_coverage` — per-family source coverage
-  (`accepted/partial/unresolved/absent`).
-- `family_promotion_eligibility` — per-family runtime promotion status. R1
-  always records `promotion_eligible: false` for every family.
-- `data_table_dependencies` and `resolver_capability_dependencies` — exact
-  rules-json data tables and resolver capabilities the graph references.
-- `compiler_identity`, `reviewer_identity`, `review_status` — compiler and
-  review status.
-- `findings` — deterministic findings, including any source-vs-derivative
-  mismatches.
-
-Digests are machine-owned integrity fields; a model-visible projection exposes
-semantic graph/rule/decision/source refs but never requires a model to relay a
-manifest or content hash.
-
-Absence of the graph artifacts is legal and default: a package that ships no
-`rule_graph` / `rule_graph_manifest` entry points keeps every rule family at
-`legacy` runtime ownership with its legacy Keeper surface `visible`. A package
-that declares one graph artifact must declare both and keep them consistent;
-`ruleset_conformance` validates contract id, ruleset identity match, and an
-accepted review status.
-
-A campaign records its bound ruleset at creation: public `campaign.create`
-accepts `ruleset_id` (default `coc7`), `campaign.json` persists it, and the
-kernel resolves all rules-data paths
-through the single registry in `scripts/coc_rulesets.py`
-(`known_rulesets` / `ruleset_data_dir` / `get_campaign_ruleset_id`).
-Campaign-less contexts (char-gen previews, rule lookups before a campaign
-exists) resolve the default package. Every schema-v2 campaign must contain a
-non-empty registered binding whose manifest declares campaign schema 2;
-missing/unknown/incompatible bindings fail closed and never select another
-package's tables.
-
-### 2.2 Rule family runtime ownership (optional)
-
-A package MAY declare per-family rule-graph runtime ownership:
-
-```json
-{
-  "rule_families": [
-    {
-      "family_id": "healing",
-      "runtime_owner": "shadow",
-      "legacy_surface": "visible"
-    }
-  ]
-}
-```
-
-- `family_id` — one of the rule-graph contract's `rule_families` ids
-  (`healing`, `combat`, `core-check`, ...).
-- `runtime_owner` — `legacy` | `shadow` | `graph`:
-  - `legacy` — the existing Keeper-visible path owns execution; the RuleGraph
-    is not consulted (default when absent).
-  - `shadow` — the legacy path stays the sole execution owner; the
-    RulesRuntime compiles a candidate plan before RNG/mutation and the
-    comparator records exact semantic differences to a host-internal shadow
-    log (never canonical receipts, never player-visible). Missing/invalid
-    graph skips the comparison and never blocks or alters the legacy op.
-  - `graph` — the RulesRuntime settlement path is the sole Keeper-visible
-    owner for the family (spec §14.3 cutover; requires all promotion gates).
-- `legacy_surface` — `visible` | `hidden` | `removed`:
-  - `visible` — the legacy operations remain Keeper-discoverable.
-  - `hidden` — the legacy adapter may remain host-internal but is absent
-    from Keeper discovery and working sets.
-  - `removed` — the obsolete descriptor/adapter has been deleted.
-
-Rules:
-
-- One family cannot have `runtime_owner: "graph"` while its
-  `legacy_surface` remains `visible` (spec §7.7).
-- `runtime_owner: "graph"` requires that exact family's graph-manifest row to
-  declare `promotion_eligible: true`; disagreement fails closed at conformance
-  and runtime load.
-- `shadow`/`graph` owners require the paired `entry_points.rule_graph` and
-  `entry_points.rule_graph_manifest` (the R1 entry-point rule).
-- A package that ships no `rule_families` keeps every family at
-  `legacy`/`visible` — the runtime is a strict no-op for it.
-- When graph artifacts are present, the three sources — package
-  `rule_families`, graph `family_runtime_ownership` /
-  `legacy_surface_lifecycle`, and graph-manifest
-  `family_promotion_eligibility.*.runtime_ownership` — must agree per
-  family. A half-flip (one artifact graph/hidden, another shadow/visible)
-  fails closed (`ownership_mismatch` / `rules_graph_unavailable`); the
-  runtime never silently prefers the package entry.
-- A family at `runtime_owner: "graph"` must also have a **closed model view of
-  its settled result**. The three ownership sources above agree about who
-  *executes*; they say nothing about whether the Keeper can *see* what was
-  executed. When a settled canonical result carries host-owned identity that
-  the generic sanitizer cannot map — a correlation digest, an integrity digest,
-  an internal receipt — projection fails closed and the Keeper receives
-  `semantic_identity_unavailable` instead of the settlement. The mechanics have
-  already been committed at that point, so the only thing the Keeper can do is
-  settle again. Every recorded instance produced that loop
-  (`push-luck:pushed-roll`, `psychology:observe-concealed`).
-
-  Concretely, promoting a family to `graph` requires, in the host that presents
-  it: (a) a closed projector for any settled result that embeds a canonical
-  sub-product, and (b) an exact semantic domain for every identity-bearing
-  `semantic_inputs` ref the family declares, taken from the validator that
-  already resolves that ref rather than invented. Both are covered by
-  `tests/pi/rules-settle-recorded-projection.mjs` and
-  `tests/pi/normal-model-id-boundary.mjs`. A family that compiles, promotes and
-  passes ownership agreement but fails either of these is promoted, not
-  playable.
+A session ruling (`coc_session_rulings`) is precedent, never authority over
+results: it cannot switch an option.
 
 ## 3. L1 data — rules-json/
 

@@ -21,7 +21,6 @@ from coc_operation_kernel_runtime import (
     _load_sibling,
     _luck_source_reference,
     _optional_rule_gate_for_operation,
-    _effective_optional_rules_for_ctx,
     _luck_spend_data,
     _new_roll_receipt,
     _operation_event_id,
@@ -1178,15 +1177,16 @@ def _tool_rules_luck_spend(ctx: Ctx, args: dict[str, Any]):
             "state_corrupt",
             "Luck ledger entry has no canonical adjustment receipt",
         )
-    # Spending Luck is a rulebook-optional rule (p.99). A recorded house rule
-    # or session ruling that disables it refuses the spend before any write;
-    # an already-recorded spend above still replays, because a later ruling
-    # never rewrites a settled receipt.
+    # Spending Luck is a rulebook-optional rule (p.99). A confirmed house rule
+    # that disables it refuses the spend before any write (two confirmed
+    # patches that disagree refuse it as a rule_conflict); an already-recorded
+    # spend above still replays, because a later patch never rewrites a
+    # settled receipt.
     gate = _optional_rule_gate_for_operation(ctx, "rules.luck_spend")
     if gate is not None:
         raise ToolError(
-            "optional_rule_disabled",
-            coc_rule_options.disabled_message(gate),
+            coc_rule_options.gate_code(gate),
+            coc_rule_options.gate_message(gate),
             details={"optional_rule": gate},
         )
     if any(
@@ -1358,69 +1358,6 @@ def _tool_rules_settle(ctx: Ctx, args: dict[str, Any]):
 def _tool_rules_context(ctx: Ctx, args: dict[str, Any]):
     return dispatch_rules_context(ctx, args)
 
-
-_RULE_PATCH_FIELDS = ("patch_id", "layer", "scope", "operation", "target", "reason")
-
-
-def _tool_rules_patch(ctx: Ctx, args: dict[str, Any]):
-    """Record one house rule / session ruling as a versioned rule patch.
-
-    The ruling is a campaign state write (``save/rule-patches.json``), not a
-    transcript line: the RuleGraph runtime, ``rules.luck_spend`` and the
-    development settlement read it on their next call. Only ruleset-declared
-    optional rules are valid targets, so a patch can never invent a rule.
-    """
-    unknown = sorted(set(args) - set(_RULE_PATCH_FIELDS))
-    if unknown:
-        raise ToolError(
-            "invalid_param",
-            "rules.patch accepts only " + ", ".join(_RULE_PATCH_FIELDS)
-            + f"; unknown: {', '.join(unknown)}",
-        )
-    ruleset_id = _active_ruleset_id(ctx)
-    patch = dict(args)
-    patch.setdefault("scope", coc_rule_options.SCOPE_CAMPAIGN)
-    try:
-        document, status = coc_rule_options.record_rule_patch(
-            ctx.campaign_dir, ruleset_id, patch, recorded_at=coc_state.now_iso(),
-        )
-    except coc_rule_options.RulePatchError as exc:
-        raise ToolError(exc.code, str(exc), details=dict(exc.details)) from exc
-    recorded = next(
-        row for row in document["patches"] if row.get("patch_id") == patch["patch_id"]
-    )
-    if status == "recorded":
-        ctx.log_event({
-            "event_type": "rule_patch_recorded",
-            "patch_id": recorded["patch_id"],
-            "layer": recorded["layer"],
-            "scope": recorded["scope"],
-            "operation": recorded["operation"],
-            "target": recorded["target"],
-            "reason": recorded["reason"],
-        })
-    effective = _effective_optional_rules_for_ctx(ctx, ruleset_id)
-    data = {
-        "status": status,
-        "patch": deepcopy(recorded),
-        "effective_optional_rules": [
-            deepcopy(row) for row in effective.values()
-        ],
-        "patch_count": len(document["patches"]),
-    }
-    warnings = (
-        ["duplicate patch_id: this ruling was already recorded with the same content"]
-        if status == "duplicate" else []
-    )
-    hints: list[str] = []
-    current = effective.get(recorded["target"]) or {}
-    if current.get("decided_by") != recorded["patch_id"]:
-        hints.append(
-            f"{recorded['target']} is currently decided by {current.get('layer')} "
-            f"{current.get('decided_by')!r}; this {recorded['layer']} patch is "
-            "recorded but outranked or out of scope"
-        )
-    return data, warnings, hints
 
 
 def _tool_rules_first_aid(ctx: Ctx, args: dict[str, Any]):
@@ -1995,19 +1932,6 @@ def register_operations(registry) -> None:
     rule_settle_schema,
 )(_tool_rules_settle)
     registry.tool(
-    "rules.patch",
-    "Record a house rule or session ruling that ENABLES or DISABLES one ruleset-declared optional rule (see rules.context disabled_by_optional_rules). Idempotent by patch_id; a different ruling under the same id conflicts.",
-    {
-        "patch_id": {"type": "string", "required": True, "desc": "ruling id, lowercase kebab-case, optionally namespaced (house:no-luck-spend)"},
-        "layer": {"type": "string", "required": True, "desc": "session_ruling | house_rule | campaign_patch (specificity wins in that order)"},
-        "operation": {"type": "string", "required": True, "desc": "ENABLES | DISABLES"},
-        "target": {"type": "string", "required": True, "desc": "declared optional rule id of the active ruleset (coc7: luck-spend, luck-recovery)"},
-        "reason": {"type": "string", "required": True, "desc": "the table's own words for the ruling"},
-        "scope": {"type": "string", "desc": "campaign (default) or scene:<scene_id>"},
-    },
-    write_domains=("mechanics",),
-)(_tool_rules_patch)
-    registry.tool(
     "rules.context",
     "Keeper-visible RuleGraph context for one compiled family. Read the current semantic decision cards before rules.settle; cards are affordances, never action gates.",
     rule_context_schema,
@@ -2044,7 +1968,6 @@ OPERATION_EXPORTS = (
     '_tool_rules_medicine',
     '_tool_rules_settle',
     '_tool_rules_opposed',
-    '_tool_rules_patch',
     '_tool_rules_push',
     '_tool_rules_resource_delta',
     '_tool_rules_roll',

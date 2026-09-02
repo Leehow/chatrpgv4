@@ -1937,7 +1937,7 @@ def _luck_recovery_gate(campaign_dir: Path) -> dict[str, Any] | None:
     """Disabling status for the ``development.luck_recovery`` settlement gate.
 
     Read at capsule-freeze time: the ending capsule is the frozen input, so a
-    ruling recorded after the ending does not rewrite a settled plan.
+    house rule confirmed after the ending does not rewrite a settled plan.
     """
     # The development phase never required a full campaign.json (its
     # fixtures are bare save/ trees or identity stubs), so this reads only
@@ -1952,15 +1952,15 @@ def _luck_recovery_gate(campaign_dir: Path) -> dict[str, Any] | None:
     ruleset_id = coc_rule_options.coc_rulesets.get_campaign_ruleset_id(
         campaign if campaign is not None and "ruleset_id" in campaign else None
     )
-    scene_id = campaign.get("active_scene_id") if isinstance(campaign, dict) else None
-    effective = coc_rule_options.campaign_effective_optional_rules(
-        campaign_dir,
-        ruleset_id,
-        scene_id=scene_id if isinstance(scene_id, str) and scene_id else None,
-    )
-    return coc_rule_options.gate_for(
+    effective = coc_rule_options.campaign_effective_optional_rules(campaign_dir, ruleset_id)
+    gate = coc_rule_options.gate_for(
         ruleset_id, effective, settlement="development.luck_recovery",
     )
+    if gate is not None and gate.get("conflict"):
+        # Two confirmed house rules disagree: the ending cannot freeze a plan
+        # that guesses. Fail closed with the patches named.
+        raise ValueError(coc_rule_options.gate_message(gate))
+    return gate
 
 
 def _development_input_snapshot(

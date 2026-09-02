@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from toolbox_test_support import _run, campaign_ws  # noqa: F401  (fixture)
+from toolbox_test_support import _run, campaign_ws, confirm_house_rule  # noqa: F401  (fixture)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "plugins" / "coc-keeper" / "scripts"
@@ -211,14 +211,12 @@ def test_inv__disabled_option_refuses_its_operation(campaign_ws):
         "seed": 88,
     })
     assert source["ok"] is True and source["data"]["passed"] is False
-    ruling = _run(campaign_ws, "rules.patch", {
-        "patch_id": "house:no-luck-spend",
-        "layer": "house_rule",
-        "operation": "DISABLES",
-        "target": "luck-spend",
-        "reason": "classic resource pressure",
-    })
-    assert ruling["ok"] is True, ruling
+    confirm_house_rule(
+        campaign_ws["campaign_dir"],
+        patch_id="patch:no-luck-spend",
+        relation="disables",
+        target="rule:coc7:push-luck:luck-spend",
+    )
     spend = _run(campaign_ws, "rules.luck_spend", {
         "investigator": campaign_ws["investigator_id"],
         "points": 1,

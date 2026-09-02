@@ -1951,13 +1951,20 @@ class RulesRuntime:
                 "schema_version": self.SCHEMA_VERSION,
                 "decision_ref": decision_ref,
                 "decision_id": decision_id,
-                "status": "optional_rule_disabled",
+                "status": "rule_conflict" if gate.get("conflict") else "optional_rule_disabled",
                 "failure": {
-                    "code": "optional_rule_disabled",
+                    "code": "rule_conflict" if gate.get("conflict") else "optional_rule_disabled",
                     "message": (
                         f"decision {decision_ref!r} belongs to optional rule "
-                        f"{gate.get('option_id')!r}, disabled by {gate.get('layer')} "
-                        f"{gate.get('decided_by')!r} ({gate.get('scope')})"
+                        f"{gate.get('option_id')!r}: "
+                        + (
+                            "conflicting confirmed patches "
+                            + ", ".join(
+                                str(row.get("patch_id")) for row in gate.get("conflicting") or []
+                            )
+                            if gate.get("conflict") else
+                            f"disabled by {gate.get('layer')} {gate.get('decided_by')!r}"
+                        )
                     ),
                 },
                 "optional_rule": gate,

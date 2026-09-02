@@ -70,25 +70,24 @@ and `rules.luck_spend` fail with `optional_rule_disabled`, and a disabled
 `luck-recovery` makes the development settlement record a skip instead of
 rolling.
 
-When the table agrees a house rule, or you rule on the spot, record it with
-`rules.patch` so the ruling reaches the runtime and the next session, not
-only the transcript:
+What switches an option is a **confirmed house rule**, nothing else. A house
+rule is the table's own sentence compiled into a patch with positive,
+negative and boundary cases that the user confirms (`coc_house_rules`,
+`save/house-rules.json`); a confirmed patch whose relation is `disables` or
+`enables` and whose target is one of the option's rule or decision nodes
+decides it. `rules.context` hands confirmed house rules and live rulings
+back as `table_precedent` at the decision they bind.
 
-- `patch_id` names the ruling (`house:no-luck-spend`); recording it again
-  with the same content is a no-op, with different content a conflict.
-- `layer` is `house_rule` for a standing table agreement,
-  `session_ruling` for a call you make now, `campaign_patch` for an imported
-  campaign's own adjustment. Specificity wins: session ruling > house rule >
-  campaign patch > package default.
-- `scope` is `campaign`, or `scene:<scene_id>` for a ruling that holds only
-  in the current scene.
-- `operation` is `ENABLES` or `DISABLES`; `target` must be a declared
-  option id. A ruling that would change what a rule *does* is not a patch:
-  say so at the table and play the printed rule.
-- `reason` is the table's own words, one sentence.
-
-Rule questions the rulebook leaves to the Keeper (what a hazard deals, how
-severe a wreck is) stay Keeper judgment and are not patches either.
+- A ruling you make at the table (`rules.record_ruling`) is precedent: it
+  comes back to you at the same decision, and it never changes dice, a
+  pool, or which cards are legal. A call that would change what a rule
+  *does* is a house rule and goes through confirmation.
+- Two confirmed house rules that disagree at the same layer are a
+  `rule_conflict`: the gate they touch refuses until one is superseded.
+  Say so at the table and play the printed rule meanwhile.
+- Rule questions the rulebook leaves to the Keeper (what a hazard deals,
+  how severe a wreck is) stay Keeper judgment and are neither rulings nor
+  patches.
 
 ## Governance: Whether and What to Roll
 

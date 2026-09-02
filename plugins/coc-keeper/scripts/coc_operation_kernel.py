@@ -6899,27 +6899,19 @@ def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
 
 
 def _effective_optional_rules_for_ctx(ctx: Ctx, ruleset_id: str) -> dict[str, dict[str, Any]]:
-    """Current effective optional-rule set for this campaign and scene.
+    """Current effective optional-rule set for this campaign.
 
-    Reads ``save/rule-patches.json`` on every call so a ruling recorded this
-    turn applies to this turn. A corrupt patch file fails closed as a tool
-    error rather than silently re-enabling every option.
+    Reads the confirmed house rules (``save/house-rules.json``) on every call
+    so a patch confirmed this turn applies to this turn. A corrupt store fails
+    closed as a tool error rather than silently re-enabling every option.
     """
-    scene_id: str | None = None
-    if ctx.campaign_dir is not None:
-        try:
-            campaign = coc_state.load_campaign_state(ctx.campaign_dir)
-        except Exception:
-            campaign = {}
-        active = campaign.get("active_scene_id") if isinstance(campaign, dict) else None
-        scene_id = active if isinstance(active, str) and active else None
     try:
+        if ctx.campaign_dir is None:
+            return coc_rule_options.effective_optional_rules(ruleset_id, [])
         return coc_rule_options.campaign_effective_optional_rules(
-            ctx.campaign_dir, ruleset_id, scene_id=scene_id,
-        ) if ctx.campaign_dir is not None else coc_rule_options.effective_optional_rules(
-            ruleset_id, [], scene_id=None,
+            ctx.campaign_dir, ruleset_id,
         )
-    except coc_rule_options.RulePatchError as exc:
+    except coc_rule_options.OptionalRuleError as exc:
         raise ToolError(exc.code, str(exc), details=dict(exc.details)) from exc
 
 
