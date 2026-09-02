@@ -1929,7 +1929,11 @@ def test_pi_coc_user_can_re_enable_update_checks(tmp_path: Path):
 def test_revision_component_chain_bindings_activation_roles_and_secrets():
     result = _node(ROOT / "tests/pi/revision-probe.mjs", str(ROOT))
     assert result["strictHappy"] == "usable"
+    # A leaf's status is its own verdict: an abstain fails validation instead
+    # of being rewritten into fulfilled coverage. Machine ids the model should
+    # never transcribe are corrected from task truth instead of refused.
     assert all(result["rejects"].values())
+    assert all(result["corrected"].values())
     assert result["lifecycle"] == {
         "schema_version": 1,
         "contract_id": "coc.source-coordinator-result.v1",
