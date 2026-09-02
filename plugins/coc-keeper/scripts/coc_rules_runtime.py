@@ -1647,6 +1647,52 @@ class RulesRuntime:
             return False
         return node.get("node_kind") != "decision"
 
+    def _unmet_availability(self, decision_ref: str) -> list[dict[str, Any]]:
+        """The leaf availability conditions this decision fails right now.
+
+        Reports the fact path, what it holds and what the graph asks for --
+        never a bare "not applicable", which names nothing the Keeper can act
+        on or narrate around.
+        """
+        facts = (
+            dict(self._facts_provider() or {})
+            if self._facts_provider is not None else {}
+        )
+        unmet: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def walk(expression: Any) -> None:
+            if not isinstance(expression, Mapping):
+                return
+            children = _condition_children(expression)
+            if children is not None:
+                for child in children:
+                    walk(child)
+                return
+            path = expression.get("path")
+            if not isinstance(path, str) or path in seen:
+                return
+            if evaluate_condition(expression, facts) is True:
+                return
+            seen.add(path)
+            unmet.append({
+                "path": path,
+                "actual": facts.get(path),
+                "expected": expression.get("value"),
+            })
+
+        # Only hard gates decide whether a card is offered -- `applicability`
+        # evaluates nothing else. Walking every condition made this method
+        # blame the intent trigger, which marks a card as answering the
+        # declared intent and deliberately never gates it: it reported
+        # decision:coc7:combat:flee as unavailable for want of
+        # `intent.action_kind` while that very card was in the Keeper's hand.
+        for condition in self._conditions_for(decision_ref):
+            if condition.get("hard_gate") is not True:
+                continue
+            walk((condition.get("properties") or {}).get("expression"))
+        return unmet
+
     def explain_missing_grant(self, decision_ref: str) -> dict[str, Any]:
         """Why `latest_grant_covering` found nothing.
 
@@ -1662,6 +1708,28 @@ class RulesRuntime:
             if decision_ref in (grant.get("decision_refs") or [])
         ]
         if not covering:
+            # Usually the decision was never offered, and usually that is
+            # because its own availability conditions do not hold. Saying only
+            # "no grant" sends the Keeper to rules.context for a card that
+            # will not be there either. Measured 2026-09-02: a Keeper settled
+            # decision:coc7:chase:end three times across two lanes while chase
+            # context offered only `move` -- a chase ends when someone escapes
+            # or is caught, never on the Keeper's say-so, and nothing said so.
+            unmet = self._unmet_availability(decision_ref)
+            if unmet:
+                return {
+                    "reason": "decision_not_available",
+                    "detail": (
+                        "this decision is not currently available, so no card "
+                        "was offered for it: "
+                        + "; ".join(
+                            f"{row['path']} is {row['actual']!r}, needs "
+                            f"{row['expected']!r}"
+                            for row in unmet
+                        )
+                    ),
+                    "unmet": unmet,
+                }
             return {
                 "reason": "no_grant_for_decision",
                 "detail": (

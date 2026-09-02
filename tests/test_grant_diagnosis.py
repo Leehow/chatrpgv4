@@ -43,7 +43,10 @@ def _runtime(facts):
 def test_a_decision_never_asked_for_says_so():
     runtime = _runtime({"actor.id": "a"})
     why = runtime.explain_missing_grant(REF)
-    assert why["reason"] == "no_grant_for_decision"
+    # combat:flee carries no hard gate, so it could have been offered and
+    # simply was not asked for. Its intent trigger is not a gate and must not
+    # be reported as one.
+    assert why["reason"] == "no_grant_for_decision", why
     assert "rules.context" in why["detail"]
     assert "drifted" not in why
 
@@ -170,3 +173,59 @@ def test_a_bout_that_is_not_underway_is_not_an_argument_complaint(campaign_ws):
     assert error.get("code") == "sanity_bout_choice_unavailable", settled
     assert "no sanity bout is waiting" in error.get("message", ""), error
     assert error["details"]["pending_keeper_bout_choices"] == 0, error["details"]
+
+
+def test_an_ungated_decision_the_keeper_never_asked_for_says_exactly_that():
+    """The other half of the split: when a decision could have been offered
+    and simply was not asked for, the answer stays "no grant" -- refreshing
+    the family really is the fix. decision:coc7:combat:attack carries no
+    availability conditions at all."""
+    runtime = _runtime({"actor.id": "a"})
+    why = runtime.explain_missing_grant("decision:coc7:combat:attack")
+    assert why["reason"] == "no_grant_for_decision", why
+
+
+def test_a_decision_behind_a_closed_hard_gate_names_the_fact():
+    """A hard gate is what actually withholds a card, so when one is shut the
+    refusal must say which fact is shut and what it needs.
+
+    decision:coc7:chase:end is hard-gated on the chase subsystem offering an
+    `end` choice -- a chase ends when someone escapes or is caught, never on
+    the Keeper's say-so. On 2026-09-02 a Keeper settled it three times across
+    two lanes while chase context offered only `move`, and the refusal said
+    only that no grant covered it, which would have sent it back to
+    rules.context for a card that was never going to be there.
+    """
+    runtime = _runtime({"chase.session.active": True, "chase.pending.kind": "move"})
+    why = runtime.explain_missing_grant("decision:coc7:chase:end")
+    assert why["reason"] == "decision_not_available", why
+    unmet = {row["path"]: row for row in why["unmet"]}
+    assert "chase.pending.kind" in unmet, why
+    assert unmet["chase.pending.kind"]["actual"] == "move"
+    assert unmet["chase.pending.kind"]["expected"] == "end"
+    # The gate that does hold is not reported as a problem.
+    assert "chase.session.active" not in unmet, why
+
+
+def test_a_closed_gate_is_not_told_to_go_refresh_for_the_same_card(campaign_ws):
+    """"call rules.context, then settle a decision_ref it returns" is right
+    for a grant never asked for or drifted, and wrong for a shut hard gate:
+    the refresh returns the same list without that card."""
+    import coc_toolbox  # noqa: PLC0415
+
+    settled = coc_toolbox.run_tool(
+        "rules.settle",
+        campaign_ws["workspace"],
+        campaign_ws["campaign_id"],
+        {
+            "decision_ref": "decision:coc7:magic:cast-spell",
+            "decision_id": "closed-gate-0001",
+            "investigator": "thomas-hayes",
+            "semantic_inputs": {},
+        },
+    )
+    error = settled.get("error") or {}
+    if error.get("code") != "rule_decision_stale":
+        pytest.skip(f"an earlier guard answers first: {error.get('code')}")
+    assert error["details"]["reason"] == "decision_not_available", error["details"]
+    assert "not currently available" in error["message"], error["message"]

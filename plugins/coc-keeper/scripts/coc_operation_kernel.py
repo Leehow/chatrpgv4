@@ -8276,13 +8276,22 @@ def dispatch_rules_settle(
             str(why.get("reason") or "no_live_card_grant"),
             str(why.get("detail") or "no live machine-issued card grant covers this decision"),
             **({"drifted": why["drifted"]} if why.get("drifted") else {}),
+            **({"unmet": why["unmet"]} if why.get("unmet") else {}),
         )
         # Grants stay host-internal (see dispatch_rules_context); only the
         # public card projection crosses the boundary. The refreshed grant is
         # re-registered on this runtime, so the named rules.context call
         # returns the same live card set.
+        # "call rules.context, then settle a decision_ref it returns" is the
+        # right instruction for a grant that was never asked for or has
+        # drifted. It is the wrong one for a decision whose own hard gate is
+        # shut: refreshing produces the same card list without it. Say which
+        # fact is shut instead.
         raise ToolError(
             "rule_decision_stale",
+            str(why.get("detail"))
+            + "; refresh this family with rules.context once it holds"
+            if why.get("reason") == "decision_not_available" else
             "no live machine-issued card grant covers this decision; call "
             "rules.context for this family, then settle a decision_ref it returns",
             details={
@@ -8296,7 +8305,7 @@ def dispatch_rules_settle(
                 **{
                     key: value
                     for key, value in (stale.get("failure") or {}).items()
-                    if key in ("reason", "drifted") and value
+                    if key in ("reason", "drifted", "unmet") and value
                 },
                 "refresh_operation": "rules.context",
                 "refreshed_cards": [
