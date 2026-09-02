@@ -376,6 +376,55 @@ one player (this session), one turn at a time through the repo's own
     have found this one — exactly the limit that check's own documentation
     states. Both sweeps are needed, and neither subsumes the other.
 
+22. **A stat could not be changed during play, by anyone.** §5.1 recorded this
+    as an open authority question; it was not one. `rules.resource_delta`
+    declares only the four coc7 pools and is host-only,
+    `state.exceptional_effect` requires a critical/fumble/pushed failure, and
+    the compiled rule graph has no decision node touching a characteristic --
+    but characteristics were also never written after chargen by any code path
+    at all. It was a missing capability, not a closed permission, so there was
+    nothing to open.
+
+    `state.characteristic_delta` is on the KP's state surface and takes any
+    stat name, because which stats exist is the table's call: a core
+    characteristic re-derives everything reading from it; a derived value
+    (Luck included) becomes an override that survives later recomputation, so
+    a house rule is not reverted the next time any characteristic moves; any
+    other name is a house-rule stat, stored and reported and never allowed to
+    feed a derivation it was not part of. DB is a string and is refused with
+    its value named rather than coerced. Pools clamp only when a maximum drops
+    below them.
+
+    Verified live: the ghost drained 12 POW, the Keeper found and called the
+    operation unprompted, and POW 60 → 48 carried MP 12 → 9 and SAN 60 → 48
+    with both pools clamped. The first live use also proved the delivery half
+    was missing -- the write landed and the turn's visible state block said
+    nothing, because `_project_state_deltas` did not know the operation.
+
+23. **A failed operation lookup pointed nowhere.** The capability existed, was
+    on the KP surface, and the Keeper still could not reach it: `coc_discover`
+    answered an exact miss with `unknown_operation` and nothing else. It
+    guessed `state.characteristic_adjust` -- one word from
+    `state.characteristic_delta` -- gave up, and recorded the drain as HP
+    damage it then had to undo. An earlier turn burned four guesses and
+    narrated nine points of STR torn away while the sheet still read 40.
+    Listing the namespace is not a fallback: the busy ones are over the
+    discovery budget.
+
+    A miss now names the closest loadable operations, matched structurally on
+    shared name tokens -- no synonym table, no guess at intent -- ranking a
+    token past the namespace above a bare namespace match, and offering only
+    operations this session could actually load.
+
+24. **Naming for the reader, not the taxonomy.** Between those two, the
+    operation was briefly renamed `state.stat_delta`, which is the more
+    accurate name and made the capability unreachable in one live turn. It
+    went back to `state.characteristic_delta` -- the word the Keeper reaches
+    for -- with the width moved into the argument description. Discoverability
+    is part of a capability; an operation the consumer cannot name is one it
+    does not have. That instance fix was not sufficient on its own, which is
+    what produced finding 23.
+
 ## 5. Open defect that stopped deeper play (not owned by this work)
 
 On a fumbled STR roll the turn could not settle:
@@ -428,11 +477,11 @@ The residue is a symptom, not the defect. The defect is that an authored
 consequence has no canonical path, which leaves the Keeper choosing between the
 wrong operation and narrating state that never lands.
 
-Not patched from here on purpose: every route to a fix widens the Keeper's
-authority over characteristics, and the current narrowness looks deliberate
-(host-only arithmetic, an exceptional-roll gate on the one KP-facing door).
-That is an authority decision for the rules track and its owner, not a 4am
-judgement call from the module-projection branch.
+**Resolved — see finding 22.** This was written as an authority question, and
+the premise was wrong: characteristics were never written after chargen by any
+code path, so there was no permission to widen. The owner's call was "the
+Keeper should have every parameter, tables run house rules", and
+`state.characteristic_delta` implements that.
 
 ## 6. Honest boundary
 
