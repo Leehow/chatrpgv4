@@ -282,6 +282,18 @@ graph-backed 模组禁止直抽七文件；外部工具删 `extract.mjs` 与七�
 prompts/validators（教义并入图谱侧 review 清单与本 spec §3-D5）；此后
 七份 IR 只能来自投影。
 
+### Stage F — 模组循环进世界线（抽取侧；运行时半边见世界线 spec）
+
+图谱契约 v3 已定义 `resets-to` 与 `persists-across-loop`，但抽取从未产出过
+它们：《不息的渴望》整本建立在时光循环上，其图里两者各 0 次。本 Stage 的
+份额是让抽取真的产出这两种关系，并按 D4 给它们一个投影层消费者——先补抽取
+而不补消费端就是再造 keeper_notes（findings 17/18 的同一形状）。
+
+运行时那半（时钟 `on_full` → `timeline.fork_request` → `fork_confirm`、老化经
+`state.characteristic_delta` 落账）属于
+[git-temporal-memory-worldlines.md](git-temporal-memory-worldlines.md)
+的 follow-on `F1 module-loop-worldline`，两边同一件事的两侧，不要各自实现。
+
 ### Stage E — 长模组
 
 Masks 第一章按 D3/D6 建图并投影，真实游玩中以 deepen 补后续 unit。
