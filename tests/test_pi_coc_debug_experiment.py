@@ -1780,7 +1780,7 @@ def test_seeding_reaches_state_a_scene_and_a_roster_cannot():
                 "scene_id": "central-library",
                 "items": [{
                     "item_id": "tome-of-corbitt",
-                    "kind": "tome",
+                    "kind": "gear",
                     "label": "科比特的手记",
                 }],
                 "spells": ["Contact Deity"],
@@ -1797,7 +1797,7 @@ def test_seeding_reaches_state_a_scene_and_a_roster_cannot():
     by = {row["operation"]: row["arguments"] for row in ops}
     assert "state.move_scene" in by
     assert by["state.item_grant"]["item_id"] == "tome-of-corbitt"
-    assert by["state.item_grant"]["kind"] == "tome"
+    assert by["state.item_grant"]["kind"] == "gear"
     assert by["magic.learn"]["spell"] == "Contact Deity"
     assert by["rules.damage"]["amount"] == 7
     assert by["rules.damage"]["kind"] == "damage"
@@ -1963,3 +1963,9 @@ def test_seed_enumerations_are_rejected_at_dispatch_not_six_minutes_in():
     with pytest.raises(module.DebugExperimentError) as ending:
         seed({"ending": {"summary": "结束。", "kind": "escape"}})
     assert "conclusion" in str(ending.value)
+
+    assert seed({"items": [{"label": "手记"}]}) \
+        ["lanes"][0]["situation"]["items"][0]["kind"] == "gear"
+    with pytest.raises(module.DebugExperimentError) as item:
+        seed({"items": [{"label": "手记", "kind": "tome"}]})
+    assert "gear, weapon" in str(item.value)

@@ -60,6 +60,7 @@ _SITUATION_ITEM_KEYS = frozenset({
 # turns a six-minute lane that dies on `invalid_param` into a dispatch-time
 # rejection naming the legal values.
 _SITUATION_DAMAGE_KINDS = frozenset({"damage", "heal"})
+_SITUATION_ITEM_KINDS = frozenset({"gear", "weapon"})
 _SITUATION_REST_KINDS = frozenset({"full_sleep"})
 _SITUATION_ENDING_KINDS = frozenset({
     "conclusion", "tpk", "retreat", "cliffhanger",
@@ -328,6 +329,16 @@ def _situation_items(value: Any, *, label: str) -> list[dict[str, Any]]:
                 "debug_request_invalid",
                 f"{label}[{index}] needs item_id or label",
             )
+        # `state.item_grant` takes gear or weapon and nothing else. A seed
+        # calling a tome "tome" cost two whole magic lanes before saying so.
+        kind = item.get("kind", "gear")
+        if kind not in _SITUATION_ITEM_KINDS:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label}[{index}].kind must be one of "
+                f"{', '.join(sorted(_SITUATION_ITEM_KINDS))}",
+            )
+        item = {**item, "kind": kind}
         items.append(item)
     return items
 
