@@ -173,6 +173,11 @@ def _journal_declared_kind(args: dict[str, Any]) -> str:
         return raw
     return "freeform"
 
+# The module that enforces the exceptional-effect vocabularies, so the remedy
+# this file prints cannot drift from what the operation will accept.
+coc_exceptional_effects = _load_sibling(
+    "coc_exceptional_effects_turn_output", "coc_exceptional_effects.py",
+)
 coc_narration_style = _load_sibling(
     "coc_narration_style_toolbox", "coc_narration_style.py"
 )
@@ -2193,13 +2198,41 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
             # Keeper which operation clears it — a real chase run died here,
             # retrying state.journal twice against a 180-second turn budget
             # and never reaching turn 5. Say the operation and its binding.
+            # Every argument, not four of nine. The earlier version named
+            # `decision_id` and `effect_kind` and stopped, so a Keeper that
+            # followed it exactly still failed -- `state.exceptional_effect`
+            # also demands `direction`, `player_visible_impact`, `causal_link`
+            # and a `boundary` whose closed shape it could not guess. Measured
+            # 2026-09-02 r55: the Keeper tried three times, never sent a
+            # boundary, and the turn could not be journaled or finalized.
+            #
+            # The vocabularies are read from the module that enforces them, so
+            # a change there cannot leave this sentence stale.
             details["remedy"] = {
                 "operation": "state.exceptional_effect",
                 "action": "apply",
                 "source_roll_id": [
                     row["obligation_id"] for row in missing_effects
                 ],
-                "also_required": ["decision_id", "effect_kind"],
+                "also_required": [
+                    "decision_id", "effect_kind", "direction",
+                    "player_visible_impact", "causal_link", "boundary",
+                ],
+                "effect_kind_values": sorted(
+                    coc_exceptional_effects.EFFECT_KINDS
+                ),
+                "direction_values": sorted(coc_exceptional_effects.DIRECTIONS),
+                "visibility_values": sorted(
+                    coc_exceptional_effects.VISIBILITIES
+                ),
+                "visibility_default": "player_visible",
+                "boundary_shapes": [
+                    '{"kind":"immediate"}',
+                    '{"kind":"until_consumed","uses":1}',
+                    '{"kind":"until_scene_end","scene_id":"<scene>"}',
+                    '{"kind":"until_time_marker","marker_id":"<marker>"}',
+                    '{"kind":"until_condition","description":"<what ends it>"}',
+                ],
             }
             raise ToolError(
                 "substantive_exceptional_effect_required",
@@ -2207,8 +2240,10 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
                 "fumble, or pushed-failure outcome lacks a source-bound "
                 f"applied effect: {missing}. Apply one with "
                 "state.exceptional_effect (action \"apply\", source_roll_id "
-                "set to that exact roll handle, plus decision_id and "
-                "effect_kind), then journal again.",
+                "set to that exact roll handle, plus decision_id, "
+                "effect_kind, direction, player_visible_impact, causal_link "
+                "and boundary -- details.remedy lists the accepted values and "
+                "the boundary shapes), then journal again.",
                 details=details,
             )
         pending = ", ".join(

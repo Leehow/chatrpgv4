@@ -3897,8 +3897,9 @@ def collect_finalize_violations(
                 "critical/fumble/pushed-failure outcome lacks a source-bound "
                 f"applied effect: {missing}. Apply one with "
                 "state.exceptional_effect (action \"apply\", source_roll_id "
-                "set to that exact roll handle, plus decision_id and "
-                "effect_kind), then finalize again."
+                "set to that exact roll handle, plus decision_id, "
+                "effect_kind, direction, player_visible_impact, causal_link "
+                "and boundary), then finalize again."
             ),
         })
     if context["pending_modifier_consumptions"]:

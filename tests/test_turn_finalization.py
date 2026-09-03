@@ -112,23 +112,35 @@ def test_first_aid_pushed_failure_can_finalize_after_authoritative_effect(
     )
     assert blocked["ok"] is False, blocked
     assert blocked["error"]["code"] == "substantive_exceptional_effect_required"
-    assert blocked["error"]["details"] == {
-        "journal_committed": False,
-        "missing_substantive_effects": [{
-            "obligation_id": f"roll:{roll_id}",
-            "source_roll_id": roll_id,
-            "required_direction": "cost",
-        }],
-        "pending_modifier_consumptions": [],
-        # The gate names the operation that clears it. Without this the
-        # Keeper only learns which obligation is unmet, not what to call.
-        "remedy": {
-            "operation": "state.exceptional_effect",
-            "action": "apply",
-            "source_roll_id": [f"roll:{roll_id}"],
-            "also_required": ["decision_id", "effect_kind"],
-        },
-    }
+    details = blocked["error"]["details"]
+    assert details["journal_committed"] is False
+    assert details["missing_substantive_effects"] == [{
+        "obligation_id": f"roll:{roll_id}",
+        "source_roll_id": roll_id,
+        "required_direction": "cost",
+    }]
+    assert details["pending_modifier_consumptions"] == []
+    # The gate names the operation that clears it. Without this the Keeper
+    # only learns which obligation is unmet, not what to call.
+    remedy = details["remedy"]
+    assert remedy["operation"] == "state.exceptional_effect"
+    assert remedy["action"] == "apply"
+    assert remedy["source_roll_id"] == [f"roll:{roll_id}"]
+    # Every argument the operation requires, not four of nine. The short list
+    # left a Keeper that followed it exactly still failing on `boundary`,
+    # whose closed shape it could not guess (r55, 2026-09-02).
+    assert remedy["also_required"] == [
+        "decision_id", "effect_kind", "direction",
+        "player_visible_impact", "causal_link", "boundary",
+    ]
+    # The accepted values ride along, read from the module that enforces them.
+    # Their contents are owned by tests/test_exceptional_effect_remedy.py so
+    # this assertion cannot become a second hand-copy that drifts.
+    for key in (
+        "effect_kind_values", "direction_values", "visibility_values",
+        "boundary_shapes",
+    ):
+        assert remedy[key], key
     assert "state.exceptional_effect" in blocked["error"]["message"]
     assert durable_state() == before
     assert not (
