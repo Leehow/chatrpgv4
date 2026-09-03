@@ -1296,3 +1296,72 @@ def test_resume_rejects_corrupt_linked_investigator_before_canonical_writes(
     calls = _read_jsonl(campaign_dir / "logs" / "toolbox-calls.jsonl")
     assert calls[-1]["tool"] == "session.resume"
     assert calls[-1]["ok"] is False
+
+
+def test_setup_complete_journals_its_receipt_without_a_campaign_selector(
+    tmp_path: Path,
+) -> None:
+    """The seal must not depend on a selector these operations cannot carry.
+
+    `setup.complete` is `needs_campaign: false`: it resolves its own target
+    from `campaign_id`, and the product calls it with no transport selector.
+    The receipt writer used to give up whenever the toolbox context had no
+    campaign directory, so that receipt -- the exact row the turn-manifest
+    boundary looks for -- was structurally impossible, and no campaign built
+    through the product was ever sealed. `setup.chargen_run`'s characteristic
+    rolls DO carry a campaign context and are logged, so unsealed they read as
+    an unfinished player turn: the first resume of a freshly handed-off
+    campaign came back `open_turn_recovery` instead of `table_opening`, the
+    table opening was offered without its host binding, and the first played
+    turn died asking the Keeper for a `run_id` it may not invent.
+
+    Sending the selector instead is not available: these operations are
+    campaign-serial and already hold the session lock, so selecting the
+    campaign around them deadlocks.
+    """
+    campaign_id = "handoff-without-selector"
+    root = tmp_path
+    coc_starter.quick_start(
+        root / ".coc", "the-haunting", None,
+        campaign_id=campaign_id, title="Setup handoff",
+    )
+    chargen = coc_toolbox.run_tool(
+        "setup.chargen_run", root, None,
+        {
+            "campaign_id": campaign_id,
+            "investigator_id": f"inv-{campaign_id}",
+            "name": "Ada Lark",
+            "age": 27,
+            "occupation_name": "Journalist",
+            "occupation_label": "记者",
+            "assignment_priority": [
+                "INT", "EDU", "POW", "DEX", "CON", "APP", "SIZ", "STR",
+            ],
+            "occupation_skill_names": ["Spot Hidden", "Listen"],
+            "interest_skill_names": ["Occult", "First Aid", "Stealth", "Listen"],
+            "luck": {"mode": "auto_roll"},
+        },
+    )
+    assert chargen["ok"] is True, chargen
+    completed = coc_toolbox.run_tool(
+        "setup.complete",
+        root,
+        None,  # exactly how the product calls it: no transport selector
+        {"campaign_id": campaign_id, "decision_id": f"complete-{campaign_id}"},
+    )
+    assert completed["ok"] is True, completed
+
+    campaign_dir = root / ".coc" / "campaigns" / campaign_id
+    calls = _read_jsonl(campaign_dir / "logs" / "toolbox-calls.jsonl")
+    assert [row["tool"] for row in calls if row["tool"] == "setup.complete"], (
+        "the handoff receipt must be journaled into the campaign it names"
+    )
+
+    boundary = coc_toolbox.coc_turn_manifest.effective_source_boundary(campaign_dir)
+    assert boundary["kind"] == "setup_handoff_virtual"
+    assert boundary["effective_start_index"] > 0
+
+    resumed = _resume(root, campaign_id)
+    assert resumed["data"]["mode"] == "table_opening"
+    assert resumed["data"]["next_operations"] == ["evidence.table_opening"]
+    assert resumed["data"]["current_turn"]["meaningful_row_count"] == 0

@@ -207,6 +207,39 @@ def _query_cache_contract(spec: dict[str, Any]) -> dict[str, Any]:
 tool = OPERATION_REGISTRY.tool
 
 
+def _named_campaign_dir(ctx: Ctx, args: dict[str, Any]) -> Path | None:
+    """The campaign this call names, when the toolbox context has none.
+
+    ``needs_campaign: false`` operations run without a campaign directory --
+    they resolve their own target from ``campaign_id`` -- and this function
+    used to drop their receipts on that basis. ``setup.complete`` is one of
+    them, and the turn-manifest boundary looks for exactly its receipt row to
+    seal the setup segment. The row was structurally impossible, so no
+    campaign was ever sealed, and ``setup.chargen_run``'s characteristic rolls
+    (logged, because they DO carry a campaign context) read as an unfinished
+    player turn: the first resume of a freshly handed-off campaign came back
+    ``open_turn_recovery`` instead of ``table_opening``, the table opening was
+    offered without its host binding, and the first played turn of every new
+    campaign died asking the Keeper for a ``run_id`` it is forbidden to invent.
+
+    Passing the transport selector instead is not the fix: these operations
+    are campaign-serial and already hold the session lock, so selecting the
+    campaign around them deadlocks -- ``setup.chargen_run`` timed out twice
+    under exactly that change.
+
+    Only an existing campaign directory named by a single path segment
+    qualifies; anything else keeps the previous behaviour of writing nothing.
+    """
+    campaign_id = args.get("campaign_id")
+    if not isinstance(campaign_id, str):
+        return None
+    campaign_id = campaign_id.strip()
+    if not campaign_id or campaign_id in {".", ".."} or "/" in campaign_id or "\\" in campaign_id:
+        return None
+    candidate = ctx.root / ".coc" / "campaigns" / campaign_id
+    return candidate if candidate.is_dir() else None
+
+
 def _log_tool_call(
     ctx: Ctx,
     name: str,
@@ -219,7 +252,12 @@ def _log_tool_call(
     will_retry: bool = False,
 ) -> int | None:
     """Append a tool-call receipt for runtime event projection (best effort)."""
-    if ctx is None or ctx.campaign_dir is None:
+    if ctx is None:
+        return None
+    campaign_dir = ctx.campaign_dir
+    if campaign_dir is None:
+        campaign_dir = _named_campaign_dir(ctx, args)
+    if campaign_dir is None:
         return None
     spec = TOOLS.get(name) or {}
     record = {
@@ -275,7 +313,7 @@ def _log_tool_call(
     except (OSError, ValueError, TypeError):
         record["turn_number"] = None
     try:
-        log_path = ctx.campaign_dir / "logs" / "toolbox-calls.jsonl"
+        log_path = campaign_dir / "logs" / "toolbox-calls.jsonl"
         # `parallel_read` has no gameplay write authority, but its durable
         # Keeper-internal audit receipt must not be dropped or interleaved.
         # This dedicated append lock is intentionally independent of the

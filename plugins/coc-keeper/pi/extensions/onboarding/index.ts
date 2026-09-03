@@ -172,11 +172,16 @@ export default function onboardingExtension(pi: ExtensionAPI, overrides: {
   /**
    * The onboarding tool surface, one row per canonical operation.
    *
-   * Every setup operation is `needs_campaign: false` and carries its own
-   * `campaign_id` in the payload, so the outer transport selector is never
-   * sent: `create-campaign` runs before the campaign exists, and a selector
-   * naming a directory that is not there fails the call before the operation
-   * that would create it ever runs.
+   * The outer `campaign` selector is never sent. Every setup operation is
+   * `needs_campaign: false` and resolves its own target from `campaign_id`,
+   * and sending it is actively wrong twice over: before `create-campaign` it
+   * names a directory that does not exist yet, and around a campaign-serial
+   * operation that already holds the session lock it deadlocks --
+   * `setup.chargen_run` timed out twice under exactly that change.
+   *
+   * (The receipts these calls journal are handled where they are written, by
+   * resolving the campaign the call names; see `_named_campaign_dir` in
+   * `coc_toolbox.py`. Routing them through this selector was the wrong fix.)
    *
    * Parameters are passed through unvalidated on purpose. The canonical
    * runtime owns the schema, and a second copy here would be a second place
