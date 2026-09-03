@@ -411,6 +411,140 @@ def _arsenal_block(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
     return block
 
 
+#: The one decision that can begin a fight, and the one that advances whoever
+#: holds the initiative cursor.  `combat.resolve` / `combat.context` are
+#: `audience: host`, `kp_surface: none` in the operation policy -- the Keeper
+#: cannot call either -- yet three separate refusals told it to "start combat
+#: with combat.resolve".  Every message that names the way into a fight names
+#: THIS instead, because this is the only entrance a Keeper can reach.
+COMBAT_ENTRANCE_DECISION_REF = "decision:coc7:combat:attack"
+
+#: Advancing a round is not a separate operation.  `combat:attack` compiles its
+#: request for the actor sitting on the initiative cursor
+#: (`build_route_operation_requests`), so it declares the investigator's swing
+#: when it is their turn and the NPC's when it is not.  Nothing in the card set
+#: said so, and `aim`/`reload`/`maneuver`/`flee` all bind `actor_id` to the
+#: investigator -- so every one of them is `combat_initiative_violation` on an
+#: NPC's turn, and the Keeper had no reachable way to hand the turn over.
+_COMBAT_ADVANCE_DECISION_REF = COMBAT_ENTRANCE_DECISION_REF
+
+_COMBAT_DEFEND_DECISION_REF = "decision:coc7:combat:defend"
+_COMBAT_END_DECISION_REF = "decision:coc7:combat:end"
+
+#: What an investigator on their own turn may declare.  Ordered as the rulebook
+#: presents them (CoC7 p.98-108): the swing, then the modifiers to it, then the
+#: ways out of the exchange.
+_COMBAT_INVESTIGATOR_TURN_DECISION_REFS = (
+    COMBAT_ENTRANCE_DECISION_REF,
+    "decision:coc7:combat:aim",
+    "decision:coc7:combat:reload",
+    "decision:coc7:combat:maneuver",
+    "decision:coc7:combat:flee",
+    _COMBAT_END_DECISION_REF,
+)
+
+
+def _combat_turn_block(
+    state: dict[str, Any], investigator_id: str,
+) -> dict[str, Any]:
+    """Whose turn it is, what is pending, and what may be settled RIGHT NOW.
+
+    Every combat guard the live corpus tripped is a turn-sequencing guard --
+    `combat_initiative_violation`, `combat_defense_required`,
+    `combat_defense_not_pending`, `combat_defense_pending`,
+    `combat_not_ready` -- and every one of them is correct CoC7 enforcement
+    (p.98: declare, oppose, resolve, next in DEX order).  The Keeper was never
+    told the order.  `canonical_context` carried the whole `save/combat.json`
+    as one opaque `{"secret": true, "value": ...}` blob, and the cursor and the
+    DEX order sat inside it beside 44KB of static weapon catalog -- so the
+    envelope measured 64,186 bytes against a 16,384-byte inline budget and
+    collapsed to `identity_only`.  What the Keeper actually received from the
+    second action of a fight onward was three keys: `projection_sha256`,
+    `replay_operation`, `roll_evidence`.  No cards.  No arsenal.  No pending
+    defense.  No initiative.
+
+    So this block is BOTH halves of the fix: it states the sequence, and by
+    replacing the ledger dump it is small enough to arrive.
+    """
+    initiative = [
+        row for row in (state.get("current_initiative") or [])
+        if isinstance(row, dict) and row.get("actor_id")
+    ]
+    cursor = int(state.get("initiative_cursor") or 0)
+    order: list[dict[str, Any]] = []
+    for index, row in enumerate(initiative):
+        order.append({
+            "actor_id": str(row["actor_id"]),
+            "dex": row.get("dex"),
+            # Why this actor sits where they do: a readied firearm moves a
+            # combatant to DEX+50 (p.99), and a Keeper narrating the order
+            # cannot see that from the number alone.
+            "dex_reason": row.get("dex_reason"),
+            "turn": (
+                "acts_now" if index == cursor
+                else "acted" if index < cursor
+                else "waiting"
+            ),
+        })
+    acts_now = (
+        str(initiative[cursor]["actor_id"])
+        if 0 <= cursor < len(initiative) else None
+    )
+    pending = state.get("pending_attack")
+    pending_defense = deepcopy(pending) if isinstance(pending, dict) else None
+    active = state.get("status") == "active"
+
+    if pending_defense is not None:
+        awaiting = "defense"
+        next_refs: tuple[str, ...] = (_COMBAT_DEFEND_DECISION_REF,)
+        because = (
+            "an attack by "
+            f"{pending_defense.get('actor_id') or 'an actor'} on "
+            f"{pending_defense.get('target_actor_id') or 'a target'} is "
+            "awaiting its opposed roll; nothing else in this family settles "
+            "until it is answered"
+        )
+    elif not active:
+        awaiting = "start"
+        next_refs = (COMBAT_ENTRANCE_DECISION_REF,)
+        because = (
+            "no exchange is underway; this decision starts one and declares "
+            "the first action in the same settlement"
+        )
+    elif acts_now == investigator_id:
+        awaiting = "investigator_declaration"
+        next_refs = _COMBAT_INVESTIGATOR_TURN_DECISION_REFS
+        because = "it is the investigator's turn in DEX order"
+    elif acts_now:
+        awaiting = "npc_declaration"
+        next_refs = (_COMBAT_ADVANCE_DECISION_REF, _COMBAT_END_DECISION_REF)
+        because = (
+            f"it is {acts_now}'s turn in DEX order, not the investigator's: "
+            "aim, reload, maneuver and flee all act AS the investigator and "
+            "will be refused with combat_initiative_violation. Settling "
+            f"{_COMBAT_ADVANCE_DECISION_REF} here declares the acting "
+            "combatant's own action and hands the investigator whatever "
+            "defense it opens"
+        )
+    else:
+        awaiting = "round"
+        next_refs = (_COMBAT_ADVANCE_DECISION_REF, _COMBAT_END_DECISION_REF)
+        because = "the round is spent; the next settlement opens a new one"
+
+    return {
+        "revision": state.get("revision"),
+        "round": state.get("current_round"),
+        "dex_order": order,
+        "acts_now": acts_now,
+        "investigator_acts_now": bool(acts_now == investigator_id),
+        "awaiting": awaiting,
+        "next_decisions": [
+            {"decision_ref": ref, "why": because if index == 0 else None}
+            for index, ref in enumerate(next_refs)
+        ],
+    }
+
+
 def _tool_combat_context(ctx: Ctx, args: dict[str, Any]):
     investigator_id = str(args.get("investigator") or "").strip()
     if not investigator_id:
@@ -422,14 +556,41 @@ def _tool_combat_context(ctx: Ctx, args: dict[str, Any]):
         return {
             "active": False,
             "combat": None,
+            "turn": {
+                "awaiting": "start",
+                "next_decisions": [{
+                    "decision_ref": COMBAT_ENTRANCE_DECISION_REF,
+                    "why": (
+                        "no exchange is underway; this decision starts one "
+                        "and declares the first action in the same settlement"
+                    ),
+                }],
+            },
             "arsenal": arsenal,
         }, [], [
-            "start authored combat with combat.resolve and an affordance_id",
+            "no combat is underway: settle "
+            f"{COMBAT_ENTRANCE_DECISION_REF} with a present target to begin "
+            "one (combat.resolve is host-only and a Keeper cannot call it)",
         ]
     pending = state.get("pending_attack")
     return {
         "active": state.get("status") == "active",
-        "combat": {"secret": True, "value": state},
+        # The identity and sequence fields only -- never the whole snapshot.
+        # `weapon_catalog` alone is 44,109 bytes of static rulebook table with
+        # no model-facing use, and carrying it here is what collapsed every
+        # mid-fight context the Keeper ever read. `combat.context`'s own wire
+        # projector has picked exactly this set since it was written; the
+        # `rules.context` path the Keeper actually travels never reached it.
+        "combat": {"secret": True, "value": {
+            field: state.get(field)
+            for field in (
+                "schema_version", "combat_id", "scene_ref", "status",
+                "outcome", "revision", "current_round", "initiative_cursor",
+                "current_initiative",
+            )
+            if field in state
+        }},
+        "turn": _combat_turn_block(state, investigator_id),
         "pending_defense": deepcopy(pending) if isinstance(pending, dict) else None,
         # Mid-fight too: reload and a weapon swap need the same vocabulary as
         # the opening swing, and a Keeper that had it once has since had a
