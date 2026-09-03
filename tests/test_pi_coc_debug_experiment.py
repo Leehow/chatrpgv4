@@ -1806,3 +1806,32 @@ def test_a_bare_damage_amount_is_accepted():
     damage = next(r for r in ops if r["operation"] == "rules.damage")
     assert damage["arguments"]["amount"] == 5
     assert damage["arguments"]["kind"] == "physical"
+
+
+def test_seeding_can_advance_the_clock_to_fire_due_triggers():
+    """Time is a third kind of unreachable state. `state.advance_time` fires
+    due triggers, which is the only way a lane reaches psychoanalysis
+    treatment, temporary-insanity recovery or weekly major-wound recovery --
+    three decisions no scene, roster, wound or spell can drive.
+
+    Order matters: the clock must run after the state it acts on, so a wound
+    seeded in the same situation has time to reach its recovery trigger.
+    """
+    module = _module()
+    ops = module._situation_operations({
+        "id": "clock",
+        "situation": {
+            "shape": "structural",
+            "scene_id": "corbitt-house-ground",
+            "damage": 9,
+            "advance_minutes": 10080,
+            "safe_rest": "full_sleep",
+        },
+    }, "c1")
+    order = [row["operation"] for row in ops]
+    assert order.index("rules.damage") < order.index("state.advance_time")
+    assert order.index("state.advance_time") < order.index("state.mark_safe_rest")
+    by = {row["operation"]: row["arguments"] for row in ops}
+    assert by["state.advance_time"]["minutes"] == 10080
+    assert by["state.advance_time"]["reason"]
+    assert by["state.mark_safe_rest"]["rest_kind"] == "full_sleep"

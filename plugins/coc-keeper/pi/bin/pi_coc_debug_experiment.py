@@ -45,6 +45,11 @@ _SITUATION_STRUCTURAL_KEYS = frozenset({
     # item, a wounded investigator, a persisted ending. Without these, eleven
     # of the graph's forty-three decisions could not be driven at all.
     "items", "spells", "damage", "ending",
+    # Time is a third kind of unreachable state. `state.advance_time` fires
+    # due triggers, which is the only way to reach psychoanalysis treatment,
+    # temporary-insanity recovery and weekly major-wound recovery; a safe rest
+    # is what several of those triggers additionally require.
+    "advance_minutes", "safe_rest",
 })
 _SITUATION_KEYS = _SITUATION_STRUCTURAL_KEYS | {"establish_from_prompt"}
 _MAX_SITUATION_LIST = 20
@@ -439,6 +444,29 @@ def _situation_operations(lane: dict[str, Any], campaign_id: str) -> list[dict[s
                 "source": reason,
                 **({"kind": kind} if kind else {}),
                 "decision_id": f"debug-situation:{lane_id}:damage:{amount}",
+            },
+        })
+    # Ordered after the state that the clock acts on: damage first, then the
+    # hours that let a wound or an insanity reach its recovery trigger.
+    minutes = situation.get("advance_minutes")
+    if minutes:
+        operations.append({
+            "operation": "state.advance_time",
+            "arguments": {
+                "campaign": campaign_id,
+                "minutes": minutes,
+                "reason": reason,
+                "decision_id": f"debug-situation:{lane_id}:advance-time:{minutes}",
+            },
+        })
+    rest = situation.get("safe_rest")
+    if rest:
+        operations.append({
+            "operation": "state.mark_safe_rest",
+            "arguments": {
+                "campaign": campaign_id,
+                "rest_kind": rest if isinstance(rest, str) else "full_sleep",
+                "decision_id": f"debug-situation:{lane_id}:safe-rest",
             },
         })
     ending = situation.get("ending")
