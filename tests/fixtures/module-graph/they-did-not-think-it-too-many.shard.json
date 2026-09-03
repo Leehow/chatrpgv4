@@ -1,1 +1,1596 @@
-{"contract_id": "coc.module-graph-shard.v3", "schema_version": 3, "module_id": "they-did-not-think-it-too-many", "section_id": "whole-book", "source_language": "zh-Hans", "aspects": ["structure", "actors", "events", "knowledge", "causal", "mechanics"], "evidence_span_ids": [], "node_refs": [], "coverage": {"structure": "accepted", "world": "unresolved", "actors": "accepted", "relationships": "unresolved", "events": "accepted", "knowledge": "partial", "causal": "partial", "mechanics": "partial", "assets": "unresolved", "direction": "unresolved"}, "nodes": [{"node_id": "scene-mission-start", "node_kind": "scene", "name": "任务开始", "visibility": "keeper-only", "aliases": [], "summary": "调查员自伊布拉坎出发北上，经伊苏利姆-不列颠图姆与凯特拉克吞尼姆过夜，抵达莎比领地边缘。", "evidence_span_ids": ["span-whole-book-page-2-block-25", "span-whole-book-page-2-block-26", "span-whole-book-page-3-block-28"], "properties": {}}, {"node_id": "scene-welcome-feast", "node_kind": "scene", "name": "欢迎宴", "visibility": "keeper-only", "aliases": [], "summary": "欢迎宴持续到深夜；贵族与勇士携随从到场，王后莫甘在四十五分钟后入席，诗人瑞奥丹讲述长故事。", "evidence_span_ids": ["span-whole-book-page-4-block-31", "span-whole-book-page-4-block-32", "span-whole-book-page-4-block-34"], "properties": {}}, {"node_id": "scene-rank-challenge-drinking", "node_kind": "scene", "name": "位阶、挑战与斗酒", "visibility": "keeper-only", "aliases": [], "summary": "座次代表位阶，受轻视者可提出单挑；第一勇士取大腿肉，可被挑战；斗酒以酒力值累积后检定。", "evidence_span_ids": ["span-whole-book-page-4-block-35", "span-whole-book-page-4-block-36", "span-whole-book-page-4-block-37", "span-whole-book-page-4-block-38"], "properties": {}}, {"node_id": "scene-negotiation", "node_kind": "scene", "name": "谈判", "visibility": "keeper-only", "aliases": [], "summary": "第二天一早开始谈判，国王康尼尔正装出席。", "evidence_span_ids": ["span-whole-book-page-5-block-40"], "properties": {}}, {"node_id": "scene-bhradain-coup-offer", "node_kind": "scene", "name": "布拉丹的政变", "visibility": "keeper-only", "aliases": [], "summary": "布拉丹邀请未参与谈判的使者私谈，试探罗马立场并暗示废黜康尼尔；屋内有三颗头骨与三尊持镰铜像。", "evidence_span_ids": ["span-whole-book-page-6-block-46", "span-whole-book-page-6-block-47", "span-whole-book-page-6-block-48", "span-whole-book-page-6-block-49"], "properties": {}}, {"node_id": "scene-following-cathbad", "node_kind": "scene", "name": "总会有眼尖的调查员", "visibility": "keeper-only", "aliases": [], "summary": "凯斯巴德骑行五英里入山，在土丘前吟诵开启传送门；跟踪者可目击，穿门需损失理智与魔法值。", "evidence_span_ids": ["span-whole-book-page-6-block-50", "span-whole-book-page-6-block-51", "span-whole-book-page-6-block-41", "span-whole-book-page-10-block-76"], "properties": {}}, {"node_id": "scene-king-murdered", "node_kind": "scene", "name": "国王遇刺", "visibility": "keeper-only", "aliases": [], "summary": "康尼尔之死，按使者是否参与政变分为三条互斥分支。", "evidence_span_ids": ["span-whole-book-page-8-block-59"], "properties": {}}, {"node_id": "scene-branch-join-coup", "node_kind": "scene", "name": "假如罗马使者也参与政变", "visibility": "keeper-only", "aliases": [], "summary": "康尼尔中断谈判前往布多纳河沐浴，五十人随行其中三十余为布拉丹亲信；四人于河中将其按入水中溺毙。", "evidence_span_ids": ["span-whole-book-page-8-block-60", "span-whole-book-page-8-block-61", "span-whole-book-page-8-block-62", "span-whole-book-page-8-block-63"], "properties": {}}, {"node_id": "scene-branch-refuse-coup", "node_kind": "scene", "name": "假如罗马使者不参与政变", "visibility": "keeper-only", "aliases": [], "summary": "康尼尔午餐时噎住倒地身亡；布拉丹当众指控罗马使者毒杀国王，使者被缚于储藏圆屋承重柱。", "evidence_span_ids": ["span-whole-book-page-9-block-64", "span-whole-book-page-9-block-65", "span-whole-book-page-9-block-66"], "properties": {}}, {"node_id": "scene-branch-inaction", "node_kind": "scene", "name": "假如罗马使者无任何作为", "visibility": "keeper-only", "aliases": [], "summary": "阿德米尼克斯告知国王已死且已复仇，须另选新王；布拉丹继位后第三道法令下令逮捕罗马使者。", "evidence_span_ids": ["span-whole-book-page-9-block-67", "span-whole-book-page-9-block-68", "span-whole-book-page-9-block-69", "span-whole-book-page-9-block-70"], "properties": {}}, {"node_id": "scene-goddess-covenant", "node_kind": "scene", "name": "女神之约", "visibility": "keeper-only", "aliases": [], "summary": "午夜使者被押上战车出城，行约一小时至平原巨石阵；德鲁伊吟唱一个多小时并以孩童献祭，三位化身现身。", "evidence_span_ids": ["span-whole-book-page-9-block-72", "span-whole-book-page-9-block-73", "span-whole-book-page-9-block-74", "span-whole-book-page-10-block-77", "span-whole-book-page-10-block-79", "span-whole-book-page-10-block-80"], "properties": {}}, {"node_id": "scene-finale", "node_kind": "scene", "name": "终章", "visibility": "keeper-only", "aliases": [], "summary": "按结果分歧：顺利则康尼尔让步签约并承诺根除教派；不妙则布拉丹继位并全族投降，莎比终并入帝国。", "evidence_span_ids": ["span-whole-book-page-12-block-91", "span-whole-book-page-12-block-87", "span-whole-book-page-12-block-92", "span-whole-book-page-12-block-88", "span-whole-book-page-12-block-89"], "properties": {}}, {"node_id": "location-eburacum", "node_kind": "location", "name": "伊布拉坎", "visibility": "player-safe", "aliases": [], "summary": "位于河谷的大型军事要塞，九年前由西班牙第九军团修建，即今约克。", "evidence_span_ids": ["span-whole-book-page-2-block-18", "span-whole-book-page-2-block-21"], "properties": {}}, {"node_id": "location-budonaranum", "node_kind": "location", "name": "布多纳兰姆", "visibility": "player-safe", "aliases": [], "summary": "莎比都城，欢迎宴、谈判与国王葬礼所在。", "evidence_span_ids": ["span-whole-book-page-4-block-29", "span-whole-book-page-9-block-69"], "properties": {}}, {"node_id": "location-stone-circle", "node_kind": "location", "name": "平原巨石阵", "visibility": "keeper-only", "aliases": [], "summary": "距城约一小时车程的平原，立有远大于此前所见的巨石圈，女神之约在此举行。", "evidence_span_ids": ["span-whole-book-page-9-block-74"], "properties": {}}, {"node_id": "location-sidhe-mound", "node_kind": "location", "name": "山中土丘", "visibility": "keeper-only", "aliases": [], "summary": "凯斯巴德骑行五英里进入山区后所至的土丘，传送门在此开启。", "evidence_span_ids": ["span-whole-book-page-6-block-51", "span-whole-book-page-6-block-41"], "properties": {}}, {"node_id": "npc-conneil-mac-finn", "node_kind": "npc", "name": "康尼尔·马克·芬", "visibility": "keeper-only", "aliases": [], "summary": "28 岁，莎比部族国王，两年前接替叔父继位；实用主义者，认为依附罗马是唯一出路。", "evidence_span_ids": ["span-whole-book-page-13-block-96", "span-whole-book-page-13-block-97", "span-whole-book-page-13-block-100"], "properties": {}}, {"node_id": "npc-queen-morgan", "node_kind": "npc", "name": "王后莫甘", "visibility": "keeper-only", "aliases": [], "summary": "21 岁，康尼尔的配偶；年轻富有心计，以美色为丈夫平衡各方势力。", "evidence_span_ids": ["span-whole-book-page-13-block-101", "span-whole-book-page-13-block-102", "span-whole-book-page-13-block-104"], "properties": {}}, {"node_id": "npc-adminicus-mac-lawler", "node_kind": "npc", "name": "阿德米尼克斯·马克·劳勒", "visibility": "keeper-only", "aliases": [], "summary": "41 岁，康尼尔的首席顾问；曾事老国王，政治敏锐，懂得何时置身事外。", "evidence_span_ids": ["span-whole-book-page-13-block-105", "span-whole-book-page-13-block-106", "span-whole-book-page-13-block-108"], "properties": {}}, {"node_id": "npc-riordan-mac-kay", "node_kind": "npc", "name": "瑞奥丹·马克·凯尔", "visibility": "keeper-only", "aliases": [], "summary": "25 岁，国王最爱的诗人；避开康尼尔与布拉丹的斗争，只求听众喜爱其歌谣。", "evidence_span_ids": ["span-whole-book-page-13-block-109", "span-whole-book-page-13-block-110", "span-whole-book-page-14-block-114"], "properties": {}}, {"node_id": "npc-cathbad", "node_kind": "npc", "name": "凯斯巴德", "visibility": "keeper-only", "aliases": [], "summary": "53 岁，大德鲁伊、莎比德鲁伊领袖、六镰教派高层；明奉康尼尔，暗favor布拉丹，憎恨罗马人。", "evidence_span_ids": ["span-whole-book-page-14-block-115", "span-whole-book-page-14-block-117", "span-whole-book-page-14-block-124"], "properties": {}}, {"node_id": "npc-adair-mac-gale", "node_kind": "npc", "name": "阿代尔·马克·盖尔", "visibility": "keeper-only", "aliases": [], "summary": "33 岁，凯斯巴德手下不那么忠心的学徒；南方长大，未意识到莎比·尼格兰的本质。", "evidence_span_ids": ["span-whole-book-page-14-block-125", "span-whole-book-page-14-block-126", "span-whole-book-page-14-block-132"], "properties": {}}, {"node_id": "npc-bhradain-mac-hafgan", "node_kind": "npc", "name": "布拉丹·马克·哈夫冈", "visibility": "keeper-only", "aliases": [], "summary": "39 岁，康尼尔之下最具影响力的贵族，六镰教派领袖；说服凯斯巴德参与阴谋，欲借罗马庇护传播女神信仰。", "evidence_span_ids": ["span-whole-book-page-14-block-133", "span-whole-book-page-14-block-134", "span-whole-book-page-15-block-149", "span-whole-book-page-15-block-150"], "properties": {}}, {"node_id": "npc-cahorn-the-silent", "node_kind": "npc", "name": "缄默的卡霍恩", "visibility": "keeper-only", "aliases": [], "summary": "30 岁，布拉丹忠实的持矛侍卫；对布拉丹言听计从，从不多问。特征为无法徒步淌水。", "evidence_span_ids": ["span-whole-book-page-15-block-151", "span-whole-book-page-15-block-152", "span-whole-book-page-15-block-154", "span-whole-book-page-15-block-155"], "properties": {}}, {"node_id": "npc-badbwyn", "node_kind": "npc", "name": "奥秘女神拜德温", "visibility": "keeper-only", "aliases": [], "summary": "莎比·尼格兰三位化身之一，掌控生命奥秘；本质掩于兜帽披风之下。", "evidence_span_ids": ["span-whole-book-page-15-block-157", "span-whole-book-page-15-block-158", "span-whole-book-page-15-block-160"], "properties": {}}, {"node_id": "npc-kerthela", "node_kind": "npc", "name": "女武神克尔塞拉", "visibility": "keeper-only", "aliases": [], "summary": "三位化身之一，生死之力的精华，形象为裸体怀孕女性；战士崇拜她以求战斗之力。", "evidence_span_ids": ["span-whole-book-page-15-block-161", "span-whole-book-page-15-block-162", "span-whole-book-page-16-block-165"], "properties": {}}, {"node_id": "npc-inathosa", "node_kind": "npc", "name": "荡妇伊娜托撒", "visibility": "keeper-only", "aliases": [], "summary": "三位化身之一，色欲的具象；崇拜者获得吸引力与性能力。", "evidence_span_ids": ["span-whole-book-page-16-block-166", "span-whole-book-page-16-block-167", "span-whole-book-page-16-block-170"], "properties": {}}, {"node_id": "creature-sidhe", "node_kind": "creature", "name": "仙丘人", "visibility": "keeper-only", "aliases": [], "summary": "退化的蛇人，不列颠原住民；隐居古洞，追随莎比·尼格兰的德鲁伊不时前往求指引。", "evidence_span_ids": ["span-whole-book-page-16-block-171", "span-whole-book-page-16-block-172", "span-whole-book-page-16-block-173", "span-whole-book-page-16-block-174"], "properties": {}}, {"node_id": "rule-drinking-contest", "node_kind": "rule", "name": "斗酒检定", "visibility": "keeper-only", "aliases": [], "summary": "酒力值累积超过参与者 HP 后进行 (CON-POT)x5 检定；失败即吐，失败两次输掉比赛。", "evidence_span_ids": ["span-whole-book-page-4-block-38", "span-whole-book-page-4-block-39"], "properties": {}}, {"node_id": "rule-escape-bonds", "node_kind": "rule", "name": "挣脱束缚", "visibility": "keeper-only", "aliases": [], "summary": "被绑于承重柱的调查员可通过敏捷 x1 或修理/发明 x1/5 挣脱。", "evidence_span_ids": ["span-whole-book-page-9-block-71"], "properties": {}}, {"node_id": "rule-sidhe-sanity", "node_kind": "rule", "name": "目睹仙丘人的理智检定", "visibility": "keeper-only", "aliases": [], "summary": "看到仙丘人需进行理智检定 1/1D6。", "evidence_span_ids": ["span-whole-book-page-10-block-77", "span-whole-book-page-16-block-187"], "properties": {}}, {"node_id": "rule-badbwyn-cloak-sanity", "node_kind": "rule", "name": "拜德温斗篷的理智损失", "visibility": "keeper-only", "aliases": [], "summary": "被拜德温斗篷包裹者见证其真实形态，损失 1D6/1D20 点理智。", "evidence_span_ids": ["span-whole-book-page-10-block-80", "span-whole-book-page-15-block-159"], "properties": {}}, {"node_id": "rule-portal-cost", "node_kind": "rule", "name": "穿越异界之门", "visibility": "keeper-only", "aliases": [], "summary": "穿越异界之门的玩家需损失 1 点理智和 4 点魔法值。", "evidence_span_ids": ["span-whole-book-page-10-block-76"], "properties": {}}, {"node_id": "clue-bhradain-idols", "node_kind": "clue", "name": "布拉丹圆屋中的三尊持镰铜像", "visibility": "keeper-only", "aliases": [], "summary": "披兜帽人形、怀孕妇人、侧躺少女，均手持镰刀；布拉丹称其为旧神邸偶像，成功洞察可看出他在说谎。", "evidence_span_ids": ["span-whole-book-page-6-block-49", "span-whole-book-page-7-block-52"], "properties": {}}, {"node_id": "clue-cathbad-portal", "node_kind": "clue", "name": "凯斯巴德开启的传送门", "visibility": "keeper-only", "aliases": [], "summary": "凯斯巴德在土丘前吟诵开门并进入数小时；门关闭后土丘周围毫无异常。", "evidence_span_ids": ["span-whole-book-page-6-block-51", "span-whole-book-page-6-block-41", "span-whole-book-page-6-block-42"], "properties": {}}, {"node_id": "secret-six-sickle-cult", "node_kind": "secret", "name": "六镰教派", "visibility": "keeper-only", "aliases": [], "summary": "布拉丹为教派领袖、凯斯巴德为高层；部族一半德鲁伊参与其中。", "evidence_span_ids": ["span-whole-book-page-14-block-116", "span-whole-book-page-15-block-149", "span-whole-book-page-12-block-85"], "properties": {}}, {"node_id": "conclusion-cult-behind-coup", "node_kind": "conclusion", "name": "政变由六镰教派推动", "visibility": "keeper-only", "aliases": [], "summary": "布拉丹为传播莎比·尼格兰信仰而谋夺王位，凯斯巴德为其助力。", "evidence_span_ids": ["span-whole-book-page-15-block-149", "span-whole-book-page-15-block-150", "span-whole-book-page-14-block-124"], "properties": {}}], "claims": [{"claim_id": "claim-start-precedes-feast", "subject_id": "scene-mission-start", "predicate": "play-precedes", "object": {"node_id": "scene-welcome-feast"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-4-block-29", "span-whole-book-page-4-block-30"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "抵达后「最开始是欢迎宴会」。"}, {"claim_id": "claim-feast-precedes-rank", "subject_id": "scene-welcome-feast", "predicate": "play-precedes", "object": {"node_id": "scene-rank-challenge-drinking"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-4-block-30", "span-whole-book-page-4-block-35"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "宴会环节内先入席，后有位阶、挑战与斗酒。"}, {"claim_id": "claim-rank-precedes-negotiation", "subject_id": "scene-rank-challenge-drinking", "predicate": "play-precedes", "object": {"node_id": "scene-negotiation"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-5-block-40"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "「第二天一早，大家开始谈判」。"}, {"claim_id": "claim-negotiation-precedes-coup", "subject_id": "scene-negotiation", "predicate": "play-precedes", "object": {"node_id": "scene-bhradain-coup-offer"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-6-block-47"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "布拉丹邀请未参与谈判者私谈，发生在谈判期间。"}, {"claim_id": "claim-coup-may-lead-to-murder", "subject_id": "scene-bhradain-coup-offer", "predicate": "may-lead-to", "object": {"node_id": "scene-king-murdered"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-4-block-30"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "宴会过后守秘人应让布拉丹着手谋杀国王康尼尔。"}, {"claim_id": "claim-murder-branch-join", "subject_id": "scene-king-murdered", "predicate": "alternative-to", "object": {"node_id": "scene-branch-join-coup"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-8-block-60"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "三条互斥分支之一：使者参与政变。"}, {"claim_id": "claim-murder-branch-refuse", "subject_id": "scene-king-murdered", "predicate": "alternative-to", "object": {"node_id": "scene-branch-refuse-coup"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-9-block-64"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "三条互斥分支之一：使者不参与政变。"}, {"claim_id": "claim-murder-branch-inaction", "subject_id": "scene-king-murdered", "predicate": "alternative-to", "object": {"node_id": "scene-branch-inaction"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-9-block-67"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "三条互斥分支之一：使者无任何作为。"}, {"claim_id": "claim-refuse-leads-to-covenant", "subject_id": "scene-branch-refuse-coup", "predicate": "may-lead-to", "object": {"node_id": "scene-goddess-covenant"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-9-block-66", "span-whole-book-page-9-block-72", "span-whole-book-page-9-block-73"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "被缚于储藏圆屋后，午夜被押往巨石阵。"}, {"claim_id": "claim-inaction-leads-to-covenant", "subject_id": "scene-branch-inaction", "predicate": "may-lead-to", "object": {"node_id": "scene-goddess-covenant"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-9-block-70", "span-whole-book-page-9-block-72"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "第三道法令逮捕使者，随后同样押往女神之约。"}, {"claim_id": "claim-covenant-precedes-finale", "subject_id": "scene-goddess-covenant", "predicate": "play-precedes", "object": {"node_id": "scene-finale"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-12-block-91", "span-whole-book-page-12-block-87"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "女神之约之后进入终章。"}, {"claim_id": "claim-drinking-uses-rule", "subject_id": "scene-rank-challenge-drinking", "predicate": "uses-rule", "object": {"node_id": "rule-drinking-contest"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-4-block-38"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "斗酒环节直接给出 (CON-POT)x5 检定。"}, {"claim_id": "claim-escape-uses-rule", "subject_id": "scene-branch-refuse-coup", "predicate": "uses-rule", "object": {"node_id": "rule-escape-bonds"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-9-block-71"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "被绑者以敏捷 x1 或修理/发明 x1/5 挣脱。"}, {"claim_id": "claim-covenant-uses-sidhe-sanity", "subject_id": "scene-goddess-covenant", "predicate": "calls-for-check", "object": {"node_id": "rule-sidhe-sanity"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-10-block-77"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "看到仙丘人需进行理智检定 1/1D6。"}, {"claim_id": "claim-covenant-uses-cloak-sanity", "subject_id": "scene-goddess-covenant", "predicate": "calls-for-check", "object": {"node_id": "rule-badbwyn-cloak-sanity"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-10-block-80"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "被拜德温斗篷包裹损失 1D6/1D20 理智。"}, {"claim_id": "claim-following-uses-portal-cost", "subject_id": "scene-following-cathbad", "predicate": "calls-for-check", "object": {"node_id": "rule-portal-cost"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-10-block-76"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "穿越异界之门损失 1 理智 4 魔法值。"}, {"claim_id": "claim-idols-discoverable-at-coup", "subject_id": "clue-bhradain-idols", "predicate": "discoverable-at", "object": {"node_id": "scene-bhradain-coup-offer"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-6-block-49"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "三尊铜像位于布拉丹圆屋，私谈时可环顾发现。"}, {"claim_id": "claim-portal-discoverable-at-following", "subject_id": "clue-cathbad-portal", "predicate": "discoverable-at", "object": {"node_id": "scene-following-cathbad"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-6-block-51"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "跟踪凯斯巴德者目击传送门。"}, {"claim_id": "claim-idols-support-conclusion", "subject_id": "clue-bhradain-idols", "predicate": "supports", "object": {"node_id": "conclusion-cult-behind-coup"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-6-block-49", "span-whole-book-page-7-block-52"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "持镰三像即莎比·尼格兰三化身，且布拉丹就其来历说谎。"}, {"claim_id": "claim-portal-supports-conclusion", "subject_id": "clue-cathbad-portal", "predicate": "supports", "object": {"node_id": "conclusion-cult-behind-coup"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-6-block-51", "span-whole-book-page-16-block-173"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "凯斯巴德向仙丘人求指引，指向教派活动。"}, {"claim_id": "claim-bhradain-leads-cult", "subject_id": "npc-bhradain-mac-hafgan", "predicate": "member-of", "object": {"node_id": "secret-six-sickle-cult"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-15-block-149"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "布拉丹是六镰教派的领袖。"}, {"claim_id": "claim-cathbad-in-cult", "subject_id": "npc-cathbad", "predicate": "member-of", "object": {"node_id": "secret-six-sickle-cult"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-14-block-115", "span-whole-book-page-14-block-116"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "凯斯巴德是六镰教派高层。"}, {"claim_id": "claim-cahorn-serves-bhradain", "subject_id": "npc-cahorn-the-silent", "predicate": "member-of", "object": {"node_id": "secret-six-sickle-cult"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-15-block-155"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.6, "reason": "卡霍恩对布拉丹言听计从。"}, {"claim_id": "claim-feast-at-city", "subject_id": "scene-welcome-feast", "predicate": "occurs-at", "object": {"node_id": "location-budonaranum"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-4-block-29", "span-whole-book-page-4-block-31"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "欢迎宴属「布多纳兰姆的系列事件」。"}, {"claim_id": "claim-covenant-at-stones", "subject_id": "scene-goddess-covenant", "predicate": "occurs-at", "object": {"node_id": "location-stone-circle"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-9-block-74"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "押解一小时后停在平原巨石阵。"}, {"claim_id": "claim-following-at-mound", "subject_id": "scene-following-cathbad", "predicate": "occurs-at", "object": {"node_id": "location-sidhe-mound"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-6-block-51"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "凯斯巴德停在山中土丘前开门。"}, {"claim_id": "claim-start-at-fortress", "subject_id": "scene-mission-start", "predicate": "occurs-at", "object": {"node_id": "location-eburacum"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-2-block-25", "span-whole-book-page-2-block-26"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "调查员自伊布拉坎出发。"}, {"claim_id": "claim-morgan-present-feast", "subject_id": "npc-queen-morgan", "predicate": "present-in", "object": {"node_id": "scene-welcome-feast"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-4-block-32"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "王后莫甘在四十五分钟后入席。"}, {"claim_id": "claim-riordan-present-feast", "subject_id": "npc-riordan-mac-kay", "predicate": "present-in", "object": {"node_id": "scene-welcome-feast"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-4-block-34"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "诗人瑞奥丹盛装赶来讲故事。"}, {"claim_id": "claim-conneil-present-negotiation", "subject_id": "npc-conneil-mac-finn", "predicate": "present-in", "object": {"node_id": "scene-negotiation"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-5-block-40"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "国王康尼尔正装出席谈判会议。"}, {"claim_id": "claim-badbwyn-present-covenant", "subject_id": "npc-badbwyn", "predicate": "present-in", "object": {"node_id": "scene-goddess-covenant"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-10-block-79"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "拜德温走向罗马人。"}, {"claim_id": "claim-kerthela-present-covenant", "subject_id": "npc-kerthela", "predicate": "present-in", "object": {"node_id": "scene-goddess-covenant"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-10-block-79"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "克尔塞拉也加入她的行列。"}, {"claim_id": "claim-inathosa-present-covenant", "subject_id": "npc-inathosa", "predicate": "present-in", "object": {"node_id": "scene-goddess-covenant"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-10-block-79"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "伊娜托撒倚躺于倾倒的巨石。"}, {"claim_id": "claim-sidhe-present-covenant", "subject_id": "creature-sidhe", "predicate": "present-in", "object": {"node_id": "scene-goddess-covenant"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-10-block-77"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "外围有六名仙丘人。"}, {"claim_id": "claim-cathbad-present-covenant", "subject_id": "npc-cathbad", "predicate": "present-in", "object": {"node_id": "scene-goddess-covenant"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-10-block-77"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "凯斯巴德与另外两名德鲁伊祭司吟唱。"}, {"claim_id": "claim-adminicus-present-inaction", "subject_id": "npc-adminicus-mac-lawler", "predicate": "present-in", "object": {"node_id": "scene-branch-inaction"}, "truth_status": "authored-fact", "visibility": "keeper-only", "evidence_span_ids": ["span-whole-book-page-9-block-68"], "asserted_by_ids": [], "known_by_ids": [], "validity": {"scope": "always"}, "confidence": 0.9, "reason": "阿德米尼克斯哭着来告知大家。"}], "relations": [{"relation_id": "rel-start-precedes-feast", "relation_kind": "play-precedes", "from_node_id": "scene-mission-start", "to_node_id": "scene-welcome-feast", "claim_id": "claim-start-precedes-feast", "properties": {}}, {"relation_id": "rel-feast-precedes-rank", "relation_kind": "play-precedes", "from_node_id": "scene-welcome-feast", "to_node_id": "scene-rank-challenge-drinking", "claim_id": "claim-feast-precedes-rank", "properties": {}}, {"relation_id": "rel-rank-precedes-negotiation", "relation_kind": "play-precedes", "from_node_id": "scene-rank-challenge-drinking", "to_node_id": "scene-negotiation", "claim_id": "claim-rank-precedes-negotiation", "properties": {}}, {"relation_id": "rel-negotiation-precedes-coup", "relation_kind": "play-precedes", "from_node_id": "scene-negotiation", "to_node_id": "scene-bhradain-coup-offer", "claim_id": "claim-negotiation-precedes-coup", "properties": {}}, {"relation_id": "rel-coup-may-lead-to-murder", "relation_kind": "may-lead-to", "from_node_id": "scene-bhradain-coup-offer", "to_node_id": "scene-king-murdered", "claim_id": "claim-coup-may-lead-to-murder", "properties": {}}, {"relation_id": "rel-murder-branch-join", "relation_kind": "alternative-to", "from_node_id": "scene-king-murdered", "to_node_id": "scene-branch-join-coup", "claim_id": "claim-murder-branch-join", "properties": {}}, {"relation_id": "rel-murder-branch-refuse", "relation_kind": "alternative-to", "from_node_id": "scene-king-murdered", "to_node_id": "scene-branch-refuse-coup", "claim_id": "claim-murder-branch-refuse", "properties": {}}, {"relation_id": "rel-murder-branch-inaction", "relation_kind": "alternative-to", "from_node_id": "scene-king-murdered", "to_node_id": "scene-branch-inaction", "claim_id": "claim-murder-branch-inaction", "properties": {}}, {"relation_id": "rel-refuse-leads-to-covenant", "relation_kind": "may-lead-to", "from_node_id": "scene-branch-refuse-coup", "to_node_id": "scene-goddess-covenant", "claim_id": "claim-refuse-leads-to-covenant", "properties": {}}, {"relation_id": "rel-inaction-leads-to-covenant", "relation_kind": "may-lead-to", "from_node_id": "scene-branch-inaction", "to_node_id": "scene-goddess-covenant", "claim_id": "claim-inaction-leads-to-covenant", "properties": {}}, {"relation_id": "rel-covenant-precedes-finale", "relation_kind": "play-precedes", "from_node_id": "scene-goddess-covenant", "to_node_id": "scene-finale", "claim_id": "claim-covenant-precedes-finale", "properties": {}}, {"relation_id": "rel-drinking-uses-rule", "relation_kind": "uses-rule", "from_node_id": "scene-rank-challenge-drinking", "to_node_id": "rule-drinking-contest", "claim_id": "claim-drinking-uses-rule", "properties": {}}, {"relation_id": "rel-escape-uses-rule", "relation_kind": "uses-rule", "from_node_id": "scene-branch-refuse-coup", "to_node_id": "rule-escape-bonds", "claim_id": "claim-escape-uses-rule", "properties": {}}, {"relation_id": "rel-covenant-uses-sidhe-sanity", "relation_kind": "calls-for-check", "from_node_id": "scene-goddess-covenant", "to_node_id": "rule-sidhe-sanity", "claim_id": "claim-covenant-uses-sidhe-sanity", "properties": {}}, {"relation_id": "rel-covenant-uses-cloak-sanity", "relation_kind": "calls-for-check", "from_node_id": "scene-goddess-covenant", "to_node_id": "rule-badbwyn-cloak-sanity", "claim_id": "claim-covenant-uses-cloak-sanity", "properties": {}}, {"relation_id": "rel-following-uses-portal-cost", "relation_kind": "calls-for-check", "from_node_id": "scene-following-cathbad", "to_node_id": "rule-portal-cost", "claim_id": "claim-following-uses-portal-cost", "properties": {}}, {"relation_id": "rel-idols-discoverable-at-coup", "relation_kind": "discoverable-at", "from_node_id": "clue-bhradain-idols", "to_node_id": "scene-bhradain-coup-offer", "claim_id": "claim-idols-discoverable-at-coup", "properties": {}}, {"relation_id": "rel-portal-discoverable-at-following", "relation_kind": "discoverable-at", "from_node_id": "clue-cathbad-portal", "to_node_id": "scene-following-cathbad", "claim_id": "claim-portal-discoverable-at-following", "properties": {}}, {"relation_id": "rel-idols-support-conclusion", "relation_kind": "supports", "from_node_id": "clue-bhradain-idols", "to_node_id": "conclusion-cult-behind-coup", "claim_id": "claim-idols-support-conclusion", "properties": {}}, {"relation_id": "rel-portal-supports-conclusion", "relation_kind": "supports", "from_node_id": "clue-cathbad-portal", "to_node_id": "conclusion-cult-behind-coup", "claim_id": "claim-portal-supports-conclusion", "properties": {}}, {"relation_id": "rel-bhradain-leads-cult", "relation_kind": "member-of", "from_node_id": "npc-bhradain-mac-hafgan", "to_node_id": "secret-six-sickle-cult", "claim_id": "claim-bhradain-leads-cult", "properties": {}}, {"relation_id": "rel-cathbad-in-cult", "relation_kind": "member-of", "from_node_id": "npc-cathbad", "to_node_id": "secret-six-sickle-cult", "claim_id": "claim-cathbad-in-cult", "properties": {}}, {"relation_id": "rel-cahorn-serves-bhradain", "relation_kind": "member-of", "from_node_id": "npc-cahorn-the-silent", "to_node_id": "secret-six-sickle-cult", "claim_id": "claim-cahorn-serves-bhradain", "properties": {}}, {"relation_id": "rel-feast-at-city", "relation_kind": "occurs-at", "from_node_id": "scene-welcome-feast", "to_node_id": "location-budonaranum", "claim_id": "claim-feast-at-city", "properties": {}}, {"relation_id": "rel-covenant-at-stones", "relation_kind": "occurs-at", "from_node_id": "scene-goddess-covenant", "to_node_id": "location-stone-circle", "claim_id": "claim-covenant-at-stones", "properties": {}}, {"relation_id": "rel-following-at-mound", "relation_kind": "occurs-at", "from_node_id": "scene-following-cathbad", "to_node_id": "location-sidhe-mound", "claim_id": "claim-following-at-mound", "properties": {}}, {"relation_id": "rel-start-at-fortress", "relation_kind": "occurs-at", "from_node_id": "scene-mission-start", "to_node_id": "location-eburacum", "claim_id": "claim-start-at-fortress", "properties": {}}, {"relation_id": "rel-morgan-present-feast", "relation_kind": "present-in", "from_node_id": "npc-queen-morgan", "to_node_id": "scene-welcome-feast", "claim_id": "claim-morgan-present-feast", "properties": {}}, {"relation_id": "rel-riordan-present-feast", "relation_kind": "present-in", "from_node_id": "npc-riordan-mac-kay", "to_node_id": "scene-welcome-feast", "claim_id": "claim-riordan-present-feast", "properties": {}}, {"relation_id": "rel-conneil-present-negotiation", "relation_kind": "present-in", "from_node_id": "npc-conneil-mac-finn", "to_node_id": "scene-negotiation", "claim_id": "claim-conneil-present-negotiation", "properties": {}}, {"relation_id": "rel-badbwyn-present-covenant", "relation_kind": "present-in", "from_node_id": "npc-badbwyn", "to_node_id": "scene-goddess-covenant", "claim_id": "claim-badbwyn-present-covenant", "properties": {}}, {"relation_id": "rel-kerthela-present-covenant", "relation_kind": "present-in", "from_node_id": "npc-kerthela", "to_node_id": "scene-goddess-covenant", "claim_id": "claim-kerthela-present-covenant", "properties": {}}, {"relation_id": "rel-inathosa-present-covenant", "relation_kind": "present-in", "from_node_id": "npc-inathosa", "to_node_id": "scene-goddess-covenant", "claim_id": "claim-inathosa-present-covenant", "properties": {}}, {"relation_id": "rel-sidhe-present-covenant", "relation_kind": "present-in", "from_node_id": "creature-sidhe", "to_node_id": "scene-goddess-covenant", "claim_id": "claim-sidhe-present-covenant", "properties": {}}, {"relation_id": "rel-cathbad-present-covenant", "relation_kind": "present-in", "from_node_id": "npc-cathbad", "to_node_id": "scene-goddess-covenant", "claim_id": "claim-cathbad-present-covenant", "properties": {}}, {"relation_id": "rel-adminicus-present-inaction", "relation_kind": "present-in", "from_node_id": "npc-adminicus-mac-lawler", "to_node_id": "scene-branch-inaction", "claim_id": "claim-adminicus-present-inaction", "properties": {}}]}
+{
+  "contract_id": "coc.module-graph-shard.v3",
+  "schema_version": 3,
+  "module_id": "they-did-not-think-it-too-many",
+  "section_id": "whole-book",
+  "source_language": "zh-Hans",
+  "aspects": [
+    "structure",
+    "actors",
+    "events",
+    "knowledge",
+    "causal",
+    "mechanics"
+  ],
+  "evidence_span_ids": [],
+  "node_refs": [],
+  "coverage": {
+    "structure": "accepted",
+    "world": "unresolved",
+    "actors": "accepted",
+    "relationships": "unresolved",
+    "events": "accepted",
+    "knowledge": "partial",
+    "causal": "partial",
+    "mechanics": "partial",
+    "assets": "unresolved",
+    "direction": "unresolved"
+  },
+  "nodes": [
+    {
+      "node_id": "scene-mission-start",
+      "node_kind": "scene",
+      "name": "任务开始",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "调查员自伊布拉坎出发北上，经伊苏利姆-不列颠图姆与凯特拉克吞尼姆过夜，抵达莎比领地边缘。",
+      "evidence_span_ids": [
+        "span-whole-book-page-2-block-25",
+        "span-whole-book-page-2-block-26",
+        "span-whole-book-page-3-block-28"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "scene-welcome-feast",
+      "node_kind": "scene",
+      "name": "欢迎宴",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "欢迎宴持续到深夜；贵族与勇士携随从到场，王后莫甘在四十五分钟后入席，诗人瑞奥丹讲述长故事。",
+      "evidence_span_ids": [
+        "span-whole-book-page-4-block-31",
+        "span-whole-book-page-4-block-32",
+        "span-whole-book-page-4-block-34"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "scene-rank-challenge-drinking",
+      "node_kind": "scene",
+      "name": "位阶、挑战与斗酒",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "座次代表位阶，受轻视者可提出单挑；第一勇士取大腿肉，可被挑战；斗酒以酒力值累积后检定。",
+      "evidence_span_ids": [
+        "span-whole-book-page-4-block-35",
+        "span-whole-book-page-4-block-36",
+        "span-whole-book-page-4-block-37",
+        "span-whole-book-page-4-block-38"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "scene-negotiation",
+      "node_kind": "scene",
+      "name": "谈判",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "第二天一早开始谈判，国王康尼尔正装出席。",
+      "evidence_span_ids": [
+        "span-whole-book-page-5-block-40"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "scene-bhradain-coup-offer",
+      "node_kind": "scene",
+      "name": "布拉丹的政变",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "布拉丹邀请未参与谈判的使者私谈，试探罗马立场并暗示废黜康尼尔；屋内有三颗头骨与三尊持镰铜像。",
+      "evidence_span_ids": [
+        "span-whole-book-page-6-block-46",
+        "span-whole-book-page-6-block-47",
+        "span-whole-book-page-6-block-48",
+        "span-whole-book-page-6-block-49"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "scene-following-cathbad",
+      "node_kind": "scene",
+      "name": "总会有眼尖的调查员",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "凯斯巴德骑行五英里入山，在土丘前吟诵开启传送门；跟踪者可目击，穿门需损失理智与魔法值。",
+      "evidence_span_ids": [
+        "span-whole-book-page-6-block-50",
+        "span-whole-book-page-6-block-51",
+        "span-whole-book-page-6-block-41",
+        "span-whole-book-page-10-block-76"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "scene-king-murdered",
+      "node_kind": "scene",
+      "name": "国王遇刺",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "康尼尔之死，按使者是否参与政变分为三条互斥分支。",
+      "evidence_span_ids": [
+        "span-whole-book-page-8-block-59"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "scene-branch-join-coup",
+      "node_kind": "scene",
+      "name": "假如罗马使者也参与政变",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "康尼尔中断谈判前往布多纳河沐浴，五十人随行其中三十余为布拉丹亲信；四人于河中将其按入水中溺毙。",
+      "evidence_span_ids": [
+        "span-whole-book-page-8-block-60",
+        "span-whole-book-page-8-block-61",
+        "span-whole-book-page-8-block-62",
+        "span-whole-book-page-8-block-63"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "scene-branch-refuse-coup",
+      "node_kind": "scene",
+      "name": "假如罗马使者不参与政变",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "康尼尔午餐时噎住倒地身亡；布拉丹当众指控罗马使者毒杀国王，使者被缚于储藏圆屋承重柱。",
+      "evidence_span_ids": [
+        "span-whole-book-page-9-block-64",
+        "span-whole-book-page-9-block-65",
+        "span-whole-book-page-9-block-66"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "scene-branch-inaction",
+      "node_kind": "scene",
+      "name": "假如罗马使者无任何作为",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "阿德米尼克斯告知国王已死且已复仇，须另选新王；布拉丹继位后第三道法令下令逮捕罗马使者。",
+      "evidence_span_ids": [
+        "span-whole-book-page-9-block-67",
+        "span-whole-book-page-9-block-68",
+        "span-whole-book-page-9-block-69",
+        "span-whole-book-page-9-block-70"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "scene-goddess-covenant",
+      "node_kind": "scene",
+      "name": "女神之约",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "午夜使者被押上战车出城，行约一小时至平原巨石阵；德鲁伊吟唱一个多小时并以孩童献祭，三位化身现身。",
+      "evidence_span_ids": [
+        "span-whole-book-page-9-block-72",
+        "span-whole-book-page-9-block-73",
+        "span-whole-book-page-9-block-74",
+        "span-whole-book-page-10-block-77",
+        "span-whole-book-page-10-block-79",
+        "span-whole-book-page-10-block-80"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "scene-finale",
+      "node_kind": "scene",
+      "name": "终章",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "按结果分歧：顺利则康尼尔让步签约并承诺根除教派；不妙则布拉丹继位并全族投降，莎比终并入帝国。",
+      "evidence_span_ids": [
+        "span-whole-book-page-12-block-91",
+        "span-whole-book-page-12-block-87",
+        "span-whole-book-page-12-block-92",
+        "span-whole-book-page-12-block-88",
+        "span-whole-book-page-12-block-89"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "location-eburacum",
+      "node_kind": "location",
+      "name": "伊布拉坎",
+      "visibility": "player-safe",
+      "aliases": [],
+      "summary": "位于河谷的大型军事要塞，九年前由西班牙第九军团修建，即今约克。",
+      "evidence_span_ids": [
+        "span-whole-book-page-2-block-18",
+        "span-whole-book-page-2-block-21"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "location-budonaranum",
+      "node_kind": "location",
+      "name": "布多纳兰姆",
+      "visibility": "player-safe",
+      "aliases": [],
+      "summary": "莎比都城，欢迎宴、谈判与国王葬礼所在。",
+      "evidence_span_ids": [
+        "span-whole-book-page-4-block-29",
+        "span-whole-book-page-9-block-69"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "location-stone-circle",
+      "node_kind": "location",
+      "name": "平原巨石阵",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "距城约一小时车程的平原，立有远大于此前所见的巨石圈，女神之约在此举行。",
+      "evidence_span_ids": [
+        "span-whole-book-page-9-block-74"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "location-sidhe-mound",
+      "node_kind": "location",
+      "name": "山中土丘",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "凯斯巴德骑行五英里进入山区后所至的土丘，传送门在此开启。",
+      "evidence_span_ids": [
+        "span-whole-book-page-6-block-51",
+        "span-whole-book-page-6-block-41"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "npc-conneil-mac-finn",
+      "node_kind": "npc",
+      "name": "康尼尔·马克·芬",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "28 岁，莎比部族国王，两年前接替叔父继位；实用主义者，认为依附罗马是唯一出路。",
+      "evidence_span_ids": [
+        "span-whole-book-page-13-block-96",
+        "span-whole-book-page-13-block-97",
+        "span-whole-book-page-13-block-100"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "npc-queen-morgan",
+      "node_kind": "npc",
+      "name": "王后莫甘",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "21 岁，康尼尔的配偶；年轻富有心计，以美色为丈夫平衡各方势力。",
+      "evidence_span_ids": [
+        "span-whole-book-page-13-block-101",
+        "span-whole-book-page-13-block-102",
+        "span-whole-book-page-13-block-104"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "npc-adminicus-mac-lawler",
+      "node_kind": "npc",
+      "name": "阿德米尼克斯·马克·劳勒",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "41 岁，康尼尔的首席顾问；曾事老国王，政治敏锐，懂得何时置身事外。",
+      "evidence_span_ids": [
+        "span-whole-book-page-13-block-105",
+        "span-whole-book-page-13-block-106",
+        "span-whole-book-page-13-block-108"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "npc-riordan-mac-kay",
+      "node_kind": "npc",
+      "name": "瑞奥丹·马克·凯尔",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "25 岁，国王最爱的诗人；避开康尼尔与布拉丹的斗争，只求听众喜爱其歌谣。",
+      "evidence_span_ids": [
+        "span-whole-book-page-13-block-109",
+        "span-whole-book-page-13-block-110",
+        "span-whole-book-page-14-block-114"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "npc-cathbad",
+      "node_kind": "npc",
+      "name": "凯斯巴德",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "53 岁，大德鲁伊、莎比德鲁伊领袖、六镰教派高层；明奉康尼尔，暗favor布拉丹，憎恨罗马人。",
+      "evidence_span_ids": [
+        "span-whole-book-page-14-block-115",
+        "span-whole-book-page-14-block-117",
+        "span-whole-book-page-14-block-124"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "npc-adair-mac-gale",
+      "node_kind": "npc",
+      "name": "阿代尔·马克·盖尔",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "33 岁，凯斯巴德手下不那么忠心的学徒；南方长大，未意识到莎比·尼格兰的本质。",
+      "evidence_span_ids": [
+        "span-whole-book-page-14-block-125",
+        "span-whole-book-page-14-block-126",
+        "span-whole-book-page-14-block-132"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "npc-bhradain-mac-hafgan",
+      "node_kind": "npc",
+      "name": "布拉丹·马克·哈夫冈",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "39 岁，康尼尔之下最具影响力的贵族，六镰教派领袖；说服凯斯巴德参与阴谋，欲借罗马庇护传播女神信仰。",
+      "evidence_span_ids": [
+        "span-whole-book-page-14-block-133",
+        "span-whole-book-page-14-block-134",
+        "span-whole-book-page-15-block-149",
+        "span-whole-book-page-15-block-150"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "npc-cahorn-the-silent",
+      "node_kind": "npc",
+      "name": "缄默的卡霍恩",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "30 岁，布拉丹忠实的持矛侍卫；对布拉丹言听计从，从不多问。特征为无法徒步淌水。",
+      "evidence_span_ids": [
+        "span-whole-book-page-15-block-151",
+        "span-whole-book-page-15-block-152",
+        "span-whole-book-page-15-block-154",
+        "span-whole-book-page-15-block-155"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "npc-badbwyn",
+      "node_kind": "npc",
+      "name": "奥秘女神拜德温",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "莎比·尼格兰三位化身之一，掌控生命奥秘；本质掩于兜帽披风之下。",
+      "evidence_span_ids": [
+        "span-whole-book-page-15-block-157",
+        "span-whole-book-page-15-block-158",
+        "span-whole-book-page-15-block-160"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "npc-kerthela",
+      "node_kind": "npc",
+      "name": "女武神克尔塞拉",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "三位化身之一，生死之力的精华，形象为裸体怀孕女性；战士崇拜她以求战斗之力。",
+      "evidence_span_ids": [
+        "span-whole-book-page-15-block-161",
+        "span-whole-book-page-15-block-162",
+        "span-whole-book-page-16-block-165"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "npc-inathosa",
+      "node_kind": "npc",
+      "name": "荡妇伊娜托撒",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "三位化身之一，色欲的具象；崇拜者获得吸引力与性能力。",
+      "evidence_span_ids": [
+        "span-whole-book-page-16-block-166",
+        "span-whole-book-page-16-block-167",
+        "span-whole-book-page-16-block-170"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "creature-sidhe",
+      "node_kind": "creature",
+      "name": "仙丘人",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "退化的蛇人，不列颠原住民；隐居古洞，追随莎比·尼格兰的德鲁伊不时前往求指引。",
+      "evidence_span_ids": [
+        "span-whole-book-page-16-block-171",
+        "span-whole-book-page-16-block-172",
+        "span-whole-book-page-16-block-173",
+        "span-whole-book-page-16-block-174"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "rule-drinking-contest",
+      "node_kind": "rule",
+      "name": "斗酒检定",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "酒力值累积超过参与者 HP 后进行 (CON-POT)x5 检定；失败即吐，失败两次输掉比赛。",
+      "evidence_span_ids": [
+        "span-whole-book-page-4-block-38",
+        "span-whole-book-page-4-block-39"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "rule-escape-bonds",
+      "node_kind": "rule",
+      "name": "挣脱束缚",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "被绑于承重柱的调查员可通过敏捷 x1 或修理/发明 x1/5 挣脱。",
+      "evidence_span_ids": [
+        "span-whole-book-page-9-block-71"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "rule-sidhe-sanity",
+      "node_kind": "rule",
+      "name": "目睹仙丘人的理智检定",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "看到仙丘人需进行理智检定 1/1D6。",
+      "evidence_span_ids": [
+        "span-whole-book-page-10-block-77",
+        "span-whole-book-page-16-block-187"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "rule-badbwyn-cloak-sanity",
+      "node_kind": "rule",
+      "name": "拜德温斗篷的理智损失",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "被拜德温斗篷包裹者见证其真实形态，损失 1D6/1D20 点理智。",
+      "evidence_span_ids": [
+        "span-whole-book-page-10-block-80",
+        "span-whole-book-page-15-block-159"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "rule-portal-cost",
+      "node_kind": "rule",
+      "name": "穿越异界之门",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "穿越异界之门的玩家需损失 1 点理智和 4 点魔法值。",
+      "evidence_span_ids": [
+        "span-whole-book-page-10-block-76"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "clue-bhradain-idols",
+      "node_kind": "clue",
+      "name": "布拉丹圆屋中的三尊持镰铜像",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "披兜帽人形、怀孕妇人、侧躺少女，均手持镰刀；布拉丹称其为旧神邸偶像，成功洞察可看出他在说谎。",
+      "evidence_span_ids": [
+        "span-whole-book-page-6-block-49",
+        "span-whole-book-page-7-block-52"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "clue-cathbad-portal",
+      "node_kind": "clue",
+      "name": "凯斯巴德开启的传送门",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "凯斯巴德在土丘前吟诵开门并进入数小时；门关闭后土丘周围毫无异常。",
+      "evidence_span_ids": [
+        "span-whole-book-page-6-block-51",
+        "span-whole-book-page-6-block-41",
+        "span-whole-book-page-6-block-42"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "secret-six-sickle-cult",
+      "node_kind": "secret",
+      "name": "六镰教派",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "布拉丹为教派领袖、凯斯巴德为高层；部族一半德鲁伊参与其中。",
+      "evidence_span_ids": [
+        "span-whole-book-page-14-block-116",
+        "span-whole-book-page-15-block-149",
+        "span-whole-book-page-12-block-85"
+      ],
+      "properties": {}
+    },
+    {
+      "node_id": "conclusion-cult-behind-coup",
+      "node_kind": "conclusion",
+      "name": "政变由六镰教派推动",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "布拉丹为传播莎比·尼格兰信仰而谋夺王位，凯斯巴德为其助力。",
+      "evidence_span_ids": [
+        "span-whole-book-page-15-block-149",
+        "span-whole-book-page-15-block-150",
+        "span-whole-book-page-14-block-124"
+      ],
+      "properties": {}
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "claim-start-precedes-feast",
+      "subject_id": "scene-mission-start",
+      "predicate": "play-precedes",
+      "object": {
+        "node_id": "scene-welcome-feast"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-4-block-29",
+        "span-whole-book-page-4-block-30"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "抵达后「最开始是欢迎宴会」。"
+    },
+    {
+      "claim_id": "claim-feast-precedes-rank",
+      "subject_id": "scene-welcome-feast",
+      "predicate": "play-precedes",
+      "object": {
+        "node_id": "scene-rank-challenge-drinking"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-4-block-30",
+        "span-whole-book-page-4-block-35"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "宴会环节内先入席，后有位阶、挑战与斗酒。"
+    },
+    {
+      "claim_id": "claim-rank-precedes-negotiation",
+      "subject_id": "scene-rank-challenge-drinking",
+      "predicate": "play-precedes",
+      "object": {
+        "node_id": "scene-negotiation"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-5-block-40"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "「第二天一早，大家开始谈判」。"
+    },
+    {
+      "claim_id": "claim-negotiation-precedes-coup",
+      "subject_id": "scene-negotiation",
+      "predicate": "play-precedes",
+      "object": {
+        "node_id": "scene-bhradain-coup-offer"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-6-block-47"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "布拉丹邀请未参与谈判者私谈，发生在谈判期间。"
+    },
+    {
+      "claim_id": "claim-coup-may-lead-to-murder",
+      "subject_id": "scene-bhradain-coup-offer",
+      "predicate": "may-lead-to",
+      "object": {
+        "node_id": "scene-king-murdered"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-4-block-30"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "宴会过后守秘人应让布拉丹着手谋杀国王康尼尔。"
+    },
+    {
+      "claim_id": "claim-murder-branch-join",
+      "subject_id": "scene-king-murdered",
+      "predicate": "alternative-to",
+      "object": {
+        "node_id": "scene-branch-join-coup"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-8-block-60"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "三条互斥分支之一：使者参与政变。"
+    },
+    {
+      "claim_id": "claim-murder-branch-refuse",
+      "subject_id": "scene-king-murdered",
+      "predicate": "alternative-to",
+      "object": {
+        "node_id": "scene-branch-refuse-coup"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-9-block-64"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "三条互斥分支之一：使者不参与政变。"
+    },
+    {
+      "claim_id": "claim-murder-branch-inaction",
+      "subject_id": "scene-king-murdered",
+      "predicate": "alternative-to",
+      "object": {
+        "node_id": "scene-branch-inaction"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-9-block-67"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "三条互斥分支之一：使者无任何作为。"
+    },
+    {
+      "claim_id": "claim-refuse-leads-to-covenant",
+      "subject_id": "scene-branch-refuse-coup",
+      "predicate": "may-lead-to",
+      "object": {
+        "node_id": "scene-goddess-covenant"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-9-block-66",
+        "span-whole-book-page-9-block-72",
+        "span-whole-book-page-9-block-73"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "被缚于储藏圆屋后，午夜被押往巨石阵。"
+    },
+    {
+      "claim_id": "claim-inaction-leads-to-covenant",
+      "subject_id": "scene-branch-inaction",
+      "predicate": "may-lead-to",
+      "object": {
+        "node_id": "scene-goddess-covenant"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-9-block-70",
+        "span-whole-book-page-9-block-72"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "第三道法令逮捕使者，随后同样押往女神之约。"
+    },
+    {
+      "claim_id": "claim-covenant-precedes-finale",
+      "subject_id": "scene-goddess-covenant",
+      "predicate": "play-precedes",
+      "object": {
+        "node_id": "scene-finale"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-12-block-91",
+        "span-whole-book-page-12-block-87"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "女神之约之后进入终章。"
+    },
+    {
+      "claim_id": "claim-drinking-uses-rule",
+      "subject_id": "scene-rank-challenge-drinking",
+      "predicate": "uses-rule",
+      "object": {
+        "node_id": "rule-drinking-contest"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-4-block-38"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "斗酒环节直接给出 (CON-POT)x5 检定。"
+    },
+    {
+      "claim_id": "claim-escape-uses-rule",
+      "subject_id": "scene-branch-refuse-coup",
+      "predicate": "uses-rule",
+      "object": {
+        "node_id": "rule-escape-bonds"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-9-block-71"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "被绑者以敏捷 x1 或修理/发明 x1/5 挣脱。"
+    },
+    {
+      "claim_id": "claim-covenant-uses-sidhe-sanity",
+      "subject_id": "scene-goddess-covenant",
+      "predicate": "calls-for-check",
+      "object": {
+        "node_id": "rule-sidhe-sanity"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-10-block-77"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "看到仙丘人需进行理智检定 1/1D6。"
+    },
+    {
+      "claim_id": "claim-covenant-uses-cloak-sanity",
+      "subject_id": "scene-goddess-covenant",
+      "predicate": "calls-for-check",
+      "object": {
+        "node_id": "rule-badbwyn-cloak-sanity"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-10-block-80"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "被拜德温斗篷包裹损失 1D6/1D20 理智。"
+    },
+    {
+      "claim_id": "claim-following-uses-portal-cost",
+      "subject_id": "scene-following-cathbad",
+      "predicate": "calls-for-check",
+      "object": {
+        "node_id": "rule-portal-cost"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-10-block-76"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "穿越异界之门损失 1 理智 4 魔法值。"
+    },
+    {
+      "claim_id": "claim-idols-discoverable-at-coup",
+      "subject_id": "clue-bhradain-idols",
+      "predicate": "discoverable-at",
+      "object": {
+        "node_id": "scene-bhradain-coup-offer"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-6-block-49"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "三尊铜像位于布拉丹圆屋，私谈时可环顾发现。"
+    },
+    {
+      "claim_id": "claim-portal-discoverable-at-following",
+      "subject_id": "clue-cathbad-portal",
+      "predicate": "discoverable-at",
+      "object": {
+        "node_id": "scene-following-cathbad"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-6-block-51"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "跟踪凯斯巴德者目击传送门。"
+    },
+    {
+      "claim_id": "claim-idols-support-conclusion",
+      "subject_id": "clue-bhradain-idols",
+      "predicate": "supports",
+      "object": {
+        "node_id": "conclusion-cult-behind-coup"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-6-block-49",
+        "span-whole-book-page-7-block-52"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "持镰三像即莎比·尼格兰三化身，且布拉丹就其来历说谎。"
+    },
+    {
+      "claim_id": "claim-portal-supports-conclusion",
+      "subject_id": "clue-cathbad-portal",
+      "predicate": "supports",
+      "object": {
+        "node_id": "conclusion-cult-behind-coup"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-6-block-51",
+        "span-whole-book-page-16-block-173"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "凯斯巴德向仙丘人求指引，指向教派活动。"
+    },
+    {
+      "claim_id": "claim-bhradain-leads-cult",
+      "subject_id": "npc-bhradain-mac-hafgan",
+      "predicate": "member-of",
+      "object": {
+        "node_id": "secret-six-sickle-cult"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-15-block-149"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "布拉丹是六镰教派的领袖。"
+    },
+    {
+      "claim_id": "claim-cathbad-in-cult",
+      "subject_id": "npc-cathbad",
+      "predicate": "member-of",
+      "object": {
+        "node_id": "secret-six-sickle-cult"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-14-block-115",
+        "span-whole-book-page-14-block-116"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "凯斯巴德是六镰教派高层。"
+    },
+    {
+      "claim_id": "claim-cahorn-serves-bhradain",
+      "subject_id": "npc-cahorn-the-silent",
+      "predicate": "member-of",
+      "object": {
+        "node_id": "secret-six-sickle-cult"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-15-block-155"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.6,
+      "reason": "卡霍恩对布拉丹言听计从。"
+    },
+    {
+      "claim_id": "claim-feast-at-city",
+      "subject_id": "scene-welcome-feast",
+      "predicate": "occurs-at",
+      "object": {
+        "node_id": "location-budonaranum"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-4-block-29",
+        "span-whole-book-page-4-block-31"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "欢迎宴属「布多纳兰姆的系列事件」。"
+    },
+    {
+      "claim_id": "claim-covenant-at-stones",
+      "subject_id": "scene-goddess-covenant",
+      "predicate": "occurs-at",
+      "object": {
+        "node_id": "location-stone-circle"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-9-block-74"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "押解一小时后停在平原巨石阵。"
+    },
+    {
+      "claim_id": "claim-following-at-mound",
+      "subject_id": "scene-following-cathbad",
+      "predicate": "occurs-at",
+      "object": {
+        "node_id": "location-sidhe-mound"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-6-block-51"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "凯斯巴德停在山中土丘前开门。"
+    },
+    {
+      "claim_id": "claim-start-at-fortress",
+      "subject_id": "scene-mission-start",
+      "predicate": "occurs-at",
+      "object": {
+        "node_id": "location-eburacum"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-2-block-25",
+        "span-whole-book-page-2-block-26"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "调查员自伊布拉坎出发。"
+    },
+    {
+      "claim_id": "claim-morgan-present-feast",
+      "subject_id": "npc-queen-morgan",
+      "predicate": "present-in",
+      "object": {
+        "node_id": "scene-welcome-feast"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-4-block-32"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "王后莫甘在四十五分钟后入席。"
+    },
+    {
+      "claim_id": "claim-riordan-present-feast",
+      "subject_id": "npc-riordan-mac-kay",
+      "predicate": "present-in",
+      "object": {
+        "node_id": "scene-welcome-feast"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-4-block-34"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "诗人瑞奥丹盛装赶来讲故事。"
+    },
+    {
+      "claim_id": "claim-conneil-present-negotiation",
+      "subject_id": "npc-conneil-mac-finn",
+      "predicate": "present-in",
+      "object": {
+        "node_id": "scene-negotiation"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-5-block-40"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "国王康尼尔正装出席谈判会议。"
+    },
+    {
+      "claim_id": "claim-badbwyn-present-covenant",
+      "subject_id": "npc-badbwyn",
+      "predicate": "present-in",
+      "object": {
+        "node_id": "scene-goddess-covenant"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-10-block-79"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "拜德温走向罗马人。"
+    },
+    {
+      "claim_id": "claim-kerthela-present-covenant",
+      "subject_id": "npc-kerthela",
+      "predicate": "present-in",
+      "object": {
+        "node_id": "scene-goddess-covenant"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-10-block-79"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "克尔塞拉也加入她的行列。"
+    },
+    {
+      "claim_id": "claim-inathosa-present-covenant",
+      "subject_id": "npc-inathosa",
+      "predicate": "present-in",
+      "object": {
+        "node_id": "scene-goddess-covenant"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-10-block-79"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "伊娜托撒倚躺于倾倒的巨石。"
+    },
+    {
+      "claim_id": "claim-sidhe-present-covenant",
+      "subject_id": "creature-sidhe",
+      "predicate": "present-in",
+      "object": {
+        "node_id": "scene-goddess-covenant"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-10-block-77"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "外围有六名仙丘人。"
+    },
+    {
+      "claim_id": "claim-cathbad-present-covenant",
+      "subject_id": "npc-cathbad",
+      "predicate": "present-in",
+      "object": {
+        "node_id": "scene-goddess-covenant"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-10-block-77"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "凯斯巴德与另外两名德鲁伊祭司吟唱。"
+    },
+    {
+      "claim_id": "claim-adminicus-present-inaction",
+      "subject_id": "npc-adminicus-mac-lawler",
+      "predicate": "present-in",
+      "object": {
+        "node_id": "scene-branch-inaction"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-9-block-68"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "阿德米尼克斯哭着来告知大家。"
+    },
+    {
+      "claim_id": "claim-negotiation-may-lead-to-following",
+      "subject_id": "scene-negotiation",
+      "predicate": "may-lead-to",
+      "object": {
+        "node_id": "scene-following-cathbad"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-whole-book-page-6-block-51"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": {
+        "scope": "always"
+      },
+      "confidence": 0.9,
+      "reason": "「有时调查员们正好不需要与康尼尔或者布拉丹谈判，于是就可以找匹马跟上他」——该支线由谈判期引出。"
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "rel-start-precedes-feast",
+      "relation_kind": "play-precedes",
+      "from_node_id": "scene-mission-start",
+      "to_node_id": "scene-welcome-feast",
+      "claim_id": "claim-start-precedes-feast",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-feast-precedes-rank",
+      "relation_kind": "play-precedes",
+      "from_node_id": "scene-welcome-feast",
+      "to_node_id": "scene-rank-challenge-drinking",
+      "claim_id": "claim-feast-precedes-rank",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-rank-precedes-negotiation",
+      "relation_kind": "play-precedes",
+      "from_node_id": "scene-rank-challenge-drinking",
+      "to_node_id": "scene-negotiation",
+      "claim_id": "claim-rank-precedes-negotiation",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-negotiation-precedes-coup",
+      "relation_kind": "play-precedes",
+      "from_node_id": "scene-negotiation",
+      "to_node_id": "scene-bhradain-coup-offer",
+      "claim_id": "claim-negotiation-precedes-coup",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-coup-may-lead-to-murder",
+      "relation_kind": "may-lead-to",
+      "from_node_id": "scene-bhradain-coup-offer",
+      "to_node_id": "scene-king-murdered",
+      "claim_id": "claim-coup-may-lead-to-murder",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-murder-branch-join",
+      "relation_kind": "alternative-to",
+      "from_node_id": "scene-king-murdered",
+      "to_node_id": "scene-branch-join-coup",
+      "claim_id": "claim-murder-branch-join",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-murder-branch-refuse",
+      "relation_kind": "alternative-to",
+      "from_node_id": "scene-king-murdered",
+      "to_node_id": "scene-branch-refuse-coup",
+      "claim_id": "claim-murder-branch-refuse",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-murder-branch-inaction",
+      "relation_kind": "alternative-to",
+      "from_node_id": "scene-king-murdered",
+      "to_node_id": "scene-branch-inaction",
+      "claim_id": "claim-murder-branch-inaction",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-refuse-leads-to-covenant",
+      "relation_kind": "may-lead-to",
+      "from_node_id": "scene-branch-refuse-coup",
+      "to_node_id": "scene-goddess-covenant",
+      "claim_id": "claim-refuse-leads-to-covenant",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-inaction-leads-to-covenant",
+      "relation_kind": "may-lead-to",
+      "from_node_id": "scene-branch-inaction",
+      "to_node_id": "scene-goddess-covenant",
+      "claim_id": "claim-inaction-leads-to-covenant",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-covenant-precedes-finale",
+      "relation_kind": "play-precedes",
+      "from_node_id": "scene-goddess-covenant",
+      "to_node_id": "scene-finale",
+      "claim_id": "claim-covenant-precedes-finale",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-drinking-uses-rule",
+      "relation_kind": "uses-rule",
+      "from_node_id": "scene-rank-challenge-drinking",
+      "to_node_id": "rule-drinking-contest",
+      "claim_id": "claim-drinking-uses-rule",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-escape-uses-rule",
+      "relation_kind": "uses-rule",
+      "from_node_id": "scene-branch-refuse-coup",
+      "to_node_id": "rule-escape-bonds",
+      "claim_id": "claim-escape-uses-rule",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-covenant-uses-sidhe-sanity",
+      "relation_kind": "calls-for-check",
+      "from_node_id": "scene-goddess-covenant",
+      "to_node_id": "rule-sidhe-sanity",
+      "claim_id": "claim-covenant-uses-sidhe-sanity",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-covenant-uses-cloak-sanity",
+      "relation_kind": "calls-for-check",
+      "from_node_id": "scene-goddess-covenant",
+      "to_node_id": "rule-badbwyn-cloak-sanity",
+      "claim_id": "claim-covenant-uses-cloak-sanity",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-following-uses-portal-cost",
+      "relation_kind": "calls-for-check",
+      "from_node_id": "scene-following-cathbad",
+      "to_node_id": "rule-portal-cost",
+      "claim_id": "claim-following-uses-portal-cost",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-idols-discoverable-at-coup",
+      "relation_kind": "discoverable-at",
+      "from_node_id": "clue-bhradain-idols",
+      "to_node_id": "scene-bhradain-coup-offer",
+      "claim_id": "claim-idols-discoverable-at-coup",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-portal-discoverable-at-following",
+      "relation_kind": "discoverable-at",
+      "from_node_id": "clue-cathbad-portal",
+      "to_node_id": "scene-following-cathbad",
+      "claim_id": "claim-portal-discoverable-at-following",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-idols-support-conclusion",
+      "relation_kind": "supports",
+      "from_node_id": "clue-bhradain-idols",
+      "to_node_id": "conclusion-cult-behind-coup",
+      "claim_id": "claim-idols-support-conclusion",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-portal-supports-conclusion",
+      "relation_kind": "supports",
+      "from_node_id": "clue-cathbad-portal",
+      "to_node_id": "conclusion-cult-behind-coup",
+      "claim_id": "claim-portal-supports-conclusion",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-bhradain-leads-cult",
+      "relation_kind": "member-of",
+      "from_node_id": "npc-bhradain-mac-hafgan",
+      "to_node_id": "secret-six-sickle-cult",
+      "claim_id": "claim-bhradain-leads-cult",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-cathbad-in-cult",
+      "relation_kind": "member-of",
+      "from_node_id": "npc-cathbad",
+      "to_node_id": "secret-six-sickle-cult",
+      "claim_id": "claim-cathbad-in-cult",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-cahorn-serves-bhradain",
+      "relation_kind": "member-of",
+      "from_node_id": "npc-cahorn-the-silent",
+      "to_node_id": "secret-six-sickle-cult",
+      "claim_id": "claim-cahorn-serves-bhradain",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-feast-at-city",
+      "relation_kind": "occurs-at",
+      "from_node_id": "scene-welcome-feast",
+      "to_node_id": "location-budonaranum",
+      "claim_id": "claim-feast-at-city",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-covenant-at-stones",
+      "relation_kind": "occurs-at",
+      "from_node_id": "scene-goddess-covenant",
+      "to_node_id": "location-stone-circle",
+      "claim_id": "claim-covenant-at-stones",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-following-at-mound",
+      "relation_kind": "occurs-at",
+      "from_node_id": "scene-following-cathbad",
+      "to_node_id": "location-sidhe-mound",
+      "claim_id": "claim-following-at-mound",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-start-at-fortress",
+      "relation_kind": "occurs-at",
+      "from_node_id": "scene-mission-start",
+      "to_node_id": "location-eburacum",
+      "claim_id": "claim-start-at-fortress",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-morgan-present-feast",
+      "relation_kind": "present-in",
+      "from_node_id": "npc-queen-morgan",
+      "to_node_id": "scene-welcome-feast",
+      "claim_id": "claim-morgan-present-feast",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-riordan-present-feast",
+      "relation_kind": "present-in",
+      "from_node_id": "npc-riordan-mac-kay",
+      "to_node_id": "scene-welcome-feast",
+      "claim_id": "claim-riordan-present-feast",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-conneil-present-negotiation",
+      "relation_kind": "present-in",
+      "from_node_id": "npc-conneil-mac-finn",
+      "to_node_id": "scene-negotiation",
+      "claim_id": "claim-conneil-present-negotiation",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-badbwyn-present-covenant",
+      "relation_kind": "present-in",
+      "from_node_id": "npc-badbwyn",
+      "to_node_id": "scene-goddess-covenant",
+      "claim_id": "claim-badbwyn-present-covenant",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-kerthela-present-covenant",
+      "relation_kind": "present-in",
+      "from_node_id": "npc-kerthela",
+      "to_node_id": "scene-goddess-covenant",
+      "claim_id": "claim-kerthela-present-covenant",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-inathosa-present-covenant",
+      "relation_kind": "present-in",
+      "from_node_id": "npc-inathosa",
+      "to_node_id": "scene-goddess-covenant",
+      "claim_id": "claim-inathosa-present-covenant",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-sidhe-present-covenant",
+      "relation_kind": "present-in",
+      "from_node_id": "creature-sidhe",
+      "to_node_id": "scene-goddess-covenant",
+      "claim_id": "claim-sidhe-present-covenant",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-cathbad-present-covenant",
+      "relation_kind": "present-in",
+      "from_node_id": "npc-cathbad",
+      "to_node_id": "scene-goddess-covenant",
+      "claim_id": "claim-cathbad-present-covenant",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-adminicus-present-inaction",
+      "relation_kind": "present-in",
+      "from_node_id": "npc-adminicus-mac-lawler",
+      "to_node_id": "scene-branch-inaction",
+      "claim_id": "claim-adminicus-present-inaction",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-negotiation-may-lead-to-following",
+      "relation_kind": "may-lead-to",
+      "from_node_id": "scene-negotiation",
+      "to_node_id": "scene-following-cathbad",
+      "claim_id": "claim-negotiation-may-lead-to-following",
+      "properties": {}
+    }
+  ]
+}

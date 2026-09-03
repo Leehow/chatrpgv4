@@ -527,14 +527,36 @@ def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
         cid = str(bucket.get("id") or "").strip()
         if not cid:
             continue
+        # A Tier-1 location skeleton carries no clues, so this used to write
+        # an empty list unconditionally. A graph-derived skeleton does carry
+        # them, and dropping them here would leave every conclusion
+        # unreachable while the upstream artifact said otherwise -- the same
+        # shape as a field that is written, validated, and never read.
+        bucket_clues = [
+            {
+                "clue_id": str(clue.get("clue_id") or "").strip(),
+                "statement": str(clue.get("statement") or "").strip(),
+                "scene_ids": [
+                    str(sid) for sid in (clue.get("scene_ids") or [])
+                    if str(sid).strip()
+                ],
+                "source_refs": json.loads(json.dumps(clue.get("source_refs") or [])),
+                "parse_state": str(clue.get("parse_state") or "body_parsed"),
+            }
+            for clue in (bucket.get("clues") or [])
+            if isinstance(clue, dict) and str(clue.get("clue_id") or "").strip()
+        ]
         conclusions.append({
             "conclusion_id": cid,
             "importance": bucket.get("importance") or "supporting",
             "description": str(bucket.get("title") or cid),
+            # `minimum_routes` counts clues, not scenes: the field name reads
+            # the other way and a compliant module gets reported as defective
+            # when it is taken at face value.
             "minimum_routes": 1,
             "origin": "source",
-            "clues": [],
-            "parse_state": "stub",
+            "clues": bucket_clues,
+            "parse_state": "body_parsed" if bucket_clues else "stub",
         })
 
     # A location skeleton carries no pacing information whatsoever.  Stamping
