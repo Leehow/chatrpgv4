@@ -377,6 +377,54 @@ def mark_campaign_graph_provenance(campaign_dir: Path) -> None:
     )
 
 
+def activate_graph_scenario(campaign_dir: Path, scenario_id: str) -> str | None:
+    """Point world-state at the scene the graph declares as the entrance.
+
+    The Story Director resolves the current scene from
+    `save/world-state.json`, not from story-graph.json. A campaign whose
+    world-state still says `active_scene_id: null` leaves the Director unable
+    to resolve a scene at all, so the Keeper narrates outside the graph -- on
+    2026-09-03 that produced a church spire in Britain in AD 80, in a campaign
+    whose twelve scenes were sitting right there unused.
+
+    The starter path takes `scenes[0]`, which is array order. A graph names its
+    entrance: `is_start` is computed from the topology (the scene nothing leads
+    into), so that is what this follows.
+    """
+    world_path = campaign_dir / "save" / "world-state.json"
+    story_path = campaign_dir / "scenario" / "story-graph.json"
+    if not story_path.is_file():
+        return None
+    scenes = json.loads(story_path.read_text(encoding="utf-8")).get("scenes") or []
+    start = next(
+        (
+            str(scene.get("scene_id"))
+            for scene in scenes
+            if isinstance(scene, dict) and scene.get("is_start")
+        ),
+        None,
+    )
+    if start is None:
+        return None
+    world = (
+        json.loads(world_path.read_text(encoding="utf-8"))
+        if world_path.is_file() else {}
+    )
+    world["scenario_id"] = scenario_id
+    world["status"] = "active"
+    world["active_subsystem"] = "play"
+    world["active_scene_id"] = start
+    visited = [str(v) for v in (world.get("visited_scene_ids") or []) if str(v)]
+    if start not in visited:
+        visited.append(start)
+    world["visited_scene_ids"] = visited
+    world_path.parent.mkdir(parents=True, exist_ok=True)
+    world_path.write_text(
+        json.dumps(world, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+    )
+    return start
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Project one ModuleGraph into a Tier-1 skeleton.",

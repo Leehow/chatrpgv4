@@ -146,3 +146,40 @@ def test_a_graph_with_no_scene_is_refused() -> None:
             {"module_id": "empty", "nodes": [], "claims": [], "relations": []},
             source_id="pdf:empty", file_sha256="8" * 64, page_count=1,
         )
+
+
+def test_activation_uses_the_graph_entrance_not_array_order(tmp_path: Path) -> None:
+    """The Director reads world-state, and a null scene means it reads nothing.
+
+    A campaign left at `active_scene_id: null` cannot resolve a scene, so the
+    Keeper narrates outside the graph entirely -- on 2026-09-03 that produced a
+    church spire in Britain in AD 80 while twelve scenes sat unused. The
+    starter path activates `scenes[0]`, which is array order; a graph names its
+    entrance by topology, and that is what activation must follow.
+    """
+    campaign = tmp_path / "campaign"
+    (campaign / "scenario").mkdir(parents=True)
+    (campaign / "save").mkdir()
+    ir = coc_module_project.project_skeleton_to_ir(_skeleton())
+    story = ir["story-graph.json"]
+    entrance = next(s["scene_id"] for s in story["scenes"] if s.get("is_start"))
+    # Put the entrance last, so array order and topology disagree. Reading
+    # `scenes[0]` would pass on the natural ordering and prove nothing.
+    story["scenes"] = (
+        [s for s in story["scenes"] if not s.get("is_start")]
+        + [s for s in story["scenes"] if s.get("is_start")]
+    )
+    assert story["scenes"][0]["scene_id"] != entrance
+    (campaign / "scenario" / "story-graph.json").write_text(
+        json.dumps(story, ensure_ascii=False), encoding="utf-8",
+    )
+
+    started = projection.activate_graph_scenario(campaign, "probe-scenario")
+    assert started == entrance
+    world = json.loads(
+        (campaign / "save" / "world-state.json").read_text(encoding="utf-8")
+    )
+    assert world["active_scene_id"] == entrance
+    assert world["status"] == "active"
+    assert world["active_subsystem"] == "play"
+    assert entrance in world["visited_scene_ids"]
