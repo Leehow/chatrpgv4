@@ -1488,17 +1488,16 @@ def _magic_state(
     return path, state
 
 
-def _validate_spell(payload: dict[str, Any], allowed: set[str]) -> str:
+def _validate_spell(payload: dict[str, Any], allowed: set[str]) -> dict[str, Any]:
     if set(payload) - allowed:
         raise RuntimeOperationError("magic payload has unsupported fields")
     spell = payload.get("spell")
     if not isinstance(spell, str) or not spell.strip():
         raise RuntimeOperationError("magic payload requires spell")
     try:
-        canonical = coc_rules.spell_by_name(spell.strip())
+        return coc_rules.resolve_spell_name(spell.strip())
     except KeyError as exc:
         raise RuntimeOperationError(f"unknown spell: {spell.strip()}") from exc
-    return str(canonical["name"])
 
 
 def _magic_operation(
@@ -1517,9 +1516,14 @@ def _magic_operation(
     )
     magic = state["magic"]
     if kind == "magic.cast":
-        spell = _validate_spell(
+        # ``canonical_name`` is what a parameterised family persists as
+        # ("Summon/Bind Dimensional Shambler"), while ``entry`` is the family
+        # row the rulebook prices it from; the family name alone would lose
+        # which creature the investigator can call.
+        resolution = _validate_spell(
             payload, {"spell", "pushed", "interrupted", "is_npc"}
         )
+        spell = str(resolution["canonical_name"])
         cast_spells = {str(item) for item in magic["cast_spells"]}
         result = coc_magic.cast_spell(
             spell,
@@ -1533,7 +1537,8 @@ def _magic_operation(
         if result.get("success") and spell not in cast_spells:
             magic["cast_spells"].append(spell)
     else:
-        spell = _validate_spell(payload, {"spell", "source"})
+        resolution = _validate_spell(payload, {"spell", "source"})
+        spell = str(resolution["canonical_name"])
         source = payload.get("source", "tome")
         if source not in {"tome", "person", "entity"}:
             raise RuntimeOperationError("magic.learn source must be tome|person|entity")
@@ -1609,6 +1614,16 @@ def _magic_operation(
         "status": "PASS",
         "kind": kind,
         "operation_id": operation_id,
+        # What this operation actually moved, spelled out: the name written
+        # into investigator-state, and — for a parameterised family — the
+        # catalogue row it was priced from and the creature it was bound to.
+        # A receipt that named only "Summon/Bind Spells" would not say which
+        # creature the investigator can now call.
+        "spell": {
+            "canonical_name": spell,
+            "catalog_entry_name": str(resolution["entry"].get("name") or ""),
+            "parameterisation": resolution.get("parameterisation"),
+        },
         "result": result,
         "state_refs": [
             f"save/investigator-state/{investigator_id}.json",

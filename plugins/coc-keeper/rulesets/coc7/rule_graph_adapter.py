@@ -22,6 +22,7 @@ from typing import Any, Callable, Mapping
 from weakref import WeakKeyDictionary
 
 import coc_intent_router
+import coc_rules
 import coc_rules_runtime as _generic_runtime
 
 FamilyOwnershipMismatch = _generic_runtime.FamilyOwnershipMismatch
@@ -815,9 +816,16 @@ class Coc7RuleGraphAdapter:
             augmented["receipt.push_eligible"] = (
                 source_receipt.get("push_eligible") is not False
             )
-        spell = str(semantic.get("spell") or "").strip()
+        # Both sides canonicalise, so a parameterised family name the runtime
+        # accepts ("Summon/Bind Dimensional Shambler") cannot read as unknown
+        # here, and the rulebook's alternative family name resolves to the one
+        # spell it names.
+        spell = coc_rules.canonical_spell_name(
+            str(semantic.get("spell") or "").strip()
+        )
         known = {
-            str(value) for value in augmented.get("magic.known_spells") or []
+            coc_rules.canonical_spell_name(str(value))
+            for value in augmented.get("magic.known_spells") or []
         }
         augmented["magic.spell.known"] = bool(spell and spell in known)
         source_ref = str(semantic.get("source_ref") or "").strip()
@@ -831,7 +839,10 @@ class Coc7RuleGraphAdapter:
         )
         augmented["magic.learn.source-available"] = bool(
             spell and source_ref.startswith(source_kind + ":")
-            and spell in {str(value) for value in source_spells}
+            and spell in {
+                coc_rules.canonical_spell_name(str(value))
+                for value in source_spells
+            }
         )
         return augmented
 

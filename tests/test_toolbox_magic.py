@@ -11,6 +11,7 @@ from toolbox_test_support import *
 
 coc_magic = _load("coc_magic_for_toolbox_magic", SCRIPTS / "coc_magic.py")
 coc_rulesets = _load("coc_rulesets_for_toolbox_magic", SCRIPTS / "coc_rulesets.py")
+coc_rules = _load("coc_rules_for_toolbox_magic", SCRIPTS / "coc_rules.py")
 
 SPELL = "Contact Spells"
 
@@ -368,3 +369,173 @@ def test_learn_source_gate_and_settle_binding_read_the_same_map(campaign_ws):
         _live_facts(campaign_ws)["magic.learn.sources"]
         == kernel._magic_learning_sources(ctx)
     )
+
+
+# --------------------------------------------------------------------------- #
+# A parameterised Summon/Bind name is one spell family bound to one creature
+# --------------------------------------------------------------------------- #
+#: What the-haunting authors on npc-walter-corbitt. No spells.json row is
+#: titled this; CoC7 prints the family once and leaves the creature in the name.
+PARAMETERISED = "Summon/Bind Dimensional Shambler"
+
+
+def test_magic_learn_accepts_the_name_content_authors_and_persists_the_creature(
+    campaign_ws,
+):
+    """The parameterised name is what goes into ``learned_spells``.
+
+    The family name would say the investigator can summon *something*; the
+    module says which. So the canonical name persisted is the family stem over
+    the catalogue's creature, and the receipt says out loud which catalogue row
+    priced it.
+    """
+    _author_tome_item(campaign_ws, "tome-corbitt-notes", [PARAMETERISED])
+    settled = _run(campaign_ws, "magic.learn", {
+        "spell": PARAMETERISED,
+        "source": "tome",
+        "decision_id": "magic-learn:summon-bind:1",
+        "seed": _learning_seed(70, succeeds=True),
+    })
+    assert settled["ok"] is True, settled
+    receipt = settled["data"]["receipt"]
+    assert receipt["result"]["learned"] is True
+
+    # The receipt is unambiguous about all three names at once.
+    assert receipt["spell"]["canonical_name"] == PARAMETERISED
+    assert receipt["spell"]["catalog_entry_name"] == "Summon/Bind Spells"
+    assert receipt["spell"]["parameterisation"]["parameter"] == {
+        "kind": "creature",
+        "entity_id": "dimensional_shambler",
+        "name": "Dimensional Shambler",
+    }
+
+    magic = _magic_state(campaign_ws)
+    assert [row["spell"] for row in magic["studying_spells"]] == [PARAMETERISED]
+    assert _run(campaign_ws, "state.advance_time", {
+        "minutes": int(magic["studying_spells"][0]["study_days"]) * 24 * 60 + 60,
+        "reason": "the study period passes",
+        "decision_id": "magic-learn:summon-bind:1:study",
+    })["ok"] is True
+    assert _magic_state(campaign_ws)["learned_spells"] == [PARAMETERISED]
+    assert _live_facts(campaign_ws)["magic.known_spells"] == [PARAMETERISED]
+
+
+def test_a_creature_the_catalogue_never_carries_is_refused_not_invented(campaign_ws):
+    """A parameter with no catalogue creature row is a content gap, not a spell."""
+    _author_tome_item(campaign_ws, "tome-corbitt-notes", ["Summon/Bind Gug"])
+    settled = _run(campaign_ws, "magic.learn", {
+        "spell": "Summon/Bind Gug",
+        "source": "tome",
+        "decision_id": "magic-learn:summon-bind:gug",
+        "seed": 5,
+    })
+    assert settled["ok"] is False
+    assert "unknown spell" in settled["error"]["message"]
+    assert _magic_state(campaign_ws).get("studying_spells", []) == []
+
+
+def test_the_parameterised_family_settles_learn_then_cast_through_the_graph(
+    campaign_ws,
+):
+    """The defect one layer along: learnable but never castable.
+
+    Every gate on the way — the learn card's source-available fact, the
+    settle-time binding, ``magic.spell.known``, and the cast itself — has to
+    read the same name, or a spell that can be learned refuses to be cast.
+    """
+    _author_tome_item(campaign_ws, "tome-corbitt-notes", [PARAMETERISED])
+    learn_inputs = {
+        "spell": PARAMETERISED,
+        "source": "tome",
+        "source_ref": "tome:tome-corbitt-notes",
+    }
+    assert _augmented(campaign_ws, learn_inputs)["magic.learn.source-available"] is True
+    learn_card = _magic_cards(campaign_ws, learn_inputs)[
+        "decision:coc7:magic:learn-spell"
+    ]
+    assert learn_card["applicability"] == "applicable", learn_card
+
+    settled = _run(campaign_ws, "rules.settle", {
+        "decision_ref": "decision:coc7:magic:learn-spell",
+        "decision_id": "graph-magic-summon-bind-learn",
+        "investigator": campaign_ws["investigator_id"],
+        "seed": _learning_seed(70, succeeds=True),
+        "semantic_inputs": learn_inputs,
+    })
+    assert settled["ok"] is True, settled
+    assert _settled_result(settled)["learned"] is True
+
+    magic = _magic_state(campaign_ws)
+    assert _run(campaign_ws, "state.advance_time", {
+        "minutes": int(magic["studying_spells"][0]["study_days"]) * 24 * 60 + 60,
+        "reason": "the study period passes",
+        "decision_id": "graph-magic-summon-bind-learn:study",
+    })["ok"] is True
+
+    cast_inputs = {"spell": PARAMETERISED, "pushed": False, "interrupted": False}
+    assert _augmented(campaign_ws, cast_inputs)["magic.spell.known"] is True
+    cast_card = _magic_cards(campaign_ws, cast_inputs)[
+        "decision:coc7:magic:cast-spell"
+    ]
+    assert cast_card["applicability"] == "applicable", cast_card
+    cast = _run(campaign_ws, "rules.settle", {
+        "decision_ref": "decision:coc7:magic:cast-spell",
+        "decision_id": "graph-magic-summon-bind-cast",
+        "investigator": campaign_ws["investigator_id"],
+        "seed": 3,
+        "semantic_inputs": cast_inputs,
+    })
+    assert cast["ok"] is True, cast
+    cast_result = _settled_result(cast)
+    assert cast_result["spell"] == PARAMETERISED
+    # The parameterised name has no row of its own, so the cast can only have
+    # been priced from the family row the rulebook prints on p.255.
+    assert coc_rules.spell_by_name(PARAMETERISED)["source_page"] == 255
+    assert _magic_state(campaign_ws)["cast_spells"] == (
+        [PARAMETERISED] if cast_result["success"] else []
+    )
+
+
+def test_the_rulebooks_alternative_family_name_is_the_same_learned_spell(campaign_ws):
+    """"Summoning Byakhee" and "Summon/Bind Byakhee" are one spell, not two."""
+    _author_tome_item(campaign_ws, "tome-corbitt-notes", ["Summoning Byakhee"])
+    settled = _run(campaign_ws, "magic.learn", {
+        "spell": "Summoning Byakhee",
+        "source": "entity",
+        "decision_id": "magic-learn:summoning-byakhee",
+        "seed": _learning_seed(70, succeeds=True),
+    })
+    assert settled["ok"] is True, settled
+    assert settled["data"]["receipt"]["spell"]["canonical_name"] == (
+        "Summon/Bind Byakhee"
+    )
+    assert _magic_state(campaign_ws)["learned_spells"] == ["Summon/Bind Byakhee"]
+    # Either spelling reads as known, and the authored tome still teaches it.
+    for spelling in ("Summoning Byakhee", "Summon/Bind Byakhee"):
+        facts = _augmented(campaign_ws, {"spell": spelling})
+        assert facts["magic.spell.known"] is True, spelling
+        available = _augmented(campaign_ws, {
+            "spell": spelling,
+            "source": "tome",
+            "source_ref": "tome:tome-corbitt-notes",
+        })
+        assert available["magic.learn.source-available"] is True, spelling
+
+    # ...and the settle-time binding agrees with the card that showed it: a
+    # spelling the fact calls known must not be refused as unknown one layer
+    # along, which is the same defect displaced rather than fixed.
+    for index, spelling in enumerate(("Summoning Byakhee", "Summon/Bind Byakhee")):
+        cast_inputs = {"spell": spelling, "pushed": False, "interrupted": False}
+        card = _magic_cards(campaign_ws, cast_inputs)[
+            "decision:coc7:magic:cast-spell"
+        ]
+        assert card["applicability"] == "applicable", (spelling, card)
+        cast = _run(campaign_ws, "rules.settle", {
+            "decision_ref": "decision:coc7:magic:cast-spell",
+            "decision_id": f"graph-magic-byakhee-cast-{index}",
+            "investigator": campaign_ws["investigator_id"],
+            "seed": 3 + index,
+            "semantic_inputs": cast_inputs,
+        })
+        assert cast["ok"] is True, (spelling, cast)
+        assert _settled_result(cast)["spell"] == "Summon/Bind Byakhee"

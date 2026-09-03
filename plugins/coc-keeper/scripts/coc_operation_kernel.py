@@ -8070,13 +8070,19 @@ def _canonical_magic_binding(
     decision_ref: str,
     semantic_inputs: Mapping[str, Any],
 ) -> dict[str, Any]:
-    spell = str(semantic_inputs.get("spell") or "").strip()
-    if not spell:
+    if not str(semantic_inputs.get("spell") or "").strip():
         raise ToolError("invalid_semantic_input", "spell must be non-empty")
+    # The canonical name the magic runtime persists, so this settle-time gate
+    # and the card fact behind it cannot disagree about a parameterised family
+    # name such as "Summon/Bind Dimensional Shambler".
+    spell = coc_rules.canonical_spell_name(str(semantic_inputs.get("spell")))
     state = ctx.inv_state(investigator_id)
     magic = state.get("magic") if isinstance(state.get("magic"), Mapping) else {}
     if decision_ref.endswith(":cast-spell"):
-        learned = {str(value) for value in magic.get("learned_spells") or []}
+        learned = {
+            coc_rules.canonical_spell_name(str(value))
+            for value in magic.get("learned_spells") or []
+        }
         if spell not in learned:
             raise ToolError(
                 "magic_spell_not_known",
@@ -8104,7 +8110,9 @@ def _canonical_magic_binding(
     # disagree: a tome that reads as learnable on the card resolves here.
     sources = _magic_learning_sources(ctx)
     spells = sources.get(source_ref)
-    if not isinstance(spells, list) or spell not in set(spells):
+    if not isinstance(spells, list) or spell not in {
+        coc_rules.canonical_spell_name(str(value)) for value in spells
+    }:
         raise ToolError(
             "magic_source_invalid",
             "the canonical learning source does not contain the selected spell",
