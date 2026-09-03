@@ -81,21 +81,35 @@ type Step = {
 
 ### 3.1 步骤
 
-| id | needs | run | done 判据 |
-|---|---|---|---|
-| `choose-source` | — | ask_player | 玩家给出 starter id 或 PDF/bundle 路径 |
-| `build-bundle` | choose-source | external | bundle 目录通过 `coc_pdf_bundle.load_host_bundle` |
-| `create-campaign` | choose-source | operation `setup.invoke/campaign.create`（starter 走 `setup.quick_start`） | `.coc/campaigns/<id>/campaign.json` 存在 |
-| `bind-source` | build-bundle, create-campaign | operation `setup.invoke/scenario.bind_pdf` | `campaign.json.scenario` 骨架已写 |
-| `source-review` | bind-source | subagent `coc-opening-source-coordinator` | `campaign.era_source == "authored"` 且 fast facts `status == "source"` |
-| `adopt-facts` | source-review | operation `setup.adopt_source_facts` | `campaign.source_fast_facts` 六项齐备 |
-| `briefing` | adopt-facts | operation `campaign.render_briefing` | `character_creation.briefing_path` 存在 |
-| `create-investigator` | briefing | ask_player + operation `setup.chargen_run` | `.coc/investigators/<id>` 存在 |
-| `link` | create-investigator | operation `setup.invoke/campaign.link_investigator` | `party.json` 含该 id |
-| `complete` | link | operation `setup.complete` | `status == ready_for_table` 且有 `setup_handoff` |
+已实现于 `plugins/coc-keeper/pi/extensions/onboarding/steps.ts`。下表是那张表
+的现状，不是它的另一份来源——**表变了就改这里，不要让两份并存**。
 
-`starter` 分支：`choose-source → create-campaign(quick_start) → briefing →
-create-investigator → link → complete`（跳过 build/bind/review/adopt）。
+| id | needs | action | done 判据（读磁盘） |
+|---|---|---|---|
+| `choose-source` | — | ask_player | 玩家给出 starter id 或 bundle 路径 |
+| `build-bundle` | choose-source | external `coc-pdf-pipeline` | bundle 目录存在于工作区 |
+| `create-campaign` | choose-source | operation（starter 走 `setup.quick_start`，否则 `campaign.create`） | `campaign.json` 存在 |
+| `bind-source` | build-bundle, create-campaign | operation `scenario.bind_pdf` | `scenario/scenario.json` 存在 |
+| `source-review` | bind-source | subagent `coc-opening-source-coordinator` + `setup.adopt_source_facts` | 六项 fast facts 全部 `source` 或 `unresolved` |
+| `briefing` | source-review | operation `campaign.render_briefing` | `character_creation.briefing_path` 存在 |
+| `create-investigator` | briefing | operation `setup.chargen_run` | `party.json` 含调查员 |
+| `complete` | create-investigator | operation `setup.complete` | `status == ready_for_table` 且有 `setup_handoff` |
+
+`starter` 分支跳过 build/bind/review 三行。
+
+写实现时相对本节初稿改掉的三处，每一处都是初稿里藏着的缺陷：
+
+- **复核与采纳合成一行。** 拆开时两行读同一个磁盘事实（`source_fast_facts`），
+  于是复核行永远不 `done`，而采纳工具永远不在面上——死锁。复核的产物在采纳之前
+  只活在子代理结果里，唯一的持久痕迹就是被采纳的事实集。
+- **`link` 行删掉。** `setup.chargen_run` 是 create + link + render_card 一把
+  锁做完，所以那一行在正常路径上永远不会成为当前步。
+- **`create-investigator` 调 `setup.chargen_run`。** 初稿写的
+  `coc_chargen_delegate` 是宿主扩展的 setup-role 工具，引导不加载宿主，够不着。
+
+另有一条 `readyForTable` 短路：交接回执压过所有上游回执。`setup.complete` 本身
+拒绝不完整的战役，所以它的回执就是上游全做过的证据——否则老路径建的战役会被要求
+回去补渲染一份简报，给一张已经在玩的桌子。
 
 ### 3.2 建卡步骤照方法文档做
 
