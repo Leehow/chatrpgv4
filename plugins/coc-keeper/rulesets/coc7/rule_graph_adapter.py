@@ -492,7 +492,21 @@ class Coc7RuleGraphAdapter:
                     "question": {"type": "string"},
                     "external_behavior": {"type": "string"},
                     "candidate_ref": {"type": "string"},
-                    "weapon_ref": {"type": "string"},
+                    "weapon_ref": {
+                        "type": "string",
+                        # The slot's only model-facing description used to be
+                        # the input-slot node's own name, "weapon ref", which
+                        # names nothing a Keeper could copy. The canonical id
+                        # appeared in exactly one place -- the text of a
+                        # REFUSED settle -- so the Keeper reached for the
+                        # display label instead and paid a turn for it.
+                        "desc": (
+                            "owned weapon id, copied verbatim from "
+                            "rules.context family=combat "
+                            "canonical_context.arsenal.weapons[].weapon_ref; "
+                            "a display name is not a weapon id"
+                        ),
+                    },
                     "weapon_effect_refs": {
                         "type": "array", "items": {"type": "string"},
                     },

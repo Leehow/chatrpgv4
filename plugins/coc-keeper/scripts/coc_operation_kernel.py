@@ -7847,9 +7847,18 @@ def _canonical_combat_binding(
         )
     weapon_ref = str(semantic_inputs.get("weapon_ref") or "").strip()
     if weapon_ref:
-        binding["weapon_id"] = (
-            weapon_ref[len("weapon:"):] if weapon_ref.startswith("weapon:") else weapon_ref
-        )
+        # Both namespaces the wire grammar publishes for this slot are
+        # stripped.  `coc_inventory.resolve_owned_weapon` matches on
+        # `item_id` as well as `weapon_id`, and the model-facing grammar for
+        # `weapon_ref` names `weapon:` and `item:` side by side -- but only
+        # `weapon:` was ever removed here, so `item:<owned item id>` reached
+        # the gateway with its prefix still attached and was refused as an
+        # unknown weapon for no reason the Keeper could see.
+        for namespace in ("weapon:", "item:"):
+            if weapon_ref.startswith(namespace):
+                weapon_ref = weapon_ref[len(namespace):]
+                break
+        binding["weapon_id"] = weapon_ref
     effects = semantic_inputs.get("weapon_effect_refs")
     if isinstance(effects, list):
         binding["weapon_effect_ids"] = [str(value) for value in effects]

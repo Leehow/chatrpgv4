@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:1639887975bffc3c9387eaf950262030f15a7b1fae9ae62943208f6f79478484",
+  "content_sha256": "sha256:ab41440f0ebd3d7fcb11600de07099bfa6883cca8bc4913eebd865957186b767",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -4753,6 +4753,7 @@
                 "type": "array"
               },
               "weapon_ref": {
+                "description": "owned weapon id, copied verbatim from rules.context family=combat canonical_context.arsenal.weapons[].weapon_ref; a display name is not a weapon id",
                 "type": "string"
               }
             },
@@ -6524,14 +6525,6 @@
           "decision_id": {
             "description": "optional semantic retry identity such as quick-start:the-haunting:attempt-1; retain it unchanged only when retrying the exact same request after an unavailable response. When omitted, canonical runtime owns the stable campaign-scoped semantic decision id",
             "pattern": "^quick-start:[A-Za-z0-9][A-Za-z0-9._:-]{0,130}:attempt-[1-9][0-9]{0,5}$",
-            "type": "string"
-          },
-          "play_register": {
-            "description": "the table's register: 'purist' for philosophical horror where uncovering the truth dooms the seeker, 'pulp' for desperate two-fisted action. Pass it only when the player states a preference; omit it otherwise, because the core rulebook supports the range between them and a guessed pole reads as authored intent",
-            "enum": [
-              "purist",
-              "pulp"
-            ],
             "type": "string"
           },
           "pregen_id": {
