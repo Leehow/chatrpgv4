@@ -80,20 +80,14 @@ export default function onboardingExtension(pi: ExtensionAPI, overrides: {
    * not, or a failing operation would retry itself forever.
    */
   let projectedStep: string | null = null;
-  /** Tools called since the current step became current. */
-  let calledThisStep = new Set<string>();
 
   /** Publish the surface and the instruction for wherever we now stand. */
   const project = (ctx: ExtensionContext): void => {
     const s = state(ctx);
     const step = currentStep(s);
     const advanced = (step?.id ?? null) !== projectedStep;
-    if (advanced) calledThisStep = new Set();
     projectedStep = step?.id ?? null;
-    // A declared first call is enforced, not merely stated: until it has been
-    // made, it is the only thing this step offers.
-    const pending = step?.firstTool !== undefined && !calledThisStep.has(step.firstTool);
-    const tools = pending ? [step!.firstTool!] : [...activeTools(s)];
+    const tools = [...activeTools(s)];
     try { pi.setActiveTools([...tools, "onboarding_choose_source"]); }
     catch { /* older hosts ignore the surface hint */ }
     audit({
@@ -210,23 +204,19 @@ export default function onboardingExtension(pi: ExtensionAPI, overrides: {
    * for the contract to live -- which is the defect this rewrite exists to
    * remove. What the model gets back is the envelope's own error, verbatim.
    */
-  const SURFACE: ReadonlyArray<{ tool: string; operation: string | null; hint: string }> = [
+  const SURFACE: ReadonlyArray<{ tool: string; operation: string; hint: string }> = [
     { tool: "coc_setup_inspect", operation: "setup.inspect",
       hint: "Inspect campaigns, investigators and built-in starters." },
     { tool: "coc_setup_invoke", operation: "setup.invoke",
       hint: "Run one setup operation kind with its exact payload." },
     { tool: "coc_setup_quick_start", operation: "setup.quick_start",
       hint: "Create a built-in starter campaign." },
-    { tool: "coc_setup_adopt_source_facts", operation: "setup.adopt_source_facts",
-      hint: "Adopt the six reviewed opening facts." },
     { tool: "coc_setup_investigator_contract", operation: "setup.investigator_contract",
       hint: "Read the ruleset's investigator construction contract." },
     { tool: "coc_setup_chargen_run", operation: "setup.chargen_run",
       hint: "Build, link and render one investigator in one call." },
     { tool: "coc_setup_complete", operation: "setup.complete",
       hint: "Hand the finished campaign off to the play session." },
-    { tool: "coc_capabilities", operation: null,
-      hint: "Read host capabilities, including subagent task text." },
   ];
 
   // Parameters come from the contract archive, the same file the canonical
@@ -253,16 +243,14 @@ export default function onboardingExtension(pi: ExtensionAPI, overrides: {
 
   const call = async (
     ctx: ExtensionContext,
-    row: { tool: string; operation: string | null },
+    row: { tool: string; operation: string },
     args: JsonObject,
     signal: AbortSignal | undefined,
   ): Promise<JsonObject> => {
-    const response = row.operation === null
-      ? await client(ctx).callTool("coc_capabilities", args, signal)
-      : await client(ctx).callTool("coc_invoke", {
-          operation: row.operation,
-          arguments: args,
-        }, signal);
+    const response = await client(ctx).callTool("coc_invoke", {
+      operation: row.operation,
+      arguments: args,
+    }, signal);
     const envelope = objectOrNull(response);
     if (envelope === null) {
       return { ok: false, tool: row.tool, error: { code: "no_envelope", message: "empty transport response" } };
@@ -274,10 +262,8 @@ export default function onboardingExtension(pi: ExtensionAPI, overrides: {
     pi.registerTool({
       name: row.tool,
       label: row.tool,
-      description: `${row.hint} Canonical operation \`${row.operation ?? row.tool}\`; the result envelope is authoritative.`,
-      parameters: row.operation === null
-        ? { type: "object", additionalProperties: false, properties: {} }
-        : toolSchema(row.operation),
+      description: `${row.hint} Canonical operation \`${row.operation}\`; the result envelope is authoritative.`,
+      parameters: toolSchema(row.operation),
       execute: async (
         _id: string,
         params: JsonObject,
@@ -306,31 +292,12 @@ export default function onboardingExtension(pi: ExtensionAPI, overrides: {
     const name = String(objectOrNull(event)?.toolName ?? "");
     if (name === "" || name === "onboarding_choose_source") return undefined;
     const s = state(ctx);
-    const step = currentStep(s);
-    if (
-      step?.firstTool !== undefined
-      && !calledThisStep.has(step.firstTool)
-      && name !== step.firstTool
-    ) {
-      audit({ status: "before_first_tool", attempted: name, step: step.id });
-      return {
-        block: true,
-        reason: (
-          `先调 ${step.firstTool}：这一步要用它返回的原文，`
-          + `不要凭指令改写。${step.say(s)}`
-        ),
-      };
-    }
     if (new Set(activeTools(s)).has(name)) return undefined;
     // Refusal text comes from the table, so it cannot drift from the surface.
     audit({ status: "off_step", attempted: name, step: currentStep(s)?.id ?? null });
     return { block: true, reason: refusal(s, name) };
   });
 
-  pi.on("tool_execution_end", (event: unknown, ctx: ExtensionContext) => {
-    const name = String(objectOrNull(event)?.toolName ?? "");
-    if (name !== "") calledThisStep.add(name);
-    project(ctx);
-  });
+  pi.on("tool_execution_end", (_event: unknown, ctx: ExtensionContext) => { project(ctx); });
 
 }

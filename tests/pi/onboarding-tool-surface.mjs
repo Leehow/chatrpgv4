@@ -40,16 +40,14 @@ onboarding({
   }),
 });
 
-assert.ok(registered.size >= 8, `expected the setup surface, got ${registered.size} tools`);
+assert.ok(registered.size >= 6, `expected the setup surface, got ${registered.size} tools`);
+// The retired source-review path must not come back through the surface.
+for (const gone of ["coc_setup_adopt_source_facts", "coc_capabilities"]) {
+  assert.ok(!registered.has(gone), `${gone} belongs to the retired opening review`);
+}
 
 for (const [name, tool] of registered) {
   const properties = Object.keys(tool.parameters?.properties ?? {});
-  // `coc_capabilities` genuinely takes nothing; every other tool stands for a
-  // canonical operation whose parameters the model has no other way to learn.
-  if (name === "coc_capabilities") {
-    assert.deepEqual(properties, [], "coc_capabilities takes no parameters");
-    continue;
-  }
   assert.ok(
     properties.length > 0,
     `${name} registers an empty schema; the model would have to guess its parameters`,
@@ -79,7 +77,7 @@ for (const field of ["campaign_id", "investigator_id", "name", "occupation_name"
 }
 
 // Every tool the table names is registered here, or comes from a named plugin.
-const external = new Set(["subagent", "subagent_status", "subagent_result", "await_subagent"]);
+const external = new Set();
 for (const step of STEPS) {
   for (const tool of step.tools) {
     assert.ok(

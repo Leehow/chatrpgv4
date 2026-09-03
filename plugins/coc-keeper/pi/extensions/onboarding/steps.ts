@@ -20,7 +20,6 @@ import type { OnboardingState } from "./state.ts";
 export type StepAction =
   | { kind: "ask_player" }
   | { kind: "operation"; tool: string; args: (state: OnboardingState) => Record<string, unknown> }
-  | { kind: "subagent"; agent: string }
   | { kind: "external"; producer: string };
 
 export type Step = {
@@ -40,21 +39,24 @@ export type Step = {
    * open -- the same shape as an instruction naming a tool it does not carry.
    */
   readonly guide?: string;
-  /**
-   * A tool that must be called before the rest of this step's surface opens.
-   *
-   * Stating a required first call without enforcing it is the same defect as
-   * an instruction naming a tool the surface lacks: on 2026-09-03 the Keeper
-   * was told to read `coc_capabilities` and copy the coordinator's task text
-   * verbatim, and instead paraphrased it from the instruction -- the canonical
-   * task never reached the subagent, and nothing said so.
-   */
-  readonly firstTool?: string;
   /** Steps skipped entirely on the built-in starter path. */
   readonly skipForStarter?: boolean;
 };
 
 const SETUP_INVOKE = "coc_setup_invoke";
+
+// There is no opening-fast-facts review step, deliberately.
+//
+// It read three pages of a twenty-page module in seven minutes and answered
+// six fields, while the book's actual structure -- ten scenes, three branches,
+// twelve NPCs, all of it already sitting in an `exact`-confidence outline --
+// went untouched. It exists because the graph did not, and the unification
+// spec's forward path (§4.2) has no place for it: the ModuleGraph is the only
+// semantic authority and the seven IR files are its deterministic projection.
+//
+// It was in this table because I copied the old opening machine's flow instead
+// of checking whether the step should survive the rewrite. Anything that reads
+// the source belongs in the graph compiler, not here.
 
 export const STEPS: readonly Step[] = [
   {
@@ -134,39 +136,8 @@ export const STEPS: readonly Step[] = [
     ),
   },
   {
-    id: "source-review",
-    needs: ["bind-source"],
-    skipForStarter: true,
-    action: { kind: "subagent", agent: "coc-opening-source-coordinator" },
-    firstTool: "coc_capabilities",
-    // Review and adoption are one step on purpose. The review's product lives
-    // only in the subagent result until it is adopted, so the sole durable
-    // trace of both is the adopted fact set. Split into two rows, the review
-    // row could never read as done and the adoption tool would never be on the
-    // surface -- a deadlock the table cannot express this way.
-    tools: [
-      "subagent",
-      "subagent_status",
-      "subagent_result",
-      "await_subagent",
-      "coc_capabilities",
-      "coc_setup_adopt_source_facts",
-    ],
-    done: (s) => s.factsAdopted,
-    say: () => (
-      "派一个 coc-opening-source-coordinator 子代理做视觉复核："
-      + "先调 coc_capabilities，把 "
-      + "`data.cold_start.opening_source_coordinator.task_static` 逐字复制，"
-      + "补上 task_variable_fields 里的每一项。"
-      + "拿到结果后用 setup.adopt_source_facts 采纳那六项开场事实——"
-      + "facts 必须是复核产出的原样，不是你自己写的；"
-      + "读不出来的问题填 unresolved 并附已查页码，这比编一个答案容易。"
-      + "没有任何桌面操作能推进这一步。"
-    ),
-  },
-  {
     id: "briefing",
-    needs: ["source-review"],
+    needs: ["bind-source"],
     action: {
       kind: "operation",
       tool: SETUP_INVOKE,

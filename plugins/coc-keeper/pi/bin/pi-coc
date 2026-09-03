@@ -543,21 +543,17 @@ build_pi_args() {
     # Isolation is the point: onboarding never loads the Keeper host, so it
     # cannot inherit a phase machine, a play tool surface, or a projection
     # registry that only makes sense at the table. `--no-extensions` turns
-    # discovery off, which also drops the subagent package -- and the source
-    # review step cannot run without it, so it is named explicitly and its
-    # absence is fatal rather than a session that can never finish a module.
+    # discovery off and the one extension it needs is named explicitly.
+    #
+    # It no longer loads the subagent package either. That was here for the
+    # opening-fast-facts review, which is retired: reading the source is the
+    # module graph's job, and onboarding dispatches nothing.
     ONBOARDING_EXTENSION=$REPO_ROOT/plugins/coc-keeper/pi/extensions/onboarding/index.ts
-    SUBAGENT_EXTENSION=$PI_CODING_AGENT_DIR/npm/node_modules/@arhen/pi-core-subagent/src/index.ts
     if [ ! -f "$ONBOARDING_EXTENSION" ]; then
       printf '%s\n' "pi-coc-setup: missing onboarding extension: $ONBOARDING_EXTENSION" >&2
       exit 1
     fi
-    if [ ! -f "$SUBAGENT_EXTENSION" ]; then
-      printf '%s\n' "pi-coc-setup: missing @arhen/pi-core-subagent at $SUBAGENT_EXTENSION" >&2
-      printf '%s\n' "pi-coc-setup: PDF module review dispatches a subagent; install it with 'pi install npm:@arhen/pi-core-subagent'" >&2
-      exit 1
-    fi
-    PI_ARGS+=(--no-extensions -e "$ONBOARDING_EXTENSION" -e "$SUBAGENT_EXTENSION")
+    PI_ARGS+=(--no-extensions -e "$ONBOARDING_EXTENSION")
   fi
   if ((${#SESSION_SKILL_ARGS[@]} > 0)); then
     PI_ARGS+=("${SESSION_SKILL_ARGS[@]}")

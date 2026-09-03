@@ -58,7 +58,7 @@ function readJson(path: string): Record<string, unknown> | null {
 const FACT_ENVELOPE_KEYS = new Set(["schema_version", "contract_id"]);
 
 /**
- * True when `setup.adopt_source_facts` has landed a complete answer set.
+ * True when a complete opening answer set is on disk.
  *
  * Every question must be answered `source` or `unresolved` -- "unresolved" is
  * an honest answer and is never harder to submit than a fabricated one. A

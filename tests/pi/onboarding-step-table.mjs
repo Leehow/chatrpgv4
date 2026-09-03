@@ -34,7 +34,6 @@ const starter = s({ isStarter: true, starterId: "the-haunting", source: "the-hau
 const starterIds = applicableSteps(starter).map((step) => step.id);
 assert.ok(!starterIds.includes("build-bundle"));
 assert.ok(!starterIds.includes("bind-source"));
-assert.ok(!starterIds.includes("source-review"));
 assert.equal(currentStep(starter).id, "create-campaign");
 
 // A PDF run must build a bundle before it may bind one.
@@ -42,16 +41,13 @@ const pdf = s({ source: "/w/.coc/module-library/m", sourceTitle: "M" });
 assert.equal(currentStep(pdf).id, "build-bundle");
 assert.deepEqual([...activeTools(pdf)], [], "nothing at the table advances an external producer");
 
-// Source review is reached only after a bind, and offers exactly the dispatch
-// tools -- the old path told the Keeper to spawn a coordinator while carrying
-// neither `subagent` nor `coc_capabilities`.
+// A PDF run reaches the briefing once the bundle is bound. Nothing between
+// bind and briefing reads the source: the module graph is the only thing
+// allowed to do that, and it is not a step in this table.
 const bound = s({
   source: "/w/b", bundlePath: "/w/b", campaignExists: true, scenarioBound: true,
 });
-assert.equal(currentStep(bound).id, "source-review");
-for (const tool of ["subagent", "coc_capabilities"]) {
-  assert.ok(activeTools(bound).includes(tool), `source review must carry ${tool}`);
-}
+assert.equal(currentStep(bound).id, "briefing");
 
 // Every step's own action tool is in its own tool list. A row that instructs a
 // call it does not permit is the exact defect this table exists to prevent.
@@ -66,8 +62,8 @@ for (const step of STEPS) {
 // A refusal names the current step and repeats its instruction, so the wording
 // cannot drift from the surface.
 const text = refusal(bound, "coc_turn_finalize");
-assert.ok(text.includes("source-review"), text);
-assert.ok(text.includes("coc_capabilities"), "the refusal carries the step's own instruction");
+assert.ok(text.includes("briefing"), text);
+assert.ok(text.includes(currentStep(bound).say(bound)), "the refusal carries the step's own instruction");
 
 // Finished onboarding offers nothing and says so.
 const finished = s({
@@ -78,14 +74,6 @@ const finished = s({
 assert.equal(currentStep(finished), null);
 assert.deepEqual([...activeTools(finished)], []);
 assert.ok(refusal(finished, "coc_setup_invoke").includes("已经完成"));
-
-// Review and adoption are one row. Split apart they read the same disk fact,
-// so the review row could never be done while the adoption tool was on the
-// surface -- onboarding would sit on source-review forever.
-assert.ok(
-  activeTools(bound).includes("coc_setup_adopt_source_facts"),
-  "the step that must adopt the reviewed facts has to permit the adopting tool",
-);
 
 // The handoff receipt outranks upstream ones: a campaign an older path built
 // carries no briefing receipt, and must still read as finished rather than
@@ -131,23 +119,16 @@ for (const step of STEPS) {
   );
 }
 
-// Source review must read the canonical coordinator task before dispatching,
-// and that requirement is enforced rather than merely stated: the Keeper was
-// told to copy `coc_capabilities`'s task text verbatim and instead paraphrased
-// it from the instruction, so the canonical task never reached the subagent.
-const review = STEPS.find((step) => step.id === "source-review");
-assert.equal(review.firstTool, "coc_capabilities");
-assert.ok(
-  review.tools.includes(review.firstTool),
-  "a required first call must be on its own step's surface",
-);
-// Any step declaring one must offer it, or the step cannot begin at all.
+// The opening-fast-facts review is deliberately absent: it read three pages of
+// a twenty-page module and answered six fields while the book's real structure
+// sat untouched in an exact-confidence outline. Reading the source belongs to
+// the module graph, and no step here may quietly grow that job back.
 for (const step of STEPS) {
-  if (step.firstTool === undefined) continue;
   assert.ok(
-    step.tools.includes(step.firstTool),
-    `${step.id} requires ${step.firstTool} first but does not permit it`,
+    !step.tools.some((tool) => /adopt_source_facts|subagent|capabilities/.test(tool)),
+    `${step.id} carries a source-review tool; that path is retired`,
   );
+  assert.ok(step.action.kind !== "subagent", `${step.id} dispatches a subagent`);
 }
 
 console.log(JSON.stringify({ ok: true, module: "onboarding-step-table" }));
