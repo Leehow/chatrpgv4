@@ -33,6 +33,13 @@ export type Step = {
   readonly done: (state: OnboardingState) => boolean;
   /** What the Keeper should do now, in the player's language. */
   readonly say: (state: OnboardingState) => string;
+  /**
+   * A method document this step must follow, repo-relative. The extension
+   * reads it and delivers its text with the instruction: the session has no
+   * `read` tool, so naming a path would point the Keeper at a file it cannot
+   * open -- the same shape as an instruction naming a tool it does not carry.
+   */
+  readonly guide?: string;
   /** Steps skipped entirely on the built-in starter path. */
   readonly skipForStarter?: boolean;
 };
@@ -171,8 +178,9 @@ export const STEPS: readonly Step[] = [
     // for the whole of character creation.
     tools: ["coc_setup_investigator_contract", "coc_setup_chargen_run"],
     done: (s) => s.investigatorLinked,
+    guide: "docs/methods/immersive-character-creation.md",
     say: () => (
-      "带玩家建调查员。行为完全照 docs/methods/immersive-character-creation.md："
+      "带玩家建调查员，完全照下面这份方法做。"
       + "第一个问题只问姓名与职业概念，全程不向玩家提问任何数值——"
       + "属性优先级由你从职业概念推出来，交给 setup.chargen_run 分配。"
       + "backstory.scenario_bound 必须指向这一本模组的开场，不是泛泛的克苏鲁味。"

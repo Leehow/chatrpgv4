@@ -16,7 +16,8 @@
  *    it can, and position is recomputed by reading the campaign directory. A
  *    resumed session therefore lands in the same place.
  */
-import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { McpJsonlClient } from "../../lib/runtime.ts";
 import {
@@ -111,9 +112,24 @@ export default function onboardingExtension(pi: ExtensionAPI, overrides: {
     // filler line to unblock work they were not asked for is the friction the
     // old path had in both directions.
     const selfDriven = step.action.kind !== "ask_player" && step.action.kind !== "external";
+    // A step that names a method document carries the document, not the path.
+    // The session has no `read` tool, so a path would point the Keeper at a
+    // file it cannot open -- the same defect as naming a tool it does not have.
+    let guide = "";
+    if (step.guide !== undefined) {
+      try {
+        guide = `\n\n${readFileSync(join(s.root, step.guide), "utf8").trim()}`;
+      } catch {
+        // A missing method document must not pass silently as a step with no
+        // method: say so, so the gap is visible instead of looking like
+        // freedom the step never had.
+        guide = `\n\n（方法文档 ${step.guide} 读不到；不要凭印象代替它，先把这一点告诉玩家。）`;
+        audit({ status: "guide_unavailable", step: step.id, guide: step.guide });
+      }
+    }
     pi.sendMessage({
       customType: "coc-onboarding-step",
-      content: `【引导 · ${step.id}】${step.say(s)}`,
+      content: `【引导 · ${step.id}】${step.say(s)}${guide}`,
       display: false,
     }, { triggerTurn: advanced && selfDriven });
   };

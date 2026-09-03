@@ -111,4 +111,24 @@ for (const step of STEPS) {
   }
 }
 
+// A step that has to follow a method must name a document that exists, because
+// the session has no `read` tool: the extension delivers the text, and a path
+// the Keeper cannot open is the same defect as an instruction naming a tool it
+// does not carry.
+const chargen = STEPS.find((step) => step.id === "create-investigator");
+assert.equal(
+  chargen.guide,
+  "docs/methods/immersive-character-creation.md",
+  "character creation follows a written method, not the model's recollection",
+);
+for (const step of STEPS) {
+  if (step.guide === undefined) continue;
+  const text = await readFile(path.join(root, step.guide), "utf8");
+  assert.ok(text.trim().length > 0, `${step.id} names an empty method document`);
+  assert.ok(
+    !/照\s*docs\//.test(step.say(base)),
+    `${step.id} must carry its method, not point at a path the session cannot open`,
+  );
+}
+
 console.log(JSON.stringify({ ok: true, module: "onboarding-step-table" }));
