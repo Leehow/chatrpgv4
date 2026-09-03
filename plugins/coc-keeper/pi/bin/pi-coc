@@ -509,6 +509,19 @@ build_pi_args() {
   if ((${#SESSION_SKILL_ARGS[@]} > 0)); then
     PI_ARGS+=("${SESSION_SKILL_ARGS[@]}")
   fi
+  # `subagent` is not a Pi builtin and this launcher runs --no-builtin-tools,
+  # so without loading it the tool simply does not exist -- and the opening
+  # source coordinator, the only thing that advances
+  # `opening_source_review_required`, cannot be dispatched at all. The
+  # repository owns the extension (see its PROVENANCE.md) rather than pointing
+  # at the copy inside node_modules, which npm ci deletes.
+  SUBAGENT_EXTENSION=$REPO_ROOT/plugins/coc-keeper/pi/extensions/subagent/index.ts
+  if [ -f "$SUBAGENT_EXTENSION" ]; then
+    PI_ARGS+=(--extension "$SUBAGENT_EXTENSION")
+  else
+    printf '%s\n' "pi-coc: missing bundled subagent extension: $SUBAGENT_EXTENSION" >&2
+    exit 1
+  fi
   PI_ARGS+=(--append-system-prompt "$HOST_SYSTEM_PROMPT")
   if [[ "$WANT_NEW" -eq 0 && "$USER_SESSION_OPT" -eq 0 ]]; then
     PI_ARGS+=(--session-id "$DEFAULT_SESSION_ID")
