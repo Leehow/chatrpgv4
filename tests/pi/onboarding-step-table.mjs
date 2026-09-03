@@ -1,0 +1,83 @@
+#!/usr/bin/env node
+// The step table is the single source of truth for onboarding sequencing.
+// These assertions pin the two properties the old path kept violating:
+// the tool surface and the refusal wording come from the same row, and a
+// step is complete only when its canonical receipt is on disk.
+import "./_lib/preload-embedded-pi.mjs";
+import assert from "node:assert/strict";
+import path from "node:path";
+import process from "node:process";
+import { pathToFileURL } from "node:url";
+
+const root = path.resolve(process.argv[2] || process.cwd());
+const dir = path.join(root, "plugins/coc-keeper/pi/extensions/onboarding");
+const { STEPS, applicableSteps, currentStep, activeTools, refusal } = await import(
+  pathToFileURL(path.join(dir, "steps.ts")).href
+);
+
+const base = {
+  root, campaignId: "probe", isStarter: false, starterId: null,
+  bundlePath: null, sourceTitle: null, scenarioId: null, playLanguage: "zh-Hans",
+  source: null, campaignExists: false, scenarioBound: false,
+  sourceFactsEstablished: false, factsAdopted: false, reviewedFacts: null,
+  briefingPath: null, investigatorId: null, investigatorLinked: false,
+  readyForTable: false,
+};
+const s = (over) => ({ ...base, ...over });
+
+// A fresh run starts by asking the player, and nothing else is legal yet.
+assert.equal(currentStep(s({})).id, "choose-source");
+assert.deepEqual([...activeTools(s({}))], ["coc_setup_inspect"]);
+
+// The starter path skips the whole source half rather than pretending to run it.
+const starter = s({ isStarter: true, starterId: "the-haunting", source: "the-haunting" });
+const starterIds = applicableSteps(starter).map((step) => step.id);
+assert.ok(!starterIds.includes("build-bundle"));
+assert.ok(!starterIds.includes("bind-source"));
+assert.ok(!starterIds.includes("source-review"));
+assert.ok(!starterIds.includes("adopt-facts"));
+assert.equal(currentStep(starter).id, "create-campaign");
+
+// A PDF run must build a bundle before it may bind one.
+const pdf = s({ source: "/w/.coc/module-library/m", sourceTitle: "M" });
+assert.equal(currentStep(pdf).id, "build-bundle");
+assert.deepEqual([...activeTools(pdf)], [], "nothing at the table advances an external producer");
+
+// Source review is reached only after a bind, and offers exactly the dispatch
+// tools -- the old path told the Keeper to spawn a coordinator while carrying
+// neither `subagent` nor `coc_capabilities`.
+const bound = s({
+  source: "/w/b", bundlePath: "/w/b", campaignExists: true, scenarioBound: true,
+});
+assert.equal(currentStep(bound).id, "source-review");
+for (const tool of ["subagent", "coc_capabilities"]) {
+  assert.ok(activeTools(bound).includes(tool), `source review must carry ${tool}`);
+}
+
+// Every step's own action tool is in its own tool list. A row that instructs a
+// call it does not permit is the exact defect this table exists to prevent.
+for (const step of STEPS) {
+  if (step.action.kind !== "operation") continue;
+  assert.ok(
+    step.tools.includes(step.action.tool),
+    `step ${step.id} performs ${step.action.tool} but does not allow it`,
+  );
+}
+
+// A refusal names the current step and repeats its instruction, so the wording
+// cannot drift from the surface.
+const text = refusal(bound, "coc_turn_finalize");
+assert.ok(text.includes("source-review"), text);
+assert.ok(text.includes("coc_capabilities"), "the refusal carries the step's own instruction");
+
+// Finished onboarding offers nothing and says so.
+const finished = s({
+  source: "x", bundlePath: "/w/b", campaignExists: true, scenarioBound: true,
+  sourceFactsEstablished: true, factsAdopted: true, briefingPath: "/w/b.md",
+  investigatorId: "inv-x", investigatorLinked: true, readyForTable: true,
+});
+assert.equal(currentStep(finished), null);
+assert.deepEqual([...activeTools(finished)], []);
+assert.ok(refusal(finished, "coc_setup_invoke").includes("已经完成"));
+
+console.log(JSON.stringify({ ok: true, module: "onboarding-step-table" }));
