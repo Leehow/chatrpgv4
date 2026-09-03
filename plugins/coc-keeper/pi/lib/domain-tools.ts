@@ -47,6 +47,16 @@ export function sessionRoleFromEnv(
 ): SessionRole | null {
   const raw = env[SESSION_ROLE_ENV];
   if (raw == null || raw === "") return null;
+  if (raw === "setup") {
+    // The setup role is retired. Onboarding is `pi-coc-setup`, a separate
+    // process with its own extension, and the play launcher refuses a campaign
+    // that is not ready rather than becoming a setup host. A stale `setup` in
+    // the environment must not resurrect the opening machine inside the table.
+    console.warn(
+      `[coc] ${SESSION_ROLE_ENV}=setup is retired; onboarding runs as pi-coc-setup`,
+    );
+    return null;
+  }
   if ((SESSION_ROLES as readonly string[]).includes(raw)) {
     return raw as SessionRole;
   }

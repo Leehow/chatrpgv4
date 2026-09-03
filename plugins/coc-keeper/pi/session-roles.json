@@ -1,19 +1,5 @@
 {
-  "_comment": "consumer=launcher+server-node. Single source for setup|play --skill whitelist and host prompt paths (relative to repo root); exact test-only profiles may narrow play context without changing the play role.",
-  "setup": {
-    "skills": [
-      "plugins/coc-keeper/skills/coc-main",
-      "plugins/coc-keeper/skills/coc-scenario-import",
-      "plugins/coc-keeper/skills/coc-module-graph-extract",
-      "plugins/coc-keeper/skills/trpg-pdf-ingest",
-      "plugins/coc-keeper/skills/coc-campaign-state",
-      "plugins/coc-keeper/skills/coc-steward-parse",
-      "plugins/coc-keeper/rulesets/coc7/skills/coc-character",
-      "plugins/coc-keeper/rulesets/coc7/skills/coc-rules-engine"
-    ],
-    "prompt": "plugins/coc-keeper/pi/prompts/host-system-setup.md",
-    "tools": ["coc_chargen_delegate", "coc_source_assets", "read"]
-  },
+  "_comment": "Play is the only session role. Onboarding is `pi-coc-setup`, a separate process with its own extension and prompt, so there is no setup half to resolve here; a play launch on an unfinished campaign refuses and names that command.",
   "play": {
     "skills": [
       "plugins/coc-keeper/skills/coc-main",
@@ -33,7 +19,10 @@
       "plugins/coc-keeper/rulesets/coc7/skills/coc-sanity"
     ],
     "prompt": "plugins/coc-keeper/pi/prompts/host-system-play.md",
-    "tools": ["coc_source_assets", "read"]
+    "tools": [
+      "coc_source_assets",
+      "read"
+    ]
   },
   "profiles": {
     "rules-director-single-draft": {

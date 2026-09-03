@@ -976,6 +976,7 @@ def _run_pi_coc(
     extra_env: dict[str, str] | None = None,
     uv_version: str | None = "0.11.16",
     minimal_path: bool = False,
+    ready_campaign: str | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], Path]:
     agent_dir, fake_bin = _pi_coc_test_home(
         tmp_path,
@@ -985,6 +986,26 @@ def _run_pi_coc(
         uv_version=uv_version,
     )
     args_path = tmp_path / "pi-args.txt"
+    # `pi-coc` refuses a campaign that is not ready and names `pi-coc-setup`,
+    # so a launcher test that passes `--campaign` has to stand one up first.
+    workspace_env: dict[str, str] = {}
+    if ready_campaign is not None:
+        # Honour a workspace the caller already chose: creating the campaign
+        # somewhere else would leave the launcher checking a directory the
+        # session never uses.
+        chosen = (extra_env or {}).get("COC_WORKSPACE")
+        workspace = Path(chosen) if chosen else tmp_path / "ready-workspace"
+        campaign_dir = workspace / ".coc" / "campaigns" / ready_campaign
+        campaign_dir.mkdir(parents=True, exist_ok=True)
+        (campaign_dir / "campaign.json").write_text(
+            json.dumps({
+                "schema_version": 1,
+                "campaign_id": ready_campaign,
+                "status": "ready_for_table",
+            }),
+            encoding="utf-8",
+        )
+        workspace_env["COC_WORKSPACE"] = str(workspace)
     path_tail = "/usr/bin:/bin" if minimal_path else os.environ["PATH"]
     env = {
         **os.environ,
@@ -999,6 +1020,7 @@ def _run_pi_coc(
         "PI_COC_TEST_OPENING_MODEL": str(
             tmp_path / "pi-coc-opening-model.txt"
         ),
+        **workspace_env,
         **(extra_env or {}),
     }
     wrapper_args = [str(PLUGIN / "pi" / "bin" / "pi-coc")]
@@ -1188,6 +1210,7 @@ def test_pi_coc_campaign_selector_is_distinct_from_pi_session(tmp_path: Path):
         settings=settings,
         models=models,
         args=["--campaign", "campaign-a"],
+        ready_campaign="campaign-a",
         new=False,
         extra_env={"PI_COC_SESSION_ID": "pi-window-a"},
     )
@@ -1207,6 +1230,7 @@ def test_pi_coc_new_transcript_can_resume_existing_campaign(tmp_path: Path):
         settings=settings,
         models=models,
         args=["--campaign", "campaign-new-transcript"],
+        ready_campaign="campaign-new-transcript",
         new=True,
         extra_env={"PI_COC_SESSION_ID": "unrelated-pi-window"},
     )
@@ -1302,6 +1326,7 @@ def test_pi_coc_accepts_direct_explicit_campaign_environment(tmp_path: Path):
         models=models,
         args=[],
         extra_env={"PI_COC_CAMPAIGN_ID": campaign_id},
+        ready_campaign=campaign_id,
     )
     assert completed.returncode == 0, completed.stderr
     assert (tmp_path / "campaign-id.txt").read_text(
@@ -1317,6 +1342,7 @@ def test_pi_coc_accepts_valid_punctuation_in_cli_campaign(tmp_path: Path):
         settings=settings,
         models=models,
         args=["--campaign", campaign_id],
+        ready_campaign=campaign_id,
     )
     assert completed.returncode == 0, completed.stderr
     assert "--campaign" not in args_path.read_text(
@@ -1613,6 +1639,7 @@ def test_pi_coc_launcher_respects_coc_workspace_and_rpc_mode(tmp_path: Path):
         settings=settings,
         models=models,
         args=["--mode", "rpc", "--campaign", "haunting-1"],
+            ready_campaign="haunting-1",
         extra_env={
             "COC_WORKSPACE": str(workspace),
             "PI_COC_TEST_CWD": str(cwd_path),
@@ -1829,6 +1856,20 @@ def test_pi_coc_rules_director_profile_assembles_focused_play_package(
         encoding="utf-8",
     )
     fake_pi.chmod(0o755)
+    # `pi-coc` opens a ready campaign or refuses by name, so the profile it
+    # assembles is only observable once one exists.
+    profile_campaign = (
+        worktree_root / ".coc" / "campaigns" / "profile-campaign"
+    )
+    profile_campaign.mkdir(parents=True, exist_ok=True)
+    (profile_campaign / "campaign.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "campaign_id": "profile-campaign",
+            "status": "ready_for_table",
+        }),
+        encoding="utf-8",
+    )
     completed = subprocess.run(
         [
             str(worktree_root / "plugins" / "coc-keeper" / "pi" / "bin" / "pi-coc"),

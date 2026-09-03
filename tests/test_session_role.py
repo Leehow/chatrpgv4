@@ -1,3 +1,11 @@
+"""Session-role inference.
+
+The `coc_session_role.py` CLI is gone: it existed so one launcher could decide
+between booting a setup host and a play host, and onboarding is now its own
+process (`pi-coc-setup`) while the play launcher refuses a campaign that is not
+ready. `coc_state.infer_pi_session_role` still has one runtime consumer, so its
+behaviour stays pinned here.
+"""
 from __future__ import annotations
 
 import json
@@ -10,21 +18,11 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO / "plugins" / "coc-keeper" / "scripts"
 LAUNCHER = REPO / "plugins" / "coc-keeper" / "pi" / "bin" / "pi-coc"
-CLI = SCRIPTS / "coc_session_role.py"
 
 sys.path.insert(0, str(SCRIPTS))
 import coc_starter  # noqa: E402
 import coc_state  # noqa: E402
 
-
-def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, str(CLI), *args],
-        cwd=str(REPO),
-        text=True,
-        capture_output=True,
-        check=False,
-    )
 
 
 def _set_status(root: Path, campaign_id: str, status: str) -> None:
@@ -79,9 +77,6 @@ def test_status_maps_to_role(tmp_path: Path, status: str, expected: str) -> None
     coc_state.create_campaign(tmp_path, campaign_id, "Role Fixture", era="1920s")
     _set_status(tmp_path, campaign_id, status)
     assert coc_state.infer_pi_session_role(tmp_path, campaign_id) == expected
-    result = _run_cli(str(tmp_path), campaign_id)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == expected
 
 
 def test_white_war_quick_start_without_pregen_stays_setup(tmp_path: Path) -> None:
@@ -94,9 +89,6 @@ def test_white_war_quick_start_without_pregen_stays_setup(tmp_path: Path) -> Non
     )
     assert result["needs_investigator"] is True
     assert coc_state.infer_pi_session_role(tmp_path, campaign_id) == "setup"
-    cli = _run_cli(str(tmp_path), campaign_id)
-    assert cli.returncode == 0, cli.stderr
-    assert cli.stdout.strip() == "setup"
 
 
 def test_active_with_confirmed_investigator_is_play(tmp_path: Path) -> None:
@@ -105,9 +97,6 @@ def test_active_with_confirmed_investigator_is_play(tmp_path: Path) -> None:
     _set_status(tmp_path, campaign_id, "active")
     _link_confirmed_investigator(tmp_path, campaign_id, "inv-ok")
     assert coc_state.infer_pi_session_role(tmp_path, campaign_id) == "play"
-    result = _run_cli(str(tmp_path), campaign_id)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "play"
 
 
 def test_active_with_empty_party_is_setup(tmp_path: Path) -> None:
@@ -118,9 +107,6 @@ def test_active_with_empty_party_is_setup(tmp_path: Path) -> None:
         tmp_path / ".coc" / "campaigns" / campaign_id, campaign_id
     )
     assert coc_state.infer_pi_session_role(tmp_path, campaign_id) == "setup"
-    result = _run_cli(str(tmp_path), campaign_id)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "setup"
 
 
 def test_active_with_placeholder_investigator_is_setup(tmp_path: Path) -> None:
@@ -160,26 +146,17 @@ def test_active_with_placeholder_investigator_is_setup(tmp_path: Path) -> None:
         campaign_dir, campaign_id
     )
     assert coc_state.infer_pi_session_role(tmp_path, campaign_id) == "setup"
-    result = _run_cli(str(tmp_path), campaign_id)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "setup"
 
 
 def test_missing_campaign_is_setup(tmp_path: Path) -> None:
     (tmp_path / ".coc").mkdir()
     assert coc_state.infer_pi_session_role(tmp_path, "brand-new") == "setup"
-    result = _run_cli(str(tmp_path), "brand-new")
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "setup"
 
 
 def test_missing_workspace_is_nonzero(tmp_path: Path) -> None:
     missing = tmp_path / "no-such-workspace"
     with pytest.raises(FileNotFoundError):
         coc_state.infer_pi_session_role(missing, "any-id")
-    result = _run_cli(str(missing), "any-id")
-    assert result.returncode != 0
-    assert result.stderr
 
 
 def test_launcher_bash_syntax() -> None:

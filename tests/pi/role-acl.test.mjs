@@ -28,19 +28,6 @@ function withRole(role, fn) {
     .finally(restore);
 }
 
-test("setup role rejects turn.finalize", async () => {
-  await withRole("setup", async () => {
-    const mod = await loadDomain();
-    const denied = mod.evaluateExecuteAcl({
-      toolName: "coc_turn",
-      operation: "turn.finalize",
-      phase: "pending_finalization",
-    });
-    assert.equal(denied.ok, false);
-    assert.equal(denied.code, "role_forbidden");
-  });
-});
-
 test("play role rejects setup.complete", async () => {
   await withRole("play", async () => {
     const mod = await loadDomain();
@@ -150,18 +137,6 @@ test("a settled ending cannot start another end_session", async () => {
   });
 });
 
-test("setup role allows chargen rules.roll_dice", async () => {
-  await withRole("setup", async () => {
-    const mod = await loadDomain();
-    const allowed = mod.evaluateExecuteAcl({
-      toolName: "coc_rules",
-      operation: "rules.roll_dice",
-      phase: "cold_start",
-    });
-    assert.equal(allowed.ok, true);
-  });
-});
-
 test("play role still allows rules.roll_dice", async () => {
   await withRole("play", async () => {
     const mod = await loadDomain();
@@ -171,27 +146,6 @@ test("play role still allows rules.roll_dice", async () => {
       phase: "live_turn",
     });
     assert.equal(allowed.ok, true);
-  });
-});
-
-test("setup role does not gain recovery closure rights", async () => {
-  await withRole("setup", async () => {
-    const mod = await loadDomain();
-    for (const operation of ["turn.output_context", "state.journal", "turn.finalize"]) {
-      const denied = mod.evaluateExecuteAcl({
-        toolName: "coc_turn",
-        operation,
-        phase: "recovery",
-      });
-      assert.equal(denied.ok, false, operation);
-      assert.equal(denied.code, "role_forbidden", operation);
-    }
-    const resume = mod.evaluateExecuteAcl({
-      toolName: "coc_setup",
-      operation: "session.resume",
-      phase: "recovery",
-    });
-    assert.equal(resume.ok, true);
   });
 });
 
@@ -267,52 +221,6 @@ test("play role allows rules.settle only after live_turn", async () => {
   });
 });
 
-test("setup role still rejects live-turn rules.settle", async () => {
-  await withRole("setup", async () => {
-    const mod = await loadDomain();
-    const denied = mod.evaluateExecuteAcl({
-      toolName: "coc_rules",
-      operation: "rules.settle",
-      phase: "live_turn",
-    });
-    assert.equal(denied.ok, false);
-    assert.equal(denied.code, "role_forbidden");
-  });
-});
-
-test("setup role startup union does not grant play-only execute rights", async () => {
-  await withRole("setup", async () => {
-    const mod = await loadDomain();
-    const tools = mod.activeToolsForStartupResumePending({
-      workspaceRoot: root,
-      campaignId: "setup-no-expansion",
-      fallbackPhase: "live_turn",
-      role: "setup",
-    });
-    assert.ok(tools.includes("coc_session_resume"));
-    assert.ok(tools.includes("coc_chargen_delegate"));
-    assert.ok(!tools.includes("coc_setup"));
-    assert.ok(!tools.includes("coc_npc"));
-    assert.ok(!tools.includes("coc_npc_reaction"));
-    assert.ok(!tools.includes("coc_subsystem"));
-    assert.equal(mod.evaluateExecuteAcl({
-      toolName: "coc_turn",
-      operation: "turn.finalize",
-      phase: "live_turn",
-    }).code, "role_forbidden");
-    assert.equal(mod.evaluateExecuteAcl({
-      toolName: "coc_rules",
-      operation: "rules.settle",
-      phase: "live_turn",
-    }).code, "role_forbidden");
-    assert.equal(mod.evaluateExecuteAcl({
-      toolName: "coc_turn",
-      operation: "state.journal",
-      phase: "live_turn",
-    }).code, "role_forbidden");
-  });
-});
-
 test("play role startup union keeps live tools and pending non-resume is forbidden", async () => {
   await withRole("play", async () => {
     const mod = await loadDomain();
@@ -348,26 +256,6 @@ test("play role startup union keeps live tools and pending non-resume is forbidd
   });
 });
 
-test("setup role rejects turn.finalize and combat settlement", async () => {
-  await withRole("setup", async () => {
-    const mod = await loadDomain();
-    const finalize = mod.evaluateExecuteAcl({
-      toolName: "coc_turn",
-      operation: "turn.finalize",
-      phase: "pending_finalization",
-    });
-    assert.equal(finalize.ok, false);
-    assert.equal(finalize.code, "role_forbidden");
-    const combat = mod.evaluateExecuteAcl({
-      toolName: "coc_rules",
-      operation: "rules.context",
-      phase: "live_turn",
-    });
-    assert.equal(combat.ok, false);
-    assert.equal(combat.code, "role_forbidden");
-  });
-});
-
 test("unset role env is legacy allow-all (phase still applies)", async () => {
   await withRole(undefined, async () => {
     const mod = await loadDomain();
@@ -388,6 +276,25 @@ test("unset role env is legacy allow-all (phase still applies)", async () => {
       phase: "live_turn",
     }).ok, true);
   });
+});
+
+test("a stale setup role in the environment is refused, not honoured", () => {
+  // Onboarding is `pi-coc-setup`, its own process. A `setup` left in the
+  // environment must not put the table back under the opening machine, so it
+  // is treated as legacy-unset and says so.
+  const probe = spawnSync(process.execPath, [
+    "--experimental-strip-types",
+    "-e",
+    [
+      "const m = await import(process.argv[1]);",
+      "console.log(JSON.stringify(m.sessionRoleFromEnv({ COC_PI_SESSION_ROLE: 'setup' })));",
+    ].join("\n"),
+    path.join(root, "plugins/coc-keeper/pi/lib/domain-tools.ts"),
+  ], { encoding: "utf8" });
+  assert.equal(probe.status, 0, probe.stderr);
+  assert.equal(probe.stdout.trim(), "null");
+  assert.match(probe.stderr, /COC_PI_SESSION_ROLE=setup is retired/);
+  assert.match(probe.stderr, /pi-coc-setup/);
 });
 
 test("invalid role env is treated as unset and warns", () => {
@@ -418,22 +325,7 @@ test("invalid role env is treated as unset and warns", () => {
   assert.match(result.stderr, /legacy/);
 });
 
-test("setup and unset role expose coc_chargen_delegate; play does not", async () => {
-  await withRole("setup", async () => {
-    const mod = await loadDomain();
-    assert.ok(
-      mod.activeToolsForPhase("recovery", "setup").includes("coc_chargen_delegate"),
-    );
-    assert.ok(
-      mod.activeToolsForPhase("opening", null).includes("coc_chargen_delegate"),
-    );
-    assert.ok(
-      !mod.activeToolsForPhase("live_turn", "play").includes("coc_chargen_delegate"),
-    );
-  });
-});
-
-test("restricted canonical skill-doc read stays active in setup and play", async () => {
+test("restricted canonical skill-doc read stays active for every role", async () => {
   await withRole("setup", async () => {
     const mod = await loadDomain();
     for (const phase of [

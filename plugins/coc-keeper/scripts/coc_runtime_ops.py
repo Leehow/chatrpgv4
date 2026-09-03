@@ -4667,10 +4667,27 @@ def _adopt_source_facts_locked(
         campaign = _read_object(campaign_path)
         era_answer = facts["era"]
         era_resolved = era_answer["status"] == "source"
-        era_key = (
-            coc_state.normalize_era(str(era_answer["value"]))
-            if era_resolved else ""
-        )
+        era_key = ""
+        if era_resolved:
+            # An era answer the runtime cannot resolve is not an adoption. It
+            # used to fall through `normalize_era`'s 1920s default: on
+            # 2026-09-03 a review read "公元80年（罗马历834年）……" off a Roman
+            # module, the value carried no four-digit year, and the campaign
+            # recorded 1920s while every fact beside it said otherwise. The
+            # Keeper's briefing was right and `campaign.era` -- which decides
+            # the clock and the occupations chargen offers -- was wrong, with
+            # nothing anywhere reporting the substitution.
+            resolved = coc_state.resolve_era_key(str(era_answer["value"]))
+            if resolved is None:
+                raise RuntimeOperationError(
+                    "era answer "
+                    f"{str(era_answer['value'])[:80]!r} does not resolve to a "
+                    "canonical era key. Answer with one of: "
+                    + ", ".join(sorted(coc_state.ERA_CLOCKS))
+                    + " (the prose belongs in player_safe_summary), or mark "
+                    "era unresolved with the pages you inspected."
+                )
+            era_key = resolved
         prior_era_source = coc_state.campaign_era_source(campaign)
         already = coc_state.campaign_era_is_established(campaign)
         if (

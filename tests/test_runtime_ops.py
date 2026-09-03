@@ -4524,6 +4524,39 @@ def test_adopt_source_facts_is_idempotent_and_refuses_conflicting_era(tmp_path):
         _adopt(tmp_path, "raw-pdf", _fast_facts(era=_answer("1920s")))
 
 
+def test_adopt_source_facts_refuses_an_era_answer_it_cannot_resolve(tmp_path):
+    """A prose era answer must fail loudly, never become the 1920s default.
+
+    On 2026-09-03 an opening review read "公元80年（罗马历834年）4月最后一周……"
+    straight off a Roman module and answered with it. The value carried no
+    four-digit year, `normalize_era` fell back to its 1920s default, and the
+    campaign recorded 1920s while every fact beside it described AD 80. The
+    Keeper's briefing to the player was right; `campaign.era` -- which picks
+    the clock and the occupations character creation offers -- was wrong, and
+    nothing anywhere reported the substitution.
+    """
+    _created_campaign(tmp_path, "prose-era")
+    _bind_fast_facts_source(tmp_path, "prose-era")
+    prose = "公元80年（罗马历834年）4月最后一周自伊布拉坎要塞启程"
+    with pytest.raises(
+        ops.RuntimeOperationError, match="does not resolve to a canonical era key"
+    ):
+        _adopt(tmp_path, "prose-era", _fast_facts(era=_answer(prose)))
+
+    campaign = json.loads(
+        (tmp_path / ".coc" / "campaigns" / "prose-era" / "campaign.json")
+        .read_text(encoding="utf-8")
+    )
+    assert campaign.get("era") != "1920s" or campaign["era_source"] != "authored", (
+        "a refused adoption must not leave a defaulted era behind"
+    )
+
+    # The canonical key for the same module is accepted.
+    assert _adopt(
+        tmp_path, "prose-era", _fast_facts(era=_answer("roman")),
+    )["result"]["era"] == "roman"
+
+
 def test_adopt_source_facts_projects_source_content_out_of_campaign_and_result(
     tmp_path,
 ):

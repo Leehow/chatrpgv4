@@ -345,6 +345,40 @@ def normalize_era(era: str | None, *, default: str = "1920s") -> str:
     return default if default in ERA_CLOCKS else "1920s"
 
 
+def resolve_era_key(era: str | None) -> str | None:
+    """Resolve one era answer to a canonical key, or None when it does not.
+
+    ``normalize_era`` answers a display question -- "what clock do I run?" --
+    and falls back to 1920s so callers always have one. That fallback is wrong
+    wherever the answer is a claim about the source: on 2026-09-03 an opening
+    review read "公元80年（罗马历834年）4月最后一周……" straight off a Roman
+    module, the value carried no four-digit year for the regex to find, and the
+    campaign was silently recorded as 1920s while every fact around it said
+    otherwise. The Keeper's briefing was right and the field the rest of the
+    host reads was wrong -- including the era chargen picks occupations from.
+
+    This variant makes that unrepresentable: an answer that does not resolve
+    is None, and the caller decides what to do about it out loud.
+    """
+    raw = str(era or "").strip()
+    if not raw:
+        return None
+    sentinel = "__unresolved__"
+    resolved = normalize_era(raw, default=sentinel)
+    return None if resolved in {sentinel, "1920s"} and _era_default_was_used(
+        raw, resolved,
+    ) else resolved
+
+
+def _era_default_was_used(raw: str, resolved: str) -> bool:
+    """True when ``resolved`` came from the fallback rather than from ``raw``."""
+    if resolved != "1920s":
+        return resolved == "__unresolved__"
+    # 1920s is a legitimate answer; distinguish it from the fallback by asking
+    # again with a different default and seeing whether the answer follows it.
+    return normalize_era(raw, default="modern") == "modern"
+
+
 def initial_clock_for_era(era: str = "1920s", start_clock: dict[str, Any] | None = None) -> dict[str, Any]:
     era_key = normalize_era(era)
     era_clock = ERA_CLOCKS[era_key]

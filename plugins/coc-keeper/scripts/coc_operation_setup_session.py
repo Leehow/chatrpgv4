@@ -670,7 +670,9 @@ def _opening_fast_fact_ref_schema() -> dict[str, Any]:
         },
     }
 
-def _opening_fast_fact_answer_schema(*, list_value: bool) -> dict[str, Any]:
+def _opening_fast_fact_answer_schema(
+    *, list_value: bool, value_description: str = "",
+) -> dict[str, Any]:
     value_schema: dict[str, Any] = (
         {
             "type": "array",
@@ -701,7 +703,10 @@ def _opening_fast_fact_answer_schema(*, list_value: bool) -> dict[str, Any]:
                 "type": "string",
                 "enum": ["source", "unresolved"],
             },
-            "value": value_schema,
+            "value": (
+                deepcopy(value_schema) | {"desc": value_description}
+                if value_description else value_schema
+            ),
             "source_refs": deepcopy(refs),
             "inspected_source_refs": deepcopy(refs),
         },
@@ -726,7 +731,23 @@ _OPENING_FAST_FACTS_TOOL_SCHEMA = {
             "type": "string",
             "enum": ["coc.opening-fast-facts.v1"],
         },
-        "era": _opening_fast_fact_answer_schema(list_value=False),
+        # The era answer selects a clock and the occupations character
+        # creation offers, so it must be one of the runtime's keys. Left as a
+        # free string it invited prose: a review answered "公元80年（罗马历
+        # 834年）……" off a Roman module, the runtime found no four-digit year,
+        # and the campaign silently recorded 1920s. Adoption now refuses an
+        # unresolvable answer; saying so here is how the reviewer avoids it.
+        "era": _opening_fast_fact_answer_schema(
+            list_value=False,
+            value_description=(
+                "one canonical era key the runtime accepts (1590s, 1890s, "
+                "1920s, 1930s, 1970s, early_modern, medieval, modern, "
+                "prehistoric, roman, ww1), or a form that resolves to one such "
+                "as '1597 Spain'. Narrative dating belongs in "
+                "player_safe_summary; an answer that resolves to none of these "
+                "is refused rather than defaulted."
+            ),
+        ),
         "place": _opening_fast_fact_answer_schema(list_value=False),
         "investigator_hook": _opening_fast_fact_answer_schema(list_value=False),
         "investigator_constraints": _opening_fast_fact_answer_schema(
