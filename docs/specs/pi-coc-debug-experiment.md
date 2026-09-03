@@ -57,9 +57,11 @@ turn, player input, journal row, or recovery tool scope. Ordinary
 
 Constraints:
 
-- 1–20 semantic lane ids; duplicates and opaque ids fail closed. Explicit
-  `concurrency` is 1–`min(20, lane count)`; when omitted it remains
-  `min(2, lane count)`.
+- 1–40 semantic lane ids; duplicates and opaque ids fail closed. Explicit
+  `concurrency` is 1–`min(40, lane count)`; when omitted it remains
+  `min(2, lane count)`. The ceiling tracks what the Keeper provider will
+  serve in parallel, not what this host can schedule: lanes are network-bound
+  and each one owns an isolated sandbox worktree.
 - Profiles are `production`, the narrow graph-only
   `rules-director-single-draft` profile, or `rules-all-single-draft`. The last
   profile keeps the full production play skills and working set while

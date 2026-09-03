@@ -331,7 +331,7 @@ def test_dispatch_rejects_unsafe_or_unknown_run_fields(
     assert exc.value.code == "debug_request_invalid"
 
 
-def test_dispatch_accepts_twenty_lanes_and_rejects_capacity_overflow(
+def test_dispatch_accepts_forty_lanes_and_rejects_capacity_overflow(
     tmp_path: Path,
 ) -> None:
     module = _module()
@@ -340,19 +340,19 @@ def test_dispatch_accepts_twenty_lanes_and_rejects_capacity_overflow(
         checkpoint=CheckpointAdapter(),
         executor=ExecutorAdapter(),
     )
-    lanes = _lane_specs(20)
+    lanes = _lane_specs(40)
     started = experiment.dispatch(
         "run " + json.dumps({
             "player_input": "我检查同一场景。",
             "lanes": lanes,
-            "concurrency": 20,
+            "concurrency": 40,
         }, ensure_ascii=False),
         _context(tmp_path),
     )
     assert started["lanes"] == [lane["id"] for lane in lanes]
     assert experiment.dispatch(
         "status current", _context(tmp_path),
-    )["spec"]["concurrency"] == 20
+    )["spec"]["concurrency"] == 40
 
     default_experiment = module.DebugExperiment(
         store=module.FileRunStore(tmp_path / "default"),
@@ -371,8 +371,8 @@ def test_dispatch_accepts_twenty_lanes_and_rejects_capacity_overflow(
     )["spec"]["concurrency"] == 2
 
     for label, lane_count, concurrency in (
-        ("twenty-one-lanes", 21, 20),
-        ("concurrency-twenty-one", 20, 21),
+        ("forty-one-lanes", 41, 40),
+        ("concurrency-forty-one", 40, 41),
         ("above-lane-count", 3, 4),
     ):
         rejected = module.DebugExperiment(
