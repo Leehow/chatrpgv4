@@ -859,7 +859,7 @@ def test_rpc_lane_enforces_resume_first_and_exact_final_delivery(tmp_path: Path)
     assert timed, result["events"]
     for row in timed:
         assert isinstance(row.get("at_ms"), int), row
-        assert row.get("lane_phase") in {"resume", "turn"}, row
+        assert row.get("lane_phase") in {"resume", "turn", "turn2"}, row
     assert [row["at_ms"] for row in timed] == sorted(row["at_ms"] for row in timed)
     # A replan abandons the rest of a batched tool run and costs a fresh model
     # round trip. Its audit entry existed and no lane could record it: the
@@ -1720,3 +1720,36 @@ def test_a_diagnostic_may_outrun_the_product_budget_and_must_say_so(tmp_path: Pa
         })
     assert excinfo.value.code == "debug_request_invalid"
 
+
+
+def test_a_lane_may_carry_a_second_turn_in_the_same_session():
+    """A lane is one pi session, and the play prompt tells the Keeper to load
+    every active skill's SKILL.md at session start. A one-turn lane therefore
+    charges a once-per-session cost to the only turn it measures: on
+    2026-09-02 that was 35-75K characters of skill documentation, read on
+    every measured turn, for skills the session had already loaded.
+
+    A second input in the same session is what a per-turn budget is about.
+    """
+    module = _module()
+    spec = module._normalize_run_spec({
+        "player_input": "我转身就跑。",
+        "lanes": [
+            {"id": "first-only"},
+            {"id": "two-turns", "second_player_input": "我继续往楼梯冲。"},
+        ],
+        "record": ["final", "tools"],
+    })
+    lanes = {lane["id"]: lane for lane in spec["lanes"]}
+    assert "second_player_input" not in lanes["first-only"]
+    assert lanes["two-turns"]["second_player_input"] == "我继续往楼梯冲。"
+
+
+def test_a_second_turn_input_must_not_be_empty():
+    module = _module()
+    with pytest.raises(module.DebugExperimentError):
+        module._normalize_run_spec({
+            "player_input": "我转身就跑。",
+            "lanes": [{"id": "blank-second", "second_player_input": "   "}],
+            "record": ["final"],
+        })

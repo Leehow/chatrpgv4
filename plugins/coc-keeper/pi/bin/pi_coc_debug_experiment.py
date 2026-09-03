@@ -499,7 +499,10 @@ def _normalize_run_spec(raw: Any) -> dict[str, Any]:
         lane = _strict_object(item, label=f"lanes[{index}]")
         _exact_keys(
             lane,
-            {"id", "profile", "player_input", "doctrine_overrides", "situation"},
+            {
+                "id", "profile", "player_input", "second_player_input",
+                "doctrine_overrides", "situation",
+            },
             label=f"lanes[{index}]",
         )
         semantic_id = _lane_id(lane.get("id"))
@@ -530,6 +533,18 @@ def _normalize_run_spec(raw: Any) -> dict[str, Any]:
             "id": semantic_id,
             "profile": profile,
             "player_input": lane_input,
+            # Optional. A lane is one pi session, and the play prompt tells the
+            # Keeper to load every active skill's SKILL.md at session start --
+            # so a one-turn lane charges a once-per-session cost to the only
+            # turn it measures. A second input in the SAME session is what a
+            # per-turn budget is actually about.
+            **(
+                {"second_player_input": _nonempty_text(
+                    lane["second_player_input"],
+                    label=f"lanes[{index}].second_player_input",
+                )}
+                if lane.get("second_player_input") is not None else {}
+            ),
             "doctrine_overrides": overrides,
             "situation": lane_situation,
         })
@@ -1954,6 +1969,25 @@ class PiRpcLaneAdapter:
                 ),
             })
             settled, failure = wait_terminal(phase="turn")
+            second_input = lane.get("second_player_input")
+            if (
+                settled and failure is None and finalized
+                and isinstance(second_input, str) and second_input
+            ):
+                # Same session, same skills already loaded, no situation
+                # seeding: the cost of an ordinary turn rather than a first
+                # one. `finalized` and the delivery text are reset so the
+                # lane's verdict describes the turn it ends on.
+                finalized = False
+                visible_text = ""
+                rendered_text = ""
+                first_operation = None
+                send({
+                    "type": "prompt",
+                    "id": f"turn2-{lane['id']}",
+                    "message": second_input,
+                })
+                settled, failure = wait_terminal(phase="turn2")
             if failure == "timeout":
                 status = "timed_out"
                 code = "turn_absolute_budget_exceeded"
