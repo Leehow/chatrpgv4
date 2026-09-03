@@ -909,7 +909,14 @@ def test_wire_never_leaks_frozen_draft_to_identity_only_surface():
 
 
 def _combat_settlement(*, rounds: int = 1, bulk: str = "战斗记录" * 3000) -> dict:
-    """A settlement in the exact nesting a graph combat settlement produces."""
+    """A settlement in the exact nesting a graph combat settlement produces.
+
+    The bulk rides in two places on purpose. The weapon catalog is what the
+    `rules.settle` combat projector strips, so it alone can no longer push an
+    envelope over budget; the per-event ``detail`` survives that projector
+    (events are kept whole), which is the shape that still reaches the
+    identity-only collapse these tests exercise.
+    """
     turns = []
     events = []
     for index in range(1, rounds + 1):
@@ -929,6 +936,7 @@ def _combat_settlement(*, rounds: int = 1, bulk: str = "战斗记录" * 3000) ->
         turns.append(turn)
         events.append({
             "event_type": "combat_turn_resolved",
+            "detail": bulk,
             "turn": turn,
             "roll_evidence": [
                 {
