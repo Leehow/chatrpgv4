@@ -2131,3 +2131,43 @@ def test_seeding_actually_applies_the_appointment(tmp_path: Path):
         (campaign / "scenario" / "npc-agendas.json").read_text(encoding="utf-8"),
     )
     assert written["npcs"][0]["magic_source_kind"] == "person"
+
+
+def test_a_seeded_spell_is_learned_from_the_teacher_the_lane_appointed():
+    """`magic.learn`'s `source` is the kind of teacher, and a lane that
+    appointed one has already said which kind.
+
+    Seeding it as `tome` regardless put the receipt at odds with the scene:
+    the r69 magic lanes appointed Steven Knott as a `person` and the seeded
+    learn still recorded a book. With no teacher appointed a tome remains the
+    right default -- that is how a lane seeds a spell read from a grimoire.
+    """
+    module = _module()
+
+    def source_for(situation):
+        spec = module._normalize_run_spec({
+            "player_input": "我学这个法术。",
+            "lanes": [{
+                "id": "s", "player_input": "我学这个法术。",
+                "situation": situation,
+            }],
+        })
+        ops = module._situation_operations(spec["lanes"][0], "c1")
+        row = next(r for r in ops if r["operation"] == "magic.learn")
+        return row["arguments"]["source"]
+
+    assert source_for({"spells": ["Contact Spells"]}) == "tome"
+    assert source_for({
+        "spells": ["Contact Spells"],
+        "spell_teachers": [{
+            "npc_id": "npc-steven-knott", "source_kind": "person",
+            "spells": ["Contact Spells"],
+        }],
+    }) == "person"
+    assert source_for({
+        "spells": ["Summon/Bind Dimensional Shambler"],
+        "spell_teachers": [{
+            "npc_id": "npc-walter-corbitt", "source_kind": "entity",
+            "spells": ["Summon/Bind Dimensional Shambler"],
+        }],
+    }) == "entity"

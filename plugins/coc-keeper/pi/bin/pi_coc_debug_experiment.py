@@ -663,6 +663,14 @@ def _situation_operations(lane: dict[str, Any], campaign_id: str) -> list[dict[s
                 "decision_id": f"debug-situation:{lane_id}:item-grant:{item_id}",
             },
         })
+    # A lane that appointed a teacher learns from that teacher: seeding a
+    # spell as read from a book while the situation says a person taught it
+    # puts the receipt at odds with the scene the Keeper is looking at.
+    taught_by = {
+        spell: row["source_kind"]
+        for row in situation.get("spell_teachers") or []
+        for spell in row["spells"]
+    }
     for spell in situation.get("spells") or []:
         operations.append({
             "operation": "magic.learn",
@@ -672,7 +680,7 @@ def _situation_operations(lane: dict[str, Any], campaign_id: str) -> list[dict[s
                 # `source` here is the kind of teacher, a closed set the
                 # operation enforces -- not a free-text note like the `reason`
                 # every other seeded write carries.
-                "source": "tome",
+                "source": taught_by.get(spell, "tome"),
                 "decision_id": f"debug-situation:{lane_id}:learn-spell:{spell}",
             },
         })
