@@ -4259,6 +4259,45 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     campaign: invocationCampaign,
     playerTurnEpoch: canonicalProgress.playerTurnEpoch,
   });
+  // Operations whose canonical result this turn exceeded the wire's inline
+  // budget and came back `wire.identity_only`, keyed by exact registry scope.
+  //
+  // This is the difference between "nothing was rolled" and "rolls happened
+  // and their identity did not survive the wire", and only the host can tell
+  // them apart. A combat settlement is 70-80KB against a 16KB inline budget,
+  // so `_minimal_identity` replaces its whole `data` -- and it preserves only
+  // a TOP-LEVEL `roll_id`, while a combat settlement's roll ids are nested
+  // under `settlement.result`. Every one is dropped, so this gateway observes
+  // no roll to register and the turn ends up with no handle for dice that are
+  // sitting in `logs/rolls.jsonl`. In the lane this diagnostic comes from, the
+  // roll the Keeper needed was a real Dodge FUMBLE (99) it had correctly
+  // identified; it simply had no handle to name it by, and the refusal said
+  // only "copy one verbatim from the current turn context".
+  const identityOnlyEvidenceDrops = new Map<string, Map<string, number>>();
+  const evidenceDropKey = (invocationCampaign: string): string => (
+    `${sessionEpoch}\u0000${invocationCampaign}`
+    + `\u0000${canonicalProgress.playerTurnEpoch}`
+  );
+  const recordIdentityOnlyCollapse = (
+    invocationCampaign: string,
+    operation: string,
+  ): void => {
+    if (!invocationCampaign || !operation) return;
+    const key = evidenceDropKey(invocationCampaign);
+    let byOperation = identityOnlyEvidenceDrops.get(key);
+    if (byOperation === undefined) {
+      byOperation = new Map();
+      identityOnlyEvidenceDrops.set(key, byOperation);
+      // Turn-scoped, like the roll handles it explains. Keep only the newest
+      // few scopes so a long campaign cannot grow this without bound.
+      while (identityOnlyEvidenceDrops.size > 8) {
+        const oldest = identityOnlyEvidenceDrops.keys().next();
+        if (oldest.done || oldest.value === key) break;
+        identityOnlyEvidenceDrops.delete(oldest.value);
+      }
+    }
+    byOperation.set(operation, (byOperation.get(operation) ?? 0) + 1);
+  };
   // Development settlements write public improvement/gain/luck/SAN-reward
   // rolls into the campaign's rolls.jsonl keyed by the settle operation id.
   // Their semantic handles normally come from observing the settle envelope,
@@ -4449,6 +4488,56 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           return null;
       }
     };
+    // The registry's live projection for THIS scope, per domain. A refusal
+    // that tells the Keeper to "copy one verbatim from the current turn
+    // context" is only actionable if the host says what IS in that context;
+    // without it a live lane burned its whole turn budget guessing roll
+    // handles and never delivered a turn.
+    const projectionFor = (
+      domain:
+        | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+        | "transcript",
+    ): ReadonlyMap<string, string> => {
+      const view = semanticRegistry.projectAll(scope);
+      switch (domain) {
+        case "roll": return view.rolls;
+        case "effect": return view.effects;
+        case "item": return view.items;
+        case "weapon": return view.weapons;
+        case "route": return view.routes;
+        case "affordance": return view.affordances;
+        default: return view.transcripts;
+      }
+    };
+    const liveHandles = (
+      domain:
+        | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+        | "transcript",
+      limit: number,
+    ): readonly string[] => {
+      const handles: string[] = [];
+      for (const handle of projectionFor(domain).values()) {
+        if (handles.length >= limit) break;
+        handles.push(handle);
+      }
+      return handles;
+    };
+    // Pasting a canonical id where a handle belongs is a DIFFERENT mistake
+    // from naming something that never existed, and only this one has a
+    // one-step remedy. Returns the live handle for that canonical id -- never
+    // the canonical id itself, so nothing host-bound is echoed back.
+    const handleForCanonical = (
+      domain:
+        | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+        | "transcript",
+      value: string,
+    ): string | null => {
+      if (typeof value !== "string" || !value) return null;
+      const prefix = `${domain}:`;
+      const bare = value.startsWith(prefix) ? value.slice(prefix.length) : value;
+      const projected = projectionFor(domain);
+      return projected.get(bare) ?? projected.get(value) ?? null;
+    };
     return {
       resolveRoll: (handle) => resolve("roll", handle),
       resolveEffect: (handle) => resolve("effect", handle),
@@ -4458,6 +4547,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       resolveAffordance: (handle) => resolve("affordance", handle),
       resolveTranscript: (handle) => resolve("transcript", handle),
       describeFailure: failureReason,
+      liveHandles,
+      handleForCanonical,
+      describeEvidenceGap: () => {
+        const byOperation = identityOnlyEvidenceDrops.get(
+          evidenceDropKey(invocationCampaign),
+        );
+        if (byOperation === undefined || byOperation.size === 0) return null;
+        let collapsed = 0;
+        for (const count of byOperation.values()) collapsed += count;
+        return { operations: [...byOperation.keys()].sort(), collapsed };
+      },
     };
   };
   const clearTurnEntityFacts = (): void => {
@@ -5287,6 +5387,15 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     {
       const currentCampaign = campaignId || canonicalProgressCampaignId;
       const scope = registryScope(currentCampaign);
+      // An over-budget canonical result reaches this observer already
+      // collapsed to `{projection_sha256, replay_operation}`. Nothing below
+      // can register a handle for evidence that is no longer in the envelope,
+      // so record that the gap has a CAUSE -- otherwise the eventual refusal
+      // reports "no handle was ever presented", which is true of the wire and
+      // false of the table.
+      if (objectOrNull(envelope?.wire)?.identity_only === true) {
+        recordIdentityOnlyCollapse(currentCampaign, operation);
+      }
       const registerRoll = (canonical: unknown, facts: readonly unknown[]): void => {
         if (typeof canonical !== "string" || !canonical.trim()) return;
         semanticRegistry.register({
@@ -11044,12 +11153,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             : null,
         );
         if (!restored.ok) {
+          // The refusal's actionable part (which domain, which handles are
+          // live) travels as structured `details`, not only in prose: the
+          // model-facing failure projection rewrites canonical ids out of
+          // error messages, so a handle named only in `message` does not
+          // reliably survive to the Keeper.
           return hostFailureResult({
             ok: false,
             tool: restoredOperation,
             error: {
               code: restored.code,
               message: restored.message,
+              ...(restored.details === undefined
+                ? {}
+                : { details: restored.details as JsonObject }),
               retryable: false,
             },
             warnings: [],
