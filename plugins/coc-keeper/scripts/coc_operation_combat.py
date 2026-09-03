@@ -544,14 +544,27 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
             and str(owned_row.get("damage") or "").strip()
         )
         if selected_weapon_id not in owned:
+            # Name what the investigator is carrying. The refusal used to name
+            # only the id that failed, while `owned` sat right here: a Keeper
+            # that wrote `weapon:38-revolver` from the sheet's display name
+            # ".38 Revolver" had no way to learn the canonical
+            # `revolver_38_or_9mm` short of a catalog search. Measured
+            # 2026-09-02 r56: two such refusals, then eight
+            # `nonretryable_repeat_blocked`, and the lane never fired a shot.
+            carrying = (
+                "carrying: " + ", ".join(sorted(owned)) if owned
+                else "the investigator carries no resolvable weapon"
+            )
             if selected_weapon_id in catalog:
                 raise ToolError(
                     "unowned_weapon",
-                    f"unowned_weapon: {selected_weapon_id!r} is catalog-valid but not in investigator inventory",
+                    f"unowned_weapon: {selected_weapon_id!r} is catalog-valid "
+                    f"but not in investigator inventory; {carrying}",
                 )
             raise ToolError(
                 "unknown_weapon",
-                f"unknown_weapon: {selected_weapon_id!r} is not a catalog, module, or owned custom weapon",
+                f"unknown_weapon: {selected_weapon_id!r} is not a catalog, "
+                f"module, or owned custom weapon; {carrying}",
             )
         if selected_weapon_id not in catalog and not complete_custom:
             raise ToolError(
