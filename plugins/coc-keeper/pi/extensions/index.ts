@@ -4625,6 +4625,62 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       });
     } catch { /* binding audit is best effort */ }
   };
+  /**
+   * Arm the host-owned identity for `evidence.table_opening`.
+   *
+   * `run_id` and `decision_id` are the host's to mint; the Keeper cannot know
+   * them and the retry circuit explicitly refuses to let it invent them. So
+   * any lane that puts this operation in front of the model must also arm this
+   * binding, or it hands the Keeper a call that cannot succeed and then blames
+   * it for the arguments it was never allowed to supply.
+   *
+   * Returns whether it armed, so callers can clear a stale binding instead.
+   */
+  const armTableOpeningBinding = (
+    campaignId: string,
+    params: JsonObject,
+    mode: string,
+    nextOperations: readonly string[],
+  ): boolean => {
+    if (
+      mode !== "table_opening"
+      || !nextOperations.includes("evidence.table_opening")
+      || !campaignId
+    ) {
+      // Say why. A binding that silently declines to arm turns into the model
+      // being asked for host-owned identity three tool calls later, with
+      // nothing in the record connecting the two.
+      try {
+        appendObservationAudit("coc-typed-tool-binding", {
+          schema_version: 1,
+          status: "not_armed",
+          operation: "evidence.table_opening",
+          mode,
+          next_operations: [...nextOperations],
+          campaign_id: campaignId,
+        });
+      } catch { /* binding audit is best effort */ }
+      return false;
+    }
+    const openingRoot = typeof params.root === "string" && params.root
+      ? params.root
+      : currentWorkspaceRoot;
+    const card = (): TypedToolBindingCard => ({
+      schema_version: 1,
+      operation: "evidence.table_opening",
+      binding_revision: `table-opening:${campaignId}:opening-1`,
+      root: openingRoot,
+      campaign: campaignId,
+      decision_id: `table-opening:${campaignId}:opening-1`,
+      run_id: `run-${campaignId}`,
+    });
+    armTypedBinding(card(), () => (
+      canonicalProgressCampaignId !== campaignId || !currentWorkspaceRoot
+        ? null
+        : card()
+    ));
+    return true;
+  };
   const currentBindingContext = (operation: string): {
     binding: TypedToolBindingCard;
     current_host_context: CurrentTypedToolHostContext;
@@ -6585,6 +6641,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           : nextOperations.find((candidate) => (
               OPERATION_POLICY[candidate] !== undefined
             )) ?? null;
+        // The recovery lane offers an operation; it must also supply what that
+        // operation needs from the host. Without this, a table opening that
+        // failed once became unrecoverable: the fault routed the model straight
+        // back to `evidence.table_opening` with no binding, so every retry
+        // asked the Keeper for a `run_id` the circuit forbade it to invent,
+        // and the Keeper could only tell the player to try again later.
+        if (!armTableOpeningBinding(
+          campaignId,
+          params,
+          typeof data.mode === "string" ? data.mode : "",
+          nextOperations,
+        )) {
+          clearTypedBinding("evidence.table_opening");
+        }
         applyKpActiveTools();
         return;
       }
@@ -6692,39 +6762,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           } catch { /* recovery binding audit is best effort */ }
         }
       }
-      if (
-        mode === "table_opening"
-        && nextOperations.includes("evidence.table_opening")
-        && campaignId
-      ) {
-        const openingRoot = typeof params.root === "string" && params.root
-          ? params.root
-          : currentWorkspaceRoot;
-        const binding: TypedToolBindingCard = {
-          schema_version: 1,
-          operation: "evidence.table_opening",
-          binding_revision: `table-opening:${campaignId}:opening-1`,
-          root: openingRoot,
-          campaign: campaignId,
-          decision_id: `table-opening:${campaignId}:opening-1`,
-          run_id: `run-${campaignId}`,
-        };
-        armTypedBinding(binding, () => {
-          if (
-            canonicalProgressCampaignId !== campaignId
-            || !currentWorkspaceRoot
-          ) return null;
-          return {
-            schema_version: 1,
-            operation: "evidence.table_opening",
-            binding_revision: `table-opening:${campaignId}:opening-1`,
-            root: openingRoot,
-            campaign: campaignId,
-            decision_id: `table-opening:${campaignId}:opening-1`,
-            run_id: `run-${campaignId}`,
-          };
-        });
-      } else {
+      if (!armTableOpeningBinding(campaignId, params, mode, nextOperations)) {
         clearTypedBinding("evidence.table_opening");
       }
       const resumedSceneContext = objectOrNull(data.scene_context);

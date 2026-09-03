@@ -1135,9 +1135,15 @@ def test_pi_coc_exports_pdf_inspector_router_default_from_home(
     assert (
         tmp_path / "pi-coc-pdf-model.txt"
     ).read_text(encoding="utf-8") == "xai/grok-4.6"
+    # The opening extractor runs on the session's own provider. It used to
+    # default to a DeepSeek text model, and "text-only" argues for a text
+    # model, not for a second provider: it dragged another credential into a
+    # chain that otherwise runs entirely on this one. On 2026-09-02 that
+    # credential was invalid and every opening source review died on a 401 for
+    # a provider nothing else in the run touches.
     assert (
         tmp_path / "pi-coc-opening-model.txt"
-    ).read_text(encoding="utf-8") == "deepseek/deepseek-v4-flash"
+    ).read_text(encoding="utf-8") == "xai/grok-4.6"
 
 
 def test_pi_coc_pdf_inspector_command_user_env_override_wins(tmp_path: Path):
@@ -5514,14 +5520,13 @@ def test_pdf_skill_adapter_opening_review_routes_router_materialization_not_pi_s
 
 def test_pdf_skill_adapter_opening_text_model_env_override(monkeypatch):
     adapter = _load_pdf_adapter("coc_pdf_adapter_opening_model_test")
-    # Opening extraction defaults to a text model, never the visual Grok pin.
-    # The default is the deepseek provider's shipped text model: pi's built-in
-    # deepseek catalog has no "deepseek-chat", and that id resolves to
-    # unauthenticated openrouter on this host (real-run: "No API key found
-    # for openrouter"), so deepseek/deepseek-v4-flash is the usable default.
+    # Opening extraction stays on the session's own provider. A second
+    # provider here bought nothing -- the extractor reads router-materialized
+    # Markdown, so any text-capable model serves -- and cost a whole night:
+    # the DeepSeek credential was invalid and every opening source review died
+    # after rendering its pages, on a 401 for a provider nothing else touches.
     monkeypatch.delenv("COC_PI_OPENING_MODEL", raising=False)
-    assert adapter._opening_text_model() == "deepseek/deepseek-v4-flash"
-    assert adapter._opening_text_model() != adapter.PI_MODEL
+    assert adapter._opening_text_model() == adapter.PI_MODEL
     # Env override replaces the default; Grok remains an explicit option.
     monkeypatch.setenv("COC_PI_OPENING_MODEL", "xai/grok-4.5")
     assert adapter._opening_text_model() == "xai/grok-4.5"
@@ -5577,7 +5582,7 @@ def test_pdf_skill_adapter_opening_extractor_parses_bare_json(
 
     def fake_session(args, *, timeout, cwd, shutdown=None, env=None):
         calls.append("session")
-        assert args[args.index("--model") + 1] == "deepseek/deepseek-v4-flash"
+        assert args[args.index("--model") + 1] == adapter.PI_MODEL
         assert args[args.index("--tools") + 1] == "read"
         assert env and env.get("PATH")
         return subprocess.CompletedProcess(
