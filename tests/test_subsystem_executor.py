@@ -1033,6 +1033,255 @@ def test_combat_commands_persist_defense_and_reload_hp_atomically(tmp_path):
     assert replay == resolved
 
 
+def test_self_resolving_attack_persists_the_rolls_its_receipt_names(tmp_path):
+    """A maneuver's own roll ids must reach the canonical roll log.
+
+    A `maneuver`/`aim`/`reload`/`flee` attack has no answering
+    `combat_defend`: the engine settles the exchange inside the declaration.
+    Its receipt therefore names roll ids nothing else will ever write.
+    Measured 2026-09-02 (debug-gate9-depth-10-r59, lane m2-maneuver): the
+    maneuver minted `...-restart-t21-r6:cr6`/`:cr7`, the rows never reached
+    `logs/rolls.jsonl`, and every later `state.journal` died with
+    `state_corrupt: tool receipts reference missing roll rows`. The turn was
+    never delivered and the player was told the table had crashed.
+    """
+    executor = _executor("coc_subsystem_executor_maneuver_roll_rows")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv_state = json.loads(state_path.read_text(encoding="utf-8"))
+    inv_state.update({"current_hp": 11, "conditions": []})
+    state_path.write_text(json.dumps(inv_state), encoding="utf-8")
+
+    start = _combat_start_command("maneuver-combat-start")
+    start["payload"]["participants"][0]["dex"] = 90
+    _execute(executor, campaign, character, [start], random.Random(1))
+
+    maneuver = _command(
+        "maneuver-attack", "combat_attack", phase="declare", payload={
+            "decision_id": "combat-decision", "revision": 1,
+            "actor_id": "inv1", "target_actor_id": "cultist",
+            "declared_intent": "shove the cultist off the stair",
+            "resolution_hint": "maneuver", "goal": "push",
+            "defense_kind": "dodge", "weapon_id": "unarmed",
+        },
+    )
+    resolved = _execute(
+        executor, campaign, character, [maneuver], random.Random(5)
+    )[0]
+
+    turn_resolved = resolved["events"][0]
+    assert turn_resolved["event_type"] == "combat_turn_resolved"
+    receipt_roll_ids = [
+        row["roll_id"] for row in turn_resolved["roll_evidence"]
+        if isinstance(row.get("roll_id"), str)
+    ]
+    assert receipt_roll_ids, "a maneuver resolves opposed rolls"
+
+    logged = [
+        json.loads(line)["roll_id"]
+        for line in (campaign / "logs" / "rolls.jsonl")
+        .read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+    missing = [roll_id for roll_id in receipt_roll_ids if roll_id not in logged]
+    assert not missing, (
+        "the receipt names roll rows the canonical log never got: "
+        f"{missing}; state.journal refuses the whole turn over exactly this"
+    )
+    # The rows are addressable the way the finalizer reads them, and the
+    # flattened per-roll events are what carried them there.
+    assert [
+        event["roll_id"] for event in resolved["events"]
+        if event.get("event_type") == "combat_roll"
+    ] == receipt_roll_ids
+    assert f"logs/rolls.jsonl#{maneuver['command_id']}" in resolved["state_refs"]
+
+    # The next command re-validates every persisted receipt against the
+    # canonical roll log. A maneuver whose rows never landed makes the whole
+    # executor unusable for the rest of the turn, not just that one command.
+    ended = _execute(
+        executor, campaign, character,
+        [_command("maneuver-end", "combat_end", phase="end", payload={
+            "decision_id": "combat-decision", "revision": 2,
+            "outcome": "stalemate",
+        })],
+        random.Random(11),
+    )[0]
+    assert ended["events"][0]["event_type"] == "combat_ended"
+
+
+def test_plain_attack_declaration_still_owes_no_roll_rows(tmp_path):
+    """The declaration half of an opposed attack must stay exempt.
+
+    Widening the roll-evidence contract to every `combat_attack` would demand
+    canonical rows from a command that consumes no randomness at all.
+    """
+    executor = _executor("coc_subsystem_executor_declaration_no_rolls")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv_state = json.loads(state_path.read_text(encoding="utf-8"))
+    inv_state.update({"current_hp": 11, "conditions": []})
+    state_path.write_text(json.dumps(inv_state), encoding="utf-8")
+
+    _execute(
+        executor, campaign, character,
+        [_combat_start_command("declaration-combat-start")], random.Random(1),
+    )
+    attack = _command(
+        "declaration-attack", "combat_attack", phase="declare", payload={
+            "decision_id": "combat-decision", "revision": 1,
+            "actor_id": "cultist", "target_actor_id": "inv1",
+            "declared_intent": "structured attack",
+            "resolution_hint": "opposed_melee", "weapon_id": "unarmed",
+        },
+    )
+    declared = _execute(
+        executor, campaign, character, [attack], random.Random(2)
+    )[0]
+    assert declared["events"][0]["event_type"] == "combat_defense_required"
+    assert not [
+        event for event in declared["events"]
+        if isinstance(event.get("roll_id"), str)
+    ]
+    assert (campaign / "logs" / "rolls.jsonl").read_text(encoding="utf-8") == ""
+    assert not [
+        ref for ref in declared["state_refs"] if ref.startswith("logs/rolls.jsonl")
+    ]
+
+
+def test_combat_not_ready_names_the_situation_and_the_next_step(tmp_path):
+    """One code answered two opposite situations with one wrong sentence.
+
+    `combat_not_ready` said "combat cannot accept an attack declaration" for a
+    `reload` as readily as for an attack, and said the same thing whether no
+    combat existed at all or an attack was already pending -- which want
+    opposite next steps. Measured 2026-09-02 (debug-gate9-depth-10-r61, lane
+    m2-maneuver): three such refusals, none of them about a declaration the
+    Keeper had made.
+    """
+    executor = _executor("coc_subsystem_executor_not_ready_message")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv_state = json.loads(state_path.read_text(encoding="utf-8"))
+    inv_state.update({"current_hp": 11, "conditions": []})
+    state_path.write_text(json.dumps(inv_state), encoding="utf-8")
+
+    reload_command = _command(
+        "reload-no-combat", "combat_attack", phase="declare", payload={
+            "decision_id": "combat-decision", "revision": 1,
+            "actor_id": "inv1", "declared_intent": "swing out the cylinder",
+            "resolution_hint": "reload", "weapon_id": "unarmed",
+        },
+    )
+    _execute(
+        executor, campaign, character,
+        [_combat_start_command("not-ready-start")], random.Random(1),
+    )
+    concluded = _command("not-ready-end", "combat_end", phase="end", payload={
+        "decision_id": "combat-decision", "revision": 1, "outcome": "stalemate",
+    })
+    _execute(executor, campaign, character, [concluded], random.Random(1))
+    with pytest.raises(executor.SubsystemExecutorError) as inactive:
+        _execute(
+            executor, campaign, character, [reload_command], random.Random(3)
+        )
+    assert inactive.value.code == "combat_not_ready"
+    assert "reload" in inactive.value.message
+    assert "no combat is active" in inactive.value.message
+    assert "combat.resolve" in inactive.value.message
+    assert "attack declaration" not in inactive.value.message
+
+    pending_campaign, pending_character = _campaign_and_character(
+        tmp_path / "pending"
+    )
+    pending_state = (
+        pending_campaign / "save" / "investigator-state" / "inv1.json"
+    )
+    pending_inv = json.loads(pending_state.read_text(encoding="utf-8"))
+    pending_inv.update({"current_hp": 11, "conditions": []})
+    pending_state.write_text(json.dumps(pending_inv), encoding="utf-8")
+    _execute(
+        executor, pending_campaign, pending_character,
+        [_combat_start_command("pending-start")], random.Random(1),
+    )
+    _execute(
+        executor, pending_campaign, pending_character,
+        [_command(
+            "pending-attack", "combat_attack", phase="declare", payload={
+                "decision_id": "combat-decision", "revision": 1,
+                "actor_id": "cultist", "target_actor_id": "inv1",
+                "declared_intent": "structured attack",
+                "resolution_hint": "opposed_melee", "weapon_id": "unarmed",
+            },
+        )],
+        random.Random(2),
+    )
+    with pytest.raises(executor.SubsystemExecutorError) as pending:
+        _execute(
+            executor, pending_campaign, pending_character,
+            [_command(
+                "pending-aim", "combat_attack", phase="declare", payload={
+                    "decision_id": "combat-decision", "revision": 2,
+                    "actor_id": "inv1", "declared_intent": "steady the sights",
+                    "resolution_hint": "aim", "weapon_id": "unarmed",
+                },
+            )],
+            random.Random(4),
+        )
+    assert pending.value.code == "combat_not_ready"
+    assert "aim" in pending.value.message
+    assert "already pending" in pending.value.message
+    assert "combat.defend" in pending.value.message
+    assert "inv1" in pending.value.message
+
+
+def test_maneuver_roll_rows_are_cross_checked_on_reload(tmp_path):
+    """The persisted maneuver receipt must be re-audited against the roll log.
+
+    This is the audit that would have caught the missing rows in the first
+    place: `combat_attack` was outside the roll-evidence contract, so nothing
+    ever compared a self-resolving attack's receipt with `logs/rolls.jsonl`.
+    Deleting one of its rows must now make the next command refuse.
+    """
+    executor = _executor("coc_subsystem_executor_maneuver_crosscheck")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv_state = json.loads(state_path.read_text(encoding="utf-8"))
+    inv_state.update({"current_hp": 11, "conditions": []})
+    state_path.write_text(json.dumps(inv_state), encoding="utf-8")
+
+    start = _combat_start_command("crosscheck-start")
+    start["payload"]["participants"][0]["dex"] = 90
+    _execute(executor, campaign, character, [start], random.Random(1))
+    _execute(
+        executor, campaign, character,
+        [_command(
+            "crosscheck-maneuver", "combat_attack", phase="declare", payload={
+                "decision_id": "combat-decision", "revision": 1,
+                "actor_id": "inv1", "target_actor_id": "cultist",
+                "declared_intent": "shove the cultist off the stair",
+                "resolution_hint": "maneuver", "goal": "push",
+                "defense_kind": "dodge", "weapon_id": "unarmed",
+            },
+        )],
+        random.Random(5),
+    )
+
+    rolls_path = campaign / "logs" / "rolls.jsonl"
+    rows = [
+        line for line in rolls_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(rows) >= 2
+    rolls_path.write_text("\n".join(rows[:-1]) + "\n", encoding="utf-8")
+
+    end = _command("crosscheck-end", "combat_end", phase="end", payload={
+        "decision_id": "combat-decision", "revision": 2, "outcome": "stalemate",
+    })
+    with pytest.raises(executor.SubsystemExecutorError) as exc:
+        _execute(executor, campaign, character, [end], random.Random(11))
+    assert "crosscheck-maneuver" in exc.value.message
+
+
 def test_combat_mp_preparation_and_attack_cost_mirror_and_replay(tmp_path):
     executor = _executor("coc_subsystem_executor_combat_mp_mirror")
     campaign, character = _campaign_and_character(tmp_path)

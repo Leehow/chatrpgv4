@@ -71,6 +71,14 @@ ROLL_EVIDENCE_COMMAND_KINDS = ROLL_COMMAND_KINDS | {
     "push_resolve", "combat_defend", "dying_tick", "stabilize",
     "weekly_recovery", "chase_hazard", "chase_barrier", "sanity_reward",
 }
+# An ordinary ``combat_attack`` only declares: it parks a pending attack and
+# the opposed rolls happen in the answering ``combat_defend``.  These four
+# resolution hints have no answering command -- the engine settles the whole
+# exchange inside the declaration -- so they are the one attack shape that
+# consumes randomness and owes canonical roll rows.
+SELF_RESOLVING_COMBAT_ATTACK_HINTS = frozenset({
+    "aim", "reload", "maneuver", "flee",
+})
 SAN_MUTATION_COMMAND_KINDS = frozenset({
     "sanity_check", "sanity_reward", "bout_tick", "bout_end",
 })
@@ -174,6 +182,17 @@ def _command_requires_roll_evidence(command: dict[str, Any]) -> bool:
             isinstance(item, dict) and isinstance(item.get("armor_dice"), str)
             for item in payload.get("preparations", []) or []
         )
+    if kind == "combat_attack":
+        # Measured 2026-09-02 (debug-gate9-depth-10-r59, lane m2-maneuver): a
+        # `maneuver` attack minted `...-restart-t21-r6:cr6`/`:cr7`, put them in
+        # its receipt, and this predicate answered False -- so the append loop
+        # skipped them and `logs/rolls.jsonl` never got the rows.  Every later
+        # `state.journal` then died with `state_corrupt: tool receipts
+        # reference missing roll rows`, and the turn could never be delivered.
+        payload = command.get("payload") if isinstance(command.get("payload"), dict) else {}
+        return str(
+            payload.get("resolution_hint") or ""
+        ) in SELF_RESOLVING_COMBAT_ATTACK_HINTS
     return False
 
 
@@ -192,6 +211,14 @@ def _result_requires_roll_evidence(
         return any(isinstance(event.get("roll_id"), str) for event in result.get("events", []))
     if result.get("kind") in ROLL_EVIDENCE_COMMAND_KINDS:
         return True
+    if result.get("kind") == "combat_attack":
+        # Classify from the receipt, not the hint: a declaration and an
+        # `aim`/`reload` that rolled nothing must stay exempt, while a
+        # `maneuver` that rolled owes exactly the rows it carries.
+        return any(
+            isinstance(event, dict) and isinstance(event.get("roll_id"), str)
+            for event in result.get("events") or []
+        )
     if isinstance(command, dict) and _command_requires_roll_evidence(command):
         return True
     return result.get("kind") == "combat_start" and any(
@@ -7509,6 +7536,7 @@ def _dispatch_combat(
     payload = command["payload"]
     command_id = command["command_id"]
     additional_events: list[dict[str, Any]] = []
+    roll_events: list[dict[str, Any]] = []
     combat_path = campaign_dir / "save" / "combat.json"
     authoritative_inv = _investigator_state(campaign_dir, investigator_id)
     canonical_mp_before = _required_current_mp(authoritative_inv)
@@ -7677,7 +7705,43 @@ def _dispatch_combat(
             campaign_dir, investigator_id, session
         )
         if session.status != "active" or session.pending_attack is not None:
-            raise _error("combat_not_ready", "save/combat.json", "combat cannot accept an attack declaration")
+            # One code answered two opposite situations with one sentence about
+            # an "attack declaration" -- even for `aim` or `reload`, and even
+            # when the block was a pending attack rather than a missing combat.
+            # A Keeper cannot act on that: "no combat" wants combat.resolve,
+            # "attack pending" wants combat.defend, and the two are not
+            # interchangeable.  Measured 2026-09-02 in
+            # debug-gate9-depth-10-r61: three `combat_not_ready` refusals in
+            # lane m2-maneuver, all naming an attack declaration the Keeper had
+            # not made, then `nonretryable_repeat_blocked`.
+            hint = str(payload.get("resolution_hint") or "")
+            action = (
+                hint if hint in SELF_RESOLVING_COMBAT_ATTACK_HINTS
+                else "attack declaration"
+            )
+            if session.status != "active":
+                detail = (
+                    f"no combat is active in this scene, so this {action} has "
+                    "nothing to act in; start combat with combat.resolve on an "
+                    "authored combat affordance"
+                )
+            else:
+                pending = session.pending_attack
+                pending_actor = (
+                    str(pending.get("actor_id") or "")
+                    if isinstance(pending, dict) else ""
+                )
+                pending_target = (
+                    str(pending.get("target_actor_id") or "")
+                    if isinstance(pending, dict) else ""
+                )
+                detail = (
+                    f"an attack by {pending_actor or 'an actor'} on "
+                    f"{pending_target or 'a target'} is already pending, so "
+                    f"this {action} cannot be declared until it is answered; "
+                    "resolve the pending attack with combat.defend first"
+                )
+            raise _error("combat_not_ready", "save/combat.json", detail)
         if payload["revision"] != session.revision:
             raise _error("stale_combat_revision", "commands[0].payload.revision", "combat revision is stale")
         actor_id = payload["actor_id"]
@@ -7715,7 +7779,7 @@ def _dispatch_combat(
         ):
             raise _error("combat_initiative_violation", "commands[0].payload.actor_id", "actor is not next in initiative")
         hint = payload["resolution_hint"]
-        if hint in {"aim", "reload", "maneuver", "flee"}:
+        if hint in SELF_RESOLVING_COMBAT_ATTACK_HINTS:
             try:
                 turn = session.declare_and_resolve_turn(
                     actor_id,
@@ -7750,6 +7814,9 @@ def _dispatch_combat(
                 "engine_events": _json_copy(engine_events),
                 "source_command_id": command_id,
             }
+            roll_events = _combat_roll_events(
+                session, rolls, command_id, investigator_id
+            )
         else:
             allowed = ["dive_for_cover", "none"] if hint == "firearm_attack" else ["dodge", "fight_back"]
             session.pending_attack = {
@@ -7969,58 +8036,9 @@ def _dispatch_combat(
                     "transfers": _json_copy(inventory_transfers),
                     "source_command_id": command_id,
                 })
-        damage_payloads = {
-            row["payload"]["roll_id"]: row["payload"]
-            for row in session.damage_evidence_rows(
-                command_actor_id=investigator_id
-            )
-            if row.get("command_id") == command_id
-        }
-        roll_events = []
-        for record in rolls:
-            if not isinstance(record, dict) or not isinstance(
-                record.get("roll_id"), str
-            ):
-                continue
-            roll_id = str(record["roll_id"])
-            if record.get("roll_role") == "amount":
-                damage_payload = damage_payloads.get(roll_id, {})
-                dice = damage_payload.get("dice", record.get("dice"))
-                rolled_total = damage_payload.get(
-                    "rolled_total", record.get("rolled_total")
-                )
-                amount_event = {
-                    "event_type": "combat_roll",
-                    "roll_id": roll_id,
-                    "roll_role": "amount",
-                    "actor_id": record.get("actor_id"),
-                    "skill": record.get("skill"),
-                    "goal": record.get("goal"),
-                    "target_actor_id": damage_payload.get(
-                        "target_actor_id", record.get("target_actor_id")
-                    ),
-                    "rolled_total": rolled_total,
-                    "dice": _json_copy(dice),
-                    "outcome": record.get("outcome"),
-                    "source_command_id": command_id,
-                }
-                receipt = damage_payload.get("combat_damage_receipt")
-                if isinstance(receipt, dict):
-                    amount_event["combat_damage_receipt"] = _json_copy(receipt)
-                roll_events.append(amount_event)
-                continue
-            physical_roll = record.get("original_roll", record.get("roll"))
-            roll_events.append({
-                "event_type": "combat_roll",
-                **_json_copy(record),
-                "source_command_id": command_id,
-                "raw_roll": physical_roll,
-                "dice": {
-                    "expression": "1D100",
-                    "raw": [physical_roll] if isinstance(physical_roll, int) else [],
-                    "total": physical_roll,
-                },
-            })
+        roll_events = _combat_roll_events(
+            session, rolls, command_id, investigator_id
+        )
     elif kind in {"dying_tick", "stabilize", "weekly_recovery"}:
         if kind == "stabilize":
             _persist_legacy_wound_ledger_if_needed(campaign_dir, investigator_id)
@@ -8237,7 +8255,7 @@ def _dispatch_combat(
     if kind not in {"dying_tick", "stabilize", "weekly_recovery"}:
         refs.insert(0, "save/combat.json")
     events = [event, *additional_events]
-    if kind == "combat_defend":
+    if kind in {"combat_attack", "combat_defend"}:
         events.extend(roll_events)
     elif kind in {"dying_tick", "stabilize", "weekly_recovery"}:
         if event.get("roll_evidence") is not None:
@@ -8247,9 +8265,13 @@ def _dispatch_combat(
             events.append(care_evidence)
         if healing_evidence is not None:
             events.append(healing_evidence)
-    if kind in {
-        "combat_defend", "dying_tick", "stabilize", "weekly_recovery"
-    } and len(events) > 1:
+    if (
+        kind in {"combat_defend", "dying_tick", "stabilize", "weekly_recovery"}
+        and len(events) > 1
+    ) or (kind == "combat_attack" and roll_events):
+        # A plain attack declaration and an aim/reload that rolled nothing keep
+        # their old refs; only an attack that actually resolved rolls claims
+        # the canonical roll log.
         refs.append(f"logs/rolls.jsonl#{command_id}")
     return {
         "command_id": command_id, "kind": kind, "status": "completed",
@@ -8839,6 +8861,75 @@ def _push_pending_context(
         "offer_command": _json_copy(command),
         "continuation_capsule": _json_copy(capsule),
     }
+
+
+def _combat_roll_events(
+    session: Any,
+    rolls: list[dict[str, Any]],
+    command_id: str,
+    investigator_id: str,
+) -> list[dict[str, Any]]:
+    """Flatten a resolved combat turn's rolls into per-roll canonical events.
+
+    ``_append_roll_event`` writes ``logs/rolls.jsonl`` from events that carry a
+    top-level ``roll_id``; the nested ``roll_evidence`` on
+    ``combat_turn_resolved`` is a projection, not a row.  Every command that
+    resolves a combat turn must produce these, or its receipt names roll ids
+    that the canonical log has never heard of.
+    """
+    damage_payloads = {
+        row["payload"]["roll_id"]: row["payload"]
+        for row in session.damage_evidence_rows(
+            command_actor_id=investigator_id
+        )
+        if row.get("command_id") == command_id
+    }
+    roll_events: list[dict[str, Any]] = []
+    for record in rolls:
+        if not isinstance(record, dict) or not isinstance(
+            record.get("roll_id"), str
+        ):
+            continue
+        roll_id = str(record["roll_id"])
+        if record.get("roll_role") == "amount":
+            damage_payload = damage_payloads.get(roll_id, {})
+            dice = damage_payload.get("dice", record.get("dice"))
+            rolled_total = damage_payload.get(
+                "rolled_total", record.get("rolled_total")
+            )
+            amount_event = {
+                "event_type": "combat_roll",
+                "roll_id": roll_id,
+                "roll_role": "amount",
+                "actor_id": record.get("actor_id"),
+                "skill": record.get("skill"),
+                "goal": record.get("goal"),
+                "target_actor_id": damage_payload.get(
+                    "target_actor_id", record.get("target_actor_id")
+                ),
+                "rolled_total": rolled_total,
+                "dice": _json_copy(dice),
+                "outcome": record.get("outcome"),
+                "source_command_id": command_id,
+            }
+            receipt = damage_payload.get("combat_damage_receipt")
+            if isinstance(receipt, dict):
+                amount_event["combat_damage_receipt"] = _json_copy(receipt)
+            roll_events.append(amount_event)
+            continue
+        physical_roll = record.get("original_roll", record.get("roll"))
+        roll_events.append({
+            "event_type": "combat_roll",
+            **_json_copy(record),
+            "source_command_id": command_id,
+            "raw_roll": physical_roll,
+            "dice": {
+                "expression": "1D100",
+                "raw": [physical_roll] if isinstance(physical_roll, int) else [],
+                "total": physical_roll,
+            },
+        })
+    return roll_events
 
 
 def _append_roll_event(
