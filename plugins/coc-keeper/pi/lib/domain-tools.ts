@@ -400,7 +400,10 @@ export function evaluateExecuteAcl(args: {
 }
 
 export function activeToolsForPhase(phase: PlayPhase, role?: SessionRole | null): string[] {
-  const core = ["subagent", "subagent_wait", "coc_source_assets"] as const;
+  const core = [
+    "subagent", "await_subagent", "subagent_status", "subagent_result",
+    "coc_source_assets",
+  ] as const;
   let tools: string[];
   if (phase === "pending_finalization") {
     tools = [...core, "coc_turn", "coc_context", "coc_state", "coc_advice"];

@@ -281,7 +281,7 @@ const pi = {
     return [
       ...tools.values(),
       { name: "subagent", parameters: { type: "object", properties: {} } },
-      { name: "subagent_wait", parameters: { type: "object", properties: {} } },
+      { name: "await_subagent", parameters: { type: "object", properties: {} } },
       { name: "read", parameters: { type: "object", properties: {} } },
     ];
   },
@@ -513,7 +513,7 @@ async function assertRoleNullResumeGateCase({
       return [
         ...caseTools.values(),
         { name: "subagent", parameters: { type: "object", properties: {} } },
-        { name: "subagent_wait", parameters: { type: "object", properties: {} } },
+        { name: "await_subagent", parameters: { type: "object", properties: {} } },
         { name: "read", parameters: { type: "object", properties: {} } },
       ];
     },

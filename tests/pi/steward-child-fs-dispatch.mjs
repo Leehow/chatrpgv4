@@ -28,7 +28,7 @@ const root = path.resolve(process.argv[2] || process.cwd());
 const PI = process.env.PI_SUBAGENT_PI_BINARY || "/Users/haoli/.npm-global/bin/pi";
 const AGENT_HOME = process.env.PI_SUBAGENT_CHILD_TEST_AGENT_DIR
   || path.join(root, ".pi", "coc-agent");
-const stewardsAllowlist = "read,grep,find,bash,subagent,subagent_wait";
+const stewardsAllowlist = "read,grep,find,bash,subagent,await_subagent";
 
 const work = mkdtempSync(path.join(tmpdir(), "steward-bind-fs-"));
 const campaignId = `steward-bind-${Date.now()}`;

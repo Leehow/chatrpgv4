@@ -28,7 +28,7 @@ const toolSchema = (name) => ({
 const resolvedHostTools = (role) => [...new Set([
   "coc_discover",
   "subagent",
-  "subagent_wait",
+  "await_subagent",
   ...roleToolsModule.extraToolsForSessionRole(role),
 ])].sort().map((name) => ({ name, parameters: toolSchema(name) }));
 

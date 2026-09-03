@@ -32,7 +32,7 @@ function resolvedHostTools(role, additional = []) {
   const names = new Set([
     "coc_discover",
     "subagent",
-    "subagent_wait",
+    "await_subagent",
     ...roleToolsModule.extraToolsForSessionRole(role),
     ...additional,
   ]);
@@ -536,7 +536,7 @@ test("rules-director single-draft profile keeps only focused acting operations",
     "coc_state_journal",
   ]);
   for (const forbidden of [
-    "coc_discover", "read", "subagent", "subagent_wait",
+    "coc_discover", "read", "subagent", "await_subagent",
     "coc_npc_query", "coc_rules_roll", "coc_source_assets",
   ]) {
     assert.ok(!projected.activeToolNames.includes(forbidden), forbidden);

@@ -67,7 +67,7 @@ schema；实体应带 `source_refs`，默认 `secrecy: keeper_only`。
 
 `pi-subagents` 的成功后台完成通知是 hidden `subagent-notify`
 （`display:false`，`triggerTurn:true`）。它只唤醒 KP 并带紧凑结果摘要；不会把模组
-全文注入主会话。若本回合必须收结果，再使用 `subagent_wait({ id })`；普通建卡/游玩
+全文注入主会话。若本回合必须收结果，再使用 `await_subagent({ id })`；普通建卡/游玩
 不得轮询或无故等待。
 
 本技能不会让玩家等待 NPC、rule 或 clue 解析。`scene` 仅落结构；新场景就绪等待、
@@ -81,5 +81,5 @@ KP → 管家 → chunk。chunk 只写
 等待、读取、去重、聚合后才调用 `steward.domain_put`。chunk 失败重试一次，仍失败则
 记录 `failed_chunks` 并以 `partial` 返回已有内容。
 
-若 `subagent` 或 `subagent_wait` 在该管家子进程不可用，管家不得伪造并行：串行读缓存
+若 `subagent` 或 `await_subagent` 在该管家子进程不可用，管家不得伪造并行：串行读缓存
 并聚合，或返回明确的 `partial`/失败 chunk 给 KP。

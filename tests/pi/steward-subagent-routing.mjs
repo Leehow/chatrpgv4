@@ -62,7 +62,7 @@ for (const handler of handlers.get("message_start") || []) {
 }
 const liveActiveTools = activeTools.at(-1);
 assert.ok(liveActiveTools.length > 0, "the first player message binds the live KP surface");
-for (const name of ["subagent", "subagent_wait", "read", "coc_source_assets"]) {
+for (const name of ["subagent", "await_subagent", "read", "coc_source_assets"]) {
   assert.ok(liveActiveTools.includes(name), `live KP surface keeps ${name} active`);
 }
 for (const wrapper of domain.DOMAIN_TOOL_NAMES) {

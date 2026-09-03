@@ -1,7 +1,7 @@
 ---
 name: steward-scene
-description: COC 模组场景、地点与衔接解析管家；后台生成并预取 keeper-only、source-bound SceneBundle。
-tools: read, grep, find, bash, subagent, subagent_wait
+description: steward-scene — COC 模组场景、地点与衔接解析管家；后台生成并预取 keeper-only、source-bound SceneBundle。
+tools: read, grep, find, bash, subagent, await_subagent
 model: grok-4.6
 thinking: medium
 systemPromptMode: replace

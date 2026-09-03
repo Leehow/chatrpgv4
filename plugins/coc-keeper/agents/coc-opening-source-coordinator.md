@@ -1,6 +1,6 @@
 ---
 name: coc-opening-source-coordinator
-description: Codex-only cold-start document/source coordinator. It owns the bounded opening PDF bundle, scenario binding, Tier 1 request, and same-context foreground source compile while the live Keeper handles character creation.
+description: coc-opening-source-coordinator — Codex-only cold-start document/source coordinator. It owns the bounded opening PDF bundle, scenario binding, Tier 1 request, and same-context foreground source compile while the live Keeper handles character creation.
 promptMode: full
 capabilityMode: all
 permissionMode: default

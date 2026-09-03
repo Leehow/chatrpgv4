@@ -436,7 +436,7 @@ def test_pi_coc_exposes_subagents_only_on_the_live_kp_surface():
     assert result["startupActiveTools"] == []
     live = result["activeTools"]
     assert "subagent" in live
-    assert "subagent_wait" in live
+    assert "await_subagent" in live
     # Path-restricted canonical skill-doc read (skill-doc-read.ts).
     assert "read" in live
     assert "coc_source_assets" in live

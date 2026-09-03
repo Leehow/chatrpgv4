@@ -7684,7 +7684,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         : [
             "coc_discover",
             "subagent",
-            "subagent_wait",
+            "await_subagent",
+            "subagent_status",
+            "subagent_result",
             // Cold-start capabilities are how a setup-role Keeper learns the
             // coordinator dispatch it is told to make: the opening source
             // review advances through no Keeper operation, only through that

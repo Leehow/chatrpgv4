@@ -1,6 +1,6 @@
 ---
 name: coc-source-coordinator
-description: Bounded source lifecycle coordinator contract. The Codex adapter uses a context-free collaboration subagent, nested source-pack leaves, and the canonical toolbox JSON-stdin gateway; unsupported hosts remain disabled.
+description: coc-source-coordinator — Bounded source lifecycle coordinator contract. The Codex adapter uses a context-free collaboration subagent, nested source-pack leaves, and the canonical toolbox JSON-stdin gateway; unsupported hosts remain disabled.
 promptMode: full
 capabilityMode: all
 permissionMode: default

@@ -32,7 +32,7 @@ test("phase activation keeps the restricted skill-doc read active and unrestrict
       assert.ok(!tools.includes("edit"), `${context} must keep unrestricted builtin edit out`);
       assert.ok(!tools.includes("write"), `${context} must keep unrestricted builtin write out`);
       assert.ok(tools.includes("subagent"), `${context} must keep subagent available`);
-      assert.ok(tools.includes("subagent_wait"), `${context} must keep subagent_wait available`);
+      assert.ok(tools.includes("await_subagent"), `${context} must keep await_subagent available`);
     }
   }
 });

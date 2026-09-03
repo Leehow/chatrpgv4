@@ -111,7 +111,9 @@ export const RESERVED_HOST_TOOL_NAMES = new Set<string>([
   "coc_chargen_delegate",
   "read",
   "subagent",
-  "subagent_wait",
+  "await_subagent",
+  "subagent_status",
+  "subagent_result",
 ]);
 
 export type TypedOperationTool = {

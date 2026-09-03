@@ -165,6 +165,13 @@ fi
 # primary-checkout path in a worktree's settings would make Pi load the wrong
 # extension before role/profile assembly. Preserve every other setting and
 # replace the file atomically in its own directory.
+#
+# Only FILESYSTEM-PATH packages are the launcher's business. Declarative
+# entries (`npm:`, `git:`, `https:`, `ssh:`) name a version, not a checkout,
+# so they cannot go stale this way -- and rewriting the whole array deleted
+# them on every launch. That silently uninstalled `npm:@arhen/pi-core-subagent`,
+# which provides the `subagent` tool the opening source coordinator is
+# dispatched with, one boot after it was installed.
 if [ -f "$PI_CODING_AGENT_DIR/settings.json" ]; then
   node -e '
     const fs = require("fs");
@@ -174,8 +181,14 @@ if [ -f "$PI_CODING_AGENT_DIR/settings.json" ]; then
     const repoRoot = process.argv[2];
     const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
     const packages = Array.isArray(settings.packages) ? settings.packages : [];
-    if (packages.length === 1 && packages[0] === repoRoot) process.exit(0);
-    settings.packages = [repoRoot];
+    const declarative = packages.filter(
+      (entry) => typeof entry === "string" && /^(npm|git|https|ssh):/.test(entry),
+    );
+    const next = [repoRoot, ...declarative];
+    const unchanged = packages.length === next.length
+      && packages.every((entry, index) => entry === next[index]);
+    if (unchanged) process.exit(0);
+    settings.packages = next;
     const tempPath = path.join(
       path.dirname(settingsPath),
       `.${path.basename(settingsPath)}.pi-coc-${process.pid}-${randomUUID()}.tmp`,
@@ -224,15 +237,14 @@ for steward_agent in "$STEWARD_AGENT_SOURCE"/steward-*.md; do
   fi
 done
 
-# The subagent extension resolves agents from the AGENT HOME (`getAgentDir()`
-# + /agents), not from the project `.pi/agents` surface above. The opening
-# source coordinator is the only way past `opening_source_review_required`,
-# and it was never mirrored anywhere: dispatching it failed with
-# `Unknown agent: "coc-opening-source-coordinator"` while the campaign sat at
-# that gate. Mirror the dispatchable coordinators into the home the extension
-# actually reads.
+# The opening source coordinator is the only way past
+# `opening_source_review_required`, and it was never mirrored anywhere:
+# dispatching it failed with `Unknown agent: "coc-opening-source-coordinator"`
+# while the campaign sat at that gate. `@arhen/pi-core-subagent` discovers
+# agents from the project `.pi/agents` surface, the same place the stewards
+# are mirrored to, so the coordinators go beside them.
 COORDINATOR_AGENT_SOURCE=$REPO_ROOT/plugins/coc-keeper/agents
-COORDINATOR_AGENT_RUNTIME=$PI_CODING_AGENT_DIR/agents
+COORDINATOR_AGENT_RUNTIME=$STEWARD_AGENT_RUNTIME
 if [ -d "$COORDINATOR_AGENT_SOURCE" ]; then
   mkdir -p "$COORDINATOR_AGENT_RUNTIME"
   for coordinator_agent in "$COORDINATOR_AGENT_SOURCE"/coc-*-coordinator.md; do
@@ -508,19 +520,6 @@ build_pi_args() {
   )
   if ((${#SESSION_SKILL_ARGS[@]} > 0)); then
     PI_ARGS+=("${SESSION_SKILL_ARGS[@]}")
-  fi
-  # `subagent` is not a Pi builtin and this launcher runs --no-builtin-tools,
-  # so without loading it the tool simply does not exist -- and the opening
-  # source coordinator, the only thing that advances
-  # `opening_source_review_required`, cannot be dispatched at all. The
-  # repository owns the extension (see its PROVENANCE.md) rather than pointing
-  # at the copy inside node_modules, which npm ci deletes.
-  SUBAGENT_EXTENSION=$REPO_ROOT/plugins/coc-keeper/pi/extensions/subagent/index.ts
-  if [ -f "$SUBAGENT_EXTENSION" ]; then
-    PI_ARGS+=(--extension "$SUBAGENT_EXTENSION")
-  else
-    printf '%s\n' "pi-coc: missing bundled subagent extension: $SUBAGENT_EXTENSION" >&2
-    exit 1
   fi
   PI_ARGS+=(--append-system-prompt "$HOST_SYSTEM_PROMPT")
   if [[ "$WANT_NEW" -eq 0 && "$USER_SESSION_OPT" -eq 0 ]]; then

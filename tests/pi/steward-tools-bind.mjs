@@ -119,7 +119,7 @@ try {
     assertNeverOnModelSurface(acting[label], label);
     assert.ok(acting[label].includes("read"), `${label} KP surface keeps the restricted canonical skill-doc read active`);
     assert.ok(acting[label].includes("subagent"), `${label} keeps subagent`);
-    assert.ok(acting[label].includes("subagent_wait"), `${label} keeps subagent_wait`);
+    assert.ok(acting[label].includes("await_subagent"), `${label} keeps await_subagent`);
     assert.ok(acting[label].includes("coc_source_assets"), `${label} keeps coc_source_assets`);
   }
 

@@ -1,7 +1,7 @@
 ---
 name: steward-rule
-description: COC 模组规则、预警、风格与线索/handout 解析管家；后台生成 keeper-only 索引。
-tools: read, grep, find, bash, subagent, subagent_wait
+description: steward-rule — COC 模组规则、预警、风格与线索/handout 解析管家；后台生成 keeper-only 索引。
+tools: read, grep, find, bash, subagent, await_subagent
 model: grok-4.6
 thinking: medium
 systemPromptMode: replace

@@ -1,7 +1,7 @@
 ---
 name: steward-npc
-description: COC 模组 NPC 双轨解析管家；后台生成 keeper-only NPC 索引与数值域快照。
-tools: read, grep, find, bash, subagent, subagent_wait
+description: steward-npc — COC 模组 NPC 双轨解析管家；后台生成 keeper-only NPC 索引与数值域快照。
+tools: read, grep, find, bash, subagent, await_subagent
 model: grok-4.6
 thinking: medium
 systemPromptMode: replace

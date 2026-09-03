@@ -29,7 +29,7 @@ deliver opening narration here.
   wrapper names are not callable in this role. Never attempt them after a
   `Tool not found` error: select the matching visible typed tool instead. Do
   not call `coc_invoke`, `coc_discover`, or `coc_capabilities` on the ordinary
-  live KP path. `subagent` and `subagent_wait` are available only to
+  live KP path. `subagent`, `await_subagent`, `subagent_status` and `subagent_result` are available only to
   dispatch/reap the bounded steward parser agents described by
   `coc-steward-parse`; do not use them for a second KP, player, source
   coordinator, or generic coding work. Pi privately auto-dispatches exact
