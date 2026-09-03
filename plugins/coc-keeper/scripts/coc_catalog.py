@@ -24,10 +24,30 @@ list of names, make that resolvable here:
 A parameter that no catalogue row matches is a content gap: the family is not
 offered as a candidate and the query is reported in
 ``unresolved_family_parameters`` instead of being papered over.
+
+A second namespace
+------------------
+A ruleset catalogue is not the only place an entity can be authored: a module
+writes its own spells, and one of them ("Dominate (Corbitt's variant)") is a
+real, page-referenced entry that no rulebook row names. Callers pass those
+records in ``module_spells``; this module keeps knowing nothing about modules,
+graphs, or workspaces, and only merges a second pool of already-shaped records
+into the same recall.
+
+Two rules hold the seam:
+
+* a merged record carries a ``module_authored`` block, which travels into its
+  candidate DTO. Its presence is the signal — an ordinary row's shape is
+  unchanged — so a Keeper can never mistake this module's spell for a rulebook
+  row it just discovered;
+* the ruleset catalogue wins a shared name. A module that names a rulebook
+  spell is annotating it, not redefining it, and letting an unpriced node
+  shadow a priced row would silently make a costed spell free.
 """
 from __future__ import annotations
 
 import re
+from copy import deepcopy
 from typing import Any
 
 import coc_rulesets
@@ -337,6 +357,131 @@ def _dto(
     return dto
 
 
+# ---------------------------------------------------------------------------
+# Module-authored records (a second namespace, merged not merged-into)
+# ---------------------------------------------------------------------------
+
+#: Record field a caller sets to declare that this record was authored by the
+#: campaign's module rather than by the ruleset catalogue. Presence is the
+#: signal, exactly as ``parameterisation`` is on a family candidate.
+MODULE_AUTHORED_FIELD = "module_authored"
+
+
+def _module_records(
+    module_spells: Any, load_kinds: list[str]
+) -> list[dict[str, Any]]:
+    """Handed-in records that declare a module and match a requested kind."""
+    if not isinstance(module_spells, list):
+        return []
+    wanted = set(load_kinds)
+    out: list[dict[str, Any]] = []
+    for record in module_spells:
+        if not isinstance(record, dict):
+            continue
+        if not isinstance(record.get(MODULE_AUTHORED_FIELD), dict):
+            continue
+        if str(record.get("kind") or "") not in wanted:
+            continue
+        out.append(record)
+    return out
+
+
+def _module_matches(query: str, record: dict[str, Any]) -> list[str]:
+    """Recall reasons for a module record: the same rules, plus its aliases.
+
+    A module node's ``aliases`` is the authoring slot that records "this
+    existing string names this existing node" — the shorthand a profile already
+    carries. Matching it is an accounting fact, never a guess at a name's
+    meaning, so an exact alias hit is reported as its own reason and never
+    conflated with the node's own name.
+    """
+    reasons = _matches(query, _record_tokens(record), record)
+    q_fold = query.strip().casefold()
+    for alias in record.get("aliases") or []:
+        if isinstance(alias, str) and alias.casefold() == q_fold:
+            reasons.insert(0, "exact_alias")
+            break
+    return reasons
+
+
+def _module_dto(record: dict[str, Any], reasons: list[str]) -> dict[str, Any]:
+    """An ordinary DTO plus the block that says whose spell this is."""
+    dto = _dto(record, reasons)
+    block = record.get(MODULE_AUTHORED_FIELD)
+    dto[MODULE_AUTHORED_FIELD] = deepcopy(block) if isinstance(block, dict) else {}
+    return dto
+
+
+def demoted_module_block(record: dict[str, Any]) -> dict[str, Any] | None:
+    """This module record's block, demoted to the annotation it is.
+
+    One implementation, so a candidate the search demotes and a resolution
+    that reports the losing node cannot describe the same node differently.
+    """
+    block = record.get(MODULE_AUTHORED_FIELD)
+    if not isinstance(block, dict):
+        return None
+    demoted = deepcopy(block)
+    demoted["authority"] = "module_annotation"
+    demoted["note"] = (
+        f"the module also authors {demoted.get('node_id')!r} under this "
+        "name. The ruleset catalogue row resolves and prices the entry; "
+        "this node is the module's annotation on it — read its properties "
+        "and source_refs, not its costs."
+    )
+    return demoted
+
+
+def module_record_named(
+    module_spells: Any, name: str
+) -> dict[str, Any] | None:
+    """The module record whose own ``name`` is ``name``, if any.
+
+    Name-only, matching ``_mark_shadowed``: an alias collision does not make a
+    module spell an annotation of a different catalogue row.
+    """
+    if not isinstance(module_spells, list):
+        return None
+    fold = name.strip().casefold()
+    for record in module_spells:
+        if not isinstance(record, dict):
+            continue
+        if not isinstance(record.get(MODULE_AUTHORED_FIELD), dict):
+            continue
+        if str(record.get("name") or "").casefold() == fold:
+            return record
+    return None
+
+
+def _mark_shadowed(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Demote a module candidate the ruleset catalogue also names.
+
+    Decided here, where the DTO is built, so every reader sees the same
+    authority. A module node claiming a name the catalogue already owns is
+    annotating that row — The Haunting's ``spell-flesh-ward`` says so outright
+    with ``runtime_rule_ref: "coc7 Flesh Ward"`` — and presenting it beside the
+    priced row as a separate, unpriced spell of the same name would be a
+    reading no one should have to correct.
+
+    Only a name collision demotes. A module spell that merely carries an alias
+    the catalogue happens to name is still its own spell.
+    """
+    catalog_names = {
+        str(row.get("name") or "").casefold()
+        for row in candidates
+        if not isinstance(row.get(MODULE_AUTHORED_FIELD), dict)
+    }
+    catalog_names.discard("")
+    for row in candidates:
+        block = row.get(MODULE_AUTHORED_FIELD)
+        if not isinstance(block, dict):
+            continue
+        if str(row.get("name") or "").casefold() not in catalog_names:
+            continue
+        row[MODULE_AUTHORED_FIELD] = demoted_module_block(row)
+    return candidates
+
+
 def _capability_names(index: Any) -> set[str]:
     if isinstance(index, dict):
         return {str(key) for key in index}
@@ -353,8 +498,15 @@ def search_catalog(
     limit: Any = None,
     ruleset_id: str | None = None,
     campaign: dict[str, Any] | None = None,
+    module_spells: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Recall structured catalog candidates. Never auto-selects a winner."""
+    """Recall structured catalog candidates. Never auto-selects a winner.
+
+    ``module_spells`` are already-shaped records the campaign's own module
+    authored (see ``coc_module_spells``). They are recalled beside the
+    ruleset's rows under the same rules and marked by their ``module_authored``
+    block; this module never loads them itself.
+    """
     if not isinstance(query, str) or not query.strip():
         return _error("invalid_catalog_query", detail="query must be a non-empty string")
     query = query.strip()
@@ -465,8 +617,18 @@ def search_catalog(
             _dto(record, reasons, _parameterisation(hit)),
         ))
 
+    # The module's own namespace, recalled by the same rules on the same query.
+    # These records are handed in; nothing here reads a graph or a workspace.
+    for record in _module_records(module_spells, load_kinds):
+        if not _era_ok(record, era_value):
+            continue
+        reasons = _module_matches(query, record)
+        if not reasons:
+            continue
+        scored.append((_rank(record, reasons), _module_dto(record, reasons)))
+
     scored.sort(key=lambda item: item[0])
-    candidates = [item[1] for item in scored[:bound]]
+    candidates = _mark_shadowed([item[1] for item in scored[:bound]])
     # A family's own name ("Contact Deity Spells") also reads as a shorter
     # family's stem over the parameter "Spells"; that is not a content gap, so
     # a query the catalogue named outright reports none.
@@ -510,18 +672,29 @@ def resolve_name(
     name: Any,
     ruleset_id: str | None = None,
     campaign: dict[str, Any] | None = None,
+    module_spells: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
-    """Resolve one authored ``kind`` name, following parameterised families.
+    """Resolve one authored ``kind`` name across both namespaces.
 
-    Returns ``None`` when the name is neither a catalogue row nor a family bound
-    to a catalogue parameter. On success:
+    Returns ``None`` when the name is neither a catalogue row, nor a family
+    bound to a catalogue parameter, nor a module-authored entry. On success:
 
-    ``{"canonical_name", "record", "parameterisation" | None}``
+    ``{"canonical_name", "record", "parameterisation" | None,
+       "module_authored" | None}``
 
     ``canonical_name`` is what callers must persist and compare on: for a plain
-    row it is the row's own name, and for a parameterised family it is the
-    family stem over the parameter's catalogue name — the family name alone
-    would lose which entity the name was bound to.
+    row it is the row's own name, for a parameterised family it is the family
+    stem over the parameter's catalogue name — the family name alone would lose
+    which entity the name was bound to — and for a module entry reached through
+    one of its aliases it is the node's own ``name``, so the shorthand a profile
+    carries and the node it refers to settle as one thing.
+
+    Precedence: the ruleset catalogue wins a shared name. A module node naming
+    a rulebook spell is annotating it — The Haunting's ``spell-flesh-ward``
+    literally points at ``coc7 Flesh Ward`` — and a module node carries no
+    guaranteed costs, so letting it shadow the priced row would turn a costed
+    spell free. ``module_authored`` on the result names the losing node so the
+    annotation stays reachable rather than being silently dropped.
     """
     if not isinstance(kind, str) or not kind.strip():
         return None
@@ -532,11 +705,22 @@ def resolve_name(
     result = search_catalog(
         query=name, kinds=[kind], limit=MAX_LIMIT,
         ruleset_id=ruleset_id, campaign=campaign,
+        module_spells=module_spells,
     )
     if not result.get("ok"):
         return None
     fold = name.casefold()
+    module_hit: dict[str, Any] | None = None
     for candidate in result["candidates"]:
+        block = candidate.get(MODULE_AUTHORED_FIELD)
+        if isinstance(block, dict):
+            if (
+                module_hit is None
+                and block.get("authority") == "module_authored_spell"
+                and _module_names_it(candidate, fold)
+            ):
+                module_hit = candidate
+            continue
         parameterisation = candidate.get("parameterisation")
         if parameterisation is not None:
             if str(parameterisation.get("requested_name") or "").casefold() == fold:
@@ -544,6 +728,7 @@ def resolve_name(
                     "canonical_name": str(parameterisation["canonical_name"]),
                     "record": candidate,
                     "parameterisation": parameterisation,
+                    "module_authored": None,
                 }
             continue
         if str(candidate.get("name") or "").casefold() == fold:
@@ -551,5 +736,41 @@ def resolve_name(
                 "canonical_name": str(candidate.get("name")),
                 "record": candidate,
                 "parameterisation": None,
+                # The catalogue row won; a module node of the same name rides
+                # along as an annotation so its pages and properties survive.
+                "module_authored": _annotation(result["candidates"], fold),
             }
+    if module_hit is not None:
+        return {
+            "canonical_name": str(module_hit.get("name")),
+            "record": module_hit,
+            "parameterisation": None,
+            "module_authored": deepcopy(module_hit[MODULE_AUTHORED_FIELD]),
+        }
+    return None
+
+
+def _module_names_it(candidate: dict[str, Any], fold: str) -> bool:
+    """Whether this module candidate is named — or aliased — by the query."""
+    if str(candidate.get("name") or "").casefold() == fold:
+        return True
+    return any(
+        isinstance(alias, str) and alias.casefold() == fold
+        for alias in candidate.get("aliases") or []
+    )
+
+
+def _annotation(candidates: list[dict[str, Any]], fold: str) -> dict[str, Any] | None:
+    """The module node the winning catalogue row shares its name with, if any.
+
+    Name-only: an alias collision does not make a module spell an annotation
+    of a different catalogue row, and ``_mark_shadowed`` already recorded the
+    demotion on the block itself.
+    """
+    for candidate in candidates:
+        block = candidate.get(MODULE_AUTHORED_FIELD)
+        if not isinstance(block, dict):
+            continue
+        if str(candidate.get("name") or "").casefold() == fold:
+            return deepcopy(block)
     return None

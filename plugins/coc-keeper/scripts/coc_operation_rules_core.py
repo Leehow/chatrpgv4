@@ -541,6 +541,11 @@ def _tool_rules_skill_describe(ctx: Ctx, args: dict[str, Any]):
         )
     return data, [], hints
 
+#: How many module-authored candidates get a hint of their own before the
+#: result is summarized instead. The transport keeps six hints in total.
+_MODULE_HINT_LIMIT = 3
+
+
 def _tool_rules_catalog_search(ctx: Ctx, args: dict[str, Any]):
     campaign = None
     if ctx.campaign_dir is not None:
@@ -551,6 +556,12 @@ def _tool_rules_catalog_search(ctx: Ctx, args: dict[str, Any]):
         era=args.get("era"),
         limit=args.get("limit"),
         campaign=campaign,
+        # The campaign's module authors its own spells. Refusing to recall them
+        # would leave an authored, page-referenced spell unusable; they are
+        # recalled here and every one the module did not mark player-safe
+        # arrives as secret:true, under the same no-print rule every rulebook
+        # spell row already carries on this keeper-only surface.
+        module_spells=ctx.module_spells() if ctx.campaign_dir is not None else None,
     )
     if not result.get("ok"):
         err = result.get("error") if isinstance(result.get("error"), dict) else {}
@@ -576,6 +587,42 @@ def _tool_rules_catalog_search(ctx: Ctx, args: dict[str, Any]):
             "to one entity, not a separate entry: pass its "
             "parameterisation.canonical_name to magic.learn / magic.cast, never "
             "the bare family name."
+        )
+    # Bounded: a broad query can recall many module rows, and the transport
+    # keeps only the first few hints -- unbounded, these would push out the
+    # advisory and no-print rules that apply to every candidate.
+    module_rows = [
+        row for row in data.get("candidates") or []
+        if isinstance(row, dict) and isinstance(row.get("module_authored"), dict)
+    ]
+    if len(module_rows) > _MODULE_HINT_LIMIT:
+        hints.append(
+            f"{len(module_rows)} candidates are authored by this campaign's "
+            "module rather than by the rulebook; each carries a "
+            "module_authored block naming its node, visibility and costs."
+        )
+    for row in module_rows[:_MODULE_HINT_LIMIT]:
+        block = row["module_authored"]
+        if block.get("authority") == "module_annotation":
+            hints.append(
+                f"{row.get('name')!r} is a rulebook row that this module also "
+                f"annotates as {block.get('node_id')}: the rulebook row prices "
+                "it; read the node's properties and source_refs for what the "
+                "module adds, never its costs."
+            )
+            continue
+        costs = block.get("costs") if isinstance(block.get("costs"), dict) else {}
+        unpriced = (
+            "" if costs.get("authored") else
+            " It is unpriced -- the module authored no "
+            + " or ".join(str(field) for field in costs.get("missing") or [])
+            + ", so magic.cast refuses it; unpriced is not free. It can still "
+            "be learned and taught."
+        )
+        hints.append(
+            f"{row.get('name')!r} is authored by this module as "
+            f"{block.get('node_id')} (visibility={block.get('visibility')}), "
+            f"not a rulebook row.{unpriced}"
         )
     for gap in data.get("unresolved_family_parameters") or []:
         if not isinstance(gap, dict):
