@@ -32,7 +32,7 @@ const project = (code, details = {}) => projectPiToolFailure({
 const stray = project("unknown_semantic_input", {
   failure: {
     code: "unknown_semantic_input",
-    message: "semantic input 'source_ref' is not a declared slot",
+    message: "not declared slots of this decision: 'source_ref'; this decision takes candidate_ref (optional: luck_spend_max)",
     declared_slots: ["approach", "goal", "target_ref"],
   },
 });

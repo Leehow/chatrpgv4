@@ -1088,7 +1088,15 @@ def test_real_toolbox_social_rejects_core_only_stakes_slot(campaign_ws):
     })
     assert settled["ok"] is False, settled
     assert settled["error"]["code"] == "unknown_semantic_input"
-    assert "'stakes' is not a declared slot" in settled["error"]["message"]
+    # Every offending key AND what the decision takes, in one refusal. The
+    # one-key-no-slots form this used to assert is what a Keeper cannot act
+    # on; see tests/test_undeclared_slot_refusal.py.
+    failure = settled["error"]["details"]["failure"]
+    assert failure["unknown"] == ["stakes"]
+    assert failure["input_origin"] == "model"
+    assert "'stakes'" in settled["error"]["message"]
+    assert "stakes" not in failure["model_owned_slots"]
+    assert "described_action" in failure["required_semantic_slots"]
 
 
 def test_real_toolbox_core_ordinary_check_still_requires_stakes(campaign_ws):
