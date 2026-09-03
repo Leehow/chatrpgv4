@@ -3599,9 +3599,13 @@ def load_combat_state(path: Path) -> dict[str, Any]:
     resolved = Path(path)
     if not resolved.is_file():
         raise CombatNotStartedError(
-            "no combat is underway (no canonical combat snapshot): read "
-            "combat.context to confirm, and begin the exchange with "
-            "combat.resolve — a combat decision cannot be settled before one "
-            "has started"
+            "no combat is underway (no canonical combat snapshot): settle "
+            "decision:coc7:combat:attack against a present target to begin "
+            "one -- it starts the exchange and declares the first action in "
+            "the same settlement. A combat decision cannot be settled before "
+            "one has started, and aim/reload/maneuver/flee/defend/end all "
+            "require an exchange already in progress. (combat.context and "
+            "combat.resolve are host-only operations; a Keeper cannot call "
+            "either one.)"
         )
     return json.loads(resolved.read_text(encoding="utf-8"))

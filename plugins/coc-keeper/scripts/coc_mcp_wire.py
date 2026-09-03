@@ -3154,6 +3154,12 @@ def _project_combat_context(data: Any) -> Any:
         }
     else:
         projected["combat"] = None
+    # Whose turn it is and what may be settled next. Bounded by construction
+    # (one row per combatant), and the whole reason the block exists.
+    if data.get("turn") is not None:
+        projected["turn"] = deepcopy(data.get("turn"))
+    if data.get("arsenal") is not None:
+        projected["arsenal"] = deepcopy(data.get("arsenal"))
     return projected
 
 
@@ -3187,6 +3193,38 @@ def _project_combat_resolve(data: Any) -> Any:
         ),
         "player_state_receipt": deepcopy(data.get("player_state_receipt")),
     }
+
+
+def _is_combat_settlement(data: Any) -> bool:
+    """A `rules.settle` payload whose settlement is a combat.resolve result.
+
+    Keyed on the family the settlement itself declares, not on the shape of
+    what came back: a shape sniff would start matching some other family's
+    result the day it grows a `combat` key.
+    """
+    return (
+        isinstance(data, dict)
+        and str(data.get("family") or "") == "combat"
+        and isinstance(data.get("settlement"), dict)
+        and isinstance(data["settlement"].get("result"), dict)
+    )
+
+
+def _project_combat_family_settlement(data: Any) -> Any:
+    """Bound the embedded combat result; leave the settle envelope intact.
+
+    Only `settlement.result` is rewritten. `next_decisions`, `rule_refs` and
+    the player-state receipt are what the Keeper reads to take the next legal
+    step, and they are already small -- they were lost only because the
+    ledger beside them blew the budget for the whole envelope.
+    """
+    if not _is_combat_settlement(data):
+        return deepcopy(data)
+    projected = deepcopy(data)
+    projected["settlement"]["result"] = _project_combat_resolve(
+        data["settlement"]["result"]
+    )
+    return projected
 
 
 def _project_npc_reaction(data: Any) -> Any:
@@ -4181,6 +4219,18 @@ def project_envelope(
         projector = _project_investigator_contract
     elif operation == "module.context":
         projector = _project_module_context
+    elif operation == "rules.settle" and _is_combat_settlement(data):
+        # The ten-family cutover moved combat execution off `combat.resolve`
+        # and onto `rules.settle`, and the bounding projector above stayed
+        # keyed to the operation name that no longer runs. So a combat
+        # settlement arrived here unprojected at 71,378 bytes against a
+        # 16,384-byte budget -- 50,700 of them the whole `save/combat.json`
+        # snapshot, 44,109 of THAT a static weapon catalog -- and collapsed
+        # to `identity_only`. What collapsed with it was `next_decisions`
+        # (4,706 bytes): the Keeper's only machine-readable statement of which
+        # decision may legally follow the beat it just settled. Measured on
+        # the-haunting, first attack of a fresh campaign, 2026-09-03.
+        projector = _project_combat_family_settlement
 
     projected_data = projector(data) if projector is not None else deepcopy(data)
     result: dict[str, Any] = {

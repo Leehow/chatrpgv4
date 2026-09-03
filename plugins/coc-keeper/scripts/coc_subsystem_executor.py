@@ -2512,11 +2512,26 @@ def _load_combat_session(
     campaign_dir: Path | str, *, rng: random.Random,
     investigator_id: str | None = None,
 ) -> Any:
-    return coc_combat.CombatSession.load(
-        Path(campaign_dir), rng=rng,
-        damage_evidence=load_combat_damage_evidence(campaign_dir),
-        damage_evidence_actor=investigator_id,
-    )
+    try:
+        return coc_combat.CombatSession.load(
+            Path(campaign_dir), rng=rng,
+            damage_evidence=load_combat_damage_evidence(campaign_dir),
+            damage_evidence_actor=investigator_id,
+        )
+    except coc_combat.CombatNotStartedError as exc:
+        # "Nothing has begun" is a business rejection, not a transaction
+        # failure. `CombatNotStartedError` subclasses FileNotFoundError so
+        # existing OS-error callers keep working, and that is exactly why it
+        # fell through the executor's generic `except Exception` and came back
+        # as `subsystem_transaction_failed` -- which sits in the toolbox's
+        # TRANSIENT set, so the Keeper was told class `transient_transport`,
+        # `recoverable_by: host_internal_retry`, `allowed_next_actions: []`,
+        # and "retry later with the same decision_id". It cannot ever succeed
+        # by retrying, and the one sentence that said so survived only as
+        # prose inside a wrapper whose machine-readable envelope contradicted
+        # it. 59 of them in one corpus, the largest single count in it, and
+        # `combat:flee` never settled once.
+        raise _error("combat_not_ready", "save/combat.json", str(exc)) from exc
 
 
 def _validate_result_source_evidence(
@@ -7722,8 +7737,11 @@ def _dispatch_combat(
             if session.status != "active":
                 detail = (
                     f"no combat is active in this scene, so this {action} has "
-                    "nothing to act in; start combat with combat.resolve on an "
-                    "authored combat affordance"
+                    "nothing to act in; settle decision:coc7:combat:attack "
+                    "against a present target to begin one -- it starts the "
+                    "exchange and declares the first action together. "
+                    "(combat.resolve is a host-only operation; a Keeper "
+                    "cannot call it.)"
                 )
             else:
                 pending = session.pending_attack
@@ -7777,7 +7795,39 @@ def _dispatch_combat(
             or session.initiative_cursor >= len(initiative)
             or initiative[session.initiative_cursor]["actor_id"] != actor_id
         ):
-            raise _error("combat_initiative_violation", "commands[0].payload.actor_id", "actor is not next in initiative")
+            # Correct CoC7 enforcement (p.98: each combatant acts once per
+            # round in descending DEX order), delivered as five words that
+            # named neither the actor holding the turn nor any way to hand it
+            # over. `aim`, `reload`, `maneuver` and `flee` all bind actor_id
+            # to the investigator, so on an NPC's turn every one of them lands
+            # here -- 27 times in one corpus, and the Keeper's only escape was
+            # to end the fight. The way forward is combat:attack, which
+            # compiles its request for whoever holds the cursor.
+            acts_now = (
+                str(initiative[session.initiative_cursor]["actor_id"])
+                if initiative
+                and session.initiative_cursor < len(initiative)
+                else ""
+            )
+            order = ", ".join(
+                f"{row.get('actor_id')}(DEX {row.get('dex')})"
+                for row in initiative
+                if isinstance(row, dict)
+            )
+            raise _error(
+                "combat_initiative_violation",
+                "commands[0].payload.actor_id",
+                f"{actor_id} is not next in initiative: it is "
+                f"{acts_now or 'another combatant'}'s turn this round. "
+                f"DEX order is [{order}], cursor at "
+                f"{session.initiative_cursor}. Settle "
+                "decision:coc7:combat:attack to declare the acting "
+                "combatant's own action -- it acts as whoever holds the "
+                "turn, and hands the investigator whatever defense that "
+                "opens -- or decision:coc7:combat:end to close the fight. "
+                "aim, reload, maneuver and flee act only on the "
+                "investigator's own turn.",
+            )
         hint = payload["resolution_hint"]
         if hint in SELF_RESOLVING_COMBAT_ATTACK_HINTS:
             try:
