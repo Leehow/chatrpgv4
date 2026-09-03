@@ -93,7 +93,7 @@ let childSessionSetActiveToolsCalls = null;
 let registered = null;
 try {
   delete process.env.PI_SUBAGENT_CHILD;
-  for (const role of [undefined, "setup", "play"]) {
+  for (const role of [undefined, "play"]) {
     const label = role ?? "unset";
     const instance = bootInstance(role);
     registered = instance.tools;
@@ -123,17 +123,9 @@ try {
     assert.ok(acting[label].includes("coc_source_assets"), `${label} keeps coc_source_assets`);
   }
 
-  // Unset role is the setup default: the same acting surface.
-  assert.deepEqual(acting.unset, acting.setup);
-  for (const name of [
-    "coc_setup_quick_start", "coc_setup_inspect", "coc_session_resume",
-    "coc_rules_roll_dice", "coc_chargen_delegate",
-  ]) {
-    assert.ok(acting.setup.includes(name), `setup acting surface must expose ${name}`);
-  }
-  for (const name of ["coc_npc_reaction", "coc_turn_finalize", "coc_rules_settle"]) {
-    assert.ok(!acting.setup.includes(name), `setup acting surface must not expose ${name}`);
-  }
+  // Unset role is the legacy launch with no campaign selector, and the table
+  // is the only role there is: it gets the play surface, not a setup one.
+  assert.deepEqual(acting.unset, acting.play);
 
   // Play with no campaign bound is resume-first: nothing to adjudicate yet.
   assert.ok(acting.play.includes("coc_session_resume"));
@@ -175,7 +167,6 @@ process.stdout.write(JSON.stringify({
   ok: true,
   startupActiveTools: startup.unset,
   kpActiveTools: acting.unset,
-  setupActiveTools: acting.setup,
   playActiveTools: acting.play,
   childSessionSetActiveToolsCalls,
 }));

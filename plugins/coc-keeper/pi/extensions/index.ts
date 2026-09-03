@@ -8860,7 +8860,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     );
     openingContinuationGate.reset();
     noSelectorQuickStartRecovery = null;
-    effectiveTypedRole = launcherRole ?? "setup";
+    effectiveTypedRole = launcherRole ?? "play";
     openingContinuationGate.setEffectiveTypedRole(effectiveTypedRole);
     nonRetryableFailureCircuit.reset();
     stateClaimCompiler.clear();
@@ -14410,7 +14410,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     semanticRegistry.clearAll();
     startupResumeGate = null;
     startupSilentResumeQuarantine = null;
-    effectiveTypedRole = launcherRole ?? "setup";
+    effectiveTypedRole = launcherRole ?? "play";
     openingContinuationGate.setEffectiveTypedRole(effectiveTypedRole);
     startupBranchTrailingPlayerUser = false;
     loadedNamespaces = [];

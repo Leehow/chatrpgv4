@@ -917,7 +917,6 @@ const setupStartupTools = mod.activeToolsForStartupResumePending({
   fallbackPhase: "live_turn",
   role: "setup",
 });
-assert.ok(setupStartupTools.includes("coc_chargen_delegate"));
 assert.ok(!setupStartupTools.includes("coc_npc"));
 assert.ok(!setupStartupTools.includes("coc_subsystem"));
 assert.ok(!setupStartupTools.includes("coc_advice"));

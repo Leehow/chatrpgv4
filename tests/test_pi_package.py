@@ -480,10 +480,9 @@ def test_pi_steward_tools_bind_keeps_child_allowlist_and_typed_role_surface():
     assert result["startupActiveTools"] == []
     assert "coc_rules" not in result["kpActiveTools"]
     assert "coc_rules_roll" not in result["kpActiveTools"]
-    assert "coc_setup_inspect" in result["kpActiveTools"]
-    assert result["kpActiveTools"] == result["setupActiveTools"]
-    assert "coc_setup_inspect" in result["setupActiveTools"]
-    assert "coc_rules" not in result["setupActiveTools"]
+    # The legacy launch with no campaign selector gets the play surface: the
+    # table is the only session role there is.
+    assert result["kpActiveTools"] == result["playActiveTools"]
     assert "coc_session_resume" in result["playActiveTools"]
     assert "coc_rules" not in result["playActiveTools"]
     assert "coc_setup_complete" not in result["playActiveTools"]

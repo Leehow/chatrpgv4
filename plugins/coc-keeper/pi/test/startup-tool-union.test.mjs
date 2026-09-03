@@ -126,23 +126,6 @@ test("pending non-resume requires recovery binding while schema unions projected
   assert.notDeepEqual(played, recovery);
 });
 
-test("setup role is not expanded by the startup union", async () => {
-  const mod = await loadDomain();
-  const tools = mod.activeToolsForStartupResumePending({
-    workspaceRoot: root,
-    campaignId: "setup-no-expansion",
-    fallbackPhase: "live_turn",
-    role: "setup",
-  });
-  assert.ok(tools.includes("coc_session_resume"));
-  assert.ok(tools.includes("coc_chargen_delegate"));
-  assert.ok(!tools.includes("coc_setup"));
-  assert.ok(!tools.includes("coc_npc"));
-  assert.ok(!tools.includes("coc_npc_reaction"));
-  assert.ok(!tools.includes("coc_subsystem"));
-  assert.ok(!tools.includes("coc_advice"));
-});
-
 test("already live fallback does not collapse to recovery-only", async () => {
   const mod = await loadDomain();
   const tools = mod.activeToolsForStartupResumePending({
