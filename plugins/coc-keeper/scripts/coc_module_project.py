@@ -2894,6 +2894,17 @@ def opening_source_readiness(campaign_dir: Path) -> dict[str, Any]:
     if (campaign_dir / "scenario" / "resolution-receipt.json").is_file():
         # Cold compilation already published the whole scenario IR.
         return {"state": OPENING_SOURCE_NOT_GATED, "reason": "cold_compiled"}
+    if str(scenario.get("opening_source_provenance") or "").strip() == (
+        "module_graph_projection"
+    ):
+        # A graph projection publishes the whole scenario IR too, and on
+        # stronger evidence than this lane was built to wait for: every scene
+        # cites the page it came from, the spans were bound deterministically,
+        # and the reachability lint passed before the campaign was written.
+        # This lane exists so a Keeper cannot narrate while a background parse
+        # is still running -- there is no such parse here, and holding the
+        # table would be waiting on the retired three-page opening review.
+        return {"state": OPENING_SOURCE_NOT_GATED, "reason": "module_graph_projected"}
     if isinstance(scenario.get("opening_projection_receipt"), dict):
         return {"state": OPENING_SOURCE_READY, "reason": "opening_projected"}
     watch = scenario.get("opening_projection_watch")
