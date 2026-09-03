@@ -4079,6 +4079,44 @@ def _npc_query_tiered_rows(
 _BULKY_ERROR_DETAIL_COLLECTIONS = ("refreshed_cards", "candidates", "cards")
 
 
+def _shed_withheld_detail(data: Any) -> bool:
+    """Collapse `rules.context`'s withheld block to bare refs. True if it shrank.
+
+    `withheld` says which decisions this family held back and which facts are
+    shut. It is diagnostic; the cards are the answer. So when a context result
+    will not fit, the diagnostic's leaf rows go before anything else -- the
+    alternative, one branch below, is `_minimal_identity`, which hands the
+    Keeper an identity stub with no cards at all. A family's own explanation
+    must never be what costs it its hand.
+
+    The decision refs survive the shed. They are the part the Keeper cannot
+    reconstruct, and canonical ids are rewritten out of prose on the way out,
+    so a ref that is not a structured field does not arrive.
+    """
+    if not isinstance(data, dict):
+        return False
+    withheld = data.get("withheld")
+    if not isinstance(withheld, list) or not withheld:
+        return False
+    shed: list[dict[str, Any]] = []
+    changed = False
+    for row in withheld:
+        if not isinstance(row, dict):
+            shed.append(row)
+            continue
+        omitted = len(row.get("unmet") or []) + int(row.get("unmet_omitted") or 0)
+        entry: dict[str, Any] = {"decision_ref": row.get("decision_ref")}
+        if omitted:
+            entry["unmet_omitted"] = omitted
+        if entry != row:
+            changed = True
+        shed.append(entry)
+    if not changed:
+        return False
+    data["withheld"] = shed
+    return True
+
+
 def _bounded_error_details(details: Any) -> Any:
     """Keep an error's actionable pointers; summarize its bulky collections."""
     if not isinstance(details, dict):
@@ -4451,6 +4489,15 @@ def project_envelope(
         # Otherwise even a bare index of this cast cannot fit; leave the result
         # alone so the identity-only collapse below stays the single last
         # resort rather than claiming a roster projection.
+
+    if (
+        transport_bytes(result) > MAX_INLINE_BYTES
+        and operation == "rules.context"
+        and _shed_withheld_detail(result.get("data"))
+    ):
+        # Shed the explanation before the cards. See _shed_withheld_detail.
+        result["wire"]["payload_projected"] = True
+        result["wire"]["withheld_detail_shed"] = True
 
     if transport_bytes(result) > MAX_INLINE_BYTES:
         result["hints"] = result["hints"][:3]

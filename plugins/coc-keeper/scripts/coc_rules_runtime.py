@@ -854,6 +854,41 @@ def _requirement_phrase(expression: Mapping[str, Any], negated: bool) -> str:
     return f"not ({phrase} {value!r})" if negated else f"{phrase} {value!r}"
 
 
+#: Total `unmet` leaf rows `rules.context` will spend on its withheld block.
+#: coc7's worst family (chase, every gate shut) produces 13, so this never
+#: bites today; it exists so a larger graph cannot silently turn a bounded
+#: diagnostic into the thing that pushes a context result past the transport
+#: cap. Past the budget the decision refs still travel -- they are the part
+#: the Keeper cannot reconstruct, and the host rewrites canonical ids out of
+#: prose, so they must be structured fields either way.
+WITHHELD_UNMET_ROW_BUDGET = 24
+
+
+def _bounded_withheld(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Order the withheld block and spend a fixed row budget on it.
+
+    Sorted by decision_ref so the same shut family reads the same on every
+    call -- a diagnostic that reorders itself cannot be diffed across turns.
+    """
+    bounded: list[dict[str, Any]] = []
+    spent = 0
+    for row in sorted(rows, key=lambda row: str(row["decision_ref"])):
+        unmet = list(row.get("unmet") or [])
+        room = max(WITHHELD_UNMET_ROW_BUDGET - spent, 0)
+        kept = unmet[:room]
+        spent += len(kept)
+        entry: dict[str, Any] = {"decision_ref": row["decision_ref"]}
+        if row.get("label"):
+            # The Keeper narrates the refusal as often as it acts on it, and
+            # a decision id is not a sentence. Cheap next to the rows.
+            entry["label"] = row["label"]
+        entry["unmet"] = kept
+        if len(kept) < len(unmet):
+            entry["unmet_omitted"] = len(unmet) - len(kept)
+        bounded.append(entry)
+    return bounded
+
+
 def evaluate_condition(
     expression: Any,
     facts: Mapping[str, Any],
@@ -1791,17 +1826,32 @@ class RulesRuntime:
             return False
         return node.get("node_kind") != "decision"
 
-    def _unmet_availability(self, decision_ref: str) -> list[dict[str, Any]]:
+    def _unmet_availability(
+        self,
+        decision_ref: str,
+        facts: Mapping[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         """The leaf availability conditions this decision fails right now.
 
         Reports the fact path, what it holds and what the graph asks for --
         never a bare "not applicable", which names nothing the Keeper can act
         on or narrate around.
+
+        `facts` is the evaluation the caller already performed. `context()`
+        passes the facts its own cards were judged against -- the adapter's
+        `augment_facts` derives `magic.spell.known` and
+        `magic.learn.source-available` from the question's `semantic_inputs`,
+        so re-reading the raw provider here would explain a withheld card
+        against a different world than the one that withheld it: reporting
+        `magic.spell.known is None` where applicability saw False. Callers
+        with no evaluation in hand (`explain_missing_grant`) omit it and get
+        the raw canonical facts, which is what they had before.
         """
-        facts = (
-            dict(self._facts_provider() or {})
-            if self._facts_provider is not None else {}
-        )
+        if facts is None:
+            facts = (
+                dict(self._facts_provider() or {})
+                if self._facts_provider is not None else {}
+            )
         unmet: list[dict[str, Any]] = []
         seen: set[str] = set()
 
@@ -1987,6 +2037,7 @@ class RulesRuntime:
         cards: list[dict[str, Any]] = []
         missing: list[str] = []
         optional_rule_gates: list[dict[str, Any]] = []
+        withheld: list[dict[str, Any]] = []
         for node in candidates:
             node_id = str(node["node_id"])
             if node_id not in self._nodes:
@@ -1997,10 +2048,20 @@ class RulesRuntime:
             if card["applicability"] != "applicable":
                 missing.append(node_id)
                 if card.get("disabled_by_optional_rule"):
+                    # A table ruling, not a shut state fact. It is reported
+                    # under its own key and deliberately NOT repeated as
+                    # `withheld`: the two have different remedies, and only
+                    # one of them can change during this campaign.
                     optional_rule_gates.append({
                         "decision_ref": node_id,
                         **card["disabled_by_optional_rule"],
                     })
+                    continue
+                withheld.append({
+                    "decision_ref": node_id,
+                    "label": card["label"],
+                    "unmet": self._unmet_availability(node_id, facts),
+                })
                 continue
             cards.append(card)
             if len(cards) >= 8:
@@ -2044,6 +2105,23 @@ class RulesRuntime:
             result["disabled_by_optional_rules"] = sorted(
                 optional_rule_gates, key=lambda row: str(row["decision_ref"]),
             )
+        if withheld:
+            # Why the hand is the size it is. An empty family answered
+            # `no_candidate_in_compiled_scope` with nothing else: measured in
+            # run r69, two lanes that had seeded a spell teacher precisely to
+            # open `magic` were handed 0 cards on every call and told only
+            # that there were 0. The Keeper settled blind, and the refusal --
+            # one call later, after the damage -- named the shut gate
+            # ("magic.spell.known is None, needs to equal True") that this
+            # call already knew. Same `unmet` row shape as
+            # `explain_missing_grant`, so refusal and offer speak one
+            # vocabulary rather than two.
+            #
+            # Attached whether or not cards were offered: 2-of-6 and 6-of-6
+            # are different hands and read identically without it. Only
+            # decisions this call actually evaluated appear -- the loop stops
+            # at 8 cards, and a decision never reached was not withheld.
+            result["withheld"] = _bounded_withheld(withheld)
         if findings:
             result["findings"] = findings
         if cards:
