@@ -3806,6 +3806,11 @@ const CLASSIFIED_INTEGRITY_FIELDS: ReadonlySet<string> = new Set([
   // closed the first time a Keeper reached it.
   "file_sha256", "source_file_sha256", "page_text_sha256",
   "projection_input_sha256", "source_evidence_sha256",
+  // Ending-capsule and deterministic-plan content hashes carried by
+  // development settlements (state.end_session and rules.settle
+  // development:settle-ending): the host verifies them against the
+  // development ledger; they never reach model content.
+  "capsule_sha256", "plan_sha256",
 ]);
 
 /**
@@ -4218,8 +4223,17 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       // actor id and a catalog key.
       "chase_id", "vehicle_actor_id", "vehicle_key",
       "barrier_id", "hazard_id", "action_id", "choice_id",
+      // A settle-ending settlement names where it closed: authored slugs,
+      // the same campaign/scene/scenario vocabulary the setup and scene
+      // tables declare. Undeclared, `scene_id` and `scenario_id` were part
+      // of the fields that collapsed the first recorded settle-ending
+      // envelope (r71 Gate 9 sweep, lane x-settle-end); `campaign_id`
+      // rides inside the ending capsule's development-inputs ledger.
+      "campaign_id", "scene_id", "scenario_id",
     ],
-    ["request_digest"],
+    // Ending-capsule and deterministic-plan content hashes: integrity
+    // evidence the host verifies against the ledger, never model content.
+    ["request_digest", "capsule_sha256", "plan_sha256"],
     // A sanity settlement now returns the executor's own envelope --
     // `results[].events[]` -- rather than the advisory surface's flat view,
     // so the bout and event ids sit one level deeper than the shape fb98f0ac
@@ -4235,7 +4249,21 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     // settled Sanity checks in r36 -- and it reaches the envelope through the
     // executor's nesting whatever else is trimmed.
     ["command_id", "source_command_id", "state_refs",
-     "bout_id", "event_id", "active_bout_id", "trigger_id"],
+     "bout_id", "event_id", "active_bout_id", "trigger_id",
+     // The settle-ending receipt's machine provenance. `ending_id` is a
+     // GENERATED handle (`ending-<sha256[:20]>`, coc_development.py): it
+     // cannot pass the semantic slug grammar and the Keeper never authors
+     // one — the ending's kind/summary/scene in the bounded view carry the
+     // story facts. `operation_id` is the executor's op-instance id, the
+     // replay anchors name the boundary/ending a settlement was re-run
+     // from, and `event_token`/`source_event_id` are the development
+     // ledger's check-event correlation. Declared here so any branch that
+     // still carries them drops by declaration instead of failing the
+     // envelope closed — the live failure they caused: r71 Gate 9 sweep,
+     // lane x-settle-end, settlement committed and receipt generated, but
+     // the Keeper received semantic_identity_unavailable.
+     "ending_id", "replayed_from_ending_id", "replayed_from_boundary_id",
+     "operation_id", "event_token", "source_event_id"],
   )],
   // `state.npc_update` had no entry at all, so even `npc_id` — the most
   // ordinary authored slug in the system — failed the whole result closed.
@@ -5912,6 +5940,117 @@ function projectDevelopmentEndSessionRulesSettleData(
 }
 
 /**
+ * RuleGraph settles `decision:coc7:development:settle-ending` with the
+ * already-committed canonical development settlement embedded under
+ * `settlement.result.receipt` — the same `development.settle` receipt
+ * `state.end_session` embeds per investigator, so it shares that closed
+ * view. On top of the receipt, a settle-ending settlement names the ending
+ * itself: `ending_evidence.kind`/`summary` are the Keeper's product (which
+ * way the story closed), and `scene_id`/`scenario_id` are authored slugs.
+ * Everything else the ending capsule carries stays host-side: the generated
+ * `ending-<sha256[:20]>` handle (coc_development.py), the capsule/plan
+ * digests, the boundary/session replay anchors, the operation-instance id,
+ * and the `development_inputs` ledger (check-event tokens, claim ownership,
+ * source image hashes) — provenance the host verifies, never model
+ * material.
+ *
+ * Without this closed branch the generic sanitizer failed the WHOLE
+ * envelope closed on twelve of those fields — live in the r71 Gate 9 sweep
+ * (`debug-gate9-depth-10-r71/lanes/x-settle-end`): the settlement
+ * committed, the receipt generated, and the Keeper still received
+ * `semantic_identity_unavailable`. This is projection only: the
+ * deterministic settlement must never be re-run.
+ */
+function projectDevelopmentSettleEndingRulesSettleData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const settlement = isPlainObject(data.settlement) ? data.settlement : null;
+  const result = settlement !== null && isPlainObject(settlement.result)
+    ? settlement.result
+    : null;
+  const receipt = result !== null && isPlainObject(result.receipt)
+    ? result.receipt
+    : null;
+  if (settlement === null || result === null || receipt === null) {
+    return sanitizeEnvelopeBranch(
+      data, semanticIds, diagnostics, "rules.settle",
+    ) as Record<string, unknown>;
+  }
+
+  const genericSettlement: Record<string, unknown> = { ...settlement };
+  delete genericSettlement.result;
+  const projected = sanitizeEnvelopeBranch(
+    { ...data, settlement: genericSettlement },
+    semanticIds, diagnostics, "rules.settle",
+  ) as Record<string, unknown>;
+  const projectedSettlement = isPlainObject(projected.settlement)
+    ? projected.settlement
+    : null;
+  if (projectedSettlement === null) return projected;
+
+  const receiptView = projectDevelopmentSettleReceiptView(
+    receipt,
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+  );
+  const receiptResult = isPlainObject(receipt.result) ? receipt.result : null;
+  const receiptResultView = isPlainObject(receiptView.result)
+    ? receiptView.result
+    : null;
+  if (receiptResult !== null && receiptResultView !== null) {
+    const endingEvidence = isPlainObject(receiptResult.ending_evidence)
+      ? receiptResult.ending_evidence
+      : null;
+    if (endingEvidence !== null) {
+      diagnoseUnprojectedIdentityKeys(
+        "rules.settle",
+        endingEvidence,
+        new Set([
+          "schema_version", "capsule_type", "ending_id", "event_id",
+          "event_ref", "scene_id", "kind", "summary", "decision_id",
+          "investigator_ids", "scenario_id", "conclusion_id",
+          "conclusion_evidence", "conclusion_reward_id",
+          "scenario_san_reward_expr", "scenario_san_reward_rule_ref",
+          "event_line_at_capture", "source_digest", "development_inputs",
+          "rng_identity", "captured_at", "capsule_sha256",
+        ]),
+        diagnostics,
+      );
+      // Which ending settled and how it closed: the Keeper narrates from
+      // kind/summary and the authored scene/scenario slugs. The capsule's
+      // digest, provenance ledger and generated handles stay host-side.
+      receiptResultView.ending_evidence = selectedFields(endingEvidence, [
+        "kind", "summary", "scene_id", "scenario_id",
+      ]);
+    }
+    if (isPlainObject(receiptResult.inventory_settlement)) {
+      // The gear the ending moved is player-visible; the net-diff policy
+      // label names the direction of the ledger, not a host handle.
+      receiptResultView.inventory_settlement = selectedFields(
+        receiptResult.inventory_settlement,
+        ["added_weapons", "removed_weapons", "added_gear", "removed_gear",
+         "merge_policy"],
+      );
+    }
+  }
+  // `settlement.result.ending_id` is deliberately never copied: the
+  // generated ending handle is declared host-only for rules.settle.
+  projectedSettlement.result = stripOpaqueModelIdentity(
+    { receipt: receiptView },
+    null,
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+    "settlement.result",
+  ) as Record<string, unknown>;
+  projected.settlement = projectedSettlement;
+  return projected;
+}
+
+/**
  * Closed model view of the completed pushed check embedded under
  * `rules.settle`. The pushed D100 and its announced consequence are the
  * Keeper's product; the host-owned join back into the original receipt and
@@ -6317,6 +6456,16 @@ function projectRulesSettleData(
       diagnostics,
     );
   }
+  if (
+    data.family === "development"
+    && data.decision_ref === "decision:coc7:development:settle-ending"
+  ) {
+    return projectDevelopmentSettleEndingRulesSettleData(
+      data,
+      semanticIds,
+      diagnostics,
+    );
+  }
   return sanitizeEnvelopeBranch(
     data,
     semanticIds,
@@ -6371,6 +6520,157 @@ function projectDevelopmentMechanics(value: unknown): Record<string, unknown> | 
   return projected;
 }
 
+/**
+ * Bounded field lists shared by every projection of the canonical
+ * `development.settle` receipt. The check rows are the public dice
+ * themselves: skill, rolled check, gain and before/after values — roll ids
+ * and ledger internals never appear here.
+ */
+const DEVELOPMENT_CHECK_ROW_VISIBLE_FIELDS = [
+  "skill", "check_roll", "gain", "value_before",
+  "planned_value_after", "current_value_before_apply",
+  "applied_delta", "value_after", "improved", "merge_policy",
+] as const;
+
+const DEVELOPMENT_SAN_REWARD_VISIBLE_FIELDS = [
+  "expression", "rolls", "total", "planned_san_before",
+  "planned_san_delta", "san_before", "san_gained", "san_after",
+  "san_max", "value_before", "applied_delta", "value_after",
+  "replayed", "rule_ref",
+] as const;
+
+const DEVELOPMENT_LUCK_RECOVERY_VISIBLE_FIELDS = [
+  "roll", "success", "gained", "luck_before", "luck_after",
+  "planned_luck_before", "planned_luck_after", "planned_gained",
+  "current_luck_before_apply", "applied_delta", "merge_policy",
+  "rule_ref",
+  // A disabled luck-recovery option settles as a recorded skip;
+  // the Keeper must see why no recovery roll happened.
+  "skipped", "reason", "option_id", "decided_by", "layer",
+] as const;
+
+/**
+ * Bounded view of the canonical `development.settle` receipt's result. Two
+ * consumers project this exact receipt shape: `state.end_session` embeds
+ * one per investigator under `development.settlements[]`, and rules.settle
+ * `development:settle-ending` embeds one under `settlement.result.receipt`.
+ */
+function projectDevelopmentSettleReceiptResultView(
+  result: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  operation: string,
+): Record<string, unknown> {
+  diagnoseUnprojectedIdentityKeys(
+    operation,
+    result,
+    new Set([
+      "skills_checked", "san_reward_expr", "san_reward_planned_delta",
+      "scenario_san_reward_expr", "scenario_san_reward_planned_delta",
+      "scenario_san_reward_applied", "merge_policy",
+      "improvement_checks", "skills_improved", "san_reward",
+      "san_reward_roll", "development_san_reward",
+      "scenario_san_reward", "scenario_san_reward_roll",
+      "luck_recovery", "ending_evidence", "player_facing_mechanics",
+      "settlement_plan_sha256",
+      // The settle-ending receipt additionally carries these; both consumers
+      // drop them here (ledger internals) — the settle-ending projector
+      // re-surfaces the bounded ending and inventory facts itself.
+      "awfulness_decay", "awfulness_merge", "inventory_settlement",
+      "mechanical_baseline", "settlement_boundary", "input_tokens_consumed",
+    ]),
+    diagnostics,
+  );
+  const resultView = selectedFields(result, [
+    "skills_checked", "san_reward_expr", "san_reward_planned_delta",
+    "scenario_san_reward_expr", "scenario_san_reward_planned_delta",
+    "scenario_san_reward_applied", "merge_policy",
+  ]);
+  for (const field of ["improvement_checks", "skills_improved"] as const) {
+    if (Array.isArray(result[field])) {
+      resultView[field] = result[field].flatMap((row) =>
+        isPlainObject(row)
+          ? [selectedFields(row, DEVELOPMENT_CHECK_ROW_VISIBLE_FIELDS)]
+          : []
+      );
+    }
+  }
+  for (const field of [
+    "san_reward", "san_reward_roll", "development_san_reward",
+    "scenario_san_reward", "scenario_san_reward_roll",
+  ] as const) {
+    if (isPlainObject(result[field])) {
+      resultView[field] = selectedFields(
+        result[field],
+        DEVELOPMENT_SAN_REWARD_VISIBLE_FIELDS,
+      );
+    }
+  }
+  if (isPlainObject(result.luck_recovery)) {
+    resultView.luck_recovery = selectedFields(
+      result.luck_recovery,
+      DEVELOPMENT_LUCK_RECOVERY_VISIBLE_FIELDS,
+    );
+  }
+  const endingEvidence = isPlainObject(result.ending_evidence)
+    ? result.ending_evidence
+    : null;
+  if (
+    endingEvidence !== null
+    && typeof endingEvidence.scenario_san_reward_rule_ref === "string"
+  ) {
+    resultView.scenario_san_reward_rule_ref =
+      endingEvidence.scenario_san_reward_rule_ref;
+  }
+  const mechanics = projectDevelopmentMechanics(
+    result.player_facing_mechanics,
+  );
+  if (mechanics !== null) resultView.player_facing_mechanics = mechanics;
+  return resultView;
+}
+
+/**
+ * Bounded view of the whole `development.settle` receipt: chrome, result and
+ * rendered public mechanics. `operation` is the OUTER operation the view
+ * projects under, so identity declarations and diagnostics follow the
+ * consumer's own table.
+ */
+function projectDevelopmentSettleReceiptView(
+  receipt: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  operation: string,
+): Record<string, unknown> {
+  diagnoseUnprojectedIdentityKeys(
+    operation,
+    receipt,
+    new Set([
+      "schema_version", "status", "kind", "result",
+      "player_facing_mechanics", "operation_id", "state_refs",
+      "replayed", "replayed_from_boundary_id", "replayed_from_ending_id",
+    ]),
+    diagnostics,
+  );
+  const receiptView = selectedFields(
+    receipt,
+    ["schema_version", "status", "kind"],
+  );
+  const result = isPlainObject(receipt.result) ? receipt.result : null;
+  if (result !== null) {
+    receiptView.result = projectDevelopmentSettleReceiptResultView(
+      result,
+      semanticIds,
+      diagnostics,
+      operation,
+    );
+  }
+  const mechanics = projectDevelopmentMechanics(
+    receipt.player_facing_mechanics,
+  );
+  if (mechanics !== null) receiptView.player_facing_mechanics = mechanics;
+  return receiptView;
+}
+
 /** Closed state.end_session view: ending disposition plus public settlement. */
 function projectEndSessionData(
   data: Record<string, unknown>,
@@ -6414,100 +6714,12 @@ function projectEndSessionData(
         );
         const receipt = isPlainObject(entry.receipt) ? entry.receipt : null;
         if (receipt === null) return [settlement];
-        diagnoseUnprojectedIdentityKeys(
-          "state.end_session",
+        settlement.receipt = projectDevelopmentSettleReceiptView(
           receipt,
-          new Set([
-            "schema_version", "status", "kind", "result",
-            "player_facing_mechanics", "operation_id", "state_refs",
-            "replayed_from_boundary_id", "replayed_from_ending_id",
-          ]),
+          semanticIds,
           diagnostics,
+          "state.end_session",
         );
-        const receiptView = selectedFields(
-          receipt,
-          ["schema_version", "status", "kind"],
-        );
-        const result = isPlainObject(receipt.result) ? receipt.result : null;
-        if (result !== null) {
-          diagnoseUnprojectedIdentityKeys(
-            "state.end_session",
-            result,
-            new Set([
-              "skills_checked", "san_reward_expr", "san_reward_planned_delta",
-              "scenario_san_reward_expr", "scenario_san_reward_planned_delta",
-              "scenario_san_reward_applied", "merge_policy",
-              "improvement_checks", "skills_improved", "san_reward",
-              "san_reward_roll", "development_san_reward",
-              "scenario_san_reward", "scenario_san_reward_roll",
-              "luck_recovery", "ending_evidence", "player_facing_mechanics",
-              "settlement_plan_sha256",
-            ]),
-            diagnostics,
-          );
-          const resultView = selectedFields(result, [
-            "skills_checked", "san_reward_expr", "san_reward_planned_delta",
-            "scenario_san_reward_expr", "scenario_san_reward_planned_delta",
-            "scenario_san_reward_applied", "merge_policy",
-          ]);
-          for (const field of ["improvement_checks", "skills_improved"] as const) {
-            if (Array.isArray(result[field])) {
-              resultView[field] = result[field].flatMap((row) =>
-                isPlainObject(row)
-                  ? [selectedFields(row, [
-                    "skill", "check_roll", "gain", "value_before",
-                    "planned_value_after", "current_value_before_apply",
-                    "applied_delta", "value_after", "improved", "merge_policy",
-                  ])]
-                  : []
-              );
-            }
-          }
-          for (const field of [
-            "san_reward", "san_reward_roll", "development_san_reward",
-            "scenario_san_reward", "scenario_san_reward_roll",
-          ] as const) {
-            if (isPlainObject(result[field])) {
-              resultView[field] = selectedFields(result[field], [
-                "expression", "rolls", "total", "planned_san_before",
-                "planned_san_delta", "san_before", "san_gained", "san_after",
-                "san_max", "value_before", "applied_delta", "value_after",
-                "replayed", "rule_ref",
-              ]);
-            }
-          }
-          if (isPlainObject(result.luck_recovery)) {
-            resultView.luck_recovery = selectedFields(result.luck_recovery, [
-              "roll", "success", "gained", "luck_before", "luck_after",
-              "planned_luck_before", "planned_luck_after", "planned_gained",
-              "current_luck_before_apply", "applied_delta", "merge_policy",
-              "rule_ref",
-              // A disabled luck-recovery option settles as a recorded skip;
-              // the Keeper must see why no recovery roll happened.
-              "skipped", "reason", "option_id", "decided_by", "layer",
-            ]);
-          }
-          const endingEvidence = isPlainObject(result.ending_evidence)
-            ? result.ending_evidence
-            : null;
-          if (
-            endingEvidence !== null
-            && typeof endingEvidence.scenario_san_reward_rule_ref === "string"
-          ) {
-            resultView.scenario_san_reward_rule_ref =
-              endingEvidence.scenario_san_reward_rule_ref;
-          }
-          const mechanics = projectDevelopmentMechanics(
-            result.player_facing_mechanics,
-          );
-          if (mechanics !== null) resultView.player_facing_mechanics = mechanics;
-          receiptView.result = resultView;
-        }
-        const mechanics = projectDevelopmentMechanics(
-          receipt.player_facing_mechanics,
-        );
-        if (mechanics !== null) receiptView.player_facing_mechanics = mechanics;
-        settlement.receipt = receiptView;
         return [settlement];
       });
     }
