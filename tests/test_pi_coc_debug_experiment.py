@@ -1766,22 +1766,34 @@ def test_seeding_reaches_state_a_scene_and_a_roster_cannot():
     one.
     """
     module = _module()
-    lane = {
-        "id": "reach",
-        "situation": {
-            "shape": "structural",
-            "scene_id": "central-library",
-            "items": [{
-                "item_id": "tome-of-corbitt",
-                "kind": "tome",
-                "label": "科比特的手记",
-            }],
-            "spells": ["Contact Deity"],
-            "damage": {"amount": 7, "kind": "physical"},
-            "ending": {"summary": "调查员逃出宅子。", "kind": "escape"},
-        },
-    }
-    ops = module._situation_operations(lane, "c1")
+    # Through `_normalize_run_spec`, never a hand-built lane dict. Calling
+    # `_situation_operations` on a literal skips normalization, which is
+    # exactly where these keys were being dropped: they passed validation and
+    # then fell out of a fixed four-key return, so three rounds of seeding
+    # upgrades emitted nothing but the scene move while the tests stayed green.
+    spec = module._normalize_run_spec({
+        "player_input": "我摊开手记。",
+        "lanes": [{
+            "id": "reach",
+            "player_input": "我摊开手记。",
+            "situation": {
+                "scene_id": "central-library",
+                "items": [{
+                    "item_id": "tome-of-corbitt",
+                    "kind": "tome",
+                    "label": "科比特的手记",
+                }],
+                "spells": ["Contact Deity"],
+                "damage": {"amount": 7, "kind": "physical"},
+                "ending": {"summary": "调查员逃出宅子。", "kind": "escape"},
+            },
+        }],
+    })
+    seeded = spec["lanes"][0]["situation"]
+    for key in ("items", "spells", "damage", "ending"):
+        assert key in seeded, f"{key} was dropped in normalization"
+
+    ops = module._situation_operations(spec["lanes"][0], "c1")
     by = {row["operation"]: row["arguments"] for row in ops}
     assert "state.move_scene" in by
     assert by["state.item_grant"]["item_id"] == "tome-of-corbitt"
@@ -1790,20 +1802,30 @@ def test_seeding_reaches_state_a_scene_and_a_roster_cannot():
     assert by["rules.damage"]["amount"] == 7
     assert by["rules.damage"]["kind"] == "physical"
     assert by["state.end_session"]["summary"] == "调查员逃出宅子。"
+    assert by["state.end_session"]["kind"] == "escape"
     # Every seeded write carries a lane-scoped decision id, so a sandbox
     # replay of the same lane is idempotent and the evidence names its target.
     for row in ops:
         assert row["arguments"]["decision_id"].startswith("debug-situation:reach:")
 
-
 def test_a_bare_damage_amount_is_accepted():
-    """The common case is "hurt the investigator by N"; requiring a dict for
-    that would be ceremony."""
+    """The common case is "hurt the investigator by N"; requiring an object for
+    that would be ceremony. The kind defaults during normalization, so the
+    operation builder never has to guess at a shape."""
     module = _module()
-    ops = module._situation_operations(
-        {"id": "hurt", "situation": {"shape": "structural", "damage": 5}}, "c1",
-    )
-    damage = next(r for r in ops if r["operation"] == "rules.damage")
+    spec = module._normalize_run_spec({
+        "player_input": "我受伤了。",
+        "lanes": [{
+            "id": "hurt",
+            "player_input": "我受伤了。",
+            "situation": {"damage": 5},
+        }],
+    })
+    assert spec["lanes"][0]["situation"]["damage"] == {
+        "amount": 5, "kind": "physical",
+    }
+    ops = module._situation_operations(spec["lanes"][0], "c1")
+    damage = next(row for row in ops if row["operation"] == "rules.damage")
     assert damage["arguments"]["amount"] == 5
     assert damage["arguments"]["kind"] == "physical"
 
@@ -1818,16 +1840,20 @@ def test_seeding_can_advance_the_clock_to_fire_due_triggers():
     seeded in the same situation has time to reach its recovery trigger.
     """
     module = _module()
-    ops = module._situation_operations({
-        "id": "clock",
-        "situation": {
-            "shape": "structural",
-            "scene_id": "corbitt-house-ground",
-            "damage": 9,
-            "advance_minutes": 10080,
-            "safe_rest": "full_sleep",
-        },
-    }, "c1")
+    spec = module._normalize_run_spec({
+        "player_input": "我撑着回到安全的地方。",
+        "lanes": [{
+            "id": "clock",
+            "player_input": "我撑着回到安全的地方。",
+            "situation": {
+                "scene_id": "corbitt-house-ground",
+                "damage": 9,
+                "advance_minutes": 10080,
+                "safe_rest": "full_sleep",
+            },
+        }],
+    })
+    ops = module._situation_operations(spec["lanes"][0], "c1")
     order = [row["operation"] for row in ops]
     assert order.index("rules.damage") < order.index("state.advance_time")
     assert order.index("state.advance_time") < order.index("state.mark_safe_rest")
@@ -1835,3 +1861,47 @@ def test_seeding_can_advance_the_clock_to_fire_due_triggers():
     assert by["state.advance_time"]["minutes"] == 10080
     assert by["state.advance_time"]["reason"]
     assert by["state.mark_safe_rest"]["rest_kind"] == "full_sleep"
+
+
+def test_normalization_carries_every_structural_key_it_accepts():
+    """The guard against the whole defect class: no key may be accepted by
+    validation and then silently dropped before the operation builder reads it.
+
+    `_SITUATION_STRUCTURAL_KEYS` is the accepted set, and the normalized
+    situation is what `_situation_operations` consumes. Anything in the first
+    that cannot appear in the second is dead on arrival, which is how seeded
+    spells, items, wounds, endings and clocks reached no lane for three rounds
+    while every test stayed green.
+    """
+    module = _module()
+    every = {
+        "scene_id": "corbitt-house-ground",
+        "npc_presence": ["npc-walter-corbitt"],
+        "clue_ids": ["clue-corbitt-will"],
+        "flags": {"basement-unlocked": True},
+        "items": [{"item_id": "tome-of-corbitt", "label": "手记"}],
+        "spells": ["Contact Deity"],
+        "damage": 4,
+        "advance_minutes": 60,
+        "safe_rest": "full_sleep",
+        "ending": "调查员逃出宅子。",
+    }
+    assert set(every) == set(module._SITUATION_STRUCTURAL_KEYS), (
+        "this test must exercise every accepted structural key"
+    )
+    spec = module._normalize_run_spec({
+        "player_input": "我推开门。",
+        "lanes": [{
+            "id": "every", "player_input": "我推开门。", "situation": every,
+        }],
+    })
+    normalized = spec["lanes"][0]["situation"]
+    dropped = sorted(set(every) - set(normalized))
+    assert not dropped, f"accepted but dropped before the consumer: {dropped}"
+
+    ops = module._situation_operations(spec["lanes"][0], "c1")
+    assert {row["operation"] for row in ops} == {
+        "state.move_scene", "state.npc_presence", "state.record_clue",
+        "state.set_flag", "state.item_grant", "magic.learn", "rules.damage",
+        "state.advance_time", "state.mark_safe_rest", "state.end_session",
+    }

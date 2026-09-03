@@ -52,6 +52,10 @@ _SITUATION_STRUCTURAL_KEYS = frozenset({
     "advance_minutes", "safe_rest",
 })
 _SITUATION_KEYS = _SITUATION_STRUCTURAL_KEYS | {"establish_from_prompt"}
+_SITUATION_ITEM_KEYS = frozenset({
+    "item_id", "label", "kind", "weapon", "weapon_id", "mechanics_ref",
+    "quantity", "consumable", "investigator",
+})
 _MAX_SITUATION_LIST = 20
 _TOOLBOX_SCRIPT = _SCRIPTS / "coc_toolbox.py"
 _SITUATION_SEED_REASON = "host debug situation seeding"
@@ -270,6 +274,97 @@ def _situation_id_list(value: Any, *, label: str) -> list[str]:
     return ids
 
 
+def _situation_text_list(value: Any, *, label: str) -> list[str]:
+    """A list of authored names, not semantic ids.
+
+    Spells are named the way the rulebook names them -- "Contact Deity" --
+    so the id grammar is the wrong validator here.
+    """
+    if not isinstance(value, list) or not 1 <= len(value) <= _MAX_SITUATION_LIST:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"{label} must be a list of 1 to {_MAX_SITUATION_LIST} names",
+        )
+    names = [
+        _nonempty_text(item, label=f"{label}[{index}]")
+        for index, item in enumerate(value)
+    ]
+    if len(set(names)) != len(names):
+        raise DebugExperimentError(
+            "debug_request_invalid", f"{label} contains duplicate names",
+        )
+    return names
+
+
+def _situation_positive_int(value: Any, *, label: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise DebugExperimentError(
+            "debug_request_invalid", f"{label} must be a positive integer",
+        )
+    return value
+
+
+def _situation_items(value: Any, *, label: str) -> list[dict[str, Any]]:
+    """Item grants, each named well enough for the toolbox to grant it."""
+    if not isinstance(value, list) or not 1 <= len(value) <= _MAX_SITUATION_LIST:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"{label} must be a list of 1 to {_MAX_SITUATION_LIST} items",
+        )
+    items: list[dict[str, Any]] = []
+    for index, raw in enumerate(value):
+        item = _strict_object(raw, label=f"{label}[{index}]")
+        _exact_keys(item, set(_SITUATION_ITEM_KEYS), label=f"{label}[{index}]")
+        if not (item.get("item_id") or item.get("label")):
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label}[{index}] needs item_id or label",
+            )
+        items.append(item)
+    return items
+
+
+def _situation_damage(value: Any, *, label: str) -> dict[str, Any]:
+    """Damage as a bare amount or an {amount, kind} object.
+
+    The common seed is "hurt the investigator by N"; requiring an object for
+    that would be ceremony, so a bare amount is accepted and the kind defaults
+    here rather than in the caller that builds the operation.
+    """
+    if isinstance(value, int) and not isinstance(value, bool):
+        return {
+            "amount": _situation_positive_int(value, label=label),
+            "kind": "physical",
+        }
+    damage = _strict_object(value, label=label)
+    _exact_keys(damage, {"amount", "kind"}, label=label)
+    return {
+        "amount": _situation_positive_int(
+            damage.get("amount"), label=f"{label}.amount",
+        ),
+        "kind": (
+            _nonempty_text(damage["kind"], label=f"{label}.kind")
+            if "kind" in damage else "physical"
+        ),
+    }
+
+
+def _situation_ending(value: Any, *, label: str) -> dict[str, Any]:
+    """A persisted ending, as a summary string or a {summary, kind} object."""
+    if isinstance(value, str):
+        return {"summary": _nonempty_text(value, label=label)}
+    ending = _strict_object(value, label=label)
+    _exact_keys(ending, {"summary", "kind"}, label=label)
+    normalized = {
+        "summary": _nonempty_text(
+            ending.get("summary"), label=f"{label}.summary",
+        ),
+    }
+    if "kind" in ending:
+        normalized["kind"] = _nonempty_text(ending["kind"], label=f"{label}.kind")
+    return normalized
+
+
 def _normalize_situation(raw: Any, *, label: str) -> dict[str, Any]:
     """Closed diagnostic situation: structural seeding or prompt-established.
 
@@ -329,13 +424,44 @@ def _normalize_situation(raw: Any, *, label: str) -> dict[str, Any]:
                     "debug_request_invalid", f"{label}.flags[{flag_id}] must be boolean",
                 )
             flags[flag_id] = value
-    return {
+    normalized: dict[str, Any] = {
         "shape": "structural",
         "scene_id": scene_id,
         "npc_presence": npc_presence,
         "clue_ids": clue_ids,
         "flags": flags,
     }
+    # Every remaining structural key has to be carried out of here explicitly.
+    # A fixed four-key return accepted `spells`/`damage`/`advance_minutes` in
+    # validation and then dropped them on the floor, so `_situation_operations`
+    # -- which reads the normalized situation, not the request -- emitted only
+    # the scene move. Lanes seeded with a spell reported
+    # `magic.spell.known is None` and the whole magic family looked unreachable.
+    if "items" in situation:
+        normalized["items"] = _situation_items(
+            situation["items"], label=f"{label}.items",
+        )
+    if "spells" in situation:
+        normalized["spells"] = _situation_text_list(
+            situation["spells"], label=f"{label}.spells",
+        )
+    if "damage" in situation:
+        normalized["damage"] = _situation_damage(
+            situation["damage"], label=f"{label}.damage",
+        )
+    if "advance_minutes" in situation:
+        normalized["advance_minutes"] = _situation_positive_int(
+            situation["advance_minutes"], label=f"{label}.advance_minutes",
+        )
+    if "safe_rest" in situation:
+        normalized["safe_rest"] = _nonempty_text(
+            situation["safe_rest"], label=f"{label}.safe_rest",
+        )
+    if "ending" in situation:
+        normalized["ending"] = _situation_ending(
+            situation["ending"], label=f"{label}.ending",
+        )
+    return normalized
 
 
 def _situation_operations(lane: dict[str, Any], campaign_id: str) -> list[dict[str, Any]]:
@@ -432,18 +558,20 @@ def _situation_operations(lane: dict[str, Any], campaign_id: str) -> list[dict[s
                 "decision_id": f"debug-situation:{lane_id}:learn-spell:{spell}",
             },
         })
+    # Every branch below reads the normalized situation, whose shapes
+    # `_normalize_situation` has already settled: damage and ending are always
+    # objects here, safe_rest always a string.
     damage = situation.get("damage")
-    if damage is not None:
-        amount = damage if isinstance(damage, int) else damage.get("amount")
-        kind = "physical" if isinstance(damage, int) else damage.get("kind")
+    if damage:
         operations.append({
             "operation": "rules.damage",
             "arguments": {
                 "campaign": campaign_id,
-                "amount": amount,
+                "amount": damage["amount"],
                 "source": reason,
-                **({"kind": kind} if kind else {}),
-                "decision_id": f"debug-situation:{lane_id}:damage:{amount}",
+                **({"kind": damage["kind"]} if damage.get("kind") else {}),
+                "decision_id":
+                    f"debug-situation:{lane_id}:damage:{damage['amount']}",
             },
         })
     # Ordered after the state that the clock acts on: damage first, then the
@@ -465,24 +593,18 @@ def _situation_operations(lane: dict[str, Any], campaign_id: str) -> list[dict[s
             "operation": "state.mark_safe_rest",
             "arguments": {
                 "campaign": campaign_id,
-                "rest_kind": rest if isinstance(rest, str) else "full_sleep",
+                "rest_kind": rest,
                 "decision_id": f"debug-situation:{lane_id}:safe-rest",
             },
         })
     ending = situation.get("ending")
-    if ending is not None:
+    if ending:
         operations.append({
             "operation": "state.end_session",
             "arguments": {
                 "campaign": campaign_id,
-                "summary": (
-                    ending if isinstance(ending, str)
-                    else str(ending.get("summary") or reason)
-                ),
-                **(
-                    {"kind": ending["kind"]}
-                    if isinstance(ending, dict) and ending.get("kind") else {}
-                ),
+                "summary": ending["summary"],
+                **({"kind": ending["kind"]} if ending.get("kind") else {}),
                 "decision_id": f"debug-situation:{lane_id}:end-session",
             },
         })
