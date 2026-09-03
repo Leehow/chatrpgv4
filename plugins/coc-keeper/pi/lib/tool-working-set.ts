@@ -233,6 +233,18 @@ const PLAY_ACTING_BASELINE = [
   "rules.settle",
   "npc.query",
   "state.journal",
+  // The play prompt makes this mandatory -- a clue the player found is not
+  // real until `state.record_clue` writes it -- so a Keeper that finds one
+  // has no choice about calling it. Off the baseline it cost a `coc_discover`
+  // round trip first: measured 2026-09-02 across six first turns, five of them
+  // spent one on exactly this operation, at ~11.8s each, and a discover is
+  // also one of the things that changes the active tool interface and forces
+  // a replan.
+  //
+  // This is the one write on the baseline, and it is here because the rules
+  // require it rather than because it is convenient. Everything else still
+  // loads on demand: "no fixed pipeline, no quota" holds for the rest.
+  "state.record_clue",
 ] as const;
 
 const RULES_DIRECTOR_ACTING_BASELINE = [
