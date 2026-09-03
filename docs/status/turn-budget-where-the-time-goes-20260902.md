@@ -120,8 +120,13 @@ r47 回合阶段 87 次调用中，**22 次是查资料**：
   lane 上合计 **0 秒**、第三条 16 秒。贵的不是读。
 - **Keeper 是照提示词做的**，不是乱来。`host-system-play.md` 第 20 行明写：
   「at session start, load each active skill's full `SKILL.md` with it」。
-  而它读的每一个文件——`coc-keeper-play`、`coc-combat`、`coc-sanity`、`coc-chase`
-  ——**都已经在 `session-roles.json` 的 15 个 play 会话技能里加载过了**。
+- **更正（2026-09-02 晚）**：本文先前断言这些读取是「重读已经加载过的技能」，
+  **那是错的**。pi 自己的文档（`docs/skills.md`）写明：启动时只扫描技能的
+  **名字与描述**，正文由 agent 用 `read` 按需加载——「only descriptions are always
+  in context, full instructions load on-demand」。所以 `session-roles.json` 里那
+  15 个技能是**注册**，不是加载；那 35–75K 字符是渐进披露的必要成本，不是浪费。
+  真正可议的只是提示词把「按需」改成了「session start 全部加载」，而实测它也只读了
+  用得上的 4 个（play / combat / sanity / chase），并非全部 15 个。
 - **诊断 lane 每条都是全新会话**（启动器带 `--no-session`），所以「session start」
   在每个被测回合都触发一次。生产环境若是持久会话，这笔开销一个会话只付一次。
   **这一项有相当部分是夹具产物**，把一次性开销摊进了单回合的账。

@@ -540,7 +540,12 @@ visible `coc_session_resume` tool, then call visible
   This exact-operation load is the only permitted `coc_discover` form during
   live play: never call `coc_discover` with no arguments and never discover
   a whole domain/namespace — no catalog browsing for awareness, reassurance,
-  or confirmation. The grant is stage/phase/role-scoped and expires when the
+  or confirmation. And never discover an operation whose typed tool is already
+  in your tool list: the load is a no-op, it costs a round trip, and it
+  reshapes the active surface so the turn is replanned. Observed on
+  2026-09-02 across twelve turns: `coc_discover` was called on `rules.settle`
+  once and on `state.journal` twice while all three were already active. Look
+  at your tool list first; discover only what is not there. The grant is stage/phase/role-scoped and expires when the
   turn settles; load again only when a later need is concrete. No fixed
   pipeline, no quota: load only when semantically relevant.
 - Temporal story memory is advisory context, never truth. Proactively call

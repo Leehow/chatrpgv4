@@ -489,3 +489,19 @@ def test_the_play_prompt_names_settle_form_as_the_argument_authority():
     assert "not a menu of fields to attach" in prompt
     # naming the exact mistake, the way the intent block names its own
     assert "source_ref: player_input:current" in prompt
+
+
+def test_the_prompt_forbids_discovering_an_already_active_tool():
+    """A discover on an operation whose typed tool is already in the list is a
+    no-op that costs a round trip and reshapes the active surface, forcing a
+    replan. Measured 2026-09-02 across twelve turns: `rules.settle` discovered
+    once and `state.journal` twice while all three were already active.
+    """
+    prompt = " ".join(
+        (ROOT / "plugins/coc-keeper/pi/prompts/host-system-play.md")
+        .read_text(encoding="utf-8").split()
+    )
+    assert "never discover an operation whose typed tool is already" in prompt
+    assert "the turn is replanned" in prompt
+    # names the observed waste, the way the other blocks name theirs
+    assert "`rules.settle` once and on `state.journal` twice" in prompt
