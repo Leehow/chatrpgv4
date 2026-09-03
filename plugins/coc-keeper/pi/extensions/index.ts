@@ -21,7 +21,7 @@ import {
 } from "../lib/turn-output-gate.ts";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import {
   mkdir,
   readdir,
@@ -4259,6 +4259,71 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     campaign: invocationCampaign,
     playerTurnEpoch: canonicalProgress.playerTurnEpoch,
   });
+  // Development settlements write public improvement/gain/luck/SAN-reward
+  // rolls into the campaign's rolls.jsonl keyed by the settle operation id.
+  // Their semantic handles normally come from observing the settle envelope,
+  // but a session restored to a pending finalization never re-observes it —
+  // the turn's development obligations then collapse every resume/output
+  // envelope to semantic_identity_unavailable (live 2026-09-02, campaign
+  // textlayer-beautify-20260902). Seed the registry from the authoritative
+  // dice log instead: idempotent per session epoch + campaign + player turn
+  // epoch, registered under the exact scope the same projection reads.
+  const developmentRollSeedKeys = new Set<string>();
+  const DEVELOPMENT_ROLL_KINDS = new Set([
+    "development_check", "development_gain", "luck_recovery",
+    "development_san_reward", "scenario_san_reward",
+  ]);
+  const ensureDevelopmentRollHandles = (invocationCampaign: string): void => {
+    const campaign = invocationCampaign.trim()
+      || canonicalProgressCampaignId
+      || (process.env.PI_COC_CAMPAIGN_ID || "").trim();
+    if (!campaign || !currentWorkspaceRoot) return;
+    const key = (
+      `${sessionEpoch}\u0000${campaign}\u0000${canonicalProgress.playerTurnEpoch}`
+    );
+    if (developmentRollSeedKeys.has(key)) return;
+    developmentRollSeedKeys.add(key);
+    let raw = "";
+    try {
+      const logPath = resolve(
+        currentWorkspaceRoot, ".coc", "campaigns", campaign, "logs",
+        "rolls.jsonl",
+      );
+      if (statSync(logPath).size > 16 * 1024 * 1024) return;
+      raw = readFileSync(logPath, "utf8");
+    } catch {
+      return;
+    }
+    const scope = registryScope(campaign);
+    for (const line of raw.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let row: unknown;
+      try { row = JSON.parse(trimmed); } catch { continue; }
+      const record = objectOrNull(row);
+      if (record === null) continue;
+      const payload = objectOrNull(record.payload);
+      const kind = typeof payload?.kind === "string" ? payload.kind : "";
+      if (!DEVELOPMENT_ROLL_KINDS.has(kind)) continue;
+      const rollId = typeof record.roll_id === "string"
+        ? record.roll_id.trim()
+        : "";
+      if (!rollId) continue;
+      semanticRegistry.register({
+        domain: "roll",
+        canonicalId: rollId,
+        facts: [
+          typeof payload?.skill === "string" && payload.skill.trim()
+            ? payload.skill
+            : "development",
+          kind,
+          "development",
+        ],
+        scope,
+        lifetime: "player_turn",
+      });
+    }
+  };
   // Authoritative owner/container scope derived from one structured object
   // (a canonical result's data, or the invocation's own model arguments):
   // an NPC field keys the npc holder, an investigator field the investigator
@@ -5340,6 +5405,33 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           resolutionContext?.roll_density_group,
           rollArguments?.decision_id,
         ]);
+      }
+      if (operation === "rules.settle" && data.family === "development") {
+        // A development settlement writes public improvement, gain, luck and
+        // SAN-reward rolls keyed by the settle operation id, and its receipt
+        // rows carry those exact roll ids (slice added after the 2026-09-02
+        // live deadlock: campaign textlayer-beautify-20260902, epochs 36/37
+        // both ended in settled_output_recovery_exhausted because the receipt
+        // named no roll ids, so the registry never minted handles and the
+        // turn's development obligations collapsed turn.output_context to
+        // semantic_identity_unavailable). Register before the generic
+        // settle walk so the first handle carries the distinctive roll_kind
+        // fact; same-canonical re-registration reuses the handle.
+        walkCanonicalRows(data, (row) => {
+          if (typeof row.roll_id !== "string" || !row.roll_id.trim()) return;
+          registerRoll(row.roll_id, [
+            row.skill ?? "development",
+            row.roll_kind ?? "development-roll",
+            data.family,
+          ]);
+          if (typeof row.gain_roll_id === "string" && row.gain_roll_id.trim()) {
+            registerRoll(row.gain_roll_id, [
+              row.skill ?? "development",
+              "development-gain",
+              data.family,
+            ]);
+          }
+        });
       }
       // The ten-family cutover moved execution to `rules.settle` and left
       // this registration behind. Seven of the operations named in this block
@@ -11475,6 +11567,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const gatewayCampaign = typeof params.campaign === "string"
         ? params.campaign.trim()
         : "";
+      ensureDevelopmentRollHandles(gatewayCampaign);
       const diagnostics = { unmapped: [] as UnmappedIdentityRef[] };
       const canonicalData = objectOrNull(objectOrNull(canonical)?.data);
       const identityScopeData = params.operation === "session.resume"

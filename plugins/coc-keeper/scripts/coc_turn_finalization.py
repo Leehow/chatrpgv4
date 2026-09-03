@@ -1942,6 +1942,75 @@ def creation_receipt_bound_roll_ids(
     return bound
 
 
+def _applied_development_deltas(
+    campaign_dir: Path, investigator_id: str,
+) -> tuple[dict[str, int], int]:
+    """Skill and Luck deltas applied by PASS development settlements.
+
+    The creation-state integrity check compares the live sheet against
+    creation values; recorded development legitimately moves the sheet after
+    creation. Those authoritative deltas are added back into the comparison
+    instead of reading as corruption — without this, the first session
+    ending that improved a skill made every later resume fail closed with
+    state_corrupt (live 2026-09-02, campaign textlayer-beautify-20260902).
+    """
+    skill_deltas: dict[str, int] = {}
+    luck_delta = 0
+    endings_root = (
+        Path(campaign_dir) / "save" / "development-settlements" / "endings"
+    )
+    if not endings_root.is_dir():
+        return skill_deltas, luck_delta
+    for record_path in sorted(endings_root.glob(f"*/{investigator_id}.json")):
+        try:
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        receipt = record.get("receipt") if isinstance(record, dict) else None
+        if not isinstance(receipt, dict) or receipt.get("status") != "PASS":
+            continue
+        result = receipt.get("result")
+        if not isinstance(result, dict):
+            continue
+        for check in result.get("improvement_checks") or []:
+            if not isinstance(check, dict):
+                continue
+            skill = check.get("skill")
+            delta = check.get("applied_delta")
+            if (
+                isinstance(skill, str)
+                and isinstance(delta, int)
+                and not isinstance(delta, bool)
+            ):
+                skill_deltas[skill] = skill_deltas.get(skill, 0) + delta
+        luck = result.get("luck_recovery")
+        gained = luck.get("applied_delta") if isinstance(luck, dict) else None
+        if isinstance(gained, int) and not isinstance(gained, bool):
+            luck_delta += gained
+    return skill_deltas, luck_delta
+
+
+def _sheet_minus_development(
+    character: dict[str, Any],
+    skill_deltas: dict[str, int],
+    luck_delta: int,
+) -> dict[str, Any]:
+    """Project the creation-equivalent sheet for integrity comparison."""
+    adjusted = json.loads(json.dumps(character, ensure_ascii=False))
+    skills = adjusted.get("skills")
+    if isinstance(skills, dict):
+        for skill, delta in skill_deltas.items():
+            current = skills.get(skill)
+            if isinstance(current, int) and not isinstance(current, bool):
+                skills[skill] = current - delta
+    derived = adjusted.get("derived")
+    if isinstance(derived, dict) and luck_delta:
+        luck = derived.get("Luck")
+        if isinstance(luck, int) and not isinstance(luck, bool):
+            derived["Luck"] = luck - luck_delta
+    return adjusted
+
+
 def _campaign_creation_records(
     campaign_dir: Path,
 ) -> list[tuple[dict[str, Any], set[str]]]:
@@ -2074,6 +2143,14 @@ def _campaign_creation_records(
         character = read_required_object(
             character_path, f"linked investigator {investigator_id} character sheet",
         )
+        if isinstance(character, dict) and character.get("id") == investigator_id:
+            skill_deltas, luck_delta = _applied_development_deltas(
+                campaign_dir, investigator_id,
+            )
+            if skill_deltas or luck_delta:
+                character = _sheet_minus_development(
+                    character, skill_deltas, luck_delta,
+                )
         if (
             not isinstance(character, dict)
             or character.get("id") != investigator_id

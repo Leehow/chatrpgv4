@@ -197,6 +197,53 @@ def test_repeat_end_session_within_one_session_replays_settlement(campaign_ws):
     assert ledger["boundaries"][0]["session_ids"]
 
 
+def test_development_receipt_rows_carry_the_public_roll_identities(campaign_ws):
+    """Receipt rows must name the exact roll ids their public rolls are
+    written under: the host registry mints semantic handles from them and
+    the session-ending turn's obligations resolve through those handles.
+    Missing ids dead-locked every end-session turn at
+    semantic_identity_unavailable (live 2026-09-02, campaign
+    textlayer-beautify-20260902, epochs 36 and 37)."""
+    _earn_spot_hidden_tick(campaign_ws)
+    ended = _end_session(campaign_ws, "ending-roll-ids")
+    receipt_result = ended["data"]["development"]["settlements"][0]["receipt"][
+        "result"
+    ]
+
+    checks = receipt_result["improvement_checks"]
+    assert checks, "the earned tick must produce an improvement check"
+    for index, row in enumerate(checks):
+        assert row["roll_id"].endswith(f":check:{index}"), row
+        assert row["roll_kind"] == "development_check"
+        if row.get("improved"):
+            assert row.get("gain_roll_id", "").endswith(f":gain:{index}"), row
+    luck = receipt_result.get("luck_recovery") or {}
+    if isinstance(luck.get("roll"), int):
+        assert luck["roll_id"].endswith(":luck-recovery")
+        assert luck["roll_kind"] == "luck_recovery"
+
+    # Every id on the receipt matches a public roll actually written.
+    written = {
+        row.get("roll_id")
+        for row in _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    }
+    for row in checks:
+        assert row["roll_id"] in written
+        if row.get("gain_roll_id"):
+            assert row["gain_roll_id"] in written
+
+
+def test_resume_survives_a_developed_investigator(campaign_ws):
+    """Creation-state integrity must count recorded development: before the
+    fix, the first ending that improved a skill made every later
+    session.resume fail closed with state_corrupt (live 2026-09-02,
+    campaign textlayer-beautify-20260902)."""
+    _earn_spot_hidden_tick(campaign_ws)
+    _end_session(campaign_ws, "ending-develop-then-resume")
+    resumed = _run(campaign_ws, "session.resume")
+    assert resumed["ok"] is True, resumed
+
+
 def test_session_begin_opens_a_fresh_settlement_boundary(campaign_ws):
     _earn_spot_hidden_tick(campaign_ws)
     first = _end_session(campaign_ws, "ending-one")

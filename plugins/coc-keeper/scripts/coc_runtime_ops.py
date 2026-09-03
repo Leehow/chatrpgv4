@@ -3926,6 +3926,13 @@ def _development_operation_body(
     operation_id = f"op-development-settle-{identity}-{plan_digest}"
     public_rows: list[dict[str, Any]] = []
     for index, check in enumerate(result.get("improvement_checks") or []):
+        # The receipt rows carry the exact roll identities the public rolls
+        # are written under: the host registry mints semantic handles from
+        # them, and the turn's development obligations resolve through those
+        # handles. Without these fields the envelope names rolls the registry
+        # never saw and turn.output_context fails closed.
+        check["roll_id"] = f"{operation_id}:check:{index}"
+        check["roll_kind"] = "development_check"
         public_rows.append(_write_public_roll(
             campaign_dir,
             command_id=f"{operation_id}:check:{index}",
@@ -3940,6 +3947,7 @@ def _development_operation_body(
             outcome="improved" if check.get("improved") else "no_improvement",
         ))
         if check.get("improved") and isinstance(check.get("gain"), int):
+            check["gain_roll_id"] = f"{operation_id}:gain:{index}"
             public_rows.append(_write_public_roll(
                 campaign_dir,
                 command_id=f"{operation_id}:gain:{index}",
@@ -3953,6 +3961,8 @@ def _development_operation_body(
             ))
     luck = result.get("luck_recovery") or {}
     if isinstance(luck.get("roll"), int):
+        luck["roll_id"] = f"{operation_id}:luck-recovery"
+        luck["roll_kind"] = "luck_recovery"
         public_rows.append(_write_public_roll(
             campaign_dir,
             command_id=f"{operation_id}:luck-recovery",
@@ -4006,6 +4016,8 @@ def _development_operation_body(
             "san_max": int(sanity.san_max),
         }
         reward_roll_id = f"{operation_id}:san-reward"
+        result["san_reward"]["roll_id"] = reward_roll_id
+        result["san_reward"]["roll_kind"] = "development_san_reward"
         public_rows.append(_write_public_roll(
             campaign_dir,
             command_id=reward_roll_id,
@@ -4060,6 +4072,8 @@ def _development_operation_body(
             result["scenario_san_reward"] = {
                 **prior_reward["reward"],
                 "replayed": True,
+                "roll_id": prior_reward["roll_id"],
+                "roll_kind": "scenario_san_reward",
             }
             result["scenario_san_reward_applied"] = False
             result["scenario_san_reward_receipt"] = {
@@ -4121,9 +4135,11 @@ def _development_operation_body(
                 "san_after": san_after,
                 "san_max": int(sanity.san_max),
             }
+            scenario_reward_roll_id = f"{operation_id}:scenario-san-reward"
+            reward_result["roll_id"] = scenario_reward_roll_id
+            reward_result["roll_kind"] = "scenario_san_reward"
             result["scenario_san_reward"] = reward_result
             result["scenario_san_reward_applied"] = True
-            scenario_reward_roll_id = f"{operation_id}:scenario-san-reward"
             public_rows.append(_write_public_roll(
                 campaign_dir,
                 command_id=scenario_reward_roll_id,
