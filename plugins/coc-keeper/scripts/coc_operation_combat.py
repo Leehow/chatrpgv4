@@ -35,6 +35,22 @@ coc_narrative_enrichment = _load_sibling(
     "coc_narrative_enrichment_toolbox", "coc_narrative_enrichment.py"
 )
 
+def _profile_weapon_rows(
+    sheet: dict[str, Any], inventory_state: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Sheet weapons merged with runtime inventory, plus the ever-present fist.
+
+    Split out so the combat profile and the `rules.context` arsenal read the
+    SAME set: an arsenal derived a second way would eventually name a weapon
+    the profile does not carry.
+    """
+    inventory = coc_inventory.normalize_inventory(inventory_state)
+    weapons = coc_inventory.effective_weapons(sheet.get("weapons"), inventory)
+    if not any(item.get("weapon_id") == "unarmed" for item in weapons):
+        weapons.append({"weapon_id": "unarmed"})
+    return weapons
+
+
 def _investigator_combat_profile(
     ctx: Ctx,
     investigator_id: str,
@@ -53,10 +69,7 @@ def _investigator_combat_profile(
         int(characteristics.get("STR", 50)),
         int(characteristics.get("SIZ", 50)),
     )
-    inventory = coc_inventory.normalize_inventory(state)
-    weapons = coc_inventory.effective_weapons(sheet.get("weapons"), inventory)
-    if not any(item.get("weapon_id") == "unarmed" for item in weapons):
-        weapons.append({"weapon_id": "unarmed"})
+    weapons = _profile_weapon_rows(sheet, state)
     return {
         "actor_id": investigator_id,
         "side": "investigator",
@@ -243,17 +256,185 @@ def _record_combat_improvement_ticks(
                 recorded.append(skill)
     return recorded
 
+def _resolved_owned_weapons(
+    investigator_profile: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Owned weapon rows enriched from the catalog they resolve through.
+
+    One derivation, two consumers: `combat.resolve`'s ownership gate and the
+    combat family's `rules.context` arsenal.  A second, drifting derivation is
+    exactly how a Keeper would be shown an id the settle path then refuses.
+
+    Rows are enriched IN PLACE, so the profile the caller passed keeps the
+    same objects (weapon-effect lookup downstream depends on that identity).
+    """
+    owned_rows = [
+        row for row in (investigator_profile.get("weapons") or [])
+        if isinstance(row, dict) and row.get("weapon_id")
+    ]
+    base_catalog = coc_subsystem_executor.coc_combat.resolve_module_weapons(None)
+    # Owned ``extends`` weapons are catalog-backed: resolve them through the
+    # same merge the engine applies, so a granted module-style weapon is as
+    # resolvable as the canonical weapon it extends.
+    owned_extends_profiles = [
+        deepcopy(row) for row in owned_rows
+        if str(row.get("extends") or "").strip()
+        and str(row.get("weapon_id") or "") not in base_catalog
+    ]
+    catalog = (
+        coc_subsystem_executor.coc_combat.resolve_module_weapons(
+            owned_extends_profiles, base_catalog
+        )
+        if owned_extends_profiles
+        else base_catalog
+    )
+    for row in owned_rows:
+        catalog_row = catalog.get(str(row.get("weapon_id") or ""))
+        if isinstance(catalog_row, dict):
+            if not str(row.get("skill") or "").strip():
+                row["skill"] = catalog_row.get("skill")
+            if row.get("magazine") is None and catalog_row.get("magazine") is not None:
+                row["magazine"] = catalog_row.get("magazine")
+            if not str(row.get("damage") or row.get("damage_die") or "").strip():
+                row["damage"] = catalog_row.get("damage") or catalog_row.get("damage_die")
+    return owned_rows, catalog
+
+
+def _weapon_is_resolvable(row: dict[str, Any], catalog: dict[str, Any]) -> bool:
+    """Exactly `combat.resolve`'s own acceptance test for an owned row.
+
+    Ownership alone is not enough: a custom row with no skill or no damage is
+    owned and still refused with `unknown_weapon`.  Showing such a row in the
+    arsenal would swap one wasted turn for another.
+    """
+    weapon_id = str(row.get("weapon_id") or "")
+    if not weapon_id:
+        return False
+    if weapon_id == "unarmed" or weapon_id in catalog:
+        return True
+    return bool(str(row.get("skill") or "").strip()) and bool(
+        str(row.get("damage") or row.get("damage_die") or "").strip()
+    )
+
+
+#: The arsenal is a working set, not an inventory dump: `rules.context` for
+#: combat already measures ~13.6 KB of the 16 KB inline cap on an ordinary
+#: turn, so a pathological hoard must not be what pushes it over.  A real
+#: investigator carries a handful; the cap only bounds the pathological case,
+#: and it says so rather than truncating in silence.
+_ARSENAL_LIMIT = 12
+
+
+def _investigator_arsenal(
+    ctx: Ctx, investigator_id: str,
+) -> tuple[list[dict[str, Any]], int]:
+    """The owned, resolvable weapon ids the Keeper may name, and how many there are.
+
+    The canonical weapon id appeared in exactly one model-facing place: the
+    text of a REFUSED settle.  So the Keeper reached for the display label
+    it did have -- live on 2026-09-01, `item:38-左轮` for a sheet weapon whose
+    canonical id is `revolver_38_or_9mm` -- and paid a turn for it, then hit
+    `nonretryable_repeat_blocked` on the retry.  Each row carries the id to
+    copy, the label that lets a Keeper match it to the fiction, and the skill
+    that distinguishes two carried weapons.  Nothing else: damage stays out
+    so the block cannot be read as licence to narrate a hit unrolled.
+    """
+    if not investigator_id:
+        return [], 0
+    # `ctx.inv_state` SEEDS a missing state file.  `rules.context` is
+    # `strict_read_only` and takes a SHARED campaign lock, so a read that
+    # writes would let two concurrent contexts race on creating the same
+    # file.  An absent file is simply an empty inventory here: the sheet's
+    # own weapons still reach the Keeper.
+    state_path = ctx.inv_state_path(investigator_id)
+    state = (
+        json.loads(state_path.read_text(encoding="utf-8"))
+        if state_path.is_file()
+        else None
+    )
+    weapons = _profile_weapon_rows(ctx.sheet(investigator_id), state)
+    owned_rows, catalog = _resolved_owned_weapons({"weapons": weapons})
+    arsenal: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in owned_rows:
+        weapon_id = str(row.get("weapon_id") or "")
+        if weapon_id in seen or not _weapon_is_resolvable(row, catalog):
+            continue
+        seen.add(weapon_id)
+        catalog_row = catalog.get(weapon_id)
+        entry: dict[str, Any] = {"weapon_ref": weapon_id}
+        name = str(row.get("name") or "").strip()
+        if name and name != weapon_id:
+            entry["name"] = name
+        skill = str(
+            row.get("skill")
+            or (catalog_row.get("skill") if isinstance(catalog_row, dict) else "")
+            or ""
+        ).strip()
+        if skill:
+            entry["skill"] = skill
+        arsenal.append(entry)
+    return arsenal[:_ARSENAL_LIMIT], len(arsenal)
+
+
+#: Copy-verbatim guidance for the one field this whole block exists to fill.
+#: It rides INSIDE the block rather than in `hints`: Pi authors the model's
+#: hints from structured envelope fields and never relays canonical hint
+#: prose, so a hint here would be written and then silently dropped -- the
+#: same computed-but-undelivered failure this whole change is about.
+_ARSENAL_NOTE = (
+    "copy weapons[].weapon_ref verbatim into rules.settle "
+    "semantic_inputs.weapon_ref; a display name is not a weapon id"
+)
+
+
+def _arsenal_block(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
+    """The model-facing arsenal block, empty-safe.
+
+    A truncated list says so IN the block.  `warnings` cannot carry it: Pi
+    drops canonical warning prose exactly as it drops canonical hints, so a
+    warning here would be written and never delivered -- and a silently
+    shortened arsenal is a worse lie than no arsenal, because the Keeper
+    would read it as the whole of what the investigator carries.
+    """
+    weapons, carried = _investigator_arsenal(ctx, investigator_id)
+    block: dict[str, Any] = {"weapons": weapons}
+    if weapons:
+        block["note"] = _ARSENAL_NOTE
+    if carried > len(weapons):
+        block["not_listed"] = carried - len(weapons)
+        block["note"] = (
+            _ARSENAL_NOTE
+            + "; further owned weapons are not listed here -- read "
+            "state.inventory_list if the player names one that is missing"
+        )
+    return block
+
+
 def _tool_combat_context(ctx: Ctx, args: dict[str, Any]):
+    investigator_id = str(args.get("investigator") or "").strip()
+    if not investigator_id:
+        party = ctx.party_ids()
+        investigator_id = party[0] if party else ""
+    arsenal = _arsenal_block(ctx, investigator_id)
     state = _combat_state(ctx)
     if not state:
-        return {"active": False, "combat": None}, [], [
-            "start authored combat with combat.resolve and an affordance_id"
+        return {
+            "active": False,
+            "combat": None,
+            "arsenal": arsenal,
+        }, [], [
+            "start authored combat with combat.resolve and an affordance_id",
         ]
     pending = state.get("pending_attack")
     return {
         "active": state.get("status") == "active",
         "combat": {"secret": True, "value": state},
         "pending_defense": deepcopy(pending) if isinstance(pending, dict) else None,
+        # Mid-fight too: reload and a weapon swap need the same vocabulary as
+        # the opening swing, and a Keeper that had it once has since had a
+        # dozen tool results pushed between then and now.
+        "arsenal": arsenal,
     }, [], []
 
 def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
@@ -483,35 +664,7 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
         raise ToolError("invalid_param", "weapon_effect_ids must be non-empty strings")
     if len(selected_effect_ids) != len(set(selected_effect_ids)):
         raise ToolError("invalid_param", "weapon_effect_ids must be unique")
-    owned_rows = [
-        row for row in (investigator_profile.get("weapons") or [])
-        if isinstance(row, dict) and row.get("weapon_id")
-    ]
-    base_catalog = coc_subsystem_executor.coc_combat.resolve_module_weapons(None)
-    # Owned ``extends`` weapons are catalog-backed: resolve them through the
-    # same merge the engine applies, so a granted module-style weapon is as
-    # resolvable as the canonical weapon it extends.
-    owned_extends_profiles = [
-        deepcopy(row) for row in owned_rows
-        if str(row.get("extends") or "").strip()
-        and str(row.get("weapon_id") or "") not in base_catalog
-    ]
-    catalog = (
-        coc_subsystem_executor.coc_combat.resolve_module_weapons(
-            owned_extends_profiles, base_catalog
-        )
-        if owned_extends_profiles
-        else base_catalog
-    )
-    for row in owned_rows:
-        catalog_row = catalog.get(str(row.get("weapon_id") or ""))
-        if isinstance(catalog_row, dict):
-            if not str(row.get("skill") or "").strip():
-                row["skill"] = catalog_row.get("skill")
-            if row.get("magazine") is None and catalog_row.get("magazine") is not None:
-                row["magazine"] = catalog_row.get("magazine")
-            if not str(row.get("damage") or row.get("damage_die") or "").strip():
-                row["damage"] = catalog_row.get("damage") or catalog_row.get("damage_die")
+    owned_rows, catalog = _resolved_owned_weapons(investigator_profile)
     selected_weapon_id = str(args.get("weapon_id") or "").strip()
     owned_row = coc_inventory.resolve_owned_weapon(owned_rows, selected_weapon_id)
     if owned_row is None and not selected_weapon_id:

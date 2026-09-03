@@ -4156,8 +4156,24 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   // `bout_rounds_remaining` and each event's summary, and continues the bout
   // through `next_decisions`, never by echoing an id. Declaring them here
   // drops them the same way instead of failing the result closed.
+  // `weapon_ref` is the combat family's arsenal: the owned, resolvable weapon
+  // ids the Keeper copies verbatim into `rules.settle`
+  // `semantic_inputs.weapon_ref`. It is deliberately NOT routed through the
+  // weapon registry the way `weapon_id` is (SEMANTIC_ID_SCALAR_FIELDS maps
+  // that one to a `weapon:` handle): `weapon_ref` has no restore classifier,
+  // so a handle presented here would come back verbatim and the kernel would
+  // strip `weapon:` off a handle slug that names no canonical weapon. The
+  // canonical id is what the settle slot takes, so the canonical id is what
+  // the context shows -- judged by the shared semantic slug grammar, which
+  // `revolver_38_or_9mm` and the built-in `unarmed` both satisfy.
+  //
+  // Undeclared it would not merely vanish: an identity-named field with a
+  // string value collapses the WHOLE envelope to
+  // `semantic_identity_unavailable`, so the fix for a Keeper that could not
+  // see its own weapons would have been a Keeper that could not see its own
+  // cards either.
   ["rules.context", declaredIdentityTable(
-    [...RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS, "rule_ref"],
+    [...RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS, "rule_ref", "weapon_ref"],
     [],
     // Once a bout registers its Keeper choice, the family's context carries
     // it: `canonical_context.pending_choices`. `choice_id` and `command_id`
