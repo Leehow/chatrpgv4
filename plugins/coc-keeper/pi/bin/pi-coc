@@ -93,6 +93,18 @@ export COC_PI_SCENE_SUPPLY=1
 HOST_SYSTEM_PROMPT=$REPO_ROOT/plugins/coc-keeper/pi/prompts/host-system.md
 DEFAULT_SESSION_ID=${PI_COC_SESSION_ID:-coc-keeper}
 
+# `pi-coc-setup` sets this. Onboarding runs the same prepared environment --
+# uv, the PDF adapters, the pinned interpreters, the MCP transport -- and
+# differs only in which extension, prompt and session it loads. Preparing that
+# environment a second time in a second launcher is how the old opening path
+# ended up with the same default written in four places.
+ONBOARDING_ROLE=0
+if [[ "${COC_PI_LAUNCH_ROLE:-}" == "onboarding" ]]; then
+  ONBOARDING_ROLE=1
+  HOST_SYSTEM_PROMPT=$REPO_ROOT/plugins/coc-keeper/pi/prompts/onboarding-system.md
+  DEFAULT_SESSION_ID=${PI_COC_SESSION_ID:-coc-onboarding}
+fi
+
 attached_ui_enabled() {
   case "${COC_PI_ATTACHED_UI:-}" in
     1|true|TRUE|yes|YES) return 0 ;;
@@ -418,6 +430,10 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+if [[ "$ONBOARDING_ROLE" -eq 1 && "$CAMPAIGN_SELECTOR_SET" -eq 0 ]]; then
+  printf '%s\n' "pi-coc-setup: --campaign <id> is required; onboarding builds exactly one campaign" >&2
+  exit 2
+fi
 if [[ "$CAMPAIGN_SELECTOR_SET" -eq 1 ]]; then
   node "$SCRIPT_DIR/../lib/campaign-id.mjs" "$PI_COC_CAMPAIGN_ID"
   export PI_COC_CAMPAIGN_ID
@@ -430,6 +446,11 @@ HOST_SYSTEM_PROMPT_DEFAULT=$HOST_SYSTEM_PROMPT
 SESSION_SKILL_ARGS=()
 
 assemble_campaign_role() {
+  # Onboarding is one prompt and one extension; it has no play/setup role split
+  # to resolve, and session-roles.json describes the host it never loads.
+  if [[ "$ONBOARDING_ROLE" -eq 1 ]]; then
+    return 0
+  fi
   HOST_SYSTEM_PROMPT=$HOST_SYSTEM_PROMPT_DEFAULT
   SESSION_SKILL_ARGS=()
   unset COC_PI_SESSION_ROLE
@@ -518,6 +539,26 @@ build_pi_args() {
     --approve
     --no-context-files
   )
+  if [[ "$ONBOARDING_ROLE" -eq 1 ]]; then
+    # Isolation is the point: onboarding never loads the Keeper host, so it
+    # cannot inherit a phase machine, a play tool surface, or a projection
+    # registry that only makes sense at the table. `--no-extensions` turns
+    # discovery off, which also drops the subagent package -- and the source
+    # review step cannot run without it, so it is named explicitly and its
+    # absence is fatal rather than a session that can never finish a module.
+    ONBOARDING_EXTENSION=$REPO_ROOT/plugins/coc-keeper/pi/extensions/onboarding/index.ts
+    SUBAGENT_EXTENSION=$PI_CODING_AGENT_DIR/npm/node_modules/@arhen/pi-core-subagent/src/index.ts
+    if [ ! -f "$ONBOARDING_EXTENSION" ]; then
+      printf '%s\n' "pi-coc-setup: missing onboarding extension: $ONBOARDING_EXTENSION" >&2
+      exit 1
+    fi
+    if [ ! -f "$SUBAGENT_EXTENSION" ]; then
+      printf '%s\n' "pi-coc-setup: missing @arhen/pi-core-subagent at $SUBAGENT_EXTENSION" >&2
+      printf '%s\n' "pi-coc-setup: PDF module review dispatches a subagent; install it with 'pi install npm:@arhen/pi-core-subagent'" >&2
+      exit 1
+    fi
+    PI_ARGS+=(--no-extensions -e "$ONBOARDING_EXTENSION" -e "$SUBAGENT_EXTENSION")
+  fi
   if ((${#SESSION_SKILL_ARGS[@]} > 0)); then
     PI_ARGS+=("${SESSION_SKILL_ARGS[@]}")
   fi

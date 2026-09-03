@@ -19,6 +19,10 @@
 import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { McpJsonlClient } from "../../lib/runtime.ts";
+import {
+  getOperationContract,
+  loadOperationContracts,
+} from "../../lib/operation-contracts.ts";
 import { readState, type OnboardingState, type PlayerChoice } from "./state.ts";
 import { currentStep, activeTools, refusal } from "./steps.ts";
 
@@ -69,10 +73,19 @@ export default function onboardingExtension(pi: ExtensionAPI, overrides: {
     catch { /* audit is best effort */ }
   };
 
+  /**
+   * The step this session was last told to work on. Advancing to a new step
+   * is what earns an automatic continuation; re-projecting the same step does
+   * not, or a failing operation would retry itself forever.
+   */
+  let projectedStep: string | null = null;
+
   /** Publish the surface and the instruction for wherever we now stand. */
   const project = (ctx: ExtensionContext): void => {
     const s = state(ctx);
     const step = currentStep(s);
+    const advanced = (step?.id ?? null) !== projectedStep;
+    projectedStep = step?.id ?? null;
     const tools = [...activeTools(s)];
     try { pi.setActiveTools([...tools, "onboarding_choose_source"]); }
     catch { /* older hosts ignore the surface hint */ }
@@ -92,11 +105,17 @@ export default function onboardingExtension(pi: ExtensionAPI, overrides: {
       }, { triggerTurn: false });
       return;
     }
+    // Steps that are the session's own work continue on their own. Only
+    // `ask_player` genuinely needs the player to speak, and `external` waits
+    // on something produced outside the table -- making the player type a
+    // filler line to unblock work they were not asked for is the friction the
+    // old path had in both directions.
+    const selfDriven = step.action.kind !== "ask_player" && step.action.kind !== "external";
     pi.sendMessage({
       customType: "coc-onboarding-step",
       content: `【引导 · ${step.id}】${step.say(s)}`,
       display: false,
-    }, { triggerTurn: false });
+    }, { triggerTurn: advanced && selfDriven });
   };
 
   /**
@@ -121,7 +140,7 @@ export default function onboardingExtension(pi: ExtensionAPI, overrides: {
       },
       additionalProperties: false,
     },
-    execute: async (_id: string, params: JsonObject, _a: unknown, _b: unknown, ctx: ExtensionContext) => {
+    execute: async (_id: string, params: JsonObject) => {
       const starter = typeof params.starter_id === "string" ? params.starter_id.trim() : "";
       const bundle = typeof params.bundle_path === "string" ? params.bundle_path.trim() : "";
       if ((starter === "") === (bundle === "")) {
@@ -144,7 +163,8 @@ export default function onboardingExtension(pi: ExtensionAPI, overrides: {
           ? params.play_language.trim() : "zh-Hans",
       };
       audit({ status: "source_chosen", starter_id: choice.starterId, bundle_path: choice.bundlePath });
-      project(ctx);
+      // `tool_execution_end` projects; doing it here as well would publish the
+      // next step from inside the call that is still returning.
       return { content: [{ type: "text", text: JSON.stringify({ ok: true, recorded: true }) }] };
     },
   });
@@ -182,6 +202,28 @@ export default function onboardingExtension(pi: ExtensionAPI, overrides: {
       hint: "Read host capabilities, including subagent task text." },
   ];
 
+  // Parameters come from the contract archive, the same file the canonical
+  // runtime validates against. Neither a hand-copied schema nor an empty one:
+  // the first invents a second place for the contract to live, and the second
+  // advertises a tool with no parameters at all -- which is what shipped on
+  // the first live run, so the model called setup.quick_start six times with
+  // `{}` and got the same missing_param back every time.
+  const contracts = loadOperationContracts();
+
+  /**
+   * The contract's schema minus the transport selector. Onboarding never sends
+   * `campaign` -- every setup operation is `needs_campaign: false` and carries
+   * its own `campaign_id` -- so offering the field would advertise a parameter
+   * that silently does nothing.
+   */
+  const toolSchema = (operation: string): Record<string, unknown> => {
+    const schema = getOperationContract(contracts, operation).inputSchema;
+    const properties = schema.properties;
+    if (properties === null || typeof properties !== "object") return schema;
+    const { campaign: _selector, ...rest } = properties as Record<string, unknown>;
+    return { ...schema, properties: rest };
+  };
+
   const call = async (
     ctx: ExtensionContext,
     row: { tool: string; operation: string | null },
@@ -206,7 +248,9 @@ export default function onboardingExtension(pi: ExtensionAPI, overrides: {
       name: row.tool,
       label: row.tool,
       description: `${row.hint} Canonical operation \`${row.operation ?? row.tool}\`; the result envelope is authoritative.`,
-      parameters: { type: "object", additionalProperties: true, properties: {} },
+      parameters: row.operation === null
+        ? { type: "object", additionalProperties: false, properties: {} }
+        : toolSchema(row.operation),
       execute: async (
         _id: string,
         params: JsonObject,
@@ -243,5 +287,4 @@ export default function onboardingExtension(pi: ExtensionAPI, overrides: {
 
   pi.on("tool_execution_end", (_event: unknown, ctx: ExtensionContext) => { project(ctx); });
 
-  return { invoke, project, state };
 }

@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# pi-coc-setup — the onboarding session: choose a module, build a campaign,
+# make an investigator, hand off. It ends at `ready_for_table`; play happens in
+# a `pi-coc` session that resumes the campaign this one left behind.
+#
+# Deliberately a thin wrapper. The environment onboarding needs is the same
+# environment the table needs -- uv, the PDF adapters, the pinned interpreters,
+# the MCP transport -- and preparing it twice is how the old opening path
+# ended up with one default written in four places. `pi-coc` prepares it; this
+# script only says which role is being launched.
+set -euo pipefail
+
+SCRIPT_PATH=$0
+if [ -L "$SCRIPT_PATH" ]; then
+  LINK_TARGET=$(ls -l "$SCRIPT_PATH" | sed 's/.* -> //')
+  case "$LINK_TARGET" in
+    /*) SCRIPT_PATH=$LINK_TARGET ;;
+    *) SCRIPT_PATH=$(CDPATH= cd -- "$(dirname "$SCRIPT_PATH")" && pwd)/$LINK_TARGET ;;
+  esac
+fi
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$SCRIPT_PATH")" && pwd)
+
+export COC_PI_LAUNCH_ROLE=onboarding
+exec "$SCRIPT_DIR/pi-coc" "$@"

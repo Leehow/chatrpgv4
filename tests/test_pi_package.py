@@ -252,6 +252,12 @@ def test_pi_onboarding_state_is_read_from_disk():
     assert result == {"ok": True, "module": "onboarding-state-from-disk"}
 
 
+def test_pi_onboarding_tool_surface_projects_the_contract():
+    """Onboarding tools carry the archive's real parameters, not an empty schema."""
+    result = _node(ROOT / "tests/pi/onboarding-tool-surface.mjs", str(ROOT))
+    assert result == {"ok": True, "module": "onboarding-tool-surface"}
+
+
 def test_pi_domain_tools_acl_and_closed_enums():
     result = _node(ROOT / "tests/pi/domain-tools-acl.mjs", str(ROOT))
     assert result == {"ok": True}
