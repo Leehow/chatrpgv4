@@ -1,0 +1,370 @@
+"""Behavior tests owned by the magic operation cell.
+
+Both defects these cover were invisible to unit tests that fed a consumer a
+hand-built dict: ``magic.learn`` returned ok while investigator-state never
+moved, and ``magic.learn.sources`` was built only from NPC rows, so a tome
+could never be a source. Everything below therefore enters through the real
+tool and asserts on persisted state or on what the live fact provider hands
+the card projection.
+"""
+from toolbox_test_support import *
+
+coc_magic = _load("coc_magic_for_toolbox_magic", SCRIPTS / "coc_magic.py")
+coc_rulesets = _load("coc_rulesets_for_toolbox_magic", SCRIPTS / "coc_rulesets.py")
+
+SPELL = "Contact Spells"
+
+
+def _learning_seed(int_value: int, *, succeeds: bool) -> int:
+    """First seed whose INT(hard) draw lands the way the test needs.
+
+    magic.learn draws the learning check off ``random.Random(seed)`` before it
+    rolls study length, so probing the same check with the same seed picks the
+    outcome without hand-writing a roll result.
+    """
+    for seed in range(1, 2000):
+        probe = coc_magic.coc_roll.percentile_check(
+            int_value, difficulty="hard", rng=random.Random(seed)
+        )
+        if bool(probe["roll"] <= probe["effective_target"]) is succeeds:
+            return seed
+    raise AssertionError("no seed produced the requested learning outcome")
+
+
+def _magic_state(ws) -> dict:
+    path = (
+        ws["campaign_dir"] / "save" / "investigator-state"
+        / f"{ws['investigator_id']}.json"
+    )
+    return json.loads(path.read_text(encoding="utf-8")).get("magic") or {}
+
+
+def _live_facts(ws) -> dict:
+    """Facts exactly as the card projection receives them."""
+    kernel = coc_toolbox.coc_operation_kernel
+    ctx = kernel.Ctx(ws["workspace"], ws["campaign_id"])
+    provider = kernel._facts_provider_for(ctx, ws["investigator_id"], "coc7")
+    return dict(provider())
+
+
+def _augmented(ws, semantic_inputs: dict) -> dict:
+    """Live facts run through the coc7 adapter that owns the magic gates."""
+    kernel = coc_toolbox.coc_operation_kernel
+    ctx = kernel.Ctx(ws["workspace"], ws["campaign_id"])
+    adapter = coc_rulesets.get_rule_graph_adapter("coc7")
+    return dict(adapter.augment_facts(
+        ctx, {"semantic_inputs": semantic_inputs}, _live_facts(ws)
+    ))
+
+
+def _author_tome_item(ws, item_id: str, spells: list[str]) -> None:
+    """Record an authored tome in the campaign's own module-meta item slot.
+
+    This is the slot ``mechanics.ensure`` and ``state.item_grant`` already read
+    item mechanics from; a tome's spell list belongs there because the reviewed
+    CoC7 tome catalogue prints study weeks, Sanity cost and Mythos rating and
+    no spell lists.
+    """
+    path = ws["campaign_dir"] / "scenario" / "module-meta.json"
+    meta = json.loads(path.read_text(encoding="utf-8"))
+    mechanics = meta.setdefault("module_mechanics", {"schema_version": 1, "items": {}})
+    mechanics.setdefault("items", {})[item_id] = {
+        "item_id": item_id,
+        "label": "Corbitt's notes",
+        "origin": "source",
+        "mechanics": {
+            "status": "authored",
+            "profile": {
+                "profile_kind": "tome",
+                "name": "Corbitt's notes",
+                "spells": list(spells),
+                "authority": "source_authored",
+            },
+            "source_refs": [{"source_id": "the-haunting", "pdf_index": 453}],
+        },
+    }
+    _write_json(path, meta)
+
+
+# --------------------------------------------------------------------------- #
+# magic.learn must move persisted state, and the study must actually complete
+# --------------------------------------------------------------------------- #
+def test_magic_learn_from_a_tome_moves_state_and_completes_on_the_clock(campaign_ws):
+    seed = _learning_seed(70, succeeds=True)
+    settled = _run(campaign_ws, "magic.learn", {
+        "spell": SPELL,
+        "source": "tome",
+        "decision_id": "magic-learn:tome:1",
+        "seed": seed,
+    })
+    assert settled["ok"] is True, settled
+    result = settled["data"]["receipt"]["result"]
+    assert result["learned"] is True
+    trigger_id = result["completion_trigger_id"]
+    assert trigger_id
+
+    # p.176-177: the spell is not known yet, but the settled write must be
+    # visible in persisted state — an ok receipt over an unchanged file is how
+    # every consumer downstream came to believe a write had happened.
+    magic = _magic_state(campaign_ws)
+    assert magic["learned_spells"] == []
+    assert [row["spell"] for row in magic["studying_spells"]] == [SPELL]
+    study = magic["studying_spells"][0]
+    assert study["trigger_id"] == trigger_id
+    assert study["study_weeks"] == result["study_weeks"]
+    assert study["due_elapsed_minutes"] == result["study_completion_elapsed_minutes"]
+    assert _live_facts(campaign_ws)["magic.known_spells"] == []
+
+    # The study completes on the in-fiction clock, through the ordinary
+    # time-advance operation a Keeper would call.
+    advanced = _run(campaign_ws, "state.advance_time", {
+        "minutes": int(result["study_days"]) * 24 * 60 + 60,
+        "reason": "the investigator spends the weeks studying the tome",
+        "decision_id": "magic-learn:tome:1:study",
+    })
+    assert advanced["ok"] is True, advanced
+
+    magic_after = _magic_state(campaign_ws)
+    assert magic_after["learned_spells"] == [SPELL]
+    assert magic_after["studying_spells"] == []
+    assert _live_facts(campaign_ws)["magic.known_spells"] == [SPELL]
+
+
+def test_cast_spell_gate_opens_only_once_the_studied_spell_is_known(campaign_ws):
+    kernel = coc_toolbox.coc_operation_kernel
+    ctx = kernel.Ctx(campaign_ws["workspace"], campaign_ws["campaign_id"])
+    inputs = {"spell": SPELL}
+
+    assert _augmented(campaign_ws, inputs)["magic.spell.known"] is False
+    with pytest.raises(kernel.ToolError) as unknown:
+        kernel._canonical_magic_binding(
+            ctx,
+            investigator_id=campaign_ws["investigator_id"],
+            decision_ref="decision:coc7:magic:cast-spell",
+            semantic_inputs=inputs,
+        )
+    assert unknown.value.code == "magic_spell_not_known"
+
+    settled = _run(campaign_ws, "magic.learn", {
+        "spell": SPELL,
+        "source": "tome",
+        "decision_id": "magic-learn:tome:cast-gate",
+        "seed": _learning_seed(70, succeeds=True),
+    })
+    assert settled["ok"] is True, settled
+    study_days = int(settled["data"]["receipt"]["result"]["study_days"])
+    assert _run(campaign_ws, "state.advance_time", {
+        "minutes": study_days * 24 * 60 + 60,
+        "reason": "the study period passes",
+        "decision_id": "magic-learn:tome:cast-gate:study",
+    })["ok"] is True
+
+    assert _augmented(campaign_ws, inputs)["magic.spell.known"] is True
+    bound = kernel._canonical_magic_binding(
+        kernel.Ctx(campaign_ws["workspace"], campaign_ws["campaign_id"]),
+        investigator_id=campaign_ws["investigator_id"],
+        decision_ref="decision:coc7:magic:cast-spell",
+        semantic_inputs=inputs,
+    )
+    assert bound["known_spell_ref"].startswith(
+        f"learned-spell:{campaign_ws['investigator_id']}:"
+    )
+
+
+def test_a_failed_learning_check_leaves_no_study_behind(campaign_ws):
+    settled = _run(campaign_ws, "magic.learn", {
+        "spell": SPELL,
+        "source": "tome",
+        "decision_id": "magic-learn:tome:failed",
+        "seed": _learning_seed(70, succeeds=False),
+    })
+    assert settled["ok"] is True, settled
+    assert settled["data"]["receipt"]["result"]["learned"] is False
+    magic = _magic_state(campaign_ws)
+    assert magic["learned_spells"] == []
+    assert magic["studying_spells"] == []
+
+
+# --------------------------------------------------------------------------- #
+# A tome can be a spell source — from authored item mechanics, not from a label
+# --------------------------------------------------------------------------- #
+def test_an_authored_tome_is_a_learnable_source(campaign_ws):
+    _author_tome_item(campaign_ws, "tome-corbitt-notes", [SPELL])
+    facts = _live_facts(campaign_ws)
+    assert facts["magic.learn.sources"]["tome:tome-corbitt-notes"] == [SPELL]
+
+    inputs = {
+        "spell": SPELL,
+        "source": "tome",
+        "source_ref": "tome:tome-corbitt-notes",
+    }
+    assert _augmented(campaign_ws, inputs)["magic.learn.source-available"] is True
+
+    kernel = coc_toolbox.coc_operation_kernel
+    bound = kernel._canonical_magic_binding(
+        kernel.Ctx(campaign_ws["workspace"], campaign_ws["campaign_id"]),
+        investigator_id=campaign_ws["investigator_id"],
+        decision_ref="decision:coc7:magic:learn-spell",
+        semantic_inputs=inputs,
+    )
+    assert bound["investigator"] == campaign_ws["investigator_id"]
+
+
+def test_an_authored_tome_does_not_teach_a_spell_it_does_not_hold(campaign_ws):
+    _author_tome_item(campaign_ws, "tome-corbitt-notes", ["Contact Ghoul"])
+    inputs = {
+        "spell": SPELL,
+        "source": "tome",
+        "source_ref": "tome:tome-corbitt-notes",
+    }
+    assert _augmented(campaign_ws, inputs)["magic.learn.source-available"] is False
+    kernel = coc_toolbox.coc_operation_kernel
+    with pytest.raises(kernel.ToolError) as refused:
+        kernel._canonical_magic_binding(
+            kernel.Ctx(campaign_ws["workspace"], campaign_ws["campaign_id"]),
+            investigator_id=campaign_ws["investigator_id"],
+            decision_ref="decision:coc7:magic:learn-spell",
+            semantic_inputs=inputs,
+        )
+    assert refused.value.code == "magic_source_invalid"
+    assert refused.value.details["available_source_refs"] == [
+        "tome:tome-corbitt-notes"
+    ]
+
+
+def test_carrying_a_tome_is_possession_not_a_spell_source(campaign_ws):
+    """A grant records who holds the object, never what is written in it."""
+    granted = _run(campaign_ws, "state.item_grant", {
+        "kind": "gear",
+        "label": "Corbitt's notes",
+        "item_id": "tome-corbitt-notes",
+        "note": "found in the library",
+        "decision_id": "item-grant:tome-corbitt-notes",
+    })
+    assert granted["ok"] is True, granted
+
+    facts = _live_facts(campaign_ws)
+    assert [key for key in facts["magic.learn.sources"] if key.startswith("tome:")] == []
+    inputs = {
+        "spell": SPELL,
+        "source": "tome",
+        "source_ref": "tome:tome-corbitt-notes",
+    }
+    assert _augmented(campaign_ws, inputs)["magic.learn.source-available"] is False
+
+
+# --------------------------------------------------------------------------- #
+# The whole family, through the production rules.context -> rules.settle path
+# --------------------------------------------------------------------------- #
+def _settled_result(settled: dict) -> dict:
+    """The subsystem receipt a graph settlement carries."""
+    return settled["data"]["settlement"]["result"]["receipt"]["result"]
+
+
+def _magic_cards(ws, semantic_inputs: dict) -> dict:
+    held = _run(ws, "rules.context", {
+        "family": "magic",
+        "investigator": ws["investigator_id"],
+        "semantic_inputs": semantic_inputs,
+    })
+    assert held["ok"] is True, held
+    return {
+        card["decision_ref"]: card
+        for card in (held["data"].get("cards") or [])
+    }
+
+
+def test_the_magic_family_settles_learn_then_cast_through_the_graph(campaign_ws):
+    _author_tome_item(campaign_ws, "tome-corbitt-notes", [SPELL])
+    learn_inputs = {
+        "spell": SPELL,
+        "source": "tome",
+        "source_ref": "tome:tome-corbitt-notes",
+    }
+
+    cards = _magic_cards(campaign_ws, learn_inputs)
+    learn_card = cards["decision:coc7:magic:learn-spell"]
+    assert learn_card["applicability"] == "applicable", learn_card
+    assert (
+        cards.get("decision:coc7:magic:cast-spell", {}).get("applicability")
+        != "applicable"
+    )
+
+    settled = _run(campaign_ws, "rules.settle", {
+        "decision_ref": "decision:coc7:magic:learn-spell",
+        "decision_id": "graph-magic-learn-0001",
+        "investigator": campaign_ws["investigator_id"],
+        "seed": _learning_seed(70, succeeds=True),
+        "semantic_inputs": learn_inputs,
+    })
+    assert settled["ok"] is True, settled
+    assert _settled_result(settled)["learned"] is True
+
+    magic = _magic_state(campaign_ws)
+    assert [row["spell"] for row in magic["studying_spells"]] == [SPELL]
+    assert _run(campaign_ws, "state.advance_time", {
+        "minutes": int(magic["studying_spells"][0]["study_days"]) * 24 * 60 + 60,
+        "reason": "the study period passes",
+        "decision_id": "graph-magic-learn-0001:study",
+    })["ok"] is True
+    assert _magic_state(campaign_ws)["learned_spells"] == [SPELL]
+
+    cast_inputs = {"spell": SPELL, "pushed": False, "interrupted": False}
+    cast_card = _magic_cards(campaign_ws, cast_inputs)[
+        "decision:coc7:magic:cast-spell"
+    ]
+    assert cast_card["applicability"] == "applicable", cast_card
+    cast = _run(campaign_ws, "rules.settle", {
+        "decision_ref": "decision:coc7:magic:cast-spell",
+        "decision_id": "graph-magic-cast-0001",
+        "investigator": campaign_ws["investigator_id"],
+        "seed": 3,
+        "semantic_inputs": cast_inputs,
+    })
+    assert cast["ok"] is True, cast
+    # The cast itself is a POW(hard) check like any other; what this pins is
+    # that the settlement reached the runtime and its bookkeeping matches its
+    # own roll rather than settling into nothing.
+    cast_result = _settled_result(cast)
+    assert cast_result["spell"] == SPELL
+    assert _magic_state(campaign_ws)["cast_spells"] == (
+        [SPELL] if cast_result["success"] else []
+    )
+
+
+def test_graph_settle_refuses_a_tome_the_campaign_never_authored(campaign_ws):
+    """The live-lane refusal, verbatim, for a tome no module ever wrote down.
+
+    The same call with an authored tome settles (above): what the gate reads
+    is whether the campaign's own data says this book holds this spell.
+    """
+    inputs = {
+        "spell": SPELL,
+        "source": "tome",
+        "source_ref": "tome:tome-corbitt-notes",
+    }
+    assert "decision:coc7:magic:learn-spell" not in {
+        ref for ref, card in _magic_cards(campaign_ws, inputs).items()
+        if card["applicability"] == "applicable"
+    }
+    settled = _run(campaign_ws, "rules.settle", {
+        "decision_ref": "decision:coc7:magic:learn-spell",
+        "decision_id": "graph-magic-learn-unauthored",
+        "investigator": campaign_ws["investigator_id"],
+        "semantic_inputs": inputs,
+    })
+    assert settled["ok"] is False
+    assert settled["error"]["code"] == "rule_decision_stale"
+    assert "magic.learn.source-available" in settled["error"]["message"]
+    assert _magic_state(campaign_ws).get("studying_spells", []) == []
+
+
+def test_learn_source_gate_and_settle_binding_read_the_same_map(campaign_ws):
+    """The card's gate and the operation behind it cannot disagree."""
+    _author_tome_item(campaign_ws, "tome-corbitt-notes", [SPELL])
+    kernel = coc_toolbox.coc_operation_kernel
+    ctx = kernel.Ctx(campaign_ws["workspace"], campaign_ws["campaign_id"])
+    assert (
+        _live_facts(campaign_ws)["magic.learn.sources"]
+        == kernel._magic_learning_sources(ctx)
+    )

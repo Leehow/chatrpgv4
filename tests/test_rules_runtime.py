@@ -3093,7 +3093,9 @@ def test_magic_grounding_uses_known_spell_and_exact_source_records():
             "source_ref": "person:professor-ward",
         },
     )
-    assert learned == {"investigator": "investigator-one", "is_npc": False}
+    # learn-spell declares no is_npc slot; a host binding that overshoots the
+    # decision's declarations is refused before the decision can settle.
+    assert learned == {"investigator": "investigator-one"}
     with pytest.raises(kernel.ToolError) as missing:
         kernel._canonical_magic_binding(
             ctx,

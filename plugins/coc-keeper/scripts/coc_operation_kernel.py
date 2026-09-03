@@ -7063,31 +7063,7 @@ def _facts_provider_for(
             str(value) for value in magic.get("learned_spells") or []
             if isinstance(value, str)
         ]
-        magic_sources: dict[str, list[str]] = {}
-        npc_agendas = getattr(ctx, "npc_agendas", {})
-        npc_rows = npc_agendas.get("npcs") if isinstance(npc_agendas, Mapping) else []
-        if isinstance(npc_rows, Mapping):
-            npc_rows = list(npc_rows.values())
-        for row in npc_rows if isinstance(npc_rows, list) else []:
-            if not isinstance(row, Mapping):
-                continue
-            npc_id = str(row.get("npc_id") or row.get("id") or "")
-            source_kind = str(row.get("magic_source_kind") or "")
-            profile = (
-                (row.get("mechanics") or {}).get("profile")
-                if isinstance(row.get("mechanics"), Mapping) else {}
-            )
-            spells = row.get("spells") or (
-                profile.get("spells") if isinstance(profile, Mapping) else []
-            )
-            if (
-                npc_id and source_kind in {"person", "entity"}
-                and isinstance(spells, list)
-            ):
-                magic_sources[f"{source_kind}:{npc_id}"] = [
-                    str(value) for value in spells if isinstance(value, str)
-                ]
-        facts["magic.learn.sources"] = magic_sources
+        facts["magic.learn.sources"] = _magic_learning_sources(ctx)
         ending = coc_development.structured_ending_evidence(ctx.campaign_dir)
         facts["development.settlement.pending"] = bool(
             isinstance(ending, Mapping)
@@ -8123,22 +8099,29 @@ def _canonical_magic_binding(
             "magic_source_invalid",
             "source_ref must match the typed magic learning source",
         )
-    source_id = source_ref.split(":", 1)[1]
-    row = _npc_by_id(ctx.npc_agendas, source_id) if source_kind in {"person", "entity"} else None
-    profile = (
-        (row.get("mechanics") or {}).get("profile")
-        if isinstance(row, Mapping) and isinstance(row.get("mechanics"), Mapping)
-        else {}
-    )
-    spells = (
-        row.get("spells") if isinstance(row, Mapping) else None
-    ) or (profile.get("spells") if isinstance(profile, Mapping) else None)
-    if not isinstance(spells, list) or spell not in {str(value) for value in spells}:
+    # The same map the magic.learn.sources fact is projected from, so the
+    # card's source-available gate and this settle-time check can never
+    # disagree: a tome that reads as learnable on the card resolves here.
+    sources = _magic_learning_sources(ctx)
+    spells = sources.get(source_ref)
+    if not isinstance(spells, list) or spell not in set(spells):
         raise ToolError(
             "magic_source_invalid",
             "the canonical learning source does not contain the selected spell",
+            details={
+                "source_ref": source_ref,
+                "spell": spell,
+                "available_source_refs": sorted(sources),
+                "hint": (
+                    "a learning source is authored content, not possession: a "
+                    "tome needs item mechanics listing its spells and a teacher "
+                    "needs an NPC row with magic_source_kind and a spell list"
+                ),
+            },
         )
-    return {"investigator": investigator_id, "is_npc": False}
+    # learn-spell declares no is_npc slot; a host binding that overshoots a
+    # decision's declarations is refused outright before the decision settles.
+    return {"investigator": investigator_id}
 
 
 def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: str,
@@ -8432,19 +8415,14 @@ def dispatch_rules_settle(
         semantic_inputs = {}
     if not isinstance(semantic_inputs, Mapping):
         raise ToolError("invalid_param", "semantic_inputs must be an object")
-    # Host-locked fields are absent from the model schema; reject if smuggled.
-    locked_smuggle = sorted(
-        set(semantic_inputs) & {
-            "skill_value", "rescuer_id", "pushed", "medicine_skill_value",
-            "caregiver_id", "clock_kind",
-        }
-    )
-    if locked_smuggle:
-        raise ToolError(
-            "locked_input_override",
-            "model-supplied host-locked inputs are rejected",
-            details={"fields": locked_smuggle},
-        )
+    # Host-locked fields are absent from the model schema and are refused when
+    # smuggled -- but by the decision's own slot ownerships, in
+    # RulesRuntime.settle, not by a flat list of names collected from whichever
+    # decisions happened to lock them. The flat list read `pushed` as locked
+    # everywhere, while decision:coc7:magic:cast-spell declares it
+    # keeper-semantic AND required: every cast settlement was refused for
+    # sending an input the decision demanded, which is why cast-spell has never
+    # settled once. One check, off the graph, so the two cannot drift again.
     family = _family_id_from_decision_ref(decision_ref)
     investigator_id = _resolve_investigator(ctx, args)
     runtime, owner, _surface, loaded = _rules_runtime_for_ctx(
@@ -8523,10 +8501,17 @@ def dispatch_rules_settle(
             semantic_inputs=semantic_inputs,
         )
     if family == "magic":
-        selected["_host_family_binding"] = {
-            "investigator": investigator_id,
-            "is_npc": False,
-        }
+        # This was a two-key stub, so the family's own canonical binding had no
+        # production caller at all: cast-spell's declared host-locked
+        # known_spell_ref slot was never filled, and learn-spell — which
+        # declares no is_npc slot — was refused for an undeclared host slot
+        # before it could settle.
+        selected["_host_family_binding"] = _canonical_magic_binding(
+            ctx,
+            investigator_id=investigator_id,
+            decision_ref=decision_ref,
+            semantic_inputs=semantic_inputs,
+        )
     if family == "development":
         binding: dict[str, Any] = {"investigator": investigator_id}
         if decision_ref.endswith(":settle-ending"):
@@ -8770,6 +8755,103 @@ def _execute_subsystem_requests(
             record.setdefault("command_kind", result.get("kind"))
         ctx.log_event(record)
     return results, events
+
+def _spell_name_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if isinstance(item, str) and item.strip()]
+
+
+def _magic_learning_sources(ctx: Ctx) -> dict[str, list[str]]:
+    """Typed ``<source_kind>:<id>`` -> the spells that source can teach.
+
+    A learning source is *content*, never possession or a label: what makes a
+    book or a teacher one is that the campaign's own authored data records
+    which spells it holds. Nothing here reads an item's title, and carrying a
+    tome (``state.item_grant``) does not by itself make it a source — a grant
+    records who holds the object, not what is written in it.
+
+    ``person``/``entity`` come from the NPC roster: a row whose authored
+    ``magic_source_kind`` says it can teach, carrying its spell list on the
+    row or on its mechanics profile.
+
+    ``tome`` comes from the same item-mechanics slot every other item fact is
+    read from — authored module item mechanics
+    (``module-meta.module_mechanics.items``), then the campaign-frozen item
+    profiles ``mechanics.ensure`` writes. The reviewed CoC7 tome catalogue
+    (``rules-json/tomes.json``) is deliberately not consulted: it prints study
+    weeks, Sanity cost and Mythos rating for each named work, and no spell
+    lists, because which spells a particular copy holds is module content.
+
+    One map serves both the ``magic.learn.sources`` fact and the settle-time
+    binding, so the card's applicability gate and the operation that runs
+    behind it cannot disagree about what is learnable.
+    """
+    sources: dict[str, list[str]] = {}
+    npc_agendas = getattr(ctx, "npc_agendas", {})
+    npc_rows = npc_agendas.get("npcs") if isinstance(npc_agendas, Mapping) else []
+    if isinstance(npc_rows, Mapping):
+        npc_rows = list(npc_rows.values())
+    for row in npc_rows if isinstance(npc_rows, list) else []:
+        if not isinstance(row, Mapping):
+            continue
+        npc_id = str(row.get("npc_id") or row.get("id") or "")
+        source_kind = str(row.get("magic_source_kind") or "")
+        mechanics = row.get("mechanics")
+        profile = (
+            mechanics.get("profile") if isinstance(mechanics, Mapping) else None
+        )
+        spells = row.get("spells")
+        if not isinstance(spells, list):
+            spells = profile.get("spells") if isinstance(profile, Mapping) else None
+        if npc_id and source_kind in {"person", "entity"} and isinstance(spells, list):
+            sources[f"{source_kind}:{npc_id}"] = _spell_name_list(spells)
+
+    module_meta = getattr(ctx, "module_meta", None)
+    module_mechanics = (
+        module_meta.get("module_mechanics") if isinstance(module_meta, Mapping) else None
+    )
+    module_items = (
+        module_mechanics.get("items") if isinstance(module_mechanics, Mapping) else None
+    )
+    if isinstance(module_items, Mapping):
+        for item_id, row in module_items.items():
+            if not isinstance(row, Mapping):
+                continue
+            mechanics = row.get("mechanics")
+            if (
+                not isinstance(mechanics, Mapping)
+                or mechanics.get("status") != "authored"
+            ):
+                continue
+            profile = mechanics.get("profile")
+            spells = _spell_name_list(
+                profile.get("spells") if isinstance(profile, Mapping) else None
+            )
+            if str(item_id) and spells:
+                sources[f"tome:{item_id}"] = spells
+
+    campaign_mechanics = getattr(ctx, "campaign_mechanics", None)
+    campaign_items: Any = None
+    if callable(campaign_mechanics):
+        try:
+            document = campaign_mechanics()
+        except ToolError:
+            document = None
+        if isinstance(document, Mapping):
+            campaign_items = document.get("items")
+    if isinstance(campaign_items, Mapping):
+        for item_id, row in campaign_items.items():
+            if not isinstance(row, Mapping):
+                continue
+            profile = row.get("profile")
+            spells = _spell_name_list(
+                profile.get("spells") if isinstance(profile, Mapping) else None
+            )
+            if str(item_id) and spells:
+                sources[f"tome:{item_id}"] = spells
+    return sources
+
 
 def _module_item(ctx: Ctx, item_id: str) -> dict[str, Any] | None:
     root = ctx.module_meta.get("module_mechanics")

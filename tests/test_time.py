@@ -524,6 +524,76 @@ def test_temp_insanity_recovers_after_due_time_and_safe_rest(campaign):
     assert fired[0]["status"] == "fired"
 
 
+def test_trigger_naming_an_unimplemented_handler_records_the_failure(campaign):
+    """A fired trigger nobody implements must not pass for work done.
+
+    magic.learn scheduled ``grant_learned_spell`` for a year with no handler
+    behind it: the trigger fired, dispatch returned None, and the spell was
+    never granted while every consumer read a settled ok.
+    """
+    coc_time.schedule_trigger(campaign, {
+        "kind": "invented_kind",
+        "scope": "investigator",
+        "target_id": "inv1",
+        "due_elapsed_minutes": 10,
+        "policy": "auto_apply",
+        "handler": "no_such_handler",
+        "payload": {},
+    })
+    fired = coc_time.advance_time(
+        campaign, 30, decision_id="d1", reason="time passes",
+    )["fired_triggers"]
+    assert len(fired) == 1
+    assert "no_such_handler" in fired[0]["dispatch_error"]
+
+
+def test_trigger_scheduled_without_a_target_records_the_failure(campaign):
+    coc_time.schedule_trigger(campaign, {
+        "kind": "condition_expiry",
+        "due_elapsed_minutes": 10,
+        "policy": "auto_apply",
+        "handler": "recover_temporary_insanity",
+        "payload": {},
+    })
+    fired = coc_time.advance_time(
+        campaign, 30, decision_id="d1", reason="time passes",
+    )["fired_triggers"]
+    assert len(fired) == 1
+    assert "target_id" in fired[0]["dispatch_error"]
+
+
+def test_grant_learned_spell_handler_makes_the_studied_spell_known(campaign):
+    import json
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps({
+        "investigator_id": "inv1",
+        "magic": {
+            "cast_spells": [],
+            "learned_spells": [],
+            "studying_spells": [{"spell": "Cloud Memory", "source": "tome"}],
+        },
+    }), encoding="utf-8")
+    coc_time.schedule_trigger(campaign, {
+        "kind": "spell_study_complete",
+        "scope": "investigator",
+        "target_id": "inv1",
+        "due_elapsed_minutes": 10,
+        "policy": "auto_apply",
+        "handler": "grant_learned_spell",
+        "payload": {"spell": "Cloud Memory", "source": "tome"},
+    })
+    fired = coc_time.advance_time(
+        campaign, 30, decision_id="d1", reason="the study period passes",
+    )["fired_triggers"]
+    assert len(fired) == 1
+    assert fired[0].get("dispatch_error") is None
+    assert fired[0]["dispatch_outcome"]["granted"] is True
+    magic = json.loads(state_path.read_text(encoding="utf-8"))["magic"]
+    assert magic["learned_spells"] == ["Cloud Memory"]
+    assert magic["studying_spells"] == []
+
+
 def test_sanity_day_resets_after_safe_rest(campaign):
     """mark_safe_rest resets the investigator's sanity period."""
     state = coc_time.read_time_state(campaign)

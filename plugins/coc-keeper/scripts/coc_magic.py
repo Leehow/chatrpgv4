@@ -427,6 +427,7 @@ def learn_spell(
     *,
     rng: random.Random | None = None,
     campaign_dir: Path | None = None,
+    investigator_id: str | None = None,
 ) -> dict[str, Any]:
     """Resolve learning ``spell_name`` per Chapter 9 (pp.176-177).
 
@@ -439,10 +440,15 @@ def learn_spell(
         campaign_dir: when provided (and the time layer is available), a
             completion trigger is scheduled via coc_time.schedule_trigger and
             its id is returned as ``completion_trigger_id``.
+        investigator_id: who is studying. A completion trigger is dispatched
+            against its ``target_id``; a trigger scheduled without one can
+            never grant the spell it was scheduled for, so scheduling refuses
+            rather than writing a trigger that is guaranteed to do nothing.
+            Falls back to ``learner_state["investigator_id"]``.
 
     Returns a record:
         {learned, roll_result, study_weeks, study_days, completion_trigger_id,
-         san_cost_expr (entity only)}
+         study_completion_elapsed_minutes, san_cost_expr (entity only)}
     """
     rng = rng or random.Random()
     learning = learning_rules()
@@ -460,6 +466,7 @@ def learn_spell(
     study_weeks = 0
     study_days = 0
     completion_trigger_id = None
+    completion_elapsed_minutes: int | None = None
     san_cost_expr: str | None = None
 
     if source == "entity":
@@ -491,11 +498,26 @@ def learn_spell(
             if not state:
                 coc_time.initialize_time_state(campaign_dir)
                 state = coc_time.read_time_state(campaign_dir)
+            target_id = str(
+                investigator_id
+                or learner_state.get("investigator_id")
+                or ""
+            ).strip()
+            if not target_id:
+                # coc_time dispatches a fired trigger against its target_id.
+                # A spell_study_complete trigger without one fires and grants
+                # nothing, so the study would silently never complete.
+                raise ValueError(
+                    "learn_spell requires investigator_id to schedule the "
+                    "study completion trigger"
+                )
             now = int(state.get("clock", {}).get("elapsed_minutes", 0))
             due = now + study_days * 24 * 60
+            completion_elapsed_minutes = due
             completion_trigger_id = coc_time.schedule_trigger(campaign_dir, {
                 "kind": "spell_study_complete",
                 "scope": "investigator",
+                "target_id": target_id,
                 "due_elapsed_minutes": due,
                 "policy": "auto_apply",
                 "handler": "grant_learned_spell",
@@ -515,6 +537,7 @@ def learn_spell(
         "study_weeks": study_weeks,
         "study_days": study_days,
         "completion_trigger_id": completion_trigger_id,
+        "study_completion_elapsed_minutes": completion_elapsed_minutes,
         "summary": (
             f"learn {spell_name} from {source}: INT(hard)->{outcome}, "
             + ("learned" if learned else "not learned")

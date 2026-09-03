@@ -836,6 +836,13 @@ def process_due_triggers(campaign_dir: Path) -> list[dict[str, Any]]:
     return fired
 
 
+KNOWN_TRIGGER_HANDLERS: frozenset[str] = frozenset({
+    "recover_temporary_insanity",
+    "apply_psychoanalysis_treatment",
+    "grant_learned_spell",
+})
+
+
 def _dispatch_handler(campaign_dir: Path, investigator_id: str,
                       handler: str, payload: dict[str, Any]) -> dict[str, Any] | None:
     """Dispatch a fired trigger's handler. Returns an outcome summary dict.
@@ -851,15 +858,33 @@ def _dispatch_handler(campaign_dir: Path, investigator_id: str,
         a PsychotherapySession from investigator-state, runs
         ``psychoanalysis()``, writes the recovered SAN back, and clears
         ``indefinite_insane`` if the investigator is fully restored.
+      - ``grant_learned_spell``: pp.176-177 spell study completion. Moves the
+        studied spell from ``magic.studying_spells`` to
+        ``magic.learned_spells`` in investigator-state.
+
+    An unknown handler name and a missing ``target_id`` both raise. Either one
+    means the scheduling site wrote a trigger that can never do its job, and a
+    fired trigger that quietly grants nothing is how a settled write goes
+    missing while every consumer downstream believes the state moved. The
+    raise is isolated by ``process_due_triggers`` into ``dispatch_error`` on
+    the trigger and the time log, so time still advances.
     """
+    if handler not in KNOWN_TRIGGER_HANDLERS:
+        raise ValueError(
+            f"no trigger handler implements {handler!r}; known handlers are "
+            + ", ".join(sorted(KNOWN_TRIGGER_HANDLERS))
+        )
     if not investigator_id:
-        return None
+        raise ValueError(
+            f"trigger handler {handler!r} needs target_id; it was scheduled "
+            "without one and can grant nothing"
+        )
 
     if handler == "recover_temporary_insanity":
         return _handler_recover_temporary(campaign_dir, investigator_id, payload)
     if handler == "apply_psychoanalysis_treatment":
         return _handler_apply_treatment(campaign_dir, investigator_id, payload)
-    return None
+    return _handler_grant_learned_spell(campaign_dir, investigator_id, payload)
 
 
 def _load_sibling_script(name: str, filename: str):
@@ -898,6 +923,50 @@ def _handler_recover_temporary(campaign_dir: Path, investigator_id: str,
     recovered = sess.recover_temporary()
     sess.save(campaign_dir)
     return {"recovered": recovered}
+
+
+def _handler_grant_learned_spell(campaign_dir: Path, investigator_id: str,
+                                 payload: dict[str, Any]) -> dict[str, Any]:
+    """pp.176-177: the spell becomes known when its study period completes.
+
+    ``magic.learn`` settles the INT roll and the study length immediately, but
+    the rulebook only makes the spell usable after 2D6 weeks (tome) or 1D8
+    days (person) of study. The operation therefore records the study on
+    ``magic.studying_spells`` and this handler is what actually moves it onto
+    ``magic.learned_spells`` — the list ``magic.known_spells`` is projected
+    from and ``magic:cast-spell`` is hard-gated on.
+    """
+    spell = str(payload.get("spell") or "").strip()
+    if not spell:
+        raise ValueError("grant_learned_spell payload requires spell")
+    inv = _read_inv_state(campaign_dir, investigator_id)
+    if not inv:
+        raise ValueError(
+            f"no investigator-state for {investigator_id!r} to grant {spell!r} to"
+        )
+    magic = inv.get("magic")
+    if not isinstance(magic, dict):
+        magic = {}
+        inv["magic"] = magic
+    learned = magic.get("learned_spells")
+    learned = [str(value) for value in learned] if isinstance(learned, list) else []
+    granted = spell not in learned
+    if granted:
+        learned.append(spell)
+    magic["learned_spells"] = learned
+    studying = magic.get("studying_spells")
+    if isinstance(studying, list):
+        magic["studying_spells"] = [
+            row for row in studying
+            if not (isinstance(row, dict) and str(row.get("spell") or "") == spell)
+        ]
+    _write_inv_state(campaign_dir, investigator_id, inv)
+    return {
+        "spell": spell,
+        "granted": granted,
+        "learned_spells": list(learned),
+        "source": str(payload.get("source") or ""),
+    }
 
 
 def _handler_apply_treatment(campaign_dir: Path, investigator_id: str,
