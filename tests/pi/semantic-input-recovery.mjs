@@ -22,7 +22,7 @@ const settleFailure = (code, failure) => projection.projectPiToolFailure(
     tool: "rules.settle",
     error: {
       code,
-      message: "semantic input 'source_ref' is not a declared slot",
+      message: "not declared slots of this decision: 'source_ref'; this decision takes candidate_ref (optional: luck_spend_max)",
       details: {
         decision_ref: "decision:coc7:combat:flee",
         family: "combat",

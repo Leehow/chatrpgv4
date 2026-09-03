@@ -2073,6 +2073,103 @@ class RulesRuntime:
         return result
 
     # -- settle (spec §8.6/§8.7) --------------------------------------------
+    def _undeclared_slot_failure(
+        self,
+        decision_ref: str,
+        family: str,
+        slots: list[dict[str, Any]],
+        offending: list[str],
+        *,
+        origin: str,
+    ) -> dict[str, Any]:
+        """The one refusal for inputs a decision does not declare.
+
+        Two callers reach it and they had drifted apart. The model path named
+        every offending key AND the slots the Keeper may fill; the host path
+        named one key and nothing else -- "host-locked input 'chase_id' is not
+        a declared slot", no `declared_slots`, no idea what the decision does
+        take. `unknown_semantic_input` projects as the Keeper's own argument
+        error with `correct_model_arguments`, so a Keeper handed the second
+        form guesses, is refused again, and `nonretryable_repeat_blocked`
+        walls off the repeat: measured 2026-09-01 across the sanity, chase and
+        combat lanes (r22/r23 chase, clean-1/clean-3 sanity), whole turns
+        spent on it. One builder, so the two cannot drift again.
+
+        `origin` decides which instruction is true. "stop sending it" and "you
+        may not set it" are different answers, and the host path's key was
+        never the Keeper's to send in the first place.
+
+        What is advertised is the SEMANTIC ownerships only. Naming a slot the
+        Keeper is forbidden to set is the same defect wearing a different hat:
+        `settle()` refuses a model-supplied host-locked or resolver-owned slot
+        with `locked_input_override`, so "this decision takes X" for such an X
+        invites exactly that refusal. The list was previously everything not
+        literally `host-locked`, which let `resolver-owned` through.
+        """
+        declared = sorted(slot["name"] for slot in slots)
+        required = sorted(
+            slot["name"] for slot in slots
+            if slot["ownership"] in _REQUIRED_SEMANTIC_OWNERSHIPS
+        )
+        optional = sorted(
+            slot["name"] for slot in slots
+            if slot["ownership"] in _SEMANTIC_SLOT_OWNERSHIPS
+            and slot["ownership"] not in _REQUIRED_SEMANTIC_OWNERSHIPS
+        )
+        model_owned = sorted(
+            slot["name"] for slot in slots
+            if slot["ownership"] in _SEMANTIC_SLOT_OWNERSHIPS
+        )
+        host_owned = sorted(
+            slot["name"] for slot in slots
+            if slot["ownership"] in _LOCKED_SLOT_OWNERSHIPS
+        )
+        if required and optional:
+            takes = ", ".join(required) + " (optional: " + ", ".join(optional) + ")"
+        elif required:
+            takes = ", ".join(required)
+        elif optional:
+            takes = "only optional input: " + ", ".join(optional)
+        else:
+            takes = (
+                "no semantic input at all (every slot is filled by the host)"
+            )
+        keys = ", ".join(repr(key) for key in offending)
+        if origin == "host":
+            message = (
+                "host-owned inputs are not declared slots of this decision: "
+                + keys
+                + "; the host fills these, not the Keeper, so no change to "
+                "semantic_inputs clears it; this decision takes " + takes
+            )
+        else:
+            message = (
+                "not declared slots of this decision: " + keys
+                + "; this decision takes " + takes
+            )
+        # Every list is plain strings under a non-identity key on purpose.
+        # A map keyed by slot names would be keyed by identity-bearing field
+        # names (`candidate_ref`, `actor_id`), and the host's own projection
+        # holds the VALUES of such keys to the ref grammar -- ownership words
+        # are not refs, so the map would arrive empty. That is the defect
+        # tests/pi/chase-candidate-guidance-survives.mjs records for
+        # `chase_candidate_invalid.requires`.
+        return {
+            "failure": {
+                "code": "unknown_semantic_input",
+                "message": message,
+                "declared_slots": declared,
+                "model_owned_slots": model_owned,
+                "required_semantic_slots": required,
+                "optional_semantic_slots": optional,
+                "host_owned_slots": host_owned,
+                "unknown": list(offending),
+                "input_origin": origin,
+                "decision_ref": decision_ref,
+                "family": family,
+            }
+        }
+
     def _compile_plan(
         self,
         decision_ref: str,
@@ -2143,57 +2240,15 @@ class RulesRuntime:
         implementation = (node.get("properties") or {}).get("implementation")
         slots = self._slots_for(decision_ref)
         slot_names = {slot["name"] for slot in slots}
-        model_owned = sorted(
-            slot["name"] for slot in slots
-            if slot["ownership"] != "host-locked"
-        )
+        # No generic arguments bag: an undeclared semantic input is rejected
+        # rather than forwarded into the payload. Every offending key at once
+        # -- one key per refusal made a Keeper strip its arguments one at a
+        # time, four round trips for one decision on 2026-09-02.
         unknown = sorted(key for key in semantic_inputs if key not in slot_names)
         if unknown:
-            # Every offending key at once, and what the Keeper may actually
-            # send. One key per refusal made a Keeper strip its arguments one
-            # at a time -- four round trips for one decision on 2026-09-02 --
-            # and `declared_slots` alone is worse than nothing for a decision
-            # whose slots are all host-locked: it reads as a list to fill in,
-            # so the Keeper answered by sending host-locked names back.
-            # `model_owned_slots` is empty for those, which is the true answer.
-            return {
-                "failure": {
-                    "code": "unknown_semantic_input",
-                    "message": (
-                        "not declared slots of this decision: "
-                        + ", ".join(repr(key) for key in unknown)
-                        + "; this decision takes "
-                        + (
-                            ", ".join(model_owned)
-                            if model_owned else
-                            "no semantic input at all (every slot is filled by "
-                            "the host)"
-                        )
-                    ),
-                    "declared_slots": sorted(slot_names),
-                    "model_owned_slots": model_owned,
-                    "unknown": unknown,
-                    "decision_ref": decision_ref,
-                    "family": family,
-                }
-            }
-        for key in ():
-            if key not in slot_names:
-                # No generic arguments bag: an undeclared semantic input is
-                # rejected rather than forwarded into the payload. The
-                # declared set is already in hand here, so name it — the
-                # sibling missing_semantic_input failure below returns its
-                # list for the same reason, and without it the caller has to
-                # guess the slot name it was never told.
-                return {
-                    "failure": {
-                        "code": "unknown_semantic_input",
-                        "message": f"semantic input {key!r} is not a declared slot",
-                        "declared_slots": sorted(slot_names),
-                        "decision_ref": decision_ref,
-                        "family": family,
-                    }
-                }
+            return self._undeclared_slot_failure(
+                decision_ref, family, slots, unknown, origin="model",
+            )
         missing = sorted(
             slot["name"] for slot in slots
             if slot["ownership"] in _REQUIRED_SEMANTIC_OWNERSHIPS
@@ -2219,16 +2274,18 @@ class RulesRuntime:
             if isinstance(provided, Mapping):
                 for key, value in provided.items():
                     host_context.setdefault(str(key), deepcopy(value))
-        for key in host_context:
-            if key not in slot_names:
-                return {
-                    "failure": {
-                        "code": "unknown_semantic_input",
-                        "message": f"host-locked input {key!r} is not a declared slot",
-                        "decision_ref": decision_ref,
-                        "family": family,
-                    }
-                }
+        # The host binding overshot this decision's declarations. Same builder
+        # as the model path above, with `origin="host"`: the Keeper is told the
+        # keys are host-filled and that its own arguments cannot clear them,
+        # instead of being handed a bare name and the `correct_model_arguments`
+        # projection for a value it never sent.
+        host_unknown = sorted(
+            key for key in host_context if key not in slot_names
+        )
+        if host_unknown:
+            return self._undeclared_slot_failure(
+                decision_ref, family, slots, host_unknown, origin="host",
+            )
         payload: dict[str, Any] = {}
         if isinstance(implementation, dict):
             for name, value in (implementation.get("payload_constants") or {}).items():
