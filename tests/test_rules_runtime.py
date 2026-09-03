@@ -3004,6 +3004,7 @@ def test_development_pending_fact_and_adapter_recovery_binding(
         campaign_dir=tmp_path,
         inv_state=lambda _investigator: {},
         sheet=lambda _investigator: {},
+        module_spells=lambda: [],
     )
     monkeypatch.setattr(
         kernel.coc_development,
@@ -3065,6 +3066,7 @@ def test_development_pending_fact_and_adapter_recovery_binding(
 def test_magic_grounding_uses_known_spell_and_exact_source_records():
     kernel = coc_toolbox.coc_operation_kernel
     ctx = SimpleNamespace(
+        module_spells=lambda: [],
         inv_state=lambda _investigator: {
             "magic": {"learned_spells": ["Contact Ghoul"]},
         },
