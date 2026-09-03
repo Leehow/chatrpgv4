@@ -72,6 +72,16 @@ SUB_PHASE_CHARACTER_SETUP_REQUIRED = "opening_character_setup_required"
 
 _PLACEHOLDER_SCENARIO_PROVENANCE_HINT = "selection_hint_only_not_provenance"
 _REVIEWED_PROVENANCE = "coordinator_reviewed_playable_opening"
+# A campaign whose scenario was materialized from an accepted ModuleGraph.
+#
+# The coordinator review this gate was built around read three pages and
+# answered six fields. A graph projection is the stronger evidence, not a
+# weaker one: every scene, NPC and clue carries `source_refs` back to the page
+# it came from, the spans behind them were bound deterministically rather than
+# copied by a model, and the reachability lint has to pass before the campaign
+# is written. Requiring the retired review anyway would leave this gate asking
+# for a receipt no path can produce any more.
+_GRAPH_PROVENANCE = "module_graph_projection"
 
 
 def _load_sibling(preferred: tuple[str, ...], own_name: str, filename: str):
@@ -454,11 +464,18 @@ def _module_preparation(
         prep["blocking_reason"] = _readiness_blocking_reason(prep["readiness"])
         return prep
 
-    if provenance not in {"", _REVIEWED_PROVENANCE}:
+    if provenance not in {"", _REVIEWED_PROVENANCE, _GRAPH_PROVENANCE}:
         return fail_contract(
             "opening_source_provenance_invalid",
             "persisted opening source provenance is unsupported",
         )
+
+    if provenance == _GRAPH_PROVENANCE:
+        prep["source_gated"] = True
+        prep["satisfied"] = True
+        prep["sub_phase"] = None
+        prep["source_provenance"] = provenance
+        return prep
 
     if provenance == _REVIEWED_PROVENANCE:
         try:

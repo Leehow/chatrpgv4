@@ -1441,6 +1441,17 @@ def _require_established_source_facts(
             str(source.get("source_id") or "").strip()
             and str(source.get("bundle_sha256") or "").strip()
         )
+        # A campaign materialized from an accepted ModuleGraph is in the same
+        # position as a starter: its scenario files ARE the source read. Every
+        # scene carries `source_refs` back to the page it came from, and the
+        # graph's evidence spans were bound deterministically rather than
+        # summarized by a model. Holding it for `setup.adopt_source_facts`
+        # would block character creation behind a retired path -- the
+        # three-page opening review that the graph replaced.
+        if str(scenario.get("opening_source_provenance") or "").strip() == (
+            "module_graph_projection"
+        ):
+            source_bound = False
         if source_bound:
             raise RuntimeOperationError(
                 f"campaign {campaign_id!r} setting place is not source-established: "

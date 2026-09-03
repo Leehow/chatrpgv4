@@ -350,6 +350,33 @@ def project_graph_to_skeleton(
     return skeleton
 
 
+GRAPH_PROVENANCE = "module_graph_projection"
+
+
+def mark_campaign_graph_provenance(campaign_dir: Path) -> None:
+    """Record that this campaign's scenario came from an accepted graph.
+
+    `scenario.bind_pdf` stamps `selection_hint_only_not_provenance`, which is
+    honest at bind time: a bundle path is a selection, not evidence that
+    anything read the book. Once the graph projection has written scenes,
+    NPCs and clues that each cite their page, that is no longer true, and
+    leaving the placeholder in place holds the campaign at
+    `opening_source_review_required` -- waiting for a retired path to produce
+    a receipt nothing can produce any more.
+    """
+    path = campaign_dir / "scenario" / "scenario.json"
+    scenario = json.loads(path.read_text(encoding="utf-8"))
+    scenario["opening_source_provenance"] = GRAPH_PROVENANCE
+    source = scenario.get("source")
+    if isinstance(source, dict):
+        # The gate refuses a top-level and nested disagreement, so the nested
+        # copy is removed rather than left stating the older answer.
+        source.pop("opening_source_provenance", None)
+    path.write_text(
+        json.dumps(scenario, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Project one ModuleGraph into a Tier-1 skeleton.",
