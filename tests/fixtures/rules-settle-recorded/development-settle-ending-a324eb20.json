@@ -1,0 +1,306 @@
+{
+  "decision_ref": "decision:coc7:development:settle-ending",
+  "family": "development",
+  "status": "settled",
+  "rule_refs": [],
+  "investigator_id": "thomas-hayes",
+  "event": null,
+  "player_state_receipt": null,
+  "current_hp": null,
+  "current_san": null,
+  "conditions": null,
+  "settlement": {
+    "existing_result_envelope": true,
+    "result": {
+      "ending_id": "ending-2c5faac0429c515f5f8d",
+      "receipt": {
+        "schema_version": 1,
+        "status": "PASS",
+        "kind": "development.settle",
+        "operation_id": "op-development-settle-a0a098a90eb3-f4599269149f",
+        "result": {
+          "skills_checked": [
+            "Listen"
+          ],
+          "improvement_checks": [
+            {
+              "skill": "Listen",
+              "check_roll": 90,
+              "gain": 3,
+              "value_before": 45,
+              "planned_value_after": 48,
+              "current_value_before_apply": 45,
+              "applied_delta": 3,
+              "value_after": 48,
+              "improved": true,
+              "merge_policy": "additive_monotonic",
+              "roll_id": "op-development-settle-a0a098a90eb3-f4599269149f:check:0",
+              "roll_kind": "development_check",
+              "gain_roll_id": "op-development-settle-a0a098a90eb3-f4599269149f:gain:0"
+            }
+          ],
+          "skills_improved": [
+            {
+              "skill": "Listen",
+              "check_roll": 90,
+              "gain": 3,
+              "value_before": 45,
+              "planned_value_after": 48,
+              "current_value_before_apply": 45,
+              "applied_delta": 3,
+              "value_after": 48,
+              "improved": true,
+              "merge_policy": "additive_monotonic"
+            }
+          ],
+          "san_reward_expr": null,
+          "san_reward_roll": null,
+          "san_reward_planned_delta": 0,
+          "ending_evidence": {
+            "schema_version": 2,
+            "capsule_type": "ending_settlement",
+            "ending_id": "ending-2c5faac0429c515f5f8d",
+            "event_id": "ending-event-bde86a15b9c6771ae1ec",
+            "event_ref": "logs/events.jsonl#ending-event-bde86a15b9c6771ae1ec",
+            "scene_id": "corbitt-house-ground",
+            "kind": "retreat",
+            "summary": "调查员撤出宅子，把钥匙交还。",
+            "decision_id": "debug-situation:x-settle-end:end-session",
+            "investigator_ids": [
+              "thomas-hayes"
+            ],
+            "scenario_id": "the-haunting",
+            "conclusion_id": null,
+            "conclusion_evidence": null,
+            "conclusion_reward_id": null,
+            "scenario_san_reward_expr": null,
+            "scenario_san_reward_rule_ref": null,
+            "event_line_at_capture": 54,
+            "source_digest": {
+              "campaign": {
+                "exists": true,
+                "sha256": "a1b4c641f7f786164bf8ac87404e6e722e1c1b7d34cc80be13d4b293c0a33216"
+              },
+              "module_meta": {
+                "exists": true,
+                "sha256": "fad93e78c63d106dff42f91f2d01ac32817ff2b27c061cdb6d73e745ee2ae08d"
+              },
+              "story_graph": {
+                "exists": true,
+                "sha256": "a751dcf3a56292962377611888c2216cc8d48ebd3789f8a5330cc79eff1ada42"
+              },
+              "combat_snapshot": {
+                "exists": false,
+                "sha256": null
+              }
+            },
+            "development_inputs": {
+              "thomas-hayes": {
+                "schema_version": 2,
+                "skills_checked": [
+                  "Listen"
+                ],
+                "check_events": [
+                  {
+                    "event_token": "development-check-7c3c0ffdf44c3dd50386a28de151535c187c267de277de0ccf63dc11d584df79",
+                    "skill": "Listen",
+                    "campaign_id": "gate9-depth-10",
+                    "session_id": "gate9-depth-10:session:1",
+                    "source_kind": "rules.roll",
+                    "source_event_id": "rules.roll:roll-listen-pursuit-front-door-v1"
+                  }
+                ],
+                "input_tokens": [
+                  "development-check-7c3c0ffdf44c3dd50386a28de151535c187c267de277de0ccf63dc11d584df79"
+                ],
+                "claim_owner": {
+                  "campaign_id": "gate9-depth-10",
+                  "ending_id": "ending-2c5faac0429c515f5f8d",
+                  "investigator_id": "thomas-hayes"
+                },
+                "source_images": {
+                  "development_events": {
+                    "exists": true,
+                    "sha256": "fe87150ad672848413199a30f81e7fed9fd5360d04a45531aafe83aac03eb4aa"
+                  },
+                  "investigator_state": {
+                    "exists": true,
+                    "sha256": "edf3d911a06f19ef7dbee19302661a169bed57d79b51c98f76ff7bda46ab3785"
+                  },
+                  "claim_ledger": {
+                    "exists": true,
+                    "sha256": "0be0bfb30dbbd50031a2f0041cdbd84c32e82ed284b782f3aef7d146994a5124"
+                  },
+                  "character": {
+                    "exists": true,
+                    "sha256": "8a714daf5371b5bafc202c7b84bc3743d7bddd0569dbb283e890ea3bc21151d1"
+                  },
+                  "sanity": {
+                    "exists": true,
+                    "sha256": "991d172bf1a999374f2b94cd67f4c0dfd76e316205a190d25af9c2016f880ba9"
+                  }
+                },
+                "mechanical_baseline": {
+                  "skills": {
+                    "Listen": 45
+                  },
+                  "luck": 50,
+                  "sanity": {
+                    "source": "canonical",
+                    "current": 47,
+                    "max": 55,
+                    "awfulness_caps": {}
+                  }
+                },
+                "deterministic_plan": {
+                  "schema_version": 2,
+                  "improvement_checks": [
+                    {
+                      "skill": "Listen",
+                      "check_roll": 90,
+                      "gain": 3,
+                      "value_before": 45,
+                      "planned_value_after": 48,
+                      "improved": true
+                    }
+                  ],
+                  "luck_recovery": {
+                    "roll": 67,
+                    "success": true,
+                    "gained": 6,
+                    "luck_before": 50,
+                    "luck_after": 56,
+                    "rule_ref": "core.optional.luck_recovery"
+                  },
+                  "awfulness_decay": {},
+                  "development_san_reward": null,
+                  "scenario_san_reward": null,
+                  "development_san_planned_delta": 0,
+                  "scenario_san_planned_delta": 0,
+                  "plan_sha256": "f4599269149f2aa1da8b399f1542a8d30956eab9277e5a9a7f59aed486b1342d"
+                },
+                "input_sha256": "fb770ccd29318f12fd1b238ef300451b7996938aee7385c96cd877409cf4063b"
+              }
+            },
+            "rng_identity": {
+              "thomas-hayes": {
+                "algorithm": "python-random-seed-v1",
+                "seed_material": "ending-2c5faac0429c515f5f8d:thomas-hayes:development.settle"
+              }
+            },
+            "captured_at": "2026-09-03T13:08:48.095107+00:00",
+            "capsule_sha256": "e13084e0de82139806b1a490161bf56bcc79b94dcdf709f777aaa86345089c74"
+          },
+          "scenario_san_reward_expr": null,
+          "scenario_san_reward_roll": null,
+          "scenario_san_reward_planned_delta": 0,
+          "luck_recovery": {
+            "roll": 67,
+            "success": true,
+            "gained": 6,
+            "luck_before": 50,
+            "luck_after": 56,
+            "rule_ref": "core.optional.luck_recovery",
+            "planned_luck_before": 50,
+            "planned_luck_after": 56,
+            "planned_gained": 6,
+            "current_luck_before_apply": 50,
+            "applied_delta": 6,
+            "merge_policy": "additive_monotonic_capped_99",
+            "roll_id": "op-development-settle-a0a098a90eb3-f4599269149f:luck-recovery",
+            "roll_kind": "luck_recovery"
+          },
+          "awfulness_decay": {},
+          "awfulness_merge": {},
+          "inventory_settlement": {
+            "added_weapons": [],
+            "removed_weapons": [],
+            "added_gear": [
+              "科比特宅钥匙"
+            ],
+            "removed_gear": [],
+            "merge_policy": "inventory_net_diff_v2"
+          },
+          "mechanical_baseline": {
+            "skills": {
+              "Listen": 45
+            },
+            "luck": 50,
+            "sanity": {
+              "source": "canonical",
+              "current": 47,
+              "max": 55,
+              "awfulness_caps": {}
+            }
+          },
+          "settlement_plan_sha256": "f4599269149f2aa1da8b399f1542a8d30956eab9277e5a9a7f59aed486b1342d",
+          "merge_policy": "frozen_plan_additive_monotonic_v1",
+          "input_tokens_consumed": [
+            "development-check-7c3c0ffdf44c3dd50386a28de151535c187c267de277de0ccf63dc11d584df79"
+          ],
+          "player_facing_mechanics": {
+            "schema_version": 1,
+            "investigator_id": "thomas-hayes",
+            "operation_id": "op-development-settle-a0a098a90eb3-f4599269149f",
+            "required_roll_ids": [
+              "op-development-settle-a0a098a90eb3-f4599269149f:check:0",
+              "op-development-settle-a0a098a90eb3-f4599269149f:gain:0",
+              "op-development-settle-a0a098a90eb3-f4599269149f:luck-recovery"
+            ],
+            "rendered_lines": [
+              "【明骰】聆听（1D100）：骰面 90 → 总值 90",
+              "【明骰】聆听（1D10）：骰面 3 → 总值 3",
+              "【明骰】幸运（1D100）：骰面 67 → 总值 67"
+            ],
+            "rendered_text": "【明骰】聆听（1D100）：骰面 90 → 总值 90\n【明骰】聆听（1D10）：骰面 3 → 总值 3\n【明骰】幸运（1D100）：骰面 67 → 总值 67",
+            "complete": true,
+            "missing_roll_ids": []
+          },
+          "settlement_boundary": {
+            "boundary_id": "gate9-depth-10:session:1:inputs-99ba50f954acb8c8",
+            "session_ids": [
+              "gate9-depth-10:session:1"
+            ],
+            "settlement_types": [
+              "skill_development",
+              "luck_recovery"
+            ]
+          }
+        },
+        "player_facing_mechanics": {
+          "schema_version": 1,
+          "investigator_id": "thomas-hayes",
+          "operation_id": "op-development-settle-a0a098a90eb3-f4599269149f",
+          "required_roll_ids": [
+            "op-development-settle-a0a098a90eb3-f4599269149f:check:0",
+            "op-development-settle-a0a098a90eb3-f4599269149f:gain:0",
+            "op-development-settle-a0a098a90eb3-f4599269149f:luck-recovery"
+          ],
+          "rendered_lines": [
+            "【明骰】聆听（1D100）：骰面 90 → 总值 90",
+            "【明骰】聆听（1D10）：骰面 3 → 总值 3",
+            "【明骰】幸运（1D100）：骰面 67 → 总值 67"
+          ],
+          "rendered_text": "【明骰】聆听（1D100）：骰面 90 → 总值 90\n【明骰】聆听（1D10）：骰面 3 → 总值 3\n【明骰】幸运（1D100）：骰面 67 → 总值 67",
+          "complete": true,
+          "missing_roll_ids": []
+        },
+        "state_refs": [
+          "save/investigator-state/thomas-hayes.json",
+          "save/development-settlements/endings/ending-2c5faac0429c515f5f8d/thomas-hayes.json",
+          "save/development-settlements/boundaries/thomas-hayes.json",
+          "../../investigators/thomas-hayes/character.json",
+          "logs/events.jsonl",
+          "logs/rolls.jsonl",
+          "save/sanity-state/thomas-hayes.json"
+        ],
+        "replayed": true,
+        "replayed_from_boundary_id": "gate9-depth-10:session:1:inputs-99ba50f954acb8c8",
+        "replayed_from_ending_id": "ending-2c5faac0429c515f5f8d"
+      }
+    }
+  },
+  "next_decisions": [],
+  "authority": "canonical-resolver-state-receipts",
+  "request_digest": "sha256:1b13554fdd5dc4a66a9b11286b0c638ed1afab146505579b1ef3b79eef8af932"
+}
