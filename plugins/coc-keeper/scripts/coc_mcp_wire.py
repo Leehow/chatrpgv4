@@ -3312,6 +3312,207 @@ def _compact_messages(values: Any, *, limit: int) -> list[Any]:
     return deepcopy(values[:limit])
 
 
+# Roll identity must survive the identity-only collapse.
+#
+# The Pi gateway mints the semantic roll handles the Keeper cites by walking an
+# observed envelope's `data` (`observeCanonicalProgress` -> `registerRoll`).
+# `_minimal_identity` preserved only a TOP-LEVEL `roll_id`, and a settlement's
+# roll ids are all nested -- `settlement.result.combat.rounds[].turns[]`,
+# `settlement.result.events[].roll_evidence[]`, `settlement.result.bound_check`.
+# A combat settlement is 62-71KB against a 16KB budget, so every one of them
+# collapsed and every roll id in it was dropped. The gateway then observed a
+# stub, registered nothing, and the dice sitting in `logs/rolls.jsonl` had no
+# handle by which the Keeper could name them.
+#
+# Live lane debug-gate9-depth-10-r65 / c-defend: 22 successful settles, 21
+# collapsed to identity_only. The Keeper then had to write an exceptional
+# effect citing one specific Dodge FUMBLE. It had correctly identified which
+# roll. It had no handle, guessed eight handle shapes over 29 attempts, was
+# walled off by `nonretryable_repeat_blocked`, and burned its whole 1800s
+# budget without delivering a turn to the player.
+#
+# WHICH rolls are kept: all of them, deduplicated. Measured on that lane's own
+# 31 successful settlements, a settlement carries at most 6 distinct roll ids
+# (the 70,552-byte combat one carries 3), so there is no byte argument for a
+# "most recent N" or "only the citable ones" filter -- and both filters would
+# have dropped the exact roll that deadlocked the lane. The roll the Keeper
+# needed was the NPC's OPPOSED Dodge from an earlier exchange: not the most
+# recent roll, not the investigator's own, and in most of those settlements not
+# reachable as any row's own `roll_id` at all -- it appears only as another
+# row's `opposed_roll_id`. So linked roll fields are collected too, each
+# carrying the role its FIELD NAME states.
+#
+# A preserved id must be registrable. One identity field the gateway cannot map
+# fails the WHOLE envelope closed as `semantic_identity_unavailable`, so a row
+# that cannot mint a handle is dropped here and counted, never shipped.
+#
+# WHICH FIELDS name a roll: any key ending in `roll_id`, and any list key
+# ending in `roll_ids`. Structural, derived from the field name itself, so a
+# subsystem that adds a roll field is covered the day it lands -- a hand-listed
+# table is exactly how the gateway's own registration went stale when the
+# ten-family cutover moved execution to `rules.settle`. The role a linked roll
+# plays is the field name with its `_roll_id` suffix removed, which is what the
+# field name already states (`opposed_roll_id` -> opposed, `loss_roll_id` ->
+# loss, `sanity_session_roll_id` -> sanity-session).
+_ROLL_IDENTITY_SCALAR_SUFFIX = "roll_id"
+_ROLL_IDENTITY_ARRAY_SUFFIX = "roll_ids"
+
+
+def _roll_identity_role(field: str) -> str:
+    """The role a linked roll field's NAME states, as a slug."""
+    for suffix in (f"_{_ROLL_IDENTITY_ARRAY_SUFFIX}", f"_{_ROLL_IDENTITY_SCALAR_SUFFIX}"):
+        if field.endswith(suffix):
+            return field[: -len(suffix)].replace("_", "-")
+    return "listed"
+
+
+# Descriptive scalars that describe the roll a row names with its OWN
+# `roll_id`. Ordered as the gateway reads them; none is an identity field, so
+# none can reach the identity boundary unmapped.
+_ROLL_IDENTITY_OWN_FACT_FIELDS = (
+    "skill",
+    "characteristic",
+    "goal",
+    "source",
+    "action",
+    "roll_kind",
+    "roll_role",
+    "outcome",
+    "achieved_level",
+)
+# Descriptive scalars on a LINKING row that describe the linked roll rather
+# than the linking row's own. `defense_kind` is the defender's skill, which is
+# what makes the opposed Dodge nameable at all.
+_ROLL_IDENTITY_LINKED_FACT_FIELDS: dict[str, tuple[str, ...]] = {
+    # The one place a linking row knows the linked roll's own SKILL: a combat
+    # turn's `defense_kind` is the defender's skill, and the defender's opposed
+    # roll is not reachable as any row's own `roll_id` in most of the lane's
+    # settlements. Without this the Dodge that deadlocked that lane would be
+    # preserved as an anonymous "opposed" roll.
+    "opposed_roll_id": ("defense_kind",),
+}
+# Shared context on the linking row: what the linked roll was made against.
+_ROLL_IDENTITY_LINKED_CONTEXT_FIELDS = ("skill", "goal", "source")
+_ROLL_IDENTITY_MAX_ROWS = 24
+_ROLL_IDENTITY_MAX_BYTES = 4096
+_ROLL_IDENTITY_MAX_TEXT = 120
+# A fact only mints a handle if it slugs to something that is not an ordinal.
+# Structural, not semantic: the registry's own rule, applied here so a row that
+# would fail closed downstream is never shipped in the first place.
+_ROLL_IDENTITY_SLUGGABLE = re.compile(r"[A-Za-z]")
+
+
+def _roll_identity_fact(value: Any) -> Any:
+    """Keep one short descriptive scalar; never a nested structure."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    return text[:_ROLL_IDENTITY_MAX_TEXT]
+
+
+def _roll_identity_registrable(row: dict[str, Any]) -> bool:
+    """Whether this row carries a fact the registry can mint a handle from."""
+    return any(
+        isinstance(value, str) and _ROLL_IDENTITY_SLUGGABLE.search(value)
+        for field, value in row.items()
+        if field != "roll_id"
+    )
+
+
+def _collect_roll_identity(data: Any) -> dict[str, Any] | None:
+    """Bounded, deterministic roll-identity projection for a collapsed result.
+
+    One row per distinct canonical roll id, in first-appearance order, with the
+    descriptive facts merged across every view of that roll the result carries
+    (a combat turn row names the roll; the matching `roll_evidence` row names
+    its skill -- neither alone is enough to name a Dodge).
+    """
+    if not isinstance(data, dict):
+        return None
+    rows: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+
+    def row_for(roll_id: Any) -> dict[str, Any] | None:
+        if not isinstance(roll_id, str) or not roll_id.strip():
+            return None
+        key = roll_id.strip()
+        row = rows.get(key)
+        if row is None:
+            row = {"roll_id": key}
+            rows[key] = row
+            order.append(key)
+        return row
+
+    def merge(row: dict[str, Any], field: str, value: Any) -> None:
+        if field in row:
+            return
+        fact = _roll_identity_fact(value)
+        if fact is None:
+            return
+        row[field] = fact
+
+    def visit(node: Any) -> None:
+        if isinstance(node, list):
+            for entry in node:
+                visit(entry)
+            return
+        if not isinstance(node, dict):
+            return
+        own = row_for(node.get("roll_id"))
+        if own is not None:
+            for field in _ROLL_IDENTITY_OWN_FACT_FIELDS:
+                merge(own, field, node.get(field))
+        for field, value in node.items():
+            if field == "roll_id":
+                continue
+            members: list[Any]
+            if field.endswith(_ROLL_IDENTITY_SCALAR_SUFFIX) and isinstance(value, str):
+                members = [value]
+            elif field.endswith(_ROLL_IDENTITY_ARRAY_SUFFIX) and isinstance(value, list):
+                members = list(value)
+            else:
+                continue
+            role = _roll_identity_role(field)
+            for member in members:
+                linked = row_for(member)
+                if linked is None:
+                    continue
+                merge(linked, "roll_role", role)
+                for extra in _ROLL_IDENTITY_LINKED_FACT_FIELDS.get(field, ()):
+                    merge(linked, "skill", node.get(extra))
+                for shared in _ROLL_IDENTITY_LINKED_CONTEXT_FIELDS:
+                    merge(linked, shared, node.get(shared))
+        for child in node.values():
+            visit(child)
+
+    visit(data)
+    if not order:
+        return None
+    kept = [rows[key] for key in order if _roll_identity_registrable(rows[key])]
+    total = len(order)
+    # Truncation is structural and visible, never silent. Drop from the FRONT:
+    # a Keeper cites the roll the exchange just produced, so the newest rows are
+    # the ones worth the budget.
+    while kept and (
+        len(kept) > _ROLL_IDENTITY_MAX_ROWS
+        or transport_bytes(kept) > _ROLL_IDENTITY_MAX_BYTES
+    ):
+        kept.pop(0)
+    if not kept:
+        return None
+    projected: dict[str, Any] = {"roll_evidence": kept}
+    if len(kept) != total:
+        projected["roll_evidence_total"] = total
+        projected["roll_evidence_omitted"] = total - len(kept)
+    return projected
+
+
 def _minimal_identity(operation: str, data: Any) -> dict[str, Any]:
     identity_fields = (
         "schema_version",
@@ -3346,6 +3547,16 @@ def _minimal_identity(operation: str, data: Any) -> dict[str, Any]:
     }
     if not isinstance(data, dict):
         return projected
+    # Roll identity is operation-neutral: the collapse branch excludes only
+    # `turn.output_context`, so ANY operation whose result grows past the cap
+    # walks this path on its first overflow with no prior warning, and a result
+    # that rolled dice must not reach the Keeper as a result that did not. The
+    # gateway registers these rows through the same `roll_evidence` shape the
+    # canonical result uses, so a collapsed settlement mints the same kind of
+    # handle an un-collapsed one does.
+    roll_identity = _collect_roll_identity(data)
+    if roll_identity is not None:
+        projected.update(roll_identity)
     if operation in {
         "progressive.register_source_bundle",
         "progressive.status",

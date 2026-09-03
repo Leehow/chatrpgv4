@@ -17,6 +17,7 @@
 // model fail closed without echo.
 import "./_lib/preload-embedded-pi.mjs";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -3040,6 +3041,274 @@ assert.equal(
     "the number of collapsed canonical results is reported",
   );
   assertModelSafeContent("evidence-gap refusal", gap);
+}
+
+// 4c-5) ...and the wire must stop eating them. THIS is the fix for the gap
+// 4c-4 only reports.
+//
+// The envelope below is not hand-written: it is produced by running the REAL
+// `coc_mcp_wire.project_envelope` over a real-shaped 60KB+ combat settlement,
+// so this section fails the moment the Python collapse stops preserving roll
+// identity — which is exactly how the old defect would return. A prior fix in
+// this area passed its unit test while the gateway dropped the field on the
+// wire; only a real-path assertion catches that, so everything here is
+// asserted on `modelContents.at(-1)`: what the Keeper actually receives.
+//
+// The roll that deadlocked lane debug-gate9-depth-10-r65 / c-defend was the
+// NPC's OPPOSED Dodge (fumble, 99). In that lane's settlements it is not
+// reachable as any row's own `roll_id`; it exists only as a combat turn's
+// `opposed_roll_id`, and its skill only as that turn's `defense_kind`.
+{
+  const combatRollBase = "combat-corbitt-house-ground-4c5";
+  const attackRollId = `${combatRollBase}:cr1`;
+  const dodgeRollId = `${combatRollBase}:cr2`;
+  const combatTurn = {
+    turn_id: "t1-1",
+    actor_id: "thomas-hayes",
+    action: "opposed_melee",
+    target_actor_id: "npc-walter-corbitt",
+    roll_id: attackRollId,
+    opposed_roll_id: dodgeRollId,
+    defense_kind: "dodge",
+    outcome: "no_damage",
+  };
+  const oversizeCombatSettle = {
+    ok: true,
+    tool: "rules.settle",
+    data: {
+      family: "combat",
+      status: "settled",
+      investigator_id: "thomas-hayes",
+      settlement: {
+        result: {
+          combat: {
+            combat_id: "campaign-combat",
+            rounds: [{ round: 1, turns: [combatTurn] }],
+            // What actually pushes a combat settlement past the cap.
+            weapon_catalog: "战斗记录".repeat(4000),
+          },
+          events: [{
+            event_type: "combat_turn_resolved",
+            turn: combatTurn,
+            // Exactly the lane's shape: the DEFENDER's roll has no evidence
+            // row of its own. Its only trace anywhere in the settlement is the
+            // turn's `opposed_roll_id`, and its only skill the turn's
+            // `defense_kind`.
+            roll_evidence: [{
+              roll_id: attackRollId,
+              roll_role: "percentile_check",
+              skill: "Fighting (Brawl)",
+              goal: "attack npc-walter-corbitt",
+              outcome: "regular",
+            }],
+          }],
+        },
+      },
+    },
+    warnings: [],
+    hints: [],
+  };
+  const wireScript = [
+    "import json, sys",
+    // `root`, never `dependencyRoot`: the wire under test is this checkout's,
+    // while dependencyRoot only supplies node_modules.
+    `sys.path.insert(0, ${JSON.stringify(
+      path.join(root, "plugins/coc-keeper/scripts"),
+    )})`,
+    "import coc_mcp_wire",
+    "envelope = json.load(sys.stdin)",
+    "assert coc_mcp_wire.transport_bytes(envelope)"
+      + " > coc_mcp_wire.MAX_INLINE_BYTES",
+    "json.dump(coc_mcp_wire.project_envelope("
+      + "'rules.settle', envelope,"
+      + " contract_digest='sha256:' + 'a' * 64), sys.stdout)",
+  ].join("\n");
+  const wireRun = spawnSync(
+    process.env.PYTHON || "python3",
+    ["-c", wireScript],
+    { input: JSON.stringify(oversizeCombatSettle), encoding: "utf8" },
+  );
+  assert.equal(
+    wireRun.status,
+    0,
+    `the real wire must project this settlement: ${wireRun.stderr}`,
+  );
+  const collapsed = JSON.parse(wireRun.stdout);
+  assert.equal(
+    collapsed.wire.identity_only,
+    true,
+    "the fixture must actually be over budget and actually collapse",
+  );
+  assert.ok(
+    !JSON.stringify(collapsed.data).includes("weapon_catalog"),
+    "the collapse must still drop the bulk it exists to drop",
+  );
+
+  routeOperation("rules.settle", collapsed);
+  await executeTool("coc_rules_settle", {
+    root: testRoot,
+    campaign,
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    decision_ref: "decision:coc7:combat:defend",
+    decision_id: "combat-defend-roll-identity-v1",
+  });
+  const settleText = modelContents.at(-1).text;
+  const settleVisible = JSON.parse(settleText);
+  assert.equal(
+    settleVisible.ok,
+    true,
+    `a collapsed settlement must stay visible, not fail the identity boundary: ${settleText}`,
+  );
+  // A handle EXISTS for the opposed Dodge, and it is what the Keeper is shown.
+  // Nothing here asserts a field merely survived the wire: the canonical id is
+  // gone and a registry handle stands in its place.
+  assert.ok(
+    Array.isArray(settleVisible.data.roll_evidence),
+    "the collapse must carry the settlement's roll identity to the Keeper; "
+      + `without it every roll in a 60KB+ settlement is nameless: ${settleText}`,
+  );
+  const presented = settleVisible.data.roll_evidence
+    .find((row) => row.roll_id === "roll:dodge");
+  assert.ok(
+    presented,
+    `the opposed Dodge must reach the Keeper as a live handle: ${settleText}`,
+  );
+  assert.equal(
+    presented.roll_role,
+    "opposed",
+    "and it is named by the role its FIELD stated, since no row described it",
+  );
+  assert.ok(
+    settleVisible.data.roll_evidence
+      .some((row) => row.roll_id === "roll:fighting-brawl"),
+    "the attacker's own roll keeps its own skill, never the defender's",
+  );
+  assert.ok(
+    !settleText.includes(dodgeRollId),
+    "the canonical roll id is never echoed to the model",
+  );
+  assert.ok(
+    !settleText.includes(attackRollId),
+    "the canonical attack roll id is never echoed to the model",
+  );
+
+  // And the handle RESOLVES to the RIGHT roll: the operation that deadlocked
+  // the live lane now binds the exact Dodge the Keeper meant, instead of being
+  // refused for naming a roll nobody ever presented.
+  routeOperation("state.exceptional_effect", {
+    ok: true,
+    tool: "state.exceptional_effect",
+    data: {
+      schema_version: 1,
+      effect_id: "effect-dodge-fumble-grab",
+      kind: "condition",
+      source_roll_id: dodgeRollId,
+    },
+  });
+  const dodgeEffectCall = clientCalls.length;
+  await executeTool("coc_invoke", {
+    operation: "state.exceptional_effect",
+    root: testRoot,
+    campaign,
+    arguments: {
+      decision_id: "exceptional-dodge-fumble-roll-identity-v1",
+      source_roll_id: "roll:dodge",
+      action: "apply",
+      effect_kind: "condition",
+      resolution_reason: "对手闪避大失败后被锁住前臂。",
+    },
+  });
+  const effectText = modelContents.at(-1).text;
+  const effect = JSON.parse(effectText);
+  assert.notEqual(
+    effect.error?.code,
+    "unknown_semantic_handle",
+    `the preserved roll must resolve, not be refused as never presented: ${effectText}`,
+  );
+  assert.notEqual(
+    effect.error?.code,
+    "semantic_identity_unavailable",
+    `preserving roll identity must not fail the envelope closed: ${effectText}`,
+  );
+  assert.equal(
+    effect.ok,
+    true,
+    `the exceptional effect the live lane could never write must land: ${effectText}`,
+  );
+  assert.equal(
+    clientCalls.at(dodgeEffectCall).arguments.source_roll_id,
+    dodgeRollId,
+    "the handle restores the EXACT canonical Dodge the settlement rolled",
+  );
+  assert.ok(
+    !effectText.includes(dodgeRollId),
+    "and the canonical id still never reaches the model",
+  );
+  assertModelSafeContent("collapsed roll identity", settleVisible);
+
+  // Truncation must reach the Keeper too. The bound exists so the collapse can
+  // never itself blow the budget, but a silent bound is how "the roll I saw has
+  // no handle" becomes unexplainable again -- and the two accounting fields
+  // must clear the identity boundary, not fail the envelope closed the way an
+  // undeclared field would.
+  {
+    const manyTurns = [];
+    const manyEvents = [];
+    for (let round = 1; round <= 40; round += 1) {
+      const turn = {
+        turn_id: `t${round}-1`,
+        action: "opposed_melee",
+        roll_id: `${combatRollBase}-bulk:r${round}:cr1`,
+        opposed_roll_id: `${combatRollBase}-bulk:r${round}:cr2`,
+        defense_kind: "dodge",
+        outcome: "no_damage",
+      };
+      manyTurns.push(turn);
+      manyEvents.push({ event_type: "combat_turn_resolved", turn });
+    }
+    const bulkSettle = structuredClone(oversizeCombatSettle);
+    bulkSettle.data.settlement.result.combat.rounds = [
+      { round: 1, turns: manyTurns },
+    ];
+    bulkSettle.data.settlement.result.events = manyEvents;
+    const bulkRun = spawnSync(
+      process.env.PYTHON || "python3",
+      ["-c", wireScript],
+      { input: JSON.stringify(bulkSettle), encoding: "utf8" },
+    );
+    assert.equal(bulkRun.status, 0, bulkRun.stderr);
+    const bulkCollapsed = JSON.parse(bulkRun.stdout);
+    assert.equal(bulkCollapsed.wire.identity_only, true);
+    assert.ok(
+      bulkCollapsed.data.roll_evidence_omitted > 0,
+      "the fixture must actually exceed the roll-identity bound",
+    );
+    routeOperation("rules.settle", bulkCollapsed);
+    await executeTool("coc_rules_settle", {
+      root: testRoot,
+      campaign,
+      investigator: CURRENT_INVESTIGATOR_HANDLE,
+      decision_ref: "decision:coc7:combat:defend",
+      decision_id: "combat-defend-roll-identity-bulk-v1",
+    });
+    const bulkText = modelContents.at(-1).text;
+    const bulkVisible = JSON.parse(bulkText);
+    assert.equal(
+      bulkVisible.ok,
+      true,
+      `the truncation accounting must clear the identity boundary: ${bulkText}`,
+    );
+    assert.equal(
+      bulkVisible.data.roll_evidence_omitted,
+      bulkCollapsed.data.roll_evidence_omitted,
+      `the Keeper is told how many rolls it is NOT being shown: ${bulkText}`,
+    );
+    assert.equal(
+      bulkVisible.data.roll_evidence_total,
+      bulkCollapsed.data.roll_evidence_total,
+    );
+    assertModelSafeContent("truncated roll identity", bulkVisible);
+  }
 }
 
 // 4d) Scene routes: authoritative `exits` populate the route snapshot; the
