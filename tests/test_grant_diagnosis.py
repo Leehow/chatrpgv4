@@ -24,16 +24,7 @@ import coc_starter  # noqa: E402
 import pytest  # noqa: E402
 
 
-@pytest.fixture
-def campaign_ws(tmp_path: Path):
-    """Its own campaign id, deliberately. RulesRuntime is cached in a module
-    global keyed by (campaign_id, investigator) with no workspace in the key,
-    so two test files sharing an id hand each other a runtime built over a
-    different tmp_path: importing test_player_intent_fact's fixture made this
-    file's combat:flee settlement find a live grant from that file's campaign
-    and reach the combat executor instead of the grant pre-check -- passing
-    alone and failing in a batch.
-    """
+def _campaign_ws(tmp_path: Path, campaign_id: str):
     workspace = tmp_path / "workspace"
     coc_root = workspace / ".coc"
     coc_root.mkdir(parents=True)
@@ -47,12 +38,38 @@ def campaign_ws(tmp_path: Path):
         }),
         encoding="utf-8",
     )
-    campaign_id = "grant-diagnosis-test"
     coc_starter.quick_start(
         coc_root, "the-haunting", "thomas-hayes",
         campaign_id=campaign_id, title="Grant Diagnosis",
     )
     return {"workspace": workspace, "campaign_id": campaign_id}
+
+
+@pytest.fixture
+def campaign_ws(tmp_path: Path):
+    """Its own campaign id, deliberately. RulesRuntime is cached in a module
+    global keyed by (campaign_id, investigator) with no workspace in the key,
+    so two test files sharing an id hand each other a runtime built over a
+    different tmp_path: importing test_player_intent_fact's fixture made this
+    file's combat:flee settlement find a live grant from that file's campaign
+    and reach the combat executor instead of the grant pre-check -- passing
+    alone and failing in a batch.
+    """
+    return _campaign_ws(tmp_path, "grant-diagnosis-test")
+
+
+@pytest.fixture
+def wire_campaign_ws(tmp_path: Path):
+    """A campaign id of its own, for the same reason and one file closer.
+
+    The runtime cache is not reset between tests either, so a refusal that
+    refreshes cards leaves a live grant behind for every later test that
+    settles the same decision under this campaign id: asserting on combat:flee
+    a second time reached the combat executor instead of the grant pre-check
+    and was refused `subsystem_transaction_failed`.
+    """
+    return _campaign_ws(tmp_path, "grant-diagnosis-wire-test")
+
 
 GRAPH = json.loads(
     (ROOT / "plugins/coc-keeper/rulesets/coc7/rule-graph.json").read_text(
@@ -318,3 +335,182 @@ def test_a_negated_existence_gate_asks_for_absence():
     assert unmet["actor.conditions.dying"]["negated"] is True
     assert unmet["time.minutes_since_injury"]["requirement"] == "to be at most 60"
     assert unmet["time.minutes_since_injury"]["negated"] is False
+
+
+def _wire_projection(envelope, *, budget: int | None = None):
+    """The shape the Keeper actually receives.
+
+    `coc_toolbox.run_tool` is the host's answer, and the Keeper never sees it:
+    the MCP server hands every envelope to `coc_mcp_wire.project_envelope`
+    first. That projection has dropped a computed field between the runtime
+    and the Keeper before, which is the same failure this file exists to
+    catch, so the assertions below are made on the projected envelope rather
+    than on the one the toolbox returned.
+
+    `budget` forces the bounded branch. A stale refusal carries the whole
+    refreshed card set, so a real one is routinely too big to inline and
+    `_bounded_error_details` rewrites `error.details` on the way out -- 26 of
+    the 198 stale refusals in the 2026-09-01 sweep arrived that way. A fixture
+    campaign's card set is small enough to fit, so without this the bounded
+    branch is never the one under test.
+    """
+    import coc_mcp_wire  # noqa: PLC0415
+
+    original = coc_mcp_wire.MAX_INLINE_BYTES
+    if budget is not None:
+        coc_mcp_wire.MAX_INLINE_BYTES = budget
+    try:
+        return coc_mcp_wire.project_envelope(
+            "rules.settle", envelope, contract_digest="sha256:test",
+        )
+    finally:
+        coc_mcp_wire.MAX_INLINE_BYTES = original
+
+
+def test_the_reason_survives_the_wire_projection_to_the_keeper(wire_campaign_ws):
+    """A reason the Keeper never receives is a reason nobody has.
+
+    The refusal is bounded on the way out: `rule_decision_stale` carries the
+    whole refreshed card set, so `_bounded_error_details` rewrites
+    `error.details` before it is inlined. Every test above this one stops at
+    the toolbox, one projection short of the Keeper.
+    """
+    import coc_toolbox  # noqa: PLC0415
+
+    settled = coc_toolbox.run_tool(
+        "rules.settle",
+        wire_campaign_ws["workspace"],
+        wire_campaign_ws["campaign_id"],
+        {
+            "decision_ref": REF,
+            "decision_id": "wire-never-granted-0001",
+            "investigator": "thomas-hayes",
+            "semantic_inputs": {},
+        },
+    )
+    projected = _wire_projection(settled)
+    error = projected.get("error") or {}
+    assert error.get("code") == "rule_decision_stale", projected
+    details = error.get("details") or {}
+    assert details.get("reason") == "no_grant_for_decision", details
+    assert details.get("refresh_operation") == "rules.context", details
+
+
+def test_the_unmet_rows_survive_the_wire_projection_too(wire_campaign_ws):
+    """`decision_not_available` is only actionable through its `unmet` rows.
+
+    They name the fact that is shut, its current value and what it must be.
+    The bounding step summarizes bulky collections away by key, so a list
+    added later is one rule-name away from being summarized out of existence.
+    """
+    import coc_toolbox  # noqa: PLC0415
+
+    settled = coc_toolbox.run_tool(
+        "rules.settle",
+        wire_campaign_ws["workspace"],
+        wire_campaign_ws["campaign_id"],
+        {
+            "decision_ref": "decision:coc7:sanity:bout-tick",
+            "decision_id": "wire-no-bout-0001",
+            "investigator": "thomas-hayes",
+            "semantic_inputs": {},
+        },
+    )
+    for budget in (None, 4096):
+        projected = _wire_projection(settled, budget=budget)
+        details = (projected.get("error") or {}).get("details") or {}
+        assert details.get("reason") == "decision_not_available", details
+        unmet = {row["path"]: row for row in details.get("unmet") or []}
+        assert "sanity.bout.pending" in unmet, (budget, details)
+        row = unmet["sanity.bout.pending"]
+        assert row["op"] == "eq"
+        assert row["negated"] is False
+        assert row["actual"] is False
+        assert row["expected"] is True
+        assert row["requirement"] == "to equal True"
+    # The bounded pass really was the bounded pass.
+    assert _wire_projection(settled, budget=4096)["wire"]["error_details_bounded"]
+
+
+def test_a_grant_that_dies_after_the_precheck_answers_the_same_way(
+    wire_campaign_ws, monkeypatch,
+):
+    """The other half of the same refusal must be told the same way.
+
+    `rules.settle` checks `latest_grant_covering()` once, then binds canonical
+    inputs, then hands that grant to `settle()`, whose own fail-closed gate
+    re-reads the binding. Canonical state moving inside that window is exactly
+    what the gate exists for -- and it raised with the runtime's raw envelope
+    as `details`, so the Keeper received a `rule_decision_stale` with no
+    `reason` key at all, no `refresh_operation` for the host-remedy circuit to
+    recognise, the unprojected internal cards, and the host-internal
+    `refreshed_card_grant` carried across the boundary with them.
+
+    Nothing inside one process can wedge itself into that window, so the grant
+    the pre-check hands back is staged already drifted. Everything after it --
+    the binding step, `settle()`, its gate, the raise, the wire projection --
+    is the real path.
+    """
+    import copy  # noqa: PLC0415
+
+    import coc_toolbox  # noqa: PLC0415
+
+    ws, cid = wire_campaign_ws["workspace"], wire_campaign_ws["campaign_id"]
+    context = coc_toolbox.run_tool(
+        "rules.context", ws, cid,
+        {"family": "core-check", "investigator": "thomas-hayes"},
+    )
+    cards = (context.get("data") or {}).get("cards") or []
+    assert cards, context
+    decision_ref = cards[0]["decision_ref"]
+
+    def raced(self, ref):
+        grant = {
+            "contract_id": runtime_module.CARD_GRANT_CONTRACT_ID,
+            "schema_version": runtime_module.CARD_GRANT_SCHEMA_VERSION,
+            "grant_id": "card-grant:coc7:core-check:raced",
+            # Issued by this runtime and recorded in its registry, bound to a
+            # canonical revision that no longer holds: what a live grant looks
+            # like the instant after state moves underneath it.
+            "binding": {
+                **self._grant_binding(()),
+                "state_revision": "sha256:moved",
+            },
+            "decision_refs": [ref],
+            "state_scope": [],
+        }
+        self._grants[grant["grant_id"]] = copy.deepcopy(grant)
+        return copy.deepcopy(grant)
+
+    monkeypatch.setattr(
+        runtime_module.RulesRuntime, "latest_grant_covering", raced,
+    )
+    settled = coc_toolbox.run_tool(
+        "rules.settle", ws, cid,
+        {
+            "decision_ref": decision_ref,
+            "decision_id": "raced-grant-0001",
+            "investigator": "thomas-hayes",
+            "semantic_inputs": {},
+        },
+    )
+
+    projected = _wire_projection(settled)
+    error = projected.get("error") or {}
+    assert error.get("code") == "rule_decision_stale", projected
+    details = error.get("details") or {}
+    assert details.get("reason") == "grant_binding_drifted", details
+    assert details.get("drifted") == ["state_revision"], details
+    # The runtime's own verdict is reported beside the Keeper-facing reason,
+    # never instead of it: they answer different questions.
+    assert details.get("grant_check") == "grant_binding_mismatch", details
+    # `nonretry-circuit` reads this key to learn the remedy is a host refresh;
+    # without it the Keeper's rules.context -> re-settle is answered
+    # `nonretryable_repeat_blocked`.
+    assert details.get("refresh_operation") == "rules.context", details
+    # Card grants stay host-internal. The raw envelope carried one out.
+    assert "refreshed_card_grant" not in details, details
+    assert "failure" not in details, details
+    for card in details.get("refreshed_cards") or []:
+        assert card.get("authority", {}).get("hard_gate") is False, card
+        assert "active_exceptions" not in card, card

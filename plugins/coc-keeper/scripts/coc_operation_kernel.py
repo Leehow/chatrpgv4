@@ -8300,6 +8300,102 @@ def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: st
     return binding
 
 
+def _rule_decision_stale_error(
+    runtime: Any,
+    decision_ref: str,
+    *,
+    family: str,
+    grant_check: Mapping[str, Any] | None = None,
+) -> ToolError:
+    """The one Keeper-facing shape for a refused settlement with no live grant.
+
+    Two places in this dispatcher can refuse for that reason and they must be
+    indistinguishable to the Keeper:
+
+    * the ``latest_grant_covering()`` pre-check below, which short-circuits
+      before ``settle()`` can reach its own ``_check_card_grant``; and
+    * ``settle()``'s fail-closed grant gate, which fires when canonical state
+      moves between that pre-check and the settlement it guards.
+
+    The second one used to raise with ``details=result`` -- the runtime's raw
+    stale envelope -- so everything the Keeper and the lane tooling read by
+    name was in the wrong place or missing: ``reason`` was buried under
+    ``details.failure``, there was no ``refresh_operation`` for
+    ``nonretry-circuit`` to recognise as the host remedy, the refreshed rows
+    were internal cards rather than the public projection, and the
+    host-internal ``refreshed_card_grant`` crossed the boundary with them.
+
+    ``grant_check`` is the runtime's own low-level verdict when that second
+    path is the caller (``grant_binding_mismatch`` and friends). It is
+    reported alongside -- not instead of -- the Keeper-facing reason, because
+    the two answer different questions: which gate refused, and what the
+    Keeper should do about it.
+    """
+    check = dict(grant_check or {})
+    if str(check.get("reason") or "") == "grant_binding_mismatch":
+        # That gate has already compared the two bindings and holds the keys
+        # that moved. Re-deriving the reason here would read the registry
+        # *after* the same gate's refresh put a live grant back in it, and
+        # report `grant_binding_unstable` with no keys at all -- true of the
+        # registry, and a worse answer than the one already in hand.
+        why: dict[str, Any] = {
+            "reason": "grant_binding_drifted",
+            "drifted": list(check.get("drifted") or []),
+            "detail": (
+                "a grant covering this decision exists but canonical state "
+                "moved since it was issued"
+            ),
+        }
+    else:
+        why = runtime.explain_missing_grant(decision_ref)
+    stale = runtime.stale_decision_envelope(
+        decision_ref,
+        str(why.get("reason") or "no_live_card_grant"),
+        str(why.get("detail") or "no live machine-issued card grant covers this decision"),
+        **({"drifted": why["drifted"]} if why.get("drifted") else {}),
+        **({"unmet": why["unmet"]} if why.get("unmet") else {}),
+    )
+    check_code = str(check.get("reason") or "") or None
+    # Grants stay host-internal (see dispatch_rules_context); only the
+    # public card projection crosses the boundary. The refreshed grant is
+    # re-registered on this runtime, so the named rules.context call
+    # returns the same live card set.
+    # "call rules.context, then settle a decision_ref it returns" is the
+    # right instruction for a grant that was never asked for or has
+    # drifted. It is the wrong one for a decision whose own hard gate is
+    # shut: refreshing produces the same card list without it. Say which
+    # fact is shut instead.
+    return ToolError(
+        "rule_decision_stale",
+        str(why.get("detail"))
+        + "; refresh this family with rules.context once it holds"
+        if why.get("reason") == "decision_not_available" else
+        "no live machine-issued card grant covers this decision; call "
+        "rules.context for this family, then settle a decision_ref it returns",
+        details={
+            "family": family or stale.get("family") or "",
+            "decision_ref": decision_ref,
+            # The reason the runtime worked out. Without it every refusal
+            # reads the same to the Keeper and to anyone reading a lane
+            # afterwards; the first wiring of this diagnosis computed the
+            # reason and then dropped it here, so eleven refused
+            # settlements on 2026-09-02 still explained nothing.
+            **{
+                key: value
+                for key, value in (stale.get("failure") or {}).items()
+                if key in ("reason", "drifted", "unmet") and value
+            },
+            **({"grant_check": check_code} if check_code else {}),
+            "refresh_operation": "rules.context",
+            "refreshed_cards": [
+                coc_rules_runtime.public_card_projection(card)
+                for card in (stale.get("refreshed_cards") or [])
+                if isinstance(card, Mapping)
+            ],
+        },
+    )
+
+
 def dispatch_rules_settle(
     ctx: Ctx,
     args: dict[str, Any],
@@ -8402,51 +8498,7 @@ def dispatch_rules_settle(
         # grant existed and canonical state moved underneath it, and those
         # need different answers. Five stale settlements across three lanes on
         # 2026-09-02 came through here with no reason attached.
-        why = runtime.explain_missing_grant(decision_ref)
-        stale = runtime.stale_decision_envelope(
-            decision_ref,
-            str(why.get("reason") or "no_live_card_grant"),
-            str(why.get("detail") or "no live machine-issued card grant covers this decision"),
-            **({"drifted": why["drifted"]} if why.get("drifted") else {}),
-            **({"unmet": why["unmet"]} if why.get("unmet") else {}),
-        )
-        # Grants stay host-internal (see dispatch_rules_context); only the
-        # public card projection crosses the boundary. The refreshed grant is
-        # re-registered on this runtime, so the named rules.context call
-        # returns the same live card set.
-        # "call rules.context, then settle a decision_ref it returns" is the
-        # right instruction for a grant that was never asked for or has
-        # drifted. It is the wrong one for a decision whose own hard gate is
-        # shut: refreshing produces the same card list without it. Say which
-        # fact is shut instead.
-        raise ToolError(
-            "rule_decision_stale",
-            str(why.get("detail"))
-            + "; refresh this family with rules.context once it holds"
-            if why.get("reason") == "decision_not_available" else
-            "no live machine-issued card grant covers this decision; call "
-            "rules.context for this family, then settle a decision_ref it returns",
-            details={
-                "family": family or stale.get("family") or "",
-                "decision_ref": decision_ref,
-                # The reason the runtime worked out. Without it every refusal
-                # reads the same to the Keeper and to anyone reading a lane
-                # afterwards; the first wiring of this diagnosis computed the
-                # reason and then dropped it here, so eleven refused
-                # settlements on 2026-09-02 still explained nothing.
-                **{
-                    key: value
-                    for key, value in (stale.get("failure") or {}).items()
-                    if key in ("reason", "drifted", "unmet") and value
-                },
-                "refresh_operation": "rules.context",
-                "refreshed_cards": [
-                    coc_rules_runtime.public_card_projection(card)
-                    for card in (stale.get("refreshed_cards") or [])
-                    if isinstance(card, Mapping)
-                ],
-            },
-        )
+        raise _rule_decision_stale_error(runtime, decision_ref, family=family)
     if family == "combat":
         selected["_host_combat_binding"] = _canonical_combat_binding(
             ctx,
@@ -8561,6 +8613,18 @@ def dispatch_rules_settle(
     status = result.get("status")
     if status not in {"settled", "compiled"}:
         failure = result.get("failure") if isinstance(result.get("failure"), dict) else {}
+        if status == "rule_decision_stale":
+            # The other half of the same refusal. The pre-check above cannot
+            # see canonical state move between its own read and the gate that
+            # guards the settlement, so this is where that race lands -- and
+            # it landed here as `details=result`, the runtime's raw envelope:
+            # `reason` nested under `failure` where nothing reads it, no
+            # `refresh_operation` for the host-remedy circuit, unprojected
+            # internal cards, and the host-internal `refreshed_card_grant`
+            # carried across the boundary with them. One shape for one code.
+            raise _rule_decision_stale_error(
+                runtime, decision_ref, family=family, grant_check=failure,
+            )
         raise ToolError(
             str(failure.get("code") or status or "rules_graph_unavailable"),
             str(failure.get("message") or status),
