@@ -129,6 +129,19 @@ def _validate_chase_action_receipt(
             exact({"type", "result", "actions_spent"})
             cost(0)
             return roll_ids, new_position, position_before
+        if outcome == "outdistanced":
+            # The quarry ran off the end of the track. It spent the action and
+            # it escaped, but there is no location to have arrived at, so the
+            # receipt carries `position_before` and no `new_position`. The
+            # replay in `_validate_snapshot` re-derives both claims it makes:
+            # that nothing followed the position it ran from, and that the
+            # actor making the claim is a quarry.
+            exact({"type", "result", "position_before", "escaped", "actions_spent"})
+            cost(1)
+            if action.get("escaped") is not True:
+                raise ValueError("chase snapshot outdistanced receipt is invalid")
+            position_before = predecessor()
+            return roll_ids, new_position, position_before
         if outcome == "blocked_by_barrier":
             exact({"type", "result", "barrier_id", "actions_spent"})
             cost(0)
@@ -331,6 +344,142 @@ def generate_location_chain(
         label = "start" if i == 0 else ("escape" if escape_at_end and i == count - 1 else f"loc{i}")
         chain.append(_normalize_location({"label": label, "hazard": None, "barrier": None}, i))
     return chain
+
+
+def chase_outlook(snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
+    """What would end this chase, read off the state that decides it.
+
+    Every chase decision except ``start`` and ``move`` is hard-gated on
+    ``chase.pending.kind``, and the kernel derives that kind from two things
+    the Keeper had no way to read: whether the location ahead of the actor on
+    turn carries a barrier or a hazard, and whether the quarry is flagged
+    escaped or captured. The move receipt says neither. Across 195 live-Keeper
+    diagnostic lanes the Keeper settled ``chase:move`` 12 times and was refused
+    ``chase:barrier``/``hazard``/``conflict``/``end`` 31 times, and nothing it
+    ever received said that the quarry was standing on the last location of
+    the track or that no location in the chain carried a feature at all.
+
+    Derived on every read from the canonical snapshot; never persisted, so
+    there is nothing here for a receipt to forge.
+    """
+    if not isinstance(snapshot, dict) or not snapshot:
+        return None
+    chain = snapshot.get("location_chain")
+    chain = chain if isinstance(chain, list) else []
+    rows = [
+        row for row in (snapshot.get("participants") or [])
+        if isinstance(row, dict)
+    ]
+    last_index = len(chain) - 1
+
+    def _ahead(row: dict[str, Any]) -> int:
+        return max(0, last_index - int(row.get("position") or 0))
+
+    quarries = [row for row in rows if row.get("side") == "quarry"]
+    pursuers = [row for row in rows if row.get("side") == "pursuer"]
+    live_quarries = [
+        row for row in quarries
+        if not row.get("escaped") and not row.get("captured")
+    ]
+
+    rounds = snapshot.get("rounds") if isinstance(snapshot.get("rounds"), list) else []
+    order = rounds[-1].get("dex_order") if rounds and isinstance(rounds[-1], dict) else []
+    cursor = int(snapshot.get("initiative_cursor") or 0)
+    on_turn = (
+        str(order[cursor])
+        if isinstance(order, list) and 0 <= cursor < len(order) else None
+    )
+    by_id = {str(row.get("actor_id")): row for row in rows}
+    actor = by_id.get(on_turn or "")
+    following = None
+    if isinstance(actor, dict):
+        step = int(actor.get("position") or 0) + 1
+        following = chain[step] if 0 <= step < len(chain) else None
+    if following is None:
+        next_feature = "end_of_track"
+    elif isinstance(following.get("barrier"), dict) and int(
+        following["barrier"].get("hp") or 0
+    ) > 0:
+        next_feature = "barrier"
+    elif isinstance(following.get("hazard"), dict):
+        next_feature = "hazard"
+    else:
+        next_feature = "clear"
+
+    ends_when: list[str] = []
+    for row in quarries:
+        name = str(row.get("actor_id"))
+        if row.get("escaped"):
+            ends_when.append(f"{name} has escaped -- settle chase:end")
+        elif row.get("captured"):
+            ends_when.append(f"{name} has been caught -- settle chase:end")
+        elif _ahead(row) == 0:
+            ends_when.append(
+                f"{name} is on the last location of the track; its next "
+                "advance runs clear of the chase and ends it"
+            )
+        else:
+            ends_when.append(
+                f"{name} is {_ahead(row)} location(s) from the end of the "
+                "track, and running past it is an escape"
+            )
+    for row in pursuers:
+        name = str(row.get("actor_id"))
+        gaps = [
+            int(quarry.get("position") or 0) - int(row.get("position") or 0)
+            for quarry in live_quarries
+        ]
+        if not gaps:
+            continue
+        gap = min(gaps, key=abs)
+        if gap > 0:
+            ends_when.append(f"{name} is {gap} location(s) behind the quarry")
+        else:
+            ends_when.append(
+                f"{name} has closed to the quarry's own location; catching it "
+                "is a chase conflict, which needs a combat defence receipt"
+            )
+    if not any(
+        isinstance(loc, dict) and (loc.get("barrier") or loc.get("hazard"))
+        for loc in chain
+    ):
+        ends_when.append(
+            "no location in this chase's track carries a barrier or a hazard, "
+            "so chase:barrier and chase:hazard cannot become available on it"
+        )
+
+    return {
+        "chain_length": len(chain),
+        "on_turn": on_turn,
+        "next_feature": next_feature,
+        "quarries": [
+            {
+                "actor_id": row.get("actor_id"),
+                "position": row.get("position"),
+                "locations_ahead": _ahead(row),
+                "escaped": bool(row.get("escaped")),
+                "captured": bool(row.get("captured")),
+            }
+            for row in quarries
+        ],
+        "pursuers": [
+            {
+                "actor_id": row.get("actor_id"),
+                "position": row.get("position"),
+                "locations_behind_quarry": min(
+                    (
+                        int(quarry.get("position") or 0)
+                        - int(row.get("position") or 0)
+                        for quarry in live_quarries
+                    ),
+                    key=abs,
+                    default=None,
+                ),
+            }
+            for row in pursuers
+        ],
+        "ends_when": ends_when,
+    }
 
 
 def _load_chase_rules() -> dict[str, Any]:
@@ -876,6 +1025,35 @@ class ChaseSession:
         position_before = p["position"]
         nxt = self._next_location(p["position"])
         if nxt is None:
+            # A quarry with no location left ahead of it has outdistanced the
+            # track: for it the chase is over. `generate_location_chain`
+            # already encodes that convention by labelling its last location
+            # "escape" -- but a chain the Keeper composed out of connected
+            # scene ids carries no such label, so the identical state (quarry
+            # standing past the end of the chain) meant nothing at all and the
+            # chase could not conclude.
+            #
+            # Measured across 195 live-Keeper diagnostic lanes: 27 chases
+            # started, 12 moves settled, and not one chase ever ended. Every
+            # live chain was built from connected scene ids -- 2 to 4 long,
+            # never an "escape" label -- the quarry began on its last index,
+            # and every quarry advance from then on returned `end_of_chain`: a
+            # receipt that spends nothing, moves nothing and changes nothing.
+            # The chase ran forever, so `chase.pending.kind` stayed "move"
+            # forever, and `chase:end` was refused `rule_decision_stale` 16
+            # times with "chase.pending.kind is 'move', needs 'end'".
+            if p["side"] == "quarry":
+                self._spend_actions(p, 1)
+                p["escaped"] = True
+                return {
+                    "type": "advance",
+                    "result": "outdistanced",
+                    "position_before": position_before,
+                    "escaped": True,
+                    "actions_spent": 1,
+                }
+            # A pursuer at the end of the track has nowhere further to run.
+            # That really is a no-op, and stays one.
             return {"type": "advance", "result": "end_of_chain", "actions_spent": 0}
 
         barrier = nxt.get("barrier")
@@ -1848,14 +2026,38 @@ class ChaseSession:
     # Outcome / persistence
     # ------------------------------------------------------------------ #
     def check_outcome(self) -> str | None:
+        """Report the outcome the chase has reached. Do not conclude it.
+
+        A chase ends through ``decision:coc7:chase:end`` -- the Keeper narrates
+        the getaway or the catch and ``chase_end`` calls :meth:`conclude`. That
+        decision is hard-gated on ``chase.session.active == true`` AND
+        ``chase.pending.kind == "end"``, and the kernel derives that pending
+        kind from the quarry's ``escaped``/``captured`` flags on a session that
+        is still live.
+
+        Concluding here flipped ``status`` to "concluded" inside the very
+        settle that set those flags, so the two halves of the gate were never
+        true at the same instant and the decision was never offered. The
+        executor's own ``chase_end`` branch then refused it a second time with
+        ``chase_not_active``. Across 195 live-Keeper diagnostic lanes
+        ``chase:end`` was refused ``rule_decision_stale`` 16 times, every one
+        of them "chase.pending.kind is 'move', needs 'end'", and no chase in
+        any lane ever concluded.
+
+        The gate is right -- a chase ends when someone escapes or is caught,
+        never on the Keeper's say-so. This method is what tells the gate that
+        moment has come; concluding was it taking the decision instead.
+        """
+        if self.status != "active":
+            return self.outcome
         quarries = [p for p in self.participants.values() if p["side"] == "quarry"]
         if not quarries:
             return None
         if all(q["escaped"] for q in quarries):
-            self.conclude("escaped")
-        elif all(q["captured"] or q.get("wrecked") for q in quarries):
-            self.conclude("captured")
-        return self.outcome
+            return "escaped"
+        if all(q["captured"] or q.get("wrecked") for q in quarries):
+            return "captured"
+        return None
 
     def conclude(self, outcome: str) -> None:
         if outcome not in VALID_CHASE_OUTCOMES - {None}:
@@ -2194,10 +2396,19 @@ class ChaseSession:
                             locations[standing + 1]
                             if 0 <= standing + 1 < len(locations) else None
                         )
-                        if outcome == "end_of_chain":
+                        if outcome in ("end_of_chain", "outdistanced"):
                             if following is not None:
                                 raise ValueError(
                                     "chase snapshot end-of-chain claim is inconsistent"
+                                )
+                            # Only a quarry outdistances the track. A pursuer
+                            # that ran out of chain is left standing on it.
+                            if outcome == "outdistanced" and next(
+                                row for row in participants
+                                if row["actor_id"] == turn["actor_id"]
+                            ).get("side") != "quarry":
+                                raise ValueError(
+                                    "chase snapshot outdistanced claim is inconsistent"
                                 )
                         else:
                             barrier = (
@@ -2246,6 +2457,13 @@ class ChaseSession:
                                     covered_special.add(nested_new)
                             if not traversed_special <= covered_special:
                                 raise ValueError("chase snapshot action position history is inconsistent")
+                        elif action.get("result") == "outdistanced":
+                            # The quarry ran past the last location, so there
+                            # is no destination to be continuous with. The
+                            # claim it does make -- that nothing followed the
+                            # position it ran from, and that it is a quarry --
+                            # is re-derived above.
+                            pass
                         elif action["type"] in {"advance", "hazard"}:
                             if new_position != previous + 1:
                                 raise ValueError("chase snapshot action position history is inconsistent")

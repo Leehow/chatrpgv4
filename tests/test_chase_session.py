@@ -117,14 +117,28 @@ def test_advance_moves_position_along_chain():
     assert len(t["actions_taken"]) == 2
 
 
-def test_reaching_escape_location_ends_chase():
+def test_reaching_escape_location_reports_the_outcome_without_taking_it():
+    """`check_outcome` reports; `chase:end` concludes.
+
+    `decision:coc7:chase:end` is hard-gated on `chase.session.active == true`
+    AND `chase.pending.kind == "end"`, and the kernel derives that pending kind
+    from the quarry's flags on a live session. Concluding here flipped the
+    status inside the same settle that raised the flags, so the two halves were
+    never true together and the decision was never offered.
+    """
     c = _make_chase()
     c.add_participant("ada", "quarry", mov=8, dex=60, con=65)
     c.set_location_chain([{"label": "start"}, {"label": "escape"}])
     c.begin_round()
     c.move_participant("ada", [{"type": "advance"}])
-    c.check_outcome()
-    assert c.outcome == "escaped"
+    assert c.check_outcome() == "escaped"
+    assert c.status == "active", (
+        "the session must still be live for chase:end to be offered and for "
+        "the executor to accept it"
+    )
+    assert c.outcome is None
+    c.conclude("escaped")
+    assert c.status == "concluded" and c.outcome == "escaped"
 
 
 def test_snapshot_has_full_schema():
