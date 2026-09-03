@@ -258,6 +258,12 @@ def test_pi_onboarding_tool_surface_projects_the_contract():
     assert result == {"ok": True, "module": "onboarding-tool-surface"}
 
 
+def test_pi_table_opening_binding_survives_a_selectorless_resume():
+    """session.resume normally carries no selector; the host still owns run_id."""
+    result = _node(ROOT / "tests/pi/table-opening-binding-without-selector.mjs", str(ROOT))
+    assert result == {"ok": True, "module": "table-opening-binding-without-selector"}
+
+
 def test_pi_domain_tools_acl_and_closed_enums():
     result = _node(ROOT / "tests/pi/domain-tools-acl.mjs", str(ROOT))
     assert result == {"ok": True}

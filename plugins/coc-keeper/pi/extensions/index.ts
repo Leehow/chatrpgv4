@@ -5169,9 +5169,19 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     const envelope = objectOrNull(value);
     const data = objectOrNull(envelope?.data);
     if (envelope?.ok !== true || data === null) return;
-    const campaignId = typeof params.campaign === "string"
-      ? params.campaign.trim()
-      : canonicalProgressCampaignId;
+    // The envelope is authoritative, and it names its own campaign. Reading the
+    // id only from the request left it empty whenever a call carried no
+    // selector -- which is the normal shape for `session.resume`, since the
+    // session is already bound to one campaign. On a fresh session that meant
+    // `evidence.table_opening` never received its host-owned binding, and the
+    // first played turn asked the Keeper for a `run_id` it has no way to know,
+    // while the retry circuit simultaneously refused to let it supply one.
+    // The envelope only fills a hole here; a request selector still wins.
+    const campaignId = (
+      typeof params.campaign === "string" ? params.campaign.trim() : ""
+    )
+      || canonicalProgressCampaignId
+      || (typeof data.campaign_id === "string" ? data.campaign_id.trim() : "");
     if (campaignId) canonicalProgressCampaignId = campaignId;
     // Retain exact canonical entity identities for semantic-handle
     // restoration. Host-side only; structured per-operation extraction from
