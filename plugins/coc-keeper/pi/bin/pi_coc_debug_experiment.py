@@ -1262,6 +1262,23 @@ class DebugRunCoordinator:
             os.close(descriptor)
 
 
+def _entry_category(custom: Any) -> str:
+    """Which lane file an appended entry belongs in.
+
+    A replan abandons the rest of a batched tool run and costs a fresh model
+    round trip, so it belongs with the working-set evidence. It used to fall
+    through to the undifferentiated rpc stream, so no lane could select it:
+    the audit existed and was unreadable. Measured once it was selectable, a
+    schema lookup that triggers a replan is followed by ~33s of model time
+    against ~0s for one that does not.
+    """
+    if custom in {"coc-tool-working-set", "coc-tool-working-set-replan"}:
+        return "working_set"
+    if custom == "coc-turn-timing":
+        return "timing"
+    return "rpc"
+
+
 def _semantic_operation(tool_name: Any) -> str:
     name = str(tool_name or "")
     if not name.startswith("coc_"):
@@ -1723,12 +1740,12 @@ class PiRpcLaneAdapter:
             elif event_type == "entry_appended":
                 entry = event.get("entry")
                 custom = entry.get("customType") if isinstance(entry, dict) else None
-                category = (
-                    "working_set" if custom == "coc-tool-working-set"
-                    else "timing" if custom == "coc-turn-timing"
-                    else "rpc"
-                )
-                events.append({"category": category, "event": _redact(event)})
+                category = _entry_category(custom)
+                row = {"category": category, "event": _redact(event)}
+                if category == "working_set":
+                    row["at_ms"] = round((time.monotonic() - started) * 1000)
+                    row["lane_phase"] = current_phase
+                events.append(row)
             else:
                 events.append({"category": "rpc", "event": _redact(event)})
                 if event_type in {"message_start", "message_update"}:

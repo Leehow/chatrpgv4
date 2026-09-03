@@ -861,6 +861,17 @@ def test_rpc_lane_enforces_resume_first_and_exact_final_delivery(tmp_path: Path)
         assert isinstance(row.get("at_ms"), int), row
         assert row.get("lane_phase") in {"resume", "turn"}, row
     assert [row["at_ms"] for row in timed] == sorted(row["at_ms"] for row in timed)
+    # A replan abandons the rest of a batched tool run and costs a fresh model
+    # round trip. Its audit entry existed and no lane could record it: the
+    # recorder mapped only `coc-tool-working-set` to a selectable category and
+    # sent the replan to the undifferentiated rpc stream. Measured once it was
+    # selectable: a schema lookup that triggers one is followed by ~33s of
+    # model time, against ~0s for one that does not.
+    assert _module()._entry_category("coc-tool-working-set-replan") == (
+        "working_set"
+    )
+    assert _module()._entry_category("coc-tool-working-set") == "working_set"
+    assert _module()._entry_category("something-else") == "rpc"
     live_root = tmp_path / "rpc-success" / "evidence" / "lanes" / "lane-success"
     assert (live_root / "live-rpc.jsonl").is_file()
     progress = json.loads((live_root / "progress.json").read_text(encoding="utf-8"))
