@@ -56,6 +56,14 @@ _SITUATION_ITEM_KEYS = frozenset({
     "item_id", "label", "kind", "weapon", "weapon_id", "mechanics_ref",
     "quantity", "consumable", "investigator",
 })
+# Enumerations the seeded operations enforce themselves. Checking them here
+# turns a six-minute lane that dies on `invalid_param` into a dispatch-time
+# rejection naming the legal values.
+_SITUATION_DAMAGE_KINDS = frozenset({"damage", "heal"})
+_SITUATION_REST_KINDS = frozenset({"full_sleep"})
+_SITUATION_ENDING_KINDS = frozenset({
+    "conclusion", "tpk", "retreat", "cliffhanger",
+})
 _MAX_SITUATION_LIST = 20
 _TOOLBOX_SCRIPT = _SCRIPTS / "coc_toolbox.py"
 _SITUATION_SEED_REASON = "host debug situation seeding"
@@ -330,22 +338,31 @@ def _situation_damage(value: Any, *, label: str) -> dict[str, Any]:
     The common seed is "hurt the investigator by N"; requiring an object for
     that would be ceremony, so a bare amount is accepted and the kind defaults
     here rather than in the caller that builds the operation.
+
+    `kind` is the direction the toolbox means -- damage or heal -- not a damage
+    type. Seeding sent "physical", which `rules.damage` rejects with
+    `invalid_param`, so every wounded lane failed to seed and the healing
+    family looked unreachable for a reason that was never in the rule layer.
     """
     if isinstance(value, int) and not isinstance(value, bool):
         return {
             "amount": _situation_positive_int(value, label=label),
-            "kind": "physical",
+            "kind": "damage",
         }
     damage = _strict_object(value, label=label)
     _exact_keys(damage, {"amount", "kind"}, label=label)
+    kind = damage.get("kind", "damage")
+    if kind not in _SITUATION_DAMAGE_KINDS:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"{label}.kind must be one of "
+            f"{', '.join(sorted(_SITUATION_DAMAGE_KINDS))}",
+        )
     return {
         "amount": _situation_positive_int(
             damage.get("amount"), label=f"{label}.amount",
         ),
-        "kind": (
-            _nonempty_text(damage["kind"], label=f"{label}.kind")
-            if "kind" in damage else "physical"
-        ),
+        "kind": kind,
     }
 
 
@@ -361,7 +378,14 @@ def _situation_ending(value: Any, *, label: str) -> dict[str, Any]:
         ),
     }
     if "kind" in ending:
-        normalized["kind"] = _nonempty_text(ending["kind"], label=f"{label}.kind")
+        kind = _nonempty_text(ending["kind"], label=f"{label}.kind")
+        if kind not in _SITUATION_ENDING_KINDS:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label}.kind must be one of "
+                f"{', '.join(sorted(_SITUATION_ENDING_KINDS))}",
+            )
+        normalized["kind"] = kind
     return normalized
 
 
@@ -454,9 +478,14 @@ def _normalize_situation(raw: Any, *, label: str) -> dict[str, Any]:
             situation["advance_minutes"], label=f"{label}.advance_minutes",
         )
     if "safe_rest" in situation:
-        normalized["safe_rest"] = _nonempty_text(
-            situation["safe_rest"], label=f"{label}.safe_rest",
-        )
+        rest = _nonempty_text(situation["safe_rest"], label=f"{label}.safe_rest")
+        if rest not in _SITUATION_REST_KINDS:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label}.safe_rest must be one of "
+                f"{', '.join(sorted(_SITUATION_REST_KINDS))}",
+            )
+        normalized["safe_rest"] = rest
     if "ending" in situation:
         normalized["ending"] = _situation_ending(
             situation["ending"], label=f"{label}.ending",

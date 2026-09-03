@@ -1784,8 +1784,8 @@ def test_seeding_reaches_state_a_scene_and_a_roster_cannot():
                     "label": "科比特的手记",
                 }],
                 "spells": ["Contact Deity"],
-                "damage": {"amount": 7, "kind": "physical"},
-                "ending": {"summary": "调查员逃出宅子。", "kind": "escape"},
+                "damage": {"amount": 7, "kind": "damage"},
+                "ending": {"summary": "调查员逃出宅子。", "kind": "retreat"},
             },
         }],
     })
@@ -1800,9 +1800,9 @@ def test_seeding_reaches_state_a_scene_and_a_roster_cannot():
     assert by["state.item_grant"]["kind"] == "tome"
     assert by["magic.learn"]["spell"] == "Contact Deity"
     assert by["rules.damage"]["amount"] == 7
-    assert by["rules.damage"]["kind"] == "physical"
+    assert by["rules.damage"]["kind"] == "damage"
     assert by["state.end_session"]["summary"] == "调查员逃出宅子。"
-    assert by["state.end_session"]["kind"] == "escape"
+    assert by["state.end_session"]["kind"] == "retreat"
     # Every seeded write carries a lane-scoped decision id, so a sandbox
     # replay of the same lane is idempotent and the evidence names its target.
     for row in ops:
@@ -1822,12 +1822,40 @@ def test_a_bare_damage_amount_is_accepted():
         }],
     })
     assert spec["lanes"][0]["situation"]["damage"] == {
-        "amount": 5, "kind": "physical",
+        "amount": 5, "kind": "damage",
     }
     ops = module._situation_operations(spec["lanes"][0], "c1")
     damage = next(row for row in ops if row["operation"] == "rules.damage")
     assert damage["arguments"]["amount"] == 5
-    assert damage["arguments"]["kind"] == "physical"
+    assert damage["arguments"]["kind"] == "damage"
+
+
+def test_damage_kind_is_the_direction_the_toolbox_means():
+    """`rules.damage` reads `kind` as damage-or-heal, not as a damage type.
+
+    Seeding defaulted it to "physical", which the operation rejects with
+    `invalid_param`. Every wounded lane therefore failed to seed, and six
+    healing decisions looked unreachable for a reason that was never in the
+    rule layer.
+    """
+    module = _module()
+
+    def seed(damage):
+        spec = module._normalize_run_spec({
+            "player_input": "我受伤了。",
+            "lanes": [{
+                "id": "hurt", "player_input": "我受伤了。",
+                "situation": {"damage": damage},
+            }],
+        })
+        ops = module._situation_operations(spec["lanes"][0], "c1")
+        return next(r for r in ops if r["operation"] == "rules.damage")["arguments"]
+
+    assert seed(6)["kind"] == "damage"
+    assert seed({"amount": 6, "kind": "heal"})["kind"] == "heal"
+    with pytest.raises(module.DebugExperimentError) as rejected:
+        seed({"amount": 6, "kind": "physical"})
+    assert "damage, heal" in str(rejected.value)
 
 
 def test_seeding_can_advance_the_clock_to_fire_due_triggers():
@@ -1905,3 +1933,33 @@ def test_normalization_carries_every_structural_key_it_accepts():
         "state.set_flag", "state.item_grant", "magic.learn", "rules.damage",
         "state.advance_time", "state.mark_safe_rest", "state.end_session",
     }
+
+
+def test_seed_enumerations_are_rejected_at_dispatch_not_six_minutes_in():
+    """`safe_rest` and the ending kind are closed sets the operations enforce.
+
+    A seed that names a value outside them costs a whole lane before the error
+    appears, and the lane's evidence then looks like a rule-layer refusal. The
+    request is rejected here instead, naming the legal values.
+    """
+    module = _module()
+
+    def seed(situation):
+        return module._normalize_run_spec({
+            "player_input": "我推开门。",
+            "lanes": [{
+                "id": "s", "player_input": "我推开门。", "situation": situation,
+            }],
+        })
+
+    assert seed({"safe_rest": "full_sleep"})["lanes"][0]["situation"]["safe_rest"] \
+        == "full_sleep"
+    with pytest.raises(module.DebugExperimentError) as rest:
+        seed({"safe_rest": "catnap"})
+    assert "full_sleep" in str(rest.value)
+
+    assert seed({"ending": {"summary": "结束。", "kind": "tpk"}}) \
+        ["lanes"][0]["situation"]["ending"]["kind"] == "tpk"
+    with pytest.raises(module.DebugExperimentError) as ending:
+        seed({"ending": {"summary": "结束。", "kind": "escape"}})
+    assert "conclusion" in str(ending.value)
