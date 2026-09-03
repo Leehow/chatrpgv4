@@ -548,12 +548,24 @@ export COC_PROGRESSIVE_OCR_COMMAND="${COC_PROGRESSIVE_OCR_COMMAND:-$SCRIPT_DIR/c
 # is harmless. User env overrides win.
 export COC_PI_PDF_INSPECTOR_COMMAND="${COC_PI_PDF_INSPECTOR_COMMAND:-$HOME/.pi/coc-tools/pdf-inspector/coc-pi-pdf-inspector-router}"
 # Adapter child model defaults (user env overrides win):
-#   COC_PI_PDF_MODEL     locator/full-parse visual PDF-skill child (Grok 4.6)
-#   COC_PI_OPENING_MODEL opening facts+L0 text extractor (DeepSeek text model,
-#                       never a vision model — it reads router materialized
-#                       Markdown only)
+#   COC_PI_PDF_MODEL     locator/full-parse visual PDF-skill child
+#   COC_PI_OPENING_MODEL opening facts+L0 text extractor — never a vision
+#                       model; it reads router-materialized Markdown only
+#
+# Both default to the same provider on purpose. The opening extractor used to
+# default to a DeepSeek text model, and "text-only" is an argument for a text
+# model, not for a second provider: it dragged another credential into a chain
+# that otherwise runs entirely on the session's own. On 2026-09-02 that
+# credential was invalid and every opening source review died after rendering
+# its pages, on a 401 for a provider nothing else in the run touches.
+#
+# This export is also why fixing the adapter's own constant did nothing --
+# the env wins over it. The default lived in four places at once (this export,
+# the adapter constant, the child-env allowlist, and a `model_policy` field
+# that is validated and never consumed). Anything else, DeepSeek included,
+# still works by setting COC_PI_OPENING_MODEL.
 export COC_PI_PDF_MODEL="${COC_PI_PDF_MODEL:-xai/grok-4.6}"
-export COC_PI_OPENING_MODEL="${COC_PI_OPENING_MODEL:-deepseek/deepseek-v4-flash}"
+export COC_PI_OPENING_MODEL="${COC_PI_OPENING_MODEL:-$COC_PI_PDF_MODEL}"
 
 # Quiet game desktop: suppress pi update/package/changelog noise inside the
 # pi-coc session. PI_OFFLINE disables startup network operations (version

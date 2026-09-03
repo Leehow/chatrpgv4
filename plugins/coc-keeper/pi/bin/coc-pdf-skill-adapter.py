@@ -103,14 +103,22 @@ def _pi_command() -> str:
 
 # One shared child-env allowlist so every model child sees exactly the same
 # bounded surface. Model selection is resolved by the adapter into --model;
-# the child itself never needs the override variables. Provider keys pi reads
-# from the environment are allowed through so the opening text extractor child
-# can use the configured DeepSeek provider (DEEPSEEK_BASE_URL supports a
-# custom provider override).
+# the child itself never needs the override variables.
+#
+# Provider credentials normally reach the child through the agent home
+# (`PI_CODING_AGENT_DIR` is passed, and pi reads auth.json there). The
+# environment keys below are the escape hatch for a provider configured that
+# way instead. DeepSeek was the only one listed, which is what a default of
+# `deepseek/deepseek-v4-flash` needed -- so the allowlist quietly encoded that
+# one default too. Any provider a caller can name in COC_PI_OPENING_MODEL or
+# COC_PI_PDF_MODEL should be equally reachable.
 _PI_CHILD_ENV_KEYS = frozenset({
     "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "USER",
     "LOGNAME", "SHELL", "PI_CODING_AGENT_DIR",
     "DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL",
+    "XAI_API_KEY", "XAI_BASE_URL",
+    "OPENAI_API_KEY", "OPENAI_BASE_URL",
+    "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL",
 })
 
 
@@ -525,13 +533,28 @@ def _validate_opening_review_transport(value: Any) -> dict[str, Any]:
 CHILD_STDERR_SAFE_BYTES = 200
 
 
-def _child_failure_detail(returncode: int, stderr: str | None) -> str:
+def _child_failure_detail(
+    returncode: int,
+    stderr: str | None,
+    child: str = "Pi PDF lifecycle",
+    model: str | None = None,
+) -> str:
+    """Name which child failed, and on which model.
+
+    Both model children shared one message that always said "Pi PDF
+    lifecycle", so half of these failures pointed at the wrong process -- and
+    none of them said which model was asked for. A provider auth failure then
+    reads as a mystery: on 2026-09-02 a 401 for a provider nothing else in the
+    run touches took several passes to place, because the label named the
+    lifecycle child while the failing one was the opening extractor.
+    """
+    where = child if model is None else f"{child} (model {model})"
     raw = (stderr or "").encode()
     if 0 < len(raw) <= CHILD_STDERR_SAFE_BYTES:
         detail = " ".join(raw.decode("utf-8", errors="replace").split())
-        return f"Pi PDF lifecycle failed (exit {returncode}): {detail}"
+        return f"{where} failed (exit {returncode}): {detail}"
     return (
-        f"Pi PDF lifecycle failed (exit {returncode}); stderr redacted "
+        f"{where} failed (exit {returncode}); stderr redacted "
         f"({len(raw)} bytes)"
     )
 
@@ -1307,7 +1330,10 @@ def _run_pi(
         _run_post_child_hook()
         _fail_if_shutdown(flag)
         if completed.returncode != 0:
-            _fail(_child_failure_detail(completed.returncode, completed.stderr))
+            _fail(_child_failure_detail(
+                completed.returncode, completed.stderr,
+                "Pi PDF lifecycle", _pi_model(),
+            ))
         payload = (completed.stdout or "").encode()
         if len(payload) > MAX_OUTPUT_BYTES:
             _fail("Pi PDF producer receipt exceeds output limit")
@@ -2693,7 +2719,10 @@ def _run_opening_extractor_child(
     _run_post_child_hook()
     _fail_if_shutdown(shutdown)
     if completed.returncode != 0:
-        _fail(_child_failure_detail(completed.returncode, completed.stderr))
+        _fail(_child_failure_detail(
+            completed.returncode, completed.stderr,
+            "opening text extractor", _opening_text_model(),
+        ))
     payload = (completed.stdout or "").encode()
     if len(payload) > MAX_OUTPUT_BYTES:
         _fail("opening text extractor receipt exceeds output limit")
