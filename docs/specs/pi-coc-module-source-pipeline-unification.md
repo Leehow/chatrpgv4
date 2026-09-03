@@ -318,6 +318,33 @@ route / structure / serve / repair-unreadable）未动——D2 规定它保留�
 [git-temporal-memory-worldlines.md](git-temporal-memory-worldlines.md)
 的 follow-on `F1 module-loop-worldline`，两边同一件事的两侧，不要各自实现。
 
+### Stage G — 开场源审阅通路收回 L0（未开始）
+
+D2 只写了 `coc-pdf-pipeline` 这条外部 CLI，其 `extract` 波次已在 Stage D 删
+除。宿主在开场源审阅里调的**另一条**通路没人碰过：
+`plugins/coc-keeper/pi/bin/coc-pdf-skill-adapter.py`（2026-07-28，早于图谱编
+译器一个月、早于本 spec 五周）至今在 L0 内部自己起一个 `pi --mode text` 子进
+程，抽取 `opening facts` 与 `module_init_l0`。
+
+那是第二次「LLM 理解原文」，与 §2 的
+「L2 语义层 ModuleGraph 编译 —— 全系统唯一一次 LLM 理解原文」直接冲突。
+
+同一形状的既有证据（2026-09-02 实盘）：
+
+- 该子进程的模型是硬编码常量，与它自己校验的 `model_policy`
+  （`pinned_xai_grok_4_5_thinking_low`）不一致——字段被验、从不驱动选择。
+  其中一个常量还是另一个 provider（deepseek），凭据失效时整场审阅在渲染完
+  180 页后死于一个链条别处都不用的 401。已改为与适配器同一 provider；
+  `model_policy` 仍无消费者。
+- 开场事实因此有两个可能的产出者，而 ModuleGraph 本该是唯一权威。
+
+本 Stage 的份额：把 opening facts / module_init_l0 的语义抽取移到 L2，让适配
+器退回 D2 说的纯证据供应商（识别、native 抽取、OCR 应答、页面物化），并让
+`model_policy` 要么真的驱动模型选择、要么删除。
+
+在此之前，对该适配器抽取半边的任何修改都是给一个按 D2 本就该退役的环节打补
+丁——这一点值得先说清楚再动手。
+
 ### Stage E — 长模组
 
 Masks 第一章按 D3/D6 建图并投影，真实游玩中以 deepen 补后续 unit。

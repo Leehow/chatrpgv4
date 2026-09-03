@@ -54,14 +54,17 @@ MCP_OPERATION_CONTRACTS = (
 )
 PI_MODEL = "xai/grok-4.6"
 # Opening semantic extraction consumes only preseeded bound native Markdown
-# pages and must never depend on the visual Grok/PDF-skill child.
-# The default is a text model; COC_PI_OPENING_MODEL overrides it (Grok stays
-# a valid explicit choice for the same text-only job, but it is no longer
-# hardwired into the opening review). pi's built-in deepseek catalog ships
-# only v4-flash/v4-pro: "deepseek/deepseek-chat" is not resolvable on this
-# host and pi routes it to openrouter, which has no configured key
-# (real-run evidence: "No API key found for openrouter").
-OPENING_TEXT_MODEL = "deepseek/deepseek-v4-flash"
+# pages and must never depend on the visual Grok/PDF-skill child. That is an
+# argument for a TEXT model, not for a different provider -- and defaulting to
+# one dragged a second credential into a chain that otherwise runs entirely on
+# the session's own. On 2026-09-02 that credential was invalid and the whole
+# opening source review died at `producer_terminal_failure` after rendering
+# 180 pages, with a 401 for a provider nothing else in the run touches.
+#
+# The same model the rest of this adapter uses is a perfectly good text model,
+# so the default is now one provider for the whole adapter. Anything else,
+# deepseek included, stays available through COC_PI_OPENING_MODEL.
+OPENING_TEXT_MODEL = PI_MODEL
 PI_THINKING = "low"
 PI_TOOLS = "read,bash,write"
 # Opening extraction consumes already-materialized Markdown and must return
