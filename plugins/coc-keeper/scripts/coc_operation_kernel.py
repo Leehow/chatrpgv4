@@ -6779,6 +6779,54 @@ def _semantic_ref_value(value: Any, prefix: str) -> str | None:
     return text[len(expected):] if text.startswith(expected) and text[len(expected):] else None
 
 
+def _present_npc_ids(
+    ctx: Ctx, scene: Mapping[str, Any], scene_id: str,
+) -> list[str]:
+    """Who is in the current scene, by the presence authority combat uses.
+
+    The authored scene roster PLUS the live `state.npc_presence` overlay,
+    minus anyone the overlay marks elsewhere. Reading only `scene.npc_ids`
+    made a pursuit structurally impossible the first time it was actually
+    played: the Keeper marked the pursuer present in the fled-through scene
+    with `state.npc_presence` -- the overlay combat honors -- and the chase
+    candidates ignored it, so `rules.context(chase)` returned no cards while
+    the fiction had claws on the investigator's coat.
+
+    One derivation, several consumers. The chase start candidates were the
+    first; the magic family's teacher block is the second, and it must scope
+    itself to the same roster -- a source list that named someone two scenes
+    away would invite the Keeper to narrate a lesson from an empty chair.
+    """
+    try:
+        presence_overlay = _load_npc_presence_document(ctx).get("presence") or {}
+    except (AttributeError, ToolError):
+        # A caller that supplies only world/story_graph (focused runtime
+        # tests, projection probes) has no campaign_dir; the authored scene
+        # roster alone is then the presence authority, exactly as before.
+        presence_overlay = {}
+    npc_candidate_ids: list[str] = []
+    for npc_id in (scene.get("npc_ids") or []) if isinstance(scene, Mapping) else []:
+        npc_id = str(npc_id)
+        live = presence_overlay.get(npc_id)
+        if isinstance(live, Mapping) and (
+            live.get("status") != "present"
+            or str(live.get("scene_id") or "") != scene_id
+        ):
+            continue
+        npc_candidate_ids.append(npc_id)
+    for npc_id, live in presence_overlay.items():
+        npc_id = str(npc_id)
+        if npc_id in npc_candidate_ids:
+            continue
+        if (
+            isinstance(live, Mapping)
+            and live.get("status") == "present"
+            and str(live.get("scene_id") or "") == scene_id
+        ):
+            npc_candidate_ids.append(npc_id)
+    return npc_candidate_ids
+
+
 def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
     world_provider = getattr(ctx, "world", None)
     story_graph = getattr(ctx, "story_graph", None)
@@ -6810,41 +6858,7 @@ def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
             "build": int(state.get("build", 0)),
             "conditions": list(state.get("conditions") or []),
         }
-    # NPC chase actors come from the same presence authority combat uses:
-    # the authored scene roster PLUS the live presence overlay, minus anyone
-    # the overlay marks elsewhere. Reading only `scene.npc_ids` made a
-    # pursuit structurally impossible the first time it was actually played:
-    # the Keeper marked the pursuer present in the fled-through scene with
-    # `state.npc_presence` — the overlay combat honors — and the chase
-    # candidates ignored it, so `rules.context(chase)` returned no cards
-    # while the fiction had claws on the investigator's coat.
-    try:
-        presence_overlay = _load_npc_presence_document(ctx).get("presence") or {}
-    except (AttributeError, ToolError):
-        # A caller that supplies only world/story_graph (focused runtime
-        # tests, projection probes) has no campaign_dir; the authored scene
-        # roster alone is then the presence authority, exactly as before.
-        presence_overlay = {}
-    npc_candidate_ids: list[str] = []
-    for npc_id in (scene.get("npc_ids") or []):
-        npc_id = str(npc_id)
-        live = presence_overlay.get(npc_id)
-        if isinstance(live, Mapping) and (
-            live.get("status") != "present"
-            or str(live.get("scene_id") or "") != scene_id
-        ):
-            continue
-        npc_candidate_ids.append(npc_id)
-    for npc_id, live in presence_overlay.items():
-        npc_id = str(npc_id)
-        if npc_id in npc_candidate_ids:
-            continue
-        if (
-            isinstance(live, Mapping)
-            and live.get("status") == "present"
-            and str(live.get("scene_id") or "") == scene_id
-        ):
-            npc_candidate_ids.append(npc_id)
+    npc_candidate_ids = _present_npc_ids(ctx, scene, scene_id)
     for npc_id in npc_candidate_ids:
         npc = _npc_by_id(ctx.npc_agendas, npc_id)
         mechanics = npc.get("mechanics") if isinstance(npc, Mapping) else None
@@ -8859,6 +8873,137 @@ def _magic_learning_sources(ctx: Ctx) -> dict[str, list[str]]:
             if str(item_id) and spells:
                 sources[f"tome:{item_id}"] = spells
     return sources
+
+
+#: Copy-verbatim guidance for the three slots this block exists to fill. It
+#: rides INSIDE the block rather than in `hints`: Pi authors the model's hints
+#: from structured envelope fields and relays neither canonical hint nor
+#: canonical warning prose, so a hint here would be written and then silently
+#: dropped -- the same computed-but-undelivered failure this block is about.
+_LEARNING_NOTE = (
+    "copy sources[].source_ref and sources[].source verbatim into rules.settle "
+    "semantic_inputs (source_ref, source) and one of that row's spells[] into "
+    "spell; the learn-spell card stays withheld until all three name the same "
+    "authored source"
+)
+
+#: The sources block is a working set, not a catalogue. `rules.context` is
+#: capped at 16 KB inline, and a module may author many tomes; a real scene
+#: holds a handful of people. The cap only bounds the pathological case, and
+#: it says so rather than truncating in silence.
+_LEARNING_SOURCE_LIMIT = 8
+
+
+def _magic_learning_block(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
+    """Who or what, here and now, can teach the investigator a spell.
+
+    The appointment already existed and reached nothing the Keeper reads. A
+    diagnostic lane appoints an NPC by writing `magic_source_kind` and
+    `mechanics.profile.spells` into the campaign's own `npc-agendas.json`, the
+    kernel reads it into the `magic.learn.sources` fact, and the Keeper was
+    shown none of it. Live in `debug-gate9-depth-10-r70`, lane
+    `mg-learn-person`, with Steven Knott appointed a teacher, the Keeper read
+    his authored persona -- a landlord -- and narrated the player away:
+
+        「教你什么？我是房东，不是什么开门关门的巫师。」
+
+    It was not wrong. `magic_source_kind` appears zero times in that lane's
+    entire tool stream. The same silence blocked the mechanics: the
+    `learn-spell` card is gated on `magic.learn.source-available`, which is
+    derived from the Keeper sending `source_ref` -- so the card only appears
+    once the Keeper has already guessed the id that names the source.
+
+    `_magic_learning_sources` is the single map behind the fact AND the
+    settle-time binding; this is its third consumer, deliberately not a
+    fourth derivation. A second derivation would drift and eventually offer
+    a source the settle path refuses.
+
+    Person and entity sources are scoped to the CURRENT SCENE's presence
+    roster: a teacher two scenes away is not an entrance, it is an invitation
+    to narrate a lesson from an empty chair. Tomes carry no presence -- a
+    learning source is authored content, never possession, so the map lists a
+    tome the party has never touched and this block reports it as the map
+    has it.
+
+    Visibility: this is the Keeper's own surface (`rules.context` is
+    `audience: keeper`), and the two magic capabilities and the magic
+    rule-family are themselves `visibility: keeper-only` -- what the Keeper
+    may read here is exactly what those nodes already scope to the Keeper.
+    The block carries no effect node, so it changes no `keeper-only` /
+    `concealed-result` decision the runtime already makes when it projects a
+    card: a spell the Keeper learns about here still reaches the player only
+    through narration the Keeper chooses to give.
+    """
+    sources = _magic_learning_sources(ctx)
+    present: set[str] | None = None
+    world_provider = getattr(ctx, "world", None)
+    story_graph = getattr(ctx, "story_graph", None)
+    if callable(world_provider) and isinstance(story_graph, Mapping):
+        scene_id = str((world_provider() or {}).get("active_scene_id") or "")
+        scene = _scene_by_id(story_graph, scene_id)
+        if scene_id and isinstance(scene, Mapping):
+            present = set(_present_npc_ids(ctx, scene, scene_id))
+    rows: list[dict[str, Any]] = []
+    withheld_absent = 0
+    for source_ref in sorted(sources):
+        kind, _, subject_id = source_ref.partition(":")
+        spells = [str(value) for value in sources[source_ref] if str(value).strip()]
+        if not spells:
+            continue
+        if kind in {"person", "entity"}:
+            if present is not None and subject_id not in present:
+                withheld_absent += 1
+                continue
+            npc = _npc_by_id(getattr(ctx, "npc_agendas", {}), subject_id)
+            name = str((npc or {}).get("name") or "").strip()
+        else:
+            name = ""
+        row: dict[str, Any] = {"source_ref": source_ref, "source": kind}
+        if name and name != subject_id:
+            row["name"] = name
+        row["spells"] = spells
+        rows.append(row)
+    block: dict[str, Any] = {"sources": rows[:_LEARNING_SOURCE_LIMIT]}
+    if rows:
+        block["note"] = _LEARNING_NOTE
+    if len(rows) > _LEARNING_SOURCE_LIMIT:
+        block["not_listed"] = len(rows) - _LEARNING_SOURCE_LIMIT
+    if withheld_absent:
+        # Structural, not prose: the Keeper must be able to tell "nobody here
+        # can teach this" from "nobody in the campaign can", because the first
+        # is fixed by moving the scene and the second is not.
+        block["not_present"] = withheld_absent
+    return block
+
+
+def _tool_magic_context(ctx: Ctx, args: dict[str, Any]):
+    """`rules.context` family=magic: what the investigator knows, and who can teach.
+
+    Both halves gate a card the Keeper otherwise cannot reach.
+    `magic.spell.known` gates `cast-spell` and `magic.learn.source-available`
+    gates `learn-spell`, and both are derived from `semantic_inputs` the
+    Keeper has to name before it is shown anything to name.
+    """
+    investigator_id = str((args or {}).get("investigator") or "").strip()
+    if not investigator_id:
+        party = ctx.party_ids()
+        investigator_id = party[0] if party else ""
+    known: list[str] = []
+    if investigator_id:
+        state = ctx.inv_state(investigator_id)
+        magic = state.get("magic") if isinstance(state.get("magic"), Mapping) else {}
+        known = [
+            str(value) for value in (magic.get("learned_spells") or [])
+            if isinstance(value, str) and value.strip()
+        ]
+    return (
+        {"known_spells": known, "learning": _magic_learning_block(ctx, investigator_id)},
+        [],
+        [],
+    )
+
+
+register_context_enricher("magic", _tool_magic_context)
 
 
 def _module_item(ctx: Ctx, item_id: str) -> dict[str, Any] | None:
