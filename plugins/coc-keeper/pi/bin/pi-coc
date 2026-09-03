@@ -446,91 +446,93 @@ HOST_SYSTEM_PROMPT_DEFAULT=$HOST_SYSTEM_PROMPT
 SESSION_SKILL_ARGS=()
 
 assemble_campaign_role() {
-  # Onboarding is one prompt and one extension; it has no play/setup role split
-  # to resolve, and session-roles.json describes the host it never loads.
+  # `pi-coc` is the table. Onboarding is `pi-coc-setup`, a separate process
+  # with its own extension and prompt, so this launcher no longer resolves a
+  # setup/play split: it either opens a campaign that is ready, or says which
+  # command makes it ready. Inferring a "setup" role here is what kept a whole
+  # opening state machine alive inside the play host.
   if [[ "$ONBOARDING_ROLE" -eq 1 ]]; then
     return 0
   fi
   HOST_SYSTEM_PROMPT=$HOST_SYSTEM_PROMPT_DEFAULT
   SESSION_SKILL_ARGS=()
-  unset COC_PI_SESSION_ROLE
-  ROLE_OUT=
-  if ROLE_OUT=$(
-    "$UV_PATH" run --frozen --project "$REPO_ROOT" python \
-      "$REPO_ROOT/plugins/coc-keeper/scripts/coc_session_role.py" \
-      "$(pwd)" "$PI_COC_CAMPAIGN_ID"
-  ); then
-    ROLE_OUT=${ROLE_OUT//$'\r'/}
-    ROLE_OUT=${ROLE_OUT%%$'\n'*}
-    case "$ROLE_OUT" in
-      setup|play)
-        export COC_PI_SESSION_ROLE=$ROLE_OUT
-        MANIFEST=$REPO_ROOT/plugins/coc-keeper/pi/session-roles.json
-        if [[ -f "$MANIFEST" ]]; then
-          ROLE_PACK=$(node -e '
-            const fs = require("fs");
-            const path = require("path");
-            const manifestPath = process.argv[1];
-            const role = process.argv[2];
-            const repoRoot = process.argv[3];
-            const acceptanceProfile = process.argv[4];
-            let manifest;
-            try {
-              manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-            } catch (err) {
-              process.stderr.write("pi-coc: session-roles.json unreadable; using full skill set\n");
-              process.exit(1);
-            }
-            const profileEntry = (
-              role === "play"
-              && acceptanceProfile === "rules-director-single-draft"
-              && manifest.profiles
-              && manifest.profiles[acceptanceProfile]
-              && manifest.profiles[acceptanceProfile].role === "play"
-            ) ? manifest.profiles[acceptanceProfile] : null;
-            const entry = profileEntry || manifest[role];
-            if (!entry || !Array.isArray(entry.skills) || typeof entry.prompt !== "string") {
-              process.stderr.write("pi-coc: session-roles.json missing " + role + "; using full skill set\n");
-              process.exit(1);
-            }
-            const prompt = path.join(repoRoot, entry.prompt);
-            const skills = entry.skills.map((rel) => path.join(repoRoot, rel));
-            process.stdout.write([prompt, ...skills].join("\n"));
-          ' "$MANIFEST" "$ROLE_OUT" "$REPO_ROOT" "${COC_PI_ACCEPTANCE_PROFILE:-}") || ROLE_PACK=
-          if [[ -n "${ROLE_PACK}" ]]; then
-            PROMPT_LINE=
-            SKILL_LINES=()
-            while IFS= read -r line || [[ -n "$line" ]]; do
-              if [[ -z "$PROMPT_LINE" ]]; then
-                PROMPT_LINE=$line
-              else
-                SKILL_LINES+=("$line")
-              fi
-            done <<< "$ROLE_PACK"
-            if [[ -n "$PROMPT_LINE" && ! -f "$PROMPT_LINE" ]]; then
-              printf '%s\n' "pi-coc: missing role prompt $PROMPT_LINE; falling back to host-system.md" >&2
-              PROMPT_LINE=$HOST_SYSTEM_PROMPT
-            fi
-            if [[ -n "$PROMPT_LINE" && -f "$PROMPT_LINE" ]]; then
-              HOST_SYSTEM_PROMPT=$PROMPT_LINE
-            fi
-            SESSION_SKILL_ARGS=(--no-skills)
-            for skill_path in "${SKILL_LINES[@]+"${SKILL_LINES[@]}"}"; do
-              [[ -n "$skill_path" ]] || continue
-              SESSION_SKILL_ARGS+=(--skill "$skill_path")
-            done
-          fi
-        else
-          printf '%s\n' "pi-coc: missing session-roles.json; using full skill set" >&2
-        fi
-        ;;
-      *)
-        printf '%s\n' "pi-coc: unexpected session role '$ROLE_OUT'; using full skill set" >&2
-        ;;
-    esac
-  else
-    printf '%s\n' "pi-coc: session role CLI failed; using full skill set" >&2
+  export COC_PI_SESSION_ROLE=play
+  # Same workspace the host will use. Reading `$(pwd)` instead made the check
+  # disagree with the session it gates whenever COC_WORKSPACE was set.
+  CAMPAIGN_WORKSPACE=${COC_WORKSPACE:-$(pwd)}
+  CAMPAIGN_JSON=$CAMPAIGN_WORKSPACE/.coc/campaigns/$PI_COC_CAMPAIGN_ID/campaign.json
+  if [[ ! -f "$CAMPAIGN_JSON" ]]; then
+    printf '%s\n' "pi-coc: no campaign at $CAMPAIGN_JSON" >&2
+    printf '%s\n' "pi-coc: build one first with: pi-coc-setup --campaign $PI_COC_CAMPAIGN_ID" >&2
+    exit 3
   fi
+  if ! node -e '
+    const fs = require("fs");
+    const campaign = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const ready = campaign.status === "ready_for_table" || campaign.status === "active";
+    process.exit(ready ? 0 : 1);
+  ' "$CAMPAIGN_JSON" 2>/dev/null; then
+    printf '%s\n' "pi-coc: campaign $PI_COC_CAMPAIGN_ID is not ready for the table" >&2
+    printf '%s\n' "pi-coc: finish it with: pi-coc-setup --campaign $PI_COC_CAMPAIGN_ID" >&2
+    exit 3
+  fi
+  MANIFEST=$REPO_ROOT/plugins/coc-keeper/pi/session-roles.json
+  if [[ ! -f "$MANIFEST" ]]; then
+    printf '%s\n' "pi-coc: missing session-roles.json; using full skill set" >&2
+    return 0
+  fi
+  ROLE_PACK=$(node -e '
+    const fs = require("fs");
+    const path = require("path");
+    const manifestPath = process.argv[1];
+    const repoRoot = process.argv[2];
+    const acceptanceProfile = process.argv[3];
+    let manifest;
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    } catch (err) {
+      process.stderr.write("pi-coc: session-roles.json unreadable; using full skill set\n");
+      process.exit(1);
+    }
+    const profileEntry = (
+      acceptanceProfile === "rules-director-single-draft"
+      && manifest.profiles
+      && manifest.profiles[acceptanceProfile]
+      && manifest.profiles[acceptanceProfile].role === "play"
+    ) ? manifest.profiles[acceptanceProfile] : null;
+    const entry = profileEntry || manifest.play;
+    if (!entry || !Array.isArray(entry.skills) || typeof entry.prompt !== "string") {
+      process.stderr.write("pi-coc: session-roles.json missing play; using full skill set\n");
+      process.exit(1);
+    }
+    const prompt = path.join(repoRoot, entry.prompt);
+    const skills = entry.skills.map((rel) => path.join(repoRoot, rel));
+    process.stdout.write([prompt, ...skills].join("\n"));
+  ' "$MANIFEST" "$REPO_ROOT" "${COC_PI_ACCEPTANCE_PROFILE:-}") || ROLE_PACK=
+  if [[ -z "${ROLE_PACK}" ]]; then
+    return 0
+  fi
+  PROMPT_LINE=
+  SKILL_LINES=()
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ -z "$PROMPT_LINE" ]]; then
+      PROMPT_LINE=$line
+    else
+      SKILL_LINES+=("$line")
+    fi
+  done <<< "$ROLE_PACK"
+  if [[ -n "$PROMPT_LINE" && ! -f "$PROMPT_LINE" ]]; then
+    printf '%s\n' "pi-coc: missing role prompt $PROMPT_LINE; falling back to host-system.md" >&2
+    PROMPT_LINE=$HOST_SYSTEM_PROMPT
+  fi
+  if [[ -n "$PROMPT_LINE" && -f "$PROMPT_LINE" ]]; then
+    HOST_SYSTEM_PROMPT=$PROMPT_LINE
+  fi
+  SESSION_SKILL_ARGS=(--no-skills)
+  for skill_path in "${SKILL_LINES[@]+"${SKILL_LINES[@]}"}"; do
+    [[ -n "$skill_path" ]] || continue
+    SESSION_SKILL_ARGS+=(--skill "$skill_path")
+  done
 }
 
 build_pi_args() {
@@ -667,31 +669,13 @@ run_pi() {
   esac
 }
 
-# --campaign: run as a child so setup handoff (exit 42) can re-resolve role
-# and start play once. --new / no campaign keep the historical exec path.
-COC_SETUP_HANDOFF_EXIT_CODE=42
+# The setup-handoff re-exec (exit 42, re-resolve role, start play once) is
+# gone with the setup role: onboarding is its own process and its own command,
+# so a play launch either opens a ready campaign or refuses and names
+# `pi-coc-setup`. One exec, no loop.
 if [[ "$CAMPAIGN_SELECTOR_SET" -eq 1 ]]; then
-  # Terminal path re-execs once after setup exit 42. server-node owns that
-  # cycle over RPC (new handshake/attach), so COC_PI_NO_REEXEC=1 skips it.
-  HANDOFF_REMAINING=1
-  if [[ "${COC_PI_NO_REEXEC:-}" == "1" ]]; then
-    HANDOFF_REMAINING=0
-  fi
-  while true; do
-    assemble_campaign_role
-    build_pi_args
-    code=0
-    run_pi || code=$?
-    if [[ "$code" -eq "$COC_SETUP_HANDOFF_EXIT_CODE" \
-      && "${COC_PI_SESSION_ROLE:-}" == "setup" \
-      && "$HANDOFF_REMAINING" -eq 1 ]]; then
-      HANDOFF_REMAINING=0
-      continue
-    fi
-    exit "$code"
-  done
+  assemble_campaign_role
 fi
-
 build_pi_args
 case "$PI_CLI" in
   *.js|*.mjs)

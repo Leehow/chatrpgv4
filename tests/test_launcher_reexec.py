@@ -94,6 +94,7 @@ def _run_launcher(
     campaign_id: str,
     first_exit: int,
     flip: bool,
+    status: str = "setup",
 ) -> subprocess.CompletedProcess[str]:
     workspace = tmp_path / "ws"
     workspace.mkdir()
@@ -101,7 +102,7 @@ def _run_launcher(
     coc_state.create_campaign(workspace, campaign_id, "Reexec Fixture", era="1920s")
     camp_json = workspace / ".coc" / "campaigns" / campaign_id / "campaign.json"
     payload = json.loads(camp_json.read_text(encoding="utf-8"))
-    payload["status"] = "setup"
+    payload["status"] = status
     camp_json.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
     agent = _agent_home(tmp_path)
@@ -138,31 +139,36 @@ def _calls(tmp_path: Path) -> list[str]:
     return log.read_text(encoding="utf-8").split("--- call ")
 
 
-def test_handoff_42_reexecs_play_once(tmp_path: Path) -> None:
+def test_unfinished_campaign_is_refused_by_name(tmp_path: Path) -> None:
+    """A play launch never becomes a setup host; it names the command that is.
+
+    The exit-42 handoff re-exec is retired with the setup role. `pi-coc` opens
+    a campaign that is ready or refuses, and the refusal has to carry
+    `pi-coc-setup` -- an exit code alone leaves the player with a table that
+    will not open and no idea what opens it.
+    """
     completed = _run_launcher(
-        tmp_path, campaign_id="reexec-setup", first_exit=42, flip=True
+        tmp_path, campaign_id="reexec-setup", first_exit=0, flip=False
     )
-    assert completed.returncode == 0, completed.stderr
-    count = int((tmp_path / "pi-count.txt").read_text(encoding="utf-8").strip())
-    assert count == 2
-    text = (tmp_path / "pi-calls.log").read_text(encoding="utf-8")
-    first, second = text.split("CALL=2")
-    assert "COC_PI_SESSION_ROLE=setup" in first
-    assert "COC_PI_SESSION_ROLE=play" in second
-    assert "coc-character" in first
-    assert "coc-keeper-play" in second
-    assert "coc-keeper-play" not in first
-    assert "host-system-play.md" in second
-    assert "host-system-setup.md" in first
+    assert completed.returncode == 3, completed.stdout + completed.stderr
+    assert "pi-coc-setup --campaign reexec-setup" in completed.stderr
+    # Pi is never started for an unfinished campaign.
+    assert not (tmp_path / "pi-count.txt").is_file()
 
 
-def test_nonzero_non_handoff_exits_once(tmp_path: Path) -> None:
+def test_a_ready_campaign_starts_play_once(tmp_path: Path) -> None:
     completed = _run_launcher(
-        tmp_path, campaign_id="reexec-fail", first_exit=3, flip=False
+        tmp_path,
+        campaign_id="reexec-ready",
+        first_exit=3,
+        flip=False,
+        status="ready_for_table",
     )
     assert completed.returncode == 3, completed.stderr
     count = int((tmp_path / "pi-count.txt").read_text(encoding="utf-8").strip())
-    assert count == 1
+    assert count == 1, "there is no second launch to re-resolve a role into"
     text = (tmp_path / "pi-calls.log").read_text(encoding="utf-8")
     assert text.count("CALL=") == 1
-    assert "COC_PI_SESSION_ROLE=setup" in text
+    assert "COC_PI_SESSION_ROLE=play" in text
+    assert "COC_PI_SESSION_ROLE=setup" not in text
+    assert "host-system-play.md" in text
