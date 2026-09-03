@@ -30,6 +30,38 @@ const HOST_OWNED_ARGUMENT_KEYS = new Set([
 
 const HOST_OWNED_ARGUMENT_PRESENT = "<host-owned-present>";
 
+/**
+ * The idempotency keys a call carries.
+ *
+ * They are host-owned identity for every other failure -- reissuing the same
+ * refused call under a fresh key must not evade the block. They are the
+ * opposite for a failure whose whole complaint IS that the key is already
+ * bound: there a fresh key is not churn, it is the only thing that makes the
+ * call a different call. See `identityScopedFailure`.
+ */
+const IDEMPOTENCY_KEY_ARGUMENT_KEYS: ReadonlySet<string> = new Set([
+  "decision_id",
+  "idempotency_key",
+]);
+
+/**
+ * Failure classes whose subject is the idempotency key itself.
+ *
+ * Read from the canonical envelope's own `class`, not from a code table here:
+ * `idempotency_conflict` is the projection's statement that the supplied key
+ * is already bound to different immutable arguments. Its only model-side
+ * remedy is a fresh key, and normalizing the key away made that remedy
+ * invisible -- measured 2026-09-02 (debug-gate9-depth-10-r61): `rules.settle`
+ * refused `combat-attack-corbitt-38-empty-v1` with `idempotency_conflict`, the
+ * Keeper reissued the identical semantics under
+ * `combat-attack-corbitt-38-empty-v2`, and was answered
+ * `nonretryable_repeat_blocked`. Eight of those followed and the player's turn
+ * was never delivered.
+ */
+export function identityScopedFailure(errorClass: string): boolean {
+  return errorClass === "idempotency_conflict";
+}
+
 function isHostOwnedArgumentKey(key: string): boolean {
   return HOST_OWNED_ARGUMENT_KEYS.has(key)
     || key.endsWith("_digest")
@@ -41,23 +73,42 @@ function isHostOwnedArgumentKey(key: string): boolean {
  * Retain semantic choices and host-owned field presence while removing the
  * opaque identity churn that the host owns. Whitespace-only draft edits also
  * normalize to the same value.
+ *
+ * `retainedKeys` names argument keys that stay literal despite being
+ * host-owned, for a failure whose own subject is that key.
  */
-export function normalizeModelOwnedArguments(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(normalizeModelOwnedArguments);
+export function normalizeModelOwnedArguments(
+  value: unknown,
+  retainedKeys: ReadonlySet<string> = new Set<string>(),
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeModelOwnedArguments(item, retainedKeys));
+  }
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as JsonRecord)
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([key, item]) => [
           key,
-          isHostOwnedArgumentKey(key)
+          isHostOwnedArgumentKey(key) && !retainedKeys.has(key)
             ? HOST_OWNED_ARGUMENT_PRESENT
-            : normalizeModelOwnedArguments(item),
+            : normalizeModelOwnedArguments(item, retainedKeys),
         ]),
     );
   }
   if (typeof value === "string") return value.trim().replace(/\s+/gu, " ");
   return value;
+}
+
+/** Host-owned argument keys this call actually carried, for the refusal. */
+function hostOwnedKeysPresent(
+  value: unknown,
+  retainedKeys: ReadonlySet<string>,
+): string[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  return Object.keys(value as JsonRecord)
+    .filter((key) => isHostOwnedArgumentKey(key) && !retainedKeys.has(key))
+    .sort();
 }
 
 export type NonRetryableFailureScope = {
@@ -113,13 +164,19 @@ export function nonRetryableFailureFingerprint(args: {
   canonicalProgress?: CanonicalTurnProgress;
 }): string {
   const scope = resolveScope(args);
+  const errorClass = args.errorClass ?? args.errorCode;
   const body = JSON.stringify({
     campaignId: args.campaignId,
     operation: args.operation,
     phase: args.phase,
-    operationArgs: normalizeModelOwnedArguments(args.operationArgs),
+    operationArgs: normalizeModelOwnedArguments(
+      args.operationArgs,
+      identityScopedFailure(errorClass)
+        ? IDEMPOTENCY_KEY_ARGUMENT_KEYS
+        : undefined,
+    ),
     errorCode: args.errorCode,
-    errorClass: args.errorClass ?? args.errorCode,
+    errorClass,
     playerTurnEpoch: scope.playerTurnEpoch,
     canonicalProgressToken: scope.canonicalProgressToken,
   });
@@ -293,21 +350,62 @@ export class NonRetryableFailureCircuit {
         errorClass: failure.errorClass,
       });
       if (candidate !== fingerprint) continue;
+      const identityScoped = identityScopedFailure(failure.errorClass);
+      const normalizedAway = hostOwnedKeysPresent(
+        args.operationArgs,
+        identityScoped ? IDEMPOTENCY_KEY_ARGUMENT_KEYS : new Set<string>(),
+      );
+      const remedies = [...failure.clearedBy].sort();
+      // Name what would actually differ. The old sentence -- "change
+      // model-owned semantic arguments or advance canonical state instead of
+      // changing host-owned identity fields" -- told the Keeper what NOT to do
+      // and left it guessing which of its arguments the host had normalized
+      // away, so a correct recovery and a pointless one looked identical from
+      // the outside. Measured 2026-09-02 (debug-gate9-depth-10-r61): fifteen
+      // of these across two lanes, neither turn ever delivered.
+      const unblockedBy: string[] = [];
+      if (identityScoped) {
+        unblockedBy.push(
+          "supply an unused decision_id (this one is already bound, and the "
+          + "one you just sent has been refused under these same arguments)",
+        );
+      }
+      for (const remedy of remedies) {
+        unblockedBy.push(`succeed ${remedy}, then repeat this call`);
+      }
+      unblockedBy.push(
+        normalizedAway.length
+          ? "change a model-owned semantic argument (anything other than "
+            + `${normalizedAway.join(", ")})`
+          : "change a model-owned semantic argument",
+      );
+      unblockedBy.push("advance canonical state, which rescopes this block");
       return {
         ok: false,
         tool: args.operation,
         error: {
           code: "nonretryable_repeat_blocked",
           message: (
-            `identical non-retryable ${failure.operation} failure was already returned; `
-            + "change model-owned semantic arguments or advance canonical state "
-            + "instead of changing host-owned identity fields"
+            `identical non-retryable ${failure.operation} failure `
+            + `(${failure.code}) was already returned for this canonical `
+            + "state; it will repeat until something below differs. "
+            + unblockedBy.map((line, index) => `(${index + 1}) ${line}`).join("; ")
+            + (
+              normalizedAway.length
+                ? `. These arguments are host-owned and are ignored by the `
+                  + `comparison, so changing them cannot unblock it: `
+                  + `${normalizedAway.join(", ")}`
+                : ""
+            )
           ),
           details: {
             original_code: failure.code,
             original_class: failure.errorClass,
             player_turn_epoch: scope.playerTurnEpoch,
             canonical_progress_token: scope.canonicalProgressToken,
+            unblocked_by: unblockedBy,
+            ignored_argument_keys: normalizedAway,
+            remedy_operations: remedies,
           },
         },
         retryable: false,
