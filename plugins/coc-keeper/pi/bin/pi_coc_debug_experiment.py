@@ -41,6 +41,10 @@ _CAMPAIGN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _SITUATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _SITUATION_STRUCTURAL_KEYS = frozenset({
     "scene_id", "npc_presence", "clue_ids", "flags",
+    # Reach state a scene and a roster cannot: a learned spell, a granted
+    # item, a wounded investigator, a persisted ending. Without these, eleven
+    # of the graph's forty-three decisions could not be driven at all.
+    "items", "spells", "damage", "ending",
 })
 _SITUATION_KEYS = _SITUATION_STRUCTURAL_KEYS | {"establish_from_prompt"}
 _MAX_SITUATION_LIST = 20
@@ -383,6 +387,75 @@ def _situation_operations(lane: dict[str, Any], campaign_id: str) -> list[dict[s
                 "value": value,
                 "reason": reason,
                 "decision_id": f"debug-situation:{lane_id}:set-flag:{flag_id}",
+            },
+        })
+    # State a scene and a roster cannot reach. Eleven of the forty-three
+    # decisions were unreachable by seeding on 2026-09-02 -- both magic
+    # decisions, six of seven healing decisions, and settle-ending -- because
+    # they need a learned spell, a wounded or dying investigator, or a
+    # persisted ending, none of which follow from `scene_id` and
+    # `npc_presence`.
+    #
+    # Each still goes through the canonical toolbox gateway, so the state is
+    # exactly what real play would have produced. Seeding a spell is not
+    # simulating one.
+    for item in situation.get("items") or []:
+        item_id = str(item.get("item_id") or item.get("label") or "item")
+        operations.append({
+            "operation": "state.item_grant",
+            "arguments": {
+                "campaign": campaign_id,
+                "kind": str(item.get("kind") or "gear"),
+                "label": str(item.get("label") or item_id),
+                "note": reason,
+                **{
+                    key: item[key] for key in
+                    ("item_id", "weapon", "weapon_id", "mechanics_ref",
+                     "quantity", "consumable", "investigator")
+                    if item.get(key) is not None
+                },
+                "decision_id": f"debug-situation:{lane_id}:item-grant:{item_id}",
+            },
+        })
+    for spell in situation.get("spells") or []:
+        operations.append({
+            "operation": "magic.learn",
+            "arguments": {
+                "campaign": campaign_id,
+                "spell": spell,
+                "source": reason,
+                "decision_id": f"debug-situation:{lane_id}:learn-spell:{spell}",
+            },
+        })
+    damage = situation.get("damage")
+    if damage is not None:
+        amount = damage if isinstance(damage, int) else damage.get("amount")
+        kind = "physical" if isinstance(damage, int) else damage.get("kind")
+        operations.append({
+            "operation": "rules.damage",
+            "arguments": {
+                "campaign": campaign_id,
+                "amount": amount,
+                "source": reason,
+                **({"kind": kind} if kind else {}),
+                "decision_id": f"debug-situation:{lane_id}:damage:{amount}",
+            },
+        })
+    ending = situation.get("ending")
+    if ending is not None:
+        operations.append({
+            "operation": "state.end_session",
+            "arguments": {
+                "campaign": campaign_id,
+                "summary": (
+                    ending if isinstance(ending, str)
+                    else str(ending.get("summary") or reason)
+                ),
+                **(
+                    {"kind": ending["kind"]}
+                    if isinstance(ending, dict) and ending.get("kind") else {}
+                ),
+                "decision_id": f"debug-situation:{lane_id}:end-session",
             },
         })
     return operations

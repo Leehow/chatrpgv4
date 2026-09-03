@@ -1753,3 +1753,56 @@ def test_a_second_turn_input_must_not_be_empty():
             "lanes": [{"id": "blank-second", "second_player_input": "   "}],
             "record": ["final"],
         })
+
+
+def test_seeding_reaches_state_a_scene_and_a_roster_cannot():
+    """Eleven of the graph's forty-three decisions could not be driven at all
+    on 2026-09-02: both magic decisions need a learned spell, six of seven
+    healing decisions need a wounded or dying investigator, and settle-ending
+    needs a persisted ending. None follow from `scene_id` and `npc_presence`.
+
+    Every one still goes through the canonical toolbox gateway, so the state is
+    what real play would have produced -- seeding a spell is not simulating
+    one.
+    """
+    module = _module()
+    lane = {
+        "id": "reach",
+        "situation": {
+            "shape": "structural",
+            "scene_id": "central-library",
+            "items": [{
+                "item_id": "tome-of-corbitt",
+                "kind": "tome",
+                "label": "科比特的手记",
+            }],
+            "spells": ["Contact Deity"],
+            "damage": {"amount": 7, "kind": "physical"},
+            "ending": {"summary": "调查员逃出宅子。", "kind": "escape"},
+        },
+    }
+    ops = module._situation_operations(lane, "c1")
+    by = {row["operation"]: row["arguments"] for row in ops}
+    assert "state.move_scene" in by
+    assert by["state.item_grant"]["item_id"] == "tome-of-corbitt"
+    assert by["state.item_grant"]["kind"] == "tome"
+    assert by["magic.learn"]["spell"] == "Contact Deity"
+    assert by["rules.damage"]["amount"] == 7
+    assert by["rules.damage"]["kind"] == "physical"
+    assert by["state.end_session"]["summary"] == "调查员逃出宅子。"
+    # Every seeded write carries a lane-scoped decision id, so a sandbox
+    # replay of the same lane is idempotent and the evidence names its target.
+    for row in ops:
+        assert row["arguments"]["decision_id"].startswith("debug-situation:reach:")
+
+
+def test_a_bare_damage_amount_is_accepted():
+    """The common case is "hurt the investigator by N"; requiring a dict for
+    that would be ceremony."""
+    module = _module()
+    ops = module._situation_operations(
+        {"id": "hurt", "situation": {"shape": "structural", "damage": 5}}, "c1",
+    )
+    damage = next(r for r in ops if r["operation"] == "rules.damage")
+    assert damage["arguments"]["amount"] == 5
+    assert damage["arguments"]["kind"] == "physical"
