@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:9973f93f85d92fa35e7428d958c25fe6498e61f920834101fd3639db4facf34e",
+  "content_sha256": "sha256:1639887975bffc3c9387eaf950262030f15a7b1fae9ae62943208f6f79478484",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -3472,7 +3472,12 @@
             "type": "string"
           },
           "kind": {
+            "default": "damage",
             "description": "damage | heal (default damage)",
+            "enum": [
+              "damage",
+              "heal"
+            ],
             "type": "string"
           },
           "root": {
@@ -7384,7 +7389,14 @@
             "type": "string"
           },
           "kind": {
+            "default": "conclusion",
             "description": "ending flavor: conclusion | tpk | retreat | cliffhanger (default conclusion)",
+            "enum": [
+              "conclusion",
+              "tpk",
+              "retreat",
+              "cliffhanger"
+            ],
             "type": "string"
           },
           "root": {
@@ -7681,6 +7693,10 @@
           },
           "kind": {
             "description": "gear | weapon",
+            "enum": [
+              "gear",
+              "weapon"
+            ],
             "type": "string"
           },
           "label": {
@@ -8516,6 +8532,10 @@
           },
           "kind": {
             "description": "gear | weapon",
+            "enum": [
+              "gear",
+              "weapon"
+            ],
             "type": "string"
           },
           "label": {
