@@ -1673,10 +1673,22 @@ class PiRpcLaneAdapter:
                     and operation in _RESUME_FORBIDDEN_OPERATIONS
                 ):
                     resume_acted_for_player = operation
+                # Monotonic milliseconds since the lane began. Without it the
+                # record says which calls happened and in what order but
+                # nothing about where the turn's time went: a lane that runs
+                # 280s against a 180s budget cannot be told apart from one
+                # that makes the same calls in 120s. Model time is then the
+                # gap between one call ending and the next beginning.
                 tool_row = {
                     "category": "tools",
                     "phase": "start" if event_type.endswith("start") else "end",
                     "operation": operation,
+                    "at_ms": round((time.monotonic() - started) * 1000),
+                    # Which side of the player's input this call falls on.
+                    # Without it the resume phase and the turn are one
+                    # undifferentiated number, and the turn cannot be measured
+                    # against a turn budget at all.
+                    "lane_phase": current_phase,
                     "event": _redact(event),
                 }
                 events.append(tool_row)
@@ -1696,6 +1708,18 @@ class PiRpcLaneAdapter:
                 text = _assistant_text(event.get("message"))
                 if text:
                     visible_text = text
+                # How much prose the model produced, and when. Tool time is
+                # 3% of a lane, so the budget question is entirely about what
+                # the model generates; a size beside each turn boundary is
+                # what separates "thinking a long time" from "writing a lot".
+                events.append({
+                    "category": "timing",
+                    "phase": "message_end",
+                    "operation": "message",
+                    "at_ms": round((time.monotonic() - started) * 1000),
+                    "lane_phase": current_phase,
+                    "text_chars": len(text or ""),
+                })
             elif event_type == "entry_appended":
                 entry = event.get("entry")
                 custom = entry.get("customType") if isinstance(entry, dict) else None

@@ -845,6 +845,22 @@ def test_rpc_lane_enforces_resume_first_and_exact_final_delivery(tmp_path: Path)
     assert operations == [
         "session.resume", "rules.settle", "turn.finalize",
     ]
+    # Every tool row carries when it happened and which side of the player's
+    # input it fell on. Without both, a lane record says which calls were made
+    # and in what order but nothing about where the time went -- and a lane
+    # that runs 280s against a 180s budget reads identically to one that makes
+    # the same calls in 120s. Measured with these on 2026-09-02: tool
+    # execution is 3% of a lane and the resume phase is a third of it, neither
+    # of which was visible before.
+    timed = [
+        row for row in result["events"]
+        if row.get("category") == "tools" and row.get("phase") in {"start", "end"}
+    ]
+    assert timed, result["events"]
+    for row in timed:
+        assert isinstance(row.get("at_ms"), int), row
+        assert row.get("lane_phase") in {"resume", "turn"}, row
+    assert [row["at_ms"] for row in timed] == sorted(row["at_ms"] for row in timed)
     live_root = tmp_path / "rpc-success" / "evidence" / "lanes" / "lane-success"
     assert (live_root / "live-rpc.jsonl").is_file()
     progress = json.loads((live_root / "progress.json").read_text(encoding="utf-8"))
