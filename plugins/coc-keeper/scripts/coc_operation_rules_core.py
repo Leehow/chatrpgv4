@@ -567,6 +567,25 @@ def _tool_rules_catalog_search(ctx: Ctx, args: dict[str, Any]):
         "authority=advisory; candidates only. KP chooses the exact entity_id semantically; never auto-pick the first string match.",
         "Do not print this catalog payload or any secret:true row to the player.",
     ]
+    if any(
+        isinstance(row, dict) and row.get("parameterisation")
+        for row in data.get("candidates") or []
+    ):
+        hints.append(
+            "a candidate carrying parameterisation is a catalogue family bound "
+            "to one entity, not a separate entry: pass its "
+            "parameterisation.canonical_name to magic.learn / magic.cast, never "
+            "the bare family name."
+        )
+    for gap in data.get("unresolved_family_parameters") or []:
+        if not isinstance(gap, dict):
+            continue
+        hints.append(
+            f"{gap.get('family_name')} was named over "
+            f"{gap.get('parameter_query')!r}, which is in no catalogue "
+            f"{gap.get('parameter_kind')} row: report the content gap, do not "
+            "settle a spell for an entity the ruleset does not carry."
+        )
     return data, [], hints
 
 def _tool_rules_build_scale(ctx: Ctx, args: dict[str, Any]):

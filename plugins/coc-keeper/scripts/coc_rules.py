@@ -13,6 +13,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import coc_cache  # noqa: E402
+import coc_catalog  # noqa: E402
 import coc_rulesets  # noqa: E402
 
 # The coc7 ruleset package owns the rule tables (docs/ruleset-contract.md).
@@ -741,12 +742,63 @@ def spells_table() -> dict[str, Any]:
     """Return the Chapter 12 Grimoire spell data (Keeper Rulebook pp.258-277)."""
     return load_rule_table("spells")
 
+def resolve_spell_name(name: str) -> dict[str, Any]:
+    """Resolve an authored spell name to the row that prices it.
+
+    Returns ``{"canonical_name", "entry", "parameterisation"}`` and raises
+    KeyError when the name is neither a catalogue row nor a family bound to a
+    catalogue creature.
+
+    CoC7 prints Summon/Bind and the two Contact families once and leaves the
+    Mythos entity a parameter of the name, so content authors "Summon/Bind
+    Dimensional Shambler" for a spell no row is titled after. Catalog-core
+    resolves that shape against the catalogue's own creature rows; the entry
+    returned is the family row (which carries the costs) while
+    ``canonical_name`` keeps the creature the name was bound to — the family
+    name alone would lose it, and the parameterised name is not a row.
+    """
+    if not isinstance(name, str) or not name.strip():
+        raise KeyError(f"unknown spell: {name!r}")
+    name = name.strip()
+    for spell in spells_table().get("spells", []):
+        if isinstance(spell, dict) and str(spell.get("name") or "").lower() == name.lower():
+            return {
+                "canonical_name": str(spell["name"]),
+                "entry": spell,
+                "parameterisation": None,
+            }
+    resolved = coc_catalog.resolve_name(
+        kind="spell", name=name, ruleset_id=coc_rulesets.DEFAULT_RULESET_ID
+    )
+    parameterisation = (resolved or {}).get("parameterisation")
+    if parameterisation:
+        family_name = str(parameterisation.get("family_name") or "")
+        for spell in spells_table().get("spells", []):
+            if isinstance(spell, dict) and str(spell.get("name") or "") == family_name:
+                return {
+                    "canonical_name": str(resolved["canonical_name"]),
+                    "entry": spell,
+                    "parameterisation": dict(parameterisation),
+                }
+    raise KeyError(f"unknown spell: {name!r}")
+
+
+def canonical_spell_name(name: str) -> str:
+    """The name the magic runtime persists for ``name``, else ``name`` itself.
+
+    Every gate that compares a spell against persisted or authored spell lists
+    goes through this, so a name ``magic.learn`` accepts cannot read as unknown
+    to ``magic.cast`` or to the ``magic.spell.known`` fact one layer along.
+    """
+    try:
+        return resolve_spell_name(name)["canonical_name"]
+    except KeyError:
+        return name.strip() if isinstance(name, str) else ""
+
+
 def spell_by_name(name: str) -> dict[str, Any]:
     """Look up a spell by name (e.g. 'Flesh Ward'). Raises KeyError if unknown."""
-    for spell in spells_table().get("spells", []):
-        if spell["name"].lower() == name.lower():
-            return spell
-    raise KeyError(f"unknown spell: {name!r}")
+    return resolve_spell_name(name)["entry"]
 
 def magic_casting_rules() -> dict[str, Any]:
     """Return the casting mechanics block (Hard POW first cast, pushable, etc.)."""

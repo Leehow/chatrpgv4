@@ -67,6 +67,7 @@ def _record(
     tags: list[str] | None = None,
     category: str | None = None,
     labels: list[str] | None = None,
+    family_parameter_kind: str | None = None,
 ) -> dict[str, Any]:
     rec: dict[str, Any] = {
         "kind": kind,
@@ -83,6 +84,8 @@ def _record(
         "summary": summary,
         "params": params or {},
     }
+    if family_parameter_kind:
+        rec["family_parameter_kind"] = family_parameter_kind
     return rec
 
 
@@ -220,6 +223,15 @@ def _spells() -> list[dict[str, Any]]:
             aliases=alts,
             summary=_pick(row, ("cost_mp", "cost_sanity", "cost_pow")),
             params=_pick(row, ("cost_mp", "cost_sanity", "cost_pow", "source_page")),
+            # Chapter 12 prints a family once and leaves the entity a parameter
+            # of the name ("Summon/Bind Spells" p.255, "Contact Spells" and
+            # "Contact Deity Spells" p.250); content writes "Summon/Bind
+            # Dimensional Shambler". Whichever spell rows read as families,
+            # their parameter is always a Mythos entity, and this package keeps
+            # every Mythos entity — monsters and deities alike — in
+            # monsters.json under the ``creature`` kind. Catalog-core derives
+            # family-ness from the name shape; this declares only the relation.
+            family_parameter_kind="creature",
         ))
     return rows
 
