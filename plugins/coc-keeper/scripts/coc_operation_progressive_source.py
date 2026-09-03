@@ -2521,7 +2521,7 @@ def register_operations(registry) -> None:
 )(_tool_progressive_register_source_bundle)
     registry.tool(
     "progressive.claim_host_work",
-    "Atomically lease up to four contract-compatible exact cached-page work "
+    "Atomically lease contract-compatible exact cached-page work "
     "groups for bounded host-native source-pack subagents. named_submit returns "
     "exact dispatch tasks whose child submits directly; task_return_to_parent "
     "returns exact dispatch tasks whose natural completion is strictly fulfilled once by the "
@@ -2538,8 +2538,14 @@ def register_operations(registry) -> None:
         "limit": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 4,
-            "desc": "maximum independent exact-page work groups to lease (default 1)",
+            # Derived, never restated: the runtime raised its own ceiling and
+            # this schema kept advertising 4, so the contract was the real
+            # limit and a whole-book pass drained four groups at a time.
+            "maximum": coc_module_project.coc_module_assets.MAX_CLAIM_LIMIT,
+            "desc": (
+                "maximum independent exact-page work groups to lease "
+                "(default 1)"
+            ),
         },
         "lease_seconds": {
             "type": "integer",

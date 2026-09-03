@@ -18,7 +18,6 @@ const RULES_DIRECTOR_SINGLE_DRAFT_PROFILE = "rules-director-single-draft";
 export function extraToolsForSessionRole(role: SessionRole | null): string[] {
   try {
     const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8")) as {
-      setup?: { tools?: unknown };
       play?: { tools?: unknown };
       profiles?: Record<string, { role?: unknown; tools?: unknown }>;
     };
@@ -28,14 +27,15 @@ export function extraToolsForSessionRole(role: SessionRole | null): string[] {
       && profile === RULES_DIRECTOR_SINGLE_DRAFT_PROFILE
       && manifest.profiles?.[profile]?.role === "play"
     ) ? manifest.profiles[profile] : null;
-    const tools = role === "play"
-      ? (profileEntry ?? manifest.play)?.tools
-      : manifest.setup?.tools;
-    if (!Array.isArray(tools)) {
-      return role === "play" ? [] : ["coc_chargen_delegate"];
-    }
+    // The setup role is retired, and its manifest half is gone. A null role is
+    // the legacy launch with no campaign selector, and it used to read the
+    // setup half -- so deleting that half silently took `read` off the legacy
+    // surface. Both answer from the play half now: it is the only table there
+    // is, and it already carries `read` plus `coc_source_assets`.
+    const tools = (profileEntry ?? manifest.play)?.tools;
+    if (!Array.isArray(tools)) return [];
     return tools.filter((name): name is string => typeof name === "string" && name.length > 0);
   } catch {
-    return role === "play" ? [] : ["coc_chargen_delegate"];
+    return [];
   }
 }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 from pathlib import Path
 
@@ -47,6 +48,34 @@ def test_claim_limit_is_no_longer_capped_at_four():
     # Four was inherited from how many leaf processes could run at once, and
     # it forced a whole-book pass to drain its queue four items per round trip.
     assert assets.MAX_CLAIM_LIMIT > 4
+
+
+def test_the_advertised_limit_equals_the_runtime_limit():
+    """The contract is the real ceiling, so it must not lag the runtime.
+
+    `MAX_CLAIM_LIMIT` rose to 32 while `progressive.claim_host_work` kept
+    advertising `maximum: 4`, so no caller could lease more than four groups
+    however much the runtime allowed -- a whole-book pass still drained its
+    queue four at a time. The schema derives from the constant now; this pins
+    that it stays derived.
+    """
+    toolbox = _load("coc_toolbox_claim_limit", SCRIPTS / "coc_toolbox.py")
+    advertised = (
+        toolbox.TOOLS["progressive.claim_host_work"]["params"]["limit"]["maximum"]
+    )
+    assert advertised == assets.MAX_CLAIM_LIMIT
+
+    archive = json.loads(
+        Path("plugins/coc-keeper/references/mcp-operation-contracts.json")
+        .read_text(encoding="utf-8")
+    )
+    published = (
+        archive["operations"]["progressive.claim_host_work"]
+        ["inputSchema"]["properties"]["limit"]["maximum"]
+    )
+    assert published == assets.MAX_CLAIM_LIMIT, (
+        "the committed archive must be rebuilt when the claim ceiling moves"
+    )
 
 
 def test_the_repository_accepts_a_batch_sized_limit():

@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:92bebcf34a5d56ae91d763599f6c0d0c947a8aa768fff77cbb7a0d1946cf647f",
+  "content_sha256": "sha256:859b0d2b2e84e1c42e54fc3f5d86fff308e9c5a0e88df65c2affc7d63f493a6f",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1937,7 +1937,7 @@
     "progressive.claim_host_work": {
       "access": "mutation",
       "canonical_operation": "progressive.claim_host_work",
-      "description": "Atomically lease up to four contract-compatible exact cached-page work groups for bounded host-native source-pack subagents. named_submit returns exact dispatch tasks whose child submits directly; task_return_to_parent returns exact dispatch tasks whose natural completion is strictly fulfilled once by the parent; return_to_parent returns bare coc.source-pack-worker.v1 packets for the lifecycle coordinator. Children never write campaign/module state directly. A capability-advertised lifecycle/source owner may instead compile one returned bare packet in its existing semantic context. Canonical operation `progressive.claim_host_work`; the result envelope is authoritative.",
+      "description": "Atomically lease contract-compatible exact cached-page work groups for bounded host-native source-pack subagents. named_submit returns exact dispatch tasks whose child submits directly; task_return_to_parent returns exact dispatch tasks whose natural completion is strictly fulfilled once by the parent; return_to_parent returns bare coc.source-pack-worker.v1 packets for the lifecycle coordinator. Children never write campaign/module state directly. A capability-advertised lifecycle/source owner may instead compile one returned bare packet in its existing semantic context. Canonical operation `progressive.claim_host_work`; the result envelope is authoritative.",
       "execution_class": "serial_campaign",
       "inputSchema": {
         "additionalProperties": false,
@@ -1978,7 +1978,7 @@
           },
           "limit": {
             "description": "maximum independent exact-page work groups to lease (default 1)",
-            "maximum": 4,
+            "maximum": 40,
             "minimum": 1,
             "type": "integer"
           },
@@ -2020,7 +2020,7 @@
           "live_turn"
         ]
       },
-      "summary": "Atomically lease up to four contract-compatible exact cached-page work groups for bounded host-native source-pack subagents. named_submit returns exact dispatch tasks whose child submits directly; task_return_to_parent returns exact dispatch tasks whose natural completion is strictly fulfilled once by the parent; return_to_parent returns bare coc.source-pack-worker.v1 packets for the lifecycle coordinator. Children never write campaign/module state directly. A capability-advertised lifecycle/source owner may instead compile one returned bare packet in its existing semantic context."
+      "summary": "Atomically lease contract-compatible exact cached-page work groups for bounded host-native source-pack subagents. named_submit returns exact dispatch tasks whose child submits directly; task_return_to_parent returns exact dispatch tasks whose natural completion is strictly fulfilled once by the parent; return_to_parent returns bare coc.source-pack-worker.v1 packets for the lifecycle coordinator. Children never write campaign/module state directly. A capability-advertised lifecycle/source owner may instead compile one returned bare packet in its existing semantic context."
     },
     "progressive.follow_mentions": {
       "access": "mutation",
@@ -5659,6 +5659,7 @@
                     "type": "string"
                   },
                   "value": {
+                    "description": "one canonical era key the runtime accepts (1590s, 1890s, 1920s, 1930s, 1970s, early_modern, medieval, modern, prehistoric, roman, ww1), or a form that resolves to one such as '1597 Spain'. Narrative dating belongs in player_safe_summary; an answer that resolves to none of these is refused rather than defaulted.",
                     "minLength": 1,
                     "type": "string"
                   }
