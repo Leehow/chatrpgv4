@@ -1853,8 +1853,12 @@ def test_coc7_adapter_binds_core_check_refs_without_model_numeric_targets(
     opposed = provider_for(opposed_semantic)(
         "decision:coc7:core-check:opposed-check"
     )
+    # No `investigator_id`: opposed-check declares `investigator_target` and
+    # not `investigator_id`, and a host-locked value the decision does not
+    # declare is refused as an undeclared input -- which is why this decision
+    # had never once settled across the diagnostic corpus. This assertion used
+    # to require the extra key, encoding the defect.
     assert opposed == {
-        "investigator_id": ws["investigator_id"],
         "investigator_target": 45,
         "opponent_value": 55,
     }

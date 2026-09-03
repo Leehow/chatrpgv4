@@ -12,9 +12,11 @@ generic RulesRuntime in both cases.
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 from copy import deepcopy
+from pathlib import Path
 from types import MappingProxyType, MethodType
 from typing import Any, Callable, Mapping
 from weakref import WeakKeyDictionary
@@ -82,6 +84,31 @@ _HEALING_SETTLE_DECISION_REFS = (
     "decision:coc7:healing:medicine-stabilization",
     "decision:coc7:healing:weekly-major-wound-recovery",
 )
+
+_GRAPH_PATH = Path(__file__).resolve().parent / "rule-graph.json"
+
+
+@functools.lru_cache(maxsize=None)
+def _declared_payload_slots(decision_ref: str) -> frozenset[str]:
+    """The payload slot names one decision declares in the shipped RuleGraph.
+
+    The host may fill only what a decision declares; anything else is refused
+    as an undeclared input, and the refusal is aimed at the Keeper even though
+    the Keeper never sent it.
+    """
+    graph = json.loads(_GRAPH_PATH.read_text(encoding="utf-8"))
+    for node in graph.get("nodes") or []:
+        if node.get("node_id") != decision_ref:
+            continue
+        implementation = (node.get("properties") or {}).get("implementation") or {}
+        return frozenset(
+            str(slot["name"])
+            for slot in implementation.get("payload_slots") or []
+            if isinstance(slot, Mapping) and slot.get("name")
+        )
+    return frozenset()
+
+
 _CORE_SETTLE_DECISION_REFS = (
     "decision:coc7:core-check:ordinary-check",
     "decision:coc7:core-check:combined-check",
@@ -854,7 +881,14 @@ class Coc7RuleGraphAdapter:
                     locked["caregiver_id"] = caregiver
             elif decision_ref in _CORE_SETTLE_DECISION_REFS or decision_ref == "decision:coc7:push-luck:luck-roll":
                 sheet = safe_sheet(ctx, investigator_id) or {}
-                locked["investigator_id"] = investigator_id
+                # Not every core-check decision declares this slot. Opposed
+                # names its actor `investigator_target` and declares no
+                # `investigator_id`, so setting it unconditionally made every
+                # opposed settle fail as an undeclared host-locked input --
+                # which is why decision:coc7:core-check:opposed-check had never
+                # once settled in the diagnostic corpus.
+                if "investigator_id" in _declared_payload_slots(decision_ref):
+                    locked["investigator_id"] = investigator_id
                 if decision_ref.endswith(":ordinary-check"):
                     ref = (
                         f"skill:{semantic['skill']}" if semantic.get("skill")
