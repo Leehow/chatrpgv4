@@ -2845,6 +2845,203 @@ assert.equal(
   );
 }
 
+// 4c-2) The unknown-handle refusal must be ACTIONABLE.
+//
+// A live Keeper lane (debug-gate9-depth-10-r65 / c-defend) burned its entire
+// 1800s budget and delivered no turn to the player because this refusal said
+// "no roll handle by that name was ever presented this turn; copy one verbatim
+// from the current turn context." and carried NO `details` at all. It named a
+// place the Keeper cannot enumerate, so the Keeper guessed: eight shapes of
+// `source_roll_id` over 29 attempts, 25 refused here and 21 then swallowed by
+// `nonretryable_repeat_blocked`. Two roll handles were live the whole time.
+//
+// The refusal now names the domain the value was classified into and the live
+// handles of that domain AS STRUCTURED DATA -- not only in the message,
+// because the model-facing failure projection rewrites canonical ids out of
+// error prose and a handle referenced only in prose does not survive the wire.
+{
+  const beforeUnknownHandleCalls = clientCalls.length;
+  await executeTool("coc_invoke", {
+    operation: "state.exceptional_effect",
+    root: testRoot,
+    campaign,
+    arguments: {
+      decision_id: "exceptional-unknown-roll-probe",
+      source_roll_id: "roll:combat-corbitt-house-ground-cr2",
+      action: "apply",
+      effect_kind: "condition",
+      resolution_reason: "从未出现过的掷骰句柄探针。",
+    },
+  });
+  const refusalText = modelContents.at(-1).text;
+  const refusal = JSON.parse(refusalText);
+  assert.equal(refusal.ok, false);
+  assert.equal(refusal.error.code, "unknown_semantic_handle");
+  assert.equal(
+    clientCalls.length,
+    beforeUnknownHandleCalls,
+    "an unresolvable handle still never reaches canonical transport",
+  );
+  const refusalDetails = refusal.error.details;
+  assert.ok(
+    refusalDetails && typeof refusalDetails === "object",
+    `the refusal must carry structured details: ${refusalText}`,
+  );
+  assert.equal(refusalDetails.identity_field, "source_roll_id");
+  assert.equal(
+    refusalDetails.identity_domain,
+    "roll",
+    "the refusal says which domain the value was classified into",
+  );
+  assert.equal(refusalDetails.supplied_value_kind, "never_presented");
+  assert.ok(
+    Array.isArray(refusalDetails.live_handles)
+      && refusalDetails.live_handles.length > 0,
+    `the live roll handles must reach the Keeper as data: ${refusalText}`,
+  );
+  assert.ok(
+    refusalDetails.live_handles.includes("roll:inspect-exterior-stone-street-t1"),
+    `the handle the Keeper could actually have used is named: ${refusalText}`,
+  );
+  assert.ok(
+    refusalDetails.live_handles.every((handle) => handle.startsWith("roll:")),
+    "only roll-domain handles are offered for a roll-domain field",
+  );
+  assert.equal(
+    refusalDetails.live_handle_count,
+    refusalDetails.live_handles.length,
+  );
+  assert.ok(
+    !refusalText.includes("combat-corbitt-house-ground-cr2"),
+    "the refused value is never echoed back",
+  );
+  assertModelSafeContent("unknown roll handle refusal", refusal);
+}
+
+// 4c-3) Pasting a live entity's EXACT CANONICAL id where its handle belongs is
+// a different mistake from naming something that never existed, and only this
+// one has a one-step remedy. The refusal separates them and hands back the
+// handle -- never the canonical id, which stays host-bound.
+{
+  await executeTool("coc_invoke", {
+    operation: "state.exceptional_effect",
+    root: testRoot,
+    campaign,
+    arguments: {
+      decision_id: "exceptional-canonical-paste-probe",
+      source_roll_id: "roll:healing:graph-first-aid-v1-first-aid:roll:primary",
+      action: "apply",
+      effect_kind: "condition",
+      resolution_reason: "把权威掷骰 id 当句柄粘贴的探针。",
+    },
+  });
+  const pastedText = modelContents.at(-1).text;
+  const pasted = JSON.parse(pastedText);
+  assert.equal(pasted.ok, false);
+  assert.equal(
+    pasted.error.code,
+    "unknown_semantic_handle",
+    `canonical-id paste must reach the handle refusal: ${pastedText}`,
+  );
+  assert.equal(
+    pasted.error.details.supplied_value_kind,
+    "canonical_id_of_live_handle",
+    `the stale-vs-never-existed distinction must survive: ${pastedText}`,
+  );
+  assert.equal(
+    pasted.error.details.handle_for_supplied_value,
+    "roll:healing",
+    "the refusal hands back the live handle for that canonical id",
+  );
+  assert.ok(
+    !pastedText.includes("graph-first-aid-v1-first-aid"),
+    "the pasted canonical id is never echoed back",
+  );
+  assertModelSafeContent("canonical-id paste refusal", pasted);
+}
+
+// 4c-4) "No handle was ever presented" can be true of the WIRE and false of
+// the table. A combat settlement is 70-80KB against a 16KB inline budget, so
+// `coc_mcp_wire._minimal_identity` replaces its whole `data` with
+// `{projection_sha256, replay_operation}` -- and it preserves only a
+// TOP-LEVEL `roll_id`, while a combat settlement's roll ids are nested under
+// `settlement.result`. Every one is dropped before this gateway can register
+// it. In the lane this regression comes from, the roll the Keeper was asking
+// for was a real Dodge FUMBLE (99) that the subsystem had rolled and written
+// to `logs/rolls.jsonl`; it simply had no handle, and the refusal reported
+// only that nothing had ever been presented. The refusal now names the cause.
+{
+  routeOperation("rules.settle", {
+    ok: true,
+    tool: "rules.settle",
+    wire: {
+      schema_version: 1,
+      profile: "keeper_hot_v1",
+      max_inline_bytes: 16384,
+      full_result_bytes: 73187,
+      payload_projected: true,
+      identity_only: true,
+    },
+    data: {
+      projection_sha256: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      replay_operation: {
+        operation: "rules.settle",
+        invoke_via: "coc_rules",
+        model_invocable: true,
+        prefilled_arguments: {},
+        missing_arguments: [],
+        authority: "advisory",
+        hard_gate: false,
+        discovery_required: false,
+      },
+    },
+    warnings: [
+      "The canonical result exceeded the bounded coding-host projection; "
+        + "use the returned exact typed operation instead of reading files.",
+    ],
+  });
+  await executeTool("coc_rules_settle", {
+    root: testRoot,
+    campaign,
+    investigator: CURRENT_INVESTIGATOR_HANDLE,
+    decision_ref: "decision:coc7:combat:defend",
+    decision_id: "combat-defend-oversize-probe-v1",
+  });
+  await executeTool("coc_invoke", {
+    operation: "state.exceptional_effect",
+    root: testRoot,
+    campaign,
+    arguments: {
+      decision_id: "exceptional-after-oversize-probe",
+      source_roll_id: "roll:combat-corbitt-house-ground-cr2",
+      action: "apply",
+      effect_kind: "condition",
+      resolution_reason: "超出内联预算后掷骰身份丢失的探针。",
+    },
+  });
+  const gapText = modelContents.at(-1).text;
+  const gap = JSON.parse(gapText);
+  assert.equal(gap.ok, false);
+  assert.equal(gap.error.code, "unknown_semantic_handle");
+  assert.ok(
+    gap.error.details.dropped_evidence,
+    `the refusal must name the evidence gap it cannot see past: ${gapText}`,
+  );
+  assert.equal(
+    gap.error.details.dropped_evidence.cause,
+    "identity_only_projection",
+  );
+  assert.ok(
+    gap.error.details.dropped_evidence.operations.includes("rules.settle"),
+    "the collapsed operation is named",
+  );
+  assert.ok(
+    gap.error.details.dropped_evidence.collapsed_results >= 1,
+    "the number of collapsed canonical results is reported",
+  );
+  assertModelSafeContent("evidence-gap refusal", gap);
+}
+
 // 4d) Scene routes: authoritative `exits` populate the route snapshot; the
 // registry projects authored route ids to semantic handles; a later scene
 // observation without them RETIRES the routes.

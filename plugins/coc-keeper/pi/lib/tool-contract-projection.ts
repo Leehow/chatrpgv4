@@ -7979,7 +7979,19 @@ export function deriveSemanticEntityFacts(
 
 export type SemanticHandleRestoreResult =
   | { ok: true; value: Record<string, unknown> }
-  | { ok: false; code: string; message: string };
+  | {
+    ok: false;
+    code: string;
+    message: string;
+    /**
+     * Structured, model-facing remedy for the refusal. The host rewrites
+     * canonical ids out of error PROSE, so a handle named only in `message`
+     * does not survive to the Keeper; the actionable part has to travel as
+     * data. Populated for handle-resolution refusals with the domain the
+     * value was classified into and the handles that are actually live.
+     */
+    details?: Record<string, unknown>;
+  };
 
 // ─── Closed semantic-identity grammar for model-authored identity fields ───
 //
@@ -9216,6 +9228,46 @@ export type SemanticIdentityHandleResolver = {
       | "transcript",
     handle: string,
   ) => string | null;
+  /**
+   * Every handle live in `domain` for this exact scope, in presented
+   * (prefixed) form. A refusal that says "copy one verbatim from the current
+   * turn context" without naming the candidates points at a place the Keeper
+   * cannot enumerate: one live lane burned its whole 1800s budget guessing
+   * eight shapes of `source_roll_id` across 29 attempts and never delivered a
+   * turn. The registry already knows the answer; this hands it over.
+   */
+  liveHandles?: (
+    domain:
+      | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+      | "transcript",
+    limit: number,
+  ) => readonly string[];
+  /**
+   * The live handle whose EXACT canonical id is `value` (domain prefix
+   * already stripped), when the model pasted a canonical id where a handle
+   * belongs. That is a different mistake from naming something that never
+   * existed, and only the first one has a one-step remedy. Returns a handle,
+   * never a canonical id, so nothing host-bound is echoed.
+   */
+  handleForCanonical?: (
+    domain:
+      | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+      | "transcript",
+    value: string,
+  ) => string | null;
+  /**
+   * Why this turn's handle set may be missing entities that DO exist
+   * canonically: operations whose result exceeded the wire's inline budget
+   * came back `identity_only`, so the identity they minted never reached the
+   * registry. "Nothing was rolled" and "rolls happened and their identity did
+   * not survive the wire" are different facts, and telling the Keeper the
+   * first when the second is true costs the turn.
+   */
+  describeEvidenceGap?: (
+    domain:
+      | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+      | "transcript",
+  ) => { operations: readonly string[]; collapsed: number } | null;
 };
 
 /** Scalar fields whose entire value is a registry roll handle. */
@@ -9250,6 +9302,113 @@ const RESTORE_ITEM_ARRAYS: ReadonlySet<string> = new Set([
 const RESTORE_ROUTE_FIELDS: ReadonlySet<string> = new Set([
   "route_id", "route_ref", "route_ids", "route_refs",
 ]);
+
+/**
+ * How many live handles a refusal names before it summarises the rest.
+ * Bounded so a busy turn cannot turn one refusal into a wall of text.
+ */
+const LIVE_HANDLE_REFUSAL_LIMIT = 24;
+
+/**
+ * Actionable `unknown_semantic_handle` refusal.
+ *
+ * The old refusal said "no roll handle by that name was ever presented this
+ * turn; copy one verbatim from the current turn context." and carried NO
+ * `details` at all. It named an empty place: the Keeper is told to copy from
+ * a context it cannot enumerate, so it guesses. In the live lane that
+ * produced this function, a Keeper spent the whole 1800s turn budget on eight
+ * shapes of `source_roll_id` over 29 attempts (25 refused here, then 21
+ * `nonretryable_repeat_blocked`) and never delivered a turn -- while two
+ * handles WERE live the entire time.
+ *
+ * The registry knows which handles are live for the exact invocation scope,
+ * so the refusal now says three things the Keeper can act on:
+ *   1. the domain the value was classified into (`roll` vs `effect` vs ...),
+ *   2. the live handles of that domain, in `details` -- NOT only in the
+ *      message, because the host rewrites canonical ids out of error prose
+ *      and a message-only reference does not survive to the model,
+ *   3. when nothing is live, that fact explicitly, instead of pointing at an
+ *      empty context.
+ *
+ * It also separates two mistakes the Keeper can only recover from if it is
+ * told them apart: pasting the exact CANONICAL id of a live entity (one-step
+ * remedy -- here is its handle) versus naming something that was never
+ * presented (no remedy through this field at all). The supplied value is
+ * never echoed; only handles the host itself minted travel back.
+ */
+function refuseUnknownSemanticHandle(
+  violation: {
+    reason: string;
+    field: string;
+    domain:
+      | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+      | "transcript";
+    value: string;
+  },
+  resolver: SemanticIdentityHandleResolver,
+): SemanticHandleRestoreResult {
+  const { field, domain } = violation;
+  const live = resolver.liveHandles?.(domain, LIVE_HANDLE_REFUSAL_LIMIT + 1) ?? null;
+  const canonicalAlias = resolver.handleForCanonical?.(domain, violation.value)
+    ?? null;
+  const details: Record<string, unknown> = {
+    identity_field: field,
+    identity_domain: domain,
+  };
+  let message = violation.reason;
+  if (canonicalAlias !== null) {
+    details.supplied_value_kind = "canonical_id_of_live_handle";
+    details.handle_for_supplied_value = canonicalAlias;
+    message += ` \`${field}\` was given the exact canonical ${domain} id of a `
+      + `live entity, not its handle; pass \`${canonicalAlias}\` instead.`;
+  } else if (live !== null) {
+    details.supplied_value_kind = "never_presented";
+  }
+  if (live !== null) {
+    const shown = live.slice(0, LIVE_HANDLE_REFUSAL_LIMIT);
+    details.live_handles = shown;
+    // Only an untruncated list can honestly report a total: the resolver was
+    // asked for one more than it shows, so a full page means "at least this
+    // many", never "exactly this many".
+    if (live.length > shown.length) details.live_handles_truncated = true;
+    else details.live_handle_count = shown.length;
+    if (live.length === 0) {
+      message += ` No ${domain} handle is live in this turn's scope at all, `
+        + `so no value of \`${field}\` can be accepted right now: the current `
+        + "turn context has none to copy. Produce one first (the operation "
+        + `that mints a ${domain} handle must succeed), or omit the field.`;
+    } else if (canonicalAlias === null) {
+      message += ` Live ${domain} handles in this turn's scope: `
+        + `${shown.map((handle) => `\`${handle}\``).join(", ")}`
+        + `${live.length > shown.length ? ", …" : ""}. `
+        + "Copy one of those verbatim, or omit the field.";
+    }
+  }
+  // The set can be short for a reason the Keeper cannot see: an over-budget
+  // canonical result collapses to an identity-only stub, and the identity it
+  // minted never reaches the registry. Saying so turns a dead end into a
+  // diagnosable one -- for the Keeper mid-turn, and for whoever reads the log.
+  const gap = resolver.describeEvidenceGap?.(domain) ?? null;
+  if (gap !== null && gap.collapsed > 0) {
+    details.dropped_evidence = {
+      cause: "identity_only_projection",
+      operations: gap.operations,
+      collapsed_results: gap.collapsed,
+    };
+    message += ` Note: ${gap.collapsed} canonical result`
+      + `${gap.collapsed === 1 ? "" : "s"} this turn `
+      + `(${gap.operations.join(", ")}) exceeded the inline projection budget `
+      + `and came back identity-only, so any ${domain} identity they minted `
+      + "never reached the handle registry. Canonical evidence may exist for "
+      + "something this turn cannot name.";
+  }
+  return {
+    ok: false,
+    code: "unknown_semantic_handle",
+    message,
+    details,
+  };
+}
 
 /**
  * Restore exact canonical entity identities from semantic handles in model
@@ -9473,8 +9632,16 @@ export function restoreSemanticEntityHandles(
       }
       return { ok: true, value: canonical };
     };
-    const violation = ((): string | null => {
-      const visit = (value: unknown, field: string | null): string | null => {
+    type HandleViolation = {
+      reason: string;
+      field: string;
+      domain:
+        | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+        | "transcript";
+      value: string;
+    };
+    const violation = ((): HandleViolation | null => {
+      const visit = (value: unknown, field: string | null): HandleViolation | null => {
         if (Array.isArray(value)) {
           for (const entry of value) {
             const hit = visit(entry, field);
@@ -9486,13 +9653,11 @@ export function restoreSemanticEntityHandles(
           if (typeof value !== "string" || field === null) return null;
           const domain = classify(field, value);
           if (domain === "") return null;
-          const restored = restoreOne(
-            domain as
-              | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
-              | "transcript",
-            value,
-          );
-          return restored.ok ? null : restored.reason;
+          const typedDomain = domain as HandleViolation["domain"];
+          const outcome = restoreOne(typedDomain, value);
+          return outcome.ok
+            ? null
+            : { reason: outcome.reason, field, domain: typedDomain, value };
         }
         for (const [key, child] of Object.entries(value)) {
           const hit = visit(child, key);
@@ -9503,11 +9668,7 @@ export function restoreSemanticEntityHandles(
       return visit(restored, null);
     })();
     if (violation !== null) {
-      return {
-        ok: false,
-        code: "unknown_semantic_handle",
-        message: violation,
-      };
+      return refuseUnknownSemanticHandle(violation, resolver);
     }
     const rewrite = (value: unknown, field: string | null): unknown => {
       if (Array.isArray(value)) {
