@@ -10,7 +10,7 @@
  * disk cannot supply before the campaign exists, so they are held here
  * explicitly and marked as such.
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export type PlayerChoice = {
@@ -35,9 +35,7 @@ export type OnboardingState = {
   readonly source: string | null;
   readonly campaignExists: boolean;
   readonly scenarioBound: boolean;
-  readonly sourceFactsEstablished: boolean;
   readonly factsAdopted: boolean;
-  readonly reviewedFacts: Record<string, unknown> | null;
   readonly briefingPath: string | null;
   readonly investigatorId: string | null;
   readonly investigatorLinked: boolean;
@@ -56,16 +54,28 @@ function readJson(path: string): Record<string, unknown> | null {
   }
 }
 
-function factsAreSourced(campaign: Record<string, unknown> | null): boolean {
+/** Envelope keys that carry the contract, not an answer. */
+const FACT_ENVELOPE_KEYS = new Set(["schema_version", "contract_id"]);
+
+/**
+ * True when `setup.adopt_source_facts` has landed a complete answer set.
+ *
+ * Every question must be answered `source` or `unresolved` -- "unresolved" is
+ * an honest answer and is never harder to submit than a fabricated one. A
+ * default the bind guessed counts as neither; that is exactly how a campaign
+ * ended up claiming 1920s for a Roman module.
+ *
+ * The two envelope keys are skipped deliberately: they are strings and an
+ * integer, so folding them into the row scan makes an adopted campaign read as
+ * un-adopted and deadlocks the review step.
+ */
+function factsAreAdopted(campaign: Record<string, unknown> | null): boolean {
   const facts = campaign?.source_fast_facts;
-  if (facts === null || typeof facts !== "object") return false;
-  const rows = Object.values(facts as Record<string, unknown>);
+  if (facts === null || typeof facts !== "object" || Array.isArray(facts)) return false;
+  const rows = Object.entries(facts as Record<string, unknown>)
+    .filter(([key]) => !FACT_ENVELOPE_KEYS.has(key));
   if (rows.length === 0) return false;
-  // "Established" means the review actually read the source: every fact is
-  // either sourced or explicitly unresolved with the pages it inspected.
-  // A default the bind guessed does not count -- that is exactly how a
-  // campaign ended up claiming 1920s for a Roman module.
-  return rows.every((row) => {
+  return rows.every(([, row]) => {
     if (row === null || typeof row !== "object") return false;
     const status = (row as Record<string, unknown>).status;
     return status === "source" || status === "unresolved";
@@ -93,11 +103,6 @@ export function readState(
       })()
     : null;
 
-  const investigatorsDir = join(root, ".coc", "investigators");
-  const authored = existsSync(investigatorsDir)
-    ? readdirSync(investigatorsDir).filter((name) => !name.startsWith("."))
-    : [];
-
   const isStarter = choice.starterId !== null;
   const source = isStarter ? choice.starterId : choice.bundlePath ?? choice.sourceTitle;
 
@@ -114,13 +119,11 @@ export function readState(
     source,
     campaignExists: campaign !== null,
     scenarioBound: existsSync(join(scenarioDir, "scenario.json")),
-    sourceFactsEstablished: factsAreSourced(campaign),
-    factsAdopted: factsAreSourced(campaign) && campaign?.era_source === "authored",
-    reviewedFacts: (campaign?.source_fast_facts ?? null) as Record<string, unknown> | null,
+    factsAdopted: factsAreAdopted(campaign),
     briefingPath,
-    investigatorId: investigatorIds[0]
-      ?? (authored.length === 1 ? authored[0] : null)
-      ?? null,
+    // Campaign-scoped only. `.coc/investigators/` is shared across campaigns,
+    // so reading it here would attribute another table's character to this one.
+    investigatorId: investigatorIds[0] ?? null,
     investigatorLinked: investigatorIds.length > 0,
     readyForTable: campaign?.status === "ready_for_table"
       && campaign?.setup_handoff !== undefined

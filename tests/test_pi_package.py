@@ -240,6 +240,18 @@ def test_root_manifest_loads_only_main_extension_and_canonical_skills():
             "coc_setup", "coc_advice", "coc_subsystem"} <= set(result["toolNames"])
 
 
+def test_pi_onboarding_step_table():
+    """Sequencing is stated once: surface, instruction and refusal share a row."""
+    result = _node(ROOT / "tests/pi/onboarding-step-table.mjs", str(ROOT))
+    assert result == {"ok": True, "module": "onboarding-step-table"}
+
+
+def test_pi_onboarding_state_is_read_from_disk():
+    """Position comes from the campaign directory, not from a remembered counter."""
+    result = _node(ROOT / "tests/pi/onboarding-state-from-disk.mjs", str(ROOT))
+    assert result == {"ok": True, "module": "onboarding-state-from-disk"}
+
+
 def test_pi_domain_tools_acl_and_closed_enums():
     result = _node(ROOT / "tests/pi/domain-tools-acl.mjs", str(ROOT))
     assert result == {"ok": True}

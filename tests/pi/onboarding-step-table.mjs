@@ -5,6 +5,7 @@
 // step is complete only when its canonical receipt is on disk.
 import "./_lib/preload-embedded-pi.mjs";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
@@ -19,8 +20,7 @@ const base = {
   root, campaignId: "probe", isStarter: false, starterId: null,
   bundlePath: null, sourceTitle: null, scenarioId: null, playLanguage: "zh-Hans",
   source: null, campaignExists: false, scenarioBound: false,
-  sourceFactsEstablished: false, factsAdopted: false, reviewedFacts: null,
-  briefingPath: null, investigatorId: null, investigatorLinked: false,
+  factsAdopted: false, briefingPath: null, investigatorId: null, investigatorLinked: false,
   readyForTable: false,
 };
 const s = (over) => ({ ...base, ...over });
@@ -35,7 +35,6 @@ const starterIds = applicableSteps(starter).map((step) => step.id);
 assert.ok(!starterIds.includes("build-bundle"));
 assert.ok(!starterIds.includes("bind-source"));
 assert.ok(!starterIds.includes("source-review"));
-assert.ok(!starterIds.includes("adopt-facts"));
 assert.equal(currentStep(starter).id, "create-campaign");
 
 // A PDF run must build a bundle before it may bind one.
@@ -73,11 +72,43 @@ assert.ok(text.includes("coc_capabilities"), "the refusal carries the step's own
 // Finished onboarding offers nothing and says so.
 const finished = s({
   source: "x", bundlePath: "/w/b", campaignExists: true, scenarioBound: true,
-  sourceFactsEstablished: true, factsAdopted: true, briefingPath: "/w/b.md",
+  factsAdopted: true, briefingPath: "/w/b.md",
   investigatorId: "inv-x", investigatorLinked: true, readyForTable: true,
 });
 assert.equal(currentStep(finished), null);
 assert.deepEqual([...activeTools(finished)], []);
 assert.ok(refusal(finished, "coc_setup_invoke").includes("已经完成"));
+
+// Review and adoption are one row. Split apart they read the same disk fact,
+// so the review row could never be done while the adoption tool was on the
+// surface -- onboarding would sit on source-review forever.
+assert.ok(
+  activeTools(bound).includes("coc_setup_adopt_source_facts"),
+  "the step that must adopt the reviewed facts has to permit the adopting tool",
+);
+
+// The handoff receipt outranks upstream ones: a campaign an older path built
+// carries no briefing receipt, and must still read as finished rather than
+// being sent back to re-render a briefing for a table already playing.
+assert.equal(
+  currentStep(s({ source: "x", campaignExists: true, investigatorLinked: true, readyForTable: true })),
+  null,
+);
+
+// Every tool the table names must exist on the extension's own surface. The
+// old path's most common failure was an instruction naming a tool the session
+// did not carry, and this is the assertion that makes that unrepresentable.
+const source = await readFile(path.join(dir, "index.ts"), "utf8");
+const registered = new Set([
+  ...[...source.matchAll(/\{ tool: "([a-z_]+)"/g)].map((m) => m[1]),
+  "onboarding_choose_source",
+  // Supplied by the subagent plugin and the host's own built-ins.
+  "subagent", "subagent_status", "subagent_result", "await_subagent",
+]);
+for (const step of STEPS) {
+  for (const tool of step.tools) {
+    assert.ok(registered.has(tool), `step ${step.id} names unregistered tool ${tool}`);
+  }
+}
 
 console.log(JSON.stringify({ ok: true, module: "onboarding-step-table" }));

@@ -121,35 +121,34 @@ export const STEPS: readonly Step[] = [
     needs: ["bind-source"],
     skipForStarter: true,
     action: { kind: "subagent", agent: "coc-opening-source-coordinator" },
-    tools: ["subagent", "subagent_status", "subagent_result", "await_subagent", "coc_capabilities"],
-    done: (s) => s.sourceFactsEstablished,
+    // Review and adoption are one step on purpose. The review's product lives
+    // only in the subagent result until it is adopted, so the sole durable
+    // trace of both is the adopted fact set. Split into two rows, the review
+    // row could never read as done and the adoption tool would never be on the
+    // surface -- a deadlock the table cannot express this way.
+    tools: [
+      "subagent",
+      "subagent_status",
+      "subagent_result",
+      "await_subagent",
+      "coc_capabilities",
+      "coc_setup_adopt_source_facts",
+    ],
+    done: (s) => s.factsAdopted,
     say: () => (
-      "派一个 coc-opening-source-coordinator 子代理做视觉复核与重绑定："
+      "派一个 coc-opening-source-coordinator 子代理做视觉复核："
       + "先调 coc_capabilities，把 "
       + "`data.cold_start.opening_source_coordinator.task_static` 逐字复制，"
       + "补上 task_variable_fields 里的每一项。"
-      + "没有任何桌面操作能推进这一步；派完告诉玩家正在跑，然后等结果。"
-    ),
-  },
-  {
-    id: "adopt-facts",
-    needs: ["source-review"],
-    skipForStarter: true,
-    action: {
-      kind: "operation",
-      tool: "coc_setup_adopt_source_facts",
-      args: (s) => ({ campaign_id: s.campaignId, facts: s.reviewedFacts }),
-    },
-    tools: ["coc_setup_adopt_source_facts"],
-    done: (s) => s.factsAdopted,
-    say: () => (
-      "用 setup.adopt_source_facts 采纳复核产出的六项开场事实。"
-      + "参数恰好是 campaign_id 与 facts；facts 必须是复核结果，不是你自己写的。"
+      + "拿到结果后用 setup.adopt_source_facts 采纳那六项开场事实——"
+      + "facts 必须是复核产出的原样，不是你自己写的；"
+      + "读不出来的问题填 unresolved 并附已查页码，这比编一个答案容易。"
+      + "没有任何桌面操作能推进这一步。"
     ),
   },
   {
     id: "briefing",
-    needs: ["adopt-facts"],
+    needs: ["source-review"],
     action: {
       kind: "operation",
       tool: SETUP_INVOKE,
@@ -164,40 +163,24 @@ export const STEPS: readonly Step[] = [
     needs: ["briefing"],
     action: {
       kind: "operation",
-      tool: "coc_chargen_delegate",
+      tool: "coc_setup_chargen_run",
       args: (s) => ({ campaign_id: s.campaignId }),
     },
-    tools: [
-      "coc_setup_investigator_contract",
-      "coc_chargen_delegate",
-      "coc_rules_roll_dice",
-      "coc_rules_cash_assets",
-      "read",
-    ],
-    done: (s) => s.investigatorId !== null,
+    // `setup.chargen_run` is create + link + render_card under one lock, so
+    // there is no separate link step: the campaign's party.json is the receipt
+    // for the whole of character creation.
+    tools: ["coc_setup_investigator_contract", "coc_setup_chargen_run"],
+    done: (s) => s.investigatorLinked,
     say: () => (
       "带玩家建调查员。行为完全照 docs/methods/immersive-character-creation.md："
-      + "第一个问题只问姓名与职业概念，全程不向玩家提问任何数值。"
+      + "第一个问题只问姓名与职业概念，全程不向玩家提问任何数值——"
+      + "属性优先级由你从职业概念推出来，交给 setup.chargen_run 分配。"
+      + "backstory.scenario_bound 必须指向这一本模组的开场，不是泛泛的克苏鲁味。"
     ),
   },
   {
-    id: "link",
-    needs: ["create-investigator"],
-    action: {
-      kind: "operation",
-      tool: SETUP_INVOKE,
-      args: (s) => ({
-        kind: "campaign.link_investigator",
-        payload: { campaign_id: s.campaignId, investigator_ids: [s.investigatorId] },
-      }),
-    },
-    tools: [SETUP_INVOKE],
-    done: (s) => s.investigatorLinked,
-    say: (s) => `把 ${s.investigatorId} 链接进战役（campaign.link_investigator）。`,
-  },
-  {
     id: "complete",
-    needs: ["link"],
+    needs: ["create-investigator"],
     action: {
       kind: "operation",
       tool: "coc_setup_complete",
@@ -212,6 +195,18 @@ export const STEPS: readonly Step[] = [
   },
 ];
 
+// A `needs` entry naming no step is satisfied vacuously below, because that is
+// how the starter path skips the source half. That same leniency would swallow
+// a typo or a deleted row, so the ids are checked once at load instead.
+const STEP_IDS = new Set(STEPS.map((step) => step.id));
+for (const step of STEPS) {
+  for (const need of step.needs) {
+    if (!STEP_IDS.has(need)) {
+      throw new Error(`onboarding step ${step.id} needs unknown step ${need}`);
+    }
+  }
+}
+
 /** The steps that apply to this run: the starter path skips the source half. */
 export function applicableSteps(state: OnboardingState): readonly Step[] {
   return state.isStarter ? STEPS.filter((step) => !step.skipForStarter) : STEPS;
@@ -222,6 +217,11 @@ export function applicableSteps(state: OnboardingState): readonly Step[] {
  * `null` means onboarding is finished.
  */
 export function currentStep(state: OnboardingState): Step | null {
+  // The handoff receipt outranks every upstream one. `setup.complete` refuses
+  // a campaign that is not actually finished, so its receipt is proof that
+  // everything before it happened -- including steps whose own receipt this
+  // table would look for and not find, as with a campaign an older path built.
+  if (state.readyForTable) return null;
   const steps = applicableSteps(state);
   const satisfied = new Set(steps.filter((step) => step.done(state)).map((step) => step.id));
   for (const step of steps) {
