@@ -894,3 +894,174 @@ def test_wire_never_leaks_frozen_draft_to_identity_only_surface():
     assert FROZEN_DRAFT_TEXT not in serialized
     assert "frozen_narration_draft" not in projected["data"]
     assert "bulk" not in projected["data"]
+
+
+# --- roll identity across the identity-only collapse -----------------------
+#
+# A combat settlement is 62-77KB against a 16KB inline budget, so it always
+# collapses. Its roll ids are all NESTED -- the Keeper-facing one, the opposed
+# defense roll, is not reachable as any row's own `roll_id` at all: it is
+# another row's `opposed_roll_id`. `_minimal_identity` used to preserve only a
+# TOP-LEVEL `roll_id`, so the Pi gateway observed a stub, registered nothing,
+# and dice that were rolled and written to `logs/rolls.jsonl` had no handle the
+# Keeper could name. Live lane debug-gate9-depth-10-r65 / c-defend spent its
+# entire 1800s budget guessing one and delivered no turn.
+
+
+def _combat_settlement(*, rounds: int = 1, bulk: str = "战斗记录" * 3000) -> dict:
+    """A settlement in the exact nesting a graph combat settlement produces."""
+    turns = []
+    events = []
+    for index in range(1, rounds + 1):
+        base = f"combat-corbitt-house-ground:r{index}"
+        turn = {
+            "turn_id": f"t{index}-1",
+            "actor_id": "thomas-hayes",
+            "action": "opposed_melee",
+            "target_actor_id": "npc-walter-corbitt",
+            "roll_id": f"{base}:cr1",
+            "opposed_roll_id": f"{base}:cr2",
+            "damage_roll_id": f"{base}:cr3",
+            # The defender's SKILL, and the only place the linking row knows it.
+            "defense_kind": "dodge",
+            "outcome": "no_damage",
+        }
+        turns.append(turn)
+        events.append({
+            "event_type": "combat_turn_resolved",
+            "turn": turn,
+            "roll_evidence": [
+                {
+                    "roll_id": f"{base}:cr1",
+                    "roll_role": "percentile_check",
+                    "skill": "Fighting (Brawl)",
+                    "goal": "attack npc-walter-corbitt",
+                    "roll": 45,
+                    "outcome": "regular",
+                },
+                {
+                    "roll_id": f"{base}:cr2",
+                    "roll_role": "percentile_check",
+                    "skill": "Dodge",
+                    "goal": "dodge vs thomas-hayes",
+                    "roll": 99,
+                    "outcome": "fumble",
+                    "achieved_level": "fumble",
+                },
+            ],
+        })
+    return {
+        "ok": True,
+        "tool": "rules.settle",
+        "data": {
+            "family": "combat",
+            "status": "settled",
+            "investigator_id": "thomas-hayes",
+            "settlement": {
+                "result": {
+                    "combat": {
+                        "combat_id": "campaign-combat",
+                        "rounds": [{"round": 1, "turns": turns}],
+                        "weapon_catalog": bulk,
+                    },
+                    "events": events,
+                },
+            },
+        },
+        "warnings": [],
+        "hints": [],
+    }
+
+
+def test_identity_collapse_keeps_nested_combat_roll_identity():
+    envelope = _combat_settlement()
+    assert (
+        coc_mcp_wire.transport_bytes(envelope)
+        > coc_mcp_wire.MAX_INLINE_BYTES
+    )
+
+    projected = _project("rules.settle", envelope)
+
+    assert projected["ok"] is True
+    assert projected["wire"]["identity_only"] is True
+    assert (
+        coc_mcp_wire.transport_bytes(projected)
+        <= coc_mcp_wire.MAX_INLINE_BYTES
+    )
+    rows = {row["roll_id"]: row for row in projected["data"]["roll_evidence"]}
+    # Every nested roll id survives, including the two that are only ever
+    # another row's LINKED field.
+    assert set(rows) == {
+        "combat-corbitt-house-ground:r1:cr1",
+        "combat-corbitt-house-ground:r1:cr2",
+        "combat-corbitt-house-ground:r1:cr3",
+    }
+    # The roll the Keeper is asked to cite: the opposed Dodge fumble. It must
+    # carry a skill, or the registry has no meaning-bearing fact to mint a
+    # handle from and the roll is nameless even though its id survived.
+    dodge = rows["combat-corbitt-house-ground:r1:cr2"]
+    assert dodge["skill"] == "dodge"
+    assert dodge["roll_role"] == "opposed"
+    assert dodge["outcome"] == "fumble"
+    # The attacker's own roll keeps its own skill, never the defender's.
+    assert rows["combat-corbitt-house-ground:r1:cr1"]["skill"] == "Fighting (Brawl)"
+    assert "bulk" not in projected["data"]
+    assert "settlement" not in projected["data"]
+
+
+def test_identity_collapse_roll_identity_is_bounded_and_says_when_it_truncates():
+    envelope = _combat_settlement(rounds=40)
+    projected = _project("rules.settle", envelope)
+
+    assert projected["wire"]["identity_only"] is True
+    rows = projected["data"]["roll_evidence"]
+    assert len(rows) <= coc_mcp_wire._ROLL_IDENTITY_MAX_ROWS
+    assert (
+        coc_mcp_wire.transport_bytes({"roll_evidence": rows})
+        <= coc_mcp_wire._ROLL_IDENTITY_MAX_BYTES
+    )
+    # Truncation is structural and visible, never silent.
+    assert projected["data"]["roll_evidence_total"] == 120
+    assert projected["data"]["roll_evidence_omitted"] == 120 - len(rows)
+    # The newest rows are the ones a Keeper cites, so the tail is what survives.
+    assert rows[-1]["roll_id"] == "combat-corbitt-house-ground:r40:cr3"
+    assert (
+        coc_mcp_wire.transport_bytes(projected)
+        <= coc_mcp_wire.MAX_INLINE_BYTES
+    )
+
+
+def test_identity_collapse_never_ships_a_roll_no_handle_can_be_minted_for():
+    # One unmappable identity field fails the WHOLE envelope closed at the Pi
+    # boundary (`semantic_identity_unavailable`), so a roll with no
+    # meaning-bearing fact must be dropped here rather than shipped nameless.
+    envelope = _combat_settlement()
+    result = envelope["data"]["settlement"]["result"]
+    result["events"].append({
+        "event_type": "combat_turn_resolved",
+        "roll_evidence": [{"roll_id": "anonymous-roll-1", "roll": 41}],
+    })
+    projected = _project("rules.settle", envelope)
+
+    kept = {row["roll_id"] for row in projected["data"]["roll_evidence"]}
+    assert "anonymous-roll-1" not in kept
+    assert projected["data"]["roll_evidence_omitted"] == 1
+
+
+def test_identity_collapse_without_rolls_adds_no_roll_identity_fields():
+    envelope = {
+        "ok": True,
+        "tool": "state.journal",
+        "data": {
+            "schema_version": 1,
+            "turn_id": "turn-no-rolls",
+            "bulk": T13_PADDING,
+        },
+        "warnings": [],
+        "hints": [],
+    }
+    projected = _project("state.journal", envelope)
+
+    assert projected["wire"]["identity_only"] is True
+    assert "roll_evidence" not in projected["data"]
+    assert "roll_evidence_total" not in projected["data"]

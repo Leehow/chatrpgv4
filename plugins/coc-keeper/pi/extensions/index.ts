@@ -5406,6 +5406,44 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           lifetime: "player_turn",
         });
       };
+      // Roll identity preserved across the wire's identity-only collapse.
+      //
+      // `coc_mcp_wire._minimal_identity` replaces an over-budget result's whole
+      // `data`, so every nested roll id in it is gone before this observer sees
+      // it. It now carries the rolls forward as a bounded top-level
+      // `roll_evidence` list, and this is what registers them -- operation
+      // -neutral, because the collapse itself is: it excludes only
+      // `turn.output_context`, so ANY operation walks it on its first overflow.
+      // Registering here rather than inside a per-operation branch is
+      // deliberate: the gateway's own per-operation roll registration went
+      // stale when the ten-family cutover moved execution to `rules.settle`,
+      // and every roll a graph settlement produced went unregistered for it.
+      //
+      // Facts are ordered most-distinctive first, and the registry mints the
+      // handle from the FIRST slug-able one -- so `skill` must lead. In lane
+      // debug-gate9-depth-10-r65 / c-defend the roll the Keeper needed was the
+      // NPC's opposed Dodge (fumble, 99); the wire preserves its skill from the
+      // combat turn's `defense_kind`, and it becomes `roll:dodge` here instead
+      // of nothing at all.
+      if (
+        objectOrNull(envelope?.wire)?.identity_only === true
+        && Array.isArray(data.roll_evidence)
+      ) {
+        for (const entry of data.roll_evidence) {
+          const row = objectOrNull(entry);
+          if (row === null) continue;
+          registerRoll(row.roll_id, [
+            row.skill,
+            row.characteristic,
+            row.goal,
+            row.source,
+            row.action,
+            row.roll_role,
+            row.outcome,
+            row.achieved_level,
+          ]);
+        }
+      }
       // transcript.locate candidates: name each row by what it MEANS -- its
       // turn and speaker -- and keep the canonical locator host-side. The
       // locator's last component is the row's owning decision (a journal
