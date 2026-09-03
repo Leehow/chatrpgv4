@@ -903,7 +903,7 @@ that would replace the Keeper:
 | `pi-coc-adjudication-narration-report-contracts.md` | Adjudication/turn evidence flows into the existing battle-report contract. Slice 1 does not extend the report schema; the outcome-ceiling-correction reason rides the existing event/finalization receipt audit side, and `coc-export-battle-report` remains the sole report owner. |
 | `pi-coc-tool-affordance-and-bounded-recovery.md` | Disambiguation: "affordance" there names tool and bounded-recovery affordances — a different domain. This spec's bypass/effect affordances are causal-world affordances. |
 | `pi-coc-concurrent-development-architecture.md` | Concurrent development and merge discipline for implementing this specification. |
-| Setup/play role machinery — `plugins/coc-keeper/scripts/coc_session_role.py`, `plugins/coc-keeper/pi/session-roles.json` | Unchanged in Slice 1; progressive compilation stays on the existing deepen path. |
+| Setup/play role machinery | Retired 2026-09-03: `coc_session_role.py` and the setup half of `session-roles.json` are gone, onboarding is the separate `pi-coc-setup` process, and a play launch refuses an unfinished campaign. Progressive compilation still stays on the existing deepen path. |
 
 ## 23. Non-goals
 
