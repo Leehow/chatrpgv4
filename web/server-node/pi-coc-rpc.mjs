@@ -153,8 +153,17 @@ export function webSessionId(campaignId) {
   return `web-${safe || "campaign"}`;
 }
 
-export function resolvePiCocLauncher(repoRoot = DEFAULT_REPO_ROOT) {
-  return path.join(repoRoot, "plugins", "coc-keeper", "pi", "bin", "pi-coc");
+/**
+ * The table launcher, or the onboarding one for a campaign that is not ready.
+ *
+ * `pi-coc` opens a campaign whose status is `ready_for_table` or `active` and
+ * refuses anything else by naming `pi-coc-setup`. That refusal is right at a
+ * terminal and fatal here: the desktop would spawn a child that exits 3 with
+ * advice no one reads. Pick the launcher that can actually do the job.
+ */
+export function resolvePiCocLauncher(repoRoot = DEFAULT_REPO_ROOT, options = {}) {
+  const name = options.tableReady === false ? "pi-coc-setup" : "pi-coc";
+  return path.join(repoRoot, "plugins", "coc-keeper", "pi", "bin", name);
 }
 
 export function resolvePiBinDir(repoRoot = DEFAULT_REPO_ROOT) {
@@ -1054,8 +1063,12 @@ export class PiCocRpcHost {
       agentDir: this.agentDir,
       userData: process.env.COC_DESKTOP_USER_DATA,
     });
-    this.launcherPath = launcherPath || resolvePiCocLauncher(repoRoot);
     this.tableIntent = tableIntent || null;
+    // `character-setup` is the orchestrator's word for a campaign that has not
+    // been handed off, and that is exactly the campaign `pi-coc` refuses.
+    this.launcherPath = launcherPath || resolvePiCocLauncher(repoRoot, {
+      tableReady: this.tableIntent !== "character-setup",
+    });
     this.provider = provider || "";
     this.model = model || "";
     this.thinking = thinking || "";

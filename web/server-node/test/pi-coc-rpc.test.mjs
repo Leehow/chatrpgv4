@@ -79,6 +79,28 @@ function extensionPaths(args) {
   return out;
 }
 
+test("an unfinished campaign spawns the onboarding launcher, not the table", () => {
+  // `pi-coc` opens a ready campaign or exits 3 naming `pi-coc-setup`. Spawning
+  // it for a campaign the desktop just created would hand the player a child
+  // that dies with advice nobody sees.
+  const setupHost = new PiCocRpcHost({
+    repoRoot: REPO_ROOT,
+    workspace: REPO_ROOT,
+    campaignId: "web-fresh",
+    tableIntent: "character-setup",
+  });
+  assert.match(setupHost.launcherPath, /pi-coc-setup$/);
+
+  const playHost = new PiCocRpcHost({
+    repoRoot: REPO_ROOT,
+    workspace: REPO_ROOT,
+    campaignId: "web-ready",
+    tableIntent: "continue",
+  });
+  assert.match(playHost.launcherPath, /pi-coc$/);
+  assert.doesNotMatch(playHost.launcherPath, /pi-coc-setup$/);
+});
+
 test("already-processing reject is classified for attach recovery", () => {
   assert.equal(
     isAgentAlreadyProcessingError(new PiCocRpcError(

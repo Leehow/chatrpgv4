@@ -167,6 +167,14 @@ investigator_ids, opening_projection_ref, lane_interrupted_at_handoff
 
 ### 已删除（2026-09-03）
 
+- `plugins/coc-keeper/pi/prompts/host-system-setup.md`（464 行）。它携带的
+  不变量各自有了归属：宪法块改为「有且只有一份载体」；游玩专属指引「不许出现在
+  setup 提示词」改为「不许出现在引导提示词」；system-instruction 协议只归宿主
+  提示词。**引导提示词不带宪法块**，这一条现在是断言——那 23656 字符讲的是游玩
+  工具面，引导会话一样都没有。
+- `plugins/coc-keeper/pi/lib/opening-setup-machine.ts` 4742 行 → 125 行惰性壳
+  （方法惰性化、状态面保留成空容器，`trackOpeningDispatch` 是活机制搬回）
+
 - **开场六项快速事实整条路**：引导步骤表里的 `source-review`、
   `setup.adopt_source_facts` / `coc_capabilities` / subagent 派工的工具面、
   引导会话加载的 subagent 包。理由不是「引导不需要它」，而是**它本身与图谱脊柱
@@ -190,9 +198,11 @@ investigator_ids, opening_projection_ref, lane_interrupted_at_handoff
 - `plugins/coc-keeper/pi/lib/opening-setup-machine.ts`（4742 行 / 93 方法）。
   宿主里只有 32 个方法被引用、共 51 处调用；**另外 61 个方法零消费者**。
   setup 角色已不可达，所以这 51 处大部分是确定的死代码。
-- `plugins/coc-keeper/pi/prompts/host-system-setup.md`（464 行）
-- 操作策略里 `cold_start` / `opening` 两个 phase，以及仅在该阶段可达的操作的
-  阶段声明
+- ~~操作策略里 `cold_start` / `opening` 两个 phase~~ —— **这条写错了，不删。**
+  `opening` 是游玩宿主 resume 之后、`evidence.table_opening` 之前的活阶段（实测
+  工作集就是 `play:opening:acting`）；`cold_start` 是「裸跑、无战役」那条路。
+  它们解锁的 18 + 50 个操作声明里，setup 那批已经被角色 ACL 挡死，删 phase 要
+  改 68 处声明而收益为零。
 - `web/server-node/server.mjs` 里自建战役/绑定的两处（L741、L853）→ 改为调用
   引导入口
 
