@@ -145,6 +145,33 @@ def _final_scene_ids(
     return finals
 
 
+def _module_identity(
+    module_id: str, nodes: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Identity, with the era taken from the graph or left unanswered.
+
+    A `temporal-frame` node may carry `properties.era_key`: one of the
+    runtime's canonical era keys, chosen by whoever read the page rather than
+    inferred from prose here. `normalize_era` silently defaults anything it
+    does not recognise to 1920s, and on 2026-09-03 that recorded a module set
+    in AD 80 as the 1920s while every fact beside it said otherwise. So an
+    absent or unrecognised key leaves the era out entirely and the downstream
+    projection reports `unknown`, which is answerable; a wrong century is not.
+    """
+    identity: dict[str, Any] = {
+        "canonical_module_id": module_id,
+        "canonical_title": module_id,
+    }
+    for node in nodes.values():
+        if node.get("node_kind") != "temporal-frame":
+            continue
+        era_key = (node.get("properties") or {}).get("era_key")
+        if isinstance(era_key, str) and era_key.strip():
+            identity["era"] = era_key.strip()
+            break
+    return identity
+
+
 def project_graph_to_skeleton(
     graph: dict[str, Any],
     *,
@@ -307,10 +334,7 @@ def project_graph_to_skeleton(
             "page_count": page_count,
             "producer": "coc_module_graph_projection",
         },
-        "module_identity": {
-            "canonical_module_id": module_id,
-            "canonical_title": module_id,
-        },
+        "module_identity": _module_identity(module_id, nodes),
         "start_candidates": starts,
         "locations": locations,
         "edges_provisional": edges,

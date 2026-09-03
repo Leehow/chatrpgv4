@@ -5,18 +5,19 @@
   "section_id": "whole-book",
   "source_language": "zh-Hans",
   "aspects": [
-    "structure",
     "actors",
+    "causal",
     "events",
     "knowledge",
-    "causal",
-    "mechanics"
+    "mechanics",
+    "structure",
+    "world"
   ],
   "evidence_span_ids": [],
   "node_refs": [],
   "coverage": {
     "structure": "accepted",
-    "world": "unresolved",
+    "world": "partial",
     "actors": "accepted",
     "relationships": "unresolved",
     "events": "accepted",
@@ -540,6 +541,22 @@
         "span-whole-book-page-14-block-124"
       ],
       "properties": {}
+    },
+    {
+      "node_id": "temporal-frame-ad-80",
+      "node_kind": "temporal-frame",
+      "name": "公元 80 年 4 月末",
+      "visibility": "player-safe",
+      "aliases": [
+        "罗马历 834 年"
+      ],
+      "summary": "罗马历 834 年 4 月的最后一周，即公元 80 年；玩家在伊布拉坎待命。",
+      "evidence_span_ids": [
+        "span-whole-book-page-2-block-18"
+      ],
+      "properties": {
+        "era_key": "roman"
+      }
     }
   ],
   "claims": [
