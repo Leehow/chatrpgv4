@@ -35,7 +35,9 @@ TYPED_OPS = (
     / "turn-tooling-and-typed-ops.md"
 )
 PLAY_PROMPT = REPO_ROOT / "plugins" / "coc-keeper" / "pi" / "prompts" / "host-system-play.md"
-SETUP_PROMPT = REPO_ROOT / "plugins" / "coc-keeper" / "pi" / "prompts" / "host-system-setup.md"
+ONBOARDING_PROMPT = (
+    REPO_ROOT / "plugins" / "coc-keeper" / "pi" / "prompts" / "onboarding-system.md"
+)
 OPERATION_ARCHIVE = (
     REPO_ROOT / "plugins" / "coc-keeper" / "references" / "mcp-operation-contracts.json"
 )
@@ -225,7 +227,9 @@ def test_play_prompt_uses_typed_temporal_tools_and_drops_legacy_cards() -> None:
 
 def test_temporal_guidance_stays_outside_shared_constitution_block() -> None:
     play = PLAY_PROMPT.read_text(encoding="utf-8")
-    setup = SETUP_PROMPT.read_text(encoding="utf-8")
+    # The setup prompt is retired; onboarding is the other prompt now, and it
+    # carries none of the temporal surface.
+    onboarding = ONBOARDING_PROMPT.read_text(encoding="utf-8")
     constitution = _constitution(play)
     for marker in (
         "coc_memory_recall",
@@ -233,7 +237,7 @@ def test_temporal_guidance_stays_outside_shared_constitution_block() -> None:
         "temporal_capsule",
     ):
         assert marker not in constitution, marker
-        assert marker not in setup, marker
+        assert marker not in onboarding, marker
     # The byte-identity invariant itself is owned by test_prompt_constitution.
 
 

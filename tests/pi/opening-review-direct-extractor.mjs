@@ -55,10 +55,11 @@ assert.doesNotMatch(openingRun, /_locator_receipt/);
 const host = await readFile(path.join(
   root, "plugins/coc-keeper/pi/prompts/host-system.md",
 ), "utf8");
-const setup = await readFile(path.join(
-  root, "plugins/coc-keeper/pi/prompts/host-system-setup.md",
-), "utf8");
-for (const [label, text] of [["host-system", host], ["host-system-setup", setup]]) {
+// The setup prompt is retired; `host-system.md` is the remaining carrier of
+// this guidance. (The opening review it describes is itself on its way out --
+// reading the source is the module graph's job -- but the adapter half still
+// runs, so its description must stay accurate while it does.)
+for (const [label, text] of [["host-system", host]]) {
   assert.match(
     text,
     /isolated text extractor/,

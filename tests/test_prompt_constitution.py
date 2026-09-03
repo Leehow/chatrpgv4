@@ -5,7 +5,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROMPTS = REPO_ROOT / "plugins" / "coc-keeper" / "pi" / "prompts"
-SETUP = PROMPTS / "host-system-setup.md"
+ONBOARDING = PROMPTS / "onboarding-system.md"
 PLAY = PROMPTS / "host-system-play.md"
 LEGACY = PROMPTS / "host-system.md"
 
@@ -19,18 +19,45 @@ def _constitution(text: str) -> str:
     return text[start:stop]
 
 
-def test_constitution_blocks_are_byte_identical() -> None:
-    setup = SETUP.read_text(encoding="utf-8")
+def test_the_constitution_has_exactly_one_carrier() -> None:
+    """It used to be pinned byte-identical across the setup and play prompts.
+
+    With the setup prompt retired there is one carrier left, and the invariant
+    that matters becomes stronger: exactly one prompt holds the block, so it
+    cannot drift between copies because there are none to drift.
+    """
+    carriers = [
+        path.name for path in sorted(PROMPTS.glob("*.md"))
+        if BEGIN in path.read_text(encoding="utf-8")
+    ]
+    assert carriers == ["host-system-play.md"], carriers
     play = PLAY.read_text(encoding="utf-8")
-    assert BEGIN in setup and END in setup
-    assert BEGIN in play and END in play
-    assert _constitution(setup) == _constitution(play)
+    assert END in play and _constitution(play).strip()
 
 
-def test_setup_prompt_is_setup_only() -> None:
-    setup = SETUP.read_text(encoding="utf-8")
-    assert "setup.complete" in setup
-    assert "turn.finalize" not in setup
+def test_onboarding_prompt_does_not_carry_the_play_constitution() -> None:
+    """Onboarding has none of the surface that constitution describes.
+
+    The shared block is 23k characters about the table: the skill set, the
+    path-restricted `read`, the COC tool surface. The onboarding session loads
+    one extension and a seven-row step table and has none of it, so pasting the
+    constitution in would name tools that session does not carry -- the exact
+    defect the step table exists to make unrepresentable.
+
+    It carries its own red lines instead, and those are what this pins.
+    """
+    onboarding = ONBOARDING.read_text(encoding="utf-8")
+    assert BEGIN not in onboarding
+    # Its own three, in the player's language.
+    assert "不要编造模组内容" in onboarding
+    assert "不要向玩家提问任何数值" in onboarding
+    assert "不要开场叙事" in onboarding
+    # Sequencing lives in the step table and is never restated here: no step
+    # order, no step count, no progress bar. (A tool name may appear inside an
+    # instruction telling the Keeper not to say it to the player.)
+    assert "第一步" not in onboarding
+    assert "共 8 步" not in onboarding
+    assert "共 7 步" not in onboarding
 
 
 def test_play_prompt_is_play_only() -> None:
@@ -41,36 +68,9 @@ def test_play_prompt_is_play_only() -> None:
     assert "A source-supported year does not authorize inventing" in play
 
 
-def test_setup_prompt_uses_quick_start_as_first_builtin_mutation() -> None:
-    setup = SETUP.read_text(encoding="utf-8")
-    assert "Built-in starter, one mutation" in setup
-    assert "setup.quick_start` as the **first mutation**" in setup
-    assert "Do **not** call\n    `setup.inspect` first on a fresh selected id" in setup
-    assert "do **not** call `campaign.create` first" in setup
-    assert "omit `pregen_id`" in setup
-    assert "needs_investigator" in setup
-    assert "A missing investigator is not" in setup
-    assert "Custom / raw-PDF campaign, 1 → 2 → 3" in setup
-    assert "A campaign with no `active_scenario_id` is not ready" in setup
-    assert "After `setup.inspect`" not in setup
-    main = (
-        REPO_ROOT / "plugins" / "coc-keeper" / "skills" / "coc-main" / "SKILL.md"
-    ).read_text(encoding="utf-8")
-    assert "selector only" in main
-    assert '"campaign_id":"<selected-or-new-id>"' in main
-    assert "do not `campaign.create` first" in main
-    assert "do not require\n   > `setup.inspect` first" in main
-
-
-def test_setup_prompt_preserves_source_time_precision() -> None:
-    setup = SETUP.read_text(encoding="utf-8")
-    assert "A source-supported year does not authorize inventing" in setup
-
-
 def test_role_prompts_name_the_typed_surface_not_hidden_domain_wrappers() -> None:
-    setup = SETUP.read_text(encoding="utf-8")
     play = PLAY.read_text(encoding="utf-8")
-    for prompt in (setup, play):
+    for prompt in (play,):
         constitution = _constitution(prompt)
         assert "operation-specific typed tools" in constitution
         assert "`coc_session_resume`" in constitution
@@ -83,7 +83,6 @@ def test_role_prompts_name_the_typed_surface_not_hidden_domain_wrappers() -> Non
 
 def test_play_prompt_has_open_turn_recovery_acting_then_closure_guidance() -> None:
     play = PLAY.read_text(encoding="utf-8")
-    setup = SETUP.read_text(encoding="utf-8")
     assert "open_turn_recovery" in play
     assert "continue_current_turn_from_receipts" in play
     assert "turn.output_context" in play
@@ -102,7 +101,6 @@ def test_play_prompt_has_open_turn_recovery_acting_then_closure_guidance() -> No
     assert "turn.output_context` — required closures" not in recovery
     assert "current_acl_supersedes_prior_denials" not in play
     assert "open_turn_recovery" not in _constitution(play)
-    assert "open_turn_recovery" not in setup
 
 
 def test_play_prompt_has_contract_driven_single_draft_finalize_guidance() -> None:
@@ -127,47 +125,20 @@ def test_play_prompt_gives_the_exact_ending_closure_chain() -> None:
     assert "state.end_session" not in play
 
 
-def test_setup_guided_chargen_forbids_first_turn_delegate() -> None:
-    setup = SETUP.read_text(encoding="utf-8")
-    assert "Default guided character path" in setup
-    assert "Do not treat the first" in setup
-    assert "name+occupation" in setup
-    assert "never\n  call `coc_chargen_delegate`" in setup or (
-        "never call `coc_chargen_delegate`" in setup
-    )
-    assert "explicitly asked for a quick/auto/direct card" in setup
-    assert "no dry-run" in setup
-    assert "inv-investigator" in setup
-    assert "Call the delegate at most once per player turn" in setup
-    assert "Do **not** call" in setup and "setup.complete" in setup
-    assert "high-to-low" in setup
-    assert "current written sheet" in setup
-    assert "same `investigator_id`" in setup
-    assert "Revision is setup-only" in setup
-    assert "Do not ask the player to add" in setup
-    play = PLAY.read_text(encoding="utf-8")
-    assert "coc_chargen_delegate" not in _constitution(setup)
-    assert "coc_chargen_delegate" not in _constitution(play)
-
-
 def test_play_prompt_item_handoff_requires_grant_before_prose() -> None:
     play = PLAY.read_text(encoding="utf-8")
-    setup = SETUP.read_text(encoding="utf-8")
     assert "coc_state_item_grant" in play
     assert "**before prose**" in play
     assert "One grant per item, unique `decision_id` each" in play
-    assert "coc_state_item_grant" not in setup
     assert "coc_state_item_grant" not in _constitution(play)
 
 
 def test_play_prompt_clue_discover_requires_record_before_prose() -> None:
     play = PLAY.read_text(encoding="utf-8")
-    setup = SETUP.read_text(encoding="utf-8")
     assert "coc_state_record_clue" in play
     assert "state.record_clue" in play
     assert "One write per" in play
     assert "`clue_id`" in play
-    assert "coc_state_record_clue" not in setup
     assert "coc_state_record_clue" not in _constitution(play)
 
 
@@ -187,29 +158,32 @@ def test_play_discovery_exception_cannot_drift_from_constitution_ban() -> None:
     assert '{"operation":"memory.recall"}' in compact_body
     assert "never call `coc_discover` with no arguments" in compact_body
     assert "never discover a whole domain/namespace" in compact_body
-    # The long-tail temporal/transcript exception is play-only guidance.
-    setup = SETUP.read_text(encoding="utf-8")
+    # The long-tail temporal/transcript exception is play-only guidance, and it
+    # must not leak into the onboarding prompt: that session carries none of
+    # those tools, and naming a tool the session lacks is the defect the step
+    # table exists to prevent.
+    onboarding = ONBOARDING.read_text(encoding="utf-8")
     for marker in (
         '"operation":"memory.recall"',
         "coc_memory_extraction_status",
         "coc_transcript_locate",
-        "coc_discover` with no arguments",
+        "coc_discover",
     ):
-        assert marker not in setup, marker
+        assert marker not in onboarding, marker
 
 
 def test_host_prompts_and_role_manifest_align_on_restricted_skill_doc_read() -> None:
-    """The three Pi host prompts must state the read boundary accurately and
-    the role manifest must keep the restricted `read` active for both roles
-    (Pi's native skill progressive disclosure addresses the `read` tool)."""
+    """Both Pi host prompts must state the read boundary accurately and the
+    role manifest must keep the restricted `read` active (Pi's native skill
+    progressive disclosure addresses the `read` tool). Play is the only role
+    left; onboarding has no skill surface and no `read` at all."""
     legacy = LEGACY.read_text(encoding="utf-8")
-    setup = SETUP.read_text(encoding="utf-8")
     play = PLAY.read_text(encoding="utf-8")
     restricted = (
         "The one `read` tool in your list is path-restricted to this session's "
         "canonical COC skill/reference documentation"
     )
-    for name, text in (("legacy", legacy), ("setup", setup), ("play", play)):
+    for name, text in (("legacy", legacy), ("play", play)):
         assert restricted in text, name
         # The old blanket ban is gone; unrestricted filesystem read stays denied.
         assert "Built-in read/bash/edit/write tools are disabled" not in text, name
@@ -218,5 +192,5 @@ def test_host_prompts_and_role_manifest_align_on_restricted_skill_doc_read() -> 
         (REPO_ROOT / "plugins" / "coc-keeper" / "pi" / "session-roles.json")
         .read_text(encoding="utf-8")
     )
-    assert "read" in manifest["setup"]["tools"]
+    assert "setup" not in manifest, "the setup half of the manifest is retired"
     assert "read" in manifest["play"]["tools"]

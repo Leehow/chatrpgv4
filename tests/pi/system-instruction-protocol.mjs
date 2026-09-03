@@ -223,9 +223,11 @@ assert.deepEqual(unavailableNotifications, [{
   level: "warning",
 }]);
 
+// The system-instruction protocol belongs to the host prompts. Onboarding is
+// deliberately not in this list: it receives its guidance as step messages
+// from its own extension, not through the host's instruction channel.
 for (const prompt of [
   "host-system.md",
-  "host-system-setup.md",
   "host-system-play.md",
 ]) {
   const text = readFileSync(path.join(
