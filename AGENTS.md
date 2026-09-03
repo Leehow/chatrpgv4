@@ -603,15 +603,27 @@ glm-5.2 + off 那条 lane 仍然把预算花在四次 `transcript.locate` 和四
 
 来源：<https://docs.z.ai/guides/capabilities/thinking-mode>
 
-## Pi-Coc 双专职会话（setup / play）
+## Pi-Coc 两个进程（pi-coc-setup / pi-coc）
 
-`pi-coc --campaign` 会话分 setup 与 play 两 role；这是同一 Pi-Coc 轨内的专职装配，不改变 Codex / Pi-Coc 双轨排他。
+开局引导与上桌游玩是**两个命令、两个进程**，不是一个会话里的两个 role。
+`COC_PI_SESSION_ROLE=setup` 已退休：`sessionRoleFromEnv` 会拒绝它并告警。
 
-- Role 判定单一来源：`uv run --frozen python plugins/coc-keeper/scripts/coc_session_role.py <workspace> <campaign_id>`。`status=setup` 或战役不存在 → `setup`；`ready_for_table` / `active` / 其它已有 status → `play`。
-- 清单单一来源：`plugins/coc-keeper/pi/session-roles.json`（各 role 的技能包与主机提示词路径）。
-- 交接契约：`setup.complete`（幂等、`decision_id`）把战役写成 `ready_for_table` 并落 `handoff_receipt` → 扩展发 `customType="coc_setup_handoff"` 并以退出码 42 结束 setup → launcher 重判 role 并以 play 装配 re-exec 一次（或 UI 编排接管）→ play 对 `ready_for_table` 走 `session.resume`，`evidence.table_opening` 之后才开场。
-- 未设 `COC_PI_SESSION_ROLE` 为遗留全开；装配失败回退全量技能 + `pi/prompts/host-system.md`。
-- KP 行为与幕间话术见 `plugins/coc-keeper/references/mode-protocol.md` 与 `pi/prompts/host-system-setup.md` / `host-system-play.md`。
+- **`pi-coc-setup --campaign <id>`** — 引导。加载 `pi/extensions/onboarding/`
+  与 `pi/prompts/onboarding-system.md`，`--no-extensions` 所以它**不加载宿主扩展**：
+  没有阶段机、没有游玩工具面、没有投影登记表。顺序由
+  `pi/extensions/onboarding/steps.ts` 这一张表派生（工具面、拒绝语、下一步说明
+  同源），每一步的 `done` 读战役目录而不是内存计数。做完 `setup.complete` 就结束。
+- **`pi-coc --campaign <id>`** — 桌子。只开 `ready_for_table` / `active` 的战役；
+  否则打印 `pi-coc-setup --campaign <id>` 并以 3 退出。它不会变成引导进程。
+- **清单**：`plugins/coc-keeper/pi/session-roles.json` 只剩 `play` 半边。
+- **交接**：`setup.complete`（幂等、`decision_id`）写 `ready_for_table` 与
+  `setup_handoff`，引导进程结束；玩家另开 `pi-coc`，它 `session.resume` 后经
+  `evidence.table_opening` 开场。**没有退出码 42、没有 re-exec、没有角色重判**。
+- **建卡**照 `docs/methods/immersive-character-creation.md`；那份文档由引导扩展
+  随步骤指令原文投送，因为引导会话没有 `read` 工具。
+- **开场六项快速事实（`setup.adopt_source_facts` + opening source coordinator）
+  已退休**：它读 3 页答 6 个字段，而模组真实结构由 ModuleGraph 负责。引导不再
+  派任何子代理。
 
 ### Non-LLM Three-Second Diagnostic Rule
 

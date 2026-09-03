@@ -45,15 +45,25 @@ pi --no-builtin-tools --approve --no-context-files \
   --session-id coc-keeper "$@"
 ```
 
-With `--campaign` / `PI_COC_CAMPAIGN_ID`, the wrapper first asks
-`plugins/coc-keeper/scripts/coc_session_role.py` for `setup` or `play`, exports
-`COC_PI_SESSION_ROLE`, and assembles `--no-skills` / `--skill` /
+`pi-coc` is the table. With `--campaign` / `PI_COC_CAMPAIGN_ID` it opens a
+campaign whose status is `ready_for_table` or `active`, exports
+`COC_PI_SESSION_ROLE=play`, and assembles `--no-skills` / `--skill` /
 `--append-system-prompt` from [`session-roles.json`](session-roles.json)
-(`host-system-setup.md` or `host-system-play.md`). Role CLI or manifest failure
-keeps the historical full package plus `host-system.md`. A setup child that
-exits `42` (handoff complete) is re-resolved once and re-exec'd as play; any
-other exit code is passed through. Without a campaign selector the launch line
-above is unchanged.
+(`host-system-play.md`). A campaign that is missing or unfinished is refused
+with exit `3` and the command that finishes it:
+
+```bash
+pi-coc-setup --campaign <campaign_id>
+```
+
+Onboarding is that separate process: it loads
+[`extensions/onboarding/`](extensions/onboarding/) and
+`prompts/onboarding-system.md` under `--no-extensions`, so it never loads the
+Keeper host, and it ends when `setup.complete` writes the handoff. There is no
+setup session role, no exit-`42` handoff, and no re-exec: `COC_PI_SESSION_ROLE=setup`
+is refused with a warning. Manifest failure keeps the historical full package
+plus `host-system.md`. Without a campaign selector the launch line above is
+unchanged.
 
 Built-in coding tools (`read` / `bash` / `edit` / `write`) stay off; extension
 gateway tools from this package remain. At startup, the wrapper validates
@@ -82,8 +92,9 @@ Both selector forms use the canonical safe campaign-ID grammar
 values are rejected by the launcher before Pi starts; they never fall through
 to fresh-campaign onboarding.
 
-When no campaign selector is present, the ordinary empty-workspace onboarding
-remains unchanged and begins with `setup.inspect`.
+When no campaign selector is present the launcher runs the legacy full package;
+building a campaign goes through `pi-coc-setup`, whose first step is
+`setup.inspect`.
 
 On interactive start the package shows a short header + welcome/usage guide
 (`/welcome` to repeat), sets `quietStartup` so skills are not dumped to the

@@ -318,7 +318,7 @@ route / structure / serve / repair-unreadable）未动——D2 规定它保留�
 [git-temporal-memory-worldlines.md](git-temporal-memory-worldlines.md)
 的 follow-on `F1 module-loop-worldline`，两边同一件事的两侧，不要各自实现。
 
-### Stage G — 开场源审阅通路收回 L0（未开始）
+### Stage G — 开场源审阅通路收回 L0（消费者侧已退休 2026-09-03；抽取器仍在）
 
 D2 只写了 `coc-pdf-pipeline` 这条外部 CLI，其 `extract` 波次已在 Stage D 删
 除。宿主在开场源审阅里调的**另一条**通路没人碰过：
@@ -344,6 +344,25 @@ D2 只写了 `coc-pdf-pipeline` 这条外部 CLI，其 `extract` 波次已在 St
 
 在此之前，对该适配器抽取半边的任何修改都是给一个按 D2 本就该退役的环节打补
 丁——这一点值得先说清楚再动手。
+
+**2026-09-03 进展：消费者侧已经拆掉。** 新引导（`pi-coc-setup`）不再有
+`source-review` 步骤，不派 `coc-opening-source-coordinator`，工具面上没有
+`setup.adopt_source_facts`；步骤表的单元测试断言没有任何一步能把这份工作长
+回去。理由正是本 Stage 的理由：那一步读 3 页答 6 个字段，而 §4.2 的正向路径里
+读原文只有 ModuleGraph 一个产出者。
+
+实测佐证（《他们也没想太多》20 页）：该复核 7 分 20 秒读 3 页；同一本书的簿记
+式「解析」0.27 秒跑完，产出 1 个地点（书名）、0 个 NPC、0 条线索，而
+`outline.json` 已经以 `exact` 置信度识别出 41 行结构（约 10 个场景、3 个分支、
+12 个 NPC、6 位预设调查员）。**并发不是瓶颈——那 20 页从来没有被读过。**
+
+同一次实测还暴露一个 §4.2 之外的静默默认：复核把年代答成一整句叙述
+（「公元80年（罗马历834年）……」），`normalize_era` 找不到四位数年份就退回
+`1920s`，于是罗马模组的 `campaign.era` 被静默记成 1920 年代——而它决定时钟与
+建卡职业表。已改为拒绝并列出可用记号（`coc_state.resolve_era_key`）。
+
+剩余份额不变：`coc-pdf-skill-adapter.py` 的抽取半边仍在 L0 内部起
+`pi --mode text` 子进程，`model_policy` 仍无消费者。
 
 ### Stage E — 长模组
 

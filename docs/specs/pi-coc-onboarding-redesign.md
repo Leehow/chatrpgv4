@@ -13,7 +13,7 @@
 | 卡片列出的 `allowed_actions` 全部被拒 | 准入只认 `route.next_operation`，该阶段是 `null`；`allowed_actions` 没有任何消费者 |
 | 「派协调器」 | 工具表里没有 `subagent` |
 | 「调 coc_capabilities 取任务」 | 工具表里没有 `coc_capabilities` |
-| 「派 coc-opening-source-coordinator」 | 该 agent 没被镜像到任何发现路径 |
+| 「派 coc-opening-source-coordinator」 | 该 agent 没被镜像到任何发现路径（该步已整体退休） |
 | 协调器渲染完 180 页后 401 | 一个链条别处都不用的 provider，默认值散在 4 处 |
 
 这些不是六个 bug，是一个结构问题的六次显形：**没有任何单一组件拥有「开局引导」
@@ -38,12 +38,15 @@
 2. PDF → source bundle
 3. 建战役
 4. 绑定 bundle
-5. 源审阅：视觉复核 + 建立 era/place/fast facts
-6. 建调查员
-7. 链接调查员、完成设置 → 交接给游玩
+5. 建调查员
+6. 完成设置 → 交接给游玩
 
-其中 **3、4、7 是确定性写入**（已有契约化操作）；**2 是外部工具**；**1 是一次
-选择**；只有 **5、6 需要 LLM**。
+其中 **3、4、6 是确定性写入**（已有契约化操作）；**2 是外部工具**；**1 是一次
+选择**；只有 **5** 需要 LLM。
+
+> 2026-09-03 更正：本文初稿在 4 与 5 之间还有一步「源审阅：视觉复核 + 建立
+> era/place/fast facts」。那一步已随开场快速事实整条路退休——读原文是
+> ModuleGraph 的职责（单脊柱规格 §4.2），引导不读模组，也不派子代理。
 
 也就是说：引导的绝大部分不需要一个自由发挥的 KP，而现在它整个跑在 KP 的会话
 形状里。
@@ -79,9 +82,8 @@ steps:
   - id: build-bundle         needs: [choose-source]        external: coc-pdf-pipeline
   - id: create-campaign      needs: [choose-source]        op: campaign.create
   - id: bind-source          needs: [build-bundle, create-campaign]  op: scenario.bind_pdf
-  - id: source-review        needs: [bind-source]          subagent: coc-opening-source-coordinator
-  - id: adopt-facts          needs: [source-review]        op: setup.adopt_source_facts
-  - id: create-investigator  needs: [adopt-facts]          asks-player: true
+  - id: briefing             needs: [bind-source]          op: campaign.render_briefing
+  - id: create-investigator  needs: [briefing]             op: setup.chargen_run
   - id: complete             needs: [create-investigator]  op: setup.complete
 ```
 

@@ -528,7 +528,6 @@
       "implementation_dependencies": [
         "plugins/coc-keeper/scripts/coc_character.py",
         "plugins/coc-keeper/scripts/coc_character_creation_briefing.py",
-        "plugins/coc-keeper/scripts/coc_session_role.py",
         "plugins/coc-keeper/scripts/coc_starter.py"
       ],
       "may_depend_on": [

@@ -90,22 +90,31 @@ type Step = {
 | `build-bundle` | choose-source | external `coc-pdf-pipeline` | bundle 目录存在于工作区 |
 | `create-campaign` | choose-source | operation（starter 走 `setup.quick_start`，否则 `campaign.create`） | `campaign.json` 存在 |
 | `bind-source` | build-bundle, create-campaign | operation `scenario.bind_pdf` | `scenario/scenario.json` 存在 |
-| `source-review` | bind-source | subagent `coc-opening-source-coordinator` + `setup.adopt_source_facts` | 六项 fast facts 全部 `source` 或 `unresolved` |
-| `briefing` | source-review | operation `campaign.render_briefing` | `character_creation.briefing_path` 存在 |
-| `create-investigator` | briefing | operation `setup.chargen_run` | `party.json` 含调查员 |
+| `briefing` | bind-source | operation `campaign.render_briefing` | `character_creation.briefing_path` 存在 |
+| `create-investigator` | briefing | operation `setup.chargen_run`（随步注入方法文档） | `party.json` 含调查员 |
 | `complete` | create-investigator | operation `setup.complete` | `status == ready_for_table` 且有 `setup_handoff` |
 
-`starter` 分支跳过 build/bind/review 三行。
+`starter` 分支跳过 build/bind 两行。
 
-写实现时相对本节初稿改掉的三处，每一处都是初稿里藏着的缺陷：
+**bind 与 briefing 之间没有任何读原文的步骤，这是刻意的。** 读模组是
+ModuleGraph 编译器的职责；步骤表的单元测试断言没有任何一步携带
+`adopt_source_facts` / `subagent` / `capabilities` 类工具，也没有 `subagent`
+动作，防止那份工作悄悄长回引导里。
 
-- **复核与采纳合成一行。** 拆开时两行读同一个磁盘事实（`source_fast_facts`），
-  于是复核行永远不 `done`，而采纳工具永远不在面上——死锁。复核的产物在采纳之前
-  只活在子代理结果里，唯一的持久痕迹就是被采纳的事实集。
+写实现时相对本节初稿改掉的四处，每一处都是初稿里藏着的缺陷：
+
+- **`source-review` 整行删掉。** 初稿把它抄自旧 opening 机器。它读 3 页答 6 个
+  字段，而单脊柱规格 §4.2 里读原文是 ModuleGraph 的职责——这一步与图谱脊柱是
+  互斥的，不是它的前置。（曾经短暂地把「复核+采纳」合成一行来解一个死锁：拆开
+  时两行读同一个磁盘事实，复核行永远不 `done` 而采纳工具永远不在面上。整行删掉
+  之后这个问题连同它一起消失。）
 - **`link` 行删掉。** `setup.chargen_run` 是 create + link + render_card 一把
   锁做完，所以那一行在正常路径上永远不会成为当前步。
 - **`create-investigator` 调 `setup.chargen_run`。** 初稿写的
   `coc_chargen_delegate` 是宿主扩展的 setup-role 工具，引导不加载宿主，够不着。
+- **方法文档随步投送，不给路径。** 引导会话没有 `read` 工具，所以「照
+  `docs/methods/...` 做」指向一份它打不开的文件——与「指令点名一个面上没有的
+  工具」是同一个缺陷。
 
 另有一条 `readyForTable` 短路：交接回执压过所有上游回执。`setup.complete` 本身
 拒绝不完整的战役，所以它的回执就是上游全做过的证据——否则老路径建的战役会被要求
@@ -144,8 +153,9 @@ investigator_ids, opening_projection_ref, lane_interrupted_at_handoff
 三类，各自的处置**必须不同**——今晚的教训是把它们混成一类会锁死桌子：
 
 1. **玩家还没给** → 问一次，只问缺的那条。
-2. **外部产出者失败**（bundle 构建、源审阅子代理）→ 记录回执，**说清是哪个子
-   进程、什么模型、什么错**，允许重试同一步；不推进，也不改写已完成步骤。
+2. **外部产出者失败**（bundle 构建）→ 记录回执，**说清是哪个子进程、什么模型、
+   什么错**，允许重试同一步；不推进，也不改写已完成步骤。（源审阅子代理已随
+   开场快速事实一起退休，见 §6。）
 3. **确定性写入被拒** → 这是契约违反，把操作返回的可行动信息**原样**转给 KP，
    不降级成通用错误。
 
@@ -153,16 +163,34 @@ investigator_ids, opening_projection_ref, lane_interrupted_at_handoff
 诉玩家「你要的模组已就位」，战役里装的是别的模组）。玩家可见文本必须与
 `campaign.json.title` 一致。
 
-## 6. 删除清单（与实现同一批交付）
+## 6. 删除清单
 
-新引导跑通验收后，同一批删除：
+### 已删除（2026-09-03）
 
-- `plugins/coc-keeper/pi/lib/opening-setup-machine.ts`（4742 行，15 个 phase）
-- `plugins/coc-keeper/pi/prompts/host-system-setup.md`（464 行）
-- `session-roles.json` 的 `setup` 半边 + 启动器的角色判定/角色包组装
+- **开场六项快速事实整条路**：引导步骤表里的 `source-review`、
+  `setup.adopt_source_facts` / `coc_capabilities` / subagent 派工的工具面、
+  引导会话加载的 subagent 包。理由不是「引导不需要它」，而是**它本身与图谱脊柱
+  冲突**：它读 3 页答 6 个字段，而单脊柱规格 §4.2 的正向路径里，读原文是
+  ModuleGraph 的职责，七份 IR 是它的确定性投影。这一步是我照旧 opening 机器
+  抄进新表的，不是重写的产物。
 - `coc_session_role.py`
-- 宿主扩展里的开场闸门、`resolvedWorkingSetHostTools` 的 setup 分支、
-  `isPreCampaignFreshCreation` 的调用点（谓词本身移入引导扩展）
+- `session-roles.json` 的 `setup` 半边
+- 启动器的角色判定与角色包组装；`pi-coc` 现在只开 `ready_for_table` / `active`，
+  否则 exit 3 并打印 `pi-coc-setup --campaign <id>`
+- exit-42 交接重启循环、`queueSetupHandoffExit`
+- 宿主扩展里全部 8 处 `=== "setup"` 判断、`allowExactFreshSetup`、
+  `exactStartupFresh*` 四个谓词、`startupResumeGate` 的 `fresh_setup` 相位
+- **入口封死**：`sessionRoleFromEnv` 拒绝 `setup` 并告警，`effectiveTypedRole`
+  默认改为 `play` —— setup 角色在运行时不可能再出现
+- `web/server-node/session-handoff.mjs` 里 shell 调那个 CLI → 改为直接读
+  `campaign.json`
+
+### 未删除（下一批）
+
+- `plugins/coc-keeper/pi/lib/opening-setup-machine.ts`（4742 行 / 93 方法）。
+  宿主里只有 32 个方法被引用、共 51 处调用；**另外 61 个方法零消费者**。
+  setup 角色已不可达，所以这 51 处大部分是确定的死代码。
+- `plugins/coc-keeper/pi/prompts/host-system-setup.md`（464 行）
 - 操作策略里 `cold_start` / `opening` 两个 phase，以及仅在该阶段可达的操作的
   阶段声明
 - `web/server-node/server.mjs` 里自建战役/绑定的两处（L741、L853）→ 改为调用
