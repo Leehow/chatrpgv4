@@ -80,14 +80,20 @@ export default function onboardingExtension(pi: ExtensionAPI, overrides: {
    * not, or a failing operation would retry itself forever.
    */
   let projectedStep: string | null = null;
+  /** Tools called since the current step became current. */
+  let calledThisStep = new Set<string>();
 
   /** Publish the surface and the instruction for wherever we now stand. */
   const project = (ctx: ExtensionContext): void => {
     const s = state(ctx);
     const step = currentStep(s);
     const advanced = (step?.id ?? null) !== projectedStep;
+    if (advanced) calledThisStep = new Set();
     projectedStep = step?.id ?? null;
-    const tools = [...activeTools(s)];
+    // A declared first call is enforced, not merely stated: until it has been
+    // made, it is the only thing this step offers.
+    const pending = step?.firstTool !== undefined && !calledThisStep.has(step.firstTool);
+    const tools = pending ? [step!.firstTool!] : [...activeTools(s)];
     try { pi.setActiveTools([...tools, "onboarding_choose_source"]); }
     catch { /* older hosts ignore the surface hint */ }
     audit({
@@ -300,12 +306,31 @@ export default function onboardingExtension(pi: ExtensionAPI, overrides: {
     const name = String(objectOrNull(event)?.toolName ?? "");
     if (name === "" || name === "onboarding_choose_source") return undefined;
     const s = state(ctx);
+    const step = currentStep(s);
+    if (
+      step?.firstTool !== undefined
+      && !calledThisStep.has(step.firstTool)
+      && name !== step.firstTool
+    ) {
+      audit({ status: "before_first_tool", attempted: name, step: step.id });
+      return {
+        block: true,
+        reason: (
+          `先调 ${step.firstTool}：这一步要用它返回的原文，`
+          + `不要凭指令改写。${step.say(s)}`
+        ),
+      };
+    }
     if (new Set(activeTools(s)).has(name)) return undefined;
     // Refusal text comes from the table, so it cannot drift from the surface.
     audit({ status: "off_step", attempted: name, step: currentStep(s)?.id ?? null });
     return { block: true, reason: refusal(s, name) };
   });
 
-  pi.on("tool_execution_end", (_event: unknown, ctx: ExtensionContext) => { project(ctx); });
+  pi.on("tool_execution_end", (event: unknown, ctx: ExtensionContext) => {
+    const name = String(objectOrNull(event)?.toolName ?? "");
+    if (name !== "") calledThisStep.add(name);
+    project(ctx);
+  });
 
 }

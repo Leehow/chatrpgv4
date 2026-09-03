@@ -131,4 +131,23 @@ for (const step of STEPS) {
   );
 }
 
+// Source review must read the canonical coordinator task before dispatching,
+// and that requirement is enforced rather than merely stated: the Keeper was
+// told to copy `coc_capabilities`'s task text verbatim and instead paraphrased
+// it from the instruction, so the canonical task never reached the subagent.
+const review = STEPS.find((step) => step.id === "source-review");
+assert.equal(review.firstTool, "coc_capabilities");
+assert.ok(
+  review.tools.includes(review.firstTool),
+  "a required first call must be on its own step's surface",
+);
+// Any step declaring one must offer it, or the step cannot begin at all.
+for (const step of STEPS) {
+  if (step.firstTool === undefined) continue;
+  assert.ok(
+    step.tools.includes(step.firstTool),
+    `${step.id} requires ${step.firstTool} first but does not permit it`,
+  );
+}
+
 console.log(JSON.stringify({ ok: true, module: "onboarding-step-table" }));

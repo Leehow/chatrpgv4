@@ -40,6 +40,16 @@ export type Step = {
    * open -- the same shape as an instruction naming a tool it does not carry.
    */
   readonly guide?: string;
+  /**
+   * A tool that must be called before the rest of this step's surface opens.
+   *
+   * Stating a required first call without enforcing it is the same defect as
+   * an instruction naming a tool the surface lacks: on 2026-09-03 the Keeper
+   * was told to read `coc_capabilities` and copy the coordinator's task text
+   * verbatim, and instead paraphrased it from the instruction -- the canonical
+   * task never reached the subagent, and nothing said so.
+   */
+  readonly firstTool?: string;
   /** Steps skipped entirely on the built-in starter path. */
   readonly skipForStarter?: boolean;
 };
@@ -128,6 +138,7 @@ export const STEPS: readonly Step[] = [
     needs: ["bind-source"],
     skipForStarter: true,
     action: { kind: "subagent", agent: "coc-opening-source-coordinator" },
+    firstTool: "coc_capabilities",
     // Review and adoption are one step on purpose. The review's product lives
     // only in the subagent result until it is adopted, so the sole durable
     // trace of both is the adopted fact set. Split into two rows, the review
