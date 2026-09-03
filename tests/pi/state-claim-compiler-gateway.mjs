@@ -226,49 +226,13 @@ async function invokeReviewSurface(h, surface, id, arguments_) {
   );
 }
 
-test("output-context observation is play-only and remains fail-closed in play", async () => {
+test("output-context observation remains fail-closed in play", async () => {
   const previousRole = process.env.COC_PI_SESSION_ROLE;
   try {
-    for (const role of [undefined, "setup"]) {
-      if (role === undefined) delete process.env.COC_PI_SESSION_ROLE;
-      else process.env.COC_PI_SESSION_ROLE = role;
-      let observations = 0;
-      const compiler = {
-        clear() {},
-        beginExternalTurn() {},
-        observeOutputContext() {
-          observations += 1;
-          throw new Error("state_claim_observer_must_not_run");
-        },
-        async compileReview() {
-          throw new Error("state_claim_compiler_must_not_run");
-        },
-      };
-      const h = harness(compiler);
-      await initialize(h);
-      // A missing launcher role is no longer "ACL disabled": the host-local
-      // typed role starts as setup and becomes play only through the
-      // no-selector opening handoff (setup.complete) or an accepted startup
-      // resume behind an explicit campaign selector. Neither happened here,
-      // so the unset and setup cases are the same setup-role ACL rejection,
-      // thrown before the play-only observer can run.
-      let rejected = null;
-      try {
-        await invoke(
-          h, `context-${role ?? "unset"}`, "turn.output_context", {},
-        );
-      } catch (error) {
-        rejected = error;
-      }
-      assert.ok(
-        rejected !== null
-          && /not allowed in session role setup/.test(String(rejected)),
-        `${role ?? "unset"}-role output_context must reject as setup: `
-          + JSON.stringify(String(rejected ?? "<no rejection>")),
-      );
-      assert.equal(observations, 0, `${role ?? "unset"} role observed compiler context`);
-    }
-
+    // The unset/setup half of this test is gone. It asserted that a session
+    // without a launcher role starts as `setup` and is refused at the ACL --
+    // that role is retired, an unset role is the table, and after the resume
+    // this harness performs the observation is correct rather than forbidden.
     process.env.COC_PI_SESSION_ROLE = "play";
     let playObservations = 0;
     const playCompiler = {
@@ -1135,7 +1099,7 @@ test("resume session_start clear requires output_context before compile", async 
   }
 });
 
-test("setup-role ACL rejects before any semantic-registry access (spy)", async () => {
+test("an ACL rejection touches no semantic-registry state (spy)", async () => {
   const previousRole = process.env.COC_PI_SESSION_ROLE;
   try {
     // Counting wrapper around the REAL registry factory: every registry
@@ -1161,9 +1125,12 @@ test("setup-role ACL rejects before any semantic-registry access (spy)", async (
       return { registry: wrapped, calls };
     };
 
-    // Forbidden operation in the setup role: the established ACL error is
-    // thrown with ZERO registry calls or side effects.
-    process.env.COC_PI_SESSION_ROLE = "setup";
+    // A forbidden operation is refused with ZERO registry calls or side
+    // effects. The probe used to be a play operation under the setup role;
+    // that role is retired, so it is a setup operation under the play role --
+    // building a campaign is not the table's job, and `pi-coc-setup` calls
+    // those operations through its own extension rather than this ACL.
+    process.env.COC_PI_SESSION_ROLE = "play";
     const setup = makeCounting();
     const setupHarness = harness(
       {
@@ -1184,13 +1151,16 @@ test("setup-role ACL rejects before any semantic-registry access (spy)", async (
     // about the ACL-rejected call itself, not the accepted flow before it.
     for (const key of Object.keys(setup.calls)) setup.calls[key] = 0;
     try {
-      await invoke(setupHarness, "context-spy-setup", "turn.output_context", {});
+      await invoke(setupHarness, "context-spy-setup", "setup.complete", {
+        campaign_id: campaign,
+        decision_id: `spy-${campaign}`,
+      });
     } catch (error) {
       rejected = String(error?.message || error);
     }
     assert.ok(
       rejected !== null && /not allowed|unavailable/.test(rejected),
-      "setup-role output_context must reject at the ACL: "
+      "a setup operation must reject at the ACL in a play session: "
         + JSON.stringify(rejected ?? "<no rejection>"),
     );
     assert.deepEqual(

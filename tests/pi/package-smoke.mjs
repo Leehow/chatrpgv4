@@ -50,7 +50,9 @@ session.dispose();
 const typedToolNames = typed.listTypedOperationTools().map((row) => row.name).sort();
 const genericToolNames = [...domain.DOMAIN_TOOL_NAMES].sort();
 const hostToolNames = [
-  "coc_capabilities", "coc_chargen_delegate", "coc_discover",
+  // `coc_chargen_delegate` is gone with the setup role; `setup.chargen_run`
+  // builds investigators and onboarding calls it directly.
+  "coc_capabilities", "coc_discover",
   "coc_dispatch_source_work", "coc_invoke", "coc_map_supply", "coc_progressive_ocr",
   "coc_source_assets",
 ];

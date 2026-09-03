@@ -497,26 +497,6 @@ def test_pi_chargen_delegate_allocates_campaign_scoped_ids():
     assert result["singleInterestCount"] >= 5
 
 
-def test_pi_setup_complete_binds_the_retained_handoff_decision():
-    _node(ROOT / "tests/pi/setup-complete-decision-binding.mjs", str(ROOT))
-
-
-def test_pi_opening_forwards_only_contract_selected_era_adaptive_creation():
-    result = _node(
-        ROOT / "tests/pi/guided-character-contract-smoke.mjs",
-        str(ROOT),
-    )
-    assert result == {
-        "ok": True,
-        "adaptiveInputMode": "kp_guided_era_adaptive",
-        "standardInputMode": "guided_quick_fire",
-        "unavailableCode": "guided_character_creation_route_unavailable",
-        "adaptiveCashSemanticAdmitted": True,
-        "adaptiveLooseCashSemanticAdmitted": True,
-        "quickFireCashSemanticBlocked": True,
-    }
-
-
 def test_pi_package_metadata_exposes_bounded_opening_preview_compatibility():
     server = _load_mcp_server()
     discovered = server._discover(
@@ -536,72 +516,6 @@ def test_pi_package_metadata_exposes_bounded_opening_preview_compatibility():
             "opening semantic selector."
         ),
     }
-
-
-def test_real_canonical_briefing_receipt_authorizes_conversational_pi_output(
-    tmp_path: Path,
-    monkeypatch,
-):
-    monkeypatch.setenv("COC_HOST", "pi")
-    server = _load_mcp_server()
-    created = server._call_tool("coc_invoke", {
-        "operation": "setup.invoke",
-        "root": os.fspath(tmp_path),
-        "arguments": {
-            "kind": "campaign.create",
-            "payload": {
-                "campaign_id": "pi-visible-briefing",
-                "title": "Pi Visible Briefing",
-                "play_language": "zh-Hans",
-            },
-        },
-    })
-    assert created["ok"] is True, created
-    params = {
-        "operation": "setup.invoke",
-        "campaign": "pi-visible-briefing",
-        "arguments": {
-            "kind": "campaign.render_briefing",
-            "payload": {
-                "campaign_id": "pi-visible-briefing",
-                "language": "zh-Hans",
-            },
-        },
-    }
-    rendered = server._call_tool("coc_invoke", {
-        **params,
-        "root": os.fspath(tmp_path),
-    })
-    assert rendered["ok"] is True, rendered
-    text = (
-        tmp_path / rendered["data"]["result"]["briefing_path"]
-    ).read_text(encoding="utf-8")
-    fixture = tmp_path / "pi-visible-provenance.json"
-    fixture.write_text(json.dumps({
-        "workspace": os.fspath(tmp_path),
-        "params": params,
-        "envelope": rendered,
-        "expected_text_sha256": (
-            "sha256:"
-            + hashlib.sha256(
-                json.dumps(
-                    text,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                ).encode("utf-8")
-            ).hexdigest()
-        ),
-    }), encoding="utf-8")
-    result = _node(
-        ROOT / "tests/pi/setup-visible-provenance.mjs",
-        str(ROOT),
-        str(fixture),
-    )
-    assert result["ok"] is True
-    assert result["sourceKind"] == "campaign.render_briefing"
-    assert result["publicSetupSha256"] == rendered["data"]["result"][
-        "public_setup_sha256"
-    ]
 
 
 def test_reattach_orphan_tool_results_stay_provider_valid():
