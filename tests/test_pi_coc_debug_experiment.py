@@ -1853,9 +1853,6 @@ def test_damage_kind_is_the_direction_the_toolbox_means():
 
     assert seed(6)["kind"] == "damage"
     assert seed({"amount": 6, "kind": "heal"})["kind"] == "heal"
-    with pytest.raises(module.DebugExperimentError) as rejected:
-        seed({"amount": 6, "kind": "physical"})
-    assert "damage, heal" in str(rejected.value)
 
 
 def test_seeding_can_advance_the_clock_to_fire_due_triggers():
@@ -1935,37 +1932,72 @@ def test_normalization_carries_every_structural_key_it_accepts():
     }
 
 
-def test_seed_enumerations_are_rejected_at_dispatch_not_six_minutes_in():
-    """`safe_rest` and the ending kind are closed sets the operations enforce.
+def test_seed_arguments_are_checked_against_the_real_operation_contracts():
+    """The seeded writes are validated against what the operations declare,
+    not against a copy of their enums kept here.
 
-    A seed that names a value outside them costs a whole lane before the error
-    appears, and the lane's evidence then looks like a rule-layer refusal. The
-    request is rejected here instead, naming the legal values.
+    Four seeding rounds in a row shipped a value the target operation rejects
+    -- damage kind "physical" (it means damage-or-heal), item kind "tome" (it
+    takes gear or weapon), a magic.learn source carrying prose (it takes
+    tome/person/entity). Each cost a full lane, and since a failed seed fails
+    the lane, the leftover evidence read like a rule-layer refusal of a family
+    no lane had reached. This check reads each operation's own declaration, so
+    a fifth mismatch is a dispatch error naming the legal values.
     """
     module = _module()
 
-    def seed(situation):
-        return module._normalize_run_spec({
+    def check(situation):
+        module._validate_seed_arguments(module._normalize_run_spec({
             "player_input": "我推开门。",
             "lanes": [{
                 "id": "s", "player_input": "我推开门。", "situation": situation,
             }],
-        })
+        }))
 
-    assert seed({"safe_rest": "full_sleep"})["lanes"][0]["situation"]["safe_rest"] \
-        == "full_sleep"
-    with pytest.raises(module.DebugExperimentError) as rest:
-        seed({"safe_rest": "catnap"})
-    assert "full_sleep" in str(rest.value)
+    # What the seeds actually send now passes against the live contracts.
+    check({
+        "damage": 5,
+        "safe_rest": "full_sleep",
+        "items": [{"label": "手记"}],
+        "spells": ["Contact Spells"],
+        "ending": {"summary": "结束。", "kind": "retreat"},
+    })
 
-    assert seed({"ending": {"summary": "结束。", "kind": "tpk"}}) \
-        ["lanes"][0]["situation"]["ending"]["kind"] == "tpk"
-    with pytest.raises(module.DebugExperimentError) as ending:
-        seed({"ending": {"summary": "结束。", "kind": "escape"}})
-    assert "conclusion" in str(ending.value)
+    for bad, offending in (
+        ({"damage": {"amount": 5, "kind": "physical"}}, "physical"),
+        ({"items": [{"label": "手记", "kind": "tome"}]}, "tome"),
+        ({"ending": {"summary": "结束。", "kind": "escape"}}, "escape"),
+    ):
+        with pytest.raises(module.DebugExperimentError) as rejected:
+            check(bad)
+        assert offending in str(rejected.value), bad
+        assert "must be one of" in str(rejected.value), bad
 
-    assert seed({"items": [{"label": "手记"}]}) \
-        ["lanes"][0]["situation"]["items"][0]["kind"] == "gear"
-    with pytest.raises(module.DebugExperimentError) as item:
-        seed({"items": [{"label": "手记", "kind": "tome"}]})
-    assert "gear, weapon" in str(item.value)
+
+def test_the_seed_contract_check_is_wired_into_dispatch(tmp_path: Path) -> None:
+    """A validator nothing calls is the same as no validator.
+
+    Asserting `_validate_seed_arguments` in isolation leaves the call site
+    free to disappear -- which is how the dropped-key defect survived three
+    rounds of green tests. This one goes through `dispatch`.
+    """
+    module = _module()
+    experiment = module.DebugExperiment(
+        store=module.FileRunStore(tmp_path / "runs"),
+        checkpoint=CheckpointAdapter(),
+        executor=ExecutorAdapter(),
+    )
+    with pytest.raises(module.DebugExperimentError) as rejected:
+        experiment.dispatch(
+            "run " + json.dumps({
+                "player_input": "我受伤了。",
+                "lanes": [{
+                    "id": "hurt",
+                    "player_input": "我受伤了。",
+                    "situation": {"damage": {"amount": 5, "kind": "physical"}},
+                }],
+            }, ensure_ascii=False),
+            _context(tmp_path),
+        )
+    assert "physical" in str(rejected.value)
+    assert rejected.value.code == "debug_request_invalid"

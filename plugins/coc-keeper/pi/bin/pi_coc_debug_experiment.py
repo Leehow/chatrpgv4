@@ -56,15 +56,6 @@ _SITUATION_ITEM_KEYS = frozenset({
     "item_id", "label", "kind", "weapon", "weapon_id", "mechanics_ref",
     "quantity", "consumable", "investigator",
 })
-# Enumerations the seeded operations enforce themselves. Checking them here
-# turns a six-minute lane that dies on `invalid_param` into a dispatch-time
-# rejection naming the legal values.
-_SITUATION_DAMAGE_KINDS = frozenset({"damage", "heal"})
-_SITUATION_ITEM_KINDS = frozenset({"gear", "weapon"})
-_SITUATION_REST_KINDS = frozenset({"full_sleep"})
-_SITUATION_ENDING_KINDS = frozenset({
-    "conclusion", "tpk", "retreat", "cliffhanger",
-})
 _MAX_SITUATION_LIST = 20
 _TOOLBOX_SCRIPT = _SCRIPTS / "coc_toolbox.py"
 _SITUATION_SEED_REASON = "host debug situation seeding"
@@ -329,16 +320,7 @@ def _situation_items(value: Any, *, label: str) -> list[dict[str, Any]]:
                 "debug_request_invalid",
                 f"{label}[{index}] needs item_id or label",
             )
-        # `state.item_grant` takes gear or weapon and nothing else. A seed
-        # calling a tome "tome" cost two whole magic lanes before saying so.
-        kind = item.get("kind", "gear")
-        if kind not in _SITUATION_ITEM_KINDS:
-            raise DebugExperimentError(
-                "debug_request_invalid",
-                f"{label}[{index}].kind must be one of "
-                f"{', '.join(sorted(_SITUATION_ITEM_KINDS))}",
-            )
-        item = {**item, "kind": kind}
+        item = {**item, "kind": item.get("kind", "gear")}
         items.append(item)
     return items
 
@@ -362,18 +344,11 @@ def _situation_damage(value: Any, *, label: str) -> dict[str, Any]:
         }
     damage = _strict_object(value, label=label)
     _exact_keys(damage, {"amount", "kind"}, label=label)
-    kind = damage.get("kind", "damage")
-    if kind not in _SITUATION_DAMAGE_KINDS:
-        raise DebugExperimentError(
-            "debug_request_invalid",
-            f"{label}.kind must be one of "
-            f"{', '.join(sorted(_SITUATION_DAMAGE_KINDS))}",
-        )
     return {
         "amount": _situation_positive_int(
             damage.get("amount"), label=f"{label}.amount",
         ),
-        "kind": kind,
+        "kind": damage.get("kind", "damage"),
     }
 
 
@@ -389,14 +364,9 @@ def _situation_ending(value: Any, *, label: str) -> dict[str, Any]:
         ),
     }
     if "kind" in ending:
-        kind = _nonempty_text(ending["kind"], label=f"{label}.kind")
-        if kind not in _SITUATION_ENDING_KINDS:
-            raise DebugExperimentError(
-                "debug_request_invalid",
-                f"{label}.kind must be one of "
-                f"{', '.join(sorted(_SITUATION_ENDING_KINDS))}",
-            )
-        normalized["kind"] = kind
+        normalized["kind"] = _nonempty_text(
+            ending["kind"], label=f"{label}.kind",
+        )
     return normalized
 
 
@@ -489,14 +459,9 @@ def _normalize_situation(raw: Any, *, label: str) -> dict[str, Any]:
             situation["advance_minutes"], label=f"{label}.advance_minutes",
         )
     if "safe_rest" in situation:
-        rest = _nonempty_text(situation["safe_rest"], label=f"{label}.safe_rest")
-        if rest not in _SITUATION_REST_KINDS:
-            raise DebugExperimentError(
-                "debug_request_invalid",
-                f"{label}.safe_rest must be one of "
-                f"{', '.join(sorted(_SITUATION_REST_KINDS))}",
-            )
-        normalized["safe_rest"] = rest
+        normalized["safe_rest"] = _nonempty_text(
+            situation["safe_rest"], label=f"{label}.safe_rest",
+        )
     if "ending" in situation:
         normalized["ending"] = _situation_ending(
             situation["ending"], label=f"{label}.ending",
@@ -594,7 +559,10 @@ def _situation_operations(lane: dict[str, Any], campaign_id: str) -> list[dict[s
             "arguments": {
                 "campaign": campaign_id,
                 "spell": spell,
-                "source": reason,
+                # `source` here is the kind of teacher, a closed set the
+                # operation enforces -- not a free-text note like the `reason`
+                # every other seeded write carries.
+                "source": "tome",
                 "decision_id": f"debug-situation:{lane_id}:learn-spell:{spell}",
             },
         })
@@ -669,6 +637,67 @@ def _load_scenario_file(scenario_dir: Path, name: str) -> dict[str, Any]:
             "situation_catalog_unavailable", f"scenario/{name} is not an object",
         )
     return value
+
+
+def _operation_contract(operation: str) -> dict[str, Any]:
+    """The operation's own declared parameter contract."""
+    try:
+        described = subprocess.run(
+            [sys.executable, str(_TOOLBOX_SCRIPT), "describe", operation],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise DebugExperimentError(
+            "situation_catalog_unavailable",
+            f"cannot read the contract for {operation}",
+        ) from exc
+    if described.returncode != 0 or not described.stdout.strip():
+        raise DebugExperimentError(
+            "situation_catalog_unavailable",
+            f"cannot read the contract for {operation}",
+        )
+    try:
+        contract = json.loads(described.stdout)
+    except json.JSONDecodeError as exc:
+        raise DebugExperimentError(
+            "situation_catalog_unavailable",
+            f"the contract for {operation} is unreadable",
+        ) from exc
+    return contract.get("params") or {}
+
+
+def _validate_seed_arguments(spec: dict[str, Any]) -> None:
+    """Check every seeded write against the contract of the operation it calls.
+
+    Four seeding rounds in a row shipped an argument the operation rejects --
+    a damage `kind` of "physical" where it means damage-or-heal, an item kind
+    of "tome" where it takes gear or weapon, a `magic.learn` source carrying
+    prose where it takes tome/person/entity. Each cost a whole lane, and
+    because a failed seed fails the lane, the evidence left behind read like a
+    rule-layer refusal of a family that had never been reached at all.
+
+    The operations already declare these sets. Copying them here would be a
+    second place to drift; this reads the declaration instead.
+    """
+    contracts: dict[str, dict[str, Any]] = {}
+    for lane in spec["lanes"]:
+        for row in _situation_operations(lane, "contract-check"):
+            operation = row["operation"]
+            if operation not in contracts:
+                contracts[operation] = _operation_contract(operation)
+            params = contracts[operation]
+            for name, value in row["arguments"].items():
+                declared = params.get(name)
+                if not isinstance(declared, dict):
+                    continue
+                allowed = declared.get("enum")
+                if isinstance(allowed, list) and value not in allowed:
+                    raise DebugExperimentError(
+                        "debug_request_invalid",
+                        f"lane {lane['id']}: {operation} {name} must be one of "
+                        f"{', '.join(str(item) for item in allowed)}, "
+                        f"not {value!r}",
+                    )
 
 
 def _validate_lane_situations(spec: dict[str, Any], checkpoint: dict[str, Any]) -> None:
@@ -2460,6 +2489,10 @@ class DebugExperiment:
             checkpoint = self.checkpoint.seal_latest(context)
             # Unknown scene/NPC/clue ids fail closed here, before any run
             # directory, coordinator, or lane exists.
+            # Argument shapes first: they need no sealed campaign, and a
+            # value the target operation rejects is worth saying before any
+            # id lookup.
+            _validate_seed_arguments(spec)
             _validate_lane_situations(spec, checkpoint)
             experiment_id = self.store.allocate(context["campaign_id"])
             run = {
