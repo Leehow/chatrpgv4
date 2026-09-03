@@ -50,8 +50,17 @@ _SITUATION_STRUCTURAL_KEYS = frozenset({
     # temporary-insanity recovery and weekly major-wound recovery; a safe rest
     # is what several of those triggers additionally require.
     "advance_minutes", "safe_rest",
+    # Authored data a diagnostic lane may appoint, rather than canonical state
+    # it may write. Which NPC teaches which spell is module content, and the
+    # shipped modules author none, so magic could not be exercised at all
+    # without inventing that content in the repo. A lane appoints a teacher for
+    # itself instead: the override lives in the lane's own sandbox, is recorded
+    # as a host seed in the evidence, and reaches no committed module.
+    "spell_teachers",
 })
 _SITUATION_KEYS = _SITUATION_STRUCTURAL_KEYS | {"establish_from_prompt"}
+_SITUATION_TEACHER_KEYS = frozenset({"npc_id", "source_kind", "spells"})
+_SITUATION_TEACHER_KINDS = frozenset({"person", "entity"})
 _SITUATION_ITEM_KEYS = frozenset({
     "item_id", "label", "kind", "weapon", "weapon_id", "mechanics_ref",
     "quantity", "consumable", "investigator",
@@ -274,6 +283,103 @@ def _situation_id_list(value: Any, *, label: str) -> list[str]:
     return ids
 
 
+def _appoint_spell_teachers(
+    campaign_dir: Path, teachers: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Write the lane's appointed teachers into its own scenario data.
+
+    Not a toolbox operation, deliberately: which NPC teaches which spell is
+    authored module content, not canonical state, and there is no operation
+    that writes it -- inventing one would put a diagnostic-only capability on
+    the Keeper's surface. The write lands in the lane's sandbox copy of
+    `scenario/npc-agendas.json`, the file `Ctx.npc_agendas` reads, so nothing
+    reaches a committed module.
+
+    Returns one evidence row per appointment.
+    """
+    path = campaign_dir / "scenario" / "npc-agendas.json"
+    agendas = json.loads(path.read_text(encoding="utf-8"))
+    rows = agendas.get("npcs")
+    if not isinstance(rows, list):
+        raise DebugExperimentError(
+            "situation_catalog_unavailable",
+            "the lane campaign's npc-agendas has no npcs list",
+        )
+    by_id = {
+        str(row.get("npc_id")): row for row in rows if isinstance(row, dict)
+    }
+    applied: list[dict[str, Any]] = []
+    for teacher in teachers:
+        npc = by_id.get(teacher["npc_id"])
+        if npc is None:
+            raise DebugExperimentError(
+                "situation_unknown_npc",
+                f"NPC {teacher['npc_id']!r} is not authored in the sealed campaign",
+            )
+        npc["magic_source_kind"] = teacher["source_kind"]
+        mechanics = npc.setdefault("mechanics", {})
+        profile = mechanics.setdefault("profile", {})
+        taught = list(dict.fromkeys(
+            [*(profile.get("spells") or []), *teacher["spells"]]
+        ))
+        profile["spells"] = taught
+        applied.append({
+            "operation": "host.appoint_spell_teacher",
+            "npc_id": teacher["npc_id"],
+            "source_kind": teacher["source_kind"],
+            "spells": taught,
+            "authority": "host_diagnostic_seed",
+            "note": (
+                "lane-private authored-data override; not module content"
+            ),
+            "ok": True,
+        })
+    path.write_text(
+        json.dumps(agendas, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return applied
+
+
+def _situation_spell_teachers(value: Any, *, label: str) -> list[dict[str, Any]]:
+    """NPCs this lane appoints as spell sources, with what they teach.
+
+    `magic.learn.sources` is keyed `<source_kind>:<npc_id>`, and the learn gate
+    asks whether the named spell is in that source's list. Both halves are
+    authored content: no shipped module marks any NPC teachable, so the gate
+    can never open in a diagnostic. This is the seed for it.
+    """
+    if not isinstance(value, list) or not 1 <= len(value) <= _MAX_SITUATION_LIST:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"{label} must be a list of 1 to {_MAX_SITUATION_LIST} teachers",
+        )
+    teachers: list[dict[str, Any]] = []
+    for index, raw in enumerate(value):
+        row = _strict_object(raw, label=f"{label}[{index}]")
+        _exact_keys(row, set(_SITUATION_TEACHER_KEYS), label=f"{label}[{index}]")
+        npc_id = _situation_id(row.get("npc_id"), label=f"{label}[{index}].npc_id")
+        kind = row.get("source_kind", "person")
+        if kind not in _SITUATION_TEACHER_KINDS:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label}[{index}].source_kind must be one of "
+                f"{', '.join(sorted(_SITUATION_TEACHER_KINDS))}",
+            )
+        spells = _situation_text_list(
+            row.get("spells"), label=f"{label}[{index}].spells",
+        )
+        teachers.append(
+            {"npc_id": npc_id, "source_kind": kind, "spells": spells},
+        )
+    seen = [row["npc_id"] for row in teachers]
+    if len(set(seen)) != len(seen):
+        raise DebugExperimentError(
+            "debug_request_invalid", f"{label} names one NPC twice",
+        )
+    return teachers
+
+
 def _situation_text_list(value: Any, *, label: str) -> list[str]:
     """A list of authored names, not semantic ids.
 
@@ -457,6 +563,10 @@ def _normalize_situation(raw: Any, *, label: str) -> dict[str, Any]:
     if "advance_minutes" in situation:
         normalized["advance_minutes"] = _situation_positive_int(
             situation["advance_minutes"], label=f"{label}.advance_minutes",
+        )
+    if "spell_teachers" in situation:
+        normalized["spell_teachers"] = _situation_spell_teachers(
+            situation["spell_teachers"], label=f"{label}.spell_teachers",
         )
     if "safe_rest" in situation:
         normalized["safe_rest"] = _nonempty_text(
@@ -1788,6 +1898,13 @@ class PiRpcLaneAdapter:
             "PYTHONDONTWRITEBYTECODE": "1",
         })
         applied: list[dict[str, Any]] = []
+        teachers = (lane.get("situation") or {}).get("spell_teachers") or []
+        if teachers:
+            # Authored data first: a spell seeded before its teacher exists
+            # would be refused by the same gate this appointment opens.
+            applied.extend(_appoint_spell_teachers(
+                Path(materialized["campaign_dir"]), teachers,
+            ))
         for step in _situation_operations(lane, campaign_id):
             if cancelled():
                 return applied, "cancelled"

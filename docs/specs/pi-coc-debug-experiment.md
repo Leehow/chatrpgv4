@@ -62,6 +62,19 @@ Constraints:
   `min(2, lane count)`. The ceiling tracks what the Keeper provider will
   serve in parallel, not what this host can schedule: lanes are network-bound
   and each one owns an isolated sandbox worktree.
+- A structural situation may also appoint **spell teachers**:
+  `spell_teachers: [{npc_id, source_kind: person|entity, spells: [...]}]`.
+  Which NPC teaches which spell is authored module content, and no shipped
+  module authors any, so `magic.learn`'s source gate could never open in a
+  diagnostic. The appointment rewrites the lane's own sandbox copy of
+  `scenario/npc-agendas.json` -- the file `Ctx.npc_agendas` reads -- rather
+  than going through a toolbox operation, because there is no operation that
+  writes authored content and adding one would put a diagnostic-only
+  capability on the Keeper's surface. It may re-dress an NPC the campaign
+  authors and never conjure one, existing spells are added to rather than
+  replaced, and each appointment is recorded in the evidence as
+  `host.appoint_spell_teacher` with `authority: host_diagnostic_seed`, so a
+  seeded teacher can never be read back as module content.
 - Profiles are `production`, the narrow graph-only
   `rules-director-single-draft` profile, or `rules-all-single-draft`. The last
   profile keeps the full production play skills and working set while

@@ -1910,6 +1910,10 @@ def test_normalization_carries_every_structural_key_it_accepts():
         "advance_minutes": 60,
         "safe_rest": "full_sleep",
         "ending": "调查员逃出宅子。",
+        "spell_teachers": [
+            {"npc_id": "npc-steven-knott", "source_kind": "person",
+             "spells": ["Contact Spells"]},
+        ],
     }
     assert set(every) == set(module._SITUATION_STRUCTURAL_KEYS), (
         "this test must exercise every accepted structural key"
@@ -1930,6 +1934,11 @@ def test_normalization_carries_every_structural_key_it_accepts():
         "state.set_flag", "state.item_grant", "magic.learn", "rules.damage",
         "state.advance_time", "state.mark_safe_rest", "state.end_session",
     }
+    # `spell_teachers` is authored data, not canonical state, so it is applied
+    # by rewriting the lane's own scenario copy rather than by a toolbox
+    # operation. It must still survive normalization -- that is what the
+    # dropped-key guard above is for -- and it must not silently become one.
+    assert "spell_teachers" in normalized
 
 
 def test_seed_arguments_are_checked_against_the_real_operation_contracts():
@@ -2001,3 +2010,124 @@ def test_the_seed_contract_check_is_wired_into_dispatch(tmp_path: Path) -> None:
         )
     assert "physical" in str(rejected.value)
     assert rejected.value.code == "debug_request_invalid"
+
+
+def test_a_lane_can_appoint_a_teacher_the_module_never_authored(tmp_path: Path):
+    """Magic could not be exercised at all without this.
+
+    `magic.learn.sources` is keyed `<source_kind>:<npc_id>` and the learn gate
+    asks whether the named spell is in that source's list. Both halves are
+    authored module content, and no shipped module marks any NPC teachable --
+    `npc-walter-corbitt` carries spells but no `magic_source_kind`, and no
+    item anywhere carries `mechanics.profile.spells`. So the gate could never
+    open in a diagnostic, and the only alternatives were to leave the family
+    untestable or to invent module content in the repo.
+
+    A lane appoints a teacher for itself instead. The write lands in the
+    lane's own sandbox copy of the file `Ctx.npc_agendas` reads, and the
+    evidence row says whose claim it is.
+    """
+    module = _module()
+    campaign = tmp_path / "campaign"
+    scenario = campaign / "scenario"
+    scenario.mkdir(parents=True)
+    (scenario / "npc-agendas.json").write_text(json.dumps({
+        "npcs": [
+            {"npc_id": "npc-steven-knott", "name": "Steven Knott"},
+            {"npc_id": "npc-walter-corbitt", "name": "Walter Corbitt",
+             "mechanics": {"profile": {"spells": ["Flesh Ward"]}}},
+        ],
+    }, ensure_ascii=False), encoding="utf-8")
+
+    applied = module._appoint_spell_teachers(campaign, [
+        {"npc_id": "npc-steven-knott", "source_kind": "person",
+         "spells": ["Contact Spells"]},
+        {"npc_id": "npc-walter-corbitt", "source_kind": "entity",
+         "spells": ["Summon/Bind Dimensional Shambler"]},
+    ])
+
+    written = json.loads(
+        (scenario / "npc-agendas.json").read_text(encoding="utf-8"),
+    )
+    by_id = {row["npc_id"]: row for row in written["npcs"]}
+
+    knott = by_id["npc-steven-knott"]
+    assert knott["magic_source_kind"] == "person"
+    assert knott["mechanics"]["profile"]["spells"] == ["Contact Spells"]
+
+    # An NPC who already knows spells keeps them; the appointment adds.
+    corbitt = by_id["npc-walter-corbitt"]
+    assert corbitt["magic_source_kind"] == "entity"
+    assert corbitt["mechanics"]["profile"]["spells"] == [
+        "Flesh Ward", "Summon/Bind Dimensional Shambler",
+    ]
+
+    # The evidence never lets a host seed read as module content.
+    assert [row["operation"] for row in applied] == [
+        "host.appoint_spell_teacher", "host.appoint_spell_teacher",
+    ]
+    assert all(row["authority"] == "host_diagnostic_seed" for row in applied)
+
+
+def test_appointing_an_unauthored_npc_fails_closed(tmp_path: Path):
+    """The appointment may re-dress an NPC the campaign authors; it may not
+    conjure one, which would be inventing a person rather than a role."""
+    module = _module()
+    campaign = tmp_path / "campaign"
+    (campaign / "scenario").mkdir(parents=True)
+    (campaign / "scenario" / "npc-agendas.json").write_text(
+        json.dumps({"npcs": [{"npc_id": "npc-steven-knott"}]}),
+        encoding="utf-8",
+    )
+    with pytest.raises(module.DebugExperimentError) as refused:
+        module._appoint_spell_teachers(campaign, [
+            {"npc_id": "npc-nobody", "source_kind": "person",
+             "spells": ["Contact Spells"]},
+        ])
+    assert refused.value.code == "situation_unknown_npc"
+
+
+def test_seeding_actually_applies_the_appointment(tmp_path: Path):
+    """The wiring, not just the function.
+
+    Removing the call site in `_seed_situation` left every appointment test
+    green -- the same shape of gap that hid the dropped-key defect for three
+    rounds. This drives the real seeding entry point, with a lane whose
+    situation carries only the appointment, so no toolbox subprocess runs.
+    """
+    module = _module()
+    campaign = tmp_path / "campaign"
+    (campaign / "scenario").mkdir(parents=True)
+    (campaign / "scenario" / "npc-agendas.json").write_text(
+        json.dumps({"npcs": [{"npc_id": "npc-steven-knott"}]}),
+        encoding="utf-8",
+    )
+    adapter = module.PiRpcLaneAdapter(
+        repo_root=Path.cwd(), private_root=tmp_path / "private",
+    )
+    lane = {
+        "id": "appoint",
+        "situation": {
+            "shape": "structural",
+            "spell_teachers": [{
+                "npc_id": "npc-steven-knott", "source_kind": "person",
+                "spells": ["Contact Spells"],
+            }],
+        },
+    }
+    applied, failure = adapter._seed_situation(
+        lane=lane,
+        run={"context": {"campaign_id": "c1"}},
+        materialized={
+            "workspace_root": str(tmp_path / "ws"),
+            "campaign_dir": str(campaign),
+        },
+        deadline=time.monotonic() + 30,
+        cancelled=lambda: False,
+    )
+    assert failure is None, failure
+    assert [row["operation"] for row in applied] == ["host.appoint_spell_teacher"]
+    written = json.loads(
+        (campaign / "scenario" / "npc-agendas.json").read_text(encoding="utf-8"),
+    )
+    assert written["npcs"][0]["magic_source_kind"] == "person"
