@@ -4,6 +4,7 @@
  * then respawns one exclusive pi-coc RPC child for the same campaign.
  */
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import {
   HANDOFF_EXIT_CODE,
@@ -80,21 +81,25 @@ export function parseSessionRoleStdout(text) {
 }
 
 export function defaultResolveSessionRole({ workspace, campaignId, repoRoot }) {
+  // Read the campaign, do not shell out. `coc_session_role.py` existed to tell
+  // one launcher whether to boot a setup host or a play host; onboarding is
+  // now its own process (`pi-coc-setup`) and the play host refuses a campaign
+  // that is not ready, so the only question left is that readiness -- and the
+  // campaign file answers it without a subprocess.
   return new Promise((resolve) => {
-    const root = repoRoot || workspace || ".";
-    const script = path.join(root, "plugins", "coc-keeper", "scripts", "coc_session_role.py");
-    const child = spawn(
-      "uv",
-      ["run", "--frozen", "python", script, workspace || root, campaignId],
-      { cwd: root, stdio: ["ignore", "pipe", "pipe"] },
+    const root = workspace || repoRoot || ".";
+    const campaignPath = path.join(
+      root, ".coc", "campaigns", String(campaignId || ""), "campaign.json",
     );
-    let out = "";
-    child.stdout?.setEncoding("utf8");
-    child.stdout?.on("data", (chunk) => {
-      out += chunk;
+    fs.readFile(campaignPath, "utf8", (error, raw) => {
+      if (error) return resolve("setup");
+      try {
+        const status = JSON.parse(raw)?.status;
+        resolve(status === "ready_for_table" || status === "active" ? "play" : "setup");
+      } catch {
+        resolve("setup");
+      }
     });
-    child.on("error", () => resolve(null));
-    child.on("close", () => resolve(parseSessionRoleStdout(out)));
   });
 }
 

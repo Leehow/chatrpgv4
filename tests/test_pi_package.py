@@ -3142,7 +3142,6 @@ def test_pi_gateway_accepts_only_object_or_plain_object_json_arguments():
         "objectPathForwardedExactly": True,
         "stringResultOk": True,
         "objectResultOk": True,
-        "malformedRetainedAdoptRecovered": True,
         "clientCallCount": 2,
         "rejected": {
             "malformed": (

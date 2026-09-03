@@ -58,36 +58,25 @@ const unresolved = {
   status: "unresolved",
   inspected_source_refs: sourceRefs,
 };
+// A play-role operation with a nested object argument. The point of this
+// probe is that the gateway forwards a deep payload byte-identically whether
+// it arrived stringified or native; the operation only has to be one this
+// session may call, and setup operations no longer are.
 const exactFactsArguments = {
-  campaign_id: campaign,
-  facts: {
-    schema_version: 1,
-    contract_id: "coc.opening-fast-facts.v1",
-    era: { status: "source", value: "1920s", source_refs: sourceRefs },
-    place: { status: "source", value: "Boston", source_refs: sourceRefs },
-    investigator_hook: unresolved,
-    investigator_constraints: unresolved,
-    player_safe_summary: unresolved,
-    content_flags: unresolved,
+  intent_evidence: {
+    primary_intent: "search_clippings",
+    semantic_reason: "the player asks the clerk to retrieve the house file",
+    action_resolution: { router: "semantic", confidence: "high" },
   },
 };
-const retainedGate = new main.OpeningTerminalContinuationGate();
-retainedGate.rememberReviewedAdoptFacts({
-  status: "reviewed",
-  campaign_id: campaign,
-  facts: exactFactsArguments.facts,
-});
-const retainedRecovered = retainedGate.bindRetainedAdoptSourceFacts({
-  operation: "setup.adopt_source_facts",
-  campaign,
-  arguments: '{"campaign_id":',
-});
-const retainedNormalized = main.normalizePiCocInvokeArguments(retainedRecovered);
+// The host no longer retains reviewed opening facts to rebind a truncated
+// call from: the opening-fast-facts review is retired, so there is nothing to
+// remember. Argument normalization itself is still exercised below.
 const invoke = tools.get("coc_invoke");
 const stringResult = await invoke.execute(
   "xai-stringified-exact-card",
   {
-    operation: "setup.adopt_source_facts",
+    operation: "actions.advise",
     campaign,
     arguments: JSON.stringify(exactFactsArguments),
   },
@@ -99,7 +88,7 @@ const nativeArguments = structuredClone(exactFactsArguments);
 const objectResult = await invoke.execute(
   "native-object-exact-card",
   {
-    operation: "setup.adopt_source_facts",
+    operation: "actions.advise",
     campaign,
     arguments: nativeArguments,
   },
@@ -119,7 +108,7 @@ for (const [name, argumentsValue] of Object.entries({
     await invoke.execute(
       `reject-${name}`,
       {
-        operation: "setup.adopt_source_facts",
+        operation: "actions.advise",
         campaign,
         arguments: argumentsValue,
       },
@@ -163,9 +152,6 @@ process.stdout.write(JSON.stringify({
       === JSON.stringify(nativeArguments),
   stringResultOk: JSON.parse(stringResult.content[0].text).ok,
   objectResultOk: JSON.parse(objectResult.content[0].text).ok,
-  malformedRetainedAdoptRecovered:
-    JSON.stringify(retainedNormalized.arguments)
-      === JSON.stringify(exactFactsArguments),
   clientCallCount: clientCalls.length,
   rejected,
 }));

@@ -30,10 +30,98 @@ export function noSelectorSetupCompleteDecisionId(
   return `setup-complete:${campaignId}:${investigatorId}:handoff-1`;
 }
 
-export type OpeningSetupMachineStateSurface = Record<string, never>;
+/**
+ * The state surface stays installed and permanently empty.
+ *
+ * The host's own gate class -- not this module -- reads
+ * `this.openingSetupStates.size` while deciding visible output, so removing
+ * the properties outright made a live play turn throw on an undefined map.
+ * Empty containers keep every one of those reads answering "nothing is
+ * happening" until the host's remaining uses are removed too.
+ */
+export type OpeningSetupMachineStateSurface = {
+  effectiveTypedRoleValue: "setup" | "play" | null;
+  readonly openingSetupStates: Map<string, OpeningSetupState>;
+  readonly retainedAdoptSourceFacts: Map<string, JsonObject>;
+  readonly openingSetupAttempts: Map<string, JsonObject>;
+  openingSetupGenerationSequence: number;
+  readonly openingSetupLatestIssuedGeneration: Map<string, number>;
+  readonly openingSetupRetiredGeneration: Map<string, number>;
+  readonly setupHandoffDecisionPlayerEpoch: Map<string, JsonObject>;
+  openingSetupAgentTurn: number;
+  openingSetupTurnCampaignId: string | null;
+  openingSetupTurnCampaignAmbiguous: boolean;
+  openingSetupVisibleOutputAuthorization: JsonObject | null;
+  pendingChargenPlayerSummary: { campaignId: string; text: string } | null;
+  readonly openingSetupContinuationQueued: Set<string>;
+  readonly openingSetupTerminalBlockers: Map<string, JsonObject>;
+  deliveredOpeningSetupTerminalBlocker: JsonObject | null;
+  openingSetupAudits: JsonObject[];
+};
 
-/** No installed state: the shim holds nothing. */
-export function installOpeningSetupMachineState(_prototype: object): void {}
+const openingSetupState = new WeakMap<object, OpeningSetupMachineStateSurface>();
+
+function stateFor(host: object): OpeningSetupMachineStateSurface {
+  let state = openingSetupState.get(host);
+  if (state === undefined) {
+    state = {
+      effectiveTypedRoleValue: null,
+      openingSetupStates: new Map(),
+      retainedAdoptSourceFacts: new Map(),
+      openingSetupAttempts: new Map(),
+      openingSetupGenerationSequence: 0,
+      openingSetupLatestIssuedGeneration: new Map(),
+      openingSetupRetiredGeneration: new Map(),
+      setupHandoffDecisionPlayerEpoch: new Map(),
+      openingSetupAgentTurn: 0,
+      openingSetupTurnCampaignId: null,
+      openingSetupTurnCampaignAmbiguous: false,
+      openingSetupVisibleOutputAuthorization: null,
+      pendingChargenPlayerSummary: null,
+      openingSetupContinuationQueued: new Set(),
+      openingSetupTerminalBlockers: new Map(),
+      deliveredOpeningSetupTerminalBlocker: null,
+      openingSetupAudits: [],
+    };
+    openingSetupState.set(host, state);
+  }
+  return state;
+}
+
+export function installOpeningSetupMachineState(prototype: object): void {
+  const readonlyKeys = [
+    "openingSetupStates",
+    "retainedAdoptSourceFacts",
+    "openingSetupAttempts",
+    "openingSetupLatestIssuedGeneration",
+    "openingSetupRetiredGeneration",
+    "setupHandoffDecisionPlayerEpoch",
+    "openingSetupContinuationQueued",
+    "openingSetupTerminalBlockers",
+  ] as const;
+  const mutableKeys = [
+    "effectiveTypedRoleValue",
+    "openingSetupGenerationSequence",
+    "openingSetupAgentTurn",
+    "openingSetupTurnCampaignId",
+    "openingSetupTurnCampaignAmbiguous",
+    "openingSetupVisibleOutputAuthorization",
+    "pendingChargenPlayerSummary",
+    "deliveredOpeningSetupTerminalBlocker",
+    "openingSetupAudits",
+  ] as const;
+  const descriptors: PropertyDescriptorMap = {};
+  for (const key of readonlyKeys) {
+    descriptors[key] = { get(this: object) { return stateFor(this)[key]; } };
+  }
+  for (const key of mutableKeys) {
+    descriptors[key] = {
+      get(this: object) { return stateFor(this)[key]; },
+      set(this: object, value: never) { stateFor(this)[key] = value; },
+    };
+  }
+  Object.defineProperties(prototype, descriptors);
+}
 
 export function createOpeningSetupMachineMethods(
   _environment: Record<string, any>,
@@ -114,6 +202,17 @@ export function createOpeningSetupMachineMethods(
       return null;
     },
     takeDeliveredOpeningSetupTerminalBlocker(): JsonObject | null { return null; },
+    /**
+     * Real, not inert: this only writes the continuation gate's own dispatch
+     * maps, which the live `decideWake` / `onTerminal` path still reads. It
+     * lived in the opening module by accident of history -- a background
+     * dispatch is a background dispatch whether or not an opening is involved.
+     */
+    trackOpeningDispatch(this: any, dispatchKey: string): void {
+      if (!dispatchKey) return;
+      this.states.set(dispatchKey, "awaiting");
+      this.dispatchClasses.set(dispatchKey, "blocking_opening");
+    },
     adoptNoSelectorQuickStartResultOwnership(
       params: JsonObject, _value: unknown, _invocationId: string,
     ): JsonObject { return params; },
