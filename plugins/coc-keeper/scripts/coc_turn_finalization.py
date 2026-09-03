@@ -3006,15 +3006,37 @@ def _missing_obligation_message(
     return "missing causal coverage: " + ", ".join(labels)
 
 
-def _unknown_obligation_message(obligation_id: str) -> str:
+def _unknown_obligation_message(
+    obligation_id: str,
+    required: dict[str, dict[str, Any]] | None = None,
+) -> str:
+    """Name the handles that WOULD be accepted, not just the one that was not.
+
+    "use the presented semantic obligation handles" leaves the Keeper to
+    reconstruct them, and a Keeper reconstructing an opaque handle guesses.
+    Seen live on 2026-09-02: presented `roll:港湾旅店老板` and
+    `roll:npc-reaction`, the Keeper submitted `first-impression:npc-reaction`,
+    then a backslash-escaped copy, then the right slug under the wrong
+    namespace -- three refusals for a value it was already holding. Listing
+    them removes the guess.
+    """
+    presented = sorted(required) if required else []
+    accepted = (
+        " accepted right now: " + ", ".join(presented) + "."
+        if presented
+        else " turn.output_context presents none right now, so coverage must "
+             "be an empty array."
+    )
     if _contains_opaque_identity(obligation_id):
         return (
             "unknown coverage obligation; use the semantic obligation handles "
-            "from turn.output_context (never hash or receipt ids)"
+            "from turn.output_context verbatim (never hash or receipt ids)."
+            + accepted
         )
     return (
-        f"unknown coverage: {obligation_id}; "
-        "call turn.output_context and use the presented semantic obligation handles"
+        f"unknown coverage: {obligation_id}; copy an obligation handle "
+        "verbatim from turn.output_context required_obligation_ids -- do not "
+        "change its namespace, transliterate it, or escape it." + accepted
     )
 
 
@@ -3064,7 +3086,7 @@ def validate_coverage(
             if obligation_id and canonical is None:
                 raise TurnContractError(
                     "unknown_obligation",
-                    _unknown_obligation_message(obligation_id),
+                    _unknown_obligation_message(obligation_id, required),
                 )
             raise TurnContractError(
                 "duplicate_obligation", f"duplicate coverage: {obligation_id}"
@@ -3457,7 +3479,10 @@ def _collect_coverage_violations(
         canonical = _resolve_coverage_obligation_id(obligation_id, required)
         if not obligation_id or canonical is None:
             if obligation_id and canonical is None:
-                add("unknown_obligation", _unknown_obligation_message(obligation_id))
+                add(
+                    "unknown_obligation",
+                    _unknown_obligation_message(obligation_id, required),
+                )
             else:
                 add("duplicate_obligation", f"duplicate coverage: {obligation_id}")
             continue
