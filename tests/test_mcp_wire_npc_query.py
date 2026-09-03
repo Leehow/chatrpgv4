@@ -289,3 +289,30 @@ def test_the_projection_never_mutates_the_canonical_envelope():
     before = deepcopy(envelope)
     _project(envelope)
     assert envelope == before
+
+
+def test_identity_collapse_keeps_the_resume_next_operation() -> None:
+    """A collapse may drop payload; it may never drop the next step.
+
+    `next_operations` is what the Pi host arms typed bindings from. The
+    identity projection kept `mode` -- "the table is waiting to open" -- and
+    dropped the one field naming the operation that opens it, so the host
+    never armed `evidence.table_opening`'s host-owned `run_id`. The Keeper was
+    then asked for an id the retry circuit forbids it to invent, and the first
+    played turn of a graph-backed campaign died there eight refusals deep.
+    """
+    wire = coc_mcp_wire
+    data = {
+        "schema_version": 1,
+        "campaign_id": "collapse-probe",
+        "mode": "table_opening",
+        "next_operations": ["evidence.table_opening"],
+        "scene_context": {"padding": "x" * 4096},
+    }
+    projected = wire._minimal_identity("session.resume", data)
+    assert projected["mode"] == "table_opening"
+    assert projected["next_operations"] == ["evidence.table_opening"]
+
+    # Only session.resume: another operation's collapse is unchanged.
+    other = wire._minimal_identity("scene.context", dict(data))
+    assert "next_operations" not in other

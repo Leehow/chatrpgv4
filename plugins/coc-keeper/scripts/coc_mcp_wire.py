@@ -3425,6 +3425,17 @@ def _minimal_identity(operation: str, data: Any) -> dict[str, Any]:
     }
     if not isinstance(data, dict):
         return projected
+    if operation == "session.resume":
+        # `next_operations` is what the host arms bindings from. Collapsing a
+        # resume to identity keeps `mode` -- "the table is waiting to open" --
+        # and dropped the one field naming the operation that opens it, so the
+        # host never armed `evidence.table_opening`'s host-owned run_id and the
+        # Keeper was asked for an id the retry circuit forbids it to invent.
+        # The first played turn of a graph-backed campaign died there, eight
+        # identical refusals deep. Same class as the dispatch fields below: an
+        # identity collapse may drop payload, never the next step.
+        if isinstance(data.get("next_operations"), list):
+            projected["next_operations"] = deepcopy(data["next_operations"])
     if operation in {
         "progressive.register_source_bundle",
         "progressive.status",
