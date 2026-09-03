@@ -1481,7 +1481,7 @@ def _magic_state(
     magic = state.get("magic")
     if not isinstance(magic, dict):
         magic = {}
-    for key in ("cast_spells", "learned_spells"):
+    for key in ("cast_spells", "learned_spells", "studying_spells"):
         values = magic.get(key)
         magic[key] = list(values) if isinstance(values, list) else []
     state["magic"] = magic
@@ -1538,11 +1538,40 @@ def _magic_operation(
         if source not in {"tome", "person", "entity"}:
             raise RuntimeOperationError("magic.learn source must be tome|person|entity")
         result = coc_magic.learn_spell(
-            spell, state, source=str(source), rng=rng, campaign_dir=campaign_dir
+            spell, state, source=str(source), rng=rng,
+            campaign_dir=campaign_dir, investigator_id=investigator_id,
         )
         learned = {str(item) for item in magic["learned_spells"]}
-        if result.get("learned") and not result.get("completion_trigger_id") and spell not in learned:
-            magic["learned_spells"].append(spell)
+        if result.get("learned"):
+            trigger_id = result.get("completion_trigger_id")
+            if trigger_id:
+                # pp.176-177: a tome takes 2D6 weeks and a teacher 1D8 days,
+                # so the spell is not known yet. Record the study in progress
+                # against the trigger that will grant it: the operation must
+                # move persisted state now, or a caller that reads back
+                # investigator-state sees a settled write that never happened.
+                studying = magic["studying_spells"]
+                studying[:] = [
+                    row for row in studying
+                    if not (
+                        isinstance(row, dict)
+                        and str(row.get("spell") or "") == spell
+                    )
+                ]
+                studying.append({
+                    "spell": spell,
+                    "source": str(source),
+                    "trigger_id": str(trigger_id),
+                    "study_weeks": int(result.get("study_weeks") or 0),
+                    "study_days": int(result.get("study_days") or 0),
+                    "due_elapsed_minutes": result.get(
+                        "study_completion_elapsed_minutes"
+                    ),
+                })
+            elif spell not in learned:
+                # Entity teaching (and any campaign with no time layer) has no
+                # study delay: the spell is known the moment the roll lands.
+                magic["learned_spells"].append(spell)
     coc_fileio.write_json_atomic(
         state_path, state, indent=2, ensure_ascii=False, trailing_newline=True
     )

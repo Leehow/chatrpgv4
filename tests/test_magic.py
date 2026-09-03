@@ -444,7 +444,8 @@ def test_learn_spell_schedules_completion_trigger(campaign):
             break
     state = {"int": 70}
     res = coc_magic.learn_spell("Cloud Memory", state, source="tome",
-                                rng=random.Random(seed), campaign_dir=campaign)
+                                rng=random.Random(seed), campaign_dir=campaign,
+                                investigator_id="inv")
     assert res["learned"] is True
     assert res["completion_trigger_id"] is not None
     # The trigger was persisted in save/time-triggers.json.
@@ -452,8 +453,31 @@ def test_learn_spell_schedules_completion_trigger(campaign):
     trig_path = campaign / "save" / "time-triggers.json"
     assert trig_path.exists()
     data = json.loads(trig_path.read_text())
-    ids = [t.get("trigger_id") for t in data.get("triggers", [])]
-    assert res["completion_trigger_id"] in ids
+    rows = {t.get("trigger_id"): t for t in data.get("triggers", [])}
+    assert res["completion_trigger_id"] in rows
+    # A trigger coc_time cannot dispatch grants nothing: it must name both a
+    # target and the completion moment the study record is reconciled against.
+    row = rows[res["completion_trigger_id"]]
+    assert row["target_id"] == "inv"
+    assert row["handler"] in coc_magic.coc_time.KNOWN_TRIGGER_HANDLERS
+    assert row["due_elapsed_minutes"] == res["study_completion_elapsed_minutes"]
+
+
+def test_learn_spell_refuses_to_schedule_a_study_it_cannot_grant(campaign):
+    seed = None
+    for s in range(1, 400):
+        probe = coc_magic.coc_roll.percentile_check(70, difficulty="hard", rng=random.Random(s))
+        if probe["roll"] <= 35:
+            seed = s
+            break
+    with pytest.raises(ValueError, match="investigator_id"):
+        coc_magic.learn_spell("Cloud Memory", {"int": 70}, source="tome",
+                              rng=random.Random(seed), campaign_dir=campaign)
+    assert coc_magic.coc_time.peek_due_triggers(campaign) == []
+    trig_path = campaign / "save" / "time-triggers.json"
+    if trig_path.exists():
+        import json
+        assert json.loads(trig_path.read_text()).get("triggers") == []
 
 
 def test_learn_spell_failure_schedules_no_trigger(campaign):
