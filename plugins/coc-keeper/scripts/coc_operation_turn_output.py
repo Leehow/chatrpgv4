@@ -3727,7 +3727,7 @@ def register_operations(registry) -> None:
     "state.end_session",
     "Declare a structured story ending, then synchronously finalize deterministic development bookkeeping without gating narration.",
     {
-        "kind": {"type": "string", "desc": "ending flavor: conclusion | tpk | retreat | cliffhanger (default conclusion)"},
+        "kind": {"type": "string", "enum": ["conclusion", "tpk", "retreat", "cliffhanger"], "default": "conclusion", "desc": "ending flavor: conclusion | tpk | retreat | cliffhanger (default conclusion)"},
         "summary": {"type": "string", "desc": "player-safe closing summary"},
         "investigator": {"type": "string", "desc": "optional investigator id; defaults to every linked party member"},
         "decision_id": {"type": "string", "desc": "idempotency key"},

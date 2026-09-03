@@ -1834,7 +1834,7 @@ def register_operations(registry) -> None:
     {
         "investigator": {"type": "string", "desc": "investigator id"},
         "amount": {"type": "string", "required": True, "desc": "integer or dice expression (e.g. '1D6+1')"},
-        "kind": {"type": "string", "desc": "damage | heal (default damage)"},
+        "kind": {"type": "string", "enum": ["damage", "heal"], "default": "damage", "desc": "damage | heal (default damage)"},
         "source": {"type": "string", "desc": "what caused it (logged)"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
