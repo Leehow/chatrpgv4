@@ -366,6 +366,9 @@ coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_language = _load_sibling("coc_language", "coc_language.py")
 
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
+coc_module_spells = _load_sibling(
+    "coc_module_spells_kernel", "coc_module_spells.py"
+)
 
 coc_rulesets = _load_sibling("coc_rulesets", "coc_rulesets.py")
 coc_table_precedent = _load_sibling(
@@ -626,6 +629,7 @@ class Ctx:
         else:
             self.campaign_dir = None
         self._scenario_cache: dict[str, Any] = {}
+        self._module_spells: list[dict[str, Any]] | None = None
         self._roll_ids: set[str] | None = None
         self._roll_sequence = 0
 
@@ -645,6 +649,21 @@ class Ctx:
                     data = {}
         self._scenario_cache[name] = data
         return data
+
+    def module_spells(self) -> list[dict[str, Any]]:
+        """Spell records the campaign's compiled ModuleGraph authored (cached).
+
+        A second namespace beside the ruleset catalogue. Every gate that
+        canonicalises a spell name reads it from here, so the card's
+        applicability check, the settle-time binding and the magic runtime are
+        looking at one pool. An unbound or uncompiled graph is ``[]`` -- the
+        module's spells stay unknown and rulebook names resolve as before.
+        """
+        if self._module_spells is None:
+            self._module_spells = coc_module_spells.campaign_spell_records(
+                self.root, self.campaign_dir
+            )
+        return self._module_spells
 
     @property
     def story_graph(self) -> dict[str, Any]:
@@ -7064,6 +7083,13 @@ def _facts_provider_for(
             if isinstance(value, str)
         ]
         facts["magic.learn.sources"] = _magic_learning_sources(ctx)
+        # The campaign module's own spell records. The ruleset adapter
+        # canonicalises spell names against them and must never reach for a
+        # graph itself, and facts are the one host -> ruleset channel -- the
+        # same one `magic.learn.sources` already travels. Nothing projects a
+        # fact value into a card; only the applicability booleans derived from
+        # the graph's own gates reach the Keeper.
+        facts["magic.spell.module_namespace"] = ctx.module_spells()
         ending = coc_development.structured_ending_evidence(ctx.campaign_dir)
         facts["development.settlement.pending"] = bool(
             isinstance(ending, Mapping)
@@ -8075,12 +8101,17 @@ def _canonical_magic_binding(
     # The canonical name the magic runtime persists, so this settle-time gate
     # and the card fact behind it cannot disagree about a parameterised family
     # name such as "Summon/Bind Dimensional Shambler".
-    spell = coc_rules.canonical_spell_name(str(semantic_inputs.get("spell")))
+    # Both sides read the same two namespaces, so a module-authored spell the
+    # runtime persisted under its node name cannot read as unknown here.
+    module_spells = ctx.module_spells()
+    spell = coc_rules.canonical_spell_name(
+        str(semantic_inputs.get("spell")), module_spells=module_spells
+    )
     state = ctx.inv_state(investigator_id)
     magic = state.get("magic") if isinstance(state.get("magic"), Mapping) else {}
     if decision_ref.endswith(":cast-spell"):
         learned = {
-            coc_rules.canonical_spell_name(str(value))
+            coc_rules.canonical_spell_name(str(value), module_spells=module_spells)
             for value in magic.get("learned_spells") or []
         }
         if spell not in learned:
@@ -8111,7 +8142,8 @@ def _canonical_magic_binding(
     sources = _magic_learning_sources(ctx)
     spells = sources.get(source_ref)
     if not isinstance(spells, list) or spell not in {
-        coc_rules.canonical_spell_name(str(value)) for value in spells
+        coc_rules.canonical_spell_name(str(value), module_spells=module_spells)
+        for value in spells
     }:
         raise ToolError(
             "magic_source_invalid",

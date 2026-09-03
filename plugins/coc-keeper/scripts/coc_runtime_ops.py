@@ -58,6 +58,9 @@ coc_character_creation_briefing = _load_sibling(
     "coc_character_creation_briefing.py",
 )
 coc_development = _load_sibling("coc_development_runtime_ops", "coc_development.py")
+coc_module_spells = _load_sibling(
+    "coc_module_spells_runtime_ops", "coc_module_spells.py"
+)
 coc_fileio = _load_sibling("coc_fileio_runtime_ops", "coc_fileio.py")
 coc_investigator_guard = _load_sibling(
     "coc_investigator_guard_runtime_ops", "coc_investigator_guard.py"
@@ -1488,14 +1491,21 @@ def _magic_state(
     return path, state
 
 
-def _validate_spell(payload: dict[str, Any], allowed: set[str]) -> dict[str, Any]:
+def _validate_spell(
+    payload: dict[str, Any],
+    allowed: set[str],
+    *,
+    module_spells: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     if set(payload) - allowed:
         raise RuntimeOperationError("magic payload has unsupported fields")
     spell = payload.get("spell")
     if not isinstance(spell, str) or not spell.strip():
         raise RuntimeOperationError("magic payload requires spell")
     try:
-        return coc_rules.resolve_spell_name(spell.strip())
+        return coc_rules.resolve_spell_name(
+            spell.strip(), module_spells=module_spells
+        )
     except KeyError as exc:
         raise RuntimeOperationError(f"unknown spell: {spell.strip()}") from exc
 
@@ -1514,6 +1524,13 @@ def _magic_operation(
     state_path, state = _magic_state(
         workspace, campaign_id, investigator_id, character_path
     )
+    # The campaign's own module is a second spell namespace. Loaded once per
+    # operation and threaded through every resolution below, so the name the
+    # gate accepted, the row that prices it, and the name persisted into
+    # investigator-state are decided against one pool.
+    module_spells = coc_module_spells.campaign_spell_records(
+        workspace, campaign_dir
+    )
     magic = state["magic"]
     if kind == "magic.cast":
         # ``canonical_name`` is what a parameterised family persists as
@@ -1521,23 +1538,42 @@ def _magic_operation(
         # row the rulebook prices it from; the family name alone would lose
         # which creature the investigator can call.
         resolution = _validate_spell(
-            payload, {"spell", "pushed", "interrupted", "is_npc"}
+            payload, {"spell", "pushed", "interrupted", "is_npc"},
+            module_spells=module_spells,
         )
         spell = str(resolution["canonical_name"])
         cast_spells = {str(item) for item in magic["cast_spells"]}
-        result = coc_magic.cast_spell(
-            spell,
-            state,
-            is_first_cast=spell not in cast_spells,
-            is_npc=payload.get("is_npc") is True,
-            pushed=payload.get("pushed") is True,
-            interrupted=payload.get("interrupted") is True,
-            rng=rng,
-        )
+        try:
+            result = coc_magic.cast_spell(
+                spell,
+                state,
+                is_first_cast=spell not in cast_spells,
+                is_npc=payload.get("is_npc") is True,
+                pushed=payload.get("pushed") is True,
+                interrupted=payload.get("interrupted") is True,
+                rng=rng,
+                module_spells=module_spells,
+            )
+        except coc_magic.UnpricedSpellError as exc:
+            # Its own code, not the generic one: the Keeper has to be able to
+            # tell "the module never priced this" from "you passed a bad
+            # parameter", and the node id is what makes the gap fixable.
+            raise RuntimeOperationError(
+                str(exc),
+                code="magic_spell_unpriced",
+                details={
+                    "spell": exc.spell,
+                    "module_node_id": exc.node_id,
+                    "unpriced_fields": list(exc.missing),
+                    "learnable": True,
+                },
+            ) from exc
         if result.get("success") and spell not in cast_spells:
             magic["cast_spells"].append(spell)
     else:
-        resolution = _validate_spell(payload, {"spell", "source"})
+        resolution = _validate_spell(
+            payload, {"spell", "source"}, module_spells=module_spells
+        )
         spell = str(resolution["canonical_name"])
         source = payload.get("source", "tome")
         if source not in {"tome", "person", "entity"}:
@@ -1545,6 +1581,7 @@ def _magic_operation(
         result = coc_magic.learn_spell(
             spell, state, source=str(source), rng=rng,
             campaign_dir=campaign_dir, investigator_id=investigator_id,
+            module_spells=module_spells,
         )
         learned = {str(item) for item in magic["learned_spells"]}
         if result.get("learned"):
@@ -1623,6 +1660,10 @@ def _magic_operation(
             "canonical_name": spell,
             "catalog_entry_name": str(resolution["entry"].get("name") or ""),
             "parameterisation": resolution.get("parameterisation"),
+            # Present only when a module authored (or annotates) this name, so
+            # the Keeper reading the receipt can see it is this module's spell
+            # with its own properties and pages -- not a rulebook row.
+            "module_authored": resolution.get("module_authored"),
         },
         "result": result,
         "state_refs": [

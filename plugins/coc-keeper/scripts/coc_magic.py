@@ -66,6 +66,31 @@ except Exception:  # pragma: no cover - time layer optional
     coc_time = None
 
 
+class UnpricedSpellError(ValueError):
+    """A resolved spell nobody priced, refused rather than cast for free.
+
+    A module may author a spell its own module never gives casting costs -- The
+    Haunting's ``spell-dominate-corbitt-variant`` is one. Unpriced is not the
+    same as free: reading an absent ``cost_mp`` as ``"0"`` would hand a Keeper a
+    costless Mythos spell that no source says is costless. Learning and teaching
+    stay open (the ruleset's learning block prices those, not the spell row);
+    only casting refuses, and it names the node and the fields nobody wrote so
+    the gap is fixable content rather than an opaque failure.
+    """
+
+    def __init__(self, spell: str, node_id: str, missing: list[str]) -> None:
+        self.spell = spell
+        self.node_id = node_id
+        self.missing = list(missing)
+        super().__init__(
+            f"{spell!r} is authored by the module as {node_id} without "
+            + " and ".join(self.missing)
+            + "; casting cannot be priced from it. Author the missing cost "
+            "field(s) on the node, or adjudicate the cast outside the magic "
+            "runtime -- a missing cost is not a zero cost."
+        )
+
+
 # --------------------------------------------------------------------------- #
 # Rule-data accessors
 # --------------------------------------------------------------------------- #
@@ -261,6 +286,7 @@ def cast_spell(
     interrupted: bool = False,
     rng: random.Random | None = None,
     mp_pool: Any | None = None,
+    module_spells: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Resolve casting ``spell_name`` per Chapter 9 (pp.177-179).
 
@@ -289,7 +315,16 @@ def cast_spell(
     casting = casting_rules()
 
     # Unknown spells fail closed. Never invent 0 MP / 0 SAN costs.
-    spell = coc_rules.spell_by_name(spell_name)
+    spell = coc_rules.spell_by_name(spell_name, module_spells=module_spells)
+    # A module-authored spell that priced nothing fails closed the same way an
+    # unknown one does. ``costs_authored`` is present only on a module entry;
+    # a rulebook row is unchanged and never reaches this branch.
+    if spell.get("costs_authored") is False:
+        raise UnpricedSpellError(
+            spell_name,
+            str(spell.get("module_node_id") or ""),
+            [str(field) for field in spell.get("unpriced_fields") or []],
+        )
     mp_cost_expr = spell.get("cost_mp", "0")
     san_cost_expr = spell.get("cost_sanity", "0")
 
@@ -428,6 +463,7 @@ def learn_spell(
     rng: random.Random | None = None,
     campaign_dir: Path | None = None,
     investigator_id: str | None = None,
+    module_spells: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Resolve learning ``spell_name`` per Chapter 9 (pp.176-177).
 
@@ -455,7 +491,11 @@ def learn_spell(
 
     if source not in ("tome", "person", "entity"):
         raise ValueError(f"unsupported learn source: {source!r}")
-    spell = coc_rules.spell_by_name(spell_name)
+    # No cost gate here: pp.176-177 price learning from the ruleset's own
+    # learning block (2D6 weeks / 1D8 days / the entity Sanity floor), and the
+    # only spell-level field read below already documents its fallback. A
+    # module spell nobody gave casting costs is still learnable and teachable.
+    spell = coc_rules.spell_by_name(spell_name, module_spells=module_spells)
 
     int_value = int(learner_state.get("int", 0))
     difficulty = "regular" if source == "entity" else "hard"

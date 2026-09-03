@@ -12,8 +12,42 @@ from toolbox_test_support import *
 coc_magic = _load("coc_magic_for_toolbox_magic", SCRIPTS / "coc_magic.py")
 coc_rulesets = _load("coc_rulesets_for_toolbox_magic", SCRIPTS / "coc_rulesets.py")
 coc_rules = _load("coc_rules_for_toolbox_magic", SCRIPTS / "coc_rules.py")
+coc_mcp_wire = _load("coc_mcp_wire_for_toolbox_magic", SCRIPTS / "coc_mcp_wire.py")
+pi_coc_debug_experiment = _load(
+    "pi_coc_debug_experiment_for_toolbox_magic",
+    REPO / "plugins" / "coc-keeper" / "pi" / "bin" / "pi_coc_debug_experiment.py",
+)
 
 SPELL = "Contact Spells"
+
+#: What ``npc-walter-corbitt``'s mechanics profile has always called The
+#: Haunting's own spell, and what the module now records as an alias of the
+#: node it refers to.
+MODULE_SHORTHAND = "Dominate (variant)"
+#: The node's own name -- what everything downstream must settle on.
+MODULE_SPELL = "Dominate (Corbitt's variant)"
+MODULE_NODE_ID = "spell-dominate-corbitt-variant"
+
+CONTRACT_DIGEST = "sha256:module-authored-spells-test"
+
+
+def _projected(operation: str, envelope: dict) -> dict:
+    """What the wire hands the Keeper -- never the runtime's own return."""
+    return coc_mcp_wire.project_envelope(
+        operation, envelope, contract_digest=CONTRACT_DIGEST,
+    )
+
+
+def _appoint_teacher(ws, npc_id: str, source_kind: str, spells: list[str]) -> None:
+    """Appoint a teacher through the diagnostic lane's own seeding function.
+
+    No shipped module marks any NPC teachable, so this is the only way the
+    learn gate opens at all; it writes into the campaign's own
+    ``scenario/npc-agendas.json``, the file ``Ctx.npc_agendas`` reads.
+    """
+    pi_coc_debug_experiment._appoint_spell_teachers(ws["campaign_dir"], [{
+        "npc_id": npc_id, "source_kind": source_kind, "spells": list(spells),
+    }])
 
 
 def _learning_seed(int_value: int, *, succeeds: bool) -> int:
@@ -539,3 +573,187 @@ def test_the_rulebooks_alternative_family_name_is_the_same_learned_spell(campaig
         })
         assert cast["ok"] is True, (spelling, cast)
         assert _settled_result(cast)["spell"] == "Summon/Bind Byakhee"
+
+
+# --------------------------------------------------------------------------- #
+# The module's own spell namespace, through the tools that must see it
+# --------------------------------------------------------------------------- #
+def test_the_module_authored_spell_is_reachable_through_catalog_search(campaign_ws):
+    """The wiring, not the function.
+
+    ``coc_catalog`` can merge a module namespace, but only if the operation
+    hands it one. Before this, ``rules.catalog_search`` passed no module
+    records at all, so the Keeper's one entrance to spell names could not name
+    The Haunting's own spell under either string.
+    """
+    found = _run(campaign_ws, "rules.catalog_search", {
+        "query": MODULE_SHORTHAND, "kinds": ["spell"],
+    })
+    assert found["ok"] is True, found
+    ids = [row["entity_id"] for row in found["data"]["candidates"]]
+    assert ids == [MODULE_NODE_ID]
+
+    row = found["data"]["candidates"][0]
+    assert row["name"] == MODULE_SPELL
+    block = row["module_authored"]
+    assert block["authority"] == "module_authored_spell"
+    assert block["module_id"] == "module-the-haunting"
+    assert block["properties"]["target_scope"] == "inside the Corbitt House"
+    # Keeper-only, and therefore on the surface's existing no-print rule.
+    assert row["secret"] is True and found["data"]["secret"] is True
+
+    # The Keeper is told it is the module's spell and that it is unpriced.
+    hints = " ".join(found["hints"])
+    assert MODULE_NODE_ID in hints
+    assert "not a rulebook row" in hints
+    assert "unpriced is not free" in hints.casefold()
+
+    # It survives the wire; a field the runtime computes and the projection
+    # drops would be invisible to the Keeper who has to act on it.
+    view = _projected("rules.catalog_search", found)
+    wired = view["data"]["candidates"][0]
+    assert wired["entity_id"] == MODULE_NODE_ID
+    assert wired["module_authored"]["node_id"] == MODULE_NODE_ID
+    assert wired["module_authored"]["costs"]["authored"] is False
+
+
+def test_the_module_spell_learns_through_the_graph_under_either_name(campaign_ws):
+    """rules.context -> rules.settle, on the name the module already wrote.
+
+    The teacher is appointed with the shorthand the NPC profile carries and
+    the Keeper asks for the node's own name; both sides canonicalise against
+    the module namespace, so the card's applicability gate and the settle-time
+    binding read one name. Either half missing it is a card that offers a
+    spell the settle then refuses.
+    """
+    _appoint_teacher(campaign_ws, "npc-walter-corbitt", "entity", [MODULE_SHORTHAND])
+
+    facts = _live_facts(campaign_ws)
+    # The shorthand was already in Corbitt's authored profile; appointing him
+    # only says he may teach, so the list is the module's own, unchanged.
+    assert facts["magic.learn.sources"]["entity:npc-walter-corbitt"] == [
+        MODULE_SHORTHAND, "Flesh Ward", "Summon/Bind Dimensional Shambler",
+    ]
+    # The host publishes the namespace on the one host -> ruleset channel.
+    assert MODULE_NODE_ID in {
+        record["entity_id"]
+        for record in facts["magic.spell.module_namespace"]
+    }
+
+    learn_inputs = {
+        "spell": MODULE_SPELL,
+        "source": "entity",
+        "source_ref": "entity:npc-walter-corbitt",
+    }
+    assert _augmented(campaign_ws, learn_inputs)["magic.learn.source-available"] is True
+    card = _magic_cards(campaign_ws, learn_inputs)["decision:coc7:magic:learn-spell"]
+    assert card["applicability"] == "applicable", card
+
+    settled = _run(campaign_ws, "rules.settle", {
+        "decision_ref": "decision:coc7:magic:learn-spell",
+        "decision_id": "graph-module-spell-learn",
+        "investigator": campaign_ws["investigator_id"],
+        "seed": _learning_seed(70, succeeds=True),
+        "semantic_inputs": learn_inputs,
+    })
+    assert settled["ok"] is True, settled
+    assert _settled_result(settled)["learned"] is True
+
+    # Entity teaching has no study delay, so the node's own name is what the
+    # investigator now knows -- not the shorthand, and not two spells.
+    assert _magic_state(campaign_ws)["learned_spells"] == [MODULE_SPELL]
+    assert _live_facts(campaign_ws)["magic.known_spells"] == [MODULE_SPELL]
+    # And the shorthand still reads as the same known spell one layer along.
+    assert _augmented(campaign_ws, {"spell": MODULE_SHORTHAND})[
+        "magic.spell.known"
+    ] is True
+
+
+def test_the_learn_receipt_names_the_module_spell_after_the_wire(campaign_ws):
+    """A receipt that said only "Dominate" would lose whose spell this is."""
+    _appoint_teacher(campaign_ws, "npc-walter-corbitt", "entity", [MODULE_SHORTHAND])
+    settled = _run(campaign_ws, "magic.learn", {
+        "spell": MODULE_SHORTHAND,
+        "source": "entity",
+        "decision_id": "magic-learn:module-spell:1",
+        "seed": _learning_seed(70, succeeds=True),
+    })
+    assert settled["ok"] is True, settled
+
+    view = _projected("magic.learn", settled)
+    spell = view["data"]["receipt"]["spell"]
+    assert spell["canonical_name"] == MODULE_SPELL
+    assert spell["parameterisation"] is None
+    block = spell["module_authored"]
+    assert block["authority"] == "module_authored_spell"
+    assert block["node_id"] == MODULE_NODE_ID
+    assert block["visibility"] == "keeper-only"
+    assert block["properties"]["target_scope"] == "inside the Corbitt House"
+    assert [ref["pdf_index"] for ref in block["source_refs"]] == [457, 460]
+
+
+def test_casting_an_unpriced_module_spell_is_refused_by_name(campaign_ws):
+    """Unpriced is not free, and the refusal survives projection as itself.
+
+    The module authored this spell with no costs. Casting it off a missing
+    ``cost_mp`` would spend nothing and cost no Sanity -- a costless Mythos
+    spell no source says is costless. The refusal names the node and the
+    fields nobody wrote, so the gap is fixable content rather than a wall.
+    """
+    _appoint_teacher(campaign_ws, "npc-walter-corbitt", "entity", [MODULE_SHORTHAND])
+    assert _run(campaign_ws, "magic.learn", {
+        "spell": MODULE_SHORTHAND,
+        "source": "entity",
+        "decision_id": "magic-learn:module-spell:cast-setup",
+        "seed": _learning_seed(70, succeeds=True),
+    })["ok"] is True
+    assert _magic_state(campaign_ws)["learned_spells"] == [MODULE_SPELL]
+
+    cast = _run(campaign_ws, "magic.cast", {
+        "spell": MODULE_SPELL,
+        "decision_id": "magic-cast:module-spell:1",
+        "seed": 3,
+    })
+    assert cast["ok"] is False, cast
+    view = _projected("magic.cast", cast)
+    error = view["error"]
+    # Its own code, not a flattened invalid_param: the Keeper has to be able
+    # to tell an unpriced spell from a malformed call.
+    assert error["code"] == "magic_spell_unpriced"
+    assert error["details"]["module_node_id"] == MODULE_NODE_ID
+    assert error["details"]["unpriced_fields"] == ["cost_mp", "cost_sanity"]
+    assert error["details"]["learnable"] is True
+
+    # Nothing was spent and nothing was recorded as cast.
+    assert _magic_state(campaign_ws).get("cast_spells", []) == []
+
+
+def test_a_rulebook_spell_the_module_annotates_still_casts_from_its_own_row(
+    campaign_ws,
+):
+    """Precedence, live: the module's ``spell-flesh-ward`` annotates, not wins.
+
+    Were the module node to win the name, "Flesh Ward" would resolve to a node
+    that prices nothing and the cast would be refused as unpriced -- a spell
+    the rulebook prices at ``1D4`` Sanity turned uncastable by an annotation.
+    """
+    _appoint_teacher(campaign_ws, "npc-walter-corbitt", "entity", ["Flesh Ward"])
+    assert _run(campaign_ws, "magic.learn", {
+        "spell": "Flesh Ward",
+        "source": "entity",
+        "decision_id": "magic-learn:flesh-ward:1",
+        "seed": _learning_seed(70, succeeds=True),
+    })["ok"] is True
+
+    cast = _run(campaign_ws, "magic.cast", {
+        "spell": "Flesh Ward",
+        "decision_id": "magic-cast:flesh-ward:1",
+        "seed": 3,
+    })
+    assert cast["ok"] is True, cast
+    spell = _projected("magic.cast", cast)["data"]["receipt"]["spell"]
+    assert spell["canonical_name"] == "Flesh Ward"
+    assert spell["catalog_entry_name"] == "Flesh Ward"
+    # The losing node is reported for what it is rather than dropped.
+    assert spell["module_authored"]["authority"] == "module_annotation"
+    assert spell["module_authored"]["node_id"] == "spell-flesh-ward"

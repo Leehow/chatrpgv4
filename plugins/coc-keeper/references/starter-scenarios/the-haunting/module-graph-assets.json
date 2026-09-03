@@ -111,6 +111,7 @@
       "node_id": "spell-dominate-corbitt-variant",
       "node_kind": "spell",
       "name": "Dominate (Corbitt's variant)",
+      "aliases": ["Dominate (variant)"],
       "summary": "Corbitt can cloud one investigator's mind while the target remains inside the house.",
       "visibility": "keeper-only",
       "pdf_indices": [457, 460],

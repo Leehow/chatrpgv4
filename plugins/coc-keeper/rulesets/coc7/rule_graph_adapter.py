@@ -820,11 +820,20 @@ class Coc7RuleGraphAdapter:
         # accepts ("Summon/Bind Dimensional Shambler") cannot read as unknown
         # here, and the rulebook's alternative family name resolves to the one
         # spell it names.
+        # The host supplies the campaign's module spell namespace as a fact;
+        # the ruleset package never reaches for a graph itself. Both this
+        # applicability gate and the settle-time binding read the same records,
+        # so a module-authored name a card offers cannot be refused at settle.
+        # An absent fact canonicalises every name to itself, which is exactly
+        # the pre-module behavior.
+        namespace = augmented.get("magic.spell.module_namespace")
+        module_spells = namespace if isinstance(namespace, list) else None
         spell = coc_rules.canonical_spell_name(
-            str(semantic.get("spell") or "").strip()
+            str(semantic.get("spell") or "").strip(),
+            module_spells=module_spells,
         )
         known = {
-            coc_rules.canonical_spell_name(str(value))
+            coc_rules.canonical_spell_name(str(value), module_spells=module_spells)
             for value in augmented.get("magic.known_spells") or []
         }
         augmented["magic.spell.known"] = bool(spell and spell in known)
@@ -840,7 +849,9 @@ class Coc7RuleGraphAdapter:
         augmented["magic.learn.source-available"] = bool(
             spell and source_ref.startswith(source_kind + ":")
             and spell in {
-                coc_rules.canonical_spell_name(str(value))
+                coc_rules.canonical_spell_name(
+                    str(value), module_spells=module_spells
+                )
                 for value in source_spells
             }
         )

@@ -15,7 +15,25 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import coc_catalog
+import coc_module_spells
 import coc_rulesets
+
+STARTER = (
+    ROOT / "plugins" / "coc-keeper" / "references"
+    / "starter-scenarios" / "the-haunting"
+)
+
+
+def _haunting_spells() -> list[dict]:
+    """The committed module's own spell records, built the production way.
+
+    Read from the graph the campaign installs rather than from a fixture, so a
+    module edit that drops the alias fails here instead of passing on a copy.
+    """
+    graph = json.loads(
+        (STARTER / "module-graph.json").read_text(encoding="utf-8")
+    )
+    return coc_module_spells.spell_records(graph)
 
 
 DTO_KEYS = {
@@ -368,3 +386,202 @@ def test_ruleset_capability_and_mcp_archive_include_catalog_search() -> None:
     assert archive["operation_count"] == len(archive["operations"])
     assert archive["operation_count"] == len(toolbox.TOOLS)
     assert "rules.catalog_search" not in archive.get("listed_hotset", [])
+
+
+# --------------------------------------------------------------------------- #
+# The module's own spell namespace
+# --------------------------------------------------------------------------- #
+def test_a_module_authored_spell_resolves_under_the_shorthand_its_profile_uses() -> None:
+    """The defect: an authored, page-referenced spell that resolved to nothing.
+
+    The Haunting authors ``spell-dominate-corbitt-variant`` with its own
+    ``target_scope`` and two source pages, and ``npc-walter-corbitt``'s
+    mechanics profile names it by the shorthand "Dominate (variant)". Neither
+    string is a catalogue row: "Dominate" is, "Dominate (variant)" is not, and
+    it is not a family parameterisation either. Consulting only the rulebook
+    catalogue, the name resolved to nothing at all, so the spell could not be
+    learned, cast, taught, or validated.
+    """
+    records = _haunting_spells()
+
+    # The contrast that makes this a fix and not a coincidence: the rulebook
+    # catalogue alone still has nothing under either name.
+    assert coc_catalog.resolve_name(kind="spell", name="Dominate (variant)") is None
+
+    resolved = coc_catalog.resolve_name(
+        kind="spell", name="Dominate (variant)", module_spells=records,
+    )
+    assert resolved is not None
+    # The shorthand canonicalises to the node's own name, so the string the
+    # profile carries and the node it refers to settle as one thing.
+    assert resolved["canonical_name"] == "Dominate (Corbitt's variant)"
+    assert resolved["record"]["entity_id"] == "spell-dominate-corbitt-variant"
+    assert resolved["parameterisation"] is None
+
+    block = resolved["module_authored"]
+    assert block["authority"] == "module_authored_spell"
+    assert block["module_id"] == "module-the-haunting"
+    assert block["node_id"] == "spell-dominate-corbitt-variant"
+    # What a rulebook row could never tell the Keeper about this spell.
+    assert block["properties"]["target_scope"] == "inside the Corbitt House"
+    assert [ref["pdf_index"] for ref in block["source_refs"]] == [457, 460]
+
+    # The node's own name resolves to the same thing as its shorthand.
+    by_name = coc_catalog.resolve_name(
+        kind="spell", name="Dominate (Corbitt's variant)", module_spells=records,
+    )
+    assert by_name["canonical_name"] == resolved["canonical_name"]
+
+
+def test_the_module_candidate_is_marked_and_an_ordinary_row_is_untouched() -> None:
+    """Presence of the block is the signal, exactly as parameterisation is."""
+    records = _haunting_spells()
+    result = coc_catalog.search_catalog(
+        query="Dominate (variant)", kinds=["spell"], module_spells=records,
+    )
+    assert _ids(result) == ["spell-dominate-corbitt-variant"]
+    row = result["candidates"][0]
+    assert set(row) == DTO_KEYS | {"module_authored"}
+    assert "exact_alias" in row["match_reasons"]
+
+    # "Dominate" is a rulebook row and stays exactly the shape it was; the
+    # module's differently-named spell recalls beside it without changing it.
+    both = coc_catalog.search_catalog(
+        query="Dominate", kinds=["spell"], module_spells=records,
+    )
+    rulebook = next(r for r in both["candidates"] if r["entity_id"] == "dominate")
+    assert set(rulebook) == DTO_KEYS
+    assert rulebook["params"]["cost_mp"] == "1"
+    assert "spell-dominate-corbitt-variant" in _ids(both)
+
+    # And with no module records handed in, nothing about the old shape moves.
+    plain = coc_catalog.search_catalog(query="Dominate", kinds=["spell"])
+    assert _ids(plain) == ["dominate"]
+    assert set(plain["candidates"][0]) == DTO_KEYS
+
+
+def test_the_rulebook_row_wins_a_name_the_module_also_carries() -> None:
+    """Precedence, on the collision the committed module actually contains.
+
+    ``spell-flesh-ward`` is a real node named exactly like the rulebook row,
+    and it says what it is doing: ``runtime_rule_ref: "coc7 Flesh Ward"``. It
+    annotates the row rather than replacing it. Letting it win would swap a
+    row priced at ``cost_sanity: 1D4`` for a node that prices nothing.
+    """
+    records = _haunting_spells()
+    resolved = coc_catalog.resolve_name(
+        kind="spell", name="Flesh Ward", module_spells=records,
+    )
+    assert resolved["record"]["entity_id"] == "flesh_ward"
+    assert resolved["record"]["params"]["cost_sanity"] == "1D4"
+
+    # The losing node is not dropped in silence -- it rides along, demoted to
+    # what it is, so its pages and properties stay reachable.
+    block = resolved["module_authored"]
+    assert block["authority"] == "module_annotation"
+    assert block["node_id"] == "spell-flesh-ward"
+    assert block["properties"]["runtime_rule_ref"] == "coc7 Flesh Ward"
+    assert "annotation" in block["note"]
+
+    # The demotion is decided where the DTO is built, so a search result and a
+    # resolution can never disagree about which one is the spell.
+    result = coc_catalog.search_catalog(
+        query="Flesh Ward", kinds=["spell"], module_spells=records,
+    )
+    by_id = {row["entity_id"]: row for row in result["candidates"]}
+    assert "flesh_ward" in by_id
+    assert by_id["spell-flesh-ward"]["module_authored"]["authority"] == (
+        "module_annotation"
+    )
+
+
+def test_a_module_spell_says_it_is_unpriced_rather_than_costing_nothing() -> None:
+    """Unpriced is not free, and the difference is written down.
+
+    The Haunting's node carries no costs at all. A consumer that read the
+    absent ``cost_mp`` as ``"0"`` would hand out a costless Mythos spell no
+    source says is costless, so the record states which case it is and names
+    the fields nobody wrote.
+    """
+    records = _haunting_spells()
+    resolved = coc_catalog.resolve_name(
+        kind="spell", name="Dominate (variant)", module_spells=records,
+    )
+    costs = resolved["module_authored"]["costs"]
+    assert costs["authored"] is False
+    assert costs["missing"] == ["cost_mp", "cost_sanity"]
+    assert costs["fields"] == {}
+    assert "not free" in costs["note"]
+    # Nothing invented one for it either.
+    assert resolved["record"]["params"] == {}
+
+    # The other branch is live, not decorative: a module that prices its own
+    # spell writes the same cost vocabulary the rulebook rows use.
+    priced = coc_module_spells.spell_records({
+        "module_id": "module-priced",
+        "nodes": [{
+            "node_id": "spell-priced-rite",
+            "node_kind": "spell",
+            "name": "Priced Rite",
+            "visibility": "keeper-only",
+            "aliases": [],
+            "summary": "A module spell whose own module priced it.",
+            "properties": {"cost_mp": "4", "cost_sanity": "1D3"},
+            "source_refs": [],
+        }],
+    })
+    rite = coc_catalog.resolve_name(
+        kind="spell", name="Priced Rite", module_spells=priced,
+    )
+    assert rite["module_authored"]["costs"]["authored"] is True
+    assert rite["module_authored"]["costs"]["missing"] == []
+    assert rite["record"]["params"] == {"cost_mp": "4", "cost_sanity": "1D3"}
+
+
+def test_module_visibility_reaches_the_result_as_the_secret_flag() -> None:
+    """A keeper-only node arrives under the same no-print rule as every spell.
+
+    Refusing to recall it at all would make an authored spell unusable; the
+    module's own ``visibility`` is what decides, and ``secret`` is the existing
+    mechanism the keeper-only catalog surface already honours.
+    """
+    records = _haunting_spells()
+    keeper_only = coc_catalog.search_catalog(
+        query="Dominate (variant)", kinds=["spell"], module_spells=records,
+    )["candidates"][0]
+    assert keeper_only["module_authored"]["visibility"] == "keeper-only"
+    assert keeper_only["secret"] is True
+
+    player_safe = coc_module_spells.spell_records({
+        "module_id": "module-open",
+        "nodes": [{
+            "node_id": "spell-open-charm",
+            "node_kind": "spell",
+            "name": "Open Charm",
+            "visibility": "player-safe",
+            "aliases": [],
+            "summary": "A module spell the module itself made player-safe.",
+            "properties": {},
+            "source_refs": [],
+        }],
+    })
+    row = coc_catalog.search_catalog(
+        query="Open Charm", kinds=["spell"], module_spells=player_safe,
+    )["candidates"][0]
+    assert row["module_authored"]["visibility"] == "player-safe"
+    assert row["secret"] is False
+
+
+def test_a_module_spell_does_not_answer_for_a_kind_nobody_asked_for() -> None:
+    """Merged under the same rules, not merged in unconditionally."""
+    records = _haunting_spells()
+    weapons = coc_catalog.search_catalog(
+        query="Dominate (variant)", kinds=["weapon"], module_spells=records,
+    )
+    assert weapons["candidates"] == []
+    # A record with no module_authored block is not a module record at all.
+    assert coc_catalog.search_catalog(
+        query="Dominate (variant)",
+        kinds=["spell"],
+        module_spells=[{"kind": "spell", "entity_id": "x", "name": "Dominate (variant)"}],
+    )["candidates"] == []
