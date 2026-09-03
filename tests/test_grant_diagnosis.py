@@ -271,3 +271,50 @@ def test_a_closed_gate_is_not_told_to_go_refresh_for_the_same_card(campaign_ws):
         pytest.skip(f"an earlier guard answers first: {error.get('code')}")
     assert error["details"]["reason"] == "decision_not_available", error["details"]
     assert "not currently available" in error["message"], error["message"]
+
+
+def test_an_existence_gate_says_present_or_absent_not_none_needs_none():
+    """An operator-only leaf carries no `value`, so rendering `expected` alone
+    destroyed the whole message.
+
+    decision:coc7:healing:weekly-major-wound-recovery is gated on a major
+    wound existing, no dying condition, and the weekly clock being due. On
+    2026-09-02 five settle attempts across the seeded sweep were refused with
+    "actor.conditions.major_wound is None, needs None" -- which reads as
+    already satisfied and names nothing the Keeper could do. The gate was
+    right; the sentence was useless.
+    """
+    runtime = _runtime({"actor.recovery.major_wound_week_due": False})
+    why = runtime.explain_missing_grant(
+        "decision:coc7:healing:weekly-major-wound-recovery",
+    )
+    assert why["reason"] == "decision_not_available", why
+    unmet = {row["path"]: row for row in why["unmet"]}
+
+    wound = unmet["actor.conditions.major_wound"]
+    assert wound["op"] == "exists"
+    assert wound["requirement"] == "to be present"
+
+    due = unmet["actor.recovery.major_wound_week_due"]
+    assert due["requirement"] == "to equal True"
+
+    assert "needs None" not in why["detail"], why["detail"]
+    assert "actor.conditions.major_wound is None, needs to be present" in why["detail"]
+
+
+def test_a_negated_existence_gate_asks_for_absence():
+    """`not exists` and `exists` are opposite requirements and must not print
+    the same sentence. decision:coc7:healing:first-aid-ordinary is gated on the
+    investigator *not* dying and on the injury being under an hour old."""
+    runtime = _runtime({
+        "actor.conditions.dying": "bleeding-out",
+        "time.minutes_since_injury": 900,
+    })
+    why = runtime.explain_missing_grant(
+        "decision:coc7:healing:first-aid-ordinary",
+    )
+    unmet = {row["path"]: row for row in why["unmet"]}
+    assert unmet["actor.conditions.dying"]["requirement"] == "to be absent"
+    assert unmet["actor.conditions.dying"]["negated"] is True
+    assert unmet["time.minutes_since_injury"]["requirement"] == "to be at most 60"
+    assert unmet["time.minutes_since_injury"]["negated"] is False

@@ -832,6 +832,28 @@ def _condition_children(expression: Mapping[str, Any]) -> list[Any] | None:
     return None
 
 
+def _requirement_phrase(expression: Mapping[str, Any], negated: bool) -> str:
+    """What this leaf asks for, in words the Keeper can act on.
+
+    Rendering `expected` alone loses the operator, and an operator-only leaf
+    such as `{"op": "exists"}` carries no `value` at all -- so an unmet
+    existence gate printed "actor.conditions.major_wound is None, needs None",
+    which reads as already satisfied and names nothing to do about it.
+    """
+    op = expression.get("op")
+    value = expression.get("value")
+    if op == "exists":
+        return "to be absent" if negated else "to be present"
+    phrases = {
+        "eq": "to equal", "neq": "to differ from",
+        "lt": "to be less than", "lte": "to be at most",
+        "gt": "to be greater than", "gte": "to be at least",
+        "contains": "to contain", "not-contains": "not to contain",
+    }
+    phrase = phrases.get(str(op), f"to satisfy {op!r} against")
+    return f"not ({phrase} {value!r})" if negated else f"{phrase} {value!r}"
+
+
 def evaluate_condition(
     expression: Any,
     facts: Mapping[str, Any],
@@ -1413,13 +1435,14 @@ class RulesRuntime:
         """
         paths: set[str] = set()
 
-        def walk(expression: Any) -> None:
+        def walk(expression: Any, negated: bool = False) -> None:
             if not isinstance(expression, Mapping):
                 return
             children = _condition_children(expression)
             if children is not None:
+                flipped = negated != (expression.get("op") == "not")
                 for child in children:
-                    walk(child)
+                    walk(child, flipped)
                 return
             path = expression.get("path")
             if isinstance(path, str) and path:
@@ -1782,24 +1805,34 @@ class RulesRuntime:
         unmet: list[dict[str, Any]] = []
         seen: set[str] = set()
 
-        def walk(expression: Any) -> None:
+        def walk(expression: Any, negated: bool = False) -> None:
             if not isinstance(expression, Mapping):
                 return
             children = _condition_children(expression)
             if children is not None:
+                flipped = negated != (expression.get("op") == "not")
                 for child in children:
-                    walk(child)
+                    walk(child, flipped)
                 return
             path = expression.get("path")
             if not isinstance(path, str) or path in seen:
                 return
-            if evaluate_condition(expression, facts) is True:
+            # Under a `not`, a leaf that evaluates True is the one holding the
+            # gate shut. Testing the raw leaf regardless of negation skipped
+            # exactly the failing condition: `not exists actor.conditions.dying`
+            # reported nothing while a dying investigator was what blocked
+            # first aid.
+            satisfied = evaluate_condition(expression, facts)
+            if satisfied is (False if negated else True):
                 return
             seen.add(path)
             unmet.append({
                 "path": path,
+                "op": expression.get("op"),
+                "negated": negated,
                 "actual": facts.get(path),
                 "expected": expression.get("value"),
+                "requirement": _requirement_phrase(expression, negated),
             })
 
         # Only hard gates decide whether a card is offered -- `applicability`
@@ -1843,8 +1876,8 @@ class RulesRuntime:
                         "this decision is not currently available, so no card "
                         "was offered for it: "
                         + "; ".join(
-                            f"{row['path']} is {row['actual']!r}, needs "
-                            f"{row['expected']!r}"
+                            f"{row['path']} is {row['actual']!r}, "
+                            f"needs {row['requirement']}"
                             for row in unmet
                         )
                     ),
