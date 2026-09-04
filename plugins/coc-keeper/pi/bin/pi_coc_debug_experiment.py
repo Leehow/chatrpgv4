@@ -2020,6 +2020,10 @@ class PiRpcLaneAdapter:
         visible_text = ""
         rendered_text = ""
         finalized = False
+        # A settled state.end_session moves the campaign into its ending
+        # phase, where no later player turn can finalize. The turn2 gate and
+        # the lane annotation read this.
+        session_ended = False
         resume_first = False
         resume_success = False
         provider_verified = False
@@ -2073,6 +2077,7 @@ class PiRpcLaneAdapter:
         def observe(event: dict[str, Any]) -> None:
             nonlocal first_operation, resume_success, visible_text
             nonlocal rendered_text, finalized, last_event_type, abort_confirmed
+            nonlocal session_ended
             nonlocal provider_verified, provider_identity_error
             nonlocal resume_acted_for_player
             event_type = event.get("type")
@@ -2153,6 +2158,11 @@ class PiRpcLaneAdapter:
                     finalized = _tool_result_success(event)
                     if finalized:
                         rendered_text = _rendered_text_from_tool(event)
+                if (
+                    event_type == "tool_execution_end"
+                    and operation == "state.end_session"
+                ):
+                    session_ended = _tool_result_success(event)
             elif event_type == "message_end":
                 text = _assistant_text(event.get("message"))
                 if text:
@@ -2187,6 +2197,16 @@ class PiRpcLaneAdapter:
             nonlocal abort_count, current_phase
             current_phase = phase
             progress(phase)
+            # The resume phase ends at agent_settled: stopping at
+            # awaiting_player is its whole job. A player turn does not: it is
+            # over only once turn.finalize has succeeded, which is the lane's
+            # completion condition. A Keeper that goes quiet before then has
+            # stopped mid-turn, not ended it -- returning at that moment
+            # truncated still-open turns into player_turn_undelivered
+            # (measured 2026-09-04 on r74 c-flee3), so the loop keeps waiting
+            # to the deadline and classifies only there.
+            player_turn = phase != "resume"
+            settled_unfinalized = False
             while True:
                 if cancelled():
                     if abort_count == 0:
@@ -2209,8 +2229,22 @@ class PiRpcLaneAdapter:
                             observe(payload)
                             if payload.get("type") == "agent_settled":
                                 settled_seen = True
+                                # A settle that follows the abort
+                                # confirmation is the abort acknowledgement,
+                                # not the Keeper stopping mid-turn.
+                                if (
+                                    player_turn and not finalized
+                                    and not abort_confirmed
+                                ):
+                                    settled_unfinalized = True
                             if settled_seen and abort_confirmed:
                                 break
+                    # A turn that settled without a finalize is a delivery
+                    # failure; a deadline hit while the model was still
+                    # working is a budget overrun. Both used to read as the
+                    # same timeout.
+                    if player_turn and settled_unfinalized and not finalized:
+                        return False, "player_turn_undelivered"
                     return False, "timeout"
                 try:
                     kind, payload = event_queue.get(timeout=min(0.1, remaining))
@@ -2230,6 +2264,9 @@ class PiRpcLaneAdapter:
                 if phase == "resume" and first_operation not in {None, "session.resume"}:
                     return False, "resume_order_violation"
                 if payload.get("type") == "agent_settled":
+                    if player_turn and not finalized:
+                        settled_unfinalized = True
+                        continue
                     return True, None
 
         try:
@@ -2387,10 +2424,21 @@ class PiRpcLaneAdapter:
             })
             settled, failure = wait_terminal(phase="turn")
             second_input = lane.get("second_player_input")
-            if (
+            turn2_skipped: dict[str, Any] | None = None
+            second_turn_due = (
                 settled and failure is None and finalized
                 and isinstance(second_input, str) and second_input
-            ):
+            )
+            if second_turn_due and session_ended:
+                # turn1 settled state.end_session: the campaign is in its
+                # ending phase, where a player turn has nothing left to
+                # finalize (measured 2026-09-04 on r73 d-settle2 -- turn2
+                # produced ending narration with no finalizable output, and
+                # the lane verdict flipped from turn1's successful delivery
+                # to player_turn_undelivered). The lane is judged by turn1
+                # and carries a note saying the second input was never sent.
+                turn2_skipped = {"reason": "session_ending_after_turn1"}
+            elif second_turn_due:
                 # Same session, same skills already loaded, no situation
                 # seeding: the cost of an ordinary turn rather than a first
                 # one. `finalized` and the delivery text are reset so the
@@ -2448,6 +2496,8 @@ class PiRpcLaneAdapter:
             }
             if code is not None:
                 result["error"] = {"code": code}
+            if turn2_skipped is not None:
+                result["turn2_skipped"] = turn2_skipped
             return result
         except (OSError, ValueError) as exc:
             return {

@@ -779,7 +779,10 @@ def test_status_exposes_lane_progress_before_terminal(tmp_path: Path) -> None:
     assert not thread.is_alive()
 
 
-def _rpc_lane_run(tmp_path: Path, *, mode: str, timeout: int = 2) -> dict:
+def _rpc_lane_run(
+    tmp_path: Path, *, mode: str, timeout: int = 2,
+    lane_overrides: dict | None = None,
+) -> dict:
     module = _module()
     workspace = tmp_path / f"rpc-{mode}" / "workspace"
     workspace.mkdir(parents=True)
@@ -818,6 +821,7 @@ def _rpc_lane_run(tmp_path: Path, *, mode: str, timeout: int = 2) -> dict:
         "id": f"lane-{mode}",
         "profile": "production",
         "player_input": "我检查伤口。",
+        **(lane_overrides or {}),
     }
     return adapter.run(
         lane=lane,
@@ -968,6 +972,55 @@ def test_rpc_lane_times_out_once_and_rejects_wrong_first_operation(tmp_path: Pat
     wrong_provider = _rpc_lane_run(tmp_path, mode="wrong-provider")
     assert wrong_provider["status"] == "failed"
     assert wrong_provider["error"]["code"] == "debug_provider_mismatch"
+
+
+def test_rpc_lane_waits_out_a_turn_that_settled_without_finalizing(
+    tmp_path: Path,
+) -> None:
+    started = time.monotonic()
+    result = _rpc_lane_run(tmp_path, mode="settled-unfinalized", timeout=1)
+    elapsed = time.monotonic() - started
+    # agent_settled without a successful turn.finalize is not the end of a
+    # player turn: the loop must keep waiting to the deadline instead of
+    # recording player_turn_undelivered the moment the model went quiet
+    # (measured 2026-09-04 on r74 c-flee3). The verdict is still failed with
+    # the existing error code, but only once the budget is actually spent.
+    assert elapsed >= 0.9
+    assert result["status"] == "failed"
+    assert result["error"]["code"] == "player_turn_undelivered"
+    assert result["abort_count"] == 1
+    assert result["abort_confirmed"] is True
+    assert result["final"]["finalized"] is False
+    assert result["final"]["exact_delivery"] is False
+
+
+def test_rpc_lane_skips_the_second_turn_after_end_session_settles(
+    tmp_path: Path,
+) -> None:
+    result = _rpc_lane_run(
+        tmp_path,
+        mode="end-session-skips-turn2",
+        lane_overrides={"second_player_input": "再检查一次。"},
+    )
+    # turn1 settled state.end_session and delivered exactly, so the campaign
+    # is in its ending phase and turn2 has nothing left to finalize
+    # (r73 d-settle2). The lane is judged by turn1 and carries a structured
+    # note saying the second input was never sent, instead of letting turn2
+    # flip the verdict to player_turn_undelivered.
+    assert result["status"] == "completed"
+    assert result["turn2_skipped"] == {"reason": "session_ending_after_turn1"}
+    assert result["final"] == {
+        "player_input": "我检查伤口。",
+        "rendered_text": "伤口已重新包扎。",
+        "finalized": True,
+        "exact_delivery": True,
+        "situation": {"shape": None},
+    }
+    phases = {
+        row.get("lane_phase") for row in result["events"]
+        if row.get("category") == "tools" and row.get("phase") in {"start", "end"}
+    }
+    assert "turn2" not in phases
 
 
 def test_cli_dispatch_returns_one_strict_error_envelope(tmp_path: Path) -> None:
