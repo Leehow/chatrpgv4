@@ -2422,6 +2422,14 @@ class PiRpcLaneAdapter:
         chase_features = situation.get("chase_features") or []
         if chase_features:
             applied.extend(_seed_chase_features(campaign_dir(), chase_features))
+        # Insanity (then delusion) before time/rest toolbox writes, so a due
+        # recovery or psychoanalysis trigger can fire against an investigator
+        # who is already insane. Seeding them after advance_time left the
+        # clock with nothing to act on.
+        if situation.get("insanity"):
+            applied.extend(_seed_insanity(campaign_dir(), situation["insanity"]))
+        if situation.get("delusion"):
+            applied.extend(_seed_delusion(campaign_dir(), situation["delusion"]))
         for step in _situation_operations(lane, campaign_id):
             if cancelled():
                 return applied, "cancelled"
@@ -2484,12 +2492,7 @@ class PiRpcLaneAdapter:
             applied.append(row)
             if not row["ok"]:
                 return applied, "situation_seed_failed"
-        # Insanity then delusion, after scene/npc/flags/items/spells/damage/
-        # time/rest. SAN-gain is a pending receipt, not a toolbox write.
-        if situation.get("insanity"):
-            applied.extend(_seed_insanity(campaign_dir(), situation["insanity"]))
-        if situation.get("delusion"):
-            applied.extend(_seed_delusion(campaign_dir(), situation["delusion"]))
+        # SAN-gain is a pending receipt, not a toolbox write.
         if situation.get("san_gain"):
             applied.extend(_seed_san_gain(campaign_dir(), situation["san_gain"]))
         return applied, None
