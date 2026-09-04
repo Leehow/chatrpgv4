@@ -3051,9 +3051,18 @@ def test_on_enter_sandbox_hub_defers_all_map_neighbor_prefetch(tmp_path: Path):
     assert "done" not in result["queue"]
 
 
-def test_on_enter_materializes_only_exact_location_and_keeper_opening_sections(
+def test_on_enter_materializes_here_the_opening_and_one_move_on_foot(
     tmp_path: Path,
 ):
+    """Where the party is, what it opened with, and where it can walk next.
+
+    Reading only the room the party stands in stalls the table for a whole
+    section every time it moves (twenty minutes, measured on a real book), and
+    a party does not move along the book's chapter order -- it walks to a place
+    that adjoins this one, which may be printed forty pages away. One move, not
+    the whole book: a section bound to a location this one does not reach stays
+    where it is.
+    """
     _put_source_bound_skeleton(tmp_path)
     camp = _make_campaign(tmp_path)
     project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
@@ -3080,13 +3089,24 @@ def test_on_enter_materializes_only_exact_location_and_keeper_opening_sections(
                 "parse_state": "indexed",
             },
             {
-                "section_id": "sec-other",
+                "section_id": "sec-next-door",
                 "audience": "keeper_only",
                 "timing": "on_demand",
                 "payload": "narrative",
                 "binding": {
                     "kind": "entity", "entity_kind": "location",
                     "entity_ids": ["finale"],
+                },
+                "parse_state": "indexed",
+            },
+            {
+                "section_id": "sec-far-away",
+                "audience": "keeper_only",
+                "timing": "on_demand",
+                "payload": "narrative",
+                "binding": {
+                    "kind": "entity", "entity_kind": "location",
+                    "entity_ids": ["a-room-this-one-does-not-reach"],
                 },
                 "parse_state": "indexed",
             },
@@ -3102,15 +3122,23 @@ def test_on_enter_materializes_only_exact_location_and_keeper_opening_sections(
         row["section_materialization"] for row in result["actions"]
         if "section_materialization" in row
     ]
-    assert {row["section_id"] for row in materialized} == {
-        "sec-current", "sec-opening",
-    }
+    assert {row["section_id"]: row["binding"] for row in materialized} == {
+        "sec-current": "active_location",
+        "sec-opening": "keeper_opening",
+        "sec-next-door": "neighbor_location",
+    }, "the read-ahead ring is wrong, or it swallowed the whole book"
     queue = assets.list_queue(tmp_path, "prog-demo")
-    queued = {
-        row["target_id"] for row in queue["pending"]
+    rows = {
+        row["target_id"]: row for row in queue["pending"]
         if row.get("kind") == assets.EXTRACT_SECTION_KIND
     }
-    assert queued == {"sec-current", "sec-opening"}
+    assert set(rows) == {"sec-current", "sec-opening", "sec-next-door"}
+    # Where the party is outranks what it opened with, and both outrank where
+    # it might go: a read-ahead that jumped the queue would make the table wait
+    # for a room nobody has walked into.
+    assert rows["sec-current"]["priority"] > rows["sec-opening"]["priority"]
+    assert rows["sec-opening"]["priority"] > rows["sec-next-door"]["priority"]
+    assert rows["sec-next-door"]["reason"].startswith("read_ahead:")
 
 
 def test_on_enter_non_progressive_skips(tmp_path: Path):
@@ -3794,3 +3822,27 @@ def test_source_bound_deep_npc_projects_one_canonical_mechanics_evidence_boundar
         projected["mechanics"]["profile"]["source_characteristic_scale"]
         == "coc_3_18"
     )
+
+
+def test_scene_without_authored_dramatic_question_gets_none_invented():
+    """The compiler must not author a scene premise the book never stated.
+
+    A generated question ("What do the investigators find at X?") reaches the
+    Keeper as scene context indistinguishable from the module's own words --
+    in the compiler's language, not the book's, and wrong on its face for a
+    scene like 国王遇刺, where nobody is finding anything.
+    """
+    scene = project.skeleton_scene_from_location(
+        {"id": "scene-king-murdered", "title": "国王遇刺"}, is_start=False
+    )
+    assert scene["dramatic_question"] == ""
+
+    authored = project.skeleton_scene_from_location(
+        {
+            "id": "scene-king-murdered",
+            "title": "国王遇刺",
+            "dramatic_question": "谁杀了国王？",
+        },
+        is_start=False,
+    )
+    assert authored["dramatic_question"] == "谁杀了国王？"

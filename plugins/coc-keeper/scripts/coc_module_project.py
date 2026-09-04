@@ -80,6 +80,9 @@ coc_compiled_archive = _load_sibling(
     "coc_compiled_archive_module_project", "coc_compiled_archive.py"
 )
 coc_npc_roles = _load_sibling("coc_npc_roles_module_project", "coc_npc_roles.py")
+coc_module_reachability = _load_sibling(
+    "coc_module_reachability_project", "coc_module_reachability.py"
+)
 coc_rulesets = _load_sibling("coc_rulesets_module_project", "coc_rulesets.py")
 coc_scenario = _load_sibling("coc_scenario_module_project", "coc_scenario.py")
 
@@ -275,10 +278,12 @@ def skeleton_scene_from_location(loc: dict[str, Any], *, is_start: bool) -> dict
         "is_final": bool(loc.get("is_final")),
         "scene_type": scene_type,
         "origin": "source",
-        "dramatic_question": str(
-            loc.get("dramatic_question")
-            or f"What do the investigators find at {title}?"
-        ),
+        # The source either states the scene's dramatic question or it does not.
+        # Inventing one ("What do the investigators find at X?") hands the KP a
+        # fabricated premise wearing the module's authority, in the compiler's
+        # own language rather than the book's. Leave it empty; the KP authors
+        # its own per turn.
+        "dramatic_question": str(loc.get("dramatic_question") or ""),
         "entry_conditions": [],
         "exit_conditions": [],
         "available_clues": list(loc.get("available_clue_ids") or []),
@@ -361,7 +366,9 @@ def _project_locator_mechanics(locator: dict[str, Any]) -> dict[str, Any]:
     return mechanics
 
 
-def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
+def project_skeleton_to_ir(
+    skeleton: dict[str, Any], *, asset_identity_title: str | None = None,
+) -> dict[str, Any]:
     """Build sparse seven-file IR objects from Tier-1 skeleton."""
     errors = coc_module_assets.validate_skeleton(skeleton)
     if errors:
@@ -387,6 +394,14 @@ def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
 
     identity = skeleton.get("module_identity") or {}
     source = skeleton.get("source") or {}
+    # A graph projection leaves the title out when the graph never read one.
+    # The bundle did read it -- `register-bundles` records the PDF's title on
+    # the asset root -- so the campaign takes it from there rather than
+    # falling through to the slug.
+    if not str(identity.get("canonical_title") or "").strip():
+        fallback = str(asset_identity_title or "").strip()
+        if fallback:
+            identity = {**identity, "canonical_title": fallback}
     mechanics_locators = json.loads(
         json.dumps(skeleton.get("mechanics_index") or [])
     )
@@ -402,6 +417,19 @@ def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
             or source.get("title")
             or identity.get("canonical_module_id")
             or "Progressive Module"
+        ),
+        # Who owns this module's shape. A Tier-1 skeleton's edges are guesses
+        # off a table of contents, so a deep pack replacing them is an upgrade.
+        # A ModuleGraph's edges are source-bound claims with evidence spans,
+        # and replacing those with a pre-graph parse's edges is a downgrade
+        # that silently rewrote the book: on 2026-09-03 it pointed a played
+        # campaign's negotiation scene at three scenes the campaign does not
+        # contain, and cut every other authored route, one scene entry at a
+        # time, while play was in progress.
+        "topology_authority": (
+            "module_graph"
+            if str(source.get("producer") or "") == "coc_module_graph_projection"
+            else "skeleton"
         ),
         "structure_type": skeleton.get("structure_type") or "branching_investigation",
         "era": (
@@ -459,16 +487,29 @@ def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
             continue
         names = npc.get("names") if isinstance(npc.get("names"), list) else []
         display = str(names[0] if names else nid)
+        # The roster row carries what the book says about this actor and the
+        # pages it says it on. Dropping both left every NPC in two graph-backed
+        # campaigns -- twelve and ten of them -- reaching the Keeper as
+        # "<name> has not been deep-parsed yet", which was not merely empty but
+        # false: the summary was sitting in the skeleton, extracted from the
+        # book, with its page references attached. The placeholder is honest
+        # only when there is nothing to say.
+        summary = str(npc.get("summary") or "").strip()
         npc_row = {
             "npc_id": nid,
             "name": display,
             "display_name": display,
-            "agenda": str(npc.get("agenda") or f"{display} has not been deep-parsed yet."),
+            "agenda": str(
+                npc.get("agenda")
+                or summary
+                or f"{display} has not been deep-parsed yet."
+            ),
             "relationship_to_investigators": str(
                 npc.get("relationship_to_investigators") or "unknown"
             ),
             "parse_state": npc.get("parse_state") or "named_only",
             "origin": "source",
+            "source_refs": json.loads(json.dumps(npc.get("source_refs") or [])),
         }
         locator = locator_by_subject.get(("npc", nid))
         if isinstance(locator, dict):
@@ -699,11 +740,49 @@ def _project_location_read_aloud_cards(
             existing.update(card)
 
 
+# Scene fields a late parse must not rewrite once the party has been through
+# them. Everything else a pack carries is additive -- a clue, an NPC, a route --
+# and arriving late is a gain. These four are not: the boxed text was already
+# read out, the Keeper has been working from those notes, that summary is what
+# the table heard, and a sanity trigger the party already went through would be
+# re-armed and fire a second time on a horror they have finished.
+PLAYED_SCENE_FIELDS = ("read_aloud", "keeper_only", "player_safe_summary")
+PLAYED_ON_ENTER_FIELDS = ("san_triggers",)
+
+
+def played_scene_ids(campaign_dir: Path) -> set[str]:
+    """Scenes the party has been in, from the campaign's own record."""
+    world = _load_json(campaign_dir / "save" / "world-state.json", {})
+    if not isinstance(world, dict):
+        return set()
+    played = {
+        str(scene) for scene in (world.get("visited_scene_ids") or [])
+        if isinstance(scene, str) and scene
+    }
+    active = world.get("active_scene_id")
+    if isinstance(active, str) and active:
+        played.add(active)
+    for row in world.get("scene_history") or []:
+        if isinstance(row, dict) and isinstance(row.get("scene_id"), str):
+            played.add(row["scene_id"])
+        elif isinstance(row, str) and row:
+            played.add(row)
+    return played
+
+
 def merge_deep_location_into_ir(
     ir: dict[str, Any],
     pack: dict[str, Any],
+    *,
+    played: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Upsert one deep location pack into projected IR (mutates copy)."""
+    """Upsert one deep location pack into projected IR (mutates copy).
+
+    `played` names the scenes the table has already been through. A parse that
+    lands after the party has left a room may still add to it, and may not
+    rewrite what happened there: the background reader runs while play goes on,
+    so a section finishing late is normal, not exceptional.
+    """
     out = {k: json.loads(json.dumps(v)) for k, v in ir.items()}  # deep copy via json
     lid = str(pack.get("location_id") or "").strip()
     if not lid:
@@ -739,16 +818,39 @@ def merge_deep_location_into_ir(
             scene.get("affordances") or [],
             kind="affordance",
         )
-    if pack.get("scene_edges") is not None:
+    graph_owns_topology = str(
+        (out.get("module-meta.json") or {}).get("topology_authority") or ""
+    ) == "module_graph"
+    if pack.get("scene_edges") is not None and not graph_owns_topology:
         # Deep edges replace Tier-1 provisional topology, but must not erase
         # campaign-local routes created when a player materially digs a named
         # place. Those routes are part of the growing live map, not PDF guesses.
+        #
+        # When the graph owns the topology this replacement is skipped
+        # entirely: a deep pack stored by an earlier, pre-graph parse of the
+        # same asset root still carries that parse's scene ids, and merging it
+        # replaced source-bound routes with edges to scenes that no longer
+        # exist. The pack's other content -- clues, NPCs, read-aloud -- still
+        # merges; only the map does not.
         scene["scene_edges"] = _opening_reconcile_structured_rows(
             pack.get("scene_edges") or [],
             scene.get("scene_edges") or [],
             kind="edge",
         )
-    if pack.get("read_aloud") is not None:
+    already_played = lid in (played or set())
+    if already_played:
+        # Fill what is missing, keep what the table has heard. Additive fields
+        # below still merge; these are the ones a rewrite would take back.
+        for field in PLAYED_SCENE_FIELDS:
+            value = pack.get(field)
+            if value is not None and scene.get(field) in (None, "", [], {}):
+                scene[field] = json.loads(json.dumps(value))
+        on_enter = scene.setdefault("on_enter", {})
+        for field in PLAYED_ON_ENTER_FIELDS:
+            value = pack.get(field)
+            if value is not None and on_enter.get(field) in (None, "", [], {}):
+                on_enter[field] = json.loads(json.dumps(value))
+    if not already_played and pack.get("read_aloud") is not None:
         # Boxed passages the Keeper reads out as written.  They are authored
         # player-facing text, so they travel with the scene rather than into
         # the Keeper-only channel below.
@@ -761,12 +863,12 @@ def merge_deep_location_into_ir(
             ),
             rows=pack.get("read_aloud") or [],
         )
-    if pack.get("keeper_only") is not None:
+    if not already_played and pack.get("keeper_only") is not None:
         # Keeper notes ride under one clearly named key so every player-facing
         # projection has a single thing to exclude.  Scattering them among
         # ordinary scene fields is how this kind of material leaks.
         scene["keeper_only"] = json.loads(json.dumps(pack.get("keeper_only") or []))
-    if pack.get("san_triggers") is not None:
+    if not already_played and pack.get("san_triggers") is not None:
         # Authored horror beats must reach the same canonical scene contract
         # consumed by scene.context and rules.sanity_check.  Without this
         # projection, an evidence-bound PDF trigger is mislabeled improvised.
@@ -774,9 +876,10 @@ def merge_deep_location_into_ir(
         on_enter["san_triggers"] = json.loads(
             json.dumps(pack.get("san_triggers") or [])
         )
-    scene["player_safe_summary"] = pack.get("player_safe_summary") or scene.get(
-        "player_safe_summary"
-    )
+    if not already_played:
+        scene["player_safe_summary"] = pack.get(
+            "player_safe_summary"
+        ) or scene.get("player_safe_summary")
     # Top-level source mentions do not establish presence, discovery, or a
     # player dig.  They may still carry source-authored context the live Keeper
     # needs to answer a natural request for the current briefing or
@@ -4589,6 +4692,45 @@ def _reapply_stored_deep_packs(
     return ir, reapplied
 
 
+def _stamp_topology_authority(
+    ir: dict[str, Any], campaign_dir: Path,
+) -> dict[str, Any]:
+    """Record who owns this campaign's map before any deep pack merges."""
+    try:
+        scenario = json.loads(
+            (campaign_dir / "scenario" / "scenario.json").read_text(encoding="utf-8")
+        )
+    except Exception:
+        return ir
+    provenance = str(scenario.get("opening_source_provenance") or "")
+    if provenance != "module_graph_projection":
+        return ir
+    meta = ir.get("module-meta.json")
+    if isinstance(meta, dict):
+        meta["topology_authority"] = "module_graph"
+    return ir
+
+
+def _asset_root_title(workspace: Path, asset_root_id: str) -> str | None:
+    """The book's own title, as the bundle recorded it when it was registered."""
+    path = (
+        Path(workspace) / ".coc" / "module-assets" / asset_root_id / "identity.json"
+    )
+    try:
+        identity = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(identity, dict):
+        return None
+    module_identity = identity.get("module_identity")
+    if not isinstance(module_identity, dict):
+        return None
+    title = module_identity.get("canonical_title")
+    if not isinstance(title, str) or title.strip() == asset_root_id:
+        return None
+    return title.strip() or None
+
+
 def project_skeleton_to_campaign(
     workspace: Path,
     campaign_id: str,
@@ -4600,7 +4742,16 @@ def project_skeleton_to_campaign(
     skeleton = coc_module_assets.get_skeleton(workspace, asset_root_id)
     if not skeleton:
         raise ModuleProjectError("skeleton.json missing; put_skeleton first")
-    ir = project_skeleton_to_ir(skeleton)
+    ir = project_skeleton_to_ir(
+        skeleton,
+        asset_identity_title=_asset_root_title(workspace, asset_root_id),
+    )
+    # The campaign already records whether its scenario came from an accepted
+    # graph. Deriving this from the skeleton's `source.producer` instead read
+    # the wrong thing: a graph-projected skeleton installed through the asset
+    # store carries the bundle's producer string, so the authority came out
+    # "skeleton" while the topology in it was the graph's.
+    ir = _stamp_topology_authority(ir, _campaign_dir(workspace, campaign_id))
     ir, reapplied = _reapply_stored_deep_packs(
         workspace,
         asset_root_id,
@@ -4623,6 +4774,39 @@ def project_skeleton_to_campaign(
         "reapplied_deep_entities": reapplied,
         "paths": paths,
         "parse_tier": skeleton.get("parse_tier") or 1,
+        "reachability": _reachability_receipt(campaign_dir),
+    }
+
+
+def _reachability_receipt(campaign_dir: Path) -> dict[str, Any]:
+    """Lint what was just written, and say so in the receipt.
+
+    `coc_module_reachability` has fifteen checks and the right ones: a scene
+    nothing routes to, a conclusion with no clues, and a scene that lists an
+    available clue no conclusion defines -- a dangling id whose every runtime
+    lookup returns None, silently, because `_clue_by_id` only ever searches
+    inside conclusions.
+
+    Nothing on the graph-to-campaign path called it. A real module projected
+    with six true defects and the receipt said nothing at all. The lint stays a
+    report rather than a gate -- that is its own stated law, and a module with
+    one unreachable scene is still worth playing -- but a report nobody runs is
+    indistinguishable from no lint.
+    """
+    try:
+        report = coc_module_reachability.lint_scenario_dir(campaign_dir / "scenario")
+    except Exception as error:  # a report must never fail the projection
+        return {"status": "lint_unavailable", "detail": str(error)}
+    findings = report.get("findings") or []
+    codes: dict[str, int] = {}
+    for finding in findings:
+        code = str(finding.get("code") or "")
+        codes[code] = codes.get(code, 0) + 1
+    return {
+        "status": "clean" if not findings else "findings",
+        "finding_count": len(findings),
+        "codes": dict(sorted(codes.items())),
+        "findings": findings,
     }
 
 
@@ -4641,7 +4825,15 @@ def project_opening_deep(
     skeleton = coc_module_assets.get_skeleton(workspace, asset_root_id)
     if not skeleton:
         raise ModuleProjectError("skeleton.json missing; put_skeleton first")
-    ir = project_skeleton_to_ir(skeleton)
+    ir = project_skeleton_to_ir(
+        skeleton,
+        asset_identity_title=_asset_root_title(workspace, asset_root_id),
+    )
+    # This path builds its own IR from the skeleton, so it records the map's
+    # owner too. Stamping only in `project_skeleton_to_campaign` left this one
+    # unstamped, and the next deep merge through it redrew the graph's routes
+    # again -- the same defect, one call site later.
+    ir = _stamp_topology_authority(ir, _campaign_dir(workspace, campaign_id))
     starts = [str(x).strip() for x in (skeleton.get("start_candidates") or [])]
     packs = list(deep_packs or [])
     # A host-supplied opening pack is reusable module truth, not a one-off IR
@@ -4892,22 +5084,38 @@ def on_enter_scene(
     # prose) and the small Keeper opening/pre-session lane, then reuse the
     # existing extract_section queue/worker lifecycle.
     section_index = coc_module_assets.read_section_index(workspace, root_id) or {}
+    # One move ahead, on foot. Reading only where the party stands means every
+    # step into a new chapter stalls the table for as long as a section takes
+    # (twenty minutes, measured), and the party does not move along the book's
+    # chapter order -- it walks to a place that adjoins this one, which may be
+    # printed forty pages away. The pack lane already warms this ring; the
+    # section lane never did, so the material that lives in a section rather
+    # than a location pack was always read late.
+    read_ahead_ids = {
+        neighbour for neighbour in _neighbor_ids_from_skeleton(skeleton, sid)
+        if neighbour and neighbour != sid
+    }
     section_actions: list[dict[str, Any]] = []
     for section in section_index.get("sections") or []:
         if not isinstance(section, dict):
             continue
         binding = section.get("binding") if isinstance(section.get("binding"), dict) else {}
-        is_current_location = (
-            binding.get("kind") == "entity"
+        bound_locations = (
+            {str(value) for value in (binding.get("entity_ids") or [])}
+            if binding.get("kind") == "entity"
             and binding.get("entity_kind") == "location"
-            and sid in {str(value) for value in (binding.get("entity_ids") or [])}
+            else set()
+        )
+        is_current_location = sid in bound_locations
+        is_read_ahead = not is_current_location and bool(
+            bound_locations & read_ahead_ids
         )
         is_keeper_opening = (
             binding.get("kind") == "global"
             and section.get("audience") == "keeper_only"
             and section.get("timing") in {"pre_session", "opening"}
         )
-        if not (is_current_location or is_keeper_opening):
+        if not (is_current_location or is_read_ahead or is_keeper_opening):
             continue
         section_id = str(section.get("section_id") or "").strip()
         if not section_id:
@@ -4916,19 +5124,28 @@ def on_enter_scene(
         if stored and stored.get("body_present") and section.get("parse_state") == "resolved":
             section_actions.append({"section_id": section_id, "status": "resolved"})
             continue
+        # Where the party is outranks what it opened with, and both outrank
+        # where it might go next: a read-ahead that jumped the queue would
+        # make the table wait for a room nobody has walked into.
+        if is_current_location:
+            priority, why, kind = 100, "scene_materialize:", "active_location"
+        elif is_keeper_opening:
+            priority, why, kind = 90, "opening_materialize:", "keeper_opening"
+        else:
+            priority, why, kind = 80, "read_ahead:", "neighbor_location"
         queued = coc_module_assets.enqueue_job(
             workspace, root_id,
             kind=coc_module_assets.EXTRACT_SECTION_KIND,
             target_id=section_id,
-            priority=100 if is_current_location else 90,
-            reason=("scene_materialize:" if is_current_location else "opening_materialize:") + sid,
+            priority=priority,
+            reason=why + sid,
             consumer_refs=_campaign_consumer_refs(
                 workspace, campaign_id, root_id, intent_kind="scene_enter",
             ),
         )
         section_actions.append({
             "section_id": section_id,
-            "binding": "active_location" if is_current_location else "keeper_opening",
+            "binding": kind,
             "enqueue": queued,
         })
     if section_actions:
@@ -4960,7 +5177,9 @@ def on_enter_scene(
     merged = False
     if shared_source_authority and _is_usable_location_pack(pack):
         ir = load_campaign_ir(campaign_dir)
-        ir = merge_deep_location_into_ir(ir, pack)
+        ir = merge_deep_location_into_ir(
+            ir, pack, played=played_scene_ids(campaign_dir),
+        )
         write_ir_to_campaign(campaign_dir, ir, asset_root_id=root_id)
         merged = True
         actions.append({
@@ -5217,7 +5436,9 @@ def process_ready_deepens(
                 continue
             if ir is None:
                 ir = load_campaign_ir(campaign_dir)
-            ir = merge_deep_location_into_ir(ir, pack)
+            ir = merge_deep_location_into_ir(
+                ir, pack, played=played_scene_ids(campaign_dir),
+            )
             merged_ids.append(tid)
             done.append({**job, "completed_at": _now_iso(), "result": "merged"})
         pending_count = len(still_pending) if ir is not None else len(pending)

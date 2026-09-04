@@ -2637,7 +2637,14 @@ def process_claimed_job(
                             camp_dir / ".progressive-ir.lock", wait_seconds=15.0,
                         ):
                             ir = coc_module_project.load_campaign_ir(camp_dir)
-                            ir = coc_module_project.merge_deep_location_into_ir(ir, pack)
+                            # This is the path that lands while play goes on:
+                            # the reader finishes a section the party may have
+                            # walked through already, and what happened there
+                            # is not the parse's to rewrite.
+                            ir = coc_module_project.merge_deep_location_into_ir(
+                                ir, pack,
+                                played=coc_module_project.played_scene_ids(camp_dir),
+                            )
                             # IR write + archive publish; archive failure never
                             # rolls back canonical IR (status recorded instead).
                             coc_module_project.write_ir_to_campaign(
