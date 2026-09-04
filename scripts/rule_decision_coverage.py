@@ -2,15 +2,17 @@
 """Which rule-layer decisions has a live Keeper actually settled?
 
 Reads the diagnostic corpus produced by `pi_coc_debug_experiment.py` and
-splits the RuleGraph's decision nodes three ways:
+splits the RuleGraph's decision nodes four ways:
 
-  settled   a `rules.settle` returned ok with `status: settled` for it
-  refused   a lane asked for it and the rule layer said no, with which codes
-  never     no lane ever asked for it at all
+  settled        a `rules.settle` returned ok with `status: settled` for it
+  refused        a lane asked for it and the rule layer said no, with which codes
+  never          no lane ever asked for it at all
+  context_phase  implementation phase is `context` -- a read-only decision a
+                 settle receipt can never cover, measured apart
 
-The three mean different things and want different work. `refused` is the
-rule layer or its seeding; `never` is the Keeper not choosing the decision,
-which no amount of rule-layer work fixes.
+The three live states mean different things and want different work.
+`refused` is the rule layer or its seeding; `never` is the Keeper not
+choosing the decision, which no amount of rule-layer work fixes.
 
 Only a settle receipt counts as evidence. Matching decision ids against the
 whole log reports 43/43 and means nothing: `rules.context` hands the Keeper
@@ -44,6 +46,26 @@ def decision_nodes(graph_path: Path) -> list[str]:
     )
 
 
+def context_phase_nodes(graph_path: Path) -> frozenset[str]:
+    """Decisions whose implementation phase is `context`: read-only by design.
+
+    The graph's only two are combat:context and sanity:context. Their
+    settlement dispatch has no `context` branch and never will -- the
+    decision IS the context read. Scoring them by settle receipts therefore
+    measures something that cannot happen; they get their own bucket instead
+    of sitting in `never asked for` beside decisions the Keeper could have
+    chosen.
+    """
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    return frozenset(
+        node["node_id"]
+        for node in graph["nodes"]
+        if node.get("node_kind") == "decision"
+        and ((node.get("properties") or {}).get("implementation") or {})
+        .get("phase") == "context"
+    )
+
+
 def _settle_rows(path: Path):
     """(decision_ref requested, settled decision_ref or None, failure code)."""
     pending: dict[str, str | None] = {}
@@ -69,7 +91,11 @@ def _settle_rows(path: Path):
             yield requested, None, code
 
 
-def measure(runs_dir: Path, decisions: list[str]) -> dict:
+def measure(
+    runs_dir: Path,
+    decisions: list[str],
+    context_phase: frozenset[str] = frozenset(),
+) -> dict:
     settled: dict[str, set[str]] = collections.defaultdict(set)
     refused: dict[str, collections.Counter] = collections.defaultdict(
         collections.Counter
@@ -86,7 +112,9 @@ def measure(runs_dir: Path, decisions: list[str]) -> dict:
 
     rows = []
     for decision in decisions:
-        if settled[decision]:
+        if decision in context_phase:
+            rows.append({"decision": decision, "state": "context_phase"})
+        elif settled[decision]:
             rows.append({
                 "decision": decision,
                 "state": "settled",
@@ -109,13 +137,16 @@ def render(report: dict) -> str:
     out = [
         f"{len(rows)} decisions over {report['lanes_read']} lanes: "
         f"{by_state['settled']} settled, {by_state['refused']} refused, "
-        f"{by_state['never']} never asked for",
+        f"{by_state['never']} never asked for, "
+        f"{by_state['context_phase']} context-phase read-only",
         "",
     ]
     for state, note in (
         ("settled", "a live Keeper drove these to a settle receipt"),
         ("refused", "asked for, and the rule layer said no"),
         ("never", "no lane ever asked -- not a rule-layer problem"),
+        ("context_phase", "read-only context decisions -- a settle receipt "
+         "is impossible by design, never owed"),
     ):
         group = [row for row in rows if row["state"] == state]
         out.append(f"=== {state} ({len(group)})  {note}")
@@ -144,7 +175,11 @@ def main(argv: list[str]) -> int:
     if not opts.runs_dir.is_dir():
         print(f"no such runs directory: {opts.runs_dir}", file=sys.stderr)
         return 2
-    report = measure(opts.runs_dir, decision_nodes(opts.graph))
+    report = measure(
+        opts.runs_dir,
+        decision_nodes(opts.graph),
+        context_phase_nodes(opts.graph),
+    )
     print(json.dumps(report, ensure_ascii=False, indent=2) if opts.json
           else render(report))
     return 0

@@ -118,3 +118,28 @@ def test_the_tool_runs_end_to_end(corpus: Path):
     module = _module()
     assert module.main([str(corpus)]) == 0
     assert module.main([str(corpus / "nowhere")]) == 2
+
+
+def test_context_phase_decisions_get_their_own_bucket():
+    """combat:context and sanity:context implement phase `context`: the settle
+    dispatch has no branch for them and never will. Scoring them against
+    settle receipts measures the impossible, so they are reported apart from
+    `never asked for` instead of inflating the uncovered count."""
+    module = _module()
+    phase = module.context_phase_nodes(module.GRAPH)
+    assert phase == frozenset({
+        "decision:coc7:combat:context",
+        "decision:coc7:sanity:context",
+    })
+
+
+def test_context_phase_is_reported_separately_from_never(corpus: Path):
+    module = _module()
+    context_decision = "decision:coc7:sanity:context"
+    report = module.measure(
+        corpus, [SETTLED, context_decision], frozenset({context_decision}),
+    )
+    state = {row["decision"]: row for row in report["decisions"]}
+    assert state[context_decision]["state"] == "context_phase"
+    rendered = module.render(report)
+    assert "1 context-phase read-only" in rendered
