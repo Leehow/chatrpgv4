@@ -144,10 +144,9 @@ def shard_to_pack(
             for page in sorted(span_pages & requested)
         ],
     }
-    # The pack is validated against the request before it leaves here; a
-    # compiler bug must fail at compile time, not at the fulfill boundary.
-    # validate() returns the indexed head; the body rides back with it so the
-    # caller can `split_body` exactly as the lane already does.
-    validated = packs.validate_section_pack(pack, request=request)
-    validated["body_markdown"] = body
-    return validated
+    # Compile-time self-check: a compiler bug must fail here, not at the
+    # fulfill boundary. What returns to the caller is the raw six-field pack --
+    # the lane's fulfill re-validates authoritatively, and it refuses the
+    # already-validated head shape.
+    packs.validate_section_pack(pack, request=request)
+    return pack

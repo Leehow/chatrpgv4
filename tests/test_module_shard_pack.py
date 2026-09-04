@@ -66,8 +66,9 @@ def _shard() -> dict:
 
 def test_a_compiled_pack_passes_the_lanes_own_validator():
     pack = bridge.shard_to_pack(_shard(), _request())
-    assert pack["parse_state"] == "resolved"
-    assert pack["pack_kind"] == "keeper_truth"
+    validated = bridge.packs.validate_section_pack(pack, request=_request())
+    assert validated["parse_state"] == "resolved"
+    assert validated["pack_kind"] == "keeper_truth"
     assert "神庙大门" in pack["body_markdown"]
     assert "看门人" in pack["body_markdown"]
 
@@ -75,7 +76,8 @@ def test_a_compiled_pack_passes_the_lanes_own_validator():
 def test_source_refs_stay_inside_the_request():
     # span-page-40 is outside the request's pages 37-39: dropped, never cited.
     pack = bridge.shard_to_pack(_shard(), _request())
-    assert [r["pdf_index"] for r in pack["source_refs"]] == [37, 38]
+    validated = bridge.packs.validate_section_pack(pack, request=_request())
+    assert [r["pdf_index"] for r in validated["source_refs"]] == [37, 38]
 
 
 def test_pack_kind_respects_the_requests_allowed_kinds():
@@ -90,5 +92,6 @@ def test_an_empty_shard_still_produces_a_valid_pack():
              "evidence_span_ids": ["span-page-37-block-1"], "claims": [],
              "relations": []}
     pack = bridge.shard_to_pack(shard, _request())
-    assert pack["body_bytes"] > 0
-    assert [r["pdf_index"] for r in pack["source_refs"]] == [37]
+    validated = bridge.packs.validate_section_pack(pack, request=_request())
+    assert validated["body_bytes"] > 0
+    assert [r["pdf_index"] for r in validated["source_refs"]] == [37]
