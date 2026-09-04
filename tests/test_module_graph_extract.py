@@ -163,6 +163,46 @@ def _synthetic_bundle(tmp_path: Path, indices: list[int]) -> Path:
     return bundle
 
 
+def test_the_roster_the_driver_hands_prepare_reaches_the_packet(tmp_path: Path):
+    """The whole point of the roster is what the model reads, not what the
+    driver passes. Asserting only the call would pass over a `prepare` that
+    accepted `known_nodes` and dropped it before the packet."""
+    import hashlib
+
+    bundle = tmp_path / "bundle"
+    (bundle / "pages").mkdir(parents=True)
+    text = "调查员抵达档案馆。\n\n名册上写着血舌邪教。\n"
+    (bundle / "pages" / "0000.md").write_text(text, encoding="utf-8")
+    (bundle / "manifest.json").write_text(json.dumps({
+        "schema_version": 1, "producer": "codex-pdf-skill",
+        "source": {"source_id": "pdf:demo", "title": "Demo",
+                   "path": "/local/demo.pdf", "file_sha256": "c" * 64,
+                   "page_count": 1},
+        "pages": [{"pdf_index": 0, "markdown_path": "pages/0000.md",
+                   "text_sha256": hashlib.sha256(text.encode()).hexdigest(),
+                   "review_state": "auto_accepted", "parse_confidence": 0.9,
+                   "grep_anchors": ["调查员抵达档案馆"]}],
+    }), encoding="utf-8")
+    roster = [{"node_id": "faction-bloody-tongue", "node_kind": "faction",
+               "name": "血舌邪教", "visibility": "keeper-only"}]
+    request = extract.build_request(
+        bundle, module_id="m", section_id="s", source_language="zh-Hans",
+        max_nodes=10, max_relations=10, pdf_index_start=0, pdf_index_end=0,
+        known_nodes=roster,
+    )
+    assert request["known_nodes"] == roster
+    work = tmp_path / "work"
+    extract.prepare(
+        bundle, work, module_id="m", section_id="s", source_language="zh-Hans",
+        pdf_index_start=0, pdf_index_end=0, known_nodes=roster,
+    )
+    packet = json.loads((work / "extraction-packet.json").read_text("utf-8"))
+    assert packet["known_nodes"] == roster, (
+        "the roster stopped at the request; the model never sees it and every "
+        "section mints its own id for the same cult"
+    )
+
+
 def test_page_refs_never_name_a_declared_hole(tmp_path: Path):
     """Masks pdf_index 4-7 do not exist; asking for pages 0-18 must bind only
     the pages the bundle actually carries."""

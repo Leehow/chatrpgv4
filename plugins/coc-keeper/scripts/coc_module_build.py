@@ -43,6 +43,7 @@ import argparse
 import json
 import re
 import sys
+from concurrent import futures
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
@@ -50,6 +51,7 @@ from typing import Any, Callable, Protocol
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 
+import coc_module_graph as graph  # noqa: E402
 import coc_module_graph_extract as extract  # noqa: E402
 import coc_module_plan as planner  # noqa: E402
 
@@ -421,6 +423,42 @@ def opening_sections(
     }
 
 
+# The skeleton names the book's people, places and factions once, at name
+# level. Handing that list to every section is what keeps one cult from
+# becoming two: a section that sees `faction-bloody-tongue` in `known_nodes`
+# reuses it instead of minting `faction-cult-of-the-bloody-tongue-nyc`.
+# 19 such splits were on record before this was wired.
+_ROSTER_KINDS = ("npc", "creature", "faction", "organization", "location")
+
+
+def _skeleton_roster(work: Path) -> list[dict[str, Any]]:
+    """Name-level nodes the skeleton established, in the frozen known-node shape."""
+    shard_path = work / "skeleton" / "accepted.shard.json"
+    if not shard_path.exists():
+        return []
+    try:
+        shard = json.loads(shard_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    roster: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for node in shard.get("nodes") or []:
+        if not isinstance(node, dict) or node.get("node_kind") not in _ROSTER_KINDS:
+            continue
+        node_id = node.get("node_id")
+        name = node.get("name")
+        if not isinstance(node_id, str) or not isinstance(name, str) or node_id in seen:
+            continue
+        seen.add(node_id)
+        roster.append({
+            "node_id": node_id,
+            "node_kind": node["node_kind"],
+            "name": name,
+            "visibility": node.get("visibility") or "keeper-only",
+        })
+    return roster
+
+
 def _extract_ranged(
     bundle: Path,
     work: Path,
@@ -432,6 +470,8 @@ def _extract_ranged(
     max_rounds: int,
     results: list[dict[str, Any]],
     _base_id: str | None = None,
+    *,
+    known_nodes: list[dict[str, Any]] | None = None,
 ) -> None:
     """Extract one page range, narrowing by bisection when one reply cannot
     carry the shard. A single page is the floor: past it there is nothing
@@ -448,6 +488,7 @@ def _extract_ranged(
         section_id=section_id,
         pdf_index_start=pdf_index_start,
         pdf_index_end=pdf_index_end,
+        known_nodes=known_nodes,
     )
     if prepared.get("status") == "empty":
         # Only declared holes live in this range; there is nothing to read.
@@ -498,6 +539,77 @@ def _extract_ranged(
     }, ensure_ascii=False), flush=True)
 
 
+def _assemble(work: Path, results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Merge the accepted section shards into the module's one graph.
+
+    Reported, never raised: the sections are on disk either way, and a merge
+    that refuses is telling the caller something specific -- two sections gave
+    one entity different meanings under one id -- which belongs in the receipt
+    next to the sections that produced it, not in a traceback.
+    """
+    shard_paths = [
+        work / result["section_id"] / "accepted.shard.json"
+        for result in results
+        if result.get("status") == "accepted"
+    ]
+    shards = []
+    for path in shard_paths:
+        if path.exists():
+            shards.append(json.loads(path.read_text(encoding="utf-8")))
+    if not shards:
+        return {"status": "nothing_to_assemble", "shards": 0}
+    catalog: dict[str, dict[str, Any]] = {}
+    for packet in work.rglob("evidence-packet.json"):
+        try:
+            evidence = json.loads(packet.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for span in evidence.get("spans") or []:
+            if isinstance(span, dict) and isinstance(span.get("span_id"), str):
+                catalog[span["span_id"]] = span
+    try:
+        merged = graph.merge_shards(shards, evidence_catalog=catalog)
+    except graph.ModuleGraphError as error:
+        return {
+            "status": "conflicted",
+            "shards": len(shards),
+            "findings": getattr(error, "findings", []) or [],
+        }
+    except Exception as error:  # noqa: BLE001 - see below
+        # Assembly runs after every section has been paid for. A malformed
+        # catalog row surfacing here as a bare exception would throw away a
+        # whole build's work at the last step, so it is reported like any
+        # other refusal and the sections stay on disk.
+        return {
+            "status": "assembly_failed",
+            "shards": len(shards),
+            "findings": [{
+                "code": "assembly_raised",
+                "path": "/",
+                "message": f"{type(error).__name__}: {error}",
+            }],
+        }
+    out = work / "module-graph.json"
+    out.write_text(json.dumps(merged, ensure_ascii=False), encoding="utf-8")
+    node_ids = {node["node_id"] for node in merged.get("nodes") or []
+                if isinstance(node, dict) and isinstance(node.get("node_id"), str)}
+    dangling = sum(
+        1 for relation in merged.get("relations") or []
+        if isinstance(relation, dict) and (
+            relation.get("from_node_id") not in node_ids
+            or relation.get("to_node_id") not in node_ids
+        )
+    )
+    return {
+        "status": "assembled",
+        "shards": len(shards),
+        "nodes": len(merged.get("nodes") or []),
+        "relations": len(merged.get("relations") or []),
+        "dangling_relations": dangling,
+        "path": str(out),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -527,6 +639,11 @@ def main(argv: list[str] | None = None) -> int:
         help="pre-split sections past this many pages instead of discovering "
              "the generation ceiling by truncation; 4-page chunks of the "
              "densest book on record all passed within 3 rounds",
+    )
+    parser.add_argument(
+        "--workers", type=int, default=4,
+        help="chunks extracted concurrently; each worker holds its own model "
+             "session, so this is bounded by the channel, not by CPU",
     )
     parser.add_argument("--only-section")
     parser.add_argument(
@@ -620,7 +737,12 @@ def main(argv: list[str] | None = None) -> int:
             }, ensure_ascii=False, indent=2))
             return 1
 
-    results: list[dict[str, Any]] = []
+    # The roster the skeleton established, handed to every section so they
+    # name the book's people and places the same way. Without it each section
+    # mints its own id for the same cult and the book merges as two cults.
+    roster = _skeleton_roster(work) if skeleton_result else []
+
+    chunks: list[tuple[str, int, int]] = []
     for section in planned["sections"]:
         sid = section["section_id"]
         if args.only_section and sid != args.only_section:
@@ -632,30 +754,61 @@ def main(argv: list[str] | None = None) -> int:
         # page count already predicts. The narrowing recursion stays as the
         # safety net under each chunk.
         start, end = int(section["pdf_index_start"]), int(section["pdf_index_end"])
-        spans_range = end - start + 1
-        if spans_range > args.max_leaf_pages:
-            chunks = [
+        if end - start + 1 > args.max_leaf_pages:
+            spread = [
                 (chunk_start, min(chunk_start + args.max_leaf_pages - 1, end))
                 for chunk_start in range(start, end + 1, args.max_leaf_pages)
             ]
         else:
-            chunks = [(start, end)]
-        for chunk_start, chunk_end in chunks:
+            spread = [(start, end)]
+        for chunk_start, chunk_end in spread:
             chunk_id = (
                 sid if (chunk_start, chunk_end) == (start, end)
                 else f"{sid}-p{chunk_start}-{chunk_end}"
             )
+            chunks.append((chunk_id, chunk_start, chunk_end))
+
+    # Chunks are independent: each reads its own pages and writes its own work
+    # dir, and the roster they share is fixed before any of them starts. The
+    # cost of a build is generation time, so running them one at a time spends
+    # hours waiting on a channel that answers several at once.
+    results: list[dict[str, Any]] = []
+    per_chunk: list[list[dict[str, Any]]] = [[] for _ in chunks]
+
+    def _run(index: int) -> None:
+        chunk_id, chunk_start, chunk_end = chunks[index]
+        try:
             _extract_ranged(
-                bundle,
-                work,
-                args.module_id,
-                chunk_id,
-                chunk_start,
-                chunk_end,
-                ask,
-                args.max_rounds,
-                results,
+                bundle, work, args.module_id, chunk_id, chunk_start, chunk_end,
+                ask, args.max_rounds, per_chunk[index], known_nodes=roster,
             )
+        finally:
+            closer = getattr(ask, "close_sessions", None) or getattr(
+                sys.modules.get(getattr(ask, "__module__", "")), "close_sessions", None
+            )
+            if callable(closer):
+                closer()
+
+    workers = max(1, min(args.workers, len(chunks)))
+    if workers == 1 or len(chunks) <= 1:
+        for index in range(len(chunks)):
+            _run(index)
+    else:
+        with futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            for future in futures.as_completed(
+                [pool.submit(_run, index) for index in range(len(chunks))]
+            ):
+                future.result()
+    # Reported in plan order, not completion order, so two runs of the same
+    # book produce the same receipt.
+    for collected in per_chunk:
+        results.extend(collected)
+
+    # Sections that pass the gates are still N graphs until they are merged.
+    # A build that stops at N shards has not built anything a campaign can be
+    # projected from, and the failure mode is quiet: the receipt says every
+    # section was accepted while no module graph exists.
+    assembly = _assemble(work, results) if not args.only_section else None
 
     receipt_name = (
         f"build.{args.only_section}.json" if args.only_section else "build.json"
@@ -665,18 +818,24 @@ def main(argv: list[str] | None = None) -> int:
     # rewrite one build.json into whoever finished last.
     (work / receipt_name).write_text(
         json.dumps({"plan": planned, "skeleton": skeleton_result,
-                    "sections": results}, ensure_ascii=False, indent=2),
+                    "sections": results, "assembly": assembly},
+                   ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     counted = [r for r in results if r["status"] != "empty"]
     accepted = sum(1 for r in counted if r["status"] == "accepted")
+    whole = accepted == len(counted) and (
+        assembly is None or assembly["status"] == "assembled"
+    )
     print(json.dumps({
-        "status": "built" if accepted == len(counted) else "partial",
+        "status": "built" if whole else "partial",
         "sections_accepted": accepted,
         "sections_total": len(counted),
+        "assembly": assembly and {k: v for k, v in assembly.items()
+                                  if k != "findings"},
         "receipt": str(work / receipt_name),
     }, ensure_ascii=False, indent=2))
-    return 0 if accepted == len(counted) else 1
+    return 0 if whole else 1
 
 
 if __name__ == "__main__":

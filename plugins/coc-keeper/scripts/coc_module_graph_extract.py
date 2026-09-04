@@ -110,6 +110,7 @@ def build_request(
     pdf_index_end: int | None = None,
     pdf_indices: list[int] | None = None,
     aspects: tuple[str, ...] = DEFAULT_ASPECTS,
+    known_nodes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """One prepare request covering the bundle, a page range, or a page set.
 
@@ -139,7 +140,12 @@ def build_request(
         "aspects": list(aspects),
         "default_visibility": "keeper-only",
         "approved_player_safe_span_ids": [],
-        "known_nodes": [],
+        # Names the book has already established, so this section reuses the
+        # ids other sections gave them instead of minting its own. Without it
+        # one cult was `faction-bloody-tongue` in one section and
+        # `faction-cult-of-the-bloody-tongue-nyc` in another, and the book
+        # merged as two cults.
+        "known_nodes": list(known_nodes or []),
         "output_budget": {"max_nodes": max_nodes, "max_relations": max_relations},
         "page_refs": [
             {"source_id": source_id, "pdf_index": index}
@@ -162,6 +168,7 @@ def prepare(
     pdf_index_end: int | None = None,
     pdf_indices: list[int] | None = None,
     aspects: tuple[str, ...] = DEFAULT_ASPECTS,
+    known_nodes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Write the packet pair and return the dispatch the host should run."""
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -176,6 +183,7 @@ def prepare(
         pdf_index_end=pdf_index_end,
         pdf_indices=pdf_indices,
         aspects=aspects,
+        known_nodes=known_nodes,
     )
     (work_dir / "request.json").write_text(
         json.dumps(request, ensure_ascii=False), encoding="utf-8"

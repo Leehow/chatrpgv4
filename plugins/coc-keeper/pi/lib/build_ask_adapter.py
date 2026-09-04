@@ -142,18 +142,28 @@ def _text_of(event: Any) -> str:
     return ""
 
 
-_SESSION: _Session | None = None
+# One session per calling thread. A session carries one prompt at a time --
+# `ask` reads the stream slice its own prompt produced -- so concurrency is a
+# matter of having more sessions, not of multiplexing one. Keeping the pool
+# here rather than in the driver leaves `Ask` a plain (instruction, payload)
+# callable: a host that injects its own model does not inherit a pool it does
+# not need, it only has to be safe to call from several threads.
+#
+# Measured before adopting: three concurrent sessions answered the same prompt
+# in 5.5/5.2/5.8s with a 5.8s wall clock, against 16.4s run one after another.
+_SESSIONS = threading.local()
 
 
 def ask(instruction: str, payload: str) -> str:
-    global _SESSION
     message = f"{instruction}\n\n---\n\n{payload}\n"
     last_error: Exception | None = None
     for _ in range(TRANSPORT_ATTEMPTS):
-        if _SESSION is None or _SESSION.proc.poll() is not None:
-            _SESSION = _Session()
+        session = getattr(_SESSIONS, "session", None)
+        if session is None or session.proc.poll() is not None:
+            session = _Session()
+            _SESSIONS.session = session
         try:
-            return _SESSION.ask(message)
+            return session.ask(message)
         except TransportHang as error:
             # A hanged session is poison: the next attempt gets a fresh one.
             last_error = error
@@ -164,7 +174,12 @@ def ask(instruction: str, payload: str) -> str:
 
 
 def _drop_session() -> None:
-    global _SESSION
-    session, _SESSION = _SESSION, None
+    session = getattr(_SESSIONS, "session", None)
+    _SESSIONS.session = None
     if session is not None and session.proc.poll() is None:
         session.proc.kill()
+
+
+def close_sessions() -> None:
+    """End this thread's session. A build's workers call it as they retire."""
+    _drop_session()

@@ -117,10 +117,38 @@ def test_the_driver_defaults_its_work_dir_under_module_builds(
     monkeypatch.setattr(
         build.extract, "prepare", lambda *a, **k: {"span_count": 1},
     )
-    monkeypatch.setattr(
-        build, "extract_section", lambda *a, **k: {
-            "status": "accepted", "attempts": 1, "rounds": [], "nodes": 1},
-    )
+    def _accepted(work_dir, ask, **kwargs):
+        """Leave behind what a real extraction leaves: evidence and a shard.
+
+        A stub that returns only a status would let this pass over a driver
+        that accepts every section and assembles nothing.
+        """
+        target = Path(work_dir)
+        target.mkdir(parents=True, exist_ok=True)
+        span_id = f"span-{target.name}-1"
+        (target / "evidence-packet.json").write_text(json.dumps({
+            "spans": [{
+                "span_id": span_id, "text": target.name,
+                "source_ref": {"source_id": "pdf:mod", "pdf_index": 0,
+                               "grep_anchor": target.name,
+                               "text_sha256": "0" * 64},
+            }],
+        }), encoding="utf-8")
+        (target / "accepted.shard.json").write_text(json.dumps(
+            build.graph.assemble_model_shard({
+                "contract_id": "coc.module-graph-shard.v3", "schema_version": 3,
+                "module_id": "mod", "section_id": target.name,
+                "source_language": "zh-Hans", "aspects": ["structure"],
+                "evidence_span_ids": [span_id], "node_refs": [], "coverage": {},
+                "nodes": [{"node_id": f"scene-{target.name}", "node_kind": "scene",
+                           "name": target.name, "visibility": "keeper-only",
+                           "aliases": [], "summary": "",
+                           "evidence_span_ids": [span_id], "properties": {}}],
+                "claims": [],
+            })), encoding="utf-8")
+        return {"status": "accepted", "attempts": 1, "rounds": [], "nodes": 1}
+
+    monkeypatch.setattr(build, "extract_section", _accepted)
     plan_path = tmp_path / "plan.json"
     plan_path.write_text(json.dumps({
         "status": "accepted", "attempts": 1,

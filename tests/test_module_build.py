@@ -68,6 +68,52 @@ def script(monkeypatch: pytest.MonkeyPatch) -> _Script:
     return scripted
 
 
+
+def _accepting_stub(_work: Path):
+    """An `extract_section` stub that leaves behind what a real one leaves.
+
+    Stopping at the status would let these tests pass over a driver that never
+    assembles anything -- the exact silence the assembly step exists to break.
+    So the stub writes the section's evidence packet and its accepted shard,
+    running the shard through the same assembly the real path uses.
+    """
+    def stub(work_dir, ask, **kwargs):
+        target = Path(work_dir)
+        target.mkdir(parents=True, exist_ok=True)
+        section = target.name
+        span_id = f"span-{section}-1"
+        (target / "evidence-packet.json").write_text(json.dumps({
+            "spans": [{
+                "span_id": span_id, "text": section,
+                "source_ref": {
+                    "source_id": "pdf:mod", "pdf_index": 0,
+                    "grep_anchor": section, "text_sha256": "0" * 64,
+                },
+            }],
+        }, ensure_ascii=False), encoding="utf-8")
+        (target / "accepted.shard.json").write_text(json.dumps(
+            build.graph.assemble_model_shard({
+                "contract_id": "coc.module-graph-shard.v3",
+                "schema_version": 3,
+                "module_id": "mod",
+                "section_id": section,
+                "source_language": "zh-Hans",
+                "aspects": ["structure"],
+                "evidence_span_ids": [span_id],
+                "node_refs": [],
+                "coverage": {},
+                "nodes": [{
+                    "node_id": f"scene-{section}", "node_kind": "scene",
+                    "name": section, "visibility": "keeper-only", "aliases": [],
+                    "summary": "", "evidence_span_ids": [span_id],
+                    "properties": {},
+                }],
+                "claims": [],
+            }), ensure_ascii=False), encoding="utf-8")
+        return {"status": "accepted", "attempts": 1, "rounds": [], "nodes": 1}
+    return stub
+
+
 def test_an_oversize_section_is_narrowed_by_bisection(script, tmp_path):
     results: list[dict] = []
     build._extract_ranged(
@@ -186,9 +232,7 @@ def test_an_accepted_plan_file_skips_replanning(
             prepared.append(kwargs["section_id"]) or {"span_count": 1}),
     )
     monkeypatch.setattr(
-        build, "extract_section",
-        lambda work_dir, ask, *, max_rounds: {
-            "status": "accepted", "attempts": 1, "rounds": [], "nodes": 1},
+        build, "extract_section", _accepting_stub(tmp_path / "w"),
     )
     plan = _accepted_plan(tmp_path, [
         {"section_id": "s1", "pdf_index_start": 0, "pdf_index_end": 1},
@@ -222,8 +266,7 @@ def test_a_wide_section_is_pre_split_before_any_generation(
             or {"span_count": 1}),
     )
     monkeypatch.setattr(
-        build, "extract_section", lambda work_dir, ask, **kwargs: {
-            "status": "accepted", "attempts": 1, "rounds": [], "nodes": 1},
+        build, "extract_section", _accepting_stub(tmp_path / "w"),
     )
     plan = _accepted_plan(tmp_path, [
         {"section_id": "wide", "pdf_index_start": 0, "pdf_index_end": 9},
@@ -262,8 +305,7 @@ def test_opening_only_deep_reads_only_the_skeletons_choice(
             prepared.append(kwargs["section_id"]) or {"span_count": 1}),
     )
     monkeypatch.setattr(
-        build, "extract_section", lambda work_dir, ask, **kwargs: {
-            "status": "accepted", "attempts": 1, "rounds": [], "nodes": 1},
+        build, "extract_section", _accepting_stub(tmp_path / "w"),
     )
     plan = _accepted_plan(tmp_path, [
         {"section_id": "s1", "pdf_index_start": 0, "pdf_index_end": 3},
