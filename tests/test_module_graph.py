@@ -77,6 +77,8 @@ def _extraction_packet(graph) -> dict:
         "known_nodes": [],
         "output_budget": {"max_nodes": 8, "max_relations": 10},
         "evidence_view": graph.project_evidence_for_model(_evidence_packet()),
+        "page_window": {"first_page": 0, "last_page": 0,
+                        "pages_before": 0, "pages_after": 0},
     }
 
 

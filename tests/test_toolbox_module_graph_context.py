@@ -53,6 +53,8 @@ def _install_source_graph(
         "evidence_view": coc_module_graph.project_evidence_for_model(
             evidence_packet
         ),
+        "page_window": {"first_page": 0, "last_page": 0,
+                        "pages_before": 0, "pages_after": 0},
     }
     coverage = {
         domain: "accepted" if domain in aspects else "unresolved"

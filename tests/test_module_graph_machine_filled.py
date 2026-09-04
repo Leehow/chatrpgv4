@@ -128,3 +128,40 @@ def test_the_contract_declares_which_keys_the_machine_fills():
         assert key in out["claims"][0]
     for key in filled["shard"]:
         assert key in out
+
+
+def _catalog(pages):
+    return {("pdf:demo", index): {"pdf_index": index} for index in pages}
+
+
+def test_a_slice_declares_how_much_book_lies_outside_it():
+    """Every fabricated span id on record named a page just past the packet."""
+    window = graph._page_window(
+        _catalog(range(0, 20)), [("pdf:demo", index) for index in (5, 6, 7)]
+    )
+    assert window == {"first_page": 5, "last_page": 7,
+                      "pages_before": 5, "pages_after": 12}
+
+
+def test_a_whole_book_packet_says_nothing_lies_outside_it():
+    window = graph._page_window(
+        _catalog(range(0, 3)), [("pdf:demo", index) for index in (0, 1, 2)]
+    )
+    assert window["pages_before"] == 0
+    assert window["pages_after"] == 0
+
+
+def test_the_window_counts_only_pages_the_bundle_carries():
+    """A book with declared holes must not report pages that do not exist."""
+    window = graph._page_window(
+        _catalog([0, 1, 8, 9]), [("pdf:demo", 1)]
+    )
+    assert window == {"first_page": 1, "last_page": 1,
+                      "pages_before": 1, "pages_after": 2}
+
+
+def test_the_instruction_tells_a_slice_not_to_cite_forward():
+    text = (ROOT / "plugins" / "coc-keeper" / "pi" / "prompts"
+            / "module-graph-extraction.md").read_text("utf-8")
+    assert "page_window" in text
+    assert "不要引用 `evidence_view` 里没有的 span id" in text

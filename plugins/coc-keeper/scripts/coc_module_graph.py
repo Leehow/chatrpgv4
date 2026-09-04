@@ -391,6 +391,28 @@ def project_evidence_for_model(packet: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _page_window(
+    page_catalog: dict[tuple[str, int], dict[str, Any]],
+    page_keys: list[tuple[str, int]],
+) -> dict[str, int]:
+    """Where this packet's pages sit inside the pages the bundle carries."""
+    if not page_keys:
+        return {"first_page": -1, "last_page": -1, "pages_before": 0, "pages_after": 0}
+    sources = {source_id for source_id, _ in page_keys}
+    book = sorted(
+        index for (source_id, index) in page_catalog
+        if source_id in sources
+    )
+    first = min(index for _, index in page_keys)
+    last = max(index for _, index in page_keys)
+    return {
+        "first_page": first,
+        "last_page": last,
+        "pages_before": sum(1 for index in book if index < first),
+        "pages_after": sum(1 for index in book if index > last),
+    }
+
+
 def prepare_extraction_packet(
     page_catalog: dict[tuple[str, int], dict[str, Any]],
     *,
@@ -579,6 +601,14 @@ def prepare_extraction_packet(
         "known_nodes": copy.deepcopy(known_nodes),
         "output_budget": dict(output_budget),
         "evidence_view": project_evidence_for_model(evidence_packet),
+        # What this packet is a slice OF. A section cut out of a long book ends
+        # mid-content, and a model that cannot see where the rest lives cites
+        # it anyway: every fabricated span id on record (1281, across three
+        # runs) named a page just past the packet's last one, and none appeared
+        # in any run whose sections were not cut. Saying plainly that pages
+        # exist outside this window is the difference between a model that
+        # guesses at them and one that reports its section as partial.
+        "page_window": _page_window(page_catalog, page_keys),
     }
     if set(extraction_packet) != EXTRACTION_PACKET_KEYS:
         raise AssertionError("extraction packet field set drifted from contract")

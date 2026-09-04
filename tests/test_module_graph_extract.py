@@ -163,6 +163,51 @@ def _synthetic_bundle(tmp_path: Path, indices: list[int]) -> Path:
     return bundle
 
 
+def test_a_sliced_packet_tells_the_model_how_much_book_it_cannot_see(tmp_path: Path):
+    """Testing the computation is not testing that the model receives it: the
+    window only stops forward citation if it reaches the packet."""
+    import hashlib
+
+    bundle = tmp_path / "bundle"
+    (bundle / "pages").mkdir(parents=True)
+    pages = []
+    for index in range(6):
+        text = f"第 {index} 页的正文。\n"
+        (bundle / "pages" / f"{index:04d}.md").write_text(text, encoding="utf-8")
+        pages.append({
+            "pdf_index": index, "markdown_path": f"pages/{index:04d}.md",
+            "text_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "review_state": "auto_accepted", "parse_confidence": 0.9,
+            "grep_anchors": [f"第 {index} 页的正文"],
+        })
+    (bundle / "manifest.json").write_text(json.dumps({
+        "schema_version": 1, "producer": "codex-pdf-skill",
+        "source": {"source_id": "pdf:demo", "title": "Demo",
+                   "path": "/local/demo.pdf", "file_sha256": "c" * 64,
+                   "page_count": 6},
+        "pages": pages,
+    }), encoding="utf-8")
+
+    work = tmp_path / "slice"
+    extract.prepare(
+        bundle, work, module_id="m", section_id="s", source_language="zh-Hans",
+        pdf_index_start=2, pdf_index_end=3,
+    )
+    packet = json.loads((work / "extraction-packet.json").read_text("utf-8"))
+    assert packet["page_window"] == {
+        "first_page": 2, "last_page": 3, "pages_before": 2, "pages_after": 2,
+    }, "the model cannot know it is reading a slice, so it cites past the end"
+
+    whole = tmp_path / "whole"
+    extract.prepare(
+        bundle, whole, module_id="m", section_id="s", source_language="zh-Hans",
+    )
+    window = json.loads(
+        (whole / "extraction-packet.json").read_text("utf-8")
+    )["page_window"]
+    assert (window["pages_before"], window["pages_after"]) == (0, 0)
+
+
 def test_the_roster_the_driver_hands_prepare_reaches_the_packet(tmp_path: Path):
     """The whole point of the roster is what the model reads, not what the
     driver passes. Asserting only the call would pass over a `prepare` that

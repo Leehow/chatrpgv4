@@ -350,7 +350,9 @@ def test_prepare_binds_real_evidence_span(tmp_path: Path):
     assert packet["schema_version"] == 1
     spans = packet["evidence_binding"]["spans"]
     assert len(spans) == 1
-    assert spans[0]["span_id"] == "span-healing-first-aid-page-0-block-1"
+    # Span ids are page-scoped, not section-scoped: a page is the same page
+    # whichever section reads it, so two sections that overlap cite one id.
+    assert spans[0]["span_id"] == "span-page-0-block-1"
     # model-safe view strips machine source bindings
     view_spans = packet["evidence_view"]["spans"]
     assert view_spans[0]["span_id"] == spans[0]["span_id"]

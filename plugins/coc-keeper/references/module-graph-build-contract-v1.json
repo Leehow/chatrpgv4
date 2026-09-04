@@ -19,7 +19,8 @@
     "approved_player_safe_span_ids",
     "known_nodes",
     "output_budget",
-    "evidence_view"
+    "evidence_view",
+    "page_window"
   ],
   "prepare_request_keys": [
     "contract_id",
@@ -36,9 +37,20 @@
     "output_budget",
     "page_refs"
   ],
-  "page_ref_keys": ["source_id", "pdf_index"],
-  "known_node_keys": ["node_id", "node_kind", "name", "visibility"],
-  "output_budget_keys": ["max_nodes", "max_relations"],
+  "page_ref_keys": [
+    "source_id",
+    "pdf_index"
+  ],
+  "known_node_keys": [
+    "node_id",
+    "node_kind",
+    "name",
+    "visibility"
+  ],
+  "output_budget_keys": [
+    "max_nodes",
+    "max_relations"
+  ],
   "semantic_review_keys": [
     "contract_id",
     "schema_version",
@@ -60,8 +72,15 @@
     "requirements",
     "absence-vs-unresolved"
   ],
-  "semantic_review_check_statuses": ["pass", "finding", "not-applicable"],
-  "semantic_review_verdicts": ["accepted", "revision-required"],
+  "semantic_review_check_statuses": [
+    "pass",
+    "finding",
+    "not-applicable"
+  ],
+  "semantic_review_verdicts": [
+    "accepted",
+    "revision-required"
+  ],
   "semantic_finding_keys": [
     "code",
     "path",
@@ -86,7 +105,10 @@
     "module_id",
     "planned_shards"
   ],
-  "planned_shard_keys": ["section_id", "aspects"],
+  "planned_shard_keys": [
+    "section_id",
+    "aspects"
+  ],
   "source_bundle_binding_keys": [
     "source_id",
     "bundle_sha256",
@@ -120,5 +142,14 @@
     "missing_shards",
     "coverage"
   ],
-  "build_statuses": ["partial", "complete"]
+  "build_statuses": [
+    "partial",
+    "complete"
+  ],
+  "page_window_keys": [
+    "first_page",
+    "last_page",
+    "pages_before",
+    "pages_after"
+  ]
 }
