@@ -516,7 +516,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--module-id", required=True)
     parser.add_argument("--budget", type=int, default=planner.DEFAULT_SECTION_BUDGET)
-    parser.add_argument("--max-rounds", type=int, default=3)
+    parser.add_argument(
+        "--max-rounds", type=int, default=4,
+        help="findings rounds per extraction target; measured on a dense book: "
+             "small leaves pass in 1-3, and 3 was cutting off rounds that "
+             "were converging (two leaves needed exactly the 5th)",
+    )
+    parser.add_argument(
+        "--max-leaf-pages", type=int, default=4,
+        help="pre-split sections past this many pages instead of discovering "
+             "the generation ceiling by truncation; 4-page chunks of the "
+             "densest book on record all passed within 3 rounds",
+    )
     parser.add_argument("--only-section")
     parser.add_argument(
         "--opening-only",
@@ -616,17 +627,35 @@ def main(argv: list[str] | None = None) -> int:
             continue
         if args.opening_only and sid not in extract_first:
             continue
-        _extract_ranged(
-            bundle,
-            work,
-            args.module_id,
-            sid,
-            int(section["pdf_index_start"]),
-            int(section["pdf_index_end"]),
-            ask,
-            args.max_rounds,
-            results,
-        )
+        # Pre-split into leaf-sized chunks: every truncation-first narrowing
+        # measured so far burned a full generation discovering a size the
+        # page count already predicts. The narrowing recursion stays as the
+        # safety net under each chunk.
+        start, end = int(section["pdf_index_start"]), int(section["pdf_index_end"])
+        spans_range = end - start + 1
+        if spans_range > args.max_leaf_pages:
+            chunks = [
+                (chunk_start, min(chunk_start + args.max_leaf_pages - 1, end))
+                for chunk_start in range(start, end + 1, args.max_leaf_pages)
+            ]
+        else:
+            chunks = [(start, end)]
+        for chunk_start, chunk_end in chunks:
+            chunk_id = (
+                sid if (chunk_start, chunk_end) == (start, end)
+                else f"{sid}-p{chunk_start}-{chunk_end}"
+            )
+            _extract_ranged(
+                bundle,
+                work,
+                args.module_id,
+                chunk_id,
+                chunk_start,
+                chunk_end,
+                ask,
+                args.max_rounds,
+                results,
+            )
 
     receipt_name = (
         f"build.{args.only_section}.json" if args.only_section else "build.json"

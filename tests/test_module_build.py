@@ -206,6 +206,46 @@ def test_an_accepted_plan_file_skips_replanning(
     assert prepared == ["s2"]
 
 
+def test_a_wide_section_is_pre_split_before_any_generation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+):
+    """Measured on Masks: every truncation-first narrowing burned a whole
+    generation discovering a size the page count already predicts. Sections
+    past the leaf budget split up front; the narrowing recursion remains as
+    the safety net under each chunk."""
+    _fake_adapter(monkeypatch, tmp_path)
+    prepared: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        build.extract, "prepare",
+        lambda bundle, work_dir, **kwargs: (
+            prepared.append((kwargs["pdf_index_start"], kwargs["pdf_index_end"]))
+            or {"span_count": 1}),
+    )
+    monkeypatch.setattr(
+        build, "extract_section", lambda work_dir, ask, **kwargs: {
+            "status": "accepted", "attempts": 1, "rounds": [], "nodes": 1},
+    )
+    plan = _accepted_plan(tmp_path, [
+        {"section_id": "wide", "pdf_index_start": 0, "pdf_index_end": 9},
+    ])
+    work = tmp_path / "w"
+    rc = build.main([
+        "--adapter", "fake_adapter",
+        "--source-bundle", str(tmp_path),
+        "--work-dir", str(work),
+        "--module-id", "mod",
+        "--plan", str(plan),
+        "--no-skeleton",
+        "--max-leaf-pages", "4",
+    ])
+    assert rc == 0
+    assert prepared == [(0, 3), (4, 7), (8, 9)]
+    receipt = json.loads((work / "build.json").read_text())
+    assert [s["section_id"] for s in receipt["sections"]] == [
+        "wide-p0-3", "wide-p4-7", "wide-p8-9",
+    ]
+
+
 def test_opening_only_deep_reads_only_the_skeletons_choice(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ):
