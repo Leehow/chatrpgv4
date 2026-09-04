@@ -17,6 +17,9 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import module_build_fixtures as fixtures  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "plugins" / "coc-keeper" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -44,7 +47,10 @@ def _adapter(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.syspath_prepend(str(tmp_path))
 
 
-def _shard(section: str, span_id: str, nodes=None) -> dict:
+def _shard(section: str, span_id: str, nodes=None, claims=None) -> dict:
+    # Claims go in before assembly: relations are derived only when the shard
+    # does not already carry a `relations` list, so setting claims afterwards
+    # leaves the edges underived and every scene its own island.
     return build.graph.assemble_model_shard({
         "contract_id": "coc.module-graph-shard.v3", "schema_version": 3,
         "module_id": "mod", "section_id": section, "source_language": "zh-Hans",
@@ -54,11 +60,45 @@ def _shard(section: str, span_id: str, nodes=None) -> dict:
             "node_id": f"scene-{section}", "node_kind": "scene", "name": section,
             "visibility": "keeper-only", "aliases": [], "summary": "",
             "evidence_span_ids": [span_id], "properties": {}}],
-        "claims": [],
+        "claims": claims or [],
     })
 
 
-def _writing_stub(nodes_for=None, hold: float = 0.0, seen: list | None = None):
+def _playable_nodes(section: str, span_id: str):
+    """Two scenes, joined, one marked as where play opens.
+
+    The toy shard has to satisfy the same structural standard as a real one:
+    a lone scene is a fragment, and a graph nobody declared an entrance for
+    cannot be opened. Building fixtures that skip it would test the merge
+    against a shape the standard rejects.
+    """
+    return [
+        {"node_id": f"scene-{section}-open", "node_kind": "scene",
+         "name": f"{section} open", "visibility": "keeper-only", "aliases": [],
+         "summary": "", "evidence_span_ids": [span_id],
+         "properties": {"is_entrance": True}},
+        {"node_id": f"scene-{section}-next", "node_kind": "scene",
+         "name": f"{section} next", "visibility": "keeper-only", "aliases": [],
+         "summary": "", "evidence_span_ids": [span_id], "properties": {}},
+        {"node_id": f"ending-{section}", "node_kind": "ending",
+         "name": f"{section} end", "visibility": "keeper-only", "aliases": [],
+         "summary": "", "evidence_span_ids": [span_id], "properties": {}},
+    ]
+
+
+def _playable_claims(section: str, span_id: str):
+    return [{
+        "claim_id": f"claim-{section}-opens-into",
+        "subject_id": f"scene-{section}-open",
+        "predicate": "may-lead-to",
+        "object": {"node_id": f"scene-{section}-next"},
+        "truth_status": "authored-fact", "evidence_span_ids": [span_id],
+        "confidence": 1.0, "reason": "书上写着",
+    }]
+
+
+def _writing_stub(nodes_for=None, hold: float = 0.0, seen: list | None = None,
+                  claims_for=None):
     def stub(work_dir, ask, **kwargs):
         target = Path(work_dir)
         target.mkdir(parents=True, exist_ok=True)
@@ -66,16 +106,18 @@ def _writing_stub(nodes_for=None, hold: float = 0.0, seen: list | None = None):
             seen.append((target.name, threading.get_ident(), time.time()))
         if hold:
             time.sleep(hold)
-        span_id = f"span-{target.name}-1"
+        # Page-shaped, because provenance is read out of the id.
+        span_id = "span-page-0-block-1"
         (target / "evidence-packet.json").write_text(json.dumps({"spans": [{
             "span_id": span_id, "text": target.name,
             "source_ref": {"source_id": "pdf:mod", "pdf_index": 0,
                            "grep_anchor": target.name, "text_sha256": "0" * 64},
         }]}), encoding="utf-8")
-        nodes = nodes_for(target.name, span_id) if nodes_for else None
+        nodes = (nodes_for or _playable_nodes)(target.name, span_id)
+        shard = _shard(target.name, span_id, nodes,
+                       claims=(claims_for or _playable_claims)(target.name, span_id))
         (target / "accepted.shard.json").write_text(
-            json.dumps(_shard(target.name, span_id, nodes), ensure_ascii=False),
-            encoding="utf-8")
+            json.dumps(shard, ensure_ascii=False), encoding="utf-8")
         return {"status": "accepted", "attempts": 1, "rounds": [], "nodes": 1}
     return stub
 
@@ -90,18 +132,27 @@ def test_accepted_sections_are_merged_into_one_module_graph(monkeypatch, tmp_pat
         "--work-dir", str(work), "--module-id", "mod", "--no-skeleton",
         "--plan", str(_plan(tmp_path, [("s1", 0, 0), ("s2", 1, 1)])),
     ])
-    assert rc == 0
+    # Two sections that share no exit are two pieces, and the standard says so:
+    # merging is not finishing, and a build that leaves the Keeper unable to
+    # walk from one half to the other has not produced a playable book.
+    assert rc == 1
     graph_path = work / "module-graph.json"
     assert graph_path.exists(), "a build that stops at N shards has built nothing"
     merged = json.loads(graph_path.read_text())
-    assert {n["node_id"] for n in merged["nodes"]} == {"scene-s1", "scene-s2"}
+    assert {"scene-s1-open", "scene-s2-open"} <= {n["node_id"] for n in merged["nodes"]}
+    assert merged["entry_scene_ids"] == ["scene-s1-open", "scene-s2-open"], (
+        "the skeleton's entrance mark did not survive into the graph"
+    )
     receipt = json.loads((work / "build.json").read_text())
-    assert receipt["assembly"]["status"] == "assembled"
-    assert receipt["assembly"]["nodes"] == 2
+    assert receipt["assembly"]["status"] == "assembled_not_playable"
+    assert receipt["assembly"]["nodes"] == 6
     assert receipt["assembly"]["dangling_relations"] == 0
     # Measuring unreachable scenes only helps if a caller can read the number:
     # these two sections each wrote a scene and no exit between them.
-    assert receipt["assembly"]["unreachable_scenes"] == ["scene-s1", "scene-s2"]
+    # Two sections, each self-contained: the standard sees two pieces and says so.
+    counts = receipt["assembly"]["template"]["finding_counts"]
+    assert counts.get("scene_graph_fragmented") == 1
+    assert receipt["assembly"]["template"]["measures"]["scene_components"] == 2
 
 
 def test_a_merge_conflict_is_reported_not_raised(monkeypatch, tmp_path):
@@ -219,110 +270,85 @@ def test_the_skeletons_roster_reaches_every_section(monkeypatch, tmp_path):
 def test_the_skeleton_shard_is_part_of_the_graph_it_seeded(monkeypatch, tmp_path):
     """The roster lives in the skeleton. Sections reference those nodes rather
     than redefining them, so leaving the skeleton out of the merge orphans
-    every reference -- one unresolved_node_ref refused a whole build that had
-    passed every gate."""
+    every reference -- one `unresolved_node_ref` refused a whole build whose
+    every section had passed every gate."""
     work = tmp_path / "w"
     (work / "skeleton").mkdir(parents=True)
-    span = "span-page-0-block-1"
-    (work / "skeleton" / "evidence-packet.json").write_text(json.dumps({"spans": [{
-        "span_id": span, "text": "作者 Davide Mana",
-        "source_ref": {"source_id": "pdf:mod", "pdf_index": 0,
-                       "grep_anchor": "Davide", "text_sha256": "0" * 64},
-    }]}), encoding="utf-8")
+    (work / "skeleton" / "evidence-packet.json").write_text(
+        json.dumps(fixtures.evidence_packet()), encoding="utf-8")
     (work / "skeleton" / "accepted.shard.json").write_text(json.dumps(
-        _shard("skeleton", span, nodes=[{
+        fixtures.shard(build.graph.assemble_model_shard, "skeleton", extra_nodes=[{
             "node_id": "npc-davide-mana", "node_kind": "npc", "name": "Davide Mana",
             "visibility": "keeper-only", "aliases": [], "summary": "",
-            "evidence_span_ids": [span], "properties": {}}]),
+            "evidence_span_ids": [fixtures.SPAN_ID], "properties": {}}],
+            extra_claims=[{
+                "claim_id": "claim-skeleton-author-present",
+                "subject_id": "npc-davide-mana", "predicate": "present-in",
+                "object": {"node_id": "scene-skeleton-open"},
+                "truth_status": "authored-fact",
+                "evidence_span_ids": [fixtures.SPAN_ID],
+                "confidence": 1.0, "reason": "扉页署名"}]),
         ensure_ascii=False), encoding="utf-8")
 
-    def referencing(section, span_id):
-        return [{"node_id": f"scene-{section}", "node_kind": "scene",
-                 "name": section, "visibility": "keeper-only", "aliases": [],
-                 "summary": "", "evidence_span_ids": [span_id], "properties": {}}]
-
-    def stub(work_dir, ask, **kwargs):
-        outcome = _writing_stub(nodes_for=referencing)(work_dir, ask, **kwargs)
+    def stub(work_dir, read_with_agent=None, **kwargs):
         target = Path(work_dir)
-        shard = json.loads((target / "accepted.shard.json").read_text())
-        shard["node_refs"] = ["npc-davide-mana"]
-        # An external ref must take part in a claim, or the contract refuses it
-        # as decoration; this is the shape a real section produces.
-        span_id = f"span-{target.name}-1"
-        shard["claims"] = [{
-            "claim_id": f"claim-{target.name}-author-present", "predicate": "present-in",
-            "subject_id": "npc-davide-mana",
-            "object": {"node_id": f"scene-{target.name}"},
-            "truth_status": "authored-fact", "evidence_span_ids": [span_id],
-            "confidence": 1.0, "reason": "扉页署名", "visibility": "keeper-only",
-            "asserted_by_ids": [], "known_by_ids": [], "validity": None,
-        }]
-        shard["relations"] = build.graph.assemble_model_shard(
-            {"claims": shard["claims"]})["relations"]
-        (target / "accepted.shard.json").write_text(
-            json.dumps(shard, ensure_ascii=False), encoding="utf-8")
-        return outcome
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "evidence-packet.json").write_text(
+            json.dumps(fixtures.evidence_packet()), encoding="utf-8")
+        # The section names the skeleton's NPC without redefining it: an
+        # external ref must take part in a claim, or the contract refuses it
+        # as decoration.
+        (target / "accepted.shard.json").write_text(json.dumps(
+            fixtures.shard(
+                build.graph.assemble_model_shard, target.name,
+                node_refs=["npc-davide-mana"],
+                extra_claims=[{
+                    "claim_id": f"claim-{target.name}-author-present",
+                    "subject_id": "npc-davide-mana", "predicate": "present-in",
+                    "object": {"node_id": f"scene-{target.name}-open"},
+                    "truth_status": "authored-fact",
+                    "evidence_span_ids": [fixtures.SPAN_ID],
+                    "confidence": 1.0, "reason": "扉页署名"}]),
+            ensure_ascii=False), encoding="utf-8")
+        return {"status": "accepted", "attempts": 1, "rounds": [], "nodes": 1}
 
     _adapter(monkeypatch, tmp_path)
     monkeypatch.setattr(build.extract, "prepare", lambda *a, **k: {"span_count": 1})
     monkeypatch.setattr(build, "extract_section", stub)
     monkeypatch.setattr(build, "skeleton_module", lambda *a, **k: {
-        "status": "accepted", "attempts": 1, "opening": {"sections": [], "entry_pages": []}})
-    rc = build.main([
+        "status": "accepted", "attempts": 1,
+        "opening": {"sections": [], "entry_pages": []}})
+    build.main([
         "--adapter", "fake_adapter", "--source-bundle", str(tmp_path),
         "--work-dir", str(work), "--module-id", "mod",
         "--plan", str(_plan(tmp_path, [("s1", 0, 0)])),
     ])
     receipt = json.loads((work / "build.json").read_text())
-    assert receipt["assembly"]["status"] == "assembled", (
+    assert receipt["assembly"]["status"].startswith("assembled"), (
         f"assembly refused: {receipt['assembly'].get('findings')}"
     )
-    assert rc == 0
     merged = json.loads((work / "module-graph.json").read_text())
     assert "npc-davide-mana" in {n["node_id"] for n in merged["nodes"]}
 
 
-def _node(node_id, kind="scene"):
-    return {"node_id": node_id, "node_kind": kind, "name": node_id,
-            "visibility": "keeper-only", "aliases": [], "summary": "",
-            "evidence_span_ids": [], "properties": {}}
+def test_one_sound_section_builds_a_playable_graph(monkeypatch, tmp_path):
+    """The standard has to be reachable, or it is only a way to fail.
 
-
-def _edge(source, target, kind="may-lead-to"):
-    return {"relation_id": f"rel-{source}-{target}", "relation_kind": kind,
-            "from_node_id": source, "to_node_id": target,
-            "claim_id": f"claim-{source}-{target}", "properties": {}}
-
-
-def test_a_scene_no_exit_reaches_is_reported():
-    """A scene joined by no exit is in the book and out of the game."""
-    merged = {
-        "nodes": [_node("scene-a"), _node("scene-b"), _node("scene-orphan"),
-                  _node("location-x", "location")],
-        "relations": [_edge("scene-a", "scene-b")],
-    }
-    assert build._unreachable_scenes(merged) == ["scene-orphan"]
-
-
-def test_reaching_a_scene_counts_as_much_as_leaving_it():
-    merged = {
-        "nodes": [_node("scene-a"), _node("scene-b")],
-        "relations": [_edge("scene-a", "scene-b")],
-    }
-    assert build._unreachable_scenes(merged) == []
-
-
-def test_a_relation_the_projection_ignores_does_not_join_a_scene():
-    """`print-precedes` is publication order; the projection makes no exit
-    from it, so a scene held only by one is still unreachable in play."""
-    merged = {
-        "nodes": [_node("scene-a"), _node("scene-b")],
-        "relations": [_edge("scene-a", "scene-b", kind="print-precedes")],
-    }
-    assert build._unreachable_scenes(merged) == ["scene-a", "scene-b"]
-
-
-def test_the_instruction_tells_the_model_every_scene_must_connect():
-    text = (ROOT / "plugins" / "coc-keeper" / "pi" / "prompts"
-            / "module-graph-extraction.md").read_text("utf-8")
-    assert "没有边的场景,在游戏里根本到不了" in text
+    One section whose scenes are joined, whose entrance is marked and whose
+    ending is named satisfies every invariant, and the build says so.
+    """
+    _adapter(monkeypatch, tmp_path)
+    monkeypatch.setattr(build.extract, "prepare", lambda *a, **k: {"span_count": 1})
+    monkeypatch.setattr(build, "extract_section", _writing_stub())
+    work = tmp_path / "w"
+    rc = build.main([
+        "--adapter", "fake_adapter", "--source-bundle", str(tmp_path),
+        "--work-dir", str(work), "--module-id", "mod", "--no-skeleton",
+        "--plan", str(_plan(tmp_path, [("s1", 0, 0)])),
+    ])
+    receipt = json.loads((work / "build.json").read_text())
+    template = receipt["assembly"]["template"]
+    assert template["finding_counts"] == {}, template["findings"] if "findings" in template else template
+    assert receipt["assembly"]["status"] == "assembled"
+    assert template["measures"]["scene_components"] == 1
+    assert rc == 0

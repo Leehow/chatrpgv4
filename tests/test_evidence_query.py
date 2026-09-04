@@ -1,0 +1,115 @@
+"""The reader's view of the evidence packet.
+
+Handed the packet as raw JSON, a reading agent spent its first turn converting
+the whole thing into `=== span-id ===` blocks before it read a word. Nothing
+asked it to; it was paying, out of its own context, to fix the shape. This
+serves that shape, and adds the two things a flat file still cannot do: find a
+name across every span at once, and answer whether a span id exists before a
+shard is written with it.
+"""
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / "plugins" / "coc-keeper" / "scripts"
+_spec = importlib.util.spec_from_file_location(
+    "coc_evidence_query_test", SCRIPTS / "coc_evidence_query.py"
+)
+query = importlib.util.module_from_spec(_spec)
+sys.modules["coc_evidence_query_test"] = query
+_spec.loader.exec_module(query)
+
+
+@pytest.fixture
+def packet(tmp_path: Path) -> Path:
+    spans = [
+        {"span_id": "span-page-0-block-1", "text": "STRANGE AEONS II"},
+        {"span_id": "span-page-1-block-1", "text": "克洛普是个傀儡。"},
+        {"span_id": "span-page-1-block-2", "text": "长老们没有屈服。"},
+        {"span_id": "span-page-2-block-1", "text": "克洛普走进神殿。"},
+        {"span_id": "span-page-2-block-2", "text": "The cult waits below."},
+    ]
+    path = tmp_path / "extraction-packet.json"
+    path.write_text(json.dumps({
+        "evidence_view": {"spans": spans},
+        "page_window": {"first_page": 0, "last_page": 2,
+                        "pages_before": 0, "pages_after": 40},
+    }), encoding="utf-8")
+    return path
+
+
+def _run(packet: Path, *argv: str, capsys) -> tuple[int, str]:
+    code = query.main(["--packet", str(packet), *argv])
+    return code, capsys.readouterr().out
+
+
+def test_outline_reports_the_window_and_the_pages(packet, capsys):
+    code, out = _run(packet, "outline", capsys=capsys)
+    data = json.loads(out)
+    assert code == 0
+    assert data["spans"] == 5 and data["pages"] == 3
+    assert data["page_window"]["pages_after"] == 40
+    assert data["per_page"][1] == {"page": 1, "spans": 2, "chars": 16}
+
+
+def test_read_serves_id_anchored_blocks(packet, capsys):
+    _, out = _run(packet, "read", "--pages", "1", capsys=capsys)
+    assert out.startswith("=== span-page-1-block-1 ===\n克洛普是个傀儡。")
+    assert "span-page-2-block-1" not in out
+
+
+def test_read_accepts_a_page_range_and_a_list(packet, capsys):
+    _, out = _run(packet, "read", "--pages", "0,2", capsys=capsys)
+    assert "span-page-0-block-1" in out and "span-page-2-block-1" in out
+    assert "span-page-1-block-1" not in out
+
+
+def test_search_finds_a_name_across_every_page(packet, capsys):
+    """This is what stops a relation from having to live inside one chunk."""
+    _, out = _run(packet, "search", "克洛普", capsys=capsys)
+    assert "2 span(s) matched" in out
+    assert "span-page-1-block-1" in out and "span-page-2-block-1" in out
+
+
+def test_search_can_take_a_regex_and_bring_neighbours(packet, capsys):
+    _, out = _run(packet, "search", "(?i)the cult", "--regex", "--context", "1",
+                  capsys=capsys)
+    assert "span-page-2-block-2" in out
+    assert "span-page-2-block-1" in out, "the neighbour was not brought along"
+
+
+def test_verify_names_an_invented_id_and_says_why(packet, capsys):
+    """Every fabricated citation on record extrapolated the numbering past the
+    packet's last page. At the gate that costs a generation; here, a call."""
+    code, out = _run(packet, "verify", "--ids",
+                     "span-page-1-block-1,span-page-40-block-3", capsys=capsys)
+    data = json.loads(out)
+    assert code == 1
+    assert data["unknown"] == ["span-page-40-block-3"]
+    assert data["packet_pages"] == [0, 2]
+    assert "invented" in data["hint"]
+
+
+def test_verify_is_silent_when_every_id_is_real(packet, capsys):
+    code, out = _run(packet, "verify", "--ids", "span-page-0-block-1", capsys=capsys)
+    data = json.loads(out)
+    assert code == 0 and data["unknown"] == [] and data["hint"] == ""
+
+
+def test_verify_reads_a_whole_shard(packet, capsys, tmp_path):
+    shard = tmp_path / "shard.json"
+    shard.write_text(json.dumps({
+        "nodes": [{"node_id": "scene-a",
+                   "evidence_span_ids": ["span-page-1-block-1"]}],
+        "claims": [{"claim_id": "claim-a",
+                    "evidence_span_ids": ["span-page-99-block-1"]}],
+    }), encoding="utf-8")
+    code, out = _run(packet, "verify", "--shard", str(shard), capsys=capsys)
+    assert code == 1
+    assert json.loads(out)["unknown"] == ["span-page-99-block-1"]

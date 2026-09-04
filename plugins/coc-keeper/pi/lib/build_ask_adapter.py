@@ -221,8 +221,11 @@ def read_with_agent(work_dir: "Path", brief: str) -> None:
         "--no-context-files", "--approve", "--tools", READ_TOOLS,
         "--model", MODEL, "--thinking", THINKING, brief,
     ]
+    # Appended, not truncated: a retry must not erase what the attempt before
+    # it did, which is the only record of how the agent got where it is.
     log = Path(work_dir) / "agent.log"
-    with log.open("w", encoding="utf-8") as handle:
+    with log.open("a", encoding="utf-8") as handle:
+        handle.write(f"\n=== reading agent, {time.strftime('%H:%M:%S')} ===\n")
         completed = subprocess.run(
             command, stdout=handle, stderr=subprocess.STDOUT,
             text=True, timeout=READ_TIMEOUT,

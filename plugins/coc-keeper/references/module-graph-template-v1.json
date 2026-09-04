@@ -1,0 +1,131 @@
+{
+  "contract_id": "coc.module-graph-template.v1",
+  "schema_version": 1,
+  "purpose": "What a finished module graph must contain, as distinct from what a shard may say. The v3 contract is a vocabulary -- which node kinds and relation kinds exist, how ids are spelled, what shape a record takes. It says nothing about whether the assembled graph can be played. This says that.",
+  "why_two_layers": "Modules differ too much for counts to be law: a one-scene handout has no branches, and a campaign has forty. So the invariants are structural -- properties any playable graph has whatever its size -- and everything that varies by book is measured and reported, never thresholded.",
+  "accounting_law": "An invariant asks that something be accounted for, not that a particular thing exist. The account has to be a statement about the thing itself -- an explicit empty entry_scene_ids says the book names no entrance -- and never a coverage status: a merged graph says `partial` about nearly every domain, so reading an account out of coverage leaves a door that is always open.",
+  "invariants": [
+    {
+      "code": "dangling_relation",
+      "asks": "Every relation's endpoints are nodes the graph defines.",
+      "why": "A relation to a node that does not exist is an exit the Keeper cannot take."
+    },
+    {
+      "code": "scene_graph_fragmented",
+      "asks": "The scene graph is one piece: every scene is joined to every other by some chain of exits.",
+      "why": "A separate piece is a part of the book the Keeper has no move into. Measured on a real build: twenty-six scenes in eight pieces, the largest holding nine. Rooting reachability at 'scenes nothing leads into' hides this exactly, because each piece then has a root of its own."
+    },
+    {
+      "code": "scene_unreachable_from_entrance",
+      "asks": "Once an entrance is declared, every scene is reachable from it by exit relations.",
+      "why": "Direction matters only after somebody says where play starts."
+    },
+    {
+      "code": "no_entrance_declared",
+      "asks": "The graph names at least one entry scene, or says the book names none with an explicit empty entry_scene_ids.",
+      "why": "Without an entrance the Keeper has nowhere to open, and the campaign projection has no first scene to activate."
+    },
+    {
+      "code": "no_ending_declared",
+      "asks": "The graph names at least one ending, or says the book states none with an explicit empty ending_scene_ids.",
+      "why": "A module that cannot end cannot be finished. Open-ended modules exist; unstated endings are the thing being caught."
+    },
+    {
+      "code": "clue_supports_nothing",
+      "asks": "Every clue supports at least one conclusion.",
+      "why": "A clue that answers no question never reaches the runtime: the belief state advances conclusions, and a clue outside that chain is scenery."
+    },
+    {
+      "code": "conclusion_without_support",
+      "asks": "Every conclusion is supported by at least one clue.",
+      "why": "A conclusion players have no route to is an answer with no question attached to it."
+    },
+    {
+      "code": "clue_nowhere_to_find",
+      "asks": "Every clue is discoverable at at least one scene.",
+      "why": "A clue in no scene cannot be found, whatever it supports."
+    },
+    {
+      "code": "actor_in_no_scene",
+      "asks": "Every npc and creature is present-in at least one scene.",
+      "why": "An actor no scene contains can never be met."
+    },
+    {
+      "code": "node_without_page",
+      "asks": "Every node cites at least one evidence span that names a page.",
+      "why": "An unprovable node is worse than a missing one; this is what makes the graph auditable against the book."
+    }
+  ],
+  "measures": [
+    {
+      "code": "scenes",
+      "asks": "How many scenes."
+    },
+    {
+      "code": "scene_exits",
+      "asks": "How many relations the projection turns into an exit."
+    },
+    {
+      "code": "scene_components",
+      "asks": "Connected pieces of the scene graph; one is whole."
+    },
+    {
+      "code": "largest_component",
+      "asks": "Scenes in the biggest piece."
+    },
+    {
+      "code": "branches",
+      "asks": "Scenes with more than one outgoing exit."
+    },
+    {
+      "code": "npcs",
+      "asks": "How many npc nodes."
+    },
+    {
+      "code": "creatures",
+      "asks": "How many creature nodes."
+    },
+    {
+      "code": "clues",
+      "asks": "How many clue nodes."
+    },
+    {
+      "code": "conclusions",
+      "asks": "How many conclusion nodes."
+    },
+    {
+      "code": "endings",
+      "asks": "How many ending nodes."
+    },
+    {
+      "code": "rules",
+      "asks": "How many rule nodes."
+    },
+    {
+      "code": "nodes",
+      "asks": "Nodes in total."
+    },
+    {
+      "code": "relations",
+      "asks": "Relations in total."
+    },
+    {
+      "code": "span_consumption",
+      "asks": "Share of the module's evidence spans some node or claim cites."
+    },
+    {
+      "code": "pages_covered",
+      "asks": "Distinct pages any node cites."
+    }
+  ],
+  "entrance_relation_kinds": [
+    "play-precedes",
+    "may-lead-to",
+    "alternative-to",
+    "hands-off-to"
+  ],
+  "actor_kinds": [
+    "npc",
+    "creature"
+  ]
+}

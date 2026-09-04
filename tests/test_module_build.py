@@ -15,6 +15,9 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import module_build_fixtures as fixtures  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "plugins" / "coc-keeper" / "scripts"
 
@@ -74,42 +77,15 @@ def _accepting_stub(_work: Path):
 
     Stopping at the status would let these tests pass over a driver that never
     assembles anything -- the exact silence the assembly step exists to break.
-    So the stub writes the section's evidence packet and its accepted shard,
-    running the shard through the same assembly the real path uses.
     """
-    def stub(work_dir, ask, **kwargs):
+    def stub(work_dir, ask=None, **kwargs):
         target = Path(work_dir)
         target.mkdir(parents=True, exist_ok=True)
-        section = target.name
-        span_id = f"span-{section}-1"
-        (target / "evidence-packet.json").write_text(json.dumps({
-            "spans": [{
-                "span_id": span_id, "text": section,
-                "source_ref": {
-                    "source_id": "pdf:mod", "pdf_index": 0,
-                    "grep_anchor": section, "text_sha256": "0" * 64,
-                },
-            }],
-        }, ensure_ascii=False), encoding="utf-8")
-        (target / "accepted.shard.json").write_text(json.dumps(
-            build.graph.assemble_model_shard({
-                "contract_id": "coc.module-graph-shard.v3",
-                "schema_version": 3,
-                "module_id": "mod",
-                "section_id": section,
-                "source_language": "zh-Hans",
-                "aspects": ["structure"],
-                "evidence_span_ids": [span_id],
-                "node_refs": [],
-                "coverage": {},
-                "nodes": [{
-                    "node_id": f"scene-{section}", "node_kind": "scene",
-                    "name": section, "visibility": "keeper-only", "aliases": [],
-                    "summary": "", "evidence_span_ids": [span_id],
-                    "properties": {},
-                }],
-                "claims": [],
-            }), ensure_ascii=False), encoding="utf-8")
+        (target / "evidence-packet.json").write_text(
+            json.dumps(fixtures.evidence_packet()), encoding="utf-8")
+        (target / "accepted.shard.json").write_text(
+            json.dumps(fixtures.shard(build.graph.assemble_model_shard, target.name),
+                       ensure_ascii=False), encoding="utf-8")
         return {"status": "accepted", "attempts": 1, "rounds": [], "nodes": 1}
     return stub
 
@@ -274,8 +250,14 @@ def test_a_wide_section_is_pre_split_before_any_generation(
         "--no-skeleton",
         "--max-leaf-pages", "4",
     ])
-    assert rc == 0
     assert prepared == [(0, 3), (4, 7), (8, 9)]
+    # Splitting is still available, and this is the price of using it: three
+    # leaves that never saw each other's pages make three pieces the Keeper
+    # cannot walk between, and the standard says so rather than passing.
+    receipt = json.loads((work / "build.json").read_text())
+    assert receipt["assembly"]["status"] == "assembled_not_playable"
+    assert receipt["assembly"]["template"]["measures"]["scene_components"] == 3
+    assert rc == 1
     receipt = json.loads((work / "build.json").read_text())
     assert [s["section_id"] for s in receipt["sections"]] == [
         "wide-p0-3", "wide-p4-7", "wide-p8-9",

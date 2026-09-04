@@ -52,6 +52,7 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 
 import coc_module_graph as graph  # noqa: E402
+import coc_module_graph_template as graph_template  # noqa: E402
 import coc_module_graph_extract as extract  # noqa: E402
 import coc_module_plan as planner  # noqa: E402
 
@@ -225,11 +226,18 @@ def build_brief(
 ) -> str:
     """The agent's standing orders for one section, with its paths filled in."""
     template = BRIEF_PATH.read_text(encoding="utf-8")
+    root = repo_root or _HERE.parents[2]
     return template.format(
         work_dir=work_dir,
         instruction_path=instruction_path or extract.INSTRUCTION_PATH,
-        repo_root=repo_root or _HERE.parents[2],
+        repo_root=root,
         review_command=review_command(work_dir),
+        template_path=graph_template.TEMPLATE_PATH,
+        query=(
+            "PYTHONDONTWRITEBYTECODE=1 uv run --frozen python "
+            f"{_HERE / 'coc_evidence_query.py'} "
+            f"--packet {work_dir / 'extraction-packet.json'}"
+        ),
     )
 
 
@@ -641,7 +649,6 @@ def _assemble(work: Path, results: list[dict[str, Any]]) -> dict[str, Any]:
             }],
         }
     out = work / "module-graph.json"
-    out.write_text(json.dumps(merged, ensure_ascii=False), encoding="utf-8")
     node_ids = {node["node_id"] for node in merged.get("nodes") or []
                 if isinstance(node, dict) and isinstance(node.get("node_id"), str)}
     dangling = sum(
@@ -651,13 +658,44 @@ def _assemble(work: Path, results: list[dict[str, Any]]) -> dict[str, Any]:
             or relation.get("to_node_id") not in node_ids
         )
     )
+    # Merging is not finishing. The three gates judge one section against the
+    # contract; nothing judged whether the assembled book can be played, and
+    # that silence hid twenty-two structural defects in a build whose every
+    # section was accepted -- a scene graph in eight pieces, twelve actors no
+    # scene contained, and no entrance declared anywhere.
+    # Where play opens is a fact about the book that only the skeleton is asked
+    # for, and it lived nowhere afterwards: the scene nodes carried the mark and
+    # the assembled graph had no field to put it in, so every graph failed
+    # "no entrance declared" no matter what the skeleton found.
+    entrances = sorted(
+        node["node_id"] for node in merged.get("nodes") or []
+        if isinstance(node, dict) and node.get("node_kind") == "scene"
+        and isinstance(node.get("properties"), dict)
+        and node["properties"].get("is_entrance")
+        and isinstance(node.get("node_id"), str)
+    )
+    if entrances:
+        merged["entry_scene_ids"] = entrances
+
+    spans = sum(
+        len(json.loads(packet.read_text(encoding="utf-8")).get("spans") or [])
+        for packet in work.rglob("evidence-packet.json")
+    ) or None
+    out.write_text(json.dumps(merged, ensure_ascii=False), encoding="utf-8")
+    playable = graph_template.check(merged, evidence_total=spans)
     return {
-        "status": "assembled",
+        "status": "assembled" if playable["status"] == "playable"
+                  else "assembled_not_playable",
         "shards": len(shards),
         "nodes": len(merged.get("nodes") or []),
         "relations": len(merged.get("relations") or []),
         "dangling_relations": dangling,
-        "unreachable_scenes": _unreachable_scenes(merged),
+        "template": {
+            "status": playable["status"],
+            "finding_counts": playable["finding_counts"],
+            "measures": playable["measures"],
+        },
+        "findings": playable["findings"],
         "path": str(out),
     }
 

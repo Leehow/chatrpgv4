@@ -14,6 +14,9 @@ import stat
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import module_build_fixtures as fixtures  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 PI_BIN = ROOT / "plugins" / "coc-keeper" / "pi" / "bin"
 ADAPTER = ROOT / "plugins" / "coc-keeper" / "pi" / "lib" / "build_ask_adapter.py"
@@ -117,35 +120,15 @@ def test_the_driver_defaults_its_work_dir_under_module_builds(
     monkeypatch.setattr(
         build.extract, "prepare", lambda *a, **k: {"span_count": 1},
     )
-    def _accepted(work_dir, ask, **kwargs):
-        """Leave behind what a real extraction leaves: evidence and a shard.
-
-        A stub that returns only a status would let this pass over a driver
-        that accepts every section and assembles nothing.
-        """
+    def _accepted(work_dir, read_with_agent=None, **kwargs):
+        """Leave behind what a real extraction leaves: evidence and a shard."""
         target = Path(work_dir)
         target.mkdir(parents=True, exist_ok=True)
-        span_id = f"span-{target.name}-1"
-        (target / "evidence-packet.json").write_text(json.dumps({
-            "spans": [{
-                "span_id": span_id, "text": target.name,
-                "source_ref": {"source_id": "pdf:mod", "pdf_index": 0,
-                               "grep_anchor": target.name,
-                               "text_sha256": "0" * 64},
-            }],
-        }), encoding="utf-8")
-        (target / "accepted.shard.json").write_text(json.dumps(
-            build.graph.assemble_model_shard({
-                "contract_id": "coc.module-graph-shard.v3", "schema_version": 3,
-                "module_id": "mod", "section_id": target.name,
-                "source_language": "zh-Hans", "aspects": ["structure"],
-                "evidence_span_ids": [span_id], "node_refs": [], "coverage": {},
-                "nodes": [{"node_id": f"scene-{target.name}", "node_kind": "scene",
-                           "name": target.name, "visibility": "keeper-only",
-                           "aliases": [], "summary": "",
-                           "evidence_span_ids": [span_id], "properties": {}}],
-                "claims": [],
-            })), encoding="utf-8")
+        (target / "evidence-packet.json").write_text(
+            json.dumps(fixtures.evidence_packet()), encoding="utf-8")
+        (target / "accepted.shard.json").write_text(
+            json.dumps(fixtures.shard(build.graph.assemble_model_shard, target.name),
+                       ensure_ascii=False), encoding="utf-8")
         return {"status": "accepted", "attempts": 1, "rounds": [], "nodes": 1}
 
     monkeypatch.setattr(build, "extract_section", _accepted)
