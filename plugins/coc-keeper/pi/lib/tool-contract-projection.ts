@@ -4270,6 +4270,13 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     // executor's nesting whatever else is trimmed.
     ["command_id", "source_command_id", "state_refs",
      "bout_id", "event_id", "active_bout_id", "trigger_id",
+     // Opposed graph settlement names each side's D100 as
+     // investigator_roll_id / opponent_roll_id. Those ride through
+     // rules.settle, not the legacy rules.opposed envelope that registered
+     // them, so the live opposed settle collapsed the whole receipt to
+     // semantic_identity_unavailable (r76 o-check5). The Keeper narrates
+     // from the two outcomes; it never echoes the roll ids.
+     "investigator_roll_id", "opponent_roll_id",
      // The settle-ending receipt's machine provenance. `ending_id` is a
      // GENERATED handle (`ending-<sha256[:20]>`, coc_development.py): it
      // cannot pass the semantic slug grammar and the Keeper never authors

@@ -38,6 +38,7 @@ import coc_git_history  # noqa: E402
 import coc_npc_identity  # noqa: E402
 import coc_rules  # noqa: E402
 import coc_sanity  # noqa: E402
+import coc_time  # noqa: E402
 
 
 _LANE_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
@@ -154,6 +155,16 @@ _SITUATION_COMBAT_TURN_NOTE = (
 _SITUATION_CHASE_TURN_NOTE = (
     " A chase is already active. Settle the pending chase card the chase "
     "family offers; do not chase.start."
+)
+_SITUATION_MAGIC_TURN_NOTE = (
+    " A teacher or learned spell is already in this situation. Learning is "
+    "decision:coc7:magic:learn-spell; casting is decision:coc7:magic:cast-spell. "
+    "Call rules.context for family magic."
+)
+_SITUATION_SANITY_DUE_TURN_NOTE = (
+    " A due Sanity time trigger is waiting. Temporary recovery is "
+    "decision:coc7:sanity:recover-temporary; psychoanalysis is "
+    "decision:coc7:sanity:apply-treatment. Call rules.context for family sanity."
 )
 _PROFILE_IDS = frozenset({
     "production",
@@ -550,12 +561,89 @@ def _seed_insanity(
     session.bout_rounds_remaining = 0
     session.active_bout_id = None
     session.save(campaign_dir)
+    # Flag-only insanity never scheduled the due trigger apply-treatment
+    # and recover-temporary bind. Advance_time then had nothing to fire,
+    # so those cards stayed withheld (r76 s-treat4 / s-recov1). Due now,
+    # auto_apply_if_safe: still pending until a safe rest, which is what
+    # the Keeper settles. Do not also advance_time past this in the same
+    # situation or process_due_triggers will consume it.
+    (campaign_dir / "logs").mkdir(parents=True, exist_ok=True)
+    (campaign_dir / "save").mkdir(parents=True, exist_ok=True)
+    if not coc_time.read_time_state(campaign_dir):
+        coc_time.initialize_time_state(campaign_dir)
+    now = int(
+        (coc_time.read_time_state(campaign_dir).get("clock") or {}).get(
+            "elapsed_minutes", 0,
+        )
+    )
+    if kind == "temporary":
+        handler = "recover_temporary_insanity"
+        trigger_kind = "condition_expiry"
+        payload = {"condition": "temporary_insane"}
+    else:
+        handler = "apply_psychoanalysis_treatment"
+        trigger_kind = "treatment"
+        payload = {"condition": "indefinite_insane"}
+    trigger_id = coc_time.schedule_trigger(campaign_dir, {
+        "kind": trigger_kind,
+        "scope": "investigator",
+        "target_id": investigator_id,
+        "due_elapsed_minutes": now,
+        "policy": "auto_apply_if_safe",
+        "handler": handler,
+        "payload": payload,
+    })
     return [{
         "operation": "host.seed_insanity",
         "investigator_id": investigator_id,
         "kind": kind,
+        "trigger_id": trigger_id,
+        "handler": handler,
         "authority": "host_diagnostic_seed",
         "note": "lane-private SanitySession seed; not a toolbox write",
+        "ok": True,
+    }]
+
+
+def _seed_known_spells(
+    campaign_dir: Path, spells: list[str],
+) -> list[dict[str, Any]]:
+    """Persist learned spells so magic:cast-spell can open.
+
+    Host ``magic.learn`` is a percentile check. A diagnostic seed that only
+    started study left the investigator with no known spell, so the cast
+    card never appeared (r76 mg-cast4).
+    """
+    investigator_id = _campaign_default_investigator(campaign_dir)
+    path = (
+        campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+    )
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise DebugExperimentError(
+            "situation_catalog_unavailable",
+            "the lane investigator-state is unreadable",
+        ) from exc
+    if not isinstance(state, dict):
+        raise DebugExperimentError(
+            "situation_catalog_unavailable",
+            "the lane investigator-state is not an object",
+        )
+    magic = state.get("magic") if isinstance(state.get("magic"), dict) else {}
+    learned = list(dict.fromkeys(
+        [*(magic.get("learned_spells") or []), *spells]
+    ))
+    state["magic"] = {**magic, "learned_spells": learned}
+    path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return [{
+        "operation": "host.seed_known_spells",
+        "investigator_id": investigator_id,
+        "spells": learned,
+        "authority": "host_diagnostic_seed",
         "ok": True,
     }]
 
@@ -2047,6 +2135,10 @@ def _situation_turn_note(situation: dict[str, Any]) -> str:
         note += _SITUATION_COMBAT_TURN_NOTE
     if situation.get("chase"):
         note += _SITUATION_CHASE_TURN_NOTE
+    if situation.get("spell_teachers") or situation.get("spells"):
+        note += _SITUATION_MAGIC_TURN_NOTE
+    if situation.get("insanity") and not situation.get("delusion"):
+        note += _SITUATION_SANITY_DUE_TURN_NOTE
     return note
 
 
@@ -3042,6 +3134,10 @@ class PiRpcLaneAdapter:
             if not row["ok"]:
                 return applied, "situation_seed_failed"
         # Combat and chase need the scene/NPC/items the toolbox just wrote.
+        if situation.get("spells") and not situation.get("spell_teachers"):
+            applied.extend(_seed_known_spells(
+                campaign_dir(), list(situation["spells"]),
+            ))
         if situation.get("combat"):
             applied.extend(_seed_combat(campaign_dir(), situation["combat"]))
         if situation.get("chase"):

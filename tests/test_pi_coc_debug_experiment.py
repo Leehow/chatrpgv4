@@ -2457,6 +2457,13 @@ def test_host_seeds_write_npc_skills_chase_features_and_pending_files(
     )
     assert snap["temporary_insane"] is True
     assert snap["bout_active"] is False
+    import coc_time
+    due = coc_time.peek_due_triggers(campaign)
+    assert any(
+        row.get("handler") == "recover_temporary_insanity"
+        and row.get("status") == "pending"
+        for row in due
+    ), due
     assert snap["active_delusion"]["description"] == "墙纸正在呼吸"
 
     pending = json.loads(
@@ -2471,6 +2478,19 @@ def test_host_seeds_write_npc_skills_chase_features_and_pending_files(
         "gain_source": "confronted the horror",
         "seeded": True,
     }
+
+
+def test_host_seeds_known_spells_for_cast(tmp_path: Path):
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    applied = module._seed_known_spells(campaign, ["Contact Spells"])
+    assert applied[0]["operation"] == "host.seed_known_spells"
+    state = json.loads(
+        (campaign / "save" / "investigator-state" / "thomas-hayes.json").read_text(
+            encoding="utf-8",
+        ),
+    )
+    assert state["magic"]["learned_spells"] == ["Contact Spells"]
 
 
 def test_seeding_npc_skills_on_an_unauthored_npc_fails_closed(tmp_path: Path):
@@ -2620,6 +2640,17 @@ def test_seeded_turn_note_names_live_combat_and_chase():
         "chase": {"npc_id": "npc-walter-corbitt", "pending": "end"},
     })
     assert "chase.start" in chase or "do not chase.start" in chase
+    magic = module._situation_turn_note({
+        "spell_teachers": [{
+            "npc_id": "npc-steven-knott", "source_kind": "person",
+            "spells": ["Contact Spells"],
+        }],
+    })
+    assert "decision:coc7:magic:learn-spell" in magic
+    treatment = module._situation_turn_note({
+        "insanity": {"kind": "indefinite"},
+    })
+    assert "decision:coc7:sanity:apply-treatment" in treatment
 
 
 def test_chase_end_adapter_emits_executor_phase_end():

@@ -5653,6 +5653,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             row.outcome ?? row.achieved_level,
             "settled-check",
           ]);
+          registerRoll(row.investigator_roll_id, [
+            row.skill,
+            "investigator-opposed-roll",
+            settleArguments?.decision_id,
+          ]);
+          registerRoll(row.opponent_roll_id, [
+            row.opponent_label ?? row.skill,
+            "opponent-opposed-roll",
+            settleArguments?.decision_id,
+          ]);
         });
       }
       if (operation === "rules.opposed") {

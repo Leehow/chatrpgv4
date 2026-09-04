@@ -7122,6 +7122,24 @@ def _facts_provider_for(
                 )
                 if caught:
                     pending_kind = "conflict"
+        # Executor chase_conflict consumes one unused combat_defend
+        # receipt. Positional catch is what makes pending.kind conflict;
+        # receipt-ready is a different fact. Welding them together offered
+        # chase:conflict before any combat existed, then every settle died
+        # on the payload contract (r77 ch-conf1, r78 ch-conf2).
+        conflict_receipt_ready = False
+        if pending_kind == "conflict":
+            actor_id = (
+                str(order[cursor])
+                if isinstance(order, list) and cursor < len(order)
+                else ""
+            )
+            conflict_receipt_ready = (
+                _chase_conflict_combat_receipt(
+                    ctx, chase=chase, actor_id=actor_id,
+                )
+                is not None
+            )
         facts.update({
             "chase.session.active": chase_active,
             "chase.session.inactive": not chase_active,
@@ -7131,7 +7149,7 @@ def _facts_provider_for(
                 and len(chase_start.get("locations") or {}) >= 2
             ),
             "chase.pending.kind": pending_kind,
-            "chase.conflict.receipt-ready": pending_kind == "conflict",
+            "chase.conflict.receipt-ready": conflict_receipt_ready,
         })
         magic = state.get("magic") if isinstance(state.get("magic"), Mapping) else {}
         facts["magic.known_spells"] = [
@@ -8229,6 +8247,72 @@ def _canonical_magic_binding(
     return {"investigator": investigator_id}
 
 
+def _chase_conflict_combat_receipt(
+    ctx: Ctx, *, chase: Mapping[str, Any], actor_id: str,
+) -> tuple[str, str] | None:
+    """Unused combat_defend receipt the chase-conflict payload can consume.
+
+    The executor holds chase_conflict to an exact payload: action_id
+    ``conflict:<target>``, target_actor_id, and combat_command_id of a
+    combat_defend snapshot whose attack turn names those two actors.
+    Catching someone in the chase is not that receipt.
+    """
+    if not actor_id:
+        return None
+    participants = {
+        str(row.get("actor_id")): row
+        for row in chase.get("participants") or []
+        if isinstance(row, Mapping)
+    }
+    actor = participants.get(actor_id) or {}
+    try:
+        position = int(actor.get("position", -1))
+    except (TypeError, ValueError):
+        return None
+    opponents = [
+        row for row in participants.values()
+        if str(row.get("actor_id") or "") != actor_id
+        and not row.get("escaped") and not row.get("captured")
+        and int(row.get("position", -2)) == position
+    ]
+    if len(opponents) != 1:
+        return None
+    target_id = str(opponents[0].get("actor_id") or "")
+    if not target_id:
+        return None
+    consumed = {
+        str(row.get("combat_command_id") or "")
+        for row in chase.get("consumed_combat_receipts") or []
+        if isinstance(row, Mapping)
+    }
+    try:
+        state = coc_subsystem_executor.load_canonical_state_readonly(
+            ctx.campaign_dir,
+        )
+    except Exception:
+        return None
+    snapshots = state.get("result_snapshots") if isinstance(state, Mapping) else None
+    if not isinstance(snapshots, Mapping):
+        return None
+    matches: list[str] = []
+    for command_id, snapshot in snapshots.items():
+        if str(command_id) in consumed:
+            continue
+        if not isinstance(snapshot, Mapping) or snapshot.get("kind") != "combat_defend":
+            continue
+        events = snapshot.get("events") or []
+        event = events[0] if events and isinstance(events[0], Mapping) else {}
+        turn = event.get("turn") if isinstance(event.get("turn"), Mapping) else {}
+        if (
+            turn.get("actor_id") == actor_id
+            and turn.get("target_actor_id") == target_id
+        ):
+            matches.append(str(command_id))
+    if len(matches) != 1:
+        return None
+    return target_id, matches[0]
+
+
 def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: str,
                              semantic_inputs: Mapping[str, Any]) -> dict[str, Any]:
     suffix = decision_ref.rsplit(":", 1)[-1]
@@ -8402,6 +8486,23 @@ def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: st
         if not isinstance(barrier, Mapping): raise ToolError("chase_action_unavailable", "next location has no barrier")
         method = str(semantic_inputs.get("method") or "")
         binding.update({"action_id": f"barrier:{barrier.get('barrier_id')}:{method}", "target": barrier.get("target"), "difficulty": barrier.get("difficulty", "regular")})
+    elif suffix == "conflict":
+        pair = _chase_conflict_combat_receipt(
+            ctx, chase=chase, actor_id=actor_id,
+        )
+        if pair is None:
+            raise ToolError(
+                "chase_conflict_combat_receipt_unavailable",
+                "chase conflict consumes one unused combat defense receipt "
+                "against the caught opponent; settle combat:attack then "
+                "combat:defend first, then refresh the chase family",
+            )
+        target_id, combat_command_id = pair
+        binding.update({
+            "action_id": f"conflict:{target_id}",
+            "target_actor_id": target_id,
+            "combat_command_id": combat_command_id,
+        })
     return binding
 
 
