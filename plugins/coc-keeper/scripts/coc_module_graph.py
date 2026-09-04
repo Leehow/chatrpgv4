@@ -746,8 +746,10 @@ def _validate_span_ids(
     return findings
 
 
-def assemble_model_shard(shard: Any) -> Any:
-    """Attach the deterministic shard evidence scope without changing semantics."""
+def assemble_model_shard(
+    shard: Any, *, default_visibility: str = "keeper-only"
+) -> Any:
+    """Fill what the machine owns: evidence scope, coverage, claim defaults, relations."""
     if not isinstance(shard, dict):
         return copy.deepcopy(shard)
 
@@ -781,7 +783,61 @@ def assemble_model_shard(shard: Any) -> Any:
     for domain in COVERAGE_DOMAINS:
         filled.setdefault(domain, "unresolved")
     assembled["coverage"] = filled
+
+    # The same law, applied to the claim fields that never vary. Measured over
+    # every accepted shard on record (968 claims): `visibility` was the
+    # packet's own `default_visibility` 968 times, `asserted_by_ids` and
+    # `known_by_ids` were empty 968 times, and `validity` said "no time bound"
+    # 764 times. Those four cost a quarter of the claims the model writes and
+    # carry nothing. A model that omits them means the default; a model that
+    # states something else still wins, so nothing it knows is lost.
+    for claim in assembled.get("claims") or []:
+        if not isinstance(claim, dict):
+            continue
+        claim.setdefault("visibility", default_visibility)
+        claim.setdefault("asserted_by_ids", [])
+        claim.setdefault("known_by_ids", [])
+        claim.setdefault("validity", None)
+
+    # Relations are a projection of claims, not a second reading. The contract
+    # already requires every relation to restate its claim exactly -- across
+    # 966 relations on record, 966 did, and none carried properties of their
+    # own. Deriving them here rather than asking for them cuts a fifth of the
+    # generation and retires `relation_claim_mismatch`: a derived relation
+    # cannot disagree with the claim it came from.
+    if assembled.get("relations") is None:
+        assembled["relations"] = [
+            derived for derived in (
+                _relation_from_claim(claim) for claim in assembled.get("claims") or []
+            ) if derived is not None
+        ]
     return assembled
+
+
+def _relation_from_claim(claim: Any) -> dict[str, Any] | None:
+    """The relation a claim already states, or None when it states none."""
+    if not isinstance(claim, dict):
+        return None
+    claim_id = claim.get("claim_id")
+    predicate = claim.get("predicate")
+    subject_id = claim.get("subject_id")
+    obj = claim.get("object")
+    if not isinstance(claim_id, str) or predicate not in RELATION_KINDS:
+        return None
+    if not isinstance(subject_id, str) or not isinstance(obj, dict):
+        return None
+    target = obj.get("node_id")
+    if not isinstance(target, str):
+        return None
+    stem = claim_id[len("claim-"):] if claim_id.startswith("claim-") else claim_id
+    return {
+        "relation_id": f"rel-{stem}",
+        "relation_kind": predicate,
+        "from_node_id": subject_id,
+        "to_node_id": target,
+        "claim_id": claim_id,
+        "properties": {},
+    }
 
 
 def validate_shard(
@@ -952,6 +1008,16 @@ def validate_shard(
         claim_id = claim.get("claim_id")
         if not _valid_semantic_id(claim_id):
             findings.append(_finding("invalid_claim_id", f"{path}/claim_id", "must be semantic"))
+        elif not claim_id.startswith("claim-"):
+            # "Semantic" was enforced in name only: the id pattern accepts `c1`,
+            # so sections numbered their claims positionally and section A's
+            # `c1` collided with section B's `c1` at merge -- 32 false conflicts
+            # on record, which is what kept a book's sections from assembling
+            # into one graph. Node ids never had this problem because they must
+            # carry their kind; claim ids now carry theirs the same way.
+            findings.append(
+                _finding("claim_id_prefix_missing", f"{path}/claim_id", "must start with claim-")
+            )
         elif claim_id in claim_ids:
             findings.append(_finding("duplicate_claim_id", f"{path}/claim_id", claim_id))
         else:

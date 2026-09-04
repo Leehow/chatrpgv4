@@ -43,7 +43,8 @@
 
 信封:`contract_id` 填 `coc.module-graph-shard.v3`,`schema_version` 填 `3`。
 顶层键恰好是这两个加:`module_id`、`section_id`、`source_language`、`aspects`、
-`evidence_span_ids`、`node_refs`、`coverage`、`nodes`、`claims`、`relations`。
+`evidence_span_ids`、`node_refs`、`coverage`、`nodes`、`claims`。
+**不要写 `relations`** —— 机器从你的 claims 逐条投影出来。
 
 - `module_id` / `section_id` / `aspects`:照抄 packet 里的同名字段。
 - `source_language`:BCP 47 标签(如 `zh-Hans`、`en`),指源文本的语言;你写的
@@ -52,16 +53,19 @@
   `summary`、`evidence_span_ids`、`properties`。`node_id` 以该节点的 `node_kind`
   加连字符开头(如 `npc-kloppe`),全小写 kebab-case;人类语言的名字放 `name` /
   `aliases`,不进 id。
-- 声明(claim)键:`claim_id`、`subject_id`、`predicate`、`object`、
-  `truth_status`、`visibility`、`evidence_span_ids`、`asserted_by_ids`、
-  `known_by_ids`、`validity`、`confidence`、`reason`。`predicate` 从下面的
+- 声明(claim)键**只写这六个**:`claim_id`、`subject_id`、`predicate`、
+  `object`、`truth_status`、`evidence_span_ids`、`reason`。`predicate` 从下面的
   `relation_kind` 词表里选。`object` 必须指向一个节点(`{"node_id": ...}`);
   标量事实留在节点 `properties` 里,不立 claim。
-- 关系键恰好为:`relation_id`、`relation_kind`、`from_node_id`、`to_node_id`、
-  `claim_id`、`properties`。**先写 claims,再写 relations**:每条 relation 的
-  `claim_id` 必须绑定一条你实际写出的 claim,而且 `relation_kind`、
-  `from_node_id`、`to_node_id` 必须与那条 claim 的 `predicate`、`subject_id`、
-  `object` 完全一致——relation 是 claim 的投影,不是第二份独立陈述。
+  `claim_id` **必须以 `claim-` 开头**,而且要按它陈述的事实命名
+  (如 `claim-kloppe-member-of-tribe`),全书唯一。**绝对不要用 `c1`、`c2` 这种
+  按顺序编号的 id**:每一节都从 c1 重新数,合并全书时就会撞成同一条,整本书装配失败。
+- 下面四个字段**不要写**,机器按 packet 的声明填:`visibility`(取 packet 的
+  `default_visibility`)、`asserted_by_ids`、`known_by_ids`、`validity`。
+  只有当某条 claim 确实不同于默认时才写出来——写了就以你写的为准。
+  `confidence` 只在你不确定时写(默认 1.0)。
+- **关系不用你写。** relation 本来就是 claim 的投影(同样的
+  `predicate`/`subject_id`/`object`),机器逐条推出来。你把关系写成 claim 就够了。
 - `visibility` 只能取:`keeper-only`、`player-safe`、`revealable`。
 - `truth_status` 只能取:`authored-fact`、`authored-belief`、`authored-rumor`、
   `authored-lie`、`inferred-candidate`。

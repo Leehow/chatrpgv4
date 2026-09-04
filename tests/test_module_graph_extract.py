@@ -296,17 +296,27 @@ def test_the_instruction_carries_the_contract_vocabulary_verbatim():
     )
     text = extract.INSTRUCTION_PATH.read_text("utf-8")
     assert str(contract["shard_contract_id"]) in text
+    machine_filled = contract["machine_filled_keys"]
+    # The model is shown the vocabulary it must write, and only that. Keys the
+    # assembly fills are excluded on purpose: naming them here would put them
+    # back in the instruction, and the generation spent a fifth of itself
+    # writing relations that were a projection of what it had already said.
+    skip = set(machine_filled["shard"]) | set(machine_filled["claim"])
     missing = [
         token
         for key in (
-            "shard_keys", "node_keys", "claim_keys", "relation_keys",
+            "shard_keys", "node_keys", "claim_keys",
             "visibility", "truth_status", "coverage_domains",
             "coverage_status", "node_kinds", "relation_kinds",
         )
         for token in contract[key]
-        if token not in text
+        if token not in skip and token not in text
     ]
     assert not missing, (
         f"the instruction fell behind the contract ({missing}); a model that "
         "never sees the vocabulary spends its first rounds guessing it"
+    )
+    assert "不要写 `relations`" in text, (
+        "the instruction must say the machine derives relations; without it "
+        "the model writes them anyway and the saving never lands"
     )

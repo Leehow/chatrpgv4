@@ -36,7 +36,8 @@
 
 信封:`contract_id` 填 `coc.module-graph-shard.v3`,`schema_version` 填 `3`。
 顶层键恰好是这两个加:`module_id`、`section_id`、`source_language`、`aspects`、
-`evidence_span_ids`、`node_refs`、`coverage`、`nodes`、`claims`、`relations`。
+`evidence_span_ids`、`node_refs`、`coverage`、`nodes`、`claims`。
+**不要写 `relations`** —— 机器从你的 claims 逐条投影出来。
 
 - `module_id` / `section_id` / `aspects`:照抄 packet 里的同名字段(骨架的
   `section_id` 是 `skeleton`)。

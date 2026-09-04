@@ -263,7 +263,17 @@ def review(
         }
 
     # Gate one: the contract, and that every cited span exists.
-    assembled = graph.assemble_model_shard(model_output)
+    # The packet's declared default is what the machine fills claims with. A
+    # review re-run over an archived work dir may not have the packet any more;
+    # the contract default stands in, which is what the packet would have said.
+    packet_path = work_dir / "extraction-packet.json"
+    default_visibility = "keeper-only"
+    if packet_path.exists():
+        packet = json.loads(packet_path.read_text("utf-8"))
+        default_visibility = str(packet.get("default_visibility") or default_visibility)
+    assembled = graph.assemble_model_shard(
+        model_output, default_visibility=default_visibility
+    )
     structure = graph.validate_shard(assembled, evidence_catalog=catalog)
     if structure:
         return {
