@@ -34,6 +34,7 @@ def main() -> int:
         )
         return 64
     resumed = False
+    turns = 0
     prompt_log = os.environ.get("FAKE_DEBUG_PROMPT_LOG")
     for raw in sys.stdin:
         command = json.loads(raw)
@@ -89,6 +90,51 @@ def main() -> int:
                     "type": "message_update",
                     "assistantMessageEvent": {"type": "thinking_delta", "delta": "."},
                 })
+                continue
+            turns += 1
+            if mode == "settled-unfinalized":
+                # The Keeper stops talking without ever calling
+                # turn.finalize: the turn is not over, and the lane must
+                # wait out its budget instead of recording the failure at
+                # settle time.
+                tool("coc_rules_settle")
+                emit({
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "stopReason": "stop",
+                        "content": [{"type": "text", "text": "伤口已重新包扎。"}],
+                    },
+                })
+                emit({"type": "agent_end", "willRetry": False})
+                emit({"type": "agent_settled"})
+                continue
+            if mode == "end-session-skips-turn2":
+                if turns == 1:
+                    tool("coc_rules_settle")
+                    tool("coc_state_end_session")
+                    tool("coc_turn_finalize", rendered_text="伤口已重新包扎。")
+                    emit({
+                        "type": "message_end",
+                        "message": {
+                            "role": "assistant",
+                            "stopReason": "stop",
+                            "content": [{"type": "text", "text": "伤口已重新包扎。"}],
+                        },
+                    })
+                else:
+                    # What the ending phase actually produced on
+                    # r73 d-settle2: narration, no finalizable output.
+                    emit({
+                        "type": "message_end",
+                        "message": {
+                            "role": "assistant",
+                            "stopReason": "stop",
+                            "content": [{"type": "text", "text": "第二回合不该发生。"}],
+                        },
+                    })
+                emit({"type": "agent_end", "willRetry": False})
+                emit({"type": "agent_settled"})
                 continue
             tool("coc_rules_settle")
             tool("coc_turn_finalize", rendered_text="伤口已重新包扎。")
