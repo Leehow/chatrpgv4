@@ -7080,6 +7080,31 @@ def _facts_provider_for(
             ]
             if quarries and all(row.get("escaped") or row.get("captured") for row in quarries):
                 pending_kind = "end"
+            else:
+                # A pursuer standing on a live quarry's own location has
+                # caught it: the chase's next act is a conflict, not another
+                # move. The engine's conflict action (coc_chase.py) performs
+                # the grab itself -- its combat_receipt attachment is
+                # optional -- so the receipt-ready fact derives from the same
+                # positional fact that makes the action executable; the gate
+                # was welded shut before (no branch ever produced
+                # `conflict`, receipt-ready hardcoded False) and chase:conflict
+                # could never be offered, let alone settled.
+                pursuers = [
+                    row for row in participants.values()
+                    if row.get("side") == "pursuer"
+                ]
+                live_quarries = [
+                    row for row in quarries
+                    if not row.get("escaped") and not row.get("captured")
+                ]
+                caught = any(
+                    int(pursuer.get("position", -1)) == int(quarry.get("position", -2))
+                    for pursuer in pursuers
+                    for quarry in live_quarries
+                )
+                if caught:
+                    pending_kind = "conflict"
         facts.update({
             "chase.session.active": chase_active,
             "chase.session.inactive": not chase_active,
@@ -7089,7 +7114,7 @@ def _facts_provider_for(
                 and len(chase_start.get("locations") or {}) >= 2
             ),
             "chase.pending.kind": pending_kind,
-            "chase.conflict.receipt-ready": False,
+            "chase.conflict.receipt-ready": pending_kind == "conflict",
         })
         magic = state.get("magic") if isinstance(state.get("magic"), Mapping) else {}
         facts["magic.known_spells"] = [
@@ -8322,7 +8347,15 @@ def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: st
     # 2026-09-02 r36 on chase:move; hazard, barrier and conflict carry the
     # same shape. Same defect as san_before across the sanity decisions.
     declared = _declared_payload_slots(decision_ref)
-    binding: dict[str, Any] = {"actor_id": actor_id, "revision": chase.get("revision")}
+    binding: dict[str, Any] = {"revision": chase.get("revision")}
+    # `actor_id` rides only when the decision declares it: barrier, hazard,
+    # conflict and move do, but chase:end declares only chase-id/decision-id/
+    # outcome/revision -- so the host's own slot validation refused the
+    # settle as `unknown_semantic_input` on a value the Keeper never sent and
+    # the refusal said no change to semantic_inputs clears it (r72-r74,
+    # chase:end x12). Same declared-slot gate as chase_id just below.
+    if "actor_id" in declared:
+        binding["actor_id"] = actor_id
     if "chase_id" in declared:
         binding["chase_id"] = chase.get("chase_id")
     # `move:advance`, not `advance`. The executor holds chase action ids to a
