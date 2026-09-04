@@ -677,12 +677,19 @@ def main(argv: list[str] | None = None) -> int:
         "--max-leaf-pages", type=int, default=4,
         help="pre-split sections past this many pages instead of discovering "
              "the generation ceiling by truncation; 4-page chunks of the "
-             "densest book on record all passed within 3 rounds",
+             "densest book on record all passed within 3 rounds. Do not raise "
+             "this for speed: a reply is about 40k characters whatever it is "
+             "given, so a wider leaf costs the same generation and spreads it "
+             "thinner -- measured node density falls from ~15 per page at two "
+             "pages to ~10 at four and ~5 at nine",
     )
     parser.add_argument(
-        "--workers", type=int, default=4,
+        "--workers", type=int, default=6,
         help="chunks extracted concurrently; each worker holds its own model "
-             "session, so this is bounded by the channel, not by CPU",
+             "session, so this is bounded by the channel, not by CPU. Eight "
+             "concurrent sessions answered with no failures and a 7.6x "
+             "speedup, but on short prompts; six is what a build defaults to "
+             "until that holds for full extractions too",
     )
     parser.add_argument("--only-section")
     parser.add_argument(
@@ -816,17 +823,10 @@ def main(argv: list[str] | None = None) -> int:
 
     def _run(index: int) -> None:
         chunk_id, chunk_start, chunk_end = chunks[index]
-        try:
-            _extract_ranged(
-                bundle, work, args.module_id, chunk_id, chunk_start, chunk_end,
-                ask, args.max_rounds, per_chunk[index], known_nodes=roster,
-            )
-        finally:
-            closer = getattr(ask, "close_sessions", None) or getattr(
-                sys.modules.get(getattr(ask, "__module__", "")), "close_sessions", None
-            )
-            if callable(closer):
-                closer()
+        _extract_ranged(
+            bundle, work, args.module_id, chunk_id, chunk_start, chunk_end,
+            ask, args.max_rounds, per_chunk[index], known_nodes=roster,
+        )
 
     workers = max(1, min(args.workers, len(chunks)))
     if workers == 1 or len(chunks) <= 1:
@@ -842,6 +842,12 @@ def main(argv: list[str] | None = None) -> int:
     # book produce the same receipt.
     for collected in per_chunk:
         results.extend(collected)
+    # Whatever channels the host opened are the host's to close, once, here --
+    # not after each chunk, which would respawn a session for the next one.
+    closer = getattr(sys.modules.get(getattr(ask, "__module__", "")),
+                     "close_sessions", None)
+    if callable(closer):
+        closer()
 
     # Sections that pass the gates are still N graphs until they are merged.
     # A build that stops at N shards has not built anything a campaign can be

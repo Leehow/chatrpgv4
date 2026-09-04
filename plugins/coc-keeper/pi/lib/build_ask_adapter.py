@@ -152,6 +152,9 @@ def _text_of(event: Any) -> str:
 # Measured before adopting: three concurrent sessions answered the same prompt
 # in 5.5/5.2/5.8s with a 5.8s wall clock, against 16.4s run one after another.
 _SESSIONS = threading.local()
+# Every session opened, so a build can end them all at once; thread-local
+# storage alone cannot be walked from outside the thread that filled it.
+_OPEN: list["_Session"] = []
 
 
 def ask(instruction: str, payload: str) -> str:
@@ -162,6 +165,7 @@ def ask(instruction: str, payload: str) -> str:
         if session is None or session.proc.poll() is not None:
             session = _Session()
             _SESSIONS.session = session
+            _OPEN.append(session)
         try:
             return session.ask(message)
         except TransportHang as error:
@@ -181,5 +185,13 @@ def _drop_session() -> None:
 
 
 def close_sessions() -> None:
-    """End this thread's session. A build's workers call it as they retire."""
-    _drop_session()
+    """End every session this process opened. Called once, when a build ends.
+
+    Not per chunk: pool threads are reused, so closing after each one would
+    respawn a session for the next -- which is the cost the long-lived channel
+    exists to avoid.
+    """
+    while _OPEN:
+        session = _OPEN.pop()
+        if session.proc.poll() is None:
+            session.proc.kill()
