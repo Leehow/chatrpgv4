@@ -29,6 +29,7 @@ coc_sanity = _load_sibling("coc_sanity_sanity_execute", "coc_sanity.py")
 _EXTENDED_SANITY_COMMAND_PHASES = {
     "reality_check": "resolve",
     "gain_current_san": "resolve",
+    "plant_delusion": "resolve",
     "insane_insight": "advise",
     "apply_psychoanalysis_treatment": "due-trigger",
     "recover_temporary_insanity": "due-trigger",
@@ -437,6 +438,24 @@ def _tool_sanity_context(ctx: Ctx, args: dict[str, Any]):
                     "state.mark_safe_rest records a safe place"
                 ),
             }
+    insane = isinstance(snapshot, dict) and bool(
+        snapshot.get("temporary_insane") or snapshot.get("indefinite_insane")
+    )
+    bout_active = isinstance(snapshot, dict) and bool(snapshot.get("bout_active"))
+    has_delusion = isinstance(snapshot, dict) and isinstance(
+        snapshot.get("active_delusion"), dict
+    )
+    if insane and not bout_active and not has_delusion:
+        block["delusion_plantable"] = {
+            "operation": "sanity.execute",
+            "command_kind": "plant_delusion",
+            "phase": "resolve",
+            "note": (
+                "the investigator is in the underlying-insanity phase with no "
+                "active delusion; the Keeper may plant one with sanity.execute "
+                "kind plant_delusion"
+            ),
+        }
     return block, [], ["use sanity.execute for full checks, bouts, and their persisted consequences"]
 
 
@@ -598,6 +617,7 @@ def _execute_extended_sanity_command(
         before = int(session.san_current)
         session.gain_san(amount, source=source)
         session.save(ctx.campaign_dir, strict_mirror=True)
+        coc_sanity.consume_sanity_gain_pending(ctx.campaign_dir, investigator_id)
         after = int(session.san_current)
         event = {
             "event_type": "sanity_gain",
@@ -610,6 +630,30 @@ def _execute_extended_sanity_command(
         ctx.log_event({"investigator_id": investigator_id, **event})
         events.append(event)
         result = event
+    elif kind == "plant_delusion":
+        description = str(payload.get("description") or "").strip()
+        if not description:
+            raise ToolError("invalid_param", "description must be non-empty")
+        backstory_field = payload.get("backstory_field")
+        if backstory_field is not None:
+            field = str(backstory_field).strip()
+            backstory_field = field or None
+        session = _load_live_sanity_session(ctx, investigator_id, args)
+        try:
+            delusion = session.plant_delusion(
+                description, backstory_field=backstory_field,
+            )
+        except ValueError as exc:
+            raise ToolError("delusion_not_plantable", str(exc)) from exc
+        session.save(ctx.campaign_dir, strict_mirror=True)
+        event = {
+            "event_type": "delusion_planted",
+            "description": description,
+            "backstory_field": backstory_field,
+        }
+        ctx.log_event({"investigator_id": investigator_id, **event})
+        events.append(event)
+        result = {"delusion": delusion}
     elif kind == "insane_insight":
         session = _load_live_sanity_session(ctx, investigator_id, args)
         if not (session.temporary_insane or session.indefinite_insane):
@@ -669,6 +713,9 @@ def _execute_extended_sanity_command(
             "trigger_id": trigger.get("trigger_id"),
             "dispatch_outcome": matched[0].get("dispatch_outcome"),
         })
+        # Treatment already applies SAN through its due-trigger handler.
+        # Do not also write a gain-current-san receipt: settling that card
+        # would apply the same amount a second time.
 
     data = {
         "schema_version": 1,

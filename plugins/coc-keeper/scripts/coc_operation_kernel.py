@@ -6962,6 +6962,22 @@ def _optional_rules_provider_for(ctx: Ctx, ruleset_id: str):
     return provider
 
 
+def _sanity_gain_pending_receipt(
+    campaign_dir: Path, investigator_id: str,
+) -> Mapping[str, Any] | None:
+    """Live SAN-gain receipt, or None when none is pending."""
+    raw = _read_optional_json(
+        Path(campaign_dir) / "save" / "sanity-gain-pending" / f"{investigator_id}.json",
+        None,
+    )
+    if not isinstance(raw, Mapping):
+        return None
+    san_gain = raw.get("san_gain")
+    if isinstance(san_gain, bool) or not isinstance(san_gain, int) or san_gain <= 0:
+        return None
+    return raw
+
+
 def _facts_provider_for(
     ctx: Ctx,
     investigator_id: str,
@@ -7037,8 +7053,9 @@ def _facts_provider_for(
             "sanity.insane": isinstance(snapshot, Mapping) and bool(
                 snapshot.get("temporary_insane") or snapshot.get("indefinite_insane")
             ),
-            # No canonical pending SAN-gain receipt producer exists yet.
-            "sanity.gain.pending": False,
+            "sanity.gain.pending": _sanity_gain_pending_receipt(
+                ctx.campaign_dir, investigator_id,
+            ) is not None,
         })
         chase = _read_optional_json(ctx.campaign_dir / "save" / "chase.json", None)
         chase_active = isinstance(chase, Mapping) and chase.get("status") == "active"
@@ -8094,6 +8111,15 @@ def _canonical_sanity_binding(
         binding["insanity_state"] = (
             "indefinite" if snapshot.get("indefinite_insane") else "temporary"
         )
+    elif suffix == "gain-current-san":
+        receipt = _sanity_gain_pending_receipt(ctx.campaign_dir, investigator_id)
+        if receipt is None:
+            raise ToolError(
+                "sanity_gain_receipt_unavailable",
+                "gain-current-san requires a canonical host SAN gain receipt",
+            )
+        if "san_gain" in declared:
+            binding["san_gain"] = int(receipt["san_gain"])
     elif suffix in {"apply-treatment", "recover-temporary"}:
         handler = (
             "apply_psychoanalysis_treatment"

@@ -535,3 +535,26 @@ def test_critical_success_on_san_roll_is_best_outcome():
             assert san_roll["san_loss"] == 0
             return
     # If no seed produced roll=1, that's OK — the test is conditional.
+
+
+def test_sanity_gain_pending_receipt_round_trip(tmp_path):
+    path = coc_sanity.write_sanity_gain_pending(
+        tmp_path, "ada", san_gain=3, gain_source="psychoanalysis",
+    )
+    assert path == tmp_path / "save" / "sanity-gain-pending" / "ada.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    assert document == {
+        "schema_version": 1,
+        "investigator_id": "ada",
+        "san_gain": 3,
+        "gain_source": "psychoanalysis",
+    }
+    written = coc_sanity.record_psychoanalysis_gain_pending(
+        tmp_path, "ada", 1, succeeded=True,
+    )
+    assert written == path
+    assert json.loads(path.read_text(encoding="utf-8"))["san_gain"] == 1
+    assert coc_sanity.record_psychoanalysis_gain_pending(tmp_path, "ada", 0) is None
+    coc_sanity.consume_sanity_gain_pending(tmp_path, "ada")
+    assert not path.exists()
+    coc_sanity.consume_sanity_gain_pending(tmp_path, "ada")

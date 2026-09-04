@@ -114,6 +114,86 @@ def legacy_sanity_snapshot_path(campaign_dir: Path) -> Path:
     return Path(campaign_dir) / "save" / "sanity.json"
 
 
+def sanity_gain_pending_path(campaign_dir: Path, investigator_id: str) -> Path:
+    """Host SAN-gain receipt the gain-current-san card is gated on."""
+    investigator_id = str(investigator_id or "")
+    if _STABLE_ID.fullmatch(investigator_id) is None:
+        raise SanityStateIdentityError("investigator_id is not a stable safe id")
+    return Path(campaign_dir) / "save" / "sanity-gain-pending" / f"{investigator_id}.json"
+
+
+def write_sanity_gain_pending(
+    campaign_dir: Path,
+    investigator_id: str,
+    *,
+    san_gain: int,
+    gain_source: str,
+) -> Path:
+    """Persist one canonical pending SAN-gain receipt for this investigator."""
+    if isinstance(san_gain, bool) or not isinstance(san_gain, int) or san_gain <= 0:
+        raise ValueError("san_gain must be a positive integer")
+    source = str(gain_source or "").strip()
+    if not source:
+        raise ValueError("gain_source must be non-empty")
+    path = sanity_gain_pending_path(campaign_dir, investigator_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    coc_fileio.write_json_atomic(
+        path,
+        {
+            "schema_version": 1,
+            "investigator_id": investigator_id,
+            "san_gain": san_gain,
+            "gain_source": source,
+        },
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+    return path
+
+
+def consume_sanity_gain_pending(
+    campaign_dir: Path, investigator_id: str,
+) -> None:
+    """Drop the pending SAN-gain receipt after a successful settle."""
+    try:
+        path = sanity_gain_pending_path(campaign_dir, investigator_id)
+    except SanityStateIdentityError:
+        return
+    path.unlink(missing_ok=True)
+
+
+def record_psychoanalysis_gain_pending(
+    campaign_dir: Path,
+    investigator_id: str,
+    san_recovered: Any,
+    *,
+    succeeded: bool = False,
+) -> Path | None:
+    """Live producer: a successful Psychoanalysis treatment yields a receipt.
+
+    Uses the rulebook recovery amount already computed by the treatment
+    handler. When the caller knows the treatment succeeded but has no
+    positive amount, fall back to 1 rather than inventing a dice table.
+    """
+    if (
+        isinstance(san_recovered, int)
+        and not isinstance(san_recovered, bool)
+        and san_recovered > 0
+    ):
+        amount = san_recovered
+    elif succeeded:
+        amount = 1
+    else:
+        return None
+    return write_sanity_gain_pending(
+        campaign_dir,
+        investigator_id,
+        san_gain=amount,
+        gain_source="psychoanalysis",
+    )
+
+
 def _linked_party_ids(campaign_dir: Path) -> list[str]:
     path = Path(campaign_dir) / "party.json"
     try:
