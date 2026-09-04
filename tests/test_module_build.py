@@ -114,57 +114,50 @@ def _accepting_stub(_work: Path):
     return stub
 
 
-def test_an_oversize_section_is_narrowed_by_bisection(script, tmp_path):
-    results: list[dict] = []
-    build._extract_ranged(
-        tmp_path, tmp_path, "mod", "whole-book", 0, 3,
-        ask=lambda i, p: "{}", max_rounds=3, results=results,
-    )
-    assert [r["section_id"] for r in results] == [
-        "whole-book-p0-0", "whole-book-p1-1",
-        "whole-book-p2-2", "whole-book-p3-3",
-    ]
-    assert all(r["status"] == "accepted" for r in results)
-    # one prepare for the root range, then per bisection level: 1 + 2 + 4
-    assert len(script.calls) == 7
-
-
-def test_a_single_page_that_still_overflows_is_reported_not_hidden(
-    script, tmp_path,
-):
-    script.overflow.add("whole-book")
-    results: list[dict] = []
-    build._extract_ranged(
-        tmp_path, tmp_path, "mod", "whole-book", 0, 0,
-        ask=lambda i, p: "{}", max_rounds=3, results=results,
-    )
-    assert [r["status"] for r in results] == ["output_over_generation_budget"]
-    assert len(script.calls) == 1
-
-
 def test_a_range_that_fits_is_extracted_once(script, tmp_path):
     results: list[dict] = []
     build._extract_ranged(
         tmp_path, tmp_path, "mod", "whole-book", 2, 2,
-        ask=lambda i, p: "{}", max_rounds=3, results=results,
+        read_with_agent=lambda work_dir, brief: None,
+        max_rounds=3, results=results,
     )
     assert [r["section_id"] for r in results] == ["whole-book"]
     assert [r["status"] for r in results] == ["accepted"]
     assert len(script.calls) == 1
 
 
+def test_a_wide_range_is_read_in_one_piece(script, tmp_path):
+    """Bisection is gone with the limit that caused it.
+
+    A section used to be halved whenever one reply could not carry its shard,
+    which is a property of a single assistant message and not of the book. An
+    agent writes the shard to a file over as many turns as it needs, so a wide
+    range is read whole -- and reading it whole is what keeps the scene graph
+    in one piece instead of one fragment per leaf.
+    """
+    results: list[dict] = []
+    build._extract_ranged(
+        tmp_path, tmp_path, "mod", "whole-book", 0, 17,
+        read_with_agent=lambda work_dir, brief: None,
+        max_rounds=3, results=results,
+    )
+    assert [r["section_id"] for r in results] == ["whole-book"]
+    assert len(script.calls) == 1, "the range was split"
+
+
 def test_an_empty_range_is_recorded_but_never_counted(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ):
-    """A bisection that lands on declared bundle holes must not crash the
-    run, and must not inflate either side of the accepted/failed tally."""
+    """A range that lands on declared bundle holes must not crash the run,
+    and must not inflate either side of the accepted/failed tally."""
     monkeypatch.setattr(build.extract, "prepare", lambda *a, **k: {
         "status": "empty", "span_count": 0, "reason": "holes",
     })
     results: list[dict] = []
     build._extract_ranged(
         tmp_path, tmp_path, "mod", "whole-book", 4, 7,
-        ask=lambda i, p: "{}", max_rounds=3, results=results,
+        read_with_agent=lambda work_dir, brief: None,
+        max_rounds=3, results=results,
     )
     assert [r["status"] for r in results] == ["empty"]
 
@@ -201,7 +194,7 @@ def test_opening_sections_without_evidence_decides_nothing():
 
 def _fake_adapter(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     (tmp_path / "fake_adapter.py").write_text(
-        "def ask(instruction, payload):\n    return '{}'\n", encoding="utf-8",
+        'def ask(instruction, payload):\n    return \'{}\'\n\n\ndef read_with_agent(work_dir, brief):\n    """A host that runs no agent; tests stub the reading itself."""\n    return None\n', encoding="utf-8",
     )
     monkeypatch.syspath_prepend(str(tmp_path))
 

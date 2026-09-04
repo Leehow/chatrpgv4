@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from pathlib import Path
 import threading
 import time
 from typing import Any
@@ -195,3 +196,41 @@ def close_sessions() -> None:
         session = _OPEN.pop()
         if session.proc.poll() is None:
             session.proc.kill()
+
+# --- the reading agent -------------------------------------------------------
+#
+# `ask` above stays for the planning step, whose reply is a few hundred bytes
+# and fits one message comfortably. Reading a section does not: the shard runs
+# past a hundred thousand characters, and a single completion tops out near
+# forty-seven thousand. So a section is read by an agent with tools, which
+# opens the packet itself, writes the shard to a file over as many turns as it
+# needs, and runs the gates on itself before handing back.
+#
+# `--approve` grants the tools; it grants no trust. The driver re-runs the same
+# gates over the file the agent left, because an agent reporting a success it
+# did not have is precisely what this pipeline exists to catch.
+
+READ_TOOLS = os.environ.get("COC_BUILD_READ_TOOLS", "read,write,edit,bash")
+READ_TIMEOUT = float(os.environ.get("COC_BUILD_READ_TIMEOUT", "3600"))
+
+
+def read_with_agent(work_dir: "Path", brief: str) -> None:
+    """Run one reading agent over one prepared work dir. Output is on disk."""
+    command = [
+        *_pi_command(), "--mode", "text", "-p", "--no-session",
+        "--no-context-files", "--approve", "--tools", READ_TOOLS,
+        "--model", MODEL, "--thinking", THINKING, brief,
+    ]
+    log = Path(work_dir) / "agent.log"
+    with log.open("w", encoding="utf-8") as handle:
+        completed = subprocess.run(
+            command, stdout=handle, stderr=subprocess.STDOUT,
+            text=True, timeout=READ_TIMEOUT,
+        )
+    if completed.returncode != 0:
+        # Not raised as a failure of the section: the agent may have written a
+        # usable shard before dying, and the gates are what decide. The exit
+        # code is left in the log next to whatever it produced.
+        log.open("a", encoding="utf-8").write(
+            f"\n[adapter] agent exited {completed.returncode}\n"
+        )

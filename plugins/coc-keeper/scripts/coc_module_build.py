@@ -56,9 +56,30 @@ import coc_module_graph_extract as extract  # noqa: E402
 import coc_module_plan as planner  # noqa: E402
 
 
-class Ask(Protocol):
-    """How the host reaches its model. Instruction and payload in, text out."""
+class Reader(Protocol):
+    """How the host runs one reading agent over one prepared work dir.
 
+    The agent is given the directory and a brief; it opens the packet itself,
+    writes `shard.json` there across as many turns as it needs, and runs the
+    review command on itself. It returns nothing: what it did is on disk, and
+    the driver judges that, never the agent's account of it.
+
+    Why an agent and not a completion: a single reply has to fit one assistant
+    message, and on this project's channel that ceiling sits near 47,000
+    characters. Everything the pipeline used to do about it -- four-page
+    leaves, findings ferried in and out, a 70 KB packet pushed through the
+    prompt -- was a patch on that limit. Measured against it: the same book,
+    whole, in one agent session produced a 113,448-character shard, 68% of the
+    section's spans cited, and a scene graph in one connected piece where the
+    chunked pipeline left eight fragments and five scenes nothing could reach.
+    """
+
+    def __call__(self, work_dir: Path, brief: str) -> None: ...
+
+
+# Kept for hosts that still inject a plain completion; the driver no longer
+# uses it. See `Reader` for why.
+class Ask(Protocol):
     def __call__(self, instruction: str, payload: str) -> str: ...
 
 
@@ -182,64 +203,100 @@ def _repair_candidates(body: str) -> list[str]:
 REPAIR_BOUNDARIES = 8
 
 
+SHARD_NAME = "shard.json"
+BRIEF_PATH = _HERE.parent / "pi" / "prompts" / "module-graph-agent-brief.md"
+
+
+def review_command(work_dir: Path) -> str:
+    """The self-check the agent runs on itself, exactly as it must be typed."""
+    script = _HERE / "coc_module_graph_extract.py"
+    return (
+        "PYTHONDONTWRITEBYTECODE=1 uv run --frozen python "
+        f"{script} review --work-dir {work_dir} "
+        f"--model-output {work_dir / SHARD_NAME}"
+    )
+
+
+def build_brief(
+    work_dir: Path,
+    *,
+    instruction_path: Path | None = None,
+    repo_root: Path | None = None,
+) -> str:
+    """The agent's standing orders for one section, with its paths filled in."""
+    template = BRIEF_PATH.read_text(encoding="utf-8")
+    return template.format(
+        work_dir=work_dir,
+        instruction_path=instruction_path or extract.INSTRUCTION_PATH,
+        repo_root=repo_root or _HERE.parents[2],
+        review_command=review_command(work_dir),
+    )
+
+
+def _retry_brief(brief: str, findings: list[dict[str, Any]]) -> str:
+    """The same orders, plus what the machine refused, verbatim.
+
+    Verbatim because a paraphrase is where a loop starts optimising for the
+    paraphrase. The agent has usually seen these already from its own review
+    run; repeating them costs nothing and covers the case where it stopped
+    before the gates were silent.
+    """
+    return brief + (
+        "\n\n## 上一轮机器判定的结果（原样）\n\n"
+        "你上次留下的 shard 没有通过。以下是机器给的 findings，照着改：\n\n"
+        "```json\n" + json.dumps(findings, ensure_ascii=False, indent=2) + "\n```\n"
+    )
+
+
 def extract_section(
     work_dir: Path,
-    ask: Ask,
+    read_with_agent: Reader,
     *,
     max_rounds: int = 3,
     instruction_path: Path | None = None,
+    repo_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Read one prepared section until both gates are silent, or give up."""
-    instruction = (instruction_path or extract.INSTRUCTION_PATH).read_text(
-        encoding="utf-8"
-    )
-    packet = (work_dir / "extraction-packet.json").read_text(encoding="utf-8")
+    """Have an agent read one prepared section, then judge what it wrote.
+
+    The agent reviews itself -- that is most of the speed -- but the driver
+    reviews it again from the file it left behind. An agent that reports
+    success it did not have is exactly the failure this pipeline exists to
+    catch, and the gates cost milliseconds.
+    """
+    brief = build_brief(work_dir, instruction_path=instruction_path,
+                        repo_root=repo_root)
+    shard_path = work_dir / SHARD_NAME
     rounds: list[Round] = []
-    payload = packet
     for attempt in range(1, max_rounds + 1):
-        reply = ask(instruction, payload)
-        parsed, problem = _parse_reply(reply)
-        if parsed is None:
-            truncated = problem == TRUNCATED
-            code = "model_output_truncated" if truncated else "model_output_not_json"
-            finding = {"code": code, "path": "/", "message": problem,
-                       "reply_chars": len(reply)}
+        read_with_agent(work_dir, brief if attempt == 1 else _retry_brief(
+            brief, rounds[-1].findings))
+        if not shard_path.exists():
+            finding = {"code": "agent_wrote_no_shard", "path": "/",
+                       "message": f"the agent left no {SHARD_NAME} in {work_dir}"}
             rounds.append(Round(attempt, "findings", "shape", 1, [finding]))
-            if truncated:
-                # Retrying is not a fix: the ask is larger than one generation
-                # can carry, so every round dies at the same place. Report it
-                # as its own outcome so the caller narrows the section instead
-                # of spending the remaining rounds on an identical failure.
-                return {
-                    "section_id": work_dir.name,
-                    "status": "output_over_generation_budget",
-                    "attempts": attempt,
-                    "rounds": [r.__dict__ for r in rounds],
-                    "findings": [finding],
-                }
-        else:
-            result = extract.review(work_dir, parsed)
-            rounds.append(Round(
-                attempt, result["status"], result.get("gate"),
-                result.get("finding_count", 0), result.get("findings", []),
-            ))
-            if result["status"] == "accepted":
-                return {
-                    "status": "accepted",
-                    "attempts": attempt,
-                    "rounds": [r.__dict__ for r in rounds],
-                    "shard_path": result["shard_path"],
-                    "nodes": result["nodes"],
-                    "claims": result["claims"],
-                    "relations": result["relations"],
-                }
-        # Findings go back verbatim: the model is told what failed, not a
-        # paraphrase of it, because a paraphrase is where a loop starts to
-        # optimise for the paraphrase.
-        payload = json.dumps({
-            "extraction_packet": json.loads(packet),
-            "previous_attempt_findings": rounds[-1].findings,
-        }, ensure_ascii=False)
+            continue
+        try:
+            written = json.loads(shard_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            finding = {"code": "shard_not_json", "path": "/",
+                       "message": f"{SHARD_NAME} does not parse: {error}"}
+            rounds.append(Round(attempt, "findings", "shape", 1, [finding]))
+            continue
+        result = extract.review(work_dir, written)
+        rounds.append(Round(
+            attempt, result["status"], result.get("gate"),
+            result.get("finding_count", 0), result.get("findings", []),
+        ))
+        if result["status"] == "accepted":
+            return {
+                "status": "accepted",
+                "attempts": attempt,
+                "rounds": [r.__dict__ for r in rounds],
+                "shard_path": result["shard_path"],
+                "nodes": result["nodes"],
+                "claims": result["claims"],
+                "relations": result["relations"],
+            }
     return {
         "status": "not_accepted",
         "attempts": len(rounds),
@@ -339,7 +396,7 @@ def skeleton_module(
     work: Path,
     module_id: str,
     plan: dict[str, Any],
-    ask: Ask,
+    read_with_agent: Reader,
     *,
     max_rounds: int = 3,
 ) -> dict[str, Any]:
@@ -369,7 +426,7 @@ def skeleton_module(
     if prepared.get("status") == "empty":
         return {"status": "empty", "pages": pages}
     outcome = extract_section(
-        work / "skeleton", ask, max_rounds=max_rounds,
+        work / "skeleton", read_with_agent, max_rounds=max_rounds,
         instruction_path=SKELETON_INSTRUCTION_PATH,
     )
     result: dict[str, Any] = {
@@ -466,7 +523,7 @@ def _extract_ranged(
     section_id: str,
     pdf_index_start: int,
     pdf_index_end: int,
-    ask: Ask,
+    read_with_agent: Reader,
     max_rounds: int,
     results: list[dict[str, Any]],
     _base_id: str | None = None,
@@ -506,21 +563,9 @@ def _extract_ranged(
             "section_id": section_id, "status": "empty",
         }, ensure_ascii=False), flush=True)
         return
-    outcome = extract_section(work / section_id, ask, max_rounds=max_rounds)
-    if (
-        outcome["status"] == "output_over_generation_budget"
-        and pdf_index_end > pdf_index_start
-    ):
-        mid = (pdf_index_start + pdf_index_end) // 2
-        _extract_ranged(
-            bundle, work, module_id, f"{base_id}-p{pdf_index_start}-{mid}",
-            pdf_index_start, mid, ask, max_rounds, results, base_id,
-        )
-        _extract_ranged(
-            bundle, work, module_id, f"{base_id}-p{mid + 1}-{pdf_index_end}",
-            mid + 1, pdf_index_end, ask, max_rounds, results, base_id,
-        )
-        return
+    outcome = extract_section(
+        work / section_id, read_with_agent, max_rounds=max_rounds,
+    )
     results.append({"section_id": section_id, "spans": prepared["span_count"], **{
         k: v for k, v in outcome.items() if k != "rounds"
     }, "rounds": outcome["rounds"]})
@@ -654,7 +699,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--adapter", required=True,
         help=(
-            "import path of a module exposing `ask(instruction, payload)`. "
+            "import path of a module exposing `read_with_agent(work_dir, brief)` "
+             "and `ask(instruction, payload)` for the planning step. "
             "The product supplies the app's own session; this flag exists so "
             "development can inject a scaffold without the pipeline naming one."
         ),
@@ -674,14 +720,15 @@ def main(argv: list[str] | None = None) -> int:
              "were converging (two leaves needed exactly the 5th)",
     )
     parser.add_argument(
-        "--max-leaf-pages", type=int, default=4,
-        help="pre-split sections past this many pages instead of discovering "
-             "the generation ceiling by truncation; 4-page chunks of the "
-             "densest book on record all passed within 3 rounds. Do not raise "
-             "this for speed: a reply is about 40k characters whatever it is "
-             "given, so a wider leaf costs the same generation and spreads it "
-             "thinner -- measured node density falls from ~15 per page at two "
-             "pages to ~10 at four and ~5 at nine",
+        "--max-leaf-pages", type=int, default=0,
+        help="pre-split sections past this many pages; 0 (the default) does "
+             "not split. Four was the old default, chosen so one reply would "
+             "fit one assistant message -- a limit an agent writing to a file "
+             "does not have. Measured since: an eighteen-page book read whole "
+             "gave a 113k-character shard, 68%% of its spans cited, and one "
+             "connected scene graph, where four-page leaves left eight "
+             "fragments and five scenes nothing could reach. Set it only when "
+             "a section proves too large for one session",
     )
     parser.add_argument(
         "--workers", type=int, default=6,
@@ -720,7 +767,7 @@ def main(argv: list[str] | None = None) -> int:
 
     import importlib
     adapter = importlib.import_module(args.adapter)
-    ask: Ask = adapter.ask
+    read_with_agent: Reader = adapter.read_with_agent
 
     bundle = Path(args.source_bundle)
     work = Path(args.work_dir) if args.work_dir else Path(
@@ -738,7 +785,8 @@ def main(argv: list[str] | None = None) -> int:
             }, ensure_ascii=False, indent=2))
             return 1
     else:
-        planned = plan_module(bundle, ask, budget=args.budget, max_rounds=args.max_rounds)
+        planned = plan_module(bundle, adapter.ask, budget=args.budget,
+                              max_rounds=args.max_rounds)
         (work / "plan.json").write_text(
             json.dumps(planned, ensure_ascii=False, indent=2), encoding="utf-8",
         )
@@ -757,7 +805,7 @@ def main(argv: list[str] | None = None) -> int:
     skeleton_result: dict[str, Any] | None = None
     if not args.no_skeleton and not args.only_section:
         skeleton_result = skeleton_module(
-            bundle, work, args.module_id, planned, ask,
+            bundle, work, args.module_id, planned, read_with_agent,
             max_rounds=args.max_rounds,
         )
         (work / "skeleton").mkdir(parents=True, exist_ok=True)
@@ -800,7 +848,7 @@ def main(argv: list[str] | None = None) -> int:
         # page count already predicts. The narrowing recursion stays as the
         # safety net under each chunk.
         start, end = int(section["pdf_index_start"]), int(section["pdf_index_end"])
-        if end - start + 1 > args.max_leaf_pages:
+        if args.max_leaf_pages and end - start + 1 > args.max_leaf_pages:
             spread = [
                 (chunk_start, min(chunk_start + args.max_leaf_pages - 1, end))
                 for chunk_start in range(start, end + 1, args.max_leaf_pages)
@@ -825,7 +873,8 @@ def main(argv: list[str] | None = None) -> int:
         chunk_id, chunk_start, chunk_end = chunks[index]
         _extract_ranged(
             bundle, work, args.module_id, chunk_id, chunk_start, chunk_end,
-            ask, args.max_rounds, per_chunk[index], known_nodes=roster,
+            read_with_agent, args.max_rounds, per_chunk[index],
+                known_nodes=roster,
         )
 
     workers = max(1, min(args.workers, len(chunks)))
@@ -844,7 +893,7 @@ def main(argv: list[str] | None = None) -> int:
         results.extend(collected)
     # Whatever channels the host opened are the host's to close, once, here --
     # not after each chunk, which would respawn a session for the next one.
-    closer = getattr(sys.modules.get(getattr(ask, "__module__", "")),
+    closer = getattr(sys.modules.get(getattr(read_with_agent, "__module__", "")),
                      "close_sessions", None)
     if callable(closer):
         closer()

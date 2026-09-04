@@ -40,7 +40,7 @@ def _plan(tmp_path: Path, sections) -> Path:
 
 def _adapter(monkeypatch, tmp_path: Path) -> None:
     (tmp_path / "fake_adapter.py").write_text(
-        "def ask(instruction, payload):\n    return '{}'\n", encoding="utf-8")
+        'def ask(instruction, payload):\n    return \'{}\'\n\n\ndef read_with_agent(work_dir, brief):\n    """A host that runs no agent; tests stub the reading itself."""\n    return None\n', encoding="utf-8")
     monkeypatch.syspath_prepend(str(tmp_path))
 
 

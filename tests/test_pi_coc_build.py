@@ -110,7 +110,7 @@ def test_the_driver_defaults_its_work_dir_under_module_builds(
         sys.path.pop(0)
 
     (tmp_path / "fake_adapter.py").write_text(
-        "def ask(instruction, payload):\n    return '{}'\n", encoding="utf-8",
+        'def ask(instruction, payload):\n    return \'{}\'\n\n\ndef read_with_agent(work_dir, brief):\n    """A host that runs no agent; tests stub the reading itself."""\n    return None\n', encoding="utf-8",
     )
     monkeypatch.syspath_prepend(str(tmp_path))
     monkeypatch.chdir(tmp_path)
