@@ -742,6 +742,22 @@ const BUSINESS_PRECONDITION_ACTIONS: Record<string, readonly PiAllowedNextAction
     reason: "journal the settled turn before requesting its output context",
     host_bound: true,
   }],
+  // A due Sanity trigger (treatment or temporary recovery) carries policy
+  // auto_apply_if_safe: the card is applicable the moment the trigger is
+  // due, but settlement refuses `sanity_trigger_deferred` until a canonical
+  // safe place exists. Unmapped, the refusal projected invariant_terminal /
+  // recoverable_by "none" / no next action, and Keepers re-sent the same
+  // settlement into nonretryable_repeat_blocked (runs r59/t-treatment,
+  // r59/t-recover-temp, r61/m2-recover-temp). The gate is right; the way
+  // through it is state.mark_safe_rest, then the same settlement again.
+  sanity_trigger_deferred: [{
+    operation: "state.mark_safe_rest",
+    action: "record_safe_rest_then_settle_again",
+    reason:
+      "record safe rest with state.mark_safe_rest, then settle the same "
+      + "due sanity trigger again",
+    host_bound: true,
+  }],
   turn_pending_finalization: [{
     operation: "turn.output_context",
     action: "resume_pending_settlement",
