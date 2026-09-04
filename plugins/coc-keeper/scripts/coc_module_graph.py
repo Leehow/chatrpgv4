@@ -829,6 +829,16 @@ def assemble_model_shard(
         claim.setdefault("known_by_ids", [])
         claim.setdefault("validity", None)
 
+    # Claim ids are the machine's too, derived from what the claim says. A
+    # reader naming them by hand collides two ways: positionally (`c1` restarts
+    # in every section, 32 false conflicts on record) and semantically -- the
+    # skeleton wrote `claim-elias-present-peru` for "Elias is in the Peru
+    # section" and a deep read wrote the same id for "Elias is in the Peru
+    # prologue scene". Both are true, neither is the other, and one id cannot
+    # hold them. Derived from subject, predicate and object, the same fact read
+    # twice merges and two facts never collide.
+    _rename_claims(assembled)
+
     # Relations are a projection of claims, not a second reading. The contract
     # already requires every relation to restate its claim exactly -- across
     # 966 relations on record, 966 did, and none carried properties of their
@@ -842,6 +852,46 @@ def assemble_model_shard(
             ) if derived is not None
         ]
     return assembled
+
+
+def canonical_claim_id(claim: Any) -> str | None:
+    """The id a claim's own content gives it, or None if it states too little."""
+    if not isinstance(claim, dict):
+        return None
+    subject = claim.get("subject_id")
+    predicate = claim.get("predicate")
+    obj = claim.get("object")
+    target = obj.get("node_id") if isinstance(obj, dict) else None
+    if not all(isinstance(v, str) and v for v in (subject, predicate, target)):
+        return None
+    stem = f"claim-{subject}-{predicate}-{target}"
+    if len(stem) <= 160:
+        return stem
+    # Long ids still have to be stable and unique; a digest of the same three
+    # fields keeps both properties when the readable form will not fit.
+    digest = hashlib.sha256(stem.encode("utf-8")).hexdigest()[:16]
+    return f"claim-{subject[:60]}-{digest}"
+
+
+def _rename_claims(assembled: dict[str, Any]) -> None:
+    """Give every claim the id its content implies, and follow the references."""
+    claims = assembled.get("claims")
+    if not isinstance(claims, list):
+        return
+    renamed: dict[str, str] = {}
+    for claim in claims:
+        if not isinstance(claim, dict):
+            continue
+        canonical = canonical_claim_id(claim)
+        if canonical is None:
+            continue
+        authored = claim.get("claim_id")
+        if isinstance(authored, str) and authored != canonical:
+            renamed[authored] = canonical
+        claim["claim_id"] = canonical
+    for relation in assembled.get("relations") or []:
+        if isinstance(relation, dict) and relation.get("claim_id") in renamed:
+            relation["claim_id"] = renamed[relation["claim_id"]]
 
 
 def _relation_from_claim(claim: Any) -> dict[str, Any] | None:
@@ -1586,14 +1636,34 @@ def _merge_evidenced_record(
     record_kind: str,
     record_id: str,
 ) -> dict[str, Any]:
-    evidence_keys = {"source_refs", "evidence_span_ids"}
-    left = {key: value for key, value in existing.items() if key not in evidence_keys}
-    right = {key: value for key, value in proposed.items() if key not in evidence_keys}
+    # Compared on meaning, not on wording. Two sections stating the same fact
+    # will annotate it differently -- `reason` is the reader's own prose, and
+    # `summary` and `aliases` are description rather than assertion -- and
+    # refusing on that reads "same id has different meaning" when nothing about
+    # the meaning differs. One such pair (a module containing a section, with
+    # identical subject, predicate, object, truth status and evidence spans,
+    # annotated once as "书结构列出该核心/附属分节。" and once as "书结构列出
+    # Introduction 章。") refused a whole book.
+    annotation_keys = {"reason", "summary", "aliases", "confidence", "properties"}
+    ignored = {"source_refs", "evidence_span_ids"} | annotation_keys
+    left = {key: value for key, value in existing.items() if key not in ignored}
+    right = {key: value for key, value in proposed.items() if key not in ignored}
     if left != right:
-        raise ModuleGraphError(
-            [_finding(f"{record_kind}_conflict", f"/{record_kind}s/{record_id}", "same id has different meaning")]
+        differing = sorted(
+            key for key in set(left) | set(right)
+            if left.get(key) != right.get(key)
         )
+        raise ModuleGraphError([_finding(
+            f"{record_kind}_conflict", f"/{record_kind}s/{record_id}",
+            "same id, different meaning: " + ", ".join(differing),
+        )])
     merged = copy.deepcopy(existing)
+    # Annotations are kept, not merged: the first reading's wording stands, and
+    # anything the second saw that the first did not is picked up below through
+    # evidence. A confidence actually stated beats one left out.
+    for key in annotation_keys:
+        if merged.get(key) in (None, "", [], {}) and proposed.get(key) not in (None, "", [], {}):
+            merged[key] = copy.deepcopy(proposed[key])
     if "source_refs" in existing or "source_refs" in proposed:
         merged["source_refs"] = _merge_source_refs(
             existing.get("source_refs") or [], proposed.get("source_refs") or []
