@@ -757,3 +757,113 @@ def test_a_rulebook_spell_the_module_annotates_still_casts_from_its_own_row(
     # The losing node is reported for what it is rather than dropped.
     assert spell["module_authored"]["authority"] == "module_annotation"
     assert spell["module_authored"]["node_id"] == "spell-flesh-ward"
+
+
+# --------------------------------------------------------------------------- #
+# rules.context(family=magic): the surface the Keeper reads to reach learn/cast
+# --------------------------------------------------------------------------- #
+def _magic_context_envelope(ws) -> dict:
+    envelope = _run(ws, "rules.context", {
+        "family": "magic",
+        "investigator": ws["investigator_id"],
+    })
+    assert envelope["ok"] is True, envelope
+    return envelope
+
+
+def test_magic_context_reports_studying_spells_with_due_semantics(campaign_ws):
+    """A spell mid-study is machinery, not silence.
+
+    Live lanes read an empty known_spells table and turned away: the seed
+    had landed the spell in its study period, and the context reported
+    nothing of it. The report carries the fields the study write persisted
+    -- never a retelling -- and the teacher appointed for the campaign is
+    visible as a source even while he is a scene away.
+    """
+    _appoint_teacher(campaign_ws, "npc-walter-corbitt", "person", [SPELL])
+    settled = _run(campaign_ws, "magic.learn", {
+        "spell": SPELL,
+        "source": "person",
+        "decision_id": "magic-learn:person:context-report",
+        "seed": _learning_seed(70, succeeds=True),
+    })
+    assert settled["ok"] is True, settled
+    result = settled["data"]["receipt"]["result"]
+    assert result["learned"] is True
+
+    envelope = _magic_context_envelope(campaign_ws)
+    context = envelope["data"]["canonical_context"]
+    assert context["known_spells"] == []
+    studying = context["studying_spells"]
+    assert [row["spell"] for row in studying] == [SPELL]
+    row = studying[0]
+    assert row["source"] == "person"
+    assert row["study_days"] == result["study_days"]
+    assert row["study_weeks"] == result["study_weeks"]
+    assert row["due_elapsed_minutes"] == result[
+        "study_completion_elapsed_minutes"
+    ]
+    # The learning block is still part of the report even while the one
+    # teacher is not in the active scene: absent, not invisible.
+    assert context["learning"]["sources"] == []
+    assert context["learning"]["not_present"] == 1
+    # Empty known + empty on-scene sources + a study in progress: the
+    # response says what to read and where it leads. The hint rides where
+    # the sanity family's context hint rides -- on the canonical result
+    # the wire hands over as `data`.
+    assert context["guidance"] in envelope["data"]["hints"]
+    assert "rules.settle" in context["guidance"]
+
+
+def test_magic_context_guidance_appears_on_an_empty_surface_with_sources(
+    campaign_ws,
+):
+    """The empty table that is not a blank one names its own next step."""
+    _appoint_teacher(campaign_ws, "npc-walter-corbitt", "person", [SPELL])
+
+    envelope = _magic_context_envelope(campaign_ws)
+    context = envelope["data"]["canonical_context"]
+    assert context["known_spells"] == []
+    assert context["studying_spells"] == []
+    assert context["learning"]["sources"] == []
+    assert context["learning"]["not_present"] == 1
+
+    guidance = context["guidance"]
+    assert "source_ref" in guidance and "rules.settle" in guidance
+    assert guidance in envelope["data"]["hints"]
+
+    # And it survives the wire: a field the runtime computes and the
+    # projection drops would be invisible to the Keeper who has to act on it.
+    view = _projected("rules.context", envelope)
+    assert view["data"]["canonical_context"]["guidance"] == guidance
+
+
+def test_magic_context_stays_silent_without_learning_sources(campaign_ws):
+    """No sources and no study: an empty table really is blank."""
+    envelope = _magic_context_envelope(campaign_ws)
+    context = envelope["data"]["canonical_context"]
+    assert context["known_spells"] == []
+    assert context["studying_spells"] == []
+    assert context["learning"] == {"sources": []}
+    assert "guidance" not in context
+    assert not [
+        hint for hint in envelope["data"].get("hints") or []
+        if "rules.settle" in hint
+    ]
+
+
+def test_magic_context_shows_a_present_teacher_without_the_empty_surface_hint(
+    campaign_ws,
+):
+    """A teacher in the scene is a working block, not an empty surface."""
+    _appoint_teacher(campaign_ws, "npc-steven-knott", "person", [SPELL])
+
+    envelope = _magic_context_envelope(campaign_ws)
+    context = envelope["data"]["canonical_context"]
+    sources = context["learning"]["sources"]
+    assert [row["source_ref"] for row in sources] == ["person:npc-steven-knott"]
+    assert sources[0]["spells"] == [SPELL]
+    # The non-empty block carries its own copy-verbatim note, so the
+    # empty-surface guidance has nothing to add.
+    assert "note" in context["learning"]
+    assert "guidance" not in context
