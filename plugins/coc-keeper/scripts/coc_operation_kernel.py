@@ -9008,19 +9008,62 @@ def _magic_learning_block(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
     return block
 
 
-def _tool_magic_context(ctx: Ctx, args: dict[str, Any]):
-    """`rules.context` family=magic: what the investigator knows, and who can teach.
+#: The empty surface names its own next step. `_LEARNING_NOTE` rides inside a
+#: non-empty learning block, so a Keeper staring at an empty one — the spell
+#: still in its 2D6-week study period, or the teacher a scene away — gets no
+#: next step from the block itself. Delivery follows the note's: Pi authors
+#: the model's hints from structured fields and relays no canonical hint
+#: prose, so the same words also ride INSIDE canonical_context; the hint
+#: carries them for the surfaces that do relay hints.
+_MAGIC_EMPTY_SURFACE_GUIDANCE = (
+    "known_spells and learning.sources are empty, but spell learning sources "
+    "or a study in progress exist: read learning, known_spells and "
+    "studying_spells in this response, then settle learn or cast through "
+    "rules.settle using the exact spell names and source_ref listed there"
+)
 
-    Both halves gate a card the Keeper otherwise cannot reach.
+
+def _studying_spell_rows(magic: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Spells mid-study, with the due semantics the study write persisted.
+
+    A tome takes 2D6 weeks and a teacher 1D8 days (pp.176-177); the clock's
+    ``grant_learned_spell`` trigger, not this block, moves the spell onto
+    ``learned_spells``. The rows carry the fields the study write owns —
+    ``due_elapsed_minutes`` is the game-time span that completes the study —
+    so the Keeper can say when the spell becomes castable without inventing
+    a timeline.
+    """
+    rows: list[dict[str, Any]] = []
+    studying = magic.get("studying_spells")
+    for row in studying if isinstance(studying, list) else []:
+        if not isinstance(row, Mapping) or not str(row.get("spell") or "").strip():
+            continue
+        rows.append({
+            "spell": str(row.get("spell")),
+            "source": str(row.get("source") or ""),
+            "study_weeks": int(row.get("study_weeks") or 0),
+            "study_days": int(row.get("study_days") or 0),
+            "due_elapsed_minutes": row.get("due_elapsed_minutes"),
+        })
+    return rows
+
+
+def _tool_magic_context(ctx: Ctx, args: dict[str, Any]):
+    """`rules.context` family=magic: what the investigator knows, is studying, and who can teach.
+
+    All three gate a card the Keeper otherwise cannot reach.
     `magic.spell.known` gates `cast-spell` and `magic.learn.source-available`
     gates `learn-spell`, and both are derived from `semantic_inputs` the
-    Keeper has to name before it is shown anything to name.
+    Keeper has to name before it is shown anything to name. A spell still in
+    its study period sits on `studying_spells`, invisible to `known_spells`,
+    which is exactly the empty table live Keepers kept reading.
     """
     investigator_id = str((args or {}).get("investigator") or "").strip()
     if not investigator_id:
         party = ctx.party_ids()
         investigator_id = party[0] if party else ""
     known: list[str] = []
+    studying: list[dict[str, Any]] = []
     if investigator_id:
         state = ctx.inv_state(investigator_id)
         magic = state.get("magic") if isinstance(state.get("magic"), Mapping) else {}
@@ -9028,11 +9071,25 @@ def _tool_magic_context(ctx: Ctx, args: dict[str, Any]):
             str(value) for value in (magic.get("learned_spells") or [])
             if isinstance(value, str) and value.strip()
         ]
-    return (
-        {"known_spells": known, "learning": _magic_learning_block(ctx, investigator_id)},
-        [],
-        [],
-    )
+        studying = _studying_spell_rows(magic)
+    learning = _magic_learning_block(ctx, investigator_id)
+    context: dict[str, Any] = {
+        "known_spells": known,
+        "studying_spells": studying,
+        "learning": learning,
+    }
+    hints: list[str] = []
+    if (
+        not known
+        and not learning.get("sources")
+        and (_magic_learning_sources(ctx) or studying)
+    ):
+        # An empty surface that is not a blank one: the spell is mid-study
+        # or a teacher is one scene away. State what the response already
+        # carries and where it leads; advisory, no new gate.
+        context["guidance"] = _MAGIC_EMPTY_SURFACE_GUIDANCE
+        hints.append(_MAGIC_EMPTY_SURFACE_GUIDANCE)
+    return context, [], hints
 
 
 register_context_enricher("magic", _tool_magic_context)

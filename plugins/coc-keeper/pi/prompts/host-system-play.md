@@ -316,6 +316,11 @@ visible `coc_session_resume` tool, then call visible
   The consumer (`state.item_grant`, the combat attack card's `weapon_ref`,
   spell/creature lookup) then validates that id. Never dump catalog rows (`secret:true` or otherwise)
   to the player.
+- Magic learning sources and the spells an investigator knows or is studying
+  are visible through `rules.context` (family `magic`): its
+  `canonical_context` lists `known_spells`, `studying_spells` and
+  `learning.sources` with the exact spell names and `source_ref` the learn
+  and cast settlements ask for.
 - Item handoff is not real until `state.item_grant` writes. When the player
   explicitly accepts, draws, or is issued gear/weapons/consumables, call
   `coc_state_item_grant` **before prose** that treats ownership as true.
