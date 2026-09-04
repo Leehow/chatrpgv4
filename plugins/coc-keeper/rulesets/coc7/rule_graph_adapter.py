@@ -28,6 +28,21 @@ import coc_rules_runtime as _generic_runtime
 FamilyOwnershipMismatch = _generic_runtime.FamilyOwnershipMismatch
 
 
+def _chase_command_phase(kind: str) -> str:
+    """Executor phase for a chase command kind.
+
+    Live diagnostic lanes offered ``chase:end`` and then died on
+    ``invalid_command_phase: chase_end requires phase 'end'`` because this
+    adapter emitted ``resolve`` for every chase kind except start. The
+    subsystem executor's ``EXPECTED_PHASE`` already names ``end``.
+    """
+    if kind == "chase_start":
+        return "start"
+    if kind == "chase_end":
+        return "end"
+    return "resolve"
+
+
 def _freeze(value: Any) -> Any:
     if isinstance(value, Mapping):
         return MappingProxyType({
@@ -1524,7 +1539,12 @@ class Coc7RuleGraphAdapter:
             command_payload = {"decision_id": str(args["decision_id"])}
             for key in ("chase_id", "participants", "locations", "actor_id", "action_id", "choice_id", "skill", "target", "difficulty", "roll_id", "revision", "target_actor_id", "combat_command_id", "outcome", "method"):
                 if payload.get(key) is not None: command_payload[key] = _thaw(payload[key])
-            out["command"] = {"command_id": command_id, "kind": kind, "phase": "start" if kind == "chase_start" else "resolve", "payload": command_payload}
+            out["command"] = {
+                "command_id": command_id,
+                "kind": kind,
+                "phase": _chase_command_phase(kind),
+                "payload": command_payload,
+            }
         else:
             raise tool_error(
                 "unsupported_ruleset_operation",

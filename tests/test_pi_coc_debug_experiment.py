@@ -2556,6 +2556,9 @@ def test_host_seeds_a_live_chase_with_conflict_pending(tmp_path: Path):
         "pending": "conflict",
     })
     assert applied[0]["operation"] == "host.seed_chase"
+    genesis = campaign / "logs" / "chase-genesis.jsonl"
+    assert genesis.is_file(), "chase seed must write canonical genesis evidence"
+    assert genesis.read_text(encoding="utf-8").strip()
     snap = json.loads((campaign / "save" / "chase.json").read_text(encoding="utf-8"))
     assert snap["status"] == "active"
     by_id = {row["actor_id"]: row for row in snap["participants"]}
@@ -2570,6 +2573,7 @@ def test_host_seeds_a_chase_ready_to_end(tmp_path: Path):
         "npc_id": "npc-walter-corbitt",
         "pending": "end",
     })
+    assert (campaign / "logs" / "chase-genesis.jsonl").is_file()
     snap = json.loads((campaign / "save" / "chase.json").read_text(encoding="utf-8"))
     by_id = {row["actor_id"]: row for row in snap["participants"]}
     quarry = next(row for row in by_id.values() if row["side"] == "quarry")
@@ -2604,3 +2608,45 @@ def test_combat_seed_fails_closed_without_npc_mechanics(tmp_path: Path):
     with pytest.raises(module.DebugExperimentError) as refused:
         module._seed_combat(campaign, {"npc_id": "npc-steven-knott"})
     assert refused.value.code == "situation_npc_mechanics_unavailable"
+
+
+def test_seeded_turn_note_names_live_combat_and_chase():
+    module = _module()
+    combat = module._situation_turn_note({
+        "combat": {"npc_id": "npc-walter-corbitt"},
+    })
+    assert "decision:coc7:combat:flee" in combat
+    chase = module._situation_turn_note({
+        "chase": {"npc_id": "npc-walter-corbitt", "pending": "end"},
+    })
+    assert "chase.start" in chase or "do not chase.start" in chase
+
+
+def test_chase_end_adapter_emits_executor_phase_end():
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "coc-keeper" / "scripts"))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "coc-keeper" / "rulesets" / "coc7"))
+    import rule_graph_adapter
+    assert rule_graph_adapter._chase_command_phase("chase_start") == "start"
+    assert rule_graph_adapter._chase_command_phase("chase_end") == "end"
+    assert rule_graph_adapter._chase_command_phase("chase_barrier") == "resolve"
+    out = rule_graph_adapter.Coc7RuleGraphAdapter.executor_args(
+        ctx=None,
+        plan={
+            "capability": {"resolver_capability": "chase.execute"},
+            "decision_ref": "decision:coc7:chase:end",
+            "command": {"payload": {
+                "outcome": "escaped", "chase_id": "debug-seed-chase",
+                "revision": 1,
+            }},
+        },
+        selected={
+            "decision_ref": "decision:coc7:chase:end",
+            "semantic_inputs": {"outcome": "escaped"},
+        },
+        args={"decision_id": "chase-end-phase", "investigator": "thomas-hayes"},
+        resolve_investigator=lambda _ctx, _args: "thomas-hayes",
+        tool_error=lambda *a, **k: RuntimeError(a),
+    )
+    assert out["command"]["kind"] == "chase_end"
+    assert out["command"]["phase"] == "end"

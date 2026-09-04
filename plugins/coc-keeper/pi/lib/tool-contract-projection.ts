@@ -4247,9 +4247,13 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       // rides inside the ending capsule's development-inputs ledger.
       "campaign_id", "scene_id", "scenario_id",
     ],
-    // Ending-capsule and deterministic-plan content hashes: integrity
-    // evidence the host verifies against the ledger, never model content.
-    ["request_digest", "capsule_sha256", "plan_sha256"],
+    // Ending-capsule, deterministic-plan, and luck-spend source-receipt
+    // content hashes: integrity evidence the host verifies against the
+    // ledger, never model content. Undeclared, a settled luck-spend
+    // collapsed the whole envelope to semantic_identity_unavailable on
+    // settlement.result.luck_spend.source_receipt.integrity_digest
+    // (debug-gate9-depth-10-r76 lane luck5).
+    ["request_digest", "capsule_sha256", "plan_sha256", "integrity_digest"],
     // A sanity settlement now returns the executor's own envelope --
     // `results[].events[]` -- rather than the advisory surface's flat view,
     // so the bout and event ids sit one level deeper than the shape fb98f0ac

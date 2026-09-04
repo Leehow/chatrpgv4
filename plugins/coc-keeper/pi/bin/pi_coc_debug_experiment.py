@@ -32,6 +32,7 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
 import coc_chase  # noqa: E402
+import coc_subsystem_executor  # noqa: E402
 import coc_combat  # noqa: E402
 import coc_git_history  # noqa: E402
 import coc_npc_identity  # noqa: E402
@@ -145,6 +146,14 @@ _SITUATION_SEEDED_TURN_NOTE = (
     "pre-established a situation through canonical state operations (scene, NPC "
     "presence, clues, flags). Re-read scene.context before adjudicating the "
     "player's message below, and do not treat its situation as an unearned claim."
+)
+_SITUATION_COMBAT_TURN_NOTE = (
+    " Combat is already active on the investigator's turn. Flight from that "
+    "fight is decision:coc7:combat:flee; do not chase.start."
+)
+_SITUATION_CHASE_TURN_NOTE = (
+    " A chase is already active. Settle the pending chase card the chase "
+    "family offers; do not chase.start."
 )
 _PROFILE_IDS = frozenset({
     "production",
@@ -953,36 +962,86 @@ def _seed_chase(
     scene_id = _active_scene_id(campaign_dir)
     locations = _chase_location_chain(campaign_dir, scene_id)
     placement = _place_chase_pending(locations, pending)
-    session = coc_chase.ChaseSession("debug-seed-chase", rng=random.Random(0))
     inv_side = role
     npc_side = "pursuer" if role == "quarry" else "quarry"
-    derived = profile.get("derived") if isinstance(profile.get("derived"), dict) else {}
-    session.add_participant(
-        investigator_id, inv_side,
-        mov=int(inv.get("mov") or 8),
-        dex=int(inv["dex"]),
-        con=int(inv["con"]),
-        hp=int(inv["hp_current"]),
-        fight=int(inv["combat_skill"]),
-        dodge=int(inv["dodge_skill"]),
-        current_position=int(
+    inv_hp = int(state.get("current_hp", inv["hp_current"]))
+    inv_conditions = list(state.get("conditions") or [])
+    inv_row = {
+        "actor_id": investigator_id,
+        "side": inv_side,
+        "mov": int(inv.get("mov") or 8),
+        "dex": int(inv["dex"]),
+        "con": int(inv["con"]),
+        "hp": inv_hp,
+        "fight": int(inv["combat_skill"]),
+        "dodge": int(inv["dodge_skill"]),
+        "build": int(inv.get("build") or 0),
+        "current_position": int(
             placement["quarry"] if inv_side == "quarry" else placement["pursuer"]
         ),
-    )
-    session.add_participant(
-        npc_id, npc_side,
-        mov=int(derived.get("MOV", 8)),
-        dex=int(npc["dex"]),
-        con=int(npc["con"]),
-        hp=int(npc["hp_current"]),
-        fight=int(npc["combat_skill"]),
-        dodge=int(npc["dodge_skill"]),
-        current_position=int(
+        "conditions": inv_conditions,
+    }
+    npc_row = {
+        "actor_id": npc_id,
+        "side": npc_side,
+        "mov": int(npc.get("mov") or 8),
+        "dex": int(npc["dex"]),
+        "con": int(npc["con"]),
+        "hp": int(npc["hp_current"]),
+        "fight": int(npc["combat_skill"]),
+        "dodge": int(npc["dodge_skill"]),
+        "build": int(npc.get("build") or 0),
+        "current_position": int(
             placement["quarry"] if npc_side == "quarry" else placement["pursuer"]
         ),
+        "conditions": [],
+    }
+    chain = []
+    for row in locations:
+        chain.append({
+            "label": row["label"],
+            "hazard": row.get("hazard"),
+            "barrier": row.get("barrier"),
+        })
+    (campaign_dir / "logs").mkdir(parents=True, exist_ok=True)
+    command = {
+        "command_id": "debug-seed-chase-start",
+        "kind": "chase_start",
+        "phase": "start",
+        "payload": {
+            "decision_id": "debug-seed-chase-start",
+            "chase_id": "debug-seed-chase",
+            "participants": [inv_row, npc_row],
+            "locations": chain,
+        },
+    }
+    sheet_path = (
+        campaign_dir / "investigators" / investigator_id / "character.json"
     )
-    session.set_location_chain(locations)
-    session.begin_round()
+    try:
+        coc_subsystem_executor.execute_commands(
+            campaign_dir, sheet_path, investigator_id, [command],
+            rng=random.Random(0),
+            character_snapshot=sheet,
+        )
+    except coc_subsystem_executor.SubsystemExecutorError as exc:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"canonical chase start refused: {exc}",
+        ) from exc
+    ledger = campaign_dir / "logs" / "chase-genesis.jsonl"
+    try:
+        evidence = json.loads(ledger.read_text(encoding="utf-8").splitlines()[-1])
+    except (OSError, UnicodeError, json.JSONDecodeError, IndexError) as exc:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            "canonical chase start wrote no genesis evidence",
+        ) from exc
+    session = coc_chase.ChaseSession.load(
+        campaign_dir / "save" / "chase.json",
+        rng=random.Random(0),
+        genesis_evidence=evidence,
+    )
     if placement.get("escaped"):
         quarry_id = investigator_id if inv_side == "quarry" else npc_id
         session.participants[quarry_id]["escaped"] = True
@@ -1980,6 +2039,15 @@ def _requested_situation(lane: dict[str, Any]) -> dict[str, Any]:
         return {"shape": None}
     requested = {key: value for key, value in situation.items() if key != "shape"}
     return {"shape": situation["shape"], **({"requested": requested} if requested else {})}
+
+
+def _situation_turn_note(situation: dict[str, Any]) -> str:
+    note = _SITUATION_SEEDED_TURN_NOTE
+    if situation.get("combat"):
+        note += _SITUATION_COMBAT_TURN_NOTE
+    if situation.get("chase"):
+        note += _SITUATION_CHASE_TURN_NOTE
+    return note
 
 
 def _budget_accounting(started: float) -> dict[str, Any]:
@@ -2998,7 +3066,9 @@ class PiRpcLaneAdapter:
         if situation_shape == "prompt":
             situation_evidence["instruction"] = _SITUATION_PROMPT_INSTRUCTION
         elif situation_shape == "structural":
-            situation_evidence["instruction"] = _SITUATION_SEEDED_TURN_NOTE
+            situation_evidence["instruction"] = _situation_turn_note(
+                lane.get("situation") or {},
+            )
             situation_evidence["applied"] = []
             situation_evidence["seeded"] = False
         turn_instruction = situation_evidence.get("instruction")
