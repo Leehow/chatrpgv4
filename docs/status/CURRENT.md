@@ -1,6 +1,6 @@
 # COC Keeper Current Status
 
-**Last updated:** 2026-09-02 (chase settled live)
+**Last updated:** 2026-09-04 (rule-graph settle union 41/43)
 
 **Current manifest version:** `0.4.0-alpha.0`
 
@@ -37,7 +37,7 @@
 
 ## Pi-Coc RuleGraph cutover (`ACTIVE_IMPLEMENTATION_TRACK=pi-coc`)
 
-Integration branch `0.8.1a` at `c07f6ad5` (the family-projector lane
+Integration branch `0.8.1a` (the family-projector lane
 `claude/pi-coc-family-projectors-20260831` is merged and kept in sync). Note that `0.8.1a` is a branch name; the plugin
 manifest version above is unchanged and remains authoritative.
 
@@ -56,8 +56,8 @@ injected trigger, or legacy operation (spec §14 Gate 9):
 | Development, Social | passed Gate 9 |
 | Core-check | settled naturally, but predates the corrected bundled-Pi launcher |
 | Push/Luck, Psychology, Sanity, Combat, Healing | settled live after the delivery fixes (16 KB wire overflow, dropped `semantic_inputs`, chase/combat NPC mechanics); recorded in `tests/fixtures/rules-settle-recorded/` (55 payloads, 8 families) and replayed by `tests/pi/rules-settle-recorded-projection.mjs` |
-| Chase | **settled live 2026-09-02** — `decision:coc7:chase:start`, recorded in the corpus; see below for the six doors it took |
-| Magic | **no recorded settlement** — a tome spell-inventory content gap |
+| Chase | **settled live 2026-09-02** — `decision:coc7:chase:start`, recorded in the corpus; see below for the six doors it took. Diagnostic union through r87 also has `chase:conflict` / `end` / `barrier` / `hazard` / `move`. |
+| Magic | Diagnostic union through r87 has Keeper-visible `learn-spell` and `cast-spell` settles. This is **not** spec §14 Gate 9 (seeded diagnostic lanes, not a fresh unseeded table). |
 
 **Chase settled, and what it took.** The `combat:flee → chase:start`
 continuation (132fb7c3) was necessary and not sufficient. Five more doors

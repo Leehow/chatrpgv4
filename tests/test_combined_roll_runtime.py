@@ -37,6 +37,17 @@ def _combined_args(ws, decision_id: str, **overrides):
     return args
 
 
+def test_combined_roll_does_not_require_ordinary_check_difficulty_basis(
+    campaign_ws,
+):
+    """r85 cmb5: combined-check does not declare difficulty_basis."""
+    args = _combined_args(campaign_ws, "combined-no-basis")
+    args.pop("difficulty_basis")
+    result = _run(campaign_ws, "rules.roll", args)
+    assert result["ok"] is True, result
+    assert result["data"].get("kind") == "combined_skill_check"
+
+
 def test_combined_roll_uses_one_die_projects_each_target_and_replays(
     campaign_ws,
 ):

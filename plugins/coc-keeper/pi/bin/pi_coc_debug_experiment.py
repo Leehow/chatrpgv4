@@ -3106,9 +3106,23 @@ class PiRpcLaneAdapter:
 
         shutil.copytree(source, target, ignore=ignored, symlinks=False)
         os.chmod(target, 0o700)
+        # OAuth refresh writes the rotated token into this home. Copying
+        # auth.json meant a successful lane burned the source refresh token:
+        # r79 rotated inside the copy, rmtree dropped it, r80+ died
+        # invalid_grant. Bind the live credential file so refresh lands
+        # on the source home the operator actually logs into.
+        source_auth = source / "auth.json"
         auth = target / "auth.json"
-        if auth.exists():
-            os.chmod(auth, 0o600)
+        if source_auth.exists():
+            real_auth = source_auth.resolve()
+            if not real_auth.is_file():
+                raise DebugExperimentError(
+                    "rpc_spawn_failed", "source Pi home auth.json is not a file",
+                )
+            if auth.exists() or auth.is_symlink():
+                auth.unlink()
+            os.symlink(real_auth, auth)
+            os.chmod(real_auth, 0o600)
         return target
 
     @staticmethod
@@ -3193,14 +3207,6 @@ class PiRpcLaneAdapter:
         chase_features = situation.get("chase_features") or []
         if chase_features:
             applied.extend(_seed_chase_features(campaign_dir(), chase_features))
-        # Insanity (then delusion) before time/rest toolbox writes, so a due
-        # recovery or psychoanalysis trigger can fire against an investigator
-        # who is already insane. Seeding them after advance_time left the
-        # clock with nothing to act on.
-        if situation.get("insanity"):
-            applied.extend(_seed_insanity(campaign_dir(), situation["insanity"]))
-        if situation.get("delusion"):
-            applied.extend(_seed_delusion(campaign_dir(), situation["delusion"]))
         for step in _situation_operations(lane, campaign_id):
             if cancelled():
                 return applied, "cancelled"
@@ -3263,6 +3269,14 @@ class PiRpcLaneAdapter:
             applied.append(row)
             if not row["ok"]:
                 return applied, "situation_seed_failed"
+        # After scene/NPC toolbox writes: those call process_due_triggers.
+        # Seeding a due Sanity trigger before them let a library scene-change
+        # eat apply-treatment (r85 s-treat6). Rest/advance are still omitted
+        # when insanity is set, so the Keeper can settle the card.
+        if situation.get("insanity"):
+            applied.extend(_seed_insanity(campaign_dir(), situation["insanity"]))
+        if situation.get("delusion"):
+            applied.extend(_seed_delusion(campaign_dir(), situation["delusion"]))
         # Combat and chase need the scene/NPC/items the toolbox just wrote.
         if situation.get("spells") and not situation.get("spell_teachers"):
             applied.extend(_seed_known_spells(

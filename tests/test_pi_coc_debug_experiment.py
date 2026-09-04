@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import sys
 import threading
 import time
@@ -946,6 +947,36 @@ def test_rpc_lane_rejects_directory_symlinks_inside_the_source_pi_home(
         )
     assert exc.value.code == "rpc_spawn_failed"
     assert not (tmp_path / "private").exists()
+
+
+def test_private_home_binds_auth_json_so_oauth_refresh_cannot_burn_the_source(
+    tmp_path: Path,
+) -> None:
+    """A copied auth.json is how r79's refresh invalidated r80+ logins."""
+    module = _module()
+    source_home = tmp_path / "source-home"
+    source_home.mkdir()
+    (source_home / "settings.json").write_text("{}\n", encoding="utf-8")
+    source_auth = source_home / "auth.json"
+    source_auth.write_text('{"xai":{"type":"oauth"}}\n', encoding="utf-8")
+    adapter = module.PiRpcLaneAdapter(
+        repo_root=ROOT,
+        private_root=tmp_path / "private",
+    )
+    run = {
+        "experiment_id": "debug-auth-bind-r1",
+        "context": {"agent_home": str(source_home)},
+    }
+    lane = {"id": "bind-auth"}
+    private = adapter._private_home(run, lane)
+    bound = private / "auth.json"
+    assert bound.is_symlink()
+    assert bound.resolve() == source_auth.resolve()
+    bound.write_text('{"xai":{"type":"oauth","rotated":true}}\n', encoding="utf-8")
+    assert json.loads(source_auth.read_text(encoding="utf-8"))["xai"]["rotated"] is True
+    shutil.rmtree(private)
+    assert source_auth.is_file()
+    assert json.loads(source_auth.read_text(encoding="utf-8"))["xai"]["rotated"] is True
 
 
 def test_rpc_lane_times_out_once_and_rejects_wrong_first_operation(tmp_path: Path) -> None:

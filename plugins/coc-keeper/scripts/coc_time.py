@@ -438,7 +438,9 @@ def record_scene_change(
     anchors["last_scene_change_travel_minutes"] = travel_minutes
     state["sequence"] = int(state.get("sequence", 0)) + 1
     _write_json(path, state)
-    fired = process_due_triggers(campaign_dir)
+    fired = process_due_triggers(
+        campaign_dir, skip_handlers=_GRAPH_SETTLED_TRIGGER_HANDLERS,
+    )
     _append_jsonl(_time_log_path(campaign_dir), {
         "event_type": "scene_change",
         "seq": state["sequence"],
@@ -694,7 +696,9 @@ def advance_time(
     _write_json(path, state)
 
     # Audit log
-    fired = process_due_triggers(campaign_dir)
+    fired = process_due_triggers(
+        campaign_dir, skip_handlers=_GRAPH_SETTLED_TRIGGER_HANDLERS,
+    )
     log_record = {
         "event_type": "time_advance",
         "seq": state["sequence"],
@@ -770,7 +774,17 @@ def peek_due_triggers(campaign_dir: Path) -> list[dict[str, Any]]:
     ]
 
 
-def process_due_triggers(campaign_dir: Path) -> list[dict[str, Any]]:
+_GRAPH_SETTLED_TRIGGER_HANDLERS = frozenset({
+    "apply_psychoanalysis_treatment",
+    "recover_temporary_insanity",
+})
+
+
+def process_due_triggers(
+    campaign_dir: Path,
+    *,
+    skip_handlers: frozenset[str] | None = None,
+) -> list[dict[str, Any]]:
     """Process all due triggers. Returns list of fired trigger records.
 
     For triggers with policy 'auto_apply_if_safe', checks the safe_place
@@ -801,12 +815,14 @@ def process_due_triggers(campaign_dir: Path) -> list[dict[str, Any]]:
         if policy == "auto_apply_if_safe" and not safe_place:
             # Defer — remain pending until safe
             continue
+        handler = t.get("handler")
+        if handler in (skip_handlers or frozenset()):
+            continue
         # Fire
         t["status"] = "fired"
         t["fired_at_elapsed"] = now
         # Dispatch the handler, if any. Isolated: a handler bug must not
         # block time advance or leave the trigger stuck pending.
-        handler = t.get("handler")
         if handler:
             try:
                 outcome = _dispatch_handler(

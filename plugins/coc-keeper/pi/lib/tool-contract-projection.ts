@@ -4239,6 +4239,19 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       // actor id and a catalog key.
       "chase_id", "vehicle_actor_id", "vehicle_key",
       "barrier_id", "hazard_id", "action_id", "choice_id",
+      // chase:conflict events name who grabbed whom. actor_id was already
+      // declared; attacker_id/defender_id were not, so a settled conflict
+      // (canonical chase written) reached the Keeper as
+      // semantic_identity_unavailable (r85 ch-conf4).
+      "attacker_id", "defender_id", "combat_id",
+      // Sanity due-trigger settle echoes the investigator the trigger
+      // targets. Undeclared, recover/treatment collapsed after the handler
+      // ran (r86 s-recov3 / s-treat6).
+      "target_id",
+      // Psychology realize's player-safe envelope still nests the observe
+      // window. npc_id is authored; conversation_window_id is
+      // conversation:<scene>:<investigator>:<npc> (r86 x-psy3).
+      "npc_id", "conversation_window_id",
       // A settle-ending settlement names where it closed: authored slugs,
       // the same campaign/scene/scenario vocabulary the setup and scene
       // tables declare. Undeclared, `scene_id` and `scenario_id` were part
@@ -4270,6 +4283,10 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
     // executor's nesting whatever else is trimmed.
     ["command_id", "source_command_id", "state_refs",
      "bout_id", "event_id", "active_bout_id", "trigger_id",
+     // The combat receipt a chase conflict consumed. Machine command id,
+     // not something the Keeper authors or echoes (r85 ch-conf4).
+     "combat_command_id",
+     "command_hash", "receipt_hash", "record_digest", "insight_id",
      // Opposed graph settlement names each side's D100 as
      // investigator_roll_id / opponent_roll_id. Those ride through
      // rules.settle, not the legacy rules.opposed envelope that registered

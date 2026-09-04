@@ -796,7 +796,10 @@ def _tool_state_mark_safe_rest(ctx: Ctx, args: dict[str, Any]):
         isinstance(sanity_day, dict) and bool(sanity_day.get("closed"))
     )
     sanity_day_reset = sanity_day_closed or bool(result.get("sanity_day_reset"))
-    fired = coc_time.process_due_triggers(ctx.campaign_dir)
+    fired = coc_time.process_due_triggers(
+        ctx.campaign_dir,
+        skip_handlers=coc_time._GRAPH_SETTLED_TRIGGER_HANDLERS,
+    )
     time_state = coc_time.read_time_state(ctx.campaign_dir)
     due = coc_time.peek_due_triggers(ctx.campaign_dir)
     data = {

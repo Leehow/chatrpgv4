@@ -529,6 +529,22 @@ def test_psychology_observe_concealed_and_window_reuse(campaign_ws):
     assert wrong_identity["ok"] is False
     assert wrong_identity["error"]["code"] == "invalid_param"
 
+    observations = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "psychology-observations.json")
+        .read_text(encoding="utf-8")
+    )
+    stored_scope = next(iter(observations["observations"].values()))["observer_scope"]
+    assert stored_scope.startswith("team:party:")
+    hashed_realize = _observe(
+        campaign_ws,
+        "psych-realize-hashed-scope",
+        action="realize",
+        observer_scope=stored_scope,
+        insight_id=first["data"]["insight_id"],
+        visible_observation="他说到区里检查时，先看了门口。",
+    )
+    assert hashed_realize["ok"] is True, hashed_realize
+
     updated = _run(
         campaign_ws,
         "state.npc_update",

@@ -407,6 +407,16 @@ def test_learn_card_opens_without_guessing_source_ref(campaign_ws):
     learn = cards.get("decision:coc7:magic:learn-spell")
     assert learn is not None, cards
     assert learn["applicability"] == "applicable", learn
+    # r85 mg-learn7: source=person/tome without source_ref died
+    # magic_source_invalid. Unique authored source is host-bound.
+    settled = _run(campaign_ws, "rules.settle", {
+        "decision_ref": "decision:coc7:magic:learn-spell",
+        "decision_id": "graph-magic-learn-no-source-ref",
+        "investigator": campaign_ws["investigator_id"],
+        "seed": _learning_seed(70, succeeds=True),
+        "semantic_inputs": {"spell": SPELL, "source": "tome"},
+    })
+    assert settled["ok"] is True, settled
 
 
 def test_learn_source_gate_and_settle_binding_read_the_same_map(campaign_ws):

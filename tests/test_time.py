@@ -452,13 +452,29 @@ def test_trigger_scheduling_and_peek(campaign):
     assert due[0]["handler"] == "recover_temporary_insanity"
 
 
+def test_advance_time_does_not_steal_graph_owned_sanity_triggers(campaign):
+    """r85: scene/time advance must not eat recover/treatment before settle."""
+    coc_time.schedule_trigger(campaign, {
+        "kind": "condition_expiry",
+        "due_elapsed_minutes": 0,
+        "policy": "auto_apply",
+        "handler": "recover_temporary_insanity",
+        "target_id": "inv1",
+        "payload": {"condition": "temporary_insane"},
+    })
+    result = coc_time.advance_time(campaign, 10, decision_id="d-skip", reason="wait")
+    assert result["fired_triggers"] == []
+    due = coc_time.peek_due_triggers(campaign)
+    assert len(due) == 1
+    assert due[0]["handler"] == "recover_temporary_insanity"
+
+
 def test_trigger_fires_on_auto_apply(campaign):
     """auto_apply trigger fires when due."""
     coc_time.schedule_trigger(campaign, {
         "kind": "condition_expiry",
         "due_elapsed_minutes": 30,
         "policy": "auto_apply",
-        "handler": "recover_temporary_insanity",
     })
     result = coc_time.advance_time(campaign, 40, decision_id="d1", reason="time passes")
     fired = result["fired_triggers"]
@@ -552,7 +568,7 @@ def test_trigger_scheduled_without_a_target_records_the_failure(campaign):
         "kind": "condition_expiry",
         "due_elapsed_minutes": 10,
         "policy": "auto_apply",
-        "handler": "recover_temporary_insanity",
+        "handler": "grant_learned_spell",
         "payload": {},
     })
     fired = coc_time.advance_time(

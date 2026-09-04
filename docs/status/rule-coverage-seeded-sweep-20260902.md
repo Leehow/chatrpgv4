@@ -7,10 +7,17 @@
 
 统计口径：一个决策算「已证明」当且仅当它在**真实对局**里成功结算过一次
 （投影语料夹具 + 历次诊断 lane 的 `rules.settle` 成功记录）。
+这是 Gate9 **诊断清扫并集**，不是一场连打把 43 张卡盖完，也不是 spec §14
+整场产品验收。
 
 - 2026-09-02 上午：**13 / 43**
 - r55（10 条并发造景）之后：**16 / 43** — 新增 `combat:aim`、`combat:defend`、
   `push-luck:luck-roll`
+- **2026-09-04 r87：41 / 43 结算卡**至少一次 Keeper 可见的 `rules.settle` `ok`。
+  剩下 `combat:context`、`sanity:context` 是 `phase: context`，走
+  `rules.context` / 子系统 context，本来就不结算。
+  r87 六路（`ch-conf4` / `cmb5` / `mg-learn7` / `s-treat6` / `s-recov3` /
+  `x-psy3`）全部 `resume_first` + finalize，六个目标决策均有成功 settle。
 
 | 族 | 已证明 | 未证明 |
 | --- | --- | --- |

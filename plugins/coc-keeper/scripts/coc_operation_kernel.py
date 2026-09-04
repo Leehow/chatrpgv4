@@ -5593,6 +5593,14 @@ def _compile_new_percentile_invocation(
         )
     if not operation["goal"]:
         raise ToolError("invalid_param", "goal must be a non-empty string")
+    # Combined-check does not declare difficulty_basis. Dropping the union
+    # key left it empty, and this check then refused every live combined
+    # settle (r85 cmb5). Combined rolls have no ordinary-check basis.
+    if (
+        operation.get("combined_targets")
+        and operation["difficulty_basis"] not in _DIFFICULTY_BASIS_VALUES
+    ):
+        operation["difficulty_basis"] = "keeper_judgment"
     if operation["difficulty_basis"] not in _DIFFICULTY_BASIS_VALUES:
         raise ToolError(
             "invalid_param",
@@ -8176,6 +8184,39 @@ def _canonical_sanity_binding(
     return binding
 
 
+def _fill_learn_spell_source_ref(
+    ctx: Ctx, semantic_inputs: dict[str, Any],
+) -> None:
+    """Bind source_ref when exactly one authored source matches.
+
+    The learn card lights without source_ref so the Keeper can discover the
+    teacher. Settle still needs the typed ref. Guessing it is what failed
+    62 times on r85 mg-learn7 (`magic_source_invalid`). Unique match is
+    host identity, not a Keeper slot.
+    """
+    source_kind = str(semantic_inputs.get("source") or "").strip()
+    source_ref = str(semantic_inputs.get("source_ref") or "").strip()
+    spell = str(semantic_inputs.get("spell") or "").strip()
+    if source_kind not in {"tome", "person", "entity"} or not spell:
+        return
+    sources = _magic_learning_sources(ctx)
+    if source_ref in sources:
+        return
+    module_spells = ctx.module_spells()
+    canon = coc_rules.canonical_spell_name(spell, module_spells=module_spells)
+    matches = [
+        ref for ref, spells in sources.items()
+        if str(ref).startswith(source_kind + ":")
+        and isinstance(spells, list)
+        and canon in {
+            coc_rules.canonical_spell_name(str(value), module_spells=module_spells)
+            for value in spells
+        }
+    ]
+    if len(matches) == 1:
+        semantic_inputs["source_ref"] = matches[0]
+
+
 def _canonical_magic_binding(
     ctx: Ctx,
     *,
@@ -8214,8 +8255,10 @@ def _canonical_magic_binding(
                 + re.sub(r"[^a-z0-9]+", "-", spell.casefold()).strip("-")
             ),
         }
-    source_kind = str(semantic_inputs.get("source") or "")
-    source_ref = str(semantic_inputs.get("source_ref") or "")
+    inputs = dict(semantic_inputs)
+    _fill_learn_spell_source_ref(ctx, inputs)
+    source_kind = str(inputs.get("source") or "")
+    source_ref = str(inputs.get("source_ref") or "")
     if source_kind not in {"tome", "person", "entity"} or not source_ref.startswith(
         source_kind + ":"
     ):
@@ -8666,6 +8709,8 @@ def dispatch_rules_settle(
         "decision_ref": decision_ref,
         "semantic_inputs": dict(semantic_inputs),
     }
+    if family == "magic" and decision_ref.endswith(":learn-spell"):
+        _fill_learn_spell_source_ref(ctx, selected["semantic_inputs"])
     if family == "social":
         selected["_host_social_binding"] = _canonical_social_binding(
             ctx,
