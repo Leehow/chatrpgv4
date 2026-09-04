@@ -12,7 +12,7 @@
     },
     {
       "code": "scene_graph_fragmented",
-      "asks": "The scene graph is one piece: every scene is joined to every other by some chain of exits.",
+      "asks": "The playable graph is one piece: every scene, beat, event and ending is joined to every other by some chain of exits.",
       "why": "A separate piece is a part of the book the Keeper has no move into. Measured on a real build: twenty-six scenes in eight pieces, the largest holding nine. Rooting reachability at 'scenes nothing leads into' hides this exactly, because each piece then has a root of its own."
     },
     {
@@ -132,5 +132,12 @@
     "npc",
     "creature"
   ],
-  "substantive_span_chars": 120
+  "substantive_span_chars": 120,
+  "playable_node_kinds": [
+    "scene",
+    "beat",
+    "event",
+    "ending"
+  ],
+  "playable_kinds_law": "The kinds the campaign projection turns into somewhere a Keeper can put the party. Reachability is judged over exactly these, because these are what a Keeper can move to; judging a narrower set lets an unreachable beat pass, and a wider one calls the designer's notes a hole in the book. Whether a passage is a place players can be is a judgement about the book, so it belongs to the reader and to the extraction instruction, never to a list in this file."
 }

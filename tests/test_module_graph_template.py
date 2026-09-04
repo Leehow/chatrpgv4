@@ -43,10 +43,13 @@ def _graph(nodes, relations, **extra):
 
 
 def _playable():
+    # The ending is joined too: the projection puts the party in a `scene`, a
+    # `beat`, an `event` or an `ending`, so an ending nothing leads to is a
+    # place the Keeper cannot reach, exactly like an orphan scene.
     return _graph(
         [_node("scene-a", is_entrance=True), _node("scene-b"),
          _node("ending-x", "ending")],
-        [_rel("scene-a", "scene-b")],
+        [_rel("scene-a", "scene-b"), _rel("scene-b", "ending-x")],
     )
 
 
@@ -69,7 +72,8 @@ def test_a_scene_graph_in_pieces_is_named_piece_by_piece():
     result = template.check(graph)
     assert result["finding_counts"]["scene_graph_fragmented"] == 1
     assert result["measures"]["scene_components"] == 2
-    assert result["measures"]["largest_component"] == 2
+    # scene-a, scene-b and the ending they lead to, against the island of two.
+    assert result["measures"]["largest_component"] == 3
     assert "scene-island-1" in result["findings"][0]["detail"]
 
 
@@ -85,9 +89,11 @@ def test_direction_is_checked_once_an_entrance_is_declared():
     graph = _graph(
         [_node("scene-a", is_entrance=True), _node("scene-b"),
          _node("ending-x", "ending")],
-        [_rel("scene-b", "scene-a")],       # b leads to a, never the other way
+        # b leads to a and to the ending, never the other way: from the
+        # entrance there is nowhere to go.
+        [_rel("scene-b", "scene-a"), _rel("scene-b", "ending-x")],
     )
-    assert _codes(graph).get("scene_unreachable_from_entrance") == 1
+    assert _codes(graph).get("scene_unreachable_from_entrance") == 2
 
 
 def test_no_entrance_reports_the_cause_and_not_one_finding_per_scene():
@@ -180,7 +186,7 @@ def test_measures_are_reported_and_never_thresholded():
     result = template.check(_playable(), evidence_total=10)
     assert result["status"] == "playable"
     measures = result["measures"]
-    assert measures["scenes"] == 2 and measures["endings"] == 1
+    assert measures["scenes"] == 3 and measures["endings"] == 1
     assert measures["span_consumption"] == 0.1
     declared = {row["code"] for row in template.TEMPLATE["measures"]}
     assert set(measures) <= declared, set(measures) - declared
@@ -227,3 +233,50 @@ def test_the_share_alone_is_never_an_invariant():
     assert "substantive_spans_uncited" not in codes
     measured = {row["code"] for row in template.TEMPLATE["measures"]}
     assert {"span_consumption", "substantive_spans_uncited"} <= measured
+
+
+def test_an_ending_nothing_leads_to_is_unreachable_like_any_other_place():
+    """The projection puts the party in a scene, a beat, an event or an ending.
+    Judging reachability over `scene` alone let an unreachable ending pass."""
+    graph = _graph(
+        [_node("scene-a", is_entrance=True), _node("scene-b"),
+         _node("ending-x", "ending")],
+        [_rel("scene-a", "scene-b")],
+    )
+    assert _codes(graph).get("scene_graph_fragmented") == 1
+
+
+def test_a_beat_is_a_place_the_keeper_can_reach():
+    graph = _playable()
+    graph["nodes"].append(_node("beat-ambush", "beat"))
+    assert _codes(graph).get("scene_graph_fragmented") == 1
+    graph["relations"].append(_rel("scene-b", "beat-ambush"))
+    assert "scene_graph_fragmented" not in _codes(graph)
+
+
+def test_the_playable_kinds_are_the_ones_the_projection_uses():
+    """Two lists that must agree, checked rather than hoped for: a kind the
+    runtime treats as a place and this file does not is a hole nothing sees."""
+    projection = (ROOT / "plugins" / "coc-keeper" / "scripts"
+                  / "coc_module_graph_projection.py").read_text("utf-8")
+    line = next(row for row in projection.splitlines()
+                if row.startswith("SCENE_KINDS"))
+    consumed = {token.strip().strip('"\'') for token in
+                line.split("{", 1)[1].split("}", 1)[0].split(",") if token.strip()}
+    assert consumed == set(template.PLAYABLE_KINDS), (
+        f"the standard judges {set(template.PLAYABLE_KINDS)}, the projection "
+        f"places the party in {consumed}"
+    )
+
+
+def test_the_instruction_says_what_makes_a_passage_a_place():
+    """A keeper briefing typed as a scene fails reachability, and the book is
+    not wrong -- the classification is. That judgement is about the book, so it
+    belongs to the reader; a list of "kinds of passage" in code would be the
+    hardcoded-semantics trap this project bans."""
+    text = (ROOT / "plugins" / "coc-keeper" / "pi" / "prompts"
+            / "module-graph-extraction.md").read_text("utf-8")
+    assert "玩家能站在里面的地方" in text
+    assert "你们现在在这里" in text
+    for kind in template.PLAYABLE_KINDS:
+        assert f"`{kind}`" in text

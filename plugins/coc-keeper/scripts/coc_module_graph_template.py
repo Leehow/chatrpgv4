@@ -30,6 +30,11 @@ TEMPLATE_PATH = _HERE.parent / "references" / "module-graph-template-v1.json"
 TEMPLATE = json.loads(TEMPLATE_PATH.read_text(encoding="utf-8"))
 EXIT_KINDS = tuple(TEMPLATE["entrance_relation_kinds"])
 ACTOR_KINDS = tuple(TEMPLATE["actor_kinds"])
+# The kinds the campaign projection turns into a place the party can be.
+# Judged over exactly these: a narrower set lets an unreachable beat
+# pass, and `coc_module_graph_projection.SCENE_KINDS` is the consumer
+# this has to agree with.
+PLAYABLE_KINDS = tuple(TEMPLATE["playable_node_kinds"])
 INVARIANTS = {row["code"]: row for row in TEMPLATE["invariants"]}
 
 
@@ -117,7 +122,11 @@ def check(
     node_ids = {
         node["node_id"] for nodes in by_kind.values() for node in nodes
     }
-    scenes = {node["node_id"] for node in by_kind.get("scene", [])}
+    scenes = {
+        node["node_id"]
+        for kind in PLAYABLE_KINDS
+        for node in by_kind.get(kind, [])
+    }
     findings: list[dict[str, str]] = []
 
     for relation in graph.get("relations") or []:

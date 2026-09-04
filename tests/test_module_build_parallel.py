@@ -48,9 +48,6 @@ def _adapter(monkeypatch, tmp_path: Path) -> None:
 
 
 def _shard(section: str, span_id: str, nodes=None, claims=None) -> dict:
-    # Claims go in before assembly: relations are derived only when the shard
-    # does not already carry a `relations` list, so setting claims afterwards
-    # leaves the edges underived and every scene its own island.
     return build.graph.assemble_model_shard({
         "contract_id": "coc.module-graph-shard.v3", "schema_version": 3,
         "module_id": "mod", "section_id": section, "source_language": "zh-Hans",
@@ -64,39 +61,6 @@ def _shard(section: str, span_id: str, nodes=None, claims=None) -> dict:
     })
 
 
-def _playable_nodes(section: str, span_id: str):
-    """Two scenes, joined, one marked as where play opens.
-
-    The toy shard has to satisfy the same structural standard as a real one:
-    a lone scene is a fragment, and a graph nobody declared an entrance for
-    cannot be opened. Building fixtures that skip it would test the merge
-    against a shape the standard rejects.
-    """
-    return [
-        {"node_id": f"scene-{section}-open", "node_kind": "scene",
-         "name": f"{section} open", "visibility": "keeper-only", "aliases": [],
-         "summary": "", "evidence_span_ids": [span_id],
-         "properties": {"is_entrance": True}},
-        {"node_id": f"scene-{section}-next", "node_kind": "scene",
-         "name": f"{section} next", "visibility": "keeper-only", "aliases": [],
-         "summary": "", "evidence_span_ids": [span_id], "properties": {}},
-        {"node_id": f"ending-{section}", "node_kind": "ending",
-         "name": f"{section} end", "visibility": "keeper-only", "aliases": [],
-         "summary": "", "evidence_span_ids": [span_id], "properties": {}},
-    ]
-
-
-def _playable_claims(section: str, span_id: str):
-    return [{
-        "claim_id": f"claim-{section}-opens-into",
-        "subject_id": f"scene-{section}-open",
-        "predicate": "may-lead-to",
-        "object": {"node_id": f"scene-{section}-next"},
-        "truth_status": "authored-fact", "evidence_span_ids": [span_id],
-        "confidence": 1.0, "reason": "书上写着",
-    }]
-
-
 def _writing_stub(nodes_for=None, hold: float = 0.0, seen: list | None = None,
                   claims_for=None):
     def stub(work_dir, ask, **kwargs):
@@ -107,15 +71,22 @@ def _writing_stub(nodes_for=None, hold: float = 0.0, seen: list | None = None,
         if hold:
             time.sleep(hold)
         # Page-shaped, because provenance is read out of the id.
-        span_id = "span-page-0-block-1"
+        span_id = fixtures.SPAN_ID
         (target / "evidence-packet.json").write_text(json.dumps({"spans": [{
             "span_id": span_id, "text": target.name,
             "source_ref": {"source_id": "pdf:mod", "pdf_index": 0,
                            "grep_anchor": target.name, "text_sha256": "0" * 64},
         }]}), encoding="utf-8")
-        nodes = (nodes_for or _playable_nodes)(target.name, span_id)
-        shard = _shard(target.name, span_id, nodes,
-                       claims=(claims_for or _playable_claims)(target.name, span_id))
+        if nodes_for is None and claims_for is None:
+            shard = fixtures.shard(build.graph.assemble_model_shard, target.name)
+        else:
+            shard = _shard(
+                target.name, span_id,
+                nodes_for(target.name, span_id) if nodes_for
+                else fixtures.nodes(target.name),
+                claims=(claims_for(target.name, span_id) if claims_for
+                        else fixtures.claims(target.name)),
+            )
         (target / "accepted.shard.json").write_text(
             json.dumps(shard, ensure_ascii=False), encoding="utf-8")
         return {"status": "accepted", "attempts": 1, "rounds": [], "nodes": 1}

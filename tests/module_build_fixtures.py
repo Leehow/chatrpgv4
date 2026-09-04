@@ -38,14 +38,28 @@ def nodes(section: str) -> list[dict[str, Any]]:
 
 
 def claims(section: str) -> list[dict[str, Any]]:
-    return [{
-        "claim_id": f"claim-{section}-opens-into",
-        "subject_id": f"scene-{section}-open",
-        "predicate": "may-lead-to",
-        "object": {"node_id": f"scene-{section}-next"},
-        "truth_status": "authored-fact", "evidence_span_ids": [SPAN_ID],
-        "confidence": 1.0, "reason": "书上写着",
-    }]
+    # Through to the ending: the projection puts the party in an `ending` too,
+    # so one nothing leads to is as unreachable as an orphan scene.
+    def leads(source: str, target: str):
+        return {
+            "claim_id": f"claim-{section}-{source}-into-{target}",
+            "subject_id": f"{source}-{section}-open" if source == "scene" else source,
+            "predicate": "may-lead-to", "object": {"node_id": target},
+            "truth_status": "authored-fact", "evidence_span_ids": [SPAN_ID],
+            "confidence": 1.0, "reason": "书上写着",
+        }
+    return [
+        {"claim_id": f"claim-{section}-opens-into",
+         "subject_id": f"scene-{section}-open", "predicate": "may-lead-to",
+         "object": {"node_id": f"scene-{section}-next"},
+         "truth_status": "authored-fact", "evidence_span_ids": [SPAN_ID],
+         "confidence": 1.0, "reason": "书上写着"},
+        {"claim_id": f"claim-{section}-ends-at",
+         "subject_id": f"scene-{section}-next", "predicate": "may-lead-to",
+         "object": {"node_id": f"ending-{section}-end"},
+         "truth_status": "authored-fact", "evidence_span_ids": [SPAN_ID],
+         "confidence": 1.0, "reason": "书上写着"},
+    ]
 
 
 def shard(assemble, section: str, *, extra_nodes=None, extra_claims=None,
