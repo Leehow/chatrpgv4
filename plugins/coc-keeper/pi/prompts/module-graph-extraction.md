@@ -65,10 +65,11 @@
 - `visibility` 只能取:`keeper-only`、`player-safe`、`revealable`。
 - `truth_status` 只能取:`authored-fact`、`authored-belief`、`authored-rumor`、
   `authored-lie`、`inferred-candidate`。
-- `coverage` 必须恰好覆盖十个域,每个恰好一次:`structure`、`world`、`actors`、
-  `relationships`、`events`、`knowledge`、`causal`、`mechanics`、`assets`、
-  `direction`;状态只能取 `accepted`、`partial`、`unresolved`、`absent`。
-  packet 的 `aspects` 没声明的域一律 `unresolved`——那一节根本没审它。
+- `coverage`:只为 packet 的 `aspects` 里声明的、你真的审过的域给状态
+  (`accepted`、`partial`、`unresolved`、`absent`);没审的域**不要写**——机器会按
+  契约把 `structure`、`world`、`actors`、`relationships`、`events`、`knowledge`、
+  `causal`、`mechanics`、`assets`、`direction` 里缺的一律补成 `unresolved`,
+  你只为你读过的部分作证。
 - `node_kind` 只能取:`module`、`source-document`、`edition`、`playable-unit`、
   `section`、`asset`、`scene`、`beat`、`event`、`ending`、`location`、`route`、
   `npc`、`creature`、`investigator-template`、`faction`、`organization`、`object`、

@@ -770,6 +770,17 @@ def assemble_model_shard(shard: Any) -> Any:
                 continue
             span_ids.update(value for value in values if isinstance(value, str))
     assembled["evidence_span_ids"] = sorted(span_ids)
+
+    # Coverage accounting is the machine's, not the model's: the contract law
+    # says every undeclared aspect is exactly unresolved, so the model states
+    # statuses only for domains it actually reviewed and the assembly fills
+    # the rest. A model asked to emit ten bookkeeping keys gets them wrong
+    # forever (three rounds of one identical coverage finding, observed).
+    coverage = assembled.get("coverage")
+    filled = dict(coverage) if isinstance(coverage, dict) else {}
+    for domain in COVERAGE_DOMAINS:
+        filled.setdefault(domain, "unresolved")
+    assembled["coverage"] = filled
     return assembled
 
 

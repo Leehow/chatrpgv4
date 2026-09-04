@@ -284,6 +284,26 @@ def test_validate_shard_rejects_nested_evidence_omitted_from_root_scope():
     }
 
 
+def test_assemble_model_shard_fills_unreviewed_coverage_domains():
+    """The contract law says undeclared aspects are exactly unresolved, so the
+    model states only what it reviewed and the assembly fills the rest; the
+    model never authors the bookkeeping ten-key shape."""
+    graph = _load()
+    shard = _valid_shard()
+    shard["coverage"] = {"structure": "accepted"}
+    assembled = graph.assemble_model_shard(shard)
+    assert assembled["coverage"]["structure"] == "accepted"
+    assert all(
+        status == "unresolved"
+        for domain, status in assembled["coverage"].items()
+        if domain != "structure"
+    )
+    assert set(assembled["coverage"]) == set(graph.COVERAGE_DOMAINS)
+    assert graph.validate_shard(
+        assembled, evidence_catalog=_evidence_catalog()
+    ) == []
+
+
 def test_assemble_model_shard_machine_closes_evidence_scope():
     graph = _load()
     shard = _second_shard()

@@ -64,6 +64,16 @@ enqueue host-work(host 执行深读:pi-coc-build --only-section <sid>)
 `pi-coc-setup` 选完模组后:plan → skeleton → `--opening-only` 深读 →
 `ready_for_table`。开场节就绪即交接,不必等全书。
 
+## 形态决策(已定:A 的方向、C 的第一步)
+
+侦察(`progressive-recon`,.pi/findings)确认:`on_enter_scene` 已在节内容缺失时
+enqueue `extract_section`,claim/fulfill/写回/parse_state 翻转是闭环——**「玩家
+走近就深读」的触发器不需要新建**。真正的问题是 GraphShard 与 section-pack 两态
+并存。决定:图为正典(A),过渡走桥接(C)——`coc_module_shard_pack.py` 把
+accepted shard 确定性编译成 pack(标题/受众/绑定由 request 锁定,正文渲染自已过
+闸节点,溢出显式标注),经 lane 自己的 `validate_section_pack` 验收后落库。
+pack 从此是图的投影,不是第二次读书。
+
 ## 明确不做(本方案)
 
 - 不改 `progressive.*` 任何既有操作的语义;挂钩只读骨架/投影状态并按

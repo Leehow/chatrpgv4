@@ -56,10 +56,11 @@
   `keeper-only`。
 - `truth_status` 只能取:`authored-fact`、`authored-belief`、`authored-rumor`、
   `authored-lie`、`inferred-candidate`。推断出来的入口标 `inferred-candidate`。
-- `coverage` 恰好覆盖十个域,每个一次:`structure`、`world`、`actors`、
-  `relationships`、`events`、`knowledge`、`causal`、`mechanics`、`assets`、`direction`;
-  状态取 `accepted`、`partial`、`unresolved`、`absent`。packet 的 `aspects` 没声明的域
-  一律 `unresolved`——骨架没审它们。骨架通常只有 `structure` 能到 `accepted`。
+- `coverage`:只为你真的审过的域(packet 的 `aspects`)给状态(`accepted`、
+  `partial`、`unresolved`、`absent`);没审的域**不要写**——机器会把 `structure`、
+  `world`、`actors`、`relationships`、`events`、`knowledge`、`causal`、`mechanics`、
+  `assets`、`direction` 里缺的一律补成 `unresolved`。骨架通常只有 `structure`
+  能到 `accepted`。
 - 本任务可用的 `node_kind`:`module`、`section`、`scene`、`location`、`route`、`npc`、
   `creature`、`faction`、`organization`、`concept`。
 - 本任务可用的 `relation_kind`:`contains`、`part-of`、`located-in`、`print-precedes`、
