@@ -356,3 +356,119 @@ def build_classification_requests(**kwargs: Any) -> list[dict[str, Any]]:
     from coc_module_section_requests import build_classification_requests as impl
 
     return impl(**kwargs)
+
+
+_SPAN_PAGE = re.compile(r"-page-(\d+)-")
+
+# Node kinds the index can bind a section to.  The skeleton roster carries
+# more kinds than the binding vocabulary; unbindable kinds simply are not
+# bindings.
+_GRAPH_BINDING_KINDS = {"location": "location", "npc": "npc"}
+
+
+def build_section_index_from_graph(
+    *,
+    plan: dict[str, Any],
+    skeleton: dict[str, Any],
+    opening_section_ids: list[str] | None = None,
+    source_id: str,
+    file_sha256: str,
+    outline_sha256: str,
+    outline_producer: str,
+    page_count: int,
+) -> dict[str, Any]:
+    """Register a graph-lane build into the section index.
+
+    The graph lane decides sections (plan) and the roster (gated skeleton
+    shard); the progressive lane's on_enter_scene can only deepen what the
+    index knows.  The classifier lane's authority model is preserved rather
+    than bypassed: the request is assembled from that machine evidence, and
+    the same validator that guards classifier rows guards these rows.
+
+    Timing law: the skeleton's evidence-named opening sections are `opening`;
+    everything else is `on_demand` and deepens when play reaches it.  Audience
+    is keeper_only throughout -- source truth is never player-facing by
+    default; what players see is projected later by the play layer.
+    """
+    sections = plan.get("sections") or []
+    opening = {str(sid) for sid in (opening_section_ids or [])}
+
+    # The skeleton roster, restricted to bindable kinds.
+    entity_catalog: list[dict[str, str]] = []
+    seen_entities: set[tuple[str, str]] = set()
+    # Each location's evidence pages decide which section it binds to.  A
+    # roster mention on the book-structure page is not a home; the skeleton
+    # can only call a location homed when its evidence includes that
+    # section's opener page.
+    location_evidence_pages: dict[str, set[int]] = {}
+    for node in skeleton.get("nodes") or []:
+        if not isinstance(node, dict):
+            continue
+        entity_kind = _GRAPH_BINDING_KINDS.get(str(node.get("node_kind") or ""))
+        node_id = str(node.get("node_id") or "").strip()
+        if not entity_kind or not node_id:
+            continue
+        if (entity_kind, node_id) in seen_entities:
+            continue
+        seen_entities.add((entity_kind, node_id))
+        entity_catalog.append({"kind": entity_kind, "id": node_id})
+        if entity_kind == "location":
+            pages = location_evidence_pages.setdefault(node_id, set())
+            for span_id in node.get("evidence_span_ids") or []:
+                match = _SPAN_PAGE.search(str(span_id))
+                if match:
+                    pages.add(int(match.group(1)))
+
+    opener_pages = {
+        int(section["pdf_index_start"]): str(section.get("section_id") or "")
+        for section in sections
+    }
+    location_homes: dict[str, list[str]] = {}
+    for location_id, pages in location_evidence_pages.items():
+        homes = sorted({opener_pages[p] for p in pages if p in opener_pages})
+        if homes:
+            location_homes[location_id] = homes
+
+    candidates = []
+    rows = []
+    for section in sections:
+        section_id = str(section.get("section_id") or "")
+        start = int(section["pdf_index_start"])
+        end = int(section["pdf_index_end"])
+        title = str(section.get("title") or section_id)
+        candidates.append({
+            "section_id": section_id,
+            "title": title,
+            "pdf_index": start,
+        })
+        bound = sorted(
+            location_id
+            for location_id, homes in location_homes.items()
+            if section_id in homes
+        )
+        binding = (
+            {"kind": "entity", "entity_kind": "location", "entity_ids": bound}
+            if bound
+            else {"kind": "global"}
+        )
+        rows.append({
+            "section_id": section_id,
+            "title": title,
+            "pdf_indices": list(range(start, end + 1)),
+            "audience": "keeper_only",
+            "timing": "opening" if section_id in opening else "on_demand",
+            "payload": "narrative",
+            "binding": binding,
+            "confidence": "med",
+        })
+
+    request = {
+        "candidates": candidates,
+        "entity_catalog": entity_catalog,
+        "source_id": source_id,
+        "file_sha256": file_sha256,
+        "outline_sha256": outline_sha256,
+        "outline_producer": outline_producer,
+        "page_count": page_count,
+    }
+    return build_section_index(rows=rows, request=request)
