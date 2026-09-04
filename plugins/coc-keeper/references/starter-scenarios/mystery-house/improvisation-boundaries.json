@@ -1,0 +1,63 @@
+{
+  "invent_allowed": [
+    "café or office color for Huo's meeting",
+    "desk clerks, press-room noise, and filing quirks at research sites",
+    "Du Li's exaggerations and salesman banter",
+    "which investigator stands nearest a dangerous window or stair",
+    "rat-pack timing and mundane Ma household clutter",
+    "epilogue details for survivors after Ke is destroyed or the house is resealed",
+    "rule-gym drills: Huo teaching spells in the office, chase alley behind the yard"
+  ],
+  "keeper_secrets": [
+    {
+      "id": "secret-ke-buried-alive-will",
+      "category": "keeper_secret",
+      "prose": "Ke Wujiu's body is interred in a sealed basement lair behind boarded walls; his mind still lives and haunts the house."
+    },
+    {
+      "id": "secret-ke-undead-sorcerer",
+      "category": "keeper_secret",
+      "prose": "Ke preserved his identity with Mythos magic and animates his own corpse; stats/presentation under monsters.json 'Ke Wujiu' (STR 90 CON 115 POW 90, Dominate, Flesh Ward, claws)."
+    },
+    {
+      "id": "secret-own-dagger-bypass",
+      "category": "keeper_secret",
+      "prose": "Ke's ritual dagger bypasses Flesh Ward and spells; a successful hit turns him to ashes and dust (the-haunting.json corbitt_own_dagger)."
+    },
+    {
+      "id": "secret-floating-knife-mp",
+      "category": "keeper_secret",
+      "prose": "The floating knife costs Ke 1 Magic Point per combat round and attacks once per round; opposed STR vs POW to keep hold."
+    },
+    {
+      "id": "secret-mislead-then-murder",
+      "category": "keeper_secret",
+      "prose": "Ke first misleads and scares (upstairs poltergeist as false center); if investigators persist toward the basement secret, he switches to murder."
+    },
+    {
+      "id": "secret-chapel-cult-link",
+      "category": "keeper_secret",
+      "prose": "Pastor Michael Thomas of the Chapel of Contemplation executed Ke's will; the 1912 raid and Thomas's 1917 escape are cult residue, not required for the climax."
+    }
+  ],
+  "never_invent": [
+    "pre-1878 Binjiang Globe clippings about the Ke House",
+    "that Ke was legally buried in a public cemetery instead of the basement",
+    "a second basement entrance that skips the sealed boards",
+    "that ordinary prayer or holy water alone permanently destroys Ke",
+    "a peaceful bargain that leaves Ke safely dormant forever without cost",
+    "that Vittorio can give a clear tactical briefing beyond the bible gesture"
+  ],
+  "endings": [
+    {
+      "ending_id": "gym-ending-ash",
+      "kind": "victory",
+      "summary": "Ke is reduced to ash; the house can be rented again."
+    },
+    {
+      "ending_id": "gym-ending-fled",
+      "kind": "flight",
+      "summary": "The investigators flee Binjiang and leave the house to Huo."
+    }
+  ]
+}

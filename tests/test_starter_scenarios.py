@@ -475,6 +475,56 @@ def test_reseed_clock_preserves_live_scene_location(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
+def test_list_starter_scenarios_includes_mystery_house():
+    starters = coc_starter.list_starter_scenarios()
+    house = next(s for s in starters if s["scenario_id"] == "mystery-house")
+    assert house["title"] == "谜之屋"
+    assert house["era"] == "1920s"
+
+
+def test_install_starter_mystery_house_authors_rule_hooks(tmp_path):
+    root = tmp_path / ".coc"
+    import coc_state  # noqa: E402
+
+    coc_state.ensure_workspace(root)
+    coc_state.create_campaign(root, "gym-camp", "Mystery House", era="1920s")
+    scenario_dir = coc_starter.install_starter(
+        root, "gym-camp", "mystery-house",
+    )
+    assert not (scenario_dir / "module-graph.json").exists()
+    npcs = json.loads((scenario_dir / "npc-agendas.json").read_text("utf-8"))
+    huo = next(n for n in npcs["npcs"] if n["npc_id"] == "npc-huo-chengyuan")
+    assert huo["name"] == "霍承远"
+    assert huo["magic_source_kind"] == "person"
+    assert "Flesh Ward" in huo["spells"]
+    assert huo["skills"]["Persuade"] == 70
+    story = json.loads((scenario_dir / "story-graph.json").read_text("utf-8"))
+    by_id = {row["scene_id"]: row for row in story["scenes"]}
+    assert by_id["gym-chase-fence"]["barrier"]["barrier_id"] == "fence"
+    assert by_id["gym-chase-wharf"]["hazard"]["hazard_id"] == "rotten-planks"
+    lib_san = (by_id["city-library"].get("on_enter") or {}).get("san_triggers") or []
+    assert any(t.get("trigger_id") == "gym-library-nameless-plate" for t in lib_san)
+    assert by_id["gym-boarding-house"].get("safe_place") is True
+    assert "npc-alvarez-nurse" in by_id["gym-clinic"]["npc_ids"]
+    assert "npc-chapel-familiar" in by_id["ruined-chapel"]["npc_ids"]
+    assert any(
+        edge.get("to") == "gym-chase-yard"
+        for edge in by_id["huo-office"].get("scene_edges") or []
+    )
+    aff_ids = {row["id"] for row in by_id["city-library"].get("affordances") or []}
+    assert "gym-combined-catalog-search" in aff_ids
+    endings = json.loads(
+        (scenario_dir / "improvisation-boundaries.json").read_text("utf-8")
+    )["endings"]
+    assert {row["ending_id"] for row in endings} >= {
+        "gym-ending-ash", "gym-ending-fled",
+    }
+    campaign = json.loads(
+        (root / "campaigns" / "gym-camp" / "campaign.json").read_text("utf-8")
+    )
+    assert campaign["active_scenario_id"] == "mystery-house"
+
+
 def test_list_starter_scenarios_includes_the_haunting():
     starters = coc_starter.list_starter_scenarios()
     assert len(starters) >= 2

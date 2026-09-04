@@ -1,0 +1,2554 @@
+{
+  "scenes": [
+    {
+      "scene_id": "huo-office",
+      "display_name": "霍承远的事务所",
+      "location_tags": [
+        "briefing",
+        "knott",
+        "commission",
+        "meeting",
+        "office",
+        "social-hub"
+      ],
+      "is_start": true,
+      "scene_type": "social",
+      "origin": "source",
+      "dramatic_question": "Will the investigators accept Huo's commission and choose where to dig first?",
+      "entry_conditions": [
+        "campaign_active",
+        "no_prior_scene"
+      ],
+      "exit_conditions": [
+        {
+          "kind": "clue_discovered",
+          "clue_id": "clue-huo-research-leads"
+        }
+      ],
+      "available_clues": [
+        "clue-huo-commission",
+        "clue-huo-research-leads",
+        "clue-huo-macario-summary",
+        "clue-huo-keys"
+      ],
+      "npc_ids": [
+        "npc-huo-chengyuan"
+      ],
+      "pressure_moves": [
+        "Huo glances at his watch — every empty day costs him rent",
+        "He slides the house keys across the table and waits for a decision"
+      ],
+      "storylet_tags": [
+        "opening_briefing"
+      ],
+      "affordances": [
+        {
+          "id": "confirm-commission-terms",
+          "cue": "Confirm the daily fee, payment terms, scope of the investigation, and the house's address with Huo.",
+          "route_type": "npc_question",
+          "clue_id": "clue-huo-commission",
+          "npc_interaction": {
+            "npc_id": "npc-huo-chengyuan",
+            "fact_id": "fact-huo-commission",
+            "tactic": "request_fact"
+          },
+          "status": "open"
+        },
+        {
+          "id": "accept-commission",
+          "cue": "Accept the commission explicitly and take the key, address, and cash advance.",
+          "route_type": "npc_question",
+          "clue_id": "clue-huo-keys",
+          "status": "open"
+        },
+        {
+          "id": "ask-research-options",
+          "cue": "Ask which public records or informed witnesses might reveal the house's history.",
+          "route_type": "investigative_lead",
+          "clue_id": "clue-huo-research-leads",
+          "npc_interaction": {
+            "npc_id": "npc-huo-chengyuan",
+            "fact_id": "fact-huo-research-leads",
+            "tactic": "request_fact"
+          },
+          "status": "open"
+        },
+        {
+          "id": "ask-macario-tragedy",
+          "cue": "Ask what actually happened to the Ma family, the former tenants.",
+          "route_type": "npc_question",
+          "clue_id": "clue-huo-macario-summary",
+          "npc_interaction": {
+            "npc_id": "npc-huo-chengyuan",
+            "fact_id": "fact-huo-macario-tragedy",
+            "tactic": "request_fact"
+          },
+          "status": "open"
+        },
+        {
+          "id": "ask-knott-to-teach-a-spell",
+          "cue": "Ask Huo to teach a spell from his notes (Flesh Ward, Dominate, or Shriveling).",
+          "route_type": "npc_question",
+          "status": "open",
+          "npc_interaction": {
+            "npc_id": "npc-huo-chengyuan",
+            "tactic": "request_fact"
+          }
+        },
+        {
+          "id": "gym-cast-taught-spell",
+          "cue": "学会之后当场施法（cast-spell）。霍承远会鼓掌，然后赶人去查宅子。",
+          "route_type": "npc_question",
+          "status": "open",
+          "action_kind": "cast_spell",
+          "npc_interaction": {
+            "npc_id": "npc-huo-chengyuan",
+            "tactic": "request_fact"
+          }
+        }
+      ],
+      "tone": [
+        "bureaucratic",
+        "uneasy",
+        "daylight"
+      ],
+      "allowed_improvisation": [
+        "invent café or office details for the meeting",
+        "never_invent that Huo already knows Ke is undead"
+      ],
+      "scene_edges": [
+        {
+          "to": "ruined-chapel",
+          "kind": "unlock",
+          "when": {
+            "kind": "clue_discovered",
+            "clue_id": "clue-chapel-ruins-location"
+          }
+        },
+        {
+          "to": "clip-morgue",
+          "kind": "unlock",
+          "when": {
+            "kind": "clue_discovered",
+            "clue_id": "clue-huo-research-leads"
+          }
+        },
+        {
+          "to": "city-library",
+          "kind": "unlock",
+          "when": {
+            "kind": "clue_discovered",
+            "clue_id": "clue-huo-research-leads"
+          }
+        },
+        {
+          "to": "hall-of-records",
+          "kind": "unlock",
+          "when": {
+            "kind": "clue_discovered",
+            "clue_id": "clue-huo-research-leads"
+          }
+        },
+        {
+          "to": "alley-gossip",
+          "kind": "unlock",
+          "when": {
+            "kind": "clue_discovered",
+            "clue_id": "clue-huo-research-leads"
+          }
+        },
+        {
+          "to": "former-tenants",
+          "kind": "unlock",
+          "when": {
+            "kind": "clue_discovered",
+            "clue_id": "clue-huo-research-leads"
+          }
+        },
+        {
+          "to": "ke-house-ground",
+          "kind": "unlock",
+          "when": {
+            "kind": "clue_discovered",
+            "clue_id": "clue-huo-keys"
+          }
+        },
+        {
+          "to": "gym-chase-yard",
+          "kind": "travel"
+        },
+        {
+          "to": "gym-boarding-house",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 435,
+          "grep_anchor": "A landlord, Huo"
+        }
+      ],
+      "items": [
+        "revolver_38_or_9mm",
+        "tome-huo-notes"
+      ],
+      "connected_scene_ids": [
+        "gym-chase-yard"
+      ]
+    },
+    {
+      "scene_id": "clip-morgue",
+      "destination_identity": {
+        "canonical_name": "Binjiang Globe offices",
+        "aliases": [
+          "Binjiang Globe",
+          "Globe offices",
+          "Globe clippings morgue",
+          "Binjiang Globe newsroom",
+          "Globe clipping archive"
+        ]
+      },
+      "destination_access": {
+        "schema_version": 1,
+        "discoverability": "public",
+        "direct_entry": "independent"
+      },
+      "location_tags": [
+        "newspaper morgue",
+        "newspaper",
+        "newspaper offices",
+        "morgue",
+        "press-office",
+        "clip-morgue"
+      ],
+      "scene_type": "investigation",
+      "origin": "source",
+      "dramatic_question": "Can the investigators persuade the Globe staff and pull the Ke House clippings?",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-globe-unpublished-story",
+        "clue-macario-tragedy",
+        "clue-globe-fire-cutoff"
+      ],
+      "npc_ids": [
+        "npc-wei-baosheng",
+        "npc-bai-lusi"
+      ],
+      "npc_presence_requirements": [
+        {
+          "npc_id": "npc-bai-lusi",
+          "requires_completed_route_ids": [
+            "persuade-arty"
+          ]
+        }
+      ],
+      "pressure_moves": [
+        "Wei Baosheng enjoys denying access and makes them work for every courtesy",
+        "Huo telephones if research stretches past a day — time is money",
+        "A tall clipping stack leans; if someone yanks the 1912 drawer too hard the shelf can come down (1D3, possible major wound)."
+      ],
+      "storylet_tags": [
+        "research"
+      ],
+      "affordances": [
+        {
+          "id": "persuade-arty",
+          "cue": "Use Persuade, Intimidate, Charm, or Fast Talk to win over editor Arty and gain access to the clipping room.",
+          "player_visible_outcome": "Arty finally grants access to the basement clipping room and has Bai Lusi take you downstairs to examine old files on the Ke House.",
+          "target_entities": [
+            "Wei Baosheng"
+          ],
+          "verbs": [
+            "persuade",
+            "intimidate",
+            "charm",
+            "fast-talk"
+          ],
+          "skills": [
+            "Persuade",
+            "Intimidate",
+            "Charm",
+            "Fast Talk"
+          ],
+          "roll_gate": {
+            "kind": "skill_check",
+            "difficulty": "regular",
+            "stakes": "permission to enter the newspaper clipping room",
+            "ordinary_failure": {
+              "mode": "no_progress",
+              "summary": "Arty refuses access to the clipping room; the investigator may try another route or propose a changed method for a pushed attempt."
+            },
+            "fumble_consequence": {
+              "summary": "Arty takes grave offence, summons the maintenance staff, and has the investigator ejected and permanently barred from the clipping room.",
+              "effect": {
+                "kind": "route_closed",
+                "route_id": "persuade-arty"
+              }
+            },
+            "push_failure_consequence": {
+              "summary": "Arty has the investigator ejected and permanently bars them from the newspaper clipping room.",
+              "effect": {
+                "kind": "route_closed",
+                "route_id": "persuade-arty"
+              }
+            },
+            "approaches": [
+              {
+                "verb": "persuade",
+                "skill": "Persuade"
+              },
+              {
+                "verb": "intimidate",
+                "skill": "Intimidate"
+              },
+              {
+                "verb": "charm",
+                "skill": "Charm"
+              },
+              {
+                "verb": "fast-talk",
+                "skill": "Fast Talk"
+              }
+            ]
+          },
+          "route_type": "npc_question",
+          "status": "open"
+        },
+        {
+          "id": "search-clippings",
+          "cue": "Search the basement clipping room by street address for stories about the Ke House.",
+          "grants_clue_ids": [
+            "clue-globe-unpublished-story",
+            "clue-macario-tragedy"
+          ],
+          "requires_completed_route_ids": [
+            "persuade-arty"
+          ],
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "befriend-ruth",
+          "cue": "Befriend archivist Bai Lusi or explain your purpose, then ask how far back the clipping room extends and where its older records are missing.",
+          "clue_id": "clue-globe-fire-cutoff",
+          "player_visible_outcome": "Once Ruth decides you can be trusted, she explains that the Globe's archive stops at the 1878 fire; earlier records of the Ke House must be sought at the library or municipal archives.",
+          "target_entities": [
+            "Bai Lusi"
+          ],
+          "verbs": [
+            "charm",
+            "persuade",
+            "fast-talk"
+          ],
+          "skills": [
+            "Charm",
+            "Persuade",
+            "Fast Talk"
+          ],
+          "roll_gate": {
+            "kind": "skill_check",
+            "difficulty": "regular",
+            "stakes": "Ruth's willingness to share the fire-cutoff fact and/or risk helping with the morgue",
+            "ordinary_failure": {
+              "mode": "no_progress",
+              "summary": "Ruth stays polite but noncommittal; she will not risk her job today. The investigator may try another approach, another person, or return later."
+            },
+            "fumble_consequence": {
+              "summary": "Ruth takes fright or offence and alerts Arty; further help from her is closed for this visit.",
+              "effect": {
+                "kind": "route_closed",
+                "route_id": "befriend-ruth"
+              }
+            },
+            "push_failure_consequence": {
+              "summary": "After a failed pushed attempt Ruth withdraws entirely and tells Arty; her help is closed for the rest of the investigation.",
+              "effect": {
+                "kind": "route_closed",
+                "route_id": "befriend-ruth"
+              }
+            },
+            "retry_policy": {
+              "mode": "elapsed_time_reset",
+              "minimum_elapsed_minutes": 720
+            },
+            "approaches": [
+              {
+                "verb": "charm",
+                "skill": "Charm"
+              },
+              {
+                "verb": "persuade",
+                "skill": "Persuade"
+              },
+              {
+                "verb": "fast-talk",
+                "skill": "Fast Talk"
+              }
+            ]
+          },
+          "requires_completed_route_ids": [
+            "persuade-arty"
+          ],
+          "npc_interaction": {
+            "npc_id": "npc-bai-lusi",
+            "fact_id": "fact-globe-fire-cutoff",
+            "tactic": "request_fact"
+          },
+          "route_type": "npc_question",
+          "status": "open"
+        },
+        {
+          "id": "gym-pull-clipping-stack",
+          "cue": "Yank the stuck 1912 drawer. The stack may fall: treat as an injury (first aid / medicine), not a riddle.",
+          "route_type": "environment",
+          "status": "open",
+          "action_kind": "hazard"
+        }
+      ],
+      "tone": [
+        "musty",
+        "bureaucratic",
+        "ink-and-heat"
+      ],
+      "allowed_improvisation": [
+        "invent desk clerks and press-room noise",
+        "never_invent pre-1878 Globe clippings about the house"
+      ],
+      "scene_edges": [
+        {
+          "to": "city-library",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "hall-of-records",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "alley-gossip",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "former-tenants",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "ke-house-ground",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "huo-office",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 436,
+          "grep_anchor": "Binjiang Globe"
+        }
+      ],
+      "display_name": "滨江晚报剪报库"
+    },
+    {
+      "scene_id": "city-library",
+      "destination_identity": {
+        "canonical_name": "Central Library",
+        "aliases": [
+          "Binjiang Central Library",
+          "the Central Library",
+          "Central Library",
+          "Binjiang's Central Library"
+        ]
+      },
+      "destination_access": {
+        "schema_version": 1,
+        "discoverability": "public",
+        "direct_entry": "independent"
+      },
+      "location_tags": [
+        "central library",
+        "public library",
+        "municipal library",
+        "library reading rooms",
+        "research library"
+      ],
+      "scene_type": "investigation",
+      "origin": "source",
+      "dramatic_question": "How much of the Ke House's nineteenth-century history can the investigators reconstruct from library records?",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-house-built-1835",
+        "clue-neighbor-lawsuit-1852",
+        "clue-basement-burial-lawsuit",
+        "clue-second-lawsuit-outcome-unrecorded"
+      ],
+      "npc_ids": [],
+      "pressure_moves": [
+        "Each search attempt consumes half a day of research",
+        "After more than a day, Huo contacts the investigators and reminds them that time is money"
+      ],
+      "storylet_tags": [
+        "research"
+      ],
+      "affordances": [
+        {
+          "id": "city-library-search-1835",
+          "cue": "Spend half a day using Library Use to trace the earliest surviving construction and transfer records by the house's address.",
+          "clue_id": "clue-house-built-1835",
+          "time_profile": {
+            "mode": "elapsed",
+            "category": "library_research",
+            "delta_minutes": 240
+          },
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "city-library-search-1852",
+          "cue": "Spend another half day following Ke Wujiu's name through records of the neighbors' lawsuit.",
+          "clue_id": "clue-neighbor-lawsuit-1852",
+          "requires_discovered_clue_ids": [
+            "clue-house-built-1835"
+          ],
+          "time_profile": {
+            "mode": "elapsed",
+            "category": "library_research",
+            "delta_minutes": 240
+          },
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "city-library-search-1866",
+          "cue": "Spend another half day researching Ke Wujiu's obituary and the lawsuit prompted by his will.",
+          "clue_id": "clue-basement-burial-lawsuit",
+          "requires_discovered_clue_ids": [
+            "clue-neighbor-lawsuit-1852"
+          ],
+          "time_profile": {
+            "mode": "elapsed",
+            "category": "library_research",
+            "delta_minutes": 240
+          },
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "city-library-search-lawsuit-outcome",
+          "cue": "Spend another half day tracing the outcome of the second lawsuit to prevent Ke's burial in his own basement.",
+          "clue_id": "clue-second-lawsuit-outcome-unrecorded",
+          "requires_discovered_clue_ids": [
+            "clue-basement-burial-lawsuit"
+          ],
+          "time_profile": {
+            "mode": "elapsed",
+            "category": "library_research",
+            "delta_minutes": 240
+          },
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "gym-read-nameless-plate",
+          "cue": "Study the nameless plate. Call a Sanity check; a fail can start a bout or temporary insanity.",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "gym-combined-catalog-search",
+          "cue": "同时翻目录和看架上污迹：组合检定 Library Use + Spot Hidden。",
+          "route_type": "investigative_lead",
+          "status": "open",
+          "action_kind": "combined_check",
+          "skills": [
+            "Library Use",
+            "Spot Hidden"
+          ]
+        }
+      ],
+      "tone": [
+        "quiet",
+        "scholarly",
+        "time-consuming"
+      ],
+      "allowed_improvisation": [
+        "invent reference clerks, catalog drawers, and reading-room details",
+        "never invent a recorded outcome for the second burial lawsuit"
+      ],
+      "scene_edges": [
+        {
+          "to": "clip-morgue",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "hall-of-records",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "alley-gossip",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "former-tenants",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "ke-house-ground",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "huo-office",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 437,
+          "grep_anchor": "The Central Library"
+        }
+      ],
+      "on_enter": {
+        "san_triggers": [
+          {
+            "trigger_id": "gym-library-nameless-plate",
+            "source": "a plate of unnamed concentric signs bound into a city-directory errata sheet",
+            "san_loss_success": 0,
+            "san_loss_fail_expr": "1D4",
+            "creature_type": "Mythos diagram"
+          }
+        ]
+      },
+      "display_name": "市立图书馆"
+    },
+    {
+      "scene_id": "hall-of-records",
+      "destination_identity": {
+        "canonical_name": "Hall of Records",
+        "aliases": [
+          "the Hall of Records",
+          "city Hall of Records",
+          "records hall",
+          "municipal records hall"
+        ]
+      },
+      "destination_access": {
+        "schema_version": 1,
+        "discoverability": "public",
+        "direct_entry": "independent"
+      },
+      "location_tags": [
+        "hall of records",
+        "records office",
+        "civil records",
+        "church register",
+        "municipal records office"
+      ],
+      "scene_type": "investigation",
+      "origin": "source",
+      "dramatic_question": "What do civil and church registers reveal about Ke Wujiu's will and burial?",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-will-executor-chapel",
+        "clue-chapel-closed-1912"
+      ],
+      "npc_ids": [
+        "npc-shen-clerk"
+      ],
+      "pressure_moves": [
+        "Serious crime files are not here — the clerk hints at county or police holdings",
+        "A courteous investigator gets more help than a rude one",
+        "The clerk's counter has a sprung nail trap under the blotter (1 HP, then first aid)."
+      ],
+      "storylet_tags": [
+        "research"
+      ],
+      "affordances": [
+        {
+          "id": "library-use-civil",
+          "cue": "Use Library Use to search civil-court and probate records.",
+          "grants_clue_ids": [
+            "clue-will-executor-chapel",
+            "clue-chapel-closed-1912"
+          ],
+          "time_profile": {
+            "mode": "elapsed",
+            "category": "library_research",
+            "delta_minutes": 240
+          },
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "ask-clerk-redirect",
+          "cue": "Politely ask the clerk which court or police office holds felony case files.",
+          "player_visible_outcome": "The clerk explains that felony cases are handled by county, state, or federal courts, while city-police records from arrests and seizures are kept at Central Police Station.",
+          "completion_policy": "matched_no_roll",
+          "sets_flags": [
+            "records-serious-crime-destination-known"
+          ],
+          "route_type": "npc_question",
+          "status": "open"
+        },
+        {
+          "id": "gym-lean-on-blotter",
+          "cue": "Lean on the clerk's blotter. Nail trap: small injury, then ordinary first aid.",
+          "route_type": "environment",
+          "status": "open",
+          "action_kind": "hazard"
+        },
+        {
+          "id": "gym-opposed-clerk",
+          "cue": "硬要看未公开卷宗：与档案员老沈做对立检定（Persuade/ Fast Talk vs 他的技能）。",
+          "route_type": "npc_question",
+          "status": "open",
+          "action_kind": "opposed_check",
+          "npc_interaction": {
+            "npc_id": "npc-shen-clerk",
+            "tactic": "request_fact"
+          }
+        }
+      ],
+      "tone": [
+        "dusty",
+        "formal",
+        "paper-labyrinth"
+      ],
+      "allowed_improvisation": [
+        "invent minor clerks and filing quirks",
+        "never_invent that Ke's body was legally buried in a public cemetery"
+      ],
+      "scene_edges": [
+        {
+          "to": "city-police",
+          "kind": "unlock",
+          "when": {
+            "kind": "flag_set",
+            "flag_id": "records-serious-crime-destination-known"
+          }
+        },
+        {
+          "to": "clip-morgue",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "city-library",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "alley-gossip",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "former-tenants",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "ke-house-ground",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 438,
+          "grep_anchor": "Hall of Records"
+        }
+      ],
+      "display_name": "市政档案厅"
+    },
+    {
+      "scene_id": "city-police",
+      "destination_identity": {
+        "canonical_name": "Higher Courts; Central Police Station",
+        "aliases": [
+          "Higher Courts",
+          "the Higher Courts",
+          "Central Police Station",
+          "the Central Police Station",
+          "county courts",
+          "commonwealth courts",
+          "federal courts",
+          "higher court offices",
+          "central police headquarters"
+        ]
+      },
+      "destination_access": {
+        "schema_version": 1,
+        "discoverability": "evidence_gated",
+        "direct_entry": "requires_unlock"
+      },
+      "location_tags": [
+        "higher courts",
+        "central police station",
+        "court offices",
+        "police records",
+        "criminal records",
+        "courthouse",
+        "police headquarters",
+        "court archives",
+        "police case files"
+      ],
+      "scene_type": "investigation",
+      "origin": "source",
+      "dramatic_question": "Can the investigators gain access to the sealed 1912 Chapel of Contemplation raid file?",
+      "entry_conditions": [
+        {
+          "kind": "flag_set",
+          "flag_id": "records-serious-crime-destination-known"
+        }
+      ],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-police-raid-chapel"
+      ],
+      "npc_ids": [
+        "npc-jin-deben"
+      ],
+      "pressure_moves": [
+        "Access is difficult and at least one investigator must succeed at an authored social or legal approach",
+        "A pushed social failure can earn police hostility, a shakedown, or threats"
+      ],
+      "storylet_tags": [
+        "research",
+        "institutional_resistance"
+      ],
+      "affordances": [
+        {
+          "id": "use-law-contact-for-raid-file",
+          "cue": "Use Law to establish that you know court clerk Jin Deben and ask him to retrieve the file on the 1912 chapel raid; after a failure, change the approach before making a pushed attempt.",
+          "clue_id": "clue-police-raid-chapel",
+          "target_entities": [
+            "kim-debrun",
+            "chapel-raid-file"
+          ],
+          "verbs": [
+            "request access",
+            "establish contact",
+            "retrieve file"
+          ],
+          "skills": [
+            "Law"
+          ],
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "petition-for-raid-file",
+          "cue": "Seek access to the file through a sound justification, personal charm, or credible status: Persuade, Charm, Fast Talk, or a successful Credit Rating check with a rating of at least 75.",
+          "clue_id": "clue-police-raid-chapel",
+          "target_entities": [
+            "court-clerk",
+            "police-records-clerk",
+            "chapel-raid-file"
+          ],
+          "verbs": [
+            "persuade",
+            "charm",
+            "fast talk",
+            "impress",
+            "request access"
+          ],
+          "skills": [
+            "Persuade",
+            "Charm",
+            "Fast Talk",
+            "Credit Rating"
+          ],
+          "skill_minimums": {
+            "Credit Rating": 75
+          },
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "gym-ask-debrun-for-clinic",
+          "cue": "Ask Jin Deben for a quiet room and a nurse. She points to the gym clinic (medicine / first aid).",
+          "route_type": "npc_question",
+          "status": "open",
+          "npc_interaction": {
+            "npc_id": "npc-jin-deben",
+            "tactic": "request_fact"
+          }
+        },
+        {
+          "id": "gym-luck-bribe-desk",
+          "cue": "想瞒过值班簿：先普通检定；失败可运气检定或运气消耗把结果抬一档。",
+          "route_type": "environment",
+          "status": "open",
+          "action_kind": "luck"
+        }
+      ],
+      "tone": [
+        "formal",
+        "guarded",
+        "institutional"
+      ],
+      "allowed_improvisation": [
+        "invent desk procedure and the exact clerk who receives the request",
+        "never_invent public newspaper coverage of the secret raid",
+        "never_invent detailed autopsy findings absent from Handout 8"
+      ],
+      "scene_edges": [
+        {
+          "to": "hall-of-records",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "clip-morgue",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "city-library",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "alley-gossip",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "former-tenants",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "ke-house-ground",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "gym-clinic",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 438,
+          "grep_anchor": "Higher Courts; Central Police Station"
+        }
+      ],
+      "display_name": "滨江警署"
+    },
+    {
+      "scene_id": "alley-gossip",
+      "location_tags": [
+        "neighborhood",
+        "neighbors",
+        "local residents",
+        "street gossip",
+        "street",
+        "public",
+        "crowd"
+      ],
+      "scene_type": "social",
+      "origin": "source",
+      "dramatic_question": "What will the last old-timers admit about the Ke House and the vanished chapel?",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-dooley-macario-madness",
+        "clue-burning-eyes-form",
+        "clue-chapel-ruins-location"
+      ],
+      "npc_ids": [
+        "npc-du-li"
+      ],
+      "pressure_moves": [
+        "Du Li sizes them up by appearance and credit before he gossips",
+        "Newer offices have replaced the old homes — the Ke House stands alone"
+      ],
+      "storylet_tags": [
+        "research"
+      ],
+      "affordances": [
+        {
+          "id": "chat-dooley",
+          "cue": "Ask Du Li, the cigar-and-newspaper seller, about the house and the Ma family.",
+          "grants_clue_ids": [
+            "clue-dooley-macario-madness",
+            "clue-burning-eyes-form"
+          ],
+          "route_type": "npc_question",
+          "status": "open"
+        },
+        {
+          "id": "ask-chapel",
+          "cue": "Ask about the ruins of the burned chapel a few blocks away.",
+          "clue_id": "clue-chapel-ruins-location",
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "walk-the-block",
+          "cue": "Walk the block and consider why this private house alone still stands among the office buildings.",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "gym-let-dooley-talk",
+          "cue": "Let Du Li finish the eye-gouging story. Sanity check; he can also be drawn into a fistfight.",
+          "route_type": "npc_question",
+          "status": "open",
+          "npc_interaction": {
+            "npc_id": "npc-du-li",
+            "tactic": "request_fact"
+          }
+        },
+        {
+          "id": "gym-social-difficulty",
+          "cue": "杜立信口开河时，先裁定社交难度（social:adjudicate-difficulty）再检定。",
+          "route_type": "npc_question",
+          "status": "open",
+          "action_kind": "social_difficulty",
+          "npc_interaction": {
+            "npc_id": "npc-du-li",
+            "tactic": "request_fact"
+          }
+        }
+      ],
+      "tone": [
+        "street",
+        "gossip",
+        "overgrown"
+      ],
+      "allowed_improvisation": [
+        "invent Du Li's banter and exaggerations",
+        "never_invent a living neighbor who has seen Ke's body"
+      ],
+      "scene_edges": [
+        {
+          "to": "clip-morgue",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "city-library",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "hall-of-records",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "former-tenants",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "ke-house-ground",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "gym-boarding-house",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 439,
+          "grep_anchor": "Mr. Du Li"
+        }
+      ],
+      "on_enter": {
+        "san_triggers": [
+          {
+            "trigger_id": "gym-dooley-true-story",
+            "source": "Du Li describing a tenant who clawed his own eyes after a night in the Ke house",
+            "san_loss_success": 0,
+            "san_loss_fail_expr": "1D3"
+          }
+        ]
+      },
+      "display_name": "柯宅巷口闲话"
+    },
+    {
+      "scene_id": "former-tenants",
+      "location_tags": [
+        "previous tenants",
+        "macario",
+        "former occupants",
+        "tenants",
+        "lodging",
+        "hospital",
+        "clinic",
+        "institutional"
+      ],
+      "scene_type": "social",
+      "origin": "source",
+      "dramatic_question": "What can the shattered Mas still tell about the presence in the house?",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-vittorio-bible-weapon",
+        "clue-gabriela-night-visitor",
+        "clue-boys-burning-eyes"
+      ],
+      "npc_ids": [
+        "npc-ma-jia",
+        "npc-ma-wei"
+      ],
+      "pressure_moves": [
+        "Staff cut the interview short when questions upset Gabriela",
+        "Vittorio only opens the bible and points — he will not explain"
+      ],
+      "storylet_tags": [
+        "research"
+      ],
+      "affordances": [
+        {
+          "id": "interview-gabriela",
+          "cue": "Gently ask Gabriela how the thing bent over her at night and how it turned its anger on her husband.",
+          "clue_id": "clue-gabriela-night-visitor",
+          "route_type": "npc_question",
+          "status": "open"
+        },
+        {
+          "id": "observe-vittorio",
+          "cue": "Observe the Bible Vittorio clutches and the apocryphal line he suddenly points out.",
+          "clue_id": "clue-vittorio-bible-weapon",
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "ask-staff-boys",
+          "cue": "Ask the staff what nightmares the two children described before relatives took them away.",
+          "clue_id": "clue-boys-burning-eyes",
+          "route_type": "npc_question",
+          "status": "open"
+        },
+        {
+          "id": "gym-watch-gabriela",
+          "cue": "Watch Gabriela mime the wall. Sanity check; this is also the door to the gym asylum ward for treatment drills.",
+          "route_type": "npc_question",
+          "status": "open",
+          "npc_interaction": {
+            "npc_id": "npc-ma-jia",
+            "tactic": "request_fact"
+          }
+        }
+      ],
+      "tone": [
+        "clinical",
+        "fragile",
+        "pity"
+      ],
+      "allowed_improvisation": [
+        "invent sanitarium corridor details",
+        "never_invent that Vittorio can give a clear tactical briefing"
+      ],
+      "scene_edges": [
+        {
+          "to": "clip-morgue",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "city-library",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "hall-of-records",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "alley-gossip",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "ke-house-ground",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "gym-asylum-ward",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 439,
+          "grep_anchor": "Roxbury Sanitarium"
+        }
+      ],
+      "on_enter": {
+        "san_triggers": [
+          {
+            "trigger_id": "gym-macario-asylum-stare",
+            "source": "Gabriela's vacant asylum stare when she mimes the basement wall",
+            "san_loss_success": 0,
+            "san_loss_fail_expr": "1D4"
+          }
+        ]
+      },
+      "display_name": "马氏旧居"
+    },
+    {
+      "scene_id": "ruined-chapel",
+      "destination_identity": {
+        "canonical_name": "The Chapel of Contemplation",
+        "aliases": [
+          "Chapel of Contemplation",
+          "the ruined Chapel of Contemplation",
+          "chapel ruins",
+          "ruined chapel",
+          "Contemplation chapel",
+          "ruins of the Chapel of Contemplation"
+        ]
+      },
+      "destination_access": {
+        "schema_version": 1,
+        "discoverability": "hidden",
+        "direct_entry": "requires_unlock"
+      },
+      "location_tags": [
+        "chapel of contemplation",
+        "chapel ruins",
+        "ruined church",
+        "cult site",
+        "burned chapel ruins",
+        "church ruins",
+        "former cult site"
+      ],
+      "scene_type": "exploration",
+      "origin": "source",
+      "dramatic_question": "What survived beneath the burned Chapel of Contemplation, and why does Ke's name appear there?",
+      "entry_conditions": [
+        {
+          "kind": "clue_discovered",
+          "clue_id": "clue-chapel-ruins-location"
+        }
+      ],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-chapel-eye-symbol",
+        "clue-chapel-cellar-remains",
+        "clue-chapel-journal-burial",
+        "clue-liber-ivonis-tome"
+      ],
+      "npc_ids": [
+        "npc-chapel-familiar"
+      ],
+      "pressure_moves": [
+        "Fresh white three-Y eye symbols make nearby foreheads prickle until investigators step away",
+        "Weak floorboards call for Luck, then Jump on failure; a ten-foot fall deals 1D6 damage",
+        "The base floor hazard resolves Luck, then Jump on failure, then a ten-foot fall; do not offer a pushed Jump until its typed possession consequence is available"
+      ],
+      "storylet_tags": [
+        "ruins",
+        "cult_residue",
+        "physical_hazard"
+      ],
+      "affordances": [
+        {
+          "id": "inspect-chapel-eye-symbol",
+          "cue": "Examine the freshly painted white triple-Y and central staring eye on the surviving wall, noting the prickling pain in your forehead as you approach.",
+          "clue_id": "clue-chapel-eye-symbol",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "descend-ruined-chapel-cellar",
+          "cue": "After the weak floor collapses—or once you find a safe way down—enter the sealed ten-foot-deep cellar and examine the two skeletons in silk robes.",
+          "clue_id": "clue-chapel-cellar-remains",
+          "authored_operation": {
+            "kind": "environmental_hazard",
+            "payload": {
+              "luck_skill": "Luck",
+              "jump_skill": "Jump",
+              "damage_expr": "1D6",
+              "source": "chapel weakened floorboards, ten-foot fall",
+              "rule_ref": "module.haunting.chapel_weakened_floor"
+            }
+          },
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "search-under-chapel-cabinet",
+          "cue": "Search the rotting cabinet and inspect beneath it; without an explicit look under the cabinet, Spot Hidden is required, and a thorough search may be pushed.",
+          "grants_clue_ids": [
+            "clue-chapel-journal-burial",
+            "clue-liber-ivonis-tome"
+          ],
+          "target_entities": [
+            "moldering-cabinet",
+            "chapel-journal",
+            "liber-ivonis"
+          ],
+          "verbs": [
+            "search",
+            "look under",
+            "inspect"
+          ],
+          "skills": [
+            "Spot Hidden"
+          ],
+          "requires_discovered_clue_ids": [
+            "clue-chapel-cellar-remains"
+          ],
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "study-liber-ivonis",
+          "cue": "Spend at least three hours studying or attempting to translate the damaged Latin manuscript found earlier; a check is required when Latin is below 50.",
+          "target_entities": [
+            "liber-ivonis"
+          ],
+          "verbs": [
+            "study",
+            "read",
+            "translate"
+          ],
+          "skills": [
+            "Read Latin"
+          ],
+          "requires_discovered_clue_ids": [
+            "clue-liber-ivonis-tome"
+          ],
+          "authored_operation": {
+            "kind": "mythos_tome_study",
+            "payload": {
+              "tome_id": "haunting-damaged-liber-ivonis",
+              "language_skill": "Read Latin",
+              "language_threshold": 50,
+              "duration_minutes": 180,
+              "mythos_gain": 2,
+              "max_san_reduction": 2,
+              "rule_ref": "module.haunting.damaged_liber_ivonis_initial_read"
+            }
+          },
+          "route_type": "mythos_tome",
+          "status": "open"
+        },
+        {
+          "id": "gym-face-chapel-familiar",
+          "cue": "The familiar drops. Sanity then combat (aim/reload/maneuver/flee all legal). It can be chased into the gym alley.",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "gym-jammed-vestry-door",
+          "cue": "更衣室门卡住。先普通 STR/Locksmith；失败可运气消耗或孤注一掷。",
+          "route_type": "environment",
+          "status": "open",
+          "action_kind": "pushed_or_luck"
+        },
+        {
+          "id": "gym-gain-san-after-familiar",
+          "cue": "打退或杀死教堂眷族后，结算 SAN 回复（gain-current-san）。",
+          "route_type": "environment",
+          "status": "open",
+          "action_kind": "san_gain"
+        }
+      ],
+      "tone": [
+        "weathered",
+        "overgrown",
+        "headache-prickle",
+        "fire-scarred"
+      ],
+      "allowed_improvisation": [
+        "invent mundane rubble and half-burned timbers",
+        "never_invent legible Liber Ivonis sections beyond the authored fragment",
+        "never_invent additional survivors of the 1912 raid"
+      ],
+      "optional_rules": {
+        "weakened_floor": {
+          "sequence": [
+            "Luck",
+            "Jump_on_failed_Luck"
+          ],
+          "fall_distance_feet": 10,
+          "damage": "1D6",
+          "push_allowed": true,
+          "push_runtime_status": "NOT_IMPLEMENTED",
+          "pushed_failure_extra": "lose_or_break_personal_possession",
+          "source_ref": {
+            "page": 440,
+            "grep_anchor": "Call for Luck rolls"
+          }
+        },
+        "liber_ivonis_initial_read": {
+          "minimum_hours": 3,
+          "read_latin_threshold_or_roll": 50,
+          "cthulhu_mythos_gain": 2,
+          "maximum_sanity_reduction": 2,
+          "source_ref": {
+            "page": 440,
+            "grep_anchor": "minimum of three hours"
+          }
+        }
+      },
+      "scene_edges": [
+        {
+          "to": "alley-gossip",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "hall-of-records",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "city-police",
+          "kind": "travel",
+          "when": {
+            "kind": "flag_set",
+            "flag_id": "records-serious-crime-destination-known"
+          }
+        },
+        {
+          "to": "ke-house-ground",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "gym-chase-yard",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 439,
+          "grep_anchor": "The Chapel of Contemplation"
+        },
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 440,
+          "grep_anchor": "moldering church records"
+        }
+      ],
+      "on_enter": {
+        "san_triggers": [
+          {
+            "trigger_id": "gym-chapel-familiar",
+            "source": "a hunched chapel-familiar (star-spawn runt) uncoiling from the rafters",
+            "san_loss_success": 1,
+            "san_loss_fail_expr": "1D6",
+            "creature_type": "chapel-familiar"
+          }
+        ]
+      },
+      "display_name": "废教堂"
+    },
+    {
+      "scene_id": "ke-house-ground",
+      "location_tags": [
+        "corbitt house",
+        "old house",
+        "boarding house",
+        "Ke residence",
+        "house",
+        "domestic",
+        "investigation-site",
+        "indoor",
+        "entrance",
+        "threshold"
+      ],
+      "scene_type": "investigation",
+      "origin": "source",
+      "dramatic_question": "What does the abandoned ground floor still hide about its former master?",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-ke-diaries",
+        "clue-upstairs-disturbance",
+        "clue-catholic-wards",
+        "clue-nailed-windows"
+      ],
+      "npc_ids": [],
+      "pressure_moves": [
+        "A thump answers from upstairs when they linger too long",
+        "The house seems to withdraw into the shadows of flanking offices",
+        "A parlor floorboard is sawn as a deadfall (1D6, possible major wound / dying)."
+      ],
+      "storylet_tags": [
+        "arrival",
+        "first_contact"
+      ],
+      "affordances": [
+        {
+          "id": "force-cupboard",
+          "cue": "Pry open the nailed-shut cupboard in the storage room and inspect the old books inside.",
+          "clue_id": "clue-ke-diaries",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "survey-locks-bolts",
+          "cue": "Examine the side door's multiple bolts and the nailed-shut ground-floor windows—who was trying to keep what out?",
+          "clue_id": "clue-nailed-windows",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "listen-upstairs",
+          "cue": "Stand in the living room and listen to the knocking and scraping from upstairs.",
+          "clue_id": "clue-upstairs-disturbance",
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "inspect-catholic-wards",
+          "cue": "Examine the profusion of crosses, images of the Virgin, rosaries, and candles in the living room and bedrooms.",
+          "clue_id": "clue-catholic-wards",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "gym-step-parlor-board",
+          "cue": "Cross the parlor. Deadfall trap: injury, first-aid-ordinary or stabilization if HP hits 0.",
+          "route_type": "environment",
+          "status": "open",
+          "action_kind": "hazard"
+        },
+        {
+          "id": "gym-maneuver-grab-knife",
+          "cue": "若有人持刀或浮刃：格斗战技（maneuver）夺刃，不要只打伤害。",
+          "route_type": "environment",
+          "status": "open",
+          "action_kind": "maneuver"
+        }
+      ],
+      "tone": [
+        "abandoned",
+        "catholic-wards",
+        "listening"
+      ],
+      "allowed_improvisation": [
+        "invent mundane Ma household clutter",
+        "never_invent a second basement entrance that skips the sealed boards"
+      ],
+      "scene_edges": [
+        {
+          "to": "ke-house-upper",
+          "kind": "unlock",
+          "when": {
+            "kind": "clue_discovered",
+            "clue_id": "clue-upstairs-disturbance"
+          }
+        },
+        {
+          "to": "ke-house-basement",
+          "kind": "unlock",
+          "when": {
+            "kind": "clue_discovered",
+            "clue_id": "clue-ke-diaries"
+          }
+        },
+        {
+          "to": "clip-morgue",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "city-library",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "hall-of-records",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "alley-gossip",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "former-tenants",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 440,
+          "grep_anchor": "The Old Ke Place"
+        }
+      ],
+      "display_name": "柯宅一楼"
+    },
+    {
+      "scene_id": "ke-house-upper",
+      "location_tags": [
+        "upper floor",
+        "bedroom",
+        "upstairs",
+        "spare bedroom",
+        "house",
+        "domestic",
+        "indoor",
+        "investigation-site"
+      ],
+      "scene_type": "exploration",
+      "origin": "source",
+      "dramatic_question": "Can the investigators survive Ke's poltergeist show without being thrown through a window?",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-poltergeist-bed",
+        "clue-blood-pool-manifest",
+        "clue-mythos-reek"
+      ],
+      "npc_ids": [],
+      "pressure_moves": [
+        "The spare bedroom reeks when Ke wills a deed",
+        "A bed can fly; blood can pool; knocks answer from inside the walls"
+      ],
+      "storylet_tags": [
+        "first_contact"
+      ],
+      "affordances": [
+        {
+          "id": "inspect-spare-window",
+          "cue": "Inspect the spare-bedroom window that rattles by itself.",
+          "clue_id": "clue-poltergeist-bed",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "document-phenomena",
+          "cue": "Record when and where the pools of blood, knocking, and foul odor appear.",
+          "grants_clue_ids": [
+            "clue-blood-pool-manifest",
+            "clue-mythos-reek"
+          ],
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "retreat-downstairs",
+          "cue": "Retreat to the ground floor and reconsider whether to search the basement.",
+          "route_type": "environment",
+          "status": "open"
+        }
+      ],
+      "tone": [
+        "poltergeist",
+        "reek",
+        "violence-imminent"
+      ],
+      "allowed_improvisation": [
+        "invent which investigator is nearest the window",
+        "never_invent that ordinary prayer alone destroys Ke"
+      ],
+      "on_enter": {
+        "san_triggers": [
+          {
+            "trigger_id": "bed-moves",
+            "source": "witnessing the bed move of its own accord",
+            "san_loss_success": 1,
+            "san_loss_fail_expr": "1D4",
+            "tag": "unnatural"
+          }
+        ]
+      },
+      "scene_edges": [
+        {
+          "to": "ke-house-ground",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "ke-house-basement",
+          "kind": "unlock",
+          "when": {
+            "kind": "clue_discovered",
+            "clue_id": "clue-poltergeist-bed"
+          }
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 443,
+          "grep_anchor": "Bed Attack"
+        }
+      ],
+      "display_name": "柯宅楼上卧室"
+    },
+    {
+      "scene_id": "ke-house-basement",
+      "location_tags": [
+        "basement",
+        "cellar",
+        "house basement",
+        "sealed cellar",
+        "house",
+        "indoor",
+        "mythos-site",
+        "crime-scene",
+        "confrontation"
+      ],
+      "scene_type": "investigation",
+      "origin": "source",
+      "dramatic_question": "Can the investigators force the sealed boards and find what Ke buried beneath the house?",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-rusted-basement-dagger",
+        "clue-floating-knife",
+        "clue-hollow-boards",
+        "clue-ke-body-found",
+        "clue-ritual-dagger-is-his"
+      ],
+      "npc_ids": [],
+      "pressure_moves": [
+        "The basement stairs shift underfoot; lights die at the fuse box",
+        "A rust-caked knife may float and strike if they dig too close"
+      ],
+      "storylet_tags": [
+        "revelation"
+      ],
+      "affordances": [
+        {
+          "id": "descend-stairs",
+          "cue": "Carefully descend the neglected basement stairs (DEX/Climb).",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "search-tool-pile",
+          "cue": "Use Spot Hidden among the clutter to find and inspect a rusty old dagger with an ornate hilt.",
+          "grants_clue_ids": [
+            "clue-rusted-basement-dagger"
+          ],
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "tear-boards",
+          "cue": "Tear away the boards fixed to the wall and enter the foul-smelling void and the hidden chamber beyond.",
+          "grants_clue_ids": [
+            "clue-hollow-boards",
+            "clue-ke-body-found"
+          ],
+          "route_type": "environment",
+          "status": "open"
+        }
+      ],
+      "tone": [
+        "claustrophobic",
+        "foul",
+        "threshold"
+      ],
+      "allowed_improvisation": [
+        "invent rat-pack timing and tool-pile clutter",
+        "never_invent that Ke's body is empty of will"
+      ],
+      "on_enter": {
+        "clock_ticks": [
+          {
+            "clock_id": "corbitt-awareness",
+            "reason": "Ke feels them enter his buried domain"
+          }
+        ]
+      },
+      "scene_edges": [
+        {
+          "to": "ke-house-ground",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "ke-lair",
+          "kind": "unlock",
+          "when": {
+            "kind": "clue_discovered",
+            "clue_id": "clue-ke-body-found"
+          }
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 444,
+          "grep_anchor": "The Basement"
+        }
+      ],
+      "display_name": "柯宅地下室"
+    },
+    {
+      "scene_id": "ke-lair",
+      "location_tags": [
+        "corbitt",
+        "confrontation",
+        "final confrontation",
+        "walter corbitt",
+        "house",
+        "basement",
+        "mythos-site",
+        "crime-scene"
+      ],
+      "is_final": true,
+      "scene_type": "resolution",
+      "origin": "source",
+      "dramatic_question": "Can the investigators destroy Ke Wujiu before he murders them in his lair?",
+      "entry_conditions": [],
+      "exit_conditions": [
+        {
+          "kind": "narrative",
+          "description": "Ke destroyed or investigators flee/defeated"
+        }
+      ],
+      "available_clues": [
+        "clue-ke-animates",
+        "clue-own-dagger-ends-him",
+        "clue-flesh-ward-active"
+      ],
+      "npc_ids": [
+        "npc-ke-wujiu"
+      ],
+      "pressure_moves": [
+        "The wizened figure on the pallet opens saucer eyes and spends Magic Points",
+        "Flesh Ward and Dominate buy him rounds; the floating knife still answers"
+      ],
+      "storylet_tags": [
+        "climax"
+      ],
+      "affordances": [
+        {
+          "id": "strike-with-his-dagger",
+          "action_kind": "attack",
+          "cue": "Choose a suitable weapon at hand and attack Ke.",
+          "requires_discovered_clue_ids": [
+            "clue-ritual-dagger-is-his"
+          ],
+          "route_type": "environment",
+          "status": "open",
+          "rules_operation": {
+            "kind": "combat_engagement",
+            "module_rules_id": "the-haunting",
+            "combat_id": "corbitt-final-combat",
+            "investigator_weapon_id": "corbitt-ritual-dagger",
+            "resolution_hint": "opposed_melee",
+            "opponent_defense": "dodge",
+            "victory_outcome": "investigators_win",
+            "defeat_outcome": "monsters_win",
+            "rulebook_exception": "own_dagger_ignores_spells",
+            "on_success": {
+              "kind": "destroy_target",
+              "outcome": "investigators_win",
+              "rule_ref": "module.haunting.corbitt_own_dagger"
+            },
+            "opponent": {
+              "actor_id": "walter-corbitt",
+              "monster_ref": "Ke Wujiu",
+              "side": "monster",
+              "combat_skill": 50,
+              "dodge_skill": 17,
+              "magic_points": 18,
+              "weapons": [
+                {
+                  "weapon_id": "floating-knife"
+                }
+              ]
+            },
+            "preparations": [
+              {
+                "effect_id": "flesh-ward",
+                "actor_id": "walter-corbitt",
+                "resource": "magic_points",
+                "cost": 2,
+                "effect_kind": "flesh_ward",
+                "duration_rounds": 14400,
+                "rule_ref": "module.haunting.corbitt_flesh_ward",
+                "armor_dice": "2D6",
+                "armor_rule": "degrades_1_per_damage"
+              },
+              {
+                "effect_id": "animate-body",
+                "actor_id": "walter-corbitt",
+                "resource": "magic_points",
+                "cost": 2,
+                "effect_kind": "animate_body",
+                "duration_rounds": 5,
+                "rule_ref": "module.haunting.corbitt_animate_body"
+              }
+            ],
+            "opponent_weapon_id": "floating-knife",
+            "opponent_resolution_hint": "opposed_melee",
+            "opponent_attack_resource_cost": {
+              "resource": "magic_points",
+              "cost": 1,
+              "reason": "floating_knife_attack",
+              "rule_ref": "module.haunting.corbitt_floating_knife_mp"
+            }
+          }
+        },
+        {
+          "id": "conventional-assault",
+          "action_kind": "attack",
+          "cue": "Press the attack with firearms or close combat while guarding against Flesh Ward and domination.",
+          "route_type": "environment",
+          "status": "repeatable",
+          "repeatable": true,
+          "rules_operation": {
+            "kind": "combat_engagement",
+            "module_rules_id": "the-haunting",
+            "combat_id": "corbitt-final-combat",
+            "investigator_weapon_policy": "structured_player_selection",
+            "default_investigator_weapon_id": "unarmed",
+            "resolution_hint": "opposed_melee",
+            "opponent_defense": "dodge",
+            "victory_outcome": "investigators_win",
+            "defeat_outcome": "monsters_win",
+            "opponent": {
+              "actor_id": "walter-corbitt",
+              "monster_ref": "Ke Wujiu",
+              "side": "monster",
+              "combat_skill": 50,
+              "dodge_skill": 17,
+              "magic_points": 18,
+              "weapons": [
+                {
+                  "weapon_id": "floating-knife"
+                }
+              ]
+            },
+            "preparations": [
+              {
+                "effect_id": "flesh-ward",
+                "actor_id": "walter-corbitt",
+                "resource": "magic_points",
+                "cost": 2,
+                "effect_kind": "flesh_ward",
+                "duration_rounds": 14400,
+                "rule_ref": "module.haunting.corbitt_flesh_ward",
+                "armor_dice": "2D6",
+                "armor_rule": "degrades_1_per_damage"
+              },
+              {
+                "effect_id": "animate-body",
+                "actor_id": "walter-corbitt",
+                "resource": "magic_points",
+                "cost": 2,
+                "effect_kind": "animate_body",
+                "duration_rounds": 5,
+                "rule_ref": "module.haunting.corbitt_animate_body"
+              }
+            ],
+            "opponent_weapon_id": "floating-knife",
+            "opponent_resolution_hint": "opposed_melee",
+            "opponent_attack_resource_cost": {
+              "resource": "magic_points",
+              "cost": 1,
+              "reason": "floating_knife_attack",
+              "rule_ref": "module.haunting.corbitt_floating_knife_mp"
+            }
+          }
+        },
+        {
+          "id": "flee-and-seal",
+          "action_kind": "retreat",
+          "cue": "Withdraw and seal the partition again, leaving the problem for the next unlucky tenant—or the landlord.",
+          "route_type": "environment",
+          "status": "open"
+        }
+      ],
+      "conclusion_contract": {
+        "conclusion_id": "corbitt-destroyed",
+        "requires_combat_outcome": "investigators_win",
+        "player_visible_outcome": "Ke Wujiu's body crumbles to ash, and the will that haunted the old house finally dissipates.",
+        "sanity_reward": {
+          "die": "1D6",
+          "rule_ref": "module.haunting.conclusion_sanity_reward"
+        },
+        "session_ending": true
+      },
+      "tone": [
+        "climactic",
+        "undead",
+        "final"
+      ],
+      "allowed_improvisation": [
+        "invent the exact beat of ash or retreat",
+        "never_invent a peaceful bargain that leaves Ke safely dormant forever without cost"
+      ],
+      "on_enter": {
+        "san_triggers": [
+          {
+            "trigger_id": "see-corbitt-body",
+            "source": "seeing Ke Wujiu's animated corpse",
+            "san_loss_success": 1,
+            "san_loss_fail_expr": "1D8",
+            "creature_type": "Ke Wujiu"
+          }
+        ],
+        "danger_attacks": [
+          {
+            "danger_id": "walter-corbitt",
+            "attack_name": "claws"
+          },
+          {
+            "danger_id": "floating-knife",
+            "attack_name": "stab"
+          }
+        ]
+      },
+      "scene_edges": [],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 445,
+          "grep_anchor": "Ke's Hiding Place"
+        }
+      ],
+      "display_name": "隔墙后的巢"
+    },
+    {
+      "scene_id": "gym-chase-yard",
+      "display_name": "霍宅后院（追逐起点）",
+      "location_tags": [
+        "chase",
+        "yard",
+        "rule-gym"
+      ],
+      "is_start": false,
+      "scene_type": "action",
+      "origin": "authored-gym",
+      "dramatic_question": "Do the investigators run the drill?",
+      "entry_conditions": [
+        "campaign_active"
+      ],
+      "exit_conditions": [],
+      "available_clues": [],
+      "npc_ids": [
+        "npc-huo-chengyuan",
+        "npc-ke-wujiu"
+      ],
+      "connected_scene_ids": [
+        "huo-office",
+        "gym-chase-fence"
+      ],
+      "pressure_moves": [
+        "Huo blows a whistle and points at the fence."
+      ],
+      "storylet_tags": [
+        "rule-gym",
+        "chase"
+      ],
+      "affordances": [],
+      "tone": [
+        "test"
+      ],
+      "scene_edges": [
+        {
+          "to": "gym-chase-fence",
+          "kind": "travel"
+        },
+        {
+          "to": "huo-office",
+          "kind": "travel"
+        }
+      ]
+    },
+    {
+      "scene_id": "gym-chase-fence",
+      "display_name": "巷篱（屏障）",
+      "location_tags": [
+        "chase",
+        "barrier",
+        "rule-gym"
+      ],
+      "is_start": false,
+      "scene_type": "action",
+      "origin": "authored-gym",
+      "dramatic_question": "Can they get over the fence?",
+      "entry_conditions": [
+        "campaign_active"
+      ],
+      "exit_conditions": [],
+      "available_clues": [],
+      "npc_ids": [
+        "npc-ke-wujiu"
+      ],
+      "connected_scene_ids": [
+        "gym-chase-yard",
+        "gym-chase-wharf"
+      ],
+      "barrier": {
+        "barrier_id": "fence",
+        "hp": 4,
+        "hp_max": 4,
+        "skill": "Climb",
+        "target": 100
+      },
+      "pressure_moves": [],
+      "storylet_tags": [
+        "rule-gym",
+        "chase"
+      ],
+      "affordances": [],
+      "tone": [
+        "test"
+      ],
+      "scene_edges": [
+        {
+          "to": "gym-chase-wharf",
+          "kind": "travel"
+        },
+        {
+          "to": "gym-chase-yard",
+          "kind": "travel"
+        }
+      ]
+    },
+    {
+      "scene_id": "gym-chase-wharf",
+      "display_name": "烂码头（危险）",
+      "location_tags": [
+        "chase",
+        "hazard",
+        "rule-gym"
+      ],
+      "is_start": false,
+      "scene_type": "action",
+      "origin": "authored-gym",
+      "dramatic_question": "Do they keep their footing?",
+      "entry_conditions": [
+        "campaign_active"
+      ],
+      "exit_conditions": [],
+      "available_clues": [],
+      "npc_ids": [
+        "npc-ke-wujiu"
+      ],
+      "connected_scene_ids": [
+        "gym-chase-fence",
+        "gym-chase-escape"
+      ],
+      "hazard": {
+        "hazard_id": "rotten-planks",
+        "skill": "DEX",
+        "target": 100,
+        "difficulty": "regular",
+        "damage_dice": "1D3"
+      },
+      "pressure_moves": [],
+      "storylet_tags": [
+        "rule-gym",
+        "chase"
+      ],
+      "affordances": [],
+      "tone": [
+        "test"
+      ],
+      "scene_edges": [
+        {
+          "to": "gym-chase-escape",
+          "kind": "travel"
+        },
+        {
+          "to": "gym-chase-fence",
+          "kind": "travel"
+        }
+      ]
+    },
+    {
+      "scene_id": "gym-chase-escape",
+      "display_name": "大马路（逃脱）",
+      "location_tags": [
+        "chase",
+        "escape",
+        "rule-gym"
+      ],
+      "is_start": false,
+      "scene_type": "action",
+      "origin": "authored-gym",
+      "dramatic_question": "Did anyone get away?",
+      "entry_conditions": [
+        "campaign_active"
+      ],
+      "exit_conditions": [],
+      "available_clues": [],
+      "npc_ids": [],
+      "connected_scene_ids": [
+        "gym-chase-wharf"
+      ],
+      "pressure_moves": [],
+      "storylet_tags": [
+        "rule-gym",
+        "chase"
+      ],
+      "affordances": [],
+      "tone": [
+        "test"
+      ],
+      "conclusion_contract": {
+        "conclusion_id": "gym-ending-fled",
+        "player_visible_outcome": "The investigators abandon Binjiang.",
+        "session_ending": true
+      },
+      "scene_edges": [
+        {
+          "to": "gym-chase-wharf",
+          "kind": "travel"
+        }
+      ]
+    },
+    {
+      "scene_id": "gym-boarding-house",
+      "display_name": "陈氏公寓（安全屋）",
+      "location_tags": [
+        "safe-place",
+        "rest",
+        "rule-gym",
+        "boarding-house"
+      ],
+      "is_start": false,
+      "scene_type": "social",
+      "origin": "authored-gym",
+      "dramatic_question": "Do they sleep somewhere Huo's horrors cannot reach?",
+      "entry_conditions": [
+        "campaign_active"
+      ],
+      "exit_conditions": [],
+      "available_clues": [],
+      "npc_ids": [
+        "npc-chen-landlady"
+      ],
+      "pressure_moves": [
+        "The landlady bolts the street door and puts a kettle on."
+      ],
+      "storylet_tags": [
+        "rule-gym",
+        "safe-rest"
+      ],
+      "affordances": [
+        {
+          "id": "gym-sleep-safe",
+          "cue": "Sleep here. This is a safe place: state.mark_safe_rest, then recover-temporary / apply-treatment if those triggers are due.",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "gym-end-session-here",
+          "cue": "在此过夜并结束本段（development:end-session）。不要在不安全的柯宅里关幕。",
+          "route_type": "environment",
+          "status": "open",
+          "action_kind": "end_session"
+        }
+      ],
+      "tone": [
+        "safe",
+        "test"
+      ],
+      "safe_place": true,
+      "scene_edges": [
+        {
+          "to": "alley-gossip",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "huo-office",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "gym-clinic",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ]
+    },
+    {
+      "scene_id": "gym-clinic",
+      "display_name": "北区诊所（治疗）",
+      "location_tags": [
+        "clinic",
+        "healing",
+        "rule-gym"
+      ],
+      "is_start": false,
+      "scene_type": "social",
+      "origin": "authored-gym",
+      "dramatic_question": "Can the wound be closed before night?",
+      "entry_conditions": [
+        "campaign_active"
+      ],
+      "exit_conditions": [],
+      "available_clues": [],
+      "npc_ids": [
+        "npc-alvarez-nurse"
+      ],
+      "pressure_moves": [
+        "The nurse points at the blood and asks who did the stitching last."
+      ],
+      "storylet_tags": [
+        "rule-gym",
+        "healing"
+      ],
+      "affordances": [
+        {
+          "id": "gym-ask-for-first-aid",
+          "cue": "Ask the nurse to treat the wound: first-aid-ordinary, medicine-ordinary, or stabilization if dying.",
+          "route_type": "npc_question",
+          "status": "open",
+          "npc_interaction": {
+            "npc_id": "npc-alvarez-nurse",
+            "tactic": "request_fact"
+          }
+        },
+        {
+          "id": "gym-weekly-wound-note",
+          "cue": "大伤口：记下日期。满一周且安全休息后才走 weekly-major-wound-recovery。濒死小时钟在此用医学稳定。",
+          "route_type": "npc_question",
+          "status": "open",
+          "action_kind": "weekly_recovery",
+          "npc_interaction": {
+            "npc_id": "npc-alvarez-nurse",
+            "tactic": "request_fact"
+          }
+        }
+      ],
+      "tone": [
+        "clinical",
+        "test"
+      ],
+      "scene_edges": [
+        {
+          "to": "city-police",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "gym-boarding-house",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "gym-asylum-ward",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ]
+    },
+    {
+      "scene_id": "gym-asylum-ward",
+      "display_name": "疗养院探视房",
+      "location_tags": [
+        "asylum",
+        "sanity",
+        "rule-gym"
+      ],
+      "is_start": false,
+      "scene_type": "social",
+      "origin": "authored-gym",
+      "dramatic_question": "Is this a visit, or a stay?",
+      "entry_conditions": [
+        "campaign_active"
+      ],
+      "exit_conditions": [],
+      "available_clues": [],
+      "npc_ids": [
+        "npc-quade-alienist",
+        "npc-ma-jia"
+      ],
+      "pressure_moves": [
+        "An orderly locks the corridor gate behind them."
+      ],
+      "storylet_tags": [
+        "rule-gym",
+        "sanity"
+      ],
+      "affordances": [
+        {
+          "id": "gym-submit-to-psychoanalysis",
+          "cue": "Sit with the alienist. Use apply-treatment / insane-insight / reality-check after a delusion; rest here only if the Keeper also marks a safe place.",
+          "route_type": "npc_question",
+          "status": "open",
+          "npc_interaction": {
+            "npc_id": "npc-quade-alienist",
+            "tactic": "request_fact"
+          }
+        },
+        {
+          "id": "gym-plant-then-reality-check",
+          "cue": "若已有妄想：现实检验；若正在发疯：疯狂洞察。治疗仍要 due trigger + 安全休息。",
+          "route_type": "npc_question",
+          "status": "open",
+          "action_kind": "reality_check",
+          "npc_interaction": {
+            "npc_id": "npc-quade-alienist",
+            "tactic": "request_fact"
+          }
+        }
+      ],
+      "tone": [
+        "clinical",
+        "test"
+      ],
+      "scene_edges": [
+        {
+          "to": "former-tenants",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "gym-clinic",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "scenario_id": "mystery-house",
+  "source_language": "en",
+  "runtime_projection_contract": "coc.module-graph-runtime-projection.v1",
+  "title": "谜之屋",
+  "opening_scene": "霍承远雇不雇得动这几个人？他们会从哪条线挖起？",
+  "one_liner": "民国滨江，房东霍承远请人去查一栋租不出去的老宅。官用测试模组：每个调查点都埋了规则图谱细钩，剧情只负责把人送到出事的地方。",
+  "structure_type": "branching_investigation",
+  "era": "1920s",
+  "setting_tags": [
+    "urban-civilian",
+    "domestic",
+    "1920s",
+    "rule-gym"
+  ],
+  "content_flags": [
+    "supernatural_horror",
+    "haunting",
+    "undead",
+    "cult_residue",
+    "rule-gym",
+    "test-module"
+  ],
+  "win_condition": "查清柯宅异象，在地下室把柯无咎的尸体毁掉（最好用他自己的仪式匕首烧成灰），或选择逃离滨江。结局目录：gym-ending-ash / gym-ending-fled。",
+  "source_pdf": null,
+  "source_pdf_pages": null,
+  "start_clock": {
+    "calendar_mode": "gregorian",
+    "local_datetime": "1920-10-12T10:00:00",
+    "timezone": "America/New_York",
+    "display": "1920-10-12 10:00"
+  },
+  "summary": "民国滨江，房东霍承远请人去查一栋租不出去的老宅。官用测试模组：每个调查点都埋了规则图谱细钩，剧情只负责把人送到出事的地方。",
+  "player_safe_summary": "1920 年秋，滨江房东霍承远接手一栋没人敢续租的老宅。前任房客马氏一家出事进了疗养院，街坊叫它柯宅。霍承远按日付酬，钥匙和地址都可以先拿。他本人会法术，也肯教；办公室后面有一条追逐巷。城里各处——剪报室、图书馆、档案厅、警局、街坊、前任房客、废教堂——都会出事：砸伤、掉 SAN、动手、安全屋、诊所、病房。",
+  "keeper_secret_summary": "柯无咎的尸体封在地下室隔墙后，意志还在，靠神话法术驱动尸身。谜之屋是官用规则测试模组，不是 Chaosium 鬼屋翻版。霍承远会教 Flesh Ward / Dominate / Shriveling。细钩：剪报架/吸墨纸钉/客厅地板=受伤；图书馆符文/杜立讲古/马嘉眼神/教堂眷族=SAN；公寓=安全休息；诊所=急救医学；病房=治疗；废教堂眷族=战斗+追逐；档案员对立检定；图书馆组合检索；卡住的门=运气/孤注一掷；击退眷族=SAN 回复。",
+  "license": "Apache-2.0",
+  "author": "Original classic scenario structure: Sandy Petersen / Chaosium. Narrative pack adaptation: chatrpgv4 contributors (original derivative prose; does not reproduce Chaosium Product Identity text).",
+  "attribution": "Scenario structure inspired by the classic Call of Cthulhu introductory investigation 'Mystery House'. Scene names, NPC dialogue, and narrative prose in this pack are an original derivative work by the chatrpgv4 contributors. Numeric creature data for Ke Wujiu is referenced from rules-json/monsters.json.",
+  "copyright_notice": [
+    "Call of Cthulhu is a trademark of Chaosium Inc.",
+    "This starter pack does not reproduce Chaosium Product Identity (plots, dialogue, maps, or boxed read-aloud text from the Keeper Rulebook).",
+    "Open game / rules data for Ke Wujiu presentation lives in rulesets/coc7/rules-json/monsters.json and the-haunting.json."
+  ],
+  "open_content_note": "Narrative scenes, clue wording, and NPC agendas here are original derivative work. Mechanical hooks (Flesh Ward, floating knife, own-dagger exception) align with rulesets/coc7/rules-json/the-haunting.json."
+}
