@@ -398,3 +398,15 @@ def test_the_worker_tells_the_request_which_pages_the_book_carries(
     )
     written = json.loads((root / "host-work" / "job-1.json").read_text())
     assert written["extraction_request"]["requested_pdf_indices"] == [0, 1, 8]
+
+
+def test_an_asset_root_that_has_declared_nothing_is_silent_not_empty():
+    """An empty declared set is silence, and reading it as "the book carries
+    nothing" refused every section of every asset root with no registered
+    bundle -- four suites at once, all of them right to fail."""
+    request = packs.build_extraction_request(
+        section=_section([0, 1, 2]), index=_index(),
+        cached_page_refs=_refs([0, 1, 2]), job_id="job-1",
+        declared_pages=set(),
+    )
+    assert request["requested_pdf_indices"] == [0, 1, 2]

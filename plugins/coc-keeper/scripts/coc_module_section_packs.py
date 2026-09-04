@@ -117,7 +117,12 @@ def build_extraction_request(
     # as one fact made every section spanning a hole permanently unfetchable.
     # `declared_pages` is what the registered bundles say the book has; without
     # it the old, stricter rule stands, so silence still fails.
-    wanted = set(pages) if declared_pages is None else set(pages) & set(declared_pages)
+    # An empty declared set is silence, not an answer: an asset root that has
+    # registered no bundle has not said what the book carries, and reading that
+    # as "it carries nothing" refuses every section it has. Only a non-empty
+    # statement narrows the request.
+    declared = set(declared_pages or ())
+    wanted = set(pages) & declared if declared else set(pages)
     if not wanted:
         raise SectionPackError(
             "section names no page this source carries"
