@@ -32,6 +32,7 @@ if str(_SCRIPTS) not in sys.path:
 
 import coc_git_history  # noqa: E402
 import coc_npc_identity  # noqa: E402
+import coc_sanity  # noqa: E402
 
 
 _LANE_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
@@ -57,10 +58,33 @@ _SITUATION_STRUCTURAL_KEYS = frozenset({
     # itself instead: the override lives in the lane's own sandbox, is recorded
     # as a host seed in the evidence, and reaches no committed module.
     "spell_teachers",
+    # Opposed-check `_npc_check` reads `skills` off npc-agendas. Shipped
+    # modules author none, so a lane writes them into its sandbox copy.
+    "npc_skills",
+    # Chase pending kind is copied from story-graph `barrier`/`hazard`.
+    # The Haunting authors none; a lane writes them into its sandbox copy.
+    "chase_features",
+    # Underlying insanity (no bout) so a delusion can be planted, plus a
+    # pending SAN-gain receipt another producer reads.
+    "insanity",
+    "delusion",
+    "san_gain",
 })
 _SITUATION_KEYS = _SITUATION_STRUCTURAL_KEYS | {"establish_from_prompt"}
 _SITUATION_TEACHER_KEYS = frozenset({"npc_id", "source_kind", "spells"})
 _SITUATION_TEACHER_KINDS = frozenset({"person", "entity"})
+_SITUATION_NPC_SKILL_KEYS = frozenset({"npc_id", "skills"})
+_SITUATION_CHASE_FEATURE_KEYS = frozenset({"scene_id", "barrier", "hazard"})
+_SITUATION_INSANITY_KINDS = frozenset({"temporary", "indefinite"})
+_CHASE_HAZARD_KEYS = frozenset({
+    "hazard_id", "skill", "target", "difficulty", "damage_dice",
+    "collision_severity", "from_wreck", "from_debris", "sudden",
+})
+_CHASE_BARRIER_KEYS = frozenset({
+    "barrier_id", "hp", "hp_max", "skill", "target", "difficulty",
+    "damage_dice", "description",
+})
+_CHASE_DIFFICULTIES = frozenset({"regular", "hard", "extreme"})
 _SITUATION_ITEM_KEYS = frozenset({
     "item_id", "label", "kind", "weapon", "weapon_id", "mechanics_ref",
     "quantity", "consumable", "investigator",
@@ -341,6 +365,231 @@ def _appoint_spell_teachers(
     return applied
 
 
+def _sandbox_npc_agendas(campaign_dir: Path) -> tuple[Path, dict[str, Any], dict[str, dict[str, Any]]]:
+    path = campaign_dir / "scenario" / "npc-agendas.json"
+    try:
+        agendas = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise DebugExperimentError(
+            "situation_catalog_unavailable",
+            "the lane campaign's npc-agendas is unreadable",
+        ) from exc
+    rows = agendas.get("npcs") if isinstance(agendas, dict) else None
+    if not isinstance(rows, list):
+        raise DebugExperimentError(
+            "situation_catalog_unavailable",
+            "the lane campaign's npc-agendas has no npcs list",
+        )
+    by_id = {
+        str(row.get("npc_id")): row for row in rows if isinstance(row, dict)
+    }
+    return path, agendas, by_id
+
+
+def _seed_npc_skills(
+    campaign_dir: Path, rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Write opposed-check skills into the lane's sandbox npc-agendas."""
+    path, agendas, by_id = _sandbox_npc_agendas(campaign_dir)
+    applied: list[dict[str, Any]] = []
+    for row in rows:
+        npc = by_id.get(row["npc_id"])
+        if npc is None:
+            raise DebugExperimentError(
+                "situation_unknown_npc",
+                f"NPC {row['npc_id']!r} is not authored in the sealed campaign",
+            )
+        skills = npc.get("skills")
+        if not isinstance(skills, dict):
+            skills = {}
+        skills.update(row["skills"])
+        npc["skills"] = skills
+        applied.append({
+            "operation": "host.seed_npc_skills",
+            "npc_id": row["npc_id"],
+            "skills": dict(skills),
+            "authority": "host_diagnostic_seed",
+            "note": "lane-private authored-data override; not module content",
+            "ok": True,
+        })
+    path.write_text(
+        json.dumps(agendas, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return applied
+
+
+def _sandbox_story_graph(campaign_dir: Path) -> tuple[Path, dict[str, Any], dict[str, dict[str, Any]]]:
+    path = campaign_dir / "scenario" / "story-graph.json"
+    try:
+        graph = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise DebugExperimentError(
+            "situation_catalog_unavailable",
+            "the lane campaign's story-graph is unreadable",
+        ) from exc
+    scenes = graph.get("scenes") if isinstance(graph, dict) else None
+    if not isinstance(scenes, list):
+        raise DebugExperimentError(
+            "situation_catalog_unavailable",
+            "the lane campaign's story-graph has no scenes list",
+        )
+    by_id = {
+        str(scene.get("scene_id")): scene
+        for scene in scenes
+        if isinstance(scene, dict) and scene.get("scene_id")
+    }
+    return path, graph, by_id
+
+
+def _seed_chase_features(
+    campaign_dir: Path, features: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Write barrier/hazard onto sandbox story-graph scenes."""
+    path, graph, by_id = _sandbox_story_graph(campaign_dir)
+    applied: list[dict[str, Any]] = []
+    for feature in features:
+        scene = by_id.get(feature["scene_id"])
+        if scene is None:
+            raise DebugExperimentError(
+                "situation_unknown_scene",
+                f"scene {feature['scene_id']!r} is not in the sealed story graph",
+            )
+        written: dict[str, Any] = {"scene_id": feature["scene_id"]}
+        if "barrier" in feature:
+            scene["barrier"] = feature["barrier"]
+            written["barrier"] = feature["barrier"]
+        if "hazard" in feature:
+            scene["hazard"] = feature["hazard"]
+            written["hazard"] = feature["hazard"]
+        applied.append({
+            "operation": "host.seed_chase_features",
+            **written,
+            "authority": "host_diagnostic_seed",
+            "note": "lane-private authored-data override; not module content",
+            "ok": True,
+        })
+    path.write_text(
+        json.dumps(graph, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return applied
+
+
+def _campaign_default_investigator(campaign_dir: Path) -> str:
+    """The campaign's default investigator, for host sanity seeds."""
+    party_path = campaign_dir / "party.json"
+    ids: list[str] = []
+    if party_path.is_file():
+        try:
+            party = json.loads(party_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            party = None
+        if isinstance(party, dict):
+            raw = party.get("investigator_ids") or party.get("active_investigator_ids") or []
+            if isinstance(raw, list):
+                ids = [str(item) for item in raw if isinstance(item, str) and item]
+    if not ids:
+        state_dir = campaign_dir / "save" / "investigator-state"
+        if state_dir.is_dir():
+            ids = sorted(
+                path.stem for path in state_dir.glob("*.json")
+                if path.is_file() and not path.is_symlink()
+            )
+    if not ids:
+        raise DebugExperimentError(
+            "situation_catalog_unavailable",
+            "the lane campaign names no default investigator",
+        )
+    return ids[0]
+
+
+def _seed_insanity(
+    campaign_dir: Path, insanity: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Mark the default investigator insane with no active bout."""
+    investigator_id = _campaign_default_investigator(campaign_dir)
+    session = coc_sanity.SanitySession.load(campaign_dir, investigator_id)
+    kind = insanity["kind"]
+    if kind == "temporary":
+        session.temporary_insane = True
+        if session.temporary_insane_remaining_hours < 1:
+            session.temporary_insane_remaining_hours = 1
+    else:
+        session.indefinite_insane = True
+    session.bout_active = False
+    session.bout_rounds_remaining = 0
+    session.active_bout_id = None
+    session.save(campaign_dir)
+    return [{
+        "operation": "host.seed_insanity",
+        "investigator_id": investigator_id,
+        "kind": kind,
+        "authority": "host_diagnostic_seed",
+        "note": "lane-private SanitySession seed; not a toolbox write",
+        "ok": True,
+    }]
+
+
+def _seed_delusion(
+    campaign_dir: Path, delusion: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Plant a delusion after insanity; requires insane and no bout."""
+    investigator_id = _campaign_default_investigator(campaign_dir)
+    session = coc_sanity.SanitySession.load(campaign_dir, investigator_id)
+    try:
+        planted = session.plant_delusion(
+            delusion["description"],
+            backstory_field=delusion.get("backstory_field"),
+        )
+    except ValueError as exc:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"cannot plant a delusion: {exc}",
+        ) from exc
+    session.save(campaign_dir)
+    return [{
+        "operation": "host.seed_delusion",
+        "investigator_id": investigator_id,
+        "description": planted["description"],
+        **({
+            "backstory_field": planted["backstory_field"],
+        } if planted.get("backstory_field") else {}),
+        "authority": "host_diagnostic_seed",
+        "note": "lane-private SanitySession seed; not a toolbox write",
+        "ok": True,
+    }]
+
+
+def _seed_san_gain(
+    campaign_dir: Path, san_gain: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Write the pending SAN-gain receipt another producer reads."""
+    investigator_id = _campaign_default_investigator(campaign_dir)
+    path = (
+        campaign_dir / "save" / "sanity-gain-pending" / f"{investigator_id}.json"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 1,
+        "investigator_id": investigator_id,
+        "san_gain": san_gain["amount"],
+        "gain_source": san_gain["source"],
+        "seeded": True,
+    }
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return [{
+        "operation": "host.seed_san_gain",
+        "investigator_id": investigator_id,
+        "path": str(path),
+        "authority": "host_diagnostic_seed",
+        "ok": True,
+    }]
+
+
 def _situation_spell_teachers(value: Any, *, label: str) -> list[dict[str, Any]]:
     """NPCs this lane appoints as spell sources, with what they teach.
 
@@ -476,6 +725,212 @@ def _situation_ending(value: Any, *, label: str) -> dict[str, Any]:
     return normalized
 
 
+def _situation_closed_int(
+    value: Any, *, label: str, lo: int, hi: int,
+) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or not lo <= value <= hi:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"{label} must be an integer from {lo} through {hi}",
+        )
+    return value
+
+
+def _situation_npc_skills(value: Any, *, label: str) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not 1 <= len(value) <= _MAX_SITUATION_LIST:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"{label} must be a list of 1 to {_MAX_SITUATION_LIST} NPC skill maps",
+        )
+    rows: list[dict[str, Any]] = []
+    for index, raw in enumerate(value):
+        row = _strict_object(raw, label=f"{label}[{index}]")
+        _exact_keys(row, set(_SITUATION_NPC_SKILL_KEYS), label=f"{label}[{index}]")
+        npc_id = _situation_id(row.get("npc_id"), label=f"{label}[{index}].npc_id")
+        skills_raw = _strict_object(row.get("skills"), label=f"{label}[{index}].skills")
+        if not 1 <= len(skills_raw) <= _MAX_SITUATION_LIST:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label}[{index}].skills must hold 1 to {_MAX_SITUATION_LIST} skills",
+            )
+        skills: dict[str, int] = {}
+        for key, skill_value in skills_raw.items():
+            name = _nonempty_text(key, label=f"{label}[{index}].skills key")
+            skills[name] = _situation_closed_int(
+                skill_value, label=f"{label}[{index}].skills[{name}]", lo=1, hi=100,
+            )
+        rows.append({"npc_id": npc_id, "skills": skills})
+    seen = [row["npc_id"] for row in rows]
+    if len(set(seen)) != len(seen):
+        raise DebugExperimentError(
+            "debug_request_invalid", f"{label} names one NPC twice",
+        )
+    return rows
+
+
+def _situation_chase_hazard(value: Any, *, label: str) -> dict[str, Any]:
+    hazard = _strict_object(value, label=label)
+    extra = sorted(set(hazard) - _CHASE_HAZARD_KEYS)
+    if extra:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"{label} has unknown fields: {', '.join(extra)}",
+        )
+    missing = {"hazard_id", "skill", "target"} - set(hazard)
+    if missing:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"{label} needs {', '.join(sorted(missing))}",
+        )
+    out: dict[str, Any] = {
+        "hazard_id": _situation_id(hazard["hazard_id"], label=f"{label}.hazard_id"),
+        "skill": _nonempty_text(hazard["skill"], label=f"{label}.skill"),
+        "target": _situation_closed_int(
+            hazard["target"], label=f"{label}.target", lo=0, hi=100,
+        ),
+    }
+    difficulty = hazard.get("difficulty", "regular")
+    if difficulty not in _CHASE_DIFFICULTIES:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"{label}.difficulty must be one of {', '.join(sorted(_CHASE_DIFFICULTIES))}",
+        )
+    if "difficulty" in hazard:
+        out["difficulty"] = difficulty
+    for key in ("damage_dice", "collision_severity", "from_wreck", "from_debris", "sudden"):
+        if key in hazard:
+            out[key] = hazard[key]
+    return out
+
+
+def _situation_chase_barrier(value: Any, *, label: str) -> dict[str, Any]:
+    barrier = _strict_object(value, label=label)
+    extra = sorted(set(barrier) - _CHASE_BARRIER_KEYS)
+    if extra:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"{label} has unknown fields: {', '.join(extra)}",
+        )
+    missing = {"barrier_id", "hp", "hp_max", "skill", "target"} - set(barrier)
+    if missing:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"{label} needs {', '.join(sorted(missing))}",
+        )
+    hp = _situation_closed_int(barrier["hp"], label=f"{label}.hp", lo=0, hi=10_000)
+    hp_max = _situation_closed_int(
+        barrier["hp_max"], label=f"{label}.hp_max", lo=0, hi=10_000,
+    )
+    if hp > hp_max:
+        raise DebugExperimentError(
+            "debug_request_invalid", f"{label}.hp cannot exceed hp_max",
+        )
+    out: dict[str, Any] = {
+        "barrier_id": _situation_id(
+            barrier["barrier_id"], label=f"{label}.barrier_id",
+        ),
+        "hp": hp,
+        "hp_max": hp_max,
+        "skill": _nonempty_text(barrier["skill"], label=f"{label}.skill"),
+        "target": _situation_closed_int(
+            barrier["target"], label=f"{label}.target", lo=0, hi=100,
+        ),
+    }
+    difficulty = barrier.get("difficulty", "regular")
+    if difficulty not in _CHASE_DIFFICULTIES:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"{label}.difficulty must be one of {', '.join(sorted(_CHASE_DIFFICULTIES))}",
+        )
+    if "difficulty" in barrier:
+        out["difficulty"] = difficulty
+    for key in ("damage_dice", "description"):
+        if key in barrier:
+            out[key] = barrier[key]
+    return out
+
+
+def _situation_chase_features(value: Any, *, label: str) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not 1 <= len(value) <= _MAX_SITUATION_LIST:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"{label} must be a list of 1 to {_MAX_SITUATION_LIST} chase features",
+        )
+    features: list[dict[str, Any]] = []
+    for index, raw in enumerate(value):
+        row = _strict_object(raw, label=f"{label}[{index}]")
+        _exact_keys(
+            row, set(_SITUATION_CHASE_FEATURE_KEYS), label=f"{label}[{index}]",
+        )
+        if "scene_id" not in row:
+            raise DebugExperimentError(
+                "debug_request_invalid", f"{label}[{index}] needs scene_id",
+            )
+        if "barrier" not in row and "hazard" not in row:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label}[{index}] needs barrier or hazard",
+            )
+        feature: dict[str, Any] = {
+            "scene_id": _situation_id(
+                row["scene_id"], label=f"{label}[{index}].scene_id",
+            ),
+        }
+        if "barrier" in row:
+            feature["barrier"] = _situation_chase_barrier(
+                row["barrier"], label=f"{label}[{index}].barrier",
+            )
+        if "hazard" in row:
+            feature["hazard"] = _situation_chase_hazard(
+                row["hazard"], label=f"{label}[{index}].hazard",
+            )
+        features.append(feature)
+    seen = [row["scene_id"] for row in features]
+    if len(set(seen)) != len(seen):
+        raise DebugExperimentError(
+            "debug_request_invalid", f"{label} names one scene twice",
+        )
+    return features
+
+
+def _situation_insanity(value: Any, *, label: str) -> dict[str, Any]:
+    insanity = _strict_object(value, label=label)
+    _exact_keys(insanity, {"kind"}, label=label)
+    kind = insanity.get("kind")
+    if kind not in _SITUATION_INSANITY_KINDS:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"{label}.kind must be one of {', '.join(sorted(_SITUATION_INSANITY_KINDS))}",
+        )
+    return {"kind": kind}
+
+
+def _situation_delusion(value: Any, *, label: str) -> dict[str, Any]:
+    delusion = _strict_object(value, label=label)
+    _exact_keys(delusion, {"description", "backstory_field"}, label=label)
+    normalized = {
+        "description": _nonempty_text(
+            delusion.get("description"), label=f"{label}.description",
+        ),
+    }
+    if "backstory_field" in delusion:
+        normalized["backstory_field"] = _nonempty_text(
+            delusion["backstory_field"], label=f"{label}.backstory_field",
+        )
+    return normalized
+
+
+def _situation_san_gain(value: Any, *, label: str) -> dict[str, Any]:
+    gain = _strict_object(value, label=label)
+    _exact_keys(gain, {"amount", "source"}, label=label)
+    return {
+        "amount": _situation_positive_int(
+            gain.get("amount"), label=f"{label}.amount",
+        ),
+        "source": _nonempty_text(gain.get("source"), label=f"{label}.source"),
+    }
+
+
 def _normalize_situation(raw: Any, *, label: str) -> dict[str, Any]:
     """Closed diagnostic situation: structural seeding or prompt-established.
 
@@ -575,6 +1030,31 @@ def _normalize_situation(raw: Any, *, label: str) -> dict[str, Any]:
     if "ending" in situation:
         normalized["ending"] = _situation_ending(
             situation["ending"], label=f"{label}.ending",
+        )
+    if "npc_skills" in situation:
+        normalized["npc_skills"] = _situation_npc_skills(
+            situation["npc_skills"], label=f"{label}.npc_skills",
+        )
+    if "chase_features" in situation:
+        normalized["chase_features"] = _situation_chase_features(
+            situation["chase_features"], label=f"{label}.chase_features",
+        )
+    if "insanity" in situation:
+        normalized["insanity"] = _situation_insanity(
+            situation["insanity"], label=f"{label}.insanity",
+        )
+    if "delusion" in situation:
+        if "insanity" not in situation:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label}.delusion requires {label}.insanity",
+            )
+        normalized["delusion"] = _situation_delusion(
+            situation["delusion"], label=f"{label}.delusion",
+        )
+    if "san_gain" in situation:
+        normalized["san_gain"] = _situation_san_gain(
+            situation["san_gain"], label=f"{label}.san_gain",
         )
     return normalized
 
@@ -878,6 +1358,20 @@ def _validate_lane_situations(spec: dict[str, Any], checkpoint: dict[str, Any]) 
                 raise DebugExperimentError(
                     "situation_unknown_clue",
                     f"lane {lane['id']}: clue {clue_id!r} is not in the sealed clue graph",
+                )
+        for row in situation.get("npc_skills") or []:
+            npc_id = row["npc_id"]
+            if coc_npc_identity.resolve_authored_npc(npc_agendas, npc_id) is None:
+                raise DebugExperimentError(
+                    "situation_unknown_npc",
+                    f"lane {lane['id']}: NPC {npc_id!r} is not authored in the sealed campaign",
+                )
+        for feature in situation.get("chase_features") or []:
+            scene_id = feature["scene_id"]
+            if scene_id not in scene_ids:
+                raise DebugExperimentError(
+                    "situation_unknown_scene",
+                    f"lane {lane['id']}: scene {scene_id!r} is not in the sealed story graph",
                 )
 
 
@@ -1906,13 +2400,28 @@ class PiRpcLaneAdapter:
             "PYTHONDONTWRITEBYTECODE": "1",
         })
         applied: list[dict[str, Any]] = []
-        teachers = (lane.get("situation") or {}).get("spell_teachers") or []
+        situation = lane.get("situation") or {}
+
+        def campaign_dir() -> Path:
+            raw = materialized.get("campaign_dir")
+            if not raw:
+                raise DebugExperimentError(
+                    "situation_catalog_unavailable",
+                    "the lane materialization names no campaign_dir",
+                )
+            return Path(raw)
+
+        teachers = situation.get("spell_teachers") or []
         if teachers:
             # Authored data first: a spell seeded before its teacher exists
             # would be refused by the same gate this appointment opens.
-            applied.extend(_appoint_spell_teachers(
-                Path(materialized["campaign_dir"]), teachers,
-            ))
+            applied.extend(_appoint_spell_teachers(campaign_dir(), teachers))
+        npc_skills = situation.get("npc_skills") or []
+        if npc_skills:
+            applied.extend(_seed_npc_skills(campaign_dir(), npc_skills))
+        chase_features = situation.get("chase_features") or []
+        if chase_features:
+            applied.extend(_seed_chase_features(campaign_dir(), chase_features))
         for step in _situation_operations(lane, campaign_id):
             if cancelled():
                 return applied, "cancelled"
@@ -1975,6 +2484,14 @@ class PiRpcLaneAdapter:
             applied.append(row)
             if not row["ok"]:
                 return applied, "situation_seed_failed"
+        # Insanity then delusion, after scene/npc/flags/items/spells/damage/
+        # time/rest. SAN-gain is a pending receipt, not a toolbox write.
+        if situation.get("insanity"):
+            applied.extend(_seed_insanity(campaign_dir(), situation["insanity"]))
+        if situation.get("delusion"):
+            applied.extend(_seed_delusion(campaign_dir(), situation["delusion"]))
+        if situation.get("san_gain"):
+            applied.extend(_seed_san_gain(campaign_dir(), situation["san_gain"]))
         return applied, None
 
     def run(

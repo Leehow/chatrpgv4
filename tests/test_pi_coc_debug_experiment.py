@@ -1327,6 +1327,16 @@ def test_run_spec_normalizes_situation_shapes_and_lane_override() -> None:
         {"flags": {}},
         {"flags": {"basement-unlocked": "true"}},
         {"flags": {"basement-unlocked": 1}},
+        {"npc_skills": []},
+        {"npc_skills": [{"npc_id": "npc-walter-corbitt"}]},
+        {"npc_skills": [{"npc_id": "npc-walter-corbitt", "skills": {"Spot Hidden": 0}}]},
+        {"npc_skills": [{"npc_id": "npc-walter-corbitt", "skills": {"Spot Hidden": 101}}]},
+        {"chase_features": [{"scene_id": "corbitt-confrontation"}]},
+        {"chase_features": [{"scene_id": "corbitt-confrontation", "hazard": {"skill": "Jump", "target": 50}}]},
+        {"insanity": {"kind": "bout"}},
+        {"delusion": {"description": "墙纸正在呼吸"}},
+        {"san_gain": {"amount": 0, "source": "survived"}},
+        {"san_gain": {"amount": 2}},
         "corbitt-confrontation",
     ],
 )
@@ -1967,6 +1977,20 @@ def test_normalization_carries_every_structural_key_it_accepts():
             {"npc_id": "npc-steven-knott", "source_kind": "person",
              "spells": ["Contact Spells"]},
         ],
+        "npc_skills": [
+            {"npc_id": "npc-steven-knott", "skills": {"Spot Hidden": 60}},
+        ],
+        "chase_features": [{
+            "scene_id": "corbitt-house-ground",
+            "hazard": {"hazard_id": "rotten-stairs", "skill": "Jump", "target": 50},
+            "barrier": {
+                "barrier_id": "locked-gate", "hp": 4, "hp_max": 4,
+                "skill": "Strength", "target": 50,
+            },
+        }],
+        "insanity": {"kind": "temporary"},
+        "delusion": {"description": "墙纸正在呼吸"},
+        "san_gain": {"amount": 2, "source": "confronted the horror and lived"},
     }
     assert set(every) == set(module._SITUATION_STRUCTURAL_KEYS), (
         "this test must exercise every accepted structural key"
@@ -1987,11 +2011,17 @@ def test_normalization_carries_every_structural_key_it_accepts():
         "state.set_flag", "state.item_grant", "magic.learn", "rules.damage",
         "state.advance_time", "state.mark_safe_rest", "state.end_session",
     }
-    # `spell_teachers` is authored data, not canonical state, so it is applied
-    # by rewriting the lane's own scenario copy rather than by a toolbox
-    # operation. It must still survive normalization -- that is what the
-    # dropped-key guard above is for -- and it must not silently become one.
-    assert "spell_teachers" in normalized
+    # `spell_teachers` / `npc_skills` / `chase_features` are authored data,
+    # not canonical state, so they are applied by rewriting the lane's own
+    # scenario copy rather than by a toolbox operation. Insanity, delusion
+    # and san_gain are host SanitySession / receipt seeds. They must still
+    # survive normalization -- that is what the dropped-key guard above is
+    # for -- and they must not silently become toolbox operations.
+    for key in (
+        "spell_teachers", "npc_skills", "chase_features",
+        "insanity", "delusion", "san_gain",
+    ):
+        assert key in normalized
 
 
 def test_seed_arguments_are_checked_against_the_real_operation_contracts():
@@ -2224,3 +2254,177 @@ def test_a_seeded_spell_is_learned_from_the_teacher_the_lane_appointed():
             "spells": ["Summon/Bind Dimensional Shambler"],
         }],
     }) == "entity"
+
+
+_MIN_HAZARD = {"hazard_id": "rotten-stairs", "skill": "Jump", "target": 50}
+_MIN_BARRIER = {
+    "barrier_id": "locked-gate", "hp": 4, "hp_max": 4,
+    "skill": "Strength", "target": 50,
+}
+
+
+def _host_seed_campaign(tmp_path: Path) -> Path:
+    campaign = tmp_path / "campaign"
+    scenario = campaign / "scenario"
+    scenario.mkdir(parents=True)
+    (campaign / "party.json").write_text(json.dumps({
+        "investigator_ids": ["thomas-hayes"],
+    }), encoding="utf-8")
+    (scenario / "npc-agendas.json").write_text(json.dumps({
+        "npcs": [
+            {"npc_id": "npc-steven-knott", "name": "Steven Knott"},
+            {"npc_id": "npc-walter-corbitt", "name": "Walter Corbitt",
+             "skills": {"Listen": 40}},
+        ],
+    }, ensure_ascii=False), encoding="utf-8")
+    (scenario / "story-graph.json").write_text(json.dumps({
+        "scenes": [
+            {"scene_id": "corbitt-house-ground"},
+            {"scene_id": "basement-rites"},
+        ],
+    }), encoding="utf-8")
+    return campaign
+
+
+def test_normalize_accepts_the_new_host_seed_shapes():
+    module = _module()
+    spec = module._normalize_run_spec({
+        "player_input": "我对峙。",
+        "lanes": [{
+            "id": "seeds",
+            "player_input": "我对峙。",
+            "situation": {
+                "npc_skills": [{
+                    "npc_id": "npc-steven-knott",
+                    "skills": {"Spot Hidden": 60, "Listen": 50},
+                }],
+                "chase_features": [{
+                    "scene_id": "corbitt-house-ground",
+                    "hazard": _MIN_HAZARD,
+                    "barrier": _MIN_BARRIER,
+                }],
+                "insanity": {"kind": "indefinite"},
+                "delusion": {
+                    "description": "墙纸正在呼吸",
+                    "backstory_field": "meaningful_locations",
+                },
+                "san_gain": {"amount": 3, "source": "lived through it"},
+            },
+        }],
+    })
+    situation = spec["lanes"][0]["situation"]
+    assert situation["npc_skills"][0]["skills"]["Spot Hidden"] == 60
+    assert situation["chase_features"][0]["hazard"]["hazard_id"] == "rotten-stairs"
+    assert situation["insanity"] == {"kind": "indefinite"}
+    assert situation["delusion"]["backstory_field"] == "meaningful_locations"
+    assert situation["san_gain"] == {"amount": 3, "source": "lived through it"}
+    assert module._situation_operations(spec["lanes"][0], "c1") == []
+
+
+def test_host_seeds_write_npc_skills_chase_features_and_pending_files(
+    tmp_path: Path,
+):
+    """The wiring, not just the function: `_seed_situation` writes sandbox
+    files and the pending SAN-gain receipt without calling the toolbox."""
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    adapter = module.PiRpcLaneAdapter(
+        repo_root=Path.cwd(), private_root=tmp_path / "private",
+    )
+    spec = module._normalize_run_spec({
+        "player_input": "我对峙。",
+        "lanes": [{
+            "id": "seeds",
+            "player_input": "我对峙。",
+            "situation": {
+                "npc_skills": [{
+                    "npc_id": "npc-walter-corbitt",
+                    "skills": {"Spot Hidden": 55},
+                }],
+                "chase_features": [{
+                    "scene_id": "basement-rites",
+                    "hazard": _MIN_HAZARD,
+                }],
+                "insanity": {"kind": "temporary"},
+                "delusion": {"description": "墙纸正在呼吸"},
+                "san_gain": {"amount": 2, "source": "confronted the horror"},
+            },
+        }],
+    })
+    applied, failure = adapter._seed_situation(
+        lane=spec["lanes"][0],
+        run={"context": {"campaign_id": "c1"}},
+        materialized={
+            "workspace_root": str(tmp_path / "ws"),
+            "campaign_dir": str(campaign),
+        },
+        deadline=time.monotonic() + 30,
+        cancelled=lambda: False,
+    )
+    assert failure is None, failure
+    assert [row["operation"] for row in applied] == [
+        "host.seed_npc_skills",
+        "host.seed_chase_features",
+        "host.seed_insanity",
+        "host.seed_delusion",
+        "host.seed_san_gain",
+    ]
+    assert all(row["authority"] == "host_diagnostic_seed" for row in applied)
+
+    agendas = json.loads(
+        (campaign / "scenario" / "npc-agendas.json").read_text(encoding="utf-8"),
+    )
+    by_id = {row["npc_id"]: row for row in agendas["npcs"]}
+    assert by_id["npc-walter-corbitt"]["skills"] == {
+        "Listen": 40, "Spot Hidden": 55,
+    }
+
+    graph = json.loads(
+        (campaign / "scenario" / "story-graph.json").read_text(encoding="utf-8"),
+    )
+    scenes = {row["scene_id"]: row for row in graph["scenes"]}
+    assert scenes["basement-rites"]["hazard"] == _MIN_HAZARD
+    assert "barrier" not in scenes["basement-rites"]
+    assert "hazard" not in scenes["corbitt-house-ground"]
+
+    snap = json.loads(
+        (campaign / "save" / "sanity-state" / "thomas-hayes.json").read_text(
+            encoding="utf-8",
+        ),
+    )
+    assert snap["temporary_insane"] is True
+    assert snap["bout_active"] is False
+    assert snap["active_delusion"]["description"] == "墙纸正在呼吸"
+
+    pending = json.loads(
+        (campaign / "save" / "sanity-gain-pending" / "thomas-hayes.json").read_text(
+            encoding="utf-8",
+        ),
+    )
+    assert pending == {
+        "schema_version": 1,
+        "investigator_id": "thomas-hayes",
+        "san_gain": 2,
+        "gain_source": "confronted the horror",
+        "seeded": True,
+    }
+
+
+def test_seeding_npc_skills_on_an_unauthored_npc_fails_closed(tmp_path: Path):
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    with pytest.raises(module.DebugExperimentError) as refused:
+        module._seed_npc_skills(campaign, [
+            {"npc_id": "npc-nobody", "skills": {"Spot Hidden": 40}},
+        ])
+    assert refused.value.code == "situation_unknown_npc"
+
+
+def test_seeding_chase_features_on_an_unknown_scene_fails_closed(tmp_path: Path):
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    with pytest.raises(module.DebugExperimentError) as refused:
+        module._seed_chase_features(campaign, [
+            {"scene_id": "attic-of-nowhere", "hazard": _MIN_HAZARD},
+        ])
+    assert refused.value.code == "situation_unknown_scene"
