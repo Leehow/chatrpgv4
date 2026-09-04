@@ -2100,6 +2100,9 @@ def _write_host_work_request(
             index=index or {},
             cached_page_refs=cached_page_refs,
             job_id=jid,
+            declared_pages=coc_module_assets.registered_pdf_indices(
+                workspace, asset_root_id,
+            ),
         )
         payload["extraction_request"] = extraction
         payload["result_contract"] = extraction["result_contract"]

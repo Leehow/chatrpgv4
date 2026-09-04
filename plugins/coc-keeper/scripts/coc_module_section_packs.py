@@ -96,6 +96,7 @@ def build_extraction_request(
     index: dict[str, Any],
     cached_page_refs: list[dict[str, Any]],
     job_id: str,
+    declared_pages: set[int] | None = None,
 ) -> dict[str, Any]:
     """Project one indexed section into its bounded extraction request."""
     if not isinstance(section, dict):
@@ -111,11 +112,22 @@ def build_extraction_request(
     if not allowed:
         raise SectionPackError(f"section payload {payload!r} has no pack kinds")
     ref_pages = {int(ref.get("pdf_index") or 0) for ref in cached_page_refs}
-    missing = sorted(set(pages) - ref_pages)
+    # A page the source never carried is a hole in the book, not a gap in the
+    # cache. Masks declares none at pdf_index 4 through 7, and treating the two
+    # as one fact made every section spanning a hole permanently unfetchable.
+    # `declared_pages` is what the registered bundles say the book has; without
+    # it the old, stricter rule stands, so silence still fails.
+    wanted = set(pages) if declared_pages is None else set(pages) & set(declared_pages)
+    if not wanted:
+        raise SectionPackError(
+            "section names no page this source carries"
+        )
+    missing = sorted(wanted - ref_pages)
     if missing:
         raise SectionPackError(
             f"section pages {missing} are not in the accepted cache"
         )
+    pages = sorted(wanted)
     return {
         "schema_version": SCHEMA_VERSION,
         "contract_id": "coc.section-extraction-request.v1",

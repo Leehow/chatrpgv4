@@ -158,10 +158,20 @@ def _module_identity(
     absent or unrecognised key leaves the era out entirely and the downstream
     projection reports `unknown`, which is answerable; a wrong century is not.
     """
-    identity: dict[str, Any] = {
-        "canonical_module_id": module_id,
-        "canonical_title": module_id,
-    }
+    identity: dict[str, Any] = {"canonical_module_id": module_id}
+    # The same discipline as the era below, for the same reason. A graph knows
+    # the book's title only if it read it, so a `module` node may carry
+    # `properties.title`. Answering with the module id instead put the slug
+    # `cursed-be-the-city` in front of the Keeper as the name of 《诅咒之城》,
+    # and worse, short-circuited the downstream fallback chain that would
+    # otherwise have reached the bundle's own recorded title.
+    for node in nodes.values():
+        if node.get("node_kind") != "module":
+            continue
+        title = (node.get("properties") or {}).get("title") or node.get("name")
+        if isinstance(title, str) and title.strip():
+            identity["canonical_title"] = title.strip()
+            break
     for node in nodes.values():
         if node.get("node_kind") != "temporal-frame":
             continue
@@ -179,6 +189,7 @@ def project_graph_to_skeleton(
     file_sha256: str,
     page_count: int,
     parse_tier: int = 2,
+    producer: str = "codex-pdf-skill",
 ) -> dict[str, Any]:
     """Build a skeleton whose every record is graph-derived and page-bound."""
     findings: list[dict[str, str]] = []
@@ -309,7 +320,14 @@ def project_graph_to_skeleton(
                     continue
                 clue_id = str(relation.get("from_node_id") or "")
                 clue_node = nodes.get(clue_id)
-                if clue_node is None:
+                # The same node-kind test the placement side applies, and for
+                # the same reason. Without it the two halves disagree: a
+                # `secret` supporting a conclusion became a clue row here and
+                # could never be placed in a scene there, so the lint reported
+                # `clue-unplaced` on it forever with nothing to fix. A clue is
+                # what an investigator can find; keeper truth is a different
+                # thing and does not belong in a list the players draw from.
+                if clue_node is None or clue_node.get("node_kind") != "clue":
                     continue
                 clues.append({
                     "clue_id": clue_id,
@@ -328,11 +346,17 @@ def project_graph_to_skeleton(
     skeleton: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "parse_tier": parse_tier,
+        # `source` describes the bundle this graph was read from, so its
+        # producer is the bundle's. Naming the projection here reads as
+        # provenance and is not: `put_skeleton` compares it against the
+        # registered source bundle and refused every graph-built module whose
+        # asset root had one -- which is every module once its pages are
+        # registered, which is every module the on-demand lane can serve.
         "source": {
             "source_id": source_id,
             "file_sha256": file_sha256,
             "page_count": page_count,
-            "producer": "coc_module_graph_projection",
+            "producer": producer,
         },
         "module_identity": _module_identity(module_id, nodes),
         "start_candidates": starts,
@@ -433,6 +457,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-id", required=True)
     parser.add_argument("--file-sha256", required=True)
     parser.add_argument("--page-count", type=int, required=True)
+    parser.add_argument("--producer", default="codex-pdf-skill",
+                        help="the source bundle's producer, which the "
+                             "skeleton echoes; not the projection's name")
     parser.add_argument("--output")
     args = parser.parse_args(argv)
 
@@ -443,6 +470,7 @@ def main(argv: list[str] | None = None) -> int:
             source_id=args.source_id,
             file_sha256=args.file_sha256,
             page_count=args.page_count,
+            producer=args.producer,
         )
     except ProjectionError as exc:
         print(json.dumps({

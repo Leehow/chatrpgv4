@@ -42,7 +42,9 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import sys
+import tempfile
 from concurrent import futures
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,6 +54,7 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 
 import coc_module_assets as assets  # noqa: E402
+import coc_pdf_bundle  # noqa: E402
 import coc_module_graph as graph  # noqa: E402
 import coc_module_graph_projection as graph_projection  # noqa: E402
 import coc_module_graph_template as graph_template  # noqa: E402
@@ -877,6 +880,66 @@ def _unreachable_scenes(merged: dict[str, Any]) -> list[str]:
     return sorted(scenes - joined)
 
 
+def _import_bundle_pages(
+    bundle: Path, workspace: Path, asset_root_id: str,
+) -> dict[str, int]:
+    """Bridge the bundle the build read into the asset root's page cache.
+
+    The bundle is what the build read; the cache is what the on-demand lane
+    reads. They were never connected, so a freshly installed book had a graph
+    of a hundred and twenty-six scenes and not one page anything could quote.
+
+    Through `register_source_bundle`, not a loop over `put_page`: caching a
+    page and having it inside the accepted-evidence boundary are two different
+    facts, and only registration does the second. Writing the pages by hand
+    produced 654 cached and 0 accepted -- every reference still refused, and
+    nothing said why.
+
+    In windows, because registration is a bounded-window contract (32 pages)
+    and a book is not a window. Each window is a real bundle directory holding
+    the same page files, so the same validation runs over the same bytes.
+    """
+    manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+    pages = [row for row in manifest.get("pages") or [] if isinstance(row, dict)]
+    window = coc_pdf_bundle.MAX_PAGES
+    registered = failed = 0
+    reasons: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="coc-window-") as staging:
+        for start_at in range(0, len(pages), window):
+            chunk = pages[start_at:start_at + window]
+            view = Path(staging) / f"w{start_at:05d}"
+            view.mkdir(parents=True, exist_ok=True)
+            for row in chunk:
+                markdown = str(row.get("markdown_path") or "")
+                source_file = bundle / markdown
+                if not source_file.is_file():
+                    continue
+                target = view / markdown
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source_file, target)
+            (view / "manifest.json").write_text(
+                json.dumps({**manifest, "pages": chunk}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            try:
+                assets.register_source_bundle(
+                    workspace, view, asset_root_id=asset_root_id,
+                )
+                registered += len(chunk)
+            except Exception as error:  # noqa: BLE001
+                # One window that will not register is not a reason to install
+                # no pages: the lane refuses the sections that need them and
+                # names which, which is a better failure than a silent gap.
+                failed += len(chunk)
+                if len(reasons) < 3:
+                    reasons.append(f"{type(error).__name__}: {error}")
+    accepted = assets.accepted_cached_pdf_indices(workspace, asset_root_id)
+    out = {"registered": registered, "failed": failed, "accepted": len(accepted)}
+    if reasons:
+        out["reasons"] = reasons
+    return out
+
+
 def install_build(
     work: Path,
     bundle: Path,
@@ -915,11 +978,40 @@ def install_build(
     file_sha256 = str(source.get("file_sha256") or "")
     page_count = int(source.get("page_count") or 0)
 
+    # The pages the build read, into the asset root's own cache. Without them
+    # a section the party walks into is refused with "section pages are not in
+    # the accepted cache" -- the graph knows the book and the lane that fetches
+    # the rest of it cannot see a single page.
+    cached = _import_bundle_pages(bundle, Path(workspace), asset_root_id)
+    # The shards themselves, kept beside the graph. Growing it later means
+    # merging again, and `merge_shards` takes shards -- a merged graph is not a
+    # shard of itself and every contract check refuses one.
+    kept = 0
+    for path in sorted(work.rglob("accepted.shard.json")):
+        try:
+            shard = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        evidence_path = path.parent / "evidence-packet.json"
+        evidence = None
+        if evidence_path.is_file():
+            try:
+                evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                evidence = None
+        try:
+            assets.put_graph_shard(Path(workspace), asset_root_id, shard,
+                                   evidence_packet=evidence)
+            kept += 1
+        except Exception:  # noqa: BLE001
+            continue
+
     skeleton = graph_projection.project_graph_to_skeleton(
         module_graph,
         source_id=source_id,
         file_sha256=file_sha256,
         page_count=page_count,
+        producer=str(source.get("producer") or coc_pdf_bundle.PRODUCER),
     )
 
     digest = graph._json_digest(module_graph)
@@ -983,6 +1075,8 @@ def install_build(
         "installed": True,
         "asset_root_id": asset_root_id,
         "generation": generation,
+        "pages_cached": cached,
+        "shards_kept": kept,
         "skeleton": {
             "stored": stored_skeleton,
             "locations": len(skeleton.get("locations") or []),

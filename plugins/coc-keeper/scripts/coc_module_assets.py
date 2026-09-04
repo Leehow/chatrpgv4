@@ -5858,6 +5858,32 @@ def canonical_campaign_source_refs(
     return enriched
 
 
+def registered_pdf_indices(workspace: Path, asset_root_id: str) -> set[int]:
+    """Every page the registered source bundles say this book carries.
+
+    A book has holes -- Masks declares none at pdf_index 4 through 7 -- and a
+    hole is not a cache miss. Without this the two are the same fact and any
+    section spanning a hole can never be fetched, however completely it was
+    cached: "section pages [4, 5, 6, 7] are not in the accepted cache", for
+    pages that do not exist.
+    """
+    identity_path = _module_dir(workspace, asset_root_id) / "identity.json"
+    if not identity_path.is_file():
+        return set()
+    try:
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    declared: set[int] = set()
+    for bundle in identity.get("source_bundles") or []:
+        if not isinstance(bundle, dict):
+            continue
+        for index in bundle.get("pdf_indices") or []:
+            if isinstance(index, int) and not isinstance(index, bool):
+                declared.add(index)
+    return declared
+
+
 def accepted_cached_pdf_indices(
     workspace: Path,
     asset_root_id: str,
@@ -7382,6 +7408,217 @@ def put_section_pack_and_fulfill_host_work(
         "body_path": str(body_path),
         "repository_put_ms": repository_put_ms,
     }
+
+
+def put_section_shard_and_fulfill_host_work(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    host_work_job_id: str,
+    shard: Any,
+) -> dict[str, Any]:
+    """Store one section a graph reader deepened, as graph and as pack.
+
+    The lane fetches sections while play goes on, and until now it fetched them
+    with the reader that predates the graph: a section deepened at the table
+    became a pack and nothing else, so the book the party was walking through
+    stopped growing as a graph the moment it left the sections built up front.
+
+    This is the other answer to the same host-work request. The reader hands
+    back a GraphShard; it is gated exactly as a built section is, merged into
+    the installed graph so the map actually grows, and compiled to a pack by
+    the deterministic bridge so every consumer downstream sees what it always
+    saw. The pack is a view of the graph rather than a second reading, which is
+    the whole point of having one canon.
+    """
+    module_dir = _module_dir(workspace, asset_root_id)
+    path = (
+        module_dir / "host-work"
+        / f"{_require_id(host_work_job_id, 'host_work_job_id')}.json"
+    )
+    if not path.is_file():
+        raise ModuleAssetsError("section extraction host-work request is missing")
+    bridge = _shard_pack_module()
+    with coc_fileio.advisory_file_lock(module_dir / "host-work.lock"):
+        request = json.loads(path.read_text(encoding="utf-8"))
+        validate_host_work_request_shape(request)
+        if request.get("kind") != EXTRACT_SECTION_KIND:
+            raise ModuleAssetsError(
+                "host-work request is not a section extraction"
+            )
+        if request.get("status") in {"fulfilled", "cancelled", "superseded"}:
+            raise ModuleAssetsError(
+                f"section host-work request is already {request.get('status')}"
+            )
+        extraction = request.get("extraction_request")
+        if not isinstance(extraction, dict):
+            raise ModuleAssetsError(
+                "section host-work request carries no extraction packet"
+            )
+        pack = bridge.shard_to_pack(shard, extraction)
+    # The pack first: it is what the table reads, and a graph that will not
+    # merge must not cost the party the section they just walked into. The
+    # merge is then reported rather than raised, the same way assembly is.
+    stored = put_section_pack_and_fulfill_host_work(
+        workspace, asset_root_id,
+        host_work_job_id=host_work_job_id, pack=pack,
+    )
+    return {
+        **stored,
+        "from_shard": True,
+        "graph": grow_installed_graph(
+            workspace, asset_root_id, shard,
+            evidence_packet=request.get("evidence_packet"),
+        ),
+    }
+
+
+def graph_shard_dir(workspace: Path, asset_root_id: str) -> Path:
+    """Where an asset root keeps the shards its graph was merged from.
+
+    Kept because growing a graph means merging again, and `merge_shards` takes
+    shards. The first draft fed it the installed graph as if a merged graph
+    were a shard of itself, and every contract check refused at once -- a
+    merged graph has section ids, merge notes and coverage by section, none of
+    which a shard may carry.
+    """
+    return _module_dir(workspace, asset_root_id) / "graph" / "shards"
+
+
+def put_graph_shard(
+    workspace: Path,
+    asset_root_id: str,
+    shard: dict[str, Any],
+    *,
+    evidence_packet: dict[str, Any] | None = None,
+) -> Path:
+    """Keep one accepted shard, and the spans it cites, for later merges."""
+    section_id = _require_id(str(shard.get("section_id") or ""), "section_id")
+    root = graph_shard_dir(workspace, asset_root_id)
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"{section_id}.shard.json"
+    _write_json(path, shard)
+    if evidence_packet is not None:
+        _write_json(root / f"{section_id}.evidence.json", evidence_packet)
+    return path
+
+
+def _stored_evidence_catalog(root: Path) -> dict[str, dict[str, Any]]:
+    catalog: dict[str, dict[str, Any]] = {}
+    for path in sorted(root.glob("*.evidence.json")):
+        try:
+            packet = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for span in packet.get("spans") or []:
+            if isinstance(span, dict) and isinstance(span.get("span_id"), str):
+                catalog[span["span_id"]] = span
+    return catalog
+
+
+def grow_installed_graph(
+    workspace: Path,
+    asset_root_id: str,
+    shard: Any,
+    *,
+    evidence_packet: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Merge one newly-read section into the installed graph, as a generation.
+
+    "Parse as they play" only means something if what was parsed lands where
+    the next question will be asked. A section deepened at the table used to
+    become a pack and stop there, so the graph stayed exactly the size it was
+    when the campaign was built, however far the party walked.
+
+    Reported, never raised. A merge conflict is a real answer about the book --
+    two readings that cannot both be true -- and the party has already been
+    given the section either way.
+    """
+    graph_mod = _module_graph_module()
+    graph_root = _module_dir(workspace, asset_root_id) / "graph"
+    manifest_path = graph_root / "manifest.json"
+    if not manifest_path.is_file():
+        return {"grown": False, "reason": "no installed module graph"}
+    if not isinstance(shard, dict) or not shard.get("section_id"):
+        return {"grown": False, "reason": "shard names no section"}
+    shard_root = graph_shard_dir(workspace, asset_root_id)
+    if not any(shard_root.glob("*.shard.json")):
+        return {
+            "grown": False,
+            "reason": "this asset root kept no shards to merge with; it was "
+                      "installed before shards were stored",
+        }
+    put_graph_shard(workspace, asset_root_id, shard,
+                    evidence_packet=evidence_packet)
+    shards = []
+    for path in sorted(shard_root.glob("*.shard.json")):
+        try:
+            shards.append(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError):
+            continue
+    try:
+        merged = graph_mod.merge_shards(
+            shards, evidence_catalog=_stored_evidence_catalog(shard_root),
+        )
+    except Exception as error:  # noqa: BLE001
+        return {
+            "grown": False,
+            "reason": f"{type(error).__name__}: {error}",
+            "findings": (getattr(error, "findings", None) or [])[:8],
+            "shards": len(shards),
+        }
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return {"grown": False, "reason": f"unreadable manifest: {error}"}
+    digest = graph_mod._json_digest(merged)
+    generation = f"generation-{digest}"
+    target = graph_root / "generations" / generation / "module-graph.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    coc_fileio.write_json_atomic(
+        target, merged, indent=2, ensure_ascii=False, trailing_newline=True,
+    )
+    manifest.update({
+        "current_generation": generation,
+        "module_graph_path": f"generations/{generation}/module-graph.json",
+        "module_graph_sha256": digest,
+    })
+    coc_fileio.write_json_atomic(
+        manifest_path, manifest, indent=2, ensure_ascii=False,
+        trailing_newline=True,
+    )
+    return {
+        "grown": True,
+        "generation": generation,
+        "shards": len(shards),
+        "nodes": len(merged.get("nodes") or []),
+        "relations": len(merged.get("relations") or []),
+    }
+
+
+def _module_graph_module():
+    global _MODULE_GRAPH_MODULE
+    if _MODULE_GRAPH_MODULE is None:
+        _MODULE_GRAPH_MODULE = _load_sibling(
+            "coc_module_graph_assets", "coc_module_graph.py",
+        )
+    return _MODULE_GRAPH_MODULE
+
+
+_MODULE_GRAPH_MODULE = None
+
+
+def _shard_pack_module():
+    global _SHARD_PACK_MODULE
+    if _SHARD_PACK_MODULE is None:
+        _SHARD_PACK_MODULE = _load_sibling(
+            "coc_module_shard_pack_assets", "coc_module_shard_pack.py",
+        )
+    return _SHARD_PACK_MODULE
+
+
+_SHARD_PACK_MODULE = None
 
 
 def _section_packs_module():
