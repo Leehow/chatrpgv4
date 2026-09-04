@@ -1337,6 +1337,12 @@ def test_run_spec_normalizes_situation_shapes_and_lane_override() -> None:
         {"delusion": {"description": "墙纸正在呼吸"}},
         {"san_gain": {"amount": 0, "source": "survived"}},
         {"san_gain": {"amount": 2}},
+        {"combat": {}},
+        {"chase": {"pending": "teleport"}},
+        {
+            "combat": {"npc_id": "npc-walter-corbitt"},
+            "chase": {"npc_id": "npc-walter-corbitt"},
+        },
         "corbitt-confrontation",
     ],
 )
@@ -1992,8 +1998,13 @@ def test_normalization_carries_every_structural_key_it_accepts():
         "delusion": {"description": "墙纸正在呼吸"},
         "san_gain": {"amount": 2, "source": "confronted the horror and lived"},
     }
-    assert set(every) == set(module._SITUATION_STRUCTURAL_KEYS), (
-        "this test must exercise every accepted structural key"
+    # combat and chase are mutually exclusive, so they cannot share this
+    # one-object sweep; they have their own normalize tests.
+    assert set(module._SITUATION_STRUCTURAL_KEYS) - set(every) == {
+        "combat", "chase",
+    }, (
+        "this test must exercise every accepted structural key except the "
+        "mutually exclusive combat/chase pair"
     )
     spec = module._normalize_run_spec({
         "player_input": "我推开门。",
@@ -2273,15 +2284,67 @@ def _host_seed_campaign(tmp_path: Path) -> Path:
     (scenario / "npc-agendas.json").write_text(json.dumps({
         "npcs": [
             {"npc_id": "npc-steven-knott", "name": "Steven Knott"},
-            {"npc_id": "npc-walter-corbitt", "name": "Walter Corbitt",
-             "skills": {"Listen": 40}},
+            {
+                "npc_id": "npc-walter-corbitt", "name": "Walter Corbitt",
+                "skills": {"Listen": 40},
+                "mechanics": {
+                    "status": "authored",
+                    "profile": {
+                        "characteristic_scale": "percentile",
+                        "characteristics": {
+                            "STR": 80, "CON": 80, "SIZ": 70,
+                            "DEX": 35, "POW": 90,
+                        },
+                        "skills": {
+                            "Fighting (Brawl)": 50, "Dodge": 18,
+                        },
+                        "derived": {
+                            "HP": 15, "MP": 18, "SAN": 0,
+                            "MOV": 8, "Build": 1, "DB": "+1D4",
+                        },
+                        "weapons": [{"weapon_id": "unarmed"}],
+                    },
+                },
+            },
         ],
     }, ensure_ascii=False), encoding="utf-8")
     (scenario / "story-graph.json").write_text(json.dumps({
         "scenes": [
-            {"scene_id": "corbitt-house-ground"},
-            {"scene_id": "basement-rites"},
+            {
+                "scene_id": "corbitt-house-ground",
+                "scene_edges": [{"target_scene_id": "basement-rites"}],
+            },
+            {
+                "scene_id": "basement-rites",
+                "scene_edges": [{"target_scene_id": "corbitt-house-ground"}],
+            },
         ],
+    }), encoding="utf-8")
+    sheet_dir = campaign / "investigators" / "thomas-hayes"
+    sheet_dir.mkdir(parents=True)
+    (sheet_dir / "character.json").write_text(json.dumps({
+        "id": "thomas-hayes",
+        "characteristics": {
+            "STR": 60, "CON": 60, "SIZ": 55, "DEX": 60,
+            "POW": 50, "INT": 70, "APP": 50, "EDU": 70,
+        },
+        "skills": {
+            "Fighting (Brawl)": 40, "Dodge": 30,
+            "Firearms (Handgun)": 40,
+        },
+        "derived": {"HP": 11, "MP": 10, "MOV": 8, "Build": 0, "DB": "none"},
+        "weapons": [{"weapon_id": "revolver_38"}],
+    }), encoding="utf-8")
+    state_dir = campaign / "save" / "investigator-state"
+    state_dir.mkdir(parents=True)
+    (state_dir / "thomas-hayes.json").write_text(json.dumps({
+        "investigator_id": "thomas-hayes",
+        "current_hp": 11, "hp_max": 11, "current_mp": 10,
+        "conditions": [],
+    }), encoding="utf-8")
+    (campaign / "save" / "active-scene.json").write_text(json.dumps({
+        "schema_version": 1,
+        "scene_id": "corbitt-house-ground",
     }), encoding="utf-8")
     return campaign
 
@@ -2428,3 +2491,116 @@ def test_seeding_chase_features_on_an_unknown_scene_fails_closed(tmp_path: Path)
             {"scene_id": "attic-of-nowhere", "hazard": _MIN_HAZARD},
         ])
     assert refused.value.code == "situation_unknown_scene"
+
+
+def test_normalize_accepts_combat_and_chase_shapes():
+    module = _module()
+    combat = module._normalize_run_spec({
+        "player_input": "我开枪。",
+        "lanes": [{
+            "id": "c",
+            "player_input": "我开枪。",
+            "situation": {
+                "combat": {
+                    "npc_id": "npc-walter-corbitt",
+                    "spent_weapon_id": "revolver_38",
+                },
+            },
+        }],
+    })["lanes"][0]["situation"]
+    assert combat["combat"]["npc_id"] == "npc-walter-corbitt"
+    assert combat["combat"]["spent_weapon_id"] == "revolver_38"
+    chase = module._normalize_run_spec({
+        "player_input": "我跑。",
+        "lanes": [{
+            "id": "h",
+            "player_input": "我跑。",
+            "situation": {
+                "chase": {
+                    "npc_id": "npc-walter-corbitt",
+                    "pending": "conflict",
+                    "investigator_role": "quarry",
+                },
+            },
+        }],
+    })["lanes"][0]["situation"]
+    assert chase["chase"]["pending"] == "conflict"
+
+
+def test_host_seeds_an_active_combat_on_the_investigators_turn(
+    tmp_path: Path,
+):
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    applied = module._seed_combat(campaign, {
+        "npc_id": "npc-walter-corbitt",
+        "spent_weapon_id": "revolver_38",
+    })
+    assert applied[0]["operation"] == "host.seed_combat"
+    assert applied[0]["acts_now"] == "thomas-hayes"
+    snap = json.loads((campaign / "save" / "combat.json").read_text(encoding="utf-8"))
+    assert snap["status"] == "active"
+    assert snap["pending_attack"] is None
+    by_id = {row["actor_id"]: row for row in snap["participants"]}
+    assert set(by_id) == {"thomas-hayes", "npc-walter-corbitt"}
+    assert by_id["thomas-hayes"]["_ammo"]["revolver_38"] == 0
+    order = [row["actor_id"] for row in snap["current_initiative"]]
+    assert order[snap["initiative_cursor"]] == "thomas-hayes"
+
+
+def test_host_seeds_a_live_chase_with_conflict_pending(tmp_path: Path):
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    applied = module._seed_chase(campaign, {
+        "npc_id": "npc-walter-corbitt",
+        "pending": "conflict",
+    })
+    assert applied[0]["operation"] == "host.seed_chase"
+    snap = json.loads((campaign / "save" / "chase.json").read_text(encoding="utf-8"))
+    assert snap["status"] == "active"
+    by_id = {row["actor_id"]: row for row in snap["participants"]}
+    assert by_id["thomas-hayes"]["position"] == by_id["npc-walter-corbitt"]["position"]
+    assert not by_id["thomas-hayes"]["escaped"]
+
+
+def test_host_seeds_a_chase_ready_to_end(tmp_path: Path):
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    module._seed_chase(campaign, {
+        "npc_id": "npc-walter-corbitt",
+        "pending": "end",
+    })
+    snap = json.loads((campaign / "save" / "chase.json").read_text(encoding="utf-8"))
+    by_id = {row["actor_id"]: row for row in snap["participants"]}
+    quarry = next(row for row in by_id.values() if row["side"] == "quarry")
+    assert quarry["escaped"] is True
+    assert snap["status"] == "active"
+
+
+def test_host_seeds_chase_barrier_pending_from_scene_features(tmp_path: Path):
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    module._seed_chase_features(campaign, [{
+        "scene_id": "basement-rites",
+        "barrier": _MIN_BARRIER,
+    }])
+    module._seed_chase(campaign, {
+        "npc_id": "npc-walter-corbitt",
+        "pending": "barrier",
+    })
+    snap = json.loads((campaign / "save" / "chase.json").read_text(encoding="utf-8"))
+    chain = snap["location_chain"]
+    assert any(isinstance(row.get("barrier"), dict) for row in chain)
+    by_id = {row["actor_id"]: row for row in snap["participants"]}
+    on_turn = snap["rounds"][-1]["dex_order"][snap["initiative_cursor"]]
+    pos = int(by_id[on_turn]["position"])
+    nxt = chain[pos + 1]
+    assert isinstance(nxt.get("barrier"), dict)
+
+
+def test_combat_seed_fails_closed_without_npc_mechanics(tmp_path: Path):
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    with pytest.raises(module.DebugExperimentError) as refused:
+        module._seed_combat(campaign, {"npc_id": "npc-steven-knott"})
+    assert refused.value.code == "situation_npc_mechanics_unavailable"

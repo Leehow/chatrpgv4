@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import random
 import re
 import shutil
 import signal
@@ -30,8 +31,11 @@ _SCRIPTS = _PLUGIN_ROOT / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
+import coc_chase  # noqa: E402
+import coc_combat  # noqa: E402
 import coc_git_history  # noqa: E402
 import coc_npc_identity  # noqa: E402
+import coc_rules  # noqa: E402
 import coc_sanity  # noqa: E402
 
 
@@ -69,6 +73,12 @@ _SITUATION_STRUCTURAL_KEYS = frozenset({
     "insanity",
     "delusion",
     "san_gain",
+    # An active fight or chase cannot be reached from scene/NPC presence:
+    # combat:flee/reload bind the investigator's turn inside CombatSession,
+    # and chase:end/conflict/barrier/hazard bind a live chase.json. Both are
+    # host seeds through those session APIs, not hand-written snapshots.
+    "combat",
+    "chase",
 })
 _SITUATION_KEYS = _SITUATION_STRUCTURAL_KEYS | {"establish_from_prompt"}
 _SITUATION_TEACHER_KEYS = frozenset({"npc_id", "source_kind", "spells"})
@@ -76,6 +86,16 @@ _SITUATION_TEACHER_KINDS = frozenset({"person", "entity"})
 _SITUATION_NPC_SKILL_KEYS = frozenset({"npc_id", "skills"})
 _SITUATION_CHASE_FEATURE_KEYS = frozenset({"scene_id", "barrier", "hazard"})
 _SITUATION_INSANITY_KINDS = frozenset({"temporary", "indefinite"})
+_SITUATION_COMBAT_KEYS = frozenset({
+    "npc_id", "investigator_acts_now", "spent_weapon_id",
+})
+_SITUATION_CHASE_KEYS = frozenset({
+    "npc_id", "investigator_role", "pending",
+})
+_SITUATION_CHASE_ROLES = frozenset({"quarry", "pursuer"})
+_SITUATION_CHASE_PENDING = frozenset({
+    "move", "barrier", "hazard", "conflict", "end",
+})
 _CHASE_HAZARD_KEYS = frozenset({
     "hazard_id", "skill", "target", "difficulty", "damage_dice",
     "collision_severity", "from_wreck", "from_debris", "sudden",
@@ -590,6 +610,397 @@ def _seed_san_gain(
     }]
 
 
+def _load_campaign_object(path: Path, *, missing: str) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise DebugExperimentError(
+            "situation_catalog_unavailable", missing,
+        ) from exc
+    if not isinstance(value, dict):
+        raise DebugExperimentError(
+            "situation_catalog_unavailable", missing,
+        )
+    return value
+
+
+def _active_scene_id(campaign_dir: Path) -> str:
+    data = _load_campaign_object(
+        campaign_dir / "save" / "active-scene.json",
+        missing="the lane campaign has no active scene",
+    )
+    scene_id = data.get("scene_id")
+    if not isinstance(scene_id, str) or not scene_id.strip():
+        raise DebugExperimentError(
+            "situation_catalog_unavailable",
+            "the lane campaign's active scene has no scene_id",
+        )
+    return scene_id
+
+
+def _investigator_sheet(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
+    return _load_campaign_object(
+        campaign_dir / "investigators" / investigator_id / "character.json",
+        missing=f"investigator {investigator_id!r} has no character sheet",
+    )
+
+
+def _investigator_state(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
+    path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+    if not path.is_file():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _npc_authored_profile(campaign_dir: Path, npc_id: str) -> dict[str, Any]:
+    _path, _agendas, by_id = _sandbox_npc_agendas(campaign_dir)
+    npc = by_id.get(npc_id)
+    if npc is None:
+        raise DebugExperimentError(
+            "situation_unknown_npc",
+            f"NPC {npc_id!r} is not authored in the sealed campaign",
+        )
+    mechanics = npc.get("mechanics")
+    profile = mechanics.get("profile") if isinstance(mechanics, dict) else None
+    if not isinstance(mechanics, dict) or mechanics.get("status") != "authored":
+        raise DebugExperimentError(
+            "situation_npc_mechanics_unavailable",
+            f"NPC {npc_id!r} has no authored combat/chase mechanics profile",
+        )
+    if not isinstance(profile, dict):
+        raise DebugExperimentError(
+            "situation_npc_mechanics_unavailable",
+            f"NPC {npc_id!r} authored mechanics carry no profile",
+        )
+    return profile
+
+
+def _weapon_rows(value: Any) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, str) and item.strip():
+                rows.append({"weapon_id": item.strip()})
+            elif isinstance(item, dict) and item.get("weapon_id"):
+                rows.append({"weapon_id": str(item["weapon_id"])})
+    return rows or [{"weapon_id": "unarmed"}]
+
+
+def _npc_stat_block(profile: dict[str, Any], npc_id: str) -> dict[str, Any]:
+    characteristics = profile.get("characteristics") if isinstance(
+        profile.get("characteristics"), dict,
+    ) else {}
+    skills = profile.get("skills") if isinstance(profile.get("skills"), dict) else {}
+    derived = profile.get("derived") if isinstance(profile.get("derived"), dict) else {}
+    damage = coc_rules.damage_bonus_build(
+        int(characteristics.get("STR", 50)),
+        int(characteristics.get("SIZ", 50)),
+    )
+    return {
+        "actor_id": npc_id,
+        "side": "npc",
+        "dex": int(characteristics.get("DEX", 50)),
+        "combat_skill": int(
+            skills.get("Fighting (Brawl)", skills.get("Fighting", 25)),
+        ),
+        "dodge_skill": int(
+            skills.get("Dodge", max(1, int(characteristics.get("DEX", 50)) // 2)),
+        ),
+        "firearms_skill": 0,
+        "has_ready_firearm": False,
+        "build": int(derived.get("Build", damage["build"])),
+        "damage_bonus": str(derived.get("DB", damage["damage_bonus"])),
+        "hp_max": int(derived.get("HP", 10)),
+        "hp_current": int(derived.get("HP", 10)),
+        "con": int(characteristics.get("CON", 50)),
+        "magic_points": int(derived.get("MP", 0)),
+        "armor": 0,
+        "armor_rule": None,
+        "weapons": _weapon_rows(profile.get("weapons")),
+        "conditions": [],
+        "mov": int(derived.get("MOV", 8)),
+    }
+
+
+def _investigator_combat_spec(
+    sheet: dict[str, Any], state: dict[str, Any], investigator_id: str,
+) -> dict[str, Any]:
+    characteristics = sheet.get("characteristics") if isinstance(
+        sheet.get("characteristics"), dict,
+    ) else {}
+    skills = sheet.get("skills") if isinstance(sheet.get("skills"), dict) else {}
+    derived = sheet.get("derived") if isinstance(sheet.get("derived"), dict) else {}
+    damage = coc_rules.damage_bonus_build(
+        int(characteristics.get("STR", 50)),
+        int(characteristics.get("SIZ", 50)),
+    )
+    rows = _weapon_rows(sheet.get("weapons"))
+    return {
+        "actor_id": investigator_id,
+        "side": "investigator",
+        "dex": int(characteristics.get("DEX", 50)),
+        "combat_skill": int(skills.get("Fighting (Brawl)", 25)),
+        "dodge_skill": int(
+            skills.get("Dodge", max(1, int(characteristics.get("DEX", 50)) // 2)),
+        ),
+        "firearms_skill": int(skills.get("Firearms (Handgun)", 0) or 0),
+        "build": int(damage["build"]),
+        "damage_bonus": str(damage["damage_bonus"]),
+        "hp_max": int(state.get("hp_max", derived.get("HP", 10))),
+        "hp_current": int(state.get("current_hp", derived.get("HP", 10))),
+        "con": int(characteristics.get("CON", 50)),
+        "magic_points": int(state.get("current_mp", derived.get("MP", 0))),
+        "weapons": rows,
+        "conditions": list(state.get("conditions") or []),
+        "mov": int(derived.get("MOV", 8)),
+    }
+
+
+def _add_combat_participant(session: Any, spec: dict[str, Any]) -> None:
+    session.add_participant(
+        spec["actor_id"], spec["side"], spec["dex"], spec["combat_skill"],
+        spec["build"], spec["hp_max"],
+        weapons=spec.get("weapons") or [{"weapon_id": "unarmed"}],
+        conditions=list(spec.get("conditions") or []),
+        dodge_skill=spec.get("dodge_skill"),
+        firearms_skill=spec.get("firearms_skill", 0),
+        has_ready_firearm=bool(spec.get("has_ready_firearm", False)),
+        damage_bonus=spec.get("damage_bonus", "none"),
+        con=spec.get("con", 50),
+        magic_points=spec.get("magic_points", 0),
+        armor=spec.get("armor", 0),
+        armor_rule=spec.get("armor_rule"),
+        mechanics_revision_ref=spec.get("mechanics_revision_ref"),
+    )
+    session.participants[spec["actor_id"]]["hp_current"] = spec["hp_current"]
+
+
+def _seed_combat(
+    campaign_dir: Path, combat: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Plant an active CombatSession on the investigator's turn."""
+    investigator_id = _campaign_default_investigator(campaign_dir)
+    npc_id = combat["npc_id"]
+    sheet = _investigator_sheet(campaign_dir, investigator_id)
+    state = _investigator_state(campaign_dir, investigator_id)
+    inv = _investigator_combat_spec(sheet, state, investigator_id)
+    profile = _npc_authored_profile(campaign_dir, npc_id)
+    npc = _npc_stat_block(profile, npc_id)
+    spent = combat.get("spent_weapon_id")
+    if spent:
+        if not any(
+            isinstance(row, dict) and row.get("weapon_id") == spent
+            for row in inv["weapons"]
+        ):
+            inv["weapons"] = list(inv["weapons"]) + [{"weapon_id": spent}]
+        inv["has_ready_firearm"] = True
+        inv["firearms_skill"] = max(int(inv.get("firearms_skill") or 0), 1)
+    scene_id = _active_scene_id(campaign_dir)
+    session = coc_combat.CombatSession(
+        "debug-seed-combat", scene_id, 0, rng=random.Random(0),
+    )
+    _add_combat_participant(session, inv)
+    _add_combat_participant(session, npc)
+    session.begin_round()
+    if combat.get("investigator_acts_now", True):
+        order = [
+            row["actor_id"] for row in session._current_initiative
+        ]
+        if investigator_id not in order:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                "the investigator is not in the seeded combat initiative",
+            )
+        session.initiative_cursor = order.index(investigator_id)
+    if spent:
+        try:
+            session.set_ammo(investigator_id, spent, 0)
+        except Exception as exc:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"cannot empty ammo for {spent!r}: {exc}",
+            ) from exc
+    session.pending_attack = None
+    session.revision = 1
+    session.save(campaign_dir)
+    return [{
+        "operation": "host.seed_combat",
+        "investigator_id": investigator_id,
+        "npc_id": npc_id,
+        "scene_id": scene_id,
+        "acts_now": (
+            session._current_initiative[session.initiative_cursor]["actor_id"]
+            if session._current_initiative else None
+        ),
+        "spent_weapon_id": spent,
+        "authority": "host_diagnostic_seed",
+        "ok": True,
+    }]
+
+
+def _chase_location_chain(
+    campaign_dir: Path, scene_id: str,
+) -> list[dict[str, Any]]:
+    _path, _graph, by_id = _sandbox_story_graph(campaign_dir)
+    scene = by_id.get(scene_id)
+    if scene is None:
+        raise DebugExperimentError(
+            "situation_unknown_scene",
+            f"scene {scene_id!r} is not in the sealed story graph",
+        )
+    connected = [scene_id]
+    for edge in scene.get("scene_edges") or []:
+        if not isinstance(edge, dict):
+            continue
+        target = edge.get("target_scene_id") or edge.get("to")
+        if isinstance(target, str) and target and target not in connected:
+            connected.append(target)
+    locations: list[dict[str, Any]] = []
+    for candidate_id in connected:
+        candidate = by_id.get(candidate_id)
+        if not isinstance(candidate, dict):
+            continue
+        locations.append({
+            "label": candidate_id,
+            "hazard": (
+                candidate.get("hazard")
+                if isinstance(candidate.get("hazard"), dict) else None
+            ),
+            "barrier": (
+                candidate.get("barrier")
+                if isinstance(candidate.get("barrier"), dict) else None
+            ),
+        })
+    if len(locations) < 2:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            "chase seeding needs two connected scenes on the active location",
+        )
+    return locations
+
+
+def _place_chase_pending(
+    locations: list[dict[str, Any]], pending: str,
+) -> dict[str, int | bool]:
+    """Positions that make kernel chase.pending.kind equal `pending`."""
+    def feature_at(index: int, key: str) -> bool:
+        row = locations[index] if 0 <= index < len(locations) else None
+        return isinstance(row, dict) and isinstance(row.get(key), dict)
+
+    if pending == "end":
+        return {"quarry": 0, "pursuer": 0, "escaped": True}
+    if pending == "conflict":
+        for index in range(len(locations)):
+            if not feature_at(index + 1, "barrier") and not feature_at(
+                index + 1, "hazard",
+            ):
+                return {"quarry": index, "pursuer": index, "escaped": False}
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            "chase pending=conflict needs a location whose next step is clear",
+        )
+    wanted = "barrier" if pending == "barrier" else "hazard" if pending == "hazard" else None
+    if wanted:
+        for index, row in enumerate(locations):
+            if index == 0:
+                continue
+            if isinstance(row.get(wanted), dict):
+                return {
+                    "quarry": index - 1, "pursuer": 0, "escaped": False,
+                }
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"chase pending={pending} needs that feature on a later location",
+        )
+    for index in range(len(locations) - 1):
+        if not feature_at(index + 1, "barrier") and not feature_at(
+            index + 1, "hazard",
+        ):
+            pursuer = 0 if index > 0 else 0
+            quarry = index
+            if quarry == pursuer and index + 1 < len(locations) - 1:
+                quarry = index + 1
+                if feature_at(quarry + 1, "barrier") or feature_at(
+                    quarry + 1, "hazard",
+                ):
+                    continue
+            if quarry == pursuer:
+                continue
+            return {"quarry": quarry, "pursuer": pursuer, "escaped": False}
+    raise DebugExperimentError(
+        "debug_request_invalid",
+        "chase pending=move needs two positions whose next step is clear",
+    )
+
+
+def _seed_chase(
+    campaign_dir: Path, chase: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Plant an active ChaseSession whose pending kind the kernel will see."""
+    investigator_id = _campaign_default_investigator(campaign_dir)
+    npc_id = chase["npc_id"]
+    role = chase.get("investigator_role", "quarry")
+    pending = chase.get("pending", "move")
+    sheet = _investigator_sheet(campaign_dir, investigator_id)
+    state = _investigator_state(campaign_dir, investigator_id)
+    inv = _investigator_combat_spec(sheet, state, investigator_id)
+    profile = _npc_authored_profile(campaign_dir, npc_id)
+    npc = _npc_stat_block(profile, npc_id)
+    scene_id = _active_scene_id(campaign_dir)
+    locations = _chase_location_chain(campaign_dir, scene_id)
+    placement = _place_chase_pending(locations, pending)
+    session = coc_chase.ChaseSession("debug-seed-chase", rng=random.Random(0))
+    inv_side = role
+    npc_side = "pursuer" if role == "quarry" else "quarry"
+    derived = profile.get("derived") if isinstance(profile.get("derived"), dict) else {}
+    session.add_participant(
+        investigator_id, inv_side,
+        mov=int(inv.get("mov") or 8),
+        dex=int(inv["dex"]),
+        con=int(inv["con"]),
+        hp=int(inv["hp_current"]),
+        fight=int(inv["combat_skill"]),
+        dodge=int(inv["dodge_skill"]),
+        current_position=int(
+            placement["quarry"] if inv_side == "quarry" else placement["pursuer"]
+        ),
+    )
+    session.add_participant(
+        npc_id, npc_side,
+        mov=int(derived.get("MOV", 8)),
+        dex=int(npc["dex"]),
+        con=int(npc["con"]),
+        hp=int(npc["hp_current"]),
+        fight=int(npc["combat_skill"]),
+        dodge=int(npc["dodge_skill"]),
+        current_position=int(
+            placement["quarry"] if npc_side == "quarry" else placement["pursuer"]
+        ),
+    )
+    session.set_location_chain(locations)
+    session.begin_round()
+    if placement.get("escaped"):
+        quarry_id = investigator_id if inv_side == "quarry" else npc_id
+        session.participants[quarry_id]["escaped"] = True
+    order = session.rounds[-1]["dex_order"] if session.rounds else []
+    if investigator_id in order:
+        session.initiative_cursor = order.index(investigator_id)
+    session.save(campaign_dir)
+    return [{
+        "operation": "host.seed_chase",
+        "investigator_id": investigator_id,
+        "npc_id": npc_id,
+        "pending": pending,
+        "investigator_role": role,
+        "authority": "host_diagnostic_seed",
+        "ok": True,
+    }]
+
+
 def _situation_spell_teachers(value: Any, *, label: str) -> list[dict[str, Any]]:
     """NPCs this lane appoints as spell sources, with what they teach.
 
@@ -931,6 +1342,63 @@ def _situation_san_gain(value: Any, *, label: str) -> dict[str, Any]:
     }
 
 
+def _situation_combat(value: Any, *, label: str) -> dict[str, Any]:
+    combat = _strict_object(value, label=label)
+    _exact_keys(combat, set(_SITUATION_COMBAT_KEYS), label=label)
+    if "npc_id" not in combat:
+        raise DebugExperimentError(
+            "debug_request_invalid", f"{label} needs npc_id",
+        )
+    out: dict[str, Any] = {
+        "npc_id": _situation_id(combat["npc_id"], label=f"{label}.npc_id"),
+    }
+    if "investigator_acts_now" in combat:
+        if combat["investigator_acts_now"] is not True and combat[
+            "investigator_acts_now"
+        ] is not False:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label}.investigator_acts_now must be a boolean",
+            )
+        out["investigator_acts_now"] = combat["investigator_acts_now"]
+    if "spent_weapon_id" in combat:
+        out["spent_weapon_id"] = _situation_id(
+            combat["spent_weapon_id"], label=f"{label}.spent_weapon_id",
+        )
+    return out
+
+
+def _situation_chase(value: Any, *, label: str) -> dict[str, Any]:
+    chase = _strict_object(value, label=label)
+    _exact_keys(chase, set(_SITUATION_CHASE_KEYS), label=label)
+    if "npc_id" not in chase:
+        raise DebugExperimentError(
+            "debug_request_invalid", f"{label} needs npc_id",
+        )
+    out: dict[str, Any] = {
+        "npc_id": _situation_id(chase["npc_id"], label=f"{label}.npc_id"),
+    }
+    if "investigator_role" in chase:
+        role = chase["investigator_role"]
+        if role not in _SITUATION_CHASE_ROLES:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label}.investigator_role must be one of "
+                f"{', '.join(sorted(_SITUATION_CHASE_ROLES))}",
+            )
+        out["investigator_role"] = role
+    if "pending" in chase:
+        pending = chase["pending"]
+        if pending not in _SITUATION_CHASE_PENDING:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"{label}.pending must be one of "
+                f"{', '.join(sorted(_SITUATION_CHASE_PENDING))}",
+            )
+        out["pending"] = pending
+    return out
+
+
 def _normalize_situation(raw: Any, *, label: str) -> dict[str, Any]:
     """Closed diagnostic situation: structural seeding or prompt-established.
 
@@ -1055,6 +1523,19 @@ def _normalize_situation(raw: Any, *, label: str) -> dict[str, Any]:
     if "san_gain" in situation:
         normalized["san_gain"] = _situation_san_gain(
             situation["san_gain"], label=f"{label}.san_gain",
+        )
+    if "combat" in situation and "chase" in situation:
+        raise DebugExperimentError(
+            "debug_request_invalid",
+            f"{label} cannot seed combat and chase together",
+        )
+    if "combat" in situation:
+        normalized["combat"] = _situation_combat(
+            situation["combat"], label=f"{label}.combat",
+        )
+    if "chase" in situation:
+        normalized["chase"] = _situation_chase(
+            situation["chase"], label=f"{label}.chase",
         )
     return normalized
 
@@ -2492,6 +2973,11 @@ class PiRpcLaneAdapter:
             applied.append(row)
             if not row["ok"]:
                 return applied, "situation_seed_failed"
+        # Combat and chase need the scene/NPC/items the toolbox just wrote.
+        if situation.get("combat"):
+            applied.extend(_seed_combat(campaign_dir(), situation["combat"]))
+        if situation.get("chase"):
+            applied.extend(_seed_chase(campaign_dir(), situation["chase"]))
         # SAN-gain is a pending receipt, not a toolbox write.
         if situation.get("san_gain"):
             applied.extend(_seed_san_gain(campaign_dir(), situation["san_gain"]))
