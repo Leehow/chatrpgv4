@@ -1,7 +1,7 @@
 {
   "pacing_curve": [
     {
-      "scene_id": "huo-office",
+      "scene_id": "crane-office",
       "tension_target": "low",
       "horror_stage": "ordinary",
       "note": "Daylight hire; wrongness is only rumor."
@@ -49,25 +49,25 @@
       "note": "Fresh cult symbol, dangerous ruins, dead cultists, Ke's burial journal, and Liber Ivonis."
     },
     {
-      "scene_id": "ke-house-ground",
+      "scene_id": "crowe-house-ground",
       "tension_target": "medium",
       "horror_stage": "pattern",
       "note": "Wards, nailed windows, upstairs answers."
     },
     {
-      "scene_id": "ke-house-upper",
+      "scene_id": "crowe-house-upper",
       "tension_target": "high",
       "horror_stage": "pattern",
       "note": "Poltergeist violence; Mythos reek."
     },
     {
-      "scene_id": "ke-house-basement",
+      "scene_id": "crowe-house-basement",
       "tension_target": "high",
       "horror_stage": "revelation",
       "note": "Sealed boards, floating knife, body ahead."
     },
     {
-      "scene_id": "ke-lair",
+      "scene_id": "crowe-lair",
       "tension_target": "climax",
       "horror_stage": "revelation",
       "note": "Undead sorcerer; dagger or grind him down."

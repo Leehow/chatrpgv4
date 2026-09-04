@@ -4,7 +4,7 @@
       "front_id": "corbitt-haunting",
       "scope": "scenario",
       "origin": "source",
-      "description": "Ke Wujiu's undead will haunts the house: misdirection upstairs, then lethal force in the basement.",
+      "description": "Calvin Crowe's undead will haunts the house: misdirection upstairs, then lethal force in the basement.",
       "source_refs": [
         {
           "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -16,7 +16,7 @@
         {
           "id": "walter-corbitt",
           "impulse": "to drive out or slay those who learn his secret",
-          "monster_ref": "Ke Wujiu",
+          "monster_ref": "Calvin Crowe",
           "moves": [
             "poltergeist show in the spare bedroom (blood, knocks, flying bed)",
             "kill the basement lights at the fuse box and shift the stairs",
@@ -74,11 +74,11 @@
           "clock_id": "landlord-impatience",
           "segments": 3,
           "on_tick_visible": [
-            "Huo telephones for a progress report",
-            "Huo hints the daily rate may stop",
-            "Huo threatens to hire someone cheaper"
+            "Crane telephones for a progress report",
+            "Crane hints the daily rate may stop",
+            "Crane threatens to hire someone cheaper"
           ],
-          "on_full": "Huo arrives at the house demanding results, becoming a complication or replacement PC vehicle"
+          "on_full": "Crane arrives at the house demanding results, becoming a complication or replacement PC vehicle"
         }
       ]
     },

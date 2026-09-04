@@ -1,43 +1,43 @@
 {
   "npcs": [
     {
-      "npc_id": "npc-huo-chengyuan",
-      "name": "霍承远",
+      "npc_id": "npc-howard-crane",
+      "name": "Howard Crane",
       "origin": "source",
-      "agenda": "Clear the Ke House's reputation so he can rent or sell the inherited property and stop losing money.",
+      "agenda": "Clear the Crowe House's reputation so he can rent or sell the inherited property and stop losing money.",
       "fear": "Being stuck with a worthless haunted white elephant that ruins his credit.",
-      "secret": "RULE GYM: Huo is a Mythos magician who will teach any listed spell on request. He still plays the impatient landlord in public.",
+      "secret": "RULE GYM: Crane is a Mythos magician who will teach any listed spell on request. He still plays the impatient landlord in public.",
       "voice": "Practical, impatient, money-minded. Speaks in short offers and deadlines.",
       "relationship_to_investigators": "employer",
       "known_fact_ids": [
-        "fact-huo-commission",
-        "fact-huo-research-leads",
-        "fact-huo-macario-tragedy"
+        "fact-crane-commission",
+        "fact-crane-research-leads",
+        "fact-crane-macario-tragedy"
       ],
       "revealable_fact_ids": [
-        "fact-huo-commission",
-        "fact-huo-research-leads",
-        "fact-huo-macario-tragedy"
+        "fact-crane-commission",
+        "fact-crane-research-leads",
+        "fact-crane-macario-tragedy"
       ],
       "disclosure_order": [
-        "fact-huo-commission",
-        "fact-huo-research-leads",
-        "fact-huo-macario-tragedy"
+        "fact-crane-commission",
+        "fact-crane-research-leads",
+        "fact-crane-macario-tragedy"
       ],
       "facts": [
         {
-          "fact_id": "fact-huo-commission",
-          "clue_id": "clue-huo-commission",
+          "fact_id": "fact-crane-commission",
+          "clue_id": "clue-crane-commission",
           "min_trust": 0
         },
         {
-          "fact_id": "fact-huo-research-leads",
-          "clue_id": "clue-huo-research-leads",
+          "fact_id": "fact-crane-research-leads",
+          "clue_id": "clue-crane-research-leads",
           "min_trust": 0
         },
         {
-          "fact_id": "fact-huo-macario-tragedy",
-          "clue_id": "clue-huo-macario-summary",
+          "fact_id": "fact-crane-macario-tragedy",
+          "clue_id": "clue-crane-macario-summary",
           "min_trust": 0
         }
       ],
@@ -45,7 +45,7 @@
       "deflect_options": [
         {
           "deflect_id": "deflect-knott-deadline",
-          "fact_id": "fact-huo-research-leads",
+          "fact_id": "fact-crane-research-leads",
           "player_safe_line": "Start with the papers; we can discuss the rest when you have something concrete."
         }
       ],
@@ -60,7 +60,7 @@
         {
           "schedule_id": "knott-briefing",
           "scene_ids": [
-            "huo-office"
+            "crane-office"
           ],
           "status": "available"
         }
@@ -93,7 +93,7 @@
         {
           "path": "Call of Cthulhu 7e Keeper Rulebook",
           "page": 435,
-          "grep_anchor": "Mr. Huo Chengyuan"
+          "grep_anchor": "Mr. Howard Crane"
         }
       ],
       "magic_source_kind": "person",
@@ -112,8 +112,8 @@
       ]
     },
     {
-      "npc_id": "npc-wei-baosheng",
-      "name": "魏报生",
+      "npc_id": "npc-arthur-wilmot",
+      "name": "Arthur Wilmot",
       "origin": "source",
       "agenda": "Guard access to the Globe clippings morgue and enjoy the little power of saying no.",
       "fear": "Looking weak in front of the newsroom if he caves too easily.",
@@ -147,13 +147,13 @@
         {
           "path": "Call of Cthulhu 7e Keeper Rulebook",
           "page": 436,
-          "grep_anchor": "Wei Baosheng"
+          "grep_anchor": "Arthur Wilmot"
         }
       ]
     },
     {
-      "npc_id": "npc-bai-lusi",
-      "name": "白露丝",
+      "npc_id": "npc-ruth-blake",
+      "name": "Ruth Blake",
       "origin": "source",
       "agenda": "Do her job in the clippings basement and be treated like a person.",
       "fear": "Getting in trouble with Arty for letting strangers linger.",
@@ -219,13 +219,13 @@
         {
           "path": "Call of Cthulhu 7e Keeper Rulebook",
           "page": 437,
-          "grep_anchor": "Bai Lusi"
+          "grep_anchor": "Ruth Blake"
         }
       ]
     },
     {
-      "npc_id": "npc-shen-clerk",
-      "name": "老沈",
+      "npc_id": "npc-silas-hatch",
+      "name": "Silas Hatch",
       "origin": "source",
       "agenda": "Keep the stacks orderly and point courteous researchers toward the right jurisdiction.",
       "fear": "Being blamed for missing felony files that were never held here.",
@@ -269,13 +269,13 @@
       }
     },
     {
-      "npc_id": "npc-du-li",
-      "name": "杜立",
+      "npc_id": "npc-dooley",
+      "name": "Dooley",
       "origin": "source",
       "agenda": "Sell papers and cigars, gossip for sport, and size people up before sharing.",
       "fear": "Wasting breath on snobs who look down on street vendors.",
-      "secret": "He exaggerates; not every line is true. He can still point to the chapel ruins and name the house 'the Ke House'.",
-      "voice": "Salesman banter, neighborhood Irish-Binjiang color, enjoys a listener.",
+      "secret": "He exaggerates; not every line is true. He can still point to the chapel ruins and name the house 'the Crowe House'.",
+      "voice": "Salesman banter, neighborhood Irish-Boston color, enjoys a listener.",
       "relationship_to_investigators": "informant",
       "known_fact_ids": [
         "fact-dooley-macario",
@@ -369,7 +369,7 @@
         {
           "path": "Call of Cthulhu 7e Keeper Rulebook",
           "page": 439,
-          "grep_anchor": "Mr. Du Li"
+          "grep_anchor": "Mr. Dooley"
         }
       ],
       "skills": {
@@ -377,8 +377,8 @@
       }
     },
     {
-      "npc_id": "npc-ma-jia",
-      "name": "马嘉",
+      "npc_id": "npc-maria-costa",
+      "name": "Maria Costa",
       "origin": "source",
       "agenda": "Survive the interview without reliving every night; warn others that something evil lives in that house.",
       "fear": "The presence returning; questions that drag her back into the bedrooms.",
@@ -467,13 +467,13 @@
         {
           "path": "Call of Cthulhu 7e Keeper Rulebook",
           "page": 439,
-          "grep_anchor": "Ma Jia"
+          "grep_anchor": "Maria Costa"
         }
       ]
     },
     {
-      "npc_id": "npc-ma-wei",
-      "name": "马维",
+      "npc_id": "npc-vittorio-costa",
+      "name": "Vittorio Costa",
       "origin": "source",
       "agenda": "Clutch the bible and point at the false quotation — he cannot otherwise communicate usefully.",
       "fear": "The burning-eyed form; being left without the book.",
@@ -539,13 +539,13 @@
         {
           "path": "Call of Cthulhu 7e Keeper Rulebook",
           "page": 439,
-          "grep_anchor": "Ma Wei"
+          "grep_anchor": "Vittorio Costa"
         }
       ]
     },
     {
-      "npc_id": "npc-jin-deben",
-      "name": "金德本",
+      "npc_id": "npc-kim-debrun",
+      "name": "Kim Debrun",
       "origin": "source",
       "agenda": "Control access to the court file and decide whether a claimed legal contact deserves cooperation.",
       "fear": "Being blamed for allowing unauthorized access to a politically sensitive police file.",
@@ -596,17 +596,17 @@
         {
           "path": "Call of Cthulhu 7e Keeper Rulebook",
           "page": 438,
-          "grep_anchor": "Jin Deben"
+          "grep_anchor": "Kim Debrun"
         }
       ]
     },
     {
-      "npc_id": "npc-ke-wujiu",
-      "name": "柯无咎",
+      "npc_id": "npc-calvin-crowe",
+      "name": "Calvin Crowe",
       "origin": "source",
       "agenda": "Mislead and frighten intruders away from his buried body; failing that, murder them and resume feeding on residents.",
       "fear": "His own ritual dagger in an enemy's hand; prolonged daylight exposure of his lair; being reduced below the point where Flesh Ward and Dominate can buy rounds.",
-      "secret": "He is an undead sorcerer animating his own corpse in the sealed basement; presentation data lives under monsters.json 'Ke Wujiu'.",
+      "secret": "He is an undead sorcerer animating his own corpse in the sealed basement; presentation data lives under monsters.json 'Calvin Crowe'.",
       "voice": "Rarely speaks. Acts through knocks, blood, flying furniture, floating knife, and finally claws.",
       "relationship_to_investigators": "adversary",
       "keeper_note": "Threat front primary danger. Uses Dominate / Flesh Ward / floating knife per the-haunting.json. Own dagger bypasses spells and turns him to ash. See monsters.json presentation sensory_signature.",
@@ -634,7 +634,7 @@
         {
           "path": "Call of Cthulhu 7e Keeper Rulebook",
           "page": 435,
-          "grep_anchor": "Ke Wujiu"
+          "grep_anchor": "Calvin Crowe"
         }
       ],
       "mechanics": {
@@ -644,7 +644,7 @@
           {
             "pdf_index": 459,
             "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-            "grep_anchor": "Ke Wujiu, Undead Fiend"
+            "grep_anchor": "Calvin Crowe, Undead Fiend"
           },
           {
             "pdf_index": 456,
@@ -654,7 +654,7 @@
         ],
         "provenance": {
           "authority": "source_authored",
-          "basis": "Stat block, skills, spells, armor rule and Sanity loss are printed verbatim on page 459 (Ke Wujiu, Undead Fiend). The floating dagger's damage and impale line are printed on page 456. Printed armor rule (p.459): \"Each point of armor reduces the damage received by 1 point. Ke has cast Flesh Ward already: roll 2D6 for his armor. Reduce his armor by one point for each point of damage he suffers.\" — the per-damage degradation is the armor_rule enum; the 2D6 initial value is rolled by the flesh-ward preparation."
+          "basis": "Stat block, skills, spells, armor rule and Sanity loss are printed verbatim on page 459 (Calvin Crowe, Undead Fiend). The floating dagger's damage and impale line are printed on page 456. Printed armor rule (p.459): \"Each point of armor reduces the damage received by 1 point. Ke has cast Flesh Ward already: roll 2D6 for his armor. Reduce his armor by one point for each point of damage he suffers.\" — the per-damage degradation is the armor_rule enum; the 2D6 initial value is rolled by the flesh-ward preparation."
         },
         "fields_observed": [
           "characteristics.STR",
@@ -777,7 +777,7 @@
     },
     {
       "npc_id": "npc-rat-swarm",
-      "name": "鼠群",
+      "name": "Rat swarm",
       "origin": "source",
       "agenda": "Defend the crawl space nest; swarm whoever breaks into it.",
       "fear": "Fire and open flame in the confined crawl space.",
@@ -869,12 +869,12 @@
       }
     },
     {
-      "npc_id": "npc-chen-landlady",
-      "name": "陈太太",
+      "npc_id": "npc-mrs-hale",
+      "name": "Mrs. Hale",
       "origin": "authored-gym",
       "agenda": "Keep her house quiet and her boarders alive until morning.",
       "fear": "Police asking why a screaming tenant arrived at midnight.",
-      "secret": "RULE GYM: this house is the safe_place. She will not follow them to Ke House.",
+      "secret": "RULE GYM: this house is the safe_place. She will not follow them to Crowe House.",
       "voice": "Short, practical, slightly annoyed.",
       "relationship_to_investigators": "host",
       "keeper_note": "Safe rest only. No Mythos answers.",
@@ -923,8 +923,8 @@
       }
     },
     {
-      "npc_id": "npc-alvarez-nurse",
-      "name": "林护士",
+      "npc_id": "npc-nurse-alvarez",
+      "name": "Nurse Alvarez",
       "origin": "authored-gym",
       "agenda": "Stop the bleeding and send them back out.",
       "fear": "A patient dying on her shift.",
@@ -978,10 +978,10 @@
       }
     },
     {
-      "npc_id": "npc-quade-alienist",
-      "name": "奎德医生",
+      "npc_id": "npc-dr-quade",
+      "name": "Dr. Helen Quade",
       "origin": "authored-gym",
-      "agenda": "Keep the Ma family quiet and bill the city.",
+      "agenda": "Keep the Costas quiet and bill the city.",
       "fear": "A patient who is right about the basement.",
       "secret": "RULE GYM: psychoanalysis / apply-treatment / reality-check. Psychoanalysis skill 70.",
       "voice": "Even, clinical, slightly bored.",
@@ -1034,7 +1034,7 @@
     },
     {
       "npc_id": "npc-chapel-familiar",
-      "name": "教堂眷族",
+      "name": "Chapel familiar",
       "origin": "authored-gym",
       "agenda": "Drive living things out of the ruined chapel, then flee toward the yard.",
       "fear": "Fire and loud groups.",

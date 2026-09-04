@@ -3,8 +3,8 @@
   "quests": [
     {
       "quest_id": "quest-knott-commission",
-      "title": "The Ke House Commission",
-      "player_safe_summary": "Huo offers a daily fee for investigating the tenants' disappearance and the strange disturbances in the house, then asks for a written report.",
+      "title": "The Crowe House Commission",
+      "player_safe_summary": "Crane offers a daily fee for investigating the tenants' disappearance and the strange disturbances in the house, then asks for a written report.",
       "quest_kinds": [
         "commission",
         "visit-explore"
@@ -12,33 +12,33 @@
       "importance": "core",
       "giver": {
         "kind": "npc",
-        "ref_id": "npc-huo-chengyuan"
+        "ref_id": "npc-howard-crane"
       },
-      "brief": "Keeper-only: Huo pays $20/day plus keys and address, and wants a report that lets him rent or sell the inherited house. He knows only rumor and the Ma tragedy — nothing of Ke's undead nature — and will not believe Mythos explanations without hard proof. He pressures the investigators if research exceeds a day. The report's content is the KP's call: a whitewash he can accept, or hard proof that forces him to face the truth. Finding Ke's remains in the basement is the decisive evidence any credible report needs.",
+      "brief": "Keeper-only: Crane pays $20/day plus keys and address, and wants a report that lets him rent or sell the inherited house. He knows only rumor and the Ma tragedy — nothing of Ke's undead nature — and will not believe Mythos explanations without hard proof. He pressures the investigators if research exceeds a day. The report's content is the KP's call: a whitewash he can accept, or hard proof that forces him to face the truth. Finding Ke's remains in the basement is the decisive evidence any credible report needs.",
       "target_refs": [
         {
           "kind": "npc",
-          "ref_id": "npc-huo-chengyuan"
+          "ref_id": "npc-howard-crane"
         },
         {
           "kind": "scene",
-          "ref_id": "ke-house-ground"
+          "ref_id": "crowe-house-ground"
         },
         {
           "kind": "clue",
-          "ref_id": "clue-ke-body-found"
+          "ref_id": "clue-crowe-body-found"
         }
       ],
-      "destination_scene_id": "ke-house-ground",
+      "destination_scene_id": "crowe-house-ground",
       "deadline": null,
       "completion": {
         "all": [
           {
             "kind": "clue_discovered",
-            "clue_id": "clue-ke-body-found"
+            "clue_id": "clue-crowe-body-found"
           }
         ],
-        "narrative": "The investigators deliver a report Huo accepts (a clean bill for the house, or hard proof he cannot dodge); the KP semantically confirms the commission is discharged."
+        "narrative": "The investigators deliver a report Crane accepts (a clean bill for the house, or hard proof he cannot dodge); the KP semantically confirms the commission is discharged."
       },
       "failure": {
         "any": [
@@ -48,7 +48,7 @@
             "threshold": 3
           }
         ],
-        "narrative": "Huo withdraws the commission or hires someone cheaper, or the investigation is abandoned with nothing to show for it."
+        "narrative": "Crane withdraws the commission or hires someone cheaper, or the investigation is abandoned with nothing to show for it."
       },
       "mainline_links": [
         "commission-and-research-frame",
@@ -61,7 +61,7 @@
         {
           "path": "Call of Cthulhu 7e Keeper Rulebook",
           "page": 435,
-          "grep_anchor": "Mr. Huo Chengyuan"
+          "grep_anchor": "Mr. Howard Crane"
         }
       ]
     },
@@ -74,7 +74,7 @@
       ],
       "importance": "optional",
       "giver": null,
-      "brief": "Keeper-only: An optional research side path. The Chapel of Contemplation was broken up by a police raid and burned in 1912; its ruins still hold Father Thomas's journal-style records showing Ke's body was buried in the house basement per his will. Du Li or the court file can point investigators at the ruins. The journal materially shortcuts the basement search, so it recycles into the mainline even though the visit itself is optional.",
+      "brief": "Keeper-only: An optional research side path. The Chapel of Contemplation was broken up by a police raid and burned in 1912; its ruins still hold Father Thomas's journal-style records showing Ke's body was buried in the house basement per his will. Dooley or the court file can point investigators at the ruins. The journal materially shortcuts the basement search, so it recycles into the mainline even though the visit itself is optional.",
       "target_refs": [
         {
           "kind": "clue",
@@ -119,14 +119,14 @@
       "target_refs": [
         {
           "kind": "npc",
-          "ref_id": "npc-ke-wujiu"
+          "ref_id": "npc-calvin-crowe"
         },
         {
           "kind": "clue",
           "ref_id": "clue-own-dagger-ends-him"
         }
       ],
-      "destination_scene_id": "ke-lair",
+      "destination_scene_id": "crowe-lair",
       "deadline": null,
       "completion": {
         "narrative": "Ke is destroyed or permanently ended by his own dagger or an equivalent KP-sanctioned means (reduced to ash, laid to rest, or banished beyond return); the house's threat is over."
@@ -144,7 +144,7 @@
         {
           "path": "Call of Cthulhu 7e Keeper Rulebook",
           "page": 435,
-          "grep_anchor": "Ke Wujiu"
+          "grep_anchor": "Calvin Crowe"
         }
       ]
     }

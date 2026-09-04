@@ -1,8 +1,8 @@
 {
   "scenes": [
     {
-      "scene_id": "huo-office",
-      "display_name": "霍承远的事务所",
+      "scene_id": "crane-office",
+      "display_name": "Howard Crane's Office",
       "location_tags": [
         "briefing",
         "knott",
@@ -14,7 +14,7 @@
       "is_start": true,
       "scene_type": "social",
       "origin": "source",
-      "dramatic_question": "Will the investigators accept Huo's commission and choose where to dig first?",
+      "dramatic_question": "Will the investigators accept Crane's commission and choose where to dig first?",
       "entry_conditions": [
         "campaign_active",
         "no_prior_scene"
@@ -22,20 +22,20 @@
       "exit_conditions": [
         {
           "kind": "clue_discovered",
-          "clue_id": "clue-huo-research-leads"
+          "clue_id": "clue-crane-research-leads"
         }
       ],
       "available_clues": [
-        "clue-huo-commission",
-        "clue-huo-research-leads",
-        "clue-huo-macario-summary",
-        "clue-huo-keys"
+        "clue-crane-commission",
+        "clue-crane-research-leads",
+        "clue-crane-macario-summary",
+        "clue-crane-keys"
       ],
       "npc_ids": [
-        "npc-huo-chengyuan"
+        "npc-howard-crane"
       ],
       "pressure_moves": [
-        "Huo glances at his watch — every empty day costs him rent",
+        "Crane glances at his watch — every empty day costs him rent",
         "He slides the house keys across the table and waits for a decision"
       ],
       "storylet_tags": [
@@ -44,12 +44,12 @@
       "affordances": [
         {
           "id": "confirm-commission-terms",
-          "cue": "Confirm the daily fee, payment terms, scope of the investigation, and the house's address with Huo.",
+          "cue": "Confirm the daily fee, payment terms, scope of the investigation, and the house's address with Crane.",
           "route_type": "npc_question",
-          "clue_id": "clue-huo-commission",
+          "clue_id": "clue-crane-commission",
           "npc_interaction": {
-            "npc_id": "npc-huo-chengyuan",
-            "fact_id": "fact-huo-commission",
+            "npc_id": "npc-howard-crane",
+            "fact_id": "fact-crane-commission",
             "tactic": "request_fact"
           },
           "status": "open"
@@ -58,51 +58,51 @@
           "id": "accept-commission",
           "cue": "Accept the commission explicitly and take the key, address, and cash advance.",
           "route_type": "npc_question",
-          "clue_id": "clue-huo-keys",
+          "clue_id": "clue-crane-keys",
           "status": "open"
         },
         {
           "id": "ask-research-options",
           "cue": "Ask which public records or informed witnesses might reveal the house's history.",
           "route_type": "investigative_lead",
-          "clue_id": "clue-huo-research-leads",
+          "clue_id": "clue-crane-research-leads",
           "npc_interaction": {
-            "npc_id": "npc-huo-chengyuan",
-            "fact_id": "fact-huo-research-leads",
+            "npc_id": "npc-howard-crane",
+            "fact_id": "fact-crane-research-leads",
             "tactic": "request_fact"
           },
           "status": "open"
         },
         {
           "id": "ask-macario-tragedy",
-          "cue": "Ask what actually happened to the Ma family, the former tenants.",
+          "cue": "Ask what actually happened to the Costas, the former tenants.",
           "route_type": "npc_question",
-          "clue_id": "clue-huo-macario-summary",
+          "clue_id": "clue-crane-macario-summary",
           "npc_interaction": {
-            "npc_id": "npc-huo-chengyuan",
-            "fact_id": "fact-huo-macario-tragedy",
+            "npc_id": "npc-howard-crane",
+            "fact_id": "fact-crane-macario-tragedy",
             "tactic": "request_fact"
           },
           "status": "open"
         },
         {
           "id": "ask-knott-to-teach-a-spell",
-          "cue": "Ask Huo to teach a spell from his notes (Flesh Ward, Dominate, or Shriveling).",
+          "cue": "Ask Crane to teach a spell from his notes (Flesh Ward, Dominate, or Shriveling).",
           "route_type": "npc_question",
           "status": "open",
           "npc_interaction": {
-            "npc_id": "npc-huo-chengyuan",
+            "npc_id": "npc-howard-crane",
             "tactic": "request_fact"
           }
         },
         {
           "id": "gym-cast-taught-spell",
-          "cue": "学会之后当场施法（cast-spell）。霍承远会鼓掌，然后赶人去查宅子。",
+          "cue": "学会之后当场施法（cast-spell）。Howard Crane会鼓掌，然后赶人去查宅子。",
           "route_type": "npc_question",
           "status": "open",
           "action_kind": "cast_spell",
           "npc_interaction": {
-            "npc_id": "npc-huo-chengyuan",
+            "npc_id": "npc-howard-crane",
             "tactic": "request_fact"
           }
         }
@@ -114,7 +114,7 @@
       ],
       "allowed_improvisation": [
         "invent café or office details for the meeting",
-        "never_invent that Huo already knows Ke is undead"
+        "never_invent that Crane already knows Ke is undead"
       ],
       "scene_edges": [
         {
@@ -130,7 +130,7 @@
           "kind": "unlock",
           "when": {
             "kind": "clue_discovered",
-            "clue_id": "clue-huo-research-leads"
+            "clue_id": "clue-crane-research-leads"
           }
         },
         {
@@ -138,7 +138,7 @@
           "kind": "unlock",
           "when": {
             "kind": "clue_discovered",
-            "clue_id": "clue-huo-research-leads"
+            "clue_id": "clue-crane-research-leads"
           }
         },
         {
@@ -146,7 +146,7 @@
           "kind": "unlock",
           "when": {
             "kind": "clue_discovered",
-            "clue_id": "clue-huo-research-leads"
+            "clue_id": "clue-crane-research-leads"
           }
         },
         {
@@ -154,7 +154,7 @@
           "kind": "unlock",
           "when": {
             "kind": "clue_discovered",
-            "clue_id": "clue-huo-research-leads"
+            "clue_id": "clue-crane-research-leads"
           }
         },
         {
@@ -162,15 +162,15 @@
           "kind": "unlock",
           "when": {
             "kind": "clue_discovered",
-            "clue_id": "clue-huo-research-leads"
+            "clue_id": "clue-crane-research-leads"
           }
         },
         {
-          "to": "ke-house-ground",
+          "to": "crowe-house-ground",
           "kind": "unlock",
           "when": {
             "kind": "clue_discovered",
-            "clue_id": "clue-huo-keys"
+            "clue_id": "clue-crane-keys"
           }
         },
         {
@@ -189,12 +189,12 @@
         {
           "path": "Call of Cthulhu 7e Keeper Rulebook",
           "page": 435,
-          "grep_anchor": "A landlord, Huo"
+          "grep_anchor": "A landlord, Crane"
         }
       ],
       "items": [
         "revolver_38_or_9mm",
-        "tome-huo-notes"
+        "tome-crane-notes"
       ],
       "connected_scene_ids": [
         "gym-chase-yard"
@@ -203,12 +203,12 @@
     {
       "scene_id": "clip-morgue",
       "destination_identity": {
-        "canonical_name": "Binjiang Globe offices",
+        "canonical_name": "Boston Globe offices",
         "aliases": [
-          "Binjiang Globe",
+          "Boston Globe",
           "Globe offices",
           "Globe clippings morgue",
-          "Binjiang Globe newsroom",
+          "Boston Globe newsroom",
           "Globe clipping archive"
         ]
       },
@@ -227,7 +227,7 @@
       ],
       "scene_type": "investigation",
       "origin": "source",
-      "dramatic_question": "Can the investigators persuade the Globe staff and pull the Ke House clippings?",
+      "dramatic_question": "Can the investigators persuade the Globe staff and pull the Crowe House clippings?",
       "entry_conditions": [],
       "exit_conditions": [],
       "available_clues": [
@@ -236,20 +236,20 @@
         "clue-globe-fire-cutoff"
       ],
       "npc_ids": [
-        "npc-wei-baosheng",
-        "npc-bai-lusi"
+        "npc-arthur-wilmot",
+        "npc-ruth-blake"
       ],
       "npc_presence_requirements": [
         {
-          "npc_id": "npc-bai-lusi",
+          "npc_id": "npc-ruth-blake",
           "requires_completed_route_ids": [
             "persuade-arty"
           ]
         }
       ],
       "pressure_moves": [
-        "Wei Baosheng enjoys denying access and makes them work for every courtesy",
-        "Huo telephones if research stretches past a day — time is money",
+        "Arthur Wilmot enjoys denying access and makes them work for every courtesy",
+        "Crane telephones if research stretches past a day — time is money",
         "A tall clipping stack leans; if someone yanks the 1912 drawer too hard the shelf can come down (1D3, possible major wound)."
       ],
       "storylet_tags": [
@@ -259,9 +259,9 @@
         {
           "id": "persuade-arty",
           "cue": "Use Persuade, Intimidate, Charm, or Fast Talk to win over editor Arty and gain access to the clipping room.",
-          "player_visible_outcome": "Arty finally grants access to the basement clipping room and has Bai Lusi take you downstairs to examine old files on the Ke House.",
+          "player_visible_outcome": "Arty finally grants access to the basement clipping room and has Ruth Blake take you downstairs to examine old files on the Crowe House.",
           "target_entities": [
-            "Wei Baosheng"
+            "Arthur Wilmot"
           ],
           "verbs": [
             "persuade",
@@ -321,7 +321,7 @@
         },
         {
           "id": "search-clippings",
-          "cue": "Search the basement clipping room by street address for stories about the Ke House.",
+          "cue": "Search the basement clipping room by street address for stories about the Crowe House.",
           "grants_clue_ids": [
             "clue-globe-unpublished-story",
             "clue-macario-tragedy"
@@ -334,11 +334,11 @@
         },
         {
           "id": "befriend-ruth",
-          "cue": "Befriend archivist Bai Lusi or explain your purpose, then ask how far back the clipping room extends and where its older records are missing.",
+          "cue": "Befriend archivist Ruth Blake or explain your purpose, then ask how far back the clipping room extends and where its older records are missing.",
           "clue_id": "clue-globe-fire-cutoff",
-          "player_visible_outcome": "Once Ruth decides you can be trusted, she explains that the Globe's archive stops at the 1878 fire; earlier records of the Ke House must be sought at the library or municipal archives.",
+          "player_visible_outcome": "Once Ruth decides you can be trusted, she explains that the Globe's archive stops at the 1878 fire; earlier records of the Crowe House must be sought at the library or municipal archives.",
           "target_entities": [
-            "Bai Lusi"
+            "Ruth Blake"
           ],
           "verbs": [
             "charm",
@@ -395,7 +395,7 @@
             "persuade-arty"
           ],
           "npc_interaction": {
-            "npc_id": "npc-bai-lusi",
+            "npc_id": "npc-ruth-blake",
             "fact_id": "fact-globe-fire-cutoff",
             "tactic": "request_fact"
           },
@@ -449,14 +449,14 @@
           }
         },
         {
-          "to": "ke-house-ground",
+          "to": "crowe-house-ground",
           "kind": "travel",
           "when": {
             "kind": "always"
           }
         },
         {
-          "to": "huo-office",
+          "to": "crane-office",
           "kind": "travel",
           "when": {
             "kind": "always"
@@ -467,20 +467,20 @@
         {
           "path": "Call of Cthulhu 7e Keeper Rulebook",
           "page": 436,
-          "grep_anchor": "Binjiang Globe"
+          "grep_anchor": "Boston Globe"
         }
       ],
-      "display_name": "滨江晚报剪报库"
+      "display_name": "Evening Transcript Clipping Morgue"
     },
     {
       "scene_id": "city-library",
       "destination_identity": {
         "canonical_name": "Central Library",
         "aliases": [
-          "Binjiang Central Library",
+          "Boston Central Library",
           "the Central Library",
           "Central Library",
-          "Binjiang's Central Library"
+          "Boston's Central Library"
         ]
       },
       "destination_access": {
@@ -497,7 +497,7 @@
       ],
       "scene_type": "investigation",
       "origin": "source",
-      "dramatic_question": "How much of the Ke House's nineteenth-century history can the investigators reconstruct from library records?",
+      "dramatic_question": "How much of the Crowe House's nineteenth-century history can the investigators reconstruct from library records?",
       "entry_conditions": [],
       "exit_conditions": [],
       "available_clues": [
@@ -509,7 +509,7 @@
       "npc_ids": [],
       "pressure_moves": [
         "Each search attempt consumes half a day of research",
-        "After more than a day, Huo contacts the investigators and reminds them that time is money"
+        "After more than a day, Crane contacts the investigators and reminds them that time is money"
       ],
       "storylet_tags": [
         "research"
@@ -529,7 +529,7 @@
         },
         {
           "id": "city-library-search-1852",
-          "cue": "Spend another half day following Ke Wujiu's name through records of the neighbors' lawsuit.",
+          "cue": "Spend another half day following Calvin Crowe's name through records of the neighbors' lawsuit.",
           "clue_id": "clue-neighbor-lawsuit-1852",
           "requires_discovered_clue_ids": [
             "clue-house-built-1835"
@@ -544,7 +544,7 @@
         },
         {
           "id": "city-library-search-1866",
-          "cue": "Spend another half day researching Ke Wujiu's obituary and the lawsuit prompted by his will.",
+          "cue": "Spend another half day researching Calvin Crowe's obituary and the lawsuit prompted by his will.",
           "clue_id": "clue-basement-burial-lawsuit",
           "requires_discovered_clue_ids": [
             "clue-neighbor-lawsuit-1852"
@@ -629,14 +629,14 @@
           }
         },
         {
-          "to": "ke-house-ground",
+          "to": "crowe-house-ground",
           "kind": "travel",
           "when": {
             "kind": "always"
           }
         },
         {
-          "to": "huo-office",
+          "to": "crane-office",
           "kind": "travel",
           "when": {
             "kind": "always"
@@ -661,7 +661,7 @@
           }
         ]
       },
-      "display_name": "市立图书馆"
+      "display_name": "Boston Public Library"
     },
     {
       "scene_id": "hall-of-records",
@@ -688,7 +688,7 @@
       ],
       "scene_type": "investigation",
       "origin": "source",
-      "dramatic_question": "What do civil and church registers reveal about Ke Wujiu's will and burial?",
+      "dramatic_question": "What do civil and church registers reveal about Calvin Crowe's will and burial?",
       "entry_conditions": [],
       "exit_conditions": [],
       "available_clues": [
@@ -696,7 +696,7 @@
         "clue-chapel-closed-1912"
       ],
       "npc_ids": [
-        "npc-shen-clerk"
+        "npc-silas-hatch"
       ],
       "pressure_moves": [
         "Serious crime files are not here — the clerk hints at county or police holdings",
@@ -742,12 +742,12 @@
         },
         {
           "id": "gym-opposed-clerk",
-          "cue": "硬要看未公开卷宗：与档案员老沈做对立检定（Persuade/ Fast Talk vs 他的技能）。",
+          "cue": "硬要看未公开卷宗：与档案员Silas Hatch做对立检定（Persuade/ Fast Talk vs 他的技能）。",
           "route_type": "npc_question",
           "status": "open",
           "action_kind": "opposed_check",
           "npc_interaction": {
-            "npc_id": "npc-shen-clerk",
+            "npc_id": "npc-silas-hatch",
             "tactic": "request_fact"
           }
         }
@@ -799,7 +799,7 @@
           }
         },
         {
-          "to": "ke-house-ground",
+          "to": "crowe-house-ground",
           "kind": "travel",
           "when": {
             "kind": "always"
@@ -813,7 +813,7 @@
           "grep_anchor": "Hall of Records"
         }
       ],
-      "display_name": "市政档案厅"
+      "display_name": "Hall of Records"
     },
     {
       "scene_id": "city-police",
@@ -861,7 +861,7 @@
         "clue-police-raid-chapel"
       ],
       "npc_ids": [
-        "npc-jin-deben"
+        "npc-kim-debrun"
       ],
       "pressure_moves": [
         "Access is difficult and at least one investigator must succeed at an authored social or legal approach",
@@ -874,7 +874,7 @@
       "affordances": [
         {
           "id": "use-law-contact-for-raid-file",
-          "cue": "Use Law to establish that you know court clerk Jin Deben and ask him to retrieve the file on the 1912 chapel raid; after a failure, change the approach before making a pushed attempt.",
+          "cue": "Use Law to establish that you know court clerk Kim Debrun and ask him to retrieve the file on the 1912 chapel raid; after a failure, change the approach before making a pushed attempt.",
           "clue_id": "clue-police-raid-chapel",
           "target_entities": [
             "kim-debrun",
@@ -921,11 +921,11 @@
         },
         {
           "id": "gym-ask-debrun-for-clinic",
-          "cue": "Ask Jin Deben for a quiet room and a nurse. She points to the gym clinic (medicine / first aid).",
+          "cue": "Ask Kim Debrun for a quiet room and a nurse. She points to the gym clinic (medicine / first aid).",
           "route_type": "npc_question",
           "status": "open",
           "npc_interaction": {
-            "npc_id": "npc-jin-deben",
+            "npc_id": "npc-kim-debrun",
             "tactic": "request_fact"
           }
         },
@@ -984,7 +984,7 @@
           }
         },
         {
-          "to": "ke-house-ground",
+          "to": "crowe-house-ground",
           "kind": "travel",
           "when": {
             "kind": "always"
@@ -1005,7 +1005,7 @@
           "grep_anchor": "Higher Courts; Central Police Station"
         }
       ],
-      "display_name": "滨江警署"
+      "display_name": "Boston Police Headquarters"
     },
     {
       "scene_id": "alley-gossip",
@@ -1020,7 +1020,7 @@
       ],
       "scene_type": "social",
       "origin": "source",
-      "dramatic_question": "What will the last old-timers admit about the Ke House and the vanished chapel?",
+      "dramatic_question": "What will the last old-timers admit about the Crowe House and the vanished chapel?",
       "entry_conditions": [],
       "exit_conditions": [],
       "available_clues": [
@@ -1029,11 +1029,11 @@
         "clue-chapel-ruins-location"
       ],
       "npc_ids": [
-        "npc-du-li"
+        "npc-dooley"
       ],
       "pressure_moves": [
-        "Du Li sizes them up by appearance and credit before he gossips",
-        "Newer offices have replaced the old homes — the Ke House stands alone"
+        "Dooley sizes them up by appearance and credit before he gossips",
+        "Newer offices have replaced the old homes — the Crowe House stands alone"
       ],
       "storylet_tags": [
         "research"
@@ -1041,7 +1041,7 @@
       "affordances": [
         {
           "id": "chat-dooley",
-          "cue": "Ask Du Li, the cigar-and-newspaper seller, about the house and the Ma family.",
+          "cue": "Ask Dooley, the cigar-and-newspaper seller, about the house and the Costas.",
           "grants_clue_ids": [
             "clue-dooley-macario-madness",
             "clue-burning-eyes-form"
@@ -1064,22 +1064,22 @@
         },
         {
           "id": "gym-let-dooley-talk",
-          "cue": "Let Du Li finish the eye-gouging story. Sanity check; he can also be drawn into a fistfight.",
+          "cue": "Let Dooley finish the eye-gouging story. Sanity check; he can also be drawn into a fistfight.",
           "route_type": "npc_question",
           "status": "open",
           "npc_interaction": {
-            "npc_id": "npc-du-li",
+            "npc_id": "npc-dooley",
             "tactic": "request_fact"
           }
         },
         {
           "id": "gym-social-difficulty",
-          "cue": "杜立信口开河时，先裁定社交难度（social:adjudicate-difficulty）再检定。",
+          "cue": "Dooley信口开河时，先裁定社交难度（social:adjudicate-difficulty）再检定。",
           "route_type": "npc_question",
           "status": "open",
           "action_kind": "social_difficulty",
           "npc_interaction": {
-            "npc_id": "npc-du-li",
+            "npc_id": "npc-dooley",
             "tactic": "request_fact"
           }
         }
@@ -1090,7 +1090,7 @@
         "overgrown"
       ],
       "allowed_improvisation": [
-        "invent Du Li's banter and exaggerations",
+        "invent Dooley's banter and exaggerations",
         "never_invent a living neighbor who has seen Ke's body"
       ],
       "scene_edges": [
@@ -1123,7 +1123,7 @@
           }
         },
         {
-          "to": "ke-house-ground",
+          "to": "crowe-house-ground",
           "kind": "travel",
           "when": {
             "kind": "always"
@@ -1141,20 +1141,20 @@
         {
           "path": "Call of Cthulhu 7e Keeper Rulebook",
           "page": 439,
-          "grep_anchor": "Mr. Du Li"
+          "grep_anchor": "Mr. Dooley"
         }
       ],
       "on_enter": {
         "san_triggers": [
           {
             "trigger_id": "gym-dooley-true-story",
-            "source": "Du Li describing a tenant who clawed his own eyes after a night in the Ke house",
+            "source": "Dooley describing a tenant who clawed his own eyes after a night in the Ke house",
             "san_loss_success": 0,
             "san_loss_fail_expr": "1D3"
           }
         ]
       },
-      "display_name": "柯宅巷口闲话"
+      "display_name": "Crowe House alley gossip"
     },
     {
       "scene_id": "former-tenants",
@@ -1179,8 +1179,8 @@
         "clue-boys-burning-eyes"
       ],
       "npc_ids": [
-        "npc-ma-jia",
-        "npc-ma-wei"
+        "npc-maria-costa",
+        "npc-vittorio-costa"
       ],
       "pressure_moves": [
         "Staff cut the interview short when questions upset Gabriela",
@@ -1217,7 +1217,7 @@
           "route_type": "npc_question",
           "status": "open",
           "npc_interaction": {
-            "npc_id": "npc-ma-jia",
+            "npc_id": "npc-maria-costa",
             "tactic": "request_fact"
           }
         }
@@ -1261,7 +1261,7 @@
           }
         },
         {
-          "to": "ke-house-ground",
+          "to": "crowe-house-ground",
           "kind": "travel",
           "when": {
             "kind": "always"
@@ -1292,7 +1292,7 @@
           }
         ]
       },
-      "display_name": "马氏旧居"
+      "display_name": "the Costas' rooms"
     },
     {
       "scene_id": "ruined-chapel",
@@ -1516,7 +1516,7 @@
           }
         },
         {
-          "to": "ke-house-ground",
+          "to": "crowe-house-ground",
           "kind": "travel",
           "when": {
             "kind": "always"
@@ -1553,10 +1553,10 @@
           }
         ]
       },
-      "display_name": "废教堂"
+      "display_name": "Chapel ruins"
     },
     {
-      "scene_id": "ke-house-ground",
+      "scene_id": "crowe-house-ground",
       "location_tags": [
         "corbitt house",
         "old house",
@@ -1575,7 +1575,7 @@
       "entry_conditions": [],
       "exit_conditions": [],
       "available_clues": [
-        "clue-ke-diaries",
+        "clue-crowe-diaries",
         "clue-upstairs-disturbance",
         "clue-catholic-wards",
         "clue-nailed-windows"
@@ -1594,7 +1594,7 @@
         {
           "id": "force-cupboard",
           "cue": "Pry open the nailed-shut cupboard in the storage room and inspect the old books inside.",
-          "clue_id": "clue-ke-diaries",
+          "clue_id": "clue-crowe-diaries",
           "route_type": "environment",
           "status": "open"
         },
@@ -1645,7 +1645,7 @@
       ],
       "scene_edges": [
         {
-          "to": "ke-house-upper",
+          "to": "crowe-house-upper",
           "kind": "unlock",
           "when": {
             "kind": "clue_discovered",
@@ -1653,11 +1653,11 @@
           }
         },
         {
-          "to": "ke-house-basement",
+          "to": "crowe-house-basement",
           "kind": "unlock",
           "when": {
             "kind": "clue_discovered",
-            "clue_id": "clue-ke-diaries"
+            "clue_id": "clue-crowe-diaries"
           }
         },
         {
@@ -1703,10 +1703,10 @@
           "grep_anchor": "The Old Ke Place"
         }
       ],
-      "display_name": "柯宅一楼"
+      "display_name": "Crowe House ground floor"
     },
     {
-      "scene_id": "ke-house-upper",
+      "scene_id": "crowe-house-upper",
       "location_tags": [
         "upper floor",
         "bedroom",
@@ -1782,14 +1782,14 @@
       },
       "scene_edges": [
         {
-          "to": "ke-house-ground",
+          "to": "crowe-house-ground",
           "kind": "travel",
           "when": {
             "kind": "always"
           }
         },
         {
-          "to": "ke-house-basement",
+          "to": "crowe-house-basement",
           "kind": "unlock",
           "when": {
             "kind": "clue_discovered",
@@ -1804,10 +1804,10 @@
           "grep_anchor": "Bed Attack"
         }
       ],
-      "display_name": "柯宅楼上卧室"
+      "display_name": "Crowe House upper bedroom"
     },
     {
-      "scene_id": "ke-house-basement",
+      "scene_id": "crowe-house-basement",
       "location_tags": [
         "basement",
         "cellar",
@@ -1828,7 +1828,7 @@
         "clue-rusted-basement-dagger",
         "clue-floating-knife",
         "clue-hollow-boards",
-        "clue-ke-body-found",
+        "clue-crowe-body-found",
         "clue-ritual-dagger-is-his"
       ],
       "npc_ids": [],
@@ -1860,7 +1860,7 @@
           "cue": "Tear away the boards fixed to the wall and enter the foul-smelling void and the hidden chamber beyond.",
           "grants_clue_ids": [
             "clue-hollow-boards",
-            "clue-ke-body-found"
+            "clue-crowe-body-found"
           ],
           "route_type": "environment",
           "status": "open"
@@ -1885,18 +1885,18 @@
       },
       "scene_edges": [
         {
-          "to": "ke-house-ground",
+          "to": "crowe-house-ground",
           "kind": "travel",
           "when": {
             "kind": "always"
           }
         },
         {
-          "to": "ke-lair",
+          "to": "crowe-lair",
           "kind": "unlock",
           "when": {
             "kind": "clue_discovered",
-            "clue_id": "clue-ke-body-found"
+            "clue_id": "clue-crowe-body-found"
           }
         }
       ],
@@ -1907,10 +1907,10 @@
           "grep_anchor": "The Basement"
         }
       ],
-      "display_name": "柯宅地下室"
+      "display_name": "Crowe House basement"
     },
     {
-      "scene_id": "ke-lair",
+      "scene_id": "crowe-lair",
       "location_tags": [
         "corbitt",
         "confrontation",
@@ -1924,7 +1924,7 @@
       "is_final": true,
       "scene_type": "resolution",
       "origin": "source",
-      "dramatic_question": "Can the investigators destroy Ke Wujiu before he murders them in his lair?",
+      "dramatic_question": "Can the investigators destroy Calvin Crowe before he murders them in his lair?",
       "entry_conditions": [],
       "exit_conditions": [
         {
@@ -1933,12 +1933,12 @@
         }
       ],
       "available_clues": [
-        "clue-ke-animates",
+        "clue-crowe-animates",
         "clue-own-dagger-ends-him",
         "clue-flesh-ward-active"
       ],
       "npc_ids": [
-        "npc-ke-wujiu"
+        "npc-calvin-crowe"
       ],
       "pressure_moves": [
         "The wizened figure on the pallet opens saucer eyes and spends Magic Points",
@@ -1974,7 +1974,7 @@
             },
             "opponent": {
               "actor_id": "walter-corbitt",
-              "monster_ref": "Ke Wujiu",
+              "monster_ref": "Calvin Crowe",
               "side": "monster",
               "combat_skill": 50,
               "dodge_skill": 17,
@@ -2036,7 +2036,7 @@
             "defeat_outcome": "monsters_win",
             "opponent": {
               "actor_id": "walter-corbitt",
-              "monster_ref": "Ke Wujiu",
+              "monster_ref": "Calvin Crowe",
               "side": "monster",
               "combat_skill": 50,
               "dodge_skill": 17,
@@ -2090,7 +2090,7 @@
       "conclusion_contract": {
         "conclusion_id": "corbitt-destroyed",
         "requires_combat_outcome": "investigators_win",
-        "player_visible_outcome": "Ke Wujiu's body crumbles to ash, and the will that haunted the old house finally dissipates.",
+        "player_visible_outcome": "Calvin Crowe's body crumbles to ash, and the will that haunted the old house finally dissipates.",
         "sanity_reward": {
           "die": "1D6",
           "rule_ref": "module.haunting.conclusion_sanity_reward"
@@ -2110,10 +2110,10 @@
         "san_triggers": [
           {
             "trigger_id": "see-corbitt-body",
-            "source": "seeing Ke Wujiu's animated corpse",
+            "source": "seeing Calvin Crowe's animated corpse",
             "san_loss_success": 1,
             "san_loss_fail_expr": "1D8",
-            "creature_type": "Ke Wujiu"
+            "creature_type": "Calvin Crowe"
           }
         ],
         "danger_attacks": [
@@ -2135,11 +2135,11 @@
           "grep_anchor": "Ke's Hiding Place"
         }
       ],
-      "display_name": "隔墙后的巢"
+      "display_name": "the sealed niche"
     },
     {
       "scene_id": "gym-chase-yard",
-      "display_name": "霍宅后院（追逐起点）",
+      "display_name": "Crane's yard (chase start)",
       "location_tags": [
         "chase",
         "yard",
@@ -2155,15 +2155,15 @@
       "exit_conditions": [],
       "available_clues": [],
       "npc_ids": [
-        "npc-huo-chengyuan",
-        "npc-ke-wujiu"
+        "npc-howard-crane",
+        "npc-calvin-crowe"
       ],
       "connected_scene_ids": [
-        "huo-office",
+        "crane-office",
         "gym-chase-fence"
       ],
       "pressure_moves": [
-        "Huo blows a whistle and points at the fence."
+        "Crane blows a whistle and points at the fence."
       ],
       "storylet_tags": [
         "rule-gym",
@@ -2179,14 +2179,14 @@
           "kind": "travel"
         },
         {
-          "to": "huo-office",
+          "to": "crane-office",
           "kind": "travel"
         }
       ]
     },
     {
       "scene_id": "gym-chase-fence",
-      "display_name": "巷篱（屏障）",
+      "display_name": "Alley fence (barrier)",
       "location_tags": [
         "chase",
         "barrier",
@@ -2202,7 +2202,7 @@
       "exit_conditions": [],
       "available_clues": [],
       "npc_ids": [
-        "npc-ke-wujiu"
+        "npc-calvin-crowe"
       ],
       "connected_scene_ids": [
         "gym-chase-yard",
@@ -2237,7 +2237,7 @@
     },
     {
       "scene_id": "gym-chase-wharf",
-      "display_name": "烂码头（危险）",
+      "display_name": "Rotten wharf (hazard)",
       "location_tags": [
         "chase",
         "hazard",
@@ -2253,7 +2253,7 @@
       "exit_conditions": [],
       "available_clues": [],
       "npc_ids": [
-        "npc-ke-wujiu"
+        "npc-calvin-crowe"
       ],
       "connected_scene_ids": [
         "gym-chase-fence",
@@ -2288,7 +2288,7 @@
     },
     {
       "scene_id": "gym-chase-escape",
-      "display_name": "大马路（逃脱）",
+      "display_name": "Open street (chase end)",
       "location_tags": [
         "chase",
         "escape",
@@ -2318,7 +2318,7 @@
       ],
       "conclusion_contract": {
         "conclusion_id": "gym-ending-fled",
-        "player_visible_outcome": "The investigators abandon Binjiang.",
+        "player_visible_outcome": "The investigators abandon Boston.",
         "session_ending": true
       },
       "scene_edges": [
@@ -2330,7 +2330,7 @@
     },
     {
       "scene_id": "gym-boarding-house",
-      "display_name": "陈氏公寓（安全屋）",
+      "display_name": "Mrs. Hale's boarding house (safe rest)",
       "location_tags": [
         "safe-place",
         "rest",
@@ -2340,14 +2340,14 @@
       "is_start": false,
       "scene_type": "social",
       "origin": "authored-gym",
-      "dramatic_question": "Do they sleep somewhere Huo's horrors cannot reach?",
+      "dramatic_question": "Do they sleep somewhere Crane's horrors cannot reach?",
       "entry_conditions": [
         "campaign_active"
       ],
       "exit_conditions": [],
       "available_clues": [],
       "npc_ids": [
-        "npc-chen-landlady"
+        "npc-mrs-hale"
       ],
       "pressure_moves": [
         "The landlady bolts the street door and puts a kettle on."
@@ -2365,7 +2365,7 @@
         },
         {
           "id": "gym-end-session-here",
-          "cue": "在此过夜并结束本段（development:end-session）。不要在不安全的柯宅里关幕。",
+          "cue": "在此过夜并结束本段（development:end-session）。不要在不安全的Crowe House里关幕。",
           "route_type": "environment",
           "status": "open",
           "action_kind": "end_session"
@@ -2385,7 +2385,7 @@
           }
         },
         {
-          "to": "huo-office",
+          "to": "crane-office",
           "kind": "travel",
           "when": {
             "kind": "always"
@@ -2402,7 +2402,7 @@
     },
     {
       "scene_id": "gym-clinic",
-      "display_name": "北区诊所（治疗）",
+      "display_name": "North End clinic (healing)",
       "location_tags": [
         "clinic",
         "healing",
@@ -2418,7 +2418,7 @@
       "exit_conditions": [],
       "available_clues": [],
       "npc_ids": [
-        "npc-alvarez-nurse"
+        "npc-nurse-alvarez"
       ],
       "pressure_moves": [
         "The nurse points at the blood and asks who did the stitching last."
@@ -2434,7 +2434,7 @@
           "route_type": "npc_question",
           "status": "open",
           "npc_interaction": {
-            "npc_id": "npc-alvarez-nurse",
+            "npc_id": "npc-nurse-alvarez",
             "tactic": "request_fact"
           }
         },
@@ -2445,7 +2445,7 @@
           "status": "open",
           "action_kind": "weekly_recovery",
           "npc_interaction": {
-            "npc_id": "npc-alvarez-nurse",
+            "npc_id": "npc-nurse-alvarez",
             "tactic": "request_fact"
           }
         }
@@ -2480,7 +2480,7 @@
     },
     {
       "scene_id": "gym-asylum-ward",
-      "display_name": "疗养院探视房",
+      "display_name": "Danvers visiting ward",
       "location_tags": [
         "asylum",
         "sanity",
@@ -2496,8 +2496,8 @@
       "exit_conditions": [],
       "available_clues": [],
       "npc_ids": [
-        "npc-quade-alienist",
-        "npc-ma-jia"
+        "npc-dr-quade",
+        "npc-maria-costa"
       ],
       "pressure_moves": [
         "An orderly locks the corridor gate behind them."
@@ -2513,7 +2513,7 @@
           "route_type": "npc_question",
           "status": "open",
           "npc_interaction": {
-            "npc_id": "npc-quade-alienist",
+            "npc_id": "npc-dr-quade",
             "tactic": "request_fact"
           }
         },
@@ -2524,7 +2524,7 @@
           "status": "open",
           "action_kind": "reality_check",
           "npc_interaction": {
-            "npc_id": "npc-quade-alienist",
+            "npc_id": "npc-dr-quade",
             "tactic": "request_fact"
           }
         }

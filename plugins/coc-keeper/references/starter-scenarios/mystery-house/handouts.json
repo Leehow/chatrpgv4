@@ -5,10 +5,10 @@
       "asset_id": "handout-globe-unpublished-1918",
       "kind": "document",
       "content_origin": "authored_derivative",
-      "title": "Binjiang Globe City Desk Copy — Held from Print (1918)",
+      "title": "Boston Globe City Desk Copy — Held from Print (1918)",
       "summary": "An original in-world newspaper prop written for this Apache-2.0 starter; it is not source-verbatim Chaosium text.",
-      "authored_text": "BOSTON GLOBE — CITY DESK COPY — HELD FROM PRINT\n\nHOUSE ON SHEAFE STREET LEAVES A RECORD OF MISFORTUNE\n\nA dwelling known in the neighborhood as the Ke House has acquired a history that no agent's fresh paint can conceal. Successive tenants have departed after accidents, lingering illness, and self-inflicted death. No single public record explains the pattern, but the addresses and dates repeat with uncomfortable regularity.\n\nThe Ma family took the house early in 1918 and abandoned it within weeks, leaving no orderly notice. Neighbors disagree about what drove them out. Relatives will say only that members of the family are now receiving care in Roxbury.\n\nThe Globe has not established a criminal cause and will not print rumor as fact. The city desk is holding this feature until the property records, hospital accounts, and surviving tenants can be examined together.",
-      "when_to_deliver": "The investigators obtain the held 1918 Globe feature or an authorized copy while researching the Ke House or the Ma family.",
+      "authored_text": "BOSTON GLOBE — CITY DESK COPY — HELD FROM PRINT\n\nHOUSE ON SHEAFE STREET LEAVES A RECORD OF MISFORTUNE\n\nA dwelling known in the neighborhood as the Crowe House has acquired a history that no agent's fresh paint can conceal. Successive tenants have departed after accidents, lingering illness, and self-inflicted death. No single public record explains the pattern, but the addresses and dates repeat with uncomfortable regularity.\n\nThe Ma family took the house early in 1918 and abandoned it within weeks, leaving no orderly notice. Neighbors disagree about what drove them out. Relatives will say only that members of the family are now receiving care in Roxbury.\n\nThe Globe has not established a criminal cause and will not print rumor as fact. The city desk is holding this feature until the property records, hospital accounts, and surviving tenants can be examined together.",
+      "when_to_deliver": "The investigators obtain the held 1918 Globe feature or an authorized copy while researching the Crowe House or the Costas.",
       "player_visible": true,
       "clue_refs": [
         "clue-globe-unpublished-story",

@@ -18,7 +18,7 @@
           "difficulty": "regular",
           "visibility": "player-safe",
           "origin": "source",
-          "player_safe_summary": "In 1835, a prosperous merchant built the house, immediately fell ill, and sold it to Ke Wujiu, Esquire.",
+          "player_safe_summary": "In 1835, a prosperous merchant built the house, immediately fell ill, and sold it to Calvin Crowe, Esquire.",
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -42,7 +42,7 @@
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
               "page": 437,
-              "grep_anchor": "In 1852, Ke Wujiu is sued by neighbours"
+              "grep_anchor": "In 1852, Calvin Crowe is sued by neighbours"
             }
           ]
         },
@@ -72,7 +72,7 @@
       "importance": "critical",
       "minimum_routes": 3,
       "origin": "source",
-      "description": "Ke Wujiu's body was interred in the house basement per his will; his mind still haunts from there.",
+      "description": "Calvin Crowe's body was interred in the house basement per his will; his mind still haunts from there.",
       "fallback_policy": "RECOVER: if all research missed, the chapel journal entry under the ruined cabinet (or the diaries' burial hints) still points below.",
       "clues": [
         {
@@ -150,7 +150,7 @@
           "difficulty": "regular",
           "visibility": "player-safe",
           "origin": "source",
-          "player_safe_summary": "A moldering cult journal records that Ke Wujiu was buried in his basement 'in accordance with his wishes and with the wishes of that one who waits in the dark'.",
+          "player_safe_summary": "A moldering cult journal records that Calvin Crowe was buried in his basement 'in accordance with his wishes and with the wishes of that one who waits in the dark'.",
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -192,7 +192,7 @@
           ]
         },
         {
-          "clue_id": "clue-ke-body-found",
+          "clue_id": "clue-crowe-body-found",
           "delivery": "breaking into the sealed basement lair",
           "delivery_kind": "obvious",
           "visibility": "player-safe",
@@ -213,17 +213,17 @@
       "importance": "critical",
       "minimum_routes": 3,
       "origin": "source",
-      "description": "The Ke House's tragedies are caused by Ke's lingering will — not mere bad luck or a conventional ghost story.",
+      "description": "The Crowe House's tragedies are caused by Ke's lingering will — not mere bad luck or a conventional ghost story.",
       "fallback_policy": "RECOVER: upstairs poltergeist phenomena make the haunting undeniable even if research was skipped.",
       "clues": [
         {
           "clue_id": "clue-globe-unpublished-story",
-          "delivery": "Binjiang Globe clippings morgue",
+          "delivery": "Boston Globe clippings morgue",
           "delivery_kind": "handout",
           "handout_asset_id": "handout-globe-unpublished-1918",
           "visibility": "player-safe",
           "origin": "source",
-          "player_safe_summary": "An unpublished 1918 feature lists prior tenants ruined by accidents, illness, and suicide; the Ma family fled under mysterious circumstances.",
+          "player_safe_summary": "An unpublished 1918 feature lists prior tenants ruined by accidents, illness, and suicide; the Costas fled under mysterious circumstances.",
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -251,11 +251,11 @@
           "delivery": "neighborhood gossip",
           "delivery_kind": "npc_dialogue",
           "source_npc_ids": [
-            "npc-du-li"
+            "npc-dooley"
           ],
           "visibility": "player-safe",
           "origin": "source",
-          "player_safe_summary": "Du Li says the Ma father went violently mad after an accident, babbling about a haunting form with burning eyes; Mrs. Ma followed him into Roxbury Sanitarium.",
+          "player_safe_summary": "Dooley says the Ma father went violently mad after an accident, babbling about a haunting form with burning eyes; Mrs. Ma followed him into Roxbury Sanitarium.",
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -269,7 +269,7 @@
           "delivery": "interview at Roxbury Sanitarium",
           "delivery_kind": "npc_dialogue",
           "source_npc_ids": [
-            "npc-ma-jia"
+            "npc-maria-costa"
           ],
           "visibility": "player-safe",
           "origin": "source",
@@ -323,7 +323,7 @@
       "fallback_policy": "RECOVER: confrontation itself reveals animation; diaries supply the occult frame if read.",
       "clues": [
         {
-          "clue_id": "clue-ke-diaries",
+          "clue_id": "clue-crowe-diaries",
           "delivery": "boarded cupboard on the ground floor",
           "delivery_kind": "environmental",
           "visibility": "player-safe",
@@ -407,7 +407,7 @@
           ]
         },
         {
-          "clue_id": "clue-ke-animates",
+          "clue_id": "clue-crowe-animates",
           "delivery": "basement confrontation",
           "delivery_kind": "obvious",
           "visibility": "player-safe",
@@ -466,7 +466,7 @@
           "delivery": "Vittorio at the sanitarium",
           "delivery_kind": "npc_dialogue",
           "source_npc_ids": [
-            "npc-ma-wei"
+            "npc-vittorio-costa"
           ],
           "visibility": "player-safe",
           "origin": "source",
@@ -516,19 +516,19 @@
       "importance": "minor",
       "minimum_routes": 1,
       "origin": "source",
-      "description": "Huo hired them to clear the house's name; research before entry is wise but not mandatory.",
+      "description": "Crane hired them to clear the house's name; research before entry is wise but not mandatory.",
       "fallback_policy": "The keys and address are enough to enter; research only deepens survival odds.",
       "clues": [
         {
-          "clue_id": "clue-huo-macario-summary",
+          "clue_id": "clue-crane-macario-summary",
           "delivery": "opening briefing",
           "delivery_kind": "npc_dialogue",
           "source_npc_ids": [
-            "npc-huo-chengyuan"
+            "npc-howard-crane"
           ],
           "visibility": "player-safe",
           "origin": "source",
-          "player_safe_summary": "Huo says the Ma family fled after a frightening breakdown and that the father now remains at Roxbury Sanitarium.",
+          "player_safe_summary": "Crane says the Costas fled after a frightening breakdown and that the father now remains at Roxbury Sanitarium.",
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -538,48 +538,48 @@
           ]
         },
         {
-          "clue_id": "clue-huo-commission",
+          "clue_id": "clue-crane-commission",
           "delivery": "opening briefing",
           "delivery_kind": "npc_dialogue",
           "source_npc_ids": [
-            "npc-huo-chengyuan"
+            "npc-howard-crane"
           ],
           "visibility": "player-safe",
           "origin": "source",
-          "player_safe_summary": "Landlord Huo Chengyuan pays $20/day to examine the Ke House, understand the Ma tragedy, and restore the property's name.",
+          "player_safe_summary": "Landlord Howard Crane pays $20/day to examine the Crowe House, understand the Ma tragedy, and restore the property's name.",
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
               "page": 435,
-              "grep_anchor": "Huo"
+              "grep_anchor": "Crane"
             }
           ]
         },
         {
-          "clue_id": "clue-huo-research-leads",
+          "clue_id": "clue-crane-research-leads",
           "delivery": "opening briefing",
           "delivery_kind": "npc_dialogue",
           "source_npc_ids": [
-            "npc-huo-chengyuan"
+            "npc-howard-crane"
           ],
           "visibility": "player-safe",
           "origin": "source",
-          "player_safe_summary": "Huo points them toward the Binjiang Globe, the Central Library / Hall of Records, and other paper trails before they rush the house.",
+          "player_safe_summary": "Crane points them toward the Boston Globe, the Central Library / Hall of Records, and other paper trails before they rush the house.",
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
               "page": 435,
-              "grep_anchor": "Binjiang Globe"
+              "grep_anchor": "Boston Globe"
             }
           ]
         },
         {
-          "clue_id": "clue-huo-keys",
+          "clue_id": "clue-crane-keys",
           "delivery": "opening briefing",
           "delivery_kind": "obvious",
           "visibility": "player-safe",
           "origin": "source",
-          "player_safe_summary": "Huo hands over the house keys, the address, and $20 cash in advance.",
+          "player_safe_summary": "Crane hands over the house keys, the address, and $20 cash in advance.",
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -590,7 +590,7 @@
         },
         {
           "clue_id": "clue-macario-tragedy",
-          "delivery": "Globe clippings / Huo's summary",
+          "delivery": "Globe clippings / Crane's summary",
           "delivery_kind": "handout",
           "handout_asset_id": "handout-globe-unpublished-1918",
           "visibility": "player-safe",
@@ -606,14 +606,14 @@
         },
         {
           "clue_id": "clue-globe-fire-cutoff",
-          "delivery": "Bai Lusi aside",
+          "delivery": "Ruth Blake aside",
           "delivery_kind": "npc_dialogue",
           "source_npc_ids": [
-            "npc-bai-lusi"
+            "npc-ruth-blake"
           ],
           "visibility": "player-safe",
           "origin": "source",
-          "player_safe_summary": "Globe files go back no further than a fire in 1878 — earlier Ke House mentions are not here.",
+          "player_safe_summary": "Globe files go back no further than a fire in 1878 — earlier Crowe House mentions are not here.",
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -639,11 +639,11 @@
         },
         {
           "clue_id": "clue-burning-eyes-form",
-          "delivery": "Du Li / Ma boys",
+          "delivery": "Dooley / Ma boys",
           "delivery_kind": "npc_dialogue",
           "source_npc_ids": [
-            "npc-du-li",
-            "npc-ma-jia"
+            "npc-dooley",
+            "npc-maria-costa"
           ],
           "visibility": "player-safe",
           "origin": "source",
@@ -658,14 +658,14 @@
         },
         {
           "clue_id": "clue-chapel-ruins-location",
-          "delivery": "Du Li directions",
+          "delivery": "Dooley directions",
           "delivery_kind": "npc_dialogue",
           "source_npc_ids": [
-            "npc-du-li"
+            "npc-dooley"
           ],
           "visibility": "player-safe",
           "origin": "source",
-          "player_safe_summary": "Du Li can point out where the Chapel of Contemplation stood a few blocks away — now rubble and painted signs.",
+          "player_safe_summary": "Dooley can point out where the Chapel of Contemplation stood a few blocks away — now rubble and painted signs.",
           "source_refs": [
             {
               "path": "Call of Cthulhu 7e Keeper Rulebook",
@@ -679,7 +679,7 @@
           "delivery": "sanitarium / relatives",
           "delivery_kind": "npc_dialogue",
           "source_npc_ids": [
-            "npc-ma-jia"
+            "npc-maria-costa"
           ],
           "visibility": "player-safe",
           "origin": "source",
