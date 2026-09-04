@@ -162,6 +162,25 @@ def test_the_refusal_splits_required_from_optional_semantic_slots(runtime):
         assert name not in failure["message"].split("this decision takes", 1)[1]
 
 
+def test_combined_check_drops_ordinary_check_union_keys(runtime):
+    """r79 cmb4: difficulty_basis is on the 56-key union, not this decision."""
+    result = runtime._compile_plan(
+        "decision:coc7:core-check:combined-check",
+        {
+            "combined_mode": "all",
+            "combined_target_refs": ["skill:locksmith", "skill:listen"],
+            "difficulty": "regular",
+            "goal": "一心二用",
+            "stakes": {"on_success": "开了", "on_failure": "没开"},
+            "difficulty_basis": "keeper_judgment",
+            "skill": "Locksmith",
+        },
+        facts={},
+    )
+    failure = result.get("failure")
+    assert failure is None or failure.get("code") != "unknown_semantic_input", failure
+
+
 def test_a_resolver_owned_slot_is_never_advertised_as_one_the_keeper_may_send():
     """`settle()` refuses a model-supplied resolver-owned slot with
     `locked_input_override`, so naming one in "this decision takes" invites

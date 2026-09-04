@@ -931,15 +931,26 @@ class Coc7RuleGraphAdapter:
             and isinstance(sources.get(source_ref), list)
             else []
         )
-        augmented["magic.learn.source-available"] = bool(
-            spell and source_ref.startswith(source_kind + ":")
-            and spell in {
-                coc_rules.canonical_spell_name(
-                    str(value), module_spells=module_spells
-                )
-                for value in source_spells
-            }
+        # Context has no selected spell yet. Gating the learn card on the
+        # Keeper already sending source_ref is a circular door: the card is
+        # how they learn the ref. Offer it when any canonical source exists;
+        # settle still checks the specific pair. Measured r79 mg-learn6:
+        # teacher appointed, source-available stayed None, card never shown.
+        has_any_source = isinstance(sources, Mapping) and any(
+            isinstance(value, list) and value for value in sources.values()
         )
+        if spell and source_ref:
+            augmented["magic.learn.source-available"] = bool(
+                source_ref.startswith(source_kind + ":")
+                and spell in {
+                    coc_rules.canonical_spell_name(
+                        str(value), module_spells=module_spells
+                    )
+                    for value in source_spells
+                }
+            )
+        else:
+            augmented["magic.learn.source-available"] = has_any_source
         return augmented
 
     @staticmethod

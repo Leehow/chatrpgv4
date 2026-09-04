@@ -2020,7 +2020,7 @@ def test_normalization_carries_every_structural_key_it_accepts():
     assert {row["operation"] for row in ops} == {
         "state.move_scene", "state.npc_presence", "state.record_clue",
         "state.set_flag", "state.item_grant", "magic.learn", "rules.damage",
-        "state.advance_time", "state.mark_safe_rest", "state.end_session",
+        "state.advance_time", "state.end_session",
     }
     # `spell_teachers` / `npc_skills` / `chase_features` are authored data,
     # not canonical state, so they are applied by rewriting the lane's own
@@ -2576,6 +2576,10 @@ def test_host_seeds_a_live_chase_with_conflict_pending(tmp_path: Path):
         "pending": "conflict",
     })
     assert applied[0]["operation"] == "host.seed_chase"
+    assert any(
+        row.get("operation") == "host.seed_chase_conflict_combat"
+        for row in applied
+    ), applied
     genesis = campaign / "logs" / "chase-genesis.jsonl"
     assert genesis.is_file(), "chase seed must write canonical genesis evidence"
     assert genesis.read_text(encoding="utf-8").strip()
@@ -2640,6 +2644,10 @@ def test_seeded_turn_note_names_live_combat_and_chase():
         "chase": {"npc_id": "npc-walter-corbitt", "pending": "end"},
     })
     assert "chase.start" in chase or "do not chase.start" in chase
+    conflict = module._situation_turn_note({
+        "chase": {"npc_id": "npc-walter-corbitt", "pending": "conflict"},
+    })
+    assert "decision:coc7:chase:conflict" in conflict
     magic = module._situation_turn_note({
         "spell_teachers": [{
             "npc_id": "npc-steven-knott", "source_kind": "person",

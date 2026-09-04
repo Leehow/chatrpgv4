@@ -2318,6 +2318,18 @@ class RulesRuntime:
         implementation = (node.get("properties") or {}).get("implementation")
         slots = self._slots_for(decision_ref)
         slot_names = {slot["name"] for slot in slots}
+        # Combined-check shares the 56-key union schema with ordinary-check.
+        # Keepers copy difficulty_basis/skill/characteristic from that union
+        # onto the combined card (r79 cmb4) and the graph rejects them as
+        # undeclared. Those three are ordinary-check slots, not invented
+        # keys; drop them here so the declared combined slots can settle.
+        if decision_ref.endswith(":combined-check") and isinstance(
+            semantic_inputs, Mapping
+        ):
+            semantic_inputs = {
+                key: value for key, value in semantic_inputs.items()
+                if key not in {"difficulty_basis", "skill", "characteristic"}
+            }
         # No generic arguments bag: an undeclared semantic input is rejected
         # rather than forwarded into the payload. Every offending key at once
         # -- one key per refusal made a Keeper strip its arguments one at a

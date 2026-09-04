@@ -7157,6 +7157,10 @@ def _facts_provider_for(
             if isinstance(value, str)
         ]
         facts["magic.learn.sources"] = _magic_learning_sources(ctx)
+        facts["magic.learn.source-available"] = any(
+            isinstance(value, list) and value
+            for value in facts["magic.learn.sources"].values()
+        )
         # The campaign module's own spell records. The ruleset adapter
         # canonicalises spell names against them and must never reach for a
         # graph itself, and facts are the one host -> ruleset channel -- the

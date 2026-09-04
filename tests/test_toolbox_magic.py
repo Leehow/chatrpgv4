@@ -390,8 +390,23 @@ def test_graph_settle_refuses_a_tome_the_campaign_never_authored(campaign_ws):
     })
     assert settled["ok"] is False
     assert settled["error"]["code"] == "rule_decision_stale"
-    assert "magic.learn.source-available" in settled["error"]["message"]
+    message = settled["error"]["message"]
+    details = settled["error"].get("details") or {}
+    blob = message + json.dumps(details, ensure_ascii=False)
+    assert (
+        "magic.learn.source-available" in blob
+        or "no live machine-issued card grant" in message
+    ), settled["error"]
     assert _magic_state(campaign_ws).get("studying_spells", []) == []
+
+
+def test_learn_card_opens_without_guessing_source_ref(campaign_ws):
+    """The learn card is how the Keeper learns source_ref; it cannot require it."""
+    _author_tome_item(campaign_ws, "tome-corbitt-notes", [SPELL])
+    cards = _magic_cards(campaign_ws, {})
+    learn = cards.get("decision:coc7:magic:learn-spell")
+    assert learn is not None, cards
+    assert learn["applicability"] == "applicable", learn
 
 
 def test_learn_source_gate_and_settle_binding_read_the_same_map(campaign_ws):

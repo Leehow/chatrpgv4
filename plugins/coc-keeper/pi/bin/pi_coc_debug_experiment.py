@@ -561,6 +561,27 @@ def _seed_insanity(
     session.bout_rounds_remaining = 0
     session.active_bout_id = None
     session.save(campaign_dir)
+    if kind == "indefinite":
+        # Auto-apply and graph settle both read psychoanalysis_skill from
+        # investigator-state. Untrained 0 is not a legal percentile target
+        # (r79 s-treat5: "target must be between 1 and 100").
+        state_path = (
+            campaign_dir / "save" / "investigator-state"
+            / f"{investigator_id}.json"
+        )
+        try:
+            inv_state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            inv_state = {}
+        if isinstance(inv_state, dict):
+            inv_state["psychoanalysis_skill"] = max(
+                1, int(inv_state.get("psychoanalysis_skill") or 10),
+            )
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            state_path.write_text(
+                json.dumps(inv_state, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
     # Flag-only insanity never scheduled the due trigger apply-treatment
     # and recover-temporary bind. Advance_time then had nothing to fire,
     # so those cards stayed withheld (r76 s-treat4 / s-recov1). Due now,
@@ -1137,12 +1158,112 @@ def _seed_chase(
     if investigator_id in order:
         session.initiative_cursor = order.index(investigator_id)
     session.save(campaign_dir)
-    return [{
+    applied = [{
         "operation": "host.seed_chase",
         "investigator_id": investigator_id,
         "npc_id": npc_id,
         "pending": pending,
         "investigator_role": role,
+        "authority": "host_diagnostic_seed",
+        "ok": True,
+    }]
+    if pending == "conflict":
+        applied.extend(_seed_chase_conflict_combat(
+            campaign_dir, sheet_path, investigator_id, sheet, inv, npc,
+        ))
+    return applied
+
+
+def _combat_payload_participant(spec: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "actor_id": spec["actor_id"],
+        "side": spec["side"],
+        "dex": int(spec["dex"]),
+        "combat_skill": int(spec["combat_skill"]),
+        "dodge_skill": int(spec["dodge_skill"]),
+        "build": int(spec.get("build") or 0),
+        "hp_max": int(spec["hp_max"]),
+        "hp_current": int(spec["hp_current"]),
+        "con": int(spec["con"]),
+        "weapons": list(spec.get("weapons") or [{"weapon_id": "unarmed"}]),
+        "conditions": list(spec.get("conditions") or []),
+        "magic_points": int(spec.get("magic_points") or 0),
+    }
+
+
+def _seed_chase_conflict_combat(
+    campaign_dir: Path,
+    sheet_path: Path,
+    investigator_id: str,
+    sheet: dict[str, Any],
+    inv: dict[str, Any],
+    npc: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Leave one unused combat_defend receipt for chase:conflict.
+
+    The executor will not settle chase_conflict without it. Seeding combat
+    and chase as two situation keys is forbidden; this is the chase seed's
+    own continuation, the same shape as the subsystem ledger test.
+    """
+    scene_id = _active_scene_id(campaign_dir)
+    start = {
+        "command_id": "debug-seed-conflict-combat-start",
+        "kind": "combat_start",
+        "phase": "start",
+        "payload": {
+            "decision_id": "debug-seed-conflict-combat",
+            "combat_id": "debug-seed-conflict-combat",
+            "scene_ref": scene_id,
+            "turn_number": 1,
+            "participants": [
+                _combat_payload_participant(inv),
+                _combat_payload_participant(npc),
+            ],
+        },
+    }
+    attack = {
+        "command_id": "debug-seed-conflict-attack",
+        "kind": "combat_attack",
+        "phase": "declare",
+        "payload": {
+            "decision_id": "debug-seed-conflict-combat",
+            "revision": 1,
+            "actor_id": investigator_id,
+            "target_actor_id": npc["actor_id"],
+            "declared_intent": "chase conflict grab",
+            "resolution_hint": "opposed_melee",
+            "weapon_id": "unarmed",
+        },
+    }
+    defend = {
+        "command_id": "debug-seed-conflict-defend",
+        "kind": "combat_defend",
+        "phase": "resolve",
+        "payload": {
+            "decision_id": "debug-seed-conflict-combat",
+            "revision": 2,
+            "actor_id": npc["actor_id"],
+            "attack_command_id": "debug-seed-conflict-attack",
+            "defense_kind": "dodge",
+        },
+    }
+    for command in (start, attack, defend):
+        try:
+            coc_subsystem_executor.execute_commands(
+                campaign_dir, sheet_path, investigator_id, [command],
+                rng=random.Random(0),
+                character_snapshot=sheet,
+            )
+        except coc_subsystem_executor.SubsystemExecutorError as exc:
+            raise DebugExperimentError(
+                "debug_request_invalid",
+                f"canonical {command['kind']} for chase conflict refused: {exc}",
+            ) from exc
+    return [{
+        "operation": "host.seed_chase_conflict_combat",
+        "investigator_id": investigator_id,
+        "npc_id": npc["actor_id"],
+        "combat_command_id": "debug-seed-conflict-defend",
         "authority": "host_diagnostic_seed",
         "ok": True,
     }]
@@ -1822,7 +1943,10 @@ def _situation_operations(lane: dict[str, Any], campaign_id: str) -> list[dict[s
             },
         })
     rest = situation.get("safe_rest")
-    if rest:
+    # A due Sanity trigger is auto_apply_if_safe. Marking rest in the same
+    # seed fires it before the Keeper can settle apply-treatment /
+    # recover-temporary (r79 s-treat5 / s-recov2). Leave the trigger pending.
+    if rest and not situation.get("insanity"):
         operations.append({
             "operation": "state.mark_safe_rest",
             "arguments": {
@@ -2135,6 +2259,12 @@ def _situation_turn_note(situation: dict[str, Any]) -> str:
         note += _SITUATION_COMBAT_TURN_NOTE
     if situation.get("chase"):
         note += _SITUATION_CHASE_TURN_NOTE
+        pending = (situation.get("chase") or {}).get("pending")
+        if pending == "conflict":
+            note += (
+                " A combat defense receipt is already bound to this chase. "
+                "Settle decision:coc7:chase:conflict; do not combat:end."
+            )
     if situation.get("spell_teachers") or situation.get("spells"):
         note += _SITUATION_MAGIC_TURN_NOTE
     if situation.get("insanity") and not situation.get("delusion"):
