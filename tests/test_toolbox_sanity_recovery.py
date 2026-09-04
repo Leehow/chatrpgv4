@@ -188,6 +188,68 @@ def test_sanity_execute_due_treatment_reuses_existing_handler(campaign_ws):
     assert "san_after" in settled["data"]["result"]["dispatch_outcome"]
 
 
+def test_sanity_deferred_trigger_names_safe_rest_and_recovers_after_it(campaign_ws):
+    module = coc_toolbox.OPERATION_MODULES["sanity-recovery"]
+    kernel = coc_toolbox.coc_operation_kernel
+    ctx = kernel.Ctx(campaign_ws["workspace"], campaign_ws["campaign_id"])
+    session = module._load_live_sanity_session(
+        ctx, campaign_ws["investigator_id"], {"seed": 4},
+    )
+    session.temporary_insane = True
+    session.save(ctx.campaign_dir, strict_mirror=True)
+    kernel.coc_time.initialize_time_state(ctx.campaign_dir)
+    trigger_id = kernel.coc_time.schedule_trigger(ctx.campaign_dir, {
+        "kind": "temporary_insanity_recovery",
+        "scope": "investigator",
+        "target_id": campaign_ws["investigator_id"],
+        "due_elapsed_minutes": 0,
+        "policy": "auto_apply_if_safe",
+        "handler": "recover_temporary_insanity",
+        "payload": {},
+    })
+
+    # The context surface states the safe_place gap before any settlement.
+    context = _run(campaign_ws, "sanity.context")
+    assert context["ok"] is True
+    assert context["data"]["safe_place"] is False
+    assert context["data"]["safe_rest_required"]["decision_refs"] == [
+        "decision:coc7:sanity:recover-temporary"
+    ]
+    assert (
+        context["data"]["safe_rest_required"]["operation"]
+        == "state.mark_safe_rest"
+    )
+
+    deferred = _run(campaign_ws, "sanity.execute", {
+        "decision_id": "sanity-recover-deferred",
+        "command": _sanity_command(
+            "recover_temporary_insanity", "due-trigger", "sanity-recover-deferred",
+            recovery_trigger_ref=trigger_id,
+        ),
+    })
+    assert deferred["ok"] is False
+    assert deferred["error"]["code"] == "sanity_trigger_deferred"
+    assert "state.mark_safe_rest" in deferred["error"]["message"]
+
+    kernel.coc_time.mark_safe_rest(
+        ctx.campaign_dir, campaign_ws["investigator_id"],
+    )
+    settled = _run(campaign_ws, "sanity.execute", {
+        "decision_id": "sanity-recover-after-rest",
+        "command": _sanity_command(
+            "recover_temporary_insanity", "due-trigger", "sanity-recover-after-rest",
+            recovery_trigger_ref=trigger_id,
+        ),
+    })
+    assert settled["ok"] is True, settled
+    assert settled["data"]["result"]["dispatch_outcome"]["recovered"] is True
+
+    context_after = _run(campaign_ws, "sanity.context")
+    assert context_after["ok"] is True
+    assert context_after["data"]["safe_place"] is True
+    assert "safe_rest_required" not in context_after["data"]
+
+
 def test_sanity_execute_extended_kind_rejects_wrong_phase(campaign_ws):
     result = _run(campaign_ws, "sanity.execute", {
         "decision_id": "sanity-phase-forged",

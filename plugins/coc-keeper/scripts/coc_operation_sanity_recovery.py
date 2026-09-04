@@ -389,18 +389,55 @@ def _tool_rules_sanity_check(ctx: Ctx, args: dict[str, Any]):
     ctx.ledger_record(args.get("decision_id"), "rules.sanity_check", data)
     return data, warnings, hints
 
+#: Handlers whose decisions settle only at a canonical safe place. The
+#: applicability facts (`sanity.treatment.due` / `sanity.recovery.due`) do
+#: not carry `safe_place`, so a due trigger makes the card applicable while
+#: settlement still refuses `sanity_trigger_deferred`. The context block
+#: below states that gap structurally, the way the offer and the refusal
+#: speak one vocabulary.
+_DUE_SANITY_DECISION_REFS = {
+    "apply_psychoanalysis_treatment": "decision:coc7:sanity:apply-treatment",
+    "recover_temporary_insanity": "decision:coc7:sanity:recover-temporary",
+}
+
+
 def _tool_sanity_context(ctx: Ctx, args: dict[str, Any]):
     investigator_id = _resolve_investigator(ctx, args)
     snapshot = _read_optional_json(
         ctx.campaign_dir / "save" / "sanity-state" / f"{investigator_id}.json", None
     )
     choices = coc_subsystem_executor.get_current_pending_choices(ctx.campaign_dir)
-    return {
+    safe_place = bool(
+        coc_time.read_time_state(ctx.campaign_dir).get("safe_place", False)
+    )
+    block: dict[str, Any] = {
         "investigator_id": investigator_id,
         "active": isinstance(snapshot, dict),
         "snapshot": snapshot,
         "pending_choices": choices,
-    }, [], ["use sanity.execute for full checks, bouts, and their persisted consequences"]
+        "safe_place": safe_place,
+    }
+    if not safe_place:
+        due = [
+            row for row in coc_time.peek_due_triggers(ctx.campaign_dir)
+            if isinstance(row, dict)
+            and str(row.get("target_id") or "") == investigator_id
+            and row.get("policy") == "auto_apply_if_safe"
+            and row.get("handler") in _DUE_SANITY_DECISION_REFS
+        ]
+        if due:
+            block["safe_rest_required"] = {
+                "decision_refs": sorted({
+                    _DUE_SANITY_DECISION_REFS[str(row.get("handler"))]
+                    for row in due
+                }),
+                "operation": "state.mark_safe_rest",
+                "note": (
+                    "these due sanity triggers settle only after "
+                    "state.mark_safe_rest records a safe place"
+                ),
+            }
+    return block, [], ["use sanity.execute for full checks, bouts, and their persisted consequences"]
 
 
 def _load_live_sanity_session(ctx: Ctx, investigator_id: str, args: dict[str, Any]):
@@ -465,9 +502,21 @@ def _exact_due_trigger(
     if trigger.get("policy") == "auto_apply_if_safe" and not bool(
         time_state.get("safe_place", False)
     ):
+        # The card for this trigger is applicable the moment the trigger is
+        # due, so the refusal must carry the way through: name the missing
+        # safe place and the exact canonical operation that records one.
+        # Without that the Keeper re-sent the identical settlement into
+        # nonretryable_repeat_blocked (runs r59/t-treatment,
+        # r59/t-recover-temp, r61/m2-recover-temp).
         raise ToolError(
             "sanity_trigger_deferred",
-            "the due sanity trigger remains deferred until a canonical safe place",
+            "the due sanity trigger remains deferred: no safe place is "
+            "recorded yet; call state.mark_safe_rest to record safe rest, "
+            "then settle the same trigger again",
+            details={
+                "safe_place": False,
+                "required_operation": "state.mark_safe_rest",
+            },
         )
     return trigger
 
