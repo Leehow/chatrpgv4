@@ -116,6 +116,10 @@
     {
       "code": "pages_covered",
       "asks": "Distinct pages any node cites."
+    },
+    {
+      "code": "substantive_spans_uncited",
+      "asks": "Uncited spans long enough to be content rather than page furniture."
     }
   ],
   "entrance_relation_kinds": [
@@ -127,5 +131,6 @@
   "actor_kinds": [
     "npc",
     "creature"
-  ]
+  ],
+  "substantive_span_chars": 120
 }

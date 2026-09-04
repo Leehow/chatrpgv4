@@ -96,7 +96,12 @@ def _entrances(graph: dict[str, Any], scenes: set[str]) -> set[str]:
     return named
 
 
-def check(graph: Any, *, evidence_total: int | None = None) -> dict[str, Any]:
+def check(
+    graph: Any,
+    *,
+    evidence_total: int | None = None,
+    evidence_texts: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Invariant findings and measures for one assembled module graph."""
     if not isinstance(graph, dict):
         return {
@@ -256,6 +261,15 @@ def check(graph: Any, *, evidence_total: int | None = None) -> dict[str, Any]:
     }
     if evidence_total:
         measures["span_consumption"] = round(len(cited_spans) / evidence_total, 4)
+    if evidence_texts:
+        # A share on its own reads "you left a third of the book" when most of
+        # what is left is a page number or a translator credit. Measured on one
+        # book: 163 uncited spans, 14 of them long enough to be content.
+        floor = int(TEMPLATE.get("substantive_span_chars") or 120)
+        measures["substantive_spans_uncited"] = sum(
+            1 for span_id, text in evidence_texts.items()
+            if span_id not in cited_spans and len(text) >= floor
+        )
 
     counts = Counter(f["code"] for f in findings)
     return {
@@ -288,11 +302,20 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--graph", required=True, type=Path)
     parser.add_argument("--evidence-total", type=int, default=None)
+    parser.add_argument("--packets", nargs="*", type=Path, default=(),
+                        help="evidence packets, to tell content left "
+                             "on the floor from page furniture")
     parser.add_argument("--max-findings", type=int, default=40)
     args = parser.parse_args(argv)
+    texts: dict[str, str] = {}
+    for packet in args.packets:
+        for span in json.loads(packet.read_text(encoding="utf-8")).get("spans") or []:
+            if isinstance(span, dict) and isinstance(span.get("span_id"), str):
+                texts[span["span_id"]] = str(span.get("text") or "")
     result = check(
         json.loads(args.graph.read_text(encoding="utf-8")),
-        evidence_total=args.evidence_total,
+        evidence_total=args.evidence_total or (len(texts) or None),
+        evidence_texts=texts or None,
     )
     shown = dict(result)
     shown["findings"] = result["findings"][: args.max_findings]

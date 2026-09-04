@@ -89,6 +89,15 @@ def main(argv: list[str] | None = None) -> int:
                         help="also return N spans either side of each hit")
     search.add_argument("--limit", type=int, default=60)
 
+    coverage = sub.add_parser(
+        "coverage", help="which spans a shard left uncited, worst page first")
+    coverage.add_argument("--shard", required=True, type=Path)
+    coverage.add_argument("--substantive", type=int, default=120,
+                          help="characters above which an uncited span is "
+                               "treated as content rather than page furniture")
+    coverage.add_argument("--show", type=int, default=12,
+                          help="how many uncited spans to print in full")
+
     verify = sub.add_parser("verify", help="which of these span ids exist")
     verify.add_argument("--ids", help="comma-separated span ids")
     verify.add_argument("--shard", type=Path,
@@ -150,6 +159,55 @@ def main(argv: list[str] | None = None) -> int:
         print(f"# {len(indexes)} span(s) matched"
               + (f", showing {args.limit}" if len(indexes) > args.limit else ""))
         sys.stdout.write(_render(rows[i] for i in sorted(chosen)))
+        return 0
+
+    if args.command == "coverage":
+        shard = json.loads(args.shard.read_text(encoding="utf-8"))
+        cited: set[str] = set()
+        for collection in ("nodes", "claims"):
+            for row in shard.get(collection) or []:
+                if isinstance(row, dict):
+                    cited.update(
+                        str(s) for s in (row.get("evidence_span_ids") or []))
+        uncited = [row for row in rows if str(row.get("span_id")) not in cited]
+        # Sorted by length, because that is the only signal here that separates
+        # a paragraph from a page number. Measured on one book: of 160 uncited
+        # spans, 71 were under 25 characters -- author line, section heading,
+        # an OCR fragment -- and 13 carried real content. A share alone says
+        # "you read 62% of the book", which is not what happened.
+        substantive = sorted(
+            (row for row in uncited
+             if len(str(row.get("text") or "")) >= args.substantive),
+            key=lambda row: -len(str(row.get("text") or "")),
+        )
+        per_page: dict[int, dict[str, int]] = {}
+        for row in uncited:
+            page = _page_of(str(row.get("span_id")))
+            if page is None:
+                continue
+            bucket = per_page.setdefault(page, {"uncited": 0, "substantive": 0})
+            bucket["uncited"] += 1
+            if len(str(row.get("text") or "")) >= args.substantive:
+                bucket["substantive"] += 1
+        print(json.dumps({
+            "spans": len(rows),
+            "cited": len(rows) - len(uncited),
+            "uncited": len(uncited),
+            "substantive_uncited": len(substantive),
+            "by_page": [
+                {"page": page, **counts}
+                for page, counts in sorted(
+                    per_page.items(), key=lambda kv: (-kv[1]["substantive"], kv[0]))
+                if counts["uncited"]
+            ],
+            "note": "Uncited is not the same as missed: a page number carries "
+                    "nothing to extract. Look at the substantive ones below, "
+                    "and either extract them or say in coverage why they hold "
+                    "nothing the graph needs.",
+        }, ensure_ascii=False, indent=2))
+        if substantive:
+            print()
+            sys.stdout.write(_render(substantive[: args.show]))
         return 0
 
     if args.command == "verify":

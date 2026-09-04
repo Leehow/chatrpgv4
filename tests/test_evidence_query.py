@@ -113,3 +113,73 @@ def test_verify_reads_a_whole_shard(packet, capsys, tmp_path):
     code, out = _run(packet, "verify", "--shard", str(shard), capsys=capsys)
     assert code == 1
     assert json.loads(out)["unknown"] == ["span-page-99-block-1"]
+
+
+def test_coverage_separates_content_left_behind_from_page_furniture(
+    packet, tmp_path, capsys,
+):
+    """A share alone reads "you left a third of the book". Measured on one
+    book: 163 uncited spans, 14 of them long enough to be content, and those
+    sat in the appendix -- which is the actionable half of the number."""
+    shard = tmp_path / "shard.json"
+    shard.write_text(json.dumps({
+        "nodes": [{"node_id": "scene-a",
+                   "evidence_span_ids": ["span-page-0-block-1"]}],
+        "claims": [],
+    }), encoding="utf-8")
+    code, out = _run(packet, "coverage", "--shard", str(shard),
+                     "--substantive", "8", capsys=capsys)
+    data = json.loads(out.split("\n\n")[0])
+    assert code == 0
+    assert data["cited"] == 1 and data["uncited"] == 4
+    # "克洛普是个傀儡。" and the others are over the floor; nothing here is
+    # under it, so the counts agree.
+    assert data["substantive_uncited"] == 4
+    # Worst page first, so the reader is pointed at where the content is.
+    assert data["by_page"][0]["page"] in (1, 2)
+    assert "either extract them or say" in data["note"]
+
+
+def test_coverage_prints_the_substantive_spans_so_they_can_be_acted_on(
+    packet, tmp_path, capsys,
+):
+    shard = tmp_path / "shard.json"
+    shard.write_text(json.dumps({"nodes": [], "claims": []}), encoding="utf-8")
+    _, out = _run(packet, "coverage", "--shard", str(shard),
+                  "--substantive", "8", "--show", "2", capsys=capsys)
+    body = out.split("\n\n", 1)[1]
+    assert body.count("=== span-page-") == 2, "the longest uncited were not shown"
+
+
+def test_page_furniture_is_not_counted_as_content_left_behind(
+    packet, tmp_path, capsys,
+):
+    shard = tmp_path / "shard.json"
+    shard.write_text(json.dumps({"nodes": [], "claims": []}), encoding="utf-8")
+    _, out = _run(packet, "coverage", "--shard", str(shard),
+                  "--substantive", "120", capsys=capsys)
+    data = json.loads(out.split("\n\n")[0])
+    assert data["uncited"] == 5
+    assert data["substantive_uncited"] == 0, (
+        "short spans were counted as content, which is how a coverage number "
+        "turns into pressure to cite a page number"
+    )
+
+
+def test_coverage_points_at_the_page_holding_content_not_the_noisiest_page(
+    tmp_path, capsys,
+):
+    """Page 9 leaves four scraps; page 3 leaves one real paragraph. Ordering by
+    how much went uncited sends the reader to the scraps, which is the wrong
+    page: what is actionable is content, not count."""
+    spans = [{"span_id": "span-page-3-block-1", "text": "长" * 400}]
+    spans += [{"span_id": f"span-page-9-block-{i}", "text": "页 9"} for i in range(1, 5)]
+    packet = tmp_path / "extraction-packet.json"
+    packet.write_text(json.dumps({"evidence_view": {"spans": spans}}), encoding="utf-8")
+    shard = tmp_path / "shard.json"
+    shard.write_text(json.dumps({"nodes": [], "claims": []}), encoding="utf-8")
+
+    _, out = _run(packet, "coverage", "--shard", str(shard), capsys=capsys)
+    data = json.loads(out.split("\n\n")[0])
+    assert data["by_page"][0] == {"page": 3, "uncited": 1, "substantive": 1}
+    assert data["by_page"][1]["page"] == 9

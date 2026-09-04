@@ -202,3 +202,28 @@ def test_every_invariant_the_template_declares_can_fire():
         emitted |= set(template.check(graph)["finding_counts"])
     declared = set(template.INVARIANTS)
     assert declared - emitted == set(), declared - emitted
+
+
+def test_content_left_behind_is_measured_apart_from_the_share():
+    graph = _playable()
+    texts = {
+        SPAN: "克洛普是个傀儡，他所作所言全受其无形主人的操控。" * 6,
+        "span-page-1-block-2": "第 12 页",
+        "span-page-2-block-1": "尼安德特人手更大，手指间距更宽，四肢更强壮。" * 6,
+    }
+    measures = template.check(
+        graph, evidence_total=len(texts), evidence_texts=texts,
+    )["measures"]
+    assert measures["span_consumption"] == round(1 / 3, 4)
+    # Two spans went uncited; only one of them carried anything to extract.
+    assert measures["substantive_spans_uncited"] == 1
+
+
+def test_the_share_alone_is_never_an_invariant():
+    """A floor on coverage is pressure to cite a page number, which is the one
+    thing the grounding gate cannot catch: the citation would be real."""
+    codes = {row["code"] for row in template.TEMPLATE["invariants"]}
+    assert "span_consumption" not in codes
+    assert "substantive_spans_uncited" not in codes
+    measured = {row["code"] for row in template.TEMPLATE["measures"]}
+    assert {"span_consumption", "substantive_spans_uncited"} <= measured

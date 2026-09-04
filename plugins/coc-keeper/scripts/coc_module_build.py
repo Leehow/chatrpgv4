@@ -677,12 +677,21 @@ def _assemble(work: Path, results: list[dict[str, Any]]) -> dict[str, Any]:
     if entrances:
         merged["entry_scene_ids"] = entrances
 
-    spans = sum(
-        len(json.loads(packet.read_text(encoding="utf-8")).get("spans") or [])
-        for packet in work.rglob("evidence-packet.json")
-    ) or None
+    # The texts, not just the count: a share alone reads "a third of the book
+    # was left" when most of what is left is a page number or a credit line.
+    texts: dict[str, str] = {}
+    for packet in work.rglob("evidence-packet.json"):
+        try:
+            evidence = json.loads(packet.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for span in evidence.get("spans") or []:
+            if isinstance(span, dict) and isinstance(span.get("span_id"), str):
+                texts[span["span_id"]] = str(span.get("text") or "")
     out.write_text(json.dumps(merged, ensure_ascii=False), encoding="utf-8")
-    playable = graph_template.check(merged, evidence_total=spans)
+    playable = graph_template.check(
+        merged, evidence_total=len(texts) or None, evidence_texts=texts or None,
+    )
     return {
         "status": "assembled" if playable["status"] == "playable"
                   else "assembled_not_playable",
