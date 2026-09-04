@@ -276,11 +276,23 @@ def extract_section(
     shard_path = work_dir / SHARD_NAME
     rounds: list[Round] = []
     for attempt in range(1, max_rounds + 1):
-        read_with_agent(work_dir, brief if attempt == 1 else _retry_brief(
-            brief, rounds[-1].findings))
+        died: str | None = None
+        try:
+            read_with_agent(work_dir, brief if attempt == 1 else _retry_brief(
+                brief, rounds[-1].findings))
+        except Exception as error:  # noqa: BLE001
+            # A host that cannot run its agent is not a section that failed to
+            # read: the distinction is what tells someone to look at the
+            # channel rather than at the book. Whatever the agent managed to
+            # write before dying is still judged below.
+            died = f"{type(error).__name__}: {error}"
         if not shard_path.exists():
-            finding = {"code": "agent_wrote_no_shard", "path": "/",
-                       "message": f"the agent left no {SHARD_NAME} in {work_dir}"}
+            finding = (
+                {"code": "agent_did_not_run", "path": "/", "message": died}
+                if died else
+                {"code": "agent_wrote_no_shard", "path": "/",
+                 "message": f"the agent left no {SHARD_NAME} in {work_dir}"}
+            )
             rounds.append(Round(attempt, "findings", "shape", 1, [finding]))
             continue
         try:

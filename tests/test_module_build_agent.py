@@ -130,3 +130,32 @@ def test_the_review_command_names_the_shard_the_agent_writes(work: Path):
     command = build.review_command(work)
     assert str(work / build.SHARD_NAME) in command
     assert "--work-dir" in command and "--model-output" in command
+
+
+def test_a_channel_that_died_is_not_a_section_that_read_nothing(work: Path):
+    """Observed on a long book: the agent process printed "terminated" and
+    exited 1 on the largest packet, twice. Reported as "the agent left no
+    shard", that sends someone to look at the book; what wanted looking at was
+    the channel."""
+    def dying_agent(work_dir, brief):
+        raise RuntimeError("the reading agent exited 1; its output is in agent.log")
+
+    out = build.extract_section(work, dying_agent, max_rounds=2)
+    assert out["status"] == "not_accepted"
+    finding = out["rounds"][0]["findings"][0]
+    assert finding["code"] == "agent_did_not_run"
+    assert "exited 1" in finding["message"]
+
+
+def test_a_shard_written_before_the_agent_died_is_still_judged(work: Path, monkeypatch):
+    """Dying is not the same as producing nothing, and the gates decide."""
+    def dying_after_writing(work_dir, brief):
+        (Path(work_dir) / build.SHARD_NAME).write_text(
+            '{"nodes": []}', encoding="utf-8")
+        raise RuntimeError("the reading agent exited 1")
+
+    monkeypatch.setattr(build.extract, "review", lambda work_dir, shard: {
+        "status": "accepted", "shard_path": "x", "nodes": 1,
+        "claims": 0, "relations": 0})
+    out = build.extract_section(work, dying_after_writing, max_rounds=1)
+    assert out["status"] == "accepted"

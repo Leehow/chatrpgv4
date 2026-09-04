@@ -231,9 +231,19 @@ def read_with_agent(work_dir: "Path", brief: str) -> None:
             text=True, timeout=READ_TIMEOUT,
         )
     if completed.returncode != 0:
-        # Not raised as a failure of the section: the agent may have written a
-        # usable shard before dying, and the gates are what decide. The exit
-        # code is left in the log next to whatever it produced.
-        log.open("a", encoding="utf-8").write(
-            f"\n[adapter] agent exited {completed.returncode}\n"
+        # Not raised as a failure of the section -- the agent may have written a
+        # usable shard before dying, and the gates decide that. But it is said
+        # out loud: a driver told only "no shard was written" reports a reader
+        # that produced nothing, when what happened is that the reader died.
+        # Observed on the largest packet of a long book, twice in a row, with a
+        # 140-byte log reading "terminated".
+        note = f"\n[adapter] agent exited {completed.returncode}\n"
+        log.open("a", encoding="utf-8").write(note)
+        raise AgentDied(
+            f"the reading agent exited {completed.returncode}; "
+            f"its output is in {log}"
         )
+
+
+class AgentDied(RuntimeError):
+    """The agent process ended badly. Whatever it wrote still stands or does not."""
