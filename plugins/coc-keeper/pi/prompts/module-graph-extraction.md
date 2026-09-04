@@ -58,6 +58,12 @@ packet 里的 `known_nodes` 是**这本书已经建立的名册**——别的节
 - **场景**（`scene` / `beat` / `event` / `ending`）：可玩的段落。用
   `play-precedes` / `may-lead-to` / `alternative-to` / `hands-off-to` 把它们连起来。
   互斥的分支要连成互斥的边，不要压成一条线。
+- **每一个场景都要连上。** 你写下的每个 `scene`,至少要有一条
+  `play-precedes` / `may-lead-to` / `alternative-to` / `hands-off-to` 连着别的场景
+  ——进得来或出得去。**没有边的场景,在游戏里根本到不了**:KP 手上没有任何一步能走到
+  它,它等于没抽。一个决策底下的两个分支尤其容易漏,它们必须从那个决策场景连出来。
+  如果这个场景的邻居在你看不见的页上(见 `page_window`),就不要硬连——在
+  `coverage` 里把 `causal` 标成 `partial`,说明它的出入口在本节之外。
 - **行动者**（`npc` / `creature` / `faction`）：连同书给的属性表，原样放进
   `properties`，并引用那几行数值所在的 span。用 `present-in` 把他们放到场景里。
 - **线索与结论**（`clue` / `conclusion`）：用 `discoverable-at` 把线索放进场景，

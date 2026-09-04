@@ -612,8 +612,41 @@ def _assemble(work: Path, results: list[dict[str, Any]]) -> dict[str, Any]:
         "nodes": len(merged.get("nodes") or []),
         "relations": len(merged.get("relations") or []),
         "dangling_relations": dangling,
+        "unreachable_scenes": _unreachable_scenes(merged),
         "path": str(out),
     }
+
+
+# The relation kinds the campaign projection turns into a scene exit. A scene
+# joined to the graph by none of them is in the book and out of the game: the
+# Keeper has no move that reaches it.
+_SCENE_EDGE_KINDS = ("play-precedes", "may-lead-to", "alternative-to", "hands-off-to")
+
+
+def _unreachable_scenes(merged: dict[str, Any]) -> list[str]:
+    """Scenes no exit leads to and none leads out of.
+
+    Reported, not refused. Measured on the short module: five of twenty-six,
+    and every one of them sat in a shard whose other scenes were well
+    connected -- two were the branches of a decision on the same page. So this
+    is the model omitting an edge, not a section unable to see across its own
+    boundary, and the number belongs where a caller will read it.
+    """
+    scenes = {
+        node["node_id"] for node in merged.get("nodes") or []
+        if isinstance(node, dict) and node.get("node_kind") == "scene"
+        and isinstance(node.get("node_id"), str)
+    }
+    joined: set[str] = set()
+    for relation in merged.get("relations") or []:
+        if not isinstance(relation, dict):
+            continue
+        if relation.get("relation_kind") not in _SCENE_EDGE_KINDS:
+            continue
+        for end in ("from_node_id", "to_node_id"):
+            if relation.get(end) in scenes:
+                joined.add(relation[end])
+    return sorted(scenes - joined)
 
 
 def main(argv: list[str] | None = None) -> int:

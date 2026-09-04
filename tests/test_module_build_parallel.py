@@ -99,6 +99,9 @@ def test_accepted_sections_are_merged_into_one_module_graph(monkeypatch, tmp_pat
     assert receipt["assembly"]["status"] == "assembled"
     assert receipt["assembly"]["nodes"] == 2
     assert receipt["assembly"]["dangling_relations"] == 0
+    # Measuring unreachable scenes only helps if a caller can read the number:
+    # these two sections each wrote a scene and no exit between them.
+    assert receipt["assembly"]["unreachable_scenes"] == ["scene-s1", "scene-s2"]
 
 
 def test_a_merge_conflict_is_reported_not_raised(monkeypatch, tmp_path):
@@ -277,3 +280,49 @@ def test_the_skeleton_shard_is_part_of_the_graph_it_seeded(monkeypatch, tmp_path
     assert rc == 0
     merged = json.loads((work / "module-graph.json").read_text())
     assert "npc-davide-mana" in {n["node_id"] for n in merged["nodes"]}
+
+
+def _node(node_id, kind="scene"):
+    return {"node_id": node_id, "node_kind": kind, "name": node_id,
+            "visibility": "keeper-only", "aliases": [], "summary": "",
+            "evidence_span_ids": [], "properties": {}}
+
+
+def _edge(source, target, kind="may-lead-to"):
+    return {"relation_id": f"rel-{source}-{target}", "relation_kind": kind,
+            "from_node_id": source, "to_node_id": target,
+            "claim_id": f"claim-{source}-{target}", "properties": {}}
+
+
+def test_a_scene_no_exit_reaches_is_reported():
+    """A scene joined by no exit is in the book and out of the game."""
+    merged = {
+        "nodes": [_node("scene-a"), _node("scene-b"), _node("scene-orphan"),
+                  _node("location-x", "location")],
+        "relations": [_edge("scene-a", "scene-b")],
+    }
+    assert build._unreachable_scenes(merged) == ["scene-orphan"]
+
+
+def test_reaching_a_scene_counts_as_much_as_leaving_it():
+    merged = {
+        "nodes": [_node("scene-a"), _node("scene-b")],
+        "relations": [_edge("scene-a", "scene-b")],
+    }
+    assert build._unreachable_scenes(merged) == []
+
+
+def test_a_relation_the_projection_ignores_does_not_join_a_scene():
+    """`print-precedes` is publication order; the projection makes no exit
+    from it, so a scene held only by one is still unreachable in play."""
+    merged = {
+        "nodes": [_node("scene-a"), _node("scene-b")],
+        "relations": [_edge("scene-a", "scene-b", kind="print-precedes")],
+    }
+    assert build._unreachable_scenes(merged) == ["scene-a", "scene-b"]
+
+
+def test_the_instruction_tells_the_model_every_scene_must_connect():
+    text = (ROOT / "plugins" / "coc-keeper" / "pi" / "prompts"
+            / "module-graph-extraction.md").read_text("utf-8")
+    assert "没有边的场景,在游戏里根本到不了" in text
