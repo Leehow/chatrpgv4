@@ -7,8 +7,7 @@ a ruleset packages its L1 data, L1 resolver code, L2 behavioral material,
 L3 index, state extensions, audit snapshots, and character creation under
 one directory, and the kernel binds exactly one ruleset per campaign.
 
-Status: contract v1; last reviewed 2026-08-31 against the ten-family CoC7
-RuleGraph cutover. `coc7` is the reference production package. A deliberately
+Status: contract v1. `coc7` is the reference production package. A deliberately
 small test package proves the public multi-ruleset vertical without advertising
 an unimplemented second game system. Everything here is binding on new
 production rulesets; deviations require amending this document, not silent
@@ -52,9 +51,7 @@ at conformance time. Required fields:
   "data": "rules-json/" }`. MAY additionally declare
   `"rule_graph": "rule-graph.json"` and
   `"rule_graph_manifest": "rule-graph-manifest.json"` for generated
-  RuleGraph artifacts (§2.1), plus an optional
-  `"rule_graph_adapter": "rule_graph_adapter.py"` for package-owned composed
-  settlements. Absence is legal: a package that ships no graph
+  RuleGraph artifacts (§2.1). Absence is legal: a package that ships no graph
   defaults every rule family to `legacy` runtime ownership with a `visible`
   legacy Keeper surface.
 - `resources` — the **resource registry** (§6).
@@ -92,24 +89,6 @@ optional `entry_points` keys:
 plugins/coc-keeper/rulesets/<id>/rule-graph.json
 plugins/coc-keeper/rulesets/<id>/rule-graph-manifest.json
 ```
-
-It MAY also expose `entry_points.rule_graph_adapter`. Its primary interface is
-`settle(runtime, executor, plan, decision_id, selected, facts, envelope)`,
-returning either a completed settlement envelope or `None` to use the generic
-one-plan/one-executor path. Optional package hooks own context lookup, schema,
-operation-surface, fact augmentation, and host-binding details. Rule-family
-decision IDs and composed choreography belong in this package adapter, never
-in the generic `coc_rules_runtime.py` dispatch path.
-
-A package whose graph settlement can mutate player-visible actor state exposes
-`state_effect_domains(decision_ref) -> tuple[str, ...]` on that adapter. Each
-returned token is either a resource key declared by this package's `resources`
-registry or the kernel domain `condition`; unknown decisions return the empty
-tuple. The shared finalizer/exporter treats this package declaration as the
-write-capability boundary, then independently verifies the exact semantic
-decision namespace, actor identity, original (non-replay) call, and matching
-top-level/nested state receipt before accepting any delta. Receipt fields never
-grant their own domains, and the generic kernel contains no family-name map.
 
 `rule-graph-manifest.json` carries the machine-owned identity fields:
 
@@ -192,40 +171,10 @@ Rules:
 
 - One family cannot have `runtime_owner: "graph"` while its
   `legacy_surface` remains `visible` (spec §7.7).
-- `runtime_owner: "graph"` requires that exact family's graph-manifest row to
-  declare `promotion_eligible: true`; disagreement fails closed at conformance
-  and runtime load.
 - `shadow`/`graph` owners require the paired `entry_points.rule_graph` and
   `entry_points.rule_graph_manifest` (the R1 entry-point rule).
 - A package that ships no `rule_families` keeps every family at
   `legacy`/`visible` — the runtime is a strict no-op for it.
-- When graph artifacts are present, the three sources — package
-  `rule_families`, graph `family_runtime_ownership` /
-  `legacy_surface_lifecycle`, and graph-manifest
-  `family_promotion_eligibility.*.runtime_ownership` — must agree per
-  family. A half-flip (one artifact graph/hidden, another shadow/visible)
-  fails closed (`ownership_mismatch` / `rules_graph_unavailable`); the
-  runtime never silently prefers the package entry.
-- A family at `runtime_owner: "graph"` must also have a **closed model view of
-  its settled result**. The three ownership sources above agree about who
-  *executes*; they say nothing about whether the Keeper can *see* what was
-  executed. When a settled canonical result carries host-owned identity that
-  the generic sanitizer cannot map — a correlation digest, an integrity digest,
-  an internal receipt — projection fails closed and the Keeper receives
-  `semantic_identity_unavailable` instead of the settlement. The mechanics have
-  already been committed at that point, so the only thing the Keeper can do is
-  settle again. Every recorded instance produced that loop
-  (`push-luck:pushed-roll`, `psychology:observe-concealed`).
-
-  Concretely, promoting a family to `graph` requires, in the host that presents
-  it: (a) a closed projector for any settled result that embeds a canonical
-  sub-product, and (b) an exact semantic domain for every identity-bearing
-  `semantic_inputs` ref the family declares, taken from the validator that
-  already resolves that ref rather than invented. Both are covered by
-  `tests/pi/rules-settle-recorded-projection.mjs` and
-  `tests/pi/normal-model-id-boundary.mjs`. A family that compiles, promotes and
-  passes ownership agreement but fails either of these is promoted, not
-  playable.
 
 ### 2.3 Optional rules and house-rule patches (optional)
 
@@ -328,19 +277,6 @@ the active campaign's resolver through the kernel registry
   concealed-observation inference ceiling and fumble policy. The kernel owns
   one-window identity, concealed persistence, and player-safe realization
   binding.
-- Optional `damage_state_effect(actor_state, event)` — package-owned,
-  side-effect-free projection from one already-settled positive damage event
-  into the package's opaque actor state. The event contains only semantic
-  actor/decision identity, numeric before/after/maximum/amount values,
-  authoritative elapsed time, and an optional host-owned source-event id. The
-  hook returns the replacement actor-state object and performs no I/O. Absence
-  is an exact no-op; generic kernel and subsystem code never know package
-  fields such as wounds, injuries, or treatment ledgers.
-- Optional `skill_base(skill_name, *, era=None)` — package-owned lookup for a
-  flat integer catalog base when a complete actor sheet omits that skill. The
-  kernel always prefers an explicit canonical sheet value and validates the
-  returned integer; unknown, era-disabled, variable, and characteristic-derived
-  bases return `None` so the calling operation fails closed rather than guessing.
 - Optional subsystem session types (combat/chase/sanity equivalents) behind
   the same context/execute/end tool pattern the kernel already exposes.
 

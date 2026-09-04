@@ -245,12 +245,13 @@ visible `coc_session_resume` tool, then call visible
   machine-only delivery identity and streams the exact finalized text as
   player-visible events — then wait for the player. Pass no ids, hashes, or
   offsets, and emit no additional prose during the replay.
-- If `coc_evidence_table_opening` is absent from the active typed tools after
-  resume, the persisted table opening already owns turn 0 even when an older
-  resume envelope still says `mode=table_opening` or lists that operation.
-  Do not attempt an alias, replay the opening, or ask the player to repeat or
-  reconfirm an action already present in the current message. Continue that
-  buffered player action as an ordinary live turn in the same reply.
+- Missing typed `coc_evidence_table_opening` is **not** proof that turn 0
+  exists. First-impression `npc.reaction` (or other pre-opening rolls) also
+  does not close the opening. If `session.resume` returns `mode=table_opening`
+  or `next_operations` includes `evidence.table_opening`, call that operation
+  before any opening narration: the typed card when visible, otherwise
+  `coc_invoke` with `text` only (omit `run_id` / `decision_id`; the host
+  reattaches them). Do not fetch more opening materials instead of that call.
 - Live play follows `coc-keeper-play`. Prefer typed MCP/toolbox cards over filesystem fishing.
 - On resume, continue the table; use `session.resume` only with the campaign
   handed over on the `ready_for_table` channel — never guess a campaign_id.

@@ -568,6 +568,15 @@ const openingReceiptResume = {
   next_operations: ["evidence.table_opening"],
   current_turn: { rows: [{ tool: "evidence.table_opening", ok: true }] },
 };
+assert.equal(
+  mod.playPhaseFromResumeData({
+    mode: "table_opening",
+    next_operations: ["evidence.table_opening"],
+    current_turn: { rows: [{ tool: "npc.reaction", ok: true }] },
+  }),
+  "opening",
+  "first-impression npc.reaction must not hide evidence.table_opening",
+);
 assert.equal(mod.playPhaseFromResumeData(openingReceiptResume), "live_turn");
 assert.equal(
   mod.inferPhaseFromEnvelope(

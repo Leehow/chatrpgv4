@@ -365,7 +365,7 @@ try {
   assert.deepEqual(properties, ["presented_roll_ids", "speaker", "text"]);
   assert.deepEqual(
     [...(opening.parameters.required ?? [])].sort(),
-    ["presented_roll_ids", "text"],
+    ["text"],
   );
   const opened = JSON.parse((await opening.execute(
     "open-table",

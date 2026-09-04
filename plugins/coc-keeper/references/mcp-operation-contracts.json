@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:ab41440f0ebd3d7fcb11600de07099bfa6883cca8bc4913eebd865957186b767",
+  "content_sha256": "sha256:d8e5459d3705078f629b4a7aa245bfbbf1d59b9cdada70c60d4276a1387ae0b6",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -810,11 +810,11 @@
             "type": "string"
           },
           "decision_id": {
-            "description": "idempotency key",
+            "description": "idempotency key; omitted calls receive table-opening:<campaign_id>:opening-1",
             "type": "string"
           },
           "presented_roll_ids": {
-            "description": "ordered public npc_first_impression roll_ids from this campaign/run; [] is valid",
+            "description": "ordered public npc_first_impression roll_ids from this campaign/run; omitted or [] is valid",
             "items": {
               "type": "string"
             },
@@ -826,7 +826,7 @@
             "type": "string"
           },
           "run_id": {
-            "description": "current play/report segment id",
+            "description": "current play/report segment id; omitted calls receive run-<campaign_id>",
             "type": "string"
           },
           "speaker": {
@@ -840,10 +840,7 @@
         },
         "required": [
           "campaign",
-          "text",
-          "run_id",
-          "presented_roll_ids",
-          "decision_id"
+          "text"
         ],
         "type": "object"
       },
@@ -6525,6 +6522,14 @@
           "decision_id": {
             "description": "optional semantic retry identity such as quick-start:the-haunting:attempt-1; retain it unchanged only when retrying the exact same request after an unavailable response. When omitted, canonical runtime owns the stable campaign-scoped semantic decision id",
             "pattern": "^quick-start:[A-Za-z0-9][A-Za-z0-9._:-]{0,130}:attempt-[1-9][0-9]{0,5}$",
+            "type": "string"
+          },
+          "play_register": {
+            "description": "the table's register: 'purist' for philosophical horror where uncovering the truth dooms the seeker, 'pulp' for desperate two-fisted action. Pass it only when the player states a preference; omit it otherwise, because the core rulebook supports the range between them and a guessed pole reads as authored intent",
+            "enum": [
+              "purist",
+              "pulp"
+            ],
             "type": "string"
           },
           "pregen_id": {

@@ -26,6 +26,7 @@ Skills own procedure; this file owns product law and cannot be relaxed.
 | Inspect or mutate campaign state | `plugins/coc-keeper/skills/coc-campaign-state/SKILL.md` |
 | Export the final readable report | `plugins/coc-keeper/skills/coc-export-battle-report/SKILL.md` |
 | Add or alter a ruleset | `docs/ruleset-contract.md` and that ruleset package |
+| 开桌 / 验收 / 实机测试 / 端到端游玩 | This file: **Pi-Coc Playtest Method** (not `coc-main` as a substitute, not pytest, not `setup.quick_start` alone) |
 
 Do not duplicate a workflow into a new engine, facade, plugin tree, harness, or
 policy source. If a required source is missing or conflicts with this file,
@@ -552,17 +553,27 @@ reconstruct a roll from memory or prose or remove a failed completeness finding.
 
 ## Pi-Coc Playtest Method
 
-Pi-Coc 验收/体验测试的唯一方法：
+Pi-Coc 验收 / 体验 / **开桌** / **实机测试** / **端到端** 的唯一方法。
+用户说这些词，就是在点这条，不是在点建战役、pytest、或把 CLI 扔给用户。
 
-1. 通过 pi-coc **RPC 模式**启动插件。
-2. **Grok 当 KP**（Keeper），驱动全部 Keeper 判断、叙事、NPC、规则调用。
-3. **主会话（或指定代理）当唯一玩家**，一次一句自然回复，从头跑到尾。
-4. 沿途覆盖需要测试的能力点（建卡、开场、线索、战斗、SAN、结局等），
+1. 通过 pi-coc **RPC 模式**启动插件（`tests/pi/_lib/rpc-driver.py` 只做传输）。
+2. **Grok 当 KP**（默认 `xai/grok-4.6`），驱动全部 Keeper 判断、叙事、NPC、规则调用。
+3. **本主会话就是唯一玩家。** 一次一句自然回复，从建卡/开场跑到结构化结局或真阻断。
+   不要问「要我当玩家吗」「你要接着走吗」。角色已经定死。
+4. 沿途覆盖要测的能力点（建卡、开场、线索、战斗、SAN、结局等），
    不预设固定脚本，由 KP 正常推进。
 5. 慢可以，假不行。不得用批处理、工厂、canned scene 制造回合数。
 6. 跑完后用 `coc-export-battle-report` 出战报；战报是实际游玩证据。
 
-此方法替代已删除的 `coc-playtest` skill。任何声称"测完"或"体验等价"
+硬禁止（违反即 `invalid-for-acceptance`，即使战役目录已经存在）：
+
+- 只用 `setup.quick_start` / `coc_toolbox` 建战役，然后让用户自己去开 `pi-coc`。
+- 把「开桌」理解成 TUI/PipiUI 窗口交给用户点。
+- 用 pytest、fixture、scripted player、第二套 Keeper 冒充游玩。
+- 开场一句之后停下来征求许可。桌已开就必须继续当玩家，直到结局或真阻断。
+- 绑错 starter 还接着演（例如要测 `mystery-house` 却装上 `the-haunting`）。停、留证据、新战役 ID 重开。
+
+此方法替代已删除的 `coc-playtest` skill。任何声称「测完」或「体验等价」
 的工作必须匹配上述流程，否则标记 `invalid-for-acceptance`。
 
 ## GLM / Z.AI Thinking Control (measured 2026-09-02)

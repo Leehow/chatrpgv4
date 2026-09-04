@@ -5077,7 +5077,6 @@ const SEMANTIC_ID_ARRAY_FIELDS: ReadonlyMap<string, string> = new Map([
   ["session_roll_ids", "roll:"],
   ["source_roll_ids", "roll:"],
   ["roll_ids", "roll:"],
-  ["presented_roll_ids", "roll:"],
   ["source_ids", "roll:"],
   ["substantive_effect_ids", "effect:"],
   ["effect_ids", "effect:"],
@@ -8290,7 +8289,6 @@ const isGrammarIdentityField = (field: string): boolean =>
   || field === "decision_id"
   || field === "run_id"
   || field === "run_segment_id"
-  || field === "presented_roll_ids"
   || field === "npc_ids"
   || field.endsWith("_decision_id");
 
@@ -8602,7 +8600,6 @@ const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["weapon_effect_ids", stringSet(["effect:"])],
   ["effect_id", stringSet(["effect:"])],
   ["roll_ids", stringSet(["roll:"])],
-  ["presented_roll_ids", stringSet(["roll:"])],
   ["source_roll_id", stringSet(["roll:"])],
   ["source_ids", stringSet(["roll:"])],
   ["obligation_id", stringSet([...OBLIGATION_ID_PREFIXES])],

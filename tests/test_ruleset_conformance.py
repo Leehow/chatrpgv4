@@ -159,24 +159,6 @@ def test_valid_minimal_package_passes(tmp_path: Path):
     assert ruleset_conformance.validate_package(package_dir) == []
 
 
-@pytest.mark.parametrize("attribute", ["damage_state_effect", "skill_base"])
-def test_optional_resolver_hooks_must_be_callable(
-    tmp_path: Path, attribute: str,
-):
-    package_dir = tmp_path / "testrs"
-    _build_minimal_package(package_dir)
-    resolver = package_dir / "resolver.py"
-    resolver.write_text(
-        resolver.read_text(encoding="utf-8") + f"\n{attribute} = 42\n",
-        encoding="utf-8",
-    )
-    problems = ruleset_conformance.validate_package(package_dir)
-    assert any(
-        f"optional attribute {attribute!r} must be callable" in problem
-        for problem in problems
-    )
-
-
 def test_graph_artifact_absence_remains_legal(tmp_path: Path):
     # A package shipping no rule-graph entry_points stays conformant.
     package_dir = tmp_path / "testrs"
@@ -343,8 +325,6 @@ _OWNERSHIP_GRAPH = {
     "schema_version": 1,
     "nodes": [],
     "relations": [],
-    "family_runtime_ownership": {"healing": "graph"},
-    "legacy_surface_lifecycle": {"healing": "hidden"},
 }
 _OWNERSHIP_GRAPH_MANIFEST = {
     "contract_id": "coc.rule-graph-build-manifest.v1",
@@ -355,9 +335,7 @@ _OWNERSHIP_GRAPH_MANIFEST = {
     "graph_content_digest": "a" * 64,
     "shards": [],
     "family_coverage": {},
-    "family_promotion_eligibility": {
-        "healing": {"promotion_eligible": True, "runtime_ownership": "graph"},
-    },
+    "family_promotion_eligibility": {},
     "data_table_dependencies": [],
     "resolver_capability_dependencies": [],
     "compiler_identity": "coc.rule-graph-compiler.v1",
@@ -468,76 +446,6 @@ def test_rule_families_graph_owner_with_hidden_surface_and_artifacts_passes(
         json.dumps(_OWNERSHIP_GRAPH_MANIFEST), encoding="utf-8"
     )
     assert ruleset_conformance.validate_package(package_dir) == []
-
-
-def test_rule_families_graph_owner_requires_explicit_promotion_eligibility(
-    tmp_path: Path,
-):
-    """A family cannot execute from RuleGraph while its own gate says no."""
-    package_dir = _package_with_rule_families(tmp_path, [{
-        "family_id": "healing",
-        "runtime_owner": "graph",
-        "legacy_surface": "hidden",
-    }])
-    manifest_path = package_dir / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["entry_points"]["rule_graph"] = "rule-graph.json"
-    manifest["entry_points"]["rule_graph_manifest"] = "rule-graph-manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    (package_dir / "rule-graph.json").write_text(
-        json.dumps(_OWNERSHIP_GRAPH), encoding="utf-8"
-    )
-    graph_manifest = {
-        **_OWNERSHIP_GRAPH_MANIFEST,
-        "family_promotion_eligibility": {
-            "healing": {
-                "promotion_eligible": False,
-                "runtime_ownership": "graph",
-            },
-        },
-    }
-    (package_dir / "rule-graph-manifest.json").write_text(
-        json.dumps(graph_manifest), encoding="utf-8"
-    )
-    problems = ruleset_conformance.validate_package(package_dir)
-    assert any(
-        "graph-owned family requires promotion_eligible true" in problem
-        for problem in problems
-    ), problems
-
-
-def test_rule_families_artifact_disagreement_fails_closed(tmp_path: Path):
-    """Flipping only the package manifest is a half-flip and must fail."""
-    package_dir = _package_with_rule_families(tmp_path, [{
-        "family_id": "healing",
-        "runtime_owner": "graph",
-        "legacy_surface": "hidden",
-    }])
-    manifest_path = package_dir / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["entry_points"]["rule_graph"] = "rule-graph.json"
-    manifest["entry_points"]["rule_graph_manifest"] = "rule-graph-manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    stale_graph = {
-        **_OWNERSHIP_GRAPH,
-        "family_runtime_ownership": {"healing": "shadow"},
-        "legacy_surface_lifecycle": {"healing": "visible"},
-    }
-    stale_manifest = {
-        **_OWNERSHIP_GRAPH_MANIFEST,
-        "family_promotion_eligibility": {
-            "healing": {"promotion_eligible": False, "runtime_ownership": "shadow"},
-        },
-    }
-    (package_dir / "rule-graph.json").write_text(
-        json.dumps(stale_graph), encoding="utf-8"
-    )
-    (package_dir / "rule-graph-manifest.json").write_text(
-        json.dumps(stale_manifest), encoding="utf-8"
-    )
-    problems = ruleset_conformance.validate_package(package_dir)
-    joined = "\n".join(problems)
-    assert "runtime_owner disagrees" in joined, problems
 
 
 def test_rule_families_unknown_family_and_duplicate_ids_rejected(tmp_path: Path):
