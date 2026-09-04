@@ -51,7 +51,9 @@ from typing import Any, Callable, Protocol
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 
+import coc_module_assets as assets  # noqa: E402
 import coc_module_graph as graph  # noqa: E402
+import coc_module_graph_projection as graph_projection  # noqa: E402
 import coc_module_graph_template as graph_template  # noqa: E402
 import coc_module_graph_extract as extract  # noqa: E402
 import coc_module_plan as planner  # noqa: E402
@@ -875,6 +877,122 @@ def _unreachable_scenes(merged: dict[str, Any]) -> list[str]:
     return sorted(scenes - joined)
 
 
+def install_build(
+    work: Path,
+    bundle: Path,
+    *,
+    workspace: Path,
+    asset_root_id: str,
+    plan: dict[str, Any],
+    opening_section_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Put a finished build where a campaign can be made from it.
+
+    The build stopped at a work directory. Nothing carried what it produced
+    into an asset root, so a graph could be read, gated, assembled and judged
+    playable and still have no way to reach a table -- three CLIs run by hand
+    was the whole path. This is that path, written down:
+
+        module-graph.json  ->  generation + manifest in the asset root
+                           ->  Tier-1 skeleton, stored
+                           ->  section index, so on_enter_scene can deepen
+
+    The generation is written directly rather than through
+    `build_module_graph_asset`, which requires a semantic-review receipt this
+    lane does not produce. What this lane has instead is three deterministic
+    gates per section plus the whole-graph standard, and the manifest says so
+    rather than implying a review that never happened.
+    """
+    graph_path = work / "module-graph.json"
+    if not graph_path.is_file():
+        return {"installed": False, "reason": f"no module graph at {graph_path}"}
+    module_graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    manifest_source = json.loads(
+        (bundle / "manifest.json").read_text(encoding="utf-8")
+    )
+    source = manifest_source.get("source") or {}
+    source_id = str(source.get("source_id") or "")
+    file_sha256 = str(source.get("file_sha256") or "")
+    page_count = int(source.get("page_count") or 0)
+
+    skeleton = graph_projection.project_graph_to_skeleton(
+        module_graph,
+        source_id=source_id,
+        file_sha256=file_sha256,
+        page_count=page_count,
+    )
+
+    digest = graph._json_digest(module_graph)
+    generation = f"generation-{digest}"
+    graph_root = (
+        Path(workspace) / ".coc" / "module-assets" / asset_root_id / "graph"
+    )
+    (graph_root / "generations" / generation).mkdir(parents=True, exist_ok=True)
+    (graph_root / "generations" / generation / "module-graph.json").write_text(
+        json.dumps(module_graph, ensure_ascii=False), encoding="utf-8",
+    )
+    manifest = {
+        "contract_id": graph.BUILD_MANIFEST_CONTRACT_ID,
+        "schema_version": 1,
+        "asset_root_id": asset_root_id,
+        "module_id": module_graph.get("module_id"),
+        "graph_contract_id": module_graph.get("contract_id"),
+        "graph_schema_version": module_graph.get("schema_version"),
+        "build_status": "complete",
+        "current_generation": generation,
+        "module_graph_path": f"generations/{generation}/module-graph.json",
+        "module_graph_sha256": digest,
+        "source_languages": list(module_graph.get("source_languages") or []),
+        "source_bundles": [{
+            "source_id": source_id,
+            "bundle_sha256": str(manifest_source.get("bundle_sha256") or ""),
+            "file_sha256": file_sha256,
+        }],
+        "planned_shards": [
+            {"section_id": str(section.get("section_id")), "aspects": []}
+            for section in plan.get("sections") or []
+        ],
+        "accepted_shards": [],
+        "missing_shards": [],
+        "coverage": module_graph.get("coverage") or {},
+    }
+    (graph_root / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+    )
+
+    stored_skeleton = False
+    registered: dict[str, Any] = {"registered": False, "reason": "not attempted"}
+    try:
+        assets.put_skeleton(Path(workspace), asset_root_id, skeleton)
+        stored_skeleton = True
+    except Exception as error:  # noqa: BLE001
+        registered = {"registered": False, "reason": f"skeleton: {error}"}
+    if stored_skeleton:
+        registered = graph._register_section_index(
+            Path(workspace),
+            asset_root_id=asset_root_id,
+            section_plan=plan,
+            accepted_records=[
+                {"shard": json.loads(path.read_text(encoding="utf-8"))}
+                for path in sorted(work.rglob("accepted.shard.json"))
+            ],
+            source_rows=manifest["source_bundles"],
+            opening_section_ids=list(opening_section_ids or []),
+        )
+    return {
+        "installed": True,
+        "asset_root_id": asset_root_id,
+        "generation": generation,
+        "skeleton": {
+            "stored": stored_skeleton,
+            "locations": len(skeleton.get("locations") or []),
+            "npcs": len(skeleton.get("npc_roster") or []),
+            "edges": len(skeleton.get("edges_provisional") or []),
+        },
+        "section_index": registered,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -910,6 +1028,16 @@ def main(argv: list[str] | None = None) -> int:
              "connected scene graph, where four-page leaves left eight "
              "fragments and five scenes nothing could reach. Set it only when "
              "a section proves too large for one session",
+    )
+    parser.add_argument(
+        "--install-into",
+        help="asset root id to install the finished graph into, so a campaign "
+             "can be made from it; without this the build stops at its work "
+             "directory and nothing can reach a table",
+    )
+    parser.add_argument(
+        "--workspace", type=Path, default=Path.cwd(),
+        help="repository or workspace root holding .coc/module-assets",
     )
     parser.add_argument(
         "--no-stitch", action="store_true",
@@ -1108,6 +1236,20 @@ def main(argv: list[str] | None = None) -> int:
         if stitch.get("status") == "accepted":
             assembly = _assemble(work, results)
 
+    installed: dict[str, Any] | None = None
+    if args.install_into and assembly and assembly["status"].startswith("assembled"):
+        installed = install_build(
+            work, bundle,
+            workspace=args.workspace,
+            asset_root_id=args.install_into,
+            plan=planned,
+            opening_section_ids=(
+                ((skeleton_result or {}).get("opening") or {}).get("sections") or []
+            ),
+        )
+        print(json.dumps({"section_id": "install", **installed},
+                         ensure_ascii=False), flush=True)
+
     receipt_name = (
         f"build.{args.only_section}.json" if args.only_section else "build.json"
     )
@@ -1117,7 +1259,7 @@ def main(argv: list[str] | None = None) -> int:
     (work / receipt_name).write_text(
         json.dumps({"plan": planned, "skeleton": skeleton_result,
                     "sections": results, "stitch": stitch,
-                    "assembly": assembly},
+                    "assembly": assembly, "install": installed},
                    ensure_ascii=False, indent=2),
         encoding="utf-8",
     )

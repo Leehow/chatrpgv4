@@ -5046,6 +5046,27 @@ def _neighbor_ids_from_skeleton(
     return out
 
 
+def _skeleton_row_pages(skeleton: dict[str, Any], location_id: str) -> set[int]:
+    """The pages a skeleton row stands on, from its own source refs."""
+    for row in skeleton.get("locations") or []:
+        if not isinstance(row, dict) or row.get("location_id") != location_id:
+            continue
+        pages: set[int] = set()
+        for ref in row.get("source_refs") or []:
+            if isinstance(ref, dict) and isinstance(ref.get("pdf_index"), int):
+                if not isinstance(ref["pdf_index"], bool):
+                    pages.add(int(ref["pdf_index"]))
+        return pages
+    return set()
+
+
+def _section_pages(section: dict[str, Any]) -> set[int]:
+    return {
+        int(page) for page in (section.get("pdf_indices") or [])
+        if isinstance(page, int) and not isinstance(page, bool)
+    }
+
+
 def on_enter_scene(
     workspace: Path,
     campaign_id: str,
@@ -5095,6 +5116,17 @@ def on_enter_scene(
         neighbour for neighbour in _neighbor_ids_from_skeleton(skeleton, sid)
         if neighbour and neighbour != sid
     }
+    # Match by page, not only by entity id. A graph-built module names the
+    # party's whereabouts with the ids of scenes, beats and endings, while the
+    # index binds the graph's `location` nodes -- two disjoint namespaces, so
+    # `entity_ids` never matched and no section was ever fetched for a place
+    # anyone actually stood in. Pages are what both sides already carry: the
+    # skeleton row keeps the pdf_index it was read from, and every index row
+    # keeps the pages its section covers.
+    here_pages = _skeleton_row_pages(skeleton, sid)
+    ahead_pages: set[int] = set()
+    for neighbour in read_ahead_ids:
+        ahead_pages |= _skeleton_row_pages(skeleton, neighbour)
     section_actions: list[dict[str, Any]] = []
     for section in section_index.get("sections") or []:
         if not isinstance(section, dict):
@@ -5106,9 +5138,13 @@ def on_enter_scene(
             and binding.get("entity_kind") == "location"
             else set()
         )
-        is_current_location = sid in bound_locations
+        section_pages = _section_pages(section)
+        is_current_location = bool(
+            sid in bound_locations or (here_pages and section_pages & here_pages)
+        )
         is_read_ahead = not is_current_location and bool(
-            bound_locations & read_ahead_ids
+            (bound_locations & read_ahead_ids)
+            or (ahead_pages and section_pages & ahead_pages)
         )
         is_keeper_opening = (
             binding.get("kind") == "global"

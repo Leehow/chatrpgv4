@@ -3051,6 +3051,134 @@ def test_on_enter_sandbox_hub_defers_all_map_neighbor_prefetch(tmp_path: Path):
     assert "done" not in result["queue"]
 
 
+def _paged_skeleton() -> dict:
+    """A skeleton whose rows carry the pages they were read from.
+
+    A graph-built module names the party's whereabouts with the ids of scenes,
+    beats and endings; the section index binds the graph's `location` nodes.
+    Those are disjoint namespaces, so the fixture that gives its rows entity
+    ids cannot exercise the join that a real graph build depends on.
+    """
+    skeleton = json.loads(json.dumps(_skeleton()))
+    pages = {"opening": [0, 1], "library": [4, 5], "finale": [9, 10]}
+    for row in skeleton["locations"]:
+        row["source_refs"] = [
+            {"source_id": "pdf:prog-demo", "pdf_index": index}
+            for index in pages[row["location_id"]]
+        ]
+    return skeleton
+
+
+def _paged_index() -> dict:
+    """Sections that name their pages and bind no entity at all."""
+    def row(section_id, indices, timing="on_demand"):
+        return {
+            "section_id": section_id, "audience": "keeper_only",
+            "timing": timing, "payload": "narrative",
+            "pdf_indices": list(indices),
+            "binding": {"kind": "global", "entity_kind": None, "entity_ids": []},
+            "parse_state": "indexed",
+        }
+    return {"schema_version": 1, "sections": [
+        row("sec-front", range(0, 3)),
+        row("sec-library", range(4, 8)),
+        row("sec-finale", range(9, 12)),
+    ]}
+
+
+def test_a_scene_reaches_its_section_by_page_when_no_entity_binds_it(
+    tmp_path: Path,
+):
+    """The join that a graph build actually needs.
+
+    Every layer was right on its own -- the skeleton projection, the index
+    build, the matching in on_enter_scene -- and the two sides had agreed on
+    different ids, so no section was ever fetched for a place anyone stood in.
+    Pages are what both sides already carry, and they are what the plan cut the
+    sections by in the first place.
+    """
+    _put_source_bound_skeleton(tmp_path, _paged_skeleton())
+    camp = _make_campaign(tmp_path)
+    project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
+    assets.section_index_path(tmp_path, "prog-demo").write_text(
+        json.dumps(_paged_index()), encoding="utf-8",
+    )
+
+    result = project.on_enter_scene(tmp_path, camp.name, "library")
+    materialized = {
+        row["section_materialization"]["section_id"]:
+            row["section_materialization"]["binding"]
+        for row in result["actions"] if "section_materialization" in row
+    }
+    assert materialized.get("sec-library") == "active_location", (
+        "the party's own pages did not reach the section holding them"
+    )
+    # `library` leads to `finale` and was reached from `opening`; a party can
+    # walk either way, so both neighbours warm and both sit below the room the
+    # party is standing in.
+    assert materialized.get("sec-finale") == "neighbor_location"
+    assert materialized.get("sec-front") == "neighbor_location"
+
+
+def test_the_page_join_does_not_reach_a_section_that_holds_none_of_them(
+    tmp_path: Path,
+):
+    _put_source_bound_skeleton(tmp_path, _paged_skeleton())
+    camp = _make_campaign(tmp_path)
+    project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
+    index = _paged_index()
+    index["sections"].append({
+        "section_id": "sec-appendix", "audience": "keeper_only",
+        "timing": "on_demand", "payload": "narrative",
+        "pdf_indices": [20, 21],
+        "binding": {"kind": "global", "entity_kind": None, "entity_ids": []},
+        "parse_state": "indexed",
+    })
+    assets.section_index_path(tmp_path, "prog-demo").write_text(
+        json.dumps(index), encoding="utf-8",
+    )
+    result = project.on_enter_scene(tmp_path, camp.name, "library")
+    named = {
+        row["section_materialization"]["section_id"]
+        for row in result["actions"] if "section_materialization" in row
+    }
+    assert "sec-appendix" not in named, "a section sharing no page was fetched"
+
+
+def test_a_row_with_no_pages_falls_back_to_the_entity_binding(tmp_path: Path):
+    """The classifier lane binds entities and names no pages; it must keep
+    working, because the page join is an addition and not a replacement."""
+    _put_source_bound_skeleton(tmp_path)
+    camp = _make_campaign(tmp_path)
+    project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
+    assets.section_index_path(tmp_path, "prog-demo").write_text(json.dumps({
+        "schema_version": 1, "sections": [{
+            "section_id": "sec-current", "audience": "keeper_only",
+            "timing": "on_demand", "payload": "narrative",
+            "binding": {"kind": "entity", "entity_kind": "location",
+                        "entity_ids": ["library"]},
+            "parse_state": "indexed",
+        }],
+    }), encoding="utf-8")
+    result = project.on_enter_scene(tmp_path, camp.name, "library")
+    named = {
+        row["section_materialization"]["section_id"]:
+            row["section_materialization"]["binding"]
+        for row in result["actions"] if "section_materialization" in row
+    }
+    assert named == {"sec-current": "active_location"}
+
+
+def test_the_helpers_read_pages_off_both_sides():
+    skeleton = _paged_skeleton()
+    assert project._skeleton_row_pages(skeleton, "library") == {4, 5}
+    assert project._skeleton_row_pages(skeleton, "nowhere") == set()
+    assert project._section_pages({"pdf_indices": [1, 2, 2]}) == {1, 2}
+    assert project._section_pages({}) == set()
+    # A boolean is an int in Python and is not a page.
+    assert project._section_pages({"pdf_indices": [True, 3]}) == {3}
+
+
 def test_on_enter_materializes_here_the_opening_and_one_move_on_foot(
     tmp_path: Path,
 ):
