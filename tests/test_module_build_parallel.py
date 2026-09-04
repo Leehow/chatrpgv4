@@ -130,6 +130,7 @@ def test_accepted_sections_are_merged_into_one_module_graph(monkeypatch, tmp_pat
     rc = build.main([
         "--adapter", "fake_adapter", "--source-bundle", str(tmp_path),
         "--work-dir", str(work), "--module-id", "mod", "--no-skeleton",
+        "--no-stitch",
         "--plan", str(_plan(tmp_path, [("s1", 0, 0), ("s2", 1, 1)])),
     ])
     # Two sections that share no exit are two pieces, and the standard says so:
@@ -170,6 +171,7 @@ def test_a_merge_conflict_is_reported_not_raised(monkeypatch, tmp_path):
     rc = build.main([
         "--adapter", "fake_adapter", "--source-bundle", str(tmp_path),
         "--work-dir", str(work), "--module-id", "mod", "--no-skeleton",
+        "--no-stitch",
         "--plan", str(_plan(tmp_path, [("s1", 0, 0), ("s2", 1, 1)])),
     ])
     assert rc == 1
@@ -189,6 +191,7 @@ def test_chunks_extract_concurrently(monkeypatch, tmp_path):
     build.main([
         "--adapter", "fake_adapter", "--source-bundle", str(tmp_path),
         "--work-dir", str(work), "--module-id", "mod", "--no-skeleton",
+        "--no-stitch",
         "--workers", "4",
         "--plan", str(_plan(tmp_path, [("s1", 0, 0), ("s2", 1, 1),
                                        ("s3", 2, 2), ("s4", 3, 3)])),
@@ -216,6 +219,7 @@ def test_results_follow_plan_order_not_completion_order(monkeypatch, tmp_path):
     build.main([
         "--adapter", "fake_adapter", "--source-bundle", str(tmp_path),
         "--work-dir", str(work), "--module-id", "mod", "--no-skeleton",
+        "--no-stitch",
         "--workers", "3",
         "--plan", str(_plan(tmp_path, [("s1", 0, 0), ("s2", 1, 1), ("s3", 2, 2)])),
     ])
@@ -251,7 +255,7 @@ def test_the_skeletons_roster_reaches_every_section(monkeypatch, tmp_path):
         "opening": {"sections": ["s1"], "entry_pages": [0]}})
     build.main([
         "--adapter", "fake_adapter", "--source-bundle", str(tmp_path),
-        "--work-dir", str(work), "--module-id", "mod",
+        "--work-dir", str(work), "--module-id", "mod", "--no-stitch",
         "--plan", str(_plan(tmp_path, [("s1", 0, 0), ("s2", 1, 1)])),
     ])
     assert handed and all(roster for roster in handed), (
@@ -320,7 +324,7 @@ def test_the_skeleton_shard_is_part_of_the_graph_it_seeded(monkeypatch, tmp_path
         "opening": {"sections": [], "entry_pages": []}})
     build.main([
         "--adapter", "fake_adapter", "--source-bundle", str(tmp_path),
-        "--work-dir", str(work), "--module-id", "mod",
+        "--work-dir", str(work), "--module-id", "mod", "--no-stitch",
         "--plan", str(_plan(tmp_path, [("s1", 0, 0)])),
     ])
     receipt = json.loads((work / "build.json").read_text())
@@ -344,6 +348,7 @@ def test_one_sound_section_builds_a_playable_graph(monkeypatch, tmp_path):
     rc = build.main([
         "--adapter", "fake_adapter", "--source-bundle", str(tmp_path),
         "--work-dir", str(work), "--module-id", "mod", "--no-skeleton",
+        "--no-stitch",
         "--plan", str(_plan(tmp_path, [("s1", 0, 0)])),
     ])
     receipt = json.loads((work / "build.json").read_text())

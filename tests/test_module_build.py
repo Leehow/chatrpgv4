@@ -211,7 +211,7 @@ def test_an_accepted_plan_file_skips_replanning(
         "--adapter", "fake_adapter",
         "--source-bundle", str(tmp_path),
         "--work-dir", str(tmp_path / "w"),
-        "--module-id", "mod",
+        "--module-id", "mod", "--no-stitch",
         "--plan", str(plan),
         "--only-section", "s2",
     ])
@@ -248,6 +248,7 @@ def test_a_wide_section_is_pre_split_before_any_generation(
         "--module-id", "mod",
         "--plan", str(plan),
         "--no-skeleton",
+        "--no-stitch",
         "--max-leaf-pages", "4",
     ])
     assert prepared == [(0, 3), (4, 7), (8, 9)]
@@ -318,7 +319,7 @@ def test_opening_only_without_evidence_refuses_to_guess(
         "--adapter", "fake_adapter",
         "--source-bundle", str(tmp_path),
         "--work-dir", str(tmp_path / "w"),
-        "--module-id", "mod",
+        "--module-id", "mod", "--no-stitch",
         "--plan", str(plan),
         "--opening-only",
     ])
@@ -375,7 +376,7 @@ def test_a_plan_file_that_never_passed_cannot_drive(
         "--adapter", "fake_adapter",
         "--source-bundle", str(tmp_path),
         "--work-dir", str(tmp_path / "w"),
-        "--module-id", "mod",
+        "--module-id", "mod", "--no-stitch",
         "--plan", str(plan_path),
     ])
     assert rc == 1

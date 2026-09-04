@@ -592,6 +592,127 @@ def _extract_ranged(
     }, ensure_ascii=False), flush=True)
 
 
+STITCH_BRIEF_PATH = _HERE.parent / "pi" / "prompts" / "module-graph-stitch-brief.md"
+PATCH_NAME = "patch.json"
+
+
+def _graph_view(merged: dict[str, Any]) -> dict[str, Any]:
+    """The graph small enough to read: what each node is, and what joins them.
+
+    Not the graph itself. A stitcher handed the whole thing spends its context
+    on stat blocks and summaries of things that are already fine; what it needs
+    is the shape -- every node's identity and page, and every edge that exists.
+    """
+    def pages(node: dict[str, Any]) -> list[int]:
+        out: set[int] = set()
+        for span in node.get("evidence_span_ids") or []:
+            if isinstance(span, str) and "-page-" in span:
+                tail = span.split("-page-", 1)[1].split("-", 1)[0]
+                if tail.isdigit():
+                    out.add(int(tail))
+        return sorted(out)
+
+    return {
+        "nodes": [
+            {"node_id": node["node_id"], "node_kind": node.get("node_kind"),
+             "name": node.get("name"), "summary": (node.get("summary") or "")[:180],
+             "pages": pages(node)}
+            for node in merged.get("nodes") or []
+            if isinstance(node, dict) and isinstance(node.get("node_id"), str)
+        ],
+        "relations": [
+            {"kind": relation.get("relation_kind"),
+             "from": relation.get("from_node_id"), "to": relation.get("to_node_id")}
+            for relation in merged.get("relations") or []
+            if isinstance(relation, dict)
+        ],
+    }
+
+
+def stitch_graph(
+    bundle: Path,
+    work: Path,
+    module_id: str,
+    read_with_agent: Reader,
+    assembly: dict[str, Any],
+    *,
+    max_rounds: int = 2,
+) -> dict[str, Any]:
+    """Have one agent join what the section readers could not see.
+
+    A section reader cannot write the exit from its own last scene to the first
+    scene of a chapter it never received -- not for want of care, it has no way
+    to name the other end. That is why chunking left a scene graph in eight
+    pieces while every section passed every gate.
+
+    The patch is a shard like any other: same contract, same three gates, same
+    merge. Its pages are the whole book, which it queries rather than reads.
+    """
+    findings = assembly.get("findings") or []
+    if not findings:
+        return {"status": "nothing_to_stitch"}
+    stitch = work / "stitch"
+    stitch.mkdir(parents=True, exist_ok=True)
+    prepared = extract.prepare(
+        bundle, stitch, module_id=module_id, section_id="stitch",
+    )
+    if prepared.get("status") == "empty":
+        return {"status": "no_evidence", "reason": prepared.get("reason")}
+    merged = json.loads((work / "module-graph.json").read_text(encoding="utf-8"))
+    (stitch / "graph-findings.json").write_text(
+        json.dumps(findings, ensure_ascii=False, indent=2), encoding="utf-8")
+    (stitch / "graph-view.json").write_text(
+        json.dumps(_graph_view(merged), ensure_ascii=False), encoding="utf-8")
+
+    brief = STITCH_BRIEF_PATH.read_text(encoding="utf-8").format(
+        work_dir=stitch,
+        instruction_path=extract.INSTRUCTION_PATH,
+        repo_root=_HERE.parents[2],
+        review_command=(
+            "PYTHONDONTWRITEBYTECODE=1 uv run --frozen python "
+            f"{_HERE / 'coc_module_graph_extract.py'} review "
+            f"--work-dir {stitch} --model-output {stitch / PATCH_NAME}"
+        ),
+        template_command=(
+            "PYTHONDONTWRITEBYTECODE=1 uv run --frozen python "
+            f"{_HERE / 'coc_module_graph_template.py'} "
+            f"--graph {work / 'module-graph.json'}"
+        ),
+        query=(
+            "PYTHONDONTWRITEBYTECODE=1 uv run --frozen python "
+            f"{_HERE / 'coc_evidence_query.py'} "
+            f"--packet {stitch / 'extraction-packet.json'}"
+        ),
+    )
+    patch_path = stitch / PATCH_NAME
+    rounds: list[Round] = []
+    for attempt in range(1, max_rounds + 1):
+        read_with_agent(stitch, brief if attempt == 1 else _retry_brief(
+            brief, rounds[-1].findings))
+        if not patch_path.exists():
+            rounds.append(Round(attempt, "findings", "shape", 1, [{
+                "code": "agent_wrote_no_patch", "path": "/",
+                "message": f"the stitcher left no {PATCH_NAME} in {stitch}"}]))
+            continue
+        try:
+            patch = json.loads(patch_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            rounds.append(Round(attempt, "findings", "shape", 1, [{
+                "code": "patch_not_json", "path": "/", "message": str(error)}]))
+            continue
+        result = extract.review(stitch, patch)
+        rounds.append(Round(attempt, result["status"], result.get("gate"),
+                            result.get("finding_count", 0),
+                            result.get("findings", [])))
+        if result["status"] == "accepted":
+            return {"status": "accepted", "attempts": attempt,
+                    "rounds": [r.__dict__ for r in rounds],
+                    "claims": result["claims"]}
+    return {"status": "not_accepted", "attempts": len(rounds),
+            "rounds": [r.__dict__ for r in rounds],
+            "findings": rounds[-1].findings if rounds else []}
+
+
 def _assemble(work: Path, results: list[dict[str, Any]]) -> dict[str, Any]:
     """Merge the accepted section shards into the module's one graph.
 
@@ -605,7 +726,8 @@ def _assemble(work: Path, results: list[dict[str, Any]]) -> dict[str, Any]:
     # reference rather than redefine. Leaving it out orphans every one of those
     # references -- one `unresolved_node_ref` refused a whole build that had
     # otherwise passed every gate.
-    shard_paths = [work / "skeleton" / "accepted.shard.json"]
+    shard_paths = [work / "skeleton" / "accepted.shard.json",
+                   work / "stitch" / "accepted.shard.json"]
     shard_paths += [
         work / result["section_id"] / "accepted.shard.json"
         for result in results
@@ -776,6 +898,11 @@ def main(argv: list[str] | None = None) -> int:
              "connected scene graph, where four-page leaves left eight "
              "fragments and five scenes nothing could reach. Set it only when "
              "a section proves too large for one session",
+    )
+    parser.add_argument(
+        "--no-stitch", action="store_true",
+        help="skip the join pass that closes what a section reader could not "
+             "see across its own boundary",
     )
     parser.add_argument(
         "--workers", type=int, default=6,
@@ -951,6 +1078,24 @@ def main(argv: list[str] | None = None) -> int:
     # section was accepted while no module graph exists.
     assembly = _assemble(work, results) if not args.only_section else None
 
+    # One join pass, if the assembled book has holes a section reader could not
+    # have closed. A reader given four pages cannot write the exit from its own
+    # last scene into a chapter it never received; the stitcher can, because it
+    # queries the whole book instead of holding a slice of it.
+    stitch: dict[str, Any] | None = None
+    if (
+        assembly
+        and assembly.get("status") == "assembled_not_playable"
+        and not args.no_stitch
+    ):
+        stitch = stitch_graph(bundle, work, args.module_id, read_with_agent,
+                              assembly, max_rounds=args.max_rounds)
+        print(json.dumps({"section_id": "stitch", **{
+            k: v for k, v in stitch.items() if k != "rounds"}},
+            ensure_ascii=False), flush=True)
+        if stitch.get("status") == "accepted":
+            assembly = _assemble(work, results)
+
     receipt_name = (
         f"build.{args.only_section}.json" if args.only_section else "build.json"
     )
@@ -959,7 +1104,8 @@ def main(argv: list[str] | None = None) -> int:
     # rewrite one build.json into whoever finished last.
     (work / receipt_name).write_text(
         json.dumps({"plan": planned, "skeleton": skeleton_result,
-                    "sections": results, "assembly": assembly},
+                    "sections": results, "stitch": stitch,
+                    "assembly": assembly},
                    ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
