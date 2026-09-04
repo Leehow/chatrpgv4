@@ -25,6 +25,8 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import coc_fileio
+import coc_module_assets
+import coc_module_sections
 import coc_pdf_bundle
 
 
@@ -2164,8 +2166,18 @@ def build_module_graph_asset(
     accepted_records: list[dict[str, Any]],
     source_bundles: list[dict[str, str]],
     page_catalog: dict[tuple[str, int], dict[str, Any]],
+    section_plan: dict[str, Any] | None = None,
+    opening_section_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Build and atomically install one reviewed module graph generation."""
+    """Build and atomically install one reviewed module graph generation.
+
+    Installing also registers the build in the section index, which is the
+    demand map the progressive lane reads: `on_enter_scene` can only deepen a
+    section the index knows about, so a graph installed without one is a book
+    play can never reach past its opening. The bridge existed and nothing
+    called it -- graph-built sections were invisible to the lane that was
+    supposed to fetch them.
+    """
     findings, planned_rows = _validate_build_plan(build_plan)
     source_findings, source_rows = _validate_source_bundle_bindings(source_bundles)
     findings.extend(source_findings)
@@ -2352,11 +2364,73 @@ def build_module_graph_asset(
             ensure_ascii=False,
             trailing_newline=True,
         )
+    section_index = _register_section_index(
+        workspace,
+        asset_root_id=asset_root_id,
+        section_plan=section_plan,
+        accepted_records=accepted_records,
+        source_rows=source_rows,
+        opening_section_ids=opening_section_ids,
+    )
     return {
         "manifest": manifest,
         "graph_root": str(graph_root),
         "module_graph": module_graph,
+        "section_index": section_index,
     }
+
+
+def _register_section_index(
+    workspace: Path | str,
+    *,
+    asset_root_id: str,
+    section_plan: dict[str, Any] | None,
+    accepted_records: list[dict[str, Any]],
+    source_rows: list[dict[str, Any]],
+    opening_section_ids: list[str] | None,
+) -> dict[str, Any]:
+    """Write the demand map the progressive lane deepens against.
+
+    Written after the graph is installed, never before: an index naming
+    sections of a build that did not land would send the lane to fetch a
+    section nothing owns.
+    """
+    # The install plan names shards and aspects; only the section plan carries
+    # the page ranges the index binds locations by. They are different objects
+    # and passing the wrong one writes an index of nothing, so the absence is
+    # reported rather than silently producing an empty map.
+    if not isinstance(section_plan, dict) or not (section_plan.get("sections")):
+        return {"registered": False,
+                "reason": "no section plan with page ranges was supplied"}
+    skeleton = next(
+        (
+            record.get("shard") for record in accepted_records
+            if isinstance(record, dict)
+            and isinstance(record.get("shard"), dict)
+            and record["shard"].get("section_id") == "skeleton"
+        ),
+        None,
+    )
+    if skeleton is None:
+        # No roster, so nothing to bind sections to. Said out loud rather than
+        # written empty: an index with no bindings looks like a book with no
+        # locations, and the lane would deepen nothing and report nothing.
+        return {"registered": False, "reason": "no accepted skeleton shard"}
+    source = source_rows[0] if source_rows else {}
+    index = coc_module_sections.build_section_index_from_graph(
+        plan=section_plan,
+        skeleton=skeleton,
+        opening_section_ids=list(opening_section_ids or []),
+        source_id=str(source.get("source_id") or ""),
+        file_sha256=str(source.get("file_sha256") or ""),
+        # The plan is this lane's outline: it is what decided the sections, and
+        # its digest is what a later build has to match to be the same reading.
+        outline_sha256=_json_digest(section_plan),
+        outline_producer="coc_module_build",
+        page_count=int(source.get("page_count") or 0),
+    )
+    coc_module_assets.write_section_index(workspace, asset_root_id, index)
+    return {"registered": True, "sections": len(index.get("sections") or [])}
 
 
 def load_installed_module_graph_installation(
