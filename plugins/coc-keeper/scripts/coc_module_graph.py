@@ -1629,12 +1629,22 @@ def _merge_node(
     return merged
 
 
+# What a claim's `truth_status` says about where it came from. `inferred-candidate`
+# is a reader saying "the book does not state this, I worked it out"; every
+# `authored-*` value is a reader saying "the book states this, here is the page".
+# The others are not stronger or weaker versions of each other -- a fact, a
+# belief, a rumour and a lie are different assertions about the fiction, and two
+# readers disagreeing there disagree about the book.
+INFERRED_TRUTH_STATUS = "inferred-candidate"
+
+
 def _merge_evidenced_record(
     existing: dict[str, Any],
     proposed: dict[str, Any],
     *,
     record_kind: str,
     record_id: str,
+    notes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     # Compared on meaning, not on wording. Two sections stating the same fact
     # will annotate it differently -- `reason` is the reader's own prose, and
@@ -1646,6 +1656,26 @@ def _merge_evidenced_record(
     # Introduction 章。") refused a whole book.
     annotation_keys = {"reason", "summary", "aliases", "confidence", "properties"}
     ignored = {"source_refs", "evidence_span_ids"} | annotation_keys
+    # Evidence beats inference. One reader found the page that says Sing Sing is
+    # in New York and wrote `authored-fact`; another, on the next page, saw only
+    # a mention of a visit and honestly wrote `inferred-candidate`. Neither is
+    # wrong, and refusing the book over it would be. The reading that found the
+    # page stands, the hedge yields, and the resolution is recorded rather than
+    # quietly applied.
+    left_status = existing.get("truth_status")
+    right_status = proposed.get("truth_status")
+    if left_status != right_status and INFERRED_TRUTH_STATUS in (left_status, right_status):
+        grounded = right_status if left_status == INFERRED_TRUTH_STATUS else left_status
+        existing = {**existing, "truth_status": grounded}
+        proposed = {**proposed, "truth_status": grounded}
+        if notes is not None:
+            notes.append({
+                "kind": f"{record_kind}_truth_status_resolved",
+                "record_id": record_id,
+                "kept": grounded,
+                "yielded": INFERRED_TRUTH_STATUS,
+                "why": "a reading that cites the page outranks one that infers",
+            })
     left = {key: value for key, value in existing.items() if key not in ignored}
     right = {key: value for key, value in proposed.items() if key not in ignored}
     if left != right:
@@ -1838,7 +1868,8 @@ def merge_shards(
             claim_id = claim["claim_id"]
             claims[claim_id] = (
                 _merge_evidenced_record(
-                    claims[claim_id], claim, record_kind="claim", record_id=claim_id
+                    claims[claim_id], claim, record_kind="claim",
+                    record_id=claim_id, notes=merge_notes,
                 )
                 if claim_id in claims
                 else copy.deepcopy(claim)
@@ -1847,7 +1878,8 @@ def merge_shards(
             relation_id = relation["relation_id"]
             relations[relation_id] = (
                 _merge_evidenced_record(
-                    relations[relation_id], relation, record_kind="relation", record_id=relation_id
+                    relations[relation_id], relation, record_kind="relation",
+                    record_id=relation_id, notes=merge_notes,
                 )
                 if relation_id in relations
                 else copy.deepcopy(relation)

@@ -274,3 +274,93 @@ def test_a_real_difference_in_meaning_still_refuses():
         assert "truth_status" in message, "the refusal did not name what differed"
     else:
         raise AssertionError("a claim asserted as fact and as rumour merged")
+
+
+def _claimed(section: str, status: str, span: str):
+    """One shard asserting the same fact, at the given confidence in the book.
+
+    Built with its span rather than patched afterwards: the assembly unions the
+    root evidence scope from what the nodes and claims cite, so a span injected
+    after assembly is outside the scope the validator checks against.
+    """
+    return graph.assemble_model_shard({
+        "contract_id": "coc.module-graph-shard.v3", "schema_version": 3,
+        "module_id": "mod", "section_id": section, "source_language": "zh-Hans",
+        "aspects": ["structure"], "evidence_span_ids": [span],
+        "node_refs": [], "coverage": {},
+        "nodes": [
+            {"node_id": "npc-kloppe", "node_kind": "npc", "name": "克洛普",
+             "visibility": "keeper-only", "aliases": [], "summary": "",
+             "evidence_span_ids": [span], "properties": {}},
+            {"node_id": "scene-camp", "node_kind": "scene", "name": "营地",
+             "visibility": "keeper-only", "aliases": [], "summary": "",
+             "evidence_span_ids": [span], "properties": {}},
+        ],
+        "claims": [{
+            "claim_id": f"claim-{section}-whatever", "subject_id": "npc-kloppe",
+            "predicate": "present-in", "object": {"node_id": "scene-camp"},
+            "truth_status": status, "evidence_span_ids": [span],
+            "confidence": 1.0, "reason": "x",
+        }],
+    })
+
+
+def _two_page_catalog():
+    catalog = _span_catalog()
+    catalog["span-page-2-block-1"] = {
+        "span_id": "span-page-2-block-1", "text": "克洛普也在营地。",
+        "source_ref": {"source_id": "pdf:mod", "pdf_index": 2,
+                       "grep_anchor": "克洛普", "text_sha256": "0" * 64},
+    }
+    return catalog
+
+
+def test_a_reading_that_cites_the_page_outranks_one_that_infers():
+    """One reader found page 153 saying Sing Sing is in New York and wrote
+    `authored-fact`; another, on page 154, saw only a mention of a visit and
+    honestly wrote `inferred-candidate`. Neither is wrong, and refusing the
+    book over it would be."""
+    catalog = _two_page_catalog()
+    merged = graph.merge_shards(
+        [_claimed("a", "inferred-candidate", "span-page-1-block-1"),
+         _claimed("b", "authored-fact", "span-page-2-block-1")],
+        evidence_catalog=catalog,
+    )
+    claim = next(c for c in merged["claims"] if c["subject_id"] == "npc-kloppe")
+    assert claim["truth_status"] == "authored-fact"
+    # Both citations survive: the hedge yielded its status, not its evidence.
+    assert set(claim["evidence_span_ids"]) == {
+        "span-page-1-block-1", "span-page-2-block-1"}
+    notes = [n for n in merged["merge_notes"]
+             if n.get("kind") == "claim_truth_status_resolved"]
+    assert notes and notes[0]["kept"] == "authored-fact", (
+        "the resolution was applied without being recorded"
+    )
+
+
+def test_the_order_the_shards_arrive_in_does_not_decide_it():
+    catalog = _two_page_catalog()
+    for first, second in (("authored-fact", "inferred-candidate"),
+                          ("inferred-candidate", "authored-fact")):
+        merged = graph.merge_shards(
+            [_claimed("a", first, "span-page-1-block-1"),
+             _claimed("b", second, "span-page-2-block-1")],
+            evidence_catalog=catalog,
+        )
+        claim = next(c for c in merged["claims"] if c["subject_id"] == "npc-kloppe")
+        assert claim["truth_status"] == "authored-fact"
+
+
+def test_two_authored_statuses_are_two_claims_about_the_fiction():
+    """A fact, a belief, a rumour and a lie are not stronger and weaker
+    versions of each other; readers disagreeing there disagree about the book."""
+    try:
+        graph.merge_shards(
+            [_claimed("a", "authored-fact", "span-page-1-block-1"),
+             _claimed("b", "authored-rumor", "span-page-1-block-1")],
+            evidence_catalog=_span_catalog(),
+        )
+    except graph.ModuleGraphError as error:
+        assert "truth_status" in " ".join(f["message"] for f in error.findings)
+    else:
+        raise AssertionError("a fact and a rumour merged into one claim")
