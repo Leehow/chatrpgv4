@@ -327,18 +327,23 @@ def build_evidence_packet(
         raise ModuleGraphError(
             [_finding("page_keys_required", "/page_keys", "at least one page is required")]
         )
-    section_slug = section_id.removeprefix("section-")
     spans: list[dict[str, Any]] = []
-    block_index = 0
     for source_id, pdf_index in sorted(page_keys, key=lambda key: (key[0], key[1])):
         page = page_catalog.get((source_id, pdf_index))
         if page is None:
             raise ModuleGraphError(
                 [_finding("source_page_not_bound", "/page_keys", f"{source_id}:{pdf_index}")]
             )
+        # Span ids are page-scoped, never section-scoped: the plan guarantees
+        # every page belongs to exactly one section, so (page, block) is
+        # already module-unique, and a page re-packeted elsewhere (the
+        # skeleton pass reads section openers too) must yield the SAME ids --
+        # block ordinals reset per page. The model echoes these ids; the
+        # machine owns the namespace, per the model-facing identifier law.
+        block_index = 0
         for block in _split_evidence_blocks(page["text"]):
             block_index += 1
-            span_id = f"span-{section_slug}-page-{pdf_index}-block-{block_index}"
+            span_id = f"span-page-{pdf_index}-block-{block_index}"
             if not _valid_semantic_id(span_id):
                 raise ModuleGraphError(
                     [_finding("invalid_span_id", "/spans", span_id)]
@@ -1437,13 +1442,21 @@ def _merge_node(
                 [_finding("node_conflict", f"/nodes/{existing['node_id']}/{field}", "requires semantic reconciliation")]
             )
     merged = copy.deepcopy(preferred if preferred is not None else existing)
-    merged["aliases"] = sorted(
-        {
-            alias
-            for alias in [*(existing.get("aliases") or []), *(proposed.get("aliases") or [])]
-            if isinstance(alias, str) and alias.strip() and alias != merged["name"]
-        }
-    )
+    losing = proposed if prefer == "existing" else existing
+    aliases = {
+        alias
+        for alias in [*(existing.get("aliases") or []), *(proposed.get("aliases") or [])]
+        if isinstance(alias, str) and alias.strip() and alias != merged["name"]
+    }
+    losing_name = losing.get("name")
+    if (
+        preferred is not None
+        and isinstance(losing_name, str)
+        and losing_name.strip()
+        and losing_name != merged["name"]
+    ):
+        aliases.add(losing_name)
+    merged["aliases"] = sorted(aliases)
     merged["source_refs"] = _merge_source_refs(
         existing.get("source_refs") or [], proposed.get("source_refs") or []
     )
@@ -1573,6 +1586,11 @@ def merge_shards(
 
     nodes: dict[str, dict[str, Any]] = {}
     skeleton_node_ids: set[str] = set()
+    # Per-node winning shard and its evidence count on that node, so a field
+    # conflict between two deep reads is settled by evidence density rather
+    # than by arrival order.
+    node_field_origin: dict[str, tuple[str, int]] = {}
+    merge_notes: list[dict[str, Any]] = []
     claims: dict[str, dict[str, Any]] = {}
     relations: dict[str, dict[str, Any]] = {}
     source_refs: list[dict[str, Any]] = []
@@ -1581,8 +1599,10 @@ def merge_shards(
         shard_is_skeleton = shard["section_id"] == "skeleton"
         for node in shard["nodes"]:
             node_id = node["node_id"]
+            node_spans = len(node.get("evidence_span_ids") or [])
             if node_id not in nodes:
                 nodes[node_id] = copy.deepcopy(node)
+                node_field_origin[node_id] = (shard["section_id"], node_spans)
                 if shard_is_skeleton:
                     skeleton_node_ids.add(node_id)
                 continue
@@ -1592,12 +1612,51 @@ def merge_shards(
                 # structure pages, once fully in its section. The deep read
                 # wins field conflicts -- it carries the denser evidence --
                 # and the skeleton's spans stay on the merged node, so nothing
-                # is hidden and nothing is lost. Two deep reads still raise.
+                # is hidden and nothing is lost.
                 prefer = "proposed" if existing_is_skeleton else "existing"
                 nodes[node_id] = _merge_node(nodes[node_id], node, prefer=prefer)
                 skeleton_node_ids.discard(node_id)
-            else:
+                if prefer == "proposed":
+                    node_field_origin[node_id] = (shard["section_id"], node_spans)
+                continue
+            if existing_is_skeleton and shard_is_skeleton:
                 nodes[node_id] = _merge_node(nodes[node_id], node)
+                continue
+            # Two deep reads of one node (a narrowing split, or a recurring
+            # character). Descriptive fields are facets: the denser evidence
+            # wins them, a tie keeps the first by section order, and either
+            # way the decision lands in merge_notes with both sections named.
+            # Kind flips never reach here -- the shard validator enforces
+            # node_id-kind consistency before the merge.
+            origin_section, origin_spans = node_field_origin[node_id]
+            prefer = "proposed" if node_spans > origin_spans else "existing"
+            winner_section = (
+                shard["section_id"] if prefer == "proposed" else origin_section
+            )
+            loser_section = (
+                origin_section if prefer == "proposed" else shard["section_id"]
+            )
+            conflicting = [
+                field
+                for field in ("name", "summary", "properties")
+                if nodes[node_id].get(field) != node.get(field)
+            ]
+            if conflicting:
+                tied = node_spans == origin_spans
+                merge_notes.append({
+                    "node_id": node_id,
+                    "fields": conflicting,
+                    "kept": winner_section,
+                    "dropped": loser_section,
+                    "basis": (
+                        "section_order" if tied else "evidence_span_count"
+                    ),
+                    "kept_spans": max(node_spans, origin_spans),
+                    "dropped_spans": min(node_spans, origin_spans),
+                })
+            nodes[node_id] = _merge_node(nodes[node_id], node, prefer=prefer)
+            if prefer == "proposed":
+                node_field_origin[node_id] = (shard["section_id"], node_spans)
         for claim in shard["claims"]:
             claim_id = claim["claim_id"]
             claims[claim_id] = (
@@ -1636,6 +1695,10 @@ def merge_shards(
         "nodes": [nodes[key] for key in sorted(nodes)],
         "claims": [claims[key] for key in sorted(claims)],
         "relations": [relations[key] for key in sorted(relations)],
+        # Every evidence-density decision the merge made, so a field silently
+        # changing hands is impossible: who kept it, who lost it, on what
+        # basis. Empty when no conflicts occurred.
+        "merge_notes": merge_notes,
     }
 
 

@@ -414,24 +414,85 @@ def test_a_skeleton_shard_yields_to_the_deep_read_on_field_conflicts():
     assert set(skeleton_spans) <= set(clue["evidence_span_ids"])
 
 
-def test_two_deep_reads_still_raise_on_field_conflicts():
-    """The precedence rule is skeleton-only; two full reads disagreeing still
-    require semantic reconciliation."""
+def test_two_deep_reads_cannot_disagree_on_a_nodes_kind():
+    """Kind flips never reach the merge: the shard validator enforces
+    node_id-kind consistency, so a shard claiming clue-chapel-ledger is an
+    object fails before any reconciliation could be skipped."""
     import copy
 
     graph = _load()
     other = copy.deepcopy(_second_shard())
     for node in other["nodes"]:
         if node["node_id"] == "clue-chapel-ledger":
-            node["summary"] = "a different reading"
+            node["node_kind"] = "object"
     try:
         graph.merge_shards([_valid_shard(), other], evidence_catalog=_evidence_catalog())
     except graph.ModuleGraphError as error:
         assert any(
-            finding["code"] == "node_conflict" for finding in error.findings
+            finding["code"] == "node_id_kind_mismatch"
+            for finding in error.findings
         )
     else:
-        raise AssertionError("two conflicting deep reads must not merge silently")
+        raise AssertionError("a kind flip must not merge silently")
+
+
+def test_a_tied_summary_conflict_keeps_the_first_and_says_so():
+    """Narrowing siblings describe one entity from adjacent pages; equal
+    evidence keeps the first by section order, never silently, never a stall."""
+    import copy
+
+    graph = _load()
+    other = copy.deepcopy(_second_shard())
+    rival_summary = "an equally-grounded facet from the next pages"
+    for node in other["nodes"]:
+        if node["node_id"] == "clue-chapel-ledger":
+            node["summary"] = rival_summary
+    merged = graph.merge_shards(
+        [_valid_shard(), other], evidence_catalog=_evidence_catalog()
+    )
+    clue = next(
+        node for node in merged["nodes"] if node["node_id"] == "clue-chapel-ledger"
+    )
+    # Sorted by section_id, section-archive-ledger arrives first and, with
+    # evidence tied, keeps its facet.
+    assert clue["summary"] == rival_summary
+    note = next(
+        row for row in merged["merge_notes"] if row["node_id"] == "clue-chapel-ledger"
+    )
+    assert note["basis"] == "section_order"
+    assert note["kept"] == "section-archive-ledger"
+
+
+def test_deep_read_conflicts_follow_evidence_density_and_leave_notes():
+    """Jackson Elias across a narrowing boundary: both facets are
+    evidence-backed, so the shard citing more evidence on the node wins its
+    conflicting fields, and the merge notes keep the loser auditable."""
+    import copy
+
+    graph = _load()
+    denser = copy.deepcopy(_valid_shard())
+    denser["section_id"] = "section-archive-denser"
+    denser_summary = "the fuller reading, backed by two spans"
+    denser["evidence_span_ids"] = sorted(
+        set(denser.get("evidence_span_ids") or []) | {SPAN_LEDGER}
+    )
+    for node in denser["nodes"]:
+        if node["node_id"] == "clue-chapel-ledger":
+            node["summary"] = denser_summary
+            node["evidence_span_ids"] = [SPAN_ARCHIVE, SPAN_LEDGER]
+    merged = graph.merge_shards(
+        [_valid_shard(), denser], evidence_catalog=_evidence_catalog()
+    )
+    clue = next(
+        node for node in merged["nodes"] if node["node_id"] == "clue-chapel-ledger"
+    )
+    assert clue["summary"] == denser_summary
+    note = next(
+        row for row in merged["merge_notes"] if row["node_id"] == "clue-chapel-ledger"
+    )
+    assert note["kept"] == "section-archive-denser"
+    assert note["dropped"] == "section-archive-opening"
+    assert note["basis"] == "evidence_span_count"
 
 
 def test_merge_resolves_declared_cross_section_node_refs():
@@ -510,8 +571,8 @@ def test_source_bundle_builds_semantic_evidence_packet_without_model_hash_echo(t
     } == {
         "contract": "coc.module-graph-evidence.v1",
         "span_ids": [
-            "span-archive-opening-page-3-block-1",
-            "span-archive-opening-page-3-block-2",
+            "span-page-3-block-1",
+            "span-page-3-block-2",
         ],
         "attached_hash": digest,
         "model_view_keys": ["span_id", "text"],
