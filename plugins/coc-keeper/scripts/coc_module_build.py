@@ -1,0 +1,424 @@
+#!/usr/bin/env python3
+"""Drive one module from PDF pages to an accepted graph, unattended.
+
+Everything under this module already existed as pieces a person had to carry
+between by hand: plan the sections, prepare a packet, hand it to a model, run
+the gates, hand the findings back. Four books were extracted that way, and the
+gates caught the reader repeatedly -- twelve invented span ids, four
+miscitations, one reply that would have passed as an extraction while citing
+2.8% of its section. That is the loop working. What was missing is anything
+that runs it without a person in the chair.
+
+Host-agnostic on purpose
+------------------------
+The one thing this module does not do is call a model. It takes `ask`, a
+callable of (instruction, payload) -> str, and the host supplies it: in a
+packaged desktop build that is the app's own session, which is the same model
+already running the Keeper; in development it is whatever adapter the caller
+injects. Naming a binary here would work on the machine that wrote it and fail
+on the customer's, which is the trap this pipeline has already been walked back
+from once.
+
+Convergence is not assumed
+--------------------------
+A findings round is only worth taking if the reply改善. Each attempt records
+its gate and finding count, the loop stops at `max_rounds`, and the receipt
+carries every round so a caller can see whether the model was converging or
+circling. A section that never passes is reported as such, with its last
+findings, rather than being written out half-checked.
+
+A section can also be too big to say
+------------------------------------
+Measured on the first unattended runs: a reply dies mid-token at roughly
+64,000 characters, while one faithful whole-book shard is 77,000. Input that
+fits the packet budget can still exceed what one generation can carry, so
+`extract_section` reports `output_over_generation_budget` instead of retrying
+an identical failure, and the driver narrows the section -- split the page
+range in half and extract each half -- down to a single page, which either
+fits or is reported as unbuildable with its evidence intact.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Protocol
+
+_HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(_HERE))
+
+import coc_module_graph_extract as extract  # noqa: E402
+import coc_module_plan as planner  # noqa: E402
+
+
+class Ask(Protocol):
+    """How the host reaches its model. Instruction and payload in, text out."""
+
+    def __call__(self, instruction: str, payload: str) -> str: ...
+
+
+@dataclass
+class Round:
+    attempt: int
+    status: str
+    gate: str | None = None
+    finding_count: int = 0
+    findings: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _parse_reply(text: str) -> tuple[Any | None, str | None]:
+    """The model returns one JSON object; accept it, or say why not."""
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        # A fenced reply is the contract being ignored, not a parse problem,
+        # but recovering it costs nothing and the gates still judge the content.
+        stripped = stripped.split("```", 2)[1]
+        if stripped.lstrip().lower().startswith("json"):
+            stripped = stripped.lstrip()[4:]
+        stripped = stripped.rsplit("```", 1)[0]
+    start = stripped.find("{")
+    if start < 0:
+        return None, "reply carried no JSON object"
+    end = stripped.rfind("}")
+    error: json.JSONDecodeError | None = None
+    if end > start:
+        try:
+            return json.loads(stripped[start:end + 1]), None
+        except json.JSONDecodeError as decode_error:
+            error = decode_error
+    # Judge truncation against everything the model emitted. Trimming back to
+    # the last `}` is prose-stripping; on a cut-off reply it hides the cut.
+    if _completes_when_closed(stripped[start:]):
+        # The generation stopped mid-token. Everything it emitted was
+        # well-formed; it simply never reached the end. Calling that a JSON
+        # mistake sends the next round to fix punctuation that is not wrong,
+        # and the same reply comes back the same length.
+        return None, TRUNCATED
+    if error is None:
+        return None, "reply carried no JSON object"
+    return None, f"reply did not parse as JSON: {error}"
+
+
+TRUNCATED = "the reply ended mid-token; the generation stopped before finishing"
+
+
+def _completes_when_closed(body: str) -> bool:
+    """Whether the reply is a prefix of some valid JSON document.
+
+    This separates a cut-off generation from a mistyped one without guessing
+    at a ratio, in two exact steps.
+
+    First, a cut leaves containers open. If the reply's brackets balance, the
+    generation reached its end and any parse failure is a mistake it made, not
+    a cut -- that guard is what stops the repair below from also "repairing"
+    a stray comma by discarding the well-formed remainder after it.
+
+    Then the element the cut landed inside is dropped and the open containers
+    closed. A truncation parses once that is done; a mistake does not.
+    """
+    if not _open_containers(body):
+        return False
+    for prefix in _repair_candidates(body):
+        stack = _open_containers(prefix)
+        if not stack:
+            continue
+        try:
+            json.loads(prefix + "".join(reversed(stack)))
+            return True
+        except json.JSONDecodeError:
+            continue
+    return False
+
+
+def _open_containers(text: str) -> list[str] | None:
+    """Closers for the containers `text` leaves open; None if its brackets clash."""
+    stack: list[str] = []
+    in_string = escaped = False
+    for char in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char in "{[":
+            stack.append("}" if char == "{" else "]")
+        elif char in "}]":
+            if not stack or stack.pop() != char:
+                return None
+    return stack
+
+
+def _repair_candidates(body: str) -> list[str]:
+    """Prefixes to try, longest first: the tail back to each element boundary.
+
+    A cut lands inside one element, so the repair is always within a few
+    boundaries of the end. Searching the whole document instead would make a
+    long malformed reply cost O(n^2) to reject.
+    """
+    trimmed = body.rstrip().rstrip(",:")
+    candidates = [trimmed]
+    position = len(trimmed)
+    for _ in range(REPAIR_BOUNDARIES):
+        position = max(trimmed.rfind(",", 0, position),
+                       trimmed.rfind("[", 0, position),
+                       trimmed.rfind("{", 0, position))
+        if position < 0:
+            break
+        head = trimmed[:position] if trimmed[position] == "," else trimmed[:position + 1]
+        candidates.append(head.rstrip().rstrip(",:"))
+    return candidates
+
+
+REPAIR_BOUNDARIES = 8
+
+
+def extract_section(
+    work_dir: Path,
+    ask: Ask,
+    *,
+    max_rounds: int = 3,
+) -> dict[str, Any]:
+    """Read one prepared section until both gates are silent, or give up."""
+    instruction = extract.INSTRUCTION_PATH.read_text(encoding="utf-8")
+    packet = (work_dir / "extraction-packet.json").read_text(encoding="utf-8")
+    rounds: list[Round] = []
+    payload = packet
+    for attempt in range(1, max_rounds + 1):
+        reply = ask(instruction, payload)
+        parsed, problem = _parse_reply(reply)
+        if parsed is None:
+            truncated = problem == TRUNCATED
+            code = "model_output_truncated" if truncated else "model_output_not_json"
+            finding = {"code": code, "path": "/", "message": problem,
+                       "reply_chars": len(reply)}
+            rounds.append(Round(attempt, "findings", "shape", 1, [finding]))
+            if truncated:
+                # Retrying is not a fix: the ask is larger than one generation
+                # can carry, so every round dies at the same place. Report it
+                # as its own outcome so the caller narrows the section instead
+                # of spending the remaining rounds on an identical failure.
+                return {
+                    "section_id": work_dir.name,
+                    "status": "output_over_generation_budget",
+                    "attempts": attempt,
+                    "rounds": [r.__dict__ for r in rounds],
+                    "findings": [finding],
+                }
+        else:
+            result = extract.review(work_dir, parsed)
+            rounds.append(Round(
+                attempt, result["status"], result.get("gate"),
+                result.get("finding_count", 0), result.get("findings", []),
+            ))
+            if result["status"] == "accepted":
+                return {
+                    "status": "accepted",
+                    "attempts": attempt,
+                    "rounds": [r.__dict__ for r in rounds],
+                    "shard_path": result["shard_path"],
+                    "nodes": result["nodes"],
+                    "claims": result["claims"],
+                    "relations": result["relations"],
+                }
+        # Findings go back verbatim: the model is told what failed, not a
+        # paraphrase of it, because a paraphrase is where a loop starts to
+        # optimise for the paraphrase.
+        payload = json.dumps({
+            "extraction_packet": json.loads(packet),
+            "previous_attempt_findings": rounds[-1].findings,
+        }, ensure_ascii=False)
+    return {
+        "status": "not_accepted",
+        "attempts": len(rounds),
+        "rounds": [r.__dict__ for r in rounds],
+        "reason": (
+            f"{max_rounds} rounds did not clear the gates; the last attempt "
+            f"failed the {rounds[-1].gate} gate with "
+            f"{rounds[-1].finding_count} findings"
+        ),
+    }
+
+
+def plan_module(
+    bundle: Path,
+    ask: Ask,
+    *,
+    budget: int = planner.DEFAULT_SECTION_BUDGET,
+    max_rounds: int = 3,
+) -> dict[str, Any]:
+    """Decide the sections, checking every proposal before accepting it."""
+    dispatched = planner.dispatch(bundle, budget=budget)
+    if dispatched["status"] != "dispatch":
+        return dispatched
+    measured = dispatched["measured"]
+    if measured["fits_whole_book"]:
+        return {
+            "status": "accepted",
+            "attempts": 0,
+            "sections": [{
+                "section_id": "whole-book",
+                "pdf_index_start": measured["pdf_index_first"],
+                "pdf_index_end": measured["pdf_index_last"],
+                "reason": "the module fits one section under the budget",
+            }],
+        }
+    instruction = planner.INSTRUCTION_PATH.read_text(encoding="utf-8")
+    base = {
+        "measured": {k: v for k, v in measured.items() if k != "page_chars"},
+        "structure_page_text": dispatched["structure_page_text"],
+    }
+    rounds: list[Round] = []
+    payload = json.dumps(base, ensure_ascii=False)
+    for attempt in range(1, max_rounds + 1):
+        parsed, problem = _parse_reply(ask(instruction, payload))
+        if parsed is None:
+            findings = [{"code": "model_output_not_json", "message": problem}]
+        else:
+            findings = planner.check(measured, parsed)
+            if not findings:
+                return {
+                    "status": "accepted",
+                    "attempts": attempt,
+                    "rounds": [r.__dict__ for r in rounds],
+                    "sections": parsed["sections"],
+                }
+        rounds.append(Round(attempt, "findings", "plan", len(findings), findings))
+        payload = json.dumps(
+            {**base, "previous_attempt_findings": findings}, ensure_ascii=False,
+        )
+    return {
+        "status": "not_accepted",
+        "attempts": len(rounds),
+        "rounds": [r.__dict__ for r in rounds],
+        "reason": f"{max_rounds} rounds produced no plan the checker accepted",
+    }
+
+
+def _extract_ranged(
+    bundle: Path,
+    work: Path,
+    module_id: str,
+    section_id: str,
+    pdf_index_start: int,
+    pdf_index_end: int,
+    ask: Ask,
+    max_rounds: int,
+    results: list[dict[str, Any]],
+    _base_id: str | None = None,
+) -> None:
+    """Extract one page range, narrowing by bisection when one reply cannot
+    carry the shard. A single page is the floor: past it there is nothing
+    smaller to ask for, so the page is reported with its evidence.
+
+    Children are named from the section they descend from plus their own page
+    range (`whole-book-p9-13`), never by compounding the parent's id.
+    """
+    base_id = _base_id or section_id
+    prepared = extract.prepare(
+        bundle,
+        work / section_id,
+        module_id=module_id,
+        section_id=section_id,
+        pdf_index_start=pdf_index_start,
+        pdf_index_end=pdf_index_end,
+    )
+    outcome = extract_section(work / section_id, ask, max_rounds=max_rounds)
+    if (
+        outcome["status"] == "output_over_generation_budget"
+        and pdf_index_end > pdf_index_start
+    ):
+        mid = (pdf_index_start + pdf_index_end) // 2
+        _extract_ranged(
+            bundle, work, module_id, f"{base_id}-p{pdf_index_start}-{mid}",
+            pdf_index_start, mid, ask, max_rounds, results, base_id,
+        )
+        _extract_ranged(
+            bundle, work, module_id, f"{base_id}-p{mid + 1}-{pdf_index_end}",
+            mid + 1, pdf_index_end, ask, max_rounds, results, base_id,
+        )
+        return
+    results.append({"section_id": section_id, "spans": prepared["span_count"], **{
+        k: v for k, v in outcome.items() if k != "rounds"
+    }, "rounds": outcome["rounds"]})
+    print(json.dumps({
+        "section_id": section_id,
+        "status": outcome["status"],
+        "attempts": outcome.get("attempts"),
+        "nodes": outcome.get("nodes"),
+    }, ensure_ascii=False), flush=True)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--adapter", required=True,
+        help=(
+            "import path of a module exposing `ask(instruction, payload)`. "
+            "The product supplies the app's own session; this flag exists so "
+            "development can inject a scaffold without the pipeline naming one."
+        ),
+    )
+    parser.add_argument("--source-bundle", required=True)
+    parser.add_argument("--work-dir", required=True)
+    parser.add_argument("--module-id", required=True)
+    parser.add_argument("--budget", type=int, default=planner.DEFAULT_SECTION_BUDGET)
+    parser.add_argument("--max-rounds", type=int, default=3)
+    parser.add_argument("--only-section")
+    args = parser.parse_args(argv)
+
+    import importlib
+    adapter = importlib.import_module(args.adapter)
+    ask: Ask = adapter.ask
+
+    bundle = Path(args.source_bundle)
+    work = Path(args.work_dir)
+    work.mkdir(parents=True, exist_ok=True)
+
+    planned = plan_module(bundle, ask, budget=args.budget, max_rounds=args.max_rounds)
+    (work / "plan.json").write_text(
+        json.dumps(planned, ensure_ascii=False, indent=2), encoding="utf-8",
+    )
+    if planned["status"] != "accepted":
+        print(json.dumps(planned, ensure_ascii=False, indent=2))
+        return 1
+
+    results: list[dict[str, Any]] = []
+    for section in planned["sections"]:
+        sid = section["section_id"]
+        if args.only_section and sid != args.only_section:
+            continue
+        _extract_ranged(
+            bundle,
+            work,
+            args.module_id,
+            sid,
+            int(section["pdf_index_start"]),
+            int(section["pdf_index_end"]),
+            ask,
+            args.max_rounds,
+            results,
+        )
+
+    (work / "build.json").write_text(
+        json.dumps({"plan": planned, "sections": results}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    accepted = sum(1 for r in results if r["status"] == "accepted")
+    print(json.dumps({
+        "status": "built" if accepted == len(results) else "partial",
+        "sections_accepted": accepted,
+        "sections_total": len(results),
+        "receipt": str(work / "build.json"),
+    }, ensure_ascii=False, indent=2))
+    return 0 if accepted == len(results) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
