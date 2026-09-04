@@ -547,7 +547,13 @@ def _assemble(work: Path, results: list[dict[str, Any]]) -> dict[str, Any]:
     one entity different meanings under one id -- which belongs in the receipt
     next to the sections that produced it, not in a traceback.
     """
-    shard_paths = [
+    # The skeleton is a shard like any other and it is where the book's roster
+    # lives: the module node, the spine, the named people and places sections
+    # reference rather than redefine. Leaving it out orphans every one of those
+    # references -- one `unresolved_node_ref` refused a whole build that had
+    # otherwise passed every gate.
+    shard_paths = [work / "skeleton" / "accepted.shard.json"]
+    shard_paths += [
         work / result["section_id"] / "accepted.shard.json"
         for result in results
         if result.get("status") == "accepted"

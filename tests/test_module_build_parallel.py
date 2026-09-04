@@ -211,3 +211,69 @@ def test_the_skeletons_roster_reaches_every_section(monkeypatch, tmp_path):
         assert "scene-opening" not in ids
         for node in roster:
             assert set(node) == {"node_id", "node_kind", "name", "visibility"}
+
+
+def test_the_skeleton_shard_is_part_of_the_graph_it_seeded(monkeypatch, tmp_path):
+    """The roster lives in the skeleton. Sections reference those nodes rather
+    than redefining them, so leaving the skeleton out of the merge orphans
+    every reference -- one unresolved_node_ref refused a whole build that had
+    passed every gate."""
+    work = tmp_path / "w"
+    (work / "skeleton").mkdir(parents=True)
+    span = "span-page-0-block-1"
+    (work / "skeleton" / "evidence-packet.json").write_text(json.dumps({"spans": [{
+        "span_id": span, "text": "作者 Davide Mana",
+        "source_ref": {"source_id": "pdf:mod", "pdf_index": 0,
+                       "grep_anchor": "Davide", "text_sha256": "0" * 64},
+    }]}), encoding="utf-8")
+    (work / "skeleton" / "accepted.shard.json").write_text(json.dumps(
+        _shard("skeleton", span, nodes=[{
+            "node_id": "npc-davide-mana", "node_kind": "npc", "name": "Davide Mana",
+            "visibility": "keeper-only", "aliases": [], "summary": "",
+            "evidence_span_ids": [span], "properties": {}}]),
+        ensure_ascii=False), encoding="utf-8")
+
+    def referencing(section, span_id):
+        return [{"node_id": f"scene-{section}", "node_kind": "scene",
+                 "name": section, "visibility": "keeper-only", "aliases": [],
+                 "summary": "", "evidence_span_ids": [span_id], "properties": {}}]
+
+    def stub(work_dir, ask, **kwargs):
+        outcome = _writing_stub(nodes_for=referencing)(work_dir, ask, **kwargs)
+        target = Path(work_dir)
+        shard = json.loads((target / "accepted.shard.json").read_text())
+        shard["node_refs"] = ["npc-davide-mana"]
+        # An external ref must take part in a claim, or the contract refuses it
+        # as decoration; this is the shape a real section produces.
+        span_id = f"span-{target.name}-1"
+        shard["claims"] = [{
+            "claim_id": f"claim-{target.name}-author-present", "predicate": "present-in",
+            "subject_id": "npc-davide-mana",
+            "object": {"node_id": f"scene-{target.name}"},
+            "truth_status": "authored-fact", "evidence_span_ids": [span_id],
+            "confidence": 1.0, "reason": "扉页署名", "visibility": "keeper-only",
+            "asserted_by_ids": [], "known_by_ids": [], "validity": None,
+        }]
+        shard["relations"] = build.graph.assemble_model_shard(
+            {"claims": shard["claims"]})["relations"]
+        (target / "accepted.shard.json").write_text(
+            json.dumps(shard, ensure_ascii=False), encoding="utf-8")
+        return outcome
+
+    _adapter(monkeypatch, tmp_path)
+    monkeypatch.setattr(build.extract, "prepare", lambda *a, **k: {"span_count": 1})
+    monkeypatch.setattr(build, "extract_section", stub)
+    monkeypatch.setattr(build, "skeleton_module", lambda *a, **k: {
+        "status": "accepted", "attempts": 1, "opening": {"sections": [], "entry_pages": []}})
+    rc = build.main([
+        "--adapter", "fake_adapter", "--source-bundle", str(tmp_path),
+        "--work-dir", str(work), "--module-id", "mod",
+        "--plan", str(_plan(tmp_path, [("s1", 0, 0)])),
+    ])
+    receipt = json.loads((work / "build.json").read_text())
+    assert receipt["assembly"]["status"] == "assembled", (
+        f"assembly refused: {receipt['assembly'].get('findings')}"
+    )
+    assert rc == 0
+    merged = json.loads((work / "module-graph.json").read_text())
+    assert "npc-davide-mana" in {n["node_id"] for n in merged["nodes"]}
