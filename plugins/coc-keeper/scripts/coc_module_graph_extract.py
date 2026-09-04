@@ -65,14 +65,37 @@ class ExtractError(RuntimeError):
         self.findings = findings
 
 
+def _manifest(source_bundle: Path) -> dict[str, Any]:
+    return json.loads((source_bundle / "manifest.json").read_text("utf-8"))
+
+
 def _page_count(source_bundle: Path) -> int:
-    manifest = json.loads((source_bundle / "manifest.json").read_text("utf-8"))
-    return len(manifest.get("pages") or [])
+    """The source's own page count, which is what page indexes count against.
+
+    Manifest rows are not the bound: the producer may omit blank or failed
+    pages, so len(pages) would silently truncate every trailing section.
+    """
+    return int(_manifest(source_bundle)["source"]["page_count"])
 
 
 def _source_id(source_bundle: Path) -> str:
-    manifest = json.loads((source_bundle / "manifest.json").read_text("utf-8"))
-    return str((manifest.get("source") or {}).get("source_id") or "")
+    return str((_manifest(source_bundle).get("source") or {}).get("source_id") or "")
+
+
+def _bound_page_indices(source_bundle: Path) -> list[int]:
+    """pdf_index values the bundle actually carries, sorted.
+
+    The bundle contract requires in-bounds, duplicate-free rows but not
+    contiguous ones; page_refs must name only pages the catalog can bind.
+    """
+    pages = _manifest(source_bundle).get("pages") or []
+    return sorted(
+        page["pdf_index"]
+        for page in pages
+        if isinstance(page, dict)
+        and isinstance(page.get("pdf_index"), int)
+        and not isinstance(page.get("pdf_index"), bool)
+    )
 
 
 def build_request(
@@ -85,12 +108,27 @@ def build_request(
     max_relations: int,
     pdf_index_start: int | None = None,
     pdf_index_end: int | None = None,
+    pdf_indices: list[int] | None = None,
+    aspects: tuple[str, ...] = DEFAULT_ASPECTS,
 ) -> dict[str, Any]:
-    """One prepare request covering the bundle, or one page range of it."""
+    """One prepare request covering the bundle, a page range, or a page set.
+
+    The page set form exists for the skeleton pass: its pages are structure
+    pages and section openers, which are nowhere near contiguous.
+    """
     source_id = _source_id(source_bundle)
-    page_count = _page_count(source_bundle)
-    first = 0 if pdf_index_start is None else pdf_index_start
-    last = page_count - 1 if pdf_index_end is None else min(pdf_index_end, page_count - 1)
+    bound_all = _bound_page_indices(source_bundle)
+    if pdf_indices is not None:
+        wanted = set(pdf_indices)
+        bound = [index for index in bound_all if index in wanted]
+    else:
+        page_count = _page_count(source_bundle)
+        first = 0 if pdf_index_start is None else pdf_index_start
+        last = (
+            page_count - 1 if pdf_index_end is None
+            else min(pdf_index_end, page_count - 1)
+        )
+        bound = [index for index in bound_all if first <= index <= last]
     return {
         "contract_id": PREPARE_CONTRACT_ID,
         "schema_version": 1,
@@ -98,14 +136,14 @@ def build_request(
         "section_id": section_id,
         "section_role": section_id,
         "source_language": source_language,
-        "aspects": list(DEFAULT_ASPECTS),
+        "aspects": list(aspects),
         "default_visibility": "keeper-only",
         "approved_player_safe_span_ids": [],
         "known_nodes": [],
         "output_budget": {"max_nodes": max_nodes, "max_relations": max_relations},
         "page_refs": [
             {"source_id": source_id, "pdf_index": index}
-            for index in range(first, last + 1)
+            for index in bound
         ],
         "selected_evidence_span_ids": None,
     }
@@ -122,6 +160,8 @@ def prepare(
     max_relations: int = 200,
     pdf_index_start: int | None = None,
     pdf_index_end: int | None = None,
+    pdf_indices: list[int] | None = None,
+    aspects: tuple[str, ...] = DEFAULT_ASPECTS,
 ) -> dict[str, Any]:
     """Write the packet pair and return the dispatch the host should run."""
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -134,10 +174,23 @@ def prepare(
         max_relations=max_relations,
         pdf_index_start=pdf_index_start,
         pdf_index_end=pdf_index_end,
+        pdf_indices=pdf_indices,
+        aspects=aspects,
     )
     (work_dir / "request.json").write_text(
         json.dumps(request, ensure_ascii=False), encoding="utf-8"
     )
+    if not request["page_refs"]:
+        # A range that spans only declared holes has nothing to read. This is
+        # neither acceptance nor failure; the driver records it and moves on.
+        return {
+            "status": "empty",
+            "module_id": module_id,
+            "section_id": section_id,
+            "span_count": 0,
+            "work_dir": str(work_dir),
+            "reason": "this page range carries only declared bundle holes",
+        }
     catalog = graph.load_page_catalog([str(source_bundle)])
     prepared = graph.prepare_from_request(catalog, request)
     extraction = prepared["extraction_packet"]

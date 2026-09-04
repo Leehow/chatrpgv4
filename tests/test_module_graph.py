@@ -384,6 +384,56 @@ def test_search_and_context_enforce_visibility():
     assert [row["node_id"] for row in player["nodes"]] == ["scene-archive-opening"]
 
 
+def test_a_skeleton_shard_yields_to_the_deep_read_on_field_conflicts():
+    """Skeleton-first builds read a node twice: coarsely from structure pages,
+    then fully in its section. The deep read wins field conflicts; the
+    skeleton's spans stay on the merged node, so provenance survives."""
+    import copy
+
+    graph = _load()
+    deep = _valid_shard()
+    skeleton = copy.deepcopy(deep)
+    skeleton["section_id"] = "skeleton"
+    coarse_summary = "a coarse read from the contents page"
+    for node in skeleton["nodes"]:
+        if node["node_id"] == "clue-chapel-ledger":
+            node["summary"] = coarse_summary
+    deep_summary = next(
+        node["summary"] for node in deep["nodes"]
+        if node["node_id"] == "clue-chapel-ledger"
+    )
+    skeleton_spans = next(
+        node["evidence_span_ids"] for node in skeleton["nodes"]
+        if node["node_id"] == "clue-chapel-ledger"
+    )
+    merged = graph.merge_shards([deep, skeleton], evidence_catalog=_evidence_catalog())
+    clue = next(
+        node for node in merged["nodes"] if node["node_id"] == "clue-chapel-ledger"
+    )
+    assert clue["summary"] == deep_summary
+    assert set(skeleton_spans) <= set(clue["evidence_span_ids"])
+
+
+def test_two_deep_reads_still_raise_on_field_conflicts():
+    """The precedence rule is skeleton-only; two full reads disagreeing still
+    require semantic reconciliation."""
+    import copy
+
+    graph = _load()
+    other = copy.deepcopy(_second_shard())
+    for node in other["nodes"]:
+        if node["node_id"] == "clue-chapel-ledger":
+            node["summary"] = "a different reading"
+    try:
+        graph.merge_shards([_valid_shard(), other], evidence_catalog=_evidence_catalog())
+    except graph.ModuleGraphError as error:
+        assert any(
+            finding["code"] == "node_conflict" for finding in error.findings
+        )
+    else:
+        raise AssertionError("two conflicting deep reads must not merge silently")
+
+
 def test_merge_resolves_declared_cross_section_node_refs():
     graph = _load()
     second = _second_shard()

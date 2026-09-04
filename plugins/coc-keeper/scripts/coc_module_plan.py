@@ -229,6 +229,8 @@ def measure(bundle: Path, *, budget: int = DEFAULT_SECTION_BUDGET) -> dict[str, 
             ),
         })
 
+    indices = [int(page["pdf_index"]) for page in pages]
+    known = set(indices)
     return {
         "status": "measured",
         "module_pages": len(pages),
@@ -237,12 +239,80 @@ def measure(bundle: Path, *, budget: int = DEFAULT_SECTION_BUDGET) -> dict[str, 
         "fits_whole_book": total_chars <= budget,
         "pdf_index_first": pages[0]["pdf_index"],
         "pdf_index_last": pages[-1]["pdf_index"],
+        # Declared absences: the producer never emitted these pdf_index values,
+        # so nothing exists to read there. A plan's contiguous ranges will
+        # span them; the receipt must say they are holes, not lost content.
+        "page_gaps": [i for i in range(indices[0], indices[-1] + 1)
+                      if i not in known],
         "heading_depth_cuts": attempts,
         "structure_page_candidates": candidates,
         "page_chars": {
             str(page["pdf_index"]): page["chars"] for page in pages
         },
     }
+
+
+def split_over_budget(
+    measured: dict[str, Any], sections: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split over-budget sections at page boundaries, greedily.
+
+    The model chooses boundaries semantically; character arithmetic is not
+    something it can do over excerpts it has never seen in full. A proposal
+    that is right except for measurable overflow gets repaired by the machine
+    instead of sending the model back to guess at character counts -- the
+    first unattended Masks plan oscillated 13 -> 1 -> 4 findings doing
+    exactly that, every miss within 3% of the budget.
+
+    Returns the repaired section list and one record per split. A section
+    that is a single page cannot be split; it stays and the checker reports
+    it, as before.
+    """
+    budget = int(measured.get("section_budget_chars") or DEFAULT_SECTION_BUDGET)
+    page_chars = {int(k): int(v) for k, v in (measured.get("page_chars") or {}).items()}
+    repaired: list[dict[str, Any]] = []
+    repairs: list[dict[str, Any]] = []
+    for section in sections:
+        try:
+            lo = int(section["pdf_index_start"])
+            hi = int(section["pdf_index_end"])
+        except (KeyError, TypeError, ValueError):
+            repaired.append(section)
+            continue
+        chars = sum(page_chars.get(i, 0) for i in range(lo, hi + 1))
+        if chars <= budget:
+            repaired.append(section)
+            continue
+        parts: list[tuple[int, int]] = []
+        run_start, run_chars = lo, 0
+        for index in range(lo, hi + 1):
+            page = page_chars.get(index, 0)
+            if run_chars and run_chars + page > budget:
+                parts.append((run_start, index - 1))
+                run_start, run_chars = index, 0
+            run_chars += page
+        parts.append((run_start, hi))
+        if len(parts) < 2:
+            repaired.append(section)
+            continue
+        base_id = str(section.get("section_id") or "section")
+        suffixes = "abcdefghijklmnopqrstuvwxyz"
+        for part_index, (part_lo, part_hi) in enumerate(parts):
+            child = dict(section)
+            child["section_id"] = f"{base_id}-{suffixes[part_index]}"
+            child["pdf_index_start"] = part_lo
+            child["pdf_index_end"] = part_hi
+            child["reason"] = (
+                f"{section.get('reason') or ''} "
+                f"(split at a page boundary: {chars} chars over the "
+                f"{budget} budget)"
+            ).strip()
+            repaired.append(child)
+        repairs.append({
+            "section_id": base_id, "chars": chars, "into": len(parts),
+            "reason": "the machine owns arithmetic the model cannot measure",
+        })
+    return repaired, repairs
 
 
 def check(measured: dict[str, Any], proposed: Any) -> list[dict[str, Any]]:
@@ -288,14 +358,23 @@ def check(measured: dict[str, Any], proposed: Any) -> list[dict[str, Any]]:
         if lo > hi:
             finding("inverted_page_range", f"{lo} > {hi}", path=path)
             continue
+        # Every claimed page must stay inside the measured book. Pages beyond
+        # it do not exist; claiming them is how a book gains fifteen phantom
+        # pages of scenes nobody will ever read. Holes INSIDE the bounds are
+        # different: the bundle declares them absent (measured.page_gaps), a
+        # contiguous range spans them legitimately, and prepare skips them.
+        unknown = [i for i in range(lo, hi + 1) if i < first or i > last]
+        if unknown:
+            finding("unknown_pages",
+                    f"{len(unknown)} pages outside the measured book "
+                    f"({first}-{last})",
+                    path=path, section_id=sid, pdf_indices=unknown[:20])
         chars = sum(page_chars.get(i, 0) for i in range(lo, hi + 1))
         if chars > budget:
             finding("section_over_budget",
                     f"section carries {chars} characters against a {budget} budget",
                     path=path, section_id=sid, chars=chars)
         for i in range(lo, hi + 1):
-            if i not in page_chars:
-                continue
             if i in seen:
                 finding("page_claimed_twice",
                         f"page {i} is in both {seen[i]!r} and {sid!r}",

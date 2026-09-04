@@ -9,6 +9,7 @@ pin that recursion with a scripted `ask`, so no model is involved.
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -104,3 +105,270 @@ def test_a_range_that_fits_is_extracted_once(script, tmp_path):
     assert [r["section_id"] for r in results] == ["whole-book"]
     assert [r["status"] for r in results] == ["accepted"]
     assert len(script.calls) == 1
+
+
+def test_an_empty_range_is_recorded_but_never_counted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+):
+    """A bisection that lands on declared bundle holes must not crash the
+    run, and must not inflate either side of the accepted/failed tally."""
+    monkeypatch.setattr(build.extract, "prepare", lambda *a, **k: {
+        "status": "empty", "span_count": 0, "reason": "holes",
+    })
+    results: list[dict] = []
+    build._extract_ranged(
+        tmp_path, tmp_path, "mod", "whole-book", 4, 7,
+        ask=lambda i, p: "{}", max_rounds=3, results=results,
+    )
+    assert [r["status"] for r in results] == ["empty"]
+
+
+def _plan_of(*ranges: tuple[str, int, int]) -> dict:
+    return {"status": "accepted", "sections": [
+        {"section_id": sid, "pdf_index_start": lo, "pdf_index_end": hi}
+        for sid, lo, hi in ranges
+    ]}
+
+
+def _shard_with_scene_pages(*pages: int) -> dict:
+    return {"nodes": [{
+        "node_kind": "scene",
+        "evidence_span_ids": [
+            f"span-skeleton-page-{page}-block-1" for page in pages
+        ],
+    }]}
+
+
+def test_opening_sections_follow_the_evidence_pages_not_the_proposal():
+    plan = _plan_of(("alpha", 0, 10), ("beta", 11, 20), ("gamma", 21, 30))
+    opening = build.opening_sections(plan, _shard_with_scene_pages(13, 14))
+    assert opening["sections"] == ["beta"]
+    assert opening["entry_pages"] == [13, 14]
+
+
+def test_opening_sections_without_evidence_decides_nothing():
+    plan = _plan_of(("alpha", 0, 10))
+    opening = build.opening_sections(plan, {"nodes": []})
+    assert opening["sections"] == []
+    assert "no entry scene" in opening["basis"]
+
+
+def _fake_adapter(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    (tmp_path / "fake_adapter.py").write_text(
+        "def ask(instruction, payload):\n    return '{}'\n", encoding="utf-8",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+
+def _accepted_plan(tmp_path: Path, sections: list[dict]) -> Path:
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps(
+        {"status": "accepted", "attempts": 1, "sections": sections},
+        ensure_ascii=False,
+    ), encoding="utf-8")
+    return plan_path
+
+
+def test_an_accepted_plan_file_skips_replanning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+):
+    """Forty-two section workers must not pay forty-two planning calls."""
+    _fake_adapter(monkeypatch, tmp_path)
+
+    def plan_module_boom(*args, **kwargs):
+        raise AssertionError("plan_module ran despite --plan")
+
+    monkeypatch.setattr(build, "plan_module", plan_module_boom)
+    prepared: list[str] = []
+    monkeypatch.setattr(
+        build.extract, "prepare",
+        lambda bundle, work_dir, **kwargs: (
+            prepared.append(kwargs["section_id"]) or {"span_count": 1}),
+    )
+    monkeypatch.setattr(
+        build, "extract_section",
+        lambda work_dir, ask, *, max_rounds: {
+            "status": "accepted", "attempts": 1, "rounds": [], "nodes": 1},
+    )
+    plan = _accepted_plan(tmp_path, [
+        {"section_id": "s1", "pdf_index_start": 0, "pdf_index_end": 1},
+        {"section_id": "s2", "pdf_index_start": 2, "pdf_index_end": 3},
+    ])
+    rc = build.main([
+        "--adapter", "fake_adapter",
+        "--source-bundle", str(tmp_path),
+        "--work-dir", str(tmp_path / "w"),
+        "--module-id", "mod",
+        "--plan", str(plan),
+        "--only-section", "s2",
+    ])
+    assert rc == 0
+    assert prepared == ["s2"]
+
+
+def test_opening_only_deep_reads_only_the_skeletons_choice(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+):
+    _fake_adapter(monkeypatch, tmp_path)
+    monkeypatch.setattr(build, "skeleton_module", lambda *a, **k: {
+        "status": "accepted", "attempts": 1,
+        "opening": {"sections": ["s2"], "entry_pages": [5],
+                    "basis": "evidence"},
+    })
+    prepared: list[str] = []
+    monkeypatch.setattr(
+        build.extract, "prepare",
+        lambda bundle, work_dir, **kwargs: (
+            prepared.append(kwargs["section_id"]) or {"span_count": 1}),
+    )
+    monkeypatch.setattr(
+        build, "extract_section", lambda work_dir, ask, **kwargs: {
+            "status": "accepted", "attempts": 1, "rounds": [], "nodes": 1},
+    )
+    plan = _accepted_plan(tmp_path, [
+        {"section_id": "s1", "pdf_index_start": 0, "pdf_index_end": 3},
+        {"section_id": "s2", "pdf_index_start": 4, "pdf_index_end": 7},
+        {"section_id": "s3", "pdf_index_start": 8, "pdf_index_end": 11},
+    ])
+    work = tmp_path / "w"
+    rc = build.main([
+        "--adapter", "fake_adapter",
+        "--source-bundle", str(tmp_path),
+        "--work-dir", str(work),
+        "--module-id", "mod",
+        "--plan", str(plan),
+        "--opening-only",
+    ])
+    assert rc == 0
+    assert prepared == ["s2"]
+    receipt = json.loads((work / "build.json").read_text())
+    assert receipt["skeleton"]["opening"]["sections"] == ["s2"]
+
+
+def test_opening_only_without_evidence_refuses_to_guess(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+):
+    _fake_adapter(monkeypatch, tmp_path)
+    monkeypatch.setattr(build, "skeleton_module", lambda *a, **k: {
+        "status": "accepted", "attempts": 1,
+        "opening": {"sections": [], "entry_pages": [],
+                    "basis": "the skeleton named no entry scene with evidence"},
+    })
+    plan = _accepted_plan(tmp_path, [
+        {"section_id": "s1", "pdf_index_start": 0, "pdf_index_end": 3},
+    ])
+    rc = build.main([
+        "--adapter", "fake_adapter",
+        "--source-bundle", str(tmp_path),
+        "--work-dir", str(tmp_path / "w"),
+        "--module-id", "mod",
+        "--plan", str(plan),
+        "--opening-only",
+    ])
+    assert rc == 1
+
+
+def test_plan_module_repairs_overflow_instead_of_retrying(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+):
+    """The Masks proof oscillated 13 -> 1 -> 4 over-budget findings because
+    the model cannot count characters. A proposal wrong only in arithmetic is
+    repaired by the machine in the same round, and the receipt says so."""
+    measured = {
+        "status": "measured",
+        "fits_whole_book": False,
+        "section_budget_chars": 100,
+        "page_chars": {"0": 90, "1": 90, "2": 90, "3": 90},
+        "pdf_index_first": 0,
+        "pdf_index_last": 3,
+    }
+    monkeypatch.setattr(build.planner, "dispatch", lambda *a, **k: {
+        "status": "dispatch", "measured": measured,
+        "structure_page_text": {},
+    })
+    instruction = tmp_path / "instruction.md"
+    instruction.write_text("plan", encoding="utf-8")
+    monkeypatch.setattr(build.planner, "INSTRUCTION_PATH", instruction)
+    asks: list[str] = []
+
+    def ask(instruction_text: str, payload: str) -> str:
+        asks.append(payload)
+        return json.dumps({"sections": [{
+            "section_id": "whole", "title": "t",
+            "pdf_index_start": 0, "pdf_index_end": 3, "reason": "r",
+        }]})
+
+    result = build.plan_module(tmp_path, ask)
+    assert result["status"] == "accepted"
+    assert [s["section_id"] for s in result["sections"]] == [
+        "whole-a", "whole-b", "whole-c", "whole-d",
+    ]
+    assert result["repairs"][0]["into"] == 4
+    assert result["rounds"][0]["status"] == "repaired"
+    assert len(asks) == 1, "no second model round was spent on arithmetic"
+
+
+def test_a_plan_file_that_never_passed_cannot_drive(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+):
+    _fake_adapter(monkeypatch, tmp_path)
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps({"status": "not_accepted", "sections": []}))
+    rc = build.main([
+        "--adapter", "fake_adapter",
+        "--source-bundle", str(tmp_path),
+        "--work-dir", str(tmp_path / "w"),
+        "--module-id", "mod",
+        "--plan", str(plan_path),
+    ])
+    assert rc == 1
+
+
+def test_plan_only_stops_before_any_section_work(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+):
+    _fake_adapter(monkeypatch, tmp_path)
+    monkeypatch.setattr(build, "plan_module", lambda *a, **k: {
+        "status": "accepted", "attempts": 1,
+        "sections": [{"section_id": "s1", "pdf_index_start": 0,
+                      "pdf_index_end": 1}],
+    })
+    monkeypatch.setattr(build.extract, "prepare", lambda *a, **k: (
+        (_ for _ in ()).throw(AssertionError("prepare ran during --plan-only"))
+    ))
+    work = tmp_path / "w"
+    rc = build.main([
+        "--adapter", "fake_adapter",
+        "--source-bundle", str(tmp_path),
+        "--work-dir", str(work),
+        "--module-id", "mod",
+        "--plan-only",
+    ])
+    assert rc == 0
+    assert json.loads((work / "plan.json").read_text())["status"] == "accepted"
+
+
+def test_a_section_worker_writes_its_own_receipt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+):
+    """Forty-two workers share one work dir; one build.json would corrupt."""
+    _fake_adapter(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        build.extract, "prepare", lambda *a, **k: {"span_count": 1})
+    monkeypatch.setattr(
+        build, "extract_section", lambda *a, **k: {
+            "status": "accepted", "attempts": 1, "rounds": [], "nodes": 1})
+    plan = _accepted_plan(tmp_path, [
+        {"section_id": "s1", "pdf_index_start": 0, "pdf_index_end": 1},
+    ])
+    work = tmp_path / "w"
+    rc = build.main([
+        "--adapter", "fake_adapter",
+        "--source-bundle", str(tmp_path),
+        "--work-dir", str(work),
+        "--module-id", "mod",
+        "--plan", str(plan),
+        "--only-section", "s1",
+    ])
+    assert rc == 0
+    assert (work / "build.s1.json").exists()

@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# pi-coc-build — build a module graph from a source bundle, unattended: plan
+# the sections, extract each through the gates, narrow whatever one generation
+# cannot carry, and report what never passed. Not a session; the driver loop
+# runs headless on the environment `pi-coc` prepares, with this track's model
+# channel injected (`pi/lib/build_ask_adapter.py`).
+#
+# Deliberately a thin wrapper, isomorphic to pi-coc-setup: `pi-coc` owns
+# environment assembly (repo root, uv pin, resolved Pi CLI, isolated agent
+# home); this script only says which role is being launched.
+set -euo pipefail
+
+SCRIPT_PATH=$0
+if [ -L "$SCRIPT_PATH" ]; then
+  LINK_TARGET=$(ls -l "$SCRIPT_PATH" | sed 's/.* -> //')
+  case "$LINK_TARGET" in
+    /*) SCRIPT_PATH=$LINK_TARGET ;;
+    *) SCRIPT_PATH=$(CDPATH= cd -- "$(dirname "$SCRIPT_PATH")" && pwd)/$LINK_TARGET ;;
+  esac
+fi
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$SCRIPT_PATH")" && pwd)
+
+export COC_PI_LAUNCH_ROLE=build
+exec "$SCRIPT_DIR/pi-coc" "$@"

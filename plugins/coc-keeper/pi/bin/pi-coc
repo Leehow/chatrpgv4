@@ -105,6 +105,16 @@ if [[ "${COC_PI_LAUNCH_ROLE:-}" == "onboarding" ]]; then
   DEFAULT_SESSION_ID=${PI_COC_SESSION_ID:-coc-onboarding}
 fi
 
+# `pi-coc-build` sets this. A build is not a session at all: it is the
+# host-agnostic driver loop run headless, with this track's model channel
+# injected, on the environment this launcher just prepared. Same law as
+# onboarding -- one launcher owns environment assembly, roles only say what
+# runs on it.
+BUILD_ROLE=0
+if [[ "${COC_PI_LAUNCH_ROLE:-}" == "build" ]]; then
+  BUILD_ROLE=1
+fi
+
 attached_ui_enabled() {
   case "${COC_PI_ATTACHED_UI:-}" in
     1|true|TRUE|yes|YES) return 0 ;;
@@ -393,6 +403,18 @@ if [ ! -x "$PI_CODING_AGENT_DIR/bin/fd" ] || [ ! -x "$PI_CODING_AGENT_DIR/bin/rg
     printf '%s\n' "Fix: put fd and rg on PATH, then relaunch pi-coc" >&2
     exit 1
   fi
+fi
+
+# The build role never reaches session assembly: it execs the driver loop
+# here, with this launcher's resolved Pi CLI exported for the injected model
+# channel (a `.js` CLI is spawned through `node` by the adapter, exactly as
+# the exec below does). Every other argument is the driver's own.
+if [[ "$BUILD_ROLE" -eq 1 ]]; then
+  export COC_PI_CLI=$PI_CLI
+  export PYTHONPATH="$REPO_ROOT/plugins/coc-keeper/pi/lib${PYTHONPATH:+:$PYTHONPATH}"
+  exec "$UV_PATH" run --project "$REPO_ROOT" --frozen python \
+    "$REPO_ROOT/plugins/coc-keeper/scripts/coc_module_build.py" \
+    --adapter build_ask_adapter "$@"
 fi
 
 # Wrapper-only --new: open a fresh Pi session (omit default session-id).

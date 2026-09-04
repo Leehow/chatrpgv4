@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -184,9 +185,12 @@ def extract_section(
     ask: Ask,
     *,
     max_rounds: int = 3,
+    instruction_path: Path | None = None,
 ) -> dict[str, Any]:
     """Read one prepared section until both gates are silent, or give up."""
-    instruction = extract.INSTRUCTION_PATH.read_text(encoding="utf-8")
+    instruction = (instruction_path or extract.INSTRUCTION_PATH).read_text(
+        encoding="utf-8"
+    )
     packet = (work_dir / "extraction-packet.json").read_text(encoding="utf-8")
     rounds: list[Round] = []
     payload = packet
@@ -282,6 +286,27 @@ def plan_module(
             findings = [{"code": "model_output_not_json", "message": problem}]
         else:
             findings = planner.check(measured, parsed)
+            over_budget_only = bool(findings) and all(
+                f.get("code") == "section_over_budget" for f in findings
+            )
+            if over_budget_only:
+                # A plan that is wrong only in arithmetic the model cannot
+                # perform is repaired, not retried: split at page boundaries
+                # and re-check, and the receipt says the machine did it.
+                repaired, repairs = planner.split_over_budget(
+                    measured, parsed["sections"],
+                )
+                if repairs and not planner.check(measured, {"sections": repaired}):
+                    rounds.append(Round(
+                        attempt, "repaired", "plan", len(findings), findings,
+                    ))
+                    return {
+                        "status": "accepted",
+                        "attempts": attempt,
+                        "rounds": [r.__dict__ for r in rounds],
+                        "sections": repaired,
+                        "repairs": repairs,
+                    }
             if not findings:
                 return {
                     "status": "accepted",
@@ -298,6 +323,101 @@ def plan_module(
         "attempts": len(rounds),
         "rounds": [r.__dict__ for r in rounds],
         "reason": f"{max_rounds} rounds produced no plan the checker accepted",
+    }
+
+
+SKELETON_INSTRUCTION_PATH = (
+    _HERE.parent / "pi" / "prompts" / "module-skeleton.md"
+)
+SKELETON_ASPECTS = ("structure", "world", "actors")
+
+
+def skeleton_module(
+    bundle: Path,
+    work: Path,
+    module_id: str,
+    plan: dict[str, Any],
+    ask: Ask,
+    *,
+    max_rounds: int = 3,
+) -> dict[str, Any]:
+    """One coarse read of the whole book: spine, roster, entry candidates.
+
+    The skeleton is a shard like any other -- same contract, same gates,
+    same receipt -- over a deliberately scattered page set: the book's own
+    structure pages plus the first page of every planned section. It exists
+    to decide what gets deep-read first, which is why it runs after the plan
+    and before any section.
+    """
+    measured = planner.measure(bundle)
+    if measured["status"] != "measured":
+        return measured
+    pages = sorted({
+        *(int(i) for i in measured["structure_page_candidates"]),
+        *(int(s["pdf_index_start"]) for s in plan["sections"]),
+    })
+    prepared = extract.prepare(
+        bundle,
+        work / "skeleton",
+        module_id=module_id,
+        section_id="skeleton",
+        pdf_indices=pages,
+        aspects=SKELETON_ASPECTS,
+    )
+    if prepared.get("status") == "empty":
+        return {"status": "empty", "pages": pages}
+    outcome = extract_section(
+        work / "skeleton", ask, max_rounds=max_rounds,
+        instruction_path=SKELETON_INSTRUCTION_PATH,
+    )
+    result: dict[str, Any] = {
+        "pages": pages,
+        "spans": prepared["span_count"],
+        **outcome,
+    }
+    if outcome["status"] == "accepted":
+        shard = json.loads(
+            Path(outcome["shard_path"]).read_text(encoding="utf-8")
+        )
+        result["opening"] = opening_sections(plan, shard)
+    return result
+
+
+def opening_sections(
+    plan: dict[str, Any], shard: dict[str, Any]
+) -> dict[str, Any]:
+    """Which sections hold the skeleton's entry evidence, deterministically.
+
+    The model may propose the entry; only its evidence pages decide which
+    sections get deep-read first. A proposal without evidence decides
+    nothing and says so, rather than guessing the first section.
+    """
+    pages: set[int] = set()
+    for node in shard.get("nodes") or []:
+        if not isinstance(node, dict) or node.get("node_kind") != "scene":
+            continue
+        for span_id in node.get("evidence_span_ids") or []:
+            match = re.search(r"-page-(\d+)-", str(span_id))
+            if match:
+                pages.add(int(match.group(1)))
+    if not pages:
+        return {
+            "sections": [],
+            "entry_pages": [],
+            "basis": "the skeleton named no entry scene with evidence",
+        }
+    chosen = [
+        str(section["section_id"])
+        for section in plan["sections"]
+        if any(
+            int(section["pdf_index_start"]) <= page <= int(section["pdf_index_end"])
+            for page in pages
+        )
+    ]
+    return {
+        "sections": chosen,
+        "entry_pages": sorted(pages),
+        "basis": "entry scene evidence pages mapped to their plan sections",
     }
 
 
@@ -329,6 +449,22 @@ def _extract_ranged(
         pdf_index_start=pdf_index_start,
         pdf_index_end=pdf_index_end,
     )
+    if prepared.get("status") == "empty":
+        # Only declared holes live in this range; there is nothing to read.
+        # Recorded, never counted as accepted or as failed.
+        results.append({
+            "section_id": section_id, "spans": 0, "status": "empty",
+            "reason": prepared.get("reason"),
+        })
+        (work / section_id).mkdir(parents=True, exist_ok=True)
+        (work / section_id / "outcome.json").write_text(
+            json.dumps(results[-1], ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(json.dumps({
+            "section_id": section_id, "status": "empty",
+        }, ensure_ascii=False), flush=True)
+        return
     outcome = extract_section(work / section_id, ask, max_rounds=max_rounds)
     if (
         outcome["status"] == "output_over_generation_budget"
@@ -347,6 +483,13 @@ def _extract_ranged(
     results.append({"section_id": section_id, "spans": prepared["span_count"], **{
         k: v for k, v in outcome.items() if k != "rounds"
     }, "rounds": outcome["rounds"]})
+    # Every resolved section lands on disk immediately. A driver that dies
+    # mid-build (one pilot did, on a hanged channel) loses only the sections
+    # still in flight, never the rounds already judged.
+    (work / section_id).mkdir(parents=True, exist_ok=True)
+    (work / section_id / "outcome.json").write_text(
+        json.dumps(results[-1], ensure_ascii=False, indent=2), encoding="utf-8",
+    )
     print(json.dumps({
         "section_id": section_id,
         "status": outcome["status"],
@@ -366,11 +509,39 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument("--source-bundle", required=True)
-    parser.add_argument("--work-dir", required=True)
+    parser.add_argument(
+        "--work-dir",
+        help="receipts and packets land here; defaults to "
+             ".coc/module-builds/<module-id> under the current directory",
+    )
     parser.add_argument("--module-id", required=True)
     parser.add_argument("--budget", type=int, default=planner.DEFAULT_SECTION_BUDGET)
     parser.add_argument("--max-rounds", type=int, default=3)
     parser.add_argument("--only-section")
+    parser.add_argument(
+        "--opening-only",
+        action="store_true",
+        help="deep-read only the sections the skeleton's entry evidence names",
+    )
+    parser.add_argument(
+        "--no-skeleton",
+        action="store_true",
+        help="skip the skeleton pass (plain full build)",
+    )
+    parser.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="plan, write plan.json, and stop -- an operator reviews the "
+             "sectioning before spending a model call per section",
+    )
+    parser.add_argument(
+        "--plan",
+        help=(
+            "path to an already-accepted plan.json. One plan drives many "
+            "section workers; without this flag every invocation would "
+            "re-plan, which is one wasted model call per section."
+        ),
+    )
     args = parser.parse_args(argv)
 
     import importlib
@@ -378,21 +549,72 @@ def main(argv: list[str] | None = None) -> int:
     ask: Ask = adapter.ask
 
     bundle = Path(args.source_bundle)
-    work = Path(args.work_dir)
+    work = Path(args.work_dir) if args.work_dir else Path(
+        ".coc", "module-builds", args.module_id
+    )
     work.mkdir(parents=True, exist_ok=True)
 
-    planned = plan_module(bundle, ask, budget=args.budget, max_rounds=args.max_rounds)
-    (work / "plan.json").write_text(
-        json.dumps(planned, ensure_ascii=False, indent=2), encoding="utf-8",
-    )
+    if args.plan:
+        planned = json.loads(Path(args.plan).read_text(encoding="utf-8"))
+        if planned.get("status") != "accepted":
+            print(json.dumps({
+                "status": "not_accepted",
+                "reason": f"--plan carries status {planned.get('status')!r}, "
+                          "only an accepted plan can drive sections",
+            }, ensure_ascii=False, indent=2))
+            return 1
+    else:
+        planned = plan_module(bundle, ask, budget=args.budget, max_rounds=args.max_rounds)
+        (work / "plan.json").write_text(
+            json.dumps(planned, ensure_ascii=False, indent=2), encoding="utf-8",
+        )
     if planned["status"] != "accepted":
         print(json.dumps(planned, ensure_ascii=False, indent=2))
         return 1
+
+    if args.plan_only:
+        print(json.dumps({
+            "status": "planned",
+            "sections": len(planned["sections"]),
+            "plan": str(work / "plan.json"),
+        }, ensure_ascii=False, indent=2))
+        return 0
+
+    skeleton_result: dict[str, Any] | None = None
+    if not args.no_skeleton and not args.only_section:
+        skeleton_result = skeleton_module(
+            bundle, work, args.module_id, planned, ask,
+            max_rounds=args.max_rounds,
+        )
+        (work / "skeleton").mkdir(parents=True, exist_ok=True)
+        (work / "skeleton" / "outcome.json").write_text(
+            json.dumps(skeleton_result, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(json.dumps({
+            "section_id": "skeleton",
+            "status": skeleton_result["status"],
+            "attempts": skeleton_result.get("attempts"),
+            "opening_sections": (skeleton_result.get("opening") or {}).get("sections"),
+        }, ensure_ascii=False), flush=True)
+
+    if args.opening_only:
+        opening = (skeleton_result or {}).get("opening") or {}
+        extract_first = set(opening.get("sections") or [])
+        if not extract_first:
+            print(json.dumps({
+                "status": "not_accepted",
+                "reason": "the skeleton identified no opening sections "
+                          f"({opening.get('basis')})",
+            }, ensure_ascii=False, indent=2))
+            return 1
 
     results: list[dict[str, Any]] = []
     for section in planned["sections"]:
         sid = section["section_id"]
         if args.only_section and sid != args.only_section:
+            continue
+        if args.opening_only and sid not in extract_first:
             continue
         _extract_ranged(
             bundle,
@@ -406,18 +628,26 @@ def main(argv: list[str] | None = None) -> int:
             results,
         )
 
-    (work / "build.json").write_text(
-        json.dumps({"plan": planned, "sections": results}, ensure_ascii=False, indent=2),
+    receipt_name = (
+        f"build.{args.only_section}.json" if args.only_section else "build.json"
+    )
+    # A --only-section worker shares its work dir with the other sections of
+    # the same module; its receipt is its own, or forty-two workers would
+    # rewrite one build.json into whoever finished last.
+    (work / receipt_name).write_text(
+        json.dumps({"plan": planned, "skeleton": skeleton_result,
+                    "sections": results}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    accepted = sum(1 for r in results if r["status"] == "accepted")
+    counted = [r for r in results if r["status"] != "empty"]
+    accepted = sum(1 for r in counted if r["status"] == "accepted")
     print(json.dumps({
-        "status": "built" if accepted == len(results) else "partial",
+        "status": "built" if accepted == len(counted) else "partial",
         "sections_accepted": accepted,
-        "sections_total": len(results),
-        "receipt": str(work / "build.json"),
+        "sections_total": len(counted),
+        "receipt": str(work / receipt_name),
     }, ensure_ascii=False, indent=2))
-    return 0 if accepted == len(results) else 1
+    return 0 if accepted == len(counted) else 1
 
 
 if __name__ == "__main__":

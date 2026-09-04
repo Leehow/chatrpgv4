@@ -1425,15 +1425,18 @@ def _merge_source_refs(left: list[dict[str, Any]], right: list[dict[str, Any]]) 
     return [rows[key] for key in sorted(rows)]
 
 
-def _merge_node(existing: dict[str, Any], proposed: dict[str, Any]) -> dict[str, Any]:
+def _merge_node(
+    existing: dict[str, Any], proposed: dict[str, Any], *, prefer: str | None = None
+) -> dict[str, Any]:
+    preferred = {"existing": existing, "proposed": proposed}.get(prefer or "")
     for field in ("node_kind", "name", "summary", "properties"):
         left = existing.get(field, "" if field == "summary" else {})
         right = proposed.get(field, "" if field == "summary" else {})
-        if left != right:
+        if left != right and preferred is None:
             raise ModuleGraphError(
                 [_finding("node_conflict", f"/nodes/{existing['node_id']}/{field}", "requires semantic reconciliation")]
             )
-    merged = copy.deepcopy(existing)
+    merged = copy.deepcopy(preferred if preferred is not None else existing)
     merged["aliases"] = sorted(
         {
             alias
@@ -1569,16 +1572,32 @@ def merge_shards(
     ]
 
     nodes: dict[str, dict[str, Any]] = {}
+    skeleton_node_ids: set[str] = set()
     claims: dict[str, dict[str, Any]] = {}
     relations: dict[str, dict[str, Any]] = {}
     source_refs: list[dict[str, Any]] = []
     for shard in sorted(promoted_shards, key=lambda row: row["section_id"]):
         source_refs = _merge_source_refs(source_refs, shard["source_refs"])
+        shard_is_skeleton = shard["section_id"] == "skeleton"
         for node in shard["nodes"]:
             node_id = node["node_id"]
-            nodes[node_id] = (
-                _merge_node(nodes[node_id], node) if node_id in nodes else copy.deepcopy(node)
-            )
+            if node_id not in nodes:
+                nodes[node_id] = copy.deepcopy(node)
+                if shard_is_skeleton:
+                    skeleton_node_ids.add(node_id)
+                continue
+            existing_is_skeleton = node_id in skeleton_node_ids
+            if existing_is_skeleton is not shard_is_skeleton:
+                # Skeleton-first builds read a node twice: once coarsely from
+                # structure pages, once fully in its section. The deep read
+                # wins field conflicts -- it carries the denser evidence --
+                # and the skeleton's spans stay on the merged node, so nothing
+                # is hidden and nothing is lost. Two deep reads still raise.
+                prefer = "proposed" if existing_is_skeleton else "existing"
+                nodes[node_id] = _merge_node(nodes[node_id], node, prefer=prefer)
+                skeleton_node_ids.discard(node_id)
+            else:
+                nodes[node_id] = _merge_node(nodes[node_id], node)
         for claim in shard["claims"]:
             claim_id = claim["claim_id"]
             claims[claim_id] = (

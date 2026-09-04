@@ -165,12 +165,70 @@ def test_a_plan_that_claims_a_page_twice_is_refused():
     assert {f["code"] for f in findings} == {"page_claimed_twice"}
 
 
+def test_a_plan_beyond_the_measured_book_is_refused():
+    """Pages outside the measurement are not slack; they do not exist."""
+    rows = BLOOD_HIGHWAY_SEVEN[:-1] + [("appendices", 80, 140)]
+    findings = planner.check(_measured("blood-highway"), _plan(rows))
+    assert [f["code"] for f in findings] == ["unknown_pages"]
+    assert findings[0]["pdf_indices"][0] == 111
+
+
+def test_declared_holes_inside_the_book_are_tolerated():
+    """Masks carries 654 pages across pdf_index 0-668: the producer never
+    emitted fifteen indices. A contiguous range spanning those holes is the
+    only shape a range can take, and it is legitimate -- prepare skips the
+    holes; the plan must not be punished for them."""
+    measured = {
+        "section_budget_chars": 10_000,
+        "page_chars": {"0": 100, "1": 100, "2": 100, "8": 100, "9": 100},
+        "pdf_index_first": 0,
+        "pdf_index_last": 9,
+        "page_gaps": [3, 4, 5, 6, 7],
+    }
+    assert planner.check(measured, {"sections": [{
+        "section_id": "all", "pdf_index_start": 0, "pdf_index_end": 9,
+    }]}) == []
+
+
 def test_a_section_over_budget_is_refused():
     findings = planner.check(
         _measured("blood-highway"), _plan([("everything", 0, 110)])
     )
     assert [f["code"] for f in findings] == ["section_over_budget"]
     assert findings[0]["chars"] > _measured("blood-highway")["section_budget_chars"]
+
+
+def test_an_over_budget_section_is_split_at_page_boundaries():
+    """The repair the Masks plan needed: right except for arithmetic the
+    model cannot perform, so the machine performs it."""
+    measured = _measured("blood-highway")
+    sections, repairs = planner.split_over_budget(
+        measured, [{"section_id": "everything", "title": "t",
+                    "pdf_index_start": 0, "pdf_index_end": 110,
+                    "reason": "r"}],
+    )
+    assert len(sections) > 1
+    assert repairs and repairs[0]["section_id"] == "everything"
+    # every page still belongs to exactly one section, in order
+    covered: list[int] = []
+    for child in sections:
+        covered.extend(range(child["pdf_index_start"], child["pdf_index_end"] + 1))
+    assert covered == list(range(0, 111))
+    assert planner.check(measured, {"sections": sections}) == []
+
+
+def test_a_single_page_over_budget_cannot_be_split():
+    measured = {
+        "section_budget_chars": 100,
+        "page_chars": {"0": 500},
+        "pdf_index_first": 0,
+        "pdf_index_last": 0,
+    }
+    sections, repairs = planner.split_over_budget(
+        measured, [{"section_id": "s", "pdf_index_start": 0, "pdf_index_end": 0}],
+    )
+    assert [s["section_id"] for s in sections] == ["s"]
+    assert repairs == []
 
 
 def test_a_malformed_section_id_is_refused():
