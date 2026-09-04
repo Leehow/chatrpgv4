@@ -241,11 +241,7 @@ def _sheet_check(
     return None
 
 
-def _npc_check(ctx: Any, ref: str) -> tuple[str, int] | None:
-    parts = str(ref or "").split(":")
-    if len(parts) != 4 or parts[0] != "npc" or parts[2] != "skill":
-        return None
-    npc_id, skill_slug = parts[1], parts[3]
+def _npc_rows(ctx: Any) -> list[Mapping[str, Any]]:
     document = getattr(ctx, "npc_agendas", None)
     rows: list[Mapping[str, Any]] = []
     if isinstance(document, Mapping):
@@ -254,10 +250,84 @@ def _npc_check(ctx: Any, ref: str) -> tuple[str, int] | None:
             rows = [row for row in raw if isinstance(row, Mapping)]
         elif isinstance(raw, Mapping):
             rows = [row for row in raw.values() if isinstance(row, Mapping)]
-    npc = next(
+    return rows
+
+
+def _npc_by_rows(rows: list[Mapping[str, Any]], npc_id: str) -> Mapping[str, Any] | None:
+    return next(
         (row for row in rows if str(row.get("npc_id") or row.get("id") or "") == npc_id),
         None,
     )
+
+
+def _npc_skill_labels(npc: Mapping[str, Any]) -> list[str]:
+    skills = npc.get("skills") if isinstance(npc.get("skills"), Mapping) else {}
+    return [
+        str(label) for label, value in skills.items()
+        if isinstance(value, int) and not isinstance(value, bool)
+        and 0 <= value <= 100
+    ]
+
+
+def _opponent_unresolved_message(ctx: Any, ref: str) -> str:
+    """Name the accepted form AND which NPC/skill pairs could resolve it.
+
+    Opposed settles burned a lane after lane on the bare message "could not
+    be resolved": the projection taught `npc:<id>` while `_npc_check` takes
+    exactly `npc:<npc_id>:skill:<slug>`, and an NPC with no authored skills
+    table can never resolve whatever the Keeper sends. Tell both halves.
+    """
+    base = (
+        "host-locked opponent value could not be resolved from "
+        f"opponent_check_ref {ref!r}: the accepted form is exactly four "
+        "segments npc:<npc_id>:skill:<skill-slug>, and the NPC must be "
+        "authored with that skill"
+    )
+    parts = str(ref or "").split(":")
+    rows = _npc_rows(ctx)
+    if len(parts) != 4 or parts[0] != "npc" or parts[2] != "skill":
+        return base + " -- this ref does not have those four segments"
+    npc_id, skill_slug = parts[1], parts[3]
+    npc = _npc_by_rows(rows, npc_id)
+    if npc is None:
+        with_skills = [
+            str(row.get("npc_id") or row.get("id") or "")
+            for row in rows if _npc_skill_labels(row)
+        ][:12]
+        listing = (
+            ", ".join(with_skills) if with_skills
+            else "none -- no authored NPC in this campaign carries a skills "
+            "table, so no opposed check against an NPC can resolve here"
+        )
+        return (
+            base
+            + f" -- no authored NPC has id {npc_id!r}; NPCs with authored "
+            f"skills: {listing}"
+        )
+    labels = _npc_skill_labels(npc)
+    if not labels:
+        return (
+            base
+            + f" -- NPC {npc_id!r} has no authored skills table, so no "
+            "skill ref against it can resolve"
+        )
+    if not any(
+        _semantic_slug(label) == _semantic_slug(skill_slug) for label in labels
+    ):
+        return (
+            base
+            + f" -- NPC {npc_id!r} is not authored with that skill; its "
+            f"authored skills: {', '.join(labels[:12])}"
+        )
+    return base
+
+
+def _npc_check(ctx: Any, ref: str) -> tuple[str, int] | None:
+    parts = str(ref or "").split(":")
+    if len(parts) != 4 or parts[0] != "npc" or parts[2] != "skill":
+        return None
+    npc_id, skill_slug = parts[1], parts[3]
+    npc = _npc_by_rows(_npc_rows(ctx), npc_id)
     if npc is None:
         return None
     skills = npc.get("skills") if isinstance(npc.get("skills"), Mapping) else {}
@@ -1006,6 +1076,18 @@ class Coc7RuleGraphAdapter:
                     if isinstance(selected.get("_host_psychology_binding"), Mapping)
                     else {}
                 )
+                # The binding carries the whole observation shape; the two
+                # psychology decisions declare different host-locked slots.
+                # observe-concealed names most of these, realize-player-safe
+                # only inference_ceiling and observation_receipt_ref -- so
+                # pouring all ten into every settle made realize refuse its
+                # own host inputs as undeclared (Keeper sends only
+                # external_behavior, the one keeper-semantic slot, and the
+                # refusal says no change to semantic_inputs clears it: the
+                # lane x-psy evidence, r72-r74, unknown_semantic_input x19).
+                # Fill exactly what the decision declares, the way the
+                # opposed-check investigator_id gate above already does.
+                declared = _declared_payload_slots(decision_ref)
                 for key in (
                     "investigator_id", "npc_id", "observer_skill",
                     "target_opposing_social", "conversation_window_id",
@@ -1013,7 +1095,7 @@ class Coc7RuleGraphAdapter:
                     "observable_fact_refs", "inference_ceiling",
                     "observation_receipt_ref",
                 ):
-                    if binding.get(key) is not None:
+                    if key in declared and binding.get(key) is not None:
                         locked[key] = _thaw(binding[key])
             elif decision_ref in _COMBAT_SETTLE_DECISION_REFS:
                 binding = (
@@ -1166,7 +1248,10 @@ class Coc7RuleGraphAdapter:
                 out["target"] = payload["investigator_target"]
             if payload.get("opponent_value") is None:
                 raise tool_error(
-                    "missing_param", "host-locked opponent value could not be resolved",
+                    "missing_param",
+                    _opponent_unresolved_message(
+                        ctx, str(payload.get("opponent_check_ref") or ""),
+                    ),
                 )
             out.update({
                 "contest_kind": "noncombat",

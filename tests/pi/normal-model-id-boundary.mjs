@@ -3084,11 +3084,16 @@ assert.equal(
           combat: {
             combat_id: "campaign-combat",
             rounds: [{ round: 1, turns: [combatTurn] }],
-            // What actually pushes a combat settlement past the cap.
+            // The wire's combat settlement projector strips the catalog
+            // BEFORE the budget check (it exists to keep next_decisions
+            // alive), so bulk placed here alone no longer pushes the
+            // envelope past the cap; the over-budget weight rides in the
+            // event detail below, which that projector keeps whole.
             weapon_catalog: "战斗记录".repeat(4000),
           },
           events: [{
             event_type: "combat_turn_resolved",
+            detail: "战斗记录".repeat(4000),
             turn: combatTurn,
             // Exactly the lane's shape: the DEFENDER's roll has no evidence
             // row of its own. Its only trace anywhere in the settlement is the
@@ -3260,11 +3265,39 @@ assert.equal(
         action: "opposed_melee",
         roll_id: `${combatRollBase}-bulk:r${round}:cr1`,
         opposed_roll_id: `${combatRollBase}-bulk:r${round}:cr2`,
+        damage_roll_id: `${combatRollBase}-bulk:r${round}:cr3`,
         defense_kind: "dodge",
         outcome: "no_damage",
       };
       manyTurns.push(turn);
-      manyEvents.push({ event_type: "combat_turn_resolved", turn });
+      // The wire combat projector strips combat.rounds and keeps events
+      // whole, so the nested roll identities the truncation bound is meant
+      // to exercise must ride inside the events' roll_evidence -- exactly
+      // the lane shape -- or the projected envelope comes in under budget
+      // and never collapses at all.
+      manyEvents.push({
+        event_type: "combat_turn_resolved",
+        turn,
+        roll_evidence: [
+          {
+            roll_id: `${combatRollBase}-bulk:r${round}:cr1`,
+            roll_role: "percentile_check",
+            skill: "Fighting (Brawl)",
+            outcome: "regular",
+          },
+          {
+            roll_id: `${combatRollBase}-bulk:r${round}:cr2`,
+            roll_role: "percentile_check",
+            skill: "Dodge",
+            outcome: "no_damage",
+          },
+          {
+            roll_id: `${combatRollBase}-bulk:r${round}:cr3`,
+            roll_role: "damage",
+            outcome: "no_damage",
+          },
+        ],
+      });
     }
     const bulkSettle = structuredClone(oversizeCombatSettle);
     bulkSettle.data.settlement.result.combat.rounds = [

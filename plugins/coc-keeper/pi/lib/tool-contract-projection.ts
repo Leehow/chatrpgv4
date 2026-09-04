@@ -9022,6 +9022,13 @@ export function closedIdentityGrammarSpec(
     const namespaces = [...echoed];
     const nsText = field === "weapon_id"
       ? "literal `unarmed`, a multi-token semantic slug, or namespace `weapon:`, `item:`"
+      // opponent_check_ref is namespace-only like the fields below, but its
+      // canonical binding (rule_graph_adapter `_npc_check`) takes exactly
+      // FOUR segments; the generic two-segment example taught a form that can
+      // never resolve, and every opposed settle refused its opponent value.
+      : field === "opponent_check_ref"
+      ? "namespace `npc:` only, exactly four segments `npc:<npc_id>:skill:<skill-slug>` "
+        + "naming the NPC and the authored skill to oppose"
       // Namespace-only fields reject the bare-slug half of the grammar: their
       // canonical binding partitions on the namespace to resolve the value.
       : RAW_NAMESPACE_ONLY_ECHOED_FIELDS.has(field)
@@ -9063,6 +9070,8 @@ export function closedIdentityGrammarSpec(
     }
     const right = field === "weapon_id"
       ? "unarmed"
+      : field === "opponent_check_ref"
+      ? `npc:${GRAMMAR_EXAMPLE_SLUG}:skill:${GRAMMAR_EXAMPLE_SLUG}`
       : namespaces.length > 0
       ? `${namespaces[0]}${GRAMMAR_EXAMPLE_SLUG}`
       : GRAMMAR_EXAMPLE_SLUG;
