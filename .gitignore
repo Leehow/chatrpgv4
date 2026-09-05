@@ -33,3 +33,11 @@ tmp/
 .rpc-evidence-*/
 # External rulegraph reference pack — design reference only, never committed
 docs/coc7-core-rulegraph-v0.1/
+
+# Runtime artifacts written beside the code that produces them.
+# `coc_intent_router.py` defaults its request/result pair to a sibling
+# `.intent-eval/`, and `tests/pi/_lib/rpc-driver.py` writes its driver log and
+# turn records to `evidence/`. Both are output from a run, not sources; the
+# tests that exercise them point at their own tmp directories.
+plugins/coc-keeper/scripts/.intent-eval/
+tests/pi/_lib/evidence/
