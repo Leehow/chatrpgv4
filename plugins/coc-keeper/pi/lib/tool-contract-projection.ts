@@ -3821,6 +3821,12 @@ const CLASSIFIED_INTEGRITY_FIELDS: ReadonlySet<string> = new Set([
   // The digest a bind returns over the public character-creation setup it
   // installed. Same story: unnamed here, so the bind result failed closed.
   "public_setup_sha256",
+  // The open-turn anchor's own evidence: which finalized turn a restart is
+  // resuming from, and the digest binding the anchor to it. Same story again,
+  // and the most expensive telling of it: unnamed here, an interrupted turn
+  // left the campaign unresumable, with `session.resume` returning ok:true and
+  // an empty payload.
+  "prior_finalized_source_digest", "anchor_digest",
 ]);
 
 /**
@@ -3923,11 +3929,22 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       "id",
       "location_id", "run_segment_id",
       "scenario_id", "source_ref", "table_opening_id",
+      // `open_turn_anchor` identifies the turn a restart is resuming. The
+      // transport collapse now carries it, because the host arms the recovery
+      // tools from it and carrying only the mode left a live campaign told to
+      // "continue the current turn from receipts" with no card that could.
+      // Undeclared, the boundary failed the whole envelope closed and the
+      // campaign became unresumable at all -- a worse failure than the one
+      // the carry-through was fixing.
+      "timeline_id",
     ],
     [
       "baseline_draft_sha256", "rendered_sha256", "rendered_text_sha256",
       "source_digest", "full_capsule_sha256", "data_digest", "row_digest",
       "content_sha256", "contract_projection_sha256",
+      // The anchor's own evidence: which finalized turn it follows, and the
+      // digest that binds the anchor to it.
+      "prior_finalized_source_digest", "anchor_digest",
     ],
     // Not integrity evidence: the opening gate carries the exact setup route
     // a prior action must have taken ("investigator.create:guided_quick_fire").
@@ -9424,7 +9441,15 @@ export function restoreSemanticEntityHandles(
         return fail(
           "semantic_entity_binding_missing",
           "investigator uses the semantic current-investigator handle but the "
-            + "host has no exact party binding; call scene.context first.",
+            + "host has no exact party binding; "
+            // scene.context is what establishes the binding, so telling its
+            // own caller to "call scene.context first" names the operation
+            // that just failed. On a fresh session that is the Keeper's very
+            // first call, and a remedy that points back at itself is how a
+            // model ends up repeating one refusal.
+            + (operation === "scene.context"
+              ? "call scene.context without `investigator` to establish it."
+              : "call scene.context first."),
         );
       }
       restored.investigator = facts.investigatorId;

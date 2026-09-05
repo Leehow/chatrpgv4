@@ -4503,8 +4503,8 @@ def test_mcp_wire_scene_context_uses_typed_recovery_index_before_identity_only()
     assert len(scene_index["npc_index"]) == 16
     assert len(scene_index["route_index"]) == 16
     assert len(scene_index["clue_index"]) == 24
-    assert len(scene_index["exit_index"]) == 24
-    assert scene_index["exit_index"][:3] == [
+    assert len(scene_index["exits"]) == 24
+    assert scene_index["exits"][:3] == [
         {
             "to": "scene-0",
             "kind": "travel",
@@ -4519,12 +4519,12 @@ def test_mcp_wire_scene_context_uses_typed_recovery_index_before_identity_only()
         },
         {"to": "scene-2", "kind": "travel", "open": True},
     ]
-    assert "travel_minutes" not in scene_index["exit_index"][2]
+    assert "travel_minutes" not in scene_index["exits"][2]
     assert "continuity" not in scene_index
     assert "agenda" not in scene_index["npc_index"][0]
     assert "cue" not in scene_index["route_index"][0]
     assert "player_safe_summary" not in scene_index["clue_index"][0]
-    assert "cue" not in scene_index["exit_index"][0]
+    assert "cue" not in scene_index["exits"][0]
     assert scene_index["source_material"] == {
         "schema_version": 1,
         "keeper_only": True,

@@ -3869,6 +3869,10 @@ type StartupResumeGate = {
   workspaceRoot: string;
   phase: "pending" | "terminal_failure";
   failureClass: string | null;
+  // What the canonical layer actually said. Keeping only the class threw away
+  // "linked investigator <id> creation state is invalid" and handed the Keeper
+  // a bare `state_corrupt`, which it can neither act on nor report.
+  failureDetail: string | null;
   blockerDelivery: "pending" | "sending" | "delivered" | "exhausted";
   blockerDeliveryAttempts: number;
   hiddenRepromptDelivery: "pending" | "sending" | "delivered";
@@ -8891,6 +8895,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           workspaceRoot: currentWorkspaceRoot,
           phase: "pending",
           failureClass: null,
+          failureDetail: null,
           blockerDelivery: "pending",
           blockerDeliveryAttempts: 0,
           hiddenRepromptDelivery: "pending",
@@ -8965,6 +8970,21 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           + "campaign selection or launch-argument problem."
         );
       }
+      const detail = gate.failureDetail;
+      if (detail) {
+        // The canonical layer named the thing that is wrong. Repeating the
+        // generic advice instead sent a Keeper to relaunch with a different
+        // --campaign while the campaign selection was correct and a linked
+        // investigator sheet was the actual fault: three turns settled empty
+        // with nothing anyone could act on.
+        return (
+          "Pi startup continuation is terminally blocked "
+          + `(failure_class=${gate.failureClass ?? "startup_resume_failed"}). `
+          + `The canonical layer reports: ${detail}. `
+          + "Fix that, then retry session.resume; the campaign selection is "
+          + "not in question."
+        );
+      }
       return (
         "Pi startup continuation is terminally blocked "
         + `(failure_class=${gate.failureClass ?? "startup_resume_failed"}). `
@@ -9022,11 +9042,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         : "pending";
     }
   };
-  const terminalizeStartupResume = (failureClass: string): void => {
+  const terminalizeStartupResume = (
+    failureClass: string, failureDetail: string | null = null,
+  ): void => {
     const gate = startupResumeGate;
     if (gate === null || gate.phase === "terminal_failure") return;
     gate.phase = "terminal_failure";
     gate.failureClass = failureClass;
+    gate.failureDetail = failureDetail;
     publishStartupResumeBlocker(gate, failureClass);
   };
   const canonicalFailureClass = (value: unknown): string => (
@@ -9052,7 +9075,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     value: unknown,
     campaignId: string,
     openingObservation: OpeningSetupObservationDisposition,
-  ): { accepted: true; mode: string | null } | { accepted: false; failureClass: string } => {
+  ): (
+    { accepted: true; mode: string | null }
+    | { accepted: false; failureClass: string; failureDetail: string | null }
+  ) => {
     if (
       openingObservation.reason === "prebound_opening_selection"
       || openingObservation.reason
@@ -9070,6 +9096,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       return {
         accepted: false,
         failureClass: "opening_source_contract_invalid",
+        failureDetail: null,
       };
     }
     const envelope = objectOrNull(value);
@@ -9085,6 +9112,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       return {
         accepted: false,
         failureClass: "startup_resume_result_invalid",
+        failureDetail: null,
       };
     }
     const data = objectOrNull(envelope.data);
@@ -9126,6 +9154,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     return {
       accepted: false,
       failureClass: canonicalFailureClass(error?.code),
+      failureDetail: typeof error?.message === "string" && error.message.trim()
+        ? error.message.trim()
+        : null,
     };
   };
   type StartupCanonicalFailureProjection =
@@ -12715,10 +12746,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             disposition.accepted
               ? "role_null_handoff_resume_invalid"
               : disposition.failureClass,
+            disposition.accepted ? null : disposition.failureDetail,
           );
           applyKpActiveTools();
         } else {
-          terminalizeStartupResume(disposition.failureClass);
+          terminalizeStartupResume(
+            disposition.failureClass, disposition.failureDetail,
+          );
         }
         // The startup branch fact served its one resume classification;
         // any later resume is no longer the startup boundary.

@@ -264,6 +264,45 @@ def test_pi_table_opening_binding_survives_a_selectorless_resume():
     assert result == {"ok": True, "module": "table-opening-binding-without-selector"}
 
 
+def test_pi_an_interrupted_turn_leaves_the_campaign_resumable():
+    """Three layers have to agree or a restart strands a live campaign.
+
+    A daemon restart mid-turn put a played campaign into `open_turn_recovery`.
+    The collapse dropped the anchor the host arms recovery from, so the Keeper
+    had no card for the step it was told to take; carrying the anchor without
+    declaring it then failed the whole envelope closed instead.
+    """
+    result = _node(
+        ROOT / "tests/pi/open-turn-anchor-survives-the-boundary.mjs", str(ROOT)
+    )
+    assert result == {
+        "ok": True, "module": "open-turn-anchor-survives-the-boundary",
+    }
+
+
+def test_pi_startup_blocker_names_the_canonical_cause():
+    """A blocker that hides the reason leaves the Keeper nothing to act on.
+
+    A live session refused `session.resume` with "linked investigator <id>
+    creation state is invalid"; the Keeper received a bare `state_corrupt` and
+    advice to relaunch with a different --campaign. The campaign was right.
+    Three turns settled empty.
+    """
+    result = _node(ROOT / "tests/pi/startup-blocker-names-the-cause.mjs", str(ROOT))
+    assert result == {"ok": True, "module": "startup-blocker-names-the-cause"}
+
+
+def test_pi_semantic_handle_remedy_is_not_the_failing_operation():
+    """`scene.context` is what establishes the party binding it is told to get.
+
+    A live graph-backed session opened on this: the Keeper's first call carried
+    the semantic handle, was refused, and was told to "call scene.context
+    first" -- naming the operation that had just failed.
+    """
+    result = _node(ROOT / "tests/pi/semantic-handle-remedy.mjs", str(ROOT))
+    assert result == {"ok": True, "module": "semantic-handle-remedy"}
+
+
 def test_pi_domain_tools_acl_and_closed_enums():
     result = _node(ROOT / "tests/pi/domain-tools-acl.mjs", str(ROOT))
     assert result == {"ok": True}
