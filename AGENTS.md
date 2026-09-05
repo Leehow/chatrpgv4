@@ -11,6 +11,48 @@ Pi is fully isolated inside this repository. Never use `~/.pi/agent`,
 Find this project's own home. Do not `pi install` the COC package into a
 global `settings.json`, and do not symlink this home back to `~/.pi`.
 
+## Text Work Runs As A Pi Agent (Binding, Ask Before Any Exception)
+
+**Any model work over document or module text runs as a pi agent with tools.**
+Not `--no-tools`. Not a single completion. Not a raw provider call, not an HTTP
+request to an API, not a subprocess that takes a prompt and returns one string.
+
+If you believe a task needs anything other than a tool-using pi agent, **stop
+and ask the user in the current turn.** Do not decide this yourself, do not
+decide it "just for an experiment", and do not decide it because a one-shot
+channel is easier to wire. Silent adoption of a non-agent path is what this
+rule exists to prevent.
+
+### Why (measured, not preference)
+
+A single completion has to fit its whole answer in one assistant message. On
+this project's channel that ceiling sits near 47,000 characters -- 31 accepted
+extractions, none above 47,226, and every truncation reported `stopReason:
+error` rather than a clean stop. Everything downstream deforms around it:
+
+- Sections get cut to four pages so the answer fits, which multiplies model
+  calls -- the cost of a build is generation time, and a build already spends
+  2.5 rounds per section.
+- Density falls as the ceiling binds: ~11 nodes per thousand source characters
+  on the sparse half of sections, ~3.6 on the dense half. The book is being
+  compressed to fit a message, not read.
+- The whole evidence packet has to be pushed through the prompt (60-70 KB)
+  because the reader cannot open a file.
+- Findings have to travel back out to a driver and in again, because the
+  reader cannot run the validator itself.
+
+An agent with `read/write/edit/bash` has none of those limits: it opens the
+packet, writes the shard to a file across as many turns as it needs, runs the
+gates itself, and fixes its own findings. The ceiling stops being a design
+constraint on the pipeline.
+
+### What this does not license
+
+The agent still writes only what the source says, still cites real spans, and
+is still judged by the same deterministic gates. Agent mode removes a length
+limit; it removes no obligation. `--approve` grants tools, not trust: the gates
+remain the authority on whether a shard is accepted.
+
 ## Authority And Required Routing
 
 This is the always-loaded invariant kernel; detailed procedures live below.
