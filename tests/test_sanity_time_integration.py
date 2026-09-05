@@ -286,6 +286,38 @@ def test_treatment_handler_dispatch_recovers_san(campaign_with_inv):
     assert inv_after["current_san"] >= 40  # never lost SAN from treatment success
 
 
+def _seed_treatment_roll(monkeypatch, seed: int) -> None:
+    """Make the handler's Psychoanalysis roll deterministic.
+
+    `_handler_apply_treatment` builds its `PsychotherapySession` without an
+    rng, so the session falls back to `random.Random()` seeded from OS entropy.
+    The tests below set `psychoanalysis_skill: 100` to make success as close to
+    certain as the rules allow -- but 100 is a fumble, so one run in a hundred
+    recovers nothing and any assertion about recovery fails. That happened once
+    in a full parallel suite: `assert 40 > 40`, on a test that had passed every
+    serial run.
+
+    The seam is the loader, not the module: `coc_time._load_sibling_script`
+    re-executes `coc_healing.py` on every call, so patching the `coc_healing`
+    this file imported would never reach the copy the handler uses.
+    """
+    real_loader = coc_time._load_sibling_script
+
+    def loader(name: str, filename: str):
+        module = real_loader(name, filename)
+        if name == "coc_healing":
+            original = module.PsychotherapySession
+
+            def seeded(*args, **kwargs):
+                kwargs.setdefault("rng", random.Random(seed))
+                return original(*args, **kwargs)
+
+            module.PsychotherapySession = seeded
+        return module
+
+    monkeypatch.setattr(coc_time, "_load_sibling_script", loader)
+
+
 def test_treatment_updates_identity_snapshot_without_claiming_party_legacy(
     campaign_with_inv,
 ):
@@ -331,8 +363,9 @@ def test_treatment_updates_identity_snapshot_without_claiming_party_legacy(
 
 
 def test_partial_treatment_updates_canonical_san_and_preserves_indefinite(
-    campaign_with_inv,
+    campaign_with_inv, monkeypatch,
 ):
+    _seed_treatment_roll(monkeypatch, 2026)
     campaign = campaign_with_inv
     inv_path = campaign / "save" / "investigator-state" / "inv1.json"
     inv = json.loads(inv_path.read_text(encoding="utf-8"))
