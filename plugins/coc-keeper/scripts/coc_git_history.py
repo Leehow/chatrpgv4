@@ -465,16 +465,21 @@ def _commit_log_records(
     *,
     rev: str | None = None,
     all_refs: bool = False,
+    grep: str | None = None,
 ) -> list[tuple[str, str]]:
+    # `grep` narrows the walk to commits whose message contains the literal
+    # string; the caller still decides what a match means. It is a filter over
+    # which commits are worth reading, never a substitute for reading them.
+    narrowing = [] if grep is None else ["--fixed-strings", f"--grep={grep}"]
     if all_refs:
         if _head_sha(repo, worktree) is None and not _list_timeline_refs(repo, worktree):
             return []
-        args = ["log", "--all", "--format=%H%x1e%B%x1d"]
+        args = ["log", *narrowing, "--all", "--format=%H%x1e%B%x1d"]
     else:
         target = rev or "HEAD"
         if _rev_sha(repo, worktree, target) is None:
             return []
-        args = ["log", "--format=%H%x1e%B%x1d", target]
+        args = ["log", *narrowing, "--format=%H%x1e%B%x1d", target]
     completed = _run_git(
         args,
         repo=repo,
@@ -495,9 +500,32 @@ def _commit_log_records(
 def _sha_for_finalization_id(
     repo: Path, worktree: Path, finalization_id: str
 ) -> str | None:
-    for sha, body in _commit_log_records(repo, worktree, all_refs=True):
-        trailers = parse_trailers(body)
-        if trailers.get("Finalization-Id") == finalization_id:
+    """Find the commit carrying this ``Finalization-Id``; git does the search.
+
+    This used to read every commit on every ref and spawn one
+    ``git interpret-trailers`` per commit to inspect it. The cost of one lookup
+    was therefore the number of commits so far, and it is paid once per
+    finalized turn, at the top of ``commit_finalized_turn`` -- so a campaign's
+    per-turn cost grew linearly and its total cost quadratically. Measured on
+    the suite's own ledger-rotation test: 0.68s per turn at turn 20, 3.82s at
+    turn 120, and 43 minutes for 301 turns, which was 85% of the whole parallel
+    suite's wall clock. At turn 300 a single idempotence check spawned 300 git
+    processes.
+
+    ``--grep`` narrows the walk to commits whose message contains the id at
+    all. Every candidate is still confirmed by ``parse_trailers``, which stays
+    the authority on what is a trailer and what is merely text in a body -- the
+    id also appears in the subject line, and a body could quote it.
+
+    The narrowing cannot lose a real match. Trailer values are collapsed to one
+    line by ``_sanitize_single_line`` before they are written, so a
+    ``Finalization-Id`` trailer never folds across lines and always appears
+    literally in the message git is searching.
+    """
+    for sha, body in _commit_log_records(
+        repo, worktree, all_refs=True, grep=finalization_id
+    ):
+        if parse_trailers(body).get("Finalization-Id") == finalization_id:
             return sha
     return None
 

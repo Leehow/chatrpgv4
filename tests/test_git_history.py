@@ -260,6 +260,112 @@ def test_commit_finalized_turn_is_idempotent_on_finalization_id(tmp_path):
     assert _commit_count(tmp_path) == 2
 
 
+def _git_calls_to_find(root: Path, finalization_id: str) -> int:
+    """How many git processes one Finalization-Id lookup spends."""
+    calls: list[tuple[str, ...]] = []
+    real = hist._run_git
+
+    def counting(args, **kwargs):
+        calls.append(tuple(args))
+        return real(args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(hist, "_run_git", counting)
+        found = hist._sha_for_finalization_id(
+            _repo(root), _worktree(root), finalization_id
+        )
+    return len(calls), found
+
+
+def test_finding_a_turn_by_its_id_costs_the_same_at_turn_3_and_turn_15(tmp_path):
+    """The idempotence lookup must not walk the history it is idempotent over.
+
+    It used to: every commit on every ref was read and handed to its own
+    `git interpret-trailers`. That made one lookup cost the campaign's whole
+    length, and `commit_finalized_turn` pays it on every finalized turn -- 0.68s
+    per turn at turn 20, 3.82s at turn 120, 43 minutes for 301 turns.
+
+    So the assertion is about cost, not about the answer: the same lookup, on a
+    history five times longer, must spend the same number of git processes. A
+    correct-but-linear implementation passes every other test in this file.
+    """
+    _seed_campaign_files(tmp_path)
+    hist.ensure_repo(tmp_path, CAMPAIGN_ID)
+    hist.commit_baseline(
+        tmp_path, CAMPAIGN_ID, schema_generation=SCHEMA, note="initial campaign generation"
+    )
+    # Zero-padded so no id is a substring of another: the narrowing below is a
+    # fixed-string match, and `fin-1` would also select `fin-10`..`fin-15`.
+    # That property is real and pinned by its own test; this one is about cost.
+    for turn in range(1, 4):
+        _commit_turn(tmp_path, turn, f"fin-{turn:03d}")
+    short_cost, short_found = _git_calls_to_find(tmp_path, "fin-001")
+
+    for turn in range(4, 16):
+        _commit_turn(tmp_path, turn, f"fin-{turn:03d}")
+    long_cost, long_found = _git_calls_to_find(tmp_path, "fin-001")
+
+    assert short_found == long_found is not None
+    assert long_cost == short_cost, (
+        f"a lookup over 15 turns spent {long_cost} git processes where the same "
+        f"lookup over 3 spent {short_cost}: the cost still tracks history length"
+    )
+    # Constant is necessary, not sufficient: a constant of 300 would also pass
+    # the comparison above.
+    assert long_cost <= 6
+
+
+def test_an_id_that_is_a_prefix_of_another_still_finds_its_own_commit(tmp_path):
+    """The narrowing is a fixed-string match, so `fin-1` also selects `fin-12`.
+
+    Cost is what that costs -- a handful of extra candidates -- and correctness
+    is unaffected, because every candidate is confirmed against its parsed
+    trailer. Pinned here so the substring behaviour is a known property rather
+    than a surprise the next reader has to rediscover.
+    """
+    _seed_campaign_files(tmp_path)
+    hist.ensure_repo(tmp_path, CAMPAIGN_ID)
+    hist.commit_baseline(
+        tmp_path, CAMPAIGN_ID, schema_generation=SCHEMA, note="initial campaign generation"
+    )
+    short_id = _commit_turn(tmp_path, 1, "fin-1")
+    long_id = _commit_turn(tmp_path, 2, "fin-12")
+    assert short_id != long_id
+
+    _, found_short = _git_calls_to_find(tmp_path, "fin-1")
+    _, found_long = _git_calls_to_find(tmp_path, "fin-12")
+    assert found_short == short_id
+    assert found_long == long_id
+
+
+def test_the_id_lookup_still_reads_trailers_rather_than_trusting_a_text_match(tmp_path):
+    """`--grep` narrows; `parse_trailers` decides.
+
+    A commit whose body merely quotes another turn's id must not be returned as
+    that turn, and the real commit must still be found behind it.
+    """
+    _seed_campaign_files(tmp_path)
+    hist.ensure_repo(tmp_path, CAMPAIGN_ID)
+    hist.commit_baseline(
+        tmp_path, CAMPAIGN_ID, schema_generation=SCHEMA, note="initial campaign generation"
+    )
+    real = _commit_turn(tmp_path, 1, "fin-quoted")
+    # A later commit that merely mentions the id in prose, with no trailer.
+    (_worktree(tmp_path) / "save" / "world-state.json").write_text(
+        '{"noise": true}\n', encoding="utf-8"
+    )
+    hist._stage_and_commit(
+        _repo(tmp_path),
+        _worktree(tmp_path),
+        "a note that mentions fin-quoted in its body\n",
+    )
+    _, found = _git_calls_to_find(tmp_path, "fin-quoted")
+    assert found == real
+
+    _, missing = _git_calls_to_find(tmp_path, "fin-never-committed")
+    assert missing is None
+
+
 def test_commit_finalized_turn_refuses_pending_turn_file(tmp_path):
     _seed_campaign_files(tmp_path)
     hist.ensure_repo(tmp_path, CAMPAIGN_ID)
