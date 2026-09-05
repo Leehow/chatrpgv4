@@ -684,6 +684,29 @@ glm-5.2 + off 那条 lane 仍然把预算花在四次 `transcript.locate` 和四
 
 来源：<https://docs.z.ai/guides/capabilities/thinking-mode>
 
+### xAI / Grok：同一类问题的另一面（2026-09-05 接入）
+
+GLM 的坑是「传了 `low` 等于没关」。xAI 的坑方向相反：**不传就直接被拒**。
+
+Grok 4.5/4.6 的推理同样关不掉。没有显式 effort 时 pi-ai 发通用的关闭值
+`none`，而 **xAI 在推理开始前就拒绝这个值**——不是回答质量差，是整个调用失败。
+所以 `state-claim-compiler` 对 `provider === "xai"` 且走 `openai-responses`
+的模型显式发 `reasoningEffort: "low"`（xAI 支持的最省档位，够这段有界的语义
+编译用）。注册表漏标 reasoning 能力时按 model id 认 `grok-4.5` / `grok-4.6`。
+
+同一处还把 `stopReason === "error"` 变成抛出。在此之前 provider 报错是**静默**
+的，编译器拿着一个空回答继续走。
+
+### 校验过的默认 thinking 现在真的传下去了
+
+`pi-coc-thinking-preflight.mjs` 一直在校验默认 thinking 级别，但**外层脚本
+从不接住它的结论**。结果是某些 Pi RPC 启动会自己初始化到 `off`，尽管仓库设置
+选的是另一个已校验的非 off 默认值。现在 wrapper 捕获 preflight 的输出并显式
+传 `--thinking`。命令行或 model 后缀里的显式选择仍然归用户参数所有。
+
+这条要和上面的表一起读：**在它修好之前，「我设了 off」和「它自己变成 off」
+在现象上无法区分**，而两者对额度的结论完全不同。
+
 ## Pi-Coc 两个进程（pi-coc-setup / pi-coc）
 
 开局引导与上桌游玩是**两个命令、两个进程**，不是一个会话里的两个 role。

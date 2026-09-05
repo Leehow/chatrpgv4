@@ -98,6 +98,13 @@ JellyToken（`https://aiservice.jellytoken.com/v1`）也可以配成 pi provider
 
 - `set_model` 是必须的——即使你在 `settings.json` 里设了 `defaultProvider`
   和 `defaultModel`，RPC 模式下仍然需要显式 `set_model`。
-- `--thinking off` 不是必须的（zai-coding-cn 的 thinkingFormat=zai 会自动
-  处理 reasoning），但如果不传 `--thinking`，glm 默认会思考（reasoning_content）。
+- **`--thinking` 的行为已经变了，这条早先的说法不要再照用。**
+  - 「`off` 不是必须的」在省额度的意义上是错的：`thinkingFormat=zai` 的实现里
+    `reasoningEffort` 只要有值就走 enabled 分支，所以 `low` **不减少思考**。
+    实测 glm-5.2 从 `low` 换到 `off`，推理字符 26,977 → 4,076。数据与出处见
+    AGENTS.md「GLM / Z.AI Thinking Control」。
+  - 「不传 `--thinking` 会怎样」也变了：`pi-coc` 现在捕获
+    `pi-coc-thinking-preflight.mjs` 校验出的默认级别并显式传下去。在此之前
+    某些 RPC 启动会自己初始化到 `off`，与仓库设置选定的默认值不符——而且
+    「我设的 off」和「它自己变成 off」在现象上分不出来。
 - glm-5-turbo 比 grok-4.5 慢（~400s/开局 vs ~250s），但能作为 grok 限流时的替代。
