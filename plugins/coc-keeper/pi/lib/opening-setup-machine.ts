@@ -128,7 +128,13 @@ export function createOpeningSetupMachineMethods(
 ) {
   return {
     setEffectiveTypedRole(_role: "setup" | "play"): void {},
-    hasActiveOpeningSetup(): boolean { return false; },
+    // `this: any` on the three methods the ownership manifest names is the
+    // seam itself: they are installed onto the host prototype and invoked
+    // with the host as `this`. A constant-returning shim does not read it,
+    // but dropping the parameter erased the declared binding and the
+    // architecture check could no longer tell an owned method from a plain
+    // helper.
+    hasActiveOpeningSetup(this: any): boolean { return false; },
     hasActiveOpeningSetupFor(_campaignId: string): boolean { return false; },
     retainedOpeningRouteFor(_campaignId: string): unknown | null { return null; },
     observeChargenDelegateCompletion(
@@ -151,7 +157,7 @@ export function createOpeningSetupMachineMethods(
     openingSetupToolError(
       _name: string, _params: JsonObject, _invocationId?: string,
     ): string | null { return null; },
-    observeOpeningSetupInvocation(
+    observeOpeningSetupInvocation(this: any,
       _operation: string,
       _params: JsonObject,
       _value: unknown,
