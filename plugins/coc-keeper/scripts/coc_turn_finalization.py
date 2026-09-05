@@ -3162,7 +3162,16 @@ def _unknown_obligation_message(
     namespace -- three refusals for a value it was already holding. Listing
     them removes the guess.
     """
-    presented = sorted(required) if required else []
+    # Public labels, never the raw keys. A required obligation_id may itself
+    # carry an opaque segment (`roll:<slug>:<sha40>`), and listing those keys
+    # verbatim taught the Keeper to take handles from the refusal instead of
+    # from `turn.output_context` -- which is the habit the very next sentence
+    # forbids, and the reason a hash may not appear in this message at all.
+    # `_obligation_public_label` is the surface built for exactly this: it
+    # drops any segment that contains an opaque run.
+    presented = _disambiguate_labels(sorted(
+        _obligation_public_label(row) for row in (required or {}).values()
+    ))
     accepted = (
         " accepted right now: " + ", ".join(presented) + "."
         if presented

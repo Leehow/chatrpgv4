@@ -182,6 +182,41 @@ def test_unknown_hash_obligation_fails_closed_without_echo() -> None:
     assert HEX_RUN.search(str(caught.value)) is None
 
 
+def test_refused_handle_names_the_ones_that_would_work() -> None:
+    """A refusal that only says "use the presented handles" makes the Keeper guess.
+
+    Seen live on 2026-09-02: the host had presented `roll:港湾旅店老板` and
+    `roll:npc-reaction`; the Keeper submitted `first-impression:npc-reaction`,
+    then a backslash-escaped copy of the CJK one, then the right slug under
+    the wrong namespace -- three refusals for a value it was already holding,
+    and a turn that never reached the player.
+
+    The listed handles are the public labels, never the required keys: a key
+    carries an opaque segment, and echoing one would teach exactly the habit
+    the same sentence forbids.
+    """
+    with pytest.raises(coc_turn_finalization.TurnContractError) as caught:
+        coc_turn_finalization.validate_coverage(
+            _sample_obligations(),
+            [_coverage_row("first-impression:npc-reaction")],
+            DRAFT,
+        )
+    message = str(caught.value)
+    assert caught.value.code == "unknown_obligation"
+    assert "accepted right now" in message
+    assert "roll:app" in message
+    assert "first-impression:\u6863\u6848\u5458" in message
+    assert HEX_RUN.search(message) is None
+
+
+def test_a_turn_owing_nothing_is_told_to_send_an_empty_array() -> None:
+    with pytest.raises(coc_turn_finalization.TurnContractError) as caught:
+        coc_turn_finalization.validate_coverage(
+            [], [_coverage_row("roll:anything")], DRAFT,
+        )
+    assert "coverage must be an empty array" in str(caught.value)
+
+
 def test_incomplete_coverage_row_still_fails_closed() -> None:
     row = _coverage_row(ROLL_SOURCE)
     row["exact_excerpt"] = ""
