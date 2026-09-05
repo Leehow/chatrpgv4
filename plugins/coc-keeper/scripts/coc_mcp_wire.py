@@ -2898,6 +2898,37 @@ def _project_resume(data: Any, *, tight: bool) -> Any:
     return projected
 
 
+# The host arms `state.move_scene` from `data.exits` and `data.time` and from
+# nothing else (`armStructuredSceneBindings`). It has never read `exit_index`.
+# So every projection of scene.context the host can receive must carry those
+# two under the names the host consults -- otherwise the richer the scene, the
+# less able the Keeper is to leave it.
+SCENE_EXIT_BINDING_FIELDS = (
+    "to",
+    "kind",
+    "open",
+    "travel_minutes",
+    "when",
+    "route_id",
+    "edge_id",
+    "id",
+)
+
+
+def _scene_exit_bindings(scene: Any) -> list[dict[str, Any]]:
+    """Return the bounded exit rows the host binds scene movement from."""
+    if not isinstance(scene, dict):
+        return []
+    exits = scene.get("exits")
+    if not isinstance(exits, list):
+        return []
+    return [
+        _pick(row, SCENE_EXIT_BINDING_FIELDS)
+        for row in exits[:24]
+        if isinstance(row, dict)
+    ]
+
+
 def _project_scene_recovery_index(scene: Any) -> dict[str, Any] | None:
     """Reduce one tight scene to the shared bounded typed index."""
     if not isinstance(scene, dict):
@@ -2983,11 +3014,12 @@ def _project_scene_recovery_index(scene: Any) -> dict[str, Any] | None:
             for row in clues[:24]
             if isinstance(row, dict)
         ],
-        "exit_index": [
-            _pick(row, ("to", "kind", "open", "travel_minutes"))
-            for row in exits[:24]
-            if isinstance(row, dict)
-        ],
+        # Bounded like the other indices, but under the name the host binds
+        # from. It used to be `exit_index`; the collapsed form was documented
+        # as substituting that for `exits` so the Keeper would re-read the full
+        # projection, and nothing taught the host, which reads `data.exits` and
+        # silently revoked movement when it was absent.
+        "exits": _scene_exit_bindings(scene),
         "counts": {
             "npcs_present": len(npcs),
             "action_routes": len(routes),
@@ -2996,6 +3028,21 @@ def _project_scene_recovery_index(scene: Any) -> dict[str, Any] | None:
         },
         "full_projection_operation": _operation_card("scene.context"),
     }
+    # `progressive` rides along for background-work accounting, but its
+    # `background_takeover` packet duplicates the Pi task byte-for-byte and ran
+    # 8.4 KB of a 14.9 KB "bounded" index -- 71% background bookkeeping, which
+    # pushed the envelope past the budget and collapsed the whole scene to an
+    # identity stub. Slim it the way the identity projection already does.
+    progressive = scene_index.get("progressive")
+    if isinstance(progressive, dict) and isinstance(
+        progressive.get("background_takeover"), dict
+    ):
+        scene_index["progressive"] = {
+            **progressive,
+            "background_takeover": _slim_background_takeover(
+                progressive["background_takeover"]
+            ),
+        }
     # ``scene`` is the internal tight projection produced by ``_compact_scene``;
     # source material was already validated, packed, and digested exactly once.
     source_material = scene.get("source_material")
@@ -3436,6 +3483,59 @@ def _minimal_identity(operation: str, data: Any) -> dict[str, Any]:
         # identity collapse may drop payload, never the next step.
         if isinstance(data.get("next_operations"), list):
             projected["next_operations"] = deepcopy(data["next_operations"])
+        # `open_turn_recovery` names its next step and the host arms the tools
+        # that perform it from `open_turn_anchor` and `current_turn`. Keeping
+        # only the name left a live table told to "continue the current turn
+        # from receipts" with no card that could: the Keeper refused twice,
+        # correctly, and the campaign could not be resumed at all. Carry the
+        # anchor whole -- it is an identifier -- and the turn's counts without
+        # its rows, which are the payload.
+        if isinstance(data.get("open_turn_anchor"), (str, dict)):
+            projected["open_turn_anchor"] = deepcopy(data["open_turn_anchor"])
+        current_turn = data.get("current_turn")
+        if isinstance(current_turn, dict):
+            slim = _pick(
+                current_turn,
+                (
+                    "schema_version",
+                    "meaningful_row_count",
+                    "operational_row_count",
+                    "source_row_count",
+                    "source_digest",
+                    "zero_tool_accepted_input",
+                ),
+            )
+            # `validPreJournalWindow` decides whether the crashed turn is still
+            # recoverable, and it answers from the rows: at least one, and none
+            # of them a settled `state.journal`. Dropping them entirely -- they
+            # look like payload -- made that predicate false, which cleared the
+            # one accepted-input binding recovery can use. The host's own
+            # comment records a live table deadlocking exactly that way.
+            #
+            # So the rows travel as the two fields the predicate reads. The
+            # payload on each row (arguments, data_ref, semantic_reason) does
+            # not, which is what the collapse is for.
+            rows = current_turn.get("rows")
+            if isinstance(rows, list):
+                slim["rows"] = [
+                    _pick(row, ("tool", "ok"))
+                    for row in rows
+                    if isinstance(row, dict)
+                ]
+            projected["current_turn"] = slim
+    if operation == "scene.context":
+        # An identity collapse may drop payload, never the next step. The host
+        # arms `state.move_scene` from `time` + `exits`; without them it calls
+        # `revokeSceneDerivedBindings()` and the Keeper is refused
+        # `binding_context_missing` for the rest of the turn. A graph-backed
+        # module's scene context always exceeds the budget, so the table sat in
+        # one scene for three turns while the Keeper kept correctly naming the
+        # next one the graph declared.
+        if isinstance(data.get("time"), dict):
+            projected["time"] = deepcopy(data["time"])
+        exits = _scene_exit_bindings(data)
+        if exits:
+            projected["exits"] = exits
     if operation in {
         "progressive.register_source_bundle",
         "progressive.status",

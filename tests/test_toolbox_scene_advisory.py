@@ -684,3 +684,162 @@ def test_story_thread_orders_by_what_the_main_line_needs(campaign_ws):
     assert len(row["one_move_away"]) == 1
     assert row["one_move_away"][0]["transition"] == "沿河向北半日。"
     assert len(row["one_move_away"][0]["clues"]) == 2
+
+def test_an_improvised_scene_still_offers_the_authored_map(campaign_ws):
+    """One step off the map must not be a one-way door.
+
+    `state.move_scene` accepts a destination the module never drew — a Keeper
+    improvising the king's hall is ordinary play. But the book's edges hang off
+    the book's scenes, so from an improvised scene `exits` came back empty, and
+    with nothing in hand pointing at the authored spine a live table drifted
+    three scenes off it and could not find the way back.
+
+    The routes offered here are the module's own, out of the last authored
+    scene the party actually stood in. The Keeper still decides whether the
+    fiction has earned one.
+    """
+    story_graph = json.loads(
+        (campaign_ws["campaign_dir"] / "scenario" / "story-graph.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    authored = next(
+        scene for scene in story_graph["scenes"] if scene.get("scene_edges")
+    )
+    expected = [str(edge["to"]) for edge in authored["scene_edges"]]
+
+    world_path = campaign_ws["campaign_dir"] / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["active_scene_id"] = "scene-a-keeper-invented-this"
+    world["visited_scene_ids"] = [authored["scene_id"], "scene-a-keeper-invented-this"]
+    _write_json(world_path, world)
+
+    context = _run(campaign_ws, "scene.context")
+    assert context["ok"] is True
+    offered = [str(row["to"]) for row in context["data"].get("exits") or []]
+    assert offered == expected, (
+        "an improvised scene offered no way back to the authored map: "
+        f"{offered}"
+    )
+    assert any(
+        "not in the authored map" in warning for warning in context["warnings"]
+    ), "the exits are borrowed from another scene and nothing says so"
+
+def test_an_authored_scene_offers_its_own_exits_not_a_borrowed_set(campaign_ws):
+    """The complement: on the map, the map answers for itself."""
+    story_graph = json.loads(
+        (campaign_ws["campaign_dir"] / "scenario" / "story-graph.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    authored = next(
+        scene for scene in story_graph["scenes"] if scene.get("scene_edges")
+    )
+    world_path = campaign_ws["campaign_dir"] / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["active_scene_id"] = authored["scene_id"]
+    _write_json(world_path, world)
+
+    context = _run(campaign_ws, "scene.context")
+    assert not any(
+        "not in the authored map" in warning for warning in context["warnings"]
+    )
+
+def test_an_exit_card_names_the_scene_it_leads_to(campaign_ws):
+    """A bare scene id is not something a Keeper can recognise.
+
+    Found by playing: the exit card read
+    `{"to": "scene-king-murdered", "kind": "travel", "open": false}`. The
+    table then played the king's assassination in full — the river, the
+    bathing party, the men wading in — inside a scene the Keeper improvised,
+    because nothing connected the beat in front of it to the module's own
+    scene. The fiction advanced and the authored scene was never entered.
+
+    The two fields added here are the book's own words about the destination:
+    what the module calls it, and how the module opens it.
+    """
+    story_graph = json.loads(
+        (campaign_ws["campaign_dir"] / "scenario" / "story-graph.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    source = next(scene for scene in story_graph["scenes"] if scene.get("scene_edges"))
+    world_path = campaign_ws["campaign_dir"] / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["active_scene_id"] = source["scene_id"]
+    _write_json(world_path, world)
+
+    exits = _run(campaign_ws, "scene.context")["data"]["exits"]
+    assert exits, "fixture scene has no exits"
+    by_id = {scene["scene_id"]: scene for scene in story_graph["scenes"]}
+    for row in exits:
+        destination = by_id.get(str(row["to"])) or {}
+        assert "display_name" in row, (
+            f"exit to {row['to']} is a bare id; a Keeper cannot recognise it"
+        )
+        assert row["display_name"] == str(destination.get("display_name") or "")
+        assert "leads_to" in row
+        teaser = str(destination.get("player_safe_summary") or "").strip()
+        if teaser:
+            assert row["leads_to"], "the module opens this scene and the card says nothing"
+            assert row["leads_to"].rstrip("…") in teaser
+
+def test_the_exit_teaser_is_bounded(campaign_ws):
+    """Scene context is already the operation that overflows the budget.
+
+    The real module's opening paragraph for `scene-king-murdered` runs past
+    three hundred characters; multiplied across a scene's exits that is the
+    projection budget this repository has spent the day defending.
+    """
+    story_path = campaign_ws["campaign_dir"] / "scenario" / "story-graph.json"
+    story_graph = json.loads(story_path.read_text(encoding="utf-8"))
+    source = next(scene for scene in story_graph["scenes"] if scene.get("scene_edges"))
+    destination_id = str(source["scene_edges"][0]["to"])
+    destination = next(
+        scene for scene in story_graph["scenes"]
+        if scene["scene_id"] == destination_id
+    )
+    destination["player_safe_summary"] = "半上午，康尼尔中断谈判。" * 40
+    _write_json(story_path, story_graph)
+
+    world_path = campaign_ws["campaign_dir"] / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["active_scene_id"] = source["scene_id"]
+    _write_json(world_path, world)
+
+    rows = _run(campaign_ws, "scene.context")["data"]["exits"]
+    target = next(row for row in rows if str(row["to"]) == destination_id)
+    assert len(target["leads_to"]) <= 121, len(target["leads_to"])
+    assert target["leads_to"].endswith("…")
+
+def test_borrowed_exits_carry_the_openness_of_the_scene_they_came_from(campaign_ws):
+    """Half a fix is its own defect.
+
+    An improvised scene has no transition candidates at all, so computing
+    `open` from it marked every borrowed route closed: the Keeper was shown
+    the module's next beat and told it was unavailable. Openness has to travel
+    with the edges it describes.
+    """
+    story_graph = json.loads(
+        (campaign_ws["campaign_dir"] / "scenario" / "story-graph.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    source = next(scene for scene in story_graph["scenes"] if scene.get("scene_edges"))
+    destinations = [str(edge["to"]) for edge in source["scene_edges"]]
+
+    world_path = campaign_ws["campaign_dir"] / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["active_scene_id"] = "scene-a-keeper-invented-this"
+    world["visited_scene_ids"] = [source["scene_id"], "scene-a-keeper-invented-this"]
+    world["unlocked_scene_ids"] = sorted(
+        set(world.get("unlocked_scene_ids") or []) | set(destinations)
+    )
+    _write_json(world_path, world)
+
+    rows = _run(campaign_ws, "scene.context")["data"]["exits"]
+    assert rows, "no borrowed exits to judge"
+    assert any(row.get("open") for row in rows), (
+        "every borrowed route reads closed; the Keeper is shown the module's "
+        "next beat and told it cannot go there"
+    )

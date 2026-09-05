@@ -137,3 +137,153 @@ def test_the_canonical_producer_emits_every_key_accounted_for():
         + ". Add each to the _compact_scene whitelist, or to WITHHELD with the "
         "reason it is deliberately not carried."
     )
+
+
+# --- the degraded projections ------------------------------------------
+#
+# The accounting above covers `_compact_scene`, the fattest projection. Below
+# it sit two more, each entered when the one above will not fit: the bounded
+# recovery index, then the identity stub. The host arms `state.move_scene`
+# from `data.exits` and `data.time` and reads nothing else; `exit_index` has
+# no reader anywhere in the host. A graph-backed module's scene context always
+# exceeds the budget, so those degraded shapes are the ones a real table gets.
+
+
+def _fat_scene_context() -> dict:
+    """A scene whose canonical form cannot fit the inline budget."""
+    task = {
+        "agent_type": "coc-source-coordinator",
+        "prompt": "deepen the module source" + " padding" * 1400,
+    }
+    return {
+        "campaign_id": "c1",
+        "active_scene_id": "scene-welcome-feast",
+        "turn_number": 4,
+        "time": {"day": 1, "clock": "20:00", "era": "ad_80"},
+        "exits": [
+            {
+                "to": "scene-rank-challenge-drinking",
+                "kind": "travel",
+                "open": True,
+                "when": {"kind": "always"},
+            }
+        ],
+        "npcs_present": [{"npc_id": "npc-morgan", "name": "莫甘"}],
+        "progressive": {
+            "campaign_id": "c1",
+            "background_takeover": {
+                "coordinator_dispatch": {"pi_task": task},
+                "next_host_action": {"task": task},
+            },
+        },
+    }
+
+
+def test_scene_recovery_index_carries_the_exits_the_host_binds_from():
+    index = wire._project_scene_recovery_index(_fat_scene_context())
+    assert index is not None
+    assert index["exits"] == [
+        {
+            "to": "scene-rank-challenge-drinking",
+            "kind": "travel",
+            "open": True,
+            "when": {"kind": "always"},
+        }
+    ], (
+        "the recovery index summarised exits as `exit_index`, a name no host "
+        "code reads; armStructuredSceneBindings then revoked state.move_scene"
+    )
+    assert isinstance(index["time"], dict)
+
+
+def test_scene_identity_collapse_keeps_time_and_exits():
+    """An identity collapse may drop payload, never the next step."""
+    stub = wire._minimal_identity("scene.context", _fat_scene_context())
+    assert isinstance(stub.get("time"), dict), (
+        "without `time` the host revokes every scene-derived binding"
+    )
+    assert [row["to"] for row in stub.get("exits") or []] == [
+        "scene-rank-challenge-drinking"
+    ], "without `exits` the Keeper cannot leave the scene it is standing in"
+
+
+def test_fat_scene_context_stops_at_the_recovery_index():
+    """The bounded index must not itself be crowded out of the budget.
+
+    `progressive.background_takeover` duplicates the Pi task byte-for-byte and
+    ran 8.4 KB of a 14.9 KB index -- 71% background bookkeeping. That pushed
+    the envelope over, collapsed the scene to an identity stub, and left a
+    live table sitting in one scene for three turns while the Keeper kept
+    correctly naming the next scene the graph declared.
+    """
+    envelope = {
+        "ok": True,
+        "tool": "scene.context",
+        "data": _fat_scene_context(),
+        "warnings": [],
+        "hints": [],
+    }
+    result = wire.project_envelope(
+        "scene.context", envelope, contract_digest="sha256:" + "0" * 64
+    )
+    assert result["wire"]["full_result_bytes"] > wire.MAX_INLINE_BYTES
+    assert not result["wire"].get("identity_only"), (
+        "the scene collapsed past its own bounded index"
+    )
+    assert result["wire"]["scene_recovery_index_projection"] is True
+    assert result["data"]["exits"][0]["to"] == "scene-rank-challenge-drinking"
+
+
+def test_open_turn_recovery_keeps_what_the_host_arms_the_recovery_from():
+    """The third field of the same law, found the same way: by playing.
+
+    `session.resume` in `open_turn_recovery` names its next step, and the host
+    arms the tools that perform it from `open_turn_anchor` and `current_turn`.
+    Carrying only the name left a live table told to "continue the current turn
+    from receipts" with no card that could do it. The Keeper refused twice --
+    correctly, it had no tools -- and the campaign could not be resumed at all.
+
+    Rows are payload and still go. The anchor and the counts are the next step.
+    """
+    data = {
+        "schema_version": 1,
+        "campaign_id": "graph-play1",
+        "mode": "open_turn_recovery",
+        "next_operations": ["continue_current_turn_from_receipts"],
+        "open_turn_anchor": {"turn_id": "t-1"},
+        "current_turn": {
+            "schema_version": 1,
+            "meaningful_row_count": 2,
+            "operational_row_count": 0,
+            "source_row_count": 8,
+            "zero_tool_accepted_input": False,
+            "rows": [{
+                "tool": "actions.advise",
+                "ok": True,
+                "args": {"semantic_reason": "x" * 5000},
+                "data_ref": "logs/toolbox-calls.jsonl#call-1",
+            }],
+        },
+    }
+    stub = wire._minimal_identity("session.resume", data)
+    assert stub["next_operations"] == ["continue_current_turn_from_receipts"]
+    assert stub["open_turn_anchor"] == {"turn_id": "t-1"}, (
+        "the host cannot identify the turn it is recovering"
+    )
+    recovered = stub.get("current_turn")
+    assert isinstance(recovered, dict) and recovered["meaningful_row_count"] == 2, (
+        "the host reads current_turn to decide how to recover; without it the "
+        "recovery path never runs and no play tool is armed"
+    )
+    # The rows are not payload in full: `validPreJournalWindow` answers from
+    # them whether the crashed turn is still recoverable — at least one row,
+    # none of them a settled `state.journal`. Dropping them made that predicate
+    # false, which cleared the accepted-input binding recovery needs, and the
+    # host's own comment records a live table deadlocking exactly that way.
+    assert recovered["rows"] == [{"tool": "actions.advise", "ok": True}], (
+        "the recovery predicate reads the rows; without them it reports the "
+        "turn unrecoverable and clears the one binding that could resume it"
+    )
+    assert all(
+        set(row) <= {"tool", "ok"} for row in recovered["rows"]
+    ), "each row's arguments and refs are payload and must not survive"

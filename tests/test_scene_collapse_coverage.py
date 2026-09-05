@@ -47,7 +47,6 @@ wire = _load("coc_mcp_wire_collapse_tests", WIRE)
 SUBSTITUTED = {
     "npcs_present": "npc_index",
     "clues_here": "clue_index",
-    "exits": "exit_index",
     "action_routes": "route_index",
     "scene": "scene_identity",
     "discovered_clue_count": "counts",
