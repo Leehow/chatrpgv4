@@ -219,3 +219,104 @@ def test_an_accepted_read_fulfils_the_request_and_grows_the_graph(tmp_path):
     after = len(list((assets.graph_shard_dir(tmp_path, "mod")).glob("*.shard.json")))
     assert after == before + 1, "the section was read and kept nowhere"
     assert out["stored"]["from_shard"] is True
+
+
+# --------------------------------------------------------------------------
+# The wire: the worker is the claimant, and the switch really switches.
+# --------------------------------------------------------------------------
+
+
+def _job(job_id: str = "job-1") -> dict:
+    return {"job_id": job_id, "kind": assets.EXTRACT_SECTION_KIND,
+            "target_id": "attic", "enqueued_at": "2026-09-05T00:00:00+00:00"}
+
+
+def _indexed(tmp_path: Path, pages: list[int]) -> None:
+    index = assets.read_section_index(tmp_path, "mod") or {
+        "schema_version": 1, "source_id": "pdf:table-fixture",
+        "file_sha256": assets._module_identity_file_sha256(tmp_path, "mod"),
+        "outline_sha256": "d" * 64, "sections": [],
+    }
+    index["sections"] = [row for row in index.get("sections") or []
+                         if row.get("section_id") != "attic"] + [{
+        "section_id": "attic", "title": "阁楼", "payload": "narrative",
+        "pdf_indices": list(pages), "audience": "keeper_only",
+        "timing": "on_demand",
+        "binding": {"kind": "global", "entity_kind": None, "entity_ids": []},
+    }]
+    assets.write_section_index(tmp_path, "mod", index)
+
+
+def _enqueued(tmp_path: Path, job: dict) -> None:
+    """The job has to be in flight or `_finish_job` has nothing to finish."""
+    root = assets.assets_root(tmp_path) / "mod"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "parse-queue.json").write_text(
+        json.dumps({"in_flight": [job], "done": []}), encoding="utf-8")
+
+
+def test_the_worker_reads_the_section_itself_and_completes_the_job(
+    tmp_path, monkeypatch,
+):
+    _installed(tmp_path)
+    _indexed(tmp_path, [0, 1])
+    job = _job()
+    _enqueued(tmp_path, job)
+    monkeypatch.setattr(
+        worker._deepen_module(), "deepen_section",
+        lambda *a, **k: {"status": "fulfilled", "nodes": 7},
+    )
+    out = worker.process_claimed_job(tmp_path, "mod", job)
+    assert out["result"] == "complete", out
+    assert out["deepened"]["status"] == "fulfilled"
+
+
+def test_a_read_that_did_not_clear_the_gates_leaves_the_job_awaiting_a_host(
+    tmp_path, monkeypatch,
+):
+    _installed(tmp_path)
+    _indexed(tmp_path, [0, 1])
+    job = _job()
+    _enqueued(tmp_path, job)
+    monkeypatch.setattr(
+        worker._deepen_module(), "deepen_section",
+        lambda *a, **k: {"status": "not_accepted", "reason": "gates"},
+    )
+    out = worker.process_claimed_job(tmp_path, "mod", job)
+    assert out["result"] == "awaiting_host_pack", out
+    assert out["deepened"]["status"] == "not_accepted"
+
+
+def test_a_reader_that_raises_does_not_fail_the_job(tmp_path, monkeypatch):
+    """An exception escaping the reader would fail a job whose request is
+    published and answerable. Report it and leave the request open."""
+    _installed(tmp_path)
+    _indexed(tmp_path, [0, 1])
+    job = _job()
+    _enqueued(tmp_path, job)
+
+    def boom(*a, **k):
+        raise RuntimeError("the channel died")
+
+    monkeypatch.setattr(worker._deepen_module(), "deepen_section", boom)
+    out = worker.process_claimed_job(tmp_path, "mod", job)
+    assert out["result"] == "awaiting_host_pack", out
+    assert out["deepened"]["status"] == "error"
+    assert "the channel died" in out["deepened"]["reason"]
+
+
+def test_the_switch_restores_exactly_the_old_behaviour(tmp_path, monkeypatch):
+    _installed(tmp_path)
+    _indexed(tmp_path, [0, 1])
+    job = _job()
+    _enqueued(tmp_path, job)
+    monkeypatch.setenv(deepen.DISABLE_ENV, "1")
+    called: list[int] = []
+    monkeypatch.setattr(
+        worker._deepen_module(), "deepen_section",
+        lambda *a, **k: called.append(1) or {"status": "fulfilled"},
+    )
+    out = worker.process_claimed_job(tmp_path, "mod", job)
+    assert out["result"] == "awaiting_host_pack"
+    assert "deepened" not in out, "the switch was off and a reader still ran"
+    assert called == []

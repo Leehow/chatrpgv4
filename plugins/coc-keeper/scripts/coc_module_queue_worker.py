@@ -2413,6 +2413,54 @@ def _run_full_parse_ocr_attempt(
     )
 
 
+_DEEPEN_MODULE: Any | None = None
+
+
+def _deepen_module():
+    """The table's reader, loaded once.
+
+    Cached rather than re-loaded per job for two reasons. It pulls in the build
+    pipeline, which is not cheap to execute for every claimed section. And
+    `_load_sibling` re-executes the file on every call, so a fresh module each
+    time is one nothing can substitute -- a test that patches the reader would
+    patch a copy the worker never runs.
+    """
+    global _DEEPEN_MODULE
+    if _DEEPEN_MODULE is None:
+        _DEEPEN_MODULE = _load_sibling(
+            "coc_module_deepen_worker", "coc_module_deepen.py",
+        )
+    return _DEEPEN_MODULE
+
+
+def _attempt_agent_deepening(
+    workspace: Path, asset_root_id: str, job: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Read this section here and now, if deepening is on.
+
+    Returns None when deepening is off, so the caller behaves exactly as it did
+    before this existed. Every failure is caught and reported as a status: an
+    exception escaping here would fail the job, and a job that failed is worse
+    than a request left open for a host to answer.
+    """
+    try:
+        deepen = _deepen_module()
+    except Exception as error:  # noqa: BLE001 - a missing reader is not a failed job
+        return {"status": "unavailable", "reason": f"{type(error).__name__}: {error}"}
+    if not deepen.enabled():
+        return None
+    job_id = str(job.get("job_id") or "")
+    if not job_id:
+        return {"status": "unavailable", "reason": "job has no id"}
+    work_dir = _worker_dir(workspace) / "deepen" / f"{asset_root_id}--{job_id}"
+    try:
+        return deepen.deepen_section(
+            workspace, asset_root_id, job_id=job_id, work_dir=work_dir,
+        )
+    except Exception as error:  # noqa: BLE001 - see docstring
+        return {"status": "error", "reason": f"{type(error).__name__}: {error}"}
+
+
 def process_claimed_job(
     workspace: Path,
     asset_root_id: str,
@@ -2549,6 +2597,20 @@ def process_claimed_job(
             # was closed as skipped, so the section index was never requested.
             req = _write_host_work_request(workspace, asset_root_id, job)
             detail["host_work_request"] = str(req)
+            if kind == coc_module_assets.EXTRACT_SECTION_KIND:
+                # The request is published either way. If the reader here
+                # clears the gates it also fulfils it, and the section lands in
+                # the graph without anyone being asked; if it does not, the
+                # request stays open exactly as before and a host can answer it.
+                deepened = _attempt_agent_deepening(workspace, asset_root_id, job)
+                if deepened is not None:
+                    detail["deepened"] = deepened
+                    if deepened.get("status") == "fulfilled":
+                        _finish_job(
+                            workspace, asset_root_id, job,
+                            result="complete", detail=detail,
+                        )
+                        return {"ok": True, "result": "complete", **detail}
             _finish_job(
                 workspace, asset_root_id, job,
                 result="awaiting_host_pack", detail=detail,
