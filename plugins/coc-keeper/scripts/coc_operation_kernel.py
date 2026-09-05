@@ -10112,14 +10112,56 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         ]
     else:
         edges = coc_scene_graph.derive_scene_edges(sg).get(str(active_id or ""), [])
+    if not edges and scene is None:
+        # The party is standing somewhere the Keeper improvised, so the book's
+        # map draws no line from here and `exits` comes back empty. That made
+        # one improvised step a one-way door: with nothing in hand pointing at
+        # the authored spine, a live table drifted three scenes off it and
+        # never found the way back. Offer the routes out of the last authored
+        # scene it actually stood in -- those edges are the module's own, not
+        # invented, and the Keeper decides whether the fiction has earned one.
+        for previous in reversed(list(world.get("visited_scene_ids") or [])):
+            previous_scene = _scene_by_id(sg, str(previous))
+            if not isinstance(previous_scene, dict):
+                continue
+            resumed = [
+                edge for edge in (previous_scene.get("scene_edges") or [])
+                if isinstance(edge, dict) and edge.get("to")
+            ] or coc_scene_graph.derive_scene_edges(sg).get(str(previous), [])
+            if resumed:
+                edges = resumed
+                # Openness has to move with the edges. Computed from the
+                # improvised scene it is always false -- an off-graph scene has
+                # no candidates at all -- so every borrowed route was shown to
+                # the Keeper as the module's next beat, closed.
+                candidates = coc_scene_graph.transition_candidates(
+                    str(previous), sg, dict(world),
+                )
+                warnings.append(
+                    f"active scene '{active_id}' is not in the authored map; "
+                    f"the exits below are the module's routes out of "
+                    f"'{previous}', the last authored scene visited"
+                )
+            break
     exits = []
     for edge in edges:
         target = str(edge["to"])
         prefilled_arguments = {"scene_id": target}
         if edge.get("travel_minutes") is not None:
             prefilled_arguments["travel_minutes"] = edge["travel_minutes"]
+        # An exit card used to carry the destination as a bare id. A Keeper
+        # cannot recognise `scene-king-murdered` as the scene it is about to
+        # play, so it improvised the king's assassination in a scene of its
+        # own and the authored beat was never entered: the fiction advanced
+        # and the module's own scene stayed untouched. These two fields are
+        # the book's words about the destination, which is what lets the
+        # Keeper match the beat in front of it to the scene the module wrote.
+        destination = _scene_by_id(sg, target)
+        teaser = str((destination or {}).get("player_safe_summary") or "").strip()
         exits.append({
             "to": target,
+            "display_name": str((destination or {}).get("display_name") or ""),
+            "leads_to": (teaser[:120] + "…") if len(teaser) > 120 else teaser,
             "kind": edge.get("kind"),
             "when": edge.get("when"),
             **(
