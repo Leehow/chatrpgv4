@@ -220,6 +220,86 @@ def load_page_catalog(
     return catalog
 
 
+def catalog_from_page_refs(
+    page_refs: list[dict[str, Any]],
+) -> dict[tuple[str, int], dict[str, Any]]:
+    """Build the same page catalog from an asset root's cached pages.
+
+    `load_page_catalog` reads a source bundle, which is where a build starts.
+    A campaign at the table has no bundle -- it has the pages the asset root
+    accepted, and the only thing that reaches it is a `cached_page_ref`. This
+    turns those refs into catalog rows so on-demand deepening runs through the
+    same `prepare_from_request` a build does, rather than a second reader that
+    would drift from it.
+
+    The ref's own `text_sha256` is not trusted. It is metadata written beside
+    the file; the digest here is recomputed from the bytes actually read, and a
+    disagreement is a finding rather than a page that quietly reads as
+    something the accounting says it is not.
+    """
+    if not isinstance(page_refs, list) or not page_refs:
+        raise ModuleGraphError([
+            _finding("source_bundle_required", "/", "at least one cached page is required")
+        ])
+    catalog: dict[tuple[str, int], dict[str, Any]] = {}
+    findings: list[dict[str, str]] = []
+    for ref_index, ref in enumerate(page_refs):
+        base = f"/cached_pages/{ref_index}"
+        if not isinstance(ref, dict):
+            findings.append(_finding("invalid_source_page", base, "must be an object"))
+            continue
+        source_id = ref.get("source_id")
+        if not _valid_source_id(source_id):
+            findings.append(_finding("invalid_source_identity", f"{base}/source_id", "invalid source_id"))
+            continue
+        pdf_index = ref.get("pdf_index")
+        if isinstance(pdf_index, bool) or not isinstance(pdf_index, int) or pdf_index < 0:
+            findings.append(_finding("invalid_pdf_index", f"{base}/pdf_index", "must be a non-negative integer"))
+            continue
+        raw_path = ref.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            findings.append(_finding("invalid_markdown_path", f"{base}/path", "missing"))
+            continue
+        try:
+            payload = Path(raw_path).read_bytes()
+            text = payload.decode("utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            findings.append(_finding("source_page_unreadable", base, str(exc)))
+            continue
+        actual_digest = hashlib.sha256(payload).hexdigest()
+        if ref.get("text_sha256") != actual_digest:
+            findings.append(_finding("source_page_hash_mismatch", base, actual_digest))
+            continue
+        if ref.get("review_state") not in {"manual_accepted", "auto_accepted"}:
+            findings.append(_finding("source_page_unreviewed", base, "page is not accepted"))
+        confidence = ref.get("parse_confidence")
+        if (
+            isinstance(confidence, bool)
+            or not isinstance(confidence, (int, float))
+            or not 0 <= confidence <= 1
+        ):
+            findings.append(_finding("invalid_parse_confidence", base, "expected 0 through 1"))
+        key = (source_id, pdf_index)
+        row = {
+            "source_id": source_id,
+            "pdf_index": pdf_index,
+            "text": text,
+            "text_sha256": actual_digest,
+            "parse_confidence": confidence,
+            "review_state": ref.get("review_state"),
+            "bundle_path": str(Path(raw_path).parent),
+            "markdown_path": Path(raw_path).name,
+        }
+        existing = catalog.get(key)
+        if existing is not None and existing["text_sha256"] != actual_digest:
+            findings.append(_finding("source_page_conflict", base, f"{source_id}:{pdf_index}"))
+        else:
+            catalog[key] = row
+    if findings:
+        raise ModuleGraphError(findings)
+    return catalog
+
+
 def _valid_semantic_id(value: Any) -> bool:
     return isinstance(value, str) and len(value) <= 160 and bool(
         SEMANTIC_ID_RE.fullmatch(value)
