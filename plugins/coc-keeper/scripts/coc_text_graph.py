@@ -628,6 +628,24 @@ def _node(
     }
 
 
+# W1 cross-graph wiring (docs/specs/pi-coc-cross-graph-wiring.md §5): the
+# settled public RuleGraph effects the state-delta mechanics segment actually
+# renders. Every row is a consumer chain that exists today, not a target
+# count: the healing decisions emit these public effects, and their
+# graph-owned settlements carry a top-level player_state_receipt (the healing
+# adapters in coc_operation_rules_core.py), which
+# coc_turn_finalization._project_player_state_receipt projects into the
+# state_delta segment — the same derived effects the W1 runtime bridge tags
+# with rule_effect_refs. An effect whose settlement produces no rendered
+# derived effect stays undrawn and is accounted for in
+# docs/status/text-grounding-gap.md (empty_relations_law).
+RENDERED_RULE_EFFECTS: tuple[tuple[str, str], ...] = (
+    ("state_delta", "effect:coc7:healing:first-aid-stabilization"),
+    ("state_delta", "effect:coc7:healing:medicine-stabilization"),
+    ("state_delta", "effect:coc7:healing:weekly-hp-recovery"),
+)
+
+
 def obligation_shard() -> dict[str, Any]:
     """Compose the T1 obligation shard from the frozen legacy declarations."""
     nodes: list[dict[str, Any]] = []
@@ -700,6 +718,20 @@ def obligation_shard() -> dict[str, Any]:
         for key, owner in LEGACY_OBLIGATION_SOURCE_KINDS
     ]
 
+    # W1: presentation declares which settled public effects it renders.
+    # The compiler's renders-settled-output validator checks every target
+    # against the live RuleGraph (exists, is an effect node, is public).
+    for segment_key, effect_ref in RENDERED_RULE_EFFECTS:
+        relations.append({
+            "relation_id": (
+                f"relation:text:segment-type-{_slug(segment_key)}"
+                f":renders-{effect_ref.replace(':', '-')}"
+            ),
+            "relation_kind": "renders-settled-output",
+            "from_node_id": f"segment-type:{_slug(segment_key)}",
+            "to_node_id": effect_ref,
+        })
+
     return {
         "contract_id": SHARD_CONTRACT_ID,
         "schema_version": SCHEMA_VERSION,
@@ -726,6 +758,16 @@ def obligation_shard() -> dict[str, Any]:
 UNKNOWN = "unknown-legacy-tuning"
 DELETED_MATCHER_ORIGIN = (
     "coc_narration_style.audit_player_visible_text, deleted in slice T4"
+)
+# The preserved playtest that motivated slice T5's craft additions. Every
+# routine turn sat on the 350-char budget floor, zero NPC direct speech, no
+# scene sensory anchor — the contract's accountability_law accepts a playtest
+# finding reference as an origin.
+PLAYTEST_TEXT_QUALITY_ORIGIN = (
+    "text-quality finding, campaign "
+    "pdf-coc-let-the-children-come-to-me-20260826T232901: routine turns "
+    "resolved inside the budget floor with no NPC direct speech and no "
+    "scene sensory anchor"
 )
 
 # (legacy_key, hard_gate, citable, rationale, origin)
@@ -806,6 +848,19 @@ LEGACY_CRAFT_DIRECTIVES: tuple[tuple[str, str, str, str], ...] = (
     ("rewrite-abstract-psychological-explanation", "rewrite_guidance",
      "lead with observable behaviour and add interpretation only after visible "
      "evidence or a relevant skill result", DELETED_MATCHER_ORIGIN),
+    ("npc-direct-speech", "required_rule",
+     "when an NPC delivers new information or a refusal, render at least one "
+     "of their utterances as direct quoted speech in their own voice instead "
+     "of indirect summary; a scene where every NPC line is reported is a "
+     "scene with no NPCs in it", PLAYTEST_TEXT_QUALITY_ORIGIN),
+    ("scene-sensory-anchor", "required_rule",
+     "when the investigator enters a new scene, place at least one concrete "
+     "sensory detail they can perceive before any interpretation or summary "
+     "of what the scene means", PLAYTEST_TEXT_QUALITY_ORIGIN),
+    ("spend-budget-on-scene-texture", "required_rule",
+     "the length budget is scene room, not event count: spend it on texture, "
+     "voice, space and motion; never cram extra events to fill it, and never "
+     "restate the player's own action", PLAYTEST_TEXT_QUALITY_ORIGIN),
 )
 
 LEGACY_RENDER_SLOTS: tuple[str, ...] = (
@@ -835,11 +890,25 @@ LEGACY_STYLE_AXES: tuple[tuple[str, str, str], ...] = (
 )
 
 # (legacy_key, max_chars, max_paragraphs) in first-match-wins ladder order.
+# Slice T5 retune: the pre-T5 rungs (routine 350/2, costly 550/3) let a turn
+# resolve inside the budget floor with nothing but event clauses, which is
+# what produced telegraphic prose; the recorded finding names the campaign.
 LEGACY_BUDGET_MODES: tuple[tuple[str, int, int], ...] = (
     ("climax_or_madness", 1500, 8),
     ("reveal_or_transition", 900, 5),
-    ("costly_result", 550, 3),
-    ("routine_resolution", 350, 2),
+    ("costly_result", 750, 4),
+    ("routine_resolution", 600, 3),
+)
+
+# Slice T5 retune provenance for the two moved rungs. The contract's
+# identity_law permits retuning only as a recorded slice, so the origin names
+# the playtest finding that motivated the move instead of the generic
+# unknown-legacy-tuning token the untouched rungs keep.
+BUDGET_RETUNE_ORIGIN = (
+    "slice-T5 retune after the 2026-08-26 playtest of "
+    "pdf-coc-let-the-children-come-to-me-20260826T232901: every routine turn "
+    "sat on the 350-char budget floor and read as a log of event clauses "
+    "with no NPC direct speech and no scene texture"
 )
 
 # (legacy_key, owning budget mode). routine_resolution is the fallback and has
@@ -1065,7 +1134,9 @@ def craft_shard() -> dict[str, Any]:
             {"legacy_key": key, "ordinal": ordinal,
              "max_chars": chars, "max_paragraphs": paras},
             "how long a turn of this kind should run before length becomes "
-            "an advisory finding", UNKNOWN,
+            "an advisory finding",
+            BUDGET_RETUNE_ORIGIN if key in ("costly_result", "routine_resolution")
+            else UNKNOWN,
         ))
 
     for ordinal, (key, mode) in enumerate(LEGACY_BUDGET_TRIGGERS):

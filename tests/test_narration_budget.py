@@ -129,15 +129,17 @@ def _brief(ws, applied_events: list[dict] | None = None) -> dict:
 def test_budget_modes_from_turn_signals(campaign_ws):
     routine = _brief(campaign_ws)
     assert routine["ok"] is True, routine
+    # Slice T5 retuned the two lower rungs (graph node origin records the
+    # playtest finding); reveal and climax rungs are untouched.
     assert routine["data"]["budget"] == {
         "mode": "routine_resolution",
-        "max_chars": 350,
-        "max_paragraphs": 2,
+        "max_chars": 600,
+        "max_paragraphs": 3,
     }
 
     costly = _brief(campaign_ws, [{"event_type": "hp_change"}])
     assert costly["data"]["budget"]["mode"] == "costly_result"
-    assert costly["data"]["budget"]["max_chars"] == 550
+    assert costly["data"]["budget"]["max_chars"] == 750
 
     reveal = _brief(campaign_ws, [{"event_type": "scene_transition"}])
     assert reveal["data"]["budget"]["mode"] == "reveal_or_transition"
@@ -256,6 +258,13 @@ def test_settled_multi_stage_public_checks_fit_budget_and_finalize_first_try(
     output = _run(campaign_ws, "turn.output_context")
     assert output["ok"] is True, output
     data = output["data"]
+    # Slice T5: the craft vocabulary must ride the live operation, not the
+    # narration.brief path normal play never calls.
+    style = data["style_contract"]
+    assert style["style_guard"]["required_rule_text"][
+        "spend_budget_on_scene_texture"
+    ]
+    assert "npc_direct_speech" in style["style_guard"]["required_rules"]
     public_checks = data["mechanics_bundle"]["public_check"]
     assert len(public_checks) == 3
     assert data["contract_projection"]["narration_budget"]["max_paragraphs"] >= 4
@@ -384,7 +393,7 @@ def test_review_records_deterministic_over_length(campaign_ws):
     )
     assert journal["ok"] is True, journal
     context = _run(campaign_ws, "turn.output_context")["data"]
-    long_draft = "雨敲着窗。" * 200  # 1000 chars, far beyond 2x routine budget
+    long_draft = "雨敲着窗。" * 300  # 1500 chars, beyond 2x the T5 routine budget
     reviewed = _run(
         campaign_ws,
         "narration.review",

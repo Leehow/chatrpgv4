@@ -52,6 +52,13 @@
   ],
   "references": [
     {
+      "ref_id": "ref:director:combat-flee-cast-intent",
+      "graph_id": "graph:director:production",
+      "semantic_id": "scoring-rule:subsystem:combat-flee-cast-intent",
+      "reference_kind": "artifact-node",
+      "node_kind": "scoring-rule"
+    },
+    {
       "ref_id": "ref:director:dying-clock-kind",
       "graph_id": "graph:director:production",
       "semantic_id": "craft-directive:dying-clock-kind",
@@ -64,6 +71,13 @@
       "semantic_id": "craft-directive:dying-forces-rescue-subsystem",
       "reference_kind": "artifact-node",
       "node_kind": "craft-directive"
+    },
+    {
+      "ref_id": "ref:director:pushed-fail-nudge",
+      "graph_id": "graph:director:production",
+      "semantic_id": "scoring-rule:pressure:pushed-fail-nudge",
+      "reference_kind": "artifact-node",
+      "node_kind": "scoring-rule"
     },
     {
       "ref_id": "ref:execution:coc7:check",
@@ -480,6 +494,13 @@
       "ref_id": "ref:rule:coc7:decision-coc7-chase-start",
       "graph_id": "graph:rule:coc7",
       "semantic_id": "decision:coc7:chase:start",
+      "reference_kind": "artifact-node",
+      "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:rule:coc7:decision-coc7-combat-attack",
+      "graph_id": "graph:rule:coc7",
+      "semantic_id": "decision:coc7:combat:attack",
       "reference_kind": "artifact-node",
       "node_kind": "decision"
     },
@@ -986,9 +1007,34 @@
       "semantic_id": "decision:coc7:healing:weekly-major-wound-recovery",
       "reference_kind": "artifact-node",
       "node_kind": "decision"
+    },
+    {
+      "ref_id": "ref:text:segment-type-state-delta",
+      "graph_id": "graph:text:production",
+      "semantic_id": "segment-type:state-delta",
+      "reference_kind": "artifact-node",
+      "node_kind": "segment-type"
     }
   ],
   "relations": [
+    {
+      "relation_id": "relation:system:director-combat-flee-cast-grounded-cast-spell",
+      "relation_kind": "grounded-by",
+      "from_ref": "ref:director:combat-flee-cast-intent",
+      "to_ref": "ref:rule:coc7:decision-coc7-magic-cast-spell"
+    },
+    {
+      "relation_id": "relation:system:director-combat-flee-cast-grounded-combat-attack",
+      "relation_kind": "grounded-by",
+      "from_ref": "ref:director:combat-flee-cast-intent",
+      "to_ref": "ref:rule:coc7:decision-coc7-combat-attack"
+    },
+    {
+      "relation_id": "relation:system:director-combat-flee-cast-grounded-combat-flee",
+      "relation_kind": "grounded-by",
+      "from_ref": "ref:director:combat-flee-cast-intent",
+      "to_ref": "ref:rule:coc7:decision-coc7-combat-flee"
+    },
     {
       "relation_id": "relation:system:director-dying-clock-grounded-hour",
       "relation_kind": "grounded-by",
@@ -1006,6 +1052,12 @@
       "relation_kind": "grounded-by",
       "from_ref": "ref:director:dying-forces-rescue-subsystem",
       "to_ref": "ref:rule:coc7:dying-entry"
+    },
+    {
+      "relation_id": "relation:system:director-pushed-fail-nudge-grounded-pushed-roll",
+      "relation_kind": "grounded-by",
+      "from_ref": "ref:director:pushed-fail-nudge",
+      "to_ref": "ref:rule:coc7:decision-coc7-push-luck-pushed-roll"
     },
     {
       "relation_id": "relation:system:relation-coc7-chase-barrier-available-when:requires:chase-pending-kind",
@@ -1642,6 +1694,24 @@
       "relation_kind": "may-emit-effect",
       "from_ref": "ref:rule:coc7:pending-choice-coc7-social-pc-refusal",
       "to_ref": "ref:rule:coc7:effect-coc7-social-pc-refusal-penalty"
+    },
+    {
+      "relation_id": "relation:system:text-state-delta-renders-effect-coc7-healing-first-aid-stabilization",
+      "relation_kind": "renders-settled-output",
+      "from_ref": "ref:text:segment-type-state-delta",
+      "to_ref": "ref:rule:coc7:effect-first-aid-stabilization"
+    },
+    {
+      "relation_id": "relation:system:text-state-delta-renders-effect-coc7-healing-medicine-stabilization",
+      "relation_kind": "renders-settled-output",
+      "from_ref": "ref:text:segment-type-state-delta",
+      "to_ref": "ref:rule:coc7:effect-medicine-stabilization"
+    },
+    {
+      "relation_id": "relation:system:text-state-delta-renders-effect-coc7-healing-weekly-hp-recovery",
+      "relation_kind": "renders-settled-output",
+      "from_ref": "ref:text:segment-type-state-delta",
+      "to_ref": "ref:rule:coc7:effect-weekly-hp-recovery"
     }
   ],
   "coverage": [
@@ -1652,7 +1722,7 @@
       "graph_ids": [
         "graph:module:the-haunting"
       ],
-      "reason": "The production The Haunting ModuleGraph is available, but its authored module.haunting.* rules have no Rule/Decision semantic id that is exactly equal to one in the production coc7 RuleGraph, which now carries all ten source-accepted families; no Module-to-Rule instance is claimed."
+      "reason": "Slice W3 measured all seven unique module.haunting.* authored mechanism identities (eleven occurrences) in the production The Haunting ModuleGraph against the ten-family production coc7 RuleGraph and judged each one module-specific: none adopts a coc7 Rule/Decision semantic, so no uses-rule edge is drawn. The weak-floor Luck/Jump cascade, the own-dagger kill exception, the damaged Liber Ivonis read, Flesh Ward, Animate Body, the floating knife MP upkeep, and the conclusion SAN reward each invoke or bound rule mechanics without adopting them, which ADR 0003 decision 4 excludes. Landing a uses-rule edge would also require the authored payload rule_ref to equal the target semantic id, and these rule_refs are runtime-pinned provenance identifiers (authored_operation payloads splatted into rules requests, development.settle roll and event logs, and rules-json source_rule_id rows asserted verbatim by tests), so any future alignment that renames them is a behavior slice, not an ontology edit. See docs/status/module-rule-alignment-haunting.md."
     },
     {
       "graph_kind": "rule",
@@ -1688,16 +1758,16 @@
       "graph_ids": [
         "graph:director:production"
       ],
-      "reason": "The production DirectorGraph carries the Director vocabulary and doctrine planes, and its dying-clock and dying-subsystem craft directives are grounded in the coc7 RuleGraph dying decisions and dying-entry rule. Grounding stops there on purpose: the Director's remaining doctrine reads pacing state and Scenario IR projections, not registered condition paths, and the push-luck and pacing rule families it would otherwise cite are still unresolved in the RuleGraph."
+      "reason": "The production DirectorGraph carries the Director vocabulary and doctrine planes. Dying-clock and dying-subsystem craft directives, the pushed-failure pressure nudge, and the combat/flee/cast subsystem handoff are grounded in coc7 RuleGraph decisions and the dying-entry rule; the pushed-failure nudge is additionally span-bound to Keeper Rulebook p.83-85 and the fair-warning ladder to p.209. The remaining doctrine reads pacing state, scene structure, or carries no rule source, so it stays unresolved by the RuleGraph; the per-node measurement with reason classes is the generated ledger docs/status/director-grounding-gap.md."
     },
     {
       "graph_kind": "text",
       "status": "production-linked",
-      "composition_status": "no-proven-instance",
+      "composition_status": "instance-linked",
       "graph_ids": [
         "graph:text:production"
       ],
-      "reason": "The production TextGraph carries the obligation plane and its derivation reads it. It declares no renders-settled-output relation, and that is the measured outcome rather than unfinished work: slice T3 compared all twenty-three coc7 RuleGraph effect nodes against the text layer and found no rendering path for any of them. The text layer renders turn-effect-v1 and exceptional-effect-v1 state effects, a disjoint namespace, and no code in the tree reads an effect:coc7 id. The single exact vocabulary correspondence is luck_spend, which belongs to the one keeper-only effect and is therefore the one target presentation may never claim. See docs/status/text-grounding-gap.md. The compiler's renders-settled-output validator is live, so the first real bridge is checkable the day it is built."
+      "reason": "The production TextGraph carries the obligation plane and its derivation reads it. Slice W1 bridged the rendering paths that actually exist: segment-type:state-delta renders exactly the three healing effects effect:coc7:healing:first-aid-stabilization, effect:coc7:healing:medicine-stabilization and effect:coc7:healing:weekly-hp-recovery, whose graph-owned settlements carry a player_state_receipt that finalization projects into the state_delta mechanics segment, audited back to the RuleGraph via rule_effect_refs. The other 19 public effects stay unbridged and measured: their family's settle receipt carries no rendered state delta (no consumer yet). The single keeper-only effect luck-spend-mutate is one presentation may never claim. Bridged and unbridged sets, counts and reasons: docs/status/text-grounding-gap.md."
     }
   ]
 }

@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:859b0d2b2e84e1c42e54fc3f5d86fff308e9c5a0e88df65c2affc7d63f493a6f",
+  "content_sha256": "sha256:53e09e64da582ea4170a50c7b2c293efc857739dcb715b918bd9854f600718cd",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -810,11 +810,11 @@
             "type": "string"
           },
           "decision_id": {
-            "description": "idempotency key",
+            "description": "idempotency key; omitted calls receive table-opening:<campaign_id>:opening-1",
             "type": "string"
           },
           "presented_roll_ids": {
-            "description": "ordered public npc_first_impression roll_ids from this campaign/run; [] is valid",
+            "description": "ordered public npc_first_impression roll_ids from this campaign/run; omitted or [] is valid",
             "items": {
               "type": "string"
             },
@@ -826,7 +826,7 @@
             "type": "string"
           },
           "run_id": {
-            "description": "current play/report segment id",
+            "description": "current play/report segment id; omitted calls receive run-<campaign_id>",
             "type": "string"
           },
           "speaker": {
@@ -840,10 +840,7 @@
         },
         "required": [
           "campaign",
-          "text",
-          "run_id",
-          "presented_roll_ids",
-          "decision_id"
+          "text"
         ],
         "type": "object"
       },
@@ -3472,7 +3469,12 @@
             "type": "string"
           },
           "kind": {
+            "default": "damage",
             "description": "damage | heal (default damage)",
+            "enum": [
+              "damage",
+              "heal"
+            ],
             "type": "string"
           },
           "root": {
@@ -4748,6 +4750,7 @@
                 "type": "array"
               },
               "weapon_ref": {
+                "description": "owned weapon id, copied verbatim from rules.context family=combat canonical_context.arsenal.weapons[].weapon_ref; a display name is not a weapon id",
                 "type": "string"
               }
             },
@@ -6522,6 +6525,14 @@
             "pattern": "^quick-start:[A-Za-z0-9][A-Za-z0-9._:-]{0,130}:attempt-[1-9][0-9]{0,5}$",
             "type": "string"
           },
+          "play_register": {
+            "description": "the table's register: 'purist' for philosophical horror where uncovering the truth dooms the seeker, 'pulp' for desperate two-fisted action. Pass it only when the player states a preference; omit it otherwise, because the core rulebook supports the range between them and a guessed pole reads as authored intent",
+            "enum": [
+              "purist",
+              "pulp"
+            ],
+            "type": "string"
+          },
           "pregen_id": {
             "description": "optional exact public pregen_id from setup.inspect; omit when that starter listed none. Omitted is investigator-less; an empty string or unknown id is invalid",
             "type": "string"
@@ -7377,7 +7388,14 @@
             "type": "string"
           },
           "kind": {
+            "default": "conclusion",
             "description": "ending flavor: conclusion | tpk | retreat | cliffhanger (default conclusion)",
+            "enum": [
+              "conclusion",
+              "tpk",
+              "retreat",
+              "cliffhanger"
+            ],
             "type": "string"
           },
           "root": {
@@ -7674,6 +7692,10 @@
           },
           "kind": {
             "description": "gear | weapon",
+            "enum": [
+              "gear",
+              "weapon"
+            ],
             "type": "string"
           },
           "label": {
@@ -8509,6 +8531,10 @@
           },
           "kind": {
             "description": "gear | weapon",
+            "enum": [
+              "gear",
+              "weapon"
+            ],
             "type": "string"
           },
           "label": {

@@ -277,6 +277,53 @@ def test_table_opening_accepts_empty_presented_roll_ids(campaign_ws):
     }
     assert opening["data"]["presented_roll_ids"] == []
 
+
+def test_table_opening_reattaches_semantic_ids_when_omitted(campaign_ws):
+    campaign_id = campaign_ws["campaign_id"]
+    opening = _run(
+        campaign_ws,
+        "evidence.table_opening",
+        {
+            "text": "[in_game]\n模型没有抄 run_id。\n[/in_game]",
+        },
+    )
+
+    assert opening["ok"] is True, opening
+    assert opening["data"]["run_segment_id"] == f"run-{campaign_id}"
+    assert opening["data"]["source_id"] == (
+        f"table-opening:{campaign_id}:opening-1"
+    )
+
+    replay = _run(
+        campaign_ws,
+        "evidence.table_opening",
+        {
+            "text": "[in_game]\n模型没有抄 run_id。\n[/in_game]",
+            "presented_roll_ids": [],
+        },
+    )
+    assert replay["ok"] is True, replay
+    assert any(
+        "duplicate decision_id" in warning
+        for warning in replay.get("warnings") or []
+    )
+    assert replay["data"]["run_segment_id"] == opening["data"]["run_segment_id"]
+    assert replay["data"]["text"] == opening["data"]["text"]
+
+
+def test_table_opening_skips_unknown_presented_roll_ids(campaign_ws):
+    opening = _run(
+        campaign_ws,
+        "evidence.table_opening",
+        {
+            "text": "[in_game]\n坏的初见 id 不能挡住开场。\n[/in_game]",
+            "presented_roll_ids": ["npc-first-impression-roll-v2:not-a-real-receipt"],
+        },
+    )
+    assert opening["ok"] is True, opening
+    assert opening["data"]["presented_roll_ids"] == []
+
+
 @pytest.mark.parametrize(
     "authoritative_display",
     [

@@ -805,4 +805,148 @@ const scopeAt = (overrides = {}) => ({
   );
 }
 
+// ── 24) The unknown-handle refusal is actionable, and says when the turn
+// context is genuinely EMPTY ──
+//
+// The old refusal told the Keeper to "copy one verbatim from the current turn
+// context" and carried no `details`. When nothing is live that instruction
+// names an empty place, and the Keeper can only guess. A live lane
+// (debug-gate9-depth-10-r65 / c-defend) lost its whole 1800s turn budget to
+// exactly that: 29 attempts at `source_roll_id`, none informed.
+{
+  const registry = createSemanticIdentityRegistry();
+  const scope = scopeAt();
+  const resolverFor = (activeScope) => {
+    const projection = () => registry.projectAll(activeScope);
+    return {
+      resolveRoll: (handle) => {
+        const result = registry.resolveHandle("roll", handle, activeScope);
+        return result.ok ? result.canonicalId : null;
+      },
+      resolveEffect: () => null,
+      resolveItem: () => null,
+      resolveWeapon: () => null,
+      resolveRoute: () => null,
+      resolveAffordance: () => null,
+      resolveTranscript: () => null,
+      describeFailure: (domain, handle) => {
+        const result = registry.resolveHandle(domain, handle, activeScope);
+        return result.ok || result.reason !== "unknown_handle"
+          ? null
+          : `no ${domain} handle by that name was ever presented this turn; `
+            + "copy one verbatim from the current turn context.";
+      },
+      liveHandles: (domain, limit) => {
+        if (domain !== "roll") return [];
+        return [...projection().rolls.values()].slice(0, limit);
+      },
+      handleForCanonical: (domain, value) => {
+        if (domain !== "roll") return null;
+        const bare = value.startsWith("roll:") ? value.slice("roll:".length) : value;
+        const rolls = projection().rolls;
+        return rolls.get(bare) ?? rolls.get(value) ?? null;
+      },
+    };
+  };
+
+  // (a) Nothing live: the refusal says SO, instead of pointing at an empty
+  // context, and offers an empty candidate list rather than no list at all.
+  const empty = restoreSemanticEntityHandles("state.exceptional_effect", {
+    source_roll_id: "roll:combat-corbitt-house-ground-cr2",
+  }, null, resolverFor(scope));
+  assert.equal(empty.ok, false);
+  assert.equal(empty.code, "unknown_semantic_handle");
+  assert.equal(empty.details.identity_field, "source_roll_id");
+  assert.equal(empty.details.identity_domain, "roll");
+  assert.deepEqual(empty.details.live_handles, []);
+  assert.equal(empty.details.live_handle_count, 0);
+  assert.match(
+    empty.message,
+    /No roll handle is live in this turn's scope at all/,
+    "an empty turn context must be stated, never implied",
+  );
+  assert.ok(
+    !empty.message.includes("combat-corbitt-house-ground-cr2"),
+    "the refused value is never echoed",
+  );
+
+  // (b) With handles live, the refusal names them as DATA — the host rewrites
+  // canonical ids out of error prose, so a message-only reference is lost.
+  registry.register({
+    domain: "roll",
+    canonicalId: "combat-corbitt-house-ground-restart-t21-r4:cr2",
+    facts: ["dodge", "combat-round"],
+    scope,
+    lifetime: "player_turn",
+  });
+  registry.register({
+    domain: "roll",
+    canonicalId: "combat-corbitt-house-ground-restart-t21-r4:cr3",
+    facts: ["fighting-brawl", "combat-round"],
+    scope,
+    lifetime: "player_turn",
+  });
+  const named = restoreSemanticEntityHandles("state.exceptional_effect", {
+    source_roll_id: "roll:combat-corbitt-house-ground-cr2",
+  }, null, resolverFor(scope));
+  assert.equal(named.ok, false);
+  assert.equal(named.details.supplied_value_kind, "never_presented");
+  assert.deepEqual(
+    named.details.live_handles,
+    ["roll:dodge", "roll:fighting-brawl"],
+    "every live roll handle reaches the Keeper as structured data",
+  );
+  assert.equal(named.details.live_handle_count, 2);
+
+  // (c) A restart mints new canonical roll ids while the Keeper is still
+  // quoting the PRE-restart combat's. Pasting the CURRENT canonical id is a
+  // recoverable mistake and is reported as its own kind, with the handle;
+  // pasting a dead one is not, and must not be dressed up as recoverable.
+  const pasted = restoreSemanticEntityHandles("state.exceptional_effect", {
+    source_roll_id: "roll:combat-corbitt-house-ground-restart-t21-r4:cr2",
+  }, null, resolverFor(scope));
+  assert.equal(pasted.ok, false);
+  assert.equal(pasted.details.supplied_value_kind, "canonical_id_of_live_handle");
+  assert.equal(pasted.details.handle_for_supplied_value, "roll:dodge");
+  assert.ok(
+    !pasted.message.includes("restart-t21-r4"),
+    "the canonical id stays host-bound even while naming its handle",
+  );
+
+  // (d) A stale handle from an earlier player turn keeps the registry's own
+  // cause (a refresh is the route out) and still names what is live now.
+  const stale = restoreSemanticEntityHandles("state.exceptional_effect", {
+    source_roll_id: "roll:dodge",
+  }, null, resolverFor(scopeAt({ playerTurnEpoch: 4 })));
+  assert.equal(stale.ok, false);
+  assert.equal(stale.details.identity_domain, "roll");
+  assert.deepEqual(
+    stale.details.live_handles,
+    [],
+    "the NEXT turn's scope has no live roll handles of its own",
+  );
+
+  // (e) The list is bounded: a busy turn cannot turn one refusal into a wall.
+  for (let index = 0; index < 40; index += 1) {
+    registry.register({
+      domain: "roll",
+      canonicalId: `toolbox-flood-${index}`,
+      facts: [`flood-check-${index}`, "combat-round"],
+      scope,
+      lifetime: "player_turn",
+    });
+  }
+  const flooded = restoreSemanticEntityHandles("state.exceptional_effect", {
+    source_roll_id: "roll:combat-corbitt-house-ground-cr2",
+  }, null, resolverFor(scope));
+  assert.equal(flooded.ok, false);
+  assert.equal(flooded.details.live_handles.length, 24);
+  assert.equal(flooded.details.live_handles_truncated, true);
+  assert.equal(
+    flooded.details.live_handle_count,
+    undefined,
+    "a truncated page never claims to be a total",
+  );
+}
+
 console.log("semantic-identity-registry: all assertions passed");

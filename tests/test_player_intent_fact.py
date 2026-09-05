@@ -319,10 +319,16 @@ def test_the_play_prompt_teaches_the_intent_vocabulary():
 def test_each_card_states_the_arguments_that_settle_it(campaign_ws):
     """rules.settle takes one flat semantic_inputs schema whose property map is
     the union of every slot of every decision — legal for the tool, wrong for
-    the decision. Observed live: settling decision:coc7:combat:flee, whose only
-    model-owned slot is an OPTIONAL candidate_ref, the Keeper passed
-    `source_ref` — another family's key, in the union, so the schema accepted
-    it and the graph rejected it."""
+    the decision. Observed live: settling decision:coc7:combat:flee, which
+    takes no model-owned slot at all, the Keeper passed `source_ref` — another
+    family's key, in the union, so the schema accepted it and the graph
+    rejected it.
+
+    flee listed an optional `candidate_ref` until 2026-09-02. Nothing consumed
+    it: `_canonical_combat_binding` binds it for attack and maneuver only, and
+    combat.resolve refuses an affordance or target outright for any other
+    action. The card advertised it, the Keeper sent it, and two host-authored
+    statements told it the opposite thing (r36)."""
     envelope = _context(campaign_ws, family="combat")
     forms = {
         card["decision_ref"]: card["settle_form"]
@@ -334,7 +340,7 @@ def test_each_card_states_the_arguments_that_settle_it(campaign_ws):
     }
     # nothing to invent: the id is the only thing the Keeper must supply
     assert flee["missing_arguments"] == ["decision_id"]
-    assert flee["optional_arguments"] == ["candidate_ref"]
+    assert flee.get("optional_arguments", []) == []
     assert "source_ref" not in json.dumps(flee)
 
     attack = forms["decision:coc7:combat:attack"]
@@ -457,3 +463,45 @@ def test_the_declared_intent_does_not_invalidate_a_card_grant(campaign_ws):
     finally:
         kernel._facts_provider_for = original
     assert captured.get("intent.action_kind") == "flee"
+
+
+def test_the_play_prompt_names_settle_form_as_the_argument_authority():
+    """The host computes the exact arguments that settle each decision and
+    puts them on the card, and the prompt never mentioned them -- while a
+    120-row identifier-grammar table sat above, reading like a menu of fields
+    to attach.
+
+    Measured across r36-r39: the Keeper attached `source_ref` or `source` as
+    provenance to rules.settle five times, each a refused settlement and a
+    retry. The refusal names what the decision takes; the prompt now names
+    where to read it before calling.
+    """
+    # Whitespace-normalized: the prompt is hard-wrapped, so a literal search
+    # for a phrase that spans a line break finds nothing and passes for the
+    # wrong reason.
+    prompt = " ".join(
+        (ROOT / "plugins/coc-keeper/pi/prompts/host-system-play.md")
+        .read_text(encoding="utf-8").split()
+    )
+    assert "settle_form" in prompt
+    assert "missing_arguments" in prompt and "optional_arguments" in prompt
+    # and it says the grammar table is not a menu
+    assert "not a menu of fields to attach" in prompt
+    # naming the exact mistake, the way the intent block names its own
+    assert "source_ref: player_input:current" in prompt
+
+
+def test_the_prompt_forbids_discovering_an_already_active_tool():
+    """A discover on an operation whose typed tool is already in the list is a
+    no-op that costs a round trip and reshapes the active surface, forcing a
+    replan. Measured 2026-09-02 across twelve turns: `rules.settle` discovered
+    once and `state.journal` twice while all three were already active.
+    """
+    prompt = " ".join(
+        (ROOT / "plugins/coc-keeper/pi/prompts/host-system-play.md")
+        .read_text(encoding="utf-8").split()
+    )
+    assert "never discover an operation whose typed tool is already" in prompt
+    assert "the turn is replanned" in prompt
+    # names the observed waste, the way the other blocks name theirs
+    assert "`rules.settle` once and on `state.journal` twice" in prompt

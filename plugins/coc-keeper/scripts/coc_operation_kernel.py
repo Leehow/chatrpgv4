@@ -366,6 +366,9 @@ coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_language = _load_sibling("coc_language", "coc_language.py")
 
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
+coc_module_spells = _load_sibling(
+    "coc_module_spells_kernel", "coc_module_spells.py"
+)
 
 coc_rulesets = _load_sibling("coc_rulesets", "coc_rulesets.py")
 coc_table_precedent = _load_sibling(
@@ -626,6 +629,7 @@ class Ctx:
         else:
             self.campaign_dir = None
         self._scenario_cache: dict[str, Any] = {}
+        self._module_spells: list[dict[str, Any]] | None = None
         self._roll_ids: set[str] | None = None
         self._roll_sequence = 0
 
@@ -645,6 +649,21 @@ class Ctx:
                     data = {}
         self._scenario_cache[name] = data
         return data
+
+    def module_spells(self) -> list[dict[str, Any]]:
+        """Spell records the campaign's compiled ModuleGraph authored (cached).
+
+        A second namespace beside the ruleset catalogue. Every gate that
+        canonicalises a spell name reads it from here, so the card's
+        applicability check, the settle-time binding and the magic runtime are
+        looking at one pool. An unbound or uncompiled graph is ``[]`` -- the
+        module's spells stay unknown and rulebook names resolve as before.
+        """
+        if self._module_spells is None:
+            self._module_spells = coc_module_spells.campaign_spell_records(
+                self.root, self.campaign_dir
+            )
+        return self._module_spells
 
     @property
     def story_graph(self) -> dict[str, Any]:
@@ -5574,6 +5593,14 @@ def _compile_new_percentile_invocation(
         )
     if not operation["goal"]:
         raise ToolError("invalid_param", "goal must be a non-empty string")
+    # Combined-check does not declare difficulty_basis. Dropping the union
+    # key left it empty, and this check then refused every live combined
+    # settle (r85 cmb5). Combined rolls have no ordinary-check basis.
+    if (
+        operation.get("combined_targets")
+        and operation["difficulty_basis"] not in _DIFFICULTY_BASIS_VALUES
+    ):
+        operation["difficulty_basis"] = "keeper_judgment"
     if operation["difficulty_basis"] not in _DIFFICULTY_BASIS_VALUES:
         raise ToolError(
             "invalid_param",
@@ -6779,6 +6806,54 @@ def _semantic_ref_value(value: Any, prefix: str) -> str | None:
     return text[len(expected):] if text.startswith(expected) and text[len(expected):] else None
 
 
+def _present_npc_ids(
+    ctx: Ctx, scene: Mapping[str, Any], scene_id: str,
+) -> list[str]:
+    """Who is in the current scene, by the presence authority combat uses.
+
+    The authored scene roster PLUS the live `state.npc_presence` overlay,
+    minus anyone the overlay marks elsewhere. Reading only `scene.npc_ids`
+    made a pursuit structurally impossible the first time it was actually
+    played: the Keeper marked the pursuer present in the fled-through scene
+    with `state.npc_presence` -- the overlay combat honors -- and the chase
+    candidates ignored it, so `rules.context(chase)` returned no cards while
+    the fiction had claws on the investigator's coat.
+
+    One derivation, several consumers. The chase start candidates were the
+    first; the magic family's teacher block is the second, and it must scope
+    itself to the same roster -- a source list that named someone two scenes
+    away would invite the Keeper to narrate a lesson from an empty chair.
+    """
+    try:
+        presence_overlay = _load_npc_presence_document(ctx).get("presence") or {}
+    except (AttributeError, ToolError):
+        # A caller that supplies only world/story_graph (focused runtime
+        # tests, projection probes) has no campaign_dir; the authored scene
+        # roster alone is then the presence authority, exactly as before.
+        presence_overlay = {}
+    npc_candidate_ids: list[str] = []
+    for npc_id in (scene.get("npc_ids") or []) if isinstance(scene, Mapping) else []:
+        npc_id = str(npc_id)
+        live = presence_overlay.get(npc_id)
+        if isinstance(live, Mapping) and (
+            live.get("status") != "present"
+            or str(live.get("scene_id") or "") != scene_id
+        ):
+            continue
+        npc_candidate_ids.append(npc_id)
+    for npc_id, live in presence_overlay.items():
+        npc_id = str(npc_id)
+        if npc_id in npc_candidate_ids:
+            continue
+        if (
+            isinstance(live, Mapping)
+            and live.get("status") == "present"
+            and str(live.get("scene_id") or "") == scene_id
+        ):
+            npc_candidate_ids.append(npc_id)
+    return npc_candidate_ids
+
+
 def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
     world_provider = getattr(ctx, "world", None)
     story_graph = getattr(ctx, "story_graph", None)
@@ -6810,41 +6885,7 @@ def _chase_start_candidates(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
             "build": int(state.get("build", 0)),
             "conditions": list(state.get("conditions") or []),
         }
-    # NPC chase actors come from the same presence authority combat uses:
-    # the authored scene roster PLUS the live presence overlay, minus anyone
-    # the overlay marks elsewhere. Reading only `scene.npc_ids` made a
-    # pursuit structurally impossible the first time it was actually played:
-    # the Keeper marked the pursuer present in the fled-through scene with
-    # `state.npc_presence` — the overlay combat honors — and the chase
-    # candidates ignored it, so `rules.context(chase)` returned no cards
-    # while the fiction had claws on the investigator's coat.
-    try:
-        presence_overlay = _load_npc_presence_document(ctx).get("presence") or {}
-    except (AttributeError, ToolError):
-        # A caller that supplies only world/story_graph (focused runtime
-        # tests, projection probes) has no campaign_dir; the authored scene
-        # roster alone is then the presence authority, exactly as before.
-        presence_overlay = {}
-    npc_candidate_ids: list[str] = []
-    for npc_id in (scene.get("npc_ids") or []):
-        npc_id = str(npc_id)
-        live = presence_overlay.get(npc_id)
-        if isinstance(live, Mapping) and (
-            live.get("status") != "present"
-            or str(live.get("scene_id") or "") != scene_id
-        ):
-            continue
-        npc_candidate_ids.append(npc_id)
-    for npc_id, live in presence_overlay.items():
-        npc_id = str(npc_id)
-        if npc_id in npc_candidate_ids:
-            continue
-        if (
-            isinstance(live, Mapping)
-            and live.get("status") == "present"
-            and str(live.get("scene_id") or "") == scene_id
-        ):
-            npc_candidate_ids.append(npc_id)
+    npc_candidate_ids = _present_npc_ids(ctx, scene, scene_id)
     for npc_id in npc_candidate_ids:
         npc = _npc_by_id(ctx.npc_agendas, npc_id)
         mechanics = npc.get("mechanics") if isinstance(npc, Mapping) else None
@@ -6929,6 +6970,22 @@ def _optional_rules_provider_for(ctx: Ctx, ruleset_id: str):
     return provider
 
 
+def _sanity_gain_pending_receipt(
+    campaign_dir: Path, investigator_id: str,
+) -> Mapping[str, Any] | None:
+    """Live SAN-gain receipt, or None when none is pending."""
+    raw = _read_optional_json(
+        Path(campaign_dir) / "save" / "sanity-gain-pending" / f"{investigator_id}.json",
+        None,
+    )
+    if not isinstance(raw, Mapping):
+        return None
+    san_gain = raw.get("san_gain")
+    if isinstance(san_gain, bool) or not isinstance(san_gain, int) or san_gain <= 0:
+        return None
+    return raw
+
+
 def _facts_provider_for(
     ctx: Ctx,
     investigator_id: str,
@@ -7004,8 +7061,9 @@ def _facts_provider_for(
             "sanity.insane": isinstance(snapshot, Mapping) and bool(
                 snapshot.get("temporary_insane") or snapshot.get("indefinite_insane")
             ),
-            # No canonical pending SAN-gain receipt producer exists yet.
-            "sanity.gain.pending": False,
+            "sanity.gain.pending": _sanity_gain_pending_receipt(
+                ctx.campaign_dir, investigator_id,
+            ) is not None,
         })
         chase = _read_optional_json(ctx.campaign_dir / "save" / "chase.json", None)
         chase_active = isinstance(chase, Mapping) and chase.get("status") == "active"
@@ -7047,6 +7105,49 @@ def _facts_provider_for(
             ]
             if quarries and all(row.get("escaped") or row.get("captured") for row in quarries):
                 pending_kind = "end"
+            else:
+                # A pursuer standing on a live quarry's own location has
+                # caught it: the chase's next act is a conflict, not another
+                # move. The engine's conflict action (coc_chase.py) performs
+                # the grab itself -- its combat_receipt attachment is
+                # optional -- so the receipt-ready fact derives from the same
+                # positional fact that makes the action executable; the gate
+                # was welded shut before (no branch ever produced
+                # `conflict`, receipt-ready hardcoded False) and chase:conflict
+                # could never be offered, let alone settled.
+                pursuers = [
+                    row for row in participants.values()
+                    if row.get("side") == "pursuer"
+                ]
+                live_quarries = [
+                    row for row in quarries
+                    if not row.get("escaped") and not row.get("captured")
+                ]
+                caught = any(
+                    int(pursuer.get("position", -1)) == int(quarry.get("position", -2))
+                    for pursuer in pursuers
+                    for quarry in live_quarries
+                )
+                if caught:
+                    pending_kind = "conflict"
+        # Executor chase_conflict consumes one unused combat_defend
+        # receipt. Positional catch is what makes pending.kind conflict;
+        # receipt-ready is a different fact. Welding them together offered
+        # chase:conflict before any combat existed, then every settle died
+        # on the payload contract (r77 ch-conf1, r78 ch-conf2).
+        conflict_receipt_ready = False
+        if pending_kind == "conflict":
+            actor_id = (
+                str(order[cursor])
+                if isinstance(order, list) and cursor < len(order)
+                else ""
+            )
+            conflict_receipt_ready = (
+                _chase_conflict_combat_receipt(
+                    ctx, chase=chase, actor_id=actor_id,
+                )
+                is not None
+            )
         facts.update({
             "chase.session.active": chase_active,
             "chase.session.inactive": not chase_active,
@@ -7056,38 +7157,25 @@ def _facts_provider_for(
                 and len(chase_start.get("locations") or {}) >= 2
             ),
             "chase.pending.kind": pending_kind,
-            "chase.conflict.receipt-ready": False,
+            "chase.conflict.receipt-ready": conflict_receipt_ready,
         })
         magic = state.get("magic") if isinstance(state.get("magic"), Mapping) else {}
         facts["magic.known_spells"] = [
             str(value) for value in magic.get("learned_spells") or []
             if isinstance(value, str)
         ]
-        magic_sources: dict[str, list[str]] = {}
-        npc_agendas = getattr(ctx, "npc_agendas", {})
-        npc_rows = npc_agendas.get("npcs") if isinstance(npc_agendas, Mapping) else []
-        if isinstance(npc_rows, Mapping):
-            npc_rows = list(npc_rows.values())
-        for row in npc_rows if isinstance(npc_rows, list) else []:
-            if not isinstance(row, Mapping):
-                continue
-            npc_id = str(row.get("npc_id") or row.get("id") or "")
-            source_kind = str(row.get("magic_source_kind") or "")
-            profile = (
-                (row.get("mechanics") or {}).get("profile")
-                if isinstance(row.get("mechanics"), Mapping) else {}
-            )
-            spells = row.get("spells") or (
-                profile.get("spells") if isinstance(profile, Mapping) else []
-            )
-            if (
-                npc_id and source_kind in {"person", "entity"}
-                and isinstance(spells, list)
-            ):
-                magic_sources[f"{source_kind}:{npc_id}"] = [
-                    str(value) for value in spells if isinstance(value, str)
-                ]
-        facts["magic.learn.sources"] = magic_sources
+        facts["magic.learn.sources"] = _magic_learning_sources(ctx)
+        facts["magic.learn.source-available"] = any(
+            isinstance(value, list) and value
+            for value in facts["magic.learn.sources"].values()
+        )
+        # The campaign module's own spell records. The ruleset adapter
+        # canonicalises spell names against them and must never reach for a
+        # graph itself, and facts are the one host -> ruleset channel -- the
+        # same one `magic.learn.sources` already travels. Nothing projects a
+        # fact value into a card; only the applicability booleans derived from
+        # the graph's own gates reach the Keeper.
+        facts["magic.spell.module_namespace"] = ctx.module_spells()
         ending = coc_development.structured_ending_evidence(ctx.campaign_dir)
         facts["development.settlement.pending"] = bool(
             isinstance(ending, Mapping)
@@ -7847,9 +7935,18 @@ def _canonical_combat_binding(
         )
     weapon_ref = str(semantic_inputs.get("weapon_ref") or "").strip()
     if weapon_ref:
-        binding["weapon_id"] = (
-            weapon_ref[len("weapon:"):] if weapon_ref.startswith("weapon:") else weapon_ref
-        )
+        # Both namespaces the wire grammar publishes for this slot are
+        # stripped.  `coc_inventory.resolve_owned_weapon` matches on
+        # `item_id` as well as `weapon_id`, and the model-facing grammar for
+        # `weapon_ref` names `weapon:` and `item:` side by side -- but only
+        # `weapon:` was ever removed here, so `item:<owned item id>` reached
+        # the gateway with its prefix still attached and was refused as an
+        # unknown weapon for no reason the Keeper could see.
+        for namespace in ("weapon:", "item:"):
+            if weapon_ref.startswith(namespace):
+                weapon_ref = weapon_ref[len(namespace):]
+                break
+        binding["weapon_id"] = weapon_ref
     effects = semantic_inputs.get("weapon_effect_refs")
     if isinstance(effects, list):
         binding["weapon_effect_ids"] = [str(value) for value in effects]
@@ -7868,6 +7965,91 @@ def _canonical_combat_binding(
     return binding
 
 
+# The state-bearing event each subsystem command produces, by command kind.
+# Listed rather than inferred: "the first event" would pick a roll row, and a
+# settlement that proves a state change with the wrong event proves nothing.
+_SUBSYSTEM_PRIMARY_EVENT_TYPES: dict[str, tuple[str, ...]] = {
+    "sanity_check": ("sanity",),
+    "bout_tick": ("bout_tick", "bout_ended"),
+    "bout_end": ("bout_ended",),
+    "reality_check": ("reality_check",),
+    "gain_current_san": ("sanity_gain",),
+    "apply_psychoanalysis_treatment": (
+        "sanity_recovered", "treatment_trigger_scheduled",
+    ),
+    "recover_temporary_insanity": (
+        "sanity_recovered", "recovery_trigger_scheduled",
+    ),
+}
+
+
+def _canonical_pending_resolution(
+    ctx: Ctx, investigator_id: str, command: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Answer a pending subsystem choice with the executor's own continuation.
+
+    Resolving a pending choice is not a free-form command: the executor
+    rebuilds the expected batch from canonical state and refuses anything that
+    differs (`invalid_pending_resolution_batch`). Its command_id is
+    `resume:<digest>:confirm` and its payload carries a derived `decision_id`
+    and `request_index` -- all computed from the pending context, none of them
+    knowable to a caller composing a command by hand. The RuleGraph adapter
+    composed one from the Keeper's own decision_id, so it could never match.
+
+    That branch was unreachable until decision:coc7:sanity:check was rewired
+    onto this executor and bouts began registering the choice bout-tick
+    answers; the first run that reached it lost six settlements this way.
+
+    Deriving the batch here does not hollow out that check. Every slot the
+    graph declares for these decisions is host-locked -- the Keeper names the
+    decision and nothing else -- so canonical state IS the authority on the
+    command, and the check still refuses a batch that reaches the executor by
+    any other route.
+    """
+    kind = str(command.get("kind") or "")
+    if kind not in {"bout_tick", "bout_end"}:
+        return [command]
+    payload = command.get("payload")
+    choice_id = payload.get("choice_id") if isinstance(payload, Mapping) else None
+    if not isinstance(choice_id, str) or not choice_id:
+        return [command]
+    try:
+        plan = coc_subsystem_executor.plan_from_pending_choice_response(
+            ctx.campaign_dir,
+            investigator_id,
+            {
+                "choice_id": choice_id,
+                "responder": "keeper",
+                "revision": payload.get("revision"),
+                "action": payload.get("action"),
+            },
+        )
+        canonical = coc_subsystem_executor.commands_from_rules_requests(plan)
+    except coc_subsystem_executor.SubsystemExecutorError:
+        # Let the executor raise its own typed refusal on the submitted batch
+        # rather than swallowing it here.
+        return [command]
+    return canonical or [command]
+
+
+def _declared_payload_slots(decision_ref: str) -> frozenset[str]:
+    """The payload slot names one decision declares in the RuleGraph."""
+    loaded = coc_rules_runtime.load_ruleset_graph("coc7")
+    graph = loaded.get("graph") if isinstance(loaded.get("graph"), Mapping) else None
+    for node in (graph or {}).get("nodes") or []:
+        if not isinstance(node, Mapping) or node.get("node_id") != decision_ref:
+            continue
+        implementation = (node.get("properties") or {}).get("implementation")
+        if not isinstance(implementation, Mapping):
+            break
+        return frozenset(
+            str(slot.get("name"))
+            for slot in (implementation.get("payload_slots") or [])
+            if isinstance(slot, Mapping) and slot.get("name")
+        )
+    return frozenset()
+
+
 def _canonical_sanity_binding(
     ctx: Ctx,
     *,
@@ -7882,11 +8064,24 @@ def _canonical_sanity_binding(
         {},
     )
     state = ctx.inv_state(investigator_id)
-    binding: dict[str, Any] = {
-        "investigator_id": investigator_id,
-        "san_before": snapshot.get("san_current", state.get("current_san")),
-        "san_max": snapshot.get("san_max", state.get("max_san")),
-    }
+    # Only what this decision declares. Four of the nine sanity decisions --
+    # bout-tick, bout-end, apply-treatment, recover-temporary -- carry no
+    # san_before/san_max slot, and the runtime rejects a host-locked input the
+    # decision never declared. It surfaces as `unknown_semantic_input`, which
+    # reads as the Keeper's argument error: on 2026-09-02 a Keeper was told
+    # "host-locked input 'san_before' is not a declared slot" for bout-tick
+    # six times across three lanes and stripped its own arguments one by one
+    # trying to satisfy a value it had never sent. The branch was unreachable
+    # until decision:coc7:sanity:check was rewired and bouts began registering
+    # the choice bout-tick needs.
+    declared = _declared_payload_slots(decision_ref)
+    binding: dict[str, Any] = {"investigator_id": investigator_id}
+    for slot, value in (
+        ("san_before", snapshot.get("san_current", state.get("current_san"))),
+        ("san_max", snapshot.get("san_max", state.get("max_san"))),
+    ):
+        if slot in declared:
+            binding[slot] = value
     if suffix == "check":
         trigger_ref = str(semantic_inputs.get("trigger_ref") or "").strip()
         if trigger_ref:
@@ -7946,6 +8141,15 @@ def _canonical_sanity_binding(
         binding["insanity_state"] = (
             "indefinite" if snapshot.get("indefinite_insane") else "temporary"
         )
+    elif suffix == "gain-current-san":
+        receipt = _sanity_gain_pending_receipt(ctx.campaign_dir, investigator_id)
+        if receipt is None:
+            raise ToolError(
+                "sanity_gain_receipt_unavailable",
+                "gain-current-san requires a canonical host SAN gain receipt",
+            )
+        if "san_gain" in declared:
+            binding["san_gain"] = int(receipt["san_gain"])
     elif suffix in {"apply-treatment", "recover-temporary"}:
         handler = (
             "apply_psychoanalysis_treatment"
@@ -7980,6 +8184,39 @@ def _canonical_sanity_binding(
     return binding
 
 
+def _fill_learn_spell_source_ref(
+    ctx: Ctx, semantic_inputs: dict[str, Any],
+) -> None:
+    """Bind source_ref when exactly one authored source matches.
+
+    The learn card lights without source_ref so the Keeper can discover the
+    teacher. Settle still needs the typed ref. Guessing it is what failed
+    62 times on r85 mg-learn7 (`magic_source_invalid`). Unique match is
+    host identity, not a Keeper slot.
+    """
+    source_kind = str(semantic_inputs.get("source") or "").strip()
+    source_ref = str(semantic_inputs.get("source_ref") or "").strip()
+    spell = str(semantic_inputs.get("spell") or "").strip()
+    if source_kind not in {"tome", "person", "entity"} or not spell:
+        return
+    sources = _magic_learning_sources(ctx)
+    if source_ref in sources:
+        return
+    module_spells = ctx.module_spells()
+    canon = coc_rules.canonical_spell_name(spell, module_spells=module_spells)
+    matches = [
+        ref for ref, spells in sources.items()
+        if str(ref).startswith(source_kind + ":")
+        and isinstance(spells, list)
+        and canon in {
+            coc_rules.canonical_spell_name(str(value), module_spells=module_spells)
+            for value in spells
+        }
+    ]
+    if len(matches) == 1:
+        semantic_inputs["source_ref"] = matches[0]
+
+
 def _canonical_magic_binding(
     ctx: Ctx,
     *,
@@ -7987,13 +8224,24 @@ def _canonical_magic_binding(
     decision_ref: str,
     semantic_inputs: Mapping[str, Any],
 ) -> dict[str, Any]:
-    spell = str(semantic_inputs.get("spell") or "").strip()
-    if not spell:
+    if not str(semantic_inputs.get("spell") or "").strip():
         raise ToolError("invalid_semantic_input", "spell must be non-empty")
+    # The canonical name the magic runtime persists, so this settle-time gate
+    # and the card fact behind it cannot disagree about a parameterised family
+    # name such as "Summon/Bind Dimensional Shambler".
+    # Both sides read the same two namespaces, so a module-authored spell the
+    # runtime persisted under its node name cannot read as unknown here.
+    module_spells = ctx.module_spells()
+    spell = coc_rules.canonical_spell_name(
+        str(semantic_inputs.get("spell")), module_spells=module_spells
+    )
     state = ctx.inv_state(investigator_id)
     magic = state.get("magic") if isinstance(state.get("magic"), Mapping) else {}
     if decision_ref.endswith(":cast-spell"):
-        learned = {str(value) for value in magic.get("learned_spells") or []}
+        learned = {
+            coc_rules.canonical_spell_name(str(value), module_spells=module_spells)
+            for value in magic.get("learned_spells") or []
+        }
         if spell not in learned:
             raise ToolError(
                 "magic_spell_not_known",
@@ -8007,8 +8255,10 @@ def _canonical_magic_binding(
                 + re.sub(r"[^a-z0-9]+", "-", spell.casefold()).strip("-")
             ),
         }
-    source_kind = str(semantic_inputs.get("source") or "")
-    source_ref = str(semantic_inputs.get("source_ref") or "")
+    inputs = dict(semantic_inputs)
+    _fill_learn_spell_source_ref(ctx, inputs)
+    source_kind = str(inputs.get("source") or "")
+    source_ref = str(inputs.get("source_ref") or "")
     if source_kind not in {"tome", "person", "entity"} or not source_ref.startswith(
         source_kind + ":"
     ):
@@ -8016,22 +8266,98 @@ def _canonical_magic_binding(
             "magic_source_invalid",
             "source_ref must match the typed magic learning source",
         )
-    source_id = source_ref.split(":", 1)[1]
-    row = _npc_by_id(ctx.npc_agendas, source_id) if source_kind in {"person", "entity"} else None
-    profile = (
-        (row.get("mechanics") or {}).get("profile")
-        if isinstance(row, Mapping) and isinstance(row.get("mechanics"), Mapping)
-        else {}
-    )
-    spells = (
-        row.get("spells") if isinstance(row, Mapping) else None
-    ) or (profile.get("spells") if isinstance(profile, Mapping) else None)
-    if not isinstance(spells, list) or spell not in {str(value) for value in spells}:
+    # The same map the magic.learn.sources fact is projected from, so the
+    # card's source-available gate and this settle-time check can never
+    # disagree: a tome that reads as learnable on the card resolves here.
+    sources = _magic_learning_sources(ctx)
+    spells = sources.get(source_ref)
+    if not isinstance(spells, list) or spell not in {
+        coc_rules.canonical_spell_name(str(value), module_spells=module_spells)
+        for value in spells
+    }:
         raise ToolError(
             "magic_source_invalid",
             "the canonical learning source does not contain the selected spell",
+            details={
+                "source_ref": source_ref,
+                "spell": spell,
+                "available_source_refs": sorted(sources),
+                "hint": (
+                    "a learning source is authored content, not possession: a "
+                    "tome needs item mechanics listing its spells and a teacher "
+                    "needs an NPC row with magic_source_kind and a spell list"
+                ),
+            },
         )
-    return {"investigator": investigator_id, "is_npc": False}
+    # learn-spell declares no is_npc slot; a host binding that overshoots a
+    # decision's declarations is refused outright before the decision settles.
+    return {"investigator": investigator_id}
+
+
+def _chase_conflict_combat_receipt(
+    ctx: Ctx, *, chase: Mapping[str, Any], actor_id: str,
+) -> tuple[str, str] | None:
+    """Unused combat_defend receipt the chase-conflict payload can consume.
+
+    The executor holds chase_conflict to an exact payload: action_id
+    ``conflict:<target>``, target_actor_id, and combat_command_id of a
+    combat_defend snapshot whose attack turn names those two actors.
+    Catching someone in the chase is not that receipt.
+    """
+    if not actor_id:
+        return None
+    participants = {
+        str(row.get("actor_id")): row
+        for row in chase.get("participants") or []
+        if isinstance(row, Mapping)
+    }
+    actor = participants.get(actor_id) or {}
+    try:
+        position = int(actor.get("position", -1))
+    except (TypeError, ValueError):
+        return None
+    opponents = [
+        row for row in participants.values()
+        if str(row.get("actor_id") or "") != actor_id
+        and not row.get("escaped") and not row.get("captured")
+        and int(row.get("position", -2)) == position
+    ]
+    if len(opponents) != 1:
+        return None
+    target_id = str(opponents[0].get("actor_id") or "")
+    if not target_id:
+        return None
+    consumed = {
+        str(row.get("combat_command_id") or "")
+        for row in chase.get("consumed_combat_receipts") or []
+        if isinstance(row, Mapping)
+    }
+    try:
+        state = coc_subsystem_executor.load_canonical_state_readonly(
+            ctx.campaign_dir,
+        )
+    except Exception:
+        return None
+    snapshots = state.get("result_snapshots") if isinstance(state, Mapping) else None
+    if not isinstance(snapshots, Mapping):
+        return None
+    matches: list[str] = []
+    for command_id, snapshot in snapshots.items():
+        if str(command_id) in consumed:
+            continue
+        if not isinstance(snapshot, Mapping) or snapshot.get("kind") != "combat_defend":
+            continue
+        events = snapshot.get("events") or []
+        event = events[0] if events and isinstance(events[0], Mapping) else {}
+        turn = event.get("turn") if isinstance(event.get("turn"), Mapping) else {}
+        if (
+            turn.get("actor_id") == actor_id
+            and turn.get("target_actor_id") == target_id
+        ):
+            matches.append(str(command_id))
+    if len(matches) != 1:
+        return None
+    return target_id, matches[0]
 
 
 def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: str,
@@ -8086,20 +8412,68 @@ def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: st
             # The candidate sets are in hand here, so name them: a rejected ref
             # is a choice from the wrong list, not a malformed argument, and
             # the Keeper cannot read the right list from anywhere else.
+            # Say which ref failed in the message, not only in details: the
+            # model reads the message first, and "refs must resolve" names
+            # nothing it can act on. The lists are already in hand.
+            trouble: list[str] = []
+            if not pursuers:
+                trouble.append("pursuer_refs is empty")
+            if not quarries:
+                trouble.append("quarry_refs is empty")
+            if len(location_refs) < 2:
+                trouble.append(
+                    f"location_refs needs at least two, got {len(location_refs)}"
+                )
+            overlap = sorted(set(pursuers) & set(quarries))
+            if overlap:
+                trouble.append(
+                    "the same actor cannot be pursuer and quarry: "
+                    + ", ".join(overlap)
+                )
+            # Counts and details keys, never the refs themselves. Pi rewrites
+            # canonical ids out of error prose (`rewriteCanonicalIdsInError`),
+            # so refs named in the message are DELETED on the way to the
+            # Keeper: the first version of this read
+            # "not present in this scene: (present:, )" by the time it
+            # arrived. The refs travel in `details`, which is declared and
+            # projected, and the message says where to look.
+            if rejected_actors:
+                trouble.append(
+                    f"{len(rejected_actors)} actor ref(s) are not in this "
+                    "scene: see details.rejected_actor_refs against "
+                    "details.present_actor_refs"
+                )
+            if rejected_locations:
+                trouble.append(
+                    f"{len(rejected_locations)} location ref(s) are not "
+                    "connected to this scene: see details.rejected_location_refs "
+                    "against details.connected_location_refs"
+                )
             raise ToolError(
                 "chase_candidate_invalid",
-                "chase refs must resolve to current actors and current/connected locations",
+                "; ".join(trouble) or (
+                    "chase refs must resolve to current actors and "
+                    "current/connected locations"
+                ),
                 details={
                     "scene_id": candidates.get("scene_id"),
                     "rejected_actor_refs": rejected_actors,
                     "rejected_location_refs": rejected_locations,
                     "present_actor_refs": sorted(actors)[:12],
                     "connected_location_refs": sorted(locations)[:12],
-                    "requires": {
-                        "pursuer_refs": "at least one, from present_actor_refs",
-                        "quarry_refs": "at least one, from present_actor_refs, disjoint from pursuer_refs",
-                        "location_refs": "at least two, from connected_location_refs",
-                    },
+                    # A list, not a map keyed by the argument names. Keyed
+                    # that way the guidance arrived EMPTY: `pursuer_refs`,
+                    # `quarry_refs` and `location_refs` are identity-bearing
+                    # field names, so the projection held their values to the
+                    # ref grammar, and prose is not a ref -- the host's own
+                    # instructions were deleted by the host's own identity
+                    # rules. Seen model-side in r38 as `"requires": {}`.
+                    "requires": [
+                        "pursuer_refs: at least one, chosen from present_actor_refs",
+                        "quarry_refs: at least one, chosen from present_actor_refs, "
+                        "and none of them also a pursuer",
+                        "location_refs: at least two, chosen from connected_location_refs",
+                    ],
                 },
             )
         participants = []
@@ -8123,8 +8497,33 @@ def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: st
     chain = chase.get("location_chain") or []
     position = int(actor.get("position", 0)) if actor else -1
     nxt = chain[position + 1] if 0 <= position + 1 < len(chain) else {}
-    binding: dict[str, Any] = {"actor_id": actor_id, "revision": chase.get("revision"), "chase_id": chase.get("chase_id")}
-    if suffix == "move": binding["action_id"] = "advance"
+    # Only what this decision declares. `chase_id` is a slot of `start` and
+    # `end` alone, and the runtime rejects a host-locked input the decision
+    # never declared -- as `unknown_semantic_input`, which reads as the
+    # Keeper's argument error for a value the host itself supplied. Measured
+    # 2026-09-02 r36 on chase:move; hazard, barrier and conflict carry the
+    # same shape. Same defect as san_before across the sanity decisions.
+    declared = _declared_payload_slots(decision_ref)
+    binding: dict[str, Any] = {"revision": chase.get("revision")}
+    # `actor_id` rides only when the decision declares it: barrier, hazard,
+    # conflict and move do, but chase:end declares only chase-id/decision-id/
+    # outcome/revision -- so the host's own slot validation refused the
+    # settle as `unknown_semantic_input` on a value the Keeper never sent and
+    # the refusal said no change to semantic_inputs clears it (r72-r74,
+    # chase:end x12). Same declared-slot gate as chase_id just below.
+    if "actor_id" in declared:
+        binding["actor_id"] = actor_id
+    if "chase_id" in declared:
+        binding["chase_id"] = chase.get("chase_id")
+    # `move:advance`, not `advance`. The executor holds chase action ids to a
+    # namespaced form and refuses anything else as `untrusted_chase_action`
+    # ("unknown move action ID"); the hazard and barrier branches below bind
+    # theirs namespaced already, and move was the one outlier. Every slot on
+    # decision:coc7:chase:move is host-locked, so the Keeper sends nothing and
+    # could do nothing about it -- chase:move was simply unsettleable.
+    # Measured 2026-09-02 r40, the first run in which a chase move ever
+    # reached the executor at all.
+    if suffix == "move": binding["action_id"] = "move:advance"
     elif suffix == "hazard":
         hazard = nxt.get("hazard") if isinstance(nxt, Mapping) else None
         if not isinstance(hazard, Mapping): raise ToolError("chase_action_unavailable", "next location has no hazard")
@@ -8134,7 +8533,120 @@ def _canonical_chase_binding(ctx: Ctx, *, decision_ref: str, investigator_id: st
         if not isinstance(barrier, Mapping): raise ToolError("chase_action_unavailable", "next location has no barrier")
         method = str(semantic_inputs.get("method") or "")
         binding.update({"action_id": f"barrier:{barrier.get('barrier_id')}:{method}", "target": barrier.get("target"), "difficulty": barrier.get("difficulty", "regular")})
+    elif suffix == "conflict":
+        pair = _chase_conflict_combat_receipt(
+            ctx, chase=chase, actor_id=actor_id,
+        )
+        if pair is None:
+            raise ToolError(
+                "chase_conflict_combat_receipt_unavailable",
+                "chase conflict consumes one unused combat defense receipt "
+                "against the caught opponent; settle combat:attack then "
+                "combat:defend first, then refresh the chase family",
+            )
+        target_id, combat_command_id = pair
+        binding.update({
+            "action_id": f"conflict:{target_id}",
+            "target_actor_id": target_id,
+            "combat_command_id": combat_command_id,
+        })
     return binding
+
+
+def _rule_decision_stale_error(
+    runtime: Any,
+    decision_ref: str,
+    *,
+    family: str,
+    grant_check: Mapping[str, Any] | None = None,
+) -> ToolError:
+    """The one Keeper-facing shape for a refused settlement with no live grant.
+
+    Two places in this dispatcher can refuse for that reason and they must be
+    indistinguishable to the Keeper:
+
+    * the ``latest_grant_covering()`` pre-check below, which short-circuits
+      before ``settle()`` can reach its own ``_check_card_grant``; and
+    * ``settle()``'s fail-closed grant gate, which fires when canonical state
+      moves between that pre-check and the settlement it guards.
+
+    The second one used to raise with ``details=result`` -- the runtime's raw
+    stale envelope -- so everything the Keeper and the lane tooling read by
+    name was in the wrong place or missing: ``reason`` was buried under
+    ``details.failure``, there was no ``refresh_operation`` for
+    ``nonretry-circuit`` to recognise as the host remedy, the refreshed rows
+    were internal cards rather than the public projection, and the
+    host-internal ``refreshed_card_grant`` crossed the boundary with them.
+
+    ``grant_check`` is the runtime's own low-level verdict when that second
+    path is the caller (``grant_binding_mismatch`` and friends). It is
+    reported alongside -- not instead of -- the Keeper-facing reason, because
+    the two answer different questions: which gate refused, and what the
+    Keeper should do about it.
+    """
+    check = dict(grant_check or {})
+    if str(check.get("reason") or "") == "grant_binding_mismatch":
+        # That gate has already compared the two bindings and holds the keys
+        # that moved. Re-deriving the reason here would read the registry
+        # *after* the same gate's refresh put a live grant back in it, and
+        # report `grant_binding_unstable` with no keys at all -- true of the
+        # registry, and a worse answer than the one already in hand.
+        why: dict[str, Any] = {
+            "reason": "grant_binding_drifted",
+            "drifted": list(check.get("drifted") or []),
+            "detail": (
+                "a grant covering this decision exists but canonical state "
+                "moved since it was issued"
+            ),
+        }
+    else:
+        why = runtime.explain_missing_grant(decision_ref)
+    stale = runtime.stale_decision_envelope(
+        decision_ref,
+        str(why.get("reason") or "no_live_card_grant"),
+        str(why.get("detail") or "no live machine-issued card grant covers this decision"),
+        **({"drifted": why["drifted"]} if why.get("drifted") else {}),
+        **({"unmet": why["unmet"]} if why.get("unmet") else {}),
+    )
+    check_code = str(check.get("reason") or "") or None
+    # Grants stay host-internal (see dispatch_rules_context); only the
+    # public card projection crosses the boundary. The refreshed grant is
+    # re-registered on this runtime, so the named rules.context call
+    # returns the same live card set.
+    # "call rules.context, then settle a decision_ref it returns" is the
+    # right instruction for a grant that was never asked for or has
+    # drifted. It is the wrong one for a decision whose own hard gate is
+    # shut: refreshing produces the same card list without it. Say which
+    # fact is shut instead.
+    return ToolError(
+        "rule_decision_stale",
+        str(why.get("detail"))
+        + "; refresh this family with rules.context once it holds"
+        if why.get("reason") == "decision_not_available" else
+        "no live machine-issued card grant covers this decision; call "
+        "rules.context for this family, then settle a decision_ref it returns",
+        details={
+            "family": family or stale.get("family") or "",
+            "decision_ref": decision_ref,
+            # The reason the runtime worked out. Without it every refusal
+            # reads the same to the Keeper and to anyone reading a lane
+            # afterwards; the first wiring of this diagnosis computed the
+            # reason and then dropped it here, so eleven refused
+            # settlements on 2026-09-02 still explained nothing.
+            **{
+                key: value
+                for key, value in (stale.get("failure") or {}).items()
+                if key in ("reason", "drifted", "unmet") and value
+            },
+            **({"grant_check": check_code} if check_code else {}),
+            "refresh_operation": "rules.context",
+            "refreshed_cards": [
+                coc_rules_runtime.public_card_projection(card)
+                for card in (stale.get("refreshed_cards") or [])
+                if isinstance(card, Mapping)
+            ],
+        },
+    )
 
 
 def dispatch_rules_settle(
@@ -8164,19 +8676,14 @@ def dispatch_rules_settle(
         semantic_inputs = {}
     if not isinstance(semantic_inputs, Mapping):
         raise ToolError("invalid_param", "semantic_inputs must be an object")
-    # Host-locked fields are absent from the model schema; reject if smuggled.
-    locked_smuggle = sorted(
-        set(semantic_inputs) & {
-            "skill_value", "rescuer_id", "pushed", "medicine_skill_value",
-            "caregiver_id", "clock_kind",
-        }
-    )
-    if locked_smuggle:
-        raise ToolError(
-            "locked_input_override",
-            "model-supplied host-locked inputs are rejected",
-            details={"fields": locked_smuggle},
-        )
+    # Host-locked fields are absent from the model schema and are refused when
+    # smuggled -- but by the decision's own slot ownerships, in
+    # RulesRuntime.settle, not by a flat list of names collected from whichever
+    # decisions happened to lock them. The flat list read `pushed` as locked
+    # everywhere, while decision:coc7:magic:cast-spell declares it
+    # keeper-semantic AND required: every cast settlement was refused for
+    # sending an input the decision demanded, which is why cast-spell has never
+    # settled once. One check, off the graph, so the two cannot drift again.
     family = _family_id_from_decision_ref(decision_ref)
     investigator_id = _resolve_investigator(ctx, args)
     runtime, owner, _surface, loaded = _rules_runtime_for_ctx(
@@ -8202,6 +8709,8 @@ def dispatch_rules_settle(
         "decision_ref": decision_ref,
         "semantic_inputs": dict(semantic_inputs),
     }
+    if family == "magic" and decision_ref.endswith(":learn-spell"):
+        _fill_learn_spell_source_ref(ctx, selected["semantic_inputs"])
     if family == "social":
         selected["_host_social_binding"] = _canonical_social_binding(
             ctx,
@@ -8217,6 +8726,29 @@ def dispatch_rules_settle(
             investigator_id=investigator_id,
             semantic_inputs=semantic_inputs,
         )
+    # Before any family binding. Each one reads canonical state to fill
+    # host-locked slots and raises its own precondition error on the way --
+    # `sanity_bout_choice_unavailable`, `chase_candidate_invalid`,
+    # `combat_not_started` -- which shadowed the more useful answer for a
+    # decision the Keeper was never offered at all. Measured 2026-09-02 r35:
+    # two settlements of decision:coc7:sanity:bout-tick made before any bout
+    # existed were told "exactly one Keeper bout choice is required" instead
+    # of "sanity.bout.pending is False, needs True", which is the fact that
+    # decides whether the card can ever appear. Binding canonical inputs for a
+    # decision that cannot settle is also work nobody needed.
+    grant = runtime.latest_grant_covering(decision_ref)
+    if grant is None:
+        # This pre-check short-circuits before settle() can reach
+        # _check_card_grant/_stale_envelope, so the refresh route the runtime
+        # already knows how to compute never reached the Keeper: the model saw
+        # a terminal error while the host was holding the current cards. Build
+        # the same envelope here and carry the cards through.
+        # Say WHICH of the two it is. "No live grant" reads the same whether
+        # the Keeper settled a decision it never asked cards for or whether a
+        # grant existed and canonical state moved underneath it, and those
+        # need different answers. Five stale settlements across three lanes on
+        # 2026-09-02 came through here with no reason attached.
+        raise _rule_decision_stale_error(runtime, decision_ref, family=family)
     if family == "combat":
         selected["_host_combat_binding"] = _canonical_combat_binding(
             ctx,
@@ -8232,10 +8764,17 @@ def dispatch_rules_settle(
             semantic_inputs=semantic_inputs,
         )
     if family == "magic":
-        selected["_host_family_binding"] = {
-            "investigator": investigator_id,
-            "is_npc": False,
-        }
+        # This was a two-key stub, so the family's own canonical binding had no
+        # production caller at all: cast-spell's declared host-locked
+        # known_spell_ref slot was never filled, and learn-spell — which
+        # declares no is_npc slot — was refused for an undeclared host slot
+        # before it could settle.
+        selected["_host_family_binding"] = _canonical_magic_binding(
+            ctx,
+            investigator_id=investigator_id,
+            decision_ref=decision_ref,
+            semantic_inputs=semantic_inputs,
+        )
     if family == "development":
         binding: dict[str, Any] = {"investigator": investigator_id}
         if decision_ref.endswith(":settle-ending"):
@@ -8257,63 +8796,6 @@ def dispatch_rules_settle(
         raise ToolError(
             "rules_graph_unavailable",
             "graph settlement requires the active ruleset adapter",
-        )
-    grant = runtime.latest_grant_covering(decision_ref)
-    if grant is None:
-        # This pre-check short-circuits before settle() can reach
-        # _check_card_grant/_stale_envelope, so the refresh route the runtime
-        # already knows how to compute never reached the Keeper: the model saw
-        # a terminal error while the host was holding the current cards. Build
-        # the same envelope here and carry the cards through.
-        # Say WHICH of the two it is. "No live grant" reads the same whether
-        # the Keeper settled a decision it never asked cards for or whether a
-        # grant existed and canonical state moved underneath it, and those
-        # need different answers. Five stale settlements across three lanes on
-        # 2026-09-02 came through here with no reason attached.
-        why = runtime.explain_missing_grant(decision_ref)
-        stale = runtime.stale_decision_envelope(
-            decision_ref,
-            str(why.get("reason") or "no_live_card_grant"),
-            str(why.get("detail") or "no live machine-issued card grant covers this decision"),
-            **({"drifted": why["drifted"]} if why.get("drifted") else {}),
-            **({"unmet": why["unmet"]} if why.get("unmet") else {}),
-        )
-        # Grants stay host-internal (see dispatch_rules_context); only the
-        # public card projection crosses the boundary. The refreshed grant is
-        # re-registered on this runtime, so the named rules.context call
-        # returns the same live card set.
-        # "call rules.context, then settle a decision_ref it returns" is the
-        # right instruction for a grant that was never asked for or has
-        # drifted. It is the wrong one for a decision whose own hard gate is
-        # shut: refreshing produces the same card list without it. Say which
-        # fact is shut instead.
-        raise ToolError(
-            "rule_decision_stale",
-            str(why.get("detail"))
-            + "; refresh this family with rules.context once it holds"
-            if why.get("reason") == "decision_not_available" else
-            "no live machine-issued card grant covers this decision; call "
-            "rules.context for this family, then settle a decision_ref it returns",
-            details={
-                "family": family or stale.get("family") or "",
-                "decision_ref": decision_ref,
-                # The reason the runtime worked out. Without it every refusal
-                # reads the same to the Keeper and to anyone reading a lane
-                # afterwards; the first wiring of this diagnosis computed the
-                # reason and then dropped it here, so eleven refused
-                # settlements on 2026-09-02 still explained nothing.
-                **{
-                    key: value
-                    for key, value in (stale.get("failure") or {}).items()
-                    if key in ("reason", "drifted", "unmet") and value
-                },
-                "refresh_operation": "rules.context",
-                "refreshed_cards": [
-                    coc_rules_runtime.public_card_projection(card)
-                    for card in (stale.get("refreshed_cards") or [])
-                    if isinstance(card, Mapping)
-                ],
-            },
         )
     source_decision_id = str(grant.get("source_decision_id") or "")
     if source_decision_id:
@@ -8388,6 +8870,18 @@ def dispatch_rules_settle(
     status = result.get("status")
     if status not in {"settled", "compiled"}:
         failure = result.get("failure") if isinstance(result.get("failure"), dict) else {}
+        if status == "rule_decision_stale":
+            # The other half of the same refusal. The pre-check above cannot
+            # see canonical state move between its own read and the gate that
+            # guards the settlement, so this is where that race lands -- and
+            # it landed here as `details=result`, the runtime's raw envelope:
+            # `reason` nested under `failure` where nothing reads it, no
+            # `refresh_operation` for the host-remedy circuit, unprojected
+            # internal cards, and the host-internal `refreshed_card_grant`
+            # carried across the boundary with them. One shape for one code.
+            raise _rule_decision_stale_error(
+                runtime, decision_ref, family=family, grant_check=failure,
+            )
         raise ToolError(
             str(failure.get("code") or status or "rules_graph_unavailable"),
             str(failure.get("message") or status),
@@ -8417,6 +8911,11 @@ def dispatch_rules_settle(
         "investigator_id": adapter_row.get("investigator_id") or investigator_id,
         "event": adapter_row.get("event"),
         "player_state_receipt": adapter_row.get("player_state_receipt"),
+        "current_hp": adapter_row.get("current_hp"),
+        # Forwarded for the same reason `current_hp` is: the state-effect
+        # authority reads it off the settle envelope, and a settlement whose
+        # envelope cannot show the resource it moved proves nothing.
+        "current_san": adapter_row.get("current_san"),
         "conditions": adapter_row.get("conditions"),
         **{
             key: value
@@ -8632,6 +9131,291 @@ def _execute_subsystem_requests(
             record.setdefault("command_kind", result.get("kind"))
         ctx.log_event(record)
     return results, events
+
+def _spell_name_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if isinstance(item, str) and item.strip()]
+
+
+def _magic_learning_sources(ctx: Ctx) -> dict[str, list[str]]:
+    """Typed ``<source_kind>:<id>`` -> the spells that source can teach.
+
+    A learning source is *content*, never possession or a label: what makes a
+    book or a teacher one is that the campaign's own authored data records
+    which spells it holds. Nothing here reads an item's title, and carrying a
+    tome (``state.item_grant``) does not by itself make it a source — a grant
+    records who holds the object, not what is written in it.
+
+    ``person``/``entity`` come from the NPC roster: a row whose authored
+    ``magic_source_kind`` says it can teach, carrying its spell list on the
+    row or on its mechanics profile.
+
+    ``tome`` comes from the same item-mechanics slot every other item fact is
+    read from — authored module item mechanics
+    (``module-meta.module_mechanics.items``), then the campaign-frozen item
+    profiles ``mechanics.ensure`` writes. The reviewed CoC7 tome catalogue
+    (``rules-json/tomes.json``) is deliberately not consulted: it prints study
+    weeks, Sanity cost and Mythos rating for each named work, and no spell
+    lists, because which spells a particular copy holds is module content.
+
+    One map serves both the ``magic.learn.sources`` fact and the settle-time
+    binding, so the card's applicability gate and the operation that runs
+    behind it cannot disagree about what is learnable.
+    """
+    sources: dict[str, list[str]] = {}
+    npc_agendas = getattr(ctx, "npc_agendas", {})
+    npc_rows = npc_agendas.get("npcs") if isinstance(npc_agendas, Mapping) else []
+    if isinstance(npc_rows, Mapping):
+        npc_rows = list(npc_rows.values())
+    for row in npc_rows if isinstance(npc_rows, list) else []:
+        if not isinstance(row, Mapping):
+            continue
+        npc_id = str(row.get("npc_id") or row.get("id") or "")
+        source_kind = str(row.get("magic_source_kind") or "")
+        mechanics = row.get("mechanics")
+        profile = (
+            mechanics.get("profile") if isinstance(mechanics, Mapping) else None
+        )
+        spells = row.get("spells")
+        if not isinstance(spells, list):
+            spells = profile.get("spells") if isinstance(profile, Mapping) else None
+        if npc_id and source_kind in {"person", "entity"} and isinstance(spells, list):
+            sources[f"{source_kind}:{npc_id}"] = _spell_name_list(spells)
+
+    module_meta = getattr(ctx, "module_meta", None)
+    module_mechanics = (
+        module_meta.get("module_mechanics") if isinstance(module_meta, Mapping) else None
+    )
+    module_items = (
+        module_mechanics.get("items") if isinstance(module_mechanics, Mapping) else None
+    )
+    if isinstance(module_items, Mapping):
+        for item_id, row in module_items.items():
+            if not isinstance(row, Mapping):
+                continue
+            mechanics = row.get("mechanics")
+            if (
+                not isinstance(mechanics, Mapping)
+                or mechanics.get("status") != "authored"
+            ):
+                continue
+            profile = mechanics.get("profile")
+            spells = _spell_name_list(
+                profile.get("spells") if isinstance(profile, Mapping) else None
+            )
+            if str(item_id) and spells:
+                sources[f"tome:{item_id}"] = spells
+
+    campaign_mechanics = getattr(ctx, "campaign_mechanics", None)
+    campaign_items: Any = None
+    if callable(campaign_mechanics):
+        try:
+            document = campaign_mechanics()
+        except ToolError:
+            document = None
+        if isinstance(document, Mapping):
+            campaign_items = document.get("items")
+    if isinstance(campaign_items, Mapping):
+        for item_id, row in campaign_items.items():
+            if not isinstance(row, Mapping):
+                continue
+            profile = row.get("profile")
+            spells = _spell_name_list(
+                profile.get("spells") if isinstance(profile, Mapping) else None
+            )
+            if str(item_id) and spells:
+                sources[f"tome:{item_id}"] = spells
+    return sources
+
+
+#: Copy-verbatim guidance for the three slots this block exists to fill. It
+#: rides INSIDE the block rather than in `hints`: Pi authors the model's hints
+#: from structured envelope fields and relays neither canonical hint nor
+#: canonical warning prose, so a hint here would be written and then silently
+#: dropped -- the same computed-but-undelivered failure this block is about.
+_LEARNING_NOTE = (
+    "copy sources[].source_ref and sources[].source verbatim into rules.settle "
+    "semantic_inputs (source_ref, source) and one of that row's spells[] into "
+    "spell; the learn-spell card stays withheld until all three name the same "
+    "authored source"
+)
+
+#: The sources block is a working set, not a catalogue. `rules.context` is
+#: capped at 16 KB inline, and a module may author many tomes; a real scene
+#: holds a handful of people. The cap only bounds the pathological case, and
+#: it says so rather than truncating in silence.
+_LEARNING_SOURCE_LIMIT = 8
+
+
+def _magic_learning_block(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
+    """Who or what, here and now, can teach the investigator a spell.
+
+    The appointment already existed and reached nothing the Keeper reads. A
+    diagnostic lane appoints an NPC by writing `magic_source_kind` and
+    `mechanics.profile.spells` into the campaign's own `npc-agendas.json`, the
+    kernel reads it into the `magic.learn.sources` fact, and the Keeper was
+    shown none of it. Live in `debug-gate9-depth-10-r70`, lane
+    `mg-learn-person`, with Steven Knott appointed a teacher, the Keeper read
+    his authored persona -- a landlord -- and narrated the player away:
+
+        「教你什么？我是房东，不是什么开门关门的巫师。」
+
+    It was not wrong. `magic_source_kind` appears zero times in that lane's
+    entire tool stream. The same silence blocked the mechanics: the
+    `learn-spell` card is gated on `magic.learn.source-available`, which is
+    derived from the Keeper sending `source_ref` -- so the card only appears
+    once the Keeper has already guessed the id that names the source.
+
+    `_magic_learning_sources` is the single map behind the fact AND the
+    settle-time binding; this is its third consumer, deliberately not a
+    fourth derivation. A second derivation would drift and eventually offer
+    a source the settle path refuses.
+
+    Person and entity sources are scoped to the CURRENT SCENE's presence
+    roster: a teacher two scenes away is not an entrance, it is an invitation
+    to narrate a lesson from an empty chair. Tomes carry no presence -- a
+    learning source is authored content, never possession, so the map lists a
+    tome the party has never touched and this block reports it as the map
+    has it.
+
+    Visibility: this is the Keeper's own surface (`rules.context` is
+    `audience: keeper`), and the two magic capabilities and the magic
+    rule-family are themselves `visibility: keeper-only` -- what the Keeper
+    may read here is exactly what those nodes already scope to the Keeper.
+    The block carries no effect node, so it changes no `keeper-only` /
+    `concealed-result` decision the runtime already makes when it projects a
+    card: a spell the Keeper learns about here still reaches the player only
+    through narration the Keeper chooses to give.
+    """
+    sources = _magic_learning_sources(ctx)
+    present: set[str] | None = None
+    world_provider = getattr(ctx, "world", None)
+    story_graph = getattr(ctx, "story_graph", None)
+    if callable(world_provider) and isinstance(story_graph, Mapping):
+        scene_id = str((world_provider() or {}).get("active_scene_id") or "")
+        scene = _scene_by_id(story_graph, scene_id)
+        if scene_id and isinstance(scene, Mapping):
+            present = set(_present_npc_ids(ctx, scene, scene_id))
+    rows: list[dict[str, Any]] = []
+    withheld_absent = 0
+    for source_ref in sorted(sources):
+        kind, _, subject_id = source_ref.partition(":")
+        spells = [str(value) for value in sources[source_ref] if str(value).strip()]
+        if not spells:
+            continue
+        if kind in {"person", "entity"}:
+            if present is not None and subject_id not in present:
+                withheld_absent += 1
+                continue
+            npc = _npc_by_id(getattr(ctx, "npc_agendas", {}), subject_id)
+            name = str((npc or {}).get("name") or "").strip()
+        else:
+            name = ""
+        row: dict[str, Any] = {"source_ref": source_ref, "source": kind}
+        if name and name != subject_id:
+            row["name"] = name
+        row["spells"] = spells
+        rows.append(row)
+    block: dict[str, Any] = {"sources": rows[:_LEARNING_SOURCE_LIMIT]}
+    if rows:
+        block["note"] = _LEARNING_NOTE
+    if len(rows) > _LEARNING_SOURCE_LIMIT:
+        block["not_listed"] = len(rows) - _LEARNING_SOURCE_LIMIT
+    if withheld_absent:
+        # Structural, not prose: the Keeper must be able to tell "nobody here
+        # can teach this" from "nobody in the campaign can", because the first
+        # is fixed by moving the scene and the second is not.
+        block["not_present"] = withheld_absent
+    return block
+
+
+#: The empty surface names its own next step. `_LEARNING_NOTE` rides inside a
+#: non-empty learning block, so a Keeper staring at an empty one — the spell
+#: still in its 2D6-week study period, or the teacher a scene away — gets no
+#: next step from the block itself. Delivery follows the note's: Pi authors
+#: the model's hints from structured fields and relays no canonical hint
+#: prose, so the same words also ride INSIDE canonical_context; the hint
+#: carries them for the surfaces that do relay hints.
+_MAGIC_EMPTY_SURFACE_GUIDANCE = (
+    "known_spells and learning.sources are empty, but spell learning sources "
+    "or a study in progress exist: read learning, known_spells and "
+    "studying_spells in this response, then settle learn or cast through "
+    "rules.settle using the exact spell names and source_ref listed there"
+)
+
+
+def _studying_spell_rows(magic: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Spells mid-study, with the due semantics the study write persisted.
+
+    A tome takes 2D6 weeks and a teacher 1D8 days (pp.176-177); the clock's
+    ``grant_learned_spell`` trigger, not this block, moves the spell onto
+    ``learned_spells``. The rows carry the fields the study write owns —
+    ``due_elapsed_minutes`` is the game-time span that completes the study —
+    so the Keeper can say when the spell becomes castable without inventing
+    a timeline.
+    """
+    rows: list[dict[str, Any]] = []
+    studying = magic.get("studying_spells")
+    for row in studying if isinstance(studying, list) else []:
+        if not isinstance(row, Mapping) or not str(row.get("spell") or "").strip():
+            continue
+        rows.append({
+            "spell": str(row.get("spell")),
+            "source": str(row.get("source") or ""),
+            "study_weeks": int(row.get("study_weeks") or 0),
+            "study_days": int(row.get("study_days") or 0),
+            "due_elapsed_minutes": row.get("due_elapsed_minutes"),
+        })
+    return rows
+
+
+def _tool_magic_context(ctx: Ctx, args: dict[str, Any]):
+    """`rules.context` family=magic: what the investigator knows, is studying, and who can teach.
+
+    All three gate a card the Keeper otherwise cannot reach.
+    `magic.spell.known` gates `cast-spell` and `magic.learn.source-available`
+    gates `learn-spell`, and both are derived from `semantic_inputs` the
+    Keeper has to name before it is shown anything to name. A spell still in
+    its study period sits on `studying_spells`, invisible to `known_spells`,
+    which is exactly the empty table live Keepers kept reading.
+    """
+    investigator_id = str((args or {}).get("investigator") or "").strip()
+    if not investigator_id:
+        party = ctx.party_ids()
+        investigator_id = party[0] if party else ""
+    known: list[str] = []
+    studying: list[dict[str, Any]] = []
+    if investigator_id:
+        state = ctx.inv_state(investigator_id)
+        magic = state.get("magic") if isinstance(state.get("magic"), Mapping) else {}
+        known = [
+            str(value) for value in (magic.get("learned_spells") or [])
+            if isinstance(value, str) and value.strip()
+        ]
+        studying = _studying_spell_rows(magic)
+    learning = _magic_learning_block(ctx, investigator_id)
+    context: dict[str, Any] = {
+        "known_spells": known,
+        "studying_spells": studying,
+        "learning": learning,
+    }
+    hints: list[str] = []
+    if (
+        not known
+        and not learning.get("sources")
+        and (_magic_learning_sources(ctx) or studying)
+    ):
+        # An empty surface that is not a blank one: the spell is mid-study
+        # or a teacher is one scene away. State what the response already
+        # carries and where it leads; advisory, no new gate.
+        context["guidance"] = _MAGIC_EMPTY_SURFACE_GUIDANCE
+        hints.append(_MAGIC_EMPTY_SURFACE_GUIDANCE)
+    return context, [], hints
+
+
+register_context_enricher("magic", _tool_magic_context)
+
 
 def _module_item(ctx: Ctx, item_id: str) -> dict[str, Any] | None:
     root = ctx.module_meta.get("module_mechanics")
@@ -13206,12 +13990,13 @@ def _execute_subsystem_command(
             "command.payload.decision_id must equal the toolbox decision_id",
         )
     investigator_id = _resolve_investigator(ctx, args)
+    commands = _canonical_pending_resolution(ctx, investigator_id, command)
     try:
         results = coc_subsystem_executor.execute_commands(
             ctx.campaign_dir,
             _investigator_character_path(ctx, investigator_id),
             investigator_id,
-            [command],
+            commands,
             rng=_rng(args),
             append_jsonl=coc_state.append_jsonl,
             character_snapshot=ctx.sheet(investigator_id),
@@ -13230,6 +14015,49 @@ def _execute_subsystem_command(
         "investigator_id": investigator_id,
         "results": results,
     }
+    # The canonical event this command produced, chosen from an explicit
+    # per-kind list the way the healing adapter chooses its own primary.
+    #
+    # `_rules_settle_writer_domains` grants a settlement no write domain at all
+    # unless its result carries an `event` with an event_type, so without this
+    # a sanity settlement can prove no state change and the turn can never be
+    # finalized: `unproven_state_delta (mismatch)`. It never bit while the
+    # graph settled SAN through the advisory surface, which returned a flat
+    # result with its own `event`; the executor nests events under
+    # `results[].events[]`, so the field went empty when
+    # decision:coc7:sanity:check was rewired. Measured 2026-09-02: three
+    # diagnostic lanes settled rules and advanced bouts, and not one of them
+    # closed its turn -- the Keeper called turn.finalize four times and was
+    # told each time that recovery was impossible.
+    if kind in _SUBSYSTEM_PRIMARY_EVENT_TYPES:
+        # The canonical sheet after the write, read independently of the
+        # settlement's own receipt. `_rules_settle_writer_domains` cross-checks
+        # `current_san` and `conditions` against the receipt and the event
+        # before it will grant any write domain, and refuses outright when
+        # `conditions` disagrees -- None against the receipt's [] was enough to
+        # void the san domain with it. Deriving either from the receipt would
+        # make that cross-check tautological, so both come off the investigator
+        # state the way the healing adapter takes `current_hp`.
+        after_state = ctx.inv_state(investigator_id)
+        data["current_san"] = after_state.get("current_san")
+        data["conditions"] = list(after_state.get("conditions") or [])
+    primary_types = _SUBSYSTEM_PRIMARY_EVENT_TYPES.get(kind)
+    if primary_types:
+        # The primary only. A flattened `events` list beside it duplicated the
+        # executor's own `results[].events[]` -- nothing reads it (the turn's
+        # bout obligation walks every dict in the envelope and reaches the
+        # nested copy already), while it doubled the identity surface the
+        # projection has to declare and the bytes the transport carries. It
+        # collapsed two settlements on its first run out.
+        events = coc_subsystem_executor.flatten_result_events(results)
+        data["event"] = next(
+            (
+                deepcopy(event) for event in events
+                if isinstance(event, Mapping)
+                and event.get("event_type") in primary_types
+            ),
+            None,
+        )
     ctx.ledger_record(args.get("decision_id"), tool_name, data)
     return data, [], [
         "the subsystem result is authoritative; the KP chooses the surrounding fiction but must not alter its numbers or state"

@@ -1,0 +1,312 @@
+{
+ "decision_ref": "decision:coc7:sanity:check",
+ "family": "sanity",
+ "status": "settled",
+ "rule_refs": [
+  "rule:coc7:sanity:bout-real-time",
+  "rule:coc7:sanity:bout-summary",
+  "rule:coc7:sanity:phobia-and-mania",
+  "rule:coc7:sanity:underlying-repeat-bout"
+ ],
+ "investigator_id": "thomas-hayes",
+ "event": {
+  "event_id": "se1",
+  "source": "the corpse sits up",
+  "san_before": 55,
+  "san_loss": 20,
+  "san_after": 35,
+  "roll_outcome": "failure",
+  "mythos_hardened": false,
+  "creature_type": null,
+  "summary": "thomas-hayes the corpse sits up: SAN 55->35 (lost 20).",
+  "involuntary_action": {
+   "kind": "freeze",
+   "summary": "beam stops",
+   "source": "the corpse sits up",
+   "rule_ref": "core.sanity.failure_involuntary_action"
+  },
+  "event_type": "sanity"
+ },
+ "player_state_receipt": {
+  "schema_version": 1,
+  "investigator_id": "thomas-hayes",
+  "hp": {
+   "before": 12,
+   "after": 12
+  },
+  "san": {
+   "before": 55,
+   "after": 35
+  },
+  "mp": {
+   "before": 11,
+   "after": 11
+  },
+  "luck": {
+   "before": 50,
+   "after": 50
+  },
+  "conditions_before": [],
+  "conditions_after": [],
+  "loaded_ammunition": []
+ },
+ "current_hp": null,
+ "current_san": 35,
+ "conditions": [],
+ "settlement": {
+  "existing_result_envelope": true,
+  "result": {
+   "schema_version": 1,
+   "authority": "deterministic_subsystem",
+   "investigator_id": "thomas-hayes",
+   "results": [
+    {
+     "command_id": "tg-1:command",
+     "kind": "sanity_check",
+     "status": "pending_choice",
+     "events": [
+      {
+       "roll_id": "tg-1:command",
+       "roll_role": "percentile_check",
+       "decision_id": "tg-1",
+       "kind": "sanity_check",
+       "skill": "SAN",
+       "base_target": 55,
+       "target": 55,
+       "required_level": "regular",
+       "difficulty": "regular",
+       "required_target": 55,
+       "effective_target": 55,
+       "achieved_level": "failure",
+       "passed": false,
+       "success": false,
+       "surplus_levels": 0,
+       "outcome": "failure",
+       "reason": null,
+       "bonus_penalty_dice": 0,
+       "roll": 74,
+       "san_loss": 20,
+       "san_before": 55,
+       "san_after": 35,
+       "san_loss_expression": "20",
+       "san_loss_rolls": [],
+       "san_loss_raw_total": 20,
+       "san_loss_resolution": "constant",
+       "involuntary_action": {
+        "kind": "freeze",
+        "summary": "beam stops",
+        "source": "the corpse sits up",
+        "rule_ref": "core.sanity.failure_involuntary_action"
+       },
+       "bout_triggered": true,
+       "source": "the corpse sits up",
+       "san_trigger_id": null,
+       "roll_contract": null,
+       "resolution_context": {}
+      },
+      {
+       "event_id": "se1",
+       "source": "the corpse sits up",
+       "san_before": 55,
+       "san_loss": 20,
+       "san_after": 35,
+       "roll_outcome": "failure",
+       "mythos_hardened": false,
+       "creature_type": null,
+       "summary": "thomas-hayes the corpse sits up: SAN 55->35 (lost 20).",
+       "involuntary_action": {
+        "kind": "freeze",
+        "summary": "beam stops",
+        "source": "the corpse sits up",
+        "rule_ref": "core.sanity.failure_involuntary_action"
+       },
+       "event_type": "sanity"
+      },
+      {
+       "event_id": "se2",
+       "kind": "freeze",
+       "summary": "thomas-hayes freeze: beam stops",
+       "source": "the corpse sits up",
+       "rule_ref": "core.sanity.failure_involuntary_action",
+       "event_type": "involuntary_action"
+      },
+      {
+       "event_id": "se3",
+       "bout_id": "thomas-hayes:bout:1",
+       "mode": "real_time",
+       "summary_table": "table_vii_realtime",
+       "bout_roll": 8,
+       "bout_result": "Physical hysterics or emotional outburst",
+       "bout_kind": "hysteria",
+       "duration_hours": 7,
+       "source": "the corpse sits up",
+       "duration_rounds": 10,
+       "backstory_amend_suggestion": {
+        "mode": "corrupt_existing",
+        "backstory_field": "meaningful_locations",
+        "keeper_note": "Tie the madness to this investigator's own story: twist an existing entry in the 'meaningful_locations' backstory category, binding it to what just caused the bout. Negotiate the wording with the player (p.157)."
+       },
+       "summary": "thomas-hayes bout of madness (real_time): roll 8, duration 7h. Physical hysterics or emotional outburst",
+       "event_type": "bout_of_madness"
+      },
+      {
+       "event_id": "se4",
+       "trigger_id": "trg-c90854bbe3a8",
+       "due_elapsed_minutes": 420,
+       "remaining_hours": 7,
+       "summary": "thomas-hayes temporary-insanity recovery scheduled for elapsed>420 (auto_apply_if_safe).",
+       "event_type": "recovery_trigger_scheduled"
+      },
+      {
+       "event_id": "se5",
+       "summary": "thomas-hayes lost >=1/5 SAN in one day → indefinite insanity.",
+       "daily_san_lost": 20,
+       "threshold": 11,
+       "event_type": "indefinite_insanity"
+      },
+      {
+       "event_id": "se6",
+       "trigger_id": "trg-39dcd2bdd966",
+       "due_elapsed_minutes": 43200,
+       "summary": "thomas-hayes monthly Psychoanalysis treatment scheduled for elapsed>43200 (auto_apply_if_safe).",
+       "event_type": "treatment_trigger_scheduled"
+      }
+     ],
+     "pending_choice": {
+      "choice_id": "tg-1:command:bout",
+      "kind": "bout_keeper_action",
+      "command_id": "tg-1:command",
+      "responder": "keeper",
+      "revision": 0,
+      "prompt": "Advance or end the active Keeper-controlled bout?",
+      "options": [
+       {
+        "action": "tick",
+        "label": "Advance Keeper-controlled round"
+       },
+       {
+        "action": "end",
+        "label": "End the bout now"
+       }
+      ]
+     },
+     "state_refs": [
+      "logs/rolls.jsonl#tg-1:command",
+      "save/sanity-state/thomas-hayes.json#thomas-hayes",
+      "save/investigator-state/thomas-hayes.json#current_san",
+      "save/subsystem-state.json#pending_choices/tg-1:command:bout",
+      "save/subsystem-state.json#pending_contexts/tg-1:command:bout"
+     ]
+    }
+   ],
+   "current_san": 35,
+   "conditions": [],
+   "event": {
+    "event_id": "se1",
+    "source": "the corpse sits up",
+    "san_before": 55,
+    "san_loss": 20,
+    "san_after": 35,
+    "roll_outcome": "failure",
+    "mythos_hardened": false,
+    "creature_type": null,
+    "summary": "thomas-hayes the corpse sits up: SAN 55->35 (lost 20).",
+    "involuntary_action": {
+     "kind": "freeze",
+     "summary": "beam stops",
+     "source": "the corpse sits up",
+     "rule_ref": "core.sanity.failure_involuntary_action"
+    },
+    "event_type": "sanity"
+   },
+   "player_state_receipt": {
+    "schema_version": 1,
+    "investigator_id": "thomas-hayes",
+    "hp": {
+     "before": 12,
+     "after": 12
+    },
+    "san": {
+     "before": 55,
+     "after": 35
+    },
+    "mp": {
+     "before": 11,
+     "after": 11
+    },
+    "luck": {
+     "before": 50,
+     "after": 50
+    },
+    "conditions_before": [],
+    "conditions_after": [],
+    "loaded_ammunition": []
+   }
+  }
+ },
+ "next_decisions": [
+  {
+   "schema_version": 1,
+   "decision_ref": "decision:coc7:sanity:bout-tick",
+   "family": "sanity",
+   "label": "Sanity bout-tick through an existing resolver/subsystem phase",
+   "applicability": "not_applicable",
+   "required_inputs": [],
+   "locked_inputs": [
+    "bout_revision",
+    "investigator_id",
+    "origin_command_id",
+    "pending_choice_ref"
+   ],
+   "rule_refs": [
+    "rule:coc7:sanity:bout-real-time",
+    "rule:coc7:sanity:bout-summary",
+    "rule:coc7:sanity:phobia-and-mania",
+    "rule:coc7:sanity:underlying-repeat-bout"
+   ],
+   "source_refs": [
+    "span-sanity-complete-source-page-166-block-33",
+    "span-sanity-complete-source-page-167-block-39",
+    "span-sanity-complete-source-page-167-block-54",
+    "span-sanity-complete-source-page-168-block-60",
+    "span-sanity-complete-source-page-168-block-61",
+    "span-sanity-complete-source-page-168-block-81",
+    "span-sanity-complete-source-page-168-block-82",
+    "span-sanity-complete-source-page-169-block-83",
+    "span-sanity-complete-source-page-169-block-84",
+    "span-sanity-complete-source-page-169-block-89",
+    "span-sanity-complete-source-page-169-block-91",
+    "span-sanity-complete-source-page-170-block-104",
+    "span-sanity-complete-source-page-170-block-105",
+    "span-sanity-complete-source-page-170-block-108",
+    "span-sanity-complete-source-page-170-block-111",
+    "span-sanity-complete-source-page-170-block-112",
+    "span-sanity-complete-source-page-170-block-98",
+    "span-sanity-complete-source-page-171-block-114",
+    "span-sanity-complete-source-page-172-block-120",
+    "span-sanity-complete-source-page-175-block-139"
+   ],
+   "capability_ref": "capability:coc7:sanity-execute",
+   "effect_refs": [],
+   "possible_continuations": [
+    "decision:coc7:sanity:bout-end",
+    "decision:coc7:sanity:bout-tick"
+   ],
+   "authority": {
+    "selection": "keeper-semantic",
+    "execution": "current-ruleset-adapter",
+    "hard_gate": false
+   },
+   "settle_form": {
+    "prefilled_arguments": {
+     "decision_ref": "decision:coc7:sanity:bout-tick"
+    },
+    "missing_arguments": [
+     "decision_id"
+    ]
+   }
+  }
+ ],
+ "authority": "canonical-resolver-state-receipts",
+ "request_digest": "sha256:ea7263e50e54eb30f615324a1b1c457d6ba7a220d3413a71bf082f1f559bb7fb"
+}

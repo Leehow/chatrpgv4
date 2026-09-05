@@ -48,7 +48,14 @@ def _execute_magic(ctx: Ctx, args: dict[str, Any], *, kind: str):
             rng=_rng(args),
         )
     except coc_runtime_ops.RuntimeOperationError as exc:
-        raise ToolError("invalid_param", str(exc)) from exc
+        # A refusal that names a fixable content gap must survive projection
+        # under its own code; flattening it to invalid_param would tell the
+        # Keeper only that something about the call was wrong.
+        raise ToolError(
+            getattr(exc, "code", None) or "invalid_param",
+            str(exc),
+            details=getattr(exc, "details", None),
+        ) from exc
     data = {
         "schema_version": 1,
         "authority": "coc7_magic_runtime",

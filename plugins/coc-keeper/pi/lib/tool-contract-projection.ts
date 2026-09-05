@@ -754,6 +754,22 @@ const BUSINESS_PRECONDITION_ACTIONS: Record<string, readonly PiAllowedNextAction
     reason: "journal the settled turn before requesting its output context",
     host_bound: true,
   }],
+  // A due Sanity trigger (treatment or temporary recovery) carries policy
+  // auto_apply_if_safe: the card is applicable the moment the trigger is
+  // due, but settlement refuses `sanity_trigger_deferred` until a canonical
+  // safe place exists. Unmapped, the refusal projected invariant_terminal /
+  // recoverable_by "none" / no next action, and Keepers re-sent the same
+  // settlement into nonretryable_repeat_blocked (runs r59/t-treatment,
+  // r59/t-recover-temp, r61/m2-recover-temp). The gate is right; the way
+  // through it is state.mark_safe_rest, then the same settlement again.
+  sanity_trigger_deferred: [{
+    operation: "state.mark_safe_rest",
+    action: "record_safe_rest_then_settle_again",
+    reason:
+      "record safe rest with state.mark_safe_rest, then settle the same "
+      + "due sanity trigger again",
+    host_bound: true,
+  }],
   turn_pending_finalization: [{
     operation: "turn.output_context",
     action: "resume_pending_settlement",
@@ -3827,6 +3843,11 @@ const CLASSIFIED_INTEGRITY_FIELDS: ReadonlySet<string> = new Set([
   // left the campaign unresumable, with `session.resume` returning ok:true and
   // an empty payload.
   "prior_finalized_source_digest", "anchor_digest",
+  // Ending-capsule and deterministic-plan content hashes carried by
+  // development settlements (state.end_session and rules.settle
+  // development:settle-ending): the host verifies them against the
+  // development ledger; they never reach model content.
+  "capsule_sha256", "plan_sha256",
 ]);
 
 /**
@@ -4222,10 +4243,33 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
   // `bout_rounds_remaining` and each event's summary, and continues the bout
   // through `next_decisions`, never by echoing an id. Declaring them here
   // drops them the same way instead of failing the result closed.
+  // `weapon_ref` is the combat family's arsenal: the owned, resolvable weapon
+  // ids the Keeper copies verbatim into `rules.settle`
+  // `semantic_inputs.weapon_ref`. It is deliberately NOT routed through the
+  // weapon registry the way `weapon_id` is (SEMANTIC_ID_SCALAR_FIELDS maps
+  // that one to a `weapon:` handle): `weapon_ref` has no restore classifier,
+  // so a handle presented here would come back verbatim and the kernel would
+  // strip `weapon:` off a handle slug that names no canonical weapon. The
+  // canonical id is what the settle slot takes, so the canonical id is what
+  // the context shows -- judged by the shared semantic slug grammar, which
+  // `revolver_38_or_9mm` and the built-in `unarmed` both satisfy.
+  //
+  // Undeclared it would not merely vanish: an identity-named field with a
+  // string value collapses the WHOLE envelope to
+  // `semantic_identity_unavailable`, so the fix for a Keeper that could not
+  // see its own weapons would have been a Keeper that could not see its own
+  // cards either.
   ["rules.context", declaredIdentityTable(
-    [...RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS, "rule_ref"],
+    [...RULE_DECISION_CARD_SEMANTIC_IDENTITY_FIELDS, "rule_ref", "weapon_ref"],
     [],
-    ["active_bout_id", "bout_id", "trigger_id", "event_id"],
+    // Once a bout registers its Keeper choice, the family's context carries
+    // it: `canonical_context.pending_choices`. `choice_id` and `command_id`
+    // are the executor's own transaction handles -- the Keeper settles
+    // bout-tick and the host fills those slots from the choice, never by
+    // echoing an id -- so they follow the bout ids above rather than failing
+    // the whole context closed, which is what they did five times in one run.
+    ["active_bout_id", "bout_id", "trigger_id", "event_id",
+     "choice_id", "command_id"],
   )],
   // `roll_id` is deliberately NOT host-only here: a graph-settled
   // critical/fumble is the source roll `state.exceptional_effect` must bind,
@@ -4261,17 +4305,85 @@ const OPERATION_IDENTITY_DECLARATIONS: ReadonlyMap<
       // actor id and a catalog key.
       "chase_id", "vehicle_actor_id", "vehicle_key",
       "barrier_id", "hazard_id", "action_id", "choice_id",
+      // chase:conflict events name who grabbed whom. actor_id was already
+      // declared; attacker_id/defender_id were not, so a settled conflict
+      // (canonical chase written) reached the Keeper as
+      // semantic_identity_unavailable (r85 ch-conf4).
+      "attacker_id", "defender_id", "combat_id",
+      // Sanity due-trigger settle echoes the investigator the trigger
+      // targets. Undeclared, recover/treatment collapsed after the handler
+      // ran (r86 s-recov3 / s-treat6).
+      "target_id",
+      // Psychology realize's player-safe envelope still nests the observe
+      // window. npc_id is authored; conversation_window_id is
+      // conversation:<scene>:<investigator>:<npc> (r86 x-psy3).
+      "npc_id", "conversation_window_id",
+      // A settle-ending settlement names where it closed: authored slugs,
+      // the same campaign/scene/scenario vocabulary the setup and scene
+      // tables declare. Undeclared, `scene_id` and `scenario_id` were part
+      // of the fields that collapsed the first recorded settle-ending
+      // envelope (r71 Gate 9 sweep, lane x-settle-end); `campaign_id`
+      // rides inside the ending capsule's development-inputs ledger.
+      "campaign_id", "scene_id", "scenario_id",
     ],
+    // Ending-capsule, deterministic-plan, and luck-spend source-receipt
+    // content hashes: integrity evidence the host verifies against the
+    // ledger, never model content. Undeclared, a settled luck-spend
+    // collapsed the whole envelope to semantic_identity_unavailable on
+    // settlement.result.luck_spend.source_receipt.integrity_digest
+    // (debug-gate9-depth-10-r76 lane luck5).
     // `record_digest` is the host's proof that a resolved leverage/motive row
-    // really names the record it claims. `rules.social_adjudicate` and
-    // `rules.psychology_observe` both declare it integrity; `rules.settle`
-    // reaches the same resolver through the rule-graph card and did not, so a
-    // GRANTED leverage row collapsed the whole envelope here while the same
-    // row projected fine through the direct operation. Only the granted case
-    // carries it, which is why this survived the first fix: an adjudication
-    // that gave the player nothing has no resolved row at all.
-    ["request_digest", "record_digest"],
-    ["command_id", "source_command_id", "state_refs"],
+    // really names the record it claims. `rules.settle` reaches that resolver
+    // through the rule-graph card and declared it nowhere, so a GRANTED
+    // leverage row collapsed the whole envelope here while the same row
+    // projected fine through `rules.social_adjudicate`. Only the granted case
+    // carries it, which is why it survived the first fix: an adjudication that
+    // gave the player nothing has no resolved row at all. It is declared in the
+    // host-only list below rather than beside the other digests, because
+    // `identityDisposition` consults host-only first and a second declaration
+    // here would never be read.
+    ["request_digest", "capsule_sha256", "plan_sha256", "integrity_digest"],
+    // A sanity settlement now returns the executor's own envelope --
+    // `results[].events[]` -- rather than the advisory surface's flat view,
+    // so the bout and event ids sit one level deeper than the shape fb98f0ac
+    // deleted them from, and its key-by-key deletion no longer reaches them.
+    // Same disposition, declared instead of deleted so nesting cannot outrun
+    // it again: the Keeper narrates from bout_triggered, the rounds remaining
+    // and each event's summary, and continues the bout through
+    // next_decisions.
+    // `trigger_id` is host-only HERE and semantic in scene.context, because
+    // the values differ: a scene carries the authored `san-trigger:<slug>` a
+    // Keeper can cite, while a settlement carries the generated `trg-<hex>`
+    // handle of the time trigger that fired. Undeclared, it collapsed two
+    // settled Sanity checks in r36 -- and it reaches the envelope through the
+    // executor's nesting whatever else is trimmed.
+    ["command_id", "source_command_id", "state_refs",
+     "bout_id", "event_id", "active_bout_id", "trigger_id",
+     // The combat receipt a chase conflict consumed. Machine command id,
+     // not something the Keeper authors or echoes (r85 ch-conf4).
+     "combat_command_id",
+     "command_hash", "receipt_hash", "record_digest", "insight_id",
+     // Opposed graph settlement names each side's D100 as
+     // investigator_roll_id / opponent_roll_id. Those ride through
+     // rules.settle, not the legacy rules.opposed envelope that registered
+     // them, so the live opposed settle collapsed the whole receipt to
+     // semantic_identity_unavailable (r76 o-check5). The Keeper narrates
+     // from the two outcomes; it never echoes the roll ids.
+     "investigator_roll_id", "opponent_roll_id",
+     // The settle-ending receipt's machine provenance. `ending_id` is a
+     // GENERATED handle (`ending-<sha256[:20]>`, coc_development.py): it
+     // cannot pass the semantic slug grammar and the Keeper never authors
+     // one — the ending's kind/summary/scene in the bounded view carry the
+     // story facts. `operation_id` is the executor's op-instance id, the
+     // replay anchors name the boundary/ending a settlement was re-run
+     // from, and `event_token`/`source_event_id` are the development
+     // ledger's check-event correlation. Declared here so any branch that
+     // still carries them drops by declaration instead of failing the
+     // envelope closed — the live failure they caused: r71 Gate 9 sweep,
+     // lane x-settle-end, settlement committed and receipt generated, but
+     // the Keeper received semantic_identity_unavailable.
+     "ending_id", "replayed_from_ending_id", "replayed_from_boundary_id",
+     "operation_id", "event_token", "source_event_id"],
   )],
   // `state.npc_update` had no entry at all, so even `npc_id` — the most
   // ordinary authored slug in the system — failed the whole result closed.
@@ -5041,7 +5153,6 @@ const SEMANTIC_ID_ARRAY_FIELDS: ReadonlyMap<string, string> = new Map([
   ["session_roll_ids", "roll:"],
   ["source_roll_ids", "roll:"],
   ["roll_ids", "roll:"],
-  ["presented_roll_ids", "roll:"],
   ["source_ids", "roll:"],
   ["substantive_effect_ids", "effect:"],
   ["effect_ids", "effect:"],
@@ -6038,6 +6149,117 @@ function projectDevelopmentEndSessionRulesSettleData(
 }
 
 /**
+ * RuleGraph settles `decision:coc7:development:settle-ending` with the
+ * already-committed canonical development settlement embedded under
+ * `settlement.result.receipt` — the same `development.settle` receipt
+ * `state.end_session` embeds per investigator, so it shares that closed
+ * view. On top of the receipt, a settle-ending settlement names the ending
+ * itself: `ending_evidence.kind`/`summary` are the Keeper's product (which
+ * way the story closed), and `scene_id`/`scenario_id` are authored slugs.
+ * Everything else the ending capsule carries stays host-side: the generated
+ * `ending-<sha256[:20]>` handle (coc_development.py), the capsule/plan
+ * digests, the boundary/session replay anchors, the operation-instance id,
+ * and the `development_inputs` ledger (check-event tokens, claim ownership,
+ * source image hashes) — provenance the host verifies, never model
+ * material.
+ *
+ * Without this closed branch the generic sanitizer failed the WHOLE
+ * envelope closed on twelve of those fields — live in the r71 Gate 9 sweep
+ * (`debug-gate9-depth-10-r71/lanes/x-settle-end`): the settlement
+ * committed, the receipt generated, and the Keeper still received
+ * `semantic_identity_unavailable`. This is projection only: the
+ * deterministic settlement must never be re-run.
+ */
+function projectDevelopmentSettleEndingRulesSettleData(
+  data: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+): Record<string, unknown> {
+  const settlement = isPlainObject(data.settlement) ? data.settlement : null;
+  const result = settlement !== null && isPlainObject(settlement.result)
+    ? settlement.result
+    : null;
+  const receipt = result !== null && isPlainObject(result.receipt)
+    ? result.receipt
+    : null;
+  if (settlement === null || result === null || receipt === null) {
+    return sanitizeEnvelopeBranch(
+      data, semanticIds, diagnostics, "rules.settle",
+    ) as Record<string, unknown>;
+  }
+
+  const genericSettlement: Record<string, unknown> = { ...settlement };
+  delete genericSettlement.result;
+  const projected = sanitizeEnvelopeBranch(
+    { ...data, settlement: genericSettlement },
+    semanticIds, diagnostics, "rules.settle",
+  ) as Record<string, unknown>;
+  const projectedSettlement = isPlainObject(projected.settlement)
+    ? projected.settlement
+    : null;
+  if (projectedSettlement === null) return projected;
+
+  const receiptView = projectDevelopmentSettleReceiptView(
+    receipt,
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+  );
+  const receiptResult = isPlainObject(receipt.result) ? receipt.result : null;
+  const receiptResultView = isPlainObject(receiptView.result)
+    ? receiptView.result
+    : null;
+  if (receiptResult !== null && receiptResultView !== null) {
+    const endingEvidence = isPlainObject(receiptResult.ending_evidence)
+      ? receiptResult.ending_evidence
+      : null;
+    if (endingEvidence !== null) {
+      diagnoseUnprojectedIdentityKeys(
+        "rules.settle",
+        endingEvidence,
+        new Set([
+          "schema_version", "capsule_type", "ending_id", "event_id",
+          "event_ref", "scene_id", "kind", "summary", "decision_id",
+          "investigator_ids", "scenario_id", "conclusion_id",
+          "conclusion_evidence", "conclusion_reward_id",
+          "scenario_san_reward_expr", "scenario_san_reward_rule_ref",
+          "event_line_at_capture", "source_digest", "development_inputs",
+          "rng_identity", "captured_at", "capsule_sha256",
+        ]),
+        diagnostics,
+      );
+      // Which ending settled and how it closed: the Keeper narrates from
+      // kind/summary and the authored scene/scenario slugs. The capsule's
+      // digest, provenance ledger and generated handles stay host-side.
+      receiptResultView.ending_evidence = selectedFields(endingEvidence, [
+        "kind", "summary", "scene_id", "scenario_id",
+      ]);
+    }
+    if (isPlainObject(receiptResult.inventory_settlement)) {
+      // The gear the ending moved is player-visible; the net-diff policy
+      // label names the direction of the ledger, not a host handle.
+      receiptResultView.inventory_settlement = selectedFields(
+        receiptResult.inventory_settlement,
+        ["added_weapons", "removed_weapons", "added_gear", "removed_gear",
+         "merge_policy"],
+      );
+    }
+  }
+  // `settlement.result.ending_id` is deliberately never copied: the
+  // generated ending handle is declared host-only for rules.settle.
+  projectedSettlement.result = stripOpaqueModelIdentity(
+    { receipt: receiptView },
+    null,
+    semanticIds,
+    diagnostics,
+    "rules.settle",
+    "settlement.result",
+  ) as Record<string, unknown>;
+  projected.settlement = projectedSettlement;
+  return projected;
+}
+
+/**
  * Closed model view of the completed pushed check embedded under
  * `rules.settle`. The pushed D100 and its announced consequence are the
  * Keeper's product; the host-owned join back into the original receipt and
@@ -6443,6 +6665,16 @@ function projectRulesSettleData(
       diagnostics,
     );
   }
+  if (
+    data.family === "development"
+    && data.decision_ref === "decision:coc7:development:settle-ending"
+  ) {
+    return projectDevelopmentSettleEndingRulesSettleData(
+      data,
+      semanticIds,
+      diagnostics,
+    );
+  }
   return sanitizeEnvelopeBranch(
     data,
     semanticIds,
@@ -6497,6 +6729,157 @@ function projectDevelopmentMechanics(value: unknown): Record<string, unknown> | 
   return projected;
 }
 
+/**
+ * Bounded field lists shared by every projection of the canonical
+ * `development.settle` receipt. The check rows are the public dice
+ * themselves: skill, rolled check, gain and before/after values — roll ids
+ * and ledger internals never appear here.
+ */
+const DEVELOPMENT_CHECK_ROW_VISIBLE_FIELDS = [
+  "skill", "check_roll", "gain", "value_before",
+  "planned_value_after", "current_value_before_apply",
+  "applied_delta", "value_after", "improved", "merge_policy",
+] as const;
+
+const DEVELOPMENT_SAN_REWARD_VISIBLE_FIELDS = [
+  "expression", "rolls", "total", "planned_san_before",
+  "planned_san_delta", "san_before", "san_gained", "san_after",
+  "san_max", "value_before", "applied_delta", "value_after",
+  "replayed", "rule_ref",
+] as const;
+
+const DEVELOPMENT_LUCK_RECOVERY_VISIBLE_FIELDS = [
+  "roll", "success", "gained", "luck_before", "luck_after",
+  "planned_luck_before", "planned_luck_after", "planned_gained",
+  "current_luck_before_apply", "applied_delta", "merge_policy",
+  "rule_ref",
+  // A disabled luck-recovery option settles as a recorded skip;
+  // the Keeper must see why no recovery roll happened.
+  "skipped", "reason", "option_id", "decided_by", "layer",
+] as const;
+
+/**
+ * Bounded view of the canonical `development.settle` receipt's result. Two
+ * consumers project this exact receipt shape: `state.end_session` embeds
+ * one per investigator under `development.settlements[]`, and rules.settle
+ * `development:settle-ending` embeds one under `settlement.result.receipt`.
+ */
+function projectDevelopmentSettleReceiptResultView(
+  result: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  operation: string,
+): Record<string, unknown> {
+  diagnoseUnprojectedIdentityKeys(
+    operation,
+    result,
+    new Set([
+      "skills_checked", "san_reward_expr", "san_reward_planned_delta",
+      "scenario_san_reward_expr", "scenario_san_reward_planned_delta",
+      "scenario_san_reward_applied", "merge_policy",
+      "improvement_checks", "skills_improved", "san_reward",
+      "san_reward_roll", "development_san_reward",
+      "scenario_san_reward", "scenario_san_reward_roll",
+      "luck_recovery", "ending_evidence", "player_facing_mechanics",
+      "settlement_plan_sha256",
+      // The settle-ending receipt additionally carries these; both consumers
+      // drop them here (ledger internals) — the settle-ending projector
+      // re-surfaces the bounded ending and inventory facts itself.
+      "awfulness_decay", "awfulness_merge", "inventory_settlement",
+      "mechanical_baseline", "settlement_boundary", "input_tokens_consumed",
+    ]),
+    diagnostics,
+  );
+  const resultView = selectedFields(result, [
+    "skills_checked", "san_reward_expr", "san_reward_planned_delta",
+    "scenario_san_reward_expr", "scenario_san_reward_planned_delta",
+    "scenario_san_reward_applied", "merge_policy",
+  ]);
+  for (const field of ["improvement_checks", "skills_improved"] as const) {
+    if (Array.isArray(result[field])) {
+      resultView[field] = result[field].flatMap((row) =>
+        isPlainObject(row)
+          ? [selectedFields(row, DEVELOPMENT_CHECK_ROW_VISIBLE_FIELDS)]
+          : []
+      );
+    }
+  }
+  for (const field of [
+    "san_reward", "san_reward_roll", "development_san_reward",
+    "scenario_san_reward", "scenario_san_reward_roll",
+  ] as const) {
+    if (isPlainObject(result[field])) {
+      resultView[field] = selectedFields(
+        result[field],
+        DEVELOPMENT_SAN_REWARD_VISIBLE_FIELDS,
+      );
+    }
+  }
+  if (isPlainObject(result.luck_recovery)) {
+    resultView.luck_recovery = selectedFields(
+      result.luck_recovery,
+      DEVELOPMENT_LUCK_RECOVERY_VISIBLE_FIELDS,
+    );
+  }
+  const endingEvidence = isPlainObject(result.ending_evidence)
+    ? result.ending_evidence
+    : null;
+  if (
+    endingEvidence !== null
+    && typeof endingEvidence.scenario_san_reward_rule_ref === "string"
+  ) {
+    resultView.scenario_san_reward_rule_ref =
+      endingEvidence.scenario_san_reward_rule_ref;
+  }
+  const mechanics = projectDevelopmentMechanics(
+    result.player_facing_mechanics,
+  );
+  if (mechanics !== null) resultView.player_facing_mechanics = mechanics;
+  return resultView;
+}
+
+/**
+ * Bounded view of the whole `development.settle` receipt: chrome, result and
+ * rendered public mechanics. `operation` is the OUTER operation the view
+ * projects under, so identity declarations and diagnostics follow the
+ * consumer's own table.
+ */
+function projectDevelopmentSettleReceiptView(
+  receipt: Record<string, unknown>,
+  semanticIds: SemanticIdMap | null,
+  diagnostics: ProjectionIdentityDiagnostics | null,
+  operation: string,
+): Record<string, unknown> {
+  diagnoseUnprojectedIdentityKeys(
+    operation,
+    receipt,
+    new Set([
+      "schema_version", "status", "kind", "result",
+      "player_facing_mechanics", "operation_id", "state_refs",
+      "replayed", "replayed_from_boundary_id", "replayed_from_ending_id",
+    ]),
+    diagnostics,
+  );
+  const receiptView = selectedFields(
+    receipt,
+    ["schema_version", "status", "kind"],
+  );
+  const result = isPlainObject(receipt.result) ? receipt.result : null;
+  if (result !== null) {
+    receiptView.result = projectDevelopmentSettleReceiptResultView(
+      result,
+      semanticIds,
+      diagnostics,
+      operation,
+    );
+  }
+  const mechanics = projectDevelopmentMechanics(
+    receipt.player_facing_mechanics,
+  );
+  if (mechanics !== null) receiptView.player_facing_mechanics = mechanics;
+  return receiptView;
+}
+
 /** Closed state.end_session view: ending disposition plus public settlement. */
 function projectEndSessionData(
   data: Record<string, unknown>,
@@ -6540,100 +6923,12 @@ function projectEndSessionData(
         );
         const receipt = isPlainObject(entry.receipt) ? entry.receipt : null;
         if (receipt === null) return [settlement];
-        diagnoseUnprojectedIdentityKeys(
-          "state.end_session",
+        settlement.receipt = projectDevelopmentSettleReceiptView(
           receipt,
-          new Set([
-            "schema_version", "status", "kind", "result",
-            "player_facing_mechanics", "operation_id", "state_refs",
-            "replayed_from_boundary_id", "replayed_from_ending_id",
-          ]),
+          semanticIds,
           diagnostics,
+          "state.end_session",
         );
-        const receiptView = selectedFields(
-          receipt,
-          ["schema_version", "status", "kind"],
-        );
-        const result = isPlainObject(receipt.result) ? receipt.result : null;
-        if (result !== null) {
-          diagnoseUnprojectedIdentityKeys(
-            "state.end_session",
-            result,
-            new Set([
-              "skills_checked", "san_reward_expr", "san_reward_planned_delta",
-              "scenario_san_reward_expr", "scenario_san_reward_planned_delta",
-              "scenario_san_reward_applied", "merge_policy",
-              "improvement_checks", "skills_improved", "san_reward",
-              "san_reward_roll", "development_san_reward",
-              "scenario_san_reward", "scenario_san_reward_roll",
-              "luck_recovery", "ending_evidence", "player_facing_mechanics",
-              "settlement_plan_sha256",
-            ]),
-            diagnostics,
-          );
-          const resultView = selectedFields(result, [
-            "skills_checked", "san_reward_expr", "san_reward_planned_delta",
-            "scenario_san_reward_expr", "scenario_san_reward_planned_delta",
-            "scenario_san_reward_applied", "merge_policy",
-          ]);
-          for (const field of ["improvement_checks", "skills_improved"] as const) {
-            if (Array.isArray(result[field])) {
-              resultView[field] = result[field].flatMap((row) =>
-                isPlainObject(row)
-                  ? [selectedFields(row, [
-                    "skill", "check_roll", "gain", "value_before",
-                    "planned_value_after", "current_value_before_apply",
-                    "applied_delta", "value_after", "improved", "merge_policy",
-                  ])]
-                  : []
-              );
-            }
-          }
-          for (const field of [
-            "san_reward", "san_reward_roll", "development_san_reward",
-            "scenario_san_reward", "scenario_san_reward_roll",
-          ] as const) {
-            if (isPlainObject(result[field])) {
-              resultView[field] = selectedFields(result[field], [
-                "expression", "rolls", "total", "planned_san_before",
-                "planned_san_delta", "san_before", "san_gained", "san_after",
-                "san_max", "value_before", "applied_delta", "value_after",
-                "replayed", "rule_ref",
-              ]);
-            }
-          }
-          if (isPlainObject(result.luck_recovery)) {
-            resultView.luck_recovery = selectedFields(result.luck_recovery, [
-              "roll", "success", "gained", "luck_before", "luck_after",
-              "planned_luck_before", "planned_luck_after", "planned_gained",
-              "current_luck_before_apply", "applied_delta", "merge_policy",
-              "rule_ref",
-              // A disabled luck-recovery option settles as a recorded skip;
-              // the Keeper must see why no recovery roll happened.
-              "skipped", "reason", "option_id", "decided_by", "layer",
-            ]);
-          }
-          const endingEvidence = isPlainObject(result.ending_evidence)
-            ? result.ending_evidence
-            : null;
-          if (
-            endingEvidence !== null
-            && typeof endingEvidence.scenario_san_reward_rule_ref === "string"
-          ) {
-            resultView.scenario_san_reward_rule_ref =
-              endingEvidence.scenario_san_reward_rule_ref;
-          }
-          const mechanics = projectDevelopmentMechanics(
-            result.player_facing_mechanics,
-          );
-          if (mechanics !== null) resultView.player_facing_mechanics = mechanics;
-          receiptView.result = resultView;
-        }
-        const mechanics = projectDevelopmentMechanics(
-          receipt.player_facing_mechanics,
-        );
-        if (mechanics !== null) receiptView.player_facing_mechanics = mechanics;
-        settlement.receipt = receiptView;
         return [settlement];
       });
     }
@@ -6646,6 +6941,24 @@ function projectEndSessionData(
     "state.end_session",
   ) as Record<string, unknown>;
 }
+
+/**
+ * Closed craft view of the turn's `style_contract`: the text layer's
+ * vocabulary (avoid/prefer axes, beat frame, repetition policy, required
+ * rules) reaches the narrator here. Identities never appear in a style
+ * contract, so the view is a plain field selection with no identity map.
+ */
+const STYLE_CONTRACT_KEPT_FIELDS = [
+  "language",
+  "register",
+  "avoid",
+  "prefer",
+  "repetition_policy",
+  "style_guard",
+  "render_contract",
+  "beat_frame",
+  "output_language",
+] as const;
 
 function projectOutputContextContractProjection(data: Record<string, unknown>): unknown {
   const raw = isPlainObject(data.contract_projection)
@@ -7048,6 +7361,12 @@ function projectOutputContextData(
     });
   }
   projected.contract_projection = projectOutputContextContractProjection(data);
+  if (isPlainObject(data.style_contract)) {
+    projected.style_contract = selectedFields(
+      data.style_contract,
+      STYLE_CONTRACT_KEPT_FIELDS,
+    );
+  }
   if (data.agency_review_operation !== undefined) {
     projected.agency_review_operation = projectOperationDescriptor(
       data.agency_review_operation,
@@ -8097,7 +8416,19 @@ export function deriveSemanticEntityFacts(
 
 export type SemanticHandleRestoreResult =
   | { ok: true; value: Record<string, unknown> }
-  | { ok: false; code: string; message: string };
+  | {
+    ok: false;
+    code: string;
+    message: string;
+    /**
+     * Structured, model-facing remedy for the refusal. The host rewrites
+     * canonical ids out of error PROSE, so a handle named only in `message`
+     * does not survive to the Keeper; the actionable part has to travel as
+     * data. Populated for handle-resolution refusals with the domain the
+     * value was classified into and the handles that are actually live.
+     */
+    details?: Record<string, unknown>;
+  };
 
 // ─── Closed semantic-identity grammar for model-authored identity fields ───
 //
@@ -8124,7 +8455,6 @@ const isGrammarIdentityField = (field: string): boolean =>
   || field === "decision_id"
   || field === "run_id"
   || field === "run_segment_id"
-  || field === "presented_roll_ids"
   || field === "npc_ids"
   || field.endsWith("_decision_id");
 
@@ -8454,7 +8784,6 @@ const RAW_ECHOED_FIELDS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ["weapon_effect_ids", stringSet(["effect:"])],
   ["effect_id", stringSet(["effect:"])],
   ["roll_ids", stringSet(["roll:"])],
-  ["presented_roll_ids", stringSet(["roll:"])],
   ["source_roll_id", stringSet(["roll:"])],
   ["source_ids", stringSet(["roll:"])],
   ["obligation_id", stringSet([...OBLIGATION_ID_PREFIXES])],
@@ -8948,13 +9277,24 @@ export function closedIdentityGrammarSpec(
     const namespaces = [...echoed];
     const nsText = field === "weapon_id"
       ? "literal `unarmed`, a multi-token semantic slug, or namespace `weapon:`, `item:`"
+      // opponent_check_ref is namespace-only like the fields below, but its
+      // canonical binding (rule_graph_adapter `_npc_check`) takes exactly
+      // FOUR segments; the generic two-segment example taught a form that can
+      // never resolve, and every opposed settle refused its opponent value.
+      : field === "opponent_check_ref"
+      ? "namespace `npc:` only, exactly four segments `npc:<npc_id>:skill:<skill-slug>` "
+        + "naming the NPC and the authored skill to oppose"
       // Namespace-only fields reject the bare-slug half of the grammar: their
       // canonical binding partitions on the namespace to resolve the value.
       : RAW_NAMESPACE_ONLY_ECHOED_FIELDS.has(field)
       ? `namespace ${namespaces.map((n) => `\`${n}\``).join(", ")} only`
       : namespaces.length > 0
-      ? `multi-token semantic slug or namespace ${namespaces.map((n) => `\`${n}\``).join(", ")}`
-      : "multi-token semantic slug (no colon namespace)";
+      ? `lowercase multi-token semantic slug or namespace ${namespaces.map((n) => `\`${n}\``).join(", ")}`
+      // The slug grammar is lowercase-only, and saying "multi-token, no colon"
+      // alone left a caller holding `register-trial-A-20260902` -- which
+      // satisfies both stated rules -- with nothing to correct. Name the case
+      // requirement where the value is judged.
+      : "lowercase multi-token semantic slug (no capitals, no colon namespace)";
     // Campaign-09 point of use: a coverage handle is never authored, it is
     // copied verbatim from the presented output context — and a turn with no
     // presented obligations is represented structurally as `coverage: []`,
@@ -8985,6 +9325,8 @@ export function closedIdentityGrammarSpec(
     }
     const right = field === "weapon_id"
       ? "unarmed"
+      : field === "opponent_check_ref"
+      ? `npc:${GRAMMAR_EXAMPLE_SLUG}:skill:${GRAMMAR_EXAMPLE_SLUG}`
       : namespaces.length > 0
       ? `${namespaces[0]}${GRAMMAR_EXAMPLE_SLUG}`
       : GRAMMAR_EXAMPLE_SLUG;
@@ -9378,6 +9720,46 @@ export type SemanticIdentityHandleResolver = {
       | "transcript",
     handle: string,
   ) => string | null;
+  /**
+   * Every handle live in `domain` for this exact scope, in presented
+   * (prefixed) form. A refusal that says "copy one verbatim from the current
+   * turn context" without naming the candidates points at a place the Keeper
+   * cannot enumerate: one live lane burned its whole 1800s budget guessing
+   * eight shapes of `source_roll_id` across 29 attempts and never delivered a
+   * turn. The registry already knows the answer; this hands it over.
+   */
+  liveHandles?: (
+    domain:
+      | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+      | "transcript",
+    limit: number,
+  ) => readonly string[];
+  /**
+   * The live handle whose EXACT canonical id is `value` (domain prefix
+   * already stripped), when the model pasted a canonical id where a handle
+   * belongs. That is a different mistake from naming something that never
+   * existed, and only the first one has a one-step remedy. Returns a handle,
+   * never a canonical id, so nothing host-bound is echoed.
+   */
+  handleForCanonical?: (
+    domain:
+      | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+      | "transcript",
+    value: string,
+  ) => string | null;
+  /**
+   * Why this turn's handle set may be missing entities that DO exist
+   * canonically: operations whose result exceeded the wire's inline budget
+   * came back `identity_only`, so the identity they minted never reached the
+   * registry. "Nothing was rolled" and "rolls happened and their identity did
+   * not survive the wire" are different facts, and telling the Keeper the
+   * first when the second is true costs the turn.
+   */
+  describeEvidenceGap?: (
+    domain:
+      | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+      | "transcript",
+  ) => { operations: readonly string[]; collapsed: number } | null;
 };
 
 /** Scalar fields whose entire value is a registry roll handle. */
@@ -9412,6 +9794,113 @@ const RESTORE_ITEM_ARRAYS: ReadonlySet<string> = new Set([
 const RESTORE_ROUTE_FIELDS: ReadonlySet<string> = new Set([
   "route_id", "route_ref", "route_ids", "route_refs",
 ]);
+
+/**
+ * How many live handles a refusal names before it summarises the rest.
+ * Bounded so a busy turn cannot turn one refusal into a wall of text.
+ */
+const LIVE_HANDLE_REFUSAL_LIMIT = 24;
+
+/**
+ * Actionable `unknown_semantic_handle` refusal.
+ *
+ * The old refusal said "no roll handle by that name was ever presented this
+ * turn; copy one verbatim from the current turn context." and carried NO
+ * `details` at all. It named an empty place: the Keeper is told to copy from
+ * a context it cannot enumerate, so it guesses. In the live lane that
+ * produced this function, a Keeper spent the whole 1800s turn budget on eight
+ * shapes of `source_roll_id` over 29 attempts (25 refused here, then 21
+ * `nonretryable_repeat_blocked`) and never delivered a turn -- while two
+ * handles WERE live the entire time.
+ *
+ * The registry knows which handles are live for the exact invocation scope,
+ * so the refusal now says three things the Keeper can act on:
+ *   1. the domain the value was classified into (`roll` vs `effect` vs ...),
+ *   2. the live handles of that domain, in `details` -- NOT only in the
+ *      message, because the host rewrites canonical ids out of error prose
+ *      and a message-only reference does not survive to the model,
+ *   3. when nothing is live, that fact explicitly, instead of pointing at an
+ *      empty context.
+ *
+ * It also separates two mistakes the Keeper can only recover from if it is
+ * told them apart: pasting the exact CANONICAL id of a live entity (one-step
+ * remedy -- here is its handle) versus naming something that was never
+ * presented (no remedy through this field at all). The supplied value is
+ * never echoed; only handles the host itself minted travel back.
+ */
+function refuseUnknownSemanticHandle(
+  violation: {
+    reason: string;
+    field: string;
+    domain:
+      | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+      | "transcript";
+    value: string;
+  },
+  resolver: SemanticIdentityHandleResolver,
+): SemanticHandleRestoreResult {
+  const { field, domain } = violation;
+  const live = resolver.liveHandles?.(domain, LIVE_HANDLE_REFUSAL_LIMIT + 1) ?? null;
+  const canonicalAlias = resolver.handleForCanonical?.(domain, violation.value)
+    ?? null;
+  const details: Record<string, unknown> = {
+    identity_field: field,
+    identity_domain: domain,
+  };
+  let message = violation.reason;
+  if (canonicalAlias !== null) {
+    details.supplied_value_kind = "canonical_id_of_live_handle";
+    details.handle_for_supplied_value = canonicalAlias;
+    message += ` \`${field}\` was given the exact canonical ${domain} id of a `
+      + `live entity, not its handle; pass \`${canonicalAlias}\` instead.`;
+  } else if (live !== null) {
+    details.supplied_value_kind = "never_presented";
+  }
+  if (live !== null) {
+    const shown = live.slice(0, LIVE_HANDLE_REFUSAL_LIMIT);
+    details.live_handles = shown;
+    // Only an untruncated list can honestly report a total: the resolver was
+    // asked for one more than it shows, so a full page means "at least this
+    // many", never "exactly this many".
+    if (live.length > shown.length) details.live_handles_truncated = true;
+    else details.live_handle_count = shown.length;
+    if (live.length === 0) {
+      message += ` No ${domain} handle is live in this turn's scope at all, `
+        + `so no value of \`${field}\` can be accepted right now: the current `
+        + "turn context has none to copy. Produce one first (the operation "
+        + `that mints a ${domain} handle must succeed), or omit the field.`;
+    } else if (canonicalAlias === null) {
+      message += ` Live ${domain} handles in this turn's scope: `
+        + `${shown.map((handle) => `\`${handle}\``).join(", ")}`
+        + `${live.length > shown.length ? ", …" : ""}. `
+        + "Copy one of those verbatim, or omit the field.";
+    }
+  }
+  // The set can be short for a reason the Keeper cannot see: an over-budget
+  // canonical result collapses to an identity-only stub, and the identity it
+  // minted never reaches the registry. Saying so turns a dead end into a
+  // diagnosable one -- for the Keeper mid-turn, and for whoever reads the log.
+  const gap = resolver.describeEvidenceGap?.(domain) ?? null;
+  if (gap !== null && gap.collapsed > 0) {
+    details.dropped_evidence = {
+      cause: "identity_only_projection",
+      operations: gap.operations,
+      collapsed_results: gap.collapsed,
+    };
+    message += ` Note: ${gap.collapsed} canonical result`
+      + `${gap.collapsed === 1 ? "" : "s"} this turn `
+      + `(${gap.operations.join(", ")}) exceeded the inline projection budget `
+      + `and came back identity-only, so any ${domain} identity they minted `
+      + "never reached the handle registry. Canonical evidence may exist for "
+      + "something this turn cannot name.";
+  }
+  return {
+    ok: false,
+    code: "unknown_semantic_handle",
+    message,
+    details,
+  };
+}
 
 /**
  * Restore exact canonical entity identities from semantic handles in model
@@ -9648,8 +10137,16 @@ export function restoreSemanticEntityHandles(
       }
       return { ok: true, value: canonical };
     };
-    const violation = ((): string | null => {
-      const visit = (value: unknown, field: string | null): string | null => {
+    type HandleViolation = {
+      reason: string;
+      field: string;
+      domain:
+        | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
+        | "transcript";
+      value: string;
+    };
+    const violation = ((): HandleViolation | null => {
+      const visit = (value: unknown, field: string | null): HandleViolation | null => {
         if (Array.isArray(value)) {
           for (const entry of value) {
             const hit = visit(entry, field);
@@ -9661,13 +10158,11 @@ export function restoreSemanticEntityHandles(
           if (typeof value !== "string" || field === null) return null;
           const domain = classify(field, value);
           if (domain === "") return null;
-          const restored = restoreOne(
-            domain as
-              | "roll" | "effect" | "item" | "weapon" | "route" | "affordance"
-              | "transcript",
-            value,
-          );
-          return restored.ok ? null : restored.reason;
+          const typedDomain = domain as HandleViolation["domain"];
+          const outcome = restoreOne(typedDomain, value);
+          return outcome.ok
+            ? null
+            : { reason: outcome.reason, field, domain: typedDomain, value };
         }
         for (const [key, child] of Object.entries(value)) {
           const hit = visit(child, key);
@@ -9678,11 +10173,7 @@ export function restoreSemanticEntityHandles(
       return visit(restored, null);
     })();
     if (violation !== null) {
-      return {
-        ok: false,
-        code: "unknown_semantic_handle",
-        message: violation,
-      };
+      return refuseUnknownSemanticHandle(violation, resolver);
     }
     const rewrite = (value: unknown, field: string | null): unknown => {
       if (Array.isArray(value)) {

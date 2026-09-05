@@ -13,6 +13,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import coc_cache  # noqa: E402
+import coc_catalog  # noqa: E402
 import coc_rulesets  # noqa: E402
 
 # The coc7 ruleset package owns the rule tables (docs/ruleset-contract.md).
@@ -741,12 +742,137 @@ def spells_table() -> dict[str, Any]:
     """Return the Chapter 12 Grimoire spell data (Keeper Rulebook pp.258-277)."""
     return load_rule_table("spells")
 
-def spell_by_name(name: str) -> dict[str, Any]:
-    """Look up a spell by name (e.g. 'Flesh Ward'). Raises KeyError if unknown."""
+def _module_spell_entry(
+    record: dict[str, Any], module_authored: dict[str, Any]
+) -> dict[str, Any]:
+    """The priced-row stand-in for a module-authored spell.
+
+    Shaped like a ``spells.json`` row so ``coc_magic`` reads it the same way,
+    with one difference that must not be silent: cost fields appear only when
+    the module wrote them. ``costs_authored`` states which case this is, so a
+    consumer refuses an unpriced spell instead of reading an absent
+    ``cost_mp`` as zero.
+    """
+    costs = (
+        module_authored.get("costs")
+        if isinstance(module_authored.get("costs"), dict)
+        else {}
+    )
+    entry: dict[str, Any] = {
+        "name": str(record.get("name") or ""),
+        "description": str(module_authored.get("summary") or ""),
+        "module_node_id": str(module_authored.get("node_id") or ""),
+        "module_id": str(module_authored.get("module_id") or ""),
+        "costs_authored": bool(costs.get("authored")),
+        "unpriced_fields": list(costs.get("missing") or []),
+    }
+    fields = costs.get("fields") if isinstance(costs.get("fields"), dict) else {}
+    entry.update(fields)
+    return entry
+
+
+def resolve_spell_name(
+    name: str, *, module_spells: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    """Resolve an authored spell name to the row that prices it.
+
+    Returns ``{"canonical_name", "entry", "parameterisation", "module_authored"}``
+    and raises KeyError when the name is neither a catalogue row, nor a family
+    bound to a catalogue creature, nor a spell the campaign's own module
+    authored.
+
+    CoC7 prints Summon/Bind and the two Contact families once and leaves the
+    Mythos entity a parameter of the name, so content authors "Summon/Bind
+    Dimensional Shambler" for a spell no row is titled after. Catalog-core
+    resolves that shape against the catalogue's own creature rows; the entry
+    returned is the family row (which carries the costs) while
+    ``canonical_name`` keeps the creature the name was bound to — the family
+    name alone would lose it, and the parameterised name is not a row.
+
+    ``module_spells`` opens the second namespace: records for the compiled
+    module's own ``node_kind: "spell"`` nodes, matched on the node's name and
+    on its aliases. The rulebook table is consulted first, so a rulebook row
+    wins a shared name and a module node of that name rides along on
+    ``module_authored`` as the annotation it is.
+    """
+    if not isinstance(name, str) or not name.strip():
+        raise KeyError(f"unknown spell: {name!r}")
+    name = name.strip()
     for spell in spells_table().get("spells", []):
-        if spell["name"].lower() == name.lower():
-            return spell
+        if isinstance(spell, dict) and str(spell.get("name") or "").lower() == name.lower():
+            return {
+                "canonical_name": str(spell["name"]),
+                "entry": spell,
+                "parameterisation": None,
+                "module_authored": _module_annotation(name, module_spells),
+            }
+    resolved = coc_catalog.resolve_name(
+        kind="spell", name=name, ruleset_id=coc_rulesets.DEFAULT_RULESET_ID,
+        module_spells=module_spells,
+    )
+    parameterisation = (resolved or {}).get("parameterisation")
+    if parameterisation:
+        family_name = str(parameterisation.get("family_name") or "")
+        for spell in spells_table().get("spells", []):
+            if isinstance(spell, dict) and str(spell.get("name") or "") == family_name:
+                return {
+                    "canonical_name": str(resolved["canonical_name"]),
+                    "entry": spell,
+                    "parameterisation": dict(parameterisation),
+                    "module_authored": None,
+                }
+    module_authored = (resolved or {}).get("module_authored")
+    if (
+        isinstance(module_authored, dict)
+        and module_authored.get("authority") == "module_authored_spell"
+    ):
+        # The module authored this spell outright. ``canonical_name`` is the
+        # node's own name even when the query used one of its aliases, so the
+        # shorthand a profile carries and the node settle as one thing.
+        return {
+            "canonical_name": str(resolved["canonical_name"]),
+            "entry": _module_spell_entry(resolved["record"], module_authored),
+            "parameterisation": None,
+            "module_authored": module_authored,
+        }
     raise KeyError(f"unknown spell: {name!r}")
+
+
+def _module_annotation(
+    name: str, module_spells: list[dict[str, Any]] | None
+) -> dict[str, Any] | None:
+    """A module node sharing a name the rulebook table already owns.
+
+    A direct scan of the records already in hand, not a second catalog search:
+    every gate canonicalises whole spell lists through here, and searching
+    twice per name for a block that is usually absent is work no caller wants.
+    """
+    if not module_spells:
+        return None
+    record = coc_catalog.module_record_named(module_spells, name)
+    return coc_catalog.demoted_module_block(record) if record else None
+
+
+def canonical_spell_name(
+    name: str, *, module_spells: list[dict[str, Any]] | None = None
+) -> str:
+    """The name the magic runtime persists for ``name``, else ``name`` itself.
+
+    Every gate that compares a spell against persisted or authored spell lists
+    goes through this, so a name ``magic.learn`` accepts cannot read as unknown
+    to ``magic.cast`` or to the ``magic.spell.known`` fact one layer along.
+    """
+    try:
+        return resolve_spell_name(name, module_spells=module_spells)["canonical_name"]
+    except KeyError:
+        return name.strip() if isinstance(name, str) else ""
+
+
+def spell_by_name(
+    name: str, *, module_spells: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    """Look up a spell by name (e.g. 'Flesh Ward'). Raises KeyError if unknown."""
+    return resolve_spell_name(name, module_spells=module_spells)["entry"]
 
 def magic_casting_rules() -> dict[str, Any]:
     """Return the casting mechanics block (Hard POW first cast, pushable, etc.)."""

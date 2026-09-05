@@ -188,6 +188,68 @@ def test_sanity_execute_due_treatment_reuses_existing_handler(campaign_ws):
     assert "san_after" in settled["data"]["result"]["dispatch_outcome"]
 
 
+def test_sanity_deferred_trigger_names_safe_rest_and_recovers_after_it(campaign_ws):
+    module = coc_toolbox.OPERATION_MODULES["sanity-recovery"]
+    kernel = coc_toolbox.coc_operation_kernel
+    ctx = kernel.Ctx(campaign_ws["workspace"], campaign_ws["campaign_id"])
+    session = module._load_live_sanity_session(
+        ctx, campaign_ws["investigator_id"], {"seed": 4},
+    )
+    session.temporary_insane = True
+    session.save(ctx.campaign_dir, strict_mirror=True)
+    kernel.coc_time.initialize_time_state(ctx.campaign_dir)
+    trigger_id = kernel.coc_time.schedule_trigger(ctx.campaign_dir, {
+        "kind": "temporary_insanity_recovery",
+        "scope": "investigator",
+        "target_id": campaign_ws["investigator_id"],
+        "due_elapsed_minutes": 0,
+        "policy": "auto_apply_if_safe",
+        "handler": "recover_temporary_insanity",
+        "payload": {},
+    })
+
+    # The context surface states the safe_place gap before any settlement.
+    context = _run(campaign_ws, "sanity.context")
+    assert context["ok"] is True
+    assert context["data"]["safe_place"] is False
+    assert context["data"]["safe_rest_required"]["decision_refs"] == [
+        "decision:coc7:sanity:recover-temporary"
+    ]
+    assert (
+        context["data"]["safe_rest_required"]["operation"]
+        == "state.mark_safe_rest"
+    )
+
+    deferred = _run(campaign_ws, "sanity.execute", {
+        "decision_id": "sanity-recover-deferred",
+        "command": _sanity_command(
+            "recover_temporary_insanity", "due-trigger", "sanity-recover-deferred",
+            recovery_trigger_ref=trigger_id,
+        ),
+    })
+    assert deferred["ok"] is False
+    assert deferred["error"]["code"] == "sanity_trigger_deferred"
+    assert "state.mark_safe_rest" in deferred["error"]["message"]
+
+    kernel.coc_time.mark_safe_rest(
+        ctx.campaign_dir, campaign_ws["investigator_id"],
+    )
+    settled = _run(campaign_ws, "sanity.execute", {
+        "decision_id": "sanity-recover-after-rest",
+        "command": _sanity_command(
+            "recover_temporary_insanity", "due-trigger", "sanity-recover-after-rest",
+            recovery_trigger_ref=trigger_id,
+        ),
+    })
+    assert settled["ok"] is True, settled
+    assert settled["data"]["result"]["dispatch_outcome"]["recovered"] is True
+
+    context_after = _run(campaign_ws, "sanity.context")
+    assert context_after["ok"] is True
+    assert context_after["data"]["safe_place"] is True
+    assert "safe_rest_required" not in context_after["data"]
+
+
 def test_sanity_execute_extended_kind_rejects_wrong_phase(campaign_ws):
     result = _run(campaign_ws, "sanity.execute", {
         "decision_id": "sanity-phase-forged",
@@ -198,3 +260,146 @@ def test_sanity_execute_extended_kind_rejects_wrong_phase(campaign_ws):
     })
     assert result["ok"] is False
     assert result["error"]["code"] == "invalid_param"
+
+
+def _gain_pending_path(ws):
+    return (
+        ws["campaign_dir"] / "save" / "sanity-gain-pending"
+        / f"{ws['investigator_id']}.json"
+    )
+
+
+def _live_sanity_facts(ws):
+    kernel = coc_toolbox.coc_operation_kernel
+    ctx = kernel.Ctx(ws["workspace"], ws["campaign_id"])
+    return dict(kernel._facts_provider_for(
+        ctx, ws["investigator_id"], "coc7",
+    )())
+
+
+def _write_gain_pending(ws, *, san_gain=2, gain_source="psychoanalysis"):
+    path = _gain_pending_path(ws)
+    _write_json(path, {
+        "schema_version": 1,
+        "investigator_id": ws["investigator_id"],
+        "san_gain": san_gain,
+        "gain_source": gain_source,
+    })
+    return path
+
+
+def _room_for_san_gain(ws, room=5):
+    module = coc_toolbox.OPERATION_MODULES["sanity-recovery"]
+    kernel = coc_toolbox.coc_operation_kernel
+    ctx = kernel.Ctx(ws["workspace"], ws["campaign_id"])
+    session = module._load_live_sanity_session(
+        ctx, ws["investigator_id"], {"seed": 1},
+    )
+    session.san_current = max(0, int(session.san_max) - room)
+    session.save(ctx.campaign_dir, strict_mirror=True)
+    return int(session.san_current), int(session.san_max)
+
+
+def test_sanity_gain_pending_false_without_receipt_and_settle_refuses(campaign_ws):
+    facts = _live_sanity_facts(campaign_ws)
+    assert facts["sanity.gain.pending"] is False
+    assert not _gain_pending_path(campaign_ws).exists()
+
+    settled = _run(campaign_ws, "rules.settle", {
+        "decision_ref": "decision:coc7:sanity:gain-current-san",
+        "decision_id": "sanity-gain-no-receipt",
+        "investigator": campaign_ws["investigator_id"],
+        "semantic_inputs": {"gain_source": "psychoanalysis"},
+    })
+    assert settled["ok"] is False, settled
+    error = settled.get("error") or {}
+    assert error.get("code") in {
+        "rule_decision_stale", "sanity_gain_receipt_unavailable",
+    }, settled
+
+
+def test_sanity_gain_pending_receipt_settles_and_is_consumed(campaign_ws):
+    before, san_max = _room_for_san_gain(campaign_ws, room=5)
+    path = _write_gain_pending(
+        campaign_ws, san_gain=2, gain_source="psychoanalysis",
+    )
+    assert _live_sanity_facts(campaign_ws)["sanity.gain.pending"] is True
+
+    held = _run(campaign_ws, "rules.context", {
+        "family": "sanity",
+        "investigator": campaign_ws["investigator_id"],
+        "semantic_inputs": {"gain_source": "psychoanalysis"},
+    })
+    assert held["ok"] is True, held
+    cards = {
+        row["decision_ref"]: row
+        for row in (held["data"].get("cards") or [])
+    }
+    gain_card = cards.get("decision:coc7:sanity:gain-current-san") or {}
+    assert gain_card.get("applicability") == "applicable", gain_card
+
+    settled = _run(campaign_ws, "rules.settle", {
+        "decision_ref": "decision:coc7:sanity:gain-current-san",
+        "decision_id": "sanity-gain-with-receipt",
+        "investigator": campaign_ws["investigator_id"],
+        "semantic_inputs": {"gain_source": "psychoanalysis"},
+    })
+    assert settled["ok"] is True, settled
+    assert not path.exists()
+    assert _live_sanity_facts(campaign_ws)["sanity.gain.pending"] is False
+
+    snapshot = json.loads(
+        (
+            campaign_ws["campaign_dir"] / "save" / "sanity-state"
+            / f"{campaign_ws['investigator_id']}.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert snapshot["san_current"] == min(san_max, before + 2)
+
+
+def test_plant_delusion_command_unlocks_reality_check(campaign_ws):
+    module = coc_toolbox.OPERATION_MODULES["sanity-recovery"]
+    kernel = coc_toolbox.coc_operation_kernel
+    ctx = kernel.Ctx(campaign_ws["workspace"], campaign_ws["campaign_id"])
+    session = module._load_live_sanity_session(
+        ctx, campaign_ws["investigator_id"], {"seed": 3},
+    )
+    session.temporary_insane = True
+    session.bout_active = False
+    session.active_delusion = None
+    session.save(ctx.campaign_dir, strict_mirror=True)
+
+    assert _live_sanity_facts(campaign_ws)["sanity.delusion.active"] is False
+    context = _run(campaign_ws, "sanity.context")
+    assert context["ok"] is True, context
+    plantable = context["data"].get("delusion_plantable") or {}
+    assert plantable.get("command_kind") == "plant_delusion"
+    assert plantable.get("operation") == "sanity.execute"
+
+    planted = _run(campaign_ws, "sanity.execute", {
+        "decision_id": "sanity-plant-1",
+        "command": _sanity_command(
+            "plant_delusion", "resolve", "sanity-plant-1",
+            description="墙纸正在呼吸",
+            backstory_field="meaningful_locations",
+        ),
+    })
+    assert planted["ok"] is True, planted
+    assert planted["data"]["result"]["delusion"]["description"] == "墙纸正在呼吸"
+    assert _live_sanity_facts(campaign_ws)["sanity.delusion.active"] is True
+
+    context_after = _run(campaign_ws, "sanity.context")
+    assert context_after["ok"] is True, context_after
+    assert "delusion_plantable" not in context_after["data"]
+
+    checked = _run(campaign_ws, "sanity.execute", {
+        "decision_id": "sanity-reality-after-plant",
+        "seed": 2,
+        "command": _sanity_command(
+            "reality_check", "resolve", "sanity-reality-after-plant",
+            request_reality_check=True,
+        ),
+    })
+    assert checked["ok"] is True, checked
+    assert checked["data"]["command_kind"] == "reality_check"
+    assert (checked.get("error") or {}).get("code") != "reality_check_unavailable"

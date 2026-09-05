@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import sys
 import threading
 import time
@@ -331,7 +332,7 @@ def test_dispatch_rejects_unsafe_or_unknown_run_fields(
     assert exc.value.code == "debug_request_invalid"
 
 
-def test_dispatch_accepts_twenty_lanes_and_rejects_capacity_overflow(
+def test_dispatch_accepts_forty_lanes_and_rejects_capacity_overflow(
     tmp_path: Path,
 ) -> None:
     module = _module()
@@ -340,19 +341,19 @@ def test_dispatch_accepts_twenty_lanes_and_rejects_capacity_overflow(
         checkpoint=CheckpointAdapter(),
         executor=ExecutorAdapter(),
     )
-    lanes = _lane_specs(20)
+    lanes = _lane_specs(40)
     started = experiment.dispatch(
         "run " + json.dumps({
             "player_input": "我检查同一场景。",
             "lanes": lanes,
-            "concurrency": 20,
+            "concurrency": 40,
         }, ensure_ascii=False),
         _context(tmp_path),
     )
     assert started["lanes"] == [lane["id"] for lane in lanes]
     assert experiment.dispatch(
         "status current", _context(tmp_path),
-    )["spec"]["concurrency"] == 20
+    )["spec"]["concurrency"] == 40
 
     default_experiment = module.DebugExperiment(
         store=module.FileRunStore(tmp_path / "default"),
@@ -371,8 +372,8 @@ def test_dispatch_accepts_twenty_lanes_and_rejects_capacity_overflow(
     )["spec"]["concurrency"] == 2
 
     for label, lane_count, concurrency in (
-        ("twenty-one-lanes", 21, 20),
-        ("concurrency-twenty-one", 20, 21),
+        ("forty-one-lanes", 41, 40),
+        ("concurrency-forty-one", 40, 41),
         ("above-lane-count", 3, 4),
     ):
         rejected = module.DebugExperiment(
@@ -779,7 +780,10 @@ def test_status_exposes_lane_progress_before_terminal(tmp_path: Path) -> None:
     assert not thread.is_alive()
 
 
-def _rpc_lane_run(tmp_path: Path, *, mode: str, timeout: int = 2) -> dict:
+def _rpc_lane_run(
+    tmp_path: Path, *, mode: str, timeout: int = 2,
+    lane_overrides: dict | None = None,
+) -> dict:
     module = _module()
     workspace = tmp_path / f"rpc-{mode}" / "workspace"
     workspace.mkdir(parents=True)
@@ -818,6 +822,7 @@ def _rpc_lane_run(tmp_path: Path, *, mode: str, timeout: int = 2) -> dict:
         "id": f"lane-{mode}",
         "profile": "production",
         "player_input": "我检查伤口。",
+        **(lane_overrides or {}),
     }
     return adapter.run(
         lane=lane,
@@ -845,6 +850,33 @@ def test_rpc_lane_enforces_resume_first_and_exact_final_delivery(tmp_path: Path)
     assert operations == [
         "session.resume", "rules.settle", "turn.finalize",
     ]
+    # Every tool row carries when it happened and which side of the player's
+    # input it fell on. Without both, a lane record says which calls were made
+    # and in what order but nothing about where the time went -- and a lane
+    # that runs 280s against a 180s budget reads identically to one that makes
+    # the same calls in 120s. Measured with these on 2026-09-02: tool
+    # execution is 3% of a lane and the resume phase is a third of it, neither
+    # of which was visible before.
+    timed = [
+        row for row in result["events"]
+        if row.get("category") == "tools" and row.get("phase") in {"start", "end"}
+    ]
+    assert timed, result["events"]
+    for row in timed:
+        assert isinstance(row.get("at_ms"), int), row
+        assert row.get("lane_phase") in {"resume", "turn", "turn2"}, row
+    assert [row["at_ms"] for row in timed] == sorted(row["at_ms"] for row in timed)
+    # A replan abandons the rest of a batched tool run and costs a fresh model
+    # round trip. Its audit entry existed and no lane could record it: the
+    # recorder mapped only `coc-tool-working-set` to a selectable category and
+    # sent the replan to the undifferentiated rpc stream. Measured once it was
+    # selectable: a schema lookup that triggers one is followed by ~33s of
+    # model time, against ~0s for one that does not.
+    assert _module()._entry_category("coc-tool-working-set-replan") == (
+        "working_set"
+    )
+    assert _module()._entry_category("coc-tool-working-set") == "working_set"
+    assert _module()._entry_category("something-else") == "rpc"
     live_root = tmp_path / "rpc-success" / "evidence" / "lanes" / "lane-success"
     assert (live_root / "live-rpc.jsonl").is_file()
     progress = json.loads((live_root / "progress.json").read_text(encoding="utf-8"))
@@ -917,6 +949,36 @@ def test_rpc_lane_rejects_directory_symlinks_inside_the_source_pi_home(
     assert not (tmp_path / "private").exists()
 
 
+def test_private_home_binds_auth_json_so_oauth_refresh_cannot_burn_the_source(
+    tmp_path: Path,
+) -> None:
+    """A copied auth.json is how r79's refresh invalidated r80+ logins."""
+    module = _module()
+    source_home = tmp_path / "source-home"
+    source_home.mkdir()
+    (source_home / "settings.json").write_text("{}\n", encoding="utf-8")
+    source_auth = source_home / "auth.json"
+    source_auth.write_text('{"xai":{"type":"oauth"}}\n', encoding="utf-8")
+    adapter = module.PiRpcLaneAdapter(
+        repo_root=ROOT,
+        private_root=tmp_path / "private",
+    )
+    run = {
+        "experiment_id": "debug-auth-bind-r1",
+        "context": {"agent_home": str(source_home)},
+    }
+    lane = {"id": "bind-auth"}
+    private = adapter._private_home(run, lane)
+    bound = private / "auth.json"
+    assert bound.is_symlink()
+    assert bound.resolve() == source_auth.resolve()
+    bound.write_text('{"xai":{"type":"oauth","rotated":true}}\n', encoding="utf-8")
+    assert json.loads(source_auth.read_text(encoding="utf-8"))["xai"]["rotated"] is True
+    shutil.rmtree(private)
+    assert source_auth.is_file()
+    assert json.loads(source_auth.read_text(encoding="utf-8"))["xai"]["rotated"] is True
+
+
 def test_rpc_lane_times_out_once_and_rejects_wrong_first_operation(tmp_path: Path) -> None:
     started = time.monotonic()
     timed_out = _rpc_lane_run(tmp_path, mode="timeout", timeout=1)
@@ -941,6 +1003,55 @@ def test_rpc_lane_times_out_once_and_rejects_wrong_first_operation(tmp_path: Pat
     wrong_provider = _rpc_lane_run(tmp_path, mode="wrong-provider")
     assert wrong_provider["status"] == "failed"
     assert wrong_provider["error"]["code"] == "debug_provider_mismatch"
+
+
+def test_rpc_lane_waits_out_a_turn_that_settled_without_finalizing(
+    tmp_path: Path,
+) -> None:
+    started = time.monotonic()
+    result = _rpc_lane_run(tmp_path, mode="settled-unfinalized", timeout=1)
+    elapsed = time.monotonic() - started
+    # agent_settled without a successful turn.finalize is not the end of a
+    # player turn: the loop must keep waiting to the deadline instead of
+    # recording player_turn_undelivered the moment the model went quiet
+    # (measured 2026-09-04 on r74 c-flee3). The verdict is still failed with
+    # the existing error code, but only once the budget is actually spent.
+    assert elapsed >= 0.9
+    assert result["status"] == "failed"
+    assert result["error"]["code"] == "player_turn_undelivered"
+    assert result["abort_count"] == 1
+    assert result["abort_confirmed"] is True
+    assert result["final"]["finalized"] is False
+    assert result["final"]["exact_delivery"] is False
+
+
+def test_rpc_lane_skips_the_second_turn_after_end_session_settles(
+    tmp_path: Path,
+) -> None:
+    result = _rpc_lane_run(
+        tmp_path,
+        mode="end-session-skips-turn2",
+        lane_overrides={"second_player_input": "再检查一次。"},
+    )
+    # turn1 settled state.end_session and delivered exactly, so the campaign
+    # is in its ending phase and turn2 has nothing left to finalize
+    # (r73 d-settle2). The lane is judged by turn1 and carries a structured
+    # note saying the second input was never sent, instead of letting turn2
+    # flip the verdict to player_turn_undelivered.
+    assert result["status"] == "completed"
+    assert result["turn2_skipped"] == {"reason": "session_ending_after_turn1"}
+    assert result["final"] == {
+        "player_input": "我检查伤口。",
+        "rendered_text": "伤口已重新包扎。",
+        "finalized": True,
+        "exact_delivery": True,
+        "situation": {"shape": None},
+    }
+    phases = {
+        row.get("lane_phase") for row in result["events"]
+        if row.get("category") == "tools" and row.get("phase") in {"start", "end"}
+    }
+    assert "turn2" not in phases
 
 
 def test_cli_dispatch_returns_one_strict_error_envelope(tmp_path: Path) -> None:
@@ -1247,6 +1358,22 @@ def test_run_spec_normalizes_situation_shapes_and_lane_override() -> None:
         {"flags": {}},
         {"flags": {"basement-unlocked": "true"}},
         {"flags": {"basement-unlocked": 1}},
+        {"npc_skills": []},
+        {"npc_skills": [{"npc_id": "npc-walter-corbitt"}]},
+        {"npc_skills": [{"npc_id": "npc-walter-corbitt", "skills": {"Spot Hidden": 0}}]},
+        {"npc_skills": [{"npc_id": "npc-walter-corbitt", "skills": {"Spot Hidden": 101}}]},
+        {"chase_features": [{"scene_id": "corbitt-confrontation"}]},
+        {"chase_features": [{"scene_id": "corbitt-confrontation", "hazard": {"skill": "Jump", "target": 50}}]},
+        {"insanity": {"kind": "bout"}},
+        {"delusion": {"description": "墙纸正在呼吸"}},
+        {"san_gain": {"amount": 0, "source": "survived"}},
+        {"san_gain": {"amount": 2}},
+        {"combat": {}},
+        {"chase": {"pending": "teleport"}},
+        {
+            "combat": {"npc_id": "npc-walter-corbitt"},
+            "chase": {"npc_id": "npc-walter-corbitt"},
+        },
         "corbitt-confrontation",
     ],
 )
@@ -1693,3 +1820,903 @@ def test_a_diagnostic_may_outrun_the_product_budget_and_must_say_so(tmp_path: Pa
         })
     assert excinfo.value.code == "debug_request_invalid"
 
+
+
+def test_a_lane_may_carry_a_second_turn_in_the_same_session():
+    """A lane is one pi session, and the play prompt tells the Keeper to load
+    every active skill's SKILL.md at session start. A one-turn lane therefore
+    charges a once-per-session cost to the only turn it measures: on
+    2026-09-02 that was 35-75K characters of skill documentation, read on
+    every measured turn, for skills the session had already loaded.
+
+    A second input in the same session is what a per-turn budget is about.
+    """
+    module = _module()
+    spec = module._normalize_run_spec({
+        "player_input": "我转身就跑。",
+        "lanes": [
+            {"id": "first-only"},
+            {"id": "two-turns", "second_player_input": "我继续往楼梯冲。"},
+        ],
+        "record": ["final", "tools"],
+    })
+    lanes = {lane["id"]: lane for lane in spec["lanes"]}
+    assert "second_player_input" not in lanes["first-only"]
+    assert lanes["two-turns"]["second_player_input"] == "我继续往楼梯冲。"
+
+
+def test_a_second_turn_input_must_not_be_empty():
+    module = _module()
+    with pytest.raises(module.DebugExperimentError):
+        module._normalize_run_spec({
+            "player_input": "我转身就跑。",
+            "lanes": [{"id": "blank-second", "second_player_input": "   "}],
+            "record": ["final"],
+        })
+
+
+def test_seeding_reaches_state_a_scene_and_a_roster_cannot():
+    """Eleven of the graph's forty-three decisions could not be driven at all
+    on 2026-09-02: both magic decisions need a learned spell, six of seven
+    healing decisions need a wounded or dying investigator, and settle-ending
+    needs a persisted ending. None follow from `scene_id` and `npc_presence`.
+
+    Every one still goes through the canonical toolbox gateway, so the state is
+    what real play would have produced -- seeding a spell is not simulating
+    one.
+    """
+    module = _module()
+    # Through `_normalize_run_spec`, never a hand-built lane dict. Calling
+    # `_situation_operations` on a literal skips normalization, which is
+    # exactly where these keys were being dropped: they passed validation and
+    # then fell out of a fixed four-key return, so three rounds of seeding
+    # upgrades emitted nothing but the scene move while the tests stayed green.
+    spec = module._normalize_run_spec({
+        "player_input": "我摊开手记。",
+        "lanes": [{
+            "id": "reach",
+            "player_input": "我摊开手记。",
+            "situation": {
+                "scene_id": "central-library",
+                "items": [{
+                    "item_id": "tome-of-corbitt",
+                    "kind": "gear",
+                    "label": "科比特的手记",
+                }],
+                "spells": ["Contact Deity"],
+                "damage": {"amount": 7, "kind": "damage"},
+                "ending": {"summary": "调查员逃出宅子。", "kind": "retreat"},
+            },
+        }],
+    })
+    seeded = spec["lanes"][0]["situation"]
+    for key in ("items", "spells", "damage", "ending"):
+        assert key in seeded, f"{key} was dropped in normalization"
+
+    ops = module._situation_operations(spec["lanes"][0], "c1")
+    by = {row["operation"]: row["arguments"] for row in ops}
+    assert "state.move_scene" in by
+    assert by["state.item_grant"]["item_id"] == "tome-of-corbitt"
+    assert by["state.item_grant"]["kind"] == "gear"
+    assert by["magic.learn"]["spell"] == "Contact Deity"
+    assert by["rules.damage"]["amount"] == 7
+    assert by["rules.damage"]["kind"] == "damage"
+    assert by["state.end_session"]["summary"] == "调查员逃出宅子。"
+    assert by["state.end_session"]["kind"] == "retreat"
+    # Every seeded write carries a lane-scoped decision id, so a sandbox
+    # replay of the same lane is idempotent and the evidence names its target.
+    for row in ops:
+        assert row["arguments"]["decision_id"].startswith("debug-situation:reach:")
+
+def test_a_bare_damage_amount_is_accepted():
+    """The common case is "hurt the investigator by N"; requiring an object for
+    that would be ceremony. The kind defaults during normalization, so the
+    operation builder never has to guess at a shape."""
+    module = _module()
+    spec = module._normalize_run_spec({
+        "player_input": "我受伤了。",
+        "lanes": [{
+            "id": "hurt",
+            "player_input": "我受伤了。",
+            "situation": {"damage": 5},
+        }],
+    })
+    assert spec["lanes"][0]["situation"]["damage"] == {
+        "amount": 5, "kind": "damage",
+    }
+    ops = module._situation_operations(spec["lanes"][0], "c1")
+    damage = next(row for row in ops if row["operation"] == "rules.damage")
+    assert damage["arguments"]["amount"] == 5
+    assert damage["arguments"]["kind"] == "damage"
+
+
+def test_damage_kind_is_the_direction_the_toolbox_means():
+    """`rules.damage` reads `kind` as damage-or-heal, not as a damage type.
+
+    Seeding defaulted it to "physical", which the operation rejects with
+    `invalid_param`. Every wounded lane therefore failed to seed, and six
+    healing decisions looked unreachable for a reason that was never in the
+    rule layer.
+    """
+    module = _module()
+
+    def seed(damage):
+        spec = module._normalize_run_spec({
+            "player_input": "我受伤了。",
+            "lanes": [{
+                "id": "hurt", "player_input": "我受伤了。",
+                "situation": {"damage": damage},
+            }],
+        })
+        ops = module._situation_operations(spec["lanes"][0], "c1")
+        return next(r for r in ops if r["operation"] == "rules.damage")["arguments"]
+
+    assert seed(6)["kind"] == "damage"
+    assert seed({"amount": 6, "kind": "heal"})["kind"] == "heal"
+
+
+def test_seeding_can_advance_the_clock_to_fire_due_triggers():
+    """Time is a third kind of unreachable state. `state.advance_time` fires
+    due triggers, which is the only way a lane reaches psychoanalysis
+    treatment, temporary-insanity recovery or weekly major-wound recovery --
+    three decisions no scene, roster, wound or spell can drive.
+
+    Order matters: the clock must run after the state it acts on, so a wound
+    seeded in the same situation has time to reach its recovery trigger.
+    """
+    module = _module()
+    spec = module._normalize_run_spec({
+        "player_input": "我撑着回到安全的地方。",
+        "lanes": [{
+            "id": "clock",
+            "player_input": "我撑着回到安全的地方。",
+            "situation": {
+                "scene_id": "corbitt-house-ground",
+                "damage": 9,
+                "advance_minutes": 10080,
+                "safe_rest": "full_sleep",
+            },
+        }],
+    })
+    ops = module._situation_operations(spec["lanes"][0], "c1")
+    order = [row["operation"] for row in ops]
+    assert order.index("rules.damage") < order.index("state.advance_time")
+    assert order.index("state.advance_time") < order.index("state.mark_safe_rest")
+    by = {row["operation"]: row["arguments"] for row in ops}
+    assert by["state.advance_time"]["minutes"] == 10080
+    assert by["state.advance_time"]["reason"]
+    assert by["state.mark_safe_rest"]["rest_kind"] == "full_sleep"
+
+
+def test_normalization_carries_every_structural_key_it_accepts():
+    """The guard against the whole defect class: no key may be accepted by
+    validation and then silently dropped before the operation builder reads it.
+
+    `_SITUATION_STRUCTURAL_KEYS` is the accepted set, and the normalized
+    situation is what `_situation_operations` consumes. Anything in the first
+    that cannot appear in the second is dead on arrival, which is how seeded
+    spells, items, wounds, endings and clocks reached no lane for three rounds
+    while every test stayed green.
+    """
+    module = _module()
+    every = {
+        "scene_id": "corbitt-house-ground",
+        "npc_presence": ["npc-walter-corbitt"],
+        "clue_ids": ["clue-corbitt-will"],
+        "flags": {"basement-unlocked": True},
+        "items": [{"item_id": "tome-of-corbitt", "label": "手记"}],
+        "spells": ["Contact Deity"],
+        "damage": 4,
+        "advance_minutes": 60,
+        "safe_rest": "full_sleep",
+        "ending": "调查员逃出宅子。",
+        "spell_teachers": [
+            {"npc_id": "npc-steven-knott", "source_kind": "person",
+             "spells": ["Contact Spells"]},
+        ],
+        "npc_skills": [
+            {"npc_id": "npc-steven-knott", "skills": {"Spot Hidden": 60}},
+        ],
+        "chase_features": [{
+            "scene_id": "corbitt-house-ground",
+            "hazard": {"hazard_id": "rotten-stairs", "skill": "Jump", "target": 50},
+            "barrier": {
+                "barrier_id": "locked-gate", "hp": 4, "hp_max": 4,
+                "skill": "Strength", "target": 50,
+            },
+        }],
+        "insanity": {"kind": "temporary"},
+        "delusion": {"description": "墙纸正在呼吸"},
+        "san_gain": {"amount": 2, "source": "confronted the horror and lived"},
+    }
+    # combat and chase are mutually exclusive, so they cannot share this
+    # one-object sweep; they have their own normalize tests.
+    assert set(module._SITUATION_STRUCTURAL_KEYS) - set(every) == {
+        "combat", "chase",
+    }, (
+        "this test must exercise every accepted structural key except the "
+        "mutually exclusive combat/chase pair"
+    )
+    spec = module._normalize_run_spec({
+        "player_input": "我推开门。",
+        "lanes": [{
+            "id": "every", "player_input": "我推开门。", "situation": every,
+        }],
+    })
+    normalized = spec["lanes"][0]["situation"]
+    dropped = sorted(set(every) - set(normalized))
+    assert not dropped, f"accepted but dropped before the consumer: {dropped}"
+
+    ops = module._situation_operations(spec["lanes"][0], "c1")
+    assert {row["operation"] for row in ops} == {
+        "state.move_scene", "state.npc_presence", "state.record_clue",
+        "state.set_flag", "state.item_grant", "magic.learn", "rules.damage",
+        "state.advance_time", "state.end_session",
+    }
+    # `spell_teachers` / `npc_skills` / `chase_features` are authored data,
+    # not canonical state, so they are applied by rewriting the lane's own
+    # scenario copy rather than by a toolbox operation. Insanity, delusion
+    # and san_gain are host SanitySession / receipt seeds. They must still
+    # survive normalization -- that is what the dropped-key guard above is
+    # for -- and they must not silently become toolbox operations.
+    for key in (
+        "spell_teachers", "npc_skills", "chase_features",
+        "insanity", "delusion", "san_gain",
+    ):
+        assert key in normalized
+
+
+def test_seed_arguments_are_checked_against_the_real_operation_contracts():
+    """The seeded writes are validated against what the operations declare,
+    not against a copy of their enums kept here.
+
+    Four seeding rounds in a row shipped a value the target operation rejects
+    -- damage kind "physical" (it means damage-or-heal), item kind "tome" (it
+    takes gear or weapon), a magic.learn source carrying prose (it takes
+    tome/person/entity). Each cost a full lane, and since a failed seed fails
+    the lane, the leftover evidence read like a rule-layer refusal of a family
+    no lane had reached. This check reads each operation's own declaration, so
+    a fifth mismatch is a dispatch error naming the legal values.
+    """
+    module = _module()
+
+    def check(situation):
+        module._validate_seed_arguments(module._normalize_run_spec({
+            "player_input": "我推开门。",
+            "lanes": [{
+                "id": "s", "player_input": "我推开门。", "situation": situation,
+            }],
+        }))
+
+    # What the seeds actually send now passes against the live contracts.
+    check({
+        "damage": 5,
+        "safe_rest": "full_sleep",
+        "items": [{"label": "手记"}],
+        "spells": ["Contact Spells"],
+        "ending": {"summary": "结束。", "kind": "retreat"},
+    })
+
+    for bad, offending in (
+        ({"damage": {"amount": 5, "kind": "physical"}}, "physical"),
+        ({"items": [{"label": "手记", "kind": "tome"}]}, "tome"),
+        ({"ending": {"summary": "结束。", "kind": "escape"}}, "escape"),
+    ):
+        with pytest.raises(module.DebugExperimentError) as rejected:
+            check(bad)
+        assert offending in str(rejected.value), bad
+        assert "must be one of" in str(rejected.value), bad
+
+
+def test_the_seed_contract_check_is_wired_into_dispatch(tmp_path: Path) -> None:
+    """A validator nothing calls is the same as no validator.
+
+    Asserting `_validate_seed_arguments` in isolation leaves the call site
+    free to disappear -- which is how the dropped-key defect survived three
+    rounds of green tests. This one goes through `dispatch`.
+    """
+    module = _module()
+    experiment = module.DebugExperiment(
+        store=module.FileRunStore(tmp_path / "runs"),
+        checkpoint=CheckpointAdapter(),
+        executor=ExecutorAdapter(),
+    )
+    with pytest.raises(module.DebugExperimentError) as rejected:
+        experiment.dispatch(
+            "run " + json.dumps({
+                "player_input": "我受伤了。",
+                "lanes": [{
+                    "id": "hurt",
+                    "player_input": "我受伤了。",
+                    "situation": {"damage": {"amount": 5, "kind": "physical"}},
+                }],
+            }, ensure_ascii=False),
+            _context(tmp_path),
+        )
+    assert "physical" in str(rejected.value)
+    assert rejected.value.code == "debug_request_invalid"
+
+
+def test_a_lane_can_appoint_a_teacher_the_module_never_authored(tmp_path: Path):
+    """Magic could not be exercised at all without this.
+
+    `magic.learn.sources` is keyed `<source_kind>:<npc_id>` and the learn gate
+    asks whether the named spell is in that source's list. Both halves are
+    authored module content, and no shipped module marks any NPC teachable --
+    `npc-walter-corbitt` carries spells but no `magic_source_kind`, and no
+    item anywhere carries `mechanics.profile.spells`. So the gate could never
+    open in a diagnostic, and the only alternatives were to leave the family
+    untestable or to invent module content in the repo.
+
+    A lane appoints a teacher for itself instead. The write lands in the
+    lane's own sandbox copy of the file `Ctx.npc_agendas` reads, and the
+    evidence row says whose claim it is.
+    """
+    module = _module()
+    campaign = tmp_path / "campaign"
+    scenario = campaign / "scenario"
+    scenario.mkdir(parents=True)
+    (scenario / "npc-agendas.json").write_text(json.dumps({
+        "npcs": [
+            {"npc_id": "npc-steven-knott", "name": "Steven Knott"},
+            {"npc_id": "npc-walter-corbitt", "name": "Walter Corbitt",
+             "mechanics": {"profile": {"spells": ["Flesh Ward"]}}},
+        ],
+    }, ensure_ascii=False), encoding="utf-8")
+
+    applied = module._appoint_spell_teachers(campaign, [
+        {"npc_id": "npc-steven-knott", "source_kind": "person",
+         "spells": ["Contact Spells"]},
+        {"npc_id": "npc-walter-corbitt", "source_kind": "entity",
+         "spells": ["Summon/Bind Dimensional Shambler"]},
+    ])
+
+    written = json.loads(
+        (scenario / "npc-agendas.json").read_text(encoding="utf-8"),
+    )
+    by_id = {row["npc_id"]: row for row in written["npcs"]}
+
+    knott = by_id["npc-steven-knott"]
+    assert knott["magic_source_kind"] == "person"
+    assert knott["mechanics"]["profile"]["spells"] == ["Contact Spells"]
+
+    # An NPC who already knows spells keeps them; the appointment adds.
+    corbitt = by_id["npc-walter-corbitt"]
+    assert corbitt["magic_source_kind"] == "entity"
+    assert corbitt["mechanics"]["profile"]["spells"] == [
+        "Flesh Ward", "Summon/Bind Dimensional Shambler",
+    ]
+
+    # The evidence never lets a host seed read as module content.
+    assert [row["operation"] for row in applied] == [
+        "host.appoint_spell_teacher", "host.appoint_spell_teacher",
+    ]
+    assert all(row["authority"] == "host_diagnostic_seed" for row in applied)
+
+
+def test_appointing_an_unauthored_npc_fails_closed(tmp_path: Path):
+    """The appointment may re-dress an NPC the campaign authors; it may not
+    conjure one, which would be inventing a person rather than a role."""
+    module = _module()
+    campaign = tmp_path / "campaign"
+    (campaign / "scenario").mkdir(parents=True)
+    (campaign / "scenario" / "npc-agendas.json").write_text(
+        json.dumps({"npcs": [{"npc_id": "npc-steven-knott"}]}),
+        encoding="utf-8",
+    )
+    with pytest.raises(module.DebugExperimentError) as refused:
+        module._appoint_spell_teachers(campaign, [
+            {"npc_id": "npc-nobody", "source_kind": "person",
+             "spells": ["Contact Spells"]},
+        ])
+    assert refused.value.code == "situation_unknown_npc"
+
+
+def test_seeding_actually_applies_the_appointment(tmp_path: Path):
+    """The wiring, not just the function.
+
+    Removing the call site in `_seed_situation` left every appointment test
+    green -- the same shape of gap that hid the dropped-key defect for three
+    rounds. This drives the real seeding entry point, with a lane whose
+    situation carries only the appointment, so no toolbox subprocess runs.
+    """
+    module = _module()
+    campaign = tmp_path / "campaign"
+    (campaign / "scenario").mkdir(parents=True)
+    (campaign / "scenario" / "npc-agendas.json").write_text(
+        json.dumps({"npcs": [{"npc_id": "npc-steven-knott"}]}),
+        encoding="utf-8",
+    )
+    adapter = module.PiRpcLaneAdapter(
+        repo_root=Path.cwd(), private_root=tmp_path / "private",
+    )
+    lane = {
+        "id": "appoint",
+        "situation": {
+            "shape": "structural",
+            "spell_teachers": [{
+                "npc_id": "npc-steven-knott", "source_kind": "person",
+                "spells": ["Contact Spells"],
+            }],
+        },
+    }
+    applied, failure = adapter._seed_situation(
+        lane=lane,
+        run={"context": {"campaign_id": "c1"}},
+        materialized={
+            "workspace_root": str(tmp_path / "ws"),
+            "campaign_dir": str(campaign),
+        },
+        deadline=time.monotonic() + 30,
+        cancelled=lambda: False,
+    )
+    assert failure is None, failure
+    assert [row["operation"] for row in applied] == ["host.appoint_spell_teacher"]
+    written = json.loads(
+        (campaign / "scenario" / "npc-agendas.json").read_text(encoding="utf-8"),
+    )
+    assert written["npcs"][0]["magic_source_kind"] == "person"
+
+
+def test_a_seeded_spell_is_learned_from_the_teacher_the_lane_appointed():
+    """`magic.learn`'s `source` is the kind of teacher, and a lane that
+    appointed one has already said which kind.
+
+    Seeding it as `tome` regardless put the receipt at odds with the scene:
+    the r69 magic lanes appointed Steven Knott as a `person` and the seeded
+    learn still recorded a book. With no teacher appointed a tome remains the
+    right default -- that is how a lane seeds a spell read from a grimoire.
+    """
+    module = _module()
+
+    def source_for(situation):
+        spec = module._normalize_run_spec({
+            "player_input": "我学这个法术。",
+            "lanes": [{
+                "id": "s", "player_input": "我学这个法术。",
+                "situation": situation,
+            }],
+        })
+        ops = module._situation_operations(spec["lanes"][0], "c1")
+        row = next(r for r in ops if r["operation"] == "magic.learn")
+        return row["arguments"]["source"]
+
+    assert source_for({"spells": ["Contact Spells"]}) == "tome"
+    assert source_for({
+        "spells": ["Contact Spells"],
+        "spell_teachers": [{
+            "npc_id": "npc-steven-knott", "source_kind": "person",
+            "spells": ["Contact Spells"],
+        }],
+    }) == "person"
+    assert source_for({
+        "spells": ["Summon/Bind Dimensional Shambler"],
+        "spell_teachers": [{
+            "npc_id": "npc-walter-corbitt", "source_kind": "entity",
+            "spells": ["Summon/Bind Dimensional Shambler"],
+        }],
+    }) == "entity"
+
+
+_MIN_HAZARD = {"hazard_id": "rotten-stairs", "skill": "Jump", "target": 50}
+_MIN_BARRIER = {
+    "barrier_id": "locked-gate", "hp": 4, "hp_max": 4,
+    "skill": "Strength", "target": 50,
+}
+
+
+def _host_seed_campaign(tmp_path: Path) -> Path:
+    campaign = tmp_path / "campaign"
+    scenario = campaign / "scenario"
+    scenario.mkdir(parents=True)
+    (campaign / "party.json").write_text(json.dumps({
+        "investigator_ids": ["thomas-hayes"],
+    }), encoding="utf-8")
+    (scenario / "npc-agendas.json").write_text(json.dumps({
+        "npcs": [
+            {"npc_id": "npc-steven-knott", "name": "Steven Knott"},
+            {
+                "npc_id": "npc-walter-corbitt", "name": "Walter Corbitt",
+                "skills": {"Listen": 40},
+                "mechanics": {
+                    "status": "authored",
+                    "profile": {
+                        "characteristic_scale": "percentile",
+                        "characteristics": {
+                            "STR": 80, "CON": 80, "SIZ": 70,
+                            "DEX": 35, "POW": 90,
+                        },
+                        "skills": {
+                            "Fighting (Brawl)": 50, "Dodge": 18,
+                        },
+                        "derived": {
+                            "HP": 15, "MP": 18, "SAN": 0,
+                            "MOV": 8, "Build": 1, "DB": "+1D4",
+                        },
+                        "weapons": [{"weapon_id": "unarmed"}],
+                    },
+                },
+            },
+        ],
+    }, ensure_ascii=False), encoding="utf-8")
+    (scenario / "story-graph.json").write_text(json.dumps({
+        "scenes": [
+            {
+                "scene_id": "corbitt-house-ground",
+                "scene_edges": [{"target_scene_id": "basement-rites"}],
+            },
+            {
+                "scene_id": "basement-rites",
+                "scene_edges": [{"target_scene_id": "corbitt-house-ground"}],
+            },
+        ],
+    }), encoding="utf-8")
+    sheet_dir = campaign / "investigators" / "thomas-hayes"
+    sheet_dir.mkdir(parents=True)
+    (sheet_dir / "character.json").write_text(json.dumps({
+        "id": "thomas-hayes",
+        "characteristics": {
+            "STR": 60, "CON": 60, "SIZ": 55, "DEX": 60,
+            "POW": 50, "INT": 70, "APP": 50, "EDU": 70,
+        },
+        "skills": {
+            "Fighting (Brawl)": 40, "Dodge": 30,
+            "Firearms (Handgun)": 40,
+        },
+        "derived": {"HP": 11, "MP": 10, "MOV": 8, "Build": 0, "DB": "none"},
+        "weapons": [{"weapon_id": "revolver_38"}],
+    }), encoding="utf-8")
+    state_dir = campaign / "save" / "investigator-state"
+    state_dir.mkdir(parents=True)
+    (state_dir / "thomas-hayes.json").write_text(json.dumps({
+        "investigator_id": "thomas-hayes",
+        "current_hp": 11, "hp_max": 11, "current_mp": 10,
+        "conditions": [],
+    }), encoding="utf-8")
+    (campaign / "save" / "active-scene.json").write_text(json.dumps({
+        "schema_version": 1,
+        "scene_id": "corbitt-house-ground",
+    }), encoding="utf-8")
+    return campaign
+
+
+def test_normalize_accepts_the_new_host_seed_shapes():
+    module = _module()
+    spec = module._normalize_run_spec({
+        "player_input": "我对峙。",
+        "lanes": [{
+            "id": "seeds",
+            "player_input": "我对峙。",
+            "situation": {
+                "npc_skills": [{
+                    "npc_id": "npc-steven-knott",
+                    "skills": {"Spot Hidden": 60, "Listen": 50},
+                }],
+                "chase_features": [{
+                    "scene_id": "corbitt-house-ground",
+                    "hazard": _MIN_HAZARD,
+                    "barrier": _MIN_BARRIER,
+                }],
+                "insanity": {"kind": "indefinite"},
+                "delusion": {
+                    "description": "墙纸正在呼吸",
+                    "backstory_field": "meaningful_locations",
+                },
+                "san_gain": {"amount": 3, "source": "lived through it"},
+            },
+        }],
+    })
+    situation = spec["lanes"][0]["situation"]
+    assert situation["npc_skills"][0]["skills"]["Spot Hidden"] == 60
+    assert situation["chase_features"][0]["hazard"]["hazard_id"] == "rotten-stairs"
+    assert situation["insanity"] == {"kind": "indefinite"}
+    assert situation["delusion"]["backstory_field"] == "meaningful_locations"
+    assert situation["san_gain"] == {"amount": 3, "source": "lived through it"}
+    assert module._situation_operations(spec["lanes"][0], "c1") == []
+
+
+def test_host_seeds_write_npc_skills_chase_features_and_pending_files(
+    tmp_path: Path,
+):
+    """The wiring, not just the function: `_seed_situation` writes sandbox
+    files and the pending SAN-gain receipt without calling the toolbox."""
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    adapter = module.PiRpcLaneAdapter(
+        repo_root=Path.cwd(), private_root=tmp_path / "private",
+    )
+    spec = module._normalize_run_spec({
+        "player_input": "我对峙。",
+        "lanes": [{
+            "id": "seeds",
+            "player_input": "我对峙。",
+            "situation": {
+                "npc_skills": [{
+                    "npc_id": "npc-walter-corbitt",
+                    "skills": {"Spot Hidden": 55},
+                }],
+                "chase_features": [{
+                    "scene_id": "basement-rites",
+                    "hazard": _MIN_HAZARD,
+                }],
+                "insanity": {"kind": "temporary"},
+                "delusion": {"description": "墙纸正在呼吸"},
+                "san_gain": {"amount": 2, "source": "confronted the horror"},
+            },
+        }],
+    })
+    applied, failure = adapter._seed_situation(
+        lane=spec["lanes"][0],
+        run={"context": {"campaign_id": "c1"}},
+        materialized={
+            "workspace_root": str(tmp_path / "ws"),
+            "campaign_dir": str(campaign),
+        },
+        deadline=time.monotonic() + 30,
+        cancelled=lambda: False,
+    )
+    assert failure is None, failure
+    assert [row["operation"] for row in applied] == [
+        "host.seed_npc_skills",
+        "host.seed_chase_features",
+        "host.seed_insanity",
+        "host.seed_delusion",
+        "host.seed_san_gain",
+    ]
+    assert all(row["authority"] == "host_diagnostic_seed" for row in applied)
+
+    agendas = json.loads(
+        (campaign / "scenario" / "npc-agendas.json").read_text(encoding="utf-8"),
+    )
+    by_id = {row["npc_id"]: row for row in agendas["npcs"]}
+    assert by_id["npc-walter-corbitt"]["skills"] == {
+        "Listen": 40, "Spot Hidden": 55,
+    }
+
+    graph = json.loads(
+        (campaign / "scenario" / "story-graph.json").read_text(encoding="utf-8"),
+    )
+    scenes = {row["scene_id"]: row for row in graph["scenes"]}
+    assert scenes["basement-rites"]["hazard"] == _MIN_HAZARD
+    assert "barrier" not in scenes["basement-rites"]
+    assert "hazard" not in scenes["corbitt-house-ground"]
+
+    snap = json.loads(
+        (campaign / "save" / "sanity-state" / "thomas-hayes.json").read_text(
+            encoding="utf-8",
+        ),
+    )
+    assert snap["temporary_insane"] is True
+    assert snap["bout_active"] is False
+    import coc_time
+    due = coc_time.peek_due_triggers(campaign)
+    assert any(
+        row.get("handler") == "recover_temporary_insanity"
+        and row.get("status") == "pending"
+        for row in due
+    ), due
+    assert snap["active_delusion"]["description"] == "墙纸正在呼吸"
+
+    pending = json.loads(
+        (campaign / "save" / "sanity-gain-pending" / "thomas-hayes.json").read_text(
+            encoding="utf-8",
+        ),
+    )
+    assert pending == {
+        "schema_version": 1,
+        "investigator_id": "thomas-hayes",
+        "san_gain": 2,
+        "gain_source": "confronted the horror",
+        "seeded": True,
+    }
+
+
+def test_host_seeds_known_spells_for_cast(tmp_path: Path):
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    applied = module._seed_known_spells(campaign, ["Contact Spells"])
+    assert applied[0]["operation"] == "host.seed_known_spells"
+    state = json.loads(
+        (campaign / "save" / "investigator-state" / "thomas-hayes.json").read_text(
+            encoding="utf-8",
+        ),
+    )
+    assert state["magic"]["learned_spells"] == ["Contact Spells"]
+
+
+def test_seeding_npc_skills_on_an_unauthored_npc_fails_closed(tmp_path: Path):
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    with pytest.raises(module.DebugExperimentError) as refused:
+        module._seed_npc_skills(campaign, [
+            {"npc_id": "npc-nobody", "skills": {"Spot Hidden": 40}},
+        ])
+    assert refused.value.code == "situation_unknown_npc"
+
+
+def test_seeding_chase_features_on_an_unknown_scene_fails_closed(tmp_path: Path):
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    with pytest.raises(module.DebugExperimentError) as refused:
+        module._seed_chase_features(campaign, [
+            {"scene_id": "attic-of-nowhere", "hazard": _MIN_HAZARD},
+        ])
+    assert refused.value.code == "situation_unknown_scene"
+
+
+def test_normalize_accepts_combat_and_chase_shapes():
+    module = _module()
+    combat = module._normalize_run_spec({
+        "player_input": "我开枪。",
+        "lanes": [{
+            "id": "c",
+            "player_input": "我开枪。",
+            "situation": {
+                "combat": {
+                    "npc_id": "npc-walter-corbitt",
+                    "spent_weapon_id": "revolver_38",
+                },
+            },
+        }],
+    })["lanes"][0]["situation"]
+    assert combat["combat"]["npc_id"] == "npc-walter-corbitt"
+    assert combat["combat"]["spent_weapon_id"] == "revolver_38"
+    chase = module._normalize_run_spec({
+        "player_input": "我跑。",
+        "lanes": [{
+            "id": "h",
+            "player_input": "我跑。",
+            "situation": {
+                "chase": {
+                    "npc_id": "npc-walter-corbitt",
+                    "pending": "conflict",
+                    "investigator_role": "quarry",
+                },
+            },
+        }],
+    })["lanes"][0]["situation"]
+    assert chase["chase"]["pending"] == "conflict"
+
+
+def test_host_seeds_an_active_combat_on_the_investigators_turn(
+    tmp_path: Path,
+):
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    applied = module._seed_combat(campaign, {
+        "npc_id": "npc-walter-corbitt",
+        "spent_weapon_id": "revolver_38",
+    })
+    assert applied[0]["operation"] == "host.seed_combat"
+    assert applied[0]["acts_now"] == "thomas-hayes"
+    snap = json.loads((campaign / "save" / "combat.json").read_text(encoding="utf-8"))
+    assert snap["status"] == "active"
+    assert snap["pending_attack"] is None
+    by_id = {row["actor_id"]: row for row in snap["participants"]}
+    assert set(by_id) == {"thomas-hayes", "npc-walter-corbitt"}
+    assert by_id["thomas-hayes"]["_ammo"]["revolver_38"] == 0
+    order = [row["actor_id"] for row in snap["current_initiative"]]
+    assert order[snap["initiative_cursor"]] == "thomas-hayes"
+
+
+def test_host_seeds_a_live_chase_with_conflict_pending(tmp_path: Path):
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    applied = module._seed_chase(campaign, {
+        "npc_id": "npc-walter-corbitt",
+        "pending": "conflict",
+    })
+    assert applied[0]["operation"] == "host.seed_chase"
+    assert any(
+        row.get("operation") == "host.seed_chase_conflict_combat"
+        for row in applied
+    ), applied
+    genesis = campaign / "logs" / "chase-genesis.jsonl"
+    assert genesis.is_file(), "chase seed must write canonical genesis evidence"
+    assert genesis.read_text(encoding="utf-8").strip()
+    snap = json.loads((campaign / "save" / "chase.json").read_text(encoding="utf-8"))
+    assert snap["status"] == "active"
+    by_id = {row["actor_id"]: row for row in snap["participants"]}
+    assert by_id["thomas-hayes"]["position"] == by_id["npc-walter-corbitt"]["position"]
+    assert not by_id["thomas-hayes"]["escaped"]
+
+
+def test_host_seeds_a_chase_ready_to_end(tmp_path: Path):
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    module._seed_chase(campaign, {
+        "npc_id": "npc-walter-corbitt",
+        "pending": "end",
+    })
+    assert (campaign / "logs" / "chase-genesis.jsonl").is_file()
+    snap = json.loads((campaign / "save" / "chase.json").read_text(encoding="utf-8"))
+    by_id = {row["actor_id"]: row for row in snap["participants"]}
+    quarry = next(row for row in by_id.values() if row["side"] == "quarry")
+    assert quarry["escaped"] is True
+    assert snap["status"] == "active"
+
+
+def test_host_seeds_chase_barrier_pending_from_scene_features(tmp_path: Path):
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    module._seed_chase_features(campaign, [{
+        "scene_id": "basement-rites",
+        "barrier": _MIN_BARRIER,
+    }])
+    module._seed_chase(campaign, {
+        "npc_id": "npc-walter-corbitt",
+        "pending": "barrier",
+    })
+    snap = json.loads((campaign / "save" / "chase.json").read_text(encoding="utf-8"))
+    chain = snap["location_chain"]
+    assert any(isinstance(row.get("barrier"), dict) for row in chain)
+    by_id = {row["actor_id"]: row for row in snap["participants"]}
+    on_turn = snap["rounds"][-1]["dex_order"][snap["initiative_cursor"]]
+    pos = int(by_id[on_turn]["position"])
+    nxt = chain[pos + 1]
+    assert isinstance(nxt.get("barrier"), dict)
+
+
+def test_combat_seed_fails_closed_without_npc_mechanics(tmp_path: Path):
+    module = _module()
+    campaign = _host_seed_campaign(tmp_path)
+    with pytest.raises(module.DebugExperimentError) as refused:
+        module._seed_combat(campaign, {"npc_id": "npc-steven-knott"})
+    assert refused.value.code == "situation_npc_mechanics_unavailable"
+
+
+def test_seeded_turn_note_names_live_combat_and_chase():
+    module = _module()
+    combat = module._situation_turn_note({
+        "combat": {"npc_id": "npc-walter-corbitt"},
+    })
+    assert "decision:coc7:combat:flee" in combat
+    chase = module._situation_turn_note({
+        "chase": {"npc_id": "npc-walter-corbitt", "pending": "end"},
+    })
+    assert "chase.start" in chase or "do not chase.start" in chase
+    conflict = module._situation_turn_note({
+        "chase": {"npc_id": "npc-walter-corbitt", "pending": "conflict"},
+    })
+    assert "decision:coc7:chase:conflict" in conflict
+    magic = module._situation_turn_note({
+        "spell_teachers": [{
+            "npc_id": "npc-steven-knott", "source_kind": "person",
+            "spells": ["Contact Spells"],
+        }],
+    })
+    assert "decision:coc7:magic:learn-spell" in magic
+    treatment = module._situation_turn_note({
+        "insanity": {"kind": "indefinite"},
+    })
+    assert "decision:coc7:sanity:apply-treatment" in treatment
+
+
+def test_chase_end_adapter_emits_executor_phase_end():
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "coc-keeper" / "scripts"))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "plugins" / "coc-keeper" / "rulesets" / "coc7"))
+    import rule_graph_adapter
+    assert rule_graph_adapter._chase_command_phase("chase_start") == "start"
+    assert rule_graph_adapter._chase_command_phase("chase_end") == "end"
+    assert rule_graph_adapter._chase_command_phase("chase_barrier") == "resolve"
+    out = rule_graph_adapter.Coc7RuleGraphAdapter.executor_args(
+        ctx=None,
+        plan={
+            "capability": {"resolver_capability": "chase.execute"},
+            "decision_ref": "decision:coc7:chase:end",
+            "command": {"payload": {
+                "outcome": "escaped", "chase_id": "debug-seed-chase",
+                "revision": 1,
+            }},
+        },
+        selected={
+            "decision_ref": "decision:coc7:chase:end",
+            "semantic_inputs": {"outcome": "escaped"},
+        },
+        args={"decision_id": "chase-end-phase", "investigator": "thomas-hayes"},
+        resolve_investigator=lambda _ctx, _args: "thomas-hayes",
+        tool_error=lambda *a, **k: RuntimeError(a),
+    )
+    assert out["command"]["kind"] == "chase_end"
+    assert out["command"]["phase"] == "end"

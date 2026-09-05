@@ -1380,6 +1380,14 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
         for wrong, right in _PARAM_ALIASES.get(name, {}).items():
             if args.get(right) in (None, "") and args.get(wrong) not in (None, ""):
                 args[right] = args.pop(wrong)
+        if name == "evidence.table_opening":
+            cid = str(campaign_id or args.get("campaign") or "").strip()
+            if cid and not str(args.get("decision_id") or "").strip():
+                args["decision_id"] = f"table-opening:{cid}:opening-1"
+            if cid and not str(args.get("run_id") or "").strip():
+                args["run_id"] = f"run-{cid}"
+            if args.get("presented_roll_ids") is None:
+                args["presented_roll_ids"] = []
         required_params = [
             pname
             for pname, pspec in spec["params"].items()
@@ -3510,7 +3518,11 @@ _MUTATING_TOOLS = frozenset({
     "steward.mark_consumed",
     "turn.finalize",
 })
-OPERATION_REGISTRY.require_decision_ids(_MUTATING_TOOLS)
+# table_opening keeps decision_id optional on the model surface; the tool
+# reattaches table-opening:<campaign_id>:opening-1 when the model omits it.
+OPERATION_REGISTRY.require_decision_ids(
+    name for name in _MUTATING_TOOLS if name != "evidence.table_opening"
+)
 OPERATION_REGISTRY.validate_policies(
     coc_operation_policy.policies_for_operations(TOOLS)
 )

@@ -225,6 +225,12 @@
       "recorded_in": "pi-coc-gate9-ten-family-38a3a4af/d2-development/evidence/turn-p-23b2d9ba3c6c.json"
     },
     {
+      "file": "development-settle-ending-a324eb20.json",
+      "decision_ref": "decision:coc7:development:settle-ending",
+      "family": "development",
+      "recorded_in": "pi-coc-gate9-depth-20260901-10/.coc/debug/runs/debug-gate9-depth-10-r71/sandboxes/x-settle-end/.coc/campaigns/gate9-depth-10/logs/toolbox-calls.jsonl (verbatim canonical data of the ok=true rules.settle; the lane's rules.jsonl twin differs only in three <REDACTED> token fields masked by pi_coc_debug_experiment.py)"
+    },
+    {
       "file": "healing-first-aid-ordinary-3577ea4e.json",
       "decision_ref": "decision:coc7:healing:first-aid-ordinary",
       "family": "healing",
@@ -325,6 +331,12 @@
       "decision_ref": "decision:coc7:sanity:check",
       "family": "sanity",
       "recorded_in": "pi-coc-gate9-depth-20260901-09/evidence/turn-p-4b4392f47c16.json"
+    },
+    {
+      "file": "sanity-check-trigger-df198a61.json",
+      "decision_ref": "decision:coc7:sanity:check",
+      "family": "sanity",
+      "recorded_in": "generated on the product path 2026-09-02: a SAN check carrying trigger_ref, whose settlement carries the generated trg-<hex> handles that collapsed r36"
     },
     {
       "file": "social-adjudicate-difficulty-105f8dfa.json",

@@ -452,13 +452,29 @@ def test_trigger_scheduling_and_peek(campaign):
     assert due[0]["handler"] == "recover_temporary_insanity"
 
 
+def test_advance_time_does_not_steal_graph_owned_sanity_triggers(campaign):
+    """r85: scene/time advance must not eat recover/treatment before settle."""
+    coc_time.schedule_trigger(campaign, {
+        "kind": "condition_expiry",
+        "due_elapsed_minutes": 0,
+        "policy": "auto_apply",
+        "handler": "recover_temporary_insanity",
+        "target_id": "inv1",
+        "payload": {"condition": "temporary_insane"},
+    })
+    result = coc_time.advance_time(campaign, 10, decision_id="d-skip", reason="wait")
+    assert result["fired_triggers"] == []
+    due = coc_time.peek_due_triggers(campaign)
+    assert len(due) == 1
+    assert due[0]["handler"] == "recover_temporary_insanity"
+
+
 def test_trigger_fires_on_auto_apply(campaign):
     """auto_apply trigger fires when due."""
     coc_time.schedule_trigger(campaign, {
         "kind": "condition_expiry",
         "due_elapsed_minutes": 30,
         "policy": "auto_apply",
-        "handler": "recover_temporary_insanity",
     })
     result = coc_time.advance_time(campaign, 40, decision_id="d1", reason="time passes")
     fired = result["fired_triggers"]
@@ -522,6 +538,76 @@ def test_temp_insanity_recovers_after_due_time_and_safe_rest(campaign):
     fired = coc_time.process_due_triggers(campaign)
     assert len(fired) == 1
     assert fired[0]["status"] == "fired"
+
+
+def test_trigger_naming_an_unimplemented_handler_records_the_failure(campaign):
+    """A fired trigger nobody implements must not pass for work done.
+
+    magic.learn scheduled ``grant_learned_spell`` for a year with no handler
+    behind it: the trigger fired, dispatch returned None, and the spell was
+    never granted while every consumer read a settled ok.
+    """
+    coc_time.schedule_trigger(campaign, {
+        "kind": "invented_kind",
+        "scope": "investigator",
+        "target_id": "inv1",
+        "due_elapsed_minutes": 10,
+        "policy": "auto_apply",
+        "handler": "no_such_handler",
+        "payload": {},
+    })
+    fired = coc_time.advance_time(
+        campaign, 30, decision_id="d1", reason="time passes",
+    )["fired_triggers"]
+    assert len(fired) == 1
+    assert "no_such_handler" in fired[0]["dispatch_error"]
+
+
+def test_trigger_scheduled_without_a_target_records_the_failure(campaign):
+    coc_time.schedule_trigger(campaign, {
+        "kind": "condition_expiry",
+        "due_elapsed_minutes": 10,
+        "policy": "auto_apply",
+        "handler": "grant_learned_spell",
+        "payload": {},
+    })
+    fired = coc_time.advance_time(
+        campaign, 30, decision_id="d1", reason="time passes",
+    )["fired_triggers"]
+    assert len(fired) == 1
+    assert "target_id" in fired[0]["dispatch_error"]
+
+
+def test_grant_learned_spell_handler_makes_the_studied_spell_known(campaign):
+    import json
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps({
+        "investigator_id": "inv1",
+        "magic": {
+            "cast_spells": [],
+            "learned_spells": [],
+            "studying_spells": [{"spell": "Cloud Memory", "source": "tome"}],
+        },
+    }), encoding="utf-8")
+    coc_time.schedule_trigger(campaign, {
+        "kind": "spell_study_complete",
+        "scope": "investigator",
+        "target_id": "inv1",
+        "due_elapsed_minutes": 10,
+        "policy": "auto_apply",
+        "handler": "grant_learned_spell",
+        "payload": {"spell": "Cloud Memory", "source": "tome"},
+    })
+    fired = coc_time.advance_time(
+        campaign, 30, decision_id="d1", reason="the study period passes",
+    )["fired_triggers"]
+    assert len(fired) == 1
+    assert fired[0].get("dispatch_error") is None
+    assert fired[0]["dispatch_outcome"]["granted"] is True
+    magic = json.loads(state_path.read_text(encoding="utf-8"))["magic"]
+    assert magic["learned_spells"] == ["Cloud Memory"]
+    assert magic["studying_spells"] == []
 
 
 def test_sanity_day_resets_after_safe_rest(campaign):

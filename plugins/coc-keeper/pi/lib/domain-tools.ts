@@ -529,10 +529,6 @@ const STARTED_TABLE_TURN_TOOLS = new Set([
   "turn.finalize",
   "turn.output_context",
   "state.journal",
-  "rules.roll",
-  "rules.social_adjudicate",
-  "rules.check",
-  "npc.reaction",
 ]);
 
 /** Optional host-local extras when the resume envelope aliases live play as table_opening. */

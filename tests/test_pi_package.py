@@ -313,6 +313,14 @@ def test_pi_nonretryable_failure_circuit():
     assert result == {"ok": True}
 
 
+def test_pi_output_context_projects_the_style_contract():
+    result = _node(
+        ROOT / "tests/pi/output-context-style-contract-visibility.mjs",
+        str(ROOT),
+    )
+    assert result == {"ok": True}
+
+
 def test_pi_role_acl():
     _node_test(ROOT / "tests/pi/role-acl.test.mjs")
 

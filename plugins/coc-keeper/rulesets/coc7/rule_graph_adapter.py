@@ -12,17 +12,35 @@ generic RulesRuntime in both cases.
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 from copy import deepcopy
+from pathlib import Path
 from types import MappingProxyType, MethodType
 from typing import Any, Callable, Mapping
 from weakref import WeakKeyDictionary
 
 import coc_intent_router
+import coc_rules
 import coc_rules_runtime as _generic_runtime
 
 FamilyOwnershipMismatch = _generic_runtime.FamilyOwnershipMismatch
+
+
+def _chase_command_phase(kind: str) -> str:
+    """Executor phase for a chase command kind.
+
+    Live diagnostic lanes offered ``chase:end`` and then died on
+    ``invalid_command_phase: chase_end requires phase 'end'`` because this
+    adapter emitted ``resolve`` for every chase kind except start. The
+    subsystem executor's ``EXPECTED_PHASE`` already names ``end``.
+    """
+    if kind == "chase_start":
+        return "start"
+    if kind == "chase_end":
+        return "end"
+    return "resolve"
 
 
 def _freeze(value: Any) -> Any:
@@ -82,6 +100,31 @@ _HEALING_SETTLE_DECISION_REFS = (
     "decision:coc7:healing:medicine-stabilization",
     "decision:coc7:healing:weekly-major-wound-recovery",
 )
+
+_GRAPH_PATH = Path(__file__).resolve().parent / "rule-graph.json"
+
+
+@functools.lru_cache(maxsize=None)
+def _declared_payload_slots(decision_ref: str) -> frozenset[str]:
+    """The payload slot names one decision declares in the shipped RuleGraph.
+
+    The host may fill only what a decision declares; anything else is refused
+    as an undeclared input, and the refusal is aimed at the Keeper even though
+    the Keeper never sent it.
+    """
+    graph = json.loads(_GRAPH_PATH.read_text(encoding="utf-8"))
+    for node in graph.get("nodes") or []:
+        if node.get("node_id") != decision_ref:
+            continue
+        implementation = (node.get("properties") or {}).get("implementation") or {}
+        return frozenset(
+            str(slot["name"])
+            for slot in implementation.get("payload_slots") or []
+            if isinstance(slot, Mapping) and slot.get("name")
+        )
+    return frozenset()
+
+
 _CORE_SETTLE_DECISION_REFS = (
     "decision:coc7:core-check:ordinary-check",
     "decision:coc7:core-check:combined-check",
@@ -213,11 +256,7 @@ def _sheet_check(
     return None
 
 
-def _npc_check(ctx: Any, ref: str) -> tuple[str, int] | None:
-    parts = str(ref or "").split(":")
-    if len(parts) != 4 or parts[0] != "npc" or parts[2] != "skill":
-        return None
-    npc_id, skill_slug = parts[1], parts[3]
+def _npc_rows(ctx: Any) -> list[Mapping[str, Any]]:
     document = getattr(ctx, "npc_agendas", None)
     rows: list[Mapping[str, Any]] = []
     if isinstance(document, Mapping):
@@ -226,10 +265,84 @@ def _npc_check(ctx: Any, ref: str) -> tuple[str, int] | None:
             rows = [row for row in raw if isinstance(row, Mapping)]
         elif isinstance(raw, Mapping):
             rows = [row for row in raw.values() if isinstance(row, Mapping)]
-    npc = next(
+    return rows
+
+
+def _npc_by_rows(rows: list[Mapping[str, Any]], npc_id: str) -> Mapping[str, Any] | None:
+    return next(
         (row for row in rows if str(row.get("npc_id") or row.get("id") or "") == npc_id),
         None,
     )
+
+
+def _npc_skill_labels(npc: Mapping[str, Any]) -> list[str]:
+    skills = npc.get("skills") if isinstance(npc.get("skills"), Mapping) else {}
+    return [
+        str(label) for label, value in skills.items()
+        if isinstance(value, int) and not isinstance(value, bool)
+        and 0 <= value <= 100
+    ]
+
+
+def _opponent_unresolved_message(ctx: Any, ref: str) -> str:
+    """Name the accepted form AND which NPC/skill pairs could resolve it.
+
+    Opposed settles burned a lane after lane on the bare message "could not
+    be resolved": the projection taught `npc:<id>` while `_npc_check` takes
+    exactly `npc:<npc_id>:skill:<slug>`, and an NPC with no authored skills
+    table can never resolve whatever the Keeper sends. Tell both halves.
+    """
+    base = (
+        "host-locked opponent value could not be resolved from "
+        f"opponent_check_ref {ref!r}: the accepted form is exactly four "
+        "segments npc:<npc_id>:skill:<skill-slug>, and the NPC must be "
+        "authored with that skill"
+    )
+    parts = str(ref or "").split(":")
+    rows = _npc_rows(ctx)
+    if len(parts) != 4 or parts[0] != "npc" or parts[2] != "skill":
+        return base + " -- this ref does not have those four segments"
+    npc_id, skill_slug = parts[1], parts[3]
+    npc = _npc_by_rows(rows, npc_id)
+    if npc is None:
+        with_skills = [
+            str(row.get("npc_id") or row.get("id") or "")
+            for row in rows if _npc_skill_labels(row)
+        ][:12]
+        listing = (
+            ", ".join(with_skills) if with_skills
+            else "none -- no authored NPC in this campaign carries a skills "
+            "table, so no opposed check against an NPC can resolve here"
+        )
+        return (
+            base
+            + f" -- no authored NPC has id {npc_id!r}; NPCs with authored "
+            f"skills: {listing}"
+        )
+    labels = _npc_skill_labels(npc)
+    if not labels:
+        return (
+            base
+            + f" -- NPC {npc_id!r} has no authored skills table, so no "
+            "skill ref against it can resolve"
+        )
+    if not any(
+        _semantic_slug(label) == _semantic_slug(skill_slug) for label in labels
+    ):
+        return (
+            base
+            + f" -- NPC {npc_id!r} is not authored with that skill; its "
+            f"authored skills: {', '.join(labels[:12])}"
+        )
+    return base
+
+
+def _npc_check(ctx: Any, ref: str) -> tuple[str, int] | None:
+    parts = str(ref or "").split(":")
+    if len(parts) != 4 or parts[0] != "npc" or parts[2] != "skill":
+        return None
+    npc_id, skill_slug = parts[1], parts[3]
+    npc = _npc_by_rows(_npc_rows(ctx), npc_id)
     if npc is None:
         return None
     skills = npc.get("skills") if isinstance(npc.get("skills"), Mapping) else {}
@@ -465,7 +578,21 @@ class Coc7RuleGraphAdapter:
                     "question": {"type": "string"},
                     "external_behavior": {"type": "string"},
                     "candidate_ref": {"type": "string"},
-                    "weapon_ref": {"type": "string"},
+                    "weapon_ref": {
+                        "type": "string",
+                        # The slot's only model-facing description used to be
+                        # the input-slot node's own name, "weapon ref", which
+                        # names nothing a Keeper could copy. The canonical id
+                        # appeared in exactly one place -- the text of a
+                        # REFUSED settle -- so the Keeper reached for the
+                        # display label instead and paid a turn for it.
+                        "desc": (
+                            "owned weapon id, copied verbatim from "
+                            "rules.context family=combat "
+                            "canonical_context.arsenal.weapons[].weapon_ref; "
+                            "a display name is not a weapon id"
+                        ),
+                    },
                     "weapon_effect_refs": {
                         "type": "array", "items": {"type": "string"},
                     },
@@ -774,9 +901,25 @@ class Coc7RuleGraphAdapter:
             augmented["receipt.push_eligible"] = (
                 source_receipt.get("push_eligible") is not False
             )
-        spell = str(semantic.get("spell") or "").strip()
+        # Both sides canonicalise, so a parameterised family name the runtime
+        # accepts ("Summon/Bind Dimensional Shambler") cannot read as unknown
+        # here, and the rulebook's alternative family name resolves to the one
+        # spell it names.
+        # The host supplies the campaign's module spell namespace as a fact;
+        # the ruleset package never reaches for a graph itself. Both this
+        # applicability gate and the settle-time binding read the same records,
+        # so a module-authored name a card offers cannot be refused at settle.
+        # An absent fact canonicalises every name to itself, which is exactly
+        # the pre-module behavior.
+        namespace = augmented.get("magic.spell.module_namespace")
+        module_spells = namespace if isinstance(namespace, list) else None
+        spell = coc_rules.canonical_spell_name(
+            str(semantic.get("spell") or "").strip(),
+            module_spells=module_spells,
+        )
         known = {
-            str(value) for value in augmented.get("magic.known_spells") or []
+            coc_rules.canonical_spell_name(str(value), module_spells=module_spells)
+            for value in augmented.get("magic.known_spells") or []
         }
         augmented["magic.spell.known"] = bool(spell and spell in known)
         source_ref = str(semantic.get("source_ref") or "").strip()
@@ -788,10 +931,26 @@ class Coc7RuleGraphAdapter:
             and isinstance(sources.get(source_ref), list)
             else []
         )
-        augmented["magic.learn.source-available"] = bool(
-            spell and source_ref.startswith(source_kind + ":")
-            and spell in {str(value) for value in source_spells}
+        # Context has no selected spell yet. Gating the learn card on the
+        # Keeper already sending source_ref is a circular door: the card is
+        # how they learn the ref. Offer it when any canonical source exists;
+        # settle still checks the specific pair. Measured r79 mg-learn6:
+        # teacher appointed, source-available stayed None, card never shown.
+        has_any_source = isinstance(sources, Mapping) and any(
+            isinstance(value, list) and value for value in sources.values()
         )
+        if spell and source_ref:
+            augmented["magic.learn.source-available"] = bool(
+                source_ref.startswith(source_kind + ":")
+                and spell in {
+                    coc_rules.canonical_spell_name(
+                        str(value), module_spells=module_spells
+                    )
+                    for value in source_spells
+                }
+            )
+        else:
+            augmented["magic.learn.source-available"] = has_any_source
         return augmented
 
     @staticmethod
@@ -854,7 +1013,14 @@ class Coc7RuleGraphAdapter:
                     locked["caregiver_id"] = caregiver
             elif decision_ref in _CORE_SETTLE_DECISION_REFS or decision_ref == "decision:coc7:push-luck:luck-roll":
                 sheet = safe_sheet(ctx, investigator_id) or {}
-                locked["investigator_id"] = investigator_id
+                # Not every core-check decision declares this slot. Opposed
+                # names its actor `investigator_target` and declares no
+                # `investigator_id`, so setting it unconditionally made every
+                # opposed settle fail as an undeclared host-locked input --
+                # which is why decision:coc7:core-check:opposed-check had never
+                # once settled in the diagnostic corpus.
+                if "investigator_id" in _declared_payload_slots(decision_ref):
+                    locked["investigator_id"] = investigator_id
                 if decision_ref.endswith(":ordinary-check"):
                     ref = (
                         f"skill:{semantic['skill']}" if semantic.get("skill")
@@ -936,6 +1102,18 @@ class Coc7RuleGraphAdapter:
                     if isinstance(selected.get("_host_psychology_binding"), Mapping)
                     else {}
                 )
+                # The binding carries the whole observation shape; the two
+                # psychology decisions declare different host-locked slots.
+                # observe-concealed names most of these, realize-player-safe
+                # only inference_ceiling and observation_receipt_ref -- so
+                # pouring all ten into every settle made realize refuse its
+                # own host inputs as undeclared (Keeper sends only
+                # external_behavior, the one keeper-semantic slot, and the
+                # refusal says no change to semantic_inputs clears it: the
+                # lane x-psy evidence, r72-r74, unknown_semantic_input x19).
+                # Fill exactly what the decision declares, the way the
+                # opposed-check investigator_id gate above already does.
+                declared = _declared_payload_slots(decision_ref)
                 for key in (
                     "investigator_id", "npc_id", "observer_skill",
                     "target_opposing_social", "conversation_window_id",
@@ -943,7 +1121,7 @@ class Coc7RuleGraphAdapter:
                     "observable_fact_refs", "inference_ceiling",
                     "observation_receipt_ref",
                 ):
-                    if binding.get(key) is not None:
+                    if key in declared and binding.get(key) is not None:
                         locked[key] = _thaw(binding[key])
             elif decision_ref in _COMBAT_SETTLE_DECISION_REFS:
                 binding = (
@@ -1096,7 +1274,10 @@ class Coc7RuleGraphAdapter:
                 out["target"] = payload["investigator_target"]
             if payload.get("opponent_value") is None:
                 raise tool_error(
-                    "missing_param", "host-locked opponent value could not be resolved",
+                    "missing_param",
+                    _opponent_unresolved_message(
+                        ctx, str(payload.get("opponent_check_ref") or ""),
+                    ),
                 )
             out.update({
                 "contest_kind": "noncombat",
@@ -1369,7 +1550,12 @@ class Coc7RuleGraphAdapter:
             command_payload = {"decision_id": str(args["decision_id"])}
             for key in ("chase_id", "participants", "locations", "actor_id", "action_id", "choice_id", "skill", "target", "difficulty", "roll_id", "revision", "target_actor_id", "combat_command_id", "outcome", "method"):
                 if payload.get(key) is not None: command_payload[key] = _thaw(payload[key])
-            out["command"] = {"command_id": command_id, "kind": kind, "phase": "start" if kind == "chase_start" else "resolve", "payload": command_payload}
+            out["command"] = {
+                "command_id": command_id,
+                "kind": kind,
+                "phase": _chase_command_phase(kind),
+                "payload": command_payload,
+            }
         else:
             raise tool_error(
                 "unsupported_ruleset_operation",

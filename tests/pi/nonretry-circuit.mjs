@@ -341,4 +341,128 @@ assert.equal(
   "reset clears retained progress ordering and failure blocks",
 );
 
+// --- an idempotency conflict's only remedy IS the identity field ---------- //
+//
+// `idempotency_conflict` means the supplied decision_id is already bound to
+// different immutable arguments. The one thing that makes the call different
+// is a fresh decision_id -- which the fingerprint normalized away as
+// host-owned churn, so the documented recovery was answered
+// `nonretryable_repeat_blocked`. Measured 2026-09-02
+// (debug-gate9-depth-10-r61, lane m2-reload): `rules.settle` refused
+// `combat-attack-corbitt-38-empty-v1`, the Keeper reissued the identical
+// semantics under `...-v2`, and was blocked. Eight blocks followed and the
+// player's turn was never delivered.
+const idempotencyCircuit = new NonRetryableFailureCircuit();
+const settleCall = {
+  campaignId: "campaign-idempotency",
+  operation: "rules.settle",
+  phase: "live_turn",
+  operationArgs: {
+    campaign: "campaign-idempotency",
+    decision_id: "combat-attack-corbitt-38-empty-v1",
+    decision_ref: "decision:coc7:combat:attack",
+    semantic_inputs: {
+      candidate_ref: "attack:npc-walter-corbitt",
+      weapon_ref: "revolver_38",
+    },
+  },
+};
+const idempotencyEnvelope = {
+  ok: false,
+  retryable: false,
+  will_retry: false,
+  error: {
+    code: "idempotency_conflict",
+    class: "idempotency_conflict",
+    message: "rules.settle decision_id is already bound to different immutable arguments",
+    recoverable_by: "host_binding_refresh",
+    allowed_next_actions: [],
+    automatic_action: "refresh_retained_binding_or_fault",
+  },
+};
+idempotencyCircuit.observe({ ...settleCall, envelope: idempotencyEnvelope });
+const sameKeyAgain = idempotencyCircuit.preflight(settleCall);
+assert.equal(
+  sameKeyAgain?.error?.code,
+  "nonretryable_repeat_blocked",
+  "reissuing the SAME bound decision_id is still a pointless repeat",
+);
+assert.equal(
+  idempotencyCircuit.preflight({
+    ...settleCall,
+    operationArgs: {
+      ...settleCall.operationArgs,
+      decision_id: "combat-attack-corbitt-38-empty-v2",
+    },
+  }),
+  null,
+  "a fresh decision_id -- and nothing else -- is already a different call",
+);
+
+// The refusal must say what would actually differ, not only what would not.
+assert.match(
+  String(sameKeyAgain?.error?.message ?? ""),
+  /idempotency_conflict/u,
+  "the refusal names the failure it is repeating",
+);
+assert.match(
+  String(sameKeyAgain?.error?.message ?? ""),
+  /decision_id/u,
+  "the refusal names the argument that would unblock it",
+);
+assert.ok(
+  Array.isArray(sameKeyAgain?.error?.details?.unblocked_by)
+    && sameKeyAgain.error.details.unblocked_by.length > 0,
+  "the refusal enumerates what would differ",
+);
+assert.ok(
+  sameKeyAgain.error.details.unblocked_by.some(
+    (line) => /unused decision_id/u.test(String(line)),
+  ),
+  "an identity-scoped block names a fresh idempotency key as the remedy",
+);
+assert.ok(
+  !sameKeyAgain.error.details.ignored_argument_keys.includes("decision_id"),
+  "decision_id is not ignored for a failure whose subject it is",
+);
+
+// Every other non-retryable failure keeps decision_id as host-owned churn.
+const churnCircuit = new NonRetryableFailureCircuit();
+const churnCall = {
+  campaignId: "campaign-churn",
+  operation: "rules.settle",
+  phase: "live_turn",
+  operationArgs: {
+    decision_id: "combat-attack-v1",
+    semantic_inputs: { weapon_ref: "revolver-38" },
+  },
+};
+churnCircuit.observe({
+  ...churnCall,
+  envelope: {
+    ok: false,
+    retryable: false,
+    will_retry: false,
+    error: { code: "unknown_weapon", class: "invariant_terminal" },
+  },
+});
+const churnBlocked = churnCircuit.preflight({
+  ...churnCall,
+  operationArgs: { ...churnCall.operationArgs, decision_id: "combat-attack-v2" },
+});
+assert.equal(
+  churnBlocked?.error?.code,
+  "nonretryable_repeat_blocked",
+  "a new decision_id must not evade an unrelated non-retryable failure",
+);
+assert.ok(
+  churnBlocked.error.details.ignored_argument_keys.includes("decision_id"),
+  "the refusal names decision_id as an argument it ignored",
+);
+assert.match(
+  String(churnBlocked.error.message),
+  /semantic argument/u,
+  "the refusal names the model-owned change that would unblock it",
+);
+
 process.stdout.write(JSON.stringify({ ok: true }));

@@ -70,7 +70,7 @@ import os
 from copy import deepcopy
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[2]
@@ -256,6 +256,7 @@ def clear_runtime_cache() -> None:
     _GRAPH_CACHE.clear()
     _MANIFEST_CACHE.clear()
     _CAMPAIGN_RUNTIMES.clear()
+    _PUBLIC_EFFECT_RUNTIME_CACHE.clear()
 
 
 def _campaign_runtime_key(
@@ -563,6 +564,49 @@ def agree_all_family_ownerships(
     }
 
 
+_PUBLIC_EFFECT_RUNTIME_CACHE: dict[str, "RulesRuntime | None"] = {}
+
+
+def public_effect_refs_for_decision(
+    decision_ref: str,
+    *,
+    ruleset_id: str | None = None,
+) -> list[str]:
+    """Public effect semantic ids emitted by one decision ref.
+
+    Decision node -> ``emits`` -> effect nodes; only effects ``plan_for``
+    would treat as public (``visibility`` absent or ``"public"``) are
+    returned.  ``keeper-only`` / ``concealed-result`` effects are always
+    excluded.  Unknown, malformed, or non-decision input returns ``[]``.
+    Pure deterministic graph query with no semantic reasoning
+    (cross-graph wiring spec W1: RuleGraph -> text rendering bridge).
+    """
+    ref = str(decision_ref or "").strip()
+    if not ref.startswith("decision:"):
+        return []
+    segments = ref.split(":")
+    resolved = ruleset_id or (segments[1] if len(segments) >= 2 and segments[1] else "")
+    if not resolved:
+        return []
+    if resolved not in _PUBLIC_EFFECT_RUNTIME_CACHE:
+        runtime: RulesRuntime | None = None
+        try:
+            loaded = load_ruleset_graph(resolved)
+        except Exception:
+            loaded = {"ok": False}
+        if isinstance(loaded, dict) and loaded.get("ok"):
+            runtime = RulesRuntime(
+                loaded["graph"],
+                ruleset_id=resolved,
+                graph_manifest=loaded.get("graph_manifest") if isinstance(loaded.get("graph_manifest"), dict) else None,
+            )
+        _PUBLIC_EFFECT_RUNTIME_CACHE[resolved] = runtime
+    runtime = _PUBLIC_EFFECT_RUNTIME_CACHE[resolved]
+    if runtime is None:
+        return []
+    return runtime.public_effect_refs_for(ref)
+
+
 def resolve_family_ownership(
     ruleset_id: str,
     family: str,
@@ -786,6 +830,63 @@ def _condition_children(expression: Mapping[str, Any]) -> list[Any] | None:
     if isinstance(raw, list):
         return raw
     return None
+
+
+def _requirement_phrase(expression: Mapping[str, Any], negated: bool) -> str:
+    """What this leaf asks for, in words the Keeper can act on.
+
+    Rendering `expected` alone loses the operator, and an operator-only leaf
+    such as `{"op": "exists"}` carries no `value` at all -- so an unmet
+    existence gate printed "actor.conditions.major_wound is None, needs None",
+    which reads as already satisfied and names nothing to do about it.
+    """
+    op = expression.get("op")
+    value = expression.get("value")
+    if op == "exists":
+        return "to be absent" if negated else "to be present"
+    phrases = {
+        "eq": "to equal", "neq": "to differ from",
+        "lt": "to be less than", "lte": "to be at most",
+        "gt": "to be greater than", "gte": "to be at least",
+        "contains": "to contain", "not-contains": "not to contain",
+    }
+    phrase = phrases.get(str(op), f"to satisfy {op!r} against")
+    return f"not ({phrase} {value!r})" if negated else f"{phrase} {value!r}"
+
+
+#: Total `unmet` leaf rows `rules.context` will spend on its withheld block.
+#: coc7's worst family (chase, every gate shut) produces 13, so this never
+#: bites today; it exists so a larger graph cannot silently turn a bounded
+#: diagnostic into the thing that pushes a context result past the transport
+#: cap. Past the budget the decision refs still travel -- they are the part
+#: the Keeper cannot reconstruct, and the host rewrites canonical ids out of
+#: prose, so they must be structured fields either way.
+WITHHELD_UNMET_ROW_BUDGET = 24
+
+
+def _bounded_withheld(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Order the withheld block and spend a fixed row budget on it.
+
+    Sorted by decision_ref so the same shut family reads the same on every
+    call -- a diagnostic that reorders itself cannot be diffed across turns.
+    """
+    bounded: list[dict[str, Any]] = []
+    spent = 0
+    for row in sorted(rows, key=lambda row: str(row["decision_ref"])):
+        unmet = list(row.get("unmet") or [])
+        room = max(WITHHELD_UNMET_ROW_BUDGET - spent, 0)
+        kept = unmet[:room]
+        spent += len(kept)
+        entry: dict[str, Any] = {"decision_ref": row["decision_ref"]}
+        if row.get("label"):
+            # The Keeper narrates the refusal as often as it acts on it, and
+            # a decision id is not a sentence. Cheap next to the rows.
+            entry["label"] = row["label"]
+        entry["unmet"] = kept
+        if len(kept) < len(unmet):
+            entry["unmet_omitted"] = len(unmet) - len(kept)
+        bounded.append(entry)
+    return bounded
 
 
 def evaluate_condition(
@@ -1071,6 +1172,28 @@ class RulesRuntime:
                 out.append(str(target.get("node_id")))
         return sorted(set(out))
 
+    def public_effect_refs_for(self, decision_ref: str) -> list[str]:
+        """Public ``emits`` targets of one decision node (W1 runtime bridge).
+
+        Mirrors ``plan_for`` visibility semantics: an effect with no
+        ``visibility`` property or ``visibility == "public"`` is returned;
+        ``keeper-only`` and ``concealed-result`` effects are never returned.
+        Unknown or non-decision input yields ``[]``.  Pure deterministic
+        graph query; no semantic reasoning.
+        """
+        ref = str(decision_ref or "").strip()
+        node = self._nodes.get(ref)
+        if not isinstance(node, dict) or node.get("node_kind") != "decision":
+            return []
+        out: list[str] = []
+        for effect_id in self._effects_for(ref):
+            effect = self._nodes.get(effect_id) or {}
+            vis = (effect.get("properties") or {}).get("visibility") or effect.get("visibility")
+            if vis in {"keeper-only", "concealed-result"}:
+                continue
+            out.append(effect_id)
+        return sorted(set(out))
+
     def _pending_choices_for(self, node_id: str) -> list[str]:
         out = []
         for rel in self._outgoing(node_id, "offers-choice"):
@@ -1338,12 +1461,63 @@ class RulesRuntime:
         return card
 
     # -- card grants (spec §8.5/§8.6 static recheck) ---------------------- #
-    def _grant_binding(self) -> dict[str, Any]:
+    def _gating_fact_paths(self, decision_refs: Iterable[str]) -> tuple[str, ...]:
+        """The fact paths whose value decides whether these cards are offered.
+
+        Read off the graph's own hard gates -- `applicability` consults nothing
+        else -- so the scope is derived, never a guess about which namespaces
+        look related.
+        """
+        paths: set[str] = set()
+
+        def walk(expression: Any, negated: bool = False) -> None:
+            if not isinstance(expression, Mapping):
+                return
+            children = _condition_children(expression)
+            if children is not None:
+                flipped = negated != (expression.get("op") == "not")
+                for child in children:
+                    walk(child, flipped)
+                return
+            path = expression.get("path")
+            if isinstance(path, str) and path:
+                paths.add(path)
+
+        for decision_ref in decision_refs:
+            for condition in self._conditions_for(str(decision_ref)):
+                if condition.get("hard_gate") is not True:
+                    continue
+                walk((condition.get("properties") or {}).get("expression"))
+        return tuple(sorted(paths - _CALL_SCOPED_FACT_KEYS))
+
+    def _grant_binding(
+        self, state_scope: Iterable[str] | None = None,
+    ) -> dict[str, Any]:
         """Current machine-owned grant binding (campaign + ruleset version +
-        graph generation + canonical state revision)."""
+        graph generation + canonical state revision).
+
+        With no separate state-revision provider the revision degrades to a
+        digest of the fact set. Taken over ALL facts that made every grant in
+        the turn die whenever anything moved anywhere: settling one Sanity
+        check voided the combat and chase cards the Keeper was holding, and it
+        had to re-ask for them. Measured 2026-09-02 r35, two of three lanes,
+        two or three wasted round trips each against a 180s turn budget.
+
+        Scoped to the paths the grant's own hard gates read, the binding still
+        says exactly what it always meant -- "the reason these cards were
+        offered still holds" -- and says it about the right facts. The turn
+        context keys are untouched, so a card still cannot outlive its turn,
+        phase or player-turn epoch; only same-turn cross-family noise stops
+        counting.
+        """
         facts = self._facts_provider() if self._facts_provider is not None else {}
         if self._state_revision_provider is not None:
             revision = self._state_revision_provider()
+        elif state_scope is not None:
+            scoped = {
+                key: facts.get(key) for key in sorted(state_scope)
+            }
+            revision = f"sha256:{_json_digest(scoped)}"
         else:
             state_facts = {
                 key: value for key, value in facts.items()
@@ -1379,13 +1553,18 @@ class RulesRuntime:
         ignored (fail closed)."""
         self._grant_sequence += 1
         family = str(cards[0].get("family") or "") if cards else ""
+        decision_refs = sorted({str(card["decision_ref"]) for card in cards})
+        scope = self._gating_fact_paths(decision_refs)
         grant_id = f"card-grant:{self._ruleset_id}:{family or 'unscoped'}:{self._grant_sequence}"
         grant = {
             "contract_id": CARD_GRANT_CONTRACT_ID,
             "schema_version": CARD_GRANT_SCHEMA_VERSION,
             "grant_id": grant_id,
-            "binding": self._grant_binding(),
-            "decision_refs": sorted({str(card["decision_ref"]) for card in cards}),
+            "binding": self._grant_binding(scope),
+            "decision_refs": decision_refs,
+            # Host-internal: the paths this grant's revision was taken over, so
+            # validation recomputes the same digest instead of the whole set.
+            "state_scope": list(scope),
         }
         if isinstance(source_decision_id, str) and source_decision_id:
             # Host-only continuation provenance. Public card projection never
@@ -1420,7 +1599,7 @@ class RulesRuntime:
                 "the grant was not issued by this runtime instance; "
                 "forged or expired grants are rejected",
             )
-        current = self._grant_binding()
+        current = self._grant_binding(stored.get("state_scope"))
         drifted = [
             key for key in sorted(stored["binding"])
             if stored["binding"].get(key) != current.get(key)
@@ -1647,38 +1826,63 @@ class RulesRuntime:
             return False
         return node.get("node_kind") != "decision"
 
-    def _unmet_availability(self, decision_ref: str) -> list[dict[str, Any]]:
+    def _unmet_availability(
+        self,
+        decision_ref: str,
+        facts: Mapping[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         """The leaf availability conditions this decision fails right now.
 
         Reports the fact path, what it holds and what the graph asks for --
         never a bare "not applicable", which names nothing the Keeper can act
         on or narrate around.
+
+        `facts` is the evaluation the caller already performed. `context()`
+        passes the facts its own cards were judged against -- the adapter's
+        `augment_facts` derives `magic.spell.known` and
+        `magic.learn.source-available` from the question's `semantic_inputs`,
+        so re-reading the raw provider here would explain a withheld card
+        against a different world than the one that withheld it: reporting
+        `magic.spell.known is None` where applicability saw False. Callers
+        with no evaluation in hand (`explain_missing_grant`) omit it and get
+        the raw canonical facts, which is what they had before.
         """
-        facts = (
-            dict(self._facts_provider() or {})
-            if self._facts_provider is not None else {}
-        )
+        if facts is None:
+            facts = (
+                dict(self._facts_provider() or {})
+                if self._facts_provider is not None else {}
+            )
         unmet: list[dict[str, Any]] = []
         seen: set[str] = set()
 
-        def walk(expression: Any) -> None:
+        def walk(expression: Any, negated: bool = False) -> None:
             if not isinstance(expression, Mapping):
                 return
             children = _condition_children(expression)
             if children is not None:
+                flipped = negated != (expression.get("op") == "not")
                 for child in children:
-                    walk(child)
+                    walk(child, flipped)
                 return
             path = expression.get("path")
             if not isinstance(path, str) or path in seen:
                 return
-            if evaluate_condition(expression, facts) is True:
+            # Under a `not`, a leaf that evaluates True is the one holding the
+            # gate shut. Testing the raw leaf regardless of negation skipped
+            # exactly the failing condition: `not exists actor.conditions.dying`
+            # reported nothing while a dying investigator was what blocked
+            # first aid.
+            satisfied = evaluate_condition(expression, facts)
+            if satisfied is (False if negated else True):
                 return
             seen.add(path)
             unmet.append({
                 "path": path,
+                "op": expression.get("op"),
+                "negated": negated,
                 "actual": facts.get(path),
                 "expected": expression.get("value"),
+                "requirement": _requirement_phrase(expression, negated),
             })
 
         # Only hard gates decide whether a card is offered -- `applicability`
@@ -1702,7 +1906,6 @@ class RulesRuntime:
         need different answers — refresh this family, versus canonical state
         advanced mid-turn — and the runtime already holds both facts.
         """
-        current = self._grant_binding()
         covering = [
             grant for grant in self._grants.values()
             if decision_ref in (grant.get("decision_refs") or [])
@@ -1723,8 +1926,8 @@ class RulesRuntime:
                         "this decision is not currently available, so no card "
                         "was offered for it: "
                         + "; ".join(
-                            f"{row['path']} is {row['actual']!r}, needs "
-                            f"{row['expected']!r}"
+                            f"{row['path']} is {row['actual']!r}, "
+                            f"needs {row['requirement']}"
                             for row in unmet
                         )
                     ),
@@ -1739,7 +1942,8 @@ class RulesRuntime:
             }
         live = [
             grant for grant in covering
-            if (grant.get("binding") or {}) == current
+            if (grant.get("binding") or {})
+            == self._grant_binding(grant.get("state_scope"))
         ]
         if live:
             # The caller only asks after its own lookup failed, so a covering
@@ -1757,6 +1961,7 @@ class RulesRuntime:
         drifted = sorted({
             key
             for grant in covering
+            for current in (self._grant_binding(grant.get("state_scope")),)
             for key in set(grant.get("binding") or {}) | set(current)
             if (grant.get("binding") or {}).get(key) != current.get(key)
         })
@@ -1770,12 +1975,11 @@ class RulesRuntime:
         }
 
     def latest_grant_covering(self, decision_ref: str) -> dict[str, Any] | None:
-        current = self._grant_binding()
         for grant_id in reversed(list(self._grants)):
             grant = self._grants[grant_id]
             if decision_ref not in (grant.get("decision_refs") or []):
                 continue
-            if grant.get("binding") != current:
+            if grant.get("binding") != self._grant_binding(grant.get("state_scope")):
                 continue
             return deepcopy(grant)
         return None
@@ -1833,6 +2037,7 @@ class RulesRuntime:
         cards: list[dict[str, Any]] = []
         missing: list[str] = []
         optional_rule_gates: list[dict[str, Any]] = []
+        withheld: list[dict[str, Any]] = []
         for node in candidates:
             node_id = str(node["node_id"])
             if node_id not in self._nodes:
@@ -1843,10 +2048,20 @@ class RulesRuntime:
             if card["applicability"] != "applicable":
                 missing.append(node_id)
                 if card.get("disabled_by_optional_rule"):
+                    # A table ruling, not a shut state fact. It is reported
+                    # under its own key and deliberately NOT repeated as
+                    # `withheld`: the two have different remedies, and only
+                    # one of them can change during this campaign.
                     optional_rule_gates.append({
                         "decision_ref": node_id,
                         **card["disabled_by_optional_rule"],
                     })
+                    continue
+                withheld.append({
+                    "decision_ref": node_id,
+                    "label": card["label"],
+                    "unmet": self._unmet_availability(node_id, facts),
+                })
                 continue
             cards.append(card)
             if len(cards) >= 8:
@@ -1890,6 +2105,23 @@ class RulesRuntime:
             result["disabled_by_optional_rules"] = sorted(
                 optional_rule_gates, key=lambda row: str(row["decision_ref"]),
             )
+        if withheld:
+            # Why the hand is the size it is. An empty family answered
+            # `no_candidate_in_compiled_scope` with nothing else: measured in
+            # run r69, two lanes that had seeded a spell teacher precisely to
+            # open `magic` were handed 0 cards on every call and told only
+            # that there were 0. The Keeper settled blind, and the refusal --
+            # one call later, after the damage -- named the shut gate
+            # ("magic.spell.known is None, needs to equal True") that this
+            # call already knew. Same `unmet` row shape as
+            # `explain_missing_grant`, so refusal and offer speak one
+            # vocabulary rather than two.
+            #
+            # Attached whether or not cards were offered: 2-of-6 and 6-of-6
+            # are different hands and read identically without it. Only
+            # decisions this call actually evaluated appear -- the loop stops
+            # at 8 cards, and a decision never reached was not withheld.
+            result["withheld"] = _bounded_withheld(withheld)
         if findings:
             result["findings"] = findings
         if cards:
@@ -1919,6 +2151,103 @@ class RulesRuntime:
         return result
 
     # -- settle (spec §8.6/§8.7) --------------------------------------------
+    def _undeclared_slot_failure(
+        self,
+        decision_ref: str,
+        family: str,
+        slots: list[dict[str, Any]],
+        offending: list[str],
+        *,
+        origin: str,
+    ) -> dict[str, Any]:
+        """The one refusal for inputs a decision does not declare.
+
+        Two callers reach it and they had drifted apart. The model path named
+        every offending key AND the slots the Keeper may fill; the host path
+        named one key and nothing else -- "host-locked input 'chase_id' is not
+        a declared slot", no `declared_slots`, no idea what the decision does
+        take. `unknown_semantic_input` projects as the Keeper's own argument
+        error with `correct_model_arguments`, so a Keeper handed the second
+        form guesses, is refused again, and `nonretryable_repeat_blocked`
+        walls off the repeat: measured 2026-09-01 across the sanity, chase and
+        combat lanes (r22/r23 chase, clean-1/clean-3 sanity), whole turns
+        spent on it. One builder, so the two cannot drift again.
+
+        `origin` decides which instruction is true. "stop sending it" and "you
+        may not set it" are different answers, and the host path's key was
+        never the Keeper's to send in the first place.
+
+        What is advertised is the SEMANTIC ownerships only. Naming a slot the
+        Keeper is forbidden to set is the same defect wearing a different hat:
+        `settle()` refuses a model-supplied host-locked or resolver-owned slot
+        with `locked_input_override`, so "this decision takes X" for such an X
+        invites exactly that refusal. The list was previously everything not
+        literally `host-locked`, which let `resolver-owned` through.
+        """
+        declared = sorted(slot["name"] for slot in slots)
+        required = sorted(
+            slot["name"] for slot in slots
+            if slot["ownership"] in _REQUIRED_SEMANTIC_OWNERSHIPS
+        )
+        optional = sorted(
+            slot["name"] for slot in slots
+            if slot["ownership"] in _SEMANTIC_SLOT_OWNERSHIPS
+            and slot["ownership"] not in _REQUIRED_SEMANTIC_OWNERSHIPS
+        )
+        model_owned = sorted(
+            slot["name"] for slot in slots
+            if slot["ownership"] in _SEMANTIC_SLOT_OWNERSHIPS
+        )
+        host_owned = sorted(
+            slot["name"] for slot in slots
+            if slot["ownership"] in _LOCKED_SLOT_OWNERSHIPS
+        )
+        if required and optional:
+            takes = ", ".join(required) + " (optional: " + ", ".join(optional) + ")"
+        elif required:
+            takes = ", ".join(required)
+        elif optional:
+            takes = "only optional input: " + ", ".join(optional)
+        else:
+            takes = (
+                "no semantic input at all (every slot is filled by the host)"
+            )
+        keys = ", ".join(repr(key) for key in offending)
+        if origin == "host":
+            message = (
+                "host-owned inputs are not declared slots of this decision: "
+                + keys
+                + "; the host fills these, not the Keeper, so no change to "
+                "semantic_inputs clears it; this decision takes " + takes
+            )
+        else:
+            message = (
+                "not declared slots of this decision: " + keys
+                + "; this decision takes " + takes
+            )
+        # Every list is plain strings under a non-identity key on purpose.
+        # A map keyed by slot names would be keyed by identity-bearing field
+        # names (`candidate_ref`, `actor_id`), and the host's own projection
+        # holds the VALUES of such keys to the ref grammar -- ownership words
+        # are not refs, so the map would arrive empty. That is the defect
+        # tests/pi/chase-candidate-guidance-survives.mjs records for
+        # `chase_candidate_invalid.requires`.
+        return {
+            "failure": {
+                "code": "unknown_semantic_input",
+                "message": message,
+                "declared_slots": declared,
+                "model_owned_slots": model_owned,
+                "required_semantic_slots": required,
+                "optional_semantic_slots": optional,
+                "host_owned_slots": host_owned,
+                "unknown": list(offending),
+                "input_origin": origin,
+                "decision_ref": decision_ref,
+                "family": family,
+            }
+        }
+
     def _compile_plan(
         self,
         decision_ref: str,
@@ -1989,23 +2318,27 @@ class RulesRuntime:
         implementation = (node.get("properties") or {}).get("implementation")
         slots = self._slots_for(decision_ref)
         slot_names = {slot["name"] for slot in slots}
-        for key in semantic_inputs:
-            if key not in slot_names:
-                # No generic arguments bag: an undeclared semantic input is
-                # rejected rather than forwarded into the payload. The
-                # declared set is already in hand here, so name it — the
-                # sibling missing_semantic_input failure below returns its
-                # list for the same reason, and without it the caller has to
-                # guess the slot name it was never told.
-                return {
-                    "failure": {
-                        "code": "unknown_semantic_input",
-                        "message": f"semantic input {key!r} is not a declared slot",
-                        "declared_slots": sorted(slot_names),
-                        "decision_ref": decision_ref,
-                        "family": family,
-                    }
-                }
+        # Combined-check shares the 56-key union schema with ordinary-check.
+        # Keepers copy difficulty_basis/skill/characteristic from that union
+        # onto the combined card (r79 cmb4) and the graph rejects them as
+        # undeclared. Those three are ordinary-check slots, not invented
+        # keys; drop them here so the declared combined slots can settle.
+        if decision_ref.endswith(":combined-check") and isinstance(
+            semantic_inputs, Mapping
+        ):
+            semantic_inputs = {
+                key: value for key, value in semantic_inputs.items()
+                if key not in {"difficulty_basis", "skill", "characteristic"}
+            }
+        # No generic arguments bag: an undeclared semantic input is rejected
+        # rather than forwarded into the payload. Every offending key at once
+        # -- one key per refusal made a Keeper strip its arguments one at a
+        # time, four round trips for one decision on 2026-09-02.
+        unknown = sorted(key for key in semantic_inputs if key not in slot_names)
+        if unknown:
+            return self._undeclared_slot_failure(
+                decision_ref, family, slots, unknown, origin="model",
+            )
         missing = sorted(
             slot["name"] for slot in slots
             if slot["ownership"] in _REQUIRED_SEMANTIC_OWNERSHIPS
@@ -2031,16 +2364,18 @@ class RulesRuntime:
             if isinstance(provided, Mapping):
                 for key, value in provided.items():
                     host_context.setdefault(str(key), deepcopy(value))
-        for key in host_context:
-            if key not in slot_names:
-                return {
-                    "failure": {
-                        "code": "unknown_semantic_input",
-                        "message": f"host-locked input {key!r} is not a declared slot",
-                        "decision_ref": decision_ref,
-                        "family": family,
-                    }
-                }
+        # The host binding overshot this decision's declarations. Same builder
+        # as the model path above, with `origin="host"`: the Keeper is told the
+        # keys are host-filled and that its own arguments cannot clear them,
+        # instead of being handed a bare name and the `correct_model_arguments`
+        # projection for a value it never sent.
+        host_unknown = sorted(
+            key for key in host_context if key not in slot_names
+        )
+        if host_unknown:
+            return self._undeclared_slot_failure(
+                decision_ref, family, slots, host_unknown, origin="host",
+            )
         payload: dict[str, Any] = {}
         if isinstance(implementation, dict):
             for name, value in (implementation.get("payload_constants") or {}).items():
@@ -2369,6 +2704,33 @@ class RulesRuntime:
             envelope["warnings"] = warnings
         if hints:
             envelope["hints"] = hints
+        # The continuations were projected from the facts as they stood BEFORE
+        # this settlement ran, and no grant covered them -- so the envelope
+        # told the Keeper "bout-tick is what comes next" and the settle
+        # pre-check then refused it as a decision no grant covered. Two
+        # host-authored statements, opposite answers; measured 2026-09-02 r37,
+        # once per lane, each costing a rules.context the Keeper had just been
+        # told it did not need.
+        #
+        # Recomputed against the facts this settlement produced -- the bout it
+        # opened is why bout-tick is offerable at all -- and granted, so the
+        # card the envelope hands over is a card that settles.
+        settled_facts = (
+            self._facts_provider() if self._facts_provider is not None else {}
+        )
+        continued: list[dict[str, Any]] = []
+        for next_ref in list(plan["next_decisions"])[:8]:
+            next_node = self._nodes.get(str(next_ref))
+            if next_node is None or next_node.get("node_kind") != "decision":
+                continue
+            applicable, _hard = self.applicability(str(next_ref), settled_facts)
+            if not applicable:
+                continue
+            continued.append(self._card(str(next_ref), settled_facts))
+        continued = sorted(continued, key=lambda card: str(card["decision_ref"]))
+        envelope["next_decisions"] = continued
+        if continued:
+            self._issue_card_grant(continued, source_decision_id=decision_id)
         return envelope
 
 

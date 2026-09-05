@@ -738,3 +738,38 @@ test("pending authored SAN trigger stays pending without reopening legacy SAN", 
   assert.ok(context.workingSet.activeOperationNames.includes("rules.context"));
   assert.ok(projected.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET);
 });
+
+test("the clue write the rules make mandatory is on the acting baseline", () => {
+  // A clue the player found is not real until `state.record_clue` writes it,
+  // so a Keeper that finds one has no choice about calling it. Off the
+  // baseline it cost a `coc_discover` round trip first: measured 2026-09-02
+  // across six first turns, five spent one on exactly this operation, ~11.8s
+  // each, and a discover also changes the active tool interface and forces a
+  // replan.
+  const source = snapshot({ phase: "live_turn", stage: "acting" });
+  const projected = workingSet.projectToolWorkingSet(source);
+  assert.equal(projected.ok, true, projected.error?.message);
+  assert.ok(
+    projected.activeOperationNames.includes("state.record_clue"),
+    projected.activeOperationNames,
+  );
+
+  // It is the only write there. The rest still loads on demand -- "no fixed
+  // pipeline, no quota" -- and the budget keeps its headroom.
+  for (const operation of [
+    "state.move_scene",
+    "state.npc_presence",
+    "state.item_grant",
+    "sanity.execute",
+    "combat.resolve",
+  ]) {
+    assert.ok(
+      !projected.activeOperationNames.includes(operation),
+      `${operation} must still be loaded on demand`,
+    );
+  }
+  assert.ok(
+    projected.activeToolNames.length <= workingSet.WORKING_SET_TOOL_BUDGET,
+    projected.activeToolNames.length,
+  );
+});

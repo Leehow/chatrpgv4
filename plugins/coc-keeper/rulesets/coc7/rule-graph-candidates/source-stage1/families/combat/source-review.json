@@ -3,7 +3,7 @@
   "schema_version": 1,
   "ruleset_id": "coc7",
   "family_id": "combat",
-  "reviewer_identity": "codex-worker-combat-end-slot-review-20260831-v2+claude-flee-continues-as-chase-20260902",
+  "reviewer_identity": "codex-worker-combat-end-slot-review-20260831-v2+claude-flee-continues-as-chase-20260902+claude-flee-drops-unconsumed-candidate-ref-20260902",
   "review_status": "accepted",
   "source": {
     "source_id": "pdf:coc7-keeper-rulebook-40th",
@@ -37,7 +37,7 @@
     ]
   },
   "accepted_shard_id": "shard:coc7:combat:section-combat-complete-source",
-  "accepted_shard_digest": "d5d25219ebfe3e0e5a9b63da11fa56c4ed8b2fc0212d723c23c32ef4f4e61138",
+  "accepted_shard_digest": "c96a605c4586cc850375a4fc278aec7b75517eb5c4b338616706d22d28796d59",
   "coverage": "accepted",
   "unresolved_applicable_rules": [],
   "applicability_ledger": [

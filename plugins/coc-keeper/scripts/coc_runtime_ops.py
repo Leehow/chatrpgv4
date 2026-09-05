@@ -58,6 +58,9 @@ coc_character_creation_briefing = _load_sibling(
     "coc_character_creation_briefing.py",
 )
 coc_development = _load_sibling("coc_development_runtime_ops", "coc_development.py")
+coc_module_spells = _load_sibling(
+    "coc_module_spells_runtime_ops", "coc_module_spells.py"
+)
 coc_fileio = _load_sibling("coc_fileio_runtime_ops", "coc_fileio.py")
 coc_investigator_guard = _load_sibling(
     "coc_investigator_guard_runtime_ops", "coc_investigator_guard.py"
@@ -1492,24 +1495,30 @@ def _magic_state(
     magic = state.get("magic")
     if not isinstance(magic, dict):
         magic = {}
-    for key in ("cast_spells", "learned_spells"):
+    for key in ("cast_spells", "learned_spells", "studying_spells"):
         values = magic.get(key)
         magic[key] = list(values) if isinstance(values, list) else []
     state["magic"] = magic
     return path, state
 
 
-def _validate_spell(payload: dict[str, Any], allowed: set[str]) -> str:
+def _validate_spell(
+    payload: dict[str, Any],
+    allowed: set[str],
+    *,
+    module_spells: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     if set(payload) - allowed:
         raise RuntimeOperationError("magic payload has unsupported fields")
     spell = payload.get("spell")
     if not isinstance(spell, str) or not spell.strip():
         raise RuntimeOperationError("magic payload requires spell")
     try:
-        canonical = coc_rules.spell_by_name(spell.strip())
+        return coc_rules.resolve_spell_name(
+            spell.strip(), module_spells=module_spells
+        )
     except KeyError as exc:
         raise RuntimeOperationError(f"unknown spell: {spell.strip()}") from exc
-    return str(canonical["name"])
 
 
 def _magic_operation(
@@ -1526,34 +1535,96 @@ def _magic_operation(
     state_path, state = _magic_state(
         workspace, campaign_id, investigator_id, character_path
     )
+    # The campaign's own module is a second spell namespace. Loaded once per
+    # operation and threaded through every resolution below, so the name the
+    # gate accepted, the row that prices it, and the name persisted into
+    # investigator-state are decided against one pool.
+    module_spells = coc_module_spells.campaign_spell_records(
+        workspace, campaign_dir
+    )
     magic = state["magic"]
     if kind == "magic.cast":
-        spell = _validate_spell(
-            payload, {"spell", "pushed", "interrupted", "is_npc"}
+        # ``canonical_name`` is what a parameterised family persists as
+        # ("Summon/Bind Dimensional Shambler"), while ``entry`` is the family
+        # row the rulebook prices it from; the family name alone would lose
+        # which creature the investigator can call.
+        resolution = _validate_spell(
+            payload, {"spell", "pushed", "interrupted", "is_npc"},
+            module_spells=module_spells,
         )
+        spell = str(resolution["canonical_name"])
         cast_spells = {str(item) for item in magic["cast_spells"]}
-        result = coc_magic.cast_spell(
-            spell,
-            state,
-            is_first_cast=spell not in cast_spells,
-            is_npc=payload.get("is_npc") is True,
-            pushed=payload.get("pushed") is True,
-            interrupted=payload.get("interrupted") is True,
-            rng=rng,
-        )
+        try:
+            result = coc_magic.cast_spell(
+                spell,
+                state,
+                is_first_cast=spell not in cast_spells,
+                is_npc=payload.get("is_npc") is True,
+                pushed=payload.get("pushed") is True,
+                interrupted=payload.get("interrupted") is True,
+                rng=rng,
+                module_spells=module_spells,
+            )
+        except coc_magic.UnpricedSpellError as exc:
+            # Its own code, not the generic one: the Keeper has to be able to
+            # tell "the module never priced this" from "you passed a bad
+            # parameter", and the node id is what makes the gap fixable.
+            raise RuntimeOperationError(
+                str(exc),
+                code="magic_spell_unpriced",
+                details={
+                    "spell": exc.spell,
+                    "module_node_id": exc.node_id,
+                    "unpriced_fields": list(exc.missing),
+                    "learnable": True,
+                },
+            ) from exc
         if result.get("success") and spell not in cast_spells:
             magic["cast_spells"].append(spell)
     else:
-        spell = _validate_spell(payload, {"spell", "source"})
+        resolution = _validate_spell(
+            payload, {"spell", "source"}, module_spells=module_spells
+        )
+        spell = str(resolution["canonical_name"])
         source = payload.get("source", "tome")
         if source not in {"tome", "person", "entity"}:
             raise RuntimeOperationError("magic.learn source must be tome|person|entity")
         result = coc_magic.learn_spell(
-            spell, state, source=str(source), rng=rng, campaign_dir=campaign_dir
+            spell, state, source=str(source), rng=rng,
+            campaign_dir=campaign_dir, investigator_id=investigator_id,
+            module_spells=module_spells,
         )
         learned = {str(item) for item in magic["learned_spells"]}
-        if result.get("learned") and not result.get("completion_trigger_id") and spell not in learned:
-            magic["learned_spells"].append(spell)
+        if result.get("learned"):
+            trigger_id = result.get("completion_trigger_id")
+            if trigger_id:
+                # pp.176-177: a tome takes 2D6 weeks and a teacher 1D8 days,
+                # so the spell is not known yet. Record the study in progress
+                # against the trigger that will grant it: the operation must
+                # move persisted state now, or a caller that reads back
+                # investigator-state sees a settled write that never happened.
+                studying = magic["studying_spells"]
+                studying[:] = [
+                    row for row in studying
+                    if not (
+                        isinstance(row, dict)
+                        and str(row.get("spell") or "") == spell
+                    )
+                ]
+                studying.append({
+                    "spell": spell,
+                    "source": str(source),
+                    "trigger_id": str(trigger_id),
+                    "study_weeks": int(result.get("study_weeks") or 0),
+                    "study_days": int(result.get("study_days") or 0),
+                    "due_elapsed_minutes": result.get(
+                        "study_completion_elapsed_minutes"
+                    ),
+                })
+            elif spell not in learned:
+                # Entity teaching (and any campaign with no time layer) has no
+                # study delay: the spell is known the moment the roll lands.
+                magic["learned_spells"].append(spell)
     coc_fileio.write_json_atomic(
         state_path, state, indent=2, ensure_ascii=False, trailing_newline=True
     )
@@ -1591,6 +1662,20 @@ def _magic_operation(
         "status": "PASS",
         "kind": kind,
         "operation_id": operation_id,
+        # What this operation actually moved, spelled out: the name written
+        # into investigator-state, and — for a parameterised family — the
+        # catalogue row it was priced from and the creature it was bound to.
+        # A receipt that named only "Summon/Bind Spells" would not say which
+        # creature the investigator can now call.
+        "spell": {
+            "canonical_name": spell,
+            "catalog_entry_name": str(resolution["entry"].get("name") or ""),
+            "parameterisation": resolution.get("parameterisation"),
+            # Present only when a module authored (or annotates) this name, so
+            # the Keeper reading the receipt can see it is this module's spell
+            # with its own properties and pages -- not a rulebook row.
+            "module_authored": resolution.get("module_authored"),
+        },
         "result": result,
         "state_refs": [
             f"save/investigator-state/{investigator_id}.json",
@@ -3937,6 +4022,13 @@ def _development_operation_body(
     operation_id = f"op-development-settle-{identity}-{plan_digest}"
     public_rows: list[dict[str, Any]] = []
     for index, check in enumerate(result.get("improvement_checks") or []):
+        # The receipt rows carry the exact roll identities the public rolls
+        # are written under: the host registry mints semantic handles from
+        # them, and the turn's development obligations resolve through those
+        # handles. Without these fields the envelope names rolls the registry
+        # never saw and turn.output_context fails closed.
+        check["roll_id"] = f"{operation_id}:check:{index}"
+        check["roll_kind"] = "development_check"
         public_rows.append(_write_public_roll(
             campaign_dir,
             command_id=f"{operation_id}:check:{index}",
@@ -3951,6 +4043,7 @@ def _development_operation_body(
             outcome="improved" if check.get("improved") else "no_improvement",
         ))
         if check.get("improved") and isinstance(check.get("gain"), int):
+            check["gain_roll_id"] = f"{operation_id}:gain:{index}"
             public_rows.append(_write_public_roll(
                 campaign_dir,
                 command_id=f"{operation_id}:gain:{index}",
@@ -3964,6 +4057,8 @@ def _development_operation_body(
             ))
     luck = result.get("luck_recovery") or {}
     if isinstance(luck.get("roll"), int):
+        luck["roll_id"] = f"{operation_id}:luck-recovery"
+        luck["roll_kind"] = "luck_recovery"
         public_rows.append(_write_public_roll(
             campaign_dir,
             command_id=f"{operation_id}:luck-recovery",
@@ -4017,6 +4112,8 @@ def _development_operation_body(
             "san_max": int(sanity.san_max),
         }
         reward_roll_id = f"{operation_id}:san-reward"
+        result["san_reward"]["roll_id"] = reward_roll_id
+        result["san_reward"]["roll_kind"] = "development_san_reward"
         public_rows.append(_write_public_roll(
             campaign_dir,
             command_id=reward_roll_id,
@@ -4071,6 +4168,8 @@ def _development_operation_body(
             result["scenario_san_reward"] = {
                 **prior_reward["reward"],
                 "replayed": True,
+                "roll_id": prior_reward["roll_id"],
+                "roll_kind": "scenario_san_reward",
             }
             result["scenario_san_reward_applied"] = False
             result["scenario_san_reward_receipt"] = {
@@ -4132,9 +4231,11 @@ def _development_operation_body(
                 "san_after": san_after,
                 "san_max": int(sanity.san_max),
             }
+            scenario_reward_roll_id = f"{operation_id}:scenario-san-reward"
+            reward_result["roll_id"] = scenario_reward_roll_id
+            reward_result["roll_kind"] = "scenario_san_reward"
             result["scenario_san_reward"] = reward_result
             result["scenario_san_reward_applied"] = True
-            scenario_reward_roll_id = f"{operation_id}:scenario-san-reward"
             public_rows.append(_write_public_roll(
                 campaign_dir,
                 command_id=scenario_reward_roll_id,

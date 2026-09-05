@@ -151,6 +151,30 @@ LEGACY_SIGNAL_TAGS: dict[str, tuple[str, ...]] = {
 
 UNKNOWN = "unknown-legacy-tuning"
 
+# Slice W2 (pi-coc-cross-graph-wiring §5): doctrine nodes whose applicability
+# is anchored in real RuleGraph decisions. These entries add ``grounded_by``
+# only — never a value change — and each target must exist verbatim in
+# rulesets/coc7/rule-graph.json (tests/test_director_grounding.py checks).
+# An edge here does not by itself reclassify the evidence class: a node stays
+# authored-doctrine unless its VALUE follows from a rulebook rule.
+SLICE_W2_SCORING_GROUNDING = {
+    # The nudge fires only after a pushed roll failed: the doctrine realises
+    # the rulebook's consequence-follows-a-pushed-failure requirement, which
+    # the pushed-roll decision settles. Already rule-derived via p.83-85; the
+    # edge names the RuleGraph decision now that push-luck is promoted.
+    "scoring-rule:pressure:pushed-fail-nudge": [
+        "decision:coc7:push-luck:pushed-roll",
+    ],
+    # Combat, flee or cast intent hands the scene to the subsystem: the edge
+    # names the three decisions that receive that handoff. The score itself
+    # (0.9) stays authored-doctrine — no rulebook rule fixes a pacing score.
+    "scoring-rule:subsystem:combat-flee-cast-intent": [
+        "decision:coc7:combat:attack",
+        "decision:coc7:combat:flee",
+        "decision:coc7:magic:cast-spell",
+    ],
+}
+
 # (condition_id, action, value, value_kind, rationale, origin, falsifiable_by, source_refs)
 LEGACY_SCORING_RULES = [
     ("investigate-intent", "REVEAL", 0.9, "constant",
@@ -1064,7 +1088,7 @@ def doctrine_shard() -> dict[str, Any]:
     for (condition_id, action, value, value_kind, rationale, origin,
          falsifiable_by, source_refs) in LEGACY_SCORING_RULES:
         node_id = f"scoring-rule:{_slug(action)}:{condition_id}"
-        nodes.append(_doctrine_node(
+        node = _doctrine_node(
             node_id, "scoring-rule", f"{action} / {condition_id}",
             {
                 "action_ref": f"director-action:{_slug(action)}",
@@ -1074,7 +1098,11 @@ def doctrine_shard() -> dict[str, Any]:
             },
             rationale=rationale, origin=origin,
             falsifiable_by=falsifiable_by, source_refs=source_refs,
-        ))
+        )
+        grounded_by = SLICE_W2_SCORING_GROUNDING.get(node_id)
+        if grounded_by:
+            node["grounded_by"] = list(grounded_by)
+        nodes.append(node)
         relations.append({
             "relation_id": f"relation:director:scores-{_slug(action)}-{condition_id}",
             "relation_kind": "scores",

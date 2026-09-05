@@ -117,14 +117,28 @@ def test_advance_moves_position_along_chain():
     assert len(t["actions_taken"]) == 2
 
 
-def test_reaching_escape_location_ends_chase():
+def test_reaching_escape_location_reports_the_outcome_without_taking_it():
+    """`check_outcome` reports; `chase:end` concludes.
+
+    `decision:coc7:chase:end` is hard-gated on `chase.session.active == true`
+    AND `chase.pending.kind == "end"`, and the kernel derives that pending kind
+    from the quarry's flags on a live session. Concluding here flipped the
+    status inside the same settle that raised the flags, so the two halves were
+    never true together and the decision was never offered.
+    """
     c = _make_chase()
     c.add_participant("ada", "quarry", mov=8, dex=60, con=65)
     c.set_location_chain([{"label": "start"}, {"label": "escape"}])
     c.begin_round()
     c.move_participant("ada", [{"type": "advance"}])
-    c.check_outcome()
-    assert c.outcome == "escaped"
+    assert c.check_outcome() == "escaped"
+    assert c.status == "active", (
+        "the session must still be live for chase:end to be offered and for "
+        "the executor to accept it"
+    )
+    assert c.outcome is None
+    c.conclude("escaped")
+    assert c.status == "concluded" and c.outcome == "escaped"
 
 
 def test_snapshot_has_full_schema():
@@ -1061,3 +1075,76 @@ def test_schema_v4_replays_vehicle_pedal_stopped_by_failed_barrier_break(tmp_pat
         c.save(tmp_path), rng=random.Random(99), trusted_standalone=True,
     )
     assert loaded.participants["bike"]["position"] == 0
+
+
+def test_a_chase_that_runs_out_of_chain_can_be_saved_and_loaded(tmp_path):
+    """The end-of-chain receipt is one the engine emits, so a snapshot holding
+    it must load. It did not: the receipt validator held every `advance` to
+    the moving contract, and this one carries no position keys, so the whole
+    load failed with `chase snapshot turn action contract is invalid`. Every
+    slot on decision:coc7:chase:move is host-locked, so a chase that reached
+    the end of its chain simply stopped being settleable (r41).
+
+    Driven through the session's own API rather than by writing a receipt: the
+    point is that what the engine produces is what the loader accepts.
+    """
+    c = _make_chase()
+    c.add_participant("ada", "quarry", mov=8, dex=60, con=65)
+    c.add_participant("cultist", "pursuer", mov=8, dex=50, con=55)
+    c.set_location_chain([{"label": "start"}, {"label": "middle"}])
+    saw_end_of_chain = False
+    for _round in range(6):
+        c.begin_round()
+        for actor in ("ada", "cultist"):
+            while True:
+                try:
+                    taken = c.move_participant(actor, [{"type": "advance"}])
+                except ValueError:
+                    break
+                row = (taken.get("actions_taken") or [{}])[0]
+                if row.get("result") == "end_of_chain":
+                    saw_end_of_chain = True
+                    break
+                if not taken.get("actions_taken"):
+                    break
+        if saw_end_of_chain:
+            break
+    if not saw_end_of_chain:
+        pytest.skip("the chase concluded before any actor ran out of chain")
+
+    # `trusted_standalone` isolates snapshot validity from genesis provenance:
+    # `_validate_snapshot` runs first, and it is the gate this test is about.
+    path = c.save(tmp_path)
+    reloaded = coc_chase.ChaseSession.load(path, trusted_standalone=True)
+    assert reloaded.chase_id == c.chase_id
+
+
+def test_an_end_of_chain_claim_where_the_chain_continues_is_still_refused(tmp_path):
+    """The receipt shape is legitimate, so the shape alone can no longer
+    refuse it -- the claim has to be checked against the chase's own evidence.
+
+    Here ada advances from 0 to 1 of three locations and the snapshot then
+    claims the chain ran out. It must not load, and it must fail in
+    `_validate_snapshot`, not later at the genesis gate: before this check the
+    forgery was refused only because the validator refused every non-moving
+    advance, including the ones the engine itself emits.
+    """
+    c = _make_chase()
+    c.add_participant("ada", "quarry", mov=8, dex=60, con=65)
+    c.add_participant("cultist", "pursuer", mov=8, dex=50, con=55)
+    c.set_location_chain([
+        {"label": "start"}, {"label": "middle"}, {"label": "escape"},
+    ])
+    c.begin_round()
+    c.move_participant("ada", [{"type": "advance"}])
+    path = c.save(tmp_path)
+    state = json.loads(path.read_text(encoding="utf-8"))
+    state["rounds"][0]["turns"][0]["actions_taken"].append({
+        "type": "advance", "result": "end_of_chain", "actions_spent": 0,
+    })
+    path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="end-of-chain claim is inconsistent"):
+        coc_chase.ChaseSession._validate_snapshot(
+            json.loads(path.read_text(encoding="utf-8"))
+        )

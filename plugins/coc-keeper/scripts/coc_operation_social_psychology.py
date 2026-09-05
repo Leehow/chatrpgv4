@@ -729,14 +729,21 @@ def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
             "invalid_param",
             "Psychology observer must be a member of the canonical campaign party",
         )
-    if requested_observer_scope != "team:party" and requested_observer_scope not in party_ids:
+    observer_scope = "team:party:" + hashlib.sha256(
+        "\x00".join(party_ids).encode("utf-8")
+    ).hexdigest()[:16]
+    if requested_observer_scope in party_ids or requested_observer_scope == "team:party":
+        pass
+    elif requested_observer_scope.startswith("team:party:"):
+        # Realize reads back the hashed window the observe receipt stored.
+        # Requiring the literal team:party / party id made every realize
+        # that carried only external_behavior fail (r85 x-psy3).
+        observer_scope = requested_observer_scope
+    else:
         raise ToolError(
             "invalid_param",
             "observer_scope must be a canonical party investigator id or literal team:party",
         )
-    observer_scope = "team:party:" + hashlib.sha256(
-        "\x00".join(party_ids).encode("utf-8")
-    ).hexdigest()[:16]
     conversation_window_id = str(args["conversation_window_id"]).strip()
     revision = args["observation_revision"]
     if (

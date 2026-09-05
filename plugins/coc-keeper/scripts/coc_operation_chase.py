@@ -2,6 +2,7 @@
 """Operation adapter cell: chase."""
 from __future__ import annotations
 
+import coc_chase
 from coc_operation_kernel_runtime import (
     Any,
     Ctx,
@@ -14,9 +15,17 @@ from coc_operation_kernel_runtime import (
 def _tool_chase_context(ctx: Ctx, args: dict[str, Any]):
     snapshot = _read_optional_json(ctx.campaign_dir / "save" / "chase.json", None)
     choices = coc_subsystem_executor.get_current_pending_choices(ctx.campaign_dir)
+    # `outlook` is what the gates read, said in the open. Every chase decision
+    # but start and move is hard-gated on `chase.pending.kind`, derived from
+    # the location ahead of the actor on turn and the quarry's escaped/captured
+    # flags -- and the snapshot carries both without ever relating them, so a
+    # Keeper reading it could not tell a chase with a barrier two steps off
+    # from one that had run out of track four rounds ago. Derived on read; the
+    # snapshot stays the authority.
     return {
         "active": isinstance(snapshot, dict) and snapshot.get("status") == "active",
         "snapshot": snapshot,
+        "outlook": coc_chase.chase_outlook(snapshot),
         "pending_choices": choices,
     }, [], ["use chase.execute only when the fiction naturally enters or continues a chase"]
 

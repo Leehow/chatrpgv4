@@ -5,10 +5,49 @@ Canonical table bytes stay in ``rulesets/<id>/rules-json/**``. This module
 only validates query inputs, asks the active resolver for already-shaped
 catalog records, and applies deterministic structured-token recall. It never
 selects a winner and never projects player-safe views.
+
+Parameterised families
+----------------------
+Some catalogues print one entry for a whole family of entities and leave the
+member as a parameter of the name: CoC7 writes ``Summon/Bind Spells`` once and
+content names ``Summon/Bind Dimensional Shambler``. Two structural facts, not a
+list of names, make that resolvable here:
+
+* a family entry names itself with the plural head of its own kind
+  (``... Spells`` for ``kind="spell"``), so its stem is the name without that
+  head word — ``Summon/Bind``, ``Contact``, ``Contact Deity``;
+* the ruleset package declares, per record, which catalog *kind* the parameter
+  is drawn from (``family_parameter_kind``), so the parameter is validated
+  against real catalogue rows of that kind rather than against anything written
+  in this module.
+
+A parameter that no catalogue row matches is a content gap: the family is not
+offered as a candidate and the query is reported in
+``unresolved_family_parameters`` instead of being papered over.
+
+A second namespace
+------------------
+A ruleset catalogue is not the only place an entity can be authored: a module
+writes its own spells, and one of them ("Dominate (Corbitt's variant)") is a
+real, page-referenced entry that no rulebook row names. Callers pass those
+records in ``module_spells``; this module keeps knowing nothing about modules,
+graphs, or workspaces, and only merges a second pool of already-shaped records
+into the same recall.
+
+Two rules hold the seam:
+
+* a merged record carries a ``module_authored`` block, which travels into its
+  candidate DTO. Its presence is the signal — an ordinary row's shape is
+  unchanged — so a Keeper can never mistake this module's spell for a rulebook
+  row it just discovered;
+* the ruleset catalogue wins a shared name. A module that names a rulebook
+  spell is annotating it, not redefining it, and letting an unpriced node
+  shadow a priced row would silently make a costed spell free.
 """
 from __future__ import annotations
 
 import re
+from copy import deepcopy
 from typing import Any
 
 import coc_rulesets
@@ -116,14 +155,188 @@ def _era_ok(record: dict[str, Any], era: str | None) -> bool:
     return era in eras
 
 
-def _dto(record: dict[str, Any], reasons: list[str]) -> dict[str, Any]:
+# ---------------------------------------------------------------------------
+# Parameterised family recall
+# ---------------------------------------------------------------------------
+
+#: Record field a ruleset package sets to declare that this entry may be a
+#: family whose name carries one parameter drawn from the named catalog kind.
+FAMILY_PARAMETER_KIND_FIELD = "family_parameter_kind"
+
+
+def _normalized(text: Any) -> str:
+    """Structured-token normal form; ``Mi-Go`` and ``mi_go`` collapse alike."""
+    if not isinstance(text, str):
+        return ""
+    return " ".join(query_tokens(text))
+
+
+def _family_stem(kind: str, label: Any) -> str | None:
+    """The stem of a family label, or None when the label names one entity.
+
+    A catalogue family names itself with the plural head word of its own kind
+    (``Summon/Bind Spells`` for ``kind="spell"``). Dropping that head word
+    leaves the stem that authored content prefixes onto the parameter. This
+    reads the record's own ``kind``; no family name is written down here.
+    """
+    if not isinstance(label, str) or not isinstance(kind, str) or not kind:
+        return None
+    parts = label.split()
+    if len(parts) < 2:
+        return None
+    if parts[-1].casefold() != f"{kind}s".casefold():
+        return None
+    stem = " ".join(parts[:-1]).strip()
+    return stem or None
+
+
+def _family_declarations(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every record that declares a parameter kind and reads as a family."""
+    out: list[dict[str, Any]] = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        parameter_kind = record.get(FAMILY_PARAMETER_KIND_FIELD)
+        if not isinstance(parameter_kind, str) or not parameter_kind:
+            continue
+        kind = str(record.get("kind") or "")
+        stems: list[str] = []
+        labels = [record.get("name")]
+        aliases = record.get("aliases")
+        if isinstance(aliases, list):
+            labels.extend(aliases)
+        for label in labels:
+            stem = _family_stem(kind, label)
+            if stem and stem not in stems:
+                stems.append(stem)
+        if stems:
+            out.append({
+                "record": record,
+                "stems": stems,
+                "parameter_kind": parameter_kind,
+            })
+    return out
+
+
+def _parameter_index(
+    records: list[dict[str, Any]], kind: str
+) -> dict[str, dict[str, Any]]:
+    index: dict[str, dict[str, Any]] = {}
+    for record in records:
+        if not isinstance(record, dict) or str(record.get("kind") or "") != kind:
+            continue
+        labels = [record.get("name"), record.get("entity_id")]
+        aliases = record.get("aliases")
+        if isinstance(aliases, list):
+            labels.extend(aliases)
+        for label in labels:
+            key = _normalized(label)
+            if key:
+                index.setdefault(key, record)
+    return index
+
+
+def resolve_family_parameter(
+    query: str,
+    records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Match ``query`` as ``<family stem> <parameter>`` against ``records``.
+
+    Returns ``{"hits": [...], "gaps": [...]}``. A hit carries the family record
+    and the catalogue row its parameter resolved to; a gap is a query whose
+    stem named a family but whose parameter matches no catalogue row of the
+    declared kind — a content gap to report, never to invent an entry for.
+
+    The longest stem wins: ``Contact Deity Nyarlathotep`` belongs to
+    ``Contact Deity Spells``, not to ``Contact Spells`` carrying a parameter
+    that happens to begin with the word "Deity".
+    """
+    q_norm = _normalized(query)
+    if not q_norm:
+        return {"hits": [], "gaps": []}
+    indexes: dict[str, dict[str, dict[str, Any]]] = {}
+    hits: list[dict[str, Any]] = []
+    gaps: list[dict[str, Any]] = []
+    for declaration in _family_declarations(records):
+        parameter_kind = declaration["parameter_kind"]
+        if parameter_kind not in indexes:
+            indexes[parameter_kind] = _parameter_index(records, parameter_kind)
+        index = indexes[parameter_kind]
+        for stem in declaration["stems"]:
+            stem_norm = _normalized(stem)
+            if not stem_norm or not q_norm.startswith(stem_norm + " "):
+                continue
+            remainder = q_norm[len(stem_norm) + 1:].strip()
+            if not remainder:
+                continue
+            record = declaration["record"]
+            row = {
+                "stem": stem,
+                "stem_length": len(stem_norm),
+                "family": record,
+                "parameter_kind": parameter_kind,
+                "parameter_query": remainder,
+                "requested_name": query,
+            }
+            parameter = index.get(remainder)
+            if parameter is None:
+                gaps.append(row)
+                continue
+            row["parameter"] = parameter
+            # The family's own primary stem, not whichever alias the query
+            # used: "Summoning Byakhee" and "Summon/Bind Byakhee" are one
+            # spell, so they must canonicalise to one persisted name.
+            row["canonical_name"] = (
+                f"{declaration['stems'][0]} {parameter.get('name')}"
+            )
+            hits.append(row)
+    if hits:
+        longest = max(row["stem_length"] for row in hits)
+        return {
+            "hits": [row for row in hits if row["stem_length"] == longest],
+            "gaps": [],
+        }
+    if gaps:
+        longest = max(row["stem_length"] for row in gaps)
+        gaps = [row for row in gaps if row["stem_length"] == longest]
+    return {"hits": [], "gaps": gaps}
+
+
+def _parameterisation(hit: dict[str, Any]) -> dict[str, Any]:
+    """The explicit family-plus-parameter relationship a Keeper reads."""
+    family = hit["family"]
+    parameter = hit["parameter"]
+    return {
+        "canonical_name": hit["canonical_name"],
+        "requested_name": hit["requested_name"],
+        "family_name": family.get("name"),
+        "family_entity_id": family.get("entity_id"),
+        "parameter": {
+            "kind": hit["parameter_kind"],
+            "entity_id": parameter.get("entity_id"),
+            "name": parameter.get("name"),
+        },
+        "note": (
+            f"{hit['canonical_name']} is the catalogue family "
+            f"{family.get('name')!r} bound to the "
+            f"{hit['parameter_kind']} {parameter.get('name')!r}; it is not a "
+            "separate catalogue entry. Learn and cast it under canonical_name."
+        ),
+    }
+
+
+def _dto(
+    record: dict[str, Any],
+    reasons: list[str],
+    parameterisation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     aliases = record.get("aliases") if isinstance(record.get("aliases"), list) else []
     era = record.get("era") if isinstance(record.get("era"), list) else []
     source = record.get("source") if isinstance(record.get("source"), dict) else {}
     summary = record.get("summary") if isinstance(record.get("summary"), dict) else {}
     params = record.get("params") if isinstance(record.get("params"), dict) else {}
     localized = record.get("localized_name")
-    return {
+    dto: dict[str, Any] = {
         "kind": record.get("kind"),
         "entity_id": record.get("entity_id"),
         "name": record.get("name"),
@@ -136,6 +349,137 @@ def _dto(record: dict[str, Any], reasons: list[str]) -> dict[str, Any]:
         "params": params,
         "match_reasons": list(reasons),
     }
+    if parameterisation is not None:
+        # Present only on a family candidate reached through a
+        # parameterised name, so an ordinary row's shape is unchanged and
+        # the key's presence is itself the signal.
+        dto["parameterisation"] = parameterisation
+    return dto
+
+
+# ---------------------------------------------------------------------------
+# Module-authored records (a second namespace, merged not merged-into)
+# ---------------------------------------------------------------------------
+
+#: Record field a caller sets to declare that this record was authored by the
+#: campaign's module rather than by the ruleset catalogue. Presence is the
+#: signal, exactly as ``parameterisation`` is on a family candidate.
+MODULE_AUTHORED_FIELD = "module_authored"
+
+
+def _module_records(
+    module_spells: Any, load_kinds: list[str]
+) -> list[dict[str, Any]]:
+    """Handed-in records that declare a module and match a requested kind."""
+    if not isinstance(module_spells, list):
+        return []
+    wanted = set(load_kinds)
+    out: list[dict[str, Any]] = []
+    for record in module_spells:
+        if not isinstance(record, dict):
+            continue
+        if not isinstance(record.get(MODULE_AUTHORED_FIELD), dict):
+            continue
+        if str(record.get("kind") or "") not in wanted:
+            continue
+        out.append(record)
+    return out
+
+
+def _module_matches(query: str, record: dict[str, Any]) -> list[str]:
+    """Recall reasons for a module record: the same rules, plus its aliases.
+
+    A module node's ``aliases`` is the authoring slot that records "this
+    existing string names this existing node" — the shorthand a profile already
+    carries. Matching it is an accounting fact, never a guess at a name's
+    meaning, so an exact alias hit is reported as its own reason and never
+    conflated with the node's own name.
+    """
+    reasons = _matches(query, _record_tokens(record), record)
+    q_fold = query.strip().casefold()
+    for alias in record.get("aliases") or []:
+        if isinstance(alias, str) and alias.casefold() == q_fold:
+            reasons.insert(0, "exact_alias")
+            break
+    return reasons
+
+
+def _module_dto(record: dict[str, Any], reasons: list[str]) -> dict[str, Any]:
+    """An ordinary DTO plus the block that says whose spell this is."""
+    dto = _dto(record, reasons)
+    block = record.get(MODULE_AUTHORED_FIELD)
+    dto[MODULE_AUTHORED_FIELD] = deepcopy(block) if isinstance(block, dict) else {}
+    return dto
+
+
+def demoted_module_block(record: dict[str, Any]) -> dict[str, Any] | None:
+    """This module record's block, demoted to the annotation it is.
+
+    One implementation, so a candidate the search demotes and a resolution
+    that reports the losing node cannot describe the same node differently.
+    """
+    block = record.get(MODULE_AUTHORED_FIELD)
+    if not isinstance(block, dict):
+        return None
+    demoted = deepcopy(block)
+    demoted["authority"] = "module_annotation"
+    demoted["note"] = (
+        f"the module also authors {demoted.get('node_id')!r} under this "
+        "name. The ruleset catalogue row resolves and prices the entry; "
+        "this node is the module's annotation on it — read its properties "
+        "and source_refs, not its costs."
+    )
+    return demoted
+
+
+def module_record_named(
+    module_spells: Any, name: str
+) -> dict[str, Any] | None:
+    """The module record whose own ``name`` is ``name``, if any.
+
+    Name-only, matching ``_mark_shadowed``: an alias collision does not make a
+    module spell an annotation of a different catalogue row.
+    """
+    if not isinstance(module_spells, list):
+        return None
+    fold = name.strip().casefold()
+    for record in module_spells:
+        if not isinstance(record, dict):
+            continue
+        if not isinstance(record.get(MODULE_AUTHORED_FIELD), dict):
+            continue
+        if str(record.get("name") or "").casefold() == fold:
+            return record
+    return None
+
+
+def _mark_shadowed(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Demote a module candidate the ruleset catalogue also names.
+
+    Decided here, where the DTO is built, so every reader sees the same
+    authority. A module node claiming a name the catalogue already owns is
+    annotating that row — The Haunting's ``spell-flesh-ward`` says so outright
+    with ``runtime_rule_ref: "coc7 Flesh Ward"`` — and presenting it beside the
+    priced row as a separate, unpriced spell of the same name would be a
+    reading no one should have to correct.
+
+    Only a name collision demotes. A module spell that merely carries an alias
+    the catalogue happens to name is still its own spell.
+    """
+    catalog_names = {
+        str(row.get("name") or "").casefold()
+        for row in candidates
+        if not isinstance(row.get(MODULE_AUTHORED_FIELD), dict)
+    }
+    catalog_names.discard("")
+    for row in candidates:
+        block = row.get(MODULE_AUTHORED_FIELD)
+        if not isinstance(block, dict):
+            continue
+        if str(row.get("name") or "").casefold() not in catalog_names:
+            continue
+        row[MODULE_AUTHORED_FIELD] = demoted_module_block(row)
+    return candidates
 
 
 def _capability_names(index: Any) -> set[str]:
@@ -154,8 +498,15 @@ def search_catalog(
     limit: Any = None,
     ruleset_id: str | None = None,
     campaign: dict[str, Any] | None = None,
+    module_spells: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Recall structured catalog candidates. Never auto-selects a winner."""
+    """Recall structured catalog candidates. Never auto-selects a winner.
+
+    ``module_spells`` are already-shaped records the campaign's own module
+    authored (see ``coc_module_spells``). They are recalled beside the
+    ruleset's rows under the same rules and marked by their ``module_authored``
+    block; this module never loads them itself.
+    """
     if not isinstance(query, str) or not query.strip():
         return _error("invalid_catalog_query", detail="query must be a non-empty string")
     query = query.strip()
@@ -217,6 +568,7 @@ def search_catalog(
         return _error("catalog_adapter_failed", detail="catalog_records must return a list")
 
     scored: list[tuple[tuple[int, str, str], dict[str, Any]]] = []
+    matched_ids: set[str] = set()
     for record in records:
         if not isinstance(record, dict):
             continue
@@ -226,10 +578,68 @@ def search_catalog(
         reasons = _matches(query, tokens, record)
         if not reasons:
             continue
+        matched_ids.add(str(record.get("entity_id") or ""))
         scored.append((_rank(record, reasons), _dto(record, reasons)))
 
+    # A parameterised family name ("Summon/Bind Dimensional Shambler") shares no
+    # token set with its family row, so plain recall can never reach it. Resolve
+    # it against the catalogue's own rows: the parameter kind each family
+    # declares must also be loaded, even when the caller filtered it out.
+    family_resolution = {"hits": [], "gaps": []}
+    declarations = _family_declarations(records)
+    if declarations:
+        extra_kinds = sorted(
+            {row["parameter_kind"] for row in declarations}
+            - set(load_kinds)
+        )
+        pool = list(records)
+        if extra_kinds:
+            supported_extra = [k for k in extra_kinds if k in supported_set]
+            if supported_extra:
+                try:
+                    extra = resolver.catalog_records(supported_extra)
+                except Exception as exc:
+                    return _error(
+                        "catalog_adapter_failed", detail=str(exc), ruleset_id=active_id
+                    )
+                if isinstance(extra, list):
+                    pool.extend(row for row in extra if isinstance(row, dict))
+        family_resolution = resolve_family_parameter(query, pool)
+    for hit in family_resolution["hits"]:
+        record = hit["family"]
+        if not _era_ok(record, era_value):
+            continue
+        if str(record.get("entity_id") or "") in matched_ids:
+            continue
+        reasons = ["family_parameter", f"parameter:{hit['parameter'].get('entity_id')}"]
+        scored.append((
+            _rank(record, reasons),
+            _dto(record, reasons, _parameterisation(hit)),
+        ))
+
+    # The module's own namespace, recalled by the same rules on the same query.
+    # These records are handed in; nothing here reads a graph or a workspace.
+    for record in _module_records(module_spells, load_kinds):
+        if not _era_ok(record, era_value):
+            continue
+        reasons = _module_matches(query, record)
+        if not reasons:
+            continue
+        scored.append((_rank(record, reasons), _module_dto(record, reasons)))
+
     scored.sort(key=lambda item: item[0])
-    candidates = [item[1] for item in scored[:bound]]
+    candidates = _mark_shadowed([item[1] for item in scored[:bound]])
+    # A family's own name ("Contact Deity Spells") also reads as a shorter
+    # family's stem over the parameter "Spells"; that is not a content gap, so
+    # a query the catalogue named outright reports none.
+    gaps = (
+        []
+        if any(
+            "exact_name" in row["match_reasons"] or "exact_id" in row["match_reasons"]
+            for row in candidates
+        )
+        else family_resolution["gaps"]
+    )
     return {
         "ok": True,
         "query": query,
@@ -241,4 +651,126 @@ def search_catalog(
         "candidate_count": len(candidates),
         "truncated": len(scored) > bound,
         "candidates": candidates,
+        # A stem that named a family over a parameter no catalogue row carries.
+        # Reported, never invented: this is a content gap in the query, not a
+        # spell the Keeper may quietly settle.
+        "unresolved_family_parameters": [
+            {
+                "family_name": row["family"].get("name"),
+                "family_entity_id": row["family"].get("entity_id"),
+                "parameter_kind": row["parameter_kind"],
+                "parameter_query": row["parameter_query"],
+            }
+            for row in gaps
+        ],
     }
+
+
+def resolve_name(
+    *,
+    kind: Any,
+    name: Any,
+    ruleset_id: str | None = None,
+    campaign: dict[str, Any] | None = None,
+    module_spells: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Resolve one authored ``kind`` name across both namespaces.
+
+    Returns ``None`` when the name is neither a catalogue row, nor a family
+    bound to a catalogue parameter, nor a module-authored entry. On success:
+
+    ``{"canonical_name", "record", "parameterisation" | None,
+       "module_authored" | None}``
+
+    ``canonical_name`` is what callers must persist and compare on: for a plain
+    row it is the row's own name, for a parameterised family it is the family
+    stem over the parameter's catalogue name — the family name alone would lose
+    which entity the name was bound to — and for a module entry reached through
+    one of its aliases it is the node's own ``name``, so the shorthand a profile
+    carries and the node it refers to settle as one thing.
+
+    Precedence: the ruleset catalogue wins a shared name. A module node naming
+    a rulebook spell is annotating it — The Haunting's ``spell-flesh-ward``
+    literally points at ``coc7 Flesh Ward`` — and a module node carries no
+    guaranteed costs, so letting it shadow the priced row would turn a costed
+    spell free. ``module_authored`` on the result names the losing node so the
+    annotation stays reachable rather than being silently dropped.
+    """
+    if not isinstance(kind, str) or not kind.strip():
+        return None
+    if not isinstance(name, str) or not name.strip():
+        return None
+    kind = kind.strip()
+    name = name.strip()
+    result = search_catalog(
+        query=name, kinds=[kind], limit=MAX_LIMIT,
+        ruleset_id=ruleset_id, campaign=campaign,
+        module_spells=module_spells,
+    )
+    if not result.get("ok"):
+        return None
+    fold = name.casefold()
+    module_hit: dict[str, Any] | None = None
+    for candidate in result["candidates"]:
+        block = candidate.get(MODULE_AUTHORED_FIELD)
+        if isinstance(block, dict):
+            if (
+                module_hit is None
+                and block.get("authority") == "module_authored_spell"
+                and _module_names_it(candidate, fold)
+            ):
+                module_hit = candidate
+            continue
+        parameterisation = candidate.get("parameterisation")
+        if parameterisation is not None:
+            if str(parameterisation.get("requested_name") or "").casefold() == fold:
+                return {
+                    "canonical_name": str(parameterisation["canonical_name"]),
+                    "record": candidate,
+                    "parameterisation": parameterisation,
+                    "module_authored": None,
+                }
+            continue
+        if str(candidate.get("name") or "").casefold() == fold:
+            return {
+                "canonical_name": str(candidate.get("name")),
+                "record": candidate,
+                "parameterisation": None,
+                # The catalogue row won; a module node of the same name rides
+                # along as an annotation so its pages and properties survive.
+                "module_authored": _annotation(result["candidates"], fold),
+            }
+    if module_hit is not None:
+        return {
+            "canonical_name": str(module_hit.get("name")),
+            "record": module_hit,
+            "parameterisation": None,
+            "module_authored": deepcopy(module_hit[MODULE_AUTHORED_FIELD]),
+        }
+    return None
+
+
+def _module_names_it(candidate: dict[str, Any], fold: str) -> bool:
+    """Whether this module candidate is named — or aliased — by the query."""
+    if str(candidate.get("name") or "").casefold() == fold:
+        return True
+    return any(
+        isinstance(alias, str) and alias.casefold() == fold
+        for alias in candidate.get("aliases") or []
+    )
+
+
+def _annotation(candidates: list[dict[str, Any]], fold: str) -> dict[str, Any] | None:
+    """The module node the winning catalogue row shares its name with, if any.
+
+    Name-only: an alias collision does not make a module spell an annotation
+    of a different catalogue row, and ``_mark_shadowed`` already recorded the
+    demotion on the block itself.
+    """
+    for candidate in candidates:
+        block = candidate.get(MODULE_AUTHORED_FIELD)
+        if not isinstance(block, dict):
+            continue
+        if str(candidate.get("name") or "").casefold() == fold:
+            return deepcopy(block)
+    return None

@@ -45,14 +45,30 @@ FAMILY_CONFIG: dict[str, dict[str, Any]] = {
         "bundle_sha256": "5e1a929b0b37f9782fcfb67a24c94846d6e12612f84b3523f9d01cd97413c8eb",
         "pages": [*range(113, 131), *range(412, 418)],
         "section_id": "section-combat-complete-source",
-        "reviewer_identity": "codex-worker-combat-end-slot-review-20260831-v2",
+        # Amendments are named, never folded in: the original reviewer read
+        # the chapter, not these changes, and an unmarked identity would
+        # re-attest their review over content they never saw. 132fb7c3 set
+        # this pattern by hand on the shard; carrying it in the generator is
+        # what makes a rebuild keep it.
+        "reviewer_identity": (
+            "codex-worker-combat-end-slot-review-20260831-v2"
+            "+claude-flee-continues-as-chase-20260902"
+            "+claude-flee-drops-unconsumed-candidate-ref-20260902"
+        ),
     },
     "sanity": {
         "bundle": "sanity-full-v1",
         "bundle_sha256": "ce3c510abac55d751b3d8f35e418d5a17e378baaa3317b2fe75604f3ab2c6754",
         "pages": [*range(165, 181)],
         "section_id": "section-sanity-complete-source",
-        "reviewer_identity": "codex-worker-sanity-applicability-review-20260831-v2",
+        # 35f7aa45 rewired decision:coc7:sanity:check from rules.sanity_check
+        # onto sanity.execute and did NOT mark the identity, so that rebuild
+        # re-attested the original review over an engine change it never saw.
+        # Named now.
+        "reviewer_identity": (
+            "codex-worker-sanity-applicability-review-20260831-v2"
+            "+claude-sanity-check-opens-bouts-through-the-executor-20260902"
+        ),
     },
 }
 
@@ -463,8 +479,21 @@ def _combat_executable(
             ("weapon_id", "host-locked"),
             ("combat_revision", "host-locked"),
         ]),
+        # No `candidate_ref`. The graph declared one and nothing consumed it:
+        # `_canonical_combat_binding` binds it for attack and maneuver only,
+        # and `combat.resolve` refuses an affordance or target outright for
+        # any other action ("action_kind=flee does not accept a combat target
+        # or affordance"). The card advertised it, the Keeper sent it, and two
+        # host-authored statements told it the opposite thing -- measured
+        # 2026-09-02 r36.
+        #
+        # Removed in the direction the engines implement, not the direction
+        # p.119 points: "Escaping Close Combat" does turn on having an escape
+        # route, and the continuation below carries that route into the chase,
+        # but no engine implements choosing one. That gap is recorded in
+        # docs/status, not papered over by leaving an input that is always
+        # refused.
         "flee": (resolve_cap, "combat.resolve", "resolve-flee", [
-            ("candidate_ref", "optional-semantic"),
             ("investigator_id", "host-locked"),
             ("affordance_id", "host-locked"),
             ("combat_revision", "host-locked"),
@@ -557,7 +586,47 @@ def _combat_executable(
         sorted(set(groups["melee"] + groups["modifiers"])),
         properties={"family_id": family},
     ))
+    # Added by hand in 132fb7c3 and lost by every rebuild since, because the
+    # generator never learned it. Escaping close combat with an escape route
+    # is what the chase family's Part 1 assumes it is continuing from
+    # (p.119), and a regeneration that silently drops it turns a rebuild into
+    # a regression.
+    escape_spans = ["span-combat-complete-source-page-119-block-89"]
+    # The intent trigger, also hand-added and also lost by every rebuild. It
+    # marks flee as the decision that answers a declared intent to run; it is
+    # NOT a hard gate, so it never withholds the card (tests/
+    # test_player_intent_fact.py::test_the_trigger_never_gates_the_card).
+    nodes.append(node(
+        family, "condition:coc7:combat:intent-flee", "condition",
+        "The player's accepted action is to break away and run",
+        escape_spans,
+        properties={
+            "family_id": family,
+            "expression": {
+                "op": "all",
+                "of": [
+                    {"op": "eq", "path": "intent.action_kind", "value": "flee"},
+                ],
+            },
+        },
+    ))
+    relations.append(relation(
+        family, "flee-intent-trigger", "available-when",
+        "decision:coc7:combat:flee", "condition:coc7:combat:intent-flee",
+        escape_spans,
+    ))
+    nodes.append(node(
+        "chase", "continuation:coc7:chase:after-escaping-close-combat",
+        "continuation",
+        "Escaping close combat with an escape route continues into a chase",
+        escape_spans,
+        properties={"family_id": "chase"},
+    ))
     relations.extend([
+        relation(family, "flee-continues-as-chase", "continues-as",
+                 "decision:coc7:combat:flee",
+                 "continuation:coc7:chase:after-escaping-close-combat",
+                 escape_spans),
         relation(family, "attack-offers-defense", "offers-choice",
                  "decision:coc7:combat:attack", pending, groups["melee"]),
         relation(family, "maneuver-offers-defense", "offers-choice",

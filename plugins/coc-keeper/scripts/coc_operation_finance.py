@@ -1124,7 +1124,7 @@ def register_operations(registry) -> None:
         "amount": {"type": "number", "required": True, "desc": "effective price of this item; KP-supplied, never parsed from display"},
         "currency": {"type": "string", "required": True, "desc": "wallet identity; never FX"},
         "unit": {"type": "string", "desc": "optional recorded unit"},
-        "kind": {"type": "string", "required": True, "desc": "gear | weapon"},
+        "kind": {"type": "string", "required": True, "enum": ["gear", "weapon"], "desc": "gear | weapon"},
         "label": {"type": "string", "required": True, "desc": "short display label"},
         "item_id": {"type": "string", "desc": "stable item id"},
         "weapon_id": {"type": "string", "desc": "catalog/module weapon id (kind=weapon)"},

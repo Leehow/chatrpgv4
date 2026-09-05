@@ -29,6 +29,7 @@ coc_sanity = _load_sibling("coc_sanity_sanity_execute", "coc_sanity.py")
 _EXTENDED_SANITY_COMMAND_PHASES = {
     "reality_check": "resolve",
     "gain_current_san": "resolve",
+    "plant_delusion": "resolve",
     "insane_insight": "advise",
     "apply_psychoanalysis_treatment": "due-trigger",
     "recover_temporary_insanity": "due-trigger",
@@ -389,18 +390,73 @@ def _tool_rules_sanity_check(ctx: Ctx, args: dict[str, Any]):
     ctx.ledger_record(args.get("decision_id"), "rules.sanity_check", data)
     return data, warnings, hints
 
+#: Handlers whose decisions settle only at a canonical safe place. The
+#: applicability facts (`sanity.treatment.due` / `sanity.recovery.due`) do
+#: not carry `safe_place`, so a due trigger makes the card applicable while
+#: settlement still refuses `sanity_trigger_deferred`. The context block
+#: below states that gap structurally, the way the offer and the refusal
+#: speak one vocabulary.
+_DUE_SANITY_DECISION_REFS = {
+    "apply_psychoanalysis_treatment": "decision:coc7:sanity:apply-treatment",
+    "recover_temporary_insanity": "decision:coc7:sanity:recover-temporary",
+}
+
+
 def _tool_sanity_context(ctx: Ctx, args: dict[str, Any]):
     investigator_id = _resolve_investigator(ctx, args)
     snapshot = _read_optional_json(
         ctx.campaign_dir / "save" / "sanity-state" / f"{investigator_id}.json", None
     )
     choices = coc_subsystem_executor.get_current_pending_choices(ctx.campaign_dir)
-    return {
+    safe_place = bool(
+        coc_time.read_time_state(ctx.campaign_dir).get("safe_place", False)
+    )
+    block: dict[str, Any] = {
         "investigator_id": investigator_id,
         "active": isinstance(snapshot, dict),
         "snapshot": snapshot,
         "pending_choices": choices,
-    }, [], ["use sanity.execute for full checks, bouts, and their persisted consequences"]
+        "safe_place": safe_place,
+    }
+    if not safe_place:
+        due = [
+            row for row in coc_time.peek_due_triggers(ctx.campaign_dir)
+            if isinstance(row, dict)
+            and str(row.get("target_id") or "") == investigator_id
+            and row.get("policy") == "auto_apply_if_safe"
+            and row.get("handler") in _DUE_SANITY_DECISION_REFS
+        ]
+        if due:
+            block["safe_rest_required"] = {
+                "decision_refs": sorted({
+                    _DUE_SANITY_DECISION_REFS[str(row.get("handler"))]
+                    for row in due
+                }),
+                "operation": "state.mark_safe_rest",
+                "note": (
+                    "these due sanity triggers settle only after "
+                    "state.mark_safe_rest records a safe place"
+                ),
+            }
+    insane = isinstance(snapshot, dict) and bool(
+        snapshot.get("temporary_insane") or snapshot.get("indefinite_insane")
+    )
+    bout_active = isinstance(snapshot, dict) and bool(snapshot.get("bout_active"))
+    has_delusion = isinstance(snapshot, dict) and isinstance(
+        snapshot.get("active_delusion"), dict
+    )
+    if insane and not bout_active and not has_delusion:
+        block["delusion_plantable"] = {
+            "operation": "sanity.execute",
+            "command_kind": "plant_delusion",
+            "phase": "resolve",
+            "note": (
+                "the investigator is in the underlying-insanity phase with no "
+                "active delusion; the Keeper may plant one with sanity.execute "
+                "kind plant_delusion"
+            ),
+        }
+    return block, [], ["use sanity.execute for full checks, bouts, and their persisted consequences"]
 
 
 def _load_live_sanity_session(ctx: Ctx, investigator_id: str, args: dict[str, Any]):
@@ -465,9 +521,21 @@ def _exact_due_trigger(
     if trigger.get("policy") == "auto_apply_if_safe" and not bool(
         time_state.get("safe_place", False)
     ):
+        # The card for this trigger is applicable the moment the trigger is
+        # due, so the refusal must carry the way through: name the missing
+        # safe place and the exact canonical operation that records one.
+        # Without that the Keeper re-sent the identical settlement into
+        # nonretryable_repeat_blocked (runs r59/t-treatment,
+        # r59/t-recover-temp, r61/m2-recover-temp).
         raise ToolError(
             "sanity_trigger_deferred",
-            "the due sanity trigger remains deferred until a canonical safe place",
+            "the due sanity trigger remains deferred: no safe place is "
+            "recorded yet; call state.mark_safe_rest to record safe rest, "
+            "then settle the same trigger again",
+            details={
+                "safe_place": False,
+                "required_operation": "state.mark_safe_rest",
+            },
         )
     return trigger
 
@@ -549,6 +617,7 @@ def _execute_extended_sanity_command(
         before = int(session.san_current)
         session.gain_san(amount, source=source)
         session.save(ctx.campaign_dir, strict_mirror=True)
+        coc_sanity.consume_sanity_gain_pending(ctx.campaign_dir, investigator_id)
         after = int(session.san_current)
         event = {
             "event_type": "sanity_gain",
@@ -561,6 +630,30 @@ def _execute_extended_sanity_command(
         ctx.log_event({"investigator_id": investigator_id, **event})
         events.append(event)
         result = event
+    elif kind == "plant_delusion":
+        description = str(payload.get("description") or "").strip()
+        if not description:
+            raise ToolError("invalid_param", "description must be non-empty")
+        backstory_field = payload.get("backstory_field")
+        if backstory_field is not None:
+            field = str(backstory_field).strip()
+            backstory_field = field or None
+        session = _load_live_sanity_session(ctx, investigator_id, args)
+        try:
+            delusion = session.plant_delusion(
+                description, backstory_field=backstory_field,
+            )
+        except ValueError as exc:
+            raise ToolError("delusion_not_plantable", str(exc)) from exc
+        session.save(ctx.campaign_dir, strict_mirror=True)
+        event = {
+            "event_type": "delusion_planted",
+            "description": description,
+            "backstory_field": backstory_field,
+        }
+        ctx.log_event({"investigator_id": investigator_id, **event})
+        events.append(event)
+        result = {"delusion": delusion}
     elif kind == "insane_insight":
         session = _load_live_sanity_session(ctx, investigator_id, args)
         if not (session.temporary_insane or session.indefinite_insane):
@@ -620,6 +713,9 @@ def _execute_extended_sanity_command(
             "trigger_id": trigger.get("trigger_id"),
             "dispatch_outcome": matched[0].get("dispatch_outcome"),
         })
+        # Treatment already applies SAN through its due-trigger handler.
+        # Do not also write a gain-current-san receipt: settling that card
+        # would apply the same amount a second time.
 
     data = {
         "schema_version": 1,

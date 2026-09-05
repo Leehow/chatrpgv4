@@ -69,12 +69,25 @@ const settleTable = source.slice(
 for (const field of [
   "chase_id", "vehicle_actor_id", "vehicle_key",
   "barrier_id", "hazard_id", "action_id", "choice_id",
+  "attacker_id", "defender_id", "combat_id",
 ]) {
   assert.ok(settleTable.includes(`"${field}"`), `${field} missing from rules.settle`);
 }
 assert.ok(
   settleTable.includes("chase:<scene>:<quarry>-vs-<pursuer>"),
   "the declaration must record why these are semantic",
+);
+assert.ok(
+  settleTable.includes("combat_command_id"),
+  "combat_command_id must be host-only on rules.settle",
+);
+assert.ok(
+  settleTable.includes("target_id"),
+  "target_id must be declared for rules.settle",
+);
+assert.ok(
+  settleTable.includes("conversation_window_id"),
+  "conversation_window_id must be declared for rules.settle",
 );
 void chaseSettlement;
 

@@ -96,7 +96,8 @@ def test_compiler_round_trip_is_byte_stable():
 def test_built_node_counts_match_the_contract_census():
     counts = collections.Counter(node["node_kind"] for node in ARTIFACT["nodes"])
     assert dict(counts) == CONTRACT["expected_node_counts"]
-    assert sum(counts.values()) == 116
+    # 116 through T4; slice T5 added three craft directives.
+    assert sum(counts.values()) == 119
 
 
 def test_expected_node_counts_law_rejects_a_lost_vocabulary():
@@ -158,19 +159,34 @@ def test_the_only_relations_are_the_load_bearing_ones():
 
     T1 shipped zero. T2 adds exactly five: obligation-source-kind part-of
     obligation-kind, which the derivation reads to know which source_kind each
-    namespace may write.
+    namespace may write. W1 adds exactly three renders-settled-output edges,
+    one per public healing effect whose settlement carries a rendered
+    player_state_receipt (consumer chains recorded on
+    coc_text_graph.RENDERED_RULE_EFFECTS).
     """
     relations = ARTIFACT["relations"]
-    assert len(relations) == 20
-    assert {r["relation_kind"] for r in relations} == {"part-of", "advises"}
+    assert len(relations) == 23
+    assert {r["relation_kind"] for r in relations} == {
+        "part-of", "advises", "renders-settled-output"
+    }
     part_of = [r for r in relations if r["relation_kind"] == "part-of"]
     advises = [r for r in relations if r["relation_kind"] == "advises"]
+    renders = [r for r in relations if r["relation_kind"] == "renders-settled-output"]
     # 5 source kinds -> obligation kinds, 10 budget triggers -> budget rungs.
     assert len(part_of) == 15
     # Each rewrite directive advises the rule whose matcher it replaced.
     assert len(advises) == 5
     assert all(r["from_node_id"].startswith("craft-directive:") for r in advises)
     assert all(r["to_node_id"].startswith("review-rule:") for r in advises)
+    # The state-delta mechanics segment renders exactly the three healing
+    # effects with a live receipt -> projection -> rendering chain.
+    assert len(renders) == 3
+    assert all(r["from_node_id"] == "segment-type:state-delta" for r in renders)
+    assert {r["to_node_id"] for r in renders} == {
+        "effect:coc7:healing:first-aid-stabilization",
+        "effect:coc7:healing:medicine-stabilization",
+        "effect:coc7:healing:weekly-hp-recovery",
+    }
     assert "empty_relations_law" in CONTRACT
     assert ARTIFACT["coverage"] == {"obligation": "accepted", "craft": "accepted"}
 
@@ -432,8 +448,11 @@ def test_the_registry_promotes_the_text_graph():
 
     coverage = next(c for c in registry["coverage"] if c["graph_kind"] == "text")
     assert coverage["status"] == "production-linked"
-    # No renders-settled-output edge exists yet, so no instance is claimed.
-    assert coverage["composition_status"] == "no-proven-instance"
+    # W1 drew three renders-settled-output edges with live consumers, so the
+    # coverage now claims exactly those instances and names the ledger that
+    # measures the unbridged remainder.
+    assert coverage["composition_status"] == "instance-linked"
+    assert "text-grounding-gap.md" in coverage["reason"]
 
 
 def test_the_system_ontology_validator_is_clean():
@@ -1119,13 +1138,36 @@ def test_the_grounding_ledger_matches_the_artifacts():
     assert generator.render(generator.build()) == on_disk
 
 
-def test_zero_edges_is_the_measured_outcome_not_unfinished_work():
+def test_the_grounding_measurement_matches_the_artifacts_not_zero():
+    """Flipped by W1 (was test_zero_edges_is_the_measured_outcome_not_unfinished_work).
+
+    The assertion is no longer "zero edges": it is that the ledger's
+    measurement and the artifact agree on exactly which effects are bridged
+    and why the rest are not, so neither side can drift silently.
+    """
     data = _load(
         "gen_text_grounding_ledger_measure", "scripts/gen_text_grounding_ledger.py"
     ).build()
-    assert data["edges"] == 0
+    bridged = sorted(
+        r["effect"] for r in data["effects"] if r["reason"] == "rendered"
+    )
+    artifact_edges = {
+        (r["from_node_id"], r["to_node_id"])
+        for r in ARTIFACT["relations"]
+        if r["relation_kind"] == "renders-settled-output"
+    }
+    assert artifact_edges == {("segment-type:state-delta", e) for e in bridged}
+    assert len(artifact_edges) == data["edges"] == 3
+    assert bridged == [
+        "effect:coc7:healing:first-aid-stabilization",
+        "effect:coc7:healing:medicine-stabilization",
+        "effect:coc7:healing:weekly-hp-recovery",
+    ]
     assert len(data["effects"]) == 23
     assert data["public"] == 22 and data["keeper_only"] == 1
+    assert data["reasons"] == {
+        "rendered": 3, "no-consumer-yet": 19, "keeper-only": 1
+    }
     # The single vocabulary correspondence belongs to the keeper-only effect.
     assert data["token_matches"] == ["luck_spend"]
     matched = [r for r in data["effects"] if r["text_layer_token_match"]]
@@ -1134,13 +1176,36 @@ def test_zero_edges_is_the_measured_outcome_not_unfinished_work():
     assert "grounding_gap_law" in CONTRACT
 
 
-def test_the_registry_does_not_claim_an_instance_it_does_not_have():
+def test_the_registry_claims_only_the_instances_it_has():
+    """W1 flipped the text coverage: three healing effects are now bridged.
+
+    The claim stays bounded — instance-linked names the bridged set and
+    points at the ledger for the measured unbridged remainder.
+    """
     registry = json.loads(
         (REFERENCES / "system-ontology-registry-v1.json").read_text("utf-8")
     )
     coverage = next(c for c in registry["coverage"] if c["graph_kind"] == "text")
-    assert coverage["composition_status"] == "no-proven-instance"
+    assert coverage["composition_status"] == "instance-linked"
     assert "text-grounding-gap.md" in coverage["reason"]
+    for effect in (
+        "effect:coc7:healing:first-aid-stabilization",
+        "effect:coc7:healing:medicine-stabilization",
+        "effect:coc7:healing:weekly-hp-recovery",
+    ):
+        assert effect in coverage["reason"]
+    renders = [
+        r for r in registry["relations"]
+        if r["relation_kind"] == "renders-settled-output"
+    ]
+    assert {r["to_ref"] for r in renders} == {
+        "ref:rule:coc7:effect-first-aid-stabilization",
+        "ref:rule:coc7:effect-medicine-stabilization",
+        "ref:rule:coc7:effect-weekly-hp-recovery",
+    }
+    assert all(
+        r["from_ref"] == "ref:text:segment-type-state-delta" for r in renders
+    )
 
 
 # ===========================================================================
@@ -1322,16 +1387,18 @@ def test_the_review_vocabulary_is_published_as_a_closed_enum():
 
 # --- gate 5: no value retuned ---------------------------------------------
 
-def test_the_narration_budget_numbers_moved_unchanged():
-    """The eight numbers and their ten trigger event types, bit-identical."""
+def test_the_narration_budget_numbers_match_the_recorded_ladder():
+    """T1-T4 moved the eight numbers bit-identical; slice T5 retuned the two
+    lower rungs (the graph nodes carry the retune origin) and this table is
+    the recorded ladder every build must reproduce."""
     expected = {
         "climax_or_madness": (1500, 8, {
             "bout_of_madness", "indefinite_insanity",
             "permanent_insanity", "session_ending"}),
         "reveal_or_transition": (900, 5, {
             "scene_transition", "major_reveal", "exceptional_effect_apply"}),
-        "costly_result": (550, 3, {"hp_change", "sanity_loss", "luck_spend"}),
-        "routine_resolution": (350, 2, set()),
+        "costly_result": (750, 4, {"hp_change", "sanity_loss", "luck_spend"}),
+        "routine_resolution": (600, 3, set()),
     }
     ladder = _craft()["budget_modes"]
     assert [rung["mode"] for rung in ladder] == list(expected)
@@ -1340,6 +1407,29 @@ def test_the_narration_budget_numbers_moved_unchanged():
         assert rung["max_chars"] == chars, rung["mode"]
         assert rung["max_paragraphs"] == paras, rung["mode"]
         assert set(rung["triggers"]) == triggers, rung["mode"]
+
+
+def test_slice_t5_directives_and_retune_origins_are_recorded():
+    """The T5 craft additions and the budget retune carry their provenance."""
+    graph = json.loads(ARTIFACT_PATH.read_text(encoding="utf-8"))
+    nodes = {row["node_id"]: row for row in graph["nodes"]}
+    for directive in (
+        "craft-directive:npc-direct-speech",
+        "craft-directive:scene-sensory-anchor",
+        "craft-directive:spend-budget-on-scene-texture",
+    ):
+        node = nodes[directive]
+        assert node["evidence_class"] == "authored-house-doctrine", directive
+        assert node["properties"]["declares"] == "required_rule", directive
+        assert "let-the-children-come-to-me" in node["origin"], directive
+    for mode in (
+        "narration-budget-mode:routine-resolution",
+        "narration-budget-mode:costly-result",
+    ):
+        assert "slice-T5 retune" in nodes[mode]["origin"], mode
+    # Untouched rungs keep the legacy origin token.
+    reveal = nodes["narration-budget-mode:reveal-or-transition"]
+    assert reveal["origin"] == "unknown-legacy-tuning"
 
 
 def test_the_thresholds_moved_unchanged():

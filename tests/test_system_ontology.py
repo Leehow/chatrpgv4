@@ -196,16 +196,74 @@ def test_coverage_ledger_states_real_director_and_text_availability_gap():
     assert rows["director"]["composition_status"] == "instance-linked"
     # The reason must keep naming why grounding stops where it does.
     assert "unresolved" in rows["director"]["reason"].lower()
-    # TextGraph T0-T5 (5427bd26) made the text layer a production artifact.
-    # Its measured outcome is that no RuleGraph effect has a rendering path,
-    # so it is production-linked with no proven instance — not absent.
+    # TextGraph T0-T5 (5427bd26) made the text layer a production artifact;
+    # slice W1 bridged the three healing effects whose settlements carry a
+    # rendered player_state_receipt, so text is instance-linked — naming the
+    # bridged set and the ledger that measures the unbridged remainder.
     assert rows["text"]["status"] == "production-linked"
-    assert rows["text"]["composition_status"] == "no-proven-instance"
+    assert rows["text"]["composition_status"] == "instance-linked"
     assert rows["module"]["composition_status"] == "no-proven-instance"
     assert not any(
         row["relation_kind"] == "uses-rule" for row in REGISTRY["relations"]
     )
-    assert "no rendering path" in rows["text"]["reason"].lower()
+    assert "text-grounding-gap.md" in rows["text"]["reason"]
+    renders = [
+        row for row in REGISTRY["relations"]
+        if row["relation_kind"] == "renders-settled-output"
+    ]
+    assert len(renders) == 3
+    assert all(
+        row["from_ref"] == "ref:text:segment-type-state-delta" for row in renders
+    )
+
+
+# --- the recorded Module-to-Rule alignment gap (slice W3) ---------------
+
+
+def _load_alignment_ledger_generator():
+    spec = importlib.util.spec_from_file_location(
+        "gen_module_rule_alignment_ledger_test",
+        ROOT / "scripts" / "gen_module_rule_alignment_ledger.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_module_rule_alignment_ledger_matches_the_artifacts():
+    """Regenerate and compare, so the recorded gap cannot rot."""
+    generator = _load_alignment_ledger_generator()
+    on_disk = (
+        ROOT / "docs/status/module-rule-alignment-haunting.md"
+    ).read_text("utf-8")
+    assert generator.render(generator.build()) == on_disk
+
+
+def test_module_alignment_measurement_records_seven_module_specific_identities():
+    data = _load_alignment_ledger_generator().build()
+    assert data["unique_identities"] == 7
+    assert data["module_graph_occurrence_total"] == 11
+    # No authored identity is exactly equal to a RuleGraph semantic id...
+    assert data["exact_matches"] == []
+    # ...so no uses-rule edge is drawn; every verdict is module-specific.
+    assert data["uses_rule_edges"] == 0
+    assert all(not row["exact_rule_graph_match"] for row in data["identities"])
+    # The authored identities are runtime-pinned provenance, not free labels:
+    # five of seven double as rules-json source_rule_id rows.
+    assert len(data["provenance_overlap"]) == 5
+
+
+def test_module_coverage_reason_points_at_the_alignment_ledger():
+    rows = {row["graph_kind"]: row for row in REGISTRY["coverage"]}
+    module = rows["module"]
+    assert module["composition_status"] == "no-proven-instance"
+    assert "module-rule-alignment-haunting.md" in module["reason"]
+    assert "module-specific" in module["reason"]
+    # The measured outcome: no uses-rule relation exists in the registry.
+    assert not any(
+        row["relation_kind"] == "uses-rule" for row in REGISTRY["relations"]
+    )
 
 
 def test_director_graph_is_registered_as_an_advisory_production_artifact():

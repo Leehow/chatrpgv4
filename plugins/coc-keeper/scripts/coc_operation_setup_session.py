@@ -460,7 +460,10 @@ def _tool_setup_phase(ctx: Ctx, args: dict[str, Any]):
     ]
 
 def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
-    allowed = {"scenario_id", "pregen_id", "campaign_id", "title", "decision_id"}
+    allowed = {
+        "scenario_id", "pregen_id", "campaign_id", "title", "decision_id",
+        "play_register",
+    }
     unsupported = sorted(set(args) - allowed)
     if unsupported or "scenario_id" not in args:
         raise ToolError(
@@ -482,6 +485,7 @@ def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
         key: args[key]
         for key in (
             "scenario_id", "pregen_id", "campaign_id", "title", "decision_id",
+            "play_register",
         )
         if args.get(key) is not None
     }
@@ -2132,35 +2136,46 @@ def _opening_first_impression_lines(
         for receipt in document.get("receipts", {}).values()
         if isinstance(receipt, dict) and receipt.get("schema_version") == 2
     }
-    rendered: list[str] = []
-    for roll_id in roll_ids:
-        receipt = receipts_by_roll_id.get(roll_id)
-        if receipt is None:
-            raise ToolError(
-                "invalid_param",
-                f"presented roll_id '{roll_id}' is not a current public NPC first impression",
-            )
+
+    def bind(roll_id: str, receipt: dict[str, Any], *, require_run: bool) -> str | None:
         record = receipt.get("roll_record")
         if (
             receipt.get("campaign_id") != campaign_id
-            or receipt.get("run_id") != run_id
+            or (require_run and receipt.get("run_id") != run_id)
             or not isinstance(record, dict)
             or record.get("roll_id") != roll_id
             or record.get("kind") != "npc_first_impression"
             or record.get("visibility") != "public"
         ):
-            raise ToolError(
-                "invalid_param",
-                f"presented roll_id '{roll_id}' does not belong to this campaign opening run",
-            )
+            return None
         _ensure_first_impression_roll(ctx, receipt)
-        rendered.append(
-            coc_turn_finalization._render_public_roll(
-                record,
-                play_language=_campaign_play_language(ctx),
-            )
+        return coc_turn_finalization._render_public_roll(
+            record,
+            play_language=_campaign_play_language(ctx),
         )
-    return roll_ids, rendered
+
+    rendered: list[str] = []
+    accepted: list[str] = []
+    for roll_id in roll_ids:
+        receipt = receipts_by_roll_id.get(roll_id)
+        if not isinstance(receipt, dict):
+            continue
+        line = bind(roll_id, receipt, require_run=True)
+        if line is None:
+            continue
+        accepted.append(roll_id)
+        rendered.append(line)
+    if accepted:
+        return accepted, rendered
+    for roll_id, receipt in receipts_by_roll_id.items():
+        if not isinstance(receipt, dict):
+            continue
+        line = bind(roll_id, receipt, require_run=False)
+        if line is None:
+            continue
+        accepted.append(roll_id)
+        rendered.append(line)
+    return accepted, rendered
 
 def _opening_text_with_public_rolls(text: str, rendered_lines: list[str]) -> str:
     if not rendered_lines:
@@ -2255,14 +2270,37 @@ def _require_projected_opening_source(ctx: Ctx) -> None:
         "rather than opening the table now",
     )
 
+def _table_opening_default_decision_id(campaign_id: str) -> str:
+    return f"table-opening:{campaign_id}:opening-1"
+
+
+def _table_opening_default_run_id(campaign_id: str) -> str:
+    return f"run-{campaign_id}"
+
+
 def _tool_evidence_table_opening(ctx: Ctx, args: dict[str, Any]):
+    campaign_id = str(ctx.campaign_id or "").strip()
     raw_decision_id = str(args.get("decision_id") or "")
     decision_id = raw_decision_id.strip()
-    if not decision_id or decision_id != raw_decision_id:
+    if not decision_id:
+        if not campaign_id:
+            raise ToolError(
+                "invalid_param",
+                "evidence.table_opening requires a stable decision_id",
+            )
+        decision_id = _table_opening_default_decision_id(campaign_id)
+    elif decision_id != raw_decision_id:
         raise ToolError("invalid_param", "evidence.table_opening requires a stable decision_id")
     raw_run_id = str(args.get("run_id") or "")
     run_id = raw_run_id.strip()
-    if not run_id or run_id != raw_run_id:
+    if not run_id:
+        if not campaign_id:
+            raise ToolError(
+                "invalid_param",
+                "evidence.table_opening requires a stable run_id",
+            )
+        run_id = _table_opening_default_run_id(campaign_id)
+    elif run_id != raw_run_id:
         raise ToolError("invalid_param", "evidence.table_opening requires a stable run_id")
     run_binding = _run_segment_binding(ctx, supplied_alias=run_id, opening=True)
     run_id = str(run_binding["run_segment_id"])
@@ -2410,6 +2448,18 @@ def register_operations(registry) -> None:
         "title": {
             "type": "string",
             "desc": "optional campaign title",
+        },
+        "play_register": {
+            "type": "string",
+            "enum": ["purist", "pulp"],
+            "desc": (
+                "the table's register: 'purist' for philosophical horror where "
+                "uncovering the truth dooms the seeker, 'pulp' for desperate "
+                "two-fisted action. Pass it only when the player states a "
+                "preference; omit it otherwise, because the core rulebook "
+                "supports the range between them and a guessed pole reads as "
+                "authored intent"
+            ),
         },
     },
     needs_campaign=False,
@@ -2861,16 +2911,21 @@ def register_operations(registry) -> None:
     "Record the exact player-visible Keeper opening before the first player message, canonical-render the current authoritative opening-time anchor and explicitly bound public first-impression rolls, and close the pre-turn setup/opening source prefix.",
     {
         "text": {"type": "string", "required": True, "desc": "Keeper-authored opening narrative; deterministic first-impression lines are inserted by the tool before a final [/in_game] marker when present, otherwise appended"},
-        "run_id": {"type": "string", "required": True, "desc": "current play/report segment id"},
+        "run_id": {
+            "type": "string",
+            "desc": "current play/report segment id; omitted calls receive run-<campaign_id>",
+        },
         "presented_roll_ids": {
             "type": "array",
-            "required": True,
             "items": {"type": "string"},
             "uniqueItems": True,
-            "desc": "ordered public npc_first_impression roll_ids from this campaign/run; [] is valid",
+            "desc": "ordered public npc_first_impression roll_ids from this campaign/run; omitted or [] is valid",
         },
         "speaker": {"type": "string", "desc": "player-facing Keeper speaker label"},
-        "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
+        "decision_id": {
+            "type": "string",
+            "desc": "idempotency key; omitted calls receive table-opening:<campaign_id>:opening-1",
+        },
     },
 )(_tool_evidence_table_opening)
 

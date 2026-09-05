@@ -816,7 +816,7 @@ def register_operations(registry) -> None:
     {
         "investigator": {"type": "string", "desc": "investigator id"},
         "npc_id": {"type": "string", "desc": "NPC actor id (exactly one of investigator/npc_id)"},
-        "kind": {"type": "string", "required": True, "desc": "gear | weapon"},
+        "kind": {"type": "string", "required": True, "enum": ["gear", "weapon"], "desc": "gear | weapon"},
         "label": {"type": "string", "required": True, "desc": "short display label"},
         "item_id": {"type": "string", "desc": "stable item id (defaults to weapon_id for weapons)"},
         "weapon_id": {"type": "string", "desc": "catalog/module weapon id (kind=weapon)"},

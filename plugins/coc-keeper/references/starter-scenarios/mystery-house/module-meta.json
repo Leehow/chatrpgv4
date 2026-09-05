@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "scenario_id": "mystery-house",
+  "source_language": "en",
+  "runtime_projection_contract": "coc.module-graph-runtime-projection.v1",
+  "title": "Mystery House",
+  "opening_scene": "Will Howard Crane hire these people, and which Boston lead do they take first?",
+  "one_liner": "Boston, 1920: landlord Howard Crane hires investigators for a house that will not stay rented. Official rule-gym: every lead site is stocked with CoC7 settle hooks.",
+  "structure_type": "branching_investigation",
+  "era": "1920s",
+  "setting_tags": [
+    "urban-civilian",
+    "domestic",
+    "1920s",
+    "rule-gym"
+  ],
+  "content_flags": [
+    "supernatural_horror",
+    "haunting",
+    "undead",
+    "cult_residue",
+    "rule-gym",
+    "test-module"
+  ],
+  "win_condition": "End the Crowe House haunting by destroying Calvin Crowe's body in the basement (best: his own ritual knife, then fire), or leave Boston. Endings: gym-ending-ash / gym-ending-fled.",
+  "source_pdf": null,
+  "source_pdf_pages": null,
+  "start_clock": {
+    "calendar_mode": "gregorian",
+    "local_datetime": "1920-10-12T10:00:00",
+    "timezone": "America/New_York",
+    "display": "1920-10-12 10:00"
+  },
+  "summary": "1920sBoston，房东Howard Crane请人去查一栋租不出去的老宅。官用测试模组：每个调查点都埋了规则图谱细钩，剧情只负责把人送到出事的地方。",
+  "player_safe_summary": "Autumn 1920, Boston. Landlord Howard Crane has a house nobody will re-let. The last tenants, the Costas, left for an asylum. Neighbors call it Crowe House. Crane pays by the day; keys and the address are available at once. He is also an unsubtle magician and will teach. A chase drill sits behind his office. The city leads — clipping morgue, library, records, police, alley gossip, former tenants, chapel ruins — are where injury, SAN, fights, a boarding-house rest, a clinic, and a ward can happen.",
+  "keeper_secret_summary": "Calvin Crowe's corpse is sealed behind a basement partition; his will still drives the body. Mystery House is the in-house rule-gym, not a Chaosium reprint. Crane teaches Flesh Ward / Dominate / Shriveling. Hooks: clipping stack / blotter nail / parlor deadfall = injury; library plate / Dooley's story / Maria's stare / chapel familiar = SAN; Mrs. Hale = safe rest; clinic = first aid/medicine; ward = treatment; chapel familiar = combat+chase; Hatch opposed check; combined library search; jammed door = luck/push; killing the familiar = SAN gain.",
+  "license": "Apache-2.0",
+  "author": "Original classic scenario structure: Sandy Petersen / Chaosium. Narrative pack adaptation: chatrpgv4 contributors (original derivative prose; does not reproduce Chaosium Product Identity text).",
+  "attribution": "Scenario structure inspired by the classic Call of Cthulhu introductory investigation 'Mystery House'. Scene names, NPC dialogue, and narrative prose in this pack are an original derivative work by the chatrpgv4 contributors. Numeric creature data for Calvin Crowe is referenced from rules-json/monsters.json.",
+  "copyright_notice": [
+    "Call of Cthulhu is a trademark of Chaosium Inc.",
+    "This starter pack does not reproduce Chaosium Product Identity (plots, dialogue, maps, or boxed read-aloud text from the Keeper Rulebook).",
+    "Open game / rules data for Calvin Crowe presentation lives in rulesets/coc7/rules-json/monsters.json and the-haunting.json."
+  ],
+  "open_content_note": "Narrative scenes, clue wording, and NPC agendas here are original derivative work. Mechanical hooks (Flesh Ward, floating knife, own-dagger exception) align with rulesets/coc7/rules-json/the-haunting.json."
+}

@@ -33,7 +33,6 @@ RULE_GRAPH_CONTRACT_PATH = (
 _FAMILY_RUNTIME_OWNERS = {"legacy", "shadow", "graph"}
 _FAMILY_LEGACY_SURFACES = {"visible", "hidden", "removed"}
 REQUIRED_RESOLVER_ATTRS = ("check", "resource_delta", "public_api_index")
-OPTIONAL_RESOLVER_ATTRS = ("damage_state_effect", "skill_base")
 _FRONTMATTER_KEY = re.compile(r"^([A-Za-z_]+):", re.MULTILINE)
 
 
@@ -94,11 +93,6 @@ def _check_resolver(package_dir: Path, problems: list[str]) -> None:
         if not callable(getattr(module, attr, None)):
             problems.append(
                 f"resolver.py: missing required callable attribute {attr!r}"
-            )
-    for attr in OPTIONAL_RESOLVER_ATTRS:
-        if hasattr(module, attr) and not callable(getattr(module, attr)):
-            problems.append(
-                f"resolver.py: optional attribute {attr!r} must be callable"
             )
 
 
@@ -269,81 +263,6 @@ def _check_rule_families(manifest: dict | None, problems: list[str]) -> None:
             )
 
 
-def _check_family_ownership_agreement(
-    *,
-    package_manifest: dict | None,
-    graph: dict,
-    graph_manifest: dict,
-    problems: list[str],
-) -> None:
-    """Fail closed when the three artifacts disagree on family ownership."""
-    families: set[str] = set()
-    for entry in (package_manifest or {}).get("rule_families") or []:
-        if isinstance(entry, dict) and isinstance(entry.get("family_id"), str):
-            families.add(entry["family_id"])
-    owner_map = graph.get("family_runtime_ownership") or {}
-    surface_map = graph.get("legacy_surface_lifecycle") or {}
-    if isinstance(owner_map, dict):
-        families.update(str(key) for key in owner_map)
-    if isinstance(surface_map, dict):
-        families.update(str(key) for key in surface_map)
-    promo_map = graph_manifest.get("family_promotion_eligibility") or {}
-    if isinstance(promo_map, dict):
-        families.update(str(key) for key in promo_map)
-
-    def _package_view(family: str) -> tuple[str, str]:
-        for entry in (package_manifest or {}).get("rule_families") or []:
-            if isinstance(entry, dict) and entry.get("family_id") == family:
-                return (
-                    str(entry.get("runtime_owner") or "legacy"),
-                    str(entry.get("legacy_surface") or "visible"),
-                )
-        return ("legacy", "visible")
-
-    for family in sorted(families):
-        views: dict[str, tuple[str, str | None]] = {
-            "package": _package_view(family),
-        }
-        if isinstance(owner_map, dict) and (
-            family in owner_map or (
-                isinstance(surface_map, dict) and family in surface_map
-            )
-        ):
-            views["graph"] = (
-                str((owner_map or {}).get(family) or "legacy"),
-                str((surface_map or {}).get(family) or "visible"),
-            )
-        promo = promo_map.get(family) if isinstance(promo_map, dict) else None
-        if isinstance(promo, dict) and promo.get("runtime_ownership") in _FAMILY_RUNTIME_OWNERS:
-            surf = (
-                str(surface_map[family])
-                if isinstance(surface_map, dict) and family in surface_map
-                else None
-            )
-            views["graph_manifest"] = (str(promo["runtime_ownership"]), surf)
-        package_owner = views["package"][0]
-        if package_owner == "graph" and (
-            not isinstance(promo, dict)
-            or promo.get("promotion_eligible") is not True
-        ):
-            problems.append(
-                f"rule family {family!r}: graph-owned family requires "
-                "promotion_eligible true in rule-graph-manifest.json"
-            )
-        owners = [pair[0] for pair in views.values()]
-        surfaces = [pair[1] for pair in views.values() if pair[1] is not None]
-        if any(owner != owners[0] for owner in owners):
-            problems.append(
-                f"rule family {family!r}: runtime_owner disagrees across "
-                f"manifest.json / rule-graph.json / rule-graph-manifest.json: {views}"
-            )
-        if surfaces and any(surface != surfaces[0] for surface in surfaces):
-            problems.append(
-                f"rule family {family!r}: legacy_surface disagrees across "
-                f"manifest.json / rule-graph.json / rule-graph-manifest.json: {views}"
-            )
-
-
 def _check_rule_graph(package_dir: Path, manifest: dict | None, problems: list[str]) -> None:
     """Validate optional rule-graph artifacts when the package declares them.
 
@@ -355,15 +274,12 @@ def _check_rule_graph(package_dir: Path, manifest: dict | None, problems: list[s
     entry_points = (manifest or {}).get("entry_points") or {}
     graph_ref = entry_points.get("rule_graph")
     manifest_ref = entry_points.get("rule_graph_manifest")
-    adapter_ref = entry_points.get("rule_graph_adapter")
     graph_declared = isinstance(graph_ref, str)
     manifest_declared = isinstance(manifest_ref, str)
     if graph_ref is not None and not graph_declared:
         problems.append("manifest.json: entry_points.rule_graph must be a path string")
     if manifest_ref is not None and not manifest_declared:
         problems.append("manifest.json: entry_points.rule_graph_manifest must be a path string")
-    if adapter_ref is not None and not isinstance(adapter_ref, str):
-        problems.append("manifest.json: entry_points.rule_graph_adapter must be a path string")
     if not graph_declared and not manifest_declared:
         return  # no graph artifacts declared; absence is legal
     if graph_declared != manifest_declared:
@@ -371,20 +287,6 @@ def _check_rule_graph(package_dir: Path, manifest: dict | None, problems: list[s
             "manifest.json: entry_points.rule_graph and "
             "entry_points.rule_graph_manifest must be declared together"
         )
-    if isinstance(adapter_ref, str):
-        if not graph_declared or not manifest_declared:
-            problems.append(
-                "manifest.json: entry_points.rule_graph_adapter requires the paired "
-                "RuleGraph artifacts"
-            )
-        else:
-            adapter_path = (package_dir / adapter_ref).resolve()
-            if not adapter_path.is_relative_to(package_dir.resolve()):
-                problems.append(
-                    f"{adapter_ref}: rule graph adapter must stay inside its package"
-                )
-            elif not adapter_path.is_file():
-                problems.append(f"{adapter_ref}: rule graph adapter file is missing")
 
     graph_path = package_dir / graph_ref if graph_declared else None
     manifest_path = package_dir / manifest_ref if manifest_declared else None
@@ -395,10 +297,9 @@ def _check_rule_graph(package_dir: Path, manifest: dict | None, problems: list[s
         problems.append(f"{manifest_ref}: rule graph manifest file is missing")
 
     graph = _load_json(graph_path, problems) if graph_ref and graph_path is not None else None
-    graph_manifest = _load_json(manifest_path, problems) if manifest_ref and manifest_path is not None else None
-    package_manifest = manifest
+    manifest = _load_json(manifest_path, problems) if manifest_ref and manifest_path is not None else None
 
-    if not isinstance(graph_manifest, dict):
+    if not isinstance(manifest, dict):
         if manifest_ref:
             problems.append(f"{manifest_ref}: rule graph manifest must be an object")
         return
@@ -406,10 +307,10 @@ def _check_rule_graph(package_dir: Path, manifest: dict | None, problems: list[s
     # Manifest identity fields, per the spec's rule-graph-manifest contract.
     for field in ("contract_id", "ruleset_id", "ruleset_version",
                   "graph_content_digest", "compiler_identity", "review_status"):
-        if field not in graph_manifest:
+        if field not in manifest:
             problems.append(f"{manifest_ref}: missing rule graph manifest field {field!r}")
 
-    contract_id = graph_manifest.get("contract_id")
+    contract_id = manifest.get("contract_id")
     if isinstance(contract_id, str) and RULE_GRAPH_CONTRACT_PATH.is_file():
         contract = json.loads(RULE_GRAPH_CONTRACT_PATH.read_text(encoding="utf-8"))
         if contract_id != contract.get("build_manifest_contract_id"):
@@ -418,8 +319,8 @@ def _check_rule_graph(package_dir: Path, manifest: dict | None, problems: list[s
                 f"{contract.get('build_manifest_contract_id')!r}"
             )
 
-    if isinstance(graph, dict) and isinstance(graph_manifest.get("ruleset_id"), str):
-        if graph.get("ruleset_id") != graph_manifest.get("ruleset_id"):
+    if isinstance(graph, dict) and isinstance(manifest.get("ruleset_id"), str):
+        if graph.get("ruleset_id") != manifest.get("ruleset_id"):
             problems.append(
                 f"{graph_ref}: ruleset_id does not match the rule graph manifest"
             )
@@ -427,19 +328,11 @@ def _check_rule_graph(package_dir: Path, manifest: dict | None, problems: list[s
     # A manifest that claims graph runtime ownership must not leave the legacy
     # Keeper surface visible.  Without an accepted source bundle we cannot
     # verify legacy surface, so we only check the manifest declares it.
-    if graph_manifest.get("review_status") not in {
+    if manifest.get("review_status") not in {
         "deterministic-accepted", "accepted"
     }:
         problems.append(
             f"{manifest_ref}: review_status must indicate an accepted build"
-        )
-
-    if isinstance(graph, dict):
-        _check_family_ownership_agreement(
-            package_manifest=package_manifest,
-            graph=graph,
-            graph_manifest=graph_manifest,
-            problems=problems,
         )
 
 

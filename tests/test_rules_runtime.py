@@ -1853,8 +1853,12 @@ def test_coc7_adapter_binds_core_check_refs_without_model_numeric_targets(
     opposed = provider_for(opposed_semantic)(
         "decision:coc7:core-check:opposed-check"
     )
+    # No `investigator_id`: opposed-check declares `investigator_target` and
+    # not `investigator_id`, and a host-locked value the decision does not
+    # declare is refused as an undeclared input -- which is why this decision
+    # had never once settled across the diagnostic corpus. This assertion used
+    # to require the extra key, encoding the defect.
     assert opposed == {
-        "investigator_id": ws["investigator_id"],
         "investigator_target": 45,
         "opponent_value": 55,
     }
@@ -3000,6 +3004,7 @@ def test_development_pending_fact_and_adapter_recovery_binding(
         campaign_dir=tmp_path,
         inv_state=lambda _investigator: {},
         sheet=lambda _investigator: {},
+        module_spells=lambda: [],
     )
     monkeypatch.setattr(
         kernel.coc_development,
@@ -3061,6 +3066,7 @@ def test_development_pending_fact_and_adapter_recovery_binding(
 def test_magic_grounding_uses_known_spell_and_exact_source_records():
     kernel = coc_toolbox.coc_operation_kernel
     ctx = SimpleNamespace(
+        module_spells=lambda: [],
         inv_state=lambda _investigator: {
             "magic": {"learned_spells": ["Contact Ghoul"]},
         },
@@ -3089,7 +3095,9 @@ def test_magic_grounding_uses_known_spell_and_exact_source_records():
             "source_ref": "person:professor-ward",
         },
     )
-    assert learned == {"investigator": "investigator-one", "is_npc": False}
+    # learn-spell declares no is_npc slot; a host binding that overshoots the
+    # decision's declarations is refused before the decision can settle.
+    assert learned == {"investigator": "investigator-one"}
     with pytest.raises(kernel.ToolError) as missing:
         kernel._canonical_magic_binding(
             ctx,

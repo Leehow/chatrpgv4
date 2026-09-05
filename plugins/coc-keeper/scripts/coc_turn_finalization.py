@@ -24,6 +24,7 @@ import coc_fileio
 import coc_language
 import coc_roll
 import coc_exceptional_effects
+import coc_rules_runtime
 import coc_rulesets
 import coc_state_effect_authority
 import coc_text_runtime
@@ -1017,6 +1018,61 @@ def _superseded_roll_ids(campaign_dir: Path) -> set[str]:
     return hidden
 
 
+_GRAPH_OWNED_FAMILY_CACHE: dict[str, frozenset[str]] = {}
+
+
+def _graph_owned_families(ruleset_id: str | None) -> frozenset[str]:
+    """Families the compiled RuleGraph owns at runtime (W1 bridge gate).
+
+    Attachment of ``rule_effect_refs`` is audit-only and must never break
+    finalization: any graph load failure degrades to "nothing is graph
+    owned" and no receipt gains the field.
+    """
+    resolved = ruleset_id or coc_rulesets.DEFAULT_RULESET_ID
+    cached = _GRAPH_OWNED_FAMILY_CACHE.get(resolved)
+    if cached is not None:
+        return cached
+    families: frozenset[str] = frozenset()
+    try:
+        loaded = coc_rules_runtime.load_ruleset_graph(resolved)
+    except Exception:
+        loaded = None
+    if isinstance(loaded, dict) and loaded.get("ok"):
+        owner_map = (loaded.get("graph") or {}).get("family_runtime_ownership") or {}
+        if isinstance(owner_map, dict):
+            families = frozenset(
+                str(family)
+                for family, owner in owner_map.items()
+                if str(owner) == "graph"
+            )
+    _GRAPH_OWNED_FAMILY_CACHE[resolved] = families
+    return families
+
+
+def _settle_rule_effect_refs(
+    tool: str,
+    data: dict[str, Any],
+    *,
+    ruleset_id: str | None,
+) -> list[str] | None:
+    """Public RuleGraph effect refs for one graph-owned settle receipt.
+
+    Returns ``None`` (attach nothing) for non-settle calls, non-graph
+    families, or receipts lacking ``family``/``decision_ref``; otherwise the
+    deterministic public-effect list, which may be empty.  Old receipts
+    without these fields replay byte-identically (no key is added).
+    """
+    if tool != "rules.settle":
+        return None
+    family = str(data.get("family") or "").strip()
+    decision_ref = str(data.get("decision_ref") or "").strip()
+    if not family or not decision_ref:
+        return None
+    if family not in _graph_owned_families(ruleset_id):
+        return None
+    return coc_rules_runtime.public_effect_refs_for_decision(decision_ref)
+
+
 def _project_state_deltas(
     window: list[dict[str, Any]],
     *,
@@ -1039,6 +1095,11 @@ def _project_state_deltas(
         if not decision_id:
             continue
         investigator_id = str(data.get("investigator_id") or args.get("investigator") or "").strip()
+        prior_effect_ids = set(effects)
+        # W1 runtime bridge: graph-owned settle receipts carry their public
+        # RuleGraph effect semantic ids onto every effect this call derives.
+        # Audit field only: effect ids, digests and rendering are untouched.
+        rule_effect_refs = _settle_rule_effect_refs(tool, data, ruleset_id=ruleset_id)
         if tool == "rules.damage" and investigator_id:
             roll_id = str(data.get("roll_id") or "").strip()
             if (
@@ -1401,6 +1462,10 @@ def _project_state_deltas(
             data.get("player_state_receipt"),
             resource_projection_order=resource_projection_order,
         )
+        if rule_effect_refs is not None:
+            for effect_id in effects:
+                if effect_id not in prior_effect_ids:
+                    effects[effect_id]["rule_effect_refs"] = list(rule_effect_refs)
     # Dict insertion order is the canonical successful toolbox-call order from
     # ``window``.  Keep it for non-time effects: effect ids are content hashes
     # and sorting by them can scramble causal chains such as
@@ -1877,6 +1942,75 @@ def creation_receipt_bound_roll_ids(
     return bound
 
 
+def _applied_development_deltas(
+    campaign_dir: Path, investigator_id: str,
+) -> tuple[dict[str, int], int]:
+    """Skill and Luck deltas applied by PASS development settlements.
+
+    The creation-state integrity check compares the live sheet against
+    creation values; recorded development legitimately moves the sheet after
+    creation. Those authoritative deltas are added back into the comparison
+    instead of reading as corruption — without this, the first session
+    ending that improved a skill made every later resume fail closed with
+    state_corrupt (live 2026-09-02, campaign textlayer-beautify-20260902).
+    """
+    skill_deltas: dict[str, int] = {}
+    luck_delta = 0
+    endings_root = (
+        Path(campaign_dir) / "save" / "development-settlements" / "endings"
+    )
+    if not endings_root.is_dir():
+        return skill_deltas, luck_delta
+    for record_path in sorted(endings_root.glob(f"*/{investigator_id}.json")):
+        try:
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        receipt = record.get("receipt") if isinstance(record, dict) else None
+        if not isinstance(receipt, dict) or receipt.get("status") != "PASS":
+            continue
+        result = receipt.get("result")
+        if not isinstance(result, dict):
+            continue
+        for check in result.get("improvement_checks") or []:
+            if not isinstance(check, dict):
+                continue
+            skill = check.get("skill")
+            delta = check.get("applied_delta")
+            if (
+                isinstance(skill, str)
+                and isinstance(delta, int)
+                and not isinstance(delta, bool)
+            ):
+                skill_deltas[skill] = skill_deltas.get(skill, 0) + delta
+        luck = result.get("luck_recovery")
+        gained = luck.get("applied_delta") if isinstance(luck, dict) else None
+        if isinstance(gained, int) and not isinstance(gained, bool):
+            luck_delta += gained
+    return skill_deltas, luck_delta
+
+
+def _sheet_minus_development(
+    character: dict[str, Any],
+    skill_deltas: dict[str, int],
+    luck_delta: int,
+) -> dict[str, Any]:
+    """Project the creation-equivalent sheet for integrity comparison."""
+    adjusted = json.loads(json.dumps(character, ensure_ascii=False))
+    skills = adjusted.get("skills")
+    if isinstance(skills, dict):
+        for skill, delta in skill_deltas.items():
+            current = skills.get(skill)
+            if isinstance(current, int) and not isinstance(current, bool):
+                skills[skill] = current - delta
+    derived = adjusted.get("derived")
+    if isinstance(derived, dict) and luck_delta:
+        luck = derived.get("Luck")
+        if isinstance(luck, int) and not isinstance(luck, bool):
+            derived["Luck"] = luck - luck_delta
+    return adjusted
+
+
 def _campaign_creation_records(
     campaign_dir: Path,
 ) -> list[tuple[dict[str, Any], set[str]]]:
@@ -2009,6 +2143,14 @@ def _campaign_creation_records(
         character = read_required_object(
             character_path, f"linked investigator {investigator_id} character sheet",
         )
+        if isinstance(character, dict) and character.get("id") == investigator_id:
+            skill_deltas, luck_delta = _applied_development_deltas(
+                campaign_dir, investigator_id,
+            )
+            if skill_deltas or luck_delta:
+                character = _sheet_minus_development(
+                    character, skill_deltas, luck_delta,
+                )
         if (
             not isinstance(character, dict)
             or character.get("id") != investigator_id
@@ -3921,8 +4063,9 @@ def collect_finalize_violations(
                 "critical/fumble/pushed-failure outcome lacks a source-bound "
                 f"applied effect: {missing}. Apply one with "
                 "state.exceptional_effect (action \"apply\", source_roll_id "
-                "set to that exact roll handle, plus decision_id and "
-                "effect_kind), then finalize again."
+                "set to that exact roll handle, plus decision_id, "
+                "effect_kind, direction, player_visible_impact, causal_link "
+                "and boundary), then finalize again."
             ),
         })
     if context["pending_modifier_consumptions"]:
