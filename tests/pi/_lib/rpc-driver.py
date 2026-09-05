@@ -181,6 +181,9 @@ SESSION_ROLE_ENV = "COC_PI_SESSION_ROLE"
 # Distinct from a real timeout: the turn cannot settle, and the remedy is a
 # declaration the operator omitted, not a longer wait.
 UNCLAIMED_HANDOFF_EXIT_CODE = 6
+# A turn that looped instead of playing; the campaign is unharmed and the
+# same turn can simply be resent.
+RUNAWAY_EXIT_CODE = 7
 _SESSION_ROLE_UNSET = object()
 SETUP_HANDOFF_RECEIPT_KEYS = {
     "schema_version",
@@ -1063,6 +1066,68 @@ def _acknowledge_delivery(payload: dict, rows: list[dict]) -> None:
     print(f"delivery acknowledged: {delivered['finalization_id']}")
 
 
+# A Keeper turn that has emitted tens of thousands of characters is not slow,
+# it is a collapsed generation. Measured on this campaign: eleven turns, nine
+# healthy at 188 to 975 characters, two collapsed at 184,467 and 190,150. The
+# threshold below sits twenty times above the largest healthy turn.
+#
+# Volume is the decision, because the two collapses failed differently. One
+# repeated a single sentence 74 times; the other drifted into mangled
+# half-sentences with no stable repeating unit, and a tail-periodicity check
+# caught the first and missed the second. Repetition is reported when present
+# because it names what went wrong, but it does not gate.
+#
+# Tool calls do not gate either: the third collapse called three tools first.
+#
+# All of this is lexical -- how much text, and whether a short string repeats
+# at the end -- never a judgement about what the text says.
+RUNAWAY_MIN_CHARS = 20000
+RUNAWAY_TAIL_CHARS = 2000
+RUNAWAY_MIN_REPEATS = 8
+
+
+def _assistant_text(rows: list[dict]) -> str:
+    out = []
+    for row in rows:
+        event = row.get("assistantMessageEvent")
+        if isinstance(event, dict) and event.get("type") == "text_delta":
+            out.append(str(event.get("delta") or ""))
+    return "".join(out)
+
+
+def _runaway_generation(rows: list[dict]) -> dict | None:
+    """Return a diagnosis when the turn is looping instead of playing."""
+    text = _assistant_text(rows)
+    if len(text) < RUNAWAY_MIN_CHARS:
+        return None
+    # Tool calls are not the signal. The first cut of this check required zero
+    # of them and missed the very next occurrence: a turn that called three
+    # tools, then emitted 107k characters of "鉴于已经做出了让bp。" over and
+    # over. Volume plus a repeating tail cannot happen in healthy play -- a
+    # real Keeper turn on this campaign runs 188 to 975 characters -- so the
+    # repetition carries the decision and the tool count is only reported.
+    tools = sum(
+        1 for row in rows
+        if str(row.get("type") or "") == "tool_execution_start"
+    )
+    tail = text[-RUNAWAY_TAIL_CHARS:]
+    # The shortest unit whose repetition covers the tail: if the tail is one
+    # phrase repeated, some rotation of it divides the tail evenly.
+    period = None
+    for size in range(4, len(tail) // RUNAWAY_MIN_REPEATS + 1):
+        unit = tail[-size:]
+        if tail.endswith(unit * RUNAWAY_MIN_REPEATS):
+            period = unit
+            break
+    return {
+        "kind": "degenerate_repetition" if period else "runaway_volume",
+        "characters": len(text),
+        "tool_calls": tools,
+        "repeated_unit": period,
+        "repeats_in_tail": tail.count(period) if period else 0,
+    }
+
+
 def _finish_prompt_submit(
     payload: dict,
     timeout: int,
@@ -1254,6 +1319,24 @@ def submit(payload: dict, timeout: int, *, profile: str | None = None) -> int:
                         f"(submit {payload['id']}) — EPIPE-class peer loss; "
                         "campaign state is durable — restart the daemon and "
                         "continue through session.resume"
+                    ),
+                    profile=profile,
+                )
+            runaway = _runaway_generation(rows)
+            if runaway is not None:
+                return _finish_prompt_submit(
+                    payload,
+                    timeout,
+                    rows,
+                    completed=False,
+                    session_role=session_role,
+                    exit_code=RUNAWAY_EXIT_CODE,
+                    death_message=(
+                        "the Keeper is looping, not playing: "
+                        f"{runaway['characters']} characters with "
+                        f"{runaway['tool_calls']} tool calls, tail repeating "
+                        f"{runaway['repeated_unit'][:40]!r}. Campaign state is "
+                        "durable; resend this turn."
                     ),
                     profile=profile,
                 )
