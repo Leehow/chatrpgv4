@@ -360,9 +360,15 @@ def test_pi_coc_launcher_exports_pdf_inspector_defaults():
     assert (
         'export COC_PI_PDF_MODEL="${COC_PI_PDF_MODEL:-xai/grok-4.6}"'
     ) in script
+    # The opening extractor defaults to whatever the visual child runs on, not
+    # to a model name. "Text-only" argues for a text model, not for a second
+    # provider: the DeepSeek default dragged another credential into a chain
+    # that otherwise runs entirely on the session's own, and on 2026-09-02 that
+    # credential was invalid -- every opening source review died on a 401 for a
+    # provider nothing else in the run touches. Assert the one-provider rule so
+    # a literal model name cannot be reintroduced here without failing.
     assert (
-        'export COC_PI_OPENING_MODEL="${COC_PI_OPENING_MODEL:-'
-        'deepseek/deepseek-v4-flash}"'
+        'export COC_PI_OPENING_MODEL="${COC_PI_OPENING_MODEL:-$COC_PI_PDF_MODEL}"'
     ) in script
 
 
