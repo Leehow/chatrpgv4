@@ -130,6 +130,36 @@ def build_request(
             else min(pdf_index_end, page_count - 1)
         )
         bound = [index for index in bound_all if first <= index <= last]
+    return request_over_pages(
+        [{"source_id": source_id, "pdf_index": index} for index in bound],
+        module_id=module_id,
+        section_id=section_id,
+        source_language=source_language,
+        max_nodes=max_nodes,
+        max_relations=max_relations,
+        aspects=aspects,
+        known_nodes=known_nodes,
+    )
+
+
+def request_over_pages(
+    page_refs: list[dict[str, Any]],
+    *,
+    module_id: str,
+    section_id: str,
+    source_language: str,
+    max_nodes: int,
+    max_relations: int,
+    aspects: tuple[str, ...] = DEFAULT_ASPECTS,
+    known_nodes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """The prepare request over an exact set of already-identified pages.
+
+    `build_request` needs a source bundle for three things: the source id, the
+    pages it bound, and how many there are. A campaign at the table has none of
+    that -- it has cached page refs, which already carry the first two. This is
+    where the request shape is defined, so the two callers cannot drift.
+    """
     return {
         "contract_id": PREPARE_CONTRACT_ID,
         "schema_version": 1,
@@ -148,8 +178,8 @@ def build_request(
         "known_nodes": list(known_nodes or []),
         "output_budget": {"max_nodes": max_nodes, "max_relations": max_relations},
         "page_refs": [
-            {"source_id": source_id, "pdf_index": index}
-            for index in bound
+            {"source_id": str(ref["source_id"]), "pdf_index": int(ref["pdf_index"])}
+            for ref in page_refs
         ],
         "selected_evidence_span_ids": None,
     }
