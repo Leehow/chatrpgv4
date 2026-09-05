@@ -92,6 +92,13 @@ def test_dependency_groups_and_lockfile_cover_the_supported_surfaces():
     assert dev_names == {
         "jsonschema",
         "pytest",
+        # Test-runner only, and it is here rather than left to whoever runs the
+        # suite because `--frozen` means an undeclared plugin simply is not
+        # installed. It pulls `execnet`; neither is a runtime dependency and
+        # neither is a PDF parser, so the two things this guard actually
+        # protects -- an empty runtime surface and the forbidden set below --
+        # are unchanged.
+        "pytest-xdist",
     }
     assert lock["requires-python"] == f"=={REQUIRED}"
     root_package = next(item for item in lock["package"] if item["name"] == "chatrpgv4")
@@ -100,7 +107,7 @@ def test_dependency_groups_and_lockfile_cover_the_supported_surfaces():
         item["name"] for item in root_package["dev-dependencies"]["dev"]
     } == dev_names
     assert "optional-dependencies" not in root_package
-    for package in ("jsonschema", "pytest"):
+    for package in ("jsonschema", "pytest", "pytest-xdist"):
         assert any(item["name"] == package for item in lock["package"])
     forbidden = {"pypdf", "pdfplumber", "pymupdf", "pymupdf-layout", "pymupdf4llm"}
     assert forbidden.isdisjoint({item["name"] for item in lock["package"]})

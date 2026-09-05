@@ -9,6 +9,17 @@ dependencies = []
 dev = [
   "jsonschema>=4.26,<5",
   "pytest>=9.1.1,<10",
+  # The suite is 8600 tests that each build a workspace on disk and spawn real
+  # subprocesses; serially it runs about two hours on one core while nine sit
+  # idle. Distribute BY FILE (`--dist loadfile`): eight module-scoped fixtures
+  # would otherwise be rebuilt in every worker a file was split across, and two
+  # suites read a corpus the whole file shares.
+  "pytest-xdist>=3.6,<4",
+]
+
+[tool.pytest.ini_options]
+markers = [
+  "serial: must not run inside an xdist worker (process-wide signal state)",
 ]
 
 [tool.uv]

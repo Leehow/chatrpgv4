@@ -186,6 +186,34 @@ and `project.requires-python`; dependencies come only from committed `uv.lock`.
   `.python-version`, `pyproject.toml`, `uv.lock`, CI, active docs, and contract
   tests. Never broaden the exact version constraint.
 
+## Running The Suite (two passes, ~8 minutes)
+
+The suite is 8603 tests that each build a workspace on disk and spawn real
+subprocesses. Serially it takes about two hours on one core while nine sit
+idle. Run it in two passes:
+
+```bash
+uv run --frozen python -m pytest tests/ -n 8 --dist loadfile -m "not serial"
+uv run --frozen python -m pytest tests/ -m serial
+```
+
+`--dist loadfile` keeps a file on one worker: eight module-scoped fixtures
+would otherwise be rebuilt in every worker a file was split across, and two
+suites read a corpus the whole file shares.
+
+The sixteen `serial` tests install process-wide signal handlers, edit the
+thread sigmask, and send SIGTERM to their own pid. Under `-n` that pid is an
+xdist worker whose signal handling they overwrite, and one of them fails there
+while passing serially. Marking is not tidiness; it is the difference between
+a false red and a real one.
+
+**One test dominates the wall clock.**
+`test_toolbox.py::test_evicted_roll_replay_does_not_reearn_consumed_development_check`
+takes 43 minutes of a 51-minute parallel run -- every other test finishes in
+about seven. It journals and finalizes 301 turns to rotate the bounded ledger.
+Before treating a long run as normal, check whether that one test is still the
+reason.
+
 ## PDF Source Bundle Contract
 
 The repository contains **no PDF parser**. An external PDF skill owns rendering,

@@ -3483,6 +3483,15 @@ def _locator_termination_task(tmp_path: Path, workspace: Path, *, tag: str) -> d
     }
 
 
+# `serial`: these sixteen install process-wide signal handlers, edit the
+# thread sigmask, and send SIGTERM to their own pid. Under `pytest -n` that pid
+# is an xdist worker, whose own signal handling they are overwriting -- and
+# `test_pdf_skill_adapter_pending_term_goes_to_lane_handler_not_caller` fails
+# there while passing serially, so the delivery semantics really do differ.
+# The other fifteen passing under xdist is luck, not isolation.
+#
+# The suite therefore runs in two passes; see AGENTS.md, "Running the suite".
+@pytest.mark.serial
 def test_pdf_skill_adapter_reaps_term_resistant_pi_process_group(
     tmp_path: Path,
 ):
@@ -3585,6 +3594,7 @@ time.sleep(10)
     assert not survivor.exists()
 
 
+@pytest.mark.serial
 def test_pdf_skill_adapter_sigterm_reaps_hanging_pdf_inspector(
     tmp_path: Path,
 ):
@@ -3659,6 +3669,7 @@ raise SystemExit("pi should not run while inspector hangs")
         os.kill(hang_pid, 0)
 
 
+@pytest.mark.serial
 def test_pdf_skill_adapter_leader_exit_reaps_pipe_holding_descendants(
     tmp_path: Path,
 ):
@@ -3711,6 +3722,7 @@ def test_pdf_skill_adapter_leader_exit_reaps_pipe_holding_descendants(
     assert not survivor.exists()
 
 
+@pytest.mark.serial
 def test_pdf_skill_adapter_normal_completion_reaps_leftover_descendants(
     tmp_path: Path,
 ):
@@ -3762,6 +3774,7 @@ def test_pdf_skill_adapter_normal_completion_reaps_leftover_descendants(
     assert not survivor.exists()
 
 
+@pytest.mark.serial
 def test_pdf_skill_adapter_timeout_kills_hanging_leader_and_grandchild(
     tmp_path: Path,
 ):
@@ -3893,6 +3906,7 @@ def test_pdf_skill_adapter_handler_does_not_touch_popen(
         adapter._restore_interrupt_handlers(handlers)
 
 
+@pytest.mark.serial
 def test_pdf_skill_adapter_unblocks_inherited_blocked_term_int(
     tmp_path: Path,
 ):
@@ -3978,6 +3992,7 @@ time.sleep(20)
         os.kill(child_pid, 0)
 
 
+@pytest.mark.serial
 def test_pdf_skill_adapter_router_host_abort_never_falls_back_to_pi(
     tmp_path: Path,
 ):
@@ -4128,6 +4143,7 @@ def test_pdf_skill_adapter_waitid_error_fail_closed(monkeypatch):
         adapter._leader_exited_nowait(1)
 
 
+@pytest.mark.serial
 def test_pdf_skill_adapter_mask_and_reap_errors_fail_closed(
     tmp_path: Path, monkeypatch,
 ):
@@ -4152,6 +4168,7 @@ def test_pdf_skill_adapter_mask_and_reap_errors_fail_closed(
         adapter._reap_direct_child(_FakeProc())
 
 
+@pytest.mark.serial
 def test_pdf_skill_adapter_spawn_mask_restore_failure_clears_child(
     tmp_path: Path, monkeypatch,
 ):
@@ -4236,6 +4253,7 @@ def test_pdf_skill_adapter_handler_install_partial_failure_rollbacks(
     assert signal.getsignal(signal.SIGINT) is prior_int
 
 
+@pytest.mark.serial
 def test_pdf_skill_adapter_handler_restore_partial_failure_rollbacks(
     monkeypatch,
 ):
@@ -4273,6 +4291,7 @@ def test_pdf_skill_adapter_handler_restore_partial_failure_rollbacks(
     signal.pthread_sigmask(signal.SIG_SETMASK, caller_mask)
 
 
+@pytest.mark.serial
 def test_pdf_skill_adapter_handler_install_rollback_self_failure_chains(
     monkeypatch,
 ):
@@ -4313,6 +4332,7 @@ def test_pdf_skill_adapter_handler_install_rollback_self_failure_chains(
     signal.signal(signal.SIGINT, prior_int)
 
 
+@pytest.mark.serial
 def test_pdf_skill_adapter_handler_restore_rollback_self_failure_chains(
     monkeypatch,
 ):
@@ -4349,6 +4369,7 @@ def test_pdf_skill_adapter_handler_restore_rollback_self_failure_chains(
     signal.pthread_sigmask(signal.SIG_SETMASK, caller_mask)
 
 
+@pytest.mark.serial
 def test_pdf_skill_adapter_stdio_close_wait_mask_failures_compose(
     tmp_path: Path, monkeypatch,
 ):
@@ -4442,6 +4463,7 @@ def test_pdf_skill_adapter_router_invariant_never_falls_back_to_pi(
     assert pi_calls == []
 
 
+@pytest.mark.serial
 def test_pdf_skill_adapter_pending_term_goes_to_lane_handler_not_caller(
     monkeypatch,
 ):
@@ -4575,6 +4597,7 @@ def test_pdf_skill_adapter_router_launch_oserror_falls_back(
     assert pi_calls == ["pi"]
 
 
+@pytest.mark.serial
 def test_pdf_skill_adapter_lane_transition_restores_caller_three_rounds(
     monkeypatch,
 ):
@@ -4617,6 +4640,7 @@ def test_pdf_skill_adapter_lane_transition_restores_caller_three_rounds(
         signal.pthread_sigmask(signal.SIG_SETMASK, prev_mask)
 
 
+@pytest.mark.serial
 def test_pdf_skill_adapter_termination_group_five_consecutive_rounds(
     tmp_path: Path,
 ):
