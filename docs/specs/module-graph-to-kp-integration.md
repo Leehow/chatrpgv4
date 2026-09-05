@@ -1,6 +1,10 @@
 # ModuleGraph → Pi-Coc KP 集成规范
 
-> **Status:** Slice 1 query-integrated / natural-play acceptance partial — deterministic/toolbox/MCP gates and a fresh Pi model-visible exact-discovery → search → semantic-seed → expand probe pass. A natural earned investigation remains blocked by the separate early-output/early-journal behavior documented in [Slice 1 status](../status/module-graph-to-kp-slice1.md); Graph → Scenario IR projection remains pending.
+> **Status:** Slice 1 query-integrated / natural-play acceptance partial — deterministic/toolbox/MCP gates and a fresh Pi model-visible exact-discovery → search → semantic-seed → expand probe pass. A natural earned investigation remains blocked by the separate early-output/early-journal behavior documented in [Slice 1 status](../status/module-graph-to-kp-slice1.md); Graph → Scenario IR projection **has landed**: a graph
+> projection is a compiled scenario rather than a pending parse, the
+> reachability lint reports through the projection receipt, and the scene the
+> graph names as its entrance is activated. A broken lint never fails the
+> projection.
 > **ID:** `module-graph-to-kp-integration`
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`; Codex-host implementation is off-limits.
 > **Scope:** accepted ModuleGraph 的 Keeper-only 查询、语言展示边界与单一来源晋升路径；不实现因果任务系统、campaign fact writes、Neo4j 或 GraphRAG。

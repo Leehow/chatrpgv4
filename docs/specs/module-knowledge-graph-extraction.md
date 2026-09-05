@@ -1,6 +1,12 @@
 # 模组知识图谱与自动抽取 Skill 规范
 
-> **Status:** Source-compiler phase complete — deterministic compiler、Skill、asset-root generations、8/8 real-source semantic cases 与 fresh `zh-Hans` canonical-storage acceptance 已完成；KP/product integration 仍 `unintegrated`。
+> **Status:** Source-compiler phase complete — deterministic compiler、Skill、asset-root generations、8/8 real-source semantic cases 与 fresh `zh-Hans` canonical-storage acceptance 已完成；**KP/product integration 已打通**
+> (2026-09-04，Masks 669 页端到端：安装 → 建战役 → 进场景 → 按需深读 →
+> 图从 741 长到 856 节点)。抽取本身已从分块管线换成**带工具的 pi agent**；
+> 一次同标准 A/B(诅咒之城)：分块 22 处不变量违反 / 8 个场景连通分量，
+> agent+模板+工具 **0 违反 / 1 个连通分量 / 入口已声明**。
+> 详见 [Tier 2 按需深化](../module-build-tier2-on-demand.md) 与
+> AGENTS.md「Text Work Runs As A Pi Agent」。
 > **ID:** `module-knowledge-graph-extraction`
 > **Track:** `ACTIVE_IMPLEMENTATION_TRACK=pi-coc`；Codex-host 专属实现 off-limits。
 > **Scope:** 共享 `plugins/coc-keeper/` 的模组来源编译能力；不含 KP、live play、campaign state 或 Scenario IR 投影。
