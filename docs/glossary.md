@@ -14,7 +14,7 @@
 **`action`（行动声明）** — 守秘人调 `resolve` 时描述「这一步想干什么」的输入对象：`intent`/`goal`/`method`/`target`/`stakes`/`skill`……契约里管这叫「行动」，代码里字段名就是 `action`，没有专门的类。产生：守秘人；消费：`table.resolve` 的候选选择与槽位填充（§11.3、§11.4）。契约 §5（切片 0 字段）、§11.1（切片 1 补充字段）。代码：`kernel/coc/resolve.py` 的 `SLOT_TO_ACTION`（`action` 字段名到 RuleGraph 槽位名的映射表）；工具 schema 在 `extensions/kernel/tools.ts` 的 `resolve` 工具。
 不是：`receipt`/`outcome`——`action` 是守秘人的输入（意图声明），`receipt`/`outcome` 是内核算出来的结果；也不是字面意义上的「declaration」——代码和契约都只叫它 `action`，「行动声明」只是中文行文，不要去找一个叫 `ActionDeclaration` 的类型。
 
-**`effects`（效果批）** — 守秘人调 `apply` 时给的一批要写进世界的效果：`move`/`clue`/`time`/`damage`/`item`/`cash`/`handout`（外加未实现的 `fork`/`switch`/`merge`，见世界线一节）。一批里可以有多条，整批先校验后写，任一条失败整批不落。产生：守秘人；消费：`table.apply` 逐条 stage 后一次性提交（§5）。契约 §5（`table.apply` 参数与流水线）、§14.8（`handout`）、§15.3（世界线三效果，未实现）。代码：`kernel/coc/table.py` 的 `def apply`（约 906 行起，`_stage_move`/`_stage_clue`/`_stage_time`/`_stage_handout` 等）。
+**`effects`（效果批）** — 守秘人调 `apply` 时给的一批要写进世界的效果：`move`/`clue`/`time`/`damage`/`item`/`cash`/`handout`/`flag`/`note`/`ruling`/`npc`/`fork`/`switch`/`merge`（后三条见世界线一节：它们在本回合 `narrate` 提交之后才执行，一回合一条，必须是本批最后一条）。一批里可以有多条，整批先校验后写，任一条失败整批不落。产生：守秘人；消费：`table.apply` 逐条 stage 后一次性提交（§5）。契约 §5（`table.apply` 参数与流水线）、§14.8（`handout`）、§15.3（世界线三效果）。代码：`kernel/coc/table.py` 的 `def apply`（约 906 行起，`_stage_move`/`_stage_clue`/`_stage_time`/`_stage_handout` 等）。
 不是：`mechanics`（§16.2 的机制投影）——方向相反：`effects` 是守秘人喂给内核的写入指令，`mechanics` 是内核算完之后吐给前端的只读、语言中立投影；一批 `effects` 落地后才会在 `narrate`/`ask` 的结果里出现对应的 `mechanics` 条目。
 
 **`pending_choice`（待决）** — 内核记在 `turn.json` 里的「回合关闭前必须有人回答」的问题：`{name, for: player|keeper, prompt, options}`。`for: player` 的由守秘人下一次 `ask` 交回玩家；`for: keeper` 的由守秘人下一次 `resolve` 的 `decision` 或 `defense` 回答。产生：`table.resolve` 判出待决防御/发作/追逐冲突时，或 `table.ask` 记录时；消费：`table.ask`、下一次 `table.resolve` 的 `action.choice`/`action.decision`/`action.defense`。契约 §11.9（形状定义）、§5 `table.ask`。代码：`kernel/coc/table.py` 的 `_bind_choice`（约 764 行）与 `def ask`（约 1423 行）。
@@ -37,7 +37,7 @@
 **`call_id`（调用号）** — 扩展铸造的调用标识，格式 `t<turn>-c<n>`，`n` 是该回合内会改状态的调用（`resolve`/`apply`/`ask`/`narrate`）的序号，从 1 起；模型永远不写它。契约 §2、§8（铸造规则，进程重开后从 `last_call_ordinal` 之后接着铸）。代码：`kernel/coc/store.py` 的 `parse_call_id`、`CALL_ID` 正则。
 不是：`receipt` id——`call_id` 是调用的标识（一次工具调用一个），`receipt` 是这次调用产生的每一条结果的标识（一次调用可能产生多条收据，比如一批 `apply` 效果）。
 
-**`receipt`（收据）** — 内核铸造的、语义化的结果标识，模型不认它的语法只认它的名字（比如 `roll:spot-hidden-t3-c1`）。前缀闭合：`roll:`、`move:`、`clue:`、`time:`、`delta:`、`choice:`、`session:`、`item:`（#19）、`cash:`（#19）、`handout:`（§14.8）；`fork:`/`switch:`/`merge:` 是世界线一节声明但未实现的前缀。契约 §2（铸造语法）、§11.6/§11.11（`roll`/`delta`/`session` 收据）。代码：`kernel/coc/table.py` 各 `_stage_*` 方法；`kernel/coc/resolve.py` 的收据生成。
+**`receipt`（收据）** — 内核铸造的、语义化的结果标识，模型不认它的语法只认它的名字（比如 `roll:spot-hidden-t3-c1`）。前缀闭合：`roll:`、`move:`、`clue:`、`time:`、`delta:`、`choice:`、`session:`、`item:`（#19）、`cash:`（#19）、`handout:`（§14.8）；世界线的三条效果落 `kind: "worldline"` 的收据，id 铸成 `fork:<name>-t<turn>` / `switch:<line>-t<turn>` / `merge:<name>-t<turn>`（§15.9）。契约 §2（铸造语法）、§11.6/§11.11（`roll`/`delta`/`session` 收据）。代码：`kernel/coc/table.py` 各 `_stage_*` 方法；`kernel/coc/resolve.py` 的收据生成。
 不是：`event`——每条收据对应 `events.jsonl` 里的一行事件（`data.receipt` 指回它），但收据是「这次调用产生了什么」，事件是「这件事在时间线上被记了一笔」；两者一一对应但不是同一份存储（收据活在 `turn.json.receipts`/`turns/NNNN.json`，事件活在 `events.jsonl`）。
 
 **幂等键（idempotency key）** — 不是一个单独的字段，而是 `call_id` + 参数的规范化 JSON sha256（`params_digest`）这一对：同 `call_id` 同参数摘要返回原结果并带 `"replayed": true`；同 `call_id` 不同参数报 `idempotency_conflict`。契约 §2。代码：`kernel/coc/store.py` 的 `params_digest`、`Campaign.replay_or_conflict`、`Campaign.remember_call`。
@@ -65,7 +65,7 @@
 **`resolve`** — 把一个 `action` 变成一次 RuleGraph 决策的结算：事实字典 → 候选与选择 → 槽位 → 执行 → 收据。切片 0 只做普通检定，切片 1 起接十族规则（战斗/追逐/理智/心理/社交/急救/施法/成长/推骰幸运/合并检定）。契约 §5、§11 全节。代码：`kernel/coc/resolve.py` 的 `class ResolvePipeline`。
 不是：`apply`——`resolve` 只算「这次尝试的结果是什么」（掷骰、判定、可能带出的会话状态），不直接写世界状态之外的东西（伤害/理智等 `effects` 会跟着落，但「移动到哪」「拿到了什么线索」这类**由守秘人自己叙述后确认的**世界变化必须走 `apply`）。
 
-**`apply`** — 把一批世界变化（`effects`，见上文）写进世界状态：移动、发现线索、推进时钟、伤害、物品、现金、手卡（世界线三效果已声明未实现）。契约 §5、§14.8、§15.3。代码：`kernel/coc/table.py` 的 `def apply`（约 906 行）。
+**`apply`** — 把一批世界变化（`effects`，见上文）写进世界状态：移动、发现线索、推进时钟、伤害、物品、现金、手卡、记账三件、NPC 上下场，以及世界线的分叉/切换/汇流。契约 §5、§14.8、§15.3。代码：`kernel/coc/table.py` 的 `def apply`（约 906 行）。
 不是：`resolve` 的 `outcome.effects`——`resolve` 结果里也有一个 `effects` 字段（§11.6，`hp`/`san`/`mp`/`luck`/`condition`/`ammo`/`position` 等资源变化），那是**结算引擎自己算出来并落盘**的效果，不需要再手动 `apply`；`table.apply` 的 `effects` 参数是守秘人**主动声明**的另外几类（move/clue/time/damage/item/cash/handout），两个「effects」同名不同源，读代码时要看是哪个函数的局部变量。
 
 **`ask`** — 用一个问题加编号选项关闭本回合，记录 `pending_choice`，状态进 `asked`；不再调用 `narrate`。契约 §5。代码：`kernel/coc/table.py` 的 `def ask`（约 1423 行）。
@@ -207,9 +207,9 @@
 **「核对数字」（the number check）** — 不是字段名，是 §16.3 的确定性底线：内核不再插入任何机制行，改成核对——每条**公开**收据的关键数字（掷值/目标、伤害前后、分钟数）必须以数字形式（纯字符串包含）出现在守秘人正文里，缺了报 `invalid_params`（`code_detail: "mechanics_missing"`），列出缺了哪些数。名字（技能、场景、线索）不核对。契约 §5（`narrate` 第 2 步）、§16.3。代码：`kernel/coc/render.py` 的 `missing_numbers`、`mechanics_missing`（`code_detail` 常量 `MECHANICS_MISSING`）。
 不是：`facts.committed` 的句子生成——`facts.committed` 是内核**自己拼**的确定性事实句（给校验车道用），核对数字是**检查守秘人写的正文**里有没有抄对收据上的数字，两件事都发生在 `narrate`，但一个是生成、一个是校验，顺序上核对先于生成 `facts`（见 `kernel/coc/table.py` 的 `narrate` 方法体：`check_numbers` 在 `self._facts` 之前调用）。
 
-## 世界线（§15，已在契约、未实现）
+## 世界线（§15，票 #23，已实现）
 
-契约 §15 整节写了形状，但 `kernel/coc/` 与 `extensions/` 里没有任何代码实现它（`grep -r worldline kernel/coc extensions` 零命中）。下面几条只是把契约的词记下来，不代表已经能用；票 #23（切片 6）追踪它。
+代码在 `kernel/coc/worldline.py`（注册表、种子、模组声明、锚点、`fork`/`switch`、胶囊节）、`kernel/coc/confluence.py`（汇流报告与 `merge`）、`kernel/coc/echoes.py`（回声），git 动词在 `kernel/coc/history.py`，用例在 `tests/kernel/test_worldline.py`。已落的与契约的出入记在契约 §15.9。
 
 **worldline（世界线）** — 战役 sidecar 仓库里的一条 git 分支（`wl/<name>`），`campaign.json.worldlines` 登记每条线的 `kind`（`main`/`if`/`loop`/`merge`）、圈数、分叉点、状态。契约 §15.1。
 不是：世界线本身没有独立的存储格式——它就是 git 分支加 `campaign.json` 里的一份元数据，战役目录（`world.json`/`turn.json`/`turns/`/`save/`/`memory/`……）本身没有变化，切一条线就是 `git checkout` 到另一条分支。
@@ -224,12 +224,12 @@
 不是：`continuation checkpoint`——锚点是世界线专用的、只在第一次 `loop` 分叉时生成一次的快照；续行检查点是每次 `narrate` 都刷新的、给崩溃恢复用的缓存，两者用途、生成时机都不同。
 
 **echo（回声）** — 分叉/汇流时从其他父线（或上一圈）的回合记录生成的确定性摘要（`{id, line, loop, turn, scene, kind, summary, receipts, entities}`），是守秘人专属的可投放证据：只能通过 `apply {kind: "clue", clue: "echo:<id>"}` 揭示，内容不能被守秘人改写，只能决定揭不揭示。契约 §15.4。
-不是：`recall memory` 的候选——回声是从**收据**确定性生成的（不经模型抽取），候选是模型在记忆车道里**写**出来的；回声一旦生成内容就定死，候选可以被同主语的新断言接续关闭。
+不是：`recall memory` 的候选——回声是从**收据**确定性生成的（不经模型抽取），候选是模型在记忆车道里**写**出来的；回声一旦生成内容就定死，候选可以被同主语的新断言接续关闭。摘要是英文（§16：内核写的一切是英文），玩家听到的那一句由守秘人按 `play_language` 转述。代码：`kernel/coc/echoes.py`。
 
 **confluence（`merge`，汇流）** — `apply {kind: "merge", lines: [...], dispositions: {...}}`：把多条线合成一条新线，先算冲突报告，冲突未处置报 `needs`；处置齐了才落地、做一次带全部父提交的合并提交。契约 §15.3、§15.4。
 不是：git 的 `merge` 命令本身——契约里的汇流是「先算出一份闭合的冲突报告，等守秘人显式处置每一条冲突」之后，内核才去做那次 `git merge -s ours --no-commit` 加一次手动 `commit`；git 操作只是落地的最后一步，不是这个词的全部含义。
 
-**disposition（处置）** — 汇流冲突报告里，守秘人对每条冲突给出的解法：`{mode: "from", line}`（取某一线的值）、`{mode: "min"|"max"|"sum"}`、`{mode: "drop", note}`；哪些冲突类别允许哪些处置模式是闭合表（契约 §15.4：`dead_alive` 只能 `from`，`clue` 永不冲突不需要处置）。契约 §15.3、§15.4。
+**disposition（处置）** — 汇流冲突报告里，守秘人对每条冲突给出的解法：`{mode: "from", line}`（取某一线的值）、`{mode: "min"|"max"|"sum"}`、`{mode: "drop", note}`；哪些冲突类别允许哪些处置模式是闭合表（契约 §15.4：`dead_alive` 只能 `from`，`clue` 永不冲突不需要处置）。契约 §15.3、§15.4。代码：`kernel/coc/confluence.py` 的 `DISPOSITIONS`。
 不是：`decision`（RuleGraph 的决策）——两个词都译作「决策/处置」容易混，但 `disposition` 只服务汇流这一个场景，是守秘人对冲突报告的人工裁决，和规则层的 `decision` 毫无关系。
 
 ## 退役词
