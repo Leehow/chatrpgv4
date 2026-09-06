@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import json
+import sys
 
-from conftest import CAMPAIGN, CONTENT_DIR, MODULE, PREGEN, campaign_dir, git_log, read_json, read_jsonl
+from conftest import CAMPAIGN, CONTENT_DIR, KERNEL_DIR, MODULE, PREGEN, campaign_dir, git_log, read_json, read_jsonl
+
+sys.path.insert(0, str(KERNEL_DIR))
+
+from coc.setup import SetupSteps  # noqa: E402
 
 STEPS_PATH = CONTENT_DIR / "setup" / "steps.json"
 STEP_IDS = ["choose-source", "build-bundle", "bind-source", "create-campaign", "build-opening",
@@ -28,6 +33,19 @@ def test_create_without_pregen_is_setting_up_with_an_empty_party(kernel):
     module = read_json(kernel.workspace / ".coc" / "modules" / MODULE / "module.json")
     assert module["status"] == "installed" and module["source"] == "starter" and module["generation"] == 1
     assert (kernel.workspace / ".coc" / "modules" / MODULE / "module-graph.json").exists()
+
+
+def test_a_new_card_takes_the_era_the_book_declares(kernel):
+    """The module node carries `runtime_projection.documents`, never `.record`: reading the
+    record returned None and every card silently became 1920s, the-white-war included."""
+    kernel.ok("campaign.create", {"id": "ww1-era", "module": "the-white-war", "play_language": "en"})
+    made = kernel.ok("setup.investigator", {"campaign": "ww1-era", "name": "Bea", "occupation": "Journalist"})
+    sheet = read_json(kernel.workspace / ".coc" / "campaigns" / "ww1-era" / "party" / f"{made['investigator']['id']}.json")
+    assert sheet["era"] == "ww1", "the card takes the book's era, not the rulebook default"
+    kernel.ok("campaign.create", {"id": "twenties", "module": MODULE, "play_language": "en"})
+    other = kernel.ok("setup.investigator", {"campaign": "twenties", "name": "Cal", "occupation": "Journalist"})
+    assert read_json(kernel.workspace / ".coc" / "campaigns" / "twenties" / "party"
+                     / f"{other['investigator']['id']}.json")["era"] == "1920s"
 
 
 def test_create_with_pregen_stays_active_as_before(kernel):
@@ -84,6 +102,30 @@ def test_steps_table_is_the_seven_steps_in_order_and_a_dag(kernel):
     assert by_id["create-investigator"]["needs"] == ["create-campaign", "build-opening"]
     assert by_id["complete"]["needs"] == ["create-investigator"]
     assert set(table["templates"]) == {"unknown_step", "needs_unmet", "already_done", "all_done"}
+
+
+def test_module_source_is_declared_and_skips_the_pdf_only_steps_as_not_applicable(kernel):
+    """§20.7: the table's own `only_for`/`applies_to` machinery is what excludes a
+    step for a source, so a third source needs no new step-level data -- just its
+    name added to `sources`. For `module`, `build-bundle`/`bind-source`/`build-opening`
+    (each `only_for: "pdf"`) are excluded the same way they already are for `starter`:
+    not present in that source's order at all, which is "not applicable", a
+    different thing from being present but blocked on an unmet prerequisite
+    ("missing"; see `needs_unmet` for that case)."""
+    table = kernel.ok("setup.steps", {})
+    assert table["sources"] == ["starter", "pdf", "module"]
+    steps = SetupSteps(STEPS_PATH)
+
+    for pdf_only in ("build-bundle", "bind-source", "build-opening"):
+        assert steps.applies(pdf_only, "pdf") is True
+        assert steps.applies(pdf_only, "starter") is False
+        assert steps.applies(pdf_only, "module") is False
+
+    assert steps.order("module") == ["choose-source", "create-campaign", "create-investigator", "complete"]
+    for pdf_only in ("build-bundle", "bind-source", "build-opening"):
+        assert pdf_only not in steps.order("module")
+    # the full pdf lane still has every step, in table order (unaffected by the third source)
+    assert steps.order("pdf") == STEP_IDS
 
 
 def test_kernel_side_ops_in_the_table_exist(kernel):

@@ -1,0 +1,255 @@
+#!/usr/bin/env python3
+"""The OCR adapter (contract `docs/kernel-rpc.md` §20.1, §20.2): outsource the pages a
+local extractor could not read to Baidu PaddleOCR, and hand back page Markdown named
+by the book's own page index.
+
+CLI:
+    coc-ocr <pdf> --pages 0,1,11 --out <dir>
+
+`--pages` is a comma-separated list of 0-based page indices -- the bundle's own page
+numbering (contract §14.2), the original page's position in the source PDF. For each
+one this writes `<dir>/NNNN.md` (four digits, zero-padded, matching a bundle's page
+files) and prints exactly one JSON object on stdout:
+
+    {"pages": [0, 1, 11], "written": 3, "backend": "<name>", "skipped": []}
+
+`written` is a count; `skipped` lists any requested page this run could not produce
+(empty on a full success). A non-zero exit means failure, with the reason on stderr;
+the summary line is still printed first, so a caller that only reads stdout still
+learns which backend was attempted.
+
+This script only shells out (to `mutool` and to the OCR backend command below) --
+it never imports a PDF-parsing library itself, matching the same law the packer
+(`bin/coc-bundle`) and the kernel both keep: parsing happens in host adapters, not
+in code this repository ships as its own.
+
+Backend
+-------
+The command that actually talks to the OCR service is named by `PI_COC_OCR_BACKEND`
+(a bare path, or a JSON array of strings when an interpreter has to be put in front
+of a script -- the same convention `extensions/module/pdf.ts` uses for its own
+`PI_COC_*_CMD` overrides). Unset, the default is the baiduocr skill script
+(`~/.codex/skills/baiduocr/scripts/baiduocr.py`) when that file exists, run with a
+*system* `python3` rather than this repository's `uv`-managed interpreter: that
+script needs `requests`, which is not a dependency of this repository, so the venv
+`sys.executable` would use cannot import it. Its own CLI is `<script> <source> -o
+<outdir>`; it writes `doc_<k>.md` (plus `doc_<k>.json`, images and `result.jsonl`,
+all ignored here) per page of whatever document it was handed, and reads its
+credential from `BAIDUOCR_TOKEN` in the environment -- this script never puts that
+token on a command line, in a file, or in any printed output; it only ever checks
+whether the variable is set, and forwards it by ordinary environment inheritance.
+
+No token, or no backend resolvable, is not a crash: it is exactly how a caller is
+meant to learn OCR is unavailable (a non-zero exit with a clear reason), so that an
+ingest job can record `ocr_unavailable` for the pages it asked for rather than fail
+outright.
+
+Only the requested pages are ever sent to the backend. When `mutool` is on hand
+(`/opt/homebrew/bin/mutool` by default; `PI_COC_MUTOOL` overrides the path, the same
+test seam as the backend override), this cuts a subset PDF first (`mutool merge -o
+subset.pdf <pdf> <1-based page list>`, contract §20.1) and keeps the map from the
+subset's own page order back to the original indices, renaming the backend's
+`doc_<k>.md` accordingly. When `mutool` is missing, this falls back to handing the
+backend the whole file and keeping only the pages that were actually asked for --
+the `backend` field in the summary says which path was taken, so a reader of the
+JSON (or the ingest job's own telemetry) is never left guessing.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+TOKEN_VARIABLE = "BAIDUOCR_TOKEN"
+BACKEND_VARIABLE = "PI_COC_OCR_BACKEND"
+MUTOOL_VARIABLE = "PI_COC_MUTOOL"
+DEFAULT_BACKEND = Path.home() / ".codex" / "skills" / "baiduocr" / "scripts" / "baiduocr.py"
+DEFAULT_MUTOOL = "/opt/homebrew/bin/mutool"
+DOC_PAGE_RE = re.compile(r"^doc_(\d+)\.md$")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_VENV_BIN = str((REPO_ROOT / ".venv" / "bin").resolve())
+STDERR_KEEP = 2000
+
+
+class OcrToolError(RuntimeError):
+    """A reason this run could not (fully) produce OCR pages; always reported on
+    stderr, never raised as an unhandled traceback."""
+
+
+def _parse_command(raw: str) -> list[str]:
+    """A bare path, or a JSON array of strings -- the same override convention
+    `extensions/module/pdf.ts` documents for `PI_COC_EXTRACT`/`PI_COC_OCR_CMD`/
+    `PI_COC_BUNDLE_CMD`."""
+    trimmed = raw.strip()
+    if not trimmed.startswith("["):
+        return [trimmed]
+    parsed = json.loads(trimmed)
+    if not isinstance(parsed, list) or not parsed or not all(isinstance(part, str) for part in parsed):
+        raise OcrToolError("a command override must be a non-empty JSON array of strings, or a bare path")
+    return parsed
+
+
+def system_python() -> str:
+    """A `python3` that is not this repository's `uv`-managed venv. `uv run`
+    prepends the venv's `bin/` to `PATH` for the duration of the command it runs, so
+    a plain `PATH` search would find the venv's own interpreter first when this
+    script is itself launched that way; the venv is filtered out of the search
+    rather than trusted to not be first."""
+    search_dirs = [
+        entry for entry in os.environ.get("PATH", "").split(os.pathsep)
+        if entry and os.path.realpath(entry) != os.path.realpath(REPO_VENV_BIN)
+    ]
+    search_path = os.pathsep.join(search_dirs)
+    found = shutil.which("python3", path=search_path) or shutil.which("python", path=search_path)
+    if not found:
+        raise OcrToolError("no system python3 found on PATH outside this repository's uv venv")
+    return found
+
+
+def resolve_backend() -> tuple[list[str] | None, str]:
+    """The backend command, and a display name for it. `PI_COC_OCR_BACKEND` is
+    trusted verbatim when set (a test seam is allowed to point at anything, and a
+    bad override fails at run time like any other command failure); unset, the
+    default only counts as a backend when the skill script is actually there."""
+    raw = os.environ.get(BACKEND_VARIABLE, "").strip()
+    if raw:
+        command = _parse_command(raw)
+        return command, Path(command[-1]).stem
+    if DEFAULT_BACKEND.exists():
+        return [system_python(), str(DEFAULT_BACKEND)], "baiduocr"
+    return None, "none"
+
+
+def resolve_mutool() -> str | None:
+    """The `mutool` binary to cut a page subset with, or `None` when it cannot be
+    found (the whole-file fallback, contract §20.1)."""
+    override = os.environ.get(MUTOOL_VARIABLE, "").strip()
+    candidate = override or DEFAULT_MUTOOL
+    if os.sep in candidate:
+        return candidate if Path(candidate).is_file() else None
+    return shutil.which(candidate)
+
+
+def cut_subset(mutool: str, pdf: str, pages: list[int], out_path: Path) -> None:
+    """`mutool merge -o out_path pdf <1-based page list>` (contract §20.1): the
+    subset's own page order is exactly `pages`, ascending, so ordinal `i` in the
+    result is always `pages[i]` in the original."""
+    page_list = ",".join(str(page + 1) for page in pages)
+    try:
+        proc = subprocess.run([mutool, "merge", "-o", str(out_path), pdf, page_list],
+                              capture_output=True, text=True)
+    except OSError as exc:
+        raise OcrToolError(f"could not run mutool to cut the page subset: {exc}") from exc
+    if proc.returncode != 0 or not out_path.is_file():
+        detail = (proc.stderr or proc.stdout or "").strip() or f"exit code {proc.returncode}"
+        raise OcrToolError(f"mutool could not cut the page subset: {detail}")
+
+
+def run_backend(command: list[str], source_pdf: str, out_dir: Path) -> tuple[int, str]:
+    """Run the backend against `source_pdf`, writing its own `doc_<k>.md` (etc.)
+    into `out_dir`. `BAIDUOCR_TOKEN` reaches it only by ordinary environment
+    inheritance -- it is never added to `command` or logged here."""
+    try:
+        proc = subprocess.run([*command, source_pdf, "-o", str(out_dir)], capture_output=True, text=True)
+    except OSError as exc:
+        return 1, f"could not run the OCR backend: {exc}"
+    tail = (proc.stderr or proc.stdout or "").strip()
+    return proc.returncode, tail[-STDERR_KEEP:]
+
+
+def parse_args(argv: list[str] | None) -> tuple[str, list[int], Path]:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("pdf", help="path to the source PDF")
+    parser.add_argument("--pages", required=True, help="comma-separated 0-based page indices to OCR")
+    parser.add_argument("--out", required=True, type=Path, help="directory to write NNNN.md into")
+    args = parser.parse_args(argv)
+    try:
+        pages = sorted({int(part) for part in args.pages.split(",") if part.strip() != ""})
+    except ValueError:
+        parser.error(f"--pages must be a comma-separated list of integers, got {args.pages!r}")
+        raise  # unreachable, parser.error exits; keeps type-checkers happy
+    if not pages or any(page < 0 for page in pages):
+        parser.error("--pages must name at least one non-negative page index")
+    return args.pdf, pages, args.out
+
+
+def run(pdf: str, pages: list[int], out_dir: Path) -> tuple[dict[str, object], int, str | None]:
+    """The whole job. Always returns a summary dict (even on failure, so a caller
+    reading only stdout still learns which backend/path was attempted) alongside
+    the process exit code and, on failure, the message for stderr."""
+    summary: dict[str, object] = {"pages": pages, "written": 0, "backend": None, "skipped": list(pages)}
+
+    if not os.environ.get(TOKEN_VARIABLE, "").strip():
+        return summary, 1, f"{TOKEN_VARIABLE} is not set in this environment; OCR is unavailable."
+
+    try:
+        backend_command, backend_name = resolve_backend()
+    except OcrToolError as exc:
+        return summary, 1, str(exc)
+    if backend_command is None:
+        return summary, 1, f"no OCR backend: set {BACKEND_VARIABLE}, or install {DEFAULT_BACKEND}."
+
+    if not Path(pdf).is_file():
+        return summary, 1, f"no such PDF: {pdf}"
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    mutool = resolve_mutool()
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="coc-ocr-") as scratch:
+            scratch_path = Path(scratch)
+            if mutool:
+                source_pdf = scratch_path / "subset.pdf"
+                cut_subset(mutool, pdf, pages, source_pdf)
+                ordinal_to_original = dict(enumerate(pages))
+                summary["backend"] = f"{backend_name} (mutool subset)"
+            else:
+                source_pdf = Path(pdf)
+                ordinal_to_original = None  # identity: the ordinal *is* the original index
+                summary["backend"] = f"{backend_name} (whole file, no mutool)"
+
+            ocr_raw = scratch_path / "ocr-raw"
+            code, tail = run_backend(backend_command, str(source_pdf), ocr_raw)
+
+            written: list[int] = []
+            if ocr_raw.is_dir():
+                for doc_path in sorted(ocr_raw.glob("doc_*.md")):
+                    match = DOC_PAGE_RE.match(doc_path.name)
+                    if not match:
+                        continue
+                    ordinal = int(match.group(1))
+                    original = ordinal_to_original.get(ordinal) if ordinal_to_original is not None else ordinal
+                    if original is None or original not in pages:
+                        continue  # whole-file fallback: keep only what was asked for
+                    (out_dir / f"{original:04d}.md").write_bytes(doc_path.read_bytes())
+                    written.append(original)
+
+            summary["written"] = len(written)
+            summary["skipped"] = sorted(set(pages) - set(written))
+
+            if code != 0:
+                return summary, 1, f"the OCR backend exited {code}: {tail}"
+            if summary["skipped"]:
+                return summary, 1, f"the OCR backend returned fewer pages than requested; missing {summary['skipped']}"
+            return summary, 0, None
+    except OcrToolError as exc:
+        return summary, 1, str(exc)
+
+
+def main(argv: list[str] | None = None) -> int:
+    pdf, pages, out_dir = parse_args(argv)
+    summary, code, reason = run(pdf, pages, out_dir)
+    print(json.dumps(summary))
+    if reason is not None:
+        print(reason, file=sys.stderr)
+    return code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

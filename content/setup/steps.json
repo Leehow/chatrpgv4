@@ -3,7 +3,8 @@
   "note": "The seven-step setup table (kernel-rpc.md §14.4). Both the onboarding extension and the kernel read this file; order, available actions, rejection lines and next-step lines (English, kernel-rpc.md §16.1; the setup model says them in the player's language) are written here once and derived everywhere else. `needs` are step ids; a step whose `only_for` names a source kind counts as satisfied for the other kind. `kind` is ask (the model asks the player), external (the host does something outside the kernel) or op (a method named by `op`; `side` is kernel unless the op is the module extension's own driver loop, §14.5).",
   "sources": [
     "starter",
-    "pdf"
+    "pdf",
+    "module"
   ],
   "start": "choose-source",
   "table_open_fix": "bin/pi-coc setup --campaign {campaign}",
@@ -26,6 +27,10 @@
           "description": "one of campaign.list's starter names (kernel.hello content.modules)",
           "required": false
         },
+        "module": {
+          "description": "an id from module.list with status: installed -- an already-built book, reused directly; this source skips build-bundle and bind-source",
+          "required": false
+        },
         "bundle": {
           "description": "a directory path holding a coc.pdf-bundle.v1 manifest",
           "required": false
@@ -33,8 +38,8 @@
       },
       "receipt": "source",
       "lines": {
-        "do": "Ask the player to pick a starter (the list from kernel.hello) or to give a bundle directory.",
-        "next": "Choose the source: name a starter, or give a bundle directory."
+        "do": "Ask the player to pick a starter (the list from kernel.hello), an already-installed module (module.list, status: installed), or to give a bundle directory.",
+        "next": "Choose the source: name a starter, name an installed module, or give a bundle directory."
       }
     },
     {

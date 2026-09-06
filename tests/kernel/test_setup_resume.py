@@ -2,7 +2,7 @@
 and setup.steps {campaign} tells a restarted setup process what is already done."""
 
 from conftest import CAMPAIGN, campaign_dir, read_json
-from module_helpers import TINY_ID, bind_tiny, packet_for, reader_shard, review, write_shard
+from module_helpers import TINY_ID, bind_tiny, module_dir, packet_for, reader_shard, review, write_shard
 
 
 def _build(kernel, tmp_path):
@@ -55,3 +55,39 @@ def test_steps_resume_for_a_starter_and_an_unknown_campaign(kernel):
     resume = kernel.ok("setup.steps", {"campaign": CAMPAIGN})
     assert resume["completed"] == ["choose-source", "create-campaign"]
     assert resume["state"]["source"] == {"kind": "starter", "module_id": "the-haunting"}
+
+
+# ---- §20.7: the third setup source -- an already-installed, non-starter module -----------
+
+
+def test_module_source_reuses_an_installed_book_and_skips_the_build_lane(kernel, tmp_path):
+    """§20.7: a module already `installed` (built once, in a past campaign's setup) can
+    be handed straight to `campaign.create` -- the third setup source, `module`, whose
+    whole point is skipping `build-bundle`/`bind-source`/`build-opening` entirely,
+    rather than genuinely running them like the `pdf` source does (the test above).
+    `content/setup/steps.json`'s `only_for: "pdf"` on those three steps is what already
+    excludes them for any other source kind -- no new data is written for `module`,
+    only added to `sources` (contract §20.7, "put the skip in the data")."""
+    _build(kernel, tmp_path)  # TINY_ID is now assembled, with a graph, in the module store
+    kernel.ok("module.install", {"module_id": TINY_ID})  # -> status: installed (module.list's own bar for §20.7)
+    assert read_json(module_dir(kernel.workspace, TINY_ID) / "module.json")["status"] == "installed"
+
+    second = "second-camp"
+    created = kernel.ok("campaign.create", {"id": second, "module": TINY_ID, "play_language": "zh-Hans"})["campaign"]
+    assert created["status"] == "setting_up" and created["investigators"] == []
+    # the graph already existed: campaign.create starts the world immediately (kernel/coc/table.py),
+    # unlike the pdf lane's first campaign above, which has no world until the book is built.
+    assert created["opening_scene"]
+    assert (campaign_dir(kernel.workspace, second) / "world.json").exists()
+
+    resume = kernel.ok("setup.steps", {"campaign": second})
+    assert resume["completed"] == ["choose-source", "create-campaign"]
+    assert resume["state"]["source"] == {"kind": "module", "module_id": TINY_ID}
+
+    occupation = kernel.ok("setup.occupations", {"campaign": second})["occupations"][0]["id"]
+    kernel.ok("setup.investigator", {"campaign": second, "name": "Reused", "occupation": occupation, "seed": 9})
+    handoff = kernel.ok("setup.complete", {"campaign": second})
+    assert handoff["status"] == "ready_for_table" and handoff["module_id"] == TINY_ID
+
+    opened = kernel.table("open", campaign=second)
+    assert opened["campaign"]["status"] == "active"

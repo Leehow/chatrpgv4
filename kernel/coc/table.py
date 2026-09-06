@@ -11,7 +11,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable
 
-from . import KERNEL_VERSION, bookkeeping, continuation, history, memory, recall as recall_roads, warn as warn_lane
+from . import KERNEL_VERSION, bookkeeping, continuation, history, library, memory, recall as recall_roads, warn as warn_lane
 from .capsule import (scene_label, build_capsule, clues_here, investigator_view, npc_view, npcs_present,
                       present_section, where_section)
 from .craft import DEFAULT_REGISTER, TextGraph
@@ -1624,6 +1624,8 @@ class Table:
         for step, action in (
             ("checkpoint", lambda: continuation.write_checkpoint(
                 campaign, continuation.checkpoint_from_record(campaign.id, record, snapshot))),
+            # §21.4: the library cards at the table mirror the committed sheet; never raises
+            ("library", lambda: library.write_back(self.store, campaign, record)),
             ("episode", lambda: memory.write_episode(campaign, record)),
         ):
             try:

@@ -13,6 +13,7 @@ from typing import Any, Callable
 from . import bookkeeping, director as director_mod, pressures as pressures_mod
 from .craft import TextGraph
 from .director import DirectorGraph
+from .library import era_note
 from .module_graph import (NPC_KIND, ModuleGraph, condition_met, condition_status,  # noqa: F401 - condition helpers re-exported
                            describe_condition, record_of)
 from .ontology import Ontology
@@ -256,6 +257,8 @@ def known_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, An
     }
     if party:
         section["investigator"] = investigator_summary(party[0])
+        # §21.3: a library card built for another era plays unchanged; the keeper is told.
+        section["investigator"].update(era_note(graph, party[0]))
     return section
 
 

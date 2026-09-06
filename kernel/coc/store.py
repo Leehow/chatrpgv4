@@ -54,6 +54,8 @@ class Store:
         self.repos_dir = self.root / "repos"
         #: §14.1: the module store, shared by every campaign of the same module.
         self.modules_dir = self.root / "modules"
+        #: §21.1: the investigator library -- one row per card, played from any campaign.
+        self.investigators_dir = self.root / "investigators"
 
     def campaign_ids(self) -> list[str]:
         if not self.campaigns_dir.exists():

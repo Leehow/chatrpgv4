@@ -99,11 +99,19 @@ class SetupSteps:
         """Topological order for one source kind, steps for the other kind left out."""
         out: list[str] = []
         for step in self.steps:
-            if step.get("only_for") not in (None, source):
+            if not self.applies(step["id"], source):
                 continue
             if step["id"] not in out:
                 out.append(step["id"])
         return out
+
+    def applies(self, step_id: str, source: str) -> bool:
+        """Whether this step is part of the table for this source kind: unset `only_for`
+        applies everywhere, a set one only to its own source. A third source (`module`,
+        §20.7) automatically excludes every `pdf`-only step -- no new data is written for
+        it, the same field that already keeps `starter` out of `build-bundle`/`bind-source`
+        keeps `module` out too."""
+        return self.step(step_id).get("only_for") in (None, source)
 
     def table_open_fix(self, campaign_id: str) -> str:
         return str(self.raw["table_open_fix"]).format(campaign=campaign_id)
@@ -335,19 +343,32 @@ class SetupMethods:
         module_id = str(meta.get("module_id") or "")
         module = module_meta(self.table.module_store, module_id) if module_id else None
         starter = module_id in self.table.modules()
-        kind = "starter" if starter else "pdf"
-        completed = ["choose-source", "create-campaign"]
+        # §20.7: a non-starter module whose graph already existed the moment
+        # `campaign.create` ran (kernel/coc/table.py `campaign_create`: `has_graph` true,
+        # so `opening_scene` is filled in immediately) was picked already-installed --
+        # the `module` source -- rather than genuinely bound and built in this setup (the
+        # `pdf` source, whose graph lands only later via build-opening, so `opening_scene`
+        # stays unset until then). Nothing else distinguishes the two once both are done,
+        # which is also the point at which the distinction stops mattering.
+        reused = (not starter) and meta.get("opening_scene") is not None
+        kind = "starter" if starter else ("module" if reused else "pdf")
+        completed = {"choose-source", "create-campaign"}
+        # `applies` is the same only_for/applies_to machinery `order` uses: for
+        # `starter`/`module` these two steps are not part of the table at all (not
+        # applicable), so they are never inserted as done, matching the pdf-only lane.
+        if self.steps.applies("build-bundle", kind):
+            completed.update({"build-bundle", "bind-source"})
+        if self.steps.applies("build-opening", kind) and module and \
+                (module.get("status") == "installed" or module.get("opening_ready") is True):
+            completed.add("build-opening")
+        if campaign.party():
+            completed.add("create-investigator")
+        if meta.get("status") in (STATUS_READY, STATUS_ACTIVE):
+            completed.add("complete")
+        ordered_completed = [step_id for step_id in self.steps.order(kind) if step_id in completed]
         state: dict[str, Any] = {"campaign": campaign.id, "module_id": module_id, "module": module_id,
                                  "source": {"kind": kind, "module_id": module_id}, "source_kind": kind}
-        if not starter and module:
-            completed[1:1] = ["build-bundle", "bind-source"]
-            if module.get("status") == "installed" or module.get("opening_ready") is True:
-                completed.append("build-opening")
-        if campaign.party():
-            completed.append("create-investigator")
-        if meta.get("status") in (STATUS_READY, STATUS_ACTIVE):
-            completed.append("complete")
-        return {**table, "completed": completed, "state": state}
+        return {**table, "completed": ordered_completed, "state": state}
 
     def occupations(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"occupations": self.chargen.occupations(),
@@ -378,10 +399,13 @@ class SetupMethods:
         if allocation is not None and not isinstance(allocation, str):
             raise invalid_params("params.allocation must be a policy name from the steps table")
         module_id = str(meta["module_id"])
-        from .module_graph import record_of  # local: keep this module free of graph imports at load
+        from .library import module_era as era_of_module  # local: keep this module free of graph imports at load
         module_era = None
         if self.table.module_store.graph_path(module_id).exists() or module_id in self.table.modules():
-            module_era = record_of(self.table.graph(module_id).module_node).get("era")
+            # A module node carries `runtime_projection.documents`, never `.record`, so reading
+            # the record silently returned None and every card fell back to 1920s -- the-white-war
+            # included. One reader for both callers (contract §21.3).
+            module_era = era_of_module(self.table.graph(module_id))
         # A bound book whose graph has not landed yet has no era to read: the rulebook default.
         era = params.get("era") or module_era or "1920s"
         if not isinstance(era, str):

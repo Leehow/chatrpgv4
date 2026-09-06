@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .errors import RpcError
+from .library import methods as library_methods
 from .modules.rpc import methods as module_methods
 from .store import Store
 from .table import Table
@@ -51,6 +52,8 @@ def build_methods(table: Table) -> dict[str, Callable[[dict[str, Any]], dict[str
         "setup.complete": table.setup.complete,
         # slice 4 (contract §14.1–14.3, 14.6, 14.8): module store, bind, build, deepen, assets
         **module_methods(table),
+        # slice 12 (contract §21.2): the investigator library
+        **library_methods(table),
     }
 
 
