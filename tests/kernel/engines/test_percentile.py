@@ -77,6 +77,33 @@ def test_roll_expression_returns_total_and_terms():
     assert result["total"] == sum(result["rolls"]) + 3
 
 
+def test_roll_expression_rolls_a_sum_of_dice_terms():
+    """The rulebook and the module graphs write compound damage (`1D3+1D4`); the
+    single-term form is what everything else uses, so both must roll."""
+    result = roll_expression("1D3+1D4", rng=random.Random(4))
+    assert result["expression"] == "1D3+1D4"
+    assert len(result["rolls"]) == 2, "every face is kept for the receipt"
+    assert result["total"] == sum(result["rolls"])
+    assert result["modifier"] == 0
+    assert "count" not in result and "sides" not in result, "a compound sum has no single N/M"
+    assert [term.get("sides") for term in result["terms"]] == [3, 4]
+
+    with_modifier = roll_expression("1D6+1D4+2", rng=random.Random(4))
+    assert with_modifier["total"] == sum(with_modifier["rolls"]) + 2
+    assert with_modifier["modifier"] == 2
+
+    negative = roll_expression("1D4-1", rng=random.Random(4))
+    assert negative["count"] == 1 and negative["sides"] == 4, "one die keeps the simple shape"
+    assert negative["total"] == sum(negative["rolls"]) - 1
+
+    for bad in ("lots", "4", "1D", "D6", ""):
+        try:
+            roll_expression(bad, rng=random.Random(4))
+        except ValueError:
+            continue
+        raise AssertionError(f"{bad!r} is not a dice expression")
+
+
 def test_percentile_check_applies_hard_difficulty(tables):
     result = percentile_check(tables, 60, difficulty="hard", rng=random.Random(1))
     assert result["target"] == 60

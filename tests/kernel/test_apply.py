@@ -172,6 +172,22 @@ def test_damage_effect_rolls_the_dice_and_moves_hp(kernel):
     assert bad["code"] in ("invalid_params", "turn_state")
 
 
+def test_damage_effect_takes_compound_rulebook_dice(kernel):
+    """`1D3+1D4` is what the-haunting's own graph writes for one of its weapons; the
+    no-attacker damage path must roll it instead of calling it not a dice expression."""
+    open_turn(kernel)
+    before = kernel.table("look", focus="investigator")["hp"]
+    result = kernel.table("apply", call_id="t1-c1",
+                          effects=[{"kind": "damage", "dice": "1D3+1D4", "why": "断掉的楼梯砸下来"}])
+    assert any(r.startswith("roll:damage-t1") for r in result["receipts"])
+    after = kernel.table("look", focus="investigator")["hp"]
+    assert 2 <= before - after <= 7, "two dice, both rolled"
+    narrated = narrate(kernel, "t1-c2", f"木头砸在你肩上，{before - after} 点伤。")
+    dice = next(m for m in narrated["mechanics"] if m["kind"] == "dice")
+    assert dice["expression"] == "1D3+1D4"
+    assert len(dice["faces"]) == 2 and dice["total"] == before - after
+
+
 def test_move_label_names_the_scene_from_then_on(kernel):
     """A label given once is the scene's name afterwards: capsule, receipts, checkpoint."""
     open_turn(kernel)

@@ -20,21 +20,60 @@ RULE_REFS = ["percentile-check", "success-levels", "difficulty-levels", "half-fi
 MODIFIER_RULE_REF = "roll-modifiers"
 
 ROLL_PATTERN = re.compile(r"^(?P<count>\d+)D(?P<sides>\d+)(?P<modifier>[+-]\d+)?$")
+#: One term of a sum: `NdM` or a bare integer. The rulebook writes compound damage
+#: (`1D3+1D4` for a two-headed weapon, `1D6+1` for a bonus), and so do module graphs.
+TERM_PATTERN = re.compile(r"^(?P<count>\d+)D(?P<sides>\d+)$")
 
 
 def roll_expression(expression: str, rng: random.Random | None = None) -> dict[str, Any]:
-    """Roll `NdM(+k)`; individual faces are kept for receipts."""
+    """Roll a sum of dice terms and integers: `NdM`, `NdM+k`, `NdM+NdS-k`.
+
+    Individual faces are kept for receipts. `count`/`sides` are returned only when the
+    expression holds exactly one dice term, which is every caller that reads them; a
+    compound expression is described by `terms` instead.
+    """
     rng = rng or random.Random()
-    normalized = str(expression).strip().upper()
-    match = ROLL_PATTERN.match(normalized)
-    if match is None:
+    normalized = str(expression).strip().upper().replace(" ", "")
+    if not normalized:
         raise ValueError(f"unsupported dice expression: {expression}")
-    count = int(match.group("count"))
-    sides = int(match.group("sides"))
-    modifier = int(match.group("modifier") or 0)
-    rolls = [rng.randint(1, sides) for _ in range(count)]
-    return {"expression": normalized, "count": count, "sides": sides, "modifier": modifier,
-            "rolls": rolls, "total": sum(rolls) + modifier}
+    # A leading '-' would split into an empty first token; '+-' keeps the sign with its term.
+    tokens = [token for token in normalized.replace("-", "+-").split("+") if token]
+    if not tokens:
+        raise ValueError(f"unsupported dice expression: {expression}")
+    rolls: list[int] = []
+    terms: list[dict[str, Any]] = []
+    modifier = 0
+    total = 0
+    for token in tokens:
+        sign = -1 if token.startswith("-") else 1
+        body = token[1:] if token.startswith("-") else token
+        match = TERM_PATTERN.match(body)
+        if match is not None:
+            count = int(match.group("count"))
+            sides = int(match.group("sides"))
+            if count < 1 or sides < 1:
+                raise ValueError(f"unsupported dice expression: {expression}")
+            faces = [rng.randint(1, sides) for _ in range(count)]
+            rolls.extend(faces)
+            total += sign * sum(faces)
+            terms.append({"count": count, "sides": sides, "sign": sign, "rolls": faces})
+            continue
+        try:
+            value = int(body)
+        except ValueError:
+            raise ValueError(f"unsupported dice expression: {expression}") from None
+        modifier += sign * value
+        total += sign * value
+        terms.append({"modifier": sign * value})
+    dice_terms = [term for term in terms if "sides" in term]
+    if not dice_terms:
+        raise ValueError(f"unsupported dice expression: {expression}")
+    result: dict[str, Any] = {"expression": normalized, "modifier": modifier, "terms": terms,
+                              "rolls": rolls, "total": total}
+    if len(dice_terms) == 1 and dice_terms[0]["sign"] == 1:
+        result["count"] = dice_terms[0]["count"]
+        result["sides"] = dice_terms[0]["sides"]
+    return result
 
 
 def resolve_percentile_roll(tables: RuleTables, roll: int, base_target: int,
