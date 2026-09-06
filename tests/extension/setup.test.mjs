@@ -79,6 +79,25 @@ test("建卡模式：只注册 setup 这一个工具，不开桌、不跑车道"
 	assert.ok(!methods.includes("table.capsule"), "建卡进程没有胶囊");
 });
 
+test("选内置 starter 就是 starter 来源，不是 pdf，也不会被要资料包（#32）", async (t) => {
+	const table = await openSetup([]);
+	t.after(() => table.dispose());
+
+	table.faux.setResponses([
+		setupCall({ step: "choose-source", starter: "the-haunting" }),
+		fauxAssistantMessage("好，就它了。"),
+	]);
+	await table.session.prompt("我们玩 The Haunting");
+	await waitForIdle(table.session);
+
+	const chosen = setupResults(table.session).at(-1);
+	assert.equal(chosen.ok, true, "内置 starter 是现成的，选了就该过");
+	assert.equal(chosen.source.kind, "starter", "玩家点名了 starter，来源就是 starter");
+	assert.equal(chosen.source.module_id, "the-haunting");
+	assert.ok(chosen.kinds.includes("starter"), "来源词表来自表声明的 sources");
+	assert.ok(!String(chosen.next ?? "").includes("build-bundle"), "starter 不该被要资料包");
+});
+
 test("pdf 那条路：资料包没到手就等，绑定与构建各归各的，开场就绪才建卡", async (t) => {
 	const last = lastStep();
 	const table = await openTable({

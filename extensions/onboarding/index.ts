@@ -28,6 +28,7 @@ import {
 	type GateState,
 	instructionFor,
 	nextStep,
+	declaredSources,
 	normalizeSteps,
 	type OpSpec,
 	progressLine,
@@ -84,6 +85,8 @@ export default function (pi: ExtensionAPI) {
 	let ctx: ExtensionContext | undefined;
 	let bridge: { call: KernelCall; hello?: Record<string, unknown> } | undefined;
 	let steps: Step[] | undefined;
+	/** The `sources` the table declares; the source vocabulary comes from here, not from the steps (#32). */
+	let tableSources: string[] = [];
 	let stepsError: string | undefined;
 	let loading: Promise<void> | undefined;
 	const completed = new Set<string>();
@@ -129,6 +132,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			steps = rows;
+			tableSources = declaredSources(result);
 			stepsError = undefined;
 			for (const done of Array.isArray(result.completed) ? result.completed : []) {
 				const id = asString(done);
@@ -205,7 +209,20 @@ export default function (pi: ExtensionAPI) {
 
 	// ---- The three steps that are not one kernel call ---------------------
 
-	/** The starter list: `kernel.hello`'s content plus the campaigns `campaign.list` already has. */
+	/**
+	 * What the player may choose from: the starters in `kernel.hello`'s content, the books already
+	 * installed in the module store (§20.7's third source — parsed once, played any number of times),
+	 * and the campaigns `campaign.list` already has.
+	 */
+	/** The kinds whose lane has a step the host must produce first: the bundle lanes. */
+	function producedKinds(): Set<string> {
+		return new Set(
+			(steps ?? [])
+				.filter((step) => step.kind === "external")
+				.flatMap((step) => step.appliesTo ?? []),
+		);
+	}
+
 	async function sourceCatalogue(): Promise<Record<string, unknown>> {
 		const modules = asRecord(asRecord(bridge?.hello).content).modules;
 		const starters = Array.isArray(modules) ? modules.filter((row) => typeof row === "string") : [];
@@ -216,7 +233,20 @@ export default function (pi: ExtensionAPI) {
 		} catch {
 			/* failing to list them must not block choosing a book */
 		}
-		return { starters, campaigns, kinds: sourceKinds(steps ?? []) };
+		let installed: string[] = [];
+		try {
+			const listed = asRecord(await bridge?.call("module.list", {}));
+			const rows = Array.isArray(listed.modules) ? listed.modules : [];
+			installed = rows
+				.map((row) => {
+					const record = asRecord(row);
+					return record.status === "installed" ? asString(record.module_id) ?? asString(record.id) : undefined;
+				})
+				.filter((row): row is string => row !== undefined && !starters.includes(row));
+		} catch {
+			/* a store that cannot be listed still leaves the starters choosable */
+		}
+		return { starters, installed, campaigns, kinds: sourceKinds(steps ?? [], tableSources) };
 	}
 
 	/**
@@ -228,15 +258,18 @@ export default function (pi: ExtensionAPI) {
 		const kinds = catalogue.kinds as string[];
 		const module = asString(args.module) ?? asString(args.module_id) ?? asString(args.starter);
 		const bundle = asString(args.bundle) ?? asString(args.bundle_path);
+		const starterNames = catalogue.starters as string[];
+		const installedNames = catalogue.installed as string[];
 		let kind = asString(args.kind) ?? asString(args.source_kind);
 		if (!kind) {
-			// With no kind named, derive it from the table rather than hard-coding the word "pdf": the source
-			// that has an `external` step is the one that must be produced first (a bundle); the other is taken ready-made (a starter).
-			const needsProducing = new Set(
-				kinds.filter((row) => (steps ?? []).some((step) => step.kind === "external" && (step.appliesTo ?? []).includes(row))),
-			);
-			if (module) kind = kinds.find((row) => !needsProducing.has(row)) ?? kinds[0];
-			else if (bundle) kind = kinds.find((row) => needsProducing.has(row)) ?? kinds[0];
+			// Derive the kind from what the player actually named, never from the shape of the table
+			// (#32: inferring "the kind with no external step" made a starter come back as `pdf` and
+			// sent the player off to find a bundle he does not have). A book that has to be produced
+			// first is the bundle lane; a name already in the content catalogue is a starter; a name
+			// already installed in the store is that third source.
+			if (bundle) kind = kinds.find((row) => producedKinds().has(row)) ?? kinds[0];
+			else if (module && starterNames.includes(module)) kind = kinds.includes("starter") ? "starter" : kinds[0];
+			else if (module && installedNames.includes(module)) kind = kinds.includes("module") ? "module" : kinds[0];
 		}
 		if (!kind) {
 			return {
@@ -255,14 +288,14 @@ export default function (pi: ExtensionAPI) {
 				...catalogue,
 			};
 		}
-		const starters = catalogue.starters as string[];
 		if (module) {
-			if (starters.length > 0 && !starters.includes(module)) {
+			const known = [...starterNames, ...installedNames];
+			if (known.length > 0 && !known.includes(module)) {
 				return {
 					ok: false,
 					step: step.id,
-					rejected: `The content catalogue has no starter "${module}".`,
-					candidates: starters,
+					rejected: `Neither the content catalogue nor the module store has a book called "${module}".`,
+					candidates: known,
 					...catalogue,
 				};
 			}

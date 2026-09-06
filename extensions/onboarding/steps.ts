@@ -260,10 +260,16 @@ export function instructionFor(step: Step | undefined): string {
 }
 
 /**
- * The source kinds the table mentions: the values of `applies_to` plus the keys of a source-forked `needs`.
- * Those are what the player can pick; this side keeps no vocabulary of its own (contract §14.4: order and forking live in the table only).
+ * The source kinds the player may pick. The table declares them in its own `sources` list, and that
+ * list is the answer whenever it is there: a source whose lane needs no extra steps (an installed
+ * starter, a book already in the store) appears in no step's `applies_to`, so inferring the
+ * vocabulary from the steps alone silently loses it — which is how naming a starter came back as a
+ * PDF and asked the player for a bundle (#32). Inference stays as the fallback for a table with no
+ * `sources` key. This side still keeps no vocabulary of its own (contract §14.4).
  */
-export function sourceKinds(steps: Step[]): string[] {
+export function sourceKinds(steps: Step[], declared?: readonly string[]): string[] {
+	const named = (declared ?? []).filter((kind) => typeof kind === "string" && kind.length > 0);
+	if (named.length > 0) return [...new Set(named)];
 	const kinds = new Set<string>();
 	for (const step of steps) {
 		for (const kind of step.appliesTo ?? []) kinds.add(kind);
@@ -272,6 +278,13 @@ export function sourceKinds(steps: Step[]): string[] {
 		}
 	}
 	return [...kinds];
+}
+
+/** The `sources` list a `setup.steps` result declares, empty when the table does not say. */
+export function declaredSources(raw: unknown): string[] {
+	const rows = asRecord(raw).sources;
+	if (!Array.isArray(rows)) return [];
+	return rows.map((row) => asString(row)).filter((row): row is string => row !== undefined && row.length > 0);
 }
 
 /** One progress line for the status bar: how many steps are done and which is next (contract §14.4). */
