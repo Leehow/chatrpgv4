@@ -1,0 +1,50 @@
+{
+  "source": "sanity-check-67a578c9.json",
+  "decision": "sanity:check",
+  "family": "sanity",
+  "setup": {
+    "move_to": [
+      "corbitt-house-ground",
+      "basement-rites",
+      "corbitt-confrontation"
+    ]
+  },
+  "action": {
+    "intent": "investigate",
+    "goal": "corbitt-corpse-animates-when-chain-yanked",
+    "method": "",
+    "decision": "sanity:check",
+    "san_loss": "1/1d6",
+    "involuntary": {
+      "kind": "cry_out",
+      "summary": "A choked cry escapes as the thrashing body jerks the chain in his grip"
+    }
+  },
+  "expect": {
+    "decision": "sanity:check",
+    "outcome_kind": "sanity",
+    "outcome": {
+      "skill": "SAN",
+      "status": "sanity_check"
+    },
+    "effect_kinds_allowed": [
+      "san"
+    ],
+    "event_types": [
+      "decision-settled"
+    ],
+    "optional_event_types": [
+      "roll-resolved",
+      "resource-changed"
+    ],
+    "event_counts_min": {
+      "roll-resolved": 1
+    },
+    "session": {
+      "kind_in": [
+        null,
+        "sanity_bout"
+      ]
+    }
+  }
+}

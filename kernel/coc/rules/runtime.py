@@ -13,6 +13,7 @@ from typing import Any, Callable, Mapping
 from ..errors import RpcError
 from ..fileio import read_json, write_json_atomic
 from ..module_graph import NPC_KIND, ModuleGraph, record_of
+from ..sessions import SessionView
 from ..store import Campaign, now_iso
 from ..text import kebab, normalize
 from . import development, magic, rule_options
@@ -189,6 +190,69 @@ class SettleContext:
             return None
         return max(0, self.clock_minutes - max(active))
 
+    # -- session engines -> sheet ---------------------------------------------------
+
+    def mirror_investigator(self, investigator_id: str, *, current_hp: int | None = None, current_mp: int | None = None,
+                            current_san: int | None = None, conditions: list[str] | None = None,
+                            wounds: list[str] | None = None) -> None:
+        """Write an engine's view of an investigator back onto the sheet (and the healing
+        snapshot, whose `current_hp` / `conditions` the healing family reads)."""
+        sheet = self.sheet_by_id(investigator_id)
+        if sheet is None:
+            return
+        if current_hp is not None:
+            sheet["current_hp"] = int(current_hp)
+        if current_mp is not None:
+            sheet["current_mp"] = int(current_mp)
+        if current_san is not None:
+            sheet["current_san"] = int(current_san)
+        if conditions is not None:
+            sheet["conditions"] = list(conditions)
+        self.write_sheet(sheet)
+        if current_hp is None and conditions is None and not wounds:
+            return
+        state = read_healing_state(self.campaign_dir, investigator_id)
+        for source in wounds or []:
+            establish_damage_wound(state, decision_id=f"{self.call_id}-{kebab(source)}",
+                                   occurred_elapsed_minutes=self.clock_minutes, source_damage_roll_id=source)
+        if not state and not wounds:
+            return
+        state["investigator_id"] = investigator_id
+        if current_hp is not None:
+            state["current_hp"] = int(current_hp)
+        if conditions is not None:
+            state["conditions"] = list(conditions)
+        write_healing_state(self.campaign_dir, investigator_id, state)
+
+    def sync_combatants(self, session: Any, *, concluded: bool) -> None:
+        """Every investigator in a CombatSession: HP, MP and conditions (transient combat
+        conditions drop once the fight is over); each new landed hit becomes a wound."""
+        for actor_id, participant in session.participants.items():
+            if self.sheet_by_id(actor_id) is None:
+                continue
+            conditions = [c for c in participant.get("conditions") or []
+                          if not (concluded and c in {"prone", "grappled", "surprised", "outnumbered", "fled"})]
+            known = {r.get("source_damage_roll_id") for r in read_healing_state(self.campaign_dir, actor_id).get("wound_ledger") or []
+                     if isinstance(r, dict)}
+            wounds = []
+            for damage in session.damage_chain:
+                source = damage.get("damage_roll_id") if isinstance(damage, dict) else None
+                if (damage.get("target_actor_id") != actor_id or not isinstance(source, str) or source in known
+                        or int(damage.get("raw_damage", 0)) - int(damage.get("armor_absorbed", 0)) <= 0):
+                    continue
+                wounds.append(source)
+            self.mirror_investigator(actor_id, current_hp=int(participant["hp_current"]),
+                                     current_mp=int(participant.get("magic_points") or 0), conditions=conditions, wounds=wounds)
+
+    def sync_chase_participants(self, session: Any) -> None:
+        for actor_id, participant in session.participants.items():
+            if self.sheet_by_id(actor_id) is None:
+                continue
+            self.mirror_investigator(actor_id, current_hp=int(participant.get("hp") or 0))
+
+    def sync_sanity(self, session: Any) -> None:
+        self.mirror_investigator(session.investigator_id, current_san=int(session.san_current))
+
     # -- module graph ----------------------------------------------------------
 
     def npc_node(self, handle: str) -> dict[str, Any] | None:
@@ -213,6 +277,9 @@ class SettleContext:
     def present_npc_names(self) -> list[str]:
         presence = self.world.get("npc_presence") or {}
         return sorted(handle for handle, at in presence.items() if at == self.active_scene)
+
+    def sessions(self) -> SessionView:
+        return SessionView(self.campaign_dir, self.graph, self.party(), self.world)
 
     def discovered_clue_names(self) -> list[str]:
         return list(self.world.get("discovered_clues") or [])
@@ -311,19 +378,39 @@ class SettleContext:
         self.receipts.append(receipt)
         return receipt_id
 
-    def add_dice_roll(self, *, actor: str, label: str, expression: Any, faces: list[int], total: Any) -> str:
-        receipt_id = self._mint(f"roll:{kebab(label)}-t{self.turn_number}-c{self.ordinal}")
-        self.receipts.append({"id": receipt_id, "kind": "roll", "form": "dice", "call_id": self.call_id, "actor": actor,
-                              "skill": label, "skill_label": label, "expression": expression, "faces": list(faces),
-                              "total": total, "visibility": "public", "at": now_iso()})
+    def add_dice_roll(self, *, actor: str, label: str, expression: Any, faces: list[int], total: Any,
+                      skill_label: str | None = None, **extra: Any) -> str:
+        """`label` names the die in the receipt id (ASCII engine vocabulary); `skill_label`
+        is what the mechanics line prints."""
+        receipt_id = self._mint(f"roll:{kebab(label) or 'dice'}-t{self.turn_number}-c{self.ordinal}")
+        receipt = {"id": receipt_id, "kind": "roll", "form": "dice", "call_id": self.call_id, "actor": actor,
+                   "skill": label, "skill_label": skill_label or label, "expression": expression, "faces": list(faces),
+                   "total": total, "visibility": "public", "at": now_iso(), **extra}
+        if self.sheet_by_id(actor) is None:
+            receipt["actor_label"] = self.graph.display_name(node) if (node := self.npc_node(actor)) else actor
+        self.receipts.append(receipt)
         return receipt_id
+
+    def add_session_receipt(self, family: str, transition: str, *, outcome: str | None = None,
+                            summary: str | None = None) -> str:
+        """A session entered or ended (contract §11.6: 【变化】战斗开始 / 战斗结束：<outcome>)."""
+        receipt_id = self._mint(f"session:{family}-{transition}-t{self.turn_number}-c{self.ordinal}")
+        self.receipts.append({"id": receipt_id, "kind": "session", "call_id": self.call_id, "family": family,
+                              "transition": transition, "outcome": outcome, "summary": summary, "at": now_iso()})
+        return receipt_id
+
+    def subject_label(self, subject: str) -> str:
+        subject_sheet = self.sheet_by_id(subject)
+        if subject_sheet is not None:
+            return str(subject_sheet.get("name") or subject)
+        node = self.npc_node(subject)
+        return self.graph.display_name(node) if node else str(subject)
 
     def add_delta(self, resource: str, subject: str, before: Any, after: Any, *,
                   source_receipt: str | None = None) -> str:
         receipt_id = self._mint(f"delta:{resource}-t{self.turn_number}-c{self.ordinal}")
         label = RESOURCE_LABELS_ZH.get(resource, resource)
-        subject_sheet = self.sheet_by_id(subject)
-        subject_label = str(subject_sheet.get("name") or subject) if subject_sheet else str(subject)
+        subject_label = self.subject_label(subject)
         receipt = {"id": receipt_id, "kind": "delta", "call_id": self.call_id, "resource": resource,
                    "subject": subject, "subject_label": subject_label, "label": label, "before": before,
                    "after": after, "at": now_iso()}
@@ -345,14 +432,6 @@ class SettleContext:
 
 # ---- facts --------------------------------------------------------------------------
 
-_SESSION_FACTS_INACTIVE = {
-    "chase.session.active": False, "chase.session.inactive": True, "chase.start.ready": False,
-    "chase.pending.kind": None, "chase.conflict.receipt-ready": False, "sanity.bout.pending": False,
-    "sanity.delusion.active": False, "sanity.treatment.due": False, "sanity.recovery.due": False,
-    "sanity.insane": False, "sanity.gain.pending": False, "subsystem.snapshot.active": False,
-}
-
-
 def facts_provider(ctx: SettleContext, engine: RulesEngine, intent: str | None) -> Callable[[], Mapping[str, Any]]:
     def provider() -> Mapping[str, Any]:
         sheet = ctx.sheet_by_id(ctx.subject_id) or ctx.subject
@@ -370,7 +449,8 @@ def facts_provider(ctx: SettleContext, engine: RulesEngine, intent: str | None) 
         facts["time.day"] = ctx.clock_minutes // (24 * 60)
         if intent:
             facts["intent.action_kind"] = intent
-        facts.update(_SESSION_FACTS_INACTIVE)
+        # Session facts (11.2): from the engine snapshots under save/, read fresh each time.
+        facts.update(ctx.sessions().facts(ctx.subject_id, ctx.clock_minutes))
         magic_state = magic.read_magic_state(ctx.campaign_dir, ctx.subject_id)
         facts["magic.known_spells"] = magic.known_spells(magic_state, ctx.clock_minutes)
         facts["magic.learn.sources"] = ctx.magic_learning_sources()

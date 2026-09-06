@@ -124,11 +124,12 @@ def test_none_intents_and_session_intents(kernel):
     assert kernel.table("status")["receipts"] == []
     assert kernel.table("status")["state"] == "acting"
 
-    # combat and flee wait for the session engines; cast is live but needs a spell.
+    # combat needs a present target; flee needs a pursuer with a stat block (Knott has none);
+    # cast is live but needs a spell.
     for n, intent in enumerate(("combat", "flee"), start=5):
         error = kernel.table_err("resolve", call_id=f"t1-c{n}", action={"intent": intent, "goal": "x", "method": "y"})
-        assert error["code"] == "not_implemented", error
-        assert error["details"]["family"] in ("combat", "chase")
+        assert error["code"] == "needs", error
+        assert error["details"]["needs"]["field"] == "target", error
     cast = kernel.table_err("resolve", call_id="t1-c7", action={"intent": "cast", "goal": "x", "method": "y"})
     assert cast["code"] == "needs" and cast["details"]["needs"]["field"] == "spell"
     assert kernel.table_err("resolve", call_id="t1-c9", action={"intent": "dance", "goal": "x", "method": "y"})["code"] == "invalid_params"

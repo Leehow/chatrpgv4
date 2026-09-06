@@ -1,0 +1,93 @@
+{
+  "source": "combat-attack-69d75d17.json",
+  "decision": "combat:attack",
+  "family": "combat",
+  "setup": {
+    "move_to": [
+      "corbitt-house-ground",
+      "basement-rites",
+      "corbitt-confrontation"
+    ]
+  },
+  "action": {
+    "intent": "combat",
+    "goal": "punch the corpse before it rises",
+    "method": "a straight right",
+    "target": "Walter Corbitt",
+    "weapon": "unarmed"
+  },
+  "expect": {
+    "decision": "combat:attack",
+    "outcome_kind": "combat",
+    "outcome": {
+      "status": "pending_defense",
+      "attack_kind": "opposed_melee",
+      "target": "walter-corbitt",
+      "started": true
+    },
+    "effect_kinds_allowed": [
+      "mp",
+      "armor"
+    ],
+    "event_types": [
+      "decision-settled"
+    ],
+    "optional_event_types": [
+      "roll-resolved",
+      "resource-changed"
+    ],
+    "session": {
+      "kind": "combat",
+      "status": "active"
+    },
+    "pending_choice": {
+      "for": "keeper"
+    }
+  },
+  "followups": [
+    {
+      "action": {
+        "intent": "combat",
+        "goal": "the corpse twists aside",
+        "method": "",
+        "actor": "Walter Corbitt",
+        "defense": "dodge"
+      },
+      "expect": {
+        "decision": "combat:defend",
+        "outcome_kind": "combat",
+        "outcome": {
+          "status_in": [
+            "resolved",
+            "ended"
+          ],
+          "defense": "dodge"
+        },
+        "effect_kinds_allowed": [
+          "hp",
+          "armor",
+          "condition",
+          "mp",
+          "ammo"
+        ],
+        "event_types": [
+          "decision-settled"
+        ],
+        "optional_event_types": [
+          "roll-resolved",
+          "resource-changed"
+        ],
+        "event_counts_min": {
+          "roll-resolved": 2
+        },
+        "session": {
+          "kind": "combat",
+          "status_in": [
+            "active",
+            "ended"
+          ]
+        }
+      }
+    }
+  ]
+}

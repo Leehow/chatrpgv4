@@ -236,9 +236,12 @@ def fit_budget(section: Any, budget: int) -> bool:
 
 def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
                   turn: dict[str, Any], party: list[dict[str, Any]]) -> dict[str, Any]:
+    from .sessions import SessionView  # local: sessions reads capsule.condition_met for chase chains
     scene = graph.scene(world["active_scene"])
+    where = where_section(graph, world, scene)
+    where["session"] = SessionView(campaign.dir, graph, party, world).active_session()
     sections: dict[str, Any] = {
-        "where": where_section(graph, world, scene),
+        "where": where,
         "present": present_section(graph, world, scene),
         "known": known_section(graph, world, scene, party),
         "recent": recent_section(campaign, int(turn["turn"])),

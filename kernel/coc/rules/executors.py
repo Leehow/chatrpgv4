@@ -596,3 +596,4 @@ def execute_development_settle(ctx: Any, args: dict[str, Any], plan: Mapping[str
     data = {"ending_id": ending_id, "investigator_id": ctx.actor_id, "receipt": receipt,
             "outcome": "replayed" if receipt.get("replayed") else "settled"}
     return data, [], ["development settlement is complete and safe to report"]
+from . import session_executors  # noqa: E402,F401 - registers the session capabilities

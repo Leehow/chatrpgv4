@@ -1,0 +1,50 @@
+{
+  "source": "sanity-check-a1faf771.json",
+  "decision": "sanity:check",
+  "family": "sanity",
+  "setup": {
+    "move_to": [
+      "corbitt-house-ground",
+      "basement-rites",
+      "corbitt-confrontation"
+    ]
+  },
+  "action": {
+    "intent": "investigate",
+    "goal": "seeing human remains under burial cloth in sealed chamber",
+    "method": "",
+    "decision": "sanity:check",
+    "san_loss": "1/1D3",
+    "involuntary": {
+      "kind": "freeze",
+      "summary": "stare at the uncovered corpse for a moment before recovering"
+    }
+  },
+  "expect": {
+    "decision": "sanity:check",
+    "outcome_kind": "sanity",
+    "outcome": {
+      "skill": "SAN",
+      "status": "sanity_check"
+    },
+    "effect_kinds_allowed": [
+      "san"
+    ],
+    "event_types": [
+      "decision-settled"
+    ],
+    "optional_event_types": [
+      "roll-resolved",
+      "resource-changed"
+    ],
+    "event_counts_min": {
+      "roll-resolved": 1
+    },
+    "session": {
+      "kind_in": [
+        null,
+        "sanity_bout"
+      ]
+    }
+  }
+}

@@ -10,6 +10,8 @@ CHANGE_MARKER = "【变化】"
 FORBIDDEN_MARKERS = (DICE_MARKER, CHANGE_MARKER)
 
 DIFFICULTY_ZH = {"regular": "普通", "hard": "困难", "extreme": "极难"}
+#: Session transitions (contract §11.6): the family's zh name and its start / end verbs.
+SESSION_ZH = {"combat": ("战斗开始", "战斗结束"), "chase": ("追逐开始", "追逐结束"), "sanity_bout": ("理智发作", "发作结束")}
 
 _PARAGRAPH_BREAK = re.compile(r"\n[ \t]*\n")
 
@@ -48,11 +50,34 @@ def mechanics_line(receipt: dict[str, Any]) -> str | None:
         return f"{CHANGE_MARKER}线索：{receipt.get('label') or receipt['clue']}"
     if kind == "time":
         return f"{CHANGE_MARKER}时间：+{int(receipt['minutes'])} 分钟"
+    if kind == "session":
+        start, end = SESSION_ZH.get(str(receipt.get("family")), (str(receipt.get("family")), str(receipt.get("family"))))
+        if receipt.get("transition") == "start":
+            summary = receipt.get("summary")
+            return f"{CHANGE_MARKER}{start}：{summary}" if summary and receipt.get("family") == "sanity_bout" else f"{CHANGE_MARKER}{start}"
+        outcome = receipt.get("summary") or receipt.get("outcome")
+        return f"{CHANGE_MARKER}{end}：{outcome}" if outcome else f"{CHANGE_MARKER}{end}"
     return None
 
 
 def mechanics_block(receipts: list[dict[str, Any]]) -> str:
-    lines = [line for line in (mechanics_line(r) for r in receipts) if line]
+    """One line per receipt; when a combat session's dice span several rounds within the
+    turn, a 【第 n 轮】 line precedes each round's dice."""
+    rounds = {r.get("round") for r in receipts if r.get("kind") == "roll" and r.get("session_kind") == "combat"
+              and isinstance(r.get("round"), int)}
+    label_rounds = len(rounds) > 1
+    lines: list[str] = []
+    current_round: int | None = None
+    for receipt in receipts:
+        line = mechanics_line(receipt)
+        if not line:
+            continue
+        if label_rounds and receipt.get("kind") == "roll" and receipt.get("session_kind") == "combat":
+            round_no = receipt.get("round")
+            if isinstance(round_no, int) and round_no != current_round:
+                lines.append(f"【第 {round_no} 轮】")
+                current_round = round_no
+        lines.append(line)
     return "\n".join(lines)
 
 

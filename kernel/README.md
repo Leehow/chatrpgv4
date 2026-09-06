@@ -14,12 +14,15 @@ directory is read-only. `COC_KERNEL_SEED=<seed>` seeds the dice (tests only).
 
 Layout: `rpc.py` transport and dispatch; `table.py` the table.* methods and turn
 state machine; `resolve.py` the §11 resolve pipeline (facts, candidates, slots,
-execution, result); `store.py` campaign files and idempotency; `module_graph.py`
-the module graph index; `capsule.py` the turn capsule and look views; `rules/`
-coc7 tables, the RuleGraph runtime and the ported engines (see its `__init__`);
-`render.py` mechanics blocks; `history.py` the sidecar git repo; `events.py` the
-event stream. Engine snapshots live under `<campaign>/save/` (`healing-state/`,
-`mp-state/`, `magic-state/`, `development-state/`, `development-settlements/`,
-`psychology-observations.json`).
+execution, result); `sessions.py` the thin session layer over the combat / chase /
+sanity snapshots (the §11.9 `session` and `pending_choice` shapes, the family facts,
+participant specs from sheets and NPC profiles); `store.py` campaign files and
+idempotency; `module_graph.py` the module graph index; `capsule.py` the turn capsule
+and look views; `rules/` coc7 tables, the RuleGraph runtime and the ported engines
+(see its `__init__`); `render.py` mechanics blocks; `history.py` the sidecar git
+repo; `events.py` the event stream. Engine snapshots live under `<campaign>/save/`
+(`combat.json`, `chase.json`, `combat-operation.json`, `sanity-state/<inv>.json`,
+`healing-state/`, `mp-state/`, `magic-state/`, `development-state/`,
+`development-settlements/`, `psychology-observations.json`).
 
 Tests: `PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests/kernel -q -p no:cacheprovider`.

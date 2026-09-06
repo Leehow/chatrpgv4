@@ -637,8 +637,11 @@ class RulesRuntime:
                     walk(child, flipped)
                 return
             path = expression.get("path")
+            # `chase.start.ready` only says a pursuer is present; a chase starts on the
+            # investigator's flight (an intent), never as a standing situation.
             if negated or not isinstance(path, str) or path in ("actor.id", "campaign.ruleset_id",
-                                                                 "campaign.ruleset_version", "chase.session.inactive"):
+                                                                 "campaign.ruleset_version", "chase.session.inactive",
+                                                                 "chase.start.ready"):
                 return
             if expression.get("op") == "neq":
                 return

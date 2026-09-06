@@ -1,0 +1,50 @@
+{
+  "source": "sanity-check-269b1f01.json",
+  "decision": "sanity:check",
+  "family": "sanity",
+  "setup": {
+    "move_to": [
+      "corbitt-house-ground",
+      "basement-rites",
+      "corbitt-confrontation"
+    ]
+  },
+  "action": {
+    "intent": "investigate",
+    "goal": "unnatural blood pool forming on spare bedroom floor with horrible reek",
+    "method": "",
+    "decision": "sanity:check",
+    "san_loss": "0/1D6",
+    "involuntary": {
+      "kind": "freeze",
+      "summary": "freeze"
+    }
+  },
+  "expect": {
+    "decision": "sanity:check",
+    "outcome_kind": "sanity",
+    "outcome": {
+      "skill": "SAN",
+      "status": "sanity_check"
+    },
+    "effect_kinds_allowed": [
+      "san"
+    ],
+    "event_types": [
+      "decision-settled"
+    ],
+    "optional_event_types": [
+      "roll-resolved",
+      "resource-changed"
+    ],
+    "event_counts_min": {
+      "roll-resolved": 1
+    },
+    "session": {
+      "kind_in": [
+        null,
+        "sanity_bout"
+      ]
+    }
+  }
+}

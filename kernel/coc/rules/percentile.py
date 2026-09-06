@@ -244,3 +244,100 @@ def know_roll(tables: RuleTables, edu_value: int, *, difficulty: str = "regular"
     result["roll_kind"] = "know"
     result["characteristic"] = "EDU"
     return result
+
+
+# ---- the bound old `coc_roll` surface -------------------------------------------------
+
+#: Projection vocabulary ported from coc_roll.py: which roll-record keys a player may
+#: see, which carry the (possibly secret) target, and which are audit-only blobs.
+AUDIT_ONLY_KEYS = frozenset({"marker", "tens_values", "units", "player_projection"})
+_FIRST_CONTACT_KINDS = frozenset({"first_contact", "first_contact_roll"})
+_NPC_SUBJECT_KINDS = frozenset({"npc", "monster", "opponent"})
+_PC_SUBJECT_KINDS = frozenset({"investigator", "player"})
+_PROJECTION_SAFE_KEYS = (
+    "visibility", "roll", "achieved_level", "outcome", "passed", "required_level", "surplus_levels",
+    "contest_winner", "opposed_side", "skill", "kind", "die_expression", "original_roll", "luck_spent",
+    "adjusted_roll", "bonus", "penalty", "pushed",
+)
+_PROJECTION_TARGET_KEYS = ("base_target", "required_target", "effective_target", "target")
+_FIRST_CONTACT_PUBLIC_KEYS = ("app", "credit_rating", "governing_attribute", "governing_value", "npc_display_name")
+
+
+def roll_subject_kind(raw: dict[str, Any] | None) -> str | None:
+    """Structural subject kind of a roll record; never inferred from a display name."""
+    if not isinstance(raw, dict):
+        return None
+    subject = raw.get("subject")
+    if isinstance(subject, dict):
+        kind = subject.get("kind")
+        if isinstance(kind, str) and kind.strip():
+            return kind.strip().casefold()
+    side = raw.get("opposed_side")
+    if side == "investigator":
+        return "investigator"
+    if side == "opponent":
+        return "opponent"
+    return None
+
+
+def is_first_contact_roll(raw: dict[str, Any] | None) -> bool:
+    return isinstance(raw, dict) and str(raw.get("kind") or "") in _FIRST_CONTACT_KINDS
+
+
+def player_projection_includes_target(raw: dict[str, Any] | None) -> bool:
+    if is_first_contact_roll(raw):
+        return True
+    return roll_subject_kind(raw) not in _NPC_SUBJECT_KINDS
+
+
+def build_player_projection(raw: dict[str, Any], *, include_target: bool | None = None,
+                            extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Typed player view of one canonical roll record. Audit receipts keep full fields."""
+    include = player_projection_includes_target(raw) if include_target is None else bool(include_target)
+    view: dict[str, Any] = {"visibility": str(raw.get("visibility") or "public")}
+    for key in _PROJECTION_SAFE_KEYS:
+        if raw.get(key) is not None:
+            view[key] = raw[key]
+    if include:
+        for key in _PROJECTION_TARGET_KEYS:
+            if raw.get(key) is not None:
+                view[key] = raw[key]
+        if raw.get("characteristic") is not None:
+            view["characteristic"] = raw["characteristic"]
+        if is_first_contact_roll(raw):
+            for key in _FIRST_CONTACT_PUBLIC_KEYS:
+                if key in raw:
+                    view[key] = raw[key]
+    if extra:
+        for key, value in extra.items():
+            if value is not None:
+                view[key] = value
+    return {key: value for key, value in view.items() if key not in AUDIT_ONLY_KEYS}
+
+
+class RollApi:
+    """The old `coc_roll` module surface bound to one RuleTables, so the ported session
+    engines (combat, chase, sanity) keep their call sites verbatim."""
+
+    def __init__(self, tables: RuleTables) -> None:
+        self.tables = tables
+
+    def percentile_check(self, target: int, difficulty: str = "regular", bonus: int = 0,
+                         penalty: int = 0, rng: random.Random | None = None) -> dict[str, Any]:
+        return percentile_check(self.tables, target, difficulty, bonus, penalty, rng)
+
+    def resolve_percentile_roll(self, roll: int, base_target: int, required_level: str) -> dict[str, Any]:
+        return resolve_percentile_roll(self.tables, roll, base_target, required_level)
+
+    def spend_luck(self, result: dict[str, Any], points: int, current_luck: int, *,
+                   roll_kind: str = "skill") -> dict[str, Any]:
+        return spend_luck(self.tables, result, points, current_luck, roll_kind=roll_kind)
+
+    @staticmethod
+    def roll_expression(expression: str, rng: random.Random | None = None) -> dict[str, Any]:
+        return roll_expression(expression, rng)
+
+    @staticmethod
+    def build_player_projection(raw: dict[str, Any], *, include_target: bool | None = None,
+                                extra: dict[str, Any] | None = None) -> dict[str, Any]:
+        return build_player_projection(raw, include_target=include_target, extra=extra)

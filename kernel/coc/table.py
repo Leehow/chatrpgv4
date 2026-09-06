@@ -20,6 +20,7 @@ from .resolve import ResolvePipeline
 from .rules import RuleTables
 from .rules.graph import semantic_name
 from .rules.runtime import RulesEngine, SettleContext
+from .sessions import SessionView
 from .store import Campaign, Store, fresh_turn, now_iso, parse_call_id
 from .text import normalize, slugify
 
@@ -244,9 +245,7 @@ class Table:
         self._touch_acting(campaign, turn)
         scene = graph.scene(world["active_scene"])
         if focus == "scene":
-            where = where_section(graph, world, scene)
-            where["situations"] = self._situations(campaign, graph, world, turn)
-            return {"where": where, "present": present_section(graph, world, scene)}
+            return self._scene_view(campaign, graph, world, turn, scene)
         if focus == "npc":
             if name is None:
                 return {"present": present_section(graph, world, scene)}
@@ -338,6 +337,15 @@ class Table:
             }))
         rows.sort(key=lambda item: (item[0], item[1]["name"]))
         return [row for _, row in rows[:limit]]
+
+    def _scene_view(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any], turn: dict[str, Any],
+                    scene: dict[str, Any]) -> dict[str, Any]:
+        """`look focus=scene`: the capsule's where/present sections plus the state-driven
+        situations and, while one is live, the 11.9 `session` shape."""
+        where = where_section(graph, world, scene)
+        where["situations"] = self._situations(campaign, graph, world, turn)
+        where["session"] = SessionView(campaign.dir, graph, campaign.party(), world).active_session()
+        return {"where": where, "present": present_section(graph, world, scene)}
 
     def _situations(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any],
                     turn: dict[str, Any]) -> list[dict[str, Any]]:
@@ -448,7 +456,8 @@ class Table:
         if not isinstance(choice, dict) or not isinstance(choice.get("pending"), str):
             raise invalid_params("action.choice must be {pending, option}")
         pending = turn.get("pending_choice")
-        if not pending or pending.get("name") != choice["pending"]:
+        # The ask's own name, or the session pending it binds (a player defense).
+        if not pending or choice["pending"] not in (pending.get("name"), pending.get("binds")):
             raise invalid_params(f"no pending choice named {choice['pending']!r}",
                                  details={"pending_choice": pending})
         receipt = {"id": f"choice:{pending['name']}-t{turn['turn']}", "kind": "choice",
@@ -475,10 +484,19 @@ class Table:
         choice_receipt = self._bind_choice(turn, action, call_id)
         new_receipts = [choice_receipt] if choice_receipt else []
 
+        def session_state(settled: dict[str, Any] | None = None) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+            """11.9: the live session and its pending choice are echoed on every resolve; a
+            session family's own settlement reports the transition it just made."""
+            view = SessionView(campaign.dir, graph, campaign.party(), campaign.read_world())
+            session = (settled or {}).get("session") or view.active_session()
+            pending = (settled or {}).get("pending_choice") or view.pending_choice() or turn.get("pending_choice")
+            return session, pending
+
         if intent in NONE_INTENTS:
+            session, pending = session_state()
             result = {"outcome": {"kind": "none"},
                       "note": f"intent {intent}: nothing to roll; answer or clarify in the narration",
-                      "session": None, "pending_choice": turn.get("pending_choice"),
+                      "session": session, "pending_choice": pending,
                       "continuations": [], "rule_refs": []}
             self._commit_resolve(campaign, turn, call_id, params, result, new_receipts, [])
             return result
@@ -487,13 +505,15 @@ class Table:
                                    self._actor, modifiers)
         settled = pipeline.run()
         if settled.get("kind") == "none":
-            result = {"outcome": {"kind": "none"}, "note": settled["note"], "session": None,
-                      "pending_choice": turn.get("pending_choice"), "continuations": [], "rule_refs": []}
+            session, pending = session_state()
+            result = {"outcome": {"kind": "none"}, "note": settled["note"], "session": session,
+                      "pending_choice": pending, "continuations": [], "rule_refs": []}
             self._commit_resolve(campaign, turn, call_id, params, result, new_receipts, [])
             return result
 
         receipts = list(settled["receipts"])
         roll_ids = [r["id"] for r in receipts if r["kind"] == "roll"]
+        session, pending = session_state(settled)
         result: dict[str, Any] = {
             "receipt": roll_ids[0] if roll_ids else (receipts[0]["id"] if receipts else None),
             "receipts": [r["id"] for r in receipts],
@@ -501,8 +521,8 @@ class Table:
             "family": settled["family"],
             "outcome": settled["outcome"],
             "effects": settled["effects"],
-            "session": None,
-            "pending_choice": turn.get("pending_choice"),
+            "session": session,
+            "pending_choice": pending,
             "continuations": settled["continuations"],
             "rule_refs": settled["rule_refs"],
         }
@@ -524,7 +544,11 @@ class Table:
                                             "outcome_kind": settled["outcome"].get("kind"),
                                             "effect_kinds": settled["effect_kinds"],
                                             "effects": [e["kind"] for e in settled["effects"]],
-                                            "continuations": [c["decision"] for c in settled["continuations"]]}, None))
+                                            "continuations": [c["decision"] for c in settled["continuations"]],
+                                            # 11.9: telemetry stays flat
+                                            "session_kind": (session or {}).get("kind"),
+                                            "session_status": (session or {}).get("status"),
+                                            "pending_choice": (pending or {}).get("name")}, None))
         self._commit_resolve(campaign, turn, call_id, params, result, new_receipts + receipts, events)
         return result
 
@@ -606,6 +630,10 @@ class Table:
         result: dict[str, Any] = {"receipts": receipt_ids,
                                   "world": {"active_scene": staged["active_scene"], "clock": staged["clock"]},
                                   "material_ready": True}
+        if any(r.get("kind") == "move" for r in receipts):
+            # The destination as `look focus=scene` would show it, so the keeper need not
+            # look again after moving.
+            result.update(self._scene_view(campaign, graph, staged, turn, graph.scene(staged["active_scene"])))
         if already:
             result["already_discovered"] = already
             if not receipts:
@@ -693,17 +721,30 @@ class Table:
                 or not all(isinstance(o, str) and o.strip() for o in options)):
             raise invalid_params("params.options must be a non-empty list of strings")
         binds = _str(params, "binds", required=False)
+        text = _str(params, "text", required=False)
+        if text and has_self_written_mechanics(text):
+            raise invalid_params("text contains 【明骰】 or 【变化】 lines",
+                                 fix="delete them; the kernel renders mechanics blocks from the receipts")
         turn_number = int(turn["turn"])
         pending = {"name": f"ask-{slugify(binds or prompt)}-t{turn_number}", "prompt": prompt,
                    "options": list(options), "binds": binds}
-        rendered = render_choice(prompt, options)
+        # The question closes the turn, so whatever was rolled this turn is delivered
+        # with it: the player sees the shot before choosing how to answer it.
+        block = mechanics_block(list(turn.get("receipts", [])))
+        choice = render_choice(prompt, options)
+        if text:
+            rendered = f"{place(text, block, 'auto')}\n\n{choice}"
+        elif block:
+            rendered = f"{block}\n\n{choice}"
+        else:
+            rendered = choice
         result = {"pending_choice": pending, "rendered_text": rendered, "turn": turn_number, "state": "asked"}
         turn["pending_choice"] = pending
         turn["state"] = "asked"
         Campaign.remember_call(turn, call_id, params, result)
         campaign.write_turn_record({
             "turn": turn_number, "player_text": turn.get("player_text"), "receipts": turn.get("receipts", []),
-            "text": prompt, "rendered_text": rendered, "calls": turn.get("calls", {}), "commit": None,
+            "text": text or prompt, "rendered_text": rendered, "calls": turn.get("calls", {}), "commit": None,
             "closed_by": "ask", "opened_at": turn.get("opened_at"), "closed_at": now_iso(),
             "pending_choice": pending,
         })

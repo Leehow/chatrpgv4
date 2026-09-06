@@ -1,0 +1,56 @@
+{
+  "source": "sanity-check-trigger-df198a61.json",
+  "decision": "sanity:check",
+  "family": "sanity",
+  "setup": {
+    "move_to": [
+      "corbitt-house-ground",
+      "basement-rites",
+      "corbitt-confrontation"
+    ],
+    "sanity": {
+      "temporary_insane": true
+    }
+  },
+  "action": {
+    "intent": "investigate",
+    "goal": "the corpse sits up",
+    "method": "",
+    "decision": "sanity:check",
+    "san_loss": "1/1D8",
+    "involuntary": {
+      "kind": "freeze",
+      "summary": "beam stops"
+    }
+  },
+  "expect": {
+    "decision": "sanity:check",
+    "outcome_kind": "sanity",
+    "outcome": {
+      "skill": "SAN",
+      "status": "sanity_check",
+      "bout_active": true
+    },
+    "effect_kinds_allowed": [
+      "san"
+    ],
+    "event_types": [
+      "decision-settled"
+    ],
+    "optional_event_types": [
+      "roll-resolved",
+      "resource-changed"
+    ],
+    "event_counts_min": {
+      "roll-resolved": 3,
+      "resource-changed": 1
+    },
+    "session": {
+      "kind": "sanity_bout",
+      "status": "active"
+    },
+    "pending_choice": {
+      "for": "keeper"
+    }
+  }
+}

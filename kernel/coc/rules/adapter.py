@@ -44,6 +44,15 @@ SETTLE_ENDING_REF = "decision:coc7:development:settle-ending"
 CORE_SETTLE_DECISION_REFS = (ORDINARY_CHECK_REF, COMBINED_CHECK_REF, OPPOSED_CHECK_REF)
 PSYCHOLOGY_SETTLE_DECISION_REFS = (PSYCHOLOGY_OBSERVE_REF, PSYCHOLOGY_REALIZE_REF)
 PSYCHOLOGY_REALIZATION_PUBLIC_KEYS = frozenset({"external_behavior"})
+SESSION_FAMILIES = frozenset({"combat", "chase", "sanity"})
+SANITY_CAPABILITIES = frozenset({"sanity.execute", "sanity.session.gain_san", "sanity.session.reality_check",
+                                 "sanity.context", "time.recover_temporary_insanity", "time.apply_psychoanalysis_treatment"})
+#: Decision suffix -> the sanity engine command it drives (the old `sanity.execute` kinds).
+SANITY_COMMAND_KINDS = {
+    "check": "sanity_check", "bout-tick": "bout_tick", "bout-end": "bout_end", "reality-check": "reality_check",
+    "gain-current-san": "gain_current_san", "insane-insight": "insane_insight",
+    "apply-treatment": "apply_psychoanalysis_treatment", "recover-temporary": "recover_temporary_insanity",
+}
 
 
 def semantic_slug(value: Any) -> str:
@@ -251,6 +260,14 @@ class Coc7RuleGraphAdapter:
                             "observable_fact_refs", "inference_ceiling", "observation_receipt_ref"):
                     if key in declared and binding.get(key) is not None:
                         locked[key] = thaw(binding[key])
+            elif runtime.family_of(decision_ref) in SESSION_FAMILIES:
+                # Combat / chase / sanity: the session layer computed the binding from the
+                # snapshots (resolve.py `_session_slots`); only declared slots travel — the
+                # runtime refuses a host-locked input the decision never declared.
+                binding = selected.get("_host_session_binding") if isinstance(selected.get("_host_session_binding"), Mapping) else {}
+                for key, value in binding.items():
+                    if value is not None and str(key) in declared and not str(key).startswith("_"):
+                        locked[str(key)] = thaw(value)
             else:
                 binding = selected.get("_host_family_binding") if isinstance(selected.get("_host_family_binding"), Mapping) else {}
                 for key, value in binding.items():
@@ -401,12 +418,80 @@ class Coc7RuleGraphAdapter:
         elif capability == "development.settle":
             if payload.get("ending_id") is not None:
                 out["ending_id"] = payload.get("ending_id")
+        elif capability in {"combat.resolve", "combat.end", "combat.context"}:
+            out.update(self._combat_args(plan, payload, selected))
+        elif capability in SANITY_CAPABILITIES:
+            out.update(self._sanity_args(plan, payload, selected, decision_id))
+        elif capability == "chase.execute":
+            out.update(self._chase_args(plan, payload, selected, decision_id))
         else:
-            # Session capabilities (combat.*, chase.*, sanity.*) belong to the second-half
-            # worker; the plan travels whole so their executors can shape it.
-            out["payload"] = thaw(payload)
-            out["decision_ref"] = plan.get("decision_ref")
+            raise RpcError("not_implemented", f"no CoC7 adapter for capability {capability!r}",
+                           details={"capability": capability, "decision": plan.get("decision_ref")})
         return out
+
+    # -- session families (ported from the old executor_args, re-cut to the kernel) ------
+
+    @staticmethod
+    def _session_binding(selected: Mapping[str, Any]) -> dict[str, Any]:
+        binding = selected.get("_host_session_binding")
+        return dict(binding) if isinstance(binding, Mapping) else {}
+
+    def _combat_args(self, plan: Mapping[str, Any], payload: Mapping[str, Any], selected: Mapping[str, Any]) -> dict[str, Any]:
+        binding = self._session_binding(selected)
+        action = str(plan.get("decision_ref") or "").rsplit(":", 1)[-1]
+        out: dict[str, Any] = {"action_kind": action, "actor_id": binding.get("_actor_id") or self.ctx.actor_id,
+                               "goal_text": binding.get("_goal_text")}
+        for key in ("affordance_id", "target_npc_id", "weapon_id", "weapon_effect_ids", "combat_revision",
+                    "defense_kind", "luck_spend_max", "goal", "outcome"):
+            if payload.get(key) is not None:
+                out[key] = thaw(payload[key])
+        if action == "end" and not out.get("outcome"):
+            raise RpcError("needs", "combat:end needs the outcome the fight reached",
+                           fix="set action.outcome to one of details.needs.options",
+                           details={"needs": {"field": "outcome", "options": ["investigators_win", "monsters_win", "fled", "stalemate"]}})
+        return out
+
+    def _sanity_args(self, plan: Mapping[str, Any], payload: Mapping[str, Any], selected: Mapping[str, Any],
+                     decision_id: str) -> dict[str, Any]:
+        suffix = str(plan.get("decision_ref") or "").rsplit(":", 1)[-1]
+        kind = SANITY_COMMAND_KINDS.get(suffix)
+        if not kind:
+            raise RpcError("not_implemented", f"unknown sanity phase {suffix!r}")
+        command: dict[str, Any] = {"decision_id": str(decision_id)}
+        if kind in {"bout_tick", "bout_end"}:
+            command.update({"choice_id": payload.get("pending_choice_ref"), "responder": "keeper",
+                            "revision": payload.get("bout_revision"), "action": "tick" if kind == "bout_tick" else "end"})
+        elif kind == "sanity_check":
+            command.update({"source": payload.get("source"), "san_loss_success": payload.get("loss_success", "0"),
+                            "san_loss_fail_expr": payload.get("loss_failure"), "involuntary_kind": payload.get("involuntary_kind"),
+                            "involuntary_summary": payload.get("involuntary_summary"), "trigger_id": payload.get("trigger_id")})
+        elif kind == "reality_check":
+            command["request_reality_check"] = payload.get("request_reality_check")
+        elif kind == "gain_current_san":
+            command.update({"san_gain": payload.get("san_gain"), "gain_source": payload.get("gain_source")})
+        elif kind == "insane_insight":
+            command.update({"insight": payload.get("insight"), "insanity_state": payload.get("insanity_state")})
+        elif kind == "apply_psychoanalysis_treatment":
+            command.update({"treatment_trigger_ref": payload.get("treatment_trigger_ref"),
+                            "psychoanalysis_skill": payload.get("psychoanalysis_skill"), "safe_place": payload.get("safe_place")})
+        elif kind == "recover_temporary_insanity":
+            command.update({"recovery_trigger_ref": payload.get("recovery_trigger_ref"), "safe_place": payload.get("safe_place")})
+        return {"command": {"command_id": f"{decision_id}:command", "kind": kind,
+                            "phase": str((plan.get("command") or {}).get("phase") or "resolve"), "payload": command}}
+
+    def _chase_args(self, plan: Mapping[str, Any], payload: Mapping[str, Any], selected: Mapping[str, Any],
+                    decision_id: str) -> dict[str, Any]:
+        binding = self._session_binding(selected)
+        kind = "chase_" + str(plan.get("decision_ref") or "").rsplit(":", 1)[-1]
+        command: dict[str, Any] = {"decision_id": str(decision_id)}
+        for key in ("chase_id", "participants", "locations", "actor_id", "action_id", "choice_id", "skill", "target",
+                    "difficulty", "roll_id", "revision", "target_actor_id", "combat_command_id", "outcome", "method"):
+            if payload.get(key) is not None:
+                command[key] = thaw(payload[key])
+        for key in ("defense_kind", "weapon_id", "goal"):
+            if binding.get(f"_{key}") is not None:
+                command[key] = binding[f"_{key}"]
+        return {"command": {"command_id": f"{decision_id}:command", "kind": kind, "phase": "resolve", "payload": command}}
 
     @staticmethod
     def is_context_only(decision_ref: str) -> bool:

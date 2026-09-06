@@ -2,7 +2,23 @@
 
 Each file is one recorded `rules.settle` payload from the old repo
 (`tests/fixtures/rules-settle-recorded/`) translated into an equivalent `table.resolve` action.
-`test_corpus.py` replays each through the RPC seam and asserts the same decision is selected and the
-effect/event kinds match; dice are random and never compared.
+`test_corpus.py` replays each through the RPC seam and asserts the same decision is selected, the
+effect/event kinds match and the session transitions match; dice are random and never compared.
 
-Translated: 42. Skipped (session families, second half of slice 1): chase-start-090232bd.json (chase:start), combat-attack-69d75d17.json (combat:attack), combat-end-bd1fcaba.json (combat:end), sanity-check-093c39cd.json (sanity:check), sanity-check-1cab0929.json (sanity:check), sanity-check-269b1f01.json (sanity:check), sanity-check-34753d73.json (sanity:check), sanity-check-5d064528.json (sanity:check), sanity-check-67a578c9.json (sanity:check), sanity-check-94961aa2.json (sanity:check), sanity-check-a1faf771.json (sanity:check), sanity-check-b6080a38.json (sanity:check), sanity-check-bout-dfcd31d4.json (sanity:check), sanity-check-da76d64d.json (sanity:check), sanity-check-dfcd31d4.json (sanity:check), sanity-check-f8cc9a42.json (sanity:check), sanity-check-trigger-df198a61.json (sanity:check)
+Translated: 59 (all 55 recorded payloads; the combat and chase recordings each become one file whose
+`setup` / `followups` replay the old multi-command settle as the kernel's separate resolves).
+
+Case keys beyond `action` / `expect`:
+
+- `setup.move_to`: scenes to `apply move` through first (the session families need Corbitt present).
+- `setup.combat`: open a fight before the action (the investigator's attack and the NPC's defense).
+- `setup.sanity`: overrides written into `save/sanity-state/thomas-hayes.json` (an underlying insanity
+  makes any SAN loss of 1+ open a bout, which pins the recorded bout transition without pinning dice).
+- `followups`: further `{action, expect}` pairs resolved in order after the main action.
+- `expect.session` / `expect.session_after`: the 11.9 `session` echoed by the result / by `look` afterwards
+  (`kind`, `kind_in`, `status`, `status_in`, `outcome`); `expect.pending_choice.for`; `expect.event_counts_min`
+  for dice-dependent numbers of `roll-resolved` events.
+
+The recorded sanity payloads did not keep their loss expressions; the translations use the recorded
+loss to pick one (`1D8` for losses of 7+, `1D6` otherwise, success loss as recorded), and the recorded
+`involuntary_action` verbatim.

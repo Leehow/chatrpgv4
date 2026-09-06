@@ -195,7 +195,8 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			"把一个选择交回给玩家，并以此收尾本回合。玩家的声明含糊到你无法继续、或者剧情要他当场拍板时用它：prompt 就是交付给玩家的文字，options 是他可以挑的选项。调完这一次回合就关了，不要再 narrate、也不要再写任何正文；玩家的回答会作为下一回合的输入带着待决回来。",
 		promptSnippet: "把一个选择交回玩家，并以此关闭本回合",
 		parameters: Type.Object({
-			prompt: Type.String({ description: "给玩家的问题，就是本回合交付的文字" }),
+			text: Type.Optional(Type.String({ description: "问题之前的叙述：这回合发生了什么，让玩家看完再选；不要写【明骰】【变化】行" })),
+			prompt: Type.String({ description: "给玩家的问题；内核把 text、这回合的明骰行、问题与选项一起交付" }),
 			options: Type.Array(Type.String(), { minItems: 2, description: "玩家可以挑的选项" }),
 			binds: Type.Optional(Type.String({ description: "这个选择绑定的待决名" })),
 		}),

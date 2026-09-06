@@ -1,0 +1,50 @@
+{
+  "source": "sanity-check-093c39cd.json",
+  "decision": "sanity:check",
+  "family": "sanity",
+  "setup": {
+    "move_to": [
+      "corbitt-house-ground",
+      "basement-rites",
+      "corbitt-confrontation"
+    ]
+  },
+  "action": {
+    "intent": "investigate",
+    "goal": "close contact with wizened sealed-chamber corpse while grasping the throat chain",
+    "method": "",
+    "decision": "sanity:check",
+    "san_loss": "1/1D8",
+    "involuntary": {
+      "kind": "jump_in_fright",
+      "summary": "hand jerks back from the chain; flashlight wavers"
+    }
+  },
+  "expect": {
+    "decision": "sanity:check",
+    "outcome_kind": "sanity",
+    "outcome": {
+      "skill": "SAN",
+      "status": "sanity_check"
+    },
+    "effect_kinds_allowed": [
+      "san"
+    ],
+    "event_types": [
+      "decision-settled"
+    ],
+    "optional_event_types": [
+      "roll-resolved",
+      "resource-changed"
+    ],
+    "event_counts_min": {
+      "roll-resolved": 1
+    },
+    "session": {
+      "kind_in": [
+        null,
+        "sanity_bout"
+      ]
+    }
+  }
+}

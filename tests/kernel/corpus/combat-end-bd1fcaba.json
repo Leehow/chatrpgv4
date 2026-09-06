@@ -1,0 +1,46 @@
+{
+  "source": "combat-end-bd1fcaba.json",
+  "decision": "combat:end",
+  "family": "combat",
+  "setup": {
+    "move_to": [
+      "corbitt-house-ground",
+      "basement-rites",
+      "corbitt-confrontation"
+    ],
+    "combat": {
+      "weapon": "unarmed",
+      "defense": "dodge"
+    }
+  },
+  "action": {
+    "intent": "combat",
+    "goal": "both sides back off",
+    "method": "",
+    "decision": "combat:end",
+    "outcome": "stalemate"
+  },
+  "expect": {
+    "decision": "combat:end",
+    "outcome_kind": "combat",
+    "outcome": {
+      "status": "ended",
+      "combat_outcome": "stalemate"
+    },
+    "effect_kinds_allowed": [
+      "condition"
+    ],
+    "event_types": [
+      "decision-settled"
+    ],
+    "optional_event_types": [
+      "resource-changed"
+    ],
+    "session": {
+      "kind": "combat",
+      "status": "ended",
+      "outcome": "stalemate"
+    },
+    "session_after": null
+  }
+}

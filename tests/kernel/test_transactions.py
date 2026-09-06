@@ -173,3 +173,16 @@ def test_commit_failure_keeps_the_turn_open(kernel):
     assert result["commit"]
     assert "【明骰】聆听" in result["rendered_text"]
     assert kernel.table("status") == {"turn": 2, "state": "awaiting_player", "receipts": [], "pending_choice": None}
+
+
+def test_ask_delivers_this_turns_mechanics_before_the_question(kernel):
+    open_turn(kernel)
+    kernel.table("resolve", call_id="t1-c1", action={"intent": "investigate", "goal": "x", "method": "y",
+                                                    "skill": "Spot Hidden"})
+    bad = kernel.table_err("ask", call_id="t1-c2", text="【明骰】x", prompt="?", options=["a", "b"])
+    assert bad["code"] == "invalid_params"
+    asked = kernel.table("ask", call_id="t1-c3", text="你举起灯。\n\n墙上有影子在动。",
+                         prompt="你要怎么做？", options=["退后", "上前"])
+    rendered = asked["rendered_text"]
+    assert rendered.startswith("你举起灯。\n\n【明骰】侦查｜")
+    assert rendered.endswith("墙上有影子在动。\n\n你要怎么做？\n1. 退后\n2. 上前")

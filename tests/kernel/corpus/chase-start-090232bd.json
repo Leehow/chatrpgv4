@@ -1,0 +1,44 @@
+{
+  "source": "chase-start-090232bd.json",
+  "decision": "chase:start",
+  "family": "chase",
+  "setup": {
+    "move_to": [
+      "corbitt-house-ground",
+      "basement-rites",
+      "corbitt-confrontation"
+    ]
+  },
+  "action": {
+    "intent": "flee",
+    "goal": "get away from the thing on the pallet",
+    "method": "bolt back up the cellar stairs"
+  },
+  "expect": {
+    "decision": "chase:start",
+    "outcome_kind": "chase",
+    "outcome": {
+      "action": "chase_start"
+    },
+    "effect_kinds_allowed": [
+      "position"
+    ],
+    "event_types": [
+      "decision-settled"
+    ],
+    "optional_event_types": [
+      "roll-resolved",
+      "resource-changed"
+    ],
+    "event_counts_min": {
+      "roll-resolved": 2
+    },
+    "session": {
+      "kind": "chase",
+      "status_in": [
+        "active",
+        "ended"
+      ]
+    }
+  }
+}
