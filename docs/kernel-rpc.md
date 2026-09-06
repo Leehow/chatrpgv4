@@ -564,7 +564,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 
 ### 13.7 采纳证据（无写侧）
 
-`narrate` 关回合时内核算 `director_adoption` 写进回合记录与遥测：`{beat, adopted: bool, evidence: [收据 id]}`。判定表闭合：REVEAL → 本回合有 `reveal` 列表里的 `clue` 收据；PRESSURE → 有 `time`/`damage`/`delta`（负向）/`session start` 收据；CHOICE → 回合以 `ask` 关闭；SUBSYSTEM → 有 `session` 收据；CHARACTER → 有 social 族的 roll 收据或 `present` 非空且无移动；RECOVER → healing/development 族决策结算；CUT/ADVANCE → 有 `move` 收据；MONTAGE → 有 `time` 收据且 ≥ 60 分钟；DEEPEN → 有 core-check 族 roll 收据且无 `move`；PAYOFF → 有 `clue` 收据且该线索 `supports` 某 `conclusion`。这是遥测，不是奖惩：胶囊不据此改变下一回合的建议。
+`narrate` 关回合时内核算 `director_adoption` 写进回合记录与遥测：`{beat, adopted: bool, evidence: [收据 id]}`。判定表闭合：REVEAL → 本回合有 `reveal` 列表里的 `clue` 收据；PRESSURE → 有 `time`/`damage`/`delta`（负向）/`session start` 收据；CHOICE → 回合以 `ask` 关闭；SUBSYSTEM → 有 `session` 收据，或有会话内的 roll 收据（带 `session_kind`，或 `roll_kind: combat_check`）；CHARACTER → 有 social 族的 roll 收据或 `present` 非空且无移动；RECOVER → healing/development 族决策结算；CUT/ADVANCE → 有 `move` 收据；MONTAGE → 有 `time` 收据且 ≥ 60 分钟；DEEPEN → 有 core-check 族 roll 收据且无 `move`；PAYOFF → 有 `clue` 收据且该线索 `supports` 某 `conclusion`。这是遥测，不是奖惩：胶囊不据此改变下一回合的建议。
 
 ### 13.8 `head` 与查询预算
 

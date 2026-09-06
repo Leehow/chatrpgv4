@@ -562,7 +562,9 @@ def director_adoption(beat: str, reveal: list[dict[str, Any]], receipts: list[di
     elif beat == "CHOICE":
         adopted = closed_by == "ask"
     elif beat == "SUBSYSTEM":
-        evidence = ids("session")
+        # A session receipt (start/end/round) or any roll made inside the session: a combat
+        # round where only blows land still followed the beat.
+        evidence = ids("session") + ids("roll", lambda r: bool(r.get("session_kind")) or r.get("roll_kind") == "combat_check")
         adopted = bool(evidence)
     elif beat == "CHARACTER":
         social = set(_receipts_of_families(turn_calls, {"social", "psychology"}))
