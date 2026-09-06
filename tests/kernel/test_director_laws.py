@@ -15,7 +15,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from conftest import RpcClient, campaign_dir, create_campaign, narrate_opening, open_turn, read_json, read_jsonl
+from conftest import RpcClient, campaign_dir, create_campaign, narrate, narrate_opening, open_turn, read_json, read_jsonl
 from test_rules_families import resolve, walk_to_confrontation
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -101,7 +101,7 @@ def discover_ground_floor_with_idle_intent(client: RpcClient) -> None:
         *({"kind": "clue", "clue": clue} for clue in GROUND_FLOOR_CLUES),
     ])
     client.table("resolve", call_id="t1-c2", action={"intent": "idle", "goal": "", "method": ""})
-    client.table("narrate", call_id="t1-c3", text="地面层已经翻遍了，没有别的动静。")
+    narrate(client, "t1-c3", "地面层已经翻遍了，没有别的动静。")
 
 
 # ---- (a) no write side ---------------------------------------------------------
@@ -216,7 +216,7 @@ def test_reveal_adoption_true_when_the_listed_clue_is_applied(kernel):
     kernel.table("apply", call_id="t3-c1", effects=[{"kind": "clue", "clue": clue}])
     receipts = kernel.table("status")["receipts"]
     clue_receipt = next(r["id"] for r in receipts if r["kind"] == "clue")
-    kernel.table("narrate", call_id="t3-c2", text="终于找到了那份记录。")
+    narrate(kernel, "t3-c2", "终于找到了那份记录。")
 
     record = read_json(campaign_dir(kernel.workspace) / "turns" / "0003.json")
     assert "director_adoption" in record, "narrate must write director_adoption into the turn record (§13.7)"
@@ -232,7 +232,7 @@ def test_reveal_adoption_false_when_the_turn_only_narrates(kernel):
     director = director_of(kernel)
     assert director["beat"] == "REVEAL", director
 
-    kernel.table("narrate", call_id="t3-c1", text="这一轮什么都没找到。")
+    narrate(kernel, "t3-c1", "这一轮什么都没找到。")
 
     record = read_json(campaign_dir(kernel.workspace) / "turns" / "0003.json")
     assert "director_adoption" in record
@@ -249,8 +249,8 @@ def _setup_investigate_intent_scene(client: RpcClient) -> None:
     condition. This must be called on a fresh, just-opened turn 1."""
     open_turn(client, "我们先去看看地面层。")
     client.table("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "corbitt-house-ground"}])
-    client.table("narrate", call_id="t1-c2", text="地面层空空荡荡。")
+    narrate(client, "t1-c2", "地面层空空荡荡。")
     client.table("player_input", text="仔细搜索地面层。")
     client.table("resolve", call_id="t2-c1", action={"intent": "investigate", "goal": "搜索地面层",
                                                       "method": "用侦查", "skill": "Spot Hidden"})
-    client.table("narrate", call_id="t2-c2", text="你翻了个遍，但天色已经暗了下来，什么都没找全。")
+    narrate(client, "t2-c2", "你翻了个遍，但天色已经暗了下来，什么都没找全。")

@@ -5,7 +5,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { assistantTexts, customMessages, openTable } from "./harness.mjs";
+import { assistantTexts, customMessages, openTable, waitForIdle } from "./harness.mjs";
 
 const SEVEN = ["apply", "ask", "look", "lookup", "narrate", "recall", "resolve"];
 
@@ -90,8 +90,41 @@ test("一个玩家回合：七个工具、胶囊、call_id、rendered_text 交�
 	const delivered = texts.at(-1);
 	assert.equal(
 		delivered,
-		"门框上有一道深深的抓痕。\n\n【明骰】侦查｜掷骰：42；基础值：55；门槛：普通（≤55）；结果：通过",
-		"最后一条助手消息的正文就是内核渲染的 rendered_text",
+		"门框上有一道深深的抓痕。",
+		"最后一条助手消息的正文就是守秘人写的那段，一字不改（契约 §16.1）",
+	);
+	// 机制是语言中立的 JSON 投影，只走会话条目与总线，不进正文（契约 §16.2）。
+	const [projected] = table.entries("coc-mechanics");
+	assert.equal(projected.turn, 1);
+	assert.deepEqual(
+		projected.mechanics.map((row) => row.kind),
+		["roll", "clue", "scene", "time"],
+		"本回合每条收据都在投影里，按发生顺序",
+	);
+	assert.deepEqual(
+		projected.mechanics[0],
+		{
+			kind: "roll",
+			actor: "托马斯·海耶斯",
+			skill: "Spot Hidden",
+			roll: 42,
+			target: 55,
+			threshold: 55,
+			difficulty: "regular",
+			level: "regular",
+			passed: true,
+			visibility: "public",
+		},
+		"明骰那条原样从内核过来，扩展不改写",
+	);
+	assert.deepEqual(table.mechanics().at(-1), { campaign: "test-camp", turn: 1, mechanics: projected.mechanics },
+		"同一份投影也发上总线 coc:mechanics");
+	// 桌况扩展从投影画一行紧凑的状态行，用的是语言中立的英文词；正文一个字都不动。
+	const painted = table.ui.statuses.filter((entry) => entry.key === "coc-mechanics");
+	assert.deepEqual(
+		painted.map((entry) => entry.text),
+		["t1  roll 42/55 pass  clue 地窖的 抓痕  move -> 前院  +10m"],
+		"一回合画一行，机制词是英文，名字是数据",
 	);
 	assert.ok(!texts.includes("守秘人在 narrate 之后又写的正文，应该被换掉"), "守秘人自写的收尾正文被丢掉");
 	const toolCallMessages = table.session.messages.filter(
@@ -134,14 +167,15 @@ test("ask 也关闭回合：交付的是内核渲染的问题加选项", async (
 	assert.equal(assistantTexts(table.session).at(-1), "你先看哪边？\n1. 地窖门\n2. 楼梯");
 });
 
-test("守秘人写了台词却没调 narrate：宿主替它 narrate，交付仍是内核渲染的文本", async (t) => {
+test("守秘人写了台词却没调 narrate：宿主替它 narrate，正文原样送进内核", async (t) => {
+	const prose = "门框上有一道深深的抓痕：侦查 42／55，通过。\n\n你退后一步。";
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage(
 				[fauxToolCall("resolve", { action: { intent: "investigate", goal: "看门框", method: "侦查", skill: "Spot Hidden" } })],
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage("门框上有一道深深的抓痕。\n【明骰】守秘人自己写的骰行，该被剥掉\n\n你退后一步。"),
+			fauxAssistantMessage(prose),
 		],
 	});
 	t.after(() => table.dispose());
@@ -151,15 +185,58 @@ test("守秘人写了台词却没调 narrate：宿主替它 narrate，交付仍�
 	const narrate = table.kernelRequests().find((entry) => entry.method === "table.narrate");
 	assert.ok(narrate, "宿主替守秘人调了 table.narrate");
 	assert.equal(narrate.params.call_id, "t1-c2");
-	assert.equal(narrate.params.text, "门框上有一道深深的抓痕。\n\n你退后一步。", "自写的骰行被剥掉后才送进内核");
+	assert.equal(narrate.params.text, prose, "正文一字不改地送进内核：宿主不再剥任何行（契约 §8）");
 	const delivered = assistantTexts(table.session).filter((text) => text.length > 0).at(-1);
-	assert.ok(delivered.startsWith("门框上有一道深深的抓痕。"), "交付的是内核渲染的文本");
-	assert.ok(delivered.includes("【明骰】侦查｜掷骰：42"), "内核插入的骰行在交付里");
+	assert.equal(delivered, prose, "交付就是守秘人的正文");
+	const [projected] = table.entries("coc-mechanics");
+	assert.deepEqual(projected.mechanics.map((row) => row.kind), ["roll"], "隐式 narrate 也带机制投影");
 	const implicitRows = table.telemetry().filter((row) => row.tool === "narrate" && row.implicit === true);
 	assert.ok(implicitRows.length >= 1, "遥测记录了隐式 narrate");
 });
 
-test("物品与现金：item、cash 原样进内核，收据的【变化】行随交付到玩家（#19）", async (t) => {
+test("隐式 narrate 缺数字：内核退回 mechanics_missing，宿主拿它的 fix 催一次，下一轮才关回合", async (t) => {
+	const missing = "门框上有一道深深的抓痕。";
+	const complete = "门框上有一道深深的抓痕：侦查掷出 42，对着 55 的目标值，通过。";
+	const table = await openTable({
+		// 契约 §5 第 2 步的机制核对：本回合公开收据的数字必须出现在正文里。
+		env: { FAKE_KERNEL_REQUIRE_NUMBERS: "1" },
+		responses: [
+			fauxAssistantMessage(
+				[fauxToolCall("resolve", { action: { intent: "investigate", goal: "看门框", method: "侦查", skill: "Spot Hidden" } })],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage(missing),
+			fauxAssistantMessage(complete),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我看门框");
+	await waitForIdle(table.session);
+
+	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
+	assert.deepEqual(narrates.map((entry) => entry.params.text), [missing, complete], "第一次被退回，第二次才过");
+
+	const steers = customMessages(table.session, "coc-host").filter(
+		(message) => message.details?.kind === "mechanics-missing",
+	);
+	assert.equal(steers.length, 1, "缺数字只催一次");
+	assert.match(String(steers[0].content), /mechanics_missing/);
+	assert.match(String(steers[0].content), /42, 55/, "催的话里带着内核自己的 fix，点名缺哪些数");
+
+	const refused = table.telemetry().filter((row) => row.tool === "narrate" && row.ok === false);
+	assert.equal(refused.length, 1);
+	assert.equal(refused[0].code_detail, "mechanics_missing");
+
+	const texts = assistantTexts(table.session).filter((text) => text.length > 0);
+	assert.equal(texts.at(-1), complete, "交付的是补齐数字之后那一版");
+	assert.ok(!texts.includes(missing), "被内核退回的那一版不算交付，不留在记录里");
+	const projected = table.entries("coc-mechanics");
+	assert.equal(projected.length, 1, "被退回的那次不发投影：回合还没关");
+	assert.deepEqual(projected[0].mechanics.map((row) => row.kind), ["roll"]);
+});
+
+test("物品与现金：item、cash 原样进内核，收据只进机制投影，不进正文（#19）", async (t) => {
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage(
@@ -220,6 +297,10 @@ test("物品与现金：item、cash 原样进内核，收据的【变化】行�
 	assert.match(receipts, /cash:t1-c1/);
 
 	const delivered = assistantTexts(table.session).filter((text) => text.length > 0).at(-1);
-	assert.match(delivered, /【变化】物品：托马斯·海耶斯 得到 左轮/, "机制行由内核按收据渲染，扩展不自己拼");
-	assert.match(delivered, /【变化】现金：托马斯·海耶斯 50 → 20/);
+	assert.equal(delivered, "看门人把左轮推过桌面。", "交付就是守秘人的正文：内核不往里插机制行（契约 §16.2）");
+	const [projected] = table.entries("coc-mechanics");
+	assert.deepEqual(projected.mechanics, [
+		{ kind: "item", name: "点三八左轮", label: "左轮", quantity: 1, to: "托马斯·海耶斯" },
+		{ kind: "cash", subject: "托马斯·海耶斯", before: 50, after: 20 },
+	], "item 与 cash 的前后账在投影里，语言中立");
 });

@@ -1,4 +1,4 @@
-"""§14.8 `apply {kind: handout}`: visibility, receipt, the 【手卡】 line, the event and the
+"""§14.8 `apply {kind: handout}`: visibility, receipt, the handout projection, the event and the
 attachment — which is never invented when the module only knows a reference."""
 
 from __future__ import annotations
@@ -39,7 +39,9 @@ def test_handout_with_authored_text_is_materialized_and_rendered(kernel):
     assert events[0]["data"]["handout"] == TEXT_HANDOUT and events[0]["data"]["attachment_available"] is True
 
     narrated = kernel.table("narrate", call_id="t1-c2", text="他把一张剪报推过来。\n\n你读了起来。")
-    assert narrated["rendered_text"] == "他把一张剪报推过来。\n\n【手卡】1918 年环球报未刊稿\n\n你读了起来。"
+    assert narrated["rendered_text"] == "他把一张剪报推过来。\n\n你读了起来。"
+    assert narrated["mechanics"] == [{"kind": "handout", "receipt": f"handout:{TEXT_HANDOUT}-t1", "name": receipt["name"],
+                                      "available": True, "label": "1918 年环球报未刊稿", "path": attachment["path"]}]
 
 
 def test_handout_without_shipped_bytes_is_declared_unavailable_not_invented(kernel):
@@ -50,7 +52,9 @@ def test_handout_without_shipped_bytes_is_declared_unavailable_not_invented(kern
     assert attachment["available"] is False and attachment["path"] is None
     assert not (campaign_dir(kernel.workspace) / "handouts").exists()
     narrated = kernel.table("narrate", call_id="t1-c2", text="诺特把委托书递过来。")
-    assert "【手卡】Handout 1: Mr. Knott's Commission" in narrated["rendered_text"]
+    assert narrated["mechanics"] == [{"kind": "handout", "receipt": f"handout:{REFERENCE_ONLY}-t1",
+                                      "name": "Handout 1: Mr. Knott's Commission", "available": False,
+                                      "label": "Handout 1: Mr. Knott's Commission"}]
 
 
 def test_keeper_only_assets_and_unknown_names_do_not_write(kernel):

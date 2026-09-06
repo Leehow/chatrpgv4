@@ -1,6 +1,7 @@
 /**
- * 内核子进程客户端。契约见 docs/kernel-rpc.md 第 1 节：
- * 一行一个 JSON，`\n` 分隔，请求串行，崩溃后重新拉起并重开桌。
+ * The kernel subprocess client. Contract in docs/kernel-rpc.md §1:
+ * one JSON object per line, `\n` separated, requests serialised, and on a crash
+ * the subprocess is respawned and the table reopened.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -8,13 +9,16 @@ import { type ChildProcess, spawn } from "node:child_process";
 export interface KernelErrorPayload {
 	code: string;
 	message: string;
+	/** The narrower reason inside a coarse `code`, e.g. `mechanics_missing` under `invalid_params` (contract §5). */
+	code_detail?: string;
 	fix?: string;
 	details?: Record<string, unknown>;
 }
 
-/** 内核返回的 `ok: false` 信封，或者客户端自己无法完成调用时的等价错误。 */
+/** The `ok: false` envelope from the kernel, or the client's own equivalent when a call cannot be made. */
 export class KernelError extends Error {
 	readonly code: string;
+	readonly codeDetail?: string;
 	readonly fix?: string;
 	readonly details?: Record<string, unknown>;
 
@@ -22,27 +26,28 @@ export class KernelError extends Error {
 		super(payload.message);
 		this.name = "KernelError";
 		this.code = payload.code;
+		this.codeDetail = payload.code_detail;
 		this.fix = payload.fix;
 		this.details = payload.details;
 	}
 
-	/** 给模型看的一行：`code: message`，有 fix 时补一行。 */
+	/** One line for the model: `code: message`, plus a line when there is a fix. */
 	toToolText(): string {
-		return this.fix ? `${this.code}: ${this.message}\n修正：${this.fix}` : `${this.code}: ${this.message}`;
+		return this.fix ? `${this.code}: ${this.message}\nfix: ${this.fix}` : `${this.code}: ${this.message}`;
 	}
 }
 
 export interface KernelClientOptions {
-	/** 启动命令，argv 形式。 */
+	/** The launch command, argv style. */
 	command: string[];
-	/** 子进程工作目录（包根）。 */
+	/** Working directory of the subprocess (the package root). */
 	cwd: string;
 	env?: Record<string, string>;
-	/** 单个请求的超时，缺省 30 秒。 */
+	/** Timeout for a single request, 30 seconds by default. */
 	timeoutMs?: number;
-	/** 诊断输出：stderr 行、协议噪音、重启通告。 */
+	/** Diagnostics: stderr lines, protocol noise, restart notices. */
 	onDiagnostic?: (message: string) => void;
-	/** 重新拉起后要重放的开桌动作（`kernel.hello` + `table.open`）。 */
+	/** The reopening to replay after a respawn (`kernel.hello` + `table.open`). */
 	onRestart?: () => Promise<void>;
 }
 
@@ -80,7 +85,7 @@ export class KernelClient {
 		this.spawnChild();
 	}
 
-	/** 按到达顺序逐个执行：扩展负责序列化。 */
+	/** Executed one at a time in arrival order: the extension serialises them. */
 	call<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
 		const run = () => this.dispatch<T>(method, params);
 		const result = this.queue.then(run, run);
@@ -92,8 +97,8 @@ export class KernelClient {
 	}
 
 	/**
-	 * 绕过串行队列直接发一个请求。只给重启后的重开桌用：
-	 * 重开桌本身就是从队列里被调起来的，再排队会自锁。
+	 * Send one request straight past the serial queue. Only for reopening after a restart:
+	 * the reopening is itself called from inside the queue, so queueing it would deadlock.
 	 */
 	callImmediate<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
 		return this.dispatch<T>(method, params);
@@ -103,7 +108,7 @@ export class KernelClient {
 		this.closing = true;
 		const child = this.child;
 		this.child = undefined;
-		this.rejectAllPending(new KernelError({ code: "internal", message: "内核已关闭" }));
+		this.rejectAllPending(new KernelError({ code: "internal", message: "the kernel is closed" }));
 		if (!child) return;
 		await new Promise<void>((resolve) => {
 			const done = () => resolve();
@@ -119,7 +124,7 @@ export class KernelClient {
 				try {
 					child.kill("SIGKILL");
 				} catch {
-					/* 已经没了 */
+					/* already gone */
 				}
 				done();
 			}, 2000).unref?.();
@@ -130,7 +135,7 @@ export class KernelClient {
 		const [command, ...args] = this.options.command;
 		if (!command) {
 			this.dead = true;
-			throw new KernelError({ code: "internal", message: "内核启动命令为空" });
+			throw new KernelError({ code: "internal", message: "the kernel launch command is empty" });
 		}
 		const child = spawn(command, args, {
 			cwd: this.options.cwd,
@@ -155,11 +160,11 @@ export class KernelClient {
 		child.on("exit", (code, signal) => {
 			if (this.child !== child) return;
 			this.child = undefined;
-			this.handleExit(`退出码 ${code ?? "null"}，信号 ${signal ?? "null"}`);
+			this.handleExit(`exit code ${code ?? "null"}, signal ${signal ?? "null"}`);
 		});
 	}
 
-	/** stdout 只按 `\n` 切分，不走 readline：内核保证一行一个 JSON 对象。 */
+	/** stdout is split on `\n` only, no readline: the kernel guarantees one JSON object per line. */
 	private consumeStdout(chunk: string): void {
 		this.stdoutBuffer += chunk;
 		let index = this.stdoutBuffer.indexOf("\n");
@@ -183,17 +188,17 @@ export class KernelClient {
 		try {
 			payload = JSON.parse(line);
 		} catch {
-			this.options.onDiagnostic?.(`kernel stdout 不是 JSON：${line.slice(0, 200)}`);
+			this.options.onDiagnostic?.(`kernel stdout is not JSON: ${line.slice(0, 200)}`);
 			return;
 		}
 		const id = typeof payload.id === "string" ? payload.id : undefined;
 		if (!id) {
-			this.options.onDiagnostic?.(`kernel 响应缺少 id：${line.slice(0, 200)}`);
+			this.options.onDiagnostic?.(`kernel response has no id: ${line.slice(0, 200)}`);
 			return;
 		}
 		const pending = this.pending.get(id);
 		if (!pending) {
-			// 超时后迟到的响应：丢弃。
+			// A response that arrived after its timeout: dropped.
 			return;
 		}
 		this.pending.delete(id);
@@ -208,21 +213,22 @@ export class KernelClient {
 			new KernelError(
 				error && typeof error.code === "string"
 					? error
-					: { code: "internal", message: `内核返回了无法解析的错误信封：${line.slice(0, 200)}` },
+					: { code: "internal", message: `the kernel returned an unreadable error envelope: ${line.slice(0, 200)}` },
 			),
 		);
 	}
 
 	private dispatch<T>(method: string, params: Record<string, unknown>): Promise<T> {
 		if (this.dead) {
-			return Promise.reject(new KernelError({ code: "internal", message: "内核已停止且无法重启" }));
+			return Promise.reject(new KernelError({ code: "internal", message: "the kernel has stopped and cannot be restarted" }));
 		}
-		// close 之后排队里剩下的请求不再发出：下面那句「没有子进程就拉一个」会把内核
-		// 重新拉起来，而这时已经没人再 close 它了——一个孤儿内核进程留在那里占着工作区，
-		// 还攥着管道让宿主进程退不出去。车道（记忆抽取、按需深读）是异步的，
-		// 关机那一刻它们的调用完全可能还排在队里。
+		// After close, whatever is left in the queue is not sent: the "spawn one if there is no
+		// child" below would bring the kernel back up with nobody left to close it — an orphan
+		// kernel holding the workspace and holding a pipe that keeps the host from exiting.
+		// The lanes (memory extraction, on-demand deepening) are asynchronous, so at shutdown
+		// their calls may well still be sitting in the queue.
 		if (this.closing) {
-			return Promise.reject(new KernelError({ code: "internal", message: `内核已关闭，${method} 不再发出` }));
+			return Promise.reject(new KernelError({ code: "internal", message: `the kernel is closed; ${method} is not sent` }));
 		}
 		if (!this.child) {
 			try {
@@ -233,7 +239,7 @@ export class KernelClient {
 		}
 		const child = this.child;
 		if (!child?.stdin) {
-			return Promise.reject(new KernelError({ code: "internal", message: "内核 stdin 不可写" }));
+			return Promise.reject(new KernelError({ code: "internal", message: "kernel stdin is not writable" }));
 		}
 		this.seq += 1;
 		const id = `x${this.seq}`;
@@ -244,7 +250,7 @@ export class KernelClient {
 				reject(
 					new KernelError({
 						code: "internal",
-						message: `内核 ${method} 超过 ${this.timeoutMs} 毫秒没有回应`,
+						message: `kernel ${method} did not answer within ${this.timeoutMs} ms`,
 					}),
 				);
 			}, this.timeoutMs);
@@ -260,26 +266,26 @@ export class KernelClient {
 				if (!entry) return;
 				this.pending.delete(id);
 				clearTimeout(entry.timer);
-				entry.reject(new KernelError({ code: "internal", message: `写内核 stdin 失败：${error.message}` }));
+				entry.reject(new KernelError({ code: "internal", message: `writing to kernel stdin failed: ${error.message}` }));
 			});
 		});
 	}
 
 	private handleExit(reason: string): void {
-		this.rejectAllPending(new KernelError({ code: "internal", message: `内核进程结束：${reason}` }));
+		this.rejectAllPending(new KernelError({ code: "internal", message: `the kernel process ended: ${reason}` }));
 		if (this.closing) return;
 		if (this.restartUsed) {
 			this.dead = true;
-			this.options.onDiagnostic?.(`内核再次结束（${reason}），不再重启`);
+			this.options.onDiagnostic?.(`the kernel ended again (${reason}); not restarting`);
 			return;
 		}
 		this.restartUsed = true;
-		this.options.onDiagnostic?.(`内核结束（${reason}），重新拉起并重开桌`);
+		this.options.onDiagnostic?.(`the kernel ended (${reason}); respawning and reopening the table`);
 		try {
 			this.spawnChild();
 		} catch (error) {
 			this.dead = true;
-			this.options.onDiagnostic?.(`重新拉起内核失败：${(error as Error).message}`);
+			this.options.onDiagnostic?.(`respawning the kernel failed: ${(error as Error).message}`);
 			return;
 		}
 		const restart = this.options.onRestart;

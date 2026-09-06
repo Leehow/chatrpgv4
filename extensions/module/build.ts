@@ -1,14 +1,14 @@
 /**
- * `module.build`：无人值守构建的驱动循环（契约 §14.5）。
+ * `module.build`: the driver loop of the unattended build (contract §14.5).
  *
- * 这不是内核方法，是扩展侧的循环：
- * plan → 一次读者给全书 section 定 kind 与 priority → `module.plan.accept` →
- * 按 priority 逐 section：`module.packet` → 读者子进程 → `module.review` →
- * （不过就带着 findings 原样重起一轮，至多三轮）→ `module.accept` → `module.assemble` →
- * `opening_ready` 一到发 `coc:module-opening-ready` → 其余 section 继续 → `module.install`。
+ * This is not a kernel method but an extension-side loop:
+ * plan, then one reader giving every section of the book its kind and priority, then `module.plan.accept`,
+ * then section by section in priority order: `module.packet`, the reader subprocess, `module.review`,
+ * (a round that does not pass restarts with the findings verbatim, at most three rounds), `module.accept`,
+ * `module.assemble`, `coc:module-opening-ready` the moment `opening_ready` arrives, the remaining sections, and finally `module.install`.
  *
- * 一段 section 的那一截（packet → 读者 → review → accept → assemble）被按需深读车道
- * （契约 §14.6）原样复用，所以它单独是一个函数。
+ * The stretch for one section (packet, reader, review, accept, assemble) is reused verbatim by the
+ * on-demand deepening lane (contract §14.6), which is why it is a function of its own.
  */
 
 import { mkdir } from "node:fs/promises";
@@ -17,7 +17,7 @@ import { runReader } from "./reader.ts";
 
 export type KernelCall = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
-/** 契约 §14.5：每 section 至多三轮，超过记 failed。 */
+/** Contract §14.5: at most three rounds per section, and beyond that it is recorded failed. */
 export const MAX_ROUNDS = 3;
 
 export interface Finding {
@@ -29,14 +29,14 @@ export interface Finding {
 
 export interface BuildContext {
 	call: KernelCall;
-	/** 工作区（`ctx.cwd`）：`.coc/modules/<id>/` 在它下面。 */
+	/** The workspace (`ctx.cwd`): `.coc/modules/<id>/` sits under it. */
 	workspace: string;
-	/** 读者的模型，`provider/model`；不给就用 pi 的缺省。 */
+	/** The reader's model, `provider/model`; without one, pi's default is used. */
 	model?: string;
 	signal: AbortSignal;
-	/** 一行构建遥测（契约 §14.1 的 `build.jsonl`）。 */
+	/** One line of build telemetry (the `build.jsonl` of contract §14.1). */
 	record: (moduleId: string, row: Record<string, unknown>) => void;
-	/** 关机了就别开新的一轮。 */
+	/** Once shut down, start no new round. */
 	stopped: () => boolean;
 	readerTimeoutMs?: number;
 }
@@ -67,7 +67,7 @@ export interface BuildReport {
 	detail?: string;
 }
 
-/** 内核错误信封的 code 用鸭子类型读：跨模块 instanceof 靠不住。 */
+/** The code of a kernel error envelope is read structurally: instanceof is unreliable across modules. */
 function errorCode(error: unknown): string | undefined {
 	const code = (error as { code?: unknown } | null)?.code;
 	return typeof code === "string" ? code : undefined;
@@ -86,8 +86,8 @@ function asString(value: unknown): string | undefined {
 }
 
 /**
- * 读者的工作目录。内核给什么就用什么（`work_dir`，或 `packet` 那个文件所在的目录），
- * 都没有时按契约 §14.1 的布局自己拼。相对路径按工作区解。
+ * The reader's working directory. Whatever the kernel gives is used (`work_dir`, or the directory of the
+ * `packet` file); with neither, it is composed from the layout of contract §14.1. Relative paths resolve against the workspace.
  */
 export function workDirFor(
 	workspace: string,
@@ -105,12 +105,12 @@ function findingCodes(findings: Finding[]): string[] {
 }
 
 /**
- * 三道门的一次 review。
+ * One review through the three gates.
  *
- * 契约 §14.3 只给了 `{module_id, section_id}`；轮次得让内核知道，否则它写不出
- * `sections.json` 的 `rounds` 与最后一轮的 `failed`（契约 §14.1、§14.5）。
- * 所以这里多送 `round`（与最后一轮的 `final`），并留一条退路：内核要是认不出这两个键，
- * 用裸参数再调一次；裸的真过了才认定这个内核不收轮次，之后不再多送。
+ * Contract §14.3 gives only `{module_id, section_id}`, but the kernel must know the round or it cannot
+ * write `sections.json`'s `rounds` or the last round's `failed` (contract §14.1, §14.5).
+ * So `round` is sent too (with `final` on the last round), with a way back: if the kernel does not know
+ * those two keys, call again with the bare parameters; only if the bare call really passes is this kernel taken not to accept rounds, and none are sent afterwards.
  */
 let reviewTakesRound = true;
 
@@ -136,7 +136,7 @@ async function reviewSection(
 			return read(await call("module.review", { ...bare, round, ...(final ? { final: true } : {}) }));
 		} catch (error) {
 			if (errorCode(error) !== "invalid_params") throw error;
-			// 可能是内核不收 `round`，也可能是这一片本来就不合格：裸参数过了才是前者。
+			// It may be a kernel that does not take `round`, or a shard that is simply not good enough: only a bare call that passes means the former.
 			const fallback = read(await call("module.review", bare));
 			reviewTakesRound = false;
 			return fallback;
@@ -146,8 +146,8 @@ async function reviewSection(
 }
 
 /**
- * 一段 section：抽取包 → 读者 → 三道门 → 接受 → 增量合并（契约 §14.5）。
- * 构建循环与按需深读车道共用这一截。
+ * One section: the extraction packet, the reader, the three gates, acceptance, incremental assembly (contract §14.5).
+ * The build loop and the on-demand deepening lane share this stretch.
  */
 export async function readSection(
 	ctx: BuildContext,
@@ -166,7 +166,7 @@ export async function readSection(
 
 	const workDir = workDirFor(ctx.workspace, moduleId, sectionId, packet);
 	await mkdir(workDir, { recursive: true }).catch(() => undefined);
-	const baseBrief = asString(packet.brief) ?? `读 ${sectionId} 的抽取包 packet.json，把分片写进 shard.json。`;
+	const baseBrief = asString(packet.brief) ?? `Read the extraction packet packet.json of ${sectionId} and write the shard into shard.json.`;
 
 	let findings: Finding[] = [];
 	let round = 0;
@@ -174,11 +174,11 @@ export async function readSection(
 	while (round < MAX_ROUNDS && !ctx.stopped() && !ctx.signal.aborted) {
 		round += 1;
 		const final = round === MAX_ROUNDS;
-		// 重来的一轮把上一轮的 findings 原样带上（契约 §14.5）：不总结、不翻译。
+		// A repeated round carries the previous round's findings verbatim (contract §14.5): not summarised, not translated.
 		const brief =
 			findings.length === 0
 				? baseBrief
-				: `${baseBrief}\n\n上一轮 review 没过，findings 原样如下，照着改再跑一遍闸门：\n${JSON.stringify(findings, null, 2)}`;
+				: `${baseBrief}\n\nThe last review did not pass. Its findings, verbatim, are below: fix them and run the gates again.\n${JSON.stringify(findings, null, 2)}`;
 		const run = await runReader({
 			cwd: workDir,
 			brief,
@@ -193,7 +193,7 @@ export async function readSection(
 			accepted = review.accepted;
 			findings = review.findings;
 		} catch (error) {
-			// 闸门本身没跑成也是这一轮没过：留一条能追的 finding，循环照走。
+			// A gate that failed to run at all is also a round that did not pass: leave one traceable finding and let the loop go on.
 			findings = [
 				{ gate: "call", code: errorCode(error) ?? "internal", path: "module.review", message: errorText(error) },
 			];
@@ -213,7 +213,7 @@ export async function readSection(
 		});
 
 		if (!accepted) {
-			detail = run.ok ? "review 没过" : `读者这一轮没跑成：${run.error ?? `退出码 ${run.code}`}`;
+			detail = run.ok ? "the review did not pass" : `the reader did not run this round: ${run.error ?? `exit code ${run.code}`}`;
 			continue;
 		}
 		try {
@@ -223,7 +223,7 @@ export async function readSection(
 			ctx.record(moduleId, { section_id: sectionId, round, reason, accepted: false, ok: false, detail });
 			return { section_id: sectionId, accepted: false, rounds: round, findings, detail };
 		}
-		// 每接受一片就增量合并（契约 §14.5）：图长一点，开桌就绪就可能到。
+		// Assemble incrementally after every acceptance (contract §14.5): the graph grows, and opening readiness may arrive.
 		try {
 			await ctx.call("module.assemble", { module_id: moduleId });
 		} catch (error) {
@@ -247,7 +247,7 @@ export async function readSection(
 	};
 }
 
-/** `module.status` 里的 section 名册；内核没给就回空表，调用方据此报错。 */
+/** The section roster in `module.status`; an empty list when the kernel gives none, which the caller reports on. */
 async function sectionsOf(ctx: BuildContext, moduleId: string): Promise<{ status: Record<string, unknown>; sections: SectionRow[] }> {
 	const status = asRecord(await ctx.call("module.status", { module_id: moduleId }));
 	const roster = status.sections;
@@ -268,7 +268,7 @@ async function sectionsOf(ctx: BuildContext, moduleId: string): Promise<{ status
 	return { status, sections };
 }
 
-/** 先高 priority，同 priority 按名册顺序（契约 §14.3：front／keeper-truth／开场场景先）。 */
+/** Higher priority first, ties in roster order (contract §14.3: front, keeper truth and the opening scene come first). */
 function byPriority(sections: SectionRow[]): SectionRow[] {
 	return sections
 		.map((section, index) => ({ section, index }))
@@ -277,9 +277,9 @@ function byPriority(sections: SectionRow[]): SectionRow[] {
 }
 
 /**
- * 计划：机器切法归内核，分类归一次读者（契约 §14.3）。
- * `module.plan` 给分类用的抽取包与 brief 时才起读者，再 `module.plan.accept`；
- * 内核自己就把 `sections.json` 写好了（没有 brief）时这一步只是过一下。
+ * Planning: the mechanical cutting is the kernel's, the classification is one reader's (contract §14.3).
+ * The reader is only started when `module.plan` gives a packet and a brief for classification, followed by
+ * `module.plan.accept`; when the kernel has already written `sections.json` itself (no brief), this step is a formality.
  */
 async function planModule(ctx: BuildContext, moduleId: string): Promise<number> {
 	const plan = asRecord(await ctx.call("module.plan", { module_id: moduleId }));
@@ -312,8 +312,8 @@ async function planModule(ctx: BuildContext, moduleId: string): Promise<number> 
 }
 
 /**
- * 无人值守构建（契约 §14.5）。`onOpeningReady` 在 `module.status.opening_ready`
- * 第一次为真时被叫一次——建卡的 `build-opening` 那一步等的就是它。
+ * The unattended build (contract §14.5). `onOpeningReady` is called once, the first time
+ * `module.status.opening_ready` is true — that is what setup's `build-opening` step waits for.
  */
 export async function buildModule(
 	ctx: BuildContext,
@@ -330,7 +330,7 @@ export async function buildModule(
 	};
 
 	let listed = await sectionsOf(ctx, moduleId);
-	// 还没切 section 的书先切；已经切过的（重开进程接着构建）不再切。
+	// A book with no sections yet is cut first; one already cut (a restarted process continuing a build) is not cut again.
 	if (listed.sections.length === 0) {
 		await planModule(ctx, moduleId);
 		listed = await sectionsOf(ctx, moduleId);
@@ -355,7 +355,7 @@ export async function buildModule(
 			if (outcome.accepted) report.accepted.push(section.id);
 			else report.failed.push(section.id);
 			if (report.opening_ready) continue;
-			// 开场就绪一到就发信号：建卡不必等整本读完（契约 §14.3）。
+			// Signal the moment the opening is ready: setup need not wait for the whole book (contract §14.3).
 			try {
 				const status = asRecord(await ctx.call("module.status", { module_id: moduleId }));
 				if (status.opening_ready === true) {
@@ -363,19 +363,19 @@ export async function buildModule(
 					options.onOpeningReady?.(status);
 				}
 			} catch {
-				/* 状态查不到不该弄停构建 */
+				/* an unreadable status must not stop the build */
 			}
 		}
 	};
 	await Promise.all(Array.from({ length: parallel }, () => worker()));
 
 	if (ctx.stopped() || ctx.signal.aborted) {
-		report.detail = "构建被关机打断，剩下的 section 留给下次";
+		report.detail = "the build was cut short by shutdown; the remaining sections are left for next time";
 		return report;
 	}
 
-	// 全部结束才安装（契约 §14.5）。图不达可玩性标准时安装要 force（契约 §14.3），
-	// 报告已经写在 `module.json` 里，胶囊的 `where` 会告诉守秘人材料不全。
+	// Install only when everything has finished (contract §14.5). A graph below the playability standard needs
+	// force to install (contract §14.3); the report is already in `module.json`, and the capsule's `where` tells the Keeper the material is incomplete.
 	try {
 		await ctx.call("module.install", { module_id: moduleId });
 		report.installed = true;

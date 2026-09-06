@@ -24,7 +24,7 @@ INVESTIGATOR_TEMPLATE_KIND = "investigator-template"
 #: scenes by play order far more often than by roads; both are exits at the table.
 EXIT_RELATION_KINDS = ("route-to", "play-precedes", "may-lead-to", "alternative-to", "hands-off-to")
 #: what a lookup says next to a book's pregen: the table's investigator is in the capsule
-TEMPLATE_NOTE = "书里的预设调查员，不在本桌；本桌的调查员见胶囊 known.investigator"
+TEMPLATE_NOTE = "the book's pregenerated investigator, not at this table; the table's investigators are in the capsule's known.investigator"
 
 
 def record_of(node: dict[str, Any] | None) -> dict[str, Any]:

@@ -24,7 +24,7 @@ def test_investigator_templates_rank_last_and_carry_the_note(tmp_path):
     assert "investigator-template" in kinds and kinds[-1] == "investigator-template"
     assert kinds.index("npc") < kinds.index("investigator-template")
     template = next(n for n in hits if n["node_kind"] == "investigator-template")
-    assert "本桌" in loaded.describe(template)["note"] and "本桌" in loaded.entity_view(template)["note"]
+    assert "this table" in loaded.describe(template)["note"] and "this table" in loaded.entity_view(template)["note"]
     assert "note" not in loaded.describe(next(n for n in hits if n["node_kind"] == "npc"))
 
 

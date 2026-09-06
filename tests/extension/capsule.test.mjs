@@ -77,7 +77,7 @@ test("状态行挂上 Director 的建议节拍", async (t) => {
 
 	const painted = directorStatuses(table);
 	assert.equal(painted.length, 1, "一回合一次，节拍没变就不重画");
-	assert.equal(painted[0].text, "节拍 REVEAL");
+	assert.equal(painted[0].text, "beat REVEAL");
 });
 
 test("有 override 时状态行把硬规则一起显示", async (t) => {
@@ -90,7 +90,7 @@ test("有 override 时状态行把硬规则一起显示", async (t) => {
 	await table.session.prompt("我朝它冲过去");
 
 	const painted = directorStatuses(table);
-	assert.equal(painted.at(-1)?.text, "节拍 SUBSYSTEM　硬规则 session-active");
+	assert.equal(painted.at(-1)?.text, "beat SUBSYSTEM  override session-active");
 });
 
 test("内核不给 director 节时状态行上不挂东西", async (t) => {

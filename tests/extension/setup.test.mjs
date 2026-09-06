@@ -110,7 +110,7 @@ test("pdf 那条路：资料包没到手就等，绑定与构建各归各的，�
 	const waiting = setupResults(table.session).at(-1);
 	assert.equal(waiting.ok, false, "资料包还不在，这一步不算做完");
 	assert.equal(waiting.path, bundle);
-	assert.match(waiting.hint, /PDF 技能/, "告诉玩家怎么用宿主的技能产出它（契约 §14.2：仓库不解析 PDF）");
+	assert.match(waiting.hint, /PDF skill/, "告诉玩家怎么用宿主的技能产出它（契约 §14.2：仓库不解析 PDF）");
 
 	// 宿主的技能产出了资料包（这里只要形状对：清单 + 每页一份 Markdown）。
 	mkdirSync(join(bundle, "pages"), { recursive: true });
@@ -184,7 +184,7 @@ test("闸门：表里没有的步、前置没做完的步、重复的步，三�
 
 	assert.equal(done.ok, true, "第一步做得成");
 	assert.equal(repeated.ok, false);
-	assert.match(repeated.rejected, new RegExp(`${first.id} 已经做过了`), "重复的步被拒");
+	assert.match(repeated.rejected, new RegExp(`${first.id} is already done`), "重复的步被拒");
 
 	const stepsCalls = table.kernelRequests().filter((entry) => entry.method === "setup.steps");
 	assert.equal(stepsCalls.length, 1, "表只读一次，之后都从它派生");
@@ -236,7 +236,7 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
 
 	assert.equal(finished.ok, true);
 	assert.match(finished.handoff_command, /^bin\/pi-coc --campaign /, "最后一步交出开桌命令（契约 §14.4）");
-	assert.equal(finished.next, "建卡的步都做完了。");
+	assert.equal(finished.next, "Every setup step is done.");
 	assert.ok(
 		table.ui.notifications.some((row) => row.message.includes(finished.handoff_command)),
 		"开桌命令也报给玩家",
@@ -246,7 +246,7 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
 	const pdfOnly = SETUP_STEPS.filter((row) => row.applies_to?.includes("pdf")).map((row) => row.id);
 	assert.ok(pdfOnly.length > 0, "表里确实有只属于 pdf 的步");
 	const progress = finished.progress;
-	assert.match(progress, /^建卡 \d+\/\d+/, "状态行上的进度是从表数出来的");
+	assert.match(progress, /^setup \d+\/\d+/, "状态行上的进度是从表数出来的");
 	assert.equal(
 		table.ui.statuses.filter((row) => row.key === "coc-setup").length >= 1,
 		true,

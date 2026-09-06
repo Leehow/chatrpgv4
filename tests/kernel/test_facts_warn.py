@@ -6,8 +6,6 @@ import json
 from conftest import CAMPAIGN, campaign_dir, create_campaign, narrate_opening, open_turn, read_json, read_jsonl
 
 INV = "托马斯·海斯"
-LEVEL_ZH = {"critical": "大成功", "extreme": "极难成功", "hard": "困难成功", "regular": "普通成功",
-            "failure": "失败", "fumble": "大失败"}
 
 
 def size(payload):
@@ -19,8 +17,8 @@ def size(payload):
 def test_narrate_facts_are_sentences_from_receipts_and_world(kernel):
     create_campaign(kernel)
     opening = narrate_opening(kernel)
-    assert opening["facts"]["committed"] == ["地点：Knott's Office", "在场：Steven Knott"]
-    assert any(line.startswith("未发现线索：knott-keys——") for line in opening["facts"]["keeper_only"])
+    assert opening["facts"]["committed"] == ["Location: Knott's Office", "Present: Steven Knott"]
+    assert any(line.startswith("Undiscovered clue: knott-keys -- ") for line in opening["facts"]["keeper_only"])
     assert opening["extraction"] == {"job_id": "extract:c1:t0"}
 
     kernel.table("player_input", text="我翻看桌上的文件。")
@@ -33,41 +31,44 @@ def test_narrate_facts_are_sentences_from_receipts_and_world(kernel):
         {"kind": "move", "to": "hall-of-records", "travel_minutes": 20},
     ])
     roll, _, _, dice, delta, _ = kernel.table("status")["receipts"]
-    result = kernel.table("narrate", call_id="t1-c3", text="你出了门。")
-    verdict = "通过" if roll["passed"] else "未通过"
+    text = f"你出了门：掷出 {roll['roll']}（侦查 {roll['target']}），伤害 {dice['total']}，生命值 12 到 {delta['after']}，过了 15 分钟。"
+    result = kernel.table("narrate", call_id="t1-c3", text=text)
+    verdict = "passed" if roll["passed"] else "failed"
+    # English, the system language (§16.1); names ride as the receipts carry them
     assert result["facts"]["committed"] == [
-        "玩家声明：我翻看桌上的文件。",
-        f"{INV}的侦查检定{verdict}（{LEVEL_ZH[roll['level']]}）",
-        "发现线索：钥匙",
-        "时间推进 15 分钟",
-        f"{INV}掷伤害 1D3：{dice['total']}",
-        f"生命值：{INV} 12 → {delta['after']}",
-        "场景：Knott's Office → hall-of-records（20 分钟）",
-        "地点：hall-of-records",
-        "在场：the Hall of Records clerk",
+        "Player declared: 我翻看桌上的文件。",
+        f"{INV}'s Spot Hidden check {verdict} ({roll['level']})",
+        "Clue found: 钥匙",
+        "Time advances 15 min",
+        f"{INV} rolls damage 1D3: {dice['total']}",
+        f"hp: {INV} 12 -> {delta['after']}",
+        "Scene: Knott's Office -> hall-of-records (20 min)",
+        "Location: hall-of-records",
+        "Present: the Hall of Records clerk",
     ]
     keeper_only = result["facts"]["keeper_only"]
     assert size(keeper_only) <= 2048
-    assert [line for line in keeper_only if line.startswith("未发现线索：")] == [
-        line for line in keeper_only if line.startswith(("未发现线索：will-executor-chapel——", "未发现线索：chapel-closed-1912——"))]
+    assert [line for line in keeper_only if line.startswith("Undiscovered clue: ")] == [
+        line for line in keeper_only
+        if line.startswith(("Undiscovered clue: will-executor-chapel -- ", "Undiscovered clue: chapel-closed-1912 -- "))]
     assert not any("knott-keys" in line for line in keeper_only)
-    assert any(line.startswith("模组秘密：corbitt-buried-alive-will——") for line in keeper_only)
+    assert any(line.startswith("Module secret: corbitt-buried-alive-will -- ") for line in keeper_only)
     record = read_json(campaign_dir(kernel.workspace) / "turns" / "0001.json")
     assert record["facts"] == result["facts"]
     # the replayed narrate returns the same facts
-    assert kernel.table("narrate", call_id="t1-c3", text="你出了门。")["facts"] == result["facts"]
+    assert kernel.table("narrate", call_id="t1-c3", text=text)["facts"] == result["facts"]
 
 
 def test_keeper_only_lists_present_npc_secrets_and_drops_discovered_clues(kernel):
     open_turn(kernel)
     kernel.table("apply", call_id="t1-c1", effects=[{"kind": "clue", "clue": "knott-keys"}])
     keeper_only = kernel.table("narrate", call_id="t1-c2", text="诺特把钥匙推过来。")["facts"]["keeper_only"]
-    assert not any(line.startswith("未发现线索：knott-keys") for line in keeper_only)
-    assert any(line.startswith("未发现线索：knott-commission——") for line in keeper_only)
-    secret = [line for line in keeper_only if line.startswith("Steven Knott的秘密——")]
-    assert len(secret) == 1 and "agenda：Clear the Corbitt House" in secret[0] and "secret：He knows only rumor" in secret[0]
+    assert not any(line.startswith("Undiscovered clue: knott-keys") for line in keeper_only)
+    assert any(line.startswith("Undiscovered clue: knott-commission -- ") for line in keeper_only)
+    secret = [line for line in keeper_only if line.startswith("Steven Knott's secret -- ")]
+    assert len(secret) == 1 and "agenda: Clear the Corbitt House" in secret[0] and "secret: He knows only rumor" in secret[0]
     # module secrets come last and are the first the 2KB budget trims
-    secrets = [i for i, line in enumerate(keeper_only) if line.startswith("模组秘密：")]
+    secrets = [i for i, line in enumerate(keeper_only) if line.startswith("Module secret: ")]
     assert secrets and secrets == list(range(secrets[0], len(keeper_only)))
     assert size(keeper_only) <= 2048
 

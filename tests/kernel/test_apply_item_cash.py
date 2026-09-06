@@ -1,6 +1,6 @@
 """#19 `apply {kind: item}` / `apply {kind: cash}`: what the narration hands an investigator
 reaches the sheet (equipment, a weapon row from the rules' profile, finance.cash), the
-receipts and 【变化】 lines say so, the events land, a loss needs the item on the sheet,
+receipts and the mechanics projection say so, the events land, a loss needs the item on the sheet,
 and a weapon given this way is one `resolve` can fire — with its own skill and its own
 magazine. Through the RPC seam; the skill lookup is also pinned in process."""
 
@@ -75,8 +75,11 @@ def test_item_with_a_weapon_profile_reaches_the_sheet_the_line_and_the_event(ker
                              "weapon": SHOTGUN}
 
     narrated = kernel.table("narrate", call_id="t1-c2", text="诺特把枪递过来。\n\n枪很沉。")
-    assert narrated["rendered_text"] == "诺特把枪递过来。\n\n【变化】物品：托马斯·海斯 得到 温彻斯特霰弹枪\n\n枪很沉。"
-    assert "物品：托马斯·海斯 得到 温彻斯特霰弹枪" in narrated["facts"]["committed"]
+    assert narrated["rendered_text"] == "诺特把枪递过来。\n\n枪很沉。"
+    assert narrated["mechanics"] == [{"kind": "item", "receipt": "item:winchester-shotgun-t1-c1", "name": "Winchester shotgun",
+                                      "quantity": 1, "to": INVESTIGATOR, "label": "温彻斯特霰弹枪", "to_label": INV_NAME,
+                                      "from": "Steven Knott", "weapon": SHOTGUN}]
+    assert f"Item: {INV_NAME} gains 温彻斯特霰弹枪" in narrated["facts"]["committed"]
 
 
 def test_item_without_a_weapon_is_kit_and_quantities_merge(kernel):
@@ -92,8 +95,9 @@ def test_item_without_a_weapon_is_kit_and_quantities_merge(kernel):
     assert (logged["item:shotgun-shells-t1-c1"]["before"], logged["item:shotgun-shells-t1-c1"]["after"]) == (0, 6)
     assert (logged["item:shotgun-shells-t1-c2"]["before"], logged["item:shotgun-shells-t1-c2"]["after"]) == (6, 10)
     narrated = kernel.table("narrate", call_id="t1-c3", text="他数了数子弹。")
-    assert "【变化】物品：托马斯·海斯 得到 shotgun shells ×6" in narrated["rendered_text"]
-    assert "【变化】物品：托马斯·海斯 得到 Shotgun Shells ×4" in narrated["rendered_text"]  # each line says what that call said
+    assert narrated["rendered_text"] == "他数了数子弹。"
+    # each projection says what that call said
+    assert [(m["name"], m["quantity"]) for m in narrated["mechanics"]] == [("shotgun shells", 6), ("Shotgun Shells", 4)]
 
 
 def test_unknown_weapon_profile_is_needs_with_the_eras_ids_and_the_batch_does_not_write(kernel):
@@ -145,14 +149,17 @@ def test_loss_needs_the_item_on_the_sheet_and_takes_the_weapon_row_with_it(kerne
     assert weapon_options(kernel) == [".38 Revolver", "Winchester shotgun", "unarmed"]
     # the loss may name it by the label the keeper gave it
     gone = kernel.table("apply", call_id="t1-c4", effects=[{"kind": "item", "name": "温彻斯特霰弹枪", "quantity": -1}])
-    assert gone["receipts"] == ["item:温彻斯特霰弹枪-t1-c4"]  # the label names it, in the player's language
+    assert gone["receipts"] == ["item:t1-c4"]  # no Latin slug in the name: the ordinal alone (§16 ids are ASCII)
+    assert receipts_of(kernel)["item:t1-c4"]["name"] == "温彻斯特霰弹枪"
     after = sheet(kernel)
     assert not any(isinstance(e, dict) and e["name"] == "Winchester shotgun" for e in after["equipment"])
     assert [w["weapon_id"] for w in after["weapons"]] == ["revolver_38_or_9mm"]
     assert weapon_options(kernel) == [".38 Revolver", "unarmed"]
     narrated = kernel.table("narrate", call_id="t1-c5", text="枪掉进了河里。")
-    assert "【变化】物品：托马斯·海斯 失去 温彻斯特霰弹枪" in narrated["rendered_text"]
-    assert "物品：托马斯·海斯 失去 shotgun shells ×2" in narrated["facts"]["committed"]
+    assert narrated["rendered_text"] == "枪掉进了河里。"
+    assert {"kind": "item", "receipt": "item:t1-c4", "name": "温彻斯特霰弹枪", "label": "温彻斯特霰弹枪", "quantity": -1,
+            "to": INVESTIGATOR, "to_label": INV_NAME} in narrated["mechanics"]
+    assert f"Item: {INV_NAME} loses shotgun shells x2" in narrated["facts"]["committed"]
 
     # the pregen's own pistol has no equipment entry: it is held as its weapon row
     kernel.table("player_input", text="继续。")
@@ -232,8 +239,9 @@ def test_cash_builds_the_finance_block_from_the_era_table_and_moves_it(kernel):
     assert after["cash"] == f"{start + 20} {table['currency']}"
     receipt = receipts_of(kernel)["cash:t1-c1"]
     assert receipt == {**receipt, "kind": "cash", "resource": "cash", "subject": INVESTIGATOR, "subject_label": INV_NAME,
-                       "label": "现金", "before": start, "after": start + 20, "delta": 20, "currency": table["currency"],
+                       "before": start, "after": start + 20, "delta": 20, "currency": table["currency"],
                        "why": "诺特的定金"}
+    assert "label" not in receipt  # §16: the resource key is the language-neutral name
     event = events_of(kernel, "resource-changed")[-1]
     assert event["receipt"] == "cash:t1-c1"
     assert event["data"] == {"resource": "cash", "subject": INVESTIGATOR, "before": start, "after": start + 20, "delta": 20,
@@ -248,11 +256,18 @@ def test_cash_builds_the_finance_block_from_the_era_table_and_moves_it(kernel):
     assert kernel.table_err("apply", call_id="t1-c3", effects=[{"kind": "cash", "delta": 0}])["code"] == "invalid_params"
     assert kernel.table_err("apply", call_id="t1-c3", effects=[{"kind": "cash", "delta": 1.5}])["code"] == "invalid_params"
 
-    narrated = kernel.table("narrate", call_id="t1-c3", text="他数了钱。\n\n又付了车费。")
-    lines = [line for line in narrated["rendered_text"].splitlines() if line.startswith("【变化】现金")]
-    assert lines == [f"【变化】现金：{INV_NAME} {start} → {start + 20}", f"【变化】现金：{INV_NAME} {start + 20} → {start + 15}",
-                     f"【变化】现金：{INV_NAME} {start + 15} → {start + 10}"]
-    assert f"现金：{INV_NAME} {start} → {start + 20}" in narrated["facts"]["committed"]
+    unstated = kernel.table_err("narrate", call_id="t1-c3", text="他数了钱。\n\n又付了车费。")
+    assert unstated["code_detail"] == "mechanics_missing"
+    assert [m["receipt"] for m in unstated["details"]["missing"]] == ["cash:t1-c1", "cash:t1-c2", "cash:t1-c2-2"]
+    text = f"他数了钱：{start} 变成 {start + 20}。\n\n又付了车费：{start + 20} 到 {start + 15}，再到 {start + 10}。"
+    narrated = kernel.table("narrate", call_id="t1-c3", text=text)
+    assert narrated["rendered_text"] == text
+    assert [m for m in narrated["mechanics"] if m["kind"] == "cash"] == [
+        {"kind": "cash", "receipt": receipt_id, "subject": INVESTIGATOR, "subject_label": INV_NAME, "before": b, "after": a,
+         "currency": table["currency"]}
+        for receipt_id, b, a in (("cash:t1-c1", start, start + 20), ("cash:t1-c2", start + 20, start + 15),
+                                 ("cash:t1-c2-2", start + 15, start + 10))]
+    assert f"cash: {INV_NAME} {start} -> {start + 20}" in narrated["facts"]["committed"]
     # history's diff accumulates cash like any resource
     kernel.table("player_input", text="继续。")
     diff = kernel.table("recall", what="history", diff=[0, 1])["diff"]

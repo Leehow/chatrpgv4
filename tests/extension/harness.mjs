@@ -176,9 +176,13 @@ export async function openTable({
 	let api;
 	/** 总线上的提交载荷（契约 §12.8）：探针扩展在加载时就订阅，早于任何 session_start。 */
 	const committed = [];
+	/** 总线上的机制投影（契约 §16.2 的 `coc:mechanics`），按到达顺序。 */
+	const mechanics = [];
 	/** 模组构建那几条总线事件，按到达顺序：{channel, data}。 */
 	const bus = [];
 	const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
+	// 会话条目由 sessionManager 保管：测试从这里读 `coc-mechanics`（契约 §16.2）。
+	const sessionManager = SessionManager.inMemory();
 	const resourceLoader = new DefaultResourceLoader({
 		cwd: workspace,
 		agentDir: join(workspace, "agent"),
@@ -196,6 +200,7 @@ export async function openTable({
 				factory: (pi) => {
 					api = pi;
 					pi.events.on("coc:turn-committed", (data) => committed.push(data));
+					pi.events.on("coc:mechanics", (data) => mechanics.push(data));
 					// 模组车道的总线（契约 §14.5）：构建起没起、开场就绪没有，测试从这里看。
 					for (const channel of ["coc:module-build", "coc:module-opening-ready", "coc:module-build-done", "coc:module-build-failed"]) {
 						pi.events.on(channel, (data) => bus.push({ channel, data }));
@@ -214,7 +219,7 @@ export async function openTable({
 		thinkingLevel: "off",
 		noTools: "builtin",
 		resourceLoader,
-		sessionManager: SessionManager.inMemory(),
+		sessionManager,
 		settingsManager,
 	});
 
@@ -239,6 +244,17 @@ export async function openTable({
 		activeTools: () => api?.getActiveTools() ?? [],
 		/** 总线上 `coc:turn-committed` 的载荷，按到达顺序。 */
 		committed: () => [...committed],
+		/** 总线上 `coc:mechanics` 的载荷（契约 §16.2），按到达顺序。 */
+		mechanics: () => [...mechanics],
+		/**
+		 * 会话条目（`pi.appendEntry` 写的那种），按到达顺序。机制投影就是这么进
+		 * Pi RPC 事件流的（`entry_appended`），驾驭器据此落证据。
+		 */
+		entries: (customType) =>
+			sessionManager
+				.getEntries()
+				.filter((entry) => entry.type === "custom" && (!customType || entry.customType === customType))
+				.map((entry) => entry.data),
 		/** 模组车道的总线事件，按到达顺序。 */
 		bus: (channel) => (channel ? bus.filter((row) => row.channel === channel) : [...bus]),
 		/**

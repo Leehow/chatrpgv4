@@ -20,7 +20,7 @@ from .rules.development import record_skill_tick
 from .rules.executors import EXECUTORS, run as run_executor
 from .rules.graph import semantic_name, thaw
 from .rules.resolver import SOCIAL_APPROACH_SKILLS, validate_san_loss_expression
-from .rules.runtime import (RESOURCE_LABELS_ZH, RulesEngine, SettleContext, development_binding, latest_check_receipt,
+from .rules.runtime import (RulesEngine, SettleContext, development_binding, latest_check_receipt,
                             magic_binding, psychology_binding, psychology_realize_binding, social_binding)
 from .rules.sanity import INVOLUNTARY_KINDS
 from .sessions import (SessionView, bout_active, chase_active, chase_location_chain, chase_participant_from_combat_spec,
@@ -41,9 +41,21 @@ COMBAT_FLEE_REF = "decision:coc7:combat:flee"
 CHASE_START_REF = "decision:coc7:chase:start"
 SANITY_CHECK_REF = "decision:coc7:sanity:check"
 SANITY_BOUT_REFS = ("decision:coc7:sanity:bout-tick", "decision:coc7:sanity:bout-end")
-#: The kernel's own vocabulary for the SAN resource (the zh label the mechanics block
-#: prints plus the rulebook's names): `stakes` naming it offers `sanity:check` (§11.5).
-SAN_TERMS = ("san", "sanity", RESOURCE_LABELS_ZH["san"])
+#: The rulebook's names for the SAN resource: `stakes` naming it offers `sanity:check`
+#: (§11.5). The localized names come from the rules data (`derived-attributes.json`,
+#: `sanity.localized_labels`), never from code (§16.1); `san_loss` or
+#: `decision: sanity:check` on the action is the explicit route in any language.
+SAN_TERMS = ("san", "sanity")
+
+
+def san_terms(tables: RuleTables) -> tuple[str, ...]:
+    try:
+        entry = tables.load("derived-attributes").get("sanity") or {}
+    except (OSError, ValueError, AttributeError):
+        return SAN_TERMS
+    labels = entry.get("localized_labels") if isinstance(entry, dict) else None
+    localized = [normalize_text(v) for v in (labels or {}).values() if isinstance(v, str) and v.strip()] if isinstance(labels, dict) else []
+    return SAN_TERMS + tuple(t for t in localized if t)
 
 #: Which `action` field fills each keeper-semantic slot (contract §11.4). Used to tell
 #: the keeper what a continuation or a missing slot needs, in `action` vocabulary.
@@ -343,7 +355,7 @@ class ResolvePipeline:
 
     def _stakes_name_sanity(self) -> bool:
         text = normalize_text(self.stakes)
-        return bool(text) and any(term in text.split() or term in text for term in SAN_TERMS)
+        return bool(text) and any(term in text.split() or term in text for term in san_terms(self.engine.tables))
 
     def _with_sanity_offer(self, refs: list[str]) -> list[str]:
         """§11.5: `stakes` that name Sanity make `sanity:check` a candidate alongside the

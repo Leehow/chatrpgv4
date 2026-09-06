@@ -15,6 +15,9 @@
     "rounding": "floor"
   },
   "sanity": {
+    "name": "Sanity",
+    "abbreviation": "SAN",
+    "localized_labels": {"zh-Hans": "理智"},
     "source": "POW"
   },
   "luck_default": {

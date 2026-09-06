@@ -1,6 +1,6 @@
 import json
 
-from conftest import OPENING_SCENE, PREGEN, open_turn
+from conftest import narrate, OPENING_SCENE, PREGEN, open_turn
 
 BUDGETS = {"where": 4096, "present": 3072, "known": 3072, "recent": 2048}
 
@@ -143,6 +143,6 @@ def test_capsule_is_kept_with_the_turn_cursor_and_the_closed_record(kernel):
     cursor = _read(_dir(kernel.workspace) / "turn.json")
     assert cursor["capsule"]["where"]["scene"] == _OPENING
     assert cursor["capsule"] == opened["capsule"]
-    kernel.table("narrate", call_id="t1-c1", text="他看着你。")
+    narrate(kernel, "t1-c1", "他看着你。")
     record = _read(_dir(kernel.workspace) / "turns" / "0001.json")
     assert record["capsule"]["turn"]["number"] == 1 and record["capsule"]["where"]["scene"] == _OPENING

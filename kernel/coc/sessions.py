@@ -52,9 +52,6 @@ CONTRACT_DEFENSES = ("dodge", "fight_back", "none")
 ENGINE_DEFENSE = {"firearm_attack": {"dodge": "dive_for_cover", "none": "none"},
                   "opposed_melee": {"dodge": "dodge", "fight_back": "fight_back", "none": "none"}}
 
-COMBAT_OUTCOMES_ZH = {"investigators_win": "调查员获胜", "monsters_win": "敌方获胜", "fled": "逃离", "stalemate": "僵持"}
-CHASE_OUTCOMES_ZH = {"escaped": "逃脱", "captured": "被擒", "concluded": "结束"}
-
 #: Where the module states an NPC's SAN cost to behold it: a printed `X/YDZ` expression
 #: somewhere in the profile's `san_loss` / `san_loss_to_see` field (Corbitt: "1/1D8 …").
 SAN_LOSS_IN_TEXT = re.compile(r"(\d+(?:D\d+(?:\+\d+)?)?)\s*/\s*(\d+D\d+(?:\+\d+)?|\d+)", re.IGNORECASE)
@@ -644,18 +641,18 @@ class SessionView:
             options = defense_options(pending)
             name = f"defense:{attacker}-r{int(self.combat.get('current_round') or 0)}"
             if self.is_investigator(defender):
-                prompt = f"{self.label(attacker)}向你出手了。你怎么应对？（{' / '.join(options)}）"
+                prompt = f"{self.label(attacker)} attacks you. How do you respond? ({' / '.join(options)})"
                 return {"name": name, "for": "player", "prompt": prompt, "options": options}
-            prompt = (f"{self.label(attacker)}攻击{self.label(defender)}：下一次 resolve 用 actor: {defender} 与 "
-                      f"defense 选一个（{' / '.join(options)}）")
+            prompt = (f"{self.label(attacker)} attacks {self.label(defender)}: on the next resolve use actor: {defender} "
+                      f"and pick a defense ({' / '.join(options)})")
             return {"name": name, "for": "keeper", "prompt": prompt, "options": options}
         for investigator_id, snapshot in self.sanity.items():
             if bout_active(snapshot):
                 view = self.bout_view(investigator_id, snapshot) or {}
                 bout = view.get("bout") or {}
                 remaining = bout.get("rounds_remaining")
-                prompt = (f"{self.label(investigator_id)}正在疯狂发作（{bout.get('result')}，剩余 {remaining} 轮）："
-                          "推进一轮（sanity:bout-tick）还是现在结束（sanity:bout-end）？")
+                prompt = (f"{self.label(investigator_id)} is in a bout of madness ({bout.get('result')}, {remaining} rounds "
+                          "left): advance one round (sanity:bout-tick) or end it now (sanity:bout-end)?")
                 return {"name": f"bout:{investigator_id}-r{view.get('round')}", "for": "keeper", "prompt": prompt,
                         "options": ["sanity:bout-tick", "sanity:bout-end"]}
         return None

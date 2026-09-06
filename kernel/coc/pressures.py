@@ -3,7 +3,7 @@ source — a rule clock the situations already surfaced, a module `threat`/`ques
 and its relations, the pending choice, the live session, an unanswered continuation, an
 open `promise` candidate. Nothing here reads prose to decide anything.
 
-Rows are play_language sentences built from closed templates; the `cue` is the author's
+Rows are English sentences built from closed templates (§16.1); the `cue` is the author's
 pressure move or the rule's next decision, never an invented one."""
 
 from __future__ import annotations
@@ -18,30 +18,16 @@ from .text import normalize
 WOUND_HOUR_MINUTES = 60
 
 TEMPLATES = {
-    "zh-Hans": {
-        "wound_hour": "重伤后一小时", "wound_state": "已过 {elapsed}/{total} 分钟", "wound_due": "{left} 分钟后急救窗口关闭",
-        "dying_hour": "濒死（已稳定，小时钟）", "dying_round": "濒死（未稳定，逐轮 CON）", "dying_state": "HP {hp}",
-        "bout": "理智发作", "bout_state": "剩余 {left}/{total} 轮", "bout_due": "{left} 轮",
-        "weekly": "重伤每周恢复", "weekly_state": "本周到期",
-        "threat_clock": "{current}/{total}", "threat_no_clock": "无时钟；{dangers} 个危险源",
-        "rule_state": "上回合留下，未回答", "continuation_cue": "需要 action.{fields}",
-        "choice_state": "待决", "session_state": "第 {round} 轮，轮到 {who}",
-        "quest_not_started": "未开始", "quest_in_progress": "进行中（{found}/{total} 条线索）", "quest_closable": "可结束（{total}/{total} 条线索）",
-        "quest_no_clues": "未开始（无线索标记）",
-        "promise_state": "{statement}",
-    },
-    "en": {
-        "wound_hour": "the hour after the wound", "wound_state": "{elapsed}/{total} minutes gone", "wound_due": "first-aid window closes in {left} min",
-        "dying_hour": "dying (stabilized, hour clock)", "dying_round": "dying (unstabilized, CON per round)", "dying_state": "HP {hp}",
-        "bout": "bout of madness", "bout_state": "{left}/{total} rounds left", "bout_due": "{left} rounds",
-        "weekly": "weekly major-wound recovery", "weekly_state": "due this week",
-        "threat_clock": "{current}/{total}", "threat_no_clock": "no clock; {dangers} danger(s)",
-        "rule_state": "left by last turn, unanswered", "continuation_cue": "needs action.{fields}",
-        "choice_state": "pending", "session_state": "round {round}, {who} to act",
-        "quest_not_started": "not started", "quest_in_progress": "in progress ({found}/{total} clues)", "quest_closable": "can close ({total}/{total} clues)",
-        "quest_no_clues": "not started (no clue markers)",
-        "promise_state": "{statement}",
-    },
+    "wound_hour": "the hour after the wound", "wound_state": "{elapsed}/{total} minutes gone", "wound_due": "first-aid window closes in {left} min",
+    "dying_hour": "dying (stabilized, hour clock)", "dying_round": "dying (unstabilized, CON per round)", "dying_state": "HP {hp}",
+    "bout": "bout of madness", "bout_state": "{left}/{total} rounds left", "bout_due": "{left} rounds",
+    "weekly": "weekly major-wound recovery", "weekly_state": "due this week",
+    "threat_clock": "{current}/{total}", "threat_no_clock": "no clock; {dangers} danger(s)",
+    "rule_state": "left by last turn, unanswered", "continuation_cue": "needs action.{fields}",
+    "choice_state": "pending", "session_state": "round {round}, {who} to act",
+    "quest_not_started": "not started", "quest_in_progress": "in progress ({found}/{total} clues)", "quest_closable": "can close ({total}/{total} clues)",
+    "quest_no_clues": "not started (no clue markers)",
+    "promise_state": "{statement}",
 }
 
 CLOCK_DECISIONS = {
@@ -55,8 +41,8 @@ CLOCK_DECISIONS = {
 PROMISE_STATEMENT_CHARS = 120
 
 
-def _t(language: str, key: str, **fields: Any) -> str:
-    table = TEMPLATES.get(language) or TEMPLATES["en"]
+def _t(key: str, **fields: Any) -> str:
+    table = TEMPLATES
     return table[key].format(**fields)
 
 
@@ -73,7 +59,7 @@ def _fact(situation: dict[str, Any], path: str) -> Any:
     return None
 
 
-def clock_pressures(language: str, situations: list[dict[str, Any]], party: list[dict[str, Any]],
+def clock_pressures(situations: list[dict[str, Any]], party: list[dict[str, Any]],
                     session: dict[str, Any] | None, fraction: tuple[int, int]) -> tuple[list[dict[str, Any]], bool]:
     """One row per rule clock the situations surface; returns (rows, any clock near full).
     Near full = elapsed segments >= total * num/den, the fraction being the Director
@@ -98,24 +84,24 @@ def clock_pressures(language: str, situations: list[dict[str, Any]], party: list
         if kind == "wound_hour":
             elapsed = _fact(situation, "time.minutes_since_injury")
             elapsed = int(elapsed) if isinstance(elapsed, int) else 0
-            row["name"] = _t(language, "wound_hour")
-            row["state"] = _t(language, "wound_state", elapsed=elapsed, total=WOUND_HOUR_MINUTES)
-            row["due"] = _t(language, "wound_due", left=max(0, WOUND_HOUR_MINUTES - elapsed))
+            row["name"] = _t("wound_hour")
+            row["state"] = _t("wound_state", elapsed=elapsed, total=WOUND_HOUR_MINUTES)
+            row["due"] = _t("wound_due", left=max(0, WOUND_HOUR_MINUTES - elapsed))
             segments = (elapsed, WOUND_HOUR_MINUTES)
         elif kind in ("dying_hour", "dying_round"):
-            row["name"] = _t(language, kind)
-            row["state"] = _t(language, "dying_state", hp=sheet.get("current_hp"))
+            row["name"] = _t(kind)
+            row["state"] = _t("dying_state", hp=sheet.get("current_hp"))
             near_full = True  # a dying clock is always at the edge
         elif kind == "weekly":
-            row["name"] = _t(language, "weekly")
-            row["state"] = _t(language, "weekly_state")
+            row["name"] = _t("weekly")
+            row["state"] = _t("weekly_state")
         elif kind == "bout":
             bout = (session or {}).get("bout") if (session or {}).get("kind") == "sanity_bout" else None
             total = int((bout or {}).get("duration_rounds") or 0)
             left = int((bout or {}).get("rounds_remaining") or 0)
-            row["name"] = _t(language, "bout")
-            row["state"] = _t(language, "bout_state", left=left, total=total)
-            row["due"] = _t(language, "bout_due", left=left)
+            row["name"] = _t("bout")
+            row["state"] = _t("bout_state", left=left, total=total)
+            row["due"] = _t("bout_due", left=left)
             if total > 0:
                 segments = (total - left, total)
         if segments is not None:
@@ -157,7 +143,7 @@ def _related_to_scene(graph: ModuleGraph, threat: dict[str, Any], scene: dict[st
     return any(normalize(name) in present_keys for name in _danger_names(threat))
 
 
-def threat_pressures(language: str, graph: ModuleGraph, scene: dict[str, Any], present: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def threat_pressures(graph: ModuleGraph, scene: dict[str, Any], present: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows = []
     moves = [str(m) for m in record_of(scene).get("pressure_moves") or []]
     for threat in graph.by_kind.get("threat", []):
@@ -167,12 +153,12 @@ def threat_pressures(language: str, graph: ModuleGraph, scene: dict[str, Any], p
         clocks = [c for c in record.get("clocks") or [] if isinstance(c, dict)]
         if clocks:
             clock = clocks[0]
-            state = _t(language, "threat_clock", current=clock.get("current_segments", 0), total=clock.get("segments", "?"))
+            state = _t("threat_clock", current=clock.get("current_segments", 0), total=clock.get("segments", "?"))
         else:
-            state = _t(language, "threat_no_clock", dangers=len(record.get("dangers") or []))
+            state = _t("threat_no_clock", dangers=len(record.get("dangers") or []))
         row: dict[str, Any] = {"kind": "threat", "name": graph.handle(threat), "state": state}
         if moves:
-            row["cue"] = "；".join(moves) if language.startswith("zh") else "; ".join(moves)
+            row["cue"] = "; ".join(moves)
         rows.append(row)
     return rows
 
@@ -201,19 +187,19 @@ def unanswered_continuations(previous: dict[str, Any] | None, current_receipts: 
     return rows
 
 
-def rule_pressures(language: str, continuations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def rule_pressures(continuations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows = []
     for row in continuations:
-        entry = {"kind": "rule", "name": row["decision"], "state": _t(language, "rule_state")}
+        entry = {"kind": "rule", "name": row["decision"], "state": _t("rule_state")}
         if row.get("needs"):
-            entry["cue"] = _t(language, "continuation_cue", fields="/".join(row["needs"]))
+            entry["cue"] = _t("continuation_cue", fields="/".join(row["needs"]))
         rows.append(entry)
     return rows
 
 
 # ---- obligations ----------------------------------------------------------------------------
 
-def quest_obligations(language: str, graph: ModuleGraph, world: dict[str, Any]) -> list[dict[str, Any]]:
+def quest_obligations(graph: ModuleGraph, world: dict[str, Any]) -> list[dict[str, Any]]:
     discovered = set(world.get("discovered_clues") or [])
     rows = []
     for quest in graph.by_kind.get("quest", []):
@@ -232,13 +218,13 @@ def quest_obligations(language: str, graph: ModuleGraph, world: dict[str, Any]) 
         clues = sorted(set(clues))
         found = [c for c in clues if c in discovered]
         if not clues:
-            state = _t(language, "quest_no_clues")
+            state = _t("quest_no_clues")
         elif not found:
-            state = _t(language, "quest_not_started")
+            state = _t("quest_not_started")
         elif len(found) < len(clues):
-            state = _t(language, "quest_in_progress", found=len(found), total=len(clues))
+            state = _t("quest_in_progress", found=len(found), total=len(clues))
         else:
-            state = _t(language, "quest_closable", total=len(clues))
+            state = _t("quest_closable", total=len(clues))
         record = record_of(quest)
         row: dict[str, Any] = {"kind": "quest", "name": str(record.get("title") or graph.display_name(quest)), "state": state}
         giver = record.get("giver")
@@ -251,48 +237,48 @@ def quest_obligations(language: str, graph: ModuleGraph, world: dict[str, Any]) 
     return rows
 
 
-def choice_obligation(language: str, pending: dict[str, Any] | None) -> list[dict[str, Any]]:
+def choice_obligation(pending: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not pending:
         return []
     row: dict[str, Any] = {"kind": "choice", "name": str(pending.get("name")), "who": str(pending.get("for") or "player"),
-                           "state": _t(language, "choice_state")}
+                           "state": _t("choice_state")}
     if pending.get("prompt"):
         row["cue"] = str(pending["prompt"])
     return [row]
 
 
-def session_obligation(language: str, session: dict[str, Any] | None) -> list[dict[str, Any]]:
+def session_obligation(session: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not session or session.get("status") != "active":
         return []
     who = session.get("turn_of")
     label = next((p.get("label") or p.get("name") for p in session.get("participants") or [] if p.get("name") == who), who)
     row: dict[str, Any] = {"kind": "session", "name": str(session.get("kind")), "who": str(label or "-"),
-                           "state": _t(language, "session_state", round=session.get("round"), who=label or "-")}
+                           "state": _t("session_state", round=session.get("round"), who=label or "-")}
     actions = [str(a.get("decision")) for a in session.get("actions") or [] if isinstance(a, dict) and a.get("decision")]
     if actions:
         row["cue"] = ", ".join(dict.fromkeys(actions))
     return [row]
 
 
-def continuation_obligations(language: str, continuations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def continuation_obligations(continuations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows = []
     for row in continuations:
-        entry = {"kind": "continuation", "name": row["decision"], "who": "player", "state": _t(language, "rule_state")}
+        entry = {"kind": "continuation", "name": row["decision"], "who": "player", "state": _t("rule_state")}
         if row.get("needs"):
-            entry["cue"] = _t(language, "continuation_cue", fields="/".join(row["needs"]))
+            entry["cue"] = _t("continuation_cue", fields="/".join(row["needs"]))
         rows.append(entry)
     return rows
 
 
-def promise_obligations(language: str, promises: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def promise_obligations(promises: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows = []
     for promise in promises:
         statement = str(promise.get("statement") or "")[:PROMISE_STATEMENT_CHARS]
         row: dict[str, Any] = {"kind": "promise", "name": str(promise.get("id")), "who": str(promise.get("subject")),
-                               "state": _t(language, "promise_state", statement=statement)}
+                               "state": _t("promise_state", statement=statement)}
         entities = [str(e) for e in promise.get("entities") or []]
         if entities:
-            row["cue"] = "、".join(entities) if language.startswith("zh") else ", ".join(entities)
+            row["cue"] = ", ".join(entities)
         rows.append(row)
     return rows
 

@@ -55,23 +55,11 @@ OVERRIDE_GROUNDING = {
 }
 
 REASONS = {
-    "zh-Hans": {
-        "advance": "无触发，推进",
-        "scored": "{beat}：{conditions} 成立，加权 {score}",
-        "override": {"session": "会话进行中，交给子系统", "dying": "有人濒死：子系统接管，并加压",
-                     "fumble": "上回合大失败，厄运立刻落下", "pending_choice": "有待决问题，先交给玩家选"},
-    },
-    "en": {
-        "advance": "no trigger; advance",
-        "scored": "{beat}: {conditions} hold, weighted {score}",
-        "override": {"session": "a session is live; hand it to the subsystem", "dying": "someone is dying: subsystem takes over, pressure on",
-                     "fumble": "last roll fumbled; misfortune lands now", "pending_choice": "a choice is pending; the player answers first"},
-    },
+    "advance": "no trigger; advance",
+    "scored": "{beat}: {conditions} hold, weighted {score}",
+    "override": {"session": "a session is live; hand it to the subsystem", "dying": "someone is dying: subsystem takes over, pressure on",
+                 "fumble": "last roll fumbled; misfortune lands now", "pending_choice": "a choice is pending; the player answers first"},
 }
-
-
-def _lang(language: str) -> str:
-    return language if language in REASONS else "en"
 
 
 # ---- the graph ----------------------------------------------------------------------------
@@ -386,18 +374,17 @@ def override_of(sig: dict[str, Any]) -> str | None:
     return None
 
 
-def score(dg: DirectorGraph, sig: dict[str, Any], scene: dict[str, Any], *, language: str, can_move: bool,
+def score(dg: DirectorGraph, sig: dict[str, Any], scene: dict[str, Any], *, can_move: bool,
           overlap: int, pressure_available: bool) -> dict[str, Any]:
     """Three layers: hard rules first, then Layer-1 hits x Layer-2 structure weight, then the
     tiebreak order. Returns {beat, reason, because, scores, override?, hit_rules}. `hit_rules`
     are Director-graph node ids for the ontology (not a capsule field)."""
-    lang = _lang(language)
     because = [f"{name} = {sig[name]}" for name in SIGNAL_ORDER]
     digits = int(dg.threshold("score-precision-digits"))
     name = override_of(sig)
     if name is not None:
         beat, extra = OVERRIDES[name]
-        out = {"beat": beat, "reason": REASONS[lang]["override"][name], "because": list(because),
+        out = {"beat": beat, "reason": REASONS["override"][name], "because": list(because),
                "scores": {beat: 1.0}, "override": name,
                "hit_rules": list(OVERRIDE_GROUNDING.get(name, ()))}
         if extra:
@@ -424,14 +411,13 @@ def score(dg: DirectorGraph, sig: dict[str, Any], scene: dict[str, Any], *, lang
     # spec's eleventh beat is the default (§13.3), and nothing grounds it.
     triggered = any(c != "baseline" for rows in hits.values() for c, _ in rows)
     if top <= 0.0 or not triggered:
-        return {"beat": ADVANCE, "reason": REASONS[lang]["advance"], "because": because, "scores": {}, "hit_rules": []}
+        return {"beat": ADVANCE, "reason": REASONS["advance"], "because": because, "scores": {}, "hit_rules": []}
     tied = [beat for beat, value in weighted.items() if value == top]
     chosen = next((beat for beat in dg.tiebreak if beat in tied), tied[0])
     conditions = [c for c, _ in hits.get(chosen, [])]
     return {
         "beat": chosen,
-        "reason": REASONS[lang]["scored"].format(beat=chosen, conditions="、".join(conditions) if lang.startswith("zh") else ", ".join(conditions),
-                                                 score=weighted[chosen]),
+        "reason": REASONS["scored"].format(beat=chosen, conditions=", ".join(conditions), score=weighted[chosen]),
         "because": because,
         "scores": scores,
         "hit_rules": [dg.rule_ids[(chosen, c)] for c in conditions if (chosen, c) in dg.rule_ids],

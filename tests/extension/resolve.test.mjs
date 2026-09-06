@@ -59,11 +59,11 @@ test("needs_choice：候选与修正都到模型手上，补 decision 再调一�
 	assert.equal(failed.isError, true, "needs_choice 要标成工具错误");
 	const text = resultText(failed);
 	assert.match(text, /^needs_choice: 这一下有两种规则都接得住/);
-	assert.match(text, /修正：在 action\.decision 里点名一个候选/);
+	assert.match(text, /fix: 在 action\.decision 里点名一个候选/);
 	// details 只到扩展和界面：候选必须落进正文，否则守秘人挑不出来。
-	assert.match(text, /候选：/);
-	assert.match(text, /- core-check:ordinary-check：只是想看清楚/);
-	assert.match(text, /- psychology:observe-concealed：想读出他藏着的情绪/);
+	assert.match(text, /candidates:/);
+	assert.match(text, /- core-check:ordinary-check: 只是想看清楚/);
+	assert.match(text, /- psychology:observe-concealed: 想读出他藏着的情绪/);
 	assert.equal(failed.details.coc_error.details.candidates.length, 2);
 
 	assert.equal(passed.isError, false, "补上 decision 之后这一次该通过");
@@ -109,7 +109,7 @@ test("攻击没写武器：内核报 needs 并列出可选，补上 weapon 再�
 
 	const [failed] = toolResults(table.session, "resolve");
 	assert.equal(failed.isError, true);
-	assert.match(resultText(failed), /缺 weapon，可选：点三八左轮、撬棍、unarmed/);
+	assert.match(resultText(failed), /missing weapon, one of: 点三八左轮, 撬棍, unarmed/);
 
 	const resolves = table.kernelRequests().filter((entry) => entry.method === "table.resolve");
 	assert.equal(resolves[1].params.action.weapon, "unarmed", "武器名做过空白归一化");
@@ -181,9 +181,25 @@ test("战斗：待决防御用 ask 交回玩家，下一回合用 defense 作答
 	assert.equal(attack.params.action.weapon, "撬棍");
 	assert.equal(attack.params.action.target, "看门人");
 
+	// ask 也关回合，所以它同样带机制投影（契约 §16.2）：这一回合那次攻击的明骰在里面。
+	const [asked] = table.entries("coc-mechanics");
+	assert.equal(asked.turn, 1);
+	assert.deepEqual(asked.mechanics, [
+		{
+			kind: "roll",
+			actor: "托马斯·海耶斯",
+			skill: "Fighting (Brawl)",
+			roll: 31,
+			target: 50,
+			level: "regular",
+			passed: true,
+			visibility: "public",
+		},
+	]);
+
 	const opened = statusLines(table);
 	assert.equal(opened.length, 1, "战斗开起来时状态行写一次");
-	assert.equal(opened[0].text, "战斗　第 1 轮　轮到 看门人　待防御：玩家（闪避／反击）");
+	assert.equal(opened[0].text, "combat  round 1  turn: 看门人  defence: player (dodge/fight_back)");
 
 	const attackRow = table.telemetry().find((row) => row.tool === "resolve");
 	assert.equal(attackRow.outcome_kind, "combat");
@@ -248,7 +264,7 @@ test("推骰：push 与 stakes 原样送到内核，遥测记下这一族", asyn
 	assert.equal(statusLines(table).length, 0, "没有会话就不动状态行");
 });
 
-test("待决防御没交回去就收工：宿主替它 ask，叙述是 text，问题与选项是内核的", async (t) => {
+test("待决防御没交回去就收工：宿主不替它问，丢掉草稿催一次，守秘人自己用玩家的语言问（契约 §16.1）", async (t) => {
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage(
@@ -266,6 +282,17 @@ test("待决防御没交回去就收工：宿主替它 ask，叙述是 text，�
 				{ stopReason: "toolUse" },
 			),
 			fauxAssistantMessage("撬棍带着风声砸下来，你只来得及看见它的影子。"),
+			fauxAssistantMessage(
+				[
+					fauxToolCall("ask", {
+						text: "撬棍带着风声砸下来，你只来得及看见它的影子。",
+						prompt: "你是躲，还是硬接一下反手砸回去？",
+						options: ["闪身", "反击"],
+					}),
+				],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage("收尾"),
 		],
 	});
 	t.after(() => table.dispose());
@@ -273,16 +300,21 @@ test("待决防御没交回去就收工：宿主替它 ask，叙述是 text，�
 	await table.session.prompt("我抄起铁撬砸他");
 	await waitForIdle(table.session);
 
-	const ask = table.kernelRequests().find((entry) => entry.method === "table.ask");
-	assert.ok(ask, "宿主替守秘人调了 table.ask");
-	assert.equal(ask.params.binds, "combat-defense-t1", "绑定内核留下的那条待决");
-	assert.equal(ask.params.prompt, "撬棍朝你的肩膀砸下来，你怎么办？");
-	assert.equal(ask.params.text, "撬棍带着风声砸下来，你只来得及看见它的影子。");
-	assert.deepEqual(ask.params.options, ["dodge", "fight_back"]);
+	// 内核留下的待决 prompt 是英文的守秘人用语；宿主不许把它摆到玩家面前，
+	// 所以这一轮不替它 ask，草稿正文也不留下当交付。
+	const asks = table.kernelRequests().filter((entry) => entry.method === "table.ask");
+	assert.equal(asks.length, 1, "只有守秘人自己那一次 ask 到了内核");
+	assert.equal(asks[0].params.prompt, "你是躲，还是硬接一下反手砸回去？", "问题是守秘人用玩家语言写的");
+	assert.equal(asks[0].params.binds, "combat-defense-t1", "仍然绑内核那条待决");
+	assert.deepEqual(asks[0].params.options, ["闪身", "反击"]);
+
 	const steers = customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "steer");
-	assert.equal(steers.length, 0, "回合已经关了，不再催");
+	assert.equal(steers.length, 1, "催一次，且只有一次");
+
 	const delivered = assistantTexts(table.session).filter((text) => text.length > 0).at(-1);
-	assert.ok(delivered.endsWith("1. dodge\n2. fight_back"), "交付的是内核渲染的问题与选项");
+	assert.ok(delivered.startsWith("撬棍带着风声砸下来"), "交付是守秘人的正文");
+	assert.ok(delivered.endsWith("1. 闪身\n2. 反击"), "问题与编号选项跟在后面，全是玩家的语言");
+	assert.ok(!delivered.includes("dodge"), "内核的英文选项不出现在玩家看的字里");
 });
 
 test("守秘人自己 ask 却漏填 binds：宿主用内核留下的待决名补上", async (t) => {

@@ -37,7 +37,7 @@
     turn.json            当前回合游标：{turn, state, player_text, opened_at, calls: {call_id: {params_sha256, result}}, receipts: [...], pending_choice, capsule}
     turns/<NNNN>.json    已关闭回合的完整记录：玩家原文、收据、rendered_text、commit、world 快照、facts、warnings、capsule（守秘人这一回合拿到的胶囊，规格第十三节的证据）
     transcript.jsonl     逐字记录：{turn, role: player|keeper, text, at}
-    events.jsonl         事件流，十二类 canonical 事件见第 7 节
+    events.jsonl         事件流，十五类 canonical 事件见第 7 节
     save/continuation/latest.json   续行检查点：最近一次提交的回合摘要，可重建的缓存（12.2）
     memory/episodes.jsonl           每个已提交回合一条 episode（12.3）
     memory/candidates.jsonl         候选断言，只增不删；矛盾用 superseded_by 关闭（12.3）
@@ -59,6 +59,8 @@ open             --任一 look/lookup/recall/resolve/apply-->  acting     （rea
 open|acting      --table.ask-->            asked      回合关闭，等玩家回答
 open|acting      --table.narrate-->        committed  事件批与 git 提交已落
 committed        --扩展交付完成后自动-->    awaiting_player（turn+1）
+
+`committed` 是一个时刻，不是 `turn.json.state` 存得下的值：`narrate` 成功后内核直接写下一回合的 `awaiting_player`，代码里 grep 不到这个状态字符串。它表示「这一回合的记录、事件批与 git 提交已落」。
 asked            --table.player_input-->   open       新回合，胶囊带出待决
 ```
 
@@ -168,10 +170,10 @@ result：`{"receipts": ["move:hall-of-records-t3-c2", ...], "world": {"active_sc
 ### table.ask（切片 0）
 params：`{"call_id", "prompt": "<给玩家的问题>", "options": ["...", "..."], "binds"?: "<待决名>", "text"?: "<问题之前的叙述>"}`。
 - 记录 `pending_choice = {"name": "<ask-<slug>-t<turn>>", "prompt", "options", "binds"}`，状态进 `asked`，写逐字记录（keeper）。交付 = `text`（可省略，同样要交代本回合公开收据的数字，同一套核对）加 `prompt` 与编号选项（编号是语言中立的 `1.`、`2.`）；`mechanics` 随结果给出。不再调用 `narrate`。
-result：`{"pending_choice": {...}, "rendered_text": "<叙述、机制块、prompt 与选项>", "turn": int, "state": "asked"}`。
+result：`{"pending_choice": {...}, "rendered_text": "<叙述原样、空行、prompt、编号选项>", "mechanics": [...], "turn": int, "state": "asked"}`。没有机制块——机制走 §16.2 的投影。
 
 ### table.narrate（切片 0）
-params：`{"call_id", "text": "<本回合叙述>", "placement"?: "auto"|"end"}`。
+params：`{"call_id", "text": "<本回合叙述>"}`（`placement` 已废止：仍被接受但忽略，不进回合记录）。
 流水线：
 1. 状态必须是 `open` 或 `acting`。
 2. 机制核对（§16）：内核不再渲染任何机制行。守秘人在 `text` 里用玩家语言自己交代本回合每条**公开**收据的结果；内核只做确定性核对——每条公开 `roll` 的掷出值与目标值、每条 `delta` 的前后值、每条 dice 的合计、每条 `time` 的分钟数，都必须以数字形式出现在 `text` 里（纯字符串包含，不做语义判断）。缺了报 `invalid_params`，`code_detail: "mechanics_missing"`，`details.missing: [{"receipt", "expected": [数字...]}]`，`fix` 说明补上哪些数。名字（技能、场景、线索、物品）不核对——它们由守秘人按玩家语言写。
@@ -201,7 +203,7 @@ result：`{"rendered_text": "<即 text，正文原样>", "mechanics": [...], "tu
 
 ## 7. 事件
 
-`events.jsonl` 每行 `{"seq", "turn", "type", "at", "call_id"?, "receipt"?, "data": {...}}`。十二类 canonical 事件闭合枚举，见 12.1；切片 0 写前七类，切片 1 加 `resource-changed`、`decision-settled`，切片 2 补齐 `session-changed`、`choice-asked`、`memory-written`。
+`events.jsonl` 每行 `{"seq", "turn", "type", "at", "call_id"?, "receipt"?, "data": {...}}`。十五类 canonical 事件闭合枚举，见 12.1；切片 0 写前七类，切片 1 加 `resource-changed`、`decision-settled`，切片 2 补齐 `session-changed`、`choice-asked`、`memory-written`，切片 4 加 `setup-completed`、`handout-shown`，#19 加 `item-transferred`。代码里的闭合表是 `kernel/coc/events.py`。
 
 ## 8. 扩展侧职责（kernel 扩展）
 
@@ -210,7 +212,11 @@ result：`{"rendered_text": "<即 text，正文原样>", "mechanics": [...], "tu
 - `call_id` 铸造：每次会改状态的调用（`resolve`、`apply`、`ask`、`narrate`）递增回合内计数器；读调用不带。
 - `before_agent_start`：把玩家 prompt 交给 `table.player_input`，把返回的胶囊作为 `customType: "coc-capsule"`、`display: false` 的消息注入。宿主自己发出的消息（恢复、开场）不是玩家输入，不进 `player_input`。
 - `tool_call`：同名同参的调用在本回合被内核拒过两次后第三次拦下，理由里复述上次的错误（原样重发不会有不同结果）；`awaiting_player`/`committed` 拒写；`narrate` 成功后同一批次余下的调用一律 `block` 并说明回合已关闭；`apply`/`resolve` 的名字做大小写与空白归一化。
-- `message_end`：带工具调用的助手消息只保留调用块，删掉其中的文本：守秘人在调用前写的过程话不是台词。本回合 `narrate` 或 `ask` 已返回 `rendered_text` 时，把随后那条助手消息的文本整体替换为 `rendered_text`；守秘人在工具之后写的正文被丢弃。守秘人写了正文却没调 `narrate` 就收工时，宿主替它关回合：把正文原样作为 `text` 调 `table.narrate`（内核的机制核对照跑，缺数字就退回守秘人补）；内核留有 `for: player` 的待决时改调 `table.ask`，正文是 `text`，问题、选项与 `binds` 取自待决。交付是守秘人的正文，外加一条 `coc-mechanics` 会话条目（§16.2 的 JSON，前端与驾驭器由此渲染，TUI 不显示）。只有正文为空（只想不说）时才催一次。玩家可见文字只由 `narrate` 与 `ask` 产生。
+- `message_end`：带工具调用的助手消息只保留调用块，删掉其中的文本：守秘人在调用前写的过程话不是台词。本回合 `narrate` 或 `ask` 已返回 `rendered_text` 时，把随后那条助手消息的文本整体替换为 `rendered_text`；守秘人在工具之后写的正文被丢弃。守秘人写了正文却没调 `narrate` 就收工时，宿主替它关回合：把正文原样作为 `text` 调 `table.narrate`。内核因缺数字退回（`mechanics_missing`）时**不交付**：宿主把这条助手消息里的正文块丢掉（被拒的草稿不能当交付立着），在 `agent_end` 带着内核自己的 `fix` 催一次，下一轮的 `narrate` 才关回合。
+
+内核留有 `for: player` 的待决（战斗里的防御）而守秘人只写了正文时，宿主**不替它问**：内核铸的待决 `prompt` 是英文的守秘人用语（§16.1），摆到玩家面前就破了「玩家看的字只由守秘人按 play_language 写」。宿主丢掉这份草稿、催一次（`agent_end` 那条已有的待决催促），由守秘人自己用玩家的语言 `ask`。同一回合已经催过还是只写正文，就按 `narrate` 关掉回合：待决留着，胶囊下一回合照样把它摆出来，回合不挂死。
+
+交付是守秘人的正文，外加一条 `coc-mechanics` 会话条目（§16.2 的 JSON，前端与驾驭器由此渲染，TUI 不显示；投影为空时不发）。只有正文为空（只想不说）时才催一次。玩家可见文字只由 `narrate` 与 `ask` 产生。
 - `agent_end`：回合仍在 `acting` 且没有 `narrate`，注入一条宿主消息「回合未关闭，用 narrate 交付」并触发一轮；最多一次。
 - 遥测：每次工具调用记录 `{turn, tool, call_id?, started_at, ms, ok, code?}` 到 `.coc/campaigns/<id>/telemetry.jsonl`，每回合结束记录模型往返数。
 
@@ -327,7 +333,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 
 守秘人的上下文是可丢弃的缓存；桌子的真相在战役目录与 sidecar 仓库里。这一节把 `narrate` 提交之后的链条写死：事件批、续行检查点、记忆 episode 与异步抽取、三路 `recall`、advisory 校验车道。三条法则从旧树原样带过来：**候选不自动晋升**（记忆是参考，不是状态）；**矛盾不删除**（用 `valid_until_turn` 与 `superseded_by` 关闭，两条都可寻址）；**抽取与校验永不阻塞 `narrate`**（失败只进 backlog 与遥测）。旧树的时间线分叉、汇流、双层状态不带过来（规格「范围外」）。
 
-### 12.1 事件批：十二类
+### 12.1 事件批：十五类
 
 `EVENT_TYPES` 闭合枚举，其他类型报 `ValueError`（内核缺陷，不是守秘人错误）：
 
@@ -376,7 +382,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 ```
 {"job_id": "extract:<campaign>:t<n>" | null, "turn", "commit",
  "scene": {"name", "display_name"}, "present": [名], "investigators": [{"id", "name"}],
- "player_text": "...", "keeper_text": "<rendered_text 去掉【明骰】【变化】【第 n 轮】行>",
+ "player_text": "...", "keeper_text": "<守秘人正文原样；§16 之后内核不再渲染机制行>",
  "committed_facts": [...同 12.5 的 committed...],
  "known_entities": [{"name", "kind": investigator|npc|scene|clue}],
  "prior": [{"id", "kind", "subject", "statement", "status", "turn"}]（与在场实体相关的既有候选，≤ 12，按 12.4 排序）,
@@ -427,6 +433,8 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 三类分别是：越权揭示了 `keeper_only` 里的事实；声称了 `committed` 里没有的状态变化（走了没 move、拿了没 clue、掉了没 delta）；替玩家做了未授权的自愿行为。扩展把结果交给 `table.warn`，params `{"campaign", "turn", "lane": "verifier", "findings": [...]}`：内核校验 `kind` 枚举，`quote` 必须是该回合 `rendered_text` 的子串（唯一的确定性锚点；不是子串的整条丢弃并记 `dropped`），最多 10 条；写进 `turns/NNNN.json` 的 `warnings`、遥测一行，并在**下一次** `player_input` 的胶囊里带 `warnings: [{"turn", "kind", "quote", "why"}]`（只带最近一个已提交回合的，≤ 1KB）。全部 advisory：不改状态，不拦交付，不重开回合。车道不用关键词、不用正则；能确定性判的（自写骰面、未关的 `needs`）仍在内核。
 
 零工具子会话是规格第六、九节定下的形状：产出是 ≤ 12 条候选或 ≤ 10 条发现的短 JSON，远在单条助手消息的上限之下，不是把整本书塞进一次补全。Pi 0.85.1 里扩展够得着的面是 `ctx.modelRegistry.complete`（一次不带工具的补全，复用当前会话的注册表与鉴权），扩展里起不了嵌套 agent 会话；这条路的边界记在 `docs/pi-host-contract.md` 3.1 与第 5 节。车道跑成功就调一次 `table.warn`，`findings` 为空也调：内核由此分得清「跑了没发现」与「没跑」，所以 `table.warn` 必须收 `findings: []`。校验车道选 `why` 的语言用 `table.open` 结果 `campaign.play_language`。
+
+**advisory 的去留（2026-09-06 证据复核，报告在玩测证据旁）**：**保持 advisory**。两局 42 个关回合、52 条发现逐条判：`uncommitted_state` 22 真 0 假 6 判不了、`reveal` 2 真 1 假（n=3）、`player_agency` 1 真 20 假。升级为阻塞门的条件按类分开：`uncommitted_state` 最强，但它最大的一簇（NPC 被叙述进场却不在提交的在场表里）是产品缺口不是守秘人失误，要先落 #27 的 `apply npc`，再看一局 30–40 回合的召回；`player_agency` 定义过宽（把转述玩家请求成台词、「你转过身」判成越权），先收窄定义再重新计量；`reveal` 样本太小，要 100+ 回合。已证实的价值在人不在模型：重复出现的那条发现是 #19 的立票依据，没有证据表明胶囊 `warnings` 改变过守秘人下一回合的行为。
 
 ### 12.6 崩溃恢复与幂等
 
@@ -806,7 +814,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 - 真桌：玩到循环终点回溯，第二圈与第一圈不同（骰子、NPC 反应、Director 节拍），声明记得的 NPC 表现出记得；再开一条 if 线并与主线汇流，汇流报告出冲突、守秘人处置、回声被投放并揭示。KPI 与前几个切片同一脚本。
 - 旧树 `tests/test_timeline_dag.py`、`test_timeline_fork_rewinds.py`、`test_timeline_confluence.py`、`test_toolbox_timeline*.py` 的用例名作为行为清单逐条对照（分叉不动主线、切线只动活动线、汇流冲突枚举完整且有序、处置闭合、不可复制类别不合并、重放幂等、状态写失败回滚引用）。
 
-## 16. 系统语言与机制投影（切片 7，票 #24）
+## 16. 系统语言与机制投影（切片 7，票 #26）
 
 用户 2026-09-06 的裁定，替代此前误写的「语言表」方案：**系统语言是英文，玩家语言由 agent 自己出，机制结果是 JSON。** 不做翻译层，不做按语言分键的字符串表。
 
@@ -818,7 +826,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 ### 16.2 机制投影（`mechanics`）
 
-内核不再把收据拼成句子。`narrate`/`ask` 的结果与 `table.status` 带 `mechanics: [...]`，每条一个语言中立的对象，直接对应收据：
+内核不再把收据拼成句子。`narrate`/`ask` 的结果与 `table.status` 带 `mechanics: [...]`，每条一个语言中立的对象，直接对应收据，按收据顺序。每条都带公共字段 `kind` 与 `receipt`（收据 id，`mechanics_missing` 的 `details.missing` 按它指认）；收据上已有的名字作为数据顺带过去（`actor_label`、`subject_label`、`from_label`/`to_label`、`label`、`currency`、`rounds`、`available`、`path`）：
 
 | kind | 字段 |
 | --- | --- |
@@ -832,9 +840,11 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 | `cash` | `subject`, `before`, `after` |
 | `session` | `family`, `transition`, `round`?, `outcome`? |
 | `choice` | `option` |
-| `handout` | `name`, `path`? |
+| `handout` | `name`, `available`, `label`?, `path`? |
 
-扩展把它作为会话条目 `coc-mechanics`（`{turn, mechanics}`）追加到 Pi 会话并发到总线 `coc:mechanics`；Pi RPC 事件流因此带着它，驾驭器落进证据；未来的 Electron/web 前端按它渲染骰子卡与变化条。TUI 只显示守秘人的正文。§5、§11.6、§11.9、§12.5 里任何「渲染【明骰】【变化】行」的旧说法以本节为准。
+扩展把它作为会话条目 `coc-mechanics`（`{turn, mechanics}`）追加到 Pi 会话并发到总线 `coc:mechanics`；Pi RPC 事件流因此带着它（`entry_appended`），驾驭器落进 `events.jsonl`；未来的 Electron/web 前端按它渲染骰子卡与变化条。投影为空时不发条目。TUI 只显示守秘人的正文。
+
+**手卡**：Pi 没有出站附件通道（`docs/pi-host-contract.md` §3.3），所以路径不进正文。内核给 `name`/`available`，扩展把 `apply` 结果里的 `attachment` 合进这一行（`path`、`media_type`），前端按它取图；坐在终端前的人由 table 扩展通知一次（`handout <名>: <路径>`，每张卡一次，不进正文）。契约里任何「渲染【明骰】【变化】【第 n 轮】【手卡】行」的旧说法一律以本节为准，包括 §5、§11.6、§11.9、§12.5，以及 §11 的会话渲染、§14.8 的手卡、§14 的实现小节、§15 的世界线收据——那些段落描述的行不再存在，对应的信息以 `mechanics` 的一行投影出去。
 
 ### 16.3 确定性底线
 
@@ -843,3 +853,193 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 ### 16.4 验收
 
 - 守卫测试绿；两场真桌各三回合：`toomany-s4`（zh-Hans）正文中文、机制数字齐全、`coc-mechanics` 条目随每回合落到证据；一局新建的 the-haunting（`play_language: en`）正文英文、没有一个中文字。
+
+### 16.5 The kernel's decisions (implemented, ticket #26)
+
+- **Projection.** `kernel/coc/render.py` is now the receipts' projection and the number check; the mechanics-line templates, `place` and the marker check are gone. `mechanics(receipts)` yields one object per receipt in receipt order. Beyond the §16.2 columns every object carries `kind` and `receipt` (the receipt id), and the names the receipt already holds ride as data when present: `actor_label` (roll, dice), `subject_label` (change, cash), `from_label`/`to_label` (scene), `label` (clue, item, handout), `to_label`/`from`/`weapon` (item), `currency` (cash), `rounds` (a bout's session start), `available`/`path` (handout). A `delta` receipt projects as `change`, a `move` as `scene`, a dice-form roll as `dice` (`label` = the engine's die name, `expression`, `faces`, `total`). Keeper-visibility rolls are projected too, with `visibility: "keeper"`: a consumer that renders for the player must hide them.
+- **Results and records.** `table.narrate` returns `rendered_text` equal to `text` verbatim plus `mechanics`; `table.ask` returns `text.strip()` + blank line + prompt + `1.`/`2.` options (or the question alone) plus `mechanics`; `table.status` carries `mechanics` for the open turn. The turn record stores `mechanics` beside `rendered_text`; `placement` is accepted, ignored, and no longer recorded; the `turn-finalized` event data is `{receipts}` only.
+- **Number check (§5 step 2, §16.3).** Public = `visibility != "keeper"`. Obliged digits: a roll's `roll` and `target`; a dice roll's `total`; a delta's and a cash receipt's `before` and `after`; a time receipt's `minutes`. Values are compared as `str()` (an integral float prints as an int) by plain substring containment in `text`; nothing else is read. Failure is `invalid_params` with `code_detail: "mechanics_missing"`, `details.missing: [{receipt, expected: [...]}]` in receipt order, and a `fix` listing receipt: numbers. `ask` runs the same check on `text or ""`, so a turn holding public numbers refuses an `ask` without `text`. The error envelope (§1) gains the optional `code_detail`, a closed refinement of `code`.
+- **Receipts.** `delta` and `cash` receipts no longer carry `label` (the `resource` key is the language-neutral name); roll receipts keep `skill_label` equal to the canonical skill, dice receipts equal to the engine's die name (kept for the record, rendered by nothing). Session receipts carry the engine's closed `outcome` word and an English `summary` or `null`; a `sanity_bout` start carries `outcome` (the bout result) and `rounds`. Item receipt ids are `item:<ascii-slug>-t<turn>-c<n>` when the name has a Latin slug and `item:t<turn>-c<n>` otherwise (`-2`, `-3` on repeats in a batch), superseding the `item:<slugify(name)>` wording above; the name rides in `name`/`label`.
+- **Language threading.** `facts.py`, `capsule.py`, `pressures.py`, `director.py` and `continuation.py` write English and take no language argument; `language_of(meta)` returns the campaign's `play_language` tag unchanged, as data. Only `craft.style_section` (the `language_applicability` filter and `style.language`) and the extractor `instruction` consume it; the instruction tells the model to write every `statement` in that language. `campaign.create` still accepts only `zh-Hans` and `en` because §14.4 says so, but nothing in the kernel depends on the gate any more; opening it is a contract decision.
+- **Glossary in data.** Localized names live in the rules tables and nowhere in code: `skills.json` (unchanged), `characteristic-dice.json` `characteristics.<ABBR>.localized_labels` (new; the resolver reads it so `力量` still resolves to `STR`), `derived-attributes.json` `sanity.localized_labels` (new; `stakes` naming SAN in any listed language still offers `sanity:check`, §11.5).
+- **System content.** `content/setup/steps.json`: `templates` and each step's `lines` are one English form; `content/setup/reader.md` is English; `content/craft/beat-directives.json`: one English line per axis and directive, written as one-liners like the zh originals, so the full first-turn set fits the §13.6 2KB budget in every play language (2021 bytes) and the remark that `en` overflows and truncates no longer applies. Kernel-minted §11.9 pending-choice prompts (a defense, a bout decision) are English; when the host closes a turn for the keeper by `ask` from a `for: player` pending, that English prompt is what the player sees, so the keeper should put the question in its own words.
+- **Guard.** `tests/kernel/test_system_language.py` fails on any CJK character in `kernel/**`, `bin/coc-*`, `content/setup/**`, `content/craft/beat-directives.json` (comments included), and pins the zh-Hans turn: `rendered_text == text`, one projection per receipt, and `mechanics_missing` naming the receipt whose number the text skipped.
+- **Left to the extension (not in this slice).** `verifier.ts` still strips marker lines; `tools.ts` descriptions still mention the marker lines; `onboarding/steps.ts` reads `lines[language]`; nothing in `extensions/` emits `coc-mechanics` yet.
+
+## 17. NPC 层：作者档案、玩出来的账本、带因果的在场者（切片 9，票 #29）
+
+用户 2026-09-06 拍板。目标是 NPC 在桌上有逻辑因果地扮演与互动，而不是模组里的背景板。证据（#29）：PDF 构建出的书里 NPC 只有属性块，`present` 节四个 null；图上已抽出的 NPC 关系没人投影；claim 的 `known_by_ids`/`asserted_by_ids` 零填充；NPC 与调查员之间没有任何运行时状态（`npc_attitude` 无写入者、`min_trust` 无消费者、social 结算不落到 NPC）。
+
+三条边界：**不另起 NPC 图谱**——作者事实只有模组图这一根脊柱（§14），再开一张图就是两套 id 对不上的老病；**玩出来的状态不是图**——它是战役目录里的账本，只由收据与显式 `apply` 写，不解析散文；**守秘人仍是决策者**——档案与账本是他扮演的依据，不是台词，他可以显式改账（`apply npc`），但改了要留收据。
+
+### 17.1 三个平面
+
+| 平面 | 住在哪 | 谁写 | 回答什么 |
+| --- | --- | --- | --- |
+| 作者档案 | 模组图 `npc` 节点的 `properties`、以该 NPC 为主语的 claim、NPC↔NPC/派系/地点的关系 | 构建（读者）、starter 投影器 | 他是谁、要什么、怕什么、瞒什么、知道什么、信错了什么、会对谁撒什么谎、跟谁一伙跟谁作对 |
+| 运行时账本 | `<campaign>/npc-ledger.json` | 内核，只从收据与 `apply` | 他对这队人什么态度、为什么、说过什么、给过什么、许过什么、见过几次 |
+| 投影 | 胶囊 `present`、`look focus <npc>` | 内核 | 守秘人这一回合扮演他需要的一段，带因果 |
+
+### 17.2 作者档案：图上 NPC 要有什么
+
+- **一等属性。** `npc` 节点 `properties` 里：`agenda`（他要什么）、`fear`、`secret`、`voice`、`relationship_to_investigators`（对调查员的角色，书上的短语，如 gatekeeper / informant / patron / adversary；不是闭合枚举）。全部 keeper-only，书上有才写，没有就没有（读者法则「不要加书上没说的」不变）。
+- **知与信走 claim**，用契约 v3 既有谓词，主语是该 NPC：`knows`（对象是 `clue`/`secret`/`npc`/`location`，`authored-fact`）、`believes`（他信的、可能是错的，`authored-belief`）、`asserts`（他会说的话，`authored-lie` 或 `authored-rumor`，`asserted_by_ids` 含他）、`hides`（对象是 `secret` 节点）。机器由此填 `known_by_ids`：每条 `knows` claim 把主语加进对象节点相关 claim 的 `known_by_ids`（§14 契约 `machine_filled_keys` 已把它归给机器，这里给出算法）。
+- **关系走既有词汇**：`allied-with`、`opposes`、`member-of`、`controls`、`owns`、`possesses`、`worships`、`threatens`、`impersonates`、`located-in`。不新增关系种类。
+- **一条读法。** 内核新增 `module_graph.npc_profile(node)`：先读一等属性，没有再回退到 `properties.runtime_projection.record`（starter 的旧投影；已建战役是编译快照，不能靠重建 starter 修）。`scripts/starter_graph.py` 同步把 npc-agendas 的这些键投成一等属性，`facts[]` 投成 `knows` claim（`min_trust` 丢弃，见 17.3）。`record_of` 只留给场景与其他节点。
+- **构建端。** `content/setup/reader.md` 的 Actors 段与 `content/modules/module-graph-template-v1.json` 加：每个 NPC 的 wants/fears/hides/voice、他知道的线索与会说的谎、与其他 actor 的关系，都是「书上有就必须抽」的 asks。可玩性简报（§14.3 `brief`）加度量 `npc_without_material`：没有 agenda/secret/fear 也没有任何 `knows`/`believes`/`asserts` claim 的 NPC 名单，只报不卡（模板法则：结构性才是不变量，数量只度量）。按需深读（§14.6）接受 `focus: {npc: <名>}`，深读任务包带该 NPC 出场的全部 section。
+
+### 17.3 运行时账本 `npc-ledger.json`
+
+战役目录根下一份，随回合提交；键是 NPC 节点 id（`npc-…`，不用会撞名的句柄）。在场位置**不**进账本——`world.npc_presence` 是唯一的位置真相（#25 写它），账本只引用。
+
+```
+{"<npc node id>": {
+   "stance": {"value": "hostile"|"wary"|"neutral"|"warm", "score": <-5..5>, "since_turn", "because": [收据 id]},
+   "disclosed": [{"clue": "<句柄>", "turn", "receipt"}],
+   "interactions": [{"turn", "kind": "social"|"combat"|"chase"|"psychology", "receipt", "level"?: "<成功等级>", "approach"?}],
+   "promises": [{"memory_id", "turn"}],           引用记忆候选，不复制正文
+   "said": [{"memory_id", "turn"}],               knowers 含他的 knowledge/belief 候选：他在桌上得知或表态的
+   "turns_present": {"first", "last", "count"},
+   "dead"?: {"turn", "receipt"}}}
+```
+
+写入者闭合，全部确定性：
+
+| 字段 | 来源 |
+| --- | --- |
+| `stance.score` | social 族每次结算按闭合表 `content/rulesets/coc7/rules-json/npc-stance.json` 加减：`{approach × level → delta}`（如 Persuade/Charm 成功 +1、极难/大成功 +2、失败 0、大失败 −1、Intimidate 成功 0 且失败 −1、推骰失败再 −1），初值 0，钳在 −5..5，`value` 由表上阈值推（如 ≤ −3 hostile、−2..−1 wary、0..1 neutral、≥ 2 warm）。任何以他为 `target` 的 combat 结算直接 −5 hostile。数字与阈值全在表里，代码不写字面量 |
+| `stance` 显式改写 | `apply {kind: "npc", name, stance: "<四值之一>", why}`：守秘人的裁量，收据 `npc:<id>-t<turn>-c<n>`，`because` 记这条收据；`score` 置为该档的下界。与 #25 的 `to` 可同批 |
+| `disclosed` | `apply clue` 新增可选 `from: "<NPC 名>"`（他给的）；省略时若该线索有 `held-by`/`delivered-by` 关系指向一个在场 NPC，机器补上；都没有就不记 |
+| `interactions` | 本回合以他为 `target`/`actor` 的 `resolve` 收据 |
+| `promises` / `said` | `memory.submit` 落盘时，`kind: promise` 且 `subject` 是他 → `promises`；`kind: knowledge|belief` 且 `knowers` 含他 → `said`。只挂 id，接续与关闭仍由记忆层（§13.5）管 |
+| `turns_present` | 回合关闭时 `world` 快照的 `present` |
+| `dead` | 会话结算里他 HP ≤ 0 的 `delta` 收据 |
+
+崩溃恢复与世界线（§12.6、§15）：账本与 `world.json` 同一条提交，回滚与切线自然跟着；重建按收据重放，与 `scene_trail` 的补法同一模式。旧战役没有账本时第一次 `table.open` 从 `turns/NNNN.json` 的收据与 `memory/candidates.jsonl` 一次性重放生成。
+
+### 17.4 投影：`present` 与 `look focus`
+
+`present` 每项改为（预算仍 3KB，`known_facts`、`relationship`、`attitude` 旧字段删除；`npc_attitude` 死字段删除）：
+
+```
+{"name", "role": "<relationship_to_investigators>", "wants": "<agenda>", "fears"?, "hides"?, "voice"?,
+ "knows": [{"clue": "<句柄>", "discovered": bool}]（≤ 6，未发现的在前）,
+ "believes": ["<claim 摘要>"]（≤ 3）, "would_lie_about": ["<asserts 摘要>"]（≤ 3）,
+ "ties": [{"kind": "<关系种类>", "to": "<display_name>"}]（≤ 6，在场者与派系优先）,
+ "toward_party": {"stance", "because": ["turn <n>: <approach> <level>", "turn <n>: keeper set <stance>: <why>"]}（≤ 3 条，最近的）,
+ "history": {"met_turns": n, "last_turn", "disclosed": ["<线索句柄>"], "promises": [{"statement", "turn"}]（≤ 3）}}
+```
+
+- 多人在场时按「有未关承诺 > 有过互动 > 有 wants > 其余」排序再裁尾，裁了记 `truncated`。
+- `head` 加一句：在场者带档案与账，胶囊里有的不必 `look focus`。
+- `look focus <npc>` 返回全量：档案全部键、全部 claim 摘要、全部关系、账本原样。
+- Director（§13.3）：`agenda_npc_present` 改读 `npc_profile`（starter 与构建的书同一读法）；不新增信号。`obligations.promise` 不变，账本的 `promises` 是同一批候选的另一视图。
+- 记忆抽取指令（§12.3）加一句：NPC 在这一回合得知、表态或许诺的，写成 `knowers` 含他的 `knowledge`/`belief` 或 `subject` 是他的 `promise`。
+
+### 17.5 扩展侧
+
+- `apply` 的工具描述加 `npc` 种类（`to`、`stance`、`why`）与 `clue.from`。
+- 守秘人提示加一段：`present` 里每个人是一份档案与一本账——他要什么就朝什么使劲，他知道什么就只能说什么，`ties` 决定他对在场其他人的反应，`toward_party` 是他对这队人的账与原因；这些是扮演的依据，不是台词；守秘人改了他的态度就用 `apply npc` 记一笔。
+- `table` 扩展状态行不变。
+
+### 17.6 验收（只认真桌，§10 与 Agents.md 的禁令照旧）
+
+- toomany 重建（或对 NPC 深读）后新开一局：第一个有 NPC 在场的回合，`present` 不再是四个 null；书上给了材料的 NPC 都有 `wants` 或非空 `knows`；没有的在简报 `npc_without_material` 里点名。
+- 一次 social 判定之后，下一回合胶囊里该 NPC 的 `toward_party.because` 引用那条收据，`stance` 与表一致。
+- 守秘人叙述里 NPC 许下的承诺，经记忆车道抽出后出现在该 NPC 的 `history.promises`；`recall memory about=<他>` 能查到。
+- `apply npc to: here` 之后 `resolve` 能以他为 target；`away` 之后 `present` 不列他。
+- `tests/play/kpi.py` 加指标：有 NPC 在场的回合，对已在胶囊里的 NPC 的 `lookup`/`look focus` 次数中位数为 0。
+- 旧战役（`haunting-s0`）打开不报错，账本由收据重放生成，`present` 的 `wants` 与此前的 `agenda` 一致。
+
+### 17.7 顺序与前提
+
+1. #25（`apply npc` 的 `to`）并入本切片第一步，人挪不进来后面全空转。
+2. 先在 toomany 上重跑构建看读者能抽出多少作者材料，再定 17.2 的 asks 措辞；不按 starter 的厚度想当然。
+3. 账本与投影（17.3、17.4）在作者层之后；投影必须走真产品路径验（胶囊落到 `turns/NNNN.json` 的 `capsule`），不认 CLI 打印。
+4. 排在 #26（切片 7）落定之后开工；实现决定记在 17.8「内核的决定」。
+
+## 18. `apply` 补齐：flag、note、ruling，与 `look focus=session`（切片 8，票 #27）
+
+规格 #12 第三节把 `apply` 的十种效果一次列全，切片 0–7 落了六种（`move`、`clue`、`time`、`damage`、`handout`、`item`、`cash`），四种一直报 `not_implemented`。其中 **`npc` 归 §17（票 #29）**，那一片连着作者档案与运行时账本一起做，本节不碰。剩下三种的后果：模组图上的开关条件没有真值可读；守秘人在桌上做的裁定与欠下的连续性债务落不了地——用户故事 24「我的裁定被记住并在同类判定再次出现时提醒我」至今没有实现路径。本节补齐这三种，外加 `look` 缺的那个 focus。
+
+法则不变：世界改变只经 `apply`，整批先校验后写；模型只写名字，不写任何机器键；匹配靠标识不靠语义（裁定的复现由规则族、决策名、技能名、实体名锚定，内核不做「像不像同一类」的判断）。
+
+### 18.1 `flag`
+
+params：`{"kind": "flag", "name": "<开关名>", "value"?: true | false | "<≤ 40 字的短串>", "why"?}`，`value` 缺省 `true`。写 `world.flags[<slug>]`。
+
+- 名字任取（守秘人的世界状态便签），但**必须有消费者**，所以本票同时接上两个：
+  1. 胶囊 `where.exits[].unlock_when` 增加 `met`：条件是 `{"kind": "flag", "flag": ...}` 或条件文本里点名了一个已知 flag 时给 `true`/`false`，判不了给 `null`（内核不猜）。
+  2. 胶囊 `known.flags`：已置位的 flag 列表（守秘人专属，预算 512B，超出按最近写入裁剪）。
+- 开关**永远不拦路**：`apply move` 不因 `unlock_when` 未满足而失败（模组是参考不是圣经），胶囊只是把满没满足摆给守秘人看。
+- 收据 `flag:<slug>-t<n>-c<k>`，守秘人专属，事件 `flag-set`，不进 `mechanics`。
+
+### 18.2 `note`：连续性债务
+
+params：`{"kind": "note", "name": "<短语义名>", "text": "<一句话>", "entities"?: [名], "closes"?: "<某条 note 的名字>"}`。`closes` 单独给时不需要 `text`。
+
+- 存 `notes.jsonl`：`{"name", "text", "entities", "turn", "status": "open"|"closed", "closed_turn"?}`。同名的 open note 再写一次报 `invalid_params`（`fix`：换个名字，或用 `closes` 关掉它）。
+- 胶囊 `obligations` 增加 kind `note`：`entities` 与在场实体或当前场景相交的全给，其余按最近三条给；关掉即消失。这是守秘人欠自己的账（「答应过要交代那盏灯」「玛丽还等着回话」），不是玩家可见文字。
+- 收据 `note:<name>-t<n>-c<k>`，守秘人专属，事件 `note-written`，不进 `mechanics`。
+
+### 18.3 `ruling`：桌上的裁定，按标识复现
+
+params：`{"kind": "ruling", "name": "<短语义名>", "statement": "<一句话：怎么判>", "anchor": {"family"?: "<规则族名>", "decision"?: "<决策语义名>", "skill"?: "<技能名>", "entities"?: [名]}, "scope"?: "campaign"（缺省）| "module" | "scene"}`。`anchor` 至少一个字段。
+
+- 校验闭合、全靠标识：`family` 必须是 RuleGraph 的十族之一；`decision` 必须是图上存在的决策语义名；`skill` 必须解析到技能目录；`entities` 必须解析到图上的实体。都报 `invalid_params` 并在 `fix` 里给出可用值。**内核不判断两次判定像不像同一类**——匹配就是标识相等。
+- 存 `rulings.jsonl`：`{"name", "statement", "anchor", "scope", "turn", "status": "active"|"superseded", "superseded_by"?}`。锚点字段完全相同的新裁定接续旧的（与记忆里 `relationship` 的接续同一条法则）。
+- 两处投影，都是提醒不是强制：
+  1. `resolve` 结果增加 `rulings: [{"name", "statement"}]`：本次流水线实际选中的决策、它所属的族、用到的技能、行动里点到的实体，任一与锚点相等即命中（≤ 3 条，按新到旧）。**这就是用户故事 24 的落点**：判定发生的那一刻，上次怎么判的就在结果里。
+  2. 胶囊 `situations.rulings`：锚点命中活跃会话的族、在场实体、或 `scope: "scene"` 且就是这个场景的，≤ 3 条，预算 1KB。
+- `scope: "scene"` 的裁定只在写下它的那个场景命中；`module` 只在同一模组的战役里命中（跨战役共享靠模组存储，不在本票）。
+- 收据 `ruling:<name>-t<n>-c<k>`，守秘人专属，事件 `ruling-made`，不进 `mechanics`。
+- 不做的：旧树的 house rules 提议/确认流程（规格已排除），裁定改变规则算术（裁定是给守秘人看的文字，永远不改数）。
+
+### 18.4 `look focus=session`
+
+`LOOK_FOCUS` 增加 `session`：返回当前活跃会话的完整视图（种类、轮次、序列、轮到谁、可用动作、待决的防御或推骰），没有会话时 `{"session": null}`。今天这份数据只能从 `where.session` 的三字段摘要或上一次 `resolve` 的结果里拼，重开进程后拼不回来。
+
+### 18.5 事件与遥测
+
+canonical 事件枚举（§12.1，代码里实为十五类：`kernel/coc/events.py`；契约 §1/§7/§12.1 的「十二类」是切片 4 之后没跟上的旧数，本票一并改正）增加三类：`flag-set`、`note-written`、`ruling-made`（`npc-changed` 归 §17），共十八类。加类要同时改 §12.1 的清单与 `tests/kernel/test_events_slice2.py` 的闭合断言。
+
+### 18.6 验收
+
+- 内核用例：三种效果各自的写侧与校验、`ruling` 的锚点匹配与接续、`note` 的开关、`flag` 的 `met` 三态、`look focus=session`；每条产品修复配一个能被变异杀死的用例。
+- 真桌（`toomany-s4` 续局或新建）：置一个开关并在胶囊里看到某条出口的 `met: false`；开一条 note 并在两回合后关掉；做一次裁定，随后在同族的第二次判定里从 `resolve` 结果看到它被提醒；战斗里 `look focus=session` 拿到完整会话视图。
+
+## 19. 桌况扩展：命令面、模型切换、COC 自己的上下文折叠（切片 10，票 #28）
+
+规格 #12 第一节给 table 扩展派了五件事：HUD、欢迎页、上下文折叠、`/system` 命令、模型与思考等级切换。落地的只有前两件（状态行 `coc-session`/`coc-director` 与 `coc-welcome` 条目），后三件一直空着，扩展里没有一个 `registerCommand`。长局因此有两个真问题：会话记录被每回合的胶囊与工具往返撑大，Pi 的缺省压缩不知道哪些能整段丢；桌上换模型（守秘人太贵、太慢、抽风）只能杀进程重开。
+
+宿主接口都在（`docs/pi-host-contract.md` 第 2 节补登记）：`pi.registerCommand(name, {description, handler})`、`ctx.setModel(model)` / `ctx.setThinkingLevel(level)` / `ctx.modelRegistry`、`session_before_compact` 事件与 `ctx.compact(options)`。
+
+### 19.1 一个命令，几个子命令
+
+只注册一个命令 `/coc`（规格里的 `/system`；名字随包走，避免与 Pi 自己的命令撞）。所有输出走 `ctx.ui`，**永不进模型上下文**：命令是给人看的，不是给守秘人看的，桌上的一次 `/coc` 不占守秘人一个回合，也不改回合状态机。
+
+| 子命令 | 做什么 |
+| --- | --- |
+| `/coc`（无参） | 桌况面板：战役 id 与标题、回合号与状态、场景与时钟、队伍 HP/SAN/MP、活跃会话、Director 上一个节拍与理由、模组材料就绪度、当前模型与思考等级。数据取 `table.status` 与本回合胶囊，只读。 |
+| `/coc model [provider/model]` | 无参列出注册表里的候选（`ctx.modelRegistry`）与当前值；有参切换（`ctx.setModel`），回合中途切了下一回合生效，当前回合不回滚。切换写一行遥测。 |
+| `/coc thinking <level>` | `ctx.setThinkingLevel`，同上。 |
+| `/coc lanes` | 校验与记忆两条车道的模型、最近 10 行车道遥测（成功/失败/耗时）。车道今天失败是静默的，这是唯一能看见它的地方。 |
+| `/coc evidence` | 打印证据路径：战役目录、遥测、逐字记录、模组存储、玩测目录。给人用来开另一个终端看。 |
+
+`ctx.mode !== "tui"` 时（RPC 模式、print 模式）命令只回一行「interactive only」，不做别的：驾驭器不靠它。
+
+### 19.2 COC 自己的上下文折叠
+
+Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `session_before_compact`，给它一份 COC 口径的保留清单：
+
+- **整段丢**：所有 `coc-capsule` 条目（每回合重新生成，旧的一律是废页）、所有 `coc-mechanics` 条目（前端用的投影，模型不需要回看）、最近两回合之外的工具调用与工具结果（收据在内核里，`recall` 能拿回来）。
+- **原样留**：玩家输入与已交付的正文（它们是逐字记录的对应物）、系统提示、最近两回合的全部往返、任何 `pending_*` 相关的宿主消息。
+- **压缩后补一条宿主消息**：一行英文，说明桌面状态在下一回合的胶囊里、往事用 `recall`、本回合的待决是什么。守秘人不需要从摘要里回忆状态——状态本来就每回合重发。
+- 触发：除了 Pi 自己的阈值，`before_agent_start` 里当上下文占用超过阈值（缺省 70%，`PI_COC_COMPACT_AT` 可调）就先 `ctx.compact()` 再进回合，避免压缩发生在工具往返中间。
+
+判据是**条目类型与回合距离，不是内容语义**——不读文本、不做相关性判断（`Agents.md`「语义问题不许硬编码」）。
+
+### 19.3 验收
+
+- 扩展用例：五个子命令各自的输出形状与 `mode !== "tui"` 的降级；折叠钩子在一个造出来的长会话上按类型丢对了东西、留下了玩家输入与交付、补了那条宿主消息；`before_agent_start` 的阈值触发。
+- 真桌：一局跑到需要压缩（或把阈值调低逼出来），压缩之后守秘人接着走三回合不丢状态：场景、待决、在场 NPC、上一条线索都还在（它们本来就每回合从胶囊来）；桌上用 `/coc model` 换一次模型，下一回合生效且回合状态机没被打断。

@@ -12,8 +12,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from ..errors import RpcError, invalid_params
-from .runtime import RESOURCE_LABELS_ZH as _RESOURCE_LABELS_ZH
-from ..sessions import (CHASE_OUTCOMES_ZH, COMBAT_OUTCOMES_ZH, SessionView, chase_active, combat_active,
+from ..sessions import (SessionView, chase_active, combat_active,
                         combat_operation_for, defense_options, engine_defense, investigator_combat_participant,
                         load_chase, load_combat, load_sanity, module_weapons, npc_combat_participant,
                         resolve_investigator_weapon, weapon_options)
@@ -24,13 +23,6 @@ from .percentile import SUCCESS_OUTCOMES, roll_expression
 from .sanity import INVOLUNTARY_KINDS, consume_sanity_gain_pending
 
 SELF_RESOLVING = frozenset({"aim", "reload", "maneuver", "flee"})
-SAN_LABEL = _RESOURCE_LABELS_ZH["san"]
-#: zh labels for the engines' own dice (closed engine vocabulary, rendered on 【明骰】 lines).
-DICE_LABELS_ZH = {
-    "HP Damage": "伤害", "SAN Loss": "理智损失", "Bout Duration": "发作时长", "Bout of Madness": "疯狂发作",
-    "Bout Duration (rounds)": "发作轮数", "Phobia": "恐惧症", "Mania": "躁狂症", "SAN Reward": "理智恢复",
-    "Flesh Ward": "肉体守护护甲",
-}
 
 
 def turn_state(message: str, *, fix: str | None = None, **details: Any) -> RpcError:
@@ -64,7 +56,7 @@ def record_dice(ctx: Any, record: Mapping[str, Any], *, label: str | None = None
         faces = [int(record.get("roll"))] if record.get("roll") is not None else []
     total = dice.get("total") if dice else record.get("effect_total", record.get("roll"))
     skill = str(record.get("skill") or "dice")
-    return ctx.add_dice_roll(actor=str(record["actor_id"]), label=skill, skill_label=label or DICE_LABELS_ZH.get(skill, skill),
+    return ctx.add_dice_roll(actor=str(record["actor_id"]), label=skill, skill_label=label or skill,
                              expression=expression, faces=[int(f) for f in faces], total=total, **extra)
 
 
@@ -252,7 +244,7 @@ def _start_combat(ctx: Any, args: Mapping[str, Any], sessions: SessionView) -> t
             participant["armor_rule"] = preparation.get("armor_rule")
             row["armor"] = int(rolled["total"])
             roll_id = ctx.add_dice_roll(actor=str(preparation["actor_id"]), label=str(preparation.get("effect_kind") or "armor"),
-                                        skill_label=DICE_LABELS_ZH.get("Flesh Ward"), expression=rolled["expression"],
+                                        expression=rolled["expression"],
                                         faces=rolled["rolls"], total=rolled["total"])
             ctx.add_delta("armor", str(preparation["actor_id"]), 0, int(rolled["total"]), source_receipt=roll_id)
         session.apply_effect(str(preparation["actor_id"]), str(preparation.get("effect_kind") or "preparation"),
@@ -414,8 +406,7 @@ def execute_combat_resolve(ctx: Any, args: dict[str, Any], plan: Mapping[str, An
     damage_receipts = _damage_receipts_by_target(session, {turn["turn_id"]} if turn else set(), receipt_ids)
     _emit_state_deltas(ctx, session, before, damage_receipts)
     if session.status != "active":
-        ctx.add_session_receipt("combat", "end", outcome=session.outcome,
-                                summary=COMBAT_OUTCOMES_ZH.get(str(session.outcome), str(session.outcome)))
+        ctx.add_session_receipt("combat", "end", outcome=session.outcome)
         hints.append("combat is mechanically concluded; narrate the aftermath (no combat:end needed)")
     view = SessionView(ctx.campaign_dir, ctx.graph, ctx.party(), ctx.world)
     data: dict[str, Any] = {
@@ -462,7 +453,7 @@ def execute_combat_end(ctx: Any, args: dict[str, Any], plan: Mapping[str, Any]) 
     session.revision += 1
     session.save(ctx.campaign_dir)
     _emit_state_deltas(ctx, session, before, {})
-    ctx.add_session_receipt("combat", "end", outcome=outcome, summary=COMBAT_OUTCOMES_ZH.get(outcome, outcome))
+    ctx.add_session_receipt("combat", "end", outcome=outcome)
     view = SessionView(ctx.campaign_dir, ctx.graph, ctx.party(), ctx.world)
     data = {"combat_id": session.combat_id, "revision": session.revision, "round": session._current_round,
             "status": session.status, "outcome": outcome, "session": view.combat_view(), "pending_choice": None}
@@ -558,8 +549,7 @@ def execute_chase(ctx: Any, args: dict[str, Any], plan: Mapping[str, Any]) -> tu
             session.cut_to_the_chase(gap=DEFAULT_GAP)
             session.begin_round()
         else:
-            ctx.add_session_receipt("chase", "end", outcome=session.outcome,
-                                    summary=CHASE_OUTCOMES_ZH.get(str(session.outcome), str(session.outcome)))
+            ctx.add_session_receipt("chase", "end", outcome=session.outcome)
             hints.append("the quarry outruns every pursuer at the speed roll: the chase ends before it begins")
         data.update({"established": established, "initiative": list(session.rounds[-1]["dex_order"]) if session.rounds else []})
         return _chase_finish(ctx, session, before, data, hints)
@@ -572,7 +562,7 @@ def execute_chase(ctx: Any, args: dict[str, Any], plan: Mapping[str, Any]) -> tu
     if kind == "chase_end":
         outcome = str(payload.get("outcome") or session.check_outcome() or "concluded")
         session.conclude(outcome)
-        ctx.add_session_receipt("chase", "end", outcome=outcome, summary=CHASE_OUTCOMES_ZH.get(outcome, outcome))
+        ctx.add_session_receipt("chase", "end", outcome=outcome)
         return _chase_finish(ctx, session, before, data, hints)
     actor_id = str(payload.get("actor_id") or "")
     if actor_id not in session.participants:
@@ -667,10 +657,10 @@ def _sanity_rolls(ctx: Any, session, **extra: Any) -> list[str]:
             continue
         skill = str(record.get("skill") or "")
         if skill == "SAN":
-            ids.append(record_percentile(ctx, record, kind="sanity_check", skill_label=SAN_LABEL, **extra))
+            ids.append(record_percentile(ctx, record, kind="sanity_check", **extra))
             faces = record.get("san_loss_rolls")
             if isinstance(faces, list) and faces:
-                ids.append(ctx.add_dice_roll(actor=str(record["actor_id"]), label="SAN Loss", skill_label=DICE_LABELS_ZH["SAN Loss"],
+                ids.append(ctx.add_dice_roll(actor=str(record["actor_id"]), label="SAN Loss",
                                              expression=record.get("san_loss_expression"), faces=[int(f) for f in faces],
                                              total=record.get("san_loss")))
         elif skill == "INT":
@@ -689,10 +679,13 @@ def _sanity_finish(ctx: Any, session, before_san: int, data: dict[str, Any], hin
     ctx.sync_sanity(session)
     if session.bout_active and not was_bout:
         bout = session.bouts_of_madness[-1] if session.bouts_of_madness else {}
-        summary = f"{bout.get('bout_result') or bout.get('bout_kind') or ''}（{bout.get('duration_rounds')} 轮）"
-        ctx.add_session_receipt("sanity_bout", "start", summary=summary)
+        result = str(bout.get("bout_result") or bout.get("bout_kind") or "")
+        rounds = bout.get("duration_rounds")
+        summary = f"{result} ({rounds} rounds)" if result and rounds is not None else (result or None)
+        ctx.add_session_receipt("sanity_bout", "start", outcome=result or None, summary=summary,
+                                rounds=rounds if isinstance(rounds, int) and not isinstance(rounds, bool) else None)
     elif was_bout and not session.bout_active:
-        ctx.add_session_receipt("sanity_bout", "end", summary="控制权回到玩家")
+        ctx.add_session_receipt("sanity_bout", "end")
     view = SessionView(ctx.campaign_dir, ctx.graph, ctx.party(), ctx.world)
     data.update({"investigator_id": ctx.actor_id, "san_before": before_san, "san_after": after,
                  "temporary_insane": bool(session.temporary_insane), "indefinite_insane": bool(session.indefinite_insane),
@@ -776,8 +769,7 @@ def execute_reality_check(ctx: Any, args: dict[str, Any], plan: Mapping[str, Any
     outcome = session.reality_check()
     roll_id = ctx.add_roll(actor=ctx.actor_id, skill="SAN", target=before, difficulty="regular", threshold=before,
                            roll=int(outcome["roll"]), level="regular" if outcome["success"] else "failure",
-                           passed=bool(outcome["success"]), kind="sanity_reality_check", visibility="public",
-                           skill_label=SAN_LABEL)
+                           passed=bool(outcome["success"]), kind="sanity_reality_check", visibility="public")
     _sanity_rolls(ctx, session)
     data = {"command": "reality_check", "check": {"skill": "SAN", "target": before, "roll": outcome["roll"],
                                                   "passed": bool(outcome["success"]), "roll_id": roll_id},
@@ -879,7 +871,7 @@ def execute_apply_treatment(ctx: Any, args: dict[str, Any], plan: Mapping[str, A
     if level in SUCCESS_OUTCOMES:
         expression = recovery.get("extreme" if level == "critical" else level) or recovery.get("regular") or "1D3"
         rolled = roll_expression(str(expression), ctx.rng)
-        ctx.add_dice_roll(actor=ctx.actor_id, label="SAN Reward", skill_label=DICE_LABELS_ZH["SAN Reward"],
+        ctx.add_dice_roll(actor=ctx.actor_id, label="SAN Reward",
                           expression=rolled["expression"], faces=rolled["rolls"], total=rolled["total"])
         recovered = int(rolled["total"])
         session.gain_san(recovered, source="psychoanalysis")

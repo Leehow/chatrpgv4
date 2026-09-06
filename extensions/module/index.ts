@@ -1,16 +1,16 @@
 /**
- * 模组扩展：无人值守构建的驱动循环（契约 §14.5）与按需深读车道（契约 §14.6）。
+ * The module extension: the driver loop of the unattended build (contract §14.5) and the on-demand deepening lane (contract §14.6).
  *
- * 它不注册任何工具。两个模式各跑一件事：
- * - setup：onboarding 的 `build-opening` 那一步在总线上发 `coc:module-build`，
- *   这里跑 `buildModule`，`opening_ready` 一到发 `coc:module-opening-ready`，
- *   整本读完发 `coc:module-build-done`（失败发 `coc:module-build-failed`，
- *   免得建卡那一步干等）。
- * - play：一条后台车道认领 `module.deepen.claim` 给的 section，跑同一个读者，
- *   review／accept／assemble，然后 `module.deepen.complete`。同一时刻一个，
- *   回合在飞的时候不开新的（契约 §14.6：不阻塞回合），关机就停。
+ * It registers no tools. Each mode runs one thing:
+ * - setup: onboarding's `build-opening` step puts `coc:module-build` on the bus, this runs
+ *   `buildModule`, emits `coc:module-opening-ready` the moment `opening_ready` arrives, and emits
+ *   `coc:module-build-done` when the whole book is read (`coc:module-build-failed` on failure, so the
+ *   setup step is not left waiting for nothing).
+ * - play: a background lane claims the section `module.deepen.claim` hands it, runs the same reader,
+ *   reviews, accepts, assembles, then `module.deepen.complete`. One at a time, none started while a
+ *   turn is in flight (contract §14.6: it never blocks a turn), and stopped at shutdown.
  *
- * 内核 RPC 只有一份（契约 §1），跟记忆扩展一样从总线上的 `coc:kernel-bridge` 拿。
+ * There is only one kernel RPC (contract §1), taken from the bus's `coc:kernel-bridge` as the memory extension does.
  */
 
 import { join } from "node:path";
@@ -18,19 +18,19 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { appendJsonl, cocMode } from "../lanes/host.ts";
 import { type BuildContext, buildModule, type KernelCall, readSection, resetReviewProbe } from "./build.ts";
 
-/** 构建并发上限（契约 §14.5），缺省 1。 */
+/** The build concurrency cap (contract §14.5); 1 by default. */
 function buildParallel(): number {
 	const raw = Number.parseInt(process.env.PI_COC_BUILD_PARALLEL?.trim() ?? "", 10);
 	return Number.isFinite(raw) && raw > 0 ? raw : 1;
 }
 
-/** 读者一轮的上限，测试用它把假读者的等待压到秒级。 */
+/** The cap on one reader round; tests use it to bring the fake reader's wait down to seconds. */
 function readerTimeoutMs(): number | undefined {
 	const raw = Number.parseInt(process.env.PI_COC_READER_TIMEOUT_MS?.trim() ?? "", 10);
 	return Number.isFinite(raw) && raw > 0 ? raw : undefined;
 }
 
-/** 读者的模型（契约 §14.5）：环境变量点名的那个，没点名就跟桌子同模型。 */
+/** The reader's model (contract §14.5): the one the environment variable names, else the table's own model. */
 function readerModel(ctx: ExtensionContext | undefined): string | undefined {
 	const raw = process.env.PI_COC_BUILD_MODEL?.trim();
 	if (raw) return raw;
@@ -57,29 +57,29 @@ export default function (pi: ExtensionAPI) {
 	let bridge: { campaign?: string; call: KernelCall } | undefined;
 	let lanes = new AbortController();
 	let stopped = false;
-	/** 同一时刻只跑一件事：构建循环或一条深读。 */
+	/** Only one thing runs at a time: the build loop or one deepening. */
 	let busy = false;
-	/** 回合在飞（宿主已经把玩家输入交给内核，助手还没跑完）：深读不开新的。 */
+	/** A turn is in flight (the host has handed the player input to the kernel and the assistant has not finished): no new deepening starts. */
 	let turnInFlight = false;
-	/** 刚提交过一回合，队列可能长了东西；等这一轮结束去认领一次。 */
+	/** A turn was just committed and the queue may have grown; claim once this run has ended. */
 	let pendingClaim = false;
-	/** play 模式下当前战役的模组，从 `coc:table-open` 来。 */
+	/** In play mode, the current campaign's module, from `coc:table-open`. */
 	let moduleId: string | undefined;
 	let campaign: string | undefined;
 
-	// ---- 遥测 -------------------------------------------------------------
+	// ---- Telemetry --------------------------------------------------------
 
-	/** 构建遥测：模组的 `build.jsonl`（契约 §14.1），外加会话记录与战役遥测各一行。 */
+	/** Build telemetry: the module's `build.jsonl` (contract §14.1), plus one line each in the session record and the campaign telemetry. */
 	function record(module: string, row: Record<string, unknown>): void {
 		const line = { lane: "module", module_id: module, at: new Date().toISOString(), ...row };
 		try {
 			pi.appendEntry("coc-telemetry", line);
 		} catch {
-			/* 遥测不该弄坏一条车道 */
+			/* telemetry must not break a lane */
 		}
 		let cwd: string | undefined;
 		try {
-			// 会话 dispose 之后 ctx 的 getter 会抛（docs/pi-host-contract.md 第 5 节）。
+			// After the session is disposed the ctx getters throw (docs/pi-host-contract.md §5).
 			cwd = ctx?.cwd;
 		} catch {
 			cwd = undefined;
@@ -90,8 +90,8 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * 车道要的那份上下文。整个身子在 try 里：会话 dispose 之后 ctx 的每个 getter 都抛
-	 * （docs/pi-host-contract.md 第 5 节），而车道完全可能在那之后才轮到自己。
+	 * The context a lane needs. The whole body sits in a try: after the session is disposed every ctx
+	 * getter throws (docs/pi-host-contract.md §5), and a lane may well only get its turn after that.
 	 */
 	function context(call: KernelCall): BuildContext | undefined {
 		try {
@@ -113,13 +113,13 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	// ---- 构建（setup 模式） -----------------------------------------------
+	// ---- Building (setup mode) --------------------------------------------
 
 	async function runBuild(request: { module_id: string; campaign?: string }): Promise<void> {
 		const current = bridge;
 		const build = current ? context(current.call) : undefined;
 		if (!current || !build) {
-			pi.events.emit("coc:module-build-failed", { module_id: request.module_id, detail: "内核桥不在，构建起不来" });
+			pi.events.emit("coc:module-build-failed", { module_id: request.module_id, detail: "the kernel bridge is gone; the build cannot start" });
 			return;
 		}
 		if (busy) return;
@@ -145,11 +145,11 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	// ---- 按需深读（play 模式） --------------------------------------------
+	// ---- On-demand deepening (play mode) ----------------------------------
 
 	/**
-	 * 认领一段就读一段，读完再认领下一段；回合一开就停手，关机也停。
-	 * 认领与完成之间不放第二次认领：契约 §14.6「同一时刻一个」。
+	 * Claim a section, read it, then claim the next; stop the moment a turn opens, and stop at shutdown.
+	 * No second claim between a claim and its completion: contract §14.6's one at a time.
 	 */
 	async function pumpDeepen(): Promise<void> {
 		if (busy || stopped || turnInFlight) return;
@@ -203,16 +203,16 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	/** 排过队才去认领，而且等到 `agent_end`：回合真的结束了才动内核。 */
+	/** Claim only after something queued, and only at `agent_end`: the kernel is touched once the turn has really ended. */
 	function kickDeepen(): void {
 		if (setupMode || !pendingClaim) return;
 		pendingClaim = false;
 		void pumpDeepen().catch(() => undefined);
 	}
 
-	// ---- 总线 -------------------------------------------------------------
+	// ---- Bus --------------------------------------------------------------
 
-	// 内核扩展在 session_start 里发桥；本扩展在加载时就订阅，两种加载顺序都接得住。
+	// The kernel extension emits the bridge in session_start; this extension subscribes at load time, so both load orders are caught.
 	pi.events.on("coc:kernel-bridge", (data) => {
 		const payload = asRecord(data) as { campaign?: string; call?: KernelCall };
 		bridge = typeof payload.call === "function" ? { ...(payload.campaign ? { campaign: payload.campaign } : {}), call: payload.call } : undefined;
@@ -227,15 +227,15 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	/**
-	 * 认领只排在「刚提交过一回合」之后（契约 §14.6：`move` 成功后内核入队）。
-	 * 开桌时入的那一段（起始场景，reason `opening`）也等得起：开场那一回合一提交就轮到它，
-	 * 这样开桌路上不多一次内核往返，回合里也不会突然插进来一条车道。
+	 * A claim is only queued after a turn has been committed (contract §14.6: the kernel enqueues after a successful `move`).
+	 * The section enqueued at opening (the starting scene, reason `opening`) can wait too: its turn comes
+	 * as soon as the opening turn commits, which keeps one kernel round trip off the opening path and stops a lane from cutting into a turn.
 	 */
 	pi.events.on("coc:turn-committed", () => {
 		pendingClaim = true;
 	});
 
-	// 建卡进程的 `build-opening` 那一步发起构建（契约 §14.4 的第五步）。
+	// The setup process's `build-opening` step starts the build (step five of contract §14.4).
 	pi.events.on("coc:module-build", (data) => {
 		const payload = asRecord(data);
 		const target = asString(payload.module_id);
@@ -247,8 +247,8 @@ export default function (pi: ExtensionAPI) {
 		}).catch(() => undefined);
 	});
 
-	// 回合期间不开新的深读（契约 §14.6：不阻塞回合）。回合的边界用宿主自己的钩子，
-	// 不用总线：`before_agent_start` 是玩家输入进内核那一刻，`agent_end` 是这一轮真的结束了。
+	// No new deepening during a turn (contract §14.6: it never blocks a turn). The turn boundary comes from
+	// the host's own hooks, not the bus: `before_agent_start` is the moment the player input enters the kernel, and `agent_end` is this run really ending.
 	pi.on("before_agent_start", async () => {
 		turnInFlight = true;
 	});
@@ -268,7 +268,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async () => {
-		// 关机不等构建：在飞的读者子进程掐断，没读完的 section 留在 `sections.json` 里等下次。
+		// Shutdown does not wait for the build: reader subprocesses in flight are cut off, and unread sections stay in `sections.json` for next time.
 		stopped = true;
 		lanes.abort();
 		bridge = undefined;

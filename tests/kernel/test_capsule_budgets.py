@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 
-from conftest import CAMPAIGN, PREGEN, RpcClient, campaign_dir, open_turn, read_json
+from conftest import narrate, CAMPAIGN, PREGEN, RpcClient, campaign_dir, open_turn, read_json
 
 INVESTIGATOR = "托马斯·海斯"
 
@@ -79,7 +79,7 @@ def build_rich_state(client: RpcClient) -> None:
     client.table("resolve", call_id="t1-c2", action={
         "intent": "combat", "goal": "冲上去和科比特对决", "method": "举枪射击",
         "target": "Walter Corbitt", "weapon": ".38 Revolver"})
-    narrated = client.table("narrate", call_id="t1-c3", text="故事的每一条线索都被翻了出来，科比特应声而起。" * 3)
+    narrated = narrate(client, "t1-c3", "故事的每一条线索都被翻了出来，科比特应声而起。" * 3)
     job_id = narrated["extraction"]["job_id"]
     long_statement = "科比特" + "的事情说来话长，笔记写得密密麻麻，" * 20  # under the 400-char cap, still ~290 chars
     client.ok("memory.submit", {"campaign": CAMPAIGN, "job_id": job_id, "candidates": [
@@ -147,7 +147,7 @@ def test_style_budget_is_larger_on_the_first_capsule_of_a_fresh_process(tmp_path
 def test_style_budget_is_the_smaller_one_in_a_later_turn(kernel):
     build_rich_state(kernel)
     kernel.table("player_input", text="继续搜查。")
-    kernel.table("narrate", call_id="t2-c1", text="一无所获。")
+    narrate(kernel, "t2-c1", "一无所获。")
     later_capsule = kernel.table("player_input", text="再搜一次。")["capsule"]
     assert "style" in later_capsule, "capsule has no `style` section (§13.6) -- not implemented yet in this slice"
     assert size(later_capsule["style"]) <= STYLE_BUDGET_LATER

@@ -22,18 +22,18 @@ from .facts import committed_facts, keeper_only_facts, language_of
 from .fileio import file_size, read_json, truncate_file
 from .module_graph import NPC_KIND, ModuleGraph, record_of
 from .ontology import Ontology, ontology_not_ready
-from .render import (has_self_written_mechanics, mechanics_block, place, render_choice)
+from .render import check_numbers, mechanics, render_choice
 from .resolve import ResolvePipeline
 from .rules import RuleTables
 from .rules.combat import resolve_module_weapons
 from .rules.graph import REGISTERED_CONDITION_PATHS, semantic_name
 from .rules.percentile import roll_expression
-from .rules.runtime import RESOURCE_LABELS_ZH, RulesEngine, SettleContext
+from .rules.runtime import RulesEngine, SettleContext
 from .sessions import SessionView, module_weapons
 from .setup import (ModuleStore, STATUS_ACTIVE, STATUS_READY, STATUS_SETTING_UP, SetupMethods, deepen,
                     material_status, module_registered)
 from .store import Campaign, Store, fresh_turn, now_iso, parse_call_id
-from .text import normalize, slugify
+from .text import ascii_slug, normalize, slugify
 
 INTENTS = frozenset({"investigate", "social", "move", "combat", "flee", "cast", "idle", "meta",
                      "stuck", "ambiguous", "montage"})
@@ -57,7 +57,8 @@ RECALL_KINDS = frozenset({"transcript", "memory", "history"})
 WRITABLE_STATES = frozenset({"open", "acting"})
 PLAYER_INPUT_STATES = frozenset({"awaiting_player", "asked"})
 DEFAULT_LANGUAGE = "zh-Hans"
-#: the languages the kernel has sentence templates for (facts.py, steps.json lines)
+#: the play_language tags campaign.create accepts (§14.4); the kernel writes nothing in
+#: them (§16.1) -- the tag is data for the keeper, the craft table and the extractor.
 SUPPORTED_LANGUAGES = ("zh-Hans", "en")
 #: Fact namespaces that describe the table's state (a wound, a clock, a pending bout or
 #: settlement). Content availability (`magic.*`) and call facts (`intent.*`, `receipt.*`)
@@ -76,7 +77,8 @@ def _str(params: dict[str, Any], key: str, *, required: bool = True, default: st
 
 
 def _label(effect: dict[str, Any]) -> str | None:
-    """The keeper's play_language short name for a mechanics line, or None."""
+    """The keeper's play-language short name carried on the receipt (data for the
+    mechanics projection, §16.2), or None."""
     label = effect.get("label")
     return label.strip() if isinstance(label, str) and label.strip() else None
 
@@ -449,7 +451,7 @@ class Table:
         # §14.6: the opening scene's section (and its neighbours') go on the deepen queue.
         self._enqueue_deepen(graph, graph.scene(world["active_scene"]), "opening")
         # §12.2: the checkpoint follows HEAD; a lost turn.json is rebuilt from it.
-        checkpoint, rebuilt = continuation.sync_checkpoint(campaign, language_of(meta),
+        checkpoint, rebuilt = continuation.sync_checkpoint(campaign,
                                                            self._snapshot(campaign, graph, world, party))
         turn = continuation.readable_turn(campaign)
         if turn is None:
@@ -484,8 +486,9 @@ class Table:
 
     def status(self, params: dict[str, Any]) -> dict[str, Any]:
         campaign, _, _, turn = self._context(params)
-        return {"turn": turn["turn"], "state": turn["state"], "receipts": turn.get("receipts", []),
-                "pending_choice": turn.get("pending_choice")}
+        receipts = list(turn.get("receipts", []))
+        return {"turn": turn["turn"], "state": turn["state"], "receipts": receipts,
+                "mechanics": mechanics(receipts), "pending_choice": turn.get("pending_choice")}
 
     def _capsule(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any], turn: dict[str, Any], *,
                  resume: dict[str, Any] | None = None, consume_style: bool = False) -> dict[str, Any]:
@@ -1029,8 +1032,8 @@ class Table:
                    "to_label": label or scene_label(graph, world, destination),
                    "minutes": minutes, "at": now_iso()}
         if label:
-            # A name given once is the scene's name from then on: 【变化】 lines, the capsule
-            # and the checkpoint all say 罗克斯伯里疗养院, never the handle.
+            # A name given once is the scene's name from then on: the mechanics projection,
+            # the capsule and the checkpoint all carry that label, never the handle.
             world.setdefault("scene_labels", {})[dest_handle] = label
         world["scene_trail"] = trail[:trail.index(dest_handle)] if dest_handle in trail else [*trail, current_handle]
         world["active_scene"] = dest_handle
@@ -1093,7 +1096,7 @@ class Table:
         ctx = SettleContext(self.engine, campaign, graph, world, turn, call_id, ordinal, self.rng, sheet, sheet, {})
         why = effect.get("why") if isinstance(effect.get("why"), str) else None
         roll_id = ctx.add_dice_roll(actor=subject_id, label="damage", expression=rolled["expression"],
-                                    faces=rolled["rolls"], total=rolled["total"], skill_label="伤害", why=why)
+                                    faces=rolled["rolls"], total=rolled["total"], why=why)
         before = int(sheet.get("current_hp") or 0)
         after = max(0, before - int(rolled["total"]))
         ctx.add_delta("hp", subject_id, before, after, source_receipt=roll_id)
@@ -1349,7 +1352,11 @@ class Table:
                                      details={"name": name, "held": before, "quantity": quantity})
             self._remove_item(sheet, name, -quantity)
         after = self._held(sheet, key)
-        receipt = {"id": _mint_id(f"item:{slugify(name)}-t{turn_number}-c{ordinal}", taken), "kind": "item",
+        # §16: the id is machine-face ASCII -- the name's Latin slug when it has one, else
+        # the call ordinal alone (like cash); the name itself rides in `name` / `label`.
+        slug = ascii_slug(name)
+        receipt_id = _mint_id(f"item:{slug}-t{turn_number}-c{ordinal}" if slug else f"item:t{turn_number}-c{ordinal}", taken)
+        receipt = {"id": receipt_id, "kind": "item",
                    "call_id": call_id, "name": name, "label": label or name, "subject": subject_id,
                    "subject_label": subject_label, "from": source,
                    "weapon": str(profile["weapon_id"]) if profile else None, "quantity": quantity,
@@ -1406,7 +1413,7 @@ class Table:
         sheet["cash"] = f"{after} {currency}"
         receipt = {"id": _mint_id(f"cash:t{turn_number}-c{ordinal}", taken), "kind": "cash", "call_id": call_id,
                    "resource": "cash", "subject": subject_id, "subject_label": subject_label,
-                   "label": RESOURCE_LABELS_ZH["cash"], "before": before, "after": after, "delta": delta,
+                   "before": before, "after": after, "delta": delta,
                    "currency": currency, "why": why, "at": now_iso()}
         return receipt, ("resource-changed", {"resource": "cash", "subject": subject_id, "before": before,
                                               "after": after, "delta": delta, "why": why})
@@ -1425,30 +1432,27 @@ class Table:
             raise invalid_params("params.options must be a non-empty list of strings")
         binds = _str(params, "binds", required=False)
         text = _str(params, "text", required=False)
-        if text and has_self_written_mechanics(text):
-            raise invalid_params("text contains 【明骰】 or 【变化】 lines",
-                                 fix="delete them; the kernel renders mechanics blocks from the receipts")
+        receipts = list(turn.get("receipts", []))
+        # §16.3: the question closes the turn, so the player must see this turn's rolls
+        # before choosing. The keeper states them in `text`; no text states nothing, so a
+        # turn with public numbers refuses an ask without one.
+        check_numbers(text or "", receipts)
         turn_number = int(turn["turn"])
         pending = {"name": f"ask-{slugify(binds or prompt)}-t{turn_number}", "prompt": prompt,
                    "options": list(options), "binds": binds}
-        # The question closes the turn, so whatever was rolled this turn is delivered
-        # with it: the player sees the shot before choosing how to answer it.
-        block = mechanics_block(list(turn.get("receipts", [])))
         choice = render_choice(prompt, options)
-        if text:
-            rendered = f"{place(text, block, 'auto')}\n\n{choice}"
-        elif block:
-            rendered = f"{block}\n\n{choice}"
-        else:
-            rendered = choice
-        result = {"pending_choice": pending, "rendered_text": rendered, "turn": turn_number, "state": "asked"}
+        rendered = f"{text.strip()}\n\n{choice}" if text else choice
+        projected = mechanics(receipts)
+        result = {"pending_choice": pending, "rendered_text": rendered, "mechanics": projected,
+                  "turn": turn_number, "state": "asked"}
         turn["pending_choice"] = pending
         turn["state"] = "asked"
         Campaign.remember_call(turn, call_id, params, result)
         snapshot = self._snapshot(campaign, graph, world, campaign.party())
         campaign.write_turn_record({
-            "turn": turn_number, "player_text": turn.get("player_text"), "receipts": turn.get("receipts", []),
-            "text": text or prompt, "rendered_text": rendered, "calls": turn.get("calls", {}), "commit": None,
+            "turn": turn_number, "player_text": turn.get("player_text"), "receipts": receipts,
+            "text": text or prompt, "rendered_text": rendered, "mechanics": projected, "calls": turn.get("calls", {}),
+            "commit": None,
             "closed_by": "ask", "opened_at": turn.get("opened_at"), "closed_at": now_iso(),
             "pending_choice": pending, "world": snapshot,
             "capsule": turn.get("capsule"), "intents": list(turn.get("intents") or []),
@@ -1469,22 +1473,21 @@ class Table:
         if replay is not None:
             return replay
         text = _str(params, "text")
-        placement = params.get("placement") or "auto"
-        if placement not in ("auto", "end"):
-            raise invalid_params("placement must be 'auto' or 'end'")
-        if has_self_written_mechanics(text):
-            raise invalid_params("text contains 【明骰】 or 【变化】 lines",
-                                 fix="delete them; the kernel renders mechanics blocks from the receipts")
-
+        # `placement` (pre-§16) is accepted and ignored: nothing is placed any more.
         turn_number = int(turn["turn"])
         receipts = list(turn.get("receipts", []))
-        rendered = place(text, mechanics_block(receipts), placement)
+        # §16.3: the kernel renders no mechanics. It checks that the keeper stated every
+        # public receipt's numbers, then delivers the text verbatim; the receipts ride
+        # beside it as the language-neutral projection (§16.2).
+        check_numbers(text, receipts)
+        rendered = text
+        projected = mechanics(receipts)
         receipt_id = f"turn:{turn_number}"
         subject = " ".join(text.split())[:COMMIT_SUBJECT_CHARS]
         party = campaign.party()
         snapshot = self._snapshot(campaign, graph, world, party)
         facts = self._facts(campaign, graph, world, party, receipts, snapshot, turn.get("player_text"))
-        result: dict[str, Any] = {"rendered_text": rendered, "turn": turn_number,
+        result: dict[str, Any] = {"rendered_text": rendered, "mechanics": projected, "turn": turn_number,
                                   "receipt": receipt_id, "commit": None, "facts": facts,
                                   "extraction": {"job_id": memory.job_id_for(campaign.id, turn_number)}}
 
@@ -1497,7 +1500,7 @@ class Table:
         Campaign.remember_call(turn, call_id, params, result)
         record = {
             "turn": turn_number, "player_text": turn.get("player_text"), "receipts": receipts,
-            "text": text, "rendered_text": rendered, "placement": placement, "calls": turn.get("calls", {}),
+            "text": text, "rendered_text": rendered, "mechanics": projected, "calls": turn.get("calls", {}),
             "commit": None, "closed_by": "narrate", "opened_at": turn.get("opened_at"),
             "closed_at": now_iso(), "pending_choice": turn.get("pending_choice"), "capsule": turn.get("capsule"),
             "world": snapshot, "facts": facts, "intents": list(turn.get("intents") or []),
@@ -1506,7 +1509,7 @@ class Table:
         campaign.write_turn_record(record)
         campaign.append_transcript(turn_number, "keeper", rendered)
         append_event(campaign, turn_number, "turn-finalized",
-                     {"receipts": [r["id"] for r in receipts], "placement": placement},
+                     {"receipts": [r["id"] for r in receipts]},
                      call_id=call_id, receipt=receipt_id)
         campaign.write_turn(fresh_turn(turn_number + 1))
         try:
@@ -1524,7 +1527,7 @@ class Table:
         record["commit"] = sha
         record["calls"][call_id]["result"]["commit"] = sha
         campaign.write_turn_record(record)
-        self._after_commit(campaign, language_of(campaign.read_campaign()), record, snapshot)
+        self._after_commit(campaign, record, snapshot)
         return {**result, "commit": sha}
 
     def _adoption(self, campaign: Campaign, graph: ModuleGraph, turn: dict[str, Any], snapshot: dict[str, Any], *,
@@ -1546,21 +1549,20 @@ class Table:
                receipts: list[dict[str, Any]], snapshot: dict[str, Any], player_text: str | None = None) -> dict[str, Any]:
         """§12.5: `committed` from the receipts and the snapshot, `keeper_only` from what
         the graph still hides here."""
-        language = language_of(campaign.read_campaign())
         labels = {str(s.get("id")): str(s.get("name")) for s in party}
         scene = graph.scene(world["active_scene"])
         return {
-            "committed": committed_facts(language, receipts, snapshot, lambda actor: labels.get(actor, actor),
+            "committed": committed_facts(receipts, snapshot, lambda actor: labels.get(actor, actor),
                                          player_text=player_text),
-            "keeper_only": keeper_only_facts(language, graph, world, scene, npcs_present(graph, world, scene)),
+            "keeper_only": keeper_only_facts(graph, world, scene, npcs_present(graph, world, scene)),
         }
 
-    def _after_commit(self, campaign: Campaign, language: str, record: dict[str, Any], snapshot: dict[str, Any]) -> None:
+    def _after_commit(self, campaign: Campaign, record: dict[str, Any], snapshot: dict[str, Any]) -> None:
         """§12.2–12.3: checkpoint, then episode. The turn is already closed; a failure
         here is telemetry, never an error to the keeper and never a rollback."""
         for step, action in (
             ("checkpoint", lambda: continuation.write_checkpoint(
-                campaign, continuation.checkpoint_from_record(campaign.id, language, record, snapshot))),
+                campaign, continuation.checkpoint_from_record(campaign.id, record, snapshot))),
             ("episode", lambda: memory.write_episode(campaign, record)),
         ):
             try:

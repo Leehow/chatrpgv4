@@ -1,8 +1,10 @@
 """Skill and characteristic resolution for table.resolve (contract §5 step 2-3).
 
 The vocabulary is closed: the investigator sheet, the coc7 skill table (English
-names plus their zh-Hans labels) and the nine characteristics. Anything else is
-answered with a `needs` so the keeper names the skill explicitly."""
+names plus the localized labels the rules data carries) and the nine characteristics
+(English names here, localized labels from characteristic-dice.json). Anything else is
+answered with a `needs` so the keeper names the skill explicitly. No label lives in
+code (§16.1)."""
 
 from __future__ import annotations
 
@@ -13,21 +15,37 @@ from typing import Any
 from ..text import is_latin, normalize_text
 from .tables import RuleTables
 
-# abbreviation -> (English name, zh-Hans name)
-CHARACTERISTICS: dict[str, tuple[str, str]] = {
-    "STR": ("Strength", "力量"),
-    "DEX": ("Dexterity", "敏捷"),
-    "INT": ("Intelligence", "智力"),
-    "POW": ("Power", "意志"),
-    "CON": ("Constitution", "体质"),
-    "APP": ("Appearance", "外貌"),
-    "SIZ": ("Size", "体型"),
-    "EDU": ("Education", "教育"),
-    "LUCK": ("Luck", "幸运"),
+# abbreviation -> English name; the localized labels come from the rules data
+CHARACTERISTICS: dict[str, str] = {
+    "STR": "Strength", "DEX": "Dexterity", "INT": "Intelligence", "POW": "Power", "CON": "Constitution",
+    "APP": "Appearance", "SIZ": "Size", "EDU": "Education", "LUCK": "Luck",
 }
 
 _LATIN_SUFFIXES = r"(?:s|es|ing|ed)?"
-_PAREN = re.compile(r"^(.*?)\s*[（(]\s*(.*?)\s*[)）]\s*$")
+#: "Group (Specialization)" with ASCII or fullwidth parentheses (a localized label's own).
+_PAREN = re.compile(r"^(.*?)\s*[\uff08(]\s*(.*?)\s*[)\uff09]\s*$")
+
+
+def _localized(entry: dict[str, Any]) -> list[str]:
+    """The `localized_labels` values of one rules-table row, whatever the languages."""
+    labels = entry.get("localized_labels")
+    if not isinstance(labels, dict):
+        return []
+    return [str(v) for v in labels.values() if isinstance(v, str) and v.strip()]
+
+
+def characteristic_labels(tables: RuleTables) -> dict[str, list[str]]:
+    """abbr -> the localized labels `characteristic-dice.json` carries for it."""
+    try:
+        table = tables.load("characteristic-dice").get("characteristics") or {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+    out: dict[str, list[str]] = {}
+    for key, entry in table.items():
+        abbr = str(key).upper()
+        if abbr in CHARACTERISTICS and isinstance(entry, dict):
+            out[abbr] = _localized(entry)
+    return out
 
 
 class SkillResolver:
@@ -54,9 +72,10 @@ class SkillResolver:
             return
         self._aliases.setdefault(key, set()).add(canonical)
 
-    def _add_skill_aliases(self, name: str, zh_label: str | None, allow_inner: bool) -> None:
-        """Full name and zh label always; the bare specialization ("Brawl", "手枪") only
-        for real specialization groups, never for placeholders like Language (Own)."""
+    def _add_skill_aliases(self, name: str, localized: list[str], allow_inner: bool) -> None:
+        """Full name and every localized label always; the bare specialization ("Brawl",
+        or a label's own parenthesized part) only for real specialization groups, never
+        for placeholders like Language (Own)."""
         self._add_alias(name, name)
         parts = _PAREN.match(name)
         if parts and allow_inner:
@@ -65,12 +84,12 @@ class SkillResolver:
             for piece in inner.split("/"):
                 self._add_alias(piece, name, bare=True)
             self._add_alias(f"{group} {inner}", name)
-        if zh_label:
-            self._add_alias(zh_label, name)
-            zh_parts = _PAREN.match(zh_label)
-            if zh_parts and allow_inner:
-                self._add_alias(zh_parts.group(2), name, bare=True)
-                for piece in zh_parts.group(2).split("/"):
+        for label in localized:
+            self._add_alias(label, name)
+            label_parts = _PAREN.match(label)
+            if label_parts and allow_inner:
+                self._add_alias(label_parts.group(2), name, bare=True)
+                for piece in label_parts.group(2).split("/"):
                     self._add_alias(piece, name, bare=True)
 
     def _allow_inner(self, name: str) -> bool:
@@ -83,15 +102,15 @@ class SkillResolver:
 
     def _build_aliases(self) -> None:
         for name, entry in self.table_skills.items():
-            labels = entry.get("localized_labels") or {}
-            self._add_skill_aliases(name, labels.get("zh-Hans"), self._allow_inner(name))
+            self._add_skill_aliases(name, _localized(entry), self._allow_inner(name))
         for name in self.sheet_skills:
-            labels = (self.table_skills.get(name) or {}).get("localized_labels") or {}
-            self._add_skill_aliases(name, labels.get("zh-Hans"), self._allow_inner(name))
-        for abbr, (english, chinese) in CHARACTERISTICS.items():
+            self._add_skill_aliases(name, _localized(self.table_skills.get(name) or {}), self._allow_inner(name))
+        glossary = characteristic_labels(self.tables)
+        for abbr, english in CHARACTERISTICS.items():
             self._add_alias(abbr, abbr)
             self._add_alias(english, abbr)
-            self._add_alias(chinese, abbr)
+            for label in glossary.get(abbr, []):
+                self._add_alias(label, abbr)
         # Aliases shared by several canonicals can never identify one skill.
         self._unique: dict[str, str] = {
             key: next(iter(names)) for key, names in self._aliases.items() if len(names) == 1
@@ -104,16 +123,6 @@ class SkillResolver:
         return names
 
     # ---- resolution -------------------------------------------------------
-
-    def display_label(self, canonical: str) -> str:
-        """The play-language (zh-Hans) label for a resolved skill or characteristic; the
-        canonical name when the table has none."""
-        for abbr, (english, zh) in CHARACTERISTICS.items():
-            if canonical in (abbr, english):
-                return zh
-        labels = (self.table_skills.get(canonical) or {}).get("localized_labels") or {}
-        zh = labels.get("zh-Hans")
-        return zh if isinstance(zh, str) and zh.strip() else canonical
 
     def resolve_explicit(self, text: str) -> str | None:
         key = normalize_text(text)

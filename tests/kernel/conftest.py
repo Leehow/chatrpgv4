@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,10 @@ import pytest
 WORKTREE = Path(__file__).resolve().parents[2]
 KERNEL_DIR = WORKTREE / "kernel"
 CONTENT_DIR = WORKTREE / "content"
+
+sys.path.insert(0, str(KERNEL_DIR))
+
+from coc.render import expected_numbers  # noqa: E402
 
 MODULE = "the-haunting"
 PREGEN = "thomas-hayes"
@@ -119,6 +124,27 @@ def open_turn(client: RpcClient, text: str = "我仔细观察诺特。") -> dict
     create_campaign(client)
     narrate_opening(client)
     return client.table("player_input", text=text)
+
+
+def stating(client: RpcClient, text: str) -> str:
+    """`text` plus one line stating the numbers this turn's public receipts oblige the
+    keeper to give (§16.3) when the text does not already: what a keeper does in prose,
+    for tests whose subject is not the number check itself."""
+    owed = [n for r in client.table("status")["receipts"] for n in expected_numbers(r)]
+    missing = [n for n in dict.fromkeys(owed) if n not in text]
+    return f"{text}\n\n({' '.join(missing)})" if missing else text
+
+
+def narrate(client: RpcClient, call_id: str, text: str, **params: Any) -> dict[str, Any]:
+    return client.table("narrate", call_id=call_id, text=stating(client, text), **params)
+
+
+def ask(client: RpcClient, call_id: str, prompt: str, options: list[str], text: str | None = None,
+        **params: Any) -> dict[str, Any]:
+    stated = stating(client, text or "").strip()
+    if stated:
+        params["text"] = stated
+    return client.table("ask", call_id=call_id, prompt=prompt, options=options, **params)
 
 
 @pytest.fixture

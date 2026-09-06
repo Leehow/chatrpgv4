@@ -303,7 +303,7 @@ def build_job(campaign: Campaign, graph: ModuleGraph, language: str, turn: int,
     labels = {str(i.get("id")): str(i.get("name")) for i in snapshot.get("investigators") or []}
     facts = record.get("facts") or {}
     committed = list(facts.get("committed") or []) or committed_facts(
-        language, list(record.get("receipts") or []), snapshot, lambda actor: labels.get(actor, actor),
+        list(record.get("receipts") or []), snapshot, lambda actor: labels.get(actor, actor),
         player_text=record.get("player_text"))
     about = [row["name"] for row in known if row["kind"] in ("investigator", "npc")]
     prior = [{"id": h["id"], "kind": h["kind"], "subject": h["subject"], "statement": h["statement"],

@@ -20,7 +20,7 @@ def three_turns(client):
     first = client.table("narrate", call_id="t1-c1", text="第一回合的交付。\n\n第二段。")
     client.table("player_input", text="第二回合的话。")
     client.table("apply", call_id="t2-c1", effects=[{"kind": "time", "minutes": 5}])
-    second = client.table("narrate", call_id="t2-c2", text="第二回合的交付。")
+    second = client.table("narrate", call_id="t2-c2", text="第二回合的交付。过了 5 分钟。")
     client.table("player_input", text="第三回合的话。")
     return first, second
 
@@ -33,7 +33,7 @@ def test_transcript_cards_then_verified_read(kernel):
         {"turn": 1, "role": "player", "chars": 7, "head": "第一回合的话。"},
         {"turn": 1, "role": "keeper", "chars": len(first["rendered_text"]), "head": "第一回合的交付。 第二段。"},
         {"turn": 2, "role": "player", "chars": 7, "head": "第二回合的话。"},
-        {"turn": 2, "role": "keeper", "chars": len(second["rendered_text"]), "head": "第二回合的交付。 【变化】时间：+5 分钟"},
+        {"turn": 2, "role": "keeper", "chars": len(second["rendered_text"]), "head": "第二回合的交付。过了 5 分钟。"},
         {"turn": 3, "role": "player", "chars": 7, "head": "第三回合的话。"},
     ]
     assert [e["text"] for e in default["entries"]][:2] == ["第一回合的话。", first["rendered_text"]]  # slice-0 rows kept
@@ -70,12 +70,18 @@ def history_campaign(client):
     ])
     client.table("resolve", call_id="t1-c2", action={"intent": "investigate", "goal": "找档案", "method": "翻找",
                                                     "skill": "Spot Hidden"})
-    first = client.table("narrate", call_id="t1-c3", text="到了。\n\n灰尘很厚。")
+    roll = client.table("status")["receipts"][-1]
+    first = client.table("narrate", call_id="t1-c3", text=f"到了（{roll['roll']}／{roll['target']}）。\n\n灰尘很厚。")
     client.table("player_input", text="我推开柜子。")
     client.table("apply", call_id="t2-c1", effects=[{"kind": "damage", "dice": "1D3", "why": "柜子倒了"}])
-    second = client.table("narrate", call_id="t2-c2", text="疼。")
+    dice, delta = client.table("status")["receipts"]
+    second = client.table("narrate", call_id="t2-c2", text=f"疼。{dice['total']} 点，{delta['before']} 到 {delta['after']}。")
     client.table("player_input", text="我等一下。")
     return first, second
+
+
+def head_of(result):
+    return " ".join(result["rendered_text"].split())[:60]
 
 
 def test_history_timeline_events_and_diff(kernel):
@@ -90,9 +96,9 @@ def test_history_timeline_events_and_diff(kernel):
         {"turn": 0, "commit": result["timeline"][0]["commit"], "scene": OPENING_SCENE, "clock": 0, "closed_by": "narrate",
          "receipts": {"roll": 0, "move": 0, "clue": 0, "delta": 0, "session": 0, "time": 0}, "head": "开场。 诺特把钥匙拍在桌上。"},
         {"turn": 1, "commit": first["commit"], "scene": "hall-of-records", "clock": 20, "closed_by": "narrate",
-         "receipts": {"roll": 1, "move": 1, "clue": 1, "delta": 0, "session": 0, "time": 0}, "head": "到了。 灰尘很厚。"},
+         "receipts": {"roll": 1, "move": 1, "clue": 1, "delta": 0, "session": 0, "time": 0}, "head": head_of(first)},
         {"turn": 2, "commit": second["commit"], "scene": "hall-of-records", "clock": 20, "closed_by": "narrate",
-         "receipts": {"roll": 1, "move": 0, "clue": 0, "delta": 1, "session": 0, "time": 0}, "head": "疼。"},
+         "receipts": {"roll": 1, "move": 0, "clue": 0, "delta": 1, "session": 0, "time": 0}, "head": head_of(second)},
     ]
     assert result["timeline"][0]["commit"]
     all_types = {e["type"] for e in result["events"]}

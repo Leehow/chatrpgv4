@@ -3,7 +3,7 @@
 
 import json
 
-from conftest import RpcClient, campaign_dir, open_turn, read_json, read_jsonl
+from conftest import RpcClient, ask, campaign_dir, narrate, open_turn, read_json, read_jsonl
 from test_rules_families import event_count, events_after, resolve, resolve_err, walk_to_confrontation
 
 INVESTIGATOR = "thomas-hayes"
@@ -95,8 +95,8 @@ def test_combat_against_corbitt_with_the_revolver(tmp_path):
         assert any(e["kind"] == "armor" and e["subject"] == CORBITT for e in defend["effects"])
         # Ammo spent and armor soaked are receipts the player reads, not just effects.
         logged = {r["id"]: r for r in client.table("status")["receipts"]}
-        assert logged[f"delta:ammo-t1-c{n + 1}"]["label"] == "弹药"
-        assert logged[f"delta:armor-t1-c{n + 1}"]["label"] == "护甲"
+        assert logged[f"delta:ammo-t1-c{n + 1}"]["resource"] == "ammo" and "label" not in logged[f"delta:ammo-t1-c{n + 1}"]
+        assert logged[f"delta:armor-t1-c{n + 1}"]["resource"] == "armor"
         assert defend["session"]["turn_of"] == CORBITT and defend["session"]["pending_defense"] is None
         assert defend["pending_choice"] is None
         assert [a["decision"] for a in defend["session"]["actions"]] == ["combat:attack", "combat:maneuver", "combat:end"]
@@ -122,8 +122,7 @@ def test_combat_against_corbitt_with_the_revolver(tmp_path):
         assert client.table("look")["where"]["session"]["pending_defense"]["for"] == "player"
 
         # The keeper hands the defense to the player through ask; the next turn answers it.
-        asked = client.table("ask", call_id=f"t1-c{n + 3}", prompt=pending["prompt"], options=pending["options"],
-                             binds=pending["name"])
+        asked = ask(client, f"t1-c{n + 3}", pending["prompt"], pending["options"], binds=pending["name"])
         assert asked["pending_choice"]["binds"] == pending["name"]
         answer = client.table("player_input", text="我闪开！")
         assert answer["turn"] == 2 and answer["capsule"]["where"]["session"]["pending_defense"]["for"] == "player"
@@ -147,8 +146,9 @@ def test_combat_against_corbitt_with_the_revolver(tmp_path):
                        choice={"pending": pending["name"], "option": "dodge"}) == {**dodge, "replayed": True}
         assert len([r for r in client.table("status")["receipts"] if r["kind"] == "roll"]) == 2
 
-        rendered = client.table("narrate", call_id="t2-c2", text="刀锋擦着你的脸过去。")["rendered_text"]
-        assert "【明骰】Walter Corbitt·" in rendered and "【明骰】闪避｜" in rendered
+        rolls = [m for m in narrate(client, "t2-c2", "刀锋擦着你的脸过去。")["mechanics"] if m["kind"] == "roll"]
+        assert any(m["actor_label"] == "Walter Corbitt" for m in rolls if "actor_label" in m)
+        assert any(m["skill"] == "Dodge" and m["actor"] == INVESTIGATOR for m in rolls)
         first_turn = read_json(campaign_dir(client.workspace) / "turns" / "0001.json")
         assert first_turn["closed_by"] == "ask"
         assert any(r["kind"] == "session" and r["transition"] == "start" for r in first_turn["receipts"])
@@ -225,8 +225,9 @@ def test_combat_end_by_the_keeper(seeded_kernel):
     assert seeded_kernel.table("look")["where"]["session"] is None
     after = resolve(seeded_kernel, f"t1-c{n + 1}", intent="investigate", goal="看清他的脸", method="用侦查")
     assert after["session"] is None  # after the ending call the session is null again
-    rendered = seeded_kernel.table("narrate", call_id=f"t1-c{n + 2}", text="你们隔着棺材对峙。")["rendered_text"]
-    assert "【变化】战斗开始" in rendered and "【变化】战斗结束：僵持" in rendered
+    sessions = [m for m in narrate(seeded_kernel, f"t1-c{n + 2}", "你们隔着棺材对峙。")["mechanics"] if m["kind"] == "session"]
+    assert [(m["family"], m["transition"], m.get("outcome")) for m in sessions] == [("combat", "start", None),
+                                                                                   ("combat", "end", "stalemate")]
 
 
 # ---- flee and chase ---------------------------------------------------------------------------
@@ -319,9 +320,11 @@ def test_flee_continues_into_a_chase_that_runs_to_its_end(tmp_path):
         final = read_json(chase_file)
         assert final["status"] == "concluded" and final["outcome"] in ("escaped", "captured")
         assert client.table("look")["where"]["session"] is None
-        rendered = client.table("narrate", call_id=f"t1-c{n}", text="脚步声在楼梯上炸响。")["rendered_text"]
-        assert "【变化】追逐开始" in rendered and "【变化】追逐结束：" in rendered
-        assert "【变化】战斗结束：逃离" in rendered
+        sessions = [(m["family"], m["transition"], m.get("outcome"))
+                    for m in narrate(client, f"t1-c{n}", "脚步声在楼梯上炸响。")["mechanics"] if m["kind"] == "session"]
+        assert ("combat", "end", "fled") in sessions and ("chase", "start", None) in sessions
+        assert any(family == "chase" and transition == "end" and outcome in ("escaped", "captured")
+                   for family, transition, outcome in sessions)
     finally:
         client.close()
 
@@ -381,7 +384,7 @@ def test_sanity_check_bout_recovery_and_reality_check(tmp_path):
         # slice 2: the bout's session receipt also lands a session-changed event (12.1)
         assert events_after(client.workspace, before)[-3:] == ["resource-changed", "session-changed", "decision-settled"]
         san_roll = receipts(client)[f"roll:san-t1-c{n}"]
-        assert san_roll["skill_label"] == "理智" and san_roll["roll_kind"] == "sanity_check"
+        assert san_roll["skill_label"] == "SAN" and san_roll["roll_kind"] == "sanity_check"
 
         # 11.3.1: only bout decisions while the bout runs.
         blocked = resolve_err(client, f"t1-c{n + 1}", intent="investigate", goal="x", method="用侦查")
@@ -436,9 +439,14 @@ def test_sanity_check_bout_recovery_and_reality_check(tmp_path):
             assert reality["effects"][0] == {"kind": "san", "subject": INVESTIGATOR, "before": 47, "after": 46}
             assert reality["outcome"]["bout_active"] is True  # a failed reality check opens a new bout
         n += 1
-        text = client.table("narrate", call_id=f"t1-c{n}", text="你僵在原地。\n\n它坐了起来。")["rendered_text"]
-        assert "【变化】理智：托马斯·海斯 55 → 47" in text and "【变化】理智发作：" in text
-        assert "【明骰】理智｜掷骰：" in text and "【明骰】理智损失｜1D8：" in text
+        mechanics = narrate(client, f"t1-c{n}", "你僵在原地。\n\n它坐了起来。")["mechanics"]
+        san_change = next(m for m in mechanics if m["kind"] == "change" and m["resource"] == "san")
+        assert san_change == {**san_change, "subject": INVESTIGATOR, "subject_label": "托马斯·海斯", "before": 55, "after": 47}
+        assert san_change["receipt"].startswith("delta:san-t1-c")
+        bout = next(m for m in mechanics if m["kind"] == "session" and m["family"] == "sanity_bout")
+        assert bout["transition"] == "start" and bout["outcome"] and isinstance(bout["rounds"], int)
+        assert any(m["kind"] == "roll" and m["skill"] == "SAN" for m in mechanics)
+        assert any(m["kind"] == "dice" and m["label"] == "SAN Loss" and m["expression"] == "1D8" for m in mechanics)
     finally:
         client.close()
 
@@ -475,35 +483,50 @@ def test_apply_move_returns_the_destination_view(kernel):
 
 # ---- rendering -----------------------------------------------------------------------------
 
-def test_round_headers_when_combat_dice_span_rounds():
+def test_mechanics_projection_is_language_neutral_and_the_check_skips_keeper_rolls():
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "kernel"))
-    from coc.render import mechanics_block
+    from coc.render import mechanics, missing_numbers
 
-    def roll(skill, round_no, roll_value=40, target=50, actor_label=None):
-        receipt = {"kind": "roll", "skill": skill, "skill_label": skill, "target": target, "difficulty": "regular",
-                   "threshold": target, "roll": roll_value, "passed": roll_value <= target, "round": round_no,
-                   "session_kind": "combat", "visibility": "public"}
+    def roll(skill, round_no, roll_value=40, target=50, actor_label=None, visibility="public"):
+        receipt = {"id": f"roll:{skill.lower()}-t1-c{round_no}", "kind": "roll", "actor": "x", "skill": skill,
+                   "skill_label": skill, "target": target, "difficulty": "regular", "threshold": target,
+                   "roll": roll_value, "passed": roll_value <= target, "round": round_no, "session_kind": "combat",
+                   "visibility": visibility}
         if actor_label:
             receipt["actor_label"] = actor_label
         return receipt
 
-    one_round = mechanics_block([{"kind": "session", "family": "combat", "transition": "start"},
-                                 roll("手枪", 1), roll("闪避", 1, actor_label="Walter Corbitt")])
-    assert one_round.splitlines() == ["【变化】战斗开始", "【明骰】手枪｜掷骰：40；基础值：50；门槛：普通（≤50）；结果：通过",
-                                      "【明骰】Walter Corbitt·闪避｜掷骰：40；基础值：50；门槛：普通（≤50）；结果：通过"]
-    two_rounds = mechanics_block([roll("手枪", 1), roll("闪避", 1), {"kind": "delta", "resource": "hp", "label": "生命值",
-                                                                   "subject_label": "Walter Corbitt", "before": 16, "after": 15},
-                                  roll("手枪", 2), {"kind": "session", "family": "combat", "transition": "end", "outcome": "fled",
-                                                   "summary": "逃离"}])
-    assert two_rounds.splitlines() == ["【第 1 轮】", "【明骰】手枪｜掷骰：40；基础值：50；门槛：普通（≤50）；结果：通过",
-                                       "【明骰】闪避｜掷骰：40；基础值：50；门槛：普通（≤50）；结果：通过",
-                                       "【变化】生命值：Walter Corbitt 16 → 15", "【第 2 轮】",
-                                       "【明骰】手枪｜掷骰：40；基础值：50；门槛：普通（≤50）；结果：通过", "【变化】战斗结束：逃离"]
-    bout = mechanics_block([{"kind": "session", "family": "sanity_bout", "transition": "start", "summary": "Faint（3 轮）"},
-                            {"kind": "session", "family": "chase", "transition": "end", "outcome": "escaped", "summary": "逃脱"}])
-    assert bout.splitlines() == ["【变化】理智发作：Faint（3 轮）", "【变化】追逐结束：逃脱"]
+    receipts = [{"id": "session:combat-start-t1-c1", "kind": "session", "family": "combat", "transition": "start"},
+                roll("Handgun", 1), roll("Dodge", 1, actor_label="Walter Corbitt"),
+                {"id": "delta:hp-t1-c1", "kind": "delta", "resource": "hp", "subject": "walter-corbitt",
+                 "subject_label": "Walter Corbitt", "before": 16, "after": 15},
+                roll("Psychology", 2, visibility="keeper"),
+                {"id": "session:sanity_bout-start-t1-c3", "kind": "session", "family": "sanity_bout", "transition": "start",
+                 "outcome": "Faint", "rounds": 3, "summary": "Faint (3 rounds)"},
+                {"id": "session:chase-end-t1-c4", "kind": "session", "family": "chase", "transition": "end", "outcome": "escaped"}]
+    assert mechanics(receipts) == [
+        {"kind": "session", "receipt": "session:combat-start-t1-c1", "family": "combat", "transition": "start"},
+        {"kind": "roll", "receipt": "roll:handgun-t1-c1", "actor": "x", "skill": "Handgun", "roll": 40, "target": 50,
+         "threshold": 50, "difficulty": "regular", "level": None, "passed": True, "pushed": False, "visibility": "public"},
+        {"kind": "roll", "receipt": "roll:dodge-t1-c1", "actor": "x", "skill": "Dodge", "roll": 40, "target": 50,
+         "threshold": 50, "difficulty": "regular", "level": None, "passed": True, "pushed": False, "visibility": "public",
+         "actor_label": "Walter Corbitt"},
+        {"kind": "change", "receipt": "delta:hp-t1-c1", "resource": "hp", "subject": "walter-corbitt", "before": 16,
+         "after": 15, "subject_label": "Walter Corbitt"},
+        {"kind": "roll", "receipt": "roll:psychology-t1-c2", "actor": "x", "skill": "Psychology", "roll": 40, "target": 50,
+         "threshold": 50, "difficulty": "regular", "level": None, "passed": True, "pushed": False, "visibility": "keeper"},
+        {"kind": "session", "receipt": "session:sanity_bout-start-t1-c3", "family": "sanity_bout", "transition": "start",
+         "rounds": 3, "outcome": "Faint"},
+        {"kind": "session", "receipt": "session:chase-end-t1-c4", "family": "chase", "transition": "end", "outcome": "escaped"},
+    ]
+    # the keeper roll and the sessions oblige nothing; the two public rolls and the delta do
+    assert missing_numbers("", receipts) == [{"receipt": "roll:handgun-t1-c1", "expected": ["40", "50"]},
+                                             {"receipt": "roll:dodge-t1-c1", "expected": ["40", "50"]},
+                                             {"receipt": "delta:hp-t1-c1", "expected": ["16", "15"]}]
+    assert missing_numbers("40 vs 50; 16 -> 15", receipts) == []
+    assert missing_numbers("40 vs 50; 16 left", receipts) == [{"receipt": "delta:hp-t1-c1", "expected": ["16", "15"]}]
 
 
 def test_chase_end_reads_the_schema_vocabulary_from_the_quarry_side():

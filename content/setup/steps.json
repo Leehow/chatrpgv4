@@ -1,6 +1,6 @@
 {
   "contract": "coc.setup-steps.v1",
-  "note": "The seven-step setup table (kernel-rpc.md §14.4). Both the onboarding extension and the kernel read this file; order, available actions, rejection lines and next-step lines are written here once and derived everywhere else. `needs` are step ids; a step whose `only_for` names a source kind counts as satisfied for the other kind. `kind` is ask (the model asks the player), external (the host does something outside the kernel) or op (a method named by `op`; `side` is kernel unless the op is the module extension's own driver loop, §14.5).",
+  "note": "The seven-step setup table (kernel-rpc.md §14.4). Both the onboarding extension and the kernel read this file; order, available actions, rejection lines and next-step lines (English, kernel-rpc.md §16.1; the setup model says them in the player's language) are written here once and derived everywhere else. `needs` are step ids; a step whose `only_for` names a source kind counts as satisfied for the other kind. `kind` is ask (the model asks the player), external (the host does something outside the kernel) or op (a method named by `op`; `side` is kernel unless the op is the module extension's own driver loop, §14.5).",
   "sources": [
     "starter",
     "pdf"
@@ -9,18 +9,10 @@
   "table_open_fix": "bin/pi-coc setup --campaign {campaign}",
   "launch_line": "bin/pi-coc --campaign {campaign}",
   "templates": {
-    "zh-Hans": {
-      "unknown_step": "没有叫 {step} 的步骤。可用的步骤：{available}。下一步：{next}",
-      "needs_unmet": "{step} 还不能做：先完成 {missing}。下一步：{next}",
-      "already_done": "{step} 已经完成（回执 {receipt}），不重复。下一步：{next}",
-      "all_done": "建卡已完成，战役已就绪。开桌：{launch}"
-    },
-    "en": {
-      "unknown_step": "There is no step named {step}. Available steps: {available}. Next: {next}",
-      "needs_unmet": "{step} is not available yet: finish {missing} first. Next: {next}",
-      "already_done": "{step} is already done (receipt {receipt}); it is not repeated. Next: {next}",
-      "all_done": "Setup is complete and the campaign is ready. Open the table: {launch}"
-    }
+    "unknown_step": "There is no step named {step}. Available steps: {available}. Next: {next}",
+    "needs_unmet": "{step} is not available yet: finish {missing} first. Next: {next}",
+    "already_done": "{step} is already done (receipt {receipt}); it is not repeated. Next: {next}",
+    "all_done": "Setup is complete and the campaign is ready. Open the table: {launch}"
   },
   "steps": [
     {
@@ -41,14 +33,8 @@
       },
       "receipt": "source",
       "lines": {
-        "zh-Hans": {
-          "do": "让玩家选一个 starter（kernel.hello 给的名单）或给一个资料包目录。",
-          "next": "选来源：说出一个 starter 的名字，或给出资料包目录。"
-        },
-        "en": {
-          "do": "Ask the player to pick a starter (the list from kernel.hello) or to give a bundle directory.",
-          "next": "Choose the source: name a starter, or give a bundle directory."
-        }
+        "do": "Ask the player to pick a starter (the list from kernel.hello) or to give a bundle directory.",
+        "next": "Choose the source: name a starter, or give a bundle directory."
       }
     },
     {
@@ -67,14 +53,8 @@
       },
       "receipt": "bundle_path",
       "lines": {
-        "zh-Hans": {
-          "do": "资料包不存在时告诉玩家怎么用宿主的 PDF 技能产出它，然后等；存在则直接过。",
-          "next": "确认资料包目录已经存在（宿主的 PDF 技能产出 manifest.json 与 pages/）。"
-        },
-        "en": {
-          "do": "If the bundle does not exist, tell the player how to produce it with the host's PDF skill and wait; if it exists, pass.",
-          "next": "Confirm the bundle directory exists (the host's PDF skill writes manifest.json and pages/)."
-        }
+        "do": "If the bundle does not exist, tell the player how to produce it with the host's PDF skill and wait; if it exists, pass.",
+        "next": "Confirm the bundle directory exists (the host's PDF skill writes manifest.json and pages/)."
       },
       "applies_to": [
         "pdf"
@@ -101,14 +81,8 @@
       },
       "receipt": "module_id",
       "lines": {
-        "zh-Hans": {
-          "do": "module.bind 校验资料包并登记，再 module.plan 切 section。",
-          "next": "绑定资料包：module.bind，然后 module.plan。"
-        },
-        "en": {
-          "do": "module.bind validates and registers the bundle, then module.plan cuts sections.",
-          "next": "Bind the bundle: module.bind, then module.plan."
-        }
+        "do": "module.bind validates and registers the bundle, then module.plan cuts sections.",
+        "next": "Bind the bundle: module.bind, then module.plan."
       },
       "applies_to": [
         "pdf"
@@ -139,7 +113,7 @@
           "required": false
         },
         "play_language": {
-          "description": "BCP-47 tag the kernel has templates for: zh-Hans | en (default zh-Hans)",
+          "description": "BCP-47 tag of the language the keeper plays in: zh-Hans | en (default zh-Hans); the kernel writes nothing in it",
           "required": false
         },
         "register": {
@@ -149,14 +123,8 @@
       },
       "receipt": "campaign_id",
       "lines": {
-        "zh-Hans": {
-          "do": "campaign.create：status 为 setting_up；starter 时同时把模组登记进存储。",
-          "next": "建战役：给一个战役 id（和标题，可省略）。"
-        },
-        "en": {
-          "do": "campaign.create: status setting_up; a starter is registered into the module store at the same time.",
-          "next": "Create the campaign: give a campaign id (and an optional title)."
-        }
+        "do": "campaign.create: status setting_up; a starter is registered into the module store at the same time.",
+        "next": "Create the campaign: give a campaign id (and an optional title)."
       }
     },
     {
@@ -176,14 +144,8 @@
       },
       "receipt": "opening_ready",
       "lines": {
-        "zh-Hans": {
-          "do": "起构建（module 扩展驱动），等到 opening_ready。",
-          "next": "构建开场：module.build，直到 module.status 报 opening_ready。"
-        },
-        "en": {
-          "do": "Start the build (driven by the module extension) and wait for opening_ready.",
-          "next": "Build the opening: module.build until module.status reports opening_ready."
-        }
+        "do": "Start the build (driven by the module extension) and wait for opening_ready.",
+        "next": "Build the opening: module.build until module.status reports opening_ready."
       },
       "applies_to": [
         "pdf"
@@ -271,14 +233,8 @@
       },
       "receipt": "investigator_id",
       "lines": {
-        "zh-Hans": {
-          "do": "只问名字与职业概念；用 setup.occupations 把概念落到职业 id；数值由内核推导。",
-          "next": "建卡：告诉我调查员的名字和你想玩的职业概念。"
-        },
-        "en": {
-          "do": "Ask only for a name and an occupation concept; map the concept to an occupation id with setup.occupations; the kernel derives every number.",
-          "next": "Create the investigator: tell me the name and the kind of person you want to play."
-        }
+        "do": "Ask only for a name and an occupation concept; map the concept to an occupation id with setup.occupations; the kernel derives every number.",
+        "next": "Create the investigator: tell me the name and the kind of person you want to play."
       }
     },
     {
@@ -292,14 +248,8 @@
       "params": {},
       "receipt": "handoff",
       "lines": {
-        "zh-Hans": {
-          "do": "setup.complete：写 setup_handoff 收据，战役进 ready_for_table，进程退出并打印开桌命令。",
-          "next": "收尾：确认无误后完成建卡。"
-        },
-        "en": {
-          "do": "setup.complete: write the setup_handoff receipt, move the campaign to ready_for_table, exit and print the launch line.",
-          "next": "Finish: confirm and complete setup."
-        }
+        "do": "setup.complete: write the setup_handoff receipt, move the campaign to ready_for_table, exit and print the launch line.",
+        "next": "Finish: confirm and complete setup."
       }
     }
   ]

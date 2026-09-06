@@ -79,13 +79,11 @@ def test_steps_table_is_the_seven_steps_in_order_and_a_dag(kernel):
         assert step["only_for"] in (None, "starter", "pdf")
         for need in step["needs"]:
             assert need in by_id and STEP_IDS.index(need) < STEP_IDS.index(step["id"])
-        for language in ("zh-Hans", "en"):
-            assert step["lines"][language]["next"] and step["lines"][language]["do"]
+        assert step["lines"]["next"] and step["lines"]["do"]  # one English form (§16.1)
     assert by_id["build-bundle"]["needs"] == ["choose-source"] and by_id["build-bundle"]["only_for"] == "pdf"
     assert by_id["create-investigator"]["needs"] == ["create-campaign", "build-opening"]
     assert by_id["complete"]["needs"] == ["create-investigator"]
-    for language in ("zh-Hans", "en"):
-        assert set(table["templates"][language]) == {"unknown_step", "needs_unmet", "already_done", "all_done"}
+    assert set(table["templates"]) == {"unknown_step", "needs_unmet", "already_done", "all_done"}
 
 
 def test_kernel_side_ops_in_the_table_exist(kernel):

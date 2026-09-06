@@ -46,11 +46,18 @@ test("narrate 之后，同一批次余下的调用被拒", async (t) => {
 		const [blocked] = toolResults(table.session, name);
 		assert.ok(blocked, `${name} 应该有一条被拒的结果`);
 		assert.equal(blocked.isError, true);
-		assert.match(resultText(blocked), /回合已关闭，等待玩家/);
+		assert.match(resultText(blocked), /the turn is closed, waiting for the player/);
 	}
 
-	assert.equal(assistantTexts(table.session).at(-1),
-		"门在你身后合上。\n\n【明骰】侦查｜掷骰：42；基础值：55；门槛：普通（≤55）；结果：通过");
+	assert.equal(
+		assistantTexts(table.session).at(-1),
+		"门在你身后合上。",
+		"交付就是守秘人的正文原样（契约 §16.1）",
+	);
+	// 机制不进正文，只作为语言中立的投影进会话条目与总线（契约 §16.2）；
+	// 这一回合一条收据都没落，所以投影是空的，也就不发条目。
+	assert.deepEqual(table.entries("coc-mechanics"), []);
+	assert.deepEqual(table.mechanics(), []);
 });
 
 test("开桌回合：awaiting_player 拒写，但 narrate 放行", async (t) => {
@@ -78,7 +85,7 @@ test("开桌回合：awaiting_player 拒写，但 narrate 放行", async (t) => 
 
 	const hostMessages = customMessages(table.session, "coc-host");
 	assert.ok(hostMessages.length >= 1, "opening_needed 时应该注入一条宿主消息");
-	assert.match(String(hostMessages[0].content), /先用 look/);
+	assert.match(String(hostMessages[0].content), /Use look to see the opening scene/);
 	assert.equal(hostMessages[0].display, false);
 	assert.equal(hostMessages[0].details.coc_host, true);
 
@@ -96,10 +103,7 @@ test("开桌回合：awaiting_player 拒写，但 narrate 放行", async (t) => 
 	assert.ok(narrate, "开桌的 narrate 应该放行");
 	assert.equal(narrate.params.call_id, "t0-c1", "开桌是第 0 回合");
 
-	assert.equal(
-		assistantTexts(table.session).at(-1),
-		"一九二五年的波士顿，雨还没停。\n\n【明骰】侦查｜掷骰：42；基础值：55；门槛：普通（≤55）；结果：通过",
-	);
+	assert.equal(assistantTexts(table.session).at(-1), "一九二五年的波士顿，雨还没停。");
 });
 
 
@@ -129,7 +133,7 @@ test("同名同参连发：被内核拒过两次之后第三次拦下，改了�
 	assert.equal(results.length, 4);
 	assert.match(resultText(results[0]), /invalid_params/);
 	assert.match(resultText(results[1]), /invalid_params/);
-	assert.match(resultText(results[2]), /拒了 2 次/, "第三次原样重发被扩展拦下");
+	assert.match(resultText(results[2]), /refused these parameters 2 times/, "第三次原样重发被扩展拦下");
 	assert.match(resultText(results[2]), /action.motive 不对/, "拦下时把上次的错误再念一遍");
 	assert.match(resultText(results[3]), /invalid_params/, "改了参数的那次到了内核");
 	const sent = table.kernelRequests().filter((entry) => entry.method === "table.resolve");

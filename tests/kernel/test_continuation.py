@@ -42,7 +42,7 @@ def test_checkpoint_is_written_after_the_commit(kernel):
         "scene": {"name": "hall-of-records", "display_name": "hall-of-records"}, "clock": {"minutes": 20},
         "session": None, "pending_choice": None,
         "receipts_digest": canonical_sha(record["receipts"]),
-        "one_line": "第 1 回合：hall-of-records，时钟 20 分钟，无会话；上回合：你到了档案馆。 灰尘很厚。",
+        "one_line": "Turn 1: hall-of-records, clock 20 min, no session; last turn: 你到了档案馆。 灰尘很厚。",
     }
     assert checkpoint["at"]
     assert [set(i) for i in checkpoint["investigators"]] == [{"id", "name", "hp", "san", "mp", "luck"}]
@@ -67,7 +67,7 @@ def test_open_returns_resume_and_the_first_capsule_carries_it_once(kernel):
     assert opened["resume"] == {
         "turn": 1, "commit": read_json(checkpoint_path(kernel.workspace))["commit"],
         "scene": {"name": "commission-briefing", "display_name": "Knott's Office"}, "clock": {"minutes": 0},
-        "session": None, "one_line": "第 1 回合：Knott's Office，时钟 0 分钟，无会话；上回合：第一回合的交付。",
+        "session": None, "one_line": "Turn 1: Knott's Office, clock 0 min, no session; last turn: 第一回合的交付。",
         "rebuilt": False,
     }
     first = kernel.table("player_input", text="第二回合。")
@@ -102,7 +102,7 @@ def test_head_ahead_of_checkpoint_rebuilds_it_from_head(tmp_path):
         opened = client.table("open")
         assert opened["resume"]["rebuilt"] is True
         assert opened["resume"]["turn"] == 2 and opened["resume"]["commit"] == head_short(ws)
-        assert opened["resume"]["one_line"].startswith("第 2 回合：")
+        assert opened["resume"]["one_line"].startswith("Turn 2: ")
         assert opened["turn"] == {"number": 3, "state": "awaiting_player"} and opened["pending_turn"] is None
         rebuilt = read_json(checkpoint_path(ws))
         assert rebuilt["turn"] == 2 and rebuilt["commit"] == head_short(ws)
@@ -216,7 +216,7 @@ def test_pending_turn_keeps_the_last_checkpoint_as_resume(tmp_path):
         assert opened["pending_turn"]["last_call_ordinal"] == 1
         assert [r["id"] for r in opened["pending_turn"]["receipts"]] == ["roll:spot-hidden-t1-c1"]
         assert opened["resume"]["turn"] == 0 and opened["resume"]["rebuilt"] is False
-        assert opened["resume"]["one_line"].startswith("第 0 回合：Knott's Office")
+        assert opened["resume"]["one_line"].startswith("Turn 0: Knott's Office")
         # The stored receipt is not re-rolled: the same call_id replays.
         replay = client.table("resolve", call_id="t1-c1", action={"intent": "investigate", "goal": "x", "method": "y",
                                                                   "skill": "Spot Hidden"})

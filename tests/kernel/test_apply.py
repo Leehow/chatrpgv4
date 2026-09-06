@@ -1,6 +1,6 @@
 import json
 
-from conftest import OPENING_SCENE, campaign_dir, open_turn, read_json, read_jsonl
+from conftest import OPENING_SCENE, campaign_dir, narrate, open_turn, read_json, read_jsonl
 
 
 def world(client):
@@ -163,9 +163,11 @@ def test_damage_effect_rolls_the_dice_and_moves_hp(kernel):
     assert any(r.startswith("delta:hp-t1") for r in result["receipts"])
     after = kernel.table("look", focus="investigator")["hp"]
     assert 0 <= before - after <= 6 and after < before
-    narrated = kernel.table("narrate", call_id="t1-c2", text="你摔了下去。")
-    assert "【明骰】伤害｜" in narrated["rendered_text"]
-    assert f"【变化】生命值：" in narrated["rendered_text"]
+    narrated = narrate(kernel, "t1-c2", "你摔了下去。")
+    dice = next(m for m in narrated["mechanics"] if m["kind"] == "dice")
+    assert dice["label"] == "damage" and dice["expression"] == "1D6" and dice["total"] == before - after
+    assert {"kind": "change", "receipt": "delta:hp-t1-c1", "resource": "hp", "subject": "thomas-hayes",
+            "subject_label": "托马斯·海斯", "before": before, "after": after} in narrated["mechanics"]
     bad = kernel.table_err("apply", call_id="t2-c1", effects=[{"kind": "damage", "dice": "lots"}])
     assert bad["code"] in ("invalid_params", "turn_state")
 
@@ -183,6 +185,8 @@ def test_move_label_names_the_scene_from_then_on(kernel):
     kernel.table("apply", call_id="t1-c3", effects=[{"kind": "move", "to": "hall-of-records"}])
     assert kernel.table("look", focus="scene")["where"]["display_name"] == "档案馆"
     narrated = kernel.table("narrate", call_id="t1-c4", text="你回到了档案馆。")
-    assert "【变化】场景：Knott's Office → 档案馆" in narrated["rendered_text"]
+    assert narrated["rendered_text"] == "你回到了档案馆。"
+    assert narrated["mechanics"][-1] == {**narrated["mechanics"][-1], "kind": "scene", "from": OPENING_SCENE,
+                                         "to": "hall-of-records", "from_label": "Knott's Office", "to_label": "档案馆"}
     record = read_json(campaign_dir(kernel.workspace) / "turns" / "0001.json")
     assert record["world"]["scene"] == {"name": "hall-of-records", "display_name": "档案馆"}

@@ -189,12 +189,13 @@ class ModuleMethods:
         write_json_atomic(work / "packet.json", packet)
         plan_path = work / "plan.json"
         brief = (
-            f"# 给《{meta.get('title') or module_id}》的 section 分类\n\n"
-            f"工作目录 `{work}`。读 `packet.json`：`candidates[]` 是机器按预算切好的 section（id、pages、title），"
-            f"`pages[]` 是每页的首两行。给每个 candidate 定 `kind`（只能取 `kinds` 里的词）与 `priority`（0–100，"
-            f"开场场景、前言、守秘人信息最高；见 `priority_hint`）。\n\n"
-            f"把结果写到 `{plan_path}`：`{{\"sections\": [{{\"id\": \"section-01\", \"kind\": \"scene\", \"priority\": 100}}, ...]}}`，"
-            f"每个 candidate 恰好一行，不增不减。写完即可退出，不要写别的文件。"
+            f"# Classify the sections of *{meta.get('title') or module_id}*\n\n"
+            f"Working directory `{work}`. Read `packet.json`: `candidates[]` are the sections the machine cut to budget "
+            f"(id, pages, title); `pages[]` gives the first two lines of every page. Give each candidate a `kind` (only a "
+            f"word from `kinds`) and a `priority` (0-100; the opening scene, the front matter and the keeper's truth "
+            f"highest; see `priority_hint`).\n\n"
+            f"Write the result to `{plan_path}`: `{{\"sections\": [{{\"id\": \"section-01\", \"kind\": \"scene\", \"priority\": 100}}, ...]}}`, "
+            f"exactly one row per candidate, none added, none dropped. Exit once written; write no other file."
         )
         out.update({"work_dir": str(work), "packet": str(work / "packet.json"), "brief": brief,
                     "section_count": len(candidates)})

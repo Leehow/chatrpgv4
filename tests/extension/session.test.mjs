@@ -112,7 +112,7 @@ test("内核报错：模型拿到 code: message 与 fix，结果标成错误", a
 	);
 	assert.equal(failed.isError, true, "内核错误要标成工具错误");
 	assert.match(resultText(failed), /^needs: 认不出你要掷的技能/);
-	assert.match(resultText(failed), /在 action.skill 里写明技能名/);
+	assert.match(resultText(failed), /fix: 在 action.skill 里写明技能名/);
 	assert.equal(failed.details.coc_error.code, "needs");
 
 	const telemetry = table.telemetry();
@@ -188,7 +188,7 @@ test("开桌欢迎：战役、场景、调查员各报一次", async (t) => {
 
 	const messages = table.ui.notifications.map((entry) => entry.message);
 	assert.ok(
-		messages.some((message) => /COC 已开桌/.test(message) && /科比特宅/.test(message)),
+		messages.some((message) => /COC table open/.test(message) && /科比特宅/.test(message)),
 		"内核扩展报一行桌况",
 	);
 	assert.ok(

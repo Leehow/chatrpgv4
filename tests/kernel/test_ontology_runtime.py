@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 
-from conftest import CAMPAIGN, CONTENT_DIR, RpcClient, campaign_dir, create_campaign, open_turn, read_jsonl
+from conftest import narrate, CAMPAIGN, CONTENT_DIR, RpcClient, campaign_dir, create_campaign, open_turn, read_jsonl
 from test_rules_families import resolve
 
 INVESTIGATOR = "托马斯·海斯"
@@ -115,7 +115,7 @@ def test_grounded_by_comes_only_from_the_registry(seeded_kernel):
             allowed.add(":".join(semantic.split(":")[2:]))
     open_turn(kernel, "我仔细观察诺特。")
     resolve(kernel, "t1-c1", intent="investigate", goal="看他", method="用侦查", skill="Spot Hidden")
-    kernel.table("narrate", call_id="t1-c2", text="……")
+    narrate(kernel, "t1-c2", "……")
     director = kernel.table("player_input", text="继续。")["capsule"]["director"]
     assert director["grounded_by"] and set(director["grounded_by"]) <= allowed
 
@@ -133,7 +133,7 @@ def test_one_grounded_candidate_settles_with_decision_source_director(seeded_ker
     kernel = seeded_kernel  # the seed keeps the previous turn's roll ordinary (no fumble override)
     open_turn(kernel, "我仔细观察诺特。")
     resolve(kernel, "t1-c1", intent="investigate", goal="看他", method="用侦查", skill="Spot Hidden")
-    kernel.table("narrate", call_id="t1-c2", text="……")
+    narrate(kernel, "t1-c2", "……")
     director = kernel.table("player_input", text="我读他的表情。")["capsule"]["director"]
     assert director["beat"] == "REVEAL"
     assert "psychology:observe-concealed" in director["grounded_by"] and "social:adjudicate-difficulty" not in director["grounded_by"]
@@ -146,7 +146,7 @@ def test_several_grounded_candidates_narrow_the_choice_to_the_intersection(seede
     kernel = seeded_kernel  # the seed keeps the previous turn's roll ordinary (no fumble override)
     open_turn(kernel, "我恭维诺特。")
     resolve(kernel, "t1-c1", intent="social", goal="套话", method="用魅惑套话", target="Steven Knott")
-    kernel.table("narrate", call_id="t1-c2", text="……")
+    narrate(kernel, "t1-c2", "……")
     director = kernel.table("player_input", text="我读他的表情。")["capsule"]["director"]
     assert director["beat"] == "REVEAL"
     assert {"psychology:observe-concealed", "social:adjudicate-difficulty"} <= set(director["grounded_by"])
@@ -172,7 +172,7 @@ def test_an_explicit_decision_is_untouched_even_when_the_director_grounds_the_ot
     kernel = seeded_kernel  # the seed keeps the previous turn's roll ordinary (no fumble override)
     open_turn(kernel, "我仔细观察诺特。")
     resolve(kernel, "t1-c1", intent="investigate", goal="看他", method="用侦查", skill="Spot Hidden")
-    kernel.table("narrate", call_id="t1-c2", text="……")
+    narrate(kernel, "t1-c2", "……")
     kernel.table("player_input", text="我读他的表情。")
     chosen = kernel.table("resolve", call_id="t2-c1", action={"intent": "social", "goal": "他在隐瞒什么", "method": "用心理学读他",
                                                                "target": "Steven Knott", "decision": "social:adjudicate-difficulty",
@@ -188,7 +188,7 @@ def submit(client, job_id, candidates):
 
 def test_promise_is_accepted_shown_as_an_obligation_and_closed_by_its_successor(kernel):
     open_turn(kernel, "我和诺特谈报酬。")
-    job_id = kernel.table("narrate", call_id="t1-c1", text="诺特答应了。")["extraction"]["job_id"]
+    job_id = narrate(kernel, "t1-c1", "诺特答应了。")["extraction"]["job_id"]
     landed = submit(kernel, job_id, [{"kind": "promise", "subject": "Steven Knott", "entities": [INVESTIGATOR],
                                       "statement": "三天内付清报酬，条件是交出书面报告。"}])
     assert landed["ok"], landed
@@ -197,7 +197,7 @@ def test_promise_is_accepted_shown_as_an_obligation_and_closed_by_its_successor(
     promise = next(o for o in obligations if o["kind"] == "promise")
     assert promise == {"kind": "promise", "name": first_id, "who": "Steven Knott", "state": "三天内付清报酬，条件是交出书面报告。",
                        "cue": INVESTIGATOR}
-    job_id = kernel.table("narrate", call_id="t2-c1", text="他改口了。")["extraction"]["job_id"]
+    job_id = narrate(kernel, "t2-c1", "他改口了。")["extraction"]["job_id"]
     landed = submit(kernel, job_id, [{"kind": "promise", "subject": "Steven Knott", "entities": [INVESTIGATOR],
                                       "statement": "一周内付清报酬。"}])
     assert landed["ok"] and landed["result"]["superseded"] == [first_id]
@@ -209,7 +209,7 @@ def test_promise_is_accepted_shown_as_an_obligation_and_closed_by_its_successor(
 
 def test_promise_validation_is_the_same_closed_validation(kernel):
     open_turn(kernel, "我和诺特谈。")
-    job_id = kernel.table("narrate", call_id="t1-c1", text="……")["extraction"]["job_id"]
+    job_id = narrate(kernel, "t1-c1", "……")["extraction"]["job_id"]
     rejected = submit(kernel, job_id, [{"kind": "promise", "subject": "Steven Knott", "entities": ["a stranger"],
                                         "statement": "x"}])
     assert not rejected["ok"] and rejected["error"]["code"] == "invalid_params" and rejected["error"]["details"]["index"] == 0

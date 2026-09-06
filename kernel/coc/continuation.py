@@ -35,7 +35,7 @@ def read_checkpoint(campaign: Campaign) -> dict[str, Any] | None:
     return data
 
 
-def checkpoint_from_record(campaign_id: str, language: str, record: dict[str, Any],
+def checkpoint_from_record(campaign_id: str, record: dict[str, Any],
                            fallback_snapshot: dict[str, Any]) -> dict[str, Any]:
     """The checkpoint a committed turn record implies. `record["world"]` is the snapshot
     narrate wrote at close; a record without one (never written by this kernel) takes
@@ -57,7 +57,7 @@ def checkpoint_from_record(campaign_id: str, language: str, record: dict[str, An
                     if isinstance(session, dict) else None),
         "pending_choice": snapshot.get("pending_choice", record.get("pending_choice")),
         "receipts_digest": receipts_digest(list(record.get("receipts") or [])),
-        "one_line": one_line(language, int(record["turn"]), str(scene.get("display_name") or scene.get("name")),
+        "one_line": one_line(int(record["turn"]), str(scene.get("display_name") or scene.get("name")),
                              int(clock.get("minutes") or 0), session, record.get("rendered_text")),
     }
 
@@ -66,7 +66,7 @@ def write_checkpoint(campaign: Campaign, checkpoint: dict[str, Any]) -> None:
     write_json_atomic(campaign.checkpoint_path, checkpoint)
 
 
-def sync_checkpoint(campaign: Campaign, language: str, fallback_snapshot: dict[str, Any]) -> tuple[dict[str, Any] | None, bool]:
+def sync_checkpoint(campaign: Campaign, fallback_snapshot: dict[str, Any]) -> tuple[dict[str, Any] | None, bool]:
     """Make the checkpoint agree with HEAD. Returns (checkpoint, rebuilt). HEAD ahead of
     the checkpoint (or no checkpoint at all while HEAD has a turn) rebuilds it from
     HEAD's turn record; no narrate commit yet leaves whatever is there."""
@@ -84,7 +84,7 @@ def sync_checkpoint(campaign: Campaign, language: str, fallback_snapshot: dict[s
         # Died after the commit, before the record learned its sha.
         record["commit"] = head
         campaign.write_turn_record(record)
-    checkpoint = checkpoint_from_record(campaign.id, language, record, fallback_snapshot)
+    checkpoint = checkpoint_from_record(campaign.id, record, fallback_snapshot)
     write_checkpoint(campaign, checkpoint)
     return checkpoint, True
 

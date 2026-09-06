@@ -1,30 +1,32 @@
 /**
- * 七步表（契约 §14.4）：顺序、可用动作、拒绝语、下一步说明全从这里派生。
+ * The seven-step table (contract §14.4): order, available actions, refusal text and next-step
+  * instructions are all derived from here.
  *
- * 表住在内核的 `content/setup/steps.json`，扩展经 `setup.steps` 拿到它。
- * 这个文件只做一件事：把表读成一个闸门。**任何顺序信息都不在这里写第二遍**——
- * 下面没有任何一处写着「choose-source 在 create-campaign 前面」或者「pdf 才要绑定」，
- * 那些都从每一行的 `needs` 与 `applies_to` 算出来。测试从表生成用例（契约 §14.10）。
+ * The table lives in the kernel's `content/setup/steps.json`, and the extension gets it through `setup.steps`.
+ * This file does one thing: read that table into a gate. **No ordering information is written a
+ * second time here** — nowhere below does it say "choose-source comes before create-campaign" or
+ * "only pdf needs binding"; all of that is computed from each row's `needs` and `applies_to`.
+  * The tests generate their cases from the table too (contract §14.10).
  *
- * 表的一行（宽容读法，几种写法都收，读不出来的字段按缺省走）：
+ * One row of the table (read leniently: several spellings are accepted, and an unreadable field takes its default):
  *
  * ```json
  * {"id": "bind-source", "kind": "op", "applies_to": ["pdf"],
  *  "needs": ["build-bundle", "create-campaign"],
  *  "ops": [{"method": "module.bind", "params": ["bundle", "module_id?"]},
  *          {"method": "module.plan", "params": ["module_id"]}],
- *  "receipt": "module_id", "label": "绑定资料包", "instruction": "…"}
+ *  "receipt": "module_id", "label": "bind the bundle", "instruction": "..."}
  * ```
  *
- * - `needs`：字符串数组，或 `{"pdf": [...], "starter": [...]}`（按来源分岔的前置），
- *   或 `[{"step": "...", "when": "pdf"}]`。
- * - `applies_to`：这一步只在哪几种来源里出现；不写就是每次都要。
- * - `kind`：`ask`（问玩家，没有内核调用）、`external`（等宿主的技能产出东西）、`op`（调内核）。
- * - `op` / `ops`：一步可以是两次调用（表里 `bind-source` 就是 `module.bind` 再 `module.plan`）。
- *   每个 op 自己带 `params` 最好；只有一份步骤级 `params` 时，它归第一个 op，
- *   后面的 op 只拿得到已经在手的身份键（`module_id`、`campaign`）。
- * - `params` 的一项可以是 `"title?"`（问号 = 可省）或 `{"name": "title", "required": false}`，
- *   可以带 `from`（从前面步骤的回执里取值的路径，如 `source.module_id`）。
+ * - `needs`: an array of strings, or `{"pdf": [...], "starter": [...]}` (prerequisites forking by source),
+ *   or `[{"step": "...", "when": "pdf"}]`.
+ * - `applies_to`: which sources this step appears in; unwritten means always.
+ * - `kind`: `ask` (ask the player, no kernel call), `external` (wait for the host's skill to produce something), `op` (call the kernel).
+ * - `op` / `ops`: one step may be two calls (`bind-source` in the table is `module.bind` then `module.plan`).
+ *   Each op is best off carrying its own `params`; with one step-level `params` it belongs to the first op,
+ *   and the later ops only get the identity keys already in hand (`module_id`, `campaign`).
+ * - an entry of `params` may be `"title?"` (the question mark means omissible) or `{"name": "title", "required": false}`,
+ *   and may carry `from` (a path into an earlier step's receipt, such as `source.module_id`).
  */
 
 export type StepKind = "ask" | "external" | "op";
@@ -32,7 +34,7 @@ export type StepKind = "ask" | "external" | "op";
 export interface ParamSpec {
 	name: string;
 	required: boolean;
-	/** 从已完成步骤的回执里取值的路径，点号分段。 */
+	/** A path into the receipts of completed steps, dot separated. */
 	from?: string;
 	description?: string;
 }
@@ -46,19 +48,19 @@ export interface Step {
 	id: string;
 	kind: StepKind;
 	ops: OpSpec[];
-	/** 按来源分岔的前置；`*` 是所有来源都要的。 */
+	/** Prerequisites forking by source; `*` is what every source needs. */
 	needs: Record<string, string[]>;
-	/** 只在这几种来源里出现；空表示每次都要。 */
+	/** Appears only in these sources; empty means always. */
 	appliesTo?: string[];
 	params: ParamSpec[];
 	receipt?: string;
 	label?: string;
 	instruction?: string;
-	/** 表自己写了拒绝语就用表的；没写就按 id 与前置拼一句。 */
+	/** Use the table's own refusal text when it has one; otherwise compose one from the id and the prerequisites. */
 	rejection?: string;
 }
 
-/** 闸门要知道的全部状态：哪些步做完了，来源是哪一种。 */
+/** Everything the gate needs to know: which steps are done, and which source this is. */
 export interface GateState {
 	completed: ReadonlySet<string>;
 	sourceKind?: string;
@@ -75,7 +77,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 function normalizeParam(raw: unknown): ParamSpec | undefined {
 	const name = asString(raw);
 	if (name) {
-		// `title?` = 可省。
+		// `title?` means omissible.
 		return name.endsWith("?") ? { name: name.slice(0, -1), required: false } : { name, required: true };
 	}
 	const row = asRecord(raw);
@@ -153,7 +155,7 @@ function normalizeOps(row: Record<string, unknown>, stepParams: ParamSpec[]): Op
 		const own = asRecord(entry).params;
 		ops.push({ method, params: own === undefined ? [] : normalizeParams(own) });
 	}
-	// 只有一份步骤级 params 时：第一个 op 收下它，后面的 op 由调用方补身份键。
+	// With one step-level params: the first op takes it, and the caller fills identity keys into the later ops.
 	if (ops.length > 0 && ops[0].params.length === 0 && stepParams.length > 0) {
 		ops[0] = { method: ops[0].method, params: stepParams };
 	}
@@ -166,7 +168,7 @@ function normalizeKind(raw: unknown, ops: OpSpec[]): StepKind {
 	return ops.length > 0 ? "op" : "ask";
 }
 
-/** `setup.steps` 的结果（`{steps: [...]}` 或者直接一个数组）读成闸门要的形状。 */
+/** Read the `setup.steps` result (`{steps: [...]}` or a bare array) into the shape the gate wants. */
 export function normalizeSteps(raw: unknown): Step[] {
 	const rows = Array.isArray(raw) ? raw : Array.isArray(asRecord(raw).steps) ? (asRecord(raw).steps as unknown[]) : [];
 	const steps: Step[] = [];
@@ -176,7 +178,7 @@ export function normalizeSteps(raw: unknown): Step[] {
 		if (!id) continue;
 		const params = normalizeParams(row.params);
 		const ops = normalizeOps(row, params);
-		// 内核的表用 `only_for: "pdf"`（单值）说同一件事。
+		// The kernel's table says the same thing with `only_for: "pdf"` (a single value).
 		const appliesRaw = row.applies_to ?? row.appliesTo ?? row.sources ?? row.only_for;
 		const appliesTo = Array.isArray(appliesRaw)
 			? appliesRaw.map((value) => asString(value)).filter((value): value is string => value !== undefined)
@@ -199,24 +201,24 @@ export function normalizeSteps(raw: unknown): Step[] {
 	return steps;
 }
 
-/** 这一步在这种来源下要不要做。来源还没定时，只认没有 `applies_to` 的步。 */
+/** Whether this step is needed for this source. While the source is undecided, only steps without `applies_to` count. */
 export function applies(step: Step, sourceKind: string | undefined): boolean {
 	if (!step.appliesTo || step.appliesTo.length === 0) return true;
 	if (!sourceKind) return false;
 	return step.appliesTo.includes(sourceKind);
 }
 
-/** 这一步在这种来源下的前置。 */
+/** This step's prerequisites for this source. */
 export function needsOf(step: Step, sourceKind: string | undefined): string[] {
 	const shared = step.needs["*"] ?? [];
 	const branch = sourceKind ? (step.needs[sourceKind] ?? []) : [];
 	return [...new Set([...shared, ...branch])];
 }
 
-/** 前置里还没做完的那些。 */
+/** The prerequisites not yet done. */
 export function missingNeeds(step: Step, state: GateState, steps?: Step[]): string[] {
-	// 前置里有一步在这种来源下根本不出现（starter 车道没有 build-opening）：视为已满足，
-	// 与内核 `only_for` 的规则一致。
+	// A prerequisite that does not appear at all for this source (the starter lane has no build-opening)
+	// counts as satisfied, matching the kernel's `only_for` rule.
 	const byId = new Map((steps ?? []).map((s) => [s.id, s] as const));
 	return needsOf(step, state.sourceKind).filter((id) => {
 		if (state.completed.has(id)) return false;
@@ -225,41 +227,41 @@ export function missingNeeds(step: Step, state: GateState, steps?: Step[]): stri
 	});
 }
 
-/** 现在可以做的步：适用、没做过、前置齐了。表里的顺序就是它们的顺序。 */
+/** The steps available now: applicable, not done, prerequisites met. The table's order is their order. */
 export function allowedSteps(steps: Step[], state: GateState): Step[] {
 	return steps.filter(
 		(step) => applies(step, state.sourceKind) && !state.completed.has(step.id) && missingNeeds(step, state, steps).length === 0,
 	);
 }
 
-/** 下一步：可做的里面表里排最前的那个。 */
+/** The next step: the first available one in table order. */
 export function nextStep(steps: Step[], state: GateState): Step | undefined {
 	return allowedSteps(steps, state)[0];
 }
 
-/** 这一步要的参数：ask／external 用步骤级的，op 用它第一个还没做的 op 的。 */
+/** The parameters this step wants: ask and external use the step-level ones, op uses its first pending op's. */
 function paramNames(step: Step): string {
 	const params = step.params.length > 0 ? step.params : (step.ops[0]?.params ?? []);
 	if (params.length === 0) return "";
-	return params.map((param) => (param.required ? param.name : `${param.name}（可省）`)).join("、");
+	return params.map((param) => (param.required ? param.name : `${param.name} (optional)`)).join(", ");
 }
 
 /**
- * 下一步说明。第一句永远是「下一步：<id>」——模型要填的就是这个 id，
- * 表里的 `instruction`（写给人看的那句）接在后面，参数最后。
+ * The next-step instruction. The first sentence is always "Next step: <id>" — that id is what the
+ * model has to fill in — followed by the table's own `instruction` (the sentence written for a human), with the parameters last.
  */
 export function instructionFor(step: Step | undefined): string {
-	if (!step) return "建卡的步都做完了。";
-	const label = step.label ? `（${step.label}）` : "";
+	if (!step) return "Every setup step is done.";
+	const label = step.label ? ` (${step.label})` : "";
 	const params = paramNames(step);
-	const head = `下一步：${step.id}${label}。`;
+	const head = `Next step: ${step.id}${label}. `;
 	const detail = step.instruction ? `${step.instruction}` : "";
-	return [head, detail, params ? `要的参数：${params}。` : ""].filter(Boolean).join("");
+	return [head, detail, params ? ` Parameters wanted: ${params}.` : ""].filter(Boolean).join("");
 }
 
 /**
- * 表里出现过的来源种类：`applies_to` 的值，加上按来源分岔的 `needs` 的键。
- * 玩家能选的就是这几种；这一侧不另立词表（契约 §14.4：顺序与分岔只写在表里）。
+ * The source kinds the table mentions: the values of `applies_to` plus the keys of a source-forked `needs`.
+ * Those are what the player can pick; this side keeps no vocabulary of its own (contract §14.4: order and forking live in the table only).
  */
 export function sourceKinds(steps: Step[]): string[] {
 	const kinds = new Set<string>();
@@ -272,55 +274,55 @@ export function sourceKinds(steps: Step[]): string[] {
 	return [...kinds];
 }
 
-/** 状态行上的一行进度：做完几步、下一步是哪一步（契约 §14.4）。 */
+/** One progress line for the status bar: how many steps are done and which is next (contract §14.4). */
 export function progressLine(steps: Step[], state: GateState): string | undefined {
 	const applicable = steps.filter((step) => applies(step, state.sourceKind) || state.completed.has(step.id));
 	if (applicable.length === 0) return undefined;
 	const done = applicable.filter((step) => state.completed.has(step.id)).length;
 	const next = nextStep(steps, state);
-	return `建卡 ${done}/${applicable.length}　${next ? `下一步 ${next.id}` : "已就绪"}`;
+	return `setup ${done}/${applicable.length}  ${next ? `next ${next.id}` : "ready"}`;
 }
 
 export type GateVerdict = { ok: true; step: Step } | { ok: false; reason: string };
 
-/** 拒绝语末尾一律带上「现在该做哪一步」，两句都只从表来。 */
+/** Every refusal ends with which step to do now, and both sentences come only from the table. */
 function withNext(steps: Step[], state: GateState, head: string): string {
 	const next = nextStep(steps, state);
-	return next ? `${head}${instructionFor(next)}` : `${head}建卡的步都做完了。`;
+	return next ? `${head}${instructionFor(next)}` : `${head}Every setup step is done.`;
 }
 
 /**
- * 闸门（契约 §14.4）：`step` 不在表里、前置未满足、或重复已完成的步 →
- * 带该步的拒绝语与「下一步」，不改状态。
+ * The gate (contract §14.4): a `step` not in the table, an unmet prerequisite, or a repeat of a
+ * completed step gets that step's refusal text plus the next step, and changes no state.
  */
 export function gate(steps: Step[], state: GateState, id: string): GateVerdict {
 	const step = steps.find((row) => row.id === id);
 	if (!step) {
-		const all = steps.map((row) => row.id).join("、");
-		return { ok: false, reason: withNext(steps, state, `建卡表里没有「${id}」这一步。表里依次是：${all}。`) };
+		const all = steps.map((row) => row.id).join(", ");
+		return { ok: false, reason: withNext(steps, state, `The setup table has no step "${id}". In order it holds: ${all}. `) };
 	}
 	if (step.rejection && (state.completed.has(step.id) || missingNeeds(step, state).length > 0)) {
 		return { ok: false, reason: withNext(steps, state, `${step.rejection}`) };
 	}
 	if (state.completed.has(step.id)) {
-		return { ok: false, reason: withNext(steps, state, `${step.id} 已经做过了，不重做。`) };
+		return { ok: false, reason: withNext(steps, state, `${step.id} is already done and is not redone. `) };
 	}
 	const missing = missingNeeds(step, state);
 	if (missing.length > 0) {
-		const declared = needsOf(step, state.sourceKind).join("、");
+		const declared = needsOf(step, state.sourceKind).join(", ");
 		return {
 			ok: false,
 			reason: withNext(
 				steps,
 				state,
-				`${step.id} 还不能做：表里它的前置是 ${declared}，其中 ${missing.join("、")} 还没做完。`,
+				`${step.id} cannot be done yet: the table gives it the prerequisites ${declared}, of which ${missing.join(", ")} are not done. `,
 			),
 		};
 	}
 	if (!applies(step, state.sourceKind)) {
-		const only = (step.appliesTo ?? []).join("、");
-		const kind = state.sourceKind ?? "还没定";
-		return { ok: false, reason: withNext(steps, state, `${step.id} 只在来源是 ${only} 时才有；这次的来源是 ${kind}。`) };
+		const only = (step.appliesTo ?? []).join(", ");
+		const kind = state.sourceKind ?? "not decided yet";
+		return { ok: false, reason: withNext(steps, state, `${step.id} only exists when the source is ${only}; this time the source is ${kind}. `) };
 	}
 	return { ok: true, step };
 }

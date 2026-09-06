@@ -1,6 +1,6 @@
 import json
 
-from conftest import RpcClient, campaign_dir, create_campaign, narrate_opening, open_turn, read_json
+from conftest import RpcClient, campaign_dir, create_campaign, narrate, narrate_opening, open_turn, read_json, stating
 
 
 ACTION = {"intent": "investigate", "goal": "看桌上有什么", "method": "用侦查扫一眼"}
@@ -21,9 +21,10 @@ def test_idempotent_replay_and_conflict(kernel):
     assert kernel.table("look", focus="time") == {"clock": {"minutes": 5}}
     assert kernel.table_err("apply", call_id="t1-c2", effects=[{"kind": "time", "minutes": 6}])["code"] == "idempotency_conflict"
 
-    narrated = kernel.table("narrate", call_id="t1-c3", text="他抬起头。")
+    text = stating(kernel, "他抬起头。")
+    narrated = kernel.table("narrate", call_id="t1-c3", text=text)
     # The turn is closed; the same narrate call replays from the closed record.
-    again = kernel.table("narrate", call_id="t1-c3", text="他抬起头。")
+    again = kernel.table("narrate", call_id="t1-c3", text=text)
     assert again == {**narrated, "replayed": True}
     assert kernel.table("status")["turn"] == 2
     assert kernel.table_err("narrate", call_id="t1-c3", text="别的文字")["code"] == "idempotency_conflict"
@@ -63,7 +64,7 @@ def test_ask_closes_turn_and_pending_choice_carries_over(kernel):
     asked = kernel.table("ask", call_id="t1-c1", prompt="你想先去哪里？",
                          options=["报社档案", "中央图书馆"], binds="first-stop")
     assert asked["state"] == "asked" and asked["turn"] == 1
-    assert asked["rendered_text"] == "你想先去哪里？\n1. 报社档案\n2. 中央图书馆"
+    assert asked["rendered_text"] == "你想先去哪里？\n1. 报社档案\n2. 中央图书馆" and asked["mechanics"] == []
     pending = asked["pending_choice"]
     assert pending["name"] == "ask-first-stop-t1"
     assert pending["options"] == ["报社档案", "中央图书馆"]
@@ -91,7 +92,9 @@ def test_ask_closes_turn_and_pending_choice_carries_over(kernel):
     assert receipts == [{**receipts[0], "id": f"choice:{pending['name']}-t2", "kind": "choice", "option": "报社档案"}]
     kernel.table("apply", call_id="t2-c2", effects=[{"kind": "move", "to": "newspaper-morgue"}])
     narrated = kernel.table("narrate", call_id="t2-c3", text="你们出发去报社。")
-    assert narrated["rendered_text"] == "你们出发去报社。\n\n【变化】场景：Knott's Office → newspaper-morgue"
+    assert narrated["rendered_text"] == "你们出发去报社。"
+    assert [(m["kind"], m.get("option"), m.get("to")) for m in narrated["mechanics"]] == [
+        ("choice", "报社档案", None), ("scene", None, "newspaper-morgue")]
 
 
 def test_pending_turn_survives_a_crash(tmp_path):
@@ -116,8 +119,9 @@ def test_pending_turn_survives_a_crash(tmp_path):
         assert pending["since"]
         assert pending["last_call_ordinal"] == 1  # t1-c1 was spent before the crash
         # The keeper finishes the turn in the new process.
-        result = second.table("narrate", call_id="t1-c2", text="办公室里只有雪茄味。")
-        assert "【明骰】侦查" in result["rendered_text"]
+        roll = pending["receipts"][0]
+        result = second.table("narrate", call_id="t1-c2", text=f"办公室里只有雪茄味。（{roll['roll']}／{roll['target']}）")
+        assert result["mechanics"][0]["kind"] == "roll" and result["mechanics"][0]["skill"] == "Spot Hidden"
         assert second.table("open")["pending_turn"] is None
     finally:
         second.close()
@@ -158,7 +162,7 @@ def test_commit_failure_keeps_the_turn_open(kernel):
     broken = repo.with_name("c1.broken")
     repo.rename(broken)
     try:
-        error = kernel.table_err("narrate", call_id="t1-c2", text="第一段。\n\n第二段。")
+        error = kernel.table_err("narrate", call_id="t1-c2", text=stating(kernel, "第一段。\n\n第二段。"))
     finally:
         broken.rename(repo)
     assert error["code"] == "commit_failed"
@@ -170,20 +174,28 @@ def test_commit_failure_keeps_the_turn_open(kernel):
     assert read_jsonl(directory / "events.jsonl") == events_before
     assert kernel.table("open")["pending_turn"]["owed"] == ["narrate"]
 
-    result = kernel.table("narrate", call_id="t1-c2", text="第一段。\n\n第二段。")
+    result = narrate(kernel, "t1-c2", "第一段。\n\n第二段。")
     assert result["commit"]
-    assert "【明骰】聆听" in result["rendered_text"]
-    assert kernel.table("status") == {"turn": 2, "state": "awaiting_player", "receipts": [], "pending_choice": None}
+    assert [m["skill"] for m in result["mechanics"] if m["kind"] == "roll"] == ["Listen"]
+    assert kernel.table("status") == {"turn": 2, "state": "awaiting_player", "receipts": [], "mechanics": [],
+                                      "pending_choice": None}
 
 
 def test_ask_delivers_this_turns_mechanics_before_the_question(kernel):
     open_turn(kernel)
     kernel.table("resolve", call_id="t1-c1", action={"intent": "investigate", "goal": "x", "method": "y",
                                                     "skill": "Spot Hidden"})
-    bad = kernel.table_err("ask", call_id="t1-c2", text="【明骰】x", prompt="?", options=["a", "b"])
-    assert bad["code"] == "invalid_params"
-    asked = kernel.table("ask", call_id="t1-c3", text="你举起灯。\n\n墙上有影子在动。",
+    roll = kernel.table("status")["receipts"][0]
+    # No text states nothing: the player must see the roll before choosing (§16.3).
+    bad = kernel.table_err("ask", call_id="t1-c2", prompt="?", options=["a", "b"])
+    assert bad["code"] == "invalid_params" and bad["code_detail"] == "mechanics_missing"
+    assert bad["details"]["missing"] == [{"receipt": "roll:spot-hidden-t1-c1", "expected": [str(roll["roll"]), "55"]}]
+    unstated = kernel.table_err("ask", call_id="t1-c2", text="你举起灯。", prompt="?", options=["a", "b"])
+    assert unstated["code_detail"] == "mechanics_missing"
+    asked = kernel.table("ask", call_id="t1-c3", text=f"你举起灯，掷出 {roll['roll']}（侦查 55）。\n\n墙上有影子在动。",
                          prompt="你要怎么做？", options=["退后", "上前"])
     rendered = asked["rendered_text"]
-    assert rendered.startswith("你举起灯。\n\n【明骰】侦查｜")
-    assert rendered.endswith("墙上有影子在动。\n\n你要怎么做？\n1. 退后\n2. 上前")
+    assert rendered == f"你举起灯，掷出 {roll['roll']}（侦查 55）。\n\n墙上有影子在动。\n\n你要怎么做？\n1. 退后\n2. 上前"
+    assert [m["kind"] for m in asked["mechanics"]] == ["roll"] and asked["mechanics"][0]["roll"] == roll["roll"]
+    record = read_json(campaign_dir(kernel.workspace) / "turns" / "0001.json")
+    assert record["mechanics"] == asked["mechanics"]

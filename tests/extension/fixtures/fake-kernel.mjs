@@ -16,6 +16,8 @@
  *   FAKE_KERNEL_NO_DIRECTOR "1" 时胶囊不带 `director` 节（切片 0–2 的内核）
  *   FAKE_KERNEL_HANDOUT    JSON 对象，`apply` 带 handout 效果时作为 `attachment` 回（契约 §14.8）
  *   FAKE_KERNEL_CASH       调查员起始现金，缺省 50（`apply` 的 cash 效果按它算前后，契约 §5）
+ *   FAKE_KERNEL_REQUIRE_NUMBERS "1" 时 narrate／ask 跑契约 §5 的机制核对：本回合每条公开收据的
+ *                          关键数字必须以字符串出现在 text 里，缺了回 mechanics_missing
  *   FAKE_KERNEL_BACKFILL   JSON 整数数组：还没抽过的回合，`memory.job` 的缺省派发按序取（#20 补抽）；
  *                          空了就回 job_id: null
  *   FAKE_KERNEL_MODULE     JSON 对象，配模组存储那一面（契约 §14.1、§14.3）：
@@ -51,11 +53,47 @@ const INVESTIGATOR = "托马斯·海耶斯";
 
 /**
  * 物品与现金（契约 §5 的 item、cash，#19）。真内核写的是 `party/<id>.json` 的
- * `equipment[]`／`weapons[]` 与 `finance.cash`；这里只留够渲染【变化】行的那点账。
+ * `equipment[]`／`weapons[]` 与 `finance.cash`；这里只留够投影 mechanics 的那点账。
  */
 let cash = process.env.FAKE_KERNEL_CASH ? Number(process.env.FAKE_KERNEL_CASH) : 50;
-/** 本回合 apply 落下的【变化】行，narrate 渲染时插在明骰之后，交付完清空。 */
-let changeLines = [];
+/**
+ * 本回合收据的语言中立投影（契约 §16.2）。内核不再渲染任何机制行：narrate／ask 把它
+ * 随结果给出去，扩展落成 `coc-mechanics` 会话条目，交付的正文一个字都不动。
+ */
+let turnMechanics = [];
+/**
+ * 机制核对的账（契约 §5 第 2 步）：每条公开收据要求正文里出现哪几个数字。
+ * `FAKE_KERNEL_REQUIRE_NUMBERS=1` 时 narrate／ask 拿它做纯字符串包含检查，不做语义判断。
+ */
+let numberChecks = [];
+const REQUIRE_NUMBERS = process.env.FAKE_KERNEL_REQUIRE_NUMBERS === "1";
+
+/** 一条收据进投影，并登记它要求正文交代的数字。 */
+function mechanic(row, receipt, expected = []) {
+	turnMechanics.push(row);
+	if (expected.length > 0) numberChecks.push({ receipt, expected });
+}
+
+/** 契约 §5 第 2 步：缺一个数字就整条 narrate 退回，`fix` 说明补哪些数。 */
+function checkNumbers(text) {
+	if (!REQUIRE_NUMBERS) return undefined;
+	const body = String(text ?? "");
+	const missing = numberChecks
+		.map((row) => ({ receipt: row.receipt, expected: row.expected.filter((value) => !body.includes(String(value))) }))
+		.filter((row) => row.expected.length > 0);
+	if (missing.length === 0) return undefined;
+	const numbers = missing.flatMap((row) => row.expected).join(", ");
+	return {
+		ok: false,
+		error: {
+			code: "invalid_params",
+			code_detail: "mechanics_missing",
+			message: "the prose does not account for this turn's public receipts",
+			fix: `write these numbers into the text, copied from the tool results: ${numbers}`,
+			details: { missing },
+		},
+	};
+}
 
 /** 收据 id 里的物品 slug：只做空白归一化，语义判断不在假内核里做。 */
 function slug(name) {
@@ -269,6 +307,11 @@ function resolve(params) {
 		};
 	}
 	if (action.defense) {
+		mechanic(
+			{ kind: "roll", actor: INVESTIGATOR, skill: "Dodge", roll: 18, target: 40, level: "regular", passed: true, visibility: "public" },
+			`roll:dodge-${params.call_id}`,
+			[18, 40],
+		);
 		return {
 			ok: true,
 			result: {
@@ -282,6 +325,11 @@ function resolve(params) {
 		};
 	}
 	if (action.intent === "combat") {
+		mechanic(
+			{ kind: "roll", actor: INVESTIGATOR, skill: "Fighting (Brawl)", roll: 31, target: 50, level: "regular", passed: true, visibility: "public" },
+			`roll:fighting-brawl-${params.call_id}`,
+			[31, 50],
+		);
 		return {
 			ok: true,
 			result: {
@@ -304,7 +352,9 @@ function resolve(params) {
 				pending_choice: {
 					name: `combat-defense-t${turn}`,
 					for: "player",
-					prompt: "撬棍朝你的肩膀砸下来，你怎么办？",
+					// Kernel-minted pending prompts are keeper-facing English (contract §16.1); the player
+					// only ever reads what the Keeper writes in the campaign's play language.
+					prompt: "The caretaker swings the crowbar at you. How do you respond? (dodge / fight_back)",
 					options: ["dodge", "fight_back"],
 				},
 				continuations: [],
@@ -313,6 +363,11 @@ function resolve(params) {
 		};
 	}
 	if (action.push === true) {
+		mechanic(
+			{ kind: "roll", actor: INVESTIGATOR, skill: "Spot Hidden", roll: 12, target: 55, level: "hard", passed: true, pushed: true, visibility: "public" },
+			`roll:spot-hidden-${params.call_id}`,
+			[12, 55],
+		);
 		return {
 			ok: true,
 			result: {
@@ -335,6 +390,22 @@ function resolve(params) {
 			},
 		};
 	}
+	mechanic(
+		{
+			kind: "roll",
+			actor: INVESTIGATOR,
+			skill: "Spot Hidden",
+			roll: 42,
+			target: 55,
+			threshold: 55,
+			difficulty: "regular",
+			level: "regular",
+			passed: true,
+			visibility: "public",
+		},
+		`roll:spot-hidden-${params.call_id}`,
+		[42, 55],
+	);
 	return {
 		ok: true,
 		result: {
@@ -579,12 +650,14 @@ function handle(method, params) {
 		case "table.player_input":
 			turn += 1;
 			state = "open";
-			changeLines = [];
+			turnMechanics = [];
+			numberChecks = [];
 			return { ok: true, result: { turn, state, capsule: capsule(params.text) } };
 		case "table.capsule":
 			return { ok: true, result: capsule(null) };
 		case "table.status":
-			return { ok: true, result: { turn, state, receipts: [], pending_choice: null } };
+			// Contract §16.2: `table.status` carries this turn's mechanics projection too.
+			return { ok: true, result: { turn, state, receipts: [], pending_choice: null, mechanics: [...turnMechanics] } };
 		case "table.look":
 			if (state === "open") state = "acting";
 			return { ok: true, result: { where: capsule(null).where, present: capsule(null).present } };
@@ -610,25 +683,60 @@ function handle(method, params) {
 					return { ok: false, error: { code: "invalid_params", message: "cash 要带正负号的 delta", details: { index } } };
 				}
 			}
-			// 物品与现金的【变化】行（契约 §5 的 #19）。move／clue／time 的机制行在
-			// 真内核里也有，假内核不渲染它们：别的用例逐字节比过交付文本。
+			// Every receipt joins this turn's mechanics projection (contract §16.2). The kernel renders no
+			// lines: the prose is the Keeper's, the numbers are checked by checkNumbers, and the front end
+			// and the driver read this JSON.
 			for (const effect of effects) {
 				if (effect.kind === "item") {
-					const who = effect.to ?? INVESTIGATOR;
-					const what = effect.label ?? effect.name;
 					const quantity = typeof effect.quantity === "number" ? effect.quantity : 1;
-					const count = Math.abs(quantity) > 1 ? ` ×${Math.abs(quantity)}` : "";
-					changeLines.push(`【变化】物品：${who} ${quantity < 0 ? "失去" : "得到"} ${what}${count}`);
+					mechanic(
+						{
+							kind: "item",
+							name: effect.name,
+							...(effect.label ? { label: effect.label } : {}),
+							quantity,
+							to: effect.to ?? INVESTIGATOR,
+						},
+						`item:${slug(effect.name)}-${params.call_id}`,
+					);
 				}
 				if (effect.kind === "cash") {
-					const who = effect.subject ?? INVESTIGATOR;
 					const before = cash;
 					cash += effect.delta;
-					changeLines.push(`【变化】现金：${who} ${before} → ${cash}`);
+					mechanic(
+						{ kind: "cash", subject: effect.subject ?? INVESTIGATOR, before, after: cash },
+						`cash:${params.call_id}`,
+						[before, cash],
+					);
+				}
+				if (effect.kind === "move") {
+					mechanic(
+						{
+							kind: "scene",
+							from: SCENE.name,
+							to: effect.to,
+							...(typeof effect.travel_minutes === "number" ? { minutes: effect.travel_minutes } : {}),
+						},
+						`move:${params.call_id}`,
+						typeof effect.travel_minutes === "number" ? [effect.travel_minutes] : [],
+					);
+				}
+				if (effect.kind === "clue") {
+					mechanic(
+						{ kind: "clue", clue: effect.clue, ...(effect.label ? { label: effect.label } : {}) },
+						`clue:${params.call_id}`,
+					);
+				}
+				if (effect.kind === "time") {
+					mechanic({ kind: "time", minutes: effect.minutes }, `time:${params.call_id}`, [effect.minutes]);
 				}
 			}
-			// 手卡（契约 §14.8）：渲染的【手卡】行是内核的，附件交给扩展。
+			// Handouts (contract §14.8): the projection carries only the name, and the extension fills in
+			// where the file is from `attachment` (§16.2).
 			const handout = effects.find((effect) => effect.kind === "handout");
+			if (handout) {
+				mechanic({ kind: "handout", name: handout.label ?? handout.name }, `handout:${handout.name ?? "handout-1"}`);
+			}
 			const attachment = handout
 				? (process.env.FAKE_KERNEL_HANDOUT
 						? JSON.parse(process.env.FAKE_KERNEL_HANDOUT)
@@ -654,8 +762,20 @@ function handle(method, params) {
 				},
 			};
 		}
-		case "table.ask":
+		case "table.ask": {
+			// Contract §5: `text` must account for the public receipts' numbers too, by the same check.
+			const refusedAsk = checkNumbers(params.text ?? "");
+			if (refusedAsk) return refusedAsk;
 			state = "asked";
+			// Delivery = text (optional) plus the prompt plus language-neutral numbered options; mechanics travel only in `mechanics`.
+			const askBody = [
+				...(params.text ? [params.text] : []),
+				params.prompt,
+				(params.options ?? []).map((o, i) => `${i + 1}. ${o}`).join("\n"),
+			].join("\n");
+			const askMechanics = [...turnMechanics];
+			turnMechanics = [];
+			numberChecks = [];
 			return {
 				ok: true,
 				result: {
@@ -665,12 +785,17 @@ function handle(method, params) {
 						options: params.options,
 						binds: params.binds ?? null,
 					},
-					rendered_text: `${params.prompt}\n${(params.options ?? []).map((o, i) => `${i + 1}. ${o}`).join("\n")}`,
+					rendered_text: askBody,
+					mechanics: askMechanics,
 					turn,
 					state,
 				},
 			};
+		}
 		case "table.narrate": {
+			// Contract §5 step 2: the kernel inserts no mechanics lines and only checks whether this turn's public receipt numbers are in the prose.
+			const refused = checkNumbers(params.text ?? "");
+			if (refused) return refused;
 			const closed = turn;
 			state = "awaiting_player";
 			const facts = process.env.FAKE_KERNEL_NO_FACTS === "1"
@@ -687,13 +812,15 @@ function handle(method, params) {
 						},
 						extraction: { job_id: `extract:${params.campaign}:t${closed}` },
 					};
-			// 机制块由内核按本回合的收据渲染（契约 §5、§13）：明骰在前，变化在后。
-			const changes = changeLines.length > 0 ? `\n${changeLines.join("\n")}` : "";
-			changeLines = [];
+			// Contract §16.2: `rendered_text` is the text verbatim, and the mechanics are a language-neutral JSON projection.
+			const mechanics = [...turnMechanics];
+			turnMechanics = [];
+			numberChecks = [];
 			return {
 				ok: true,
 				result: {
-					rendered_text: `${params.text}\n\n【明骰】侦查｜掷骰：42；基础值：55；门槛：普通（≤55）；结果：通过${changes}`,
+					rendered_text: params.text,
+					mechanics,
 					turn: closed,
 					receipt: `turn:${closed}`,
 					commit: "abc1234",

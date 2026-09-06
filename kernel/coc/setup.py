@@ -111,10 +111,10 @@ class SetupSteps:
     def launch_line(self, campaign_id: str) -> str:
         return str(self.raw["launch_line"]).format(campaign=campaign_id)
 
-    def next_line(self, step_id: str, language: str) -> str:
+    def next_line(self, step_id: str) -> str:
+        """The step's English `next` line (§16.1); the setup model says it in the player's language."""
         lines = self.step(step_id).get("lines") or {}
-        block = lines.get(language) or lines.get("en") or {}
-        return str(block.get("next") or step_id)
+        return str(lines.get("next") or step_id)
 
 
 # ---- module store seam (§14.1, §14.6) ------------------------------------------------
@@ -421,13 +421,12 @@ class SetupMethods:
             "investigator": self.table.investigator_row(sheet),
             "sheet": sheet,
             "choices_pending": receipt["choices_pending"],
-            "next": self.steps.next_line("complete", str(meta.get("play_language") or "zh-Hans")),
+            "next": self.steps.next_line("complete"),
         }
 
     def complete(self, params: dict[str, Any]) -> dict[str, Any]:
         campaign = self.table.store.open(params.get("campaign"), require_turn=False, require_world=False)
         meta = campaign.read_campaign()
-        language = str(meta.get("play_language") or "zh-Hans")
         if meta.get("status") in (STATUS_READY, STATUS_ACTIVE) and (meta.get("setup") or {}).get("handoff"):
             return {**meta["setup"]["handoff"], "status": meta["status"], "replayed": True}
         if meta.get("status") != STATUS_SETTING_UP:
@@ -436,7 +435,7 @@ class SetupMethods:
         party = campaign.party()
         if not party:
             raise RpcError("needs", "the party is empty; create an investigator first",
-                           fix=self.steps.next_line("create-investigator", language),
+                           fix=self.steps.next_line("create-investigator"),
                            details={"needs": {"field": "investigator", "step": "create-investigator"}})
         module_id = str(meta["module_id"])
         module = module_meta(self.table.module_store, module_id)

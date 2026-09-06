@@ -34,6 +34,20 @@ def slugify(text: str, limit: int = 24) -> str:
     return slug or "choice"
 
 
+_NON_ASCII_WORD = re.compile(r"[^a-z0-9]+")
+
+
+def ascii_slug(text: str, limit: int = 24) -> str:
+    """ASCII-only kebab fragment for a receipt id ('Winchester shotgun' -> 'winchester-shotgun',
+    an accented letter folded to its base); empty when the name has no Latin letter or
+    digit, so the caller falls back to an ordinal (§16: ids are machine-face ASCII)."""
+    folded = unicodedata.normalize("NFKD", str(text)).encode("ascii", "ignore").decode("ascii").lower()
+    slug = "-".join(_NON_ASCII_WORD.sub(" ", folded).split())
+    if len(slug) > limit:
+        slug = slug[:limit].rstrip("-")
+    return slug
+
+
 def is_latin(term: str) -> bool:
     return bool(_LATIN.search(term))
 

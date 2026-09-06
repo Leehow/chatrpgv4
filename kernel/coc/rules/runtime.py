@@ -22,11 +22,8 @@ from .catalog import Catalog, module_spell_records
 from .graph import GraphLoadError, RulesRuntime, facts_from_state, load_ruleset_graph
 from .healing import establish_damage_wound, read_healing_state, write_healing_state
 from .resolver import Resolver
-from .skills import SkillResolver
 from .tables import RuleTables
 
-RESOURCE_LABELS_ZH = {"hp": "生命值", "san": "理智", "mp": "魔法值", "luck": "幸运", "armor": "护甲", "ammo": "弹药",
-                      "cash": "现金"}
 SOCIAL_SKILLS = ("Charm", "Fast Talk", "Intimidate", "Persuade")
 
 
@@ -365,7 +362,7 @@ class SettleContext:
         receipt_id = self._mint(base)
         rule_refs = list((check or {}).get("rule_refs") or [])
         receipt = {"id": receipt_id, "kind": "roll", "call_id": self.call_id, "actor": actor, "skill": skill,
-                   "skill_label": skill_label or self.skill_label(skill), "target": int(target), "difficulty": difficulty,
+                   "skill_label": skill_label or skill, "target": int(target), "difficulty": difficulty,
                    "threshold": int(threshold), "roll": int(roll), "level": level, "passed": bool(passed),
                    "bonus": int(bonus), "penalty": int(penalty), "visibility": visibility, "roll_kind": kind,
                    "pushed": bool(pushed), "rule_refs": rule_refs, "at": now_iso(), **extra}
@@ -382,7 +379,7 @@ class SettleContext:
     def add_dice_roll(self, *, actor: str, label: str, expression: Any, faces: list[int], total: Any,
                       skill_label: str | None = None, **extra: Any) -> str:
         """`label` names the die in the receipt id (ASCII engine vocabulary); `skill_label`
-        is what the mechanics line prints."""
+        defaults to it and stays on the receipt for the record (nothing renders it, §16)."""
         receipt_id = self._mint(f"roll:{kebab(label) or 'dice'}-t{self.turn_number}-c{self.ordinal}")
         receipt = {"id": receipt_id, "kind": "roll", "form": "dice", "call_id": self.call_id, "actor": actor,
                    "skill": label, "skill_label": skill_label or label, "expression": expression, "faces": list(faces),
@@ -393,11 +390,14 @@ class SettleContext:
         return receipt_id
 
     def add_session_receipt(self, family: str, transition: str, *, outcome: str | None = None,
-                            summary: str | None = None) -> str:
-        """A session entered or ended (contract §11.6: 【变化】战斗开始 / 战斗结束：<outcome>)."""
+                            summary: str | None = None, **extra: Any) -> str:
+        """A session entered or ended (contract §11.6); projected as a `session` mechanics
+        object (§16.2). `outcome` is the engine's closed word; `summary` is English keeper
+        material; extras (a bout's `rounds`) ride only when set."""
         receipt_id = self._mint(f"session:{family}-{transition}-t{self.turn_number}-c{self.ordinal}")
         self.receipts.append({"id": receipt_id, "kind": "session", "call_id": self.call_id, "family": family,
-                              "transition": transition, "outcome": outcome, "summary": summary, "at": now_iso()})
+                              "transition": transition, "outcome": outcome, "summary": summary,
+                              **{k: v for k, v in extra.items() if v is not None}, "at": now_iso()})
         return receipt_id
 
     def subject_label(self, subject: str) -> str:
@@ -410,10 +410,9 @@ class SettleContext:
     def add_delta(self, resource: str, subject: str, before: Any, after: Any, *,
                   source_receipt: str | None = None, **extra: Any) -> str:
         receipt_id = self._mint(f"delta:{resource}-t{self.turn_number}-c{self.ordinal}")
-        label = RESOURCE_LABELS_ZH.get(resource, resource)
         subject_label = self.subject_label(subject)
         receipt = {"id": receipt_id, "kind": "delta", "call_id": self.call_id, "resource": resource,
-                   "subject": subject, "subject_label": subject_label, "label": label, "before": before,
+                   "subject": subject, "subject_label": subject_label, "before": before,
                    "after": after, **extra, "at": now_iso()}
         if source_receipt:
             receipt["source_receipt"] = source_receipt
@@ -423,13 +422,6 @@ class SettleContext:
 
     def add_effect(self, kind: str, subject: str, before: Any, after: Any, **extra: Any) -> None:
         self.effects.append({"kind": kind, "subject": subject, "before": before, "after": after, **extra})
-
-    def skill_label(self, skill: str) -> str:
-        try:
-            return SkillResolver(self.tables, self.actor).display_label(skill)
-        except Exception:  # noqa: BLE001 - a label is decoration
-            return skill
-
 
 # ---- facts --------------------------------------------------------------------------
 

@@ -1,7 +1,7 @@
 """Slice 2, 12.1: the twelve canonical events, all emitted through the RPC seam by one
 campaign, and the three new ones anchored where the contract says."""
 
-from conftest import RpcClient, campaign_dir, open_turn, read_jsonl
+from conftest import RpcClient, ask, campaign_dir, narrate, open_turn, read_jsonl
 from test_rules_families import resolve, walk_to_confrontation
 
 TWELVE = {
@@ -23,9 +23,9 @@ def test_twelve_canonical_events_end_to_end(tmp_path):
         attack = resolve(client, f"t1-c{n}", intent="combat", goal="朝科比特开枪", method="用左轮射击",
                          target="Walter Corbitt", weapon=".38 Revolver")
         assert attack["session"]["kind"] == "combat"
-        narrated = client.table("narrate", call_id=f"t1-c{n + 1}", text="枪响了。")
+        narrated = narrate(client, f"t1-c{n + 1}", "枪响了。")
         client.table("player_input", text="我闪开。")
-        client.table("ask", call_id="t2-c1", prompt="你要怎么做？", options=["闪避", "反击"])
+        ask(client, "t2-c1", "你要怎么做？", ["闪避", "反击"])
         job = client.ok("memory.job", {"campaign": "c1", "turn": 1})
         client.ok("memory.submit", {"campaign": "c1", "job_id": job["job_id"],
                                     "candidates": [{"kind": "world_event", "subject": "world", "statement": "枪响了。"}]})

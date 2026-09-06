@@ -3,7 +3,7 @@ all through the RPC seam."""
 
 import json
 
-from conftest import RpcClient, campaign_dir, open_turn, read_json, read_jsonl
+from conftest import RpcClient, campaign_dir, narrate, open_turn, read_json, read_jsonl
 
 CONFRONTATION_PATH = ["corbitt-house-ground", "basement-rites", "corbitt-confrontation"]
 
@@ -86,11 +86,10 @@ def test_opposed_check_rolls_both_parties(seeded_kernel, tmp_path):
     assert npc_roll["actor"] == "walter-corbitt" and npc_roll["visibility"] == "public"
     assert result["continuations"] == []  # opposed checks are never pushed
 
-    rendered = seeded_kernel.table("narrate", call_id=f"t1-c{n + 1}", text="他的手像石头。")["rendered_text"]
-    lines = [line for line in rendered.splitlines() if line.startswith("【明骰】")]
-    assert len(lines) == 2
-    assert lines[0].startswith("【明骰】力量｜")
-    assert lines[1].startswith("【明骰】Walter Corbitt·力量｜")
+    rolls = [m for m in narrate(seeded_kernel, f"t1-c{n + 1}", "他的手像石头。")["mechanics"] if m["kind"] == "roll"]
+    assert len(rolls) == 2
+    assert rolls[0]["skill"] == "STR" and rolls[0]["actor"] == "thomas-hayes" and "actor_label" not in rolls[0]
+    assert rolls[1]["skill"] == "STR" and rolls[1]["actor"] == "walter-corbitt" and rolls[1]["actor_label"] == "Walter Corbitt"
 
     # Same seed, fresh process, same two rolls.
     other = RpcClient(tmp_path / "ws-2", env={"COC_KERNEL_SEED": "7"})
@@ -157,9 +156,10 @@ def test_investigate_on_npc_needs_choice_then_decision_picks(kernel):
     assert realized["outcome"] == {"kind": "psychology", "status": "realized", "npc": "steven-knott",
                                    "insight_id": outcome["insight_id"],
                                    "external_behavior": "他避开你的视线，手指敲着桌面"}
-    # A concealed roll never reaches the player's text.
-    rendered = kernel.table("narrate", call_id="t1-c3", text="他笑了笑。")["rendered_text"]
-    assert "【明骰】" not in rendered
+    # A concealed roll obliges the keeper to state nothing; the projection still carries it, marked keeper.
+    result = kernel.table("narrate", call_id="t1-c3", text="他笑了笑。")
+    assert result["rendered_text"] == "他笑了笑。"
+    assert all(m["visibility"] == "keeper" for m in result["mechanics"] if m["kind"] == "roll")
 
     # A skill in the method removes the ambiguity.
     kernel.table("player_input", text="我再看看。")
@@ -245,8 +245,8 @@ def test_push_executes_against_last_failure_and_refuses_a_second(seeded_kernel):
         luck = resolve_err(seeded_kernel, f"t1-c{n + 2}", intent="investigate", goal="x", method="y", luck=5)
         assert luck["code"] == "turn_state"
 
-    rendered = seeded_kernel.table("narrate", call_id=f"t1-c{n + 3}", text="窗框吱呀作响。")["rendered_text"]
-    assert "【明骰】攀爬（推骰）｜" in rendered
+    rolls = [m for m in narrate(seeded_kernel, f"t1-c{n + 3}", "窗框吱呀作响。")["mechanics"] if m["kind"] == "roll"]
+    assert rolls[-1]["skill"] == "Climb" and rolls[-1]["pushed"] is True
 
 
 def test_luck_spend_and_insufficient_luck(seeded_kernel):
@@ -275,8 +275,9 @@ def test_luck_spend_and_insufficient_luck(seeded_kernel):
     both = resolve_err(seeded_kernel, f"t1-c{n + 2}", intent="investigate", goal="x", method="换法子", stakes="z", push=True)
     assert both["code"] == "turn_state"
 
-    rendered = seeded_kernel.table("narrate", call_id=f"t1-c{n + 3}", text="你眯起眼。")["rendered_text"]
-    assert "【变化】幸运：托马斯·海斯 50 → 47" in rendered
+    changes = [m for m in narrate(seeded_kernel, f"t1-c{n + 3}", "你眯起眼。")["mechanics"] if m["kind"] == "change"]
+    assert {"kind": "change", "receipt": changes[-1]["receipt"], "resource": "luck", "subject": "thomas-hayes",
+            "subject_label": "托马斯·海斯", "before": 50, "after": 47} in changes
     events = read_jsonl(campaign_dir(seeded_kernel.workspace) / "events.jsonl")
     changed = [e for e in events if e["type"] == "resource-changed"]
     assert changed[-1]["data"] == {"resource": "luck", "subject": "thomas-hayes", "before": 50, "after": 47}
@@ -308,8 +309,9 @@ def test_first_aid_on_a_wounded_investigator(seeded_kernel):
         assert events_after(seeded_kernel.workspace, before) == ["roll-resolved", "resource-changed", "decision-settled"]
         assert seeded_kernel.table("look", focus="investigator")["hp"] == 9
         assert read_json(campaign_dir(seeded_kernel.workspace) / "save" / "healing-state" / "thomas-hayes.json")["current_hp"] == 9
-        rendered = seeded_kernel.table("narrate", call_id="t1-c2", text="你缠好绷带。")["rendered_text"]
-        assert "【变化】生命值：托马斯·海斯 8 → 9" in rendered
+        mechanics = narrate(seeded_kernel, "t1-c2", "你缠好绷带。")["mechanics"]
+        assert {"kind": "change", "receipt": "delta:hp-t1-c1", "resource": "hp", "subject": "thomas-hayes",
+                "subject_label": "托马斯·海斯", "before": 8, "after": 9} in mechanics
     else:
         assert outcome["hp_after"] == 8 and result["effects"] == []
         assert events_after(seeded_kernel.workspace, before) == ["roll-resolved", "decision-settled"]

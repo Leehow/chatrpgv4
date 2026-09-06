@@ -4,7 +4,7 @@ of `pressures` / `obligations` (§13.2), `style` (§13.6) and the per-section bu
 import json
 import re
 
-from conftest import CAMPAIGN, CONTENT_DIR, RpcClient, campaign_dir, narrate_opening, open_turn, read_json
+from conftest import CAMPAIGN, CONTENT_DIR, RpcClient, campaign_dir, narrate, narrate_opening, open_turn, read_json
 from test_rules_families import first_failure, resolve, seed_wound, walk_to_confrontation
 
 SECTIONS = ("where", "present", "known", "pressures", "obligations", "director", "situations", "memory", "style",
@@ -27,7 +27,7 @@ def test_the_capsule_has_nine_sections_a_head_and_the_clock(kernel):
     for name in SECTIONS:
         assert name in capsule, name
     assert "look/lookup" in capsule["head"] and "director" in capsule["head"]
-    assert capsule["where"]["clock"] == {"minutes": 0, "elapsed": "0 小时 0 分钟"}  # no start time authored: no day_part
+    assert capsule["where"]["clock"] == {"minutes": 0, "elapsed": "0 h 0 min"}  # no start time authored: no day_part
     assert capsule["where"]["session"] is None
     knott = capsule["present"][0]
     assert knott["secret"] and knott["fear"]  # keeper-only material, same law as agenda
@@ -45,7 +45,7 @@ def test_the_capsule_has_nine_sections_a_head_and_the_clock(kernel):
 def test_the_clock_and_elapsed_follow_the_world_minutes(kernel):
     open_turn(kernel, "等一会儿。")
     kernel.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 95}])
-    assert kernel.table("capsule")["where"]["clock"] == {"minutes": 95, "elapsed": "1 小时 35 分钟"}
+    assert kernel.table("capsule")["where"]["clock"] == {"minutes": 95, "elapsed": "1 h 35 min"}
 
 
 def test_situations_ride_in_the_capsule_and_stay_in_look(kernel):
@@ -63,12 +63,12 @@ def test_clock_pressure_from_the_wound_hour(kernel):
     kernel.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 30}])
     seed_wound(kernel.workspace, 9, minutes_ago=10)
     pressures = kernel.table("capsule")["pressures"]
-    assert pressures == [{"kind": "clock", "cue": "healing:first-aid-ordinary", "name": "重伤后一小时",
-                          "state": "已过 10/60 分钟", "due": "50 分钟后急救窗口关闭"}]
+    assert pressures == [{"kind": "clock", "cue": "healing:first-aid-ordinary", "name": "the hour after the wound",
+                          "state": "10/60 minutes gone", "due": "first-aid window closes in 50 min"}]
     assert "clock_near_full = False" in kernel.table("capsule")["director"]["because"]
     kernel.table("apply", call_id="t1-c2", effects=[{"kind": "time", "minutes": 35}])  # 45/60 >= 2/3: the graph's fraction
     capsule = kernel.table("capsule")
-    assert capsule["pressures"][0]["state"] == "已过 45/60 分钟"
+    assert capsule["pressures"][0]["state"] == "45/60 minutes gone"
     assert "clock_near_full = True" in capsule["director"]["because"]
 
 
@@ -77,7 +77,8 @@ def test_clock_pressure_from_the_dying_clock_is_always_near_full(kernel):
     seed_wound(kernel.workspace, 0, conditions=["major_wound", "dying"], minutes_ago=5)
     capsule = kernel.table("capsule")
     names = {p["name"]: p for p in capsule["pressures"] if p["kind"] == "clock"}
-    assert "濒死（未稳定，逐轮 CON）" in names and names["濒死（未稳定，逐轮 CON）"]["state"] == "HP 0"
+    dying = "dying (unstabilized, CON per round)"
+    assert dying in names and names[dying]["state"] == "HP 0"
     assert "clock_near_full = True" in capsule["director"]["because"]
 
 
@@ -89,7 +90,7 @@ def test_threat_pressure_when_a_danger_names_a_present_npc(kernel):
     threats = [p for p in capsule["pressures"] if p["kind"] == "threat"]
     assert [t["name"] for t in threats] == ["corbitt-haunting"]
     assert re.fullmatch(r"\d+/\d+", threats[0]["state"])  # the front's authored clock, current/segments
-    assert threats[0]["cue"] == "；".join(capsule["where"]["pressure_moves"])
+    assert threats[0]["cue"] == "; ".join(capsule["where"]["pressure_moves"])
 
 
 def test_rule_pressure_and_continuation_obligation_from_an_unanswered_push(tmp_path):
@@ -100,11 +101,11 @@ def test_rule_pressure_and_continuation_obligation_from_an_unanswered_push(tmp_p
         offered = [c["decision"] for c in failed["continuations"]]
         assert "push-luck:pushed-roll" in offered
         n = int(call_id.rsplit("-c", 1)[1]) + 1
-        client.table("narrate", call_id=f"t1-c{n}", text="没找到。")
+        narrate(client, f"t1-c{n}", "没找到。")
         capsule = client.table("player_input", text="我再试试。")["capsule"]
         rules = [p for p in capsule["pressures"] if p["kind"] == "rule"]
         assert [r["name"] for r in rules] == offered
-        assert rules[0]["state"] == "上回合留下，未回答" and rules[0]["cue"].startswith("需要 action.")
+        assert rules[0]["state"] == "left by last turn, unanswered" and rules[0]["cue"].startswith("needs action.")
         owed = [o for o in capsule["obligations"] if o["kind"] == "continuation"]
         assert [o["name"] for o in owed] == offered and all(o["who"] == "player" for o in owed)
         # answering the push closes both rows
@@ -125,7 +126,7 @@ def test_choice_obligation_from_the_pending_ask(kernel):
     obligations = kernel.table("player_input", text="收下。")["capsule"]["obligations"]
     choice = next(o for o in obligations if o["kind"] == "choice")
     assert choice["name"].startswith("ask-") and choice["name"].endswith("-t1")
-    assert choice == {"kind": "choice", "name": choice["name"], "who": "player", "state": "待决", "cue": "收下钥匙吗？"}
+    assert choice == {"kind": "choice", "name": choice["name"], "who": "player", "state": "pending", "cue": "收下钥匙吗？"}
 
 
 def test_session_obligation_from_a_live_combat(tmp_path):
@@ -136,7 +137,7 @@ def test_session_obligation_from_a_live_combat(tmp_path):
         resolve(client, f"t1-c{n}", intent="combat", goal="开枪", method="用左轮射击", target="Walter Corbitt", weapon=".38 Revolver")
         obligations = client.table("capsule")["obligations"]
         session = next(o for o in obligations if o["kind"] == "session")
-        assert session["name"] == "combat" and session["state"].startswith("第 1 轮") and "combat:defend" in session["cue"]
+        assert session["name"] == "combat" and session["state"].startswith("round 1") and "combat:defend" in session["cue"]
     finally:
         client.close()
 
@@ -145,15 +146,15 @@ def test_quest_obligations_read_the_module_graph_and_the_discovered_clues(kernel
     open_turn(kernel, "我们到了。")
     quests = {o["name"]: o for o in kernel.table("capsule")["obligations"] if o["kind"] == "quest"}
     assert set(quests) == {"End the Corbitt Threat", "The Corbitt House Commission", "Recover the Chapel Records"}
-    assert quests["The Corbitt House Commission"] == {"kind": "quest", "name": "The Corbitt House Commission", "state": "未开始",
+    assert quests["The Corbitt House Commission"] == {"kind": "quest", "name": "The Corbitt House Commission", "state": "not started",
                                                        "who": "Steven Knott", "cue": "core"}
     world_path = campaign_dir(kernel.workspace) / "world.json"
     world = read_json(world_path)
     world["discovered_clues"] = ["corbitt-body-found"]
     world_path.write_text(json.dumps(world, ensure_ascii=False), encoding="utf-8")
     quests = {o["name"]: o for o in kernel.table("capsule")["obligations"] if o["kind"] == "quest"}
-    assert quests["The Corbitt House Commission"]["state"] == "可结束（1/1 条线索）"
-    assert quests["End the Corbitt Threat"]["state"] == "未开始"
+    assert quests["The Corbitt House Commission"]["state"] == "can close (1/1 clues)"
+    assert quests["End the Corbitt Threat"]["state"] == "not started"
 
 
 # ---- style (§13.6) ---------------------------------------------------------------------------
@@ -162,10 +163,10 @@ def test_style_gives_every_directive_on_the_first_turn_and_the_beats_pick_afterw
     first = open_turn(kernel, "我仔细观察诺特。")["capsule"]
     style = first["style"]
     assert style["language"] == "zh-Hans" and style["register"] == "purist"
-    assert len(style["axes"]) == 9 and "忌翻译腔" in style["axes"]
+    assert len(style["axes"]) == 9 and "avoid translationese" in style["axes"]  # English lines (§16.1); zh-Hans keeps the axis
     assert {d["id"] for d in style["directives"]} == ALL_DIRECTIVES and all(d["line"] for d in style["directives"])
     assert kernel.table("capsule")["style"] == style  # same turn, same process: still the full list
-    kernel.table("narrate", call_id="t1-c1", text="……")
+    narrate(kernel, "t1-c1", "……")
     later = kernel.table("player_input", text="继续。")["capsule"]
     beat = later["director"]["beat"]
     assert [d["id"] for d in later["style"]["directives"]] == BEAT_TABLE["beats"][beat]
@@ -176,14 +177,14 @@ def test_a_new_process_starts_over_with_the_full_directives(tmp_path):
     first = RpcClient(tmp_path / "ws")
     try:
         open_turn(first, "我看看。")
-        first.table("narrate", call_id="t1-c1", text="……")
+        narrate(first, "t1-c1", "……")
         assert len(first.table("player_input", text="继续。")["capsule"]["style"]["directives"]) <= 4
     finally:
         first.close()
     second = RpcClient(tmp_path / "ws")
     try:
         assert second.table("open")["turn"]["number"] == 2
-        second.table("narrate", call_id="t2-c1", text="……")
+        narrate(second, "t2-c1", "……")
         assert {d["id"] for d in second.table("player_input", text="再来。")["capsule"]["style"]["directives"]} == ALL_DIRECTIVES
     finally:
         second.close()
@@ -206,7 +207,10 @@ def test_axes_follow_the_language_applicability_and_the_style_budget_trims(tmp_p
         capsule = client.table("player_input", text="I look around.")["capsule"]
         style = capsule["style"]
         assert style["language"] == "en" and "avoid translationese" not in style["axes"] and len(style["axes"]) == 8
-        assert size(style) <= 2048 and "style" in capsule["truncated"]  # the English lines overflow the first-turn budget
+        # §16.1: the lines are English one-liners sized like the zh originals, so the full first-turn
+        # set fits the §13.6 budget in every play language and nothing is trimmed
+        assert size(style) <= 2048 and "style" not in capsule.get("truncated", [])
+        assert {d["id"] for d in style["directives"]} == ALL_DIRECTIVES
         assert capsule["head"].startswith("Everything at the start of this turn")
     finally:
         client.close()
@@ -216,7 +220,7 @@ def test_axes_follow_the_language_applicability_and_the_style_budget_trims(tmp_p
 
 def test_the_memory_section_is_trimmed_from_its_tail_and_named_in_truncated(kernel):
     open_turn(kernel, "我和诺特谈。")
-    job_id = kernel.table("narrate", call_id="t1-c1", text="谈了很久。")["extraction"]["job_id"]
+    job_id = narrate(kernel, "t1-c1", "谈了很久。")["extraction"]["job_id"]
     kernel.ok("memory.submit", {"campaign": CAMPAIGN, "job_id": job_id, "candidates": [
         {"kind": "knowledge", "subject": "Steven Knott", "statement": f"{i}" + "诺特说的话很长，" * 40} for i in range(6)]})
     capsule = kernel.table("player_input", text="继续。")["capsule"]
@@ -230,7 +234,7 @@ def test_the_memory_section_is_trimmed_from_its_tail_and_named_in_truncated(kern
 def test_the_capsule_stays_keeper_only(kernel):
     """Nothing of the capsule reaches the transcript or the player's text (§13 boundary)."""
     result = open_turn(kernel, "我看看四周。")
-    narrated = kernel.table("narrate", call_id="t1-c1", text="办公室很安静。")
+    narrated = narrate(kernel, "t1-c1", "办公室很安静。")
     transcript = (campaign_dir(kernel.workspace) / "transcript.jsonl").read_text(encoding="utf-8")
     assert result["capsule"]["head"] not in transcript and "grounded_by" not in transcript
     assert "director" not in narrated["rendered_text"]

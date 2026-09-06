@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# pi-coc 启动器。契约见 docs/kernel-rpc.md 第 9 节与 §14.4（建卡进程）。
-# 用法：bin/pi-coc [--campaign <id>] [pi 参数...]          开桌（play 模式）
-#      bin/pi-coc setup [--campaign <id>] [pi 参数...]    建卡（setup 模式）
+# The pi-coc launcher. Contract in docs/kernel-rpc.md §9 and §14.4 (the setup process).
+# Usage: bin/pi-coc [--campaign <id>] [pi args...]         open a table (play mode)
+#        bin/pi-coc setup [--campaign <id>] [pi args...]   set up a game (setup mode)
 #
-# 认这几个环境变量（原样传给 pi，扩展自己读）：
-#   PI_COC_CAMPAIGN         战役 id，等价于 --campaign
-#   PI_COC_MODE             play|setup，由本脚本导出；扩展据此决定注册什么工具（契约 §14.4）
-#   PI_COC_VERIFIER_MODEL   校验车道的模型，形如 provider/model；缺省与桌子同模型
-#   PI_COC_MEMORY_MODEL     记忆抽取车道的模型，同上
-#   PI_COC_BUILD_MODEL      读者子进程的模型，同上（契约 §14.5）
-#   PI_COC_BUILD_PARALLEL   构建并发上限，缺省 1（契约 §14.5）
-#   PI_COC_READER_TIMEOUT_MS 读者一轮的上限，缺省 15 分钟
-#   PI_COC_BUILD_WAIT_MS    建卡等「开场就绪」的上限，缺省 30 分钟；到点回「还在读」，可以再等
-# 车道模型见 docs/pi-host-contract.md 第 3.1 节，读者子进程见第 3.2 节。
+# These environment variables are honoured (passed to pi verbatim and read by the extensions):
+#   PI_COC_CAMPAIGN         campaign id, the same as --campaign
+#   PI_COC_MODE             play|setup, exported by this script; the extensions register their tools by it (contract §14.4)
+#   PI_COC_VERIFIER_MODEL   the verifier lane's model, as provider/model; defaults to the table's own model
+#   PI_COC_MEMORY_MODEL     the memory extraction lane's model, likewise
+#   PI_COC_BUILD_MODEL      the reader subprocess's model, likewise (contract §14.5)
+#   PI_COC_BUILD_PARALLEL   the build concurrency cap, 1 by default (contract §14.5)
+#   PI_COC_READER_TIMEOUT_MS the cap on one reader round, 15 minutes by default
+#   PI_COC_BUILD_WAIT_MS    how long setup waits for opening readiness, 30 minutes by default; at the deadline it answers "still reading" and can wait again
+# Lane models are in docs/pi-host-contract.md §3.1, the reader subprocess in §3.2.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,7 +21,7 @@ PI_BIN="$REPO/node_modules/.bin/pi"
 AGENT_DIR="$REPO/.pi/coc-agent"
 SETTINGS="$AGENT_DIR/settings.json"
 
-# 第一个位置参数是 setup 时走建卡进程：另一页提示、另一套工具面（契约 §14.4）。
+# A first positional argument of setup takes the setup process: another prompt page, another tool surface (contract §14.4).
 mode="play"
 if [ $# -gt 0 ] && [ "$1" = "setup" ]; then
 	mode="setup"
@@ -30,18 +30,18 @@ fi
 
 if [ "$mode" = "setup" ]; then
 	PROMPT="$REPO/prompts/setup.md"
-	PROMPT_WHAT="建卡提示"
+	PROMPT_WHAT="the setup prompt"
 else
 	PROMPT="$REPO/prompts/keeper.md"
-	PROMPT_WHAT="守秘人提示"
+	PROMPT_WHAT="the Keeper prompt"
 fi
 
 if [ ! -x "$PI_BIN" ]; then
-	echo "找不到 $PI_BIN。先在 $REPO 里跑 npm install。" >&2
+	echo "Cannot find $PI_BIN. Run npm install in $REPO first." >&2
 	exit 1
 fi
 if [ ! -f "$PROMPT" ]; then
-	echo "找不到${PROMPT_WHAT} $PROMPT。" >&2
+	echo "Cannot find ${PROMPT_WHAT} at $PROMPT." >&2
 	exit 1
 fi
 
@@ -51,7 +51,7 @@ while [ $# -gt 0 ]; do
 	case "$1" in
 		--campaign)
 			if [ $# -lt 2 ]; then
-				echo "--campaign 后面要跟战役 id。" >&2
+				echo "--campaign must be followed by a campaign id." >&2
 				exit 1
 			fi
 			campaign="$2"
@@ -72,7 +72,7 @@ mkdir -p "$AGENT_DIR"
 if [ ! -f "$SETTINGS" ]; then
 	printf '{\n  "packages": ["%s"],\n  "quietStartup": true\n}\n' "$REPO" >"$SETTINGS"
 else
-	# 已有配置只补一件事：packages 里要有这个仓库。
+	# An existing settings file gets one addition only: this repository in packages.
 	SETTINGS="$SETTINGS" REPO="$REPO" node -e '
 		const fs = require("node:fs");
 		const path = process.env.SETTINGS;
@@ -81,11 +81,11 @@ else
 		try {
 			settings = JSON.parse(fs.readFileSync(path, "utf8"));
 		} catch (error) {
-			console.error(`${path} 不是合法 JSON：${error.message}`);
+			console.error(`${path} is not valid JSON: ${error.message}`);
 			process.exit(1);
 		}
 		if (settings === null || typeof settings !== "object" || Array.isArray(settings)) {
-			console.error(`${path} 顶层不是对象，请手工修好。`);
+			console.error(`${path} is not an object at the top level; fix it by hand.`);
 			process.exit(1);
 		}
 		const packages = Array.isArray(settings.packages) ? settings.packages : [];
@@ -105,7 +105,7 @@ export PI_COC_MODE="$mode"
 cd "$REPO"
 session_args=()
 if [ -n "$campaign" ]; then
-	# 建卡与开桌是两个进程、两段记录：会话 id 也分开，别把建卡的问答混进桌子的会话。
+	# Setup and play are two processes with two records: the session ids stay apart, so setup's questions never mix into the table's session.
 	if [ "$mode" = "setup" ]; then
 		session_args=(--session-id "coc-setup-$campaign")
 	else

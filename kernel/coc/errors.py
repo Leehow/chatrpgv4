@@ -24,7 +24,7 @@ ERROR_CODES = frozenset({
 
 class RpcError(Exception):
     def __init__(self, code: str, message: str, *, fix: str | None = None,
-                 details: dict[str, Any] | None = None) -> None:
+                 details: dict[str, Any] | None = None, code_detail: str | None = None) -> None:
         if code not in ERROR_CODES:
             raise ValueError(f"unknown error code {code!r}")
         super().__init__(message)
@@ -32,9 +32,14 @@ class RpcError(Exception):
         self.message = message
         self.fix = fix
         self.details = details
+        #: a closed refinement of `code` the caller can branch on (contract §16.3:
+        #: `mechanics_missing`); never a free-text reason.
+        self.code_detail = code_detail
 
     def to_json(self) -> dict[str, Any]:
         error: dict[str, Any] = {"code": self.code, "message": self.message}
+        if self.code_detail:
+            error["code_detail"] = self.code_detail
         if self.fix:
             error["fix"] = self.fix
         if self.details is not None:
@@ -43,8 +48,8 @@ class RpcError(Exception):
 
 
 def invalid_params(message: str, *, fix: str | None = None,
-                   details: dict[str, Any] | None = None) -> RpcError:
-    return RpcError("invalid_params", message, fix=fix, details=details)
+                   details: dict[str, Any] | None = None, code_detail: str | None = None) -> RpcError:
+    return RpcError("invalid_params", message, fix=fix, details=details, code_detail=code_detail)
 
 
 def not_implemented(message: str, *, details: dict[str, Any] | None = None) -> RpcError:

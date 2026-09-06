@@ -11,7 +11,8 @@ import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { assistantTexts, customMessages, openTable, waitFor } from "./harness.mjs";
 
-const RENDERED = "门框上有一道深深的抓痕。\n\n【明骰】侦查｜掷骰：42；基础值：55；门槛：普通（≤55）；结果：通过";
+/** 交付就是守秘人的正文原样（契约 §16.1）：内核不再往里插机制行。 */
+const RENDERED = "门框上有一道深深的抓痕。";
 
 function keeperTurn(text = "门框上有一道深深的抓痕。") {
 	return [
@@ -116,7 +117,7 @@ test("记忆车道：narrate 之后 memory.job 取任务包，抽出的候选原
 	assert.match(seen.systemPrompt, /只写这一回合新出现的事实/, "系统提示用的是任务包里内核写的那段指令");
 	const input = seen.messages.map((message) => message.content.map((block) => block.text).join("")).join("\n");
 	assert.match(input, /门框上有一道深深的抓痕。/, "守秘人交付的正文进了任务包");
-	assert.match(input, /可用名字/, "名字清单进了任务包");
+	assert.match(input, /Available names/, "名字清单进了任务包");
 	assert.ok(!input.includes("abc1234"), "commit 只回填遥测，不进模型提示");
 
 	const row = await waitForLaneRow(table, "memory");
@@ -162,7 +163,7 @@ test("校验车道：读正文与两份事实清单，发现交给 table.warn", 
 	assert.equal(seen.tools, undefined, "零工具会话");
 	const input = seen.messages.map((message) => message.content.map((block) => block.text).join("")).join("\n");
 	assert.match(input, /门框上有一道深深的抓痕。/, "读的是交付的正文");
-	assert.ok(!input.includes("【明骰】"), "机制行不进车道：那是内核按收据插的，不是叙述");
+	assert.ok(!input.includes("Spot Hidden"), "机制投影不进车道：车道读的是正文加两份事实清单（契约 §12.5）");
 	assert.match(input, /托马斯·海耶斯用侦查看门框，通过。/, "已提交事实清单在输入里");
 	assert.match(input, /看门人的秘密/, "守秘人专属事实清单在输入里");
 
@@ -334,10 +335,10 @@ test("车道模型来自环境变量：认 provider/model，认不出就只落�
 test("不点名模型时两条车道都跟桌子同模型", async (t) => {
 	// 队列里的每一步都按 systemPrompt 判断是谁在问，所以三方谁先要都拿得到对的回答。
 	const responder = (context) => {
-		if (/校验/.test(context.systemPrompt ?? "")) {
+		if (/after-the-fact verification/.test(context.systemPrompt ?? "")) {
 			return fauxAssistantMessage(JSON.stringify({ findings: [] }));
 		}
-		if (/候选/.test(context.systemPrompt ?? "")) {
+		if (/candidates/.test(context.systemPrompt ?? "")) {
 			return fauxAssistantMessage(JSON.stringify({ candidates: [] }));
 		}
 		return fauxAssistantMessage("守秘人在 narrate 之后又写的正文，应该被换掉");
@@ -388,9 +389,9 @@ test("回合中途断了：恢复消息里带检查点的那一句话", async (t
 	t.after(() => table.dispose());
 
 	const host = await waitFor(() => customMessages(table.session, "coc-host")[0], { label: "恢复消息" });
-	assert.match(String(host.content), /上次提交停在：第 0 回合：科比特宅/, "resume.one_line 进了恢复消息");
+	assert.match(String(host.content), /The last commit stopped at: 第 0 回合：科比特宅/, "resume.one_line 进了恢复消息");
 	assert.match(String(host.content), /我下地窖/, "玩家原文照旧在里面");
-	assert.match(String(host.content), /还欠：narrate/);
+	assert.match(String(host.content), /Still owed: narrate/);
 });
 
 test("补抽：开桌后按缺省派发一个一个补，内核回空就收手（#20）", async (t) => {

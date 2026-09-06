@@ -22,7 +22,6 @@ TABLE_CONTRACT_ID = "coc.beat-directives.v1"
 READ_KINDS = ("play-register", "style-axis", "craft-directive", "beat-type")
 MAX_DIRECTIVES_PER_BEAT = 4
 DEFAULT_REGISTER = "purist"
-FALLBACK_LANGUAGE = "en"
 
 
 class CraftError(RpcError):
@@ -81,10 +80,11 @@ class TextGraph:
             problems.append(f"beat table names beats the Director lacks: {extra}")
         if problems:
             raise CraftError("beat-directives.json disagrees with the text graph", problems=problems)
-        self.axis_lines: dict[str, dict[str, str]] = {str(k): dict(v) for k, v in (table.get("axis_lines") or {}).items()
-                                                     if isinstance(v, dict)}
-        self.directive_lines: dict[str, dict[str, str]] = {str(k): dict(v) for k, v in (table.get("directive_lines") or {}).items()
-                                                          if isinstance(v, dict)}
+        # §16.1: one English line per axis and per directive; the keeper carries them into
+        # the player's language itself.
+        self.axis_lines: dict[str, str] = {str(k): v for k, v in (table.get("axis_lines") or {}).items() if isinstance(v, str)}
+        self.directive_lines: dict[str, str] = {str(k): v for k, v in (table.get("directive_lines") or {}).items()
+                                                if isinstance(v, str)}
 
     def _ordered(self, kind: str) -> list[dict[str, Any]]:
         rows = [(n["properties"]["ordinal"], node_id, n) for node_id, n in self.nodes.items() if n.get("node_kind") == kind]
@@ -92,9 +92,9 @@ class TextGraph:
 
     # ---- the style section --------------------------------------------------------------
 
-    def _line(self, table: dict[str, dict[str, str]], key: str, language: str, fallback: str) -> str:
-        lines = table.get(key) or {}
-        return str(lines.get(language) or lines.get(FALLBACK_LANGUAGE) or fallback)
+    @staticmethod
+    def _line(table: dict[str, str], key: str, fallback: str) -> str:
+        return str(table.get(key) or fallback)
 
     def axis_lines_for(self, language: str) -> list[str]:
         out = []
@@ -103,14 +103,14 @@ class TextGraph:
             applies = str(props.get("language_applicability") or "all")
             if applies != "all" and applies != language:
                 continue
-            out.append(self._line(self.axis_lines, str(node["node_id"]), language, str(node.get("name") or node["node_id"])))
+            out.append(self._line(self.axis_lines, str(node["node_id"]), str(node.get("name") or node["node_id"])))
         return out
 
-    def directive_rows(self, ids: list[str], language: str) -> list[dict[str, str]]:
-        return [{"id": d, "line": self._line(self.directive_lines, d, language,
-                                              str(self.directives[d].get("rationale") or d))} for d in ids]
+    def directive_rows(self, ids: list[str]) -> list[dict[str, str]]:
+        return [{"id": d, "line": self._line(self.directive_lines, d, str(self.directives[d].get("rationale") or d))}
+                for d in ids]
 
     def style_section(self, *, language: str, register: str, beat: str, full: bool) -> dict[str, Any]:
         ids = list(self.directives) if full else list(self.beat_table.get(beat, []))
         return {"language": language, "register": register, "axes": self.axis_lines_for(language),
-                "directives": self.directive_rows(ids, language)}
+                "directives": self.directive_rows(ids)}

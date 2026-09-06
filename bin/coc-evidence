@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# 读者的证据工具（契约 §14.5）：在一个抽取包上 search / verify / page / outline / read / coverage。
-# 用法：bin/coc-evidence [--packet <work_dir>/packet.json] search <名字>
-#       bin/coc-evidence verify <span-id>[,<span-id>...]
-#       bin/coc-evidence page <pdf_index>
-# 缺省读当前目录的 packet.json。
+# The reader's evidence tool (contract §14.5): search / verify / page / outline / read / coverage
+# over one extraction packet.
+# Usage: bin/coc-evidence [--packet <work_dir>/packet.json] search <name>
+#        bin/coc-evidence verify <span-id>[,<span-id>...]
+#        bin/coc-evidence page <pdf_index>
+# Reads packet.json in the current directory by default.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/.." && pwd)"

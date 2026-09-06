@@ -48,38 +48,23 @@ SKILLS_OF_NOTE = 8
 MINUTES_PER_HOUR = 60
 MINUTES_PER_DAY = 24 * 60
 
-HEAD = {
-    "zh-Hans": ("以下是本回合开始时的全部场面：已含时钟、本场景未发现的线索与门槛、在场者的秘密与议程、来路与出口、"
-                "压力与待办、规则层的当前形势、Director 的建议节拍、相关记忆与文风契约。胶囊里有的不必再 look/lookup；"
-                "director 是建议不是台词。where.material 与出口的 material 说的是书读到哪了：ready 可放心去，"
-                "reading 正在读，missing 那一段没有材料。"),
-    "en": ("Everything at the start of this turn: the clock, the undiscovered clues here and their gates, the secrets "
-           "and agendas of those present, the way back and the exits, pressures and obligations, the rule-layer "
-           "situations, the Director's suggested beat, related memory and the style contract. Do not look/lookup "
-           "for what is already here; director is advice, not lines. where.material and each exit's material say how "
-           "far the book has been read: ready, reading, or missing."),
-}
+HEAD = ("Everything at the start of this turn: the clock, the undiscovered clues here and their gates, the secrets "
+        "and agendas of those present, the way back and the exits, pressures and obligations, the rule-layer "
+        "situations, the Director's suggested beat, related memory and the style contract. Do not look/lookup "
+        "for what is already here; director is advice, not lines. where.material and each exit's material say how "
+        "far the book has been read: ready, reading, or missing.")
 #: #22: appended to `head` when the `module` section rides along.
-HEAD_MODULE = {
-    "zh-Hans": ("本回合另附 module 节（开桌简报，只此一回）：这本书讲什么、时代、派系/地点/人物名册（含未登场者，守秘人专属）、"
-                "结局与结论的名字、结构类型；开桌前不必再 lookup 这本书。"),
-    "en": (" This turn also carries a module section (the table briefing, this once): what the book is about, its era, "
-           "the factions, places and people (absent ones included, keeper-only), the ending and conclusion names and "
-           "the structure type; do not lookup the book before opening."),
-}
-ELAPSED = {"zh-Hans": "{hours} 小时 {minutes} 分钟", "en": "{hours} h {minutes} min"}
-#: Day parts by hour of day, only when the module declares a start time (§13.1).
+HEAD_MODULE = (" This turn also carries a module section (the table briefing, this once): what the book is about, its era, "
+               "the factions, places and people (absent ones included, keeper-only), the ending and conclusion names and "
+               "the structure type; do not lookup the book before opening.")
+ELAPSED = "{hours} h {minutes} min"
+#: Day parts by hour of day, only when the module declares a start time (§13.1); the
+#: closed words are the capsule's own vocabulary (§16.1).
 DAY_PARTS = ((5, "dawn"), (8, "morning"), (12, "midday"), (14, "afternoon"), (18, "evening"), (22, "night"), (24, "small_hours"))
-DAY_PARTS_ZH = {"dawn": "拂晓", "morning": "上午", "midday": "正午", "afternoon": "下午", "evening": "傍晚", "night": "夜晚",
-                "small_hours": "深夜"}
 
 
 def json_size(payload: Any) -> int:
     return len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
-
-
-def _lang(language: str) -> str:
-    return language if language in HEAD else "en"
 
 
 # ---- sections -----------------------------------------------------------------
@@ -91,13 +76,12 @@ def scene_label(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any]
     return str(labels.get(graph.handle(scene)) or graph.display_name(scene))
 
 
-def clock_section(graph: ModuleGraph, world: dict[str, Any], language: str) -> dict[str, Any]:
+def clock_section(graph: ModuleGraph, world: dict[str, Any]) -> dict[str, Any]:
     """`where.clock`: the world minutes, `elapsed` generated from them, and `day_part`
     only when the module node declares a start time (nothing is guessed otherwise)."""
     minutes = int((world.get("clock") or {}).get("minutes") or 0)
-    lang = _lang(language)
     clock: dict[str, Any] = {"minutes": minutes,
-                             "elapsed": ELAPSED[lang].format(hours=minutes // MINUTES_PER_HOUR, minutes=minutes % MINUTES_PER_HOUR)}
+                             "elapsed": ELAPSED.format(hours=minutes // MINUTES_PER_HOUR, minutes=minutes % MINUTES_PER_HOUR)}
     start = record_of(graph.module_node).get("start_time") if graph.module_node else None
     if isinstance(start, str) and ":" in start:
         try:
@@ -106,7 +90,7 @@ def clock_section(graph: ModuleGraph, world: dict[str, Any], language: str) -> d
             return clock
         at = (hour * MINUTES_PER_HOUR + minute + minutes) % MINUTES_PER_DAY
         part = next(name for bound, name in DAY_PARTS if at < bound * MINUTES_PER_HOUR)
-        clock["day_part"] = DAY_PARTS_ZH[part] if lang.startswith("zh") else part
+        clock["day_part"] = part
     return clock
 
 
@@ -349,7 +333,7 @@ def _one_line(graph: ModuleGraph, node: dict[str, Any], chars: int = MODULE_LINE
     person = [str(record[key]) for key in ("relationship_to_investigators", "agenda")
               if isinstance(record.get(key), str) and record[key].strip()]
     if person:
-        candidates.append("；".join(person))
+        candidates.append("; ".join(person))
     candidates.append(graph.prose(node))
     for text in candidates:
         line = " ".join(str(text).split())
@@ -406,7 +390,7 @@ def fitted_module_section(graph: ModuleGraph, budget: int = MODULE_BUDGET) -> tu
 
 def director_section(dg: DirectorGraph, ontology: Ontology, graph: ModuleGraph, world: dict[str, Any],
                      scene: dict[str, Any], turn: dict[str, Any], party: list[dict[str, Any]], present: list[dict[str, Any]],
-                     records: dict[int, dict[str, Any]], session: dict[str, Any] | None, *, language: str,
+                     records: dict[int, dict[str, Any]], session: dict[str, Any] | None, *,
                      clock_near_full: bool, memory_rows: list[dict[str, Any]], conditions_of: Callable[[dict[str, Any]], list[str]],
                      sanity_of: Callable[[dict[str, Any]], dict[str, Any] | None]) -> dict[str, Any]:
     undiscovered = [c for c in clues_here(graph, world, scene) if not c["discovered"]]
@@ -416,7 +400,7 @@ def director_section(dg: DirectorGraph, ontology: Ontology, graph: ModuleGraph, 
     names = [graph.display_name(n) for n in present] + list(world.get("discovered_clues") or [])
     overlap = director_mod.memory_overlap_count(memory_rows, names)
     can_move = bool(graph.scene_exits(scene)) or bool(world.get("scene_trail"))
-    scored = director_mod.score(dg, sig, scene, language=language, can_move=can_move, overlap=overlap,
+    scored = director_mod.score(dg, sig, scene, can_move=can_move, overlap=overlap,
                                 pressure_available=bool(record_of(scene).get("pressure_moves")))
     # Decisions by their §11.3 semantic name (`magic:cast-spell`); rules and effects by
     # their full registry id, so nothing in the list can be mistaken for a decision.
@@ -445,7 +429,6 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
     from .rules.healing import read_healing_state
     from .sessions import SessionView, sanity_snapshot  # local: sessions reads capsule.condition_met for chase chains
     from .warn import latest_warnings
-    lang = _lang(language)
     scene = graph.scene(world["active_scene"])
     present_nodes = npcs_present(graph, world, scene)
     view = SessionView(campaign.dir, graph, party, world)
@@ -455,19 +438,19 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
     previous = played[0] if played else None
 
     where = where_section(graph, world, scene, material_of)
-    where["clock"] = clock_section(graph, world, language)
+    where["clock"] = clock_section(graph, world)
     where["session"] = session
 
     fraction = director_graph.threshold("pressure-clock-near-full-fraction")
-    clocks, near_full = pressures_mod.clock_pressures(lang, situations, party, session, tuple(fraction))
+    clocks, near_full = pressures_mod.clock_pressures(situations, party, session, tuple(fraction))
     continuations = pressures_mod.unanswered_continuations(previous, list(turn.get("receipts") or []))
-    pressures = (clocks + pressures_mod.threat_pressures(lang, graph, scene, present_nodes)
-                 + pressures_mod.rule_pressures(lang, continuations))
-    obligations = (pressures_mod.choice_obligation(lang, turn.get("pending_choice"))
-                   + pressures_mod.session_obligation(lang, session)
-                   + pressures_mod.continuation_obligations(lang, continuations)
-                   + pressures_mod.quest_obligations(lang, graph, world)
-                   + pressures_mod.promise_obligations(lang, open_promises(campaign)))
+    pressures = (clocks + pressures_mod.threat_pressures(graph, scene, present_nodes)
+                 + pressures_mod.rule_pressures(continuations))
+    obligations = (pressures_mod.choice_obligation(turn.get("pending_choice"))
+                   + pressures_mod.session_obligation(session)
+                   + pressures_mod.continuation_obligations(continuations)
+                   + pressures_mod.quest_obligations(graph, world)
+                   + pressures_mod.promise_obligations(open_promises(campaign)))
 
     def conditions_of(sheet: dict[str, Any]) -> list[str]:
         healing = read_healing_state(campaign.dir, str(sheet.get("id")))
@@ -475,7 +458,7 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
         return [str(c) for c in conditions or []]
 
     director = director_section(director_graph, ontology, graph, world, scene, turn, party, present_nodes, records, session,
-                                language=language, clock_near_full=near_full, memory_rows=read_candidates(campaign),
+                                clock_near_full=near_full, memory_rows=read_candidates(campaign),
                                 conditions_of=conditions_of,
                                 sanity_of=lambda sheet: sanity_snapshot(campaign.dir, str(sheet.get("id"))))
     style = craft.style_section(language=language, register=register, beat=director["beat"], full=style_full)
@@ -507,13 +490,13 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
             budget = STYLE_FULL_BUDGET
         if fit_budget(sections[name], budget, drop="last"):
             truncated.append(name)
-    head = HEAD[lang]
+    head = HEAD
     if module_brief:
         # #22: the briefing rides once, on the process's first turn after open.
         sections["module"], cut = fitted_module_section(graph)
         if cut:
             truncated.append("module")
-        head += HEAD_MODULE[lang]
+        head += HEAD_MODULE
     capsule: dict[str, Any] = {
         "head": head,
         "turn": {

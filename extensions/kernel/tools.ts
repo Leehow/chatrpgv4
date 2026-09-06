@@ -1,6 +1,7 @@
 /**
- * 守秘人只见的七个动词。参数镜像 docs/kernel-rpc.md 第 5 节，
- * 但 `campaign` 与 `call_id` 由扩展补，模型看不见也写不了。
+ * The seven verbs the Keeper sees. Parameters mirror docs/kernel-rpc.md §5,
+ * except `campaign` and `call_id`, which the extension fills in: the model
+ * neither sees nor writes them.
  */
 
 import { StringEnum } from "@earendil-works/pi-ai";
@@ -9,7 +10,7 @@ import { type TSchema, Type } from "typebox";
 export const COC_TOOL_NAMES = ["look", "lookup", "recall", "resolve", "apply", "ask", "narrate"] as const;
 export type CocToolName = (typeof COC_TOOL_NAMES)[number];
 
-/** 会改状态的调用：铸造 `call_id`，且在回合关闭时被拒。 */
+/** State-changing calls: they mint a `call_id`, and they are refused once the turn is closed. */
 export const WRITE_TOOLS: ReadonlySet<string> = new Set(["resolve", "apply", "ask", "narrate"]);
 
 export interface CocToolSpec {
@@ -22,61 +23,61 @@ export interface CocToolSpec {
 }
 
 const MoveEffect = Type.Object({
-	kind: StringEnum(["move"] as const, { description: "走到另一个场景" }),
-	to: Type.String({ description: "目的地场景名，必须是当前场景可达的出口之一" }),
-	travel_minutes: Type.Optional(Type.Integer({ description: "路上花的分钟数；省略则取图上这条边的值" })),
-	label: Type.Optional(Type.String({ description: "目的地在玩家语言里的短名，用于【变化】行；省略则用场景名" })),
+	kind: StringEnum(["move"] as const, { description: "walk to another scene" }),
+	to: Type.String({ description: "destination scene name; must be one of the exits reachable from the current scene" }),
+	travel_minutes: Type.Optional(Type.Integer({ description: "minutes spent on the way; omitted means the value on the graph edge" })),
+	label: Type.Optional(Type.String({ description: "short name of the destination in the player's language; omitted means the scene name" })),
 });
 
 const ClueEffect = Type.Object({
-	kind: StringEnum(["clue"] as const, { description: "调查员拿到一条线索" }),
-	clue: Type.String({ description: "线索名，必须是当前场景可得的线索" }),
-	how: Type.Optional(Type.String({ description: "一句话：他们是怎么拿到的" })),
-	label: Type.Optional(Type.String({ description: "这条线索在玩家语言里的短名，用于【变化】行；省略则用线索名" })),
+	kind: StringEnum(["clue"] as const, { description: "the investigator obtains one clue" }),
+	clue: Type.String({ description: "clue name; must be a clue obtainable in the current scene" }),
+	how: Type.Optional(Type.String({ description: "one sentence: how they got it" })),
+	label: Type.Optional(Type.String({ description: "short name of this clue in the player's language; omitted means the clue name" })),
 });
 
 const DamageEffect = Type.Object({
-	kind: StringEnum(["damage"] as const, { description: "没有攻击者的伤害：摔落、火烧、坠物、窒息" }),
-	dice: Type.String({ description: "规则书给的伤害骰，如 1D6；内核来掷" }),
-	subject: Type.Optional(Type.String({ description: "受伤者，缺省当前调查员" })),
-	why: Type.Optional(Type.String({ description: "一句话：怎么伤的" })),
+	kind: StringEnum(["damage"] as const, { description: "damage with no attacker: a fall, fire, a falling object, suffocation" }),
+	dice: Type.String({ description: "the damage dice from the rulebook, such as 1D6; the kernel rolls them" }),
+	subject: Type.Optional(Type.String({ description: "who is hurt; defaults to the current investigator" })),
+	why: Type.Optional(Type.String({ description: "one sentence: how they were hurt" })),
 });
 
 const TimeEffect = Type.Object({
-	kind: StringEnum(["time"] as const, { description: "世界时钟往前走" }),
-	minutes: Type.Integer({ description: "推进的分钟数" }),
-	why: Type.Optional(Type.String({ description: "一句话：时间花在哪了" })),
+	kind: StringEnum(["time"] as const, { description: "the world clock moves forward" }),
+	minutes: Type.Integer({ description: "minutes advanced" }),
+	why: Type.Optional(Type.String({ description: "one sentence: where the time went" })),
 });
 
-/** 物品易手（契约 §5 的 `item`，#19）：叙述里到手或失去的东西由此进调查员表。 */
+/** Things changing hands (contract §5 `item`, #19): what the narration gains or loses reaches the sheet here. */
 const ItemEffect = Type.Object({
-	kind: StringEnum(["item"] as const, { description: "东西易手：到手、交出、消耗、被夺" }),
-	name: Type.String({ description: "物品名；武器与规则表里的东西按表上的名字写" }),
-	to: Type.Optional(Type.String({ description: "东西归谁，缺省当前调查员" })),
-	from: Type.Optional(Type.String({ description: "东西从谁那儿来：NPC 名" })),
+	kind: StringEnum(["item"] as const, { description: "something changes hands: gained, handed over, used up, taken away" }),
+	name: Type.String({ description: "item name; weapons and rules-table entries use the name on the table" }),
+	to: Type.Optional(Type.String({ description: "who ends up with it; defaults to the current investigator" })),
+	from: Type.Optional(Type.String({ description: "who it came from: an NPC name" })),
 	weapon: Type.Optional(
 		Type.String({
 			description:
-				"这件东西是武器时写规则表里的武器 profile 名（点三八左轮、猎枪这类）；写了内核才取得到伤害、射程、弹容，之后 resolve 的 weapon 才认得它、战斗开局才按它排弹药。表上没有这个 profile 时内核会报 needs 并列出可用的",
+				"when this thing is a weapon, the weapon profile name from the rules table (a .38 revolver, a shotgun, and so on); only then can the kernel read its damage, range and capacity, only then will a later resolve's weapon resolve it, and only then will combat set up its ammunition. When the table has no such profile the kernel reports needs and lists the available ones",
 		}),
 	),
-	quantity: Type.Optional(Type.Integer({ description: "数量，缺省 1；负数是失去（消耗、交出、被夺）" })),
-	label: Type.Optional(Type.String({ description: "这件东西在玩家语言里的短名，用于【变化】行；省略则用物品名" })),
-	why: Type.Optional(Type.String({ description: "一句话：怎么到手的，或怎么没的" })),
+	quantity: Type.Optional(Type.Integer({ description: "quantity, default 1; a negative number is a loss (used up, handed over, taken away)" })),
+	label: Type.Optional(Type.String({ description: "short name of this thing in the player's language; omitted means the item name" })),
+	why: Type.Optional(Type.String({ description: "one sentence: how it was gained, or how it was lost" })),
 });
 
-/** 现金增减（契约 §5 的 `cash`，#19）：写调查员表上的 finance.cash。 */
+/** Cash going up or down (contract §5 `cash`, #19): writes finance.cash on the investigator sheet. */
 const CashEffect = Type.Object({
-	kind: StringEnum(["cash"] as const, { description: "手里的钱变多或变少" }),
-	subject: Type.Optional(Type.String({ description: "谁的钱，缺省当前调查员" })),
-	delta: Type.Integer({ description: "带正负号的变动额，货币单位随时代；花出去写负数，收进来写正数" }),
-	why: Type.Optional(Type.String({ description: "一句话：钱花在哪了，或从哪来的" })),
+	kind: StringEnum(["cash"] as const, { description: "the money in hand goes up or down" }),
+	subject: Type.Optional(Type.String({ description: "whose money; defaults to the current investigator" })),
+	delta: Type.Integer({ description: "signed change, in the currency of the era; spent is negative, received is positive" }),
+	why: Type.Optional(Type.String({ description: "one sentence: where the money went, or where it came from" })),
 });
 
-/** 保留种类：切片 0 内核一律回 not_implemented，形状先留着。 */
+/** Reserved kinds: in this slice the kernel always answers not_implemented; the shape is here already. */
 const ReservedEffect = Type.Object({
 	kind: StringEnum(["handout", "npc", "flag", "note", "ruling"] as const, {
-		description: "保留种类，本切片内核会回 not_implemented",
+		description: "reserved kinds; in this slice the kernel answers not_implemented",
 	}),
 	name: Type.Optional(Type.String()),
 	value: Type.Optional(Type.String()),
@@ -86,7 +87,8 @@ const ReservedEffect = Type.Object({
 const ResolveAction = Type.Object({
 	actor: Type.Optional(
 		Type.String({
-			description: "谁在动手：调查员名或 id；替 NPC 行动（比如战斗里 NPC 的回合、NPC 的防御）时写 NPC 名；只有一位调查员且是他动手时省略",
+			description:
+				"who acts: an investigator name or id; when acting for an NPC (an NPC's turn in combat, an NPC's defence) write the NPC name; omit when there is one investigator and it is his action",
 		}),
 	),
 	intent: StringEnum(
@@ -103,72 +105,80 @@ const ResolveAction = Type.Object({
 			"ambiguous",
 			"montage",
 		] as const,
-		{ description: "这次行动属于哪一类；内核按它挑规则族" },
+		{ description: "which class this action belongs to; the kernel picks the rule family from it" },
 	),
-	goal: Type.String({ description: "一句话：玩家想达成什么" }),
-	method: Type.String({ description: "一句话：他怎么做；通常含技能名" }),
-	target: Type.Optional(Type.String({ description: "对谁或对什么：NPC 名或物件名" })),
-	stakes: Type.Optional(Type.String({ description: "一句话：失败会付出什么" })),
+	goal: Type.String({ description: "one sentence: what the player wants to achieve" }),
+	method: Type.String({ description: "one sentence: how he does it; usually names a skill" }),
+	target: Type.Optional(Type.String({ description: "against whom or what: an NPC name or an object name" })),
+	stakes: Type.Optional(Type.String({ description: "one sentence: what failure costs" })),
 	modifiers: Type.Optional(
 		Type.Object({
-			bonus_dice: Type.Optional(Type.Integer({ description: "奖励骰数量，0 到 2" })),
-			penalty_dice: Type.Optional(Type.Integer({ description: "惩罚骰数量，0 到 2" })),
+			bonus_dice: Type.Optional(Type.Integer({ description: "number of bonus dice, 0 to 2" })),
+			penalty_dice: Type.Optional(Type.Integer({ description: "number of penalty dice, 0 to 2" })),
 			difficulty: Type.Optional(StringEnum(["regular", "hard", "extreme"] as const)),
 		}),
 	),
-	skill: Type.Optional(Type.String({ description: "显式技能或特征名，优先于从 method 推断" })),
+	skill: Type.Optional(Type.String({ description: "an explicit skill or characteristic name; takes precedence over inference from method" })),
 	weapon: Type.Optional(
-		Type.String({ description: "攻击用的武器名，徒手写 unarmed；intent 为 combat 时必给，缺了内核会报 needs 并列出他持有的武器" }),
+		Type.String({
+			description:
+				"the weapon used to attack, bare hands is unarmed; required when intent is combat, and without it the kernel reports needs and lists the weapons he carries",
+		}),
 	),
-	spell: Type.Optional(Type.String({ description: "法术名；施法（intent 为 cast）或从典籍里学法术时给" })),
+	spell: Type.Optional(Type.String({ description: "spell name; give it when casting (intent cast) or when learning a spell from a tome" })),
 	defense: Type.Optional(
 		StringEnum(["dodge", "fight_back", "none"] as const, {
-			description: "回应上一次结果里的待决防御：闪避、反击或放弃防御；玩家的防御先用 ask 问他，NPC 的防御你配 actor 自己定",
+			description:
+				"answers the pending defence from the previous result: dodge, fight back, or give up the defence; ask the player for his own defence first, and decide an NPC's yourself together with actor",
 		}),
 	),
 	push: Type.Optional(
-		Type.Boolean({ description: "对上一次失败的检定推骰；为 true 时 stakes 必填，写明推失败要付的代价" }),
+		Type.Boolean({ description: "push the previous failed roll; when true, stakes is required and must say what failing the push costs" }),
 	),
 	san_loss: Type.Optional(
-		Type.String({ description: "理智检定的损失表达式，成功/失败，如 0/1D6；见到恐怖之物做 sanity:check 时必给，目标 NPC 档案里写了的可以省略" }),
+		Type.String({
+			description:
+				"the loss expression for a sanity check, success/failure, such as 0/1D6; required when doing sanity:check at the sight of something horrible, and omissible when the target NPC's profile already declares it",
+		}),
 	),
 	involuntary: Type.Optional(
 		Type.String({
-			description: "理智检定失败时的失控行为，五选一：faint、flee、scream、freeze、attack；sanity:check 必给，由你按场面定",
+			description:
+				"the out-of-control behaviour on a failed sanity check, one of five: faint, flee, scream, freeze, attack; required for sanity:check, and yours to pick from the situation",
 		}),
 	),
 	outcome: Type.Optional(
 		StringEnum(["investigators_win", "monsters_win", "fled", "stalemate"] as const, {
-			description: "结束战斗时给：谁赢了、逃了、还是僵持",
+			description: "give it when ending a combat: who won, who fled, or a stalemate",
 		}),
 	),
 	skills: Type.Optional(
-		Type.Array(Type.String(), { description: "合并检定用到的两个以上技能或特征名" }),
+		Type.Array(Type.String(), { description: "the two or more skill or characteristic names used in a combined check" }),
 	),
-	mode: Type.Optional(StringEnum(["any", "all"] as const, { description: "合并检定过一项即可还是全过" })),
+	mode: Type.Optional(StringEnum(["any", "all"] as const, { description: "a combined check passes on one, or needs them all" })),
 	motive: Type.Optional(
 		Type.Object({
-			direction: StringEnum(["support", "neutral", "oppose"] as const, { description: "NPC 对这个目标是支持、中立还是抵触" }),
-			intensity: Type.Optional(Type.Integer({ description: "0 到 2，越大越强" })),
-		}, { description: "社交判定时 NPC 对玩家目标的倾向；省略视为中立" }),
+			direction: StringEnum(["support", "neutral", "oppose"] as const, { description: "whether the NPC supports, is neutral to, or opposes this goal" }),
+			intensity: Type.Optional(Type.Integer({ description: "0 to 2; higher is stronger" })),
+		}, { description: "in a social adjudication, the NPC's leaning towards the player's goal; omitted counts as neutral" }),
 	),
-	support: Type.Optional(Type.String({ description: "社交判定里玩家拿出来的实证：一条已发现线索的名字" })),
-	interrupted: Type.Optional(Type.Boolean({ description: "施法被打断" })),
+	support: Type.Optional(Type.String({ description: "the evidence the player puts on the table in a social adjudication: the name of a discovered clue" })),
+	interrupted: Type.Optional(Type.Boolean({ description: "the casting was interrupted" })),
 	rest: Type.Optional(
 		Type.Object({
 			complete_rest: Type.Optional(Type.Boolean()),
 			poor_environment: Type.Optional(Type.Boolean()),
-		}, { description: "每周重伤恢复时的休养条件" }),
+		}, { description: "the convalescence conditions for weekly major-wound recovery" }),
 	),
-	ending: Type.Optional(Type.String({ description: "结束会话时的结局种类；省略视为 conclusion" })),
-	luck: Type.Optional(Type.Integer({ description: "花掉的幸运点数，把上一次差一点的检定补成通过" })),
+	ending: Type.Optional(Type.String({ description: "the ending kind when closing a session; omitted counts as conclusion" })),
+	luck: Type.Optional(Type.Integer({ description: "luck points spent to turn a near-miss check into a pass" })),
 	choice: Type.Optional(
 		Type.Object({
-			pending: Type.String({ description: "待决名，来自上一回合 ask 的 pending_choice" }),
-			option: Type.String({ description: "玩家选中的选项" }),
+			pending: Type.String({ description: "the pending choice name, from the previous turn's ask pending_choice" }),
+			option: Type.String({ description: "the option the player picked" }),
 		}),
 	),
-	decision: Type.Optional(Type.String({ description: "内核报 needs_choice 时，从候选里挑一个的名字" })),
+	decision: Type.Optional(Type.String({ description: "when the kernel reports needs_choice, the name of the candidate you pick" })),
 });
 
 export const COC_TOOLS: readonly CocToolSpec[] = [
@@ -177,15 +187,15 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Look",
 		method: "table.look",
 		description:
-			"看胶囊没答的那一面。回合胶囊已经带着这些的当前值：世界时钟、场面与出口、来路（走过的场景，由近到远）、此地尚未被发现的线索与它们的获取方式、在场者的企图与秘密、以及正压着的东西——这些不必再 look 一遍，胶囊就是最新的。胶囊没有的才用它：不给参数是重看场景（戏剧问题、压力动作、出口、着力点、在场者）；focus 给 npc 加 name 看某个胶囊没列的实体的守秘人视图（企图、恐惧、秘密、声音、关系、已知事实）；focus 给 investigator 看调查员表的细目；focus 给 clues 看已发现的与此地可得的线索；focus 给 time 看世界时钟。开桌那一回合没有胶囊，先 look 看开场场面。返回的一切都是守秘人专属，不能照抄进玩家文字。",
-		promptSnippet: "看胶囊没答的那一面：场面、NPC、调查员、线索或时钟",
+			"See the side the turn capsule did not answer. The capsule already carries the current value of all of this: the world clock, the scene and its exits, the way back (the scenes walked through, nearest first), the clues here that are still undiscovered and how they are obtained, the agendas and secrets of those present, and what is pressing — do not look those up again, the capsule is current. Use this for what the capsule does not have: with no parameters it re-reads the scene (dramatic question, pressure moves, exits, affordances, who is present); focus npc with a name gives the Keeper view of an entity the capsule did not list (agenda, fear, secret, voice, relationships, known facts); focus investigator gives the detail of the investigator sheet; focus clues gives what is discovered and what is obtainable here; focus time gives the world clock. The opening turn has no capsule, so look at the opening scene first. Everything it returns is Keeper-only and must never be copied into the player's text.",
+		promptSnippet: "See the side the capsule did not answer: scene, NPC, investigator, clues, or the clock",
 		parameters: Type.Object({
 			focus: Type.Optional(
 				StringEnum(["scene", "npc", "investigator", "clues", "time"] as const, {
-					description: "看哪一面，缺省 scene",
+					description: "which side to look at; defaults to scene",
 				}),
 			),
-			name: Type.Optional(Type.String({ description: "focus 为 npc 时要看的实体名" })),
+			name: Type.Optional(Type.String({ description: "the entity name to look at when focus is npc" })),
 		}),
 	},
 	{
@@ -193,15 +203,15 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Lookup",
 		method: "table.lookup",
 		description:
-			"查模组图上胶囊没答的东西。kind 为 secret、scope 为 scene 的那份简报——本场景尚未被发现的线索、在场者的秘密与企图、守秘人笔记——胶囊里已经带着了，别再查一遍；要整本的秘密与结局节点时才用 scope 给 module。kind 为 module 时按名字或别名在模组图上找实体，最多回 8 条，每条给摘要、可见性与关系，用来确认玩家提到的名字在不在这本模组里；匹配的是图上的名字与句柄，用模组里的中文名或胶囊里出现过的名字去查，英文关键词查不到。kind 的 rule 与 catalog 本切片会回 not_implemented。",
-		promptSnippet: "在模组图上查胶囊没答的实体，或调整本的秘密与结局",
+			"Search the module graph for what the capsule did not answer. The briefing for kind secret with scope scene — the clues in this scene still undiscovered, the secrets and agendas of those present, the Keeper's notes — is already in the capsule; do not look it up again. Use scope module only when you want the whole book's secrets and ending nodes. With kind module it finds entities on the graph by name or alias, at most 8 rows, each with a summary, visibility and relations: use it to confirm whether a name the player mentioned exists in this book. It matches the names and handles on the graph, so search with the module's own names or a name that appeared in the capsule; a translated keyword will not find anything. The kinds rule and catalog answer not_implemented in this slice.",
+		promptSnippet: "Look up an entity the capsule did not answer, or the whole book's secrets and endings",
 		parameters: Type.Object({
 			kind: StringEnum(["module", "secret", "rule", "catalog"] as const, {
-				description: "查什么；rule 与 catalog 本切片未实现",
+				description: "what to look up; rule and catalog are not implemented in this slice",
 			}),
-			query: Type.Optional(Type.String({ description: "名字或问题；kind 为 secret 时可以省略" })),
+			query: Type.Optional(Type.String({ description: "a name or a question; omissible when kind is secret" })),
 			scope: Type.Optional(
-				StringEnum(["scene", "module"] as const, { description: "kind 为 secret 时的范围，缺省 scene" }),
+				StringEnum(["scene", "module"] as const, { description: "the scope when kind is secret; defaults to scene" }),
 			),
 		}),
 	},
@@ -210,32 +220,32 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Recall",
 		method: "table.recall",
 		description:
-			"回看过去，三条路。memory：过去回合抽出的往事断言，缺省给跟当前在场者与调查员相关的，用 about 点名别人，用 kinds 收窄种类；断言是候选，可能过时、可能只是某人的信念，信不信你判断。transcript：逐字原文，不带 read 时给候选卡（哪一回合、谁说的、开头 80 字），看准了再用 read 把那一段整段读出来，回来会说这段原文跟回合记录对不对得上。history：时间线，每回合的场景、时钟、收据条数与交付开头，用 types 只要某几类事件，用 diff 问两个回合之间到底变了什么。玩家提到「刚才」「你说过」，或者你要接上几回合前的线头时用它，不要凭印象编造已经发生过的事。",
-		promptSnippet: "回看往事：memory 断言、transcript 原文、history 时间线",
+			"Look back, three ways. memory: assertions extracted from past turns; by default the ones about those present and the investigators, narrowed with about for other names and with kinds for the kind. Assertions are candidates: they may be stale, they may be only someone's belief, and believing them is your judgement. transcript: the verbatim record; without read it gives candidate cards (which turn, who spoke, the first 80 characters), and once you see the one you want, read pulls that passage out whole and tells you whether it matches the turn record. history: the timeline — each turn's scene, clock, receipt count and the opening of the delivery — with types for only certain event kinds, and diff to ask what actually changed between two turns. Use it when the player says \"just now\" or \"you said\", or when you pick up a thread from several turns back; never invent from memory something that already happened.",
+		promptSnippet: "Look back: memory assertions, verbatim transcript, history timeline",
 		parameters: Type.Object({
 			what: StringEnum(["transcript", "memory", "history"] as const, {
-				description: "回看哪一路：往事断言、逐字原文、还是时间线",
+				description: "which way to look back: past assertions, verbatim text, or the timeline",
 			}),
 			turns: Type.Optional(
 				Type.Array(Type.Integer(), {
 					minItems: 2,
 					maxItems: 2,
-					description: "回合区间 [起, 止]；transcript 缺省最近 3 回合",
+					description: "turn range [from, to]; transcript defaults to the last 3 turns",
 				}),
 			),
-			role: Type.Optional(StringEnum(["player", "keeper"] as const, { description: "transcript：只要哪一方的记录" })),
+			role: Type.Optional(StringEnum(["player", "keeper"] as const, { description: "transcript: only one side's record" })),
 			read: Type.Optional(
 				Type.Object(
 					{
-						turn: Type.Integer({ description: "哪一回合" }),
-						role: StringEnum(["player", "keeper"] as const, { description: "玩家原文还是守秘人交付" }),
+						turn: Type.Integer({ description: "which turn" }),
+						role: StringEnum(["player", "keeper"] as const, { description: "the player's words or the Keeper's delivery" }),
 					},
-					{ description: "transcript：把某一回合某一方的原文整段读出来；不给时只回候选卡" },
+					{ description: "transcript: pull one side of one turn out whole; without it you only get candidate cards" },
 				),
 			),
 			about: Type.Optional(
 				Type.Array(Type.String(), {
-					description: "memory：只要跟这些名字有关的往事；缺省取当前在场者加调查员",
+					description: "memory: only the past about these names; defaults to those present plus the investigators",
 				}),
 			),
 			kinds: Type.Optional(
@@ -251,13 +261,13 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 							"keeper_correction",
 						] as const,
 					),
-					{ description: "memory：只要这几类断言" },
+					{ description: "memory: only these kinds of assertion" },
 				),
 			),
 			include_superseded: Type.Optional(
-				Type.Boolean({ description: "memory：连已经被后来的关系关掉的旧条一起给" }),
+				Type.Boolean({ description: "memory: include the old rows a later relation has closed out" }),
 			),
-			limit: Type.Optional(Type.Integer({ description: "memory：最多给几条，上限 30" })),
+			limit: Type.Optional(Type.Integer({ description: "memory: at most this many rows, capped at 30" })),
 			types: Type.Optional(
 				Type.Array(
 					StringEnum(
@@ -276,14 +286,14 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 							"turn-finalized",
 						] as const,
 					),
-					{ description: "history：只要这几类事件" },
+					{ description: "history: only these event types" },
 				),
 			),
 			diff: Type.Optional(
 				Type.Array(Type.Integer(), {
 					minItems: 2,
 					maxItems: 2,
-					description: "history：两个回合之间变了什么 [起, 止]",
+					description: "history: what changed between two turns [from, to]",
 				}),
 			),
 		}),
@@ -293,8 +303,8 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Resolve",
 		method: "table.resolve",
 		description:
-			"把一次行动交给规则裁决。你只描述行动，规则由内核挑：写清谁、想达成什么、怎么做、对谁、赌什么，它选决策、取目标值、掷骰，回来是收据、成功等级，以及可能的会话（战斗、追逐、理智发作）与可接的后续。你不掷骰、不算数、不改数值；日常无争议的行动不要用它。攻击写 intent 为 combat 加 target 与 weapon（徒手写 unarmed）；内核报 needs_choice 时它已把候选和各自适用的场合列出来，挑一个写进 decision 再调一次；本该报 needs_choice 但候选里只有一条对得上本回合胶囊建议的节拍时，内核直接替你结算并在结果里写 decision_source 为 director——那一次已经算数了，不要再为它调第二次；结果里的待决防御若是玩家的，用 ask 把闪避还是反击交回他，他答了下一回合再用 defense 解，若是 NPC 的就你自己配 actor 与 defense 定；失败的检定想推骰就 push 为 true 并在 stakes 里写明推失败的代价，想花幸运就给 luck。技能认不出来时内核报 needs 并给候选，补上 skill 再调一次；intent 为 idle、meta、stuck、ambiguous 时不掷骰只回一句判断。",
-		promptSnippet: "掷骰裁决一次行动，回来是收据、成功等级与会话状态",
+			"Hand one action to the rules. You only describe the action; the kernel picks the rule: say who, what he wants to achieve, how he does it, against whom, what is at stake, and it chooses the decision, takes the target value and rolls, returning receipts, the success level, and possibly a session (combat, chase, sanity bout) and available continuations. You do not roll, do not compute, do not change numbers; do not use it for ordinary uncontested actions. An attack is intent combat plus target and weapon (bare hands is unarmed). When the kernel reports needs_choice it has already listed the candidates and when each applies: pick one, write it into decision, and call again. When it would have reported needs_choice but exactly one candidate matches the beat suggested by this turn's capsule, the kernel settles it for you and writes decision_source director into the result — that call already counted, so do not make a second one for it. If the pending defence in the result is the player's, use ask to hand dodge-or-fight-back back to him and settle it next turn with defense; if it is an NPC's, decide it yourself with actor and defense. To push a failed check, set push true and write into stakes what failing the push costs; to spend luck, give luck. When it cannot recognise a skill the kernel reports needs with candidates: add skill and call again. With intent idle, meta, stuck or ambiguous it does not roll and only returns a judgement.",
+		promptSnippet: "Roll one action against the rules; returns receipts, success level and session state",
 		parameters: Type.Object({
 			action: ResolveAction,
 		}),
@@ -304,12 +314,12 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Apply",
 		method: "table.apply",
 		description:
-			"把这一回合世界的改变落地：move 走到另一个场景（结果里直接带目的地场面，不必再 look），clue 让调查员拿到一条线索，time 推进世界时钟，damage 让调查员按规则书的骰子受伤（摔落、火烧、窒息这类没有攻击者的伤），item 让东西易手，cash 让钱增减。整批先校验后写，任一条不成立整批都不写，所以可以一次把这回合发生的事全列上。叙述里发生了却没 apply 的事等于没发生：走了要写 move，看见了要写 clue，花了时间要写 time，东西到手或交出要写 item，钱进出要写 cash。捡起、买到、被夺、用光的东西都是 item，它进的是调查员表；是武器就顺手给 weapon 写上规则表里的 profile 名，不给的话那把枪之后开不了火。花钱、拿到报酬、贿赂出去的钱是 cash，delta 带正负号，内核自己算前后。目的地可以是当前场景的出口，也可以是来时经过的任何场景（where.back 按由近到远列着，退出没有出口的巢穴就靠它）；不可达报 not_reachable 并给两份列表，线索不在此地报 not_here。",
-		promptSnippet: "落地本回合的世界改变：移动、线索、时间、物品、现金",
+			"Land this turn's changes to the world: move walks to another scene (the result carries the destination scene, so no second look is needed), clue gives the investigator a clue, time advances the world clock, damage hurts the investigator with the rulebook's dice (a fall, fire, suffocation — harm with no attacker), item makes something change hands, cash makes money go up or down. The whole batch is validated before anything is written, and one bad effect writes none of them, so you can list everything that happened this turn in one call. What happens in your narration without an apply did not happen: walking is a move, seeing is a clue, time spent is a time, something gained or handed over is an item, money in or out is a cash. Everything picked up, bought, taken away or used up is an item and reaches the investigator sheet; if it is a weapon, put the profile name from the rules table in weapon, or that gun will never fire later. Money spent, earned or paid out is a cash with a signed delta, and the kernel works out the before and after itself. A destination may be an exit of the current scene or any scene on the way in (where.back lists them nearest first, which is how you back out of a lair with no exits); an unreachable one reports not_reachable with both lists, and a clue that is not here reports not_here.",
+		promptSnippet: "Land this turn's world changes: move, clue, time, item, cash",
 		parameters: Type.Object({
 			effects: Type.Array(
 				Type.Union([MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, CashEffect, ReservedEffect]),
-				{ minItems: 1, description: "这一回合要落地的改变，按发生顺序排" },
+				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
 		}),
 	},
@@ -318,13 +328,18 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Ask",
 		method: "table.ask",
 		description:
-			"把一个选择交回给玩家，并以此收尾本回合。玩家的声明含糊到你无法继续、或者剧情要他当场拍板时用它：prompt 就是交付给玩家的文字，options 是他可以挑的选项。调完这一次回合就关了，不要再 narrate、也不要再写任何正文；玩家的回答会作为下一回合的输入带着待决回来。",
-		promptSnippet: "把一个选择交回玩家，并以此关闭本回合",
+			"Hand one choice back to the player, and close the turn with it. Use it when the player's declaration is too vague to continue, or when the story wants him to decide on the spot: prompt is the question delivered to the player, options are what he can pick. Once you call it the turn is closed: do not narrate, do not write any more prose. The player's answer comes back as the next turn's input, carrying the pending choice with it.",
+		promptSnippet: "Hand one choice back to the player, and close the turn with it",
 		parameters: Type.Object({
-			text: Type.Optional(Type.String({ description: "问题之前的叙述：这回合发生了什么，让玩家看完再选；不要写【明骰】【变化】行" })),
-			prompt: Type.String({ description: "给玩家的问题；内核把 text、这回合的明骰行、问题与选项一起交付" }),
-			options: Type.Array(Type.String(), { minItems: 2, description: "玩家可以挑的选项" }),
-			binds: Type.Optional(Type.String({ description: "这个选择绑定的待决名" })),
+			text: Type.Optional(
+				Type.String({
+					description:
+						"the narration before the question: what happened this turn, so the player reads it before choosing. State this turn's public rolls and changes here too, with the numbers copied exactly from the tool results",
+				}),
+			),
+			prompt: Type.String({ description: "the question for the player; the kernel delivers text, the question and the numbered options together" }),
+			options: Type.Array(Type.String(), { minItems: 2, description: "the options the player can pick" }),
+			binds: Type.Optional(Type.String({ description: "the name of the pending choice this binds to" })),
 		}),
 	},
 	{
@@ -332,13 +347,10 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Narrate",
 		method: "table.narrate",
 		description:
-			"交付本回合的叙述并关闭回合。每回合以一次 narrate 收尾（或者以一次 ask 收尾），先把该 resolve 的骰掷完、该 apply 的改变落完再调它。text 只写叙述：不要写【明骰】或【变化】行，内核会按本回合的收据自己渲染并插进合适的位置，placement 给 end 时一律追加在末尾。调完之后不要再写任何正文，也不要再调任何工具，内核渲染后的文本就是玩家看到的全部。",
-		promptSnippet: "交付本回合叙述并关闭回合",
+			"Deliver this turn's narration and close the turn. Every turn ends with one narrate (or with one ask): roll what needs resolving and land what needs applying before you call it. text is delivered to the player exactly as written, so it is the whole of what he sees — write it in the campaign's play_language, and state in it every public roll and every state change of this turn, with the numbers copied exactly from the tool results (the roll and the target value, a change's before and after, a dice total, the minutes that passed). The kernel checks those numbers against the receipts and refuses with mechanics_missing when one is absent, naming what to add; the names are yours to say in the player's words. After the call, write no more prose and call no more tools.",
+		promptSnippet: "Deliver this turn's narration and close the turn",
 		parameters: Type.Object({
-			text: Type.String({ description: "本回合的叙述正文，只写叙述" }),
-			placement: Type.Optional(
-				StringEnum(["auto", "end"] as const, { description: "机制块放哪，缺省 auto" }),
-			),
+			text: Type.String({ description: "this turn's narration, delivered to the player verbatim" }),
 		}),
 	},
 ];

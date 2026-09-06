@@ -4,7 +4,7 @@ typed here: the test proves the kernel scored what the graph says."""
 
 import json
 
-from conftest import CONTENT_DIR, RpcClient, campaign_dir, open_turn, read_json, read_jsonl
+from conftest import narrate, CONTENT_DIR, RpcClient, campaign_dir, open_turn, read_json, read_jsonl
 from test_rules_families import first_failure, resolve, seed_wound, walk_to_confrontation
 
 DIRECTOR_GRAPH = json.loads((CONTENT_DIR / "director" / "director-graph.json").read_text(encoding="utf-8"))
@@ -82,7 +82,7 @@ def director_of(client):
 
 def next_turn(client, turn, text="继续。", narration="……"):
     """Close `turn` with a narrate and open the next; returns the new capsule's director."""
-    client.table("narrate", call_id=f"t{turn}-c9", text=narration)
+    narrate(client, f"t{turn}-c9", narration)
     return client.table("player_input", text=text)["capsule"]["director"]
 
 
@@ -194,11 +194,11 @@ def test_pressure_on_a_stalled_turn_ties_with_cut_and_the_tiebreak_order_decides
 def test_recover_yielded_scene_and_stalled_transition_after_two_stalled_turns(kernel):
     open_turn(kernel, "我把办公室翻了个遍。")
     kernel.table("apply", call_id="t1-c1", effects=[{"kind": "clue", "clue": c} for c in BRIEFING_CLUES])
-    kernel.table("narrate", call_id="t1-c2", text="都找到了。")
+    narrate(kernel, "t1-c2", "都找到了。")
     for turn in (2, 3):
         kernel.table("player_input", text="我等着。")
         resolve(kernel, f"t{turn}-c1", intent="idle", goal="", method="")
-        kernel.table("narrate", call_id=f"t{turn}-c2", text="没有别的。")
+        narrate(kernel, f"t{turn}-c2", "没有别的。")
     director = kernel.table("player_input", text="还是等。")["capsule"]["director"]
     assert "stalled_turns = 2" in director["because"] and "turns_in_scene = 4" in director["because"]
     assert "undiscovered_here = 0" in director["because"]
@@ -214,7 +214,7 @@ def test_recover_yielded_scene_and_stalled_transition_after_two_stalled_turns(ke
 def test_payoff_rises_with_structured_memory_overlap(kernel):
     open_turn(kernel, "我和诺特谈。")
     kernel.table("apply", call_id="t1-c1", effects=[{"kind": "clue", "clue": "knott-keys"}])  # a change: no stall
-    narrated = kernel.table("narrate", call_id="t1-c2", text="诺特答应了。")
+    narrated = narrate(kernel, "t1-c2", "诺特答应了。")
     kernel.ok("memory.submit", {"campaign": "c1", "job_id": narrated["extraction"]["job_id"], "candidates": [
         {"kind": "knowledge", "subject": "Steven Knott", "statement": "诺特知道马卡里奥一家的下落。"}]})
     director = kernel.table("player_input", text="继续。")["capsule"]["director"]
@@ -232,7 +232,7 @@ def test_subsystem_scores_from_combat_intent_after_the_fight_ended(tmp_path):
         resolve(client, f"t1-c{n + 1}", intent="combat", goal="他迎着子弹", method="", actor="Walter Corbitt", defense="none")
         resolve(client, f"t1-c{n + 2}", intent="combat", goal="双方僵持", method="", decision="combat:end", outcome="stalemate")
         assert client.table("look")["where"]["session"] is None
-        client.table("narrate", call_id=f"t1-c{n + 3}", text="枪声停了。")
+        narrate(client, f"t1-c{n + 3}", "枪声停了。")
         record = read_json(campaign_dir(client.workspace) / "turns" / "0001.json")
         assert record["intents"][-1] == "combat"
         director = client.table("player_input", text="我盯着他。")["capsule"]["director"]
@@ -271,7 +271,7 @@ def test_pending_choice_overrides_to_choice(kernel):
 def test_fumble_overrides_to_pressure(kernel):
     open_turn(kernel, "我翻抽屉。")
     resolve(kernel, "t1-c1", intent="investigate", goal="找线索", method="用侦查", skill="Spot Hidden")
-    kernel.table("narrate", call_id="t1-c2", text="手一滑。")
+    narrate(kernel, "t1-c2", "手一滑。")
     record_path = campaign_dir(kernel.workspace) / "turns" / "0001.json"
     record = read_json(record_path)
     record["receipts"][-1].update({"level": "fumble", "passed": False})
@@ -326,14 +326,14 @@ def director_telemetry(client):
 
 def test_character_adoption_needs_someone_present_and_no_move(kernel):
     open_turn(kernel, "我和诺特聊。")
-    kernel.table("narrate", call_id="t1-c1", text="他说了很多。")
+    narrate(kernel, "t1-c1", "他说了很多。")
     adoption = adoption_of(kernel, 1)
     assert adoption == {"beat": "CHARACTER", "adopted": True, "evidence": []}
     rows = director_telemetry(kernel)
     assert rows[-1]["turn"] == 1 and rows[-1]["beat"] == "CHARACTER" and rows[-1]["adopted"] is True
     kernel.table("player_input", text="我走了。")
     kernel.table("apply", call_id="t2-c1", effects=[{"kind": "move", "to": "central-library"}])
-    kernel.table("narrate", call_id="t2-c2", text="你离开了。")
+    narrate(kernel, "t2-c2", "你离开了。")
     assert adoption_of(kernel, 2)["adopted"] is False
 
 
@@ -343,7 +343,7 @@ def test_cut_adoption_is_a_move_receipt(kernel):
     kernel.table("apply", call_id="t1-c2", effects=[{"kind": "clue", "clue": "knott-keys"}])
     assert next_turn(kernel, 1)["beat"] == "CUT"
     kernel.table("apply", call_id="t2-c1", effects=[{"kind": "move", "to": "central-library"}])
-    kernel.table("narrate", call_id="t2-c2", text="到了。")
+    narrate(kernel, "t2-c2", "到了。")
     adoption = adoption_of(kernel, 2)
     assert adoption["beat"] == "CUT" and adoption["adopted"] is True and adoption["evidence"] == ["move:central-library-t2-c1"]
 
@@ -365,7 +365,7 @@ def test_pressure_adoption_is_time_damage_or_a_negative_delta(kernel):
     if director["beat"] != "PRESSURE":  # the tiebreak order decides between PRESSURE and CUT
         return
     kernel.table("apply", call_id="t2-c1", effects=[{"kind": "time", "minutes": 20}])
-    kernel.table("narrate", call_id="t2-c2", text="时间流逝。")
+    narrate(kernel, "t2-c2", "时间流逝。")
     adoption = adoption_of(kernel, 2)
     assert adoption["beat"] == "PRESSURE" and adoption["adopted"] is True and adoption["evidence"] == ["time:t2-c1"]
 
@@ -377,7 +377,7 @@ def test_reveal_adoption_only_counts_a_listed_clue(seeded_kernel):
     director = next_turn(kernel, 1)
     assert director["beat"] == "REVEAL"
     kernel.table("apply", call_id="t2-c1", effects=[{"kind": "clue", "clue": director["reveal"][0]["clue"]}])
-    kernel.table("narrate", call_id="t2-c2", text="找到了。")
+    narrate(kernel, "t2-c2", "找到了。")
     adoption = adoption_of(kernel, 2)
     assert adoption["adopted"] is True and adoption["evidence"] == [f"clue:{director['reveal'][0]['clue']}-t2"]
 
@@ -392,7 +392,7 @@ def test_a_pushed_failure_without_consequence_nudges_pressure(tmp_path):
                          push=True, stakes="抽屉会卡住")
         if pushed["outcome"].get("passed"):
             return  # the seed pushed through; the nudge needs a failed push
-        client.table("narrate", call_id=f"t1-c{n + 1}", text="还是没找到。")
+        narrate(client, f"t1-c{n + 1}", "还是没找到。")
         director = client.table("player_input", text="继续。")["capsule"]["director"]
         assert "pushed_fail_pending = True" in director["because"]
         if "override" in director:

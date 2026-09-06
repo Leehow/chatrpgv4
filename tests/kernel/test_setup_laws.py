@@ -40,7 +40,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 RULES_DIR = REPO_ROOT / "content" / "rulesets" / "coc7" / "rules-json"
 STEPS_PATH = REPO_ROOT / "content" / "setup" / "steps.json"
 
-LANGUAGES = ("zh-Hans", "en")
 # §14.5: module.build is the extension's own driver loop, explicitly *not* a kernel
 # method ("module.build 是扩展侧的驱动循环（不是内核方法）") -- every other `op` in the
 # seven-step table must be a real registered RPC method.
@@ -166,17 +165,17 @@ def test_setup_steps_ops_are_registered_rpc_methods_with_one_documented_exceptio
         )
 
 
-def test_setup_steps_rejection_and_next_texts_are_nonempty_in_every_language(kernel):
+def test_setup_steps_rejection_and_next_texts_are_nonempty_english_lines(kernel):
+    """§16.1: one English form per line; the setup model says it in the player's language."""
     steps = kernel.ok("setup.steps", {})
-    for language in LANGUAGES:
-        templates = steps["templates"][language]
-        for key in ("unknown_step", "needs_unmet", "already_done", "all_done"):
-            assert isinstance(templates[key], str) and templates[key].strip(), (language, key)
+    templates = steps["templates"]
+    for key in ("unknown_step", "needs_unmet", "already_done", "all_done"):
+        assert isinstance(templates[key], str) and templates[key].strip(), key
     for row in steps["steps"]:
-        for language in LANGUAGES:
-            lines = row["lines"][language]
-            assert isinstance(lines["do"], str) and lines["do"].strip(), (row["id"], language, "do")
-            assert isinstance(lines["next"], str) and lines["next"].strip(), (row["id"], language, "next")
+        lines = row["lines"]
+        assert set(lines) == {"do", "next"}, row["id"]
+        assert isinstance(lines["do"], str) and lines["do"].strip(), (row["id"], "do")
+        assert isinstance(lines["next"], str) and lines["next"].strip(), (row["id"], "next")
 
 
 # ---- table.open on an unfinished campaign ----------------------------------------

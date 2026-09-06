@@ -203,7 +203,7 @@ test("按需深读：一次认领一段，回合还在跑的时候不认领", as
 	assert.ok(calls.includes("module.assemble"), "读完一段就合并，图长了战役看得到");
 });
 
-test("手卡：apply 回的附件跟着交付到玩家，路径与遥测都留下", async (t) => {
+test("手卡：apply 回的附件进机制投影，路径与遥测都留下（契约 §14.8、§16.2）", async (t) => {
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage(
@@ -231,16 +231,25 @@ test("手卡：apply 回的附件跟着交付到玩家，路径与遥测都留�
 		.map((message) => (message.content ?? []).filter((block) => block.type === "text").map((block) => block.text).join(""))
 		.filter((text) => text.length > 0)
 		.at(-1);
-	assert.ok(delivered.startsWith("他把信推过桌面。"), "交付仍是内核渲染的文本");
-	assert.ok(delivered.includes("【手卡】诺特的信"), "手卡在交付里点名（契约 §14.8）");
-	assert.ok(
-		delivered.includes("/tmp/pi-coc-assets/knott-letter.png"),
-		"Pi 的助手消息装不下附件，所以路径落进交付（docs/pi-host-contract.md 第 5 节）",
-	);
+	assert.equal(delivered, "他把信推过桌面。", "交付就是守秘人的正文：路径不再塞进玩家看的字");
+
+	// Pi 的助手消息装不下附件（docs/pi-host-contract.md 第 3.3 节），所以文件在哪由扩展
+	// 补进语言中立的机制投影里，前端与驾驭器从那儿取（契约 §16.2 的 handout）。
+	const [projected] = table.entries("coc-mechanics");
+	const handout = projected.mechanics.find((row) => row.kind === "handout");
+	assert.ok(handout, "投影里有一条 handout");
+	assert.equal(handout.name, "诺特的信", "名字来自内核的投影");
+	assert.equal(handout.path, "/tmp/pi-coc-assets/knott-letter.png", "路径由扩展从 attachment 补上");
+	assert.equal(handout.media_type, "image/png");
 
 	const rows = table.telemetry().filter((row) => row.lane === "handout");
 	assert.ok(rows.length >= 2, "apply 一行、交付一行");
 	assert.ok(rows.every((row) => row.path === "/tmp/pi-coc-assets/knott-letter.png"));
 	assert.ok(rows.some((row) => row.media_type === "image/png"));
-	assert.ok(rows.some((row) => row.delivered_as === "rendered_text"));
+	assert.ok(rows.some((row) => row.delivered_as === "mechanics"));
+
+	// 投影是给前端的；坐在终端前的人也得知道文件在哪，所以 table 扩展把它通知一次（不进正文）。
+	const notices = table.ui.notifications.filter((entry) => entry.message.startsWith("handout "));
+	assert.equal(notices.length, 1, "一条手卡通知一次，不重复");
+	assert.ok(notices[0].message.includes("/tmp/pi-coc-assets/knott-letter.png"), "通知里带路径");
 });

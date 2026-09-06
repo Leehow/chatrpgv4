@@ -5,7 +5,7 @@ asserting on memory/*.jsonl, memory/jobs/*.json and events.jsonl."""
 import json
 import re
 
-from conftest import CAMPAIGN, campaign_dir, open_turn, read_json, read_jsonl
+from conftest import narrate, CAMPAIGN, campaign_dir, open_turn, read_json, read_jsonl
 
 INV = "托马斯·海斯"
 KNOTT = "Steven Knott"
@@ -30,7 +30,7 @@ def submit_err(client, job_id, candidates):
 def close_turn(client, n, text="继续。"):
     """Player input for turn n (n ≥ 2) and its narrate."""
     client.table("player_input", text=f"第 {n} 回合。")
-    return client.table("narrate", call_id=f"t{n}-c1", text=text)
+    return narrate(client, f"t{n}-c1", text)
 
 
 def first_turn(client):
@@ -38,7 +38,7 @@ def first_turn(client):
     client.table("resolve", call_id="t1-c1", action={"intent": "investigate", "goal": "看他的表情", "method": "心理学",
                                                     "skill": "Psychology", "target": KNOTT})
     client.table("apply", call_id="t1-c2", effects=[{"kind": "clue", "clue": "knott-keys", "label": "钥匙"}])
-    return client.table("narrate", call_id="t1-c3", text="诺特叹了口气。\n\n他把钥匙推过来。")
+    return narrate(client, "t1-c3", "诺特叹了口气。\n\n他把钥匙推过来。")
 
 
 # ---- job packet ---------------------------------------------------------------------------
@@ -358,9 +358,10 @@ def test_post_commit_failures_are_telemetry_not_errors(kernel):
     # episodes.jsonl cannot be appended to when a directory sits in its place
     (memory_dir(kernel.workspace) / "episodes.jsonl").unlink()
     (memory_dir(kernel.workspace) / "episodes.jsonl").mkdir()
-    result = kernel.table("narrate", call_id="t1-c1", text="第一回合。")
+    result = narrate(kernel, "t1-c1", "第一回合。")
     assert result["commit"] and result["extraction"] == {"job_id": "extract:c1:t1"}
-    assert kernel.table("status") == {"turn": 2, "state": "awaiting_player", "receipts": [], "pending_choice": None}
+    assert kernel.table("status") == {"turn": 2, "state": "awaiting_player", "receipts": [], "mechanics": [],
+                                      "pending_choice": None}
     assert read_json(campaign_dir(kernel.workspace) / "save" / "continuation" / "latest.json")["turn"] == 1
     telemetry = read_jsonl(campaign_dir(kernel.workspace) / "telemetry.jsonl")
     # the director lane (§13.7) writes its own row at every close; only the kernel lane reports steps

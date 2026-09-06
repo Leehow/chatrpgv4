@@ -1,19 +1,20 @@
 /**
- * 建卡扩展（契约 §14.4）。只在 `PI_COC_MODE=setup` 的进程里注册工具，只注册一个：`setup`。
+ * The setup extension (contract §14.4). It registers a tool only in a `PI_COC_MODE=setup` process, and only one: `setup`.
  *
- * 七步表在内核里（`content/setup/steps.json`，经 `setup.steps` 拿到）。这里做四件事：
- * 1. 闸门：`step` 不在表里、前置未满足、重复已完成的步 → 拒绝语与「下一步」都从表派生
- *    （见 `steps.ts`，顺序信息在本包里只写这一遍）。
- * 2. 执行：`op` 步按表点名的方法与参数调内核；一步两次调用的（`module.bind` 再 `module.plan`）
- *    按表里的顺序走，前一次的结果喂给后一次。
- * 3. 三种不是「调一次内核」的步：`ask`（选来源：starter 名单来自 `kernel.hello` 的 content
- *    与 `campaign.list`，或者玩家给一个资料包目录）、`external`（资料包还没有就告诉玩家
- *    怎么用宿主的 PDF 技能产出它，下次调用再看一眼）、`module.build`（构建循环在 module
- *    扩展里，这里发总线事件并等 `coc:module-opening-ready`）。
- * 4. 收尾：表里没有下一步了就把开桌命令交出去，让进程退出。
+ * The seven-step table is in the kernel (`content/setup/steps.json`, fetched with `setup.steps`). This file does four things:
+ * 1. The gate: a `step` not in the table, an unmet prerequisite, a repeat of a completed step — the
+ *    refusal and the next step are both derived from the table (see `steps.ts`; ordering is written once in this package).
+ * 2. Execution: an `op` step calls the kernel with the method and parameters the table names; a step
+ *    with two calls (`module.bind` then `module.plan`) runs in the table's order, feeding the first result to the second.
+ * 3. Three kinds of step that are not one kernel call: `ask` (choose the source — the starter list
+ *    comes from `kernel.hello`'s content and `campaign.list`, or the player gives a bundle directory),
+ *    `external` (when the bundle is not there yet, tell the player how the host's PDF skill produces it
+ *    and look again on the next call), and `module.build` (the build loop lives in the module extension;
+  *    this one emits a bus event and waits for `coc:module-opening-ready`).
+ * 4. The ending: with no next step in the table, hand over the command that opens the table and let the process exit.
  *
- * 职业不由这里判断：`setup.occupations` 的清单原样进工具结果，由模型按玩家那句话挑一个 id
- * （契约 §14.7）。这一侧没有任何关键词表。
+ * The occupation is not judged here: the `setup.occupations` list goes into the tool result verbatim and
+ * the model picks one id from the player's own sentence (contract §14.7). There is no keyword table on this side.
  */
 
 import { existsSync, statSync } from "node:fs";
@@ -36,10 +37,10 @@ import {
 
 type KernelCall = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
-/** 构建那一步等 `opening_ready` 的上限；到点就回「还在读」，玩家可以再调一次接着等。 */
+/** How long the build step waits for `opening_ready`; at the deadline it answers "still reading" and the player can call again to keep waiting. */
 const BUILD_WAIT_MS = Number.parseInt(process.env.PI_COC_BUILD_WAIT_MS?.trim() ?? "", 10) || 30 * 60 * 1000;
 
-/** 内核错误信封的 code 用鸭子类型读：跨扩展 instanceof 靠不住（两份模块实例）。 */
+/** The code of a kernel error envelope is read structurally: instanceof is unreliable across extensions (two module instances). */
 function errorCode(error: unknown): string | undefined {
 	const code = (error as { code?: unknown } | null)?.code;
 	return typeof code === "string" ? code : undefined;
@@ -57,7 +58,7 @@ function asString(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-/** `source.module_id` 这样的取值路径。 */
+/** A lookup path such as `source.module_id`. */
 function lookupPath(context: Record<string, unknown>, path: string): unknown {
 	let cursor: unknown = context;
 	for (const segment of path.split(".")) {
@@ -68,16 +69,16 @@ function lookupPath(context: Record<string, unknown>, path: string): unknown {
 }
 
 /**
- * 契约 §5：`table.*` 与 `setup.*` 的参数里 `campaign` 一律必填；
- * §14.3 的 `module.*` 是按模组 id 寻址的（多战役共享一个模组），不带 campaign。
- * 表没点名 `campaign` 时按这条补，别按方法名瞎猜。
+ * Contract §5: `campaign` is required in the parameters of every `table.*` and `setup.*` call;
+ * the `module.*` calls of §14.3 are addressed by module id (several campaigns share one module) and carry no campaign.
+ * When the table does not name `campaign`, fill it in by this rule rather than guessing from the method name.
  */
 function wantsCampaign(method: string): boolean {
 	return method.startsWith("setup.") || method.startsWith("table.");
 }
 
 export default function (pi: ExtensionAPI) {
-	// 开桌进程里这个扩展什么都不注册（契约 §14.4）。
+	// In the play process this extension registers nothing (contract §14.4).
 	if (cocMode() !== "setup") return;
 
 	let ctx: ExtensionContext | undefined;
@@ -86,12 +87,12 @@ export default function (pi: ExtensionAPI) {
 	let stepsError: string | undefined;
 	let loading: Promise<void> | undefined;
 	const completed = new Set<string>();
-	/** 已完成步骤留下的东西：战役 id、模组 id、来源、调查员 id……参数从这里补。 */
+	/** What completed steps left behind: campaign id, module id, source, investigator id, and so on; parameters are filled from here. */
 	const context: Record<string, unknown> = {};
-	/** 一步里已经跑过的 op（`setup.occupations` 这种查清单的不重复跑）。 */
+	/** The ops already run within one step (a list lookup like `setup.occupations` is not run twice). */
 	const opCache = new Map<string, unknown>();
 	let sourceKind: string | undefined;
-	/** 最后一步做完：等这一轮说完话再退出进程。 */
+	/** The last step is done: wait for this run to finish speaking, then exit the process. */
 	let handoff: string | undefined;
 
 	function state(): GateState {
@@ -103,20 +104,20 @@ export default function (pi: ExtensionAPI) {
 			if (!ctx?.hasUI || !steps) return;
 			ctx.ui.setStatus("coc-setup", progressLine(steps, state()));
 		} catch {
-			/* 状态行不该弄坏一步 */
+			/* the status line must not break a step */
 		}
 	}
 
-	// ---- 表 ---------------------------------------------------------------
+	// ---- The table --------------------------------------------------------
 
 	/**
-	 * 表从内核来。`setup.steps` 若带 `completed`／`state`，就是接着上次的建卡走
-	 * （`bin/pi-coc setup --campaign <id>`）。
+	 * The table comes from the kernel. When `setup.steps` carries `completed` or `state`, this is a setup
+	 * being picked up where the last one left off (`bin/pi-coc setup --campaign <id>`).
 	 */
 	async function loadSteps(): Promise<void> {
 		const current = bridge;
 		if (!current) {
-			stepsError = "内核桥还没就位，建卡表拿不到。";
+			stepsError = "The kernel bridge is not up yet, so the setup table cannot be fetched.";
 			return;
 		}
 		try {
@@ -124,7 +125,7 @@ export default function (pi: ExtensionAPI) {
 			const result = asRecord(await current.call("setup.steps", campaign ? { campaign } : {}));
 			const rows = normalizeSteps(result);
 			if (rows.length === 0) {
-				stepsError = "内核回的建卡表是空的，没有步可走。";
+				stepsError = "The kernel answered with an empty setup table: there are no steps to walk.";
 				return;
 			}
 			steps = rows;
@@ -140,7 +141,7 @@ export default function (pi: ExtensionAPI) {
 			const carriedSource = asRecord(carried.source);
 			sourceKind = asString(carried.source_kind) ?? asString(carriedSource.kind) ?? sourceKind;
 		} catch (error) {
-			stepsError = `setup.steps 没回来：${errorCode(error) ?? "internal"}: ${errorText(error)}`;
+			stepsError = `setup.steps did not come back: ${errorCode(error) ?? "internal"}: ${errorText(error)}`;
 		}
 	}
 
@@ -152,9 +153,9 @@ export default function (pi: ExtensionAPI) {
 		await loading;
 	}
 
-	// ---- 参数 -------------------------------------------------------------
+	// ---- Parameters -------------------------------------------------------
 
-	/** 模型可以把参数摊在顶层，也可以塞进 `params`；两种都收。 */
+	/** The model may spread parameters at the top level or pack them into `params`; both are accepted. */
 	function mergeArgs(raw: Record<string, unknown>): Record<string, unknown> {
 		const { step: _step, params, ...rest } = raw;
 		return { ...rest, ...asRecord(params) };
@@ -165,7 +166,7 @@ export default function (pi: ExtensionAPI) {
 		missing: string[];
 	}
 
-	/** 值的来源依次是：这次调用的参数、表里点名的 `from` 路径、已完成步骤留下的同名值。 */
+	/** A value comes, in order, from this call's parameters, the `from` path the table names, and the same-named value left by a completed step. */
 	function fillParams(op: OpSpec, args: Record<string, unknown>, isFirst: boolean): Filled {
 		const params: Record<string, unknown> = {};
 		const missing: string[] = [];
@@ -178,7 +179,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			params[spec.name] = value;
 		}
-		// 表只给了一份步骤级参数时，后面的 op 至少要拿到身份键，否则内核不知道说的是哪一本书。
+		// When the table gives only one step-level parameter set, the later ops must at least get the identity key, or the kernel does not know which book is meant.
 		if (!isFirst && op.params.length === 0) {
 			const moduleId = asString(context.module_id);
 			if (moduleId) params.module_id = moduleId;
@@ -188,7 +189,7 @@ export default function (pi: ExtensionAPI) {
 		return { params, missing };
 	}
 
-	/** 结果里的标量进上下文；对象只挑契约点过名的那几个身份键，别把整本图塞进参数槽。 */
+	/** Scalars from a result go into the context; from objects only the identity keys the contract names are taken, so a whole graph never lands in a parameter slot. */
 	function noteResult(result: Record<string, unknown>): void {
 		for (const [key, value] of Object.entries(result)) {
 			if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
@@ -202,9 +203,9 @@ export default function (pi: ExtensionAPI) {
 		if (moduleId) context.module_id = moduleId;
 	}
 
-	// ---- 三种不是「调一次内核」的步 ----------------------------------------
+	// ---- The three steps that are not one kernel call ---------------------
 
-	/** starter 名单：`kernel.hello` 的 content 与 `campaign.list` 已有的战役。 */
+	/** The starter list: `kernel.hello`'s content plus the campaigns `campaign.list` already has. */
 	async function sourceCatalogue(): Promise<Record<string, unknown>> {
 		const modules = asRecord(asRecord(bridge?.hello).content).modules;
 		const starters = Array.isArray(modules) ? modules.filter((row) => typeof row === "string") : [];
@@ -213,14 +214,14 @@ export default function (pi: ExtensionAPI) {
 			const listed = asRecord(await bridge?.call("campaign.list", {}));
 			campaigns = Array.isArray(listed.campaigns) ? listed.campaigns : [];
 		} catch {
-			/* 列不出来不挡选书 */
+			/* failing to list them must not block choosing a book */
 		}
 		return { starters, campaigns, kinds: sourceKinds(steps ?? []) };
 	}
 
 	/**
-	 * 选来源（表里的 `ask` 步）：玩家要么点一个 starter，要么给一个资料包目录。
-	 * 来源种类的词表从表来（`applies_to`），不在这里另立一套。
+	 * Choosing the source (the table's `ask` step): the player either names a starter or gives a bundle directory.
+	 * The vocabulary of source kinds comes from the table (`applies_to`); no second one is kept here.
 	 */
 	async function runAsk(step: Step, args: Record<string, unknown>): Promise<Record<string, unknown>> {
 		const catalogue = await sourceCatalogue();
@@ -229,8 +230,8 @@ export default function (pi: ExtensionAPI) {
 		const bundle = asString(args.bundle) ?? asString(args.bundle_path);
 		let kind = asString(args.kind) ?? asString(args.source_kind);
 		if (!kind) {
-			// 没点名种类时从表推，不认死「pdf」这个字：表里带 `external` 步的那种来源
-			// 就是要先产出东西的那种（资料包），另一种是拿现成的（starter）。
+			// With no kind named, derive it from the table rather than hard-coding the word "pdf": the source
+			// that has an `external` step is the one that must be produced first (a bundle); the other is taken ready-made (a starter).
 			const needsProducing = new Set(
 				kinds.filter((row) => (steps ?? []).some((step) => step.kind === "external" && (step.appliesTo ?? []).includes(row))),
 			);
@@ -242,7 +243,7 @@ export default function (pi: ExtensionAPI) {
 				ok: false,
 				step: step.id,
 				needs: ["kind"],
-				hint: `先跟玩家定来源：内置的 starter，还是一本 PDF 转出来的资料包。表里的来源种类是 ${kinds.join("、") || "starter、pdf"}。`,
+				hint: `Settle the source with the player first: an installed starter, or a bundle converted from a PDF. The table's source kinds are ${kinds.join(", ") || "starter, pdf"}.`,
 				...catalogue,
 			};
 		}
@@ -250,7 +251,7 @@ export default function (pi: ExtensionAPI) {
 			return {
 				ok: false,
 				step: step.id,
-				rejected: `建卡表里的来源种类只有 ${kinds.join("、")}，没有「${kind}」。`,
+				rejected: `The setup table's only source kinds are ${kinds.join(", ")}; there is no "${kind}".`,
 				...catalogue,
 			};
 		}
@@ -260,7 +261,7 @@ export default function (pi: ExtensionAPI) {
 				return {
 					ok: false,
 					step: step.id,
-					rejected: `内容目录里没有 starter「${module}」。`,
+					rejected: `The content catalogue has no starter "${module}".`,
 					candidates: starters,
 					...catalogue,
 				};
@@ -271,13 +272,13 @@ export default function (pi: ExtensionAPI) {
 		return {
 			ok: false,
 			step: step.id,
-			needs: [module === undefined && bundle === undefined ? "module 或 bundle" : "module"],
-			hint: "starter 写 module（名单在 starters 里），资料包写 bundle（目录路径）。",
+			needs: [module === undefined && bundle === undefined ? "module or bundle" : "module"],
+			hint: "For a starter write module (the list is in starters); for a bundle write bundle (a directory path).",
 			...catalogue,
 		};
 	}
 
-	/** 东西到位了没有：目录要有 `manifest.json`（资料包的形状，契约 §14.2），别的路径存在即可。 */
+	/** Whether the thing has arrived: a directory needs a `manifest.json` (the bundle shape, contract §14.2), any other path merely has to exist. */
 	function ready(path: string): boolean {
 		try {
 			if (!existsSync(path)) return false;
@@ -288,8 +289,9 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * 等宿主的技能产出东西（表里的 `external` 步）。本仓库不解析 PDF（契约 §14.2）：
-	 * 资料包由宿主自己的 PDF 技能产出，这里只看它在不在，不在就把该怎么产出讲清楚，等下次再看。
+	 * Wait for the host's skill to produce something (the table's `external` step). This repository does not
+	 * parse PDFs (contract §14.2): the host's own PDF skill produces the bundle, and this only checks whether
+	  * it is there, explaining how to produce it when it is not, and looking again next time.
 	 */
 	function runExternal(step: Step, args: Record<string, unknown>): Record<string, unknown> {
 		const values: Record<string, string> = {};
@@ -306,7 +308,7 @@ export default function (pi: ExtensionAPI) {
 			return { ok: false, step: step.id, needs: missing, hint: instructionFor(step) };
 		}
 		for (const [name, value] of Object.entries(values)) {
-			// 看着像路径的才当路径查：别把 play_language 这种也拿去 stat。
+			// Only what looks like a path is checked as one: play_language and the like must not be stat'ed.
 			const looksLikePath = value.includes("/") || existsSync(value);
 			if (!looksLikePath) continue;
 			if (ready(value)) continue;
@@ -316,30 +318,30 @@ export default function (pi: ExtensionAPI) {
 				waiting_on: name,
 				path: value,
 				hint:
-					`${value} 还不是一个资料包。资料包由宿主的 PDF 技能产出，本仓库不解析 PDF（契约 §14.2）：` +
-					`让宿主把那本 PDF 读成 <目录>/manifest.json（契约 coc.pdf-bundle.v1）与 <目录>/pages/NNNN.md 每页一份 Markdown，` +
-					`产出好了再调一次同一步。`,
+					`${value} is not a bundle yet. Bundles are produced by the host's PDF skill; this repository does not parse PDFs (contract §14.2). ` +
+					`Have the host read that PDF into <dir>/manifest.json (contract coc.pdf-bundle.v1) and <dir>/pages/NNNN.md, one Markdown file per page, ` +
+					`then call this same step again once it is there.`,
 			};
 		}
 		return { ok: true, ...values };
 	}
 
 	/**
-	 * 构建那一步：循环在 module 扩展里（契约 §14.5，`module.build` 不是内核方法）。
-	 * 这里发起并等 `opening_ready`；等到点了就回「还在读」，玩家可以再调一次接着等。
+	 * The build step: the loop lives in the module extension (contract §14.5; `module.build` is not a kernel method).
+	 * This starts it and waits for `opening_ready`; at the deadline it answers "still reading" and the player can call again to keep waiting.
 	 */
 	async function runModuleBuild(params: Record<string, unknown>): Promise<Record<string, unknown>> {
 		const moduleId = asString(params.module_id) ?? asString(context.module_id);
-		if (!moduleId) return { ok: false, needs: ["module_id"], hint: "先绑定资料包，构建才知道读哪一本。" };
+		if (!moduleId) return { ok: false, needs: ["module_id"], hint: "Bind the bundle first, or the build does not know which book to read." };
 		const campaign = asString(context.campaign);
 		try {
 			const status = asRecord(await bridge?.call("module.status", { module_id: moduleId }));
 			if (status.opening_ready === true) return { ok: true, opening_ready: true, status };
 		} catch {
-			/* 状态查不到就照常起构建 */
+			/* an unreadable status does not stop the build from starting */
 		}
 
-		// 总线的 `on` 回的是退订闭包（Pi 没有 `off`），三条订阅与定时器一起收。
+		// The bus's `on` returns an unsubscribe closure (Pi has no `off`): the three subscriptions and the timer are cleaned up together.
 		return await new Promise<Record<string, unknown>>((resolve) => {
 			const disposers: Array<() => void> = [];
 			const done = (payload: Record<string, unknown>) => {
@@ -353,7 +355,7 @@ export default function (pi: ExtensionAPI) {
 						ok: false,
 						opening_ready: false,
 						still_building: true,
-						hint: "还在读这本书。告诉玩家在等什么，过一会儿再调一次同一步接着等。",
+						hint: "Still reading this book. Tell the player what is being waited on, and call this same step again in a while to keep waiting.",
 					}),
 				BUILD_WAIT_MS,
 			);
@@ -364,7 +366,7 @@ export default function (pi: ExtensionAPI) {
 					done({ ok: false, opening_ready: false, failed: true, ...asRecord(data) }),
 				),
 				pi.events.on("coc:module-build-done", (data) => {
-					// 整本读完了还没就绪：那是这本书的问题，报出去，别在这里干等。
+					// The whole book was read and it is still not ready: that is this book's problem, so report it rather than wait here.
 					const payload = asRecord(data);
 					if (asRecord(payload.report).opening_ready === true) return;
 					done({ ok: false, opening_ready: false, ...payload });
@@ -374,12 +376,12 @@ export default function (pi: ExtensionAPI) {
 		});
 	}
 
-	// ---- 一步 -------------------------------------------------------------
+	// ---- One step ---------------------------------------------------------
 
-	/** 按表把这一步的 op 依次跑掉；缺参数就停在那儿，把已经拿到的结果交给模型去补。 */
+	/** Run this step's ops in table order; a missing parameter stops it there and hands the results so far to the model to fill in. */
 	async function runOps(step: Step, args: Record<string, unknown>): Promise<Record<string, unknown>> {
 		const current = bridge;
-		if (!current) return { ok: false, step: step.id, rejected: "内核桥不在，这一步做不了。" };
+		if (!current) return { ok: false, step: step.id, rejected: "The kernel bridge is gone, so this step cannot run." };
 		const results: Record<string, unknown> = {};
 		for (const [index, op] of step.ops.entries()) {
 			const cacheKey = `${step.id} ${op.method}`;
@@ -396,8 +398,8 @@ export default function (pi: ExtensionAPI) {
 					needs: filled.missing,
 					results,
 					hint:
-						`${op.method} 还缺 ${filled.missing.join("、")}。` +
-						`上面的 results 里有这一步已经查回来的东西（比如职业清单），从里面挑，或者问玩家。`,
+						`${op.method} is still missing ${filled.missing.join(", ")}. ` +
+						`The results above hold what this step already looked up (the occupation list, for instance): pick from them, or ask the player.`,
 				};
 			}
 			try {
@@ -423,7 +425,7 @@ export default function (pi: ExtensionAPI) {
 		return { ok: true, ...results };
 	}
 
-	/** 一步做完：记账、更新来源、看看是不是最后一步。 */
+	/** A step is done: book it, update the source, and see whether it was the last one. */
 	function settle(step: Step, outcome: Record<string, unknown>): void {
 		completed.add(step.id);
 		opCache.clear();
@@ -449,14 +451,14 @@ export default function (pi: ExtensionAPI) {
 	async function execute(raw: Record<string, unknown>): Promise<Record<string, unknown>> {
 		await ensureSteps();
 		if (!steps) {
-			return { ok: false, error: stepsError ?? "建卡表还没到手。" };
+			return { ok: false, error: stepsError ?? "The setup table is not in hand yet." };
 		}
 		const id = asString(raw.step);
 		if (!id) {
 			const next = nextStep(steps, state());
 			return {
 				ok: false,
-				error: "要给 step：这一次做哪一步。",
+				error: "step is required: which step to do this time.",
 				next: instructionFor(next),
 				allowed: allowedSteps(steps, state()).map((row) => row.id),
 			};
@@ -475,7 +477,7 @@ export default function (pi: ExtensionAPI) {
 					: await runOps(step, args);
 
 		if (outcome.ok !== true) {
-			// 没做成的步不记账：同一步可以照着 hint 补参数再来一次。
+			// A step that did not succeed is not booked: the same step can be tried again with the parameters the hint names.
 			return { ...outcome, step: id, progress: progressLine(steps, state()) };
 		}
 		settle(step, outcome);
@@ -491,36 +493,36 @@ export default function (pi: ExtensionAPI) {
 		};
 	}
 
-	/** 表里没有下一步了：把开桌命令交出去，等这一轮说完就退出进程（契约 §14.4 第七步）。 */
+	/** No next step in the table: hand over the command that opens the table, and exit the process once this run has spoken (contract §14.4, step seven). */
 	function finish(): void {
 		const campaign = asString(context.campaign);
 		handoff = campaign ? `bin/pi-coc --campaign ${campaign}` : "bin/pi-coc";
-		const line = `建卡完成。开桌：${handoff}`;
+		const line = `Setup complete. Open the table with: ${handoff}`;
 		try {
 			pi.appendEntry("coc-setup-handoff", { campaign: campaign ?? null, command: handoff });
 			if (ctx?.hasUI) ctx.ui.notify(line, "info");
 		} catch {
-			/* 交接的字打不出来也不该卡住退出 */
+			/* failing to print the handoff must not block the exit */
 		}
 	}
 
-	// ---- 工具 -------------------------------------------------------------
+	// ---- The tool ---------------------------------------------------------
 
 	pi.registerTool({
 		name: "setup",
-		label: "建卡",
+		label: "Setup",
 		description:
-			"从零到开桌的唯一动作。`step` 写这一次要做哪一步，其余参数按上一次结果里 next 说的填" +
-			"（也可以整包塞进 `params`）。步骤表、顺序、前置、每步要什么参数都由内核说了算：" +
-			"第一次调用不知道写什么就随便给一个 step（比如 start），结果会把表里的第一步告诉你。" +
-			"每次返回都带 next（下一步与它要的参数）、progress（进度）；做不成时带 rejected 或 needs，" +
-			"照它说的改，不要原样重发。",
-		promptSnippet: "建卡的唯一工具：走内核给的七步表，一次一步。",
+			"The one action from nothing to an open table. `step` is which step to do this time, and the other parameters are what the previous result's next asked for " +
+			"(they may also be packed into `params`). The step table, its order, its prerequisites and the parameters of each step are the kernel's call: " +
+			"if you do not know what to write on the first call, give any step (start, say) and the result will tell you the table's first step. " +
+			"Every return carries next (the next step and its parameters) and progress; a call that did not succeed carries rejected or needs, " +
+			"so change what it says to change and do not resend unchanged.",
+		promptSnippet: "The one setup tool: walk the kernel's seven-step table, one step at a time.",
 		parameters: Type.Object(
 			{
-				step: Type.String({ description: "这一次做哪一步；步骤名来自内核的建卡表，上一次结果的 next 里有" }),
+				step: Type.String({ description: "which step to do this time; step names come from the kernel's setup table, and the previous result's next holds it" }),
 				params: Type.Optional(
-					Type.Object({}, { additionalProperties: true, description: "这一步要的参数，也可以直接摊在顶层" }),
+					Type.Object({}, { additionalProperties: true, description: "the parameters this step wants; they may also be spread at the top level" }),
 				),
 			},
 			{ additionalProperties: true },
@@ -532,9 +534,9 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// ---- 生命周期 ---------------------------------------------------------
+	// ---- Lifecycle --------------------------------------------------------
 
-	// 内核扩展在 session_start 里发桥；这里在加载时就订阅，两种加载顺序都接得住。
+	// The kernel extension emits the bridge in session_start; this subscribes at load time, so both load orders are caught.
 	pi.events.on("coc:kernel-bridge", (data) => {
 		const payload = asRecord(data) as { call?: KernelCall; hello?: Record<string, unknown>; campaign?: string };
 		bridge = typeof payload.call === "function" ? { call: payload.call, ...(payload.hello ? { hello: asRecord(payload.hello) } : {}) } : undefined;
@@ -550,17 +552,17 @@ export default function (pi: ExtensionAPI) {
 		handoff = undefined;
 		const campaign = process.env.PI_COC_CAMPAIGN?.trim();
 		if (campaign) context.campaign = campaign;
-		// 建卡进程的工具面就这一个（契约 §14.4）。
+		// The setup process's tool surface is only this one (contract §14.4).
 		pi.setActiveTools(["setup"]);
-		// 内核扩展先加载时桥已经在了，这一步就把表拿到手；它排在后面时留给第一次工具调用去拿。
+		// When the kernel extension loaded first the bridge is already here and the table is fetched now; when it comes later, the first tool call fetches it.
 		if (bridge) await ensureSteps();
 		paint();
 		if (ctx.hasUI && steps) {
-			ctx.ui.notify(`建卡：一共 ${steps.length} 步。${instructionFor(nextStep(steps, state()))}`, "info");
+			ctx.ui.notify(`Setup: ${steps.length} steps in all. ${instructionFor(nextStep(steps, state()))}`, "info");
 		}
 	});
 
-	// 最后一步做完之后，等这一轮把交接的话说完再退出（契约 §14.4：进程退出并打印开桌命令）。
+	// After the last step, wait for this run to say the handoff out loud before exiting (contract §14.4: the process exits and prints the command that opens the table).
 	pi.on("agent_end", async () => {
 		if (!handoff) return;
 		const command = handoff;
@@ -569,7 +571,7 @@ export default function (pi: ExtensionAPI) {
 			ctx?.shutdown();
 			pi.appendEntry("coc-setup-exit", { command });
 		} catch {
-			/* 退不出去也别抛：命令已经打出去了 */
+			/* failing to exit must not throw either: the command has already been printed */
 		}
 	});
 

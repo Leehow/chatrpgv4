@@ -1,6 +1,7 @@
 /**
- * pi-coc 内核扩展：拉起 Python 内核，把七个动词接到 RPC 上，
- * 并在扩展侧镜像回合状态机。职责见 docs/kernel-rpc.md 第 8 节。
+ * The pi-coc kernel extension: it starts the Python kernel, wires the seven verbs onto RPC,
+ * and mirrors the turn state machine on the extension side. Responsibilities in
+ * docs/kernel-rpc.md §8.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -10,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { cocMode } from "../lanes/host.ts";
 import { KernelClient, KernelError } from "./client.ts";
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
-import { type CommitPayload, runVerifierLane, stripMechanicsLines } from "./verifier.ts";
+import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 
 type TurnState = "awaiting_player" | "open" | "acting" | "asked" | "committed";
 
@@ -26,21 +27,22 @@ interface OpenResult {
 		since?: string;
 		last_call_ordinal?: number;
 	} | null;
-	/** 续行检查点（契约 §12.2）：重开后第一回合的胶囊自己带这一节，扩展不为它单独发宿主消息。 */
+	/** The resume checkpoint (contract §12.2): after a restart the first capsule carries this section itself, so the extension sends no separate host message for it. */
 	resume?: { turn?: number; commit?: string; one_line?: string; rebuilt?: boolean } | null;
 	opening_needed?: boolean;
 }
 
 /**
- * `resolve` 结果里的会话摘要（契约 §11.5）与待决（§11.3、§11.5）。
- * 扩展只读它做状态行与遥测，不解释规则；字段缺失时按「没有」处理。
+ * The session summary (contract §11.5) and the pending choice (§11.3, §11.5) in a `resolve` result.
+ * The extension reads them only for the status line and telemetry; it interprets no rules, and a
+ * missing field is treated as "none".
  */
 type SessionSummary = {
 	kind?: string;
 	round?: number;
 	status?: string;
 	ended?: boolean;
-	/** 轮到谁；契约没定字段名，两种写法都收。 */
+	/** Whose turn it is; the contract does not fix the field name, so both spellings are accepted. */
 	turn_of?: string;
 	active_actor?: string;
 	pending_defense?: { for?: string; defender?: string; options?: string[] } | null;
@@ -60,9 +62,10 @@ type ResolveResult = {
 };
 
 /**
- * `apply` 的 `handout` 效果回来的附件（契约 §14.8）。
- * Pi 的助手消息只装 text／thinking／toolCall 三种块，出站没有附件通道
- * （见 docs/pi-host-contract.md 第 4、5 节），所以路径落进交付文本与遥测。
+ * The attachment a `handout` effect returns from `apply` (contract §14.8).
+ * A Pi assistant message holds only text / thinking / toolCall blocks, and there is no outbound
+ * attachment channel (see docs/pi-host-contract.md §4, §5), so the path travels in the
+ * `coc-mechanics` projection instead of in the player's prose.
  */
 interface HandoutAttachment {
 	path: string;
@@ -83,54 +86,60 @@ interface TableState {
 	kernel: KernelClient;
 	campaign: string;
 	telemetryPath: string;
-	/** 战役的 play_language，用来告诉校验车道 `why` 用哪种语言写；内核没给就不提。 */
+	/** The campaign's play_language, used to tell the verifier lane which language to write `why` in; not mentioned when the kernel gives none. */
 	playLanguage?: string;
 	turn: number;
 	state: TurnState;
-	/** 本回合已铸造的会改状态调用序号。 */
+	/** The ordinal of state-changing calls minted this turn. */
 	callOrdinal: number;
-	/** turn 0：开桌尚未 narrate，此时允许从 awaiting_player 直接 narrate。 */
+	/** Turn 0: the table has opened but not yet narrated, so narrate is allowed straight out of awaiting_player. */
 	openingPending: boolean;
-	/** narrate/ask 已回 rendered_text，等着替换助手消息交付。 */
+	/** narrate/ask has returned rendered_text and is waiting to replace the assistant message. */
 	renderedText?: string;
 	deliveryToolCallId?: string;
-	/** 最近一次 resolve 回来的会话（战斗、追逐、理智发作）；null 表示当前没有会话。 */
+	/** The most recent session (combat, chase, sanity bout) from resolve; null means no session is running. */
 	session: SessionSummary | null;
-	/** 最近一次 resolve 留下的待决；`for` 是 player 时守秘人该用 ask 把它交回玩家。 */
+	/** The pending choice left by the most recent resolve; when `for` is player the Keeper should hand it back with ask. */
 	pendingChoice: PendingChoice | null;
-	/** 本轮 agent run 里回合是否已经被 narrate/ask 关掉。 */
+	/** Whether this agent run has already closed the turn with narrate/ask. */
 	closedThisRun: boolean;
 	steeredThisTurn: boolean;
+	/** The kernel's `fix` for a `mechanics_missing` refusal of an implicit narrate; steered once at agent_end instead of delivering. */
+	mechanicsFix?: string;
 	roundTrips: number;
 	mintedCallIds: Map<string, string>;
-	/** 本回合被内核拒过的调用：同名同参的键 → 次数与最近一次错误。原样重发两次之后拦下。 */
+	/** Calls the kernel rejected this turn: key of name+params to a count and the last error. Blocked on the third identical resend. */
 	rejected: Map<string, { count: number; last: string }>;
-	/** toolCallId → 上面的键，tool_result 里据此计数。 */
+	/** toolCallId to the key above; tool_result counts against it. */
 	callKeys: Map<string, string>;
-	/** narrate 已提交、校验车道还没起跑的那一回合（契约 §12.5：交付替换之后才跑）。 */
+	/** The turn narrate has committed but the verifier lane has not yet started on (contract §12.5: it runs after the delivery replacement). */
 	pendingCommit?: CommitPayload;
-	/** 本回合 `apply` 落下的手卡附件（契约 §14.8），等着跟交付一起给玩家。 */
+	/** Handout attachments landed by `apply` this turn (contract §14.8), waiting to join the mechanics projection. */
 	attachments: HandoutAttachment[];
-	/** 会话结束时掐断还在飞的车道补全，别让它拖住退出。 */
+	/** Cut off lane completions still in flight when the session ends; they must not hold up the exit. */
 	lanes: AbortController;
 }
 
 const PKG_ROOT = packageRoot();
 const CLOSED_STATES: ReadonlySet<TurnState> = new Set<TurnState>(["awaiting_player", "committed", "asked"]);
-const TURN_CLOSED_REASON = "回合已关闭，等待玩家";
+const TURN_CLOSED_REASON = "the turn is closed, waiting for the player";
+/** Used when the kernel refuses a delivery for missing numbers but gives no `fix` of its own. */
+const MECHANICS_MISSING_STEER =
+	"The kernel refused this turn's delivery: mechanics_missing. State this turn's public rolls and changes in your prose, with the numbers copied exactly from the tool results, then deliver it again.";
 
 let table: TableState | undefined;
-/** 建卡模式下没有桌子，内核子进程单独挂在这里（契约 §14.4）。 */
+/** In setup mode there is no table, so the kernel subprocess hangs here on its own (contract §14.4). */
 let soloKernel: KernelClient | undefined;
 /**
- * 总线上那个 RPC 闭包的闸（契约 §12.8 的 `coc:kernel-bridge`）。
- * 车道是异步的：记忆抽取、按需深读都可能在关机之后才轮到自己发请求，
- * 而那时内核客户端已经 close 了——它排队里的下一个请求会把子进程再拉起来一次。
- * 关机时先把这个闸关上，晚到的调用当场失败，不再叫醒一个没人管的内核进程。
+ * The gate on the RPC closure that goes onto the bus (contract §12.8's `coc:kernel-bridge`).
+ * The lanes are asynchronous: memory extraction and on-demand deepening may not get to send
+ * their request until after shutdown, and by then the kernel client is closed — the next
+ * request in its queue would spawn the subprocess all over again. Closing this gate first
+ * makes a late call fail on the spot rather than wake a kernel nobody owns.
  */
 let bridgeGate = { open: false };
 let startupError: string | undefined;
-/** session_start 那个 ctx 的字段都是取值时算的，所以留着它就等于留着一份活的会话视图。 */
+/** Every field of the session_start ctx is computed on access, so holding it is holding a live view of the session. */
 let sessionCtx: ExtensionContext | undefined;
 
 function packageRoot(): string {
@@ -138,13 +147,13 @@ function packageRoot(): string {
 	return resolvePath(here, "..", "..");
 }
 
-/** 启动命令：缺省是契约第 1 节的 uv 命令，测试用 PI_COC_KERNEL_CMD（JSON 数组）换掉。 */
+/** The launch command: the uv command from contract §1 by default, replaced by PI_COC_KERNEL_CMD (a JSON array) in tests. */
 function kernelCommand(workspace: string): string[] {
 	const override = process.env.PI_COC_KERNEL_CMD?.trim();
 	if (override) {
 		const parsed: unknown = JSON.parse(override);
 		if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((part) => typeof part !== "string")) {
-			throw new Error("PI_COC_KERNEL_CMD 必须是非空的字符串 JSON 数组");
+			throw new Error("PI_COC_KERNEL_CMD must be a non-empty JSON array of strings");
 		}
 		return parsed as string[];
 	}
@@ -172,41 +181,53 @@ function asString(value: unknown): string | undefined {
 }
 
 /**
- * `details` 只到扩展和界面，模型看到的只有工具结果的正文。
- * 所以 `needs` 的可选值与 `needs_choice` 的候选必须落进正文，
- * 否则守秘人被告知「有候选」却看不见候选，补不出 decision（契约 §11.3）。
+ * `details` reaches only the extension and the interface; the model sees the tool result body.
+ * So the options of a `needs` and the candidates of a `needs_choice` must land in that body,
+ * or the Keeper is told there are candidates while unable to see them and cannot fill in a
+ * decision (contract §11.3).
  */
 function errorDetailLines(details: Record<string, unknown> | undefined): string[] {
 	if (!details) return [];
 	const lines: string[] = [];
 	const needs = details.needs as { field?: string; options?: unknown[] } | undefined;
 	if (needs?.field) {
-		const options = (needs.options ?? []).map((option) => String(option)).join("、");
-		lines.push(options ? `缺 ${needs.field}，可选：${options}` : `缺 ${needs.field}`);
+		const options = (needs.options ?? []).map((option) => String(option)).join(", ");
+		lines.push(options ? `missing ${needs.field}, one of: ${options}` : `missing ${needs.field}`);
 	}
 	const candidates = details.candidates;
 	if (Array.isArray(candidates) && candidates.length > 0) {
-		lines.push("候选：");
+		lines.push("candidates:");
 		for (const candidate of candidates) {
 			if (typeof candidate === "string") {
 				lines.push(`- ${candidate}`);
 				continue;
 			}
 			const row = (candidate ?? {}) as Record<string, unknown>;
-			// 候选的字段名契约没定死：语义名与「何时适用」各收几种写法。
+			// The contract does not fix the candidate field names: several spellings of the name and of "when it applies" are accepted.
 			const name = asString(row.name) ?? asString(row.id) ?? asString(row.decision) ?? "?";
 			const when = asString(row.when) ?? asString(row.summary) ?? asString(row.description);
-			lines.push(when ? `- ${name}：${when}` : `- ${name}`);
+			lines.push(when ? `- ${name}: ${when}` : `- ${name}`);
 		}
 	}
 	const exits = details.exits;
 	if (Array.isArray(exits) && exits.length > 0) {
-		lines.push(`可达：${exits.map((exit) => (typeof exit === "string" ? exit : JSON.stringify(exit))).join("、")}`);
+		lines.push(`reachable: ${exits.map((exit) => (typeof exit === "string" ? exit : JSON.stringify(exit))).join(", ")}`);
+	}
+	const missing = details.missing;
+	if (Array.isArray(missing) && missing.length > 0) {
+		// A `mechanics_missing` refusal (contract §5): the numbers the prose must carry belong in the body too.
+		lines.push("numbers still missing from the prose:");
+		for (const row of missing) {
+			const entry = (row ?? {}) as Record<string, unknown>;
+			const receipt = asString(entry.receipt) ?? "?";
+			const expected = Array.isArray(entry.expected) ? entry.expected.map((value) => String(value)).join(", ") : "";
+			lines.push(expected ? `- ${receipt}: ${expected}` : `- ${receipt}`);
+		}
 	}
 	return lines;
 }
 
-/** resolve 的遥测多两列：这次裁决属于哪一族，落在哪个会话里（契约 §11.6）。 */
+/** resolve telemetry carries two extra columns: which family this adjudication belongs to and which session it fell in (contract §11.6). */
 function resolveTelemetry(result: ResolveResult): Record<string, unknown> {
 	const outcomeKind = asString(result.outcome?.kind);
 	const sessionKind = asString(result.session?.kind ?? undefined);
@@ -224,8 +245,19 @@ function errorText(error: unknown): string {
 }
 
 /**
- * `apply` 结果里的手卡附件（契约 §14.8）。内核给一条还是一列都收：
- * 一次 apply 可以投多张手卡，契约只写了单数的形状。
+ * Whether this refusal is the kernel's number check (contract §5): `invalid_params` with
+ * `code_detail: "mechanics_missing"`. The detail is read from all the places it can travel,
+ * because it is one contract field and not a semantic judgement.
+ */
+function isMechanicsMissing(error: unknown): boolean {
+	if (!(error instanceof KernelError)) return false;
+	if (error.code === "mechanics_missing" || error.codeDetail === "mechanics_missing") return true;
+	return (error.details as { code_detail?: unknown } | undefined)?.code_detail === "mechanics_missing";
+}
+
+/**
+ * The handout attachments in an `apply` result (contract §14.8). One row or a list is accepted:
+ * a single apply may show several handouts, and the contract only wrote the singular shape.
  */
 function readAttachments(result: Record<string, unknown>): HandoutAttachment[] {
 	const raw = result.attachments ?? result.attachment;
@@ -248,20 +280,28 @@ function readAttachments(result: Record<string, unknown>): HandoutAttachment[] {
 	return found;
 }
 
+/** The mechanics projection carried by a narrate/ask result (contract §16.2); missing or malformed means none. */
+function readMechanics(result: Record<string, unknown>): Array<Record<string, unknown>> {
+	const raw = result.mechanics;
+	if (!Array.isArray(raw)) return [];
+	return raw.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object" && !Array.isArray(row));
+}
+
 export default function (pi: ExtensionAPI) {
-	// 建卡进程也要内核（`campaign.*`、`module.*`、`setup.*` 都在内核里），
-	// 但它没有桌子：不注册七个动词、不 `table.open`、不跑校验车道（契约 §14.4）。
-	// 模式在工厂里读，不在模块顶层读：一个进程里加载多次时顶层常量会被冻住。
+	// The setup process needs the kernel too (`campaign.*`, `module.*` and `setup.*` all live there),
+	// but it has no table: it registers none of the seven verbs, does not `table.open`, and runs no
+	// verifier lane (contract §14.4). The mode is read in the factory rather than at module top level:
+	// when one process loads this several times, a top-level constant freezes on the first value.
 	const setupMode = cocMode() === "setup";
 
-	// ---- 遥测 -------------------------------------------------------------
+	// ---- Telemetry --------------------------------------------------------
 
 	async function record(entry: Record<string, unknown>): Promise<void> {
 		const line = { turn: table?.turn ?? null, ...entry };
 		try {
 			pi.appendEntry("coc-telemetry", line);
 		} catch {
-			/* 遥测不该弄坏一回合 */
+			/* telemetry must never break a turn */
 		}
 		const path = table?.telemetryPath;
 		if (!path) return;
@@ -269,13 +309,13 @@ export default function (pi: ExtensionAPI) {
 			await mkdir(dirname(path), { recursive: true });
 			await appendFile(path, `${JSON.stringify(line)}\n`, "utf8");
 		} catch {
-			/* 同上 */
+			/* same as above */
 		}
 	}
 
-	// ---- 宿主消息 ---------------------------------------------------------
+	// ---- Host messages ----------------------------------------------------
 
-	/** 宿主自己发的消息带标记：它不是玩家输入，不进 table.player_input。 */
+	/** A message the host sends itself is marked as such: it is not player input and does not go to table.player_input. */
 	function sendHost(content: string, kind: string): void {
 		pi.sendMessage(
 			{ customType: "coc-host", content, display: false, details: { coc_host: true, kind } },
@@ -283,14 +323,14 @@ export default function (pi: ExtensionAPI) {
 		);
 	}
 
-	// ---- 回合镜像 ---------------------------------------------------------
+	// ---- Turn mirror ------------------------------------------------------
 
 	function applyOpen(open: OpenResult): void {
 		if (!table) return;
 		table.turn = typeof open.turn?.number === "number" ? open.turn.number : table.turn;
 		table.state = open.turn?.state ?? table.state;
 		table.openingPending = open.opening_needed === true;
-		// 恢复的回合接着死掉的进程铸序号，否则第一次写就撞 idempotency_conflict。
+		// A recovered turn goes on minting ordinals after the dead process, or the first write hits idempotency_conflict.
 		table.callOrdinal = open.pending_turn?.last_call_ordinal ?? 0;
 		table.mintedCallIds.clear();
 		table.rejected.clear();
@@ -299,6 +339,7 @@ export default function (pi: ExtensionAPI) {
 		table.deliveryToolCallId = undefined;
 		table.closedThisRun = false;
 		table.steeredThisTurn = false;
+		table.mechanicsFix = undefined;
 		table.attachments = [];
 	}
 
@@ -307,7 +348,7 @@ export default function (pi: ExtensionAPI) {
 		return `t${state.turn}-c${state.callOrdinal}`;
 	}
 
-	/** 铸造过就用铸造的那个；tool_call 没跑到时兜底铸一个。 */
+	/** Use the minted one when there is one; mint a fallback when tool_call did not run. */
 	function takeCallId(state: TableState, toolCallId: string): string {
 		const minted = state.mintedCallIds.get(toolCallId);
 		if (minted) {
@@ -318,9 +359,10 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * `resolve` 的结果可能带会话与待决（契约 §11.5）。回合状态机不因此多一个状态：
-	 * 会话把回合留在 `acting`，守秘人接着用 ask 把玩家的防御选择交回去，
-	 * 或者用 actor 加 defense 替 NPC 作答。这里只镜像摘要，供状态行与遥测用。
+	 * A `resolve` result may carry a session and a pending choice (contract §11.5). The turn state
+	 * machine gains no state for it: a session leaves the turn in `acting`, and the Keeper goes on
+	 * to hand the player's defence back with ask, or answers for an NPC with actor plus defense.
+	 * Only the summary is mirrored here, for the status line and telemetry.
 	 */
 	function noteResolve(state: TableState, result: ResolveResult): void {
 		const session = result.session;
@@ -335,10 +377,11 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * narrate 提交成功：总线上发一条 `coc:turn-committed`（契约 §12.8），记忆扩展据此起车道；
-	 * 同一份载荷留给校验车道，等交付替换完成再跑。
+	 * narrate committed: put a `coc:turn-committed` on the bus (contract §12.8) for the memory
+	 * extension to start its lane on, and keep the same payload for the verifier lane, which runs
+	 * once the delivery replacement is done.
 	 */
-	function noteCommit(state: TableState, result: Record<string, unknown>): void {
+	function noteCommit(state: TableState, result: Record<string, unknown>, mechanics: Array<Record<string, unknown>>): void {
 		const renderedText = asString(result.rendered_text);
 		if (!renderedText) return;
 		const extraction = (result.extraction ?? {}) as { job_id?: unknown };
@@ -346,6 +389,7 @@ export default function (pi: ExtensionAPI) {
 			campaign: state.campaign,
 			turn: typeof result.turn === "number" ? result.turn : state.turn,
 			rendered_text: renderedText,
+			...(mechanics.length > 0 ? { mechanics } : {}),
 			...(asString(result.commit) ? { commit: asString(result.commit) } : {}),
 			...(asString(extraction.job_id) ? { job_id: asString(extraction.job_id) } : {}),
 			...(result.facts && typeof result.facts === "object" ? { facts: result.facts as CommitPayload["facts"] } : {}),
@@ -355,8 +399,9 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * 校验车道（契约 §12.5）：交付替换之后 fire-and-forget，不 await、不拦、不催。
-	 * 没有 `facts` 的内核（切片 0、1）不跑：没有事实清单可读。
+	 * The verifier lane (contract §12.5): fire-and-forget after the delivery replacement, never
+	 * awaited, never blocking, never nagging. A kernel without `facts` (slices 0 and 1) does not
+	 * run it: there is no fact list to read.
 	 */
 	function scheduleVerifier(state: TableState): void {
 		const payload = state.pendingCommit;
@@ -368,7 +413,7 @@ export default function (pi: ExtensionAPI) {
 		const signal = state.lanes.signal;
 		const playLanguage = state.playLanguage;
 		const timer = setTimeout(() => {
-			// 车道是 advisory 的：它自己怎么坏都不该冒出去变成没人接的拒绝。
+			// The lane is advisory: however it breaks, it must not surface as an unhandled rejection.
 			void runVerifierLane({
 				ctx,
 				payload,
@@ -379,6 +424,63 @@ export default function (pi: ExtensionAPI) {
 			}).catch(() => undefined);
 		}, 0);
 		timer.unref?.();
+	}
+
+	/**
+	 * The handouts of this turn joined onto the kernel's mechanics projection (contract §14.8,
+	 * §16.2). Pi has no outbound attachment channel, so the file path travels as a `handout` row in
+	 * the language-neutral projection rather than as a line injected into the Keeper's prose; the
+	 * front end and the driver read it from there.
+	 */
+	function withHandouts(state: TableState, mechanics: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+		const pending = state.attachments;
+		state.attachments = [];
+		if (pending.length === 0) return mechanics;
+		const rows = mechanics.map((row) => ({ ...row }));
+		for (const attachment of pending) {
+			void record({
+				lane: "handout",
+				event: "delivered",
+				ok: true,
+				path: attachment.path,
+				...(attachment.name ? { name: attachment.name } : {}),
+				delivered_as: "mechanics",
+			});
+			const existing = rows.find(
+				(row) =>
+					row.kind === "handout" &&
+					(row.path === attachment.path || (attachment.name !== undefined && row.name === attachment.name)),
+			);
+			if (existing) {
+				if (!asString(existing.path)) existing.path = attachment.path;
+				if (attachment.media_type && !asString(existing.media_type)) existing.media_type = attachment.media_type;
+				continue;
+			}
+			rows.push({
+				kind: "handout",
+				name: attachment.name ?? attachment.path,
+				path: attachment.path,
+				...(attachment.media_type ? { media_type: attachment.media_type } : {}),
+				...(attachment.receipt ? { receipt: attachment.receipt } : {}),
+			});
+		}
+		return rows;
+	}
+
+	/**
+	 * The mechanics projection reaches the delivery channel as a `coc-mechanics` session entry plus
+	 * a `coc:mechanics` bus event (contract §8, §16.2). The Pi RPC event stream carries it, so the
+	 * driver lands it in the evidence and a future front end renders dice cards and change bars from
+	 * it. It is never injected into the prose: the TUI shows only what the Keeper wrote.
+	 */
+	function noteMechanics(state: TableState, turn: number, mechanics: Array<Record<string, unknown>>): void {
+		if (mechanics.length === 0) return;
+		try {
+			pi.appendEntry("coc-mechanics", { turn, mechanics });
+		} catch {
+			/* the projection must never break a turn */
+		}
+		pi.events.emit("coc:mechanics", { campaign: state.campaign, turn, mechanics });
 	}
 
 	function applyToolSuccess(state: TableState, tool: string, toolCallId: string, result: Record<string, unknown>): void {
@@ -394,8 +496,9 @@ export default function (pi: ExtensionAPI) {
 				break;
 			case "apply": {
 				state.state = "acting";
-				// 手卡（契约 §14.8）：内核渲染的【手卡】行已经在 rendered_text 里，
-				// 附件本身要扩展交给玩家；Pi 没有出站附件通道，所以攒到交付时落成路径。
+				// Handouts (contract §14.8): the kernel mints the receipt, and the attachment itself is the
+				// extension's to hand on. Pi has no outbound attachment channel, so it is held until the
+				// delivery and lands as a path in the mechanics projection.
 				const found = readAttachments(result);
 				if (found.length > 0) {
 					state.attachments.push(...found);
@@ -413,26 +516,31 @@ export default function (pi: ExtensionAPI) {
 				}
 				break;
 			}
-			case "ask":
+			case "ask": {
 				state.state = "asked";
-				// 待决已经交回玩家了，回合欠的不再是 ask。
+				// The pending choice has been handed back to the player, so the turn no longer owes an ask.
 				state.pendingChoice = null;
 				state.closedThisRun = true;
 				state.renderedText = asString(result.rendered_text);
 				state.deliveryToolCallId = toolCallId;
+				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn, withHandouts(state, readMechanics(result)));
 				break;
-			case "narrate":
+			}
+			case "narrate": {
 				state.state = "awaiting_player";
 				state.openingPending = false;
 				state.closedThisRun = true;
 				state.renderedText = asString(result.rendered_text);
 				state.deliveryToolCallId = toolCallId;
-				noteCommit(state, result);
+				const mechanics = withHandouts(state, readMechanics(result));
+				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn, mechanics);
+				noteCommit(state, result, mechanics);
 				break;
+			}
 		}
 	}
 
-	// ---- 工具 -------------------------------------------------------------
+	// ---- Tools ------------------------------------------------------------
 
 	async function runTool(
 		spec: CocToolSpec,
@@ -441,7 +549,7 @@ export default function (pi: ExtensionAPI) {
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }> {
 		const state = table;
 		if (!state) {
-			throw new Error(startupError ?? "内核还没就位，这张桌子开不了");
+			throw new Error(startupError ?? "the kernel is not up, so this table cannot open");
 		}
 		const payload: Record<string, unknown> = { campaign: state.campaign, ...params };
 		if (WRITE_TOOLS.has(spec.name)) {
@@ -461,7 +569,7 @@ export default function (pi: ExtensionAPI) {
 				...(spec.name === "resolve" ? resolveTelemetry(result as ResolveResult) : {}),
 			});
 			if (spec.name === "narrate" || spec.name === "ask") {
-				// 会话里的一回合算账要分得出来：战斗的回合往返数跟调查的回合不是一回事。
+				// A turn inside a session must be accountable on its own: round trips in combat are not the same as in investigation.
 				await record({
 					tool: spec.name,
 					event: "turn-closed",
@@ -483,6 +591,7 @@ export default function (pi: ExtensionAPI) {
 				ms: Date.now() - began,
 				ok: false,
 				code,
+				...(isMechanicsMissing(error) ? { code_detail: "mechanics_missing" } : {}),
 			});
 			return {
 				content: [{ type: "text", text: errorText(error) }],
@@ -490,6 +599,7 @@ export default function (pi: ExtensionAPI) {
 					coc_error: {
 						code,
 						message: error instanceof Error ? error.message : String(error),
+						...(error instanceof KernelError && error.codeDetail ? { code_detail: error.codeDetail } : {}),
 						...(error instanceof KernelError && error.fix ? { fix: error.fix } : {}),
 						...(error instanceof KernelError && error.details ? { details: error.details } : {}),
 					},
@@ -498,7 +608,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	// 建卡进程的工具面只有 onboarding 的 `setup`：七个动词一个都不注册（契约 §14.4）。
+	// The setup process's tool surface is only onboarding's `setup`: not one of the seven verbs is registered (contract §14.4).
 	for (const spec of setupMode ? [] : COC_TOOLS) {
 		pi.registerTool({
 			name: spec.name,
@@ -506,13 +616,13 @@ export default function (pi: ExtensionAPI) {
 			description: spec.description,
 			promptSnippet: spec.promptSnippet,
 			parameters: spec.parameters,
-			// 一回合的动作有先后：串行执行，narrate 之后的同批调用才拦得住。
+			// The actions of a turn are ordered: run them serially, so the calls after narrate in the same batch can be stopped.
 			executionMode: "sequential",
 			execute: async (toolCallId, params) => runTool(spec, toolCallId, params as Record<string, unknown>),
 		});
 	}
 
-	// AgentToolResult 没有 isError 字段，错误旗只能在 tool_result 上翻。
+	// AgentToolResult has no isError field, so the error flag can only be raised in tool_result.
 	pi.on("tool_result", async (event) => {
 		if (!COC_TOOL_NAMES.includes(event.toolName as never)) return;
 		const details = event.details as { coc_error?: { code?: unknown; message?: unknown } } | undefined;
@@ -527,7 +637,7 @@ export default function (pi: ExtensionAPI) {
 		return { isError: true };
 	});
 
-	// ---- 开桌 -------------------------------------------------------------
+	// ---- Opening the table ------------------------------------------------
 
 	async function pickCampaign(kernel: KernelClient, ctx: ExtensionContext): Promise<string> {
 		const fromEnv = process.env.PI_COC_CAMPAIGN?.trim();
@@ -535,30 +645,30 @@ export default function (pi: ExtensionAPI) {
 		const listed = await kernel.call<{ campaigns?: CampaignRow[] }>("campaign.list");
 		const campaigns = listed.campaigns ?? [];
 		if (campaigns.length === 0) {
-			throw new Error("这个工作区里还没有战役：先建一个，或者用 PI_COC_CAMPAIGN 指定一个已有的。");
+			throw new Error("This workspace has no campaigns yet: create one, or name an existing one with PI_COC_CAMPAIGN.");
 		}
-		const ids = campaigns.map((row) => row.id).join("、");
+		const ids = campaigns.map((row) => row.id).join(", ");
 		if (!ctx.hasUI) {
-			throw new Error(`没有界面可以问：用 bin/pi-coc --campaign <id> 或 PI_COC_CAMPAIGN 指定战役。现有：${ids}`);
+			throw new Error(`No interface to ask on: name a campaign with bin/pi-coc --campaign <id> or PI_COC_CAMPAIGN. Existing: ${ids}`);
 		}
 		const labels = campaigns.map(
-			(row) => `${row.id}　${row.title ?? ""}（第 ${row.turn ?? 0} 回合，${row.status ?? "?"}）`,
+			(row) => `${row.id}  ${row.title ?? ""} (turn ${row.turn ?? 0}, ${row.status ?? "?"})`,
 		);
-		const chosen = await ctx.ui.select("选一张桌子", labels);
+		const chosen = await ctx.ui.select("Pick a table", labels);
 		const index = chosen ? labels.indexOf(chosen) : -1;
 		if (index < 0) {
-			throw new Error(`没有选战役，这次不开桌。现有：${ids}`);
+			throw new Error(`No campaign chosen, so no table is opening. Existing: ${ids}`);
 		}
 		return campaigns[index].id;
 	}
 
-	/** 总线上发出去的 RPC 闭包：闸一关，晚到的车道调用当场失败，不再叫醒内核子进程。 */
+	/** The RPC closure that goes onto the bus: once the gate is closed a late lane call fails on the spot instead of waking the kernel subprocess. */
 	function bridgeCall(kernel: KernelClient): (method: string, params: Record<string, unknown>) => Promise<unknown> {
 		const gate = bridgeGate;
 		return (method, params) =>
 			gate.open
 				? kernel.call(method, params)
-				: Promise.reject(new KernelError({ code: "internal", message: `内核已关闭，${method} 不再发出` }));
+				: Promise.reject(new KernelError({ code: "internal", message: `the kernel is closed; ${method} is not sent` }));
 	}
 
 	async function shutdownKernel(): Promise<void> {
@@ -566,12 +676,12 @@ export default function (pi: ExtensionAPI) {
 		const current = table;
 		table = undefined;
 		if (current) {
-			// 还在飞的车道补全先掐断：进程要退出时不该等一次模型往返。
+			// Cut off lane completions still in flight first: an exiting process should not wait on a model round trip.
 			current.lanes.abort();
 			pi.events.emit("coc:kernel-bridge", { campaign: current.campaign, call: undefined });
 			await current.kernel.close();
 		}
-		// 建卡进程没有桌子，内核单独挂在这里（契约 §14.4）。
+		// The setup process has no table, so its kernel hangs here on its own (contract §14.4).
 		const solo = soloKernel;
 		soloKernel = undefined;
 		if (solo) {
@@ -583,7 +693,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		await shutdownKernel();
 		sessionCtx = ctx;
-		// 新会话新闸：上一张桌子发出去的闭包留在别人手里也只会失败，不会摸到这个内核。
+		// A new session gets a new gate: a closure handed out by the previous table can only fail, never touch this kernel.
 		bridgeGate = { open: true };
 		startupError = undefined;
 		let kernel: KernelClient | undefined;
@@ -593,13 +703,13 @@ export default function (pi: ExtensionAPI) {
 				cwd: PKG_ROOT,
 				env: { PYTHONPATH: join(PKG_ROOT, "kernel") },
 				onDiagnostic: (message) => {
-					// 内核的 stderr 与重启通告可能落在会话 dispose 之后（车道还在飞时用户退出 pi），
-					// 那之后 ctx 的每个 getter 都抛（docs/pi-host-contract.md 第 5 节）：
-					// 诊断一行字不该变成一条没人接的异常。
+					// The kernel's stderr and restart notices can arrive after the session is disposed (the user
+					// quits pi while a lane is still flying), and after that every ctx getter throws
+					// (docs/pi-host-contract.md §5): one line of diagnostics must not become an unhandled rejection.
 					try {
 						if (ctx.hasUI) ctx.ui.setStatus("coc-kernel", message.slice(0, 120));
 					} catch {
-						/* 会话已经不在了 */
+						/* the session is gone */
 					}
 				},
 				onRestart: async () => {
@@ -615,8 +725,9 @@ export default function (pi: ExtensionAPI) {
 			kernel.start();
 			const hello = await kernel.call<Record<string, unknown>>("kernel.hello");
 			if (setupMode) {
-				// 建卡进程：内核在，桌子不在。把 RPC 闭包发上总线给 onboarding／module 扩展用，
-				// 战役可能还不存在（`create-campaign` 那一步才建），所以不选战役、不 table.open。
+				// The setup process: the kernel is here, the table is not. Put the RPC closure on the bus for the
+				// onboarding and module extensions; the campaign may not exist yet (`create-campaign` makes it),
+				// so no campaign is picked and no table.open is made.
 				soloKernel = kernel;
 				const chosen = process.env.PI_COC_CAMPAIGN?.trim();
 				pi.events.emit("coc:kernel-bridge", {
@@ -650,10 +761,11 @@ export default function (pi: ExtensionAPI) {
 			const open = await kernel.call<OpenResult>("table.open", { campaign });
 			applyOpen(open);
 			table.playLanguage = asString(open.campaign?.play_language);
-			// 工具面固定：只这七个，之后不再变形。
+			// The tool surface is fixed: these seven and no reshaping afterwards.
 			pi.setActiveTools([...COC_TOOL_NAMES]);
-			// 一个 Pi 会话一个内核子进程（契约 §1），所以内核 RPC 只有这一份。
-			// 记忆扩展的车道要 `memory.job`／`submit`／`fail`，走这条总线上的桥，不另起进程。
+			// One Pi session, one kernel subprocess (contract §1), so there is only this one kernel RPC.
+			// The memory extension's lane needs `memory.job` / `submit` / `fail`; it goes over this bridge
+			// on the bus rather than starting a second process.
 			pi.events.emit("coc:kernel-bridge", {
 				campaign,
 				call: bridgeCall(kernel),
@@ -662,32 +774,33 @@ export default function (pi: ExtensionAPI) {
 
 			if (ctx.hasUI) {
 				const title = open.campaign?.title ?? campaign;
-				const scene = open.scene?.display_name ?? open.scene?.name ?? "未知场景";
-				ctx.ui.notify(`COC 已开桌：${title}｜第 ${table.turn} 回合（${table.state}）｜${scene}`, "info");
+				const scene = open.scene?.display_name ?? open.scene?.name ?? "unknown scene";
+				ctx.ui.notify(`COC table open: ${title} | turn ${table.turn} (${table.state}) | ${scene}`, "info");
 			}
 
 			const pending = open.pending_turn;
 			if (pending) {
-				const owed = (pending.owed ?? []).join("、") || "narrate";
-				// 检查点的一句话（契约 §12.2）说的是「上一个已提交回合停在哪」，
-				// 恢复消息带上它，守秘人不必先 recall 就知道自己接在什么后面。
+				const owed = (pending.owed ?? []).join(", ") || "narrate";
+				// The checkpoint's one line (contract §12.2) says where the last committed turn stopped;
+				// carrying it in the recovery message means the Keeper knows what he is following on from
+				// without having to recall first.
 				const oneLine = asString(open.resume?.one_line);
 				sendHost(
-					`上次会话在回合中途断了，这一回合还没交付。` +
-						(oneLine ? `上次提交停在：${oneLine}。` : "") +
-						`玩家原文：${pending.player_text ?? "（无）"}。` +
-						`已落收据：${JSON.stringify(pending.receipts ?? [])}。还欠：${owed}。` +
-						`先 look 看清现在的场面，把这一回合做完，再用 narrate 交付。`,
+					`The last session broke mid-turn and this turn was never delivered. ` +
+						(oneLine ? `The last commit stopped at: ${oneLine}. ` : "") +
+						`The player said: ${pending.player_text ?? "(nothing)"}. ` +
+						`Receipts already landed: ${JSON.stringify(pending.receipts ?? [])}. Still owed: ${owed}. ` +
+						`Use look to see the scene as it stands, finish this turn, then deliver it with narrate.`,
 					"recovery",
 				);
 			} else if (open.opening_needed) {
 				sendHost(
-					"开桌：这一回合没有玩家输入。先用 look 看开场场面（需要背景就 lookup），再用一次 narrate 交付开场。",
+					"Opening the table: this turn has no player input. Use look to see the opening scene (lookup for background), then deliver the opening with one narrate.",
 					"opening",
 				);
 			}
 		} catch (error) {
-			startupError = `内核没能开桌：${errorText(error)}`;
+			startupError = `The kernel could not open the table: ${errorText(error)}`;
 			await kernel?.close();
 			table = undefined;
 			if (ctx.hasUI) ctx.ui.notify(startupError, "error");
@@ -699,7 +812,7 @@ export default function (pi: ExtensionAPI) {
 		sessionCtx = undefined;
 	});
 
-	// ---- 回合 -------------------------------------------------------------
+	// ---- Turns ------------------------------------------------------------
 
 	pi.on("before_agent_start", async (event) => {
 		const state = table;
@@ -722,6 +835,7 @@ export default function (pi: ExtensionAPI) {
 			state.deliveryToolCallId = undefined;
 			state.closedThisRun = false;
 			state.steeredThisTurn = false;
+			state.mechanicsFix = undefined;
 			state.roundTrips = 0;
 			state.attachments = [];
 			await record({
@@ -730,8 +844,9 @@ export default function (pi: ExtensionAPI) {
 				ms: Date.now() - began,
 				ok: true,
 			});
-			// 契约 §13.9：胶囊原样进模型上下文；别的扩展要看它（桌况显示读 director 节拍）
-			// 只从总线上拿，不去二次解析那条宿主消息，也不改动它的 JSON。
+			// Contract §13.9: the capsule enters the model context verbatim. Another extension that wants to
+			// see it (the table display reads the director beat) takes it off the bus rather than parsing that
+			// host message a second time, and never alters its JSON.
 			pi.events.emit("coc:capsule", {
 				campaign: state.campaign,
 				turn: state.turn,
@@ -756,7 +871,7 @@ export default function (pi: ExtensionAPI) {
 			return {
 				message: {
 					customType: "coc-host",
-					content: `内核没有接下这次玩家输入：${errorText(error)}`,
+					content: `The kernel did not accept that player input: ${errorText(error)}`,
 					display: false,
 					details: { coc_host: true, kind: "player-input-failed" },
 				},
@@ -780,43 +895,44 @@ export default function (pi: ExtensionAPI) {
 
 		const state = table;
 		if (!state) {
-			return { block: true, reason: startupError ?? "内核没有就位，这张桌子还没开" };
+			return { block: true, reason: startupError ?? "the kernel is not up, so this table has not opened" };
 		}
 		if (state.closedThisRun) {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: TURN_CLOSED_REASON });
 			return { block: true, reason: TURN_CLOSED_REASON };
 		}
-		// 同名同参原样重发：内核的答案不会变。守秘人曾把同一组参数连发十三次，
-		// 每次都被拒；拒过两次之后拦下，把上次的错误再念一遍。
+		// The same call with the same parameters, resent unchanged: the kernel's answer will not change.
+		// A Keeper once sent one set of parameters thirteen times and was refused every time; after two
+		// refusals the third is blocked here, with the last error read back to it.
 		const key = `${name}\u0000${JSON.stringify(input)}`;
 		state.callKeys.set(event.toolCallId, key);
 		const strikes = state.rejected.get(key);
 		if (strikes && strikes.count >= 2) {
-			const reason = `这组参数已被内核拒了 ${strikes.count} 次（${strikes.last}）。原样重发不会有不同结果：按 fix 改参数，或者换个做法。`;
+			const reason = `The kernel has refused these parameters ${strikes.count} times (${strikes.last}). Resending them unchanged will not give a different answer: change the parameters as the fix says, or take another approach.`;
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason });
 			return { block: true, reason };
 		}
 		if (!WRITE_TOOLS.has(name)) return;
 
-		// 会话（战斗、追逐、理智发作）不是回合状态：它把回合留在 acting，
-		// 所以待决防御交回玩家的那次 ask 走的是常规路径，这里不因为有会话在跑就拦。
+		// A session (combat, chase, sanity bout) is not a turn state: it leaves the turn in acting, so the
+		// ask that hands a pending defence back to the player takes the ordinary road and is not blocked here.
 		const openingNarrate = name === "narrate" && state.openingPending && state.state === "awaiting_player";
 		if (!openingNarrate && CLOSED_STATES.has(state.state)) {
 			const reason =
 				state.state === "asked"
-					? "回合已经用 ask 交给玩家了，等他回答"
-					: `当前回合状态是 ${state.state}，不能改状态：等玩家开口，或者先只用 look、lookup、recall`;
+					? "the turn was already handed to the player with ask; wait for the answer"
+					: `the turn state is ${state.state}, so nothing may change state: wait for the player to speak, or use only look, lookup and recall`;
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "turn_state", reason });
 			return { block: true, reason };
 		}
 		if (name === "ask" && !input.binds && state.pendingChoice?.for === "player" && state.pendingChoice.name) {
-			// 契约 §11.9：守秘人漏填 binds 时用内核最近一条给玩家的待决名补上。
+			// Contract §11.9: when the Keeper leaves binds out, fill it with the kernel's latest pending choice for the player.
 			input.binds = state.pendingChoice.name;
 		}
 		state.mintedCallIds.set(event.toolCallId, mintCallId(state));
 	});
 
-	/** 实体名做空白归一化；大小写留给内核，它按图上的名字与别名匹配。 */
+	/** Entity names get whitespace normalisation; case is left to the kernel, which matches the names and aliases on the graph. */
 	function normalizeToolInput(name: string, input: Record<string, unknown>): void {
 		if (name === "look") {
 			if (input.name !== undefined) input.name = normalizeName(input.name);
@@ -825,7 +941,7 @@ export default function (pi: ExtensionAPI) {
 		if (name === "resolve") {
 			const action = input.action as Record<string, unknown> | undefined;
 			if (!action) return;
-			// actor 现在也可能是 NPC 名，weapon/spell 同样要在图与装备表上匹配（契约 §11.1、§11.4）。
+			// actor may now be an NPC name too, and weapon/spell must match the graph and the equipment table (contract §11.1, §11.4).
 			for (const key of ["actor", "target", "skill", "decision", "weapon", "spell"]) {
 				if (action[key] !== undefined) action[key] = normalizeName(action[key]);
 			}
@@ -843,38 +959,12 @@ export default function (pi: ExtensionAPI) {
 			for (const effect of effects) {
 				if (!effect || typeof effect !== "object") continue;
 				const row = effect as Record<string, unknown>;
-				// item 与 cash（#19）也在图与规则表上按名字匹配：给谁、从谁、哪把武器、谁的钱。
+				// item and cash (#19) also match by name on the graph and the rules table: to whom, from whom, which weapon, whose money.
 				for (const key of ["to", "clue", "name", "from", "weapon", "subject"]) {
 					if (row[key] !== undefined) row[key] = normalizeName(row[key]);
 				}
 			}
 		}
-	}
-
-	/**
-	 * 手卡随交付一起给玩家（契约 §14.8）。Pi 的助手消息装不下附件
-	 * （出站没有附件通道，见 docs/pi-host-contract.md 第 4、5 节），
-	 * 所以退而求其次：把路径写进交付文本的【手卡】行，并记一行遥测。
-	 * 内核渲染的文本里已经点了名字，这里只补文件在哪。
-	 */
-	function withAttachments(state: TableState, rendered: string): string {
-		const pending = state.attachments;
-		state.attachments = [];
-		if (pending.length === 0) return rendered;
-		const lines: string[] = [];
-		for (const attachment of pending) {
-			void record({
-				lane: "handout",
-				event: "delivered",
-				ok: true,
-				path: attachment.path,
-				...(attachment.name ? { name: attachment.name } : {}),
-				delivered_as: "rendered_text",
-			});
-			if (rendered.includes(attachment.path)) continue;
-			lines.push(`【手卡】${attachment.name ?? "手卡"}：${attachment.path}`);
-		}
-		return lines.length > 0 ? `${rendered}\n${lines.join("\n")}` : rendered;
 	}
 
 	pi.on("message_end", async (event) => {
@@ -883,8 +973,9 @@ export default function (pi: ExtensionAPI) {
 		const blocks = (event.message.content ?? []) as Array<Record<string, unknown>>;
 		const hasToolCalls = blocks.some((b) => b.type === "toolCall");
 		if (hasToolCalls) {
-			// 带工具调用的助手消息只保留调用：守秘人在调用前写的过程话
-			// （「先核对线索再叙述」）不是台词，玩家可见文字只由 narrate/ask 交付。
+			// An assistant message with tool calls keeps only the calls: the Keeper's process talk before a
+			// call ("let me check the clues first") is not a line, and player-visible text comes only from
+			// narrate and ask.
 			const withoutText = blocks.filter((b) => b.type !== "text");
 			if (withoutText.length !== blocks.length) {
 				return { message: { ...event.message, content: withoutText } };
@@ -893,45 +984,62 @@ export default function (pi: ExtensionAPI) {
 		}
 		let rendered = state.renderedText;
 		if (!rendered) {
-			// 守秘人写了台词却没调 narrate：这段正文就是叙述。宿主替它关回合，
-			// 玩家看到的仍是内核渲染的文本，收据一条不少。
-			const prose = stripMechanicsLines(
-				blocks
-					.filter((b) => b.type === "text" && typeof b.text === "string")
-					.map((b) => String(b.text))
-					.join(""),
-			);
+			// The Keeper wrote his lines but never called narrate: that prose is the narration. The host closes
+			// the turn for him, sending the prose verbatim — the kernel's number check runs on it as usual, and
+			// a refusal for missing numbers goes back to the Keeper instead of being delivered.
+			const prose = blocks
+				.filter((b) => b.type === "text" && typeof b.text === "string")
+				.map((b) => String(b.text))
+				.join("")
+				.trim();
 			const canClose = state.state === "open" || state.state === "acting"
 				|| (state.state === "awaiting_player" && state.openingPending);
 			if (!prose || !canClose || state.closedThisRun) return;
-			// 内核留了给玩家的待决（战斗的防御）而守秘人只写了叙述：宿主替它把问题接上，
-			// 叙述是 ask 的 text，问题与选项是内核的。
+			// The kernel left a pending choice for the player (a defence in combat) and the Keeper only wrote
+			// narration: the turn owes an ask, and the question belongs to the Keeper. The kernel's own prompt
+			// is English keeper-facing text (contract §16.1), so the host must not put it in front of the
+			// player: drop this draft and let agent_end steer once. If the Keeper writes prose without an ask
+			// a second time (the steer is spent), close with narrate rather than hang the turn — the pending
+			// survives in the capsule and the next turn owes it again.
 			const pending = state.pendingChoice;
-			const asPlayerAsk = pending?.for === "player" && typeof pending.prompt === "string"
-				&& Array.isArray(pending.options) && pending.options.length >= 2;
-			const tool = asPlayerAsk ? "ask" : "narrate";
+			const owesAsk = pending?.for === "player" && Array.isArray(pending.options) && pending.options.length >= 2;
+			if (owesAsk && !state.steeredThisTurn) {
+				const kept = blocks.filter((block) => block.type !== "text");
+				return { message: { ...event.message, content: kept } };
+			}
+			const tool = "narrate";
 			const callId = mintCallId(state);
 			const startedAt = new Date().toISOString();
 			const began = Date.now();
 			try {
-				const params: Record<string, unknown> = asPlayerAsk
-					? { campaign: state.campaign, call_id: callId, text: prose, prompt: pending!.prompt, options: pending!.options, binds: pending!.name }
-					: { campaign: state.campaign, call_id: callId, text: prose };
+				const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: prose };
 				const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
 				applyToolSuccess(state, tool, "implicit", result);
 				await record({ tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: true, implicit: true });
 				await record({ tool, event: "turn-closed", round_trips: state.roundTrips, ok: true, implicit: true });
 				rendered = asString(result.rendered_text);
 			} catch (error) {
+				const missing = isMechanicsMissing(error);
 				await record({
 					tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: false, implicit: true,
 					code: error instanceof KernelError ? error.code : "internal",
+					...(missing ? { code_detail: "mechanics_missing" } : {}),
 				});
+				// The kernel refused the delivery for missing numbers: steer once with its own fix at agent_end
+				// rather than delivering, and the next run's narrate closes the turn.
+				if (missing) {
+					state.mechanicsFix = (error instanceof KernelError && error.fix)
+						? `${MECHANICS_MISSING_STEER} The kernel says: ${error.fix}`
+						: MECHANICS_MISSING_STEER;
+					// Player-visible text comes only from narrate and ask: prose the kernel refused is
+					// not a delivery, so it is dropped from the record rather than left standing as one.
+					const kept = blocks.filter((block) => block.type !== "text");
+					return { message: { ...event.message, content: kept } };
+				}
 				return;
 			}
 			if (!rendered) return;
 		}
-		rendered = withAttachments(state, rendered);
 		const next: Array<Record<string, unknown>> = [];
 		let placed = false;
 		for (const block of blocks) {
@@ -953,7 +1061,9 @@ export default function (pi: ExtensionAPI) {
 		state.rejected.clear();
 		state.callKeys.clear();
 		state.steeredThisTurn = false;
-		// 交付替换在返回这条消息时生效，车道排在它后面：定时器排到 0 毫秒之后才跑。
+		state.mechanicsFix = undefined;
+		// The delivery replacement takes effect when this message is returned, and the lane queues behind it:
+		// a zero-millisecond timer only runs after that.
 		scheduleVerifier(state);
 		return { message: { ...event.message, content: next } };
 	});
@@ -961,23 +1071,31 @@ export default function (pi: ExtensionAPI) {
 	pi.on("agent_end", async () => {
 		const state = table;
 		if (!state) return;
-		// 守秘人以 narrate 那条带工具调用的消息收尾时不会再有第二条助手消息，
-		// 也就没有交付替换可等；这一轮结束就是车道的起跑点。
+		// When the Keeper ends on the message that carried the narrate call there is no second assistant
+		// message, and so no delivery replacement to wait for; this run ending is the lane's starting gun.
 		if (state.pendingCommit) scheduleVerifier(state);
 		if (state.closedThisRun || state.renderedText) return;
 		if (state.steeredThisTurn) return;
+		// The kernel refused the implicit delivery for missing numbers: hand its own fix back, once.
+		const mechanicsFix = state.mechanicsFix;
+		state.mechanicsFix = undefined;
+		if (mechanicsFix) {
+			state.steeredThisTurn = true;
+			sendHost(mechanicsFix, "mechanics-missing");
+			return;
+		}
 		if (state.state !== "open" && state.state !== "acting") return;
 		state.steeredThisTurn = true;
-		// 会话里留了个给玩家的待决（比如战斗的防御）时，回合欠的是 ask，不是 narrate。
+		// When a session has left a pending choice for the player (a defence in combat), the turn owes an ask, not a narrate.
 		const pending = state.pendingChoice;
 		if (pending?.for === "player") {
 			sendHost(
-				`内核在等玩家自己选：${pending.prompt ?? pending.name ?? "上一次裁决留下的待决"}。` +
-					`用一次 ask 把它交回玩家，他的回答会作为下一回合的输入回来。`,
+				`The kernel is waiting for the player to choose: ${pending.prompt ?? pending.name ?? "the pending choice from the last adjudication"}. ` +
+					`Use one ask to hand it back to him; his answer comes back as the next turn's input.`,
 				"steer",
 			);
 			return;
 		}
-		sendHost("这一回合还没关：用一次 narrate 把它交付给玩家，或者用一次 ask 把选择交回去。", "steer");
+		sendHost("This turn is not closed yet: deliver it to the player with one narrate, or hand the choice back with one ask.", "steer");
 	});
 }

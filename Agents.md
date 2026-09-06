@@ -9,7 +9,7 @@
 | **`0.9.0a`** | 重构后的产品：一个 Pi 包 + 一个 Python 内核子进程，守秘人只见七个动词。从孤儿分支重建，**从来没有包含过旧树**。 | 只在这里开发。检出在 worktree `chatrpgv4-wt-pi-coc-v2`（或你自己的 worktree）。 |
 | `0.8.2a`、`main` 及所有 `claude/*`、`codex/*` 旧分支 | 重构前的旧树（`plugins/coc-keeper/`、MCP、typed tools、七文件 IR、steward……）。 | **只读参照，不清空，不在上面开发，不合并进来。** 还有东西没搬完（见下），要搬的时候用 `git show 0.8.2a:<路径>` 读，或者读主检出 `/Users/haoli/leehow/code/chatrpgv4`（它停在 `0.8.2a`）。搬的是想法和数据（规则表、图、测试断言），不是机器。 |
 
-明确**没搬、也不打算按旧样子搬**的：web/Electron 前端（未来在 PipiUI 基础版上用 pipi 插件做，现在只留了 Pi RPC 事件流与内核 `campaign.*`/`table.look` 两个接口）、steward 子代理车道（职责归图与深读队列）、世界线/时间线分叉与汇流、跨战役记忆、house rules 的提议/确认流程、Director 的 storylet、战报导出与地图供应技能、OCR worker（PDF 由宿主技能读，仓库不解析）。真桌暴露、已开票待做的：#19 `apply item`、#20 记忆补抽与胶囊记忆排序、#21 快速建卡的职业点分配、#22 新书第一回合的模组简介。
+明确**没搬、也不打算按旧样子搬**的：web/Electron 前端（未来在 PipiUI 基础版上用 pipi 插件做，现在只留了 Pi RPC 事件流与内核 `campaign.*`/`table.look` 两个接口）、steward 子代理车道（职责归图与深读队列）、世界线/时间线分叉与汇流、跨战役记忆、house rules 的提议/确认流程、Director 的 storylet、战报导出与地图供应技能、OCR worker（PDF 由宿主技能读，仓库不解析）。真桌暴露的 #19–#22 已做完并关票；世界线按契约 §15 在票 #23 重做（不是搬旧树）。
 
 如果你发现自己在读 `plugins/coc-keeper/…` 或 `coc_toolbox.py`，你在旧树上——停下来，回到这张表。
 
@@ -17,9 +17,9 @@
 
 | 工作 | 必读 |
 | --- | --- |
-| 扩展与内核之间的一切（方法、收据、回合状态机、胶囊、resolve 流水线、提交链、Director、模组车道） | `docs/kernel-rpc.md`（§1–§14）。**改契约先于改代码**；每个切片的实现决定记在对应的「内核的决定」小节。 |
+| 扩展与内核之间的一切（方法、收据、回合状态机、胶囊、resolve 流水线、提交链、Director、模组车道、世界线、系统语言与机制投影） | `docs/kernel-rpc.md`（§1–§16）。**改契约先于改代码**；每个切片的实现决定记在对应的「内核的决定」小节。 |
 | 对 Pi 的依赖、绕法、升版 | `docs/pi-host-contract.md`。不 fork、不打补丁。 |
-| 架构规格与切片票 | GitHub issue #12（规格）、#13–#18（切片，已关）、#19–#22（后续）。用 `gh`。 |
+| 架构规格与切片票 | GitHub issue #12（规格）、#13–#18（切片，已关）、#19–#22（真桌缺口，已关）、#26（切片 7：系统语言英文、机制 JSON）、#23（切片 8：世界线，契约 §15）、#25（`apply npc`，留后）。用 `gh`。 |
 | 决策记录 | `docs/adr/`。 |
 | 真桌验收怎么做、证据在哪 | `docs/acceptance.md`。 |
 | 布局、跑法、测试 | `README.md`。 |
@@ -77,6 +77,14 @@ Grok 系模型屡次把「交付」当目标、把意图当配菜，也屡次静
 对文档/模组文本做「读文本 → 产出结构」的模型工作，必须是带 `read/write/edit/bash` 的 pi agent：不是 `--no-tools`，不是单次补全，不是裸 provider 调用。原因是量出来的：单次补全要把整个答案塞进一条助手消息，本项目通道的上限约 47,000 字符，整条管线会围着它变形（切小叶子、成倍调用、密度掉一半、findings 来回递）。带工具的 agent 自己开包、分多次写文件、自己跑闸门、自己改。agent 模式去掉的是长度限制，去不掉义务：只写源里有的、引用真实 span、由同一套确定性闸门判。
 
 0.9.0a 里的落实：模组读者是每 section 一个子 `pi -p --no-extensions --tools read,write,edit,bash`（`--no-extensions` 必须，否则子进程会再拉一个内核）。**唯一的例外**是记忆抽取与校验两条车道：产出是十几条短 JSON，规格 #12 定为零工具子会话，实现是一次不带工具的补全（Pi 0.85.1 在扩展里开不了嵌套会话）；这个例外已报给用户，等用户裁定，**不得推广到任何别的文本工作**。想用别的形状，当前回合先问。
+
+## 系统语言是英文，玩家语言由模型产出（2026-09-06 用户裁定）
+
+- **代码、提示、工具描述、宿主消息、内核写给守秘人的一切文字（胶囊、压力、义务、Director 理由、检查点、事实句、车道指令、读者简报）只用英文。** 代码里不许有中文，注释也不许；`tests/kernel/test_system_language.py` 与 `tests/extension/system-language.test.mjs` 扫 CJK 守着这条。
+- **玩家看到的文字由守秘人模型按战役的 `play_language` 写**（闭合集 `zh-Hans`、`en`）。守秘人是 agent，自己会语义理解，不需要翻译层；**不做 i18n 字符串表**，不按语言分支渲染。
+- **机制不渲染成文字，投影成 JSON。** 收据 → `mechanics` 列表（契约 §16.2），随 `narrate`/`ask` 结果回来，扩展落成会话条目 `coc-mechanics` 与总线 `coc:mechanics`，给未来的 Electron/web 前端渲染骰子卡与变化条；TUI 只显示守秘人正文。
+- **确定性底线换成核对数字**：守秘人必须在正文里用玩家语言说出每条公开收据的关键数字（掷值/目标、伤害前后、分钟数……），内核逐字核对，缺了拒绝 `narrate`（`mechanics_missing`）并在 `fix` 里说缺什么。
+- 内容数据（模组图、starter、玩测证据）是它本来的语言，不受此条约束；`content/setup/steps.json`、`content/craft/beat-directives.json` 是系统内容，英文。
 
 ## 语义问题不许硬编码
 

@@ -36,6 +36,8 @@ Pi 家目录由 `PI_CODING_AGENT_DIR` 指定为仓库内 `.pi/coc-agent`；`sett
 
 `extensions/lanes/` 不是扩展，是几个扩展共用的模块，只被 import，不进 `pi.extensions`：`subsession.ts`（两条车道的零工具补全）与 `host.ts`（运行模式与 JSONL 追加）。手艺文档走回合胶囊的 `style` 节，不走 Pi skills；`prompts` 目录只被启动器读取，不交给 Pi 发现。
 
+**提示词的语言（契约 §16.1）**：`prompts/keeper.md` 与 `prompts/setup.md` 是英文——系统语言是英文，`extensions/**`、`bin/*`、`prompts/**` 里不出现中日韩字符（守卫在 `tests/extension/system-language.test.mjs`）。玩家看到的字不由提示词的语言决定：守秘人提示里有一句写死的法则，要求一切玩家可见的文字用战役的 `play_language` 写。所以换玩测语言不必改这两页，只改战役的 `play_language`。
+
 ## 3. 扩展 API：我们用到的面
 
 事件：`session_start`、`session_shutdown`、`before_agent_start`、`agent_start`、`agent_end`、`agent_settled`、`turn_start`、`tool_call`、`tool_result`、`message_end`、`context`。
@@ -44,7 +46,7 @@ Pi 家目录由 `PI_CODING_AGENT_DIR` 指定为仓库内 `.pi/coc-agent`；`sett
 
 上下文：`ctx.cwd`、`ctx.hasUI`、`ctx.ui.notify` / `select` / `setStatus`、`ctx.model`、`ctx.modelRegistry.find` / `complete`。
 
-总线：`pi.events.emit` / `on`。`on` 返回一个退订闭包，**没有 `off`**：要临时订阅（建卡等构建那一步）就得留着它自己收。九个频道：`coc:table-open`、`coc:resolve`、`coc:capsule`（本回合胶囊原样一份，桌况显示用它取 Director 节拍，契约 §13.9）、`coc:turn-committed`（契约 §12.8 的提交载荷）、`coc:kernel-bridge`（内核 RPC 闭包，见下），加上模组那四条（契约 §14.5）：`coc:module-build`（建卡的 `build-opening` 发起构建）、`coc:module-opening-ready`（开场就绪）、`coc:module-build-done`（整本读完，带报告）、`coc:module-build-failed`（构建起不来；有它建卡那一步才不会干等）。
+总线：`pi.events.emit` / `on`。`on` 返回一个退订闭包，**没有 `off`**：要临时订阅（建卡等构建那一步）就得留着它自己收。十个频道：`coc:table-open`、`coc:resolve`、`coc:capsule`（本回合胶囊原样一份，桌况显示用它取 Director 节拍，契约 §13.9）、`coc:turn-committed`（契约 §12.8 的提交载荷）、`coc:mechanics`（契约 §16.2 的机制投影，见第 3.4 节）、`coc:kernel-bridge`（内核 RPC 闭包，见下），加上模组那四条（契约 §14.5）：`coc:module-build`（建卡的 `build-opening` 发起构建）、`coc:module-opening-ready`（开场就绪）、`coc:module-build-done`（整本读完，带报告）、`coc:module-build-failed`（构建起不来；有它建卡那一步才不会干等）。
 
 `ctx.shutdown()`（「优雅退出 pi」）只在**交互模式与 RPC 模式**下真的做事：那两个模式在 `bindExtensions` 时给了 `shutdownHandler`，print 模式与 SDK 直接建的会话没给，调用是空转。建卡最后一步靠它退出进程，所以 `bin/pi-coc setup` 起的是交互模式；测试台里它是空转，所以断言看的是交接命令有没有交出去，不是进程有没有真的退。
 
@@ -105,7 +107,19 @@ pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,ba
 
 契约 §14.8 要 `apply` 的 `handout` 把资产「作为附件交给玩家（Pi RPC 的消息附件）」。Pi 这一侧做不到：`AssistantMessage.content` 的块只有 `text`、`thinking`、`toolCall` 三种；`ImageContent` 只出现在 `UserMessage`、`ToolResultMessage` 与 RPC 的 `prompt`/`steer`/`follow_up` 命令上——**都是进来的方向**。RPC 文档里的 `Attachment` 类型也挂在 `UserMessage` 上。也就是说：客户端能把图发给模型，宿主没有办法把图随交付发给玩家。
 
-绕法（契约 §14.8 的备选）：kernel 扩展把 `apply` 结果里的 `attachment`（或 `attachments`）攒到本回合的交付上，在 `message_end` 替换正文时补一行 `【手卡】<名字>：<路径>`（内核渲染的文本里已经点了名字，这里补的是文件在哪；路径已经在正文里就不重复补），并写两行遥测（`lane: "handout"`：`apply` 那次一行、交付那次一行带 `delivered_as: "rendered_text"`）。真正的图由前端按路径自己取。上游请求见第 6 节第 5 条。
+绕法（契约 §14.8 的备选，2026-09-06 按 §16.2 改过）：kernel 扩展把 `apply` 结果里的 `attachment`（或 `attachments`）攒到本回合的交付上，在 narrate／ask 成功时把它并进**机制投影**——投影里已有同名或同路径的 `handout` 行就补上 `path`／`media_type`，没有就新增一行 `{kind: "handout", name, path, media_type?, receipt?}`——并写两行遥测（`lane: "handout"`：`apply` 那次一行、交付那次一行带 `delivered_as: "mechanics"`）。**路径不再进玩家看的正文**：交付是守秘人的正文原样，投影才是机器读的那一份。真正的图由前端按 `path` 自己取，驾驭器从 `entry_appended` 里落证据。上游请求见第 6 节第 5 条。
+
+### 3.4 机制投影：`coc-mechanics` 会话条目与 `coc:mechanics` 总线
+
+契约 §16.2 的机制投影是**语言中立的 JSON**，不是给玩家看的字。内核不再渲染任何机制行：`narrate`／`ask` 的结果带 `mechanics: [...]`（每条对应一条收据：`roll`、`dice`、`change`、`scene`、`clue`、`time`、`item`、`cash`、`session`、`choice`、`handout`），kernel 扩展在这两个动词成功时做三件事：
+
+1. `pi.appendEntry("coc-mechanics", {turn, mechanics})`。这是 Pi 里唯一一条「往会话里放一份机器读的数据、且不进模型上下文」的路：`CustomEntry` 不参与 `buildSessionContext`，所以守秘人下一回合不会看见它。
+2. 总线上发 `coc:mechanics {campaign, turn, mechanics}`。table 扩展据此画一行紧凑的状态行（`t1  roll 42/55 pass  clue 地窖的抓痕`），**只画状态行，绝不往正文里插**。
+3. 交付照旧：`message_end` 把助手消息的正文整体换成 `rendered_text`，而 `rendered_text` 现在就是守秘人写的正文原样。
+
+投影为空（这一回合一条收据都没落）时不发条目，也不发总线：每回合记一行空的只是噪音。
+
+**`appendEntry` 会发 `entry_appended`**（`agent-session.js` 里 `appendCustomEntry` 之后 `_emit({type: "entry_appended", entry})`），RPC 模式的 `toJsonEvent` 除 `message_update` 外原样透传，所以这条事件进 Pi RPC 事件流。`tests/play/driver.py` 把**收到的每一行**都写进 `events.jsonl`，因此机制投影不改驾驭器就已经落进证据；它没有进驾驭器自己的 `turn-<n>.json`（那份只记 `final_text` 与工具调用），要的话是驾驭器那一侧的一个小改动。
 
 ## 4. 我们依赖的行为，以及各自的核对方法
 
@@ -134,7 +148,9 @@ pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,ba
 | `pi.setActiveTools` 由哪个扩展调都行，工具面按模式分岔 | `setup.test.mjs` 同上：`getActiveTools()` 恰好是 `["setup"]` |
 | `pi.events.on` 返回退订闭包（没有 `off`），临时订阅收得干净 | `setup.test.mjs`「pdf 那条路」：`build-opening` 等到 `coc:module-opening-ready` 后不再堆订阅 |
 | `ctx.shutdown()` 在没有 `shutdownHandler` 的模式下是空转，不抛 | `setup.test.mjs`「七步表走完」：交接命令交出去，测试台照常收尾 |
-| 助手消息装不下附件（只有 text/thinking/toolCall），出站没有附件通道 | `module.test.mjs`「手卡」：路径落在交付文本与遥测里 |
+| 助手消息装不下附件（只有 text/thinking/toolCall），出站没有附件通道 | `module.test.mjs`「手卡」：路径落在机制投影与遥测里 |
+| `pi.appendEntry(customType, data)` 写一条 `CustomEntry`，它不进 `buildSessionContext`，但会发 `entry_appended`，RPC 模式原样透传 | `turn.test.mjs`／`real-kernel.test.mjs`：`coc-mechanics` 条目里是每条收据的投影 |
+| `message_end` 的替换消息可以**一个块都不剩**（内核以 `mechanics_missing` 退回隐式 narrate 时，被退回的正文整块摘掉，不留成一次交付） | `turn.test.mjs`「隐式 narrate 缺数字」 |
 | 工具的 `parameters` 用 `additionalProperties: true` 时，模型摊在顶层的参数原样进 `execute` | `setup.test.mjs` 全部用例：`setup {step, ...params}` |
 
 ## 5. 已知限制与我们的绕法
@@ -148,7 +164,7 @@ pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,ba
 - **`AgentSession.dispose()` 会把扩展 ctx 作废**：`dispose` 调 `runner.invalidate()`，之后那个 ctx 的每个 getter 都抛「stale after session replacement or reload」。车道是异步的，续行完全可能落在 dispose 之后（用户在车道飞着的时候退出 pi），所以**每一次碰 ctx 都当成会抛**：`runLane` 整个身子在 try 里，记忆车道的队列泵与遥测也各自兜住。漏一个就是一条没人接的 promise rejection——扩展测试跑六遍里中过两次。
 - **子会话的思考等级不受控**：`complete()` 的选项按 api 分型，我们一个都不传，模型自己的缺省 reasoning 生效。强制思考的型号会把输出预算花在思考上，而车道要的是一段短 JSON——选车道模型时避开这类型号。
 - **扩展之间没有共享服务**：只有 `pi.events` 一条载荷为 `unknown` 的总线，没有请求/响应语义，也没有「等对方就位」的握手。我们的绕法是 kernel 扩展在 `session_start` 把内核 RPC 闭包发上 `coc:kernel-bridge`；memory、module、onboarding 三个扩展在加载时就订阅，所以两种加载顺序都接得住。建卡那条「发起构建并等开场就绪」也只能用总线拼出来：`coc:module-build` 出去，`coc:module-opening-ready` / `coc:module-build-done` / `coc:module-build-failed` 回来，外加一个超时（`PI_COC_BUILD_WAIT_MS`，缺省 30 分钟）——没有请求/响应，就得自己给每一种「不会再有回音」的情况留出口。
-- **出站没有附件通道**：助手消息装不下图片或文件（第 3.3 节）。手卡因此退成「交付文本里的一行路径 + 遥测」。上游请求见第 6 节第 5 条。
+- **出站没有附件通道**：助手消息装不下图片或文件（第 3.3 节）。手卡因此退成「机制投影里的一条 `path` + 遥测」，玩家在 TUI 里看不到文件在哪——前端渲染投影之后才看得到。上游请求见第 6 节第 5 条。
 - **关机之后车道的调用会把内核子进程重新拉起来**：`KernelClient.close()` 之前只是「杀掉子进程 + 拒掉在飞的请求」，但排队里剩下的请求随后照样被 dispatch，而 dispatch 见 `child` 为空就再 spawn 一个——那个新内核没人再 close 它，工作区被它占着，管道也让宿主进程退不出去（`node --test` 因此挂住不退）。车道（记忆抽取、按需深读）是异步的，关机那一刻它们的调用完全可能还排在队里，所以这条路一定会被走到。现在两道闸：`close()` 之后 `dispatch` 直接拒（`client.ts`），并且总线上发出去的那个 RPC 闭包在 `shutdownKernel` 里当场失效（`index.ts` 的 `bridgeGate`）。`uv run` 那一层还是会留下一个短命的孤儿 python（uv 被 SIGTERM 掉之后它才收到 stdin EOF），但它自己会退。
 - **`ctx.shutdown()` 分模式**：交互与 RPC 模式给了 `shutdownHandler`，print 模式与 SDK 直接建的会话没给，调用空转（第 3 节）。所以建卡的收尾是「把开桌命令交出去」+ `ctx.shutdown()`，两件事都做，不指望其中任何一件单独成立。
 
@@ -158,7 +174,7 @@ pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,ba
 2. SDK 的 `createAgentSession` 与 `dispose` 发出 `session_start` / `session_shutdown`，或从包根导出 `emitSessionShutdownEvent`。
 3. `AgentToolResult` 增加 `isError`。
 4. 扩展之间的共享服务：一个有类型的服务注册表，或者让扩展声明依赖另一个扩展的导出。现在跨扩展只能靠 `pi.events` 传 `unknown`，我们在总线上递了一个函数闭包（第 5 节），能用但没有契约保证。
-5. 出站附件：让宿主随一条助手消息交给客户端一个文件（图片、PDF），哪怕只是 RPC 模式下的一个 `attachments` 字段。现在图只能进不能出（第 3.3 节），手卡只好退成一行路径。
+5. 出站附件：让宿主随一条助手消息交给客户端一个文件（图片、PDF），哪怕只是 RPC 模式下的一个 `attachments` 字段。现在图只能进不能出（第 3.3 节），手卡只好退成机制投影里的一条路径。
 
 提了就在这里记编号与状态；被采纳后删掉第 5 节对应的绕法。
 
@@ -167,7 +183,7 @@ pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,ba
 1. 改 `package.json` 的 `devDependencies` 版本，`npm install`。
 2. 读新版 `CHANGELOG.md` 里涉及 system prompt 构建、`tool_call`/`tool_result`/`message_end` 语义、RPC 事件、SDK 会话生命周期的条目。
 3. `npm run test:ext`，`uv run --frozen python -m pytest tests/play -q`。
-4. 起一张真桌打一回合，看交付里没有过程话、明骰行由内核插入。另起 `bin/pi-coc setup` 走一步，确认工具面只有 `setup`；跑一次真读者（一段 section），确认 `pi -p` 的参数与退出码没变（第 3.2 节）。
+4. 起一张真桌打一回合，看交付里没有过程话、正文就是守秘人写的那段（没有被插入机制行），`coc-mechanics` 条目里每条收据都在。另起 `bin/pi-coc setup` 走一步，确认工具面只有 `setup`；跑一次真读者（一段 section），确认 `pi -p` 的参数与退出码没变（第 3.2 节）。
 5. 在下面的版本日志里加一行；第 4 节或第 5 节有变的先改本文件。
 
 ## 版本日志

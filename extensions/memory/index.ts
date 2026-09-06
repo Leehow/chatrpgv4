@@ -1,18 +1,22 @@
 /**
- * 记忆抽取车道（契约 §12.3、§12.8）。
+ * The memory extraction lane (contract §12.3, §12.8).
  *
- * 内核扩展 narrate 提交成功后在总线上发 `coc:turn-committed`，这里接住它：
- * `memory.job` 取闭合任务包 → 零工具子会话抽候选断言 → `memory.submit` 落盘。
- * 失败一次重试，再失败 `memory.fail`，任务进 backlog 等显式重派。
+ * When the kernel extension's narrate commits it puts `coc:turn-committed` on the bus, and this
+ * catches it: `memory.job` takes a closed job packet, a zero-tool subsession extracts candidate
+ * assertions, `memory.submit` writes them down. One retry on failure, then `memory.fail`, and the
+ * job goes to the backlog to await an explicit redispatch.
  *
- * 三条边界照契约写死：抽取永不阻塞 narrate（车道整个在交付之后，且不 await）；
- * 同一时刻只跑一个任务，后来的排队；进程退出时没跑完的不拖住关机，
- * 留给下次 `memory.job` 的缺省派发。候选不自动晋升——这里只提交候选。
+ * Three boundaries written down straight from the contract: extraction never blocks narrate (the
+ * whole lane is after the delivery and is not awaited); only one job runs at a time and the rest
+ * queue; whatever has not finished at process exit does not hold up shutdown and is left to the
+ * next default dispatch of `memory.job`. Candidates are never promoted automatically — only
+ * candidates are submitted here.
  *
- * 补抽（契约 §12.8 的 #20）：上一次会话留下的坑就是靠那条「缺省派发」补的。
- * `session_start` 桥就位后，用不带 `turn` 的 `memory.job` 一个一个地要，
- * 至多 `PI_COC_MEMORY_BACKFILL`（缺省 5）个，内核回 `job_id: null` 就收手。
- * 补抽让位给桌子：回合开着的时候不起新任务，刚提交的回合永远排在它前面。
+ * Backfill (#20 in contract §12.8): the holes left by the previous session are filled by that
+ * default dispatch. Once the bridge is up at `session_start`, jobs are asked for one at a time with
+ * a `memory.job` carrying no `turn`, at most `PI_COC_MEMORY_BACKFILL` of them (5 by default), and
+ * the kernel answering `job_id: null` ends it. Backfill yields to the table: no new job starts
+ * while a turn is open, and a freshly committed turn always goes ahead of it.
  */
 
 import { appendFile, mkdir } from "node:fs/promises";
@@ -21,7 +25,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { cocMode } from "../lanes/host.ts";
 import { resolveLaneModel, runLane } from "../lanes/subsession.ts";
 
-/** 候选断言的闭合字段与闭合枚举（契约 §12.3）。多余的字段一律不往内核送。 */
+/** The closed fields and closed enums of a candidate assertion (contract §12.3). No extra field is ever sent to the kernel. */
 const CANDIDATE_KINDS: ReadonlySet<string> = new Set([
 	"world_event",
 	"knowledge",
@@ -36,10 +40,10 @@ const STATES: ReadonlySet<string> = new Set(["accurate", "uncertain", "distorted
 
 const DEFAULT_MAX_CANDIDATES = 12;
 const DEFAULT_MAX_STATEMENT_CHARS = 400;
-/** 每次会话至多补抽几个回合（#20）；`PI_COC_MEMORY_BACKFILL=0` 把整条补抽关掉。 */
+/** How many turns one session may backfill at most (#20); `PI_COC_MEMORY_BACKFILL=0` turns the whole backfill off. */
 const DEFAULT_BACKFILL_JOBS = 5;
 
-/** 预算在 `session_start` 读，不在模块顶层读：测试台一个进程里加载多次。 */
+/** The budget is read at `session_start`, not at module top level: the test harness loads this several times in one process. */
 function backfillBudget(): number {
 	const raw = process.env.PI_COC_MEMORY_BACKFILL?.trim();
 	if (!raw) return DEFAULT_BACKFILL_JOBS;
@@ -58,7 +62,7 @@ interface Candidate {
 	confidence?: number;
 }
 
-/** `memory.job` 的任务包；只读它列出的字段，别的一概不进提示。 */
+/** The job packet from `memory.job`; only the fields it lists are read, and nothing else reaches the prompt. */
 interface JobPacket {
 	job_id?: string | null;
 	turn?: number;
@@ -78,8 +82,9 @@ interface JobPacket {
 type KernelCall = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
 /**
- * 一个抽取任务。给了 `turn` 就是刚提交的那一回合；不给是缺省派发（补抽），
- * 由内核自己挑还没完成任务、也不在 backlog 里的回合（契约 §12.3）。
+ * One extraction job. With a `turn` it is the turn just committed; without one it is the default
+ * dispatch (backfill), where the kernel picks a turn whose job is unfinished and not in the
+ * backlog (contract §12.3).
  */
 interface Job {
 	campaign: string;
@@ -88,7 +93,7 @@ interface Job {
 }
 
 function names(rows: unknown): string {
-	if (!Array.isArray(rows) || rows.length === 0) return "（无）";
+	if (!Array.isArray(rows) || rows.length === 0) return "(none)";
 	return rows
 		.map((row) => {
 			if (typeof row === "string") return row;
@@ -96,11 +101,11 @@ function names(rows: unknown): string {
 			const name = record.name ?? record.id;
 			return typeof name === "string" ? name : JSON.stringify(row);
 		})
-		.join("、");
+		.join(", ");
 }
 
 function lines(rows: unknown): string {
-	if (!Array.isArray(rows) || rows.length === 0) return "（无）";
+	if (!Array.isArray(rows) || rows.length === 0) return "(none)";
 	return rows.map((row) => `- ${typeof row === "string" ? row : JSON.stringify(row)}`).join("\n");
 }
 
@@ -108,44 +113,46 @@ function systemPrompt(packet: JobPacket): string {
 	const maxCandidates = packet.budget?.max_candidates ?? DEFAULT_MAX_CANDIDATES;
 	const maxChars = packet.budget?.max_statement_chars ?? DEFAULT_MAX_STATEMENT_CHARS;
 	return [
-		// 指令是内核用 play_language 写死的那一段（契约 §12.3），车道原样转交，不改写、不加戏。
-		packet.instruction ?? "只写这一回合新出现的事实、知晓、信念、关系、玩家断言；不写数值与骰面。",
+		// The instruction is the passage the kernel writes in play_language (contract §12.3); the lane
+		// passes it on verbatim, rewriting nothing and adding nothing.
+		packet.instruction ??
+			"Write only the facts, knowledge, beliefs, relationships and player assertions new to this turn, in the campaign's play_language; write no numbers and no die faces.",
 		"",
-		"只回一个 JSON 对象，不要代码块、不要解释：",
+		"Answer with one JSON object only, no code fence and no explanation:",
 		'{"candidates":[{"kind":"...","subject":"...","knowers":["..."],"statement":"...","entities":["..."],"privacy":"player_safe","state":"accurate","confidence":0.8}]}',
-		"字段规矩：",
-		"- kind 只能取：world_event、knowledge、belief、relationship、player_assertion、player_preference、keeper_correction。",
-		"- privacy 只能取 player_safe 或 keeper_only；state 只能取 accurate、uncertain、distorted；confidence 是 0 到 1 的小数。",
-		"- subject、knowers、entities 里的名字只能来自下面的「可用名字」，或保留主语 world、party、keeper、player。",
-		"- world_event 的 subject 必须是 world；relationship 的 entities 恰好一个。",
-		`- statement 1 到 ${maxChars} 字，一句话说清一件事。`,
-		"- 除上面列出的字段外不要写任何别的键，尤其不要写回合号、提交号、收据 id、条目 id。",
-		`- 最多 ${maxCandidates} 条；已经在「既有候选」里的不要重复；没有新东西就回 {"candidates":[]}。`,
+		"Field rules:",
+		"- kind is one of: world_event, knowledge, belief, relationship, player_assertion, player_preference, keeper_correction.",
+		"- privacy is player_safe or keeper_only; state is accurate, uncertain or distorted; confidence is a decimal from 0 to 1.",
+		"- names in subject, knowers and entities must come from the available names below, or be one of the reserved subjects world, party, keeper, player.",
+		"- world_event must have subject world; relationship must have exactly one entity.",
+		`- statement is 1 to ${maxChars} characters, one sentence saying one thing.`,
+		"- write no key other than the ones listed above, and in particular no turn number, commit, receipt id or entry id.",
+		`- at most ${maxCandidates} rows; do not repeat anything already in the existing candidates; with nothing new, answer {"candidates":[]}.`,
 	].join("\n");
 }
 
 function userInput(packet: JobPacket): string {
 	return [
-		`【地点】${packet.scene?.display_name ?? packet.scene?.name ?? "（未知）"}`,
-		`【在场】${names(packet.present)}`,
-		`【调查员】${names(packet.investigators)}`,
-		`【可用名字】${names(packet.known_entities)}`,
+		`[Location] ${packet.scene?.display_name ?? packet.scene?.name ?? "(unknown)"}`,
+		`[Present] ${names(packet.present)}`,
+		`[Investigators] ${names(packet.investigators)}`,
+		`[Available names] ${names(packet.known_entities)}`,
 		"",
-		"【玩家这一回合说的】",
-		packet.player_text?.trim() || "（无）",
+		"[What the player said this turn]",
+		packet.player_text?.trim() || "(nothing)",
 		"",
-		"【守秘人这一回合交付的正文】",
-		packet.keeper_text?.trim() || "（无）",
+		"[The prose the Keeper delivered this turn]",
+		packet.keeper_text?.trim() || "(nothing)",
 		"",
-		"【已提交事实】",
+		"[Committed facts]",
 		lines(packet.committed_facts),
 		"",
-		"【既有候选：不要复述】",
+		"[Existing candidates: do not restate these]",
 		lines(packet.prior),
 	].join("\n");
 }
 
-/** 形状校验：闭合字段与闭合枚举，认不出的整条丢掉。内容对不对由内核校验（名字、歧义）。 */
+/** Shape check: closed fields and closed enums; an unrecognised row is dropped whole. Whether the content is right (names, ambiguity) is the kernel's check. */
 function shapeCandidates(parsed: unknown, packet: JobPacket): Candidate[] | undefined {
 	if (!parsed || typeof parsed !== "object") return undefined;
 	const raw = Array.isArray(parsed) ? parsed : (parsed as { candidates?: unknown }).candidates;
@@ -177,7 +184,7 @@ function shapeCandidates(parsed: unknown, packet: JobPacket): Candidate[] | unde
 	return candidates;
 }
 
-/** 内核错误信封的 code 用鸭子类型读：跨扩展 instanceof 靠不住（两份模块实例）。 */
+/** The code of a kernel error envelope is read structurally: instanceof is unreliable across extensions (two module instances). */
 function errorCode(error: unknown): string | undefined {
 	const code = (error as { code?: unknown } | null)?.code;
 	return typeof code === "string" ? code : undefined;
@@ -188,7 +195,7 @@ function errorText(error: unknown): string {
 }
 
 export default function (pi: ExtensionAPI) {
-	// 建卡进程没有回合，也就没有可抽的记忆：什么都不注册、不订阅（契约 §14.4）。
+	// The setup process has no turns and so no memory to extract: it registers nothing and subscribes to nothing (contract §14.4).
 	if (cocMode() === "setup") return;
 
 	let ctx: ExtensionContext | undefined;
@@ -196,26 +203,27 @@ export default function (pi: ExtensionAPI) {
 	let lanes = new AbortController();
 	let stopped = false;
 	let running = false;
-	/** 刚提交的回合，先来先抽；补抽永远排在这条队列后面（#20）。 */
+	/** Freshly committed turns, first come first served; backfill always queues behind this (#20). */
 	const queue: Job[] = [];
-	/** 本次会话还能补抽几个；内核回 `job_id: null` 时 `backfillDone` 收手。 */
+	/** How many backfills this session has left; `backfillDone` stops when the kernel answers `job_id: null`. */
 	let backfillLeft = 0;
 	let backfillDone = false;
-	/** agent 跑着就是回合开着：补抽这时候不起新任务，免得跟交付抢。 */
+	/** An agent running means a turn is open: backfill starts no new job then, so it does not compete with the delivery. */
 	let agentRunning = false;
 
-	// ---- 遥测 -------------------------------------------------------------
+	// ---- Telemetry --------------------------------------------------------
 
 	async function record(campaign: string, row: Record<string, unknown>): Promise<void> {
 		const line = { lane: "memory", ...row };
 		let cwd: string | undefined;
 		try {
 			pi.appendEntry("coc-telemetry", line);
-			// 会话 dispose 之后 ctx 的 getter 会抛（见 docs/pi-host-contract.md 第 5 节），
-			// 车道的续行可能正落在那之后：读一下就当没有工作区，别把异常抛出车道。
+			// After the session is disposed the ctx getters throw (docs/pi-host-contract.md §5), and the
+			// lane's continuation may well land after that: read it, treat a throw as "no workspace",
+			// and never let the exception out of the lane.
 			cwd = ctx?.cwd;
 		} catch {
-			/* 遥测不该弄坏一条车道 */
+			/* telemetry must not break a lane */
 		}
 		if (!cwd) return;
 		const path = join(cwd, ".coc", "campaigns", campaign, "telemetry.jsonl");
@@ -223,13 +231,13 @@ export default function (pi: ExtensionAPI) {
 			await mkdir(dirname(path), { recursive: true });
 			await appendFile(path, `${JSON.stringify(line)}\n`, "utf8");
 		} catch {
-			/* 同上 */
+			/* same as above */
 		}
 	}
 
-	// ---- 一次抽取 ---------------------------------------------------------
+	// ---- One extraction ---------------------------------------------------
 
-	/** 一次尝试：子会话抽候选 → `memory.submit`。返回失败原因用的是 `memory.fail` 的闭合枚举。 */
+	/** One attempt: the subsession extracts candidates, then `memory.submit`. Failure reasons use `memory.fail`'s closed enum. */
 	async function attempt(
 		packet: JobPacket,
 		jobId: string,
@@ -262,15 +270,15 @@ export default function (pi: ExtensionAPI) {
 
 	async function runJob(job: Job): Promise<void> {
 		const began = Date.now();
-		// 补抽的每一行遥测都带 `backfill: true`（契约 §12.8）：桌上的抽取与补漏分得开。
+		// Every backfill telemetry row carries `backfill: true` (contract §12.8): extraction at the table and filling holes stay apart.
 		const note = (row: Record<string, unknown>) =>
 			record(job.campaign, { ...(job.backfill ? { backfill: true } : {}), ...row });
 		const current = bridge;
 		if (!current || !ctx) {
-			await note({ turn: job.turn, ok: false, reason: "lane_error", detail: "内核桥不在，车道跑不了" });
+			await note({ turn: job.turn, ok: false, reason: "lane_error", detail: "the kernel bridge is gone; the lane cannot run" });
 			return;
 		}
-		// 模型先解析：解析不出来就别把任务从内核那儿取走，免得它白白进 backlog。
+		// Resolve the model first: if it cannot be resolved, do not take the job away from the kernel, or it lands in the backlog for nothing.
 		const model = resolveLaneModel(ctx, "PI_COC_MEMORY_MODEL");
 		if (!model.ok) {
 			await note({ turn: job.turn, ok: false, reason: "model_unavailable", detail: model.detail });
@@ -279,7 +287,7 @@ export default function (pi: ExtensionAPI) {
 
 		let packet: JobPacket;
 		try {
-			// 缺省派发不给 `turn`：内核自己挑还没抽过、也不在 backlog 里的回合（契约 §12.3）。
+			// The default dispatch carries no `turn`: the kernel picks a turn not yet extracted and not in the backlog (contract §12.3).
 			packet = ((await current.call("memory.job", {
 				campaign: job.campaign,
 				...(typeof job.turn === "number" ? { turn: job.turn } : {}),
@@ -297,12 +305,12 @@ export default function (pi: ExtensionAPI) {
 		const jobId = typeof packet.job_id === "string" ? packet.job_id : undefined;
 		if (!jobId) {
 			if (job.backfill) {
-				// 缺省派发回了空：没有坑可补了，这次会话不再要（#20）。
-				// 这是补抽的正常收尾，不落遥测——每次开桌记一行「没事可做」只是噪音。
+				// The default dispatch came back empty: there are no holes left, so this session asks no more (#20).
+				// That is backfill's ordinary ending, and it writes no telemetry — one "nothing to do" line per opening is noise.
 				backfillDone = true;
 				return;
 			}
-			// 这一回合没有要抽的（已经抽过，或在 backlog 里等显式重派）。
+			// Nothing to extract for this turn (already extracted, or in the backlog awaiting an explicit redispatch).
 			await note({ turn: job.turn, ok: true, ms: Date.now() - began, skipped: "no_job" });
 			return;
 		}
@@ -325,7 +333,7 @@ export default function (pi: ExtensionAPI) {
 			last = outcome;
 		}
 		if (stopped) return;
-		const failure = last ?? { reason: "lane_error", detail: "车道没有跑起来" };
+		const failure = last ?? { reason: "lane_error", detail: "the lane never started" };
 		try {
 			await current.call("memory.fail", {
 				campaign: job.campaign,
@@ -339,7 +347,7 @@ export default function (pi: ExtensionAPI) {
 				job_id: jobId,
 				ok: false,
 				reason: "lane_error",
-				detail: `memory.fail 也没落下：${errorText(error)}`,
+				detail: `memory.fail did not land either: ${errorText(error)}`,
 			});
 			return;
 		}
@@ -356,8 +364,9 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * 下一个要跑的任务。刚提交的回合永远先走：补抽只在队列空了、
-	 * 回合没开着、预算还有、内核还没说「没坑可补」的时候才起（#20）。
+	 * The next job to run. A freshly committed turn always goes first: backfill only starts when the
+	 * queue is empty, no turn is open, the budget is not spent, and the kernel has not yet said there
+	 * are no holes left (#20).
 	 */
 	function nextJob(): Job | undefined {
 		const queued = queue.shift();
@@ -369,7 +378,7 @@ export default function (pi: ExtensionAPI) {
 		return { campaign: current.campaign, backfill: true };
 	}
 
-	/** 同一时刻只跑一个任务；后来的排队，不重叠。 */
+	/** Only one job runs at a time; the rest queue and never overlap. */
 	async function pump(): Promise<void> {
 		if (running) return;
 		running = true;
@@ -380,8 +389,8 @@ export default function (pi: ExtensionAPI) {
 				try {
 					await runJob(job);
 				} catch (error) {
-					// 车道再怎么坏也只是一条车道：不让它变成没人接的拒绝，
-					// 也不让它挡住队列里后面那个任务。
+					// However badly a lane breaks it is still only a lane: it must not become an unhandled
+					// rejection, and it must not block the next job in the queue.
 					await record(job.campaign, {
 						turn: job.turn,
 						ok: false,
@@ -395,16 +404,16 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	// ---- 总线 -------------------------------------------------------------
+	// ---- Bus --------------------------------------------------------------
 
-	// 内核扩展先加载，但 session_start 里才发桥；两种顺序都要接住。
+	// The kernel extension loads first but only emits the bridge in session_start: both orders must be caught.
 	pi.events.on("coc:kernel-bridge", (data) => {
 		const payload = (data ?? {}) as { campaign?: string; call?: KernelCall };
 		bridge = typeof payload.call === "function" && payload.campaign
 			? { campaign: payload.campaign, call: payload.call }
 			: undefined;
-		// 桥比本扩展的 session_start 晚到时补抽也得起得来；早到的那种由
-		// session_start 自己踢（这时 ctx 还没有，泵会空转一圈就退出）。
+		// Backfill must still start when the bridge arrives after this extension's session_start; the
+		// other order is kicked by session_start itself (there is no ctx yet, so the pump spins once and returns).
 		if (bridge && ctx && !stopped) void pump().catch(() => undefined);
 	});
 
@@ -415,9 +424,9 @@ export default function (pi: ExtensionAPI) {
 		void pump().catch(() => undefined);
 	});
 
-	// 回合开着的时候不补抽（#20）：agent 跑起来就是玩家那一回合在走，
-	// 交付、催收、恢复轮都算。`agent_settled` 是「这一轮真的走完了」，
-	// 它在 finally 里发，所以不会漏。
+	// No backfill while a turn is open (#20): an agent running is the player's turn running, and that
+	// includes the delivery, the steer and the recovery runs. `agent_settled` is "this run really
+	// finished"; it is emitted in a finally, so it is never missed.
 	pi.on("agent_start", async () => {
 		agentRunning = true;
 	});
@@ -433,15 +442,15 @@ export default function (pi: ExtensionAPI) {
 		agentRunning = false;
 		lanes = new AbortController();
 		queue.length = 0;
-		// 补抽的预算按会话算（契约 §12.8 的 #20）：桥这时候已经由内核扩展发过了
-		// （扩展的 session_start 按加载顺序串行跑，kernel 在最前）。
+		// The backfill budget is per session (#20 in contract §12.8): by now the kernel extension has
+		// already emitted the bridge (extension session_start handlers run serially in load order, kernel first).
 		backfillLeft = backfillBudget();
 		backfillDone = backfillLeft <= 0;
 		if (!backfillDone) void pump().catch(() => undefined);
 	});
 
 	pi.on("session_shutdown", async () => {
-		// 关机不等车道：排着的丢掉，在飞的掐断，没抽完的下次 `memory.job` 缺省派发会再取。
+		// Shutdown does not wait for the lane: queued jobs are dropped, in-flight ones cut off, and whatever was not extracted comes back on the next default dispatch of `memory.job`.
 		stopped = true;
 		queue.length = 0;
 		backfillLeft = 0;

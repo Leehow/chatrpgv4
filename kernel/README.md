@@ -24,7 +24,7 @@ scoring, adoption — every number from `content/director/director-graph.json`);
 `may-emit-effect` at runtime); `craft.py` the text graph's craft face and the beat →
 directive table (`content/craft/`); `pressures.py` the structural sources of
 `pressures` / `obligations`; `rules/` coc7 tables, the RuleGraph runtime and the ported engines
-(see its `__init__`); `render.py` mechanics blocks; `history.py` the sidecar git
+(see its `__init__`); `render.py` the receipts' mechanics projection and the number check (§16); `history.py` the sidecar git
 repo; `events.py` the event stream. Engine snapshots live under `<campaign>/save/`
 (`combat.json`, `chase.json`, `combat-operation.json`, `sanity-state/<inv>.json`,
 `healing-state/`, `mp-state/`, `magic-state/`, `development-state/`,

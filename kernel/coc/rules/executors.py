@@ -82,10 +82,8 @@ def execute_check(ctx: Any, args: dict[str, Any], plan: Mapping[str, Any]) -> tu
     penalty = int(args.get("penalty") or 0)
     pushed = bool(args.get("pushed"))
     combined = args.get("combined_targets")
-    skill_label = None
     if isinstance(combined, list) and combined:
         label = " / ".join(str(row["label"]) for row in combined)
-        skill_label = " / ".join(ctx.skill_label(str(row["label"])) for row in combined)
         target = max(int(row["value"]) for row in combined)
         target_source, kind = "sheet", "combined_skill_check"
     else:
@@ -125,7 +123,7 @@ def execute_check(ctx: Any, args: dict[str, Any], plan: Mapping[str, Any]) -> tu
         roll=data["roll"], level=data["level"], passed=data["passed"], bonus=data["bonus"], penalty=data["penalty"],
         visibility=str(args.get("visibility") or "public"), pushed=pushed, kind=kind,
         source_receipt=args.get("original_check_decision_id") if pushed else None,
-        skill_label=skill_label, check=dict(data),
+        check=dict(data),
     )
     data["roll_id"] = receipt_id
     if target_source == "rulebook_base":

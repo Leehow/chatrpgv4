@@ -13,6 +13,49 @@ import { assistantTexts, customMessages, openTable, waitForIdle } from "./harnes
 
 const CAMPAIGN = "haunting-seam";
 
+/** Collect every number out of a tool result payload: that is what the Keeper copies into the prose. */
+function collectNumbers(value, into) {
+	if (typeof value === "number") {
+		into.add(String(value));
+		return;
+	}
+	if (Array.isArray(value)) {
+		for (const entry of value) collectNumbers(entry, into);
+		return;
+	}
+	if (value && typeof value === "object") {
+		for (const entry of Object.values(value)) collectNumbers(entry, into);
+	}
+}
+
+/**
+ * A narrate that does the Keeper's job under contract §5: it states this turn's public receipts by
+ * copying their numbers out of the tool results. The kernel rolls real dice, so the numbers cannot be
+ * written into the test — they have to be read back, exactly as a Keeper reads them.
+ */
+function narrateStatingNumbers(prose) {
+	return (context) => {
+		const numbers = new Set();
+		for (const message of context.messages ?? []) {
+			for (const block of message.content ?? []) {
+				if (block.type !== "text" || typeof block.text !== "string") continue;
+				let parsed;
+				try {
+					parsed = JSON.parse(block.text);
+				} catch {
+					continue;
+				}
+				if (!parsed || typeof parsed !== "object") continue;
+				if (parsed.outcome === undefined && parsed.receipts === undefined) continue;
+				collectNumbers(parsed.outcome, numbers);
+				collectNumbers(parsed.effects, numbers);
+			}
+		}
+		const stated = numbers.size > 0 ? `（${[...numbers].join("、")}）` : "";
+		return fauxAssistantMessage([fauxToolCall("narrate", { text: `${prose}${stated}` })], { stopReason: "toolUse" });
+	};
+}
+
 test("真内核：开场与一个回合走通，收据、渲染、git 提交齐全", async (t) => {
 	const table = await openTable({
 		realKernel: true,
@@ -43,10 +86,7 @@ test("真内核：开场与一个回合走通，收据、渲染、git 提交齐�
 				[fauxToolCall("apply", { effects: [{ kind: "clue", clue: "clue-knott-research-leads", how: "诺特提到可以去查档案" }] })],
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage(
-				[fauxToolCall("narrate", { text: "诺特抬起眼，手指在文件上停了一下。\n\n他说，市政厅和报社都有这栋房子的旧档。" })],
-				{ stopReason: "toolUse" },
-			),
+			narrateStatingNumbers("诺特抬起眼，手指在文件上停了一下。\n\n他说，市政厅和报社都有这栋房子的旧档。"),
 			fauxAssistantMessage("回合之后守秘人多写的一句，应被替换"),
 		],
 	});
@@ -74,9 +114,24 @@ test("真内核：开场与一个回合走通，收据、渲染、git 提交齐�
 
 	const texts = assistantTexts(table.session).filter((text) => text.length > 0);
 	const delivered = texts.at(-1);
-	assert.match(delivered, /【明骰】/, "交付文本含内核渲染的明骰行");
-	assert.match(delivered, /【变化】线索/, "交付文本含线索变化块");
+	// 交付就是内核 narrate 回的 `rendered_text`，一字节不差：扩展不往里插东西、也不剥东西
+	// （契约 §8、§16.1）。内核那边 `rendered_text` 就是守秘人的正文原样。
+	const narrateResult = table.session.messages
+		.filter((message) => message.role === "toolResult" && message.toolName === "narrate")
+		.map((message) => message.details)
+		.at(-1);
+	assert.ok(narrateResult?.rendered_text, "真内核的 narrate 回了 rendered_text");
+	assert.equal(delivered, narrateResult.rendered_text, "最后一条助手消息就是内核回的那段文本");
+	assert.ok(delivered.startsWith("诺特抬起眼"), "交付就是守秘人写的那段，没有被插入任何机制行");
 	assert.ok(!texts.some((text) => text.includes("应被替换")), "守秘人自写的收尾正文被丢掉");
+
+	// 机制是语言中立的 JSON 投影，走会话条目（契约 §16.2）：Pi RPC 的 `entry_appended` 因此带着它。
+	const projected = table.entries("coc-mechanics").at(-1);
+	assert.ok(projected, "真内核的 narrate 也带 mechanics，扩展把它落成 coc-mechanics 条目");
+	assert.equal(projected.turn, 1);
+	const kinds = projected.mechanics.map((row) => row.kind);
+	assert.ok(kinds.includes("roll"), `这一回合的明骰在投影里：${kinds.join(",")}`);
+	assert.ok(kinds.includes("clue"), `这一回合的线索在投影里：${kinds.join(",")}`);
 
 	const log = execFileSync(
 		"git",

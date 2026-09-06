@@ -1,24 +1,25 @@
 /**
- * 读者：一段 section 一个子 `pi` 进程（契约 §14.5）。
+ * The reader: one child `pi` process per section (contract §14.5).
  *
- * 用户 2026-09-04 的法则：读书的模型工作跑成带工具的 agent，不是一次补全——
- * 它要自己开抽取包、自己分多次写分片、自己跑闸门。车道（`extensions/lanes/subsession.ts`）
- * 那条一次补全的路在这里不够用，所以这里起的是一个真的 `pi` 进程：
+ * The user's law of 2026-09-04: model work that reads a book runs as an agent with tools, not as one
+ * completion — it opens the extraction packet itself, writes the shard over several turns itself, and runs
+ * the gates itself. The lanes' single-completion road (`extensions/lanes/subsession.ts`) is not enough here,
+  * so what is started is a real `pi` process:
  *
  *   pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,bash
  *      --system-prompt content/setup/reader.md [--model <provider/id>] -- <brief>
  *
- * 工作目录是 `work/<section_id>/`，`brief` 由 `module.packet` 给（契约 §14.3）。
- * 读者产出的一切只留在 `work/` 里，进 `shards/` 的只有 review 通过并 `module.accept` 的。
+ * The working directory is `work/<section_id>/`, and `module.packet` gives the `brief` (contract §14.3).
+ * Everything the reader produces stays in `work/`; only what passes review and is accepted by `module.accept` reaches `shards/`.
  *
- * 三个不在契约里、由这一侧定下的细节，理由见 docs/pi-host-contract.md 第 3.2 节：
- * - `--no-extensions`：不加它的话子进程会把本包的扩展再加载一遍，于是又拉起一个内核子进程
- *   （违反契约 §1「一个 Pi 会话一个内核子进程」），而且 `setActiveTools` 会把 `--tools` 的
- *   允许清单顶掉，读者反而拿不到 read/write/bash。
- * - `PI_CODING_AGENT_DIR` 原样继承：鉴权、模型目录都在那儿。`PI_COC_CAMPAIGN`／`PI_COC_MODE`
- *   显式摘掉，免得万一扩展被加载时它去开桌。
- * - `PI_COC_READER_CMD`（JSON 字符串数组）替换整条命令，测试用它换成一个假读者，
- *   跟 `PI_COC_KERNEL_CMD` 同一个套路；`brief` 仍作为最后一个参数传进去。
+ * Three details settled on this side rather than in the contract, with the reasons in docs/pi-host-contract.md §3.2:
+ * - `--no-extensions` is required. Without it the subprocess loads this package's extensions all over again,
+ *   which starts a second kernel subprocess (breaking contract §1's one kernel per Pi session), and
+ *   `setActiveTools` overrides the `--tools` allow list, leaving the reader without read/write/bash.
+ * - `PI_CODING_AGENT_DIR` is inherited verbatim: auth and the model catalogue live there. `PI_COC_CAMPAIGN`
+ *   and `PI_COC_MODE` are removed explicitly, so that a loaded extension cannot go and open a table.
+ * - `PI_COC_READER_CMD` (a JSON array of strings) replaces the whole command; tests point it at a fake
+ *   reader, the same trick as `PI_COC_KERNEL_CMD`, and `brief` is still passed as the last argument.
  */
 
 import { spawn } from "node:child_process";
@@ -27,16 +28,16 @@ import { fileURLToPath } from "node:url";
 
 const PKG_ROOT = resolvePath(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-/** 一轮读者最多跑多久；超时按失败的一轮算，findings 里留下超时的记号。 */
+/** How long one reader round may run; a timeout counts as a round that did not pass, and leaves its mark in the findings. */
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 const STDERR_KEEP = 2000;
 
 export interface ReaderRequest {
-	/** 工作目录：`work/<section_id>/`。 */
+	/** The working directory: `work/<section_id>/`. */
 	cwd: string;
-	/** `module.packet` 返回的标准命令。 */
+	/** The standard brief `module.packet` returns. */
 	brief: string;
-	/** `provider/model`；不给就用 pi 自己的缺省模型。 */
+	/** `provider/model`; without one, pi's own default model is used. */
 	model?: string;
 	signal?: AbortSignal;
 	timeoutMs?: number;
@@ -44,25 +45,25 @@ export interface ReaderRequest {
 
 export interface ReaderOutcome {
 	ok: boolean;
-	/** 退出码；被信号杀掉时为 null。 */
+	/** The exit code; null when killed by a signal. */
 	code: number | null;
 	signal?: string;
 	timedOut: boolean;
 	ms: number;
-	/** stderr 尾巴，进遥测用。 */
+	/** The tail of stderr, for the telemetry. */
 	stderr: string;
 	command: string[];
-	/** 起不起得来之外的失败（spawn 出错）。 */
+	/** A failure other than not passing (a spawn error). */
 	error?: string;
 }
 
-/** 读者的命令行，不含最后那个 `brief` 参数。 */
+/** The reader's command line, without the final `brief` argument. */
 export function readerCommand(model?: string): string[] {
 	const override = process.env.PI_COC_READER_CMD?.trim();
 	if (override) {
 		const parsed: unknown = JSON.parse(override);
 		if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((part) => typeof part !== "string")) {
-			throw new Error("PI_COC_READER_CMD 必须是非空的字符串 JSON 数组");
+			throw new Error("PI_COC_READER_CMD must be a non-empty JSON array of strings");
 		}
 		return parsed as string[];
 	}
@@ -77,12 +78,12 @@ export function readerCommand(model?: string): string[] {
 		"--system-prompt",
 		join(PKG_ROOT, "content", "setup", "reader.md"),
 		...(model ? ["--model", model] : []),
-		// `--` 之后的都是提示：brief 以 `-` 开头也不会被当成参数。
+		// Everything after `--` is the prompt: a brief starting with `-` is not taken for an option.
 		"--",
 	];
 }
 
-/** 跑一轮读者。任何失败都只是一轮失败，不抛。 */
+/** Run one reader round. Any failure is only a failed round, never a throw. */
 export async function runReader(request: ReaderRequest): Promise<ReaderOutcome> {
 	const began = Date.now();
 	let command: string[];
@@ -101,7 +102,7 @@ export async function runReader(request: ReaderRequest): Promise<ReaderOutcome> 
 	}
 	const [bin, ...args] = command;
 	const env = { ...process.env };
-	// 子进程不是一张桌子：别让它以为自己该开桌。
+	// The subprocess is not a table: it must not think it should open one.
 	delete env.PI_COC_CAMPAIGN;
 	delete env.PI_COC_MODE;
 
@@ -123,13 +124,13 @@ export async function runReader(request: ReaderRequest): Promise<ReaderOutcome> 
 			try {
 				child.kill();
 			} catch {
-				/* 已经没了 */
+				/* already gone */
 			}
 			setTimeout(() => {
 				try {
 					child.kill("SIGKILL");
 				} catch {
-					/* 同上 */
+					/* same as above */
 				}
 			}, 2000).unref?.();
 		};
@@ -145,7 +146,7 @@ export async function runReader(request: ReaderRequest): Promise<ReaderOutcome> 
 		};
 		request.signal?.addEventListener("abort", onAbort, { once: true });
 
-		// stdout 是读者最后那句话，我们不读它：它写没写对，看的是 `module.review`。
+		// stdout is the reader's last sentence and we do not read it: whether it wrote correctly is `module.review`'s call.
 		child.stdout?.resume();
 		child.stderr?.setEncoding("utf8");
 		child.stderr?.on("data", (chunk: string) => {

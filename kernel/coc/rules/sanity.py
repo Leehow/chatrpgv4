@@ -510,7 +510,7 @@ class SanitySession:
             "san_loss_raw_total": loss_raw_total,
             "san_loss_resolution": loss_resolution,
             "marker": (f"[san_check]SAN {san_loss_success}/{san_loss_fail_expr}|"
-                       f"理智{san_before}:(d100->{res['roll']})->{res['outcome']}|"
+                       f"SAN{san_before}:(d100->{res['roll']})->{res['outcome']}|"
                        f"{san_loss_fail_expr}->{lost if res['outcome'] in ('failure','fumble') else lost}"
                        f":sub(san,{lost})[/san_check]"),
         }

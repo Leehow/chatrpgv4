@@ -10,7 +10,7 @@ import json
 import sys
 from pathlib import Path
 
-from conftest import CONTENT_DIR, KERNEL_DIR, RpcClient, campaign_dir, narrate_opening, open_turn, read_json
+from conftest import CONTENT_DIR, KERNEL_DIR, RpcClient, campaign_dir, narrate, narrate_opening, open_turn, read_json
 
 sys.path.insert(0, str(KERNEL_DIR))
 
@@ -45,24 +45,24 @@ def test_the_first_turn_after_open_carries_the_briefing_from_the_graph(kernel):
     assert "module" in capsule["head"] and "lookup" in capsule["head"]
     assert kernel.table("capsule")["module"] == module  # same turn, same process
 
-    kernel.table("narrate", call_id="t1-c1", text="……")
+    narrate(kernel, "t1-c1", "……")
     later = kernel.table("player_input", text="继续。")["capsule"]
     assert "module" not in later and "module" not in later.get("truncated", [])
-    assert "module 节" not in later["head"] and later["head"] in capsule["head"]
+    assert "module section" not in later["head"] and later["head"] in capsule["head"]
 
 
 def test_a_new_process_briefs_again_under_the_same_condition_as_style_and_resume(tmp_path):
     first = RpcClient(tmp_path / "ws")
     try:
         open_turn(first, "我看看。")
-        first.table("narrate", call_id="t1-c1", text="……")
+        narrate(first, "t1-c1", "……")
         assert "module" not in first.table("player_input", text="继续。")["capsule"]
     finally:
         first.close()
     second = RpcClient(tmp_path / "ws")
     try:
         assert second.table("open")["turn"]["number"] == 2
-        second.table("narrate", call_id="t2-c1", text="……")
+        narrate(second, "t2-c1", "……")
         capsule = second.table("player_input", text="再来。")["capsule"]
         assert capsule["module"]["title"] == "The Haunting" and capsule["resume"]["turn"] == 1  # the checkpoint open found
         assert len(capsule["style"]["directives"]) > 4  # the full style, the resume and the briefing: one condition
@@ -122,5 +122,5 @@ def test_the_line_is_graph_text_never_the_name_repeated():
     section = module_section(graph("the-haunting"))
     knott = next(p for p in section["people"] if p["name"] == "Steven Knott")
     record = next(n for n in HAUNTING["nodes"] if n["name"] == "Steven Knott")["properties"]["runtime_projection"]["record"]
-    assert knott["line"] == f"{record['relationship_to_investigators']}；{record['agenda']}"[:MODULE_LINE_STEPS[0]]
+    assert knott["line"] == f"{record['relationship_to_investigators']}; {record['agenda']}"[:MODULE_LINE_STEPS[0]]
     assert Path(CONTENT_DIR / "starters" / "the-haunting" / "module-graph.json").exists()

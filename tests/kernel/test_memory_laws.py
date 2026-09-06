@@ -10,7 +10,7 @@ verification never block `narrate`.
 import json
 import re
 
-from conftest import CAMPAIGN, PREGEN, campaign_dir, open_turn, read_json, read_jsonl
+from conftest import narrate, CAMPAIGN, PREGEN, campaign_dir, open_turn, read_json, read_jsonl
 
 # contract §12.3: "解析不到的名字...都报 invalid_params"; the batch is all-or-nothing.
 CALL_ID_SHAPE = re.compile(r"^t\d+-c\d+$")
@@ -63,7 +63,7 @@ def _walk(node, path="$"):
 
 def test_candidates_never_leave_candidate_or_superseded(kernel):
     open_turn(kernel, "我问诺特关于报社过去的事。")
-    kernel.table("narrate", call_id="t1-c1", text="诺特提到报社十年前也报道过一起失踪案。")
+    narrate(kernel, "t1-c1", "诺特提到报社十年前也报道过一起失踪案。")
     j1 = job(kernel, turn=1)
     subject = known_entity(j1, "investigator")
     submit(kernel, job_id=j1["job_id"], candidates=[
@@ -76,7 +76,7 @@ def test_candidates_never_leave_candidate_or_superseded(kernel):
     assert statuses() and statuses() <= {"candidate", "superseded"}
 
     kernel.table("player_input", text="我继续追问细节。")
-    kernel.table("narrate", call_id="t2-c1", text="诺特叹了口气，说案子最后不了了之。")
+    narrate(kernel, "t2-c1", "诺特叹了口气，说案子最后不了了之。")
     j2 = job(kernel, turn=2)
     submit(kernel, job_id=j2["job_id"], candidates=[
         {"kind": "belief", "subject": subject, "statement": "诺特似乎不太想谈这件旧案。"},
@@ -87,7 +87,7 @@ def test_candidates_never_leave_candidate_or_superseded(kernel):
 
 def test_superseding_relationship_keeps_both_records_addressable(kernel):
     open_turn(kernel, "我打量诺特和这间办公室。")
-    kernel.table("narrate", call_id="t1-c1", text="诺特与你隔着桌子对视。")
+    narrate(kernel, "t1-c1", "诺特与你隔着桌子对视。")
     j1 = job(kernel, turn=1)
     investigator = known_entity(j1, "investigator")
     npc = known_entity(j1, "npc")
@@ -100,7 +100,7 @@ def test_superseding_relationship_keeps_both_records_addressable(kernel):
     assert first["status"] == "candidate"
 
     kernel.table("player_input", text="我们继续交谈了一阵。")
-    kernel.table("narrate", call_id="t2-c1", text="诺特的态度渐渐放松了下来。")
+    narrate(kernel, "t2-c1", "诺特的态度渐渐放松了下来。")
     j2 = job(kernel, turn=2)
     submit(kernel, job_id=j2["job_id"], candidates=[
         {"kind": "relationship", "subject": investigator, "entities": [npc],
@@ -123,7 +123,7 @@ def test_superseding_relationship_keeps_both_records_addressable(kernel):
 
 def test_failed_job_is_not_redispatched_by_a_bare_memory_job(kernel):
     open_turn(kernel, "我环视四周。")
-    kernel.table("narrate", call_id="t1-c1", text="灰尘在光线里飘着。")
+    narrate(kernel, "t1-c1", "灰尘在光线里飘着。")
     j1 = job(kernel, turn=1)
     fail(kernel, job_id=j1["job_id"], reason="model_error", detail="抽取子会话超时")
 
@@ -137,7 +137,7 @@ def test_failed_job_is_not_redispatched_by_a_bare_memory_job(kernel):
 
     # Memory failures are advisory-only: table play, including narrate, is unaffected.
     kernel.table("player_input", text="我继续搜查。")
-    result = kernel.table("narrate", call_id="t2-c1", text="没有发现异常。")
+    result = narrate(kernel, "t2-c1", "没有发现异常。")
     assert result["commit"]
 
     # Re-dispatch requires explicitly naming the turn.
@@ -147,7 +147,7 @@ def test_failed_job_is_not_redispatched_by_a_bare_memory_job(kernel):
 
 def test_player_assertion_never_becomes_a_committed_fact_or_world_state(kernel):
     open_turn(kernel, "我告诉诺特我曾经在《纪事报》工作过。")
-    kernel.table("narrate", call_id="t1-c1", text="诺特挑了挑眉，不置可否。")
+    narrate(kernel, "t1-c1", "诺特挑了挑眉，不置可否。")
     j1 = job(kernel, turn=1)
     investigator = known_entity(j1, "investigator")
     submit(kernel, job_id=j1["job_id"], candidates=[
@@ -156,7 +156,7 @@ def test_player_assertion_never_becomes_a_committed_fact_or_world_state(kernel):
     ])
 
     kernel.table("player_input", text="我再次强调这一点。")
-    narrated = kernel.table("narrate", call_id="t2-c1", text="诺特点了点头，仍不置可否。")
+    narrated = narrate(kernel, "t2-c1", "诺特点了点头，仍不置可否。")
     committed_blob = json.dumps(narrated.get("facts", {}).get("committed", []), ensure_ascii=False)
     assert "纪事报" not in committed_blob
 
@@ -166,7 +166,7 @@ def test_player_assertion_never_becomes_a_committed_fact_or_world_state(kernel):
 
 def test_ambiguous_name_between_two_present_entities_is_rejected(kernel):
     open_turn(kernel, "我和诺特交谈。")
-    kernel.table("narrate", call_id="t1-c1", text="诺特靠在椅背上。")
+    narrate(kernel, "t1-c1", "诺特靠在椅背上。")
     j1 = job(kernel, turn=1)
     npc_name = known_entity(j1, "npc")
 
@@ -179,7 +179,7 @@ def test_ambiguous_name_between_two_present_entities_is_rejected(kernel):
     sheet_path.write_text(json.dumps(sheet, ensure_ascii=False), encoding="utf-8")
 
     kernel.table("player_input", text="我继续说下去。")
-    kernel.table("narrate", call_id="t2-c1", text="诺特没有回应。")
+    narrate(kernel, "t2-c1", "诺特没有回应。")
     j2 = job(kernel, turn=2)
     error = submit_err(kernel, job_id=j2["job_id"], candidates=[
         {"kind": "knowledge", "subject": npc_name, "statement": "有些事发生了变化。"},
@@ -191,7 +191,7 @@ def test_ambiguous_name_between_two_present_entities_is_rejected(kernel):
 
 def test_submit_with_a_machine_key_is_rejected_with_details_index(kernel):
     open_turn(kernel, "我环视四周。")
-    kernel.table("narrate", call_id="t1-c1", text="房间里很安静。")
+    narrate(kernel, "t1-c1", "房间里很安静。")
     j1 = job(kernel, turn=1)
     investigator = known_entity(j1, "investigator")
 
@@ -220,7 +220,7 @@ def test_memory_job_packet_carries_no_machine_keys_except_top_level_turn_and_com
         {"kind": "clue", "clue": "knott-research-leads"},
         {"kind": "time", "minutes": 5},
     ])
-    narrated = kernel.table("narrate", call_id="t1-c3", text="你翻阅着桌上的文件。")
+    narrated = narrate(kernel, "t1-c3", "你翻阅着桌上的文件。")
     j1 = job(kernel, turn=1)
     assert j1["turn"] == 1
     assert j1["commit"] == narrated["commit"]

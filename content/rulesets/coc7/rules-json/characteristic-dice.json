@@ -38,46 +38,55 @@
   "characteristics": {
     "STR": {
       "name": "Strength",
+      "localized_labels": {"zh-Hans": "力量"},
       "dice": "3D6",
       "description": "Roll 3D6 and multiply by 5 to generate the Strength characteristic."
     },
     "CON": {
       "name": "Constitution",
+      "localized_labels": {"zh-Hans": "体质"},
       "dice": "3D6",
       "description": "Roll 3D6 and multiply by 5 to generate the Constitution characteristic."
     },
     "SIZ": {
       "name": "Size",
+      "localized_labels": {"zh-Hans": "体型"},
       "dice": "2D6+6",
       "description": "Roll 2D6+6 and multiply by 5 to generate a Size characteristic."
     },
     "DEX": {
       "name": "Dexterity",
+      "localized_labels": {"zh-Hans": "敏捷"},
       "dice": "3D6",
       "description": "Roll 3D6 and multiply by 5 to generate a Dexterity characteristic."
     },
     "APP": {
       "name": "Appearance",
+      "localized_labels": {"zh-Hans": "外貌"},
       "dice": "3D6",
       "description": "Roll 3D6 and multiply by 5 to generate an Appearance characteristic."
     },
     "INT": {
       "name": "Intelligence",
+      "localized_labels": {"zh-Hans": "智力"},
       "dice": "2D6+6",
       "description": "Roll 2D6+6 and multiply by 5 to generate an Intelligence characteristic."
     },
     "POW": {
       "name": "Power",
+      "localized_labels": {"zh-Hans": "意志"},
       "dice": "3D6",
       "description": "Roll 3D6 and multiply by 5 to generate a Power characteristic."
     },
     "EDU": {
       "name": "Education",
+      "localized_labels": {"zh-Hans": "教育"},
       "dice": "2D6+6",
       "description": "Roll 2D6+6 and multiply by 5 to generate an Education characteristic."
     },
     "Luck": {
       "name": "Luck",
+      "localized_labels": {"zh-Hans": "幸运"},
       "dice": "3D6",
       "independent_of_pow": true,
       "description": "When creating an investigator roll 3D6 and multiply by 5 for a Luck score."

@@ -8,7 +8,7 @@ happened.
 """
 import json
 
-from conftest import (RpcClient, campaign_dir, create_campaign, git_log, narrate_opening,
+from conftest import (RpcClient, campaign_dir, create_campaign, git_log, narrate, narrate_opening,
                        open_turn, read_json)
 
 ACTION = {"intent": "investigate", "goal": "看桌上有什么", "method": "用侦查扫一眼"}
@@ -52,7 +52,7 @@ def test_killed_between_acting_and_committed_reopens_and_finishes_with_one_commi
         assert [r["id"] for r in second.table("status")["receipts"]] == [resolved["receipt"]]
 
         # The keeper picks up where it left off and closes the turn.
-        narrated = second.table("narrate", call_id="t1-c2", text="办公室里只有雪茄味。")
+        narrated = narrate(second, "t1-c2", "办公室里只有雪茄味。")
         assert narrated["commit"]
         assert second.table("open")["pending_turn"] is None
     finally:
@@ -67,7 +67,7 @@ def test_narrate_replayed_after_reopen_makes_no_second_commit(tmp_path):
     first = RpcClient(workspace)
     try:
         open_turn(first, "我听着走廊里的脚步声。")
-        narrated = first.table("narrate", call_id="t1-c1", text="脚步声渐渐远去。")
+        narrated = narrate(first, "t1-c1", "脚步声渐渐远去。")
     finally:
         first.close()  # died right after the commit landed, before anything else
 
@@ -75,7 +75,7 @@ def test_narrate_replayed_after_reopen_makes_no_second_commit(tmp_path):
 
     second = RpcClient(workspace)
     try:
-        replay = second.table("narrate", call_id="t1-c1", text="脚步声渐渐远去。")
+        replay = narrate(second, "t1-c1", "脚步声渐渐远去。")
         assert replay == {**narrated, "replayed": True}
         assert second.table("status")["turn"] == 2  # the replay did not reopen/reclose the turn
     finally:
@@ -92,7 +92,7 @@ def test_missing_checkpoint_is_rebuilt_from_head_on_reopen(tmp_path):
     first = RpcClient(workspace)
     try:
         open_turn(first, "我打开了灯。")
-        narrated = first.table("narrate", call_id="t1-c1", text="灯光昏黄，照亮了满地的文件。")
+        narrated = narrate(first, "t1-c1", "灯光昏黄，照亮了满地的文件。")
     finally:
         first.close()
 
@@ -125,7 +125,7 @@ def test_corrupted_turn_json_rebuilds_a_fresh_turn_from_the_checkpoint(tmp_path)
     first = RpcClient(workspace)
     try:
         open_turn(first, "我检查抽屉。")
-        narrated = first.table("narrate", call_id="t1-c1", text="抽屉里空空如也。")
+        narrated = narrate(first, "t1-c1", "抽屉里空空如也。")
     finally:
         first.close()
 
@@ -161,7 +161,7 @@ def test_first_player_input_after_reopen_carries_resume_the_second_does_not(tmp_
     first = RpcClient(workspace)
     try:
         open_turn(first, "我检查这扇门。")
-        first.table("narrate", call_id="t1-c1", text="门锁着。")
+        narrate(first, "t1-c1", "门锁着。")
     finally:
         first.close()
 
@@ -174,7 +174,7 @@ def test_first_player_input_after_reopen_carries_resume_the_second_does_not(tmp_
         first_input = second.table("player_input", text="我试着撬锁。")
         assert first_input["capsule"]["resume"] == resume
 
-        second.table("narrate", call_id="t2-c1", text="锁被撬开了。")
+        narrate(second, "t2-c1", "锁被撬开了。")
         second_input = second.table("player_input", text="我推门进去。")
         assert "resume" not in second_input["capsule"]
     finally:
