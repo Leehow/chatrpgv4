@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# pi-coc 启动器。契约见 docs/kernel-rpc.md 第 9 节。
+# 用法：bin/pi-coc [--campaign <id>] [pi 参数...]
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+PI_BIN="$REPO/node_modules/.bin/pi"
+KEEPER_PROMPT="$REPO/prompts/keeper.md"
+AGENT_DIR="$REPO/.pi/coc-agent"
+SETTINGS="$AGENT_DIR/settings.json"
+
+if [ ! -x "$PI_BIN" ]; then
+	echo "找不到 $PI_BIN。先在 $REPO 里跑 npm install。" >&2
+	exit 1
+fi
+if [ ! -f "$KEEPER_PROMPT" ]; then
+	echo "找不到守秘人提示 $KEEPER_PROMPT。" >&2
+	exit 1
+fi
+
+campaign="${PI_COC_CAMPAIGN:-}"
+args=()
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--campaign)
+			if [ $# -lt 2 ]; then
+				echo "--campaign 后面要跟战役 id。" >&2
+				exit 1
+			fi
+			campaign="$2"
+			shift 2
+			;;
+		--campaign=*)
+			campaign="${1#--campaign=}"
+			shift
+			;;
+		*)
+			args+=("$1")
+			shift
+			;;
+	esac
+done
+
+mkdir -p "$AGENT_DIR"
+if [ ! -f "$SETTINGS" ]; then
+	printf '{\n  "packages": ["%s"],\n  "quietStartup": true\n}\n' "$REPO" >"$SETTINGS"
+else
+	# 已有配置只补一件事：packages 里要有这个仓库。
+	SETTINGS="$SETTINGS" REPO="$REPO" node -e '
+		const fs = require("node:fs");
+		const path = process.env.SETTINGS;
+		const repo = process.env.REPO;
+		let settings;
+		try {
+			settings = JSON.parse(fs.readFileSync(path, "utf8"));
+		} catch (error) {
+			console.error(`${path} 不是合法 JSON：${error.message}`);
+			process.exit(1);
+		}
+		if (settings === null || typeof settings !== "object" || Array.isArray(settings)) {
+			console.error(`${path} 顶层不是对象，请手工修好。`);
+			process.exit(1);
+		}
+		const packages = Array.isArray(settings.packages) ? settings.packages : [];
+		if (!packages.includes(repo)) {
+			settings.packages = [...packages, repo];
+			fs.writeFileSync(path, `${JSON.stringify(settings, null, 2)}\n`);
+		}
+	'
+fi
+
+if [ -n "$campaign" ]; then
+	export PI_COC_CAMPAIGN="$campaign"
+fi
+export PI_CODING_AGENT_DIR="$AGENT_DIR"
+
+cd "$REPO"
+session_args=()
+if [ -n "$campaign" ]; then
+	session_args=(--session-id "coc-$campaign")
+fi
+
+exec "$PI_BIN" \
+	--no-builtin-tools \
+	--append-system-prompt "$KEEPER_PROMPT" \
+	${session_args[@]+"${session_args[@]}"} \
+	${args[@]+"${args[@]}"}

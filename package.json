@@ -20,6 +20,6 @@
     "@earendil-works/pi-coding-agent": "0.85.1"
   },
   "scripts": {
-    "test:ext": "node --test tests/extension/"
+    "test:ext": "node --test \"tests/extension/**/*.test.mjs\""
   }
 }

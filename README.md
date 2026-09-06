@@ -29,7 +29,7 @@ bin/pi-coc --campaign <id>
 
 ```bash
 uv run --frozen python -m pytest tests/kernel -q
-node --test tests/extension/
+npm run test:ext
 ```
 
 真桌验收走 `tests/play/driver.py`，grok 当守秘人，Claude 当玩家，一回合一回。
