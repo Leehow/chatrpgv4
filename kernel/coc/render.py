@@ -54,6 +54,16 @@ def mechanics_line(receipt: dict[str, Any]) -> str | None:
     if kind == "handout":
         # §14.8: the card the player is handed; the bytes travel as `attachment`.
         return f"{HANDOUT_MARKER}{receipt.get('label') or receipt.get('name') or receipt['handout']}"
+    if kind == "item":
+        # #19: what reached (or left) the sheet; a negative quantity is a loss.
+        quantity = int(receipt.get("quantity") or 1)
+        verb = "失去" if quantity < 0 else "得到"
+        count = f" ×{abs(quantity)}" if abs(quantity) > 1 else ""
+        subject = receipt.get("subject_label") or receipt.get("subject")
+        return f"{CHANGE_MARKER}物品：{subject} {verb} {receipt.get('label') or receipt['name']}{count}"
+    if kind == "cash":
+        subject = receipt.get("subject_label") or receipt.get("subject")
+        return f"{CHANGE_MARKER}{receipt.get('label') or '现金'}：{subject} {receipt['before']} → {receipt['after']}"
     if kind == "session":
         start, end = SESSION_ZH.get(str(receipt.get("family")), (str(receipt.get("family")), str(receipt.get("family"))))
         if receipt.get("transition") == "start":

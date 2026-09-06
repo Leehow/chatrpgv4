@@ -1,6 +1,6 @@
 """events.jsonl (contract §7, §12.1): {seq, turn, type, at, call_id?, receipt?, data}.
 
-Twelve canonical types, closed. Anything else is a kernel defect (ValueError), never a
+Fifteen canonical types, closed. Anything else is a kernel defect (ValueError), never a
 keeper error."""
 
 from __future__ import annotations
@@ -28,6 +28,8 @@ EVENT_TYPES = frozenset({
     # slice 4 (§14.7, §14.8): the setup handoff and a handout shown to the player
     "setup-completed",
     "handout-shown",
+    # #19: an item reaching (or leaving) an investigator's sheet; cash rides resource-changed
+    "item-transferred",
 })
 
 

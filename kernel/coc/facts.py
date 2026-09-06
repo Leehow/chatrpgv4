@@ -34,6 +34,8 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "clue": "发现线索：{clue}",
         "delta": "{label}：{subject} {before} → {after}",
         "time": "时间推进 {minutes} 分钟",
+        "item_gain": "物品：{subject} 得到 {name}{count}",
+        "item_loss": "物品：{subject} 失去 {name}{count}",
         "choice": "玩家选择：{option}",
         "declared": "玩家声明：{text}",
         "session_start": "{start}",
@@ -72,6 +74,8 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "clue": "Clue found: {clue}",
         "delta": "{label}: {subject} {before} → {after}",
         "time": "Time advances {minutes} min",
+        "item_gain": "Item: {subject} gains {name}{count}",
+        "item_loss": "Item: {subject} loses {name}{count}",
         "choice": "Player chose: {option}",
         "declared": "Player declared: {text}",
         "session_start": "{start}",
@@ -171,10 +175,17 @@ def committed_facts(language: str, receipts: list[dict[str, Any]], snapshot: dic
                            to=receipt.get("to_label") or receipt.get("to"), minutes=minutes))
         elif kind == "clue":
             facts.append(t(language, "clue", clue=receipt.get("label") or receipt.get("clue")))
-        elif kind == "delta":
+        elif kind in ("delta", "cash"):
+            # #19: a cash receipt is a resource change too (label 现金, before → after)
             facts.append(t(language, "delta", label=receipt.get("label") or receipt.get("resource"),
                            subject=receipt.get("subject_label") or receipt.get("subject"),
                            before=receipt.get("before"), after=receipt.get("after")))
+        elif kind == "item":
+            quantity = int(receipt.get("quantity") or 1)
+            facts.append(t(language, "item_loss" if quantity < 0 else "item_gain",
+                           subject=receipt.get("subject_label") or receipt.get("subject"),
+                           name=receipt.get("label") or receipt.get("name"),
+                           count=f" ×{abs(quantity)}" if abs(quantity) > 1 else ""))
         elif kind == "time":
             facts.append(t(language, "time", minutes=int(receipt.get("minutes") or 0)))
         elif kind == "choice":

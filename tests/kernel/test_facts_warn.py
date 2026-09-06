@@ -142,9 +142,10 @@ def test_capsule_memory_section_is_the_ranked_head_within_budget(kernel):
     hits = capsule["memory"]
     assert 0 < len(hits) < 6 and "memory" in capsule["truncated"]
     assert size(hits) <= 1536
-    assert hits[0]["id"] == "mem:t1-1" and hits[0]["subject"] == "Steven Knott"  # highest overlap, then oldest id
-    assert set(hits[0]) == {"id", "kind", "subject", "knowers", "entities", "statement", "privacy", "state",
-                            "confidence", "status", "turn"}
+    assert hits[0]["id"] == "mem:t1-1" and hits[0]["kind"] == "knowledge"  # highest overlap, then oldest id
+    # #20 (§12.7): the capsule projects a hit to four fields; the rest is behind recall memory
+    assert set(hits[0]) == {"id", "kind", "statement", "turn"}
+    assert kernel.table("recall", what="memory")["hits"][0]["subject"] == "Steven Knott"
 
 
 def test_capsule_memory_section_takes_six_ranked_hits(kernel):

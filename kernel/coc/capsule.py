@@ -17,6 +17,7 @@ from .module_graph import NPC_KIND, ModuleGraph, condition_met, describe_conditi
 from .ontology import Ontology
 from .rules.graph import semantic_name
 from .store import Campaign
+from .text import normalize
 
 #: §6 sections: trimmed by item, oldest first for `recent`; the dict sections also gain
 #: `truncated: true` inside (§6), every trimmed section lands in the capsule's `truncated`.
@@ -27,6 +28,19 @@ SLICE2_BUDGETS = {"memory": 1536, "warnings": 1024}
 #: the process opened the table (§13.6).
 SLICE3_BUDGETS = {"pressures": 1024, "obligations": 1024, "director": 1536, "situations": 1024, "style": 1024}
 STYLE_FULL_BUDGET = 2048
+#: #22 (§13.1): the module briefing, only on this process's first turn after open — the
+#: same condition as the full `style` — built from the module graph alone.
+MODULE_BUDGET = 2048
+#: Roster lines are cut to the first length at which the section fits (a roster that
+#: names everyone with short lines beats one that names half of them with long ones);
+#: only when names alone still overflow does the tail go.
+MODULE_LINE_STEPS = (120, 80, 40, 20, 0)
+MODULE_LINE_CHARS = MODULE_LINE_STEPS[0]
+FACTION_KINDS = ("faction", "organization")
+PLACE_KINDS = ("location",)
+PEOPLE_KINDS = (NPC_KIND,)
+ENDING_KIND = "ending"
+CONCLUSION_KIND = "conclusion"
 MEMORY_HITS = 6
 RECENT_TURNS = 2
 KEEPER_EXCERPT = 200
@@ -44,6 +58,14 @@ HEAD = {
            "situations, the Director's suggested beat, related memory and the style contract. Do not look/lookup "
            "for what is already here; director is advice, not lines. where.material and each exit's material say how "
            "far the book has been read: ready, reading, or missing."),
+}
+#: #22: appended to `head` when the `module` section rides along.
+HEAD_MODULE = {
+    "zh-Hans": ("本回合另附 module 节（开桌简报，只此一回）：这本书讲什么、时代、派系/地点/人物名册（含未登场者，守秘人专属）、"
+                "结局与结论的名字、结构类型；开桌前不必再 lookup 这本书。"),
+    "en": (" This turn also carries a module section (the table briefing, this once): what the book is about, its era, "
+           "the factions, places and people (absent ones included, keeper-only), the ending and conclusion names and "
+           "the structure type; do not lookup the book before opening."),
 }
 ELAPSED = {"zh-Hans": "{hours} 小时 {minutes} 分钟", "en": "{hours} h {minutes} min"}
 #: Day parts by hour of day, only when the module declares a start time (§13.1).
@@ -301,12 +323,83 @@ def fit_budget(section: Any, budget: int, *, drop: str = "oldest") -> bool:
 def memory_section(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any], scene: dict[str, Any],
                    party: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """`recall memory` with its default `about` (present NPCs plus the investigators),
-    first MEMORY_HITS hits (§12.7)."""
-    from .memory import EntityIndex, query_candidates  # local: memory imports facts, which imports render
+    first MEMORY_HITS hits (§12.7), each projected to id/kind/statement/turn (#20)."""
+    from .memory import EntityIndex, capsule_hit, query_candidates  # local: memory imports facts, which imports render
     about = [graph.display_name(n) for n in npcs_present(graph, world, scene)]
     about.extend(str(sheet.get("name")) for sheet in party)
-    return query_candidates(campaign, EntityIndex(graph, party, scene_labels=world.get("scene_labels")),
+    hits = query_candidates(campaign, EntityIndex(graph, party, scene_labels=world.get("scene_labels")),
                             about=about, narrow=False, limit=MEMORY_HITS)
+    return [capsule_hit(hit) for hit in hits]
+
+
+# ---- module briefing (#22, §13.1) ---------------------------------------------
+
+def _one_line(graph: ModuleGraph, node: dict[str, Any], chars: int = MODULE_LINE_CHARS) -> str:
+    """One line of keeper material for a roster entry, copied from the graph: the node's
+    summary unless it merely repeats the name, else (for a person) relationship and
+    agenda, else the record's prose. Cut at `chars`, never paraphrased."""
+    if chars <= 0:
+        return ""
+    record = record_of(node)
+    name = graph.display_name(node)
+    summary = node.get("summary")
+    candidates: list[str] = []
+    if isinstance(summary, str) and normalize(summary) != normalize(name):
+        candidates.append(summary)
+    person = [str(record[key]) for key in ("relationship_to_investigators", "agenda")
+              if isinstance(record.get(key), str) and record[key].strip()]
+    if person:
+        candidates.append("；".join(person))
+    candidates.append(graph.prose(node))
+    for text in candidates:
+        line = " ".join(str(text).split())
+        if line:
+            return line[:chars]
+    return ""
+
+
+def module_section(graph: ModuleGraph, line_chars: int = MODULE_LINE_CHARS) -> dict[str, Any]:
+    """What this book is, from the module graph alone: the module node's summary and era,
+    the factions, places and people (keeper-only, absent ones included) each with one
+    line, the ending and conclusion names, and the structure type. A domain the graph
+    lacks is an empty list, never a guess."""
+    module = graph.module_node or {}
+    record = record_of(module) if module else {}
+
+    def roster(kinds: tuple[str, ...]) -> list[dict[str, str]]:
+        rows = []
+        for kind in kinds:
+            for node in graph.by_kind.get(kind, []):
+                rows.append({"name": graph.display_name(node), "line": _one_line(graph, node, line_chars)})
+        return rows
+
+    section: dict[str, Any] = {"title": graph.title()}
+    era = record.get("era")
+    if isinstance(era, str) and era.strip():
+        section["era"] = era
+    section.update({
+        "synopsis": " ".join(str(module.get("summary") or "").split()),
+        "factions": roster(FACTION_KINDS),
+        "places": roster(PLACE_KINDS),
+        "people": roster(PEOPLE_KINDS),
+        "endings": [graph.display_name(n) for n in graph.by_kind.get(ENDING_KIND, [])],
+        "conclusions": [graph.display_name(n) for n in graph.by_kind.get(CONCLUSION_KIND, [])],
+        "structure_type": director_mod.structure_type_of(graph),
+    })
+    return section
+
+
+def fitted_module_section(graph: ModuleGraph, budget: int = MODULE_BUDGET) -> tuple[dict[str, Any], bool]:
+    """The briefing at the longest roster line that fits the budget; names alone if that
+    is what fits; tail-dropped only after that. Returns (section, whether it was cut)."""
+    section = module_section(graph, MODULE_LINE_STEPS[0])
+    cut = False
+    for chars in MODULE_LINE_STEPS[1:]:
+        if json_size(section) <= budget:
+            break
+        section = module_section(graph, chars)
+        cut = True
+    return section, fit_budget(section, budget, drop="last") or cut
 
 
 # ---- director (§13.3) ---------------------------------------------------------
@@ -347,7 +440,7 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
                   situations: list[dict[str, Any]], director_graph: DirectorGraph, ontology: Ontology,
                   craft: TextGraph, register: str, style_full: bool = False,
                   resume: dict[str, Any] | None = None,
-                  material_of: Callable[[str], str] | None = None) -> dict[str, Any]:
+                  material_of: Callable[[str], str] | None = None, module_brief: bool = False) -> dict[str, Any]:
     from .memory import open_promises, read_candidates  # local: memory imports facts, which imports render
     from .rules.healing import read_healing_state
     from .sessions import SessionView, sanity_snapshot  # local: sessions reads capsule.condition_met for chase chains
@@ -414,8 +507,15 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
             budget = STYLE_FULL_BUDGET
         if fit_budget(sections[name], budget, drop="last"):
             truncated.append(name)
+    head = HEAD[lang]
+    if module_brief:
+        # #22: the briefing rides once, on the process's first turn after open.
+        sections["module"], cut = fitted_module_section(graph)
+        if cut:
+            truncated.append("module")
+        head += HEAD_MODULE[lang]
     capsule: dict[str, Any] = {
-        "head": HEAD[lang],
+        "head": head,
         "turn": {
             "number": turn["turn"],
             "state": turn["state"],

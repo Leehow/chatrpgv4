@@ -25,7 +25,8 @@ from .resolver import Resolver
 from .skills import SkillResolver
 from .tables import RuleTables
 
-RESOURCE_LABELS_ZH = {"hp": "生命值", "san": "理智", "mp": "魔法值", "luck": "幸运", "armor": "护甲", "ammo": "弹药"}
+RESOURCE_LABELS_ZH = {"hp": "生命值", "san": "理智", "mp": "魔法值", "luck": "幸运", "armor": "护甲", "ammo": "弹药",
+                      "cash": "现金"}
 SOCIAL_SKILLS = ("Charm", "Fast Talk", "Intimidate", "Persuade")
 
 

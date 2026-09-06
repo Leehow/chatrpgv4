@@ -149,7 +149,9 @@ test("回合没关时催一次，且只催一次", async (t) => {
 
 test("内核意外退出后重新拉起并重开桌", async (t) => {
 	const table = await openTable({
-		env: { FAKE_KERNEL_EXIT_AFTER: "3" },
+		// 补抽（#20）也会在开桌后发一次 `memory.job`，会把「第三个请求」挪到别处；
+		// 这个用例看的是开桌那条线，所以这张桌子不补抽。
+		env: { FAKE_KERNEL_EXIT_AFTER: "3", PI_COC_MEMORY_BACKFILL: "0" },
 		responses: [fauxAssistantMessage("我先看看情况。")],
 	});
 	t.after(() => table.dispose());

@@ -843,7 +843,8 @@ export default function (pi: ExtensionAPI) {
 			for (const effect of effects) {
 				if (!effect || typeof effect !== "object") continue;
 				const row = effect as Record<string, unknown>;
-				for (const key of ["to", "clue", "name"]) {
+				// item 与 cash（#19）也在图与规则表上按名字匹配：给谁、从谁、哪把武器、谁的钱。
+				for (const key of ["to", "clue", "name", "from", "weapon", "subject"]) {
 					if (row[key] !== undefined) row[key] = normalizeName(row[key]);
 				}
 			}

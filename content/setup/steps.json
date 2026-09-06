@@ -234,12 +234,28 @@
         "id": {
           "description": "optional investigator id (slug)",
           "required": false
+        },
+        "allocation": {
+          "description": "optional occupation-point policy: spread | fill (default from this step's allocation block)",
+          "required": false
         }
       },
       "defaults": {
         "method": "quick_fire",
         "age": 27,
         "source_note": "Chargen defaults are setup policy, not rulebook numbers: 27 sits in the 20-39 bracket (one EDU improvement check, no reductions) and quick_fire needs no dice."
+      },
+      "allocation": {
+        "default": "spread",
+        "options": [
+          "spread",
+          "fill"
+        ],
+        "tiers": [
+          50,
+          70
+        ],
+        "source_note": "Occupation-point policy (#21), content not code. spread: walk the occupation's skill list in the book's order, raising every entry to tiers[0], then tiers[1], then the starting cap (skills.json guided_creation_policy.starting_skill_cap); an entry the kernel cannot name (a rulebook choice such as 'any one other skill' or a group such as 'Firearms') is reserved the tier's value as unspent for the table's development family instead of the points piling onto the four skills it can name. fill: the earlier one-point round-robin over the resolvable entries only, kept as an option. The tiers are a table-feel choice (a rounded investigator over four maxed skills), not rulebook numbers."
       },
       "formulas": {
         "personal_interest_points": "INT*2",

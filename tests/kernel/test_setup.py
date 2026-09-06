@@ -133,6 +133,29 @@ def test_investigator_writes_a_pregen_shaped_sheet_and_a_receipt(kernel):
     assert kernel.err("setup.investigator", {"campaign": CAMPAIGN, "name": "Bob Reed", "occupation": "Artist"})["code"] == "invalid_params"
 
 
+def test_investigator_allocation_policy_is_the_tables_default_or_the_callers_choice(kernel):
+    """#21: `sheet.creation.allocation` names the policy; the default is the steps table's;
+    `fill` stays available; anything else is refused with the options."""
+    create_setting_up(kernel)
+    table = kernel.ok("setup.steps", {})
+    block = next(s for s in table["steps"] if s["id"] == "create-investigator")["allocation"]
+    assert block["default"] == "spread" and block["tiers"] == [50, 70] and "allocation" in next(
+        s for s in table["steps"] if s["id"] == "create-investigator")["params"]
+    spread = kernel.ok("setup.investigator", {"campaign": CAMPAIGN, "name": "Ada", "occupation": "Military Officer", "seed": "7"})
+    creation = spread["sheet"]["creation"]
+    assert creation["allocation"] == {"policy": "spread", "tiers": block["tiers"], "source": "steps.json create-investigator.allocation"}
+    assert creation["skills"]["occupation"]["reserved"] and {spread["sheet"]["skills"][s] for s in creation["skills"]["occupation"]["resolved"]} == {block["tiers"][0]}
+    assert read_json(campaign_dir(kernel.workspace) / "campaign.json")["setup"]["receipts"][0]["allocation"] == "spread"
+    filled = kernel.ok("setup.investigator", {"campaign": CAMPAIGN, "name": "Bob", "occupation": "Military Officer", "seed": "7",
+                                              "allocation": "fill"})
+    assert filled["sheet"]["creation"]["allocation"]["policy"] == "fill"
+    assert filled["sheet"]["creation"]["skills"]["occupation"]["reserved"] == []
+    error = kernel.err("setup.investigator", {"campaign": CAMPAIGN, "name": "Cy", "occupation": "Military Officer", "allocation": "random"})
+    assert error["code"] == "invalid_params" and error["details"]["stage"] == "allocation"
+    assert error["details"]["expected"]["options"] == ["spread", "fill"]
+    assert kernel.err("setup.investigator", {"campaign": CAMPAIGN, "name": "Cy", "occupation": "Military Officer", "allocation": 3})["code"] == "invalid_params"
+
+
 def test_investigator_only_accepts_occupation_ids(kernel):
     create_setting_up(kernel)
     error = kernel.err("setup.investigator", {"campaign": CAMPAIGN, "name": "Ada", "occupation": "war correspondent"})

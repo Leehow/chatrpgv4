@@ -156,7 +156,8 @@ def history_diff(records: dict[int, dict[str, Any]], diff: Any) -> dict[str, Any
                 name = receipt.get("clue")
                 if name not in clues:
                     clues.append(str(name))
-            elif kind == "delta":
+            elif kind in ("delta", "cash"):
+                # #19: a cash receipt carries resource/subject/before/after like a delta
                 key = (str(receipt.get("subject")), str(receipt.get("resource")))
                 row = resources.setdefault(key, {"subject": key[0], "resource": key[1], "from": receipt.get("before"),
                                                  "to": receipt.get("after")})

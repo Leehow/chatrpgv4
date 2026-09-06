@@ -52,7 +52,9 @@ test("一个玩家回合：七个工具、胶囊、call_id、rendered_text 交�
 	await table.session.prompt("我检查地窖门的门框");
 
 	const requests = table.kernelRequests();
-	const methods = requests.map((entry) => entry.method);
+	// 记忆车道的缺省派发（补抽，#20）也搭在这条连接上，开桌之后会来一次；
+	// 这个用例看的是回合那条线，所以把车道的调用滤掉。
+	const methods = requests.map((entry) => entry.method).filter((method) => !method.startsWith("memory."));
 	assert.deepEqual(methods.slice(0, 3), ["kernel.hello", "table.open", "table.player_input"]);
 
 	const playerInput = requests.find((entry) => entry.method === "table.player_input");
@@ -155,4 +157,69 @@ test("守秘人写了台词却没调 narrate：宿主替它 narrate，交付仍�
 	assert.ok(delivered.includes("【明骰】侦查｜掷骰：42"), "内核插入的骰行在交付里");
 	const implicitRows = table.telemetry().filter((row) => row.tool === "narrate" && row.implicit === true);
 	assert.ok(implicitRows.length >= 1, "遥测记录了隐式 narrate");
+});
+
+test("物品与现金：item、cash 原样进内核，收据的【变化】行随交付到玩家（#19）", async (t) => {
+	const table = await openTable({
+		responses: [
+			fauxAssistantMessage(
+				[
+					fauxToolCall("apply", {
+						effects: [
+							{
+								kind: "item",
+								name: "  点三八左轮  ",
+								to: " 托马斯·海耶斯 ",
+								from: "看门人",
+								weapon: " 点三八左轮 ",
+								quantity: 1,
+								label: "左轮",
+								why: "看门人把枪推过桌面",
+							},
+							{ kind: "cash", subject: "托马斯·海耶斯", delta: -30, why: "买了一盒子弹" },
+						],
+					}),
+				],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "看门人把左轮推过桌面。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("narrate 之后不该再有的正文"),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我问看门人要那把枪，再买一盒子弹");
+
+	const apply = table.kernelRequests().find((entry) => entry.method === "table.apply");
+	assert.equal(apply.params.call_id, "t1-c1");
+	assert.deepEqual(
+		apply.params.effects[0],
+		{
+			kind: "item",
+			name: "点三八左轮",
+			to: "托马斯·海耶斯",
+			from: "看门人",
+			weapon: "点三八左轮",
+			quantity: 1,
+			label: "左轮",
+			why: "看门人把枪推过桌面",
+		},
+		"item 的字段一个不少地到内核；名字、来路与武器 profile 都做过空白归一化（契约 §5）",
+	);
+	assert.deepEqual(
+		apply.params.effects[1],
+		{ kind: "cash", subject: "托马斯·海耶斯", delta: -30, why: "买了一盒子弹" },
+		"cash 的 delta 带正负号原样送，扩展不替内核算钱",
+	);
+
+	const receipts = table.session.messages
+		.filter((message) => message.role === "toolResult")
+		.map((message) => JSON.stringify(message))
+		.join("\n");
+	assert.match(receipts, /item:点三八左轮-t1-c1/, "物品收据带 slug 与回合序号，原样回到守秘人手上");
+	assert.match(receipts, /cash:t1-c1/);
+
+	const delivered = assistantTexts(table.session).filter((text) => text.length > 0).at(-1);
+	assert.match(delivered, /【变化】物品：托马斯·海耶斯 得到 左轮/, "机制行由内核按收据渲染，扩展不自己拼");
+	assert.match(delivered, /【变化】现金：托马斯·海耶斯 50 → 20/);
 });

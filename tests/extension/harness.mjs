@@ -121,6 +121,8 @@ export function createFakeUI({ selections = [] } = {}) {
  * @param {object|null} [options.ui] createFakeUI() 的结果；传 null 表示没有界面
  * @param {boolean} [options.realKernel] 用真的 Python 内核而不是假内核；会先在工作区里 campaign.create
  * @param {"play"|"setup"} [options.mode] PI_COC_MODE：建卡进程用 setup（契约 §14.4）
+ * @param {{memory?: any[], verifier?: any[]}} [options.laneResponses] 两条车道的假模型在开桌**之前**就装好的回答；
+ *   记忆车道的补抽（#20）在 `session_start` 就起跑，来不及等测试体里再 setResponses
  */
 export async function openTable({
 	responses = [],
@@ -129,6 +131,7 @@ export async function openTable({
 	ui = createFakeUI(),
 	realKernel = false,
 	mode = "play",
+	laneResponses = {},
 } = {}) {
 	const workspace = mkdtempSync(join(tmpdir(), "pi-coc-ext-"));
 	const requestLog = join(workspace, "kernel-requests.jsonl");
@@ -156,6 +159,9 @@ export async function openTable({
 	faux.setResponses(responses);
 	const verifierFaux = fauxProvider({ provider: "verifier", models: [{ id: "v1" }] });
 	const memoryFaux = fauxProvider({ provider: "memory", models: [{ id: "m1" }] });
+	// 开桌之前就装好：补抽（#20）在 session_start 里就要模型，晚一步就抓空。
+	if (laneResponses.memory) memoryFaux.setResponses(laneResponses.memory);
+	if (laneResponses.verifier) verifierFaux.setResponses(laneResponses.verifier);
 	const modelRuntime = await ModelRuntime.create({
 		authPath: join(workspace, "auth.json"),
 		modelsPath: null,

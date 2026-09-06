@@ -24,6 +24,26 @@ function calls(table, method) {
 	return table.kernelRequests().filter((entry) => entry.method === method);
 }
 
+/**
+ * 桌上那条抽取：刚提交的回合永远带显式 `turn`。补抽（#20）用的是缺省派发，
+ * 不带 `turn`，每次开桌都会问一次内核「还有坑要补吗」——那条不算在这里。
+ */
+function turnJobs(table) {
+	return calls(table, "memory.job").filter((entry) => entry.params.turn !== undefined);
+}
+
+/** 补抽那条：缺省派发不带 `turn`，内核自己挑还没抽过的回合（#20）。 */
+function backfillJobs(table) {
+	return calls(table, "memory.job").filter((entry) => entry.params.turn === undefined);
+}
+
+/** 让 fire-and-forget 的车道有机会再走一步；用来证明「没有下一个」而不是「还没到」。 */
+function settle(ms = 120) {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const noCandidates = () => fauxAssistantMessage(JSON.stringify({ candidates: [] }));
+
 function laneRows(table, lane) {
 	return table.telemetry().filter((row) => row.lane === lane);
 }
@@ -74,7 +94,7 @@ test("记忆车道：narrate 之后 memory.job 取任务包，抽出的候选原
 	await table.session.prompt("我检查地窖门的门框");
 	await waitFor(() => calls(table, "memory.submit").length > 0, { label: "memory.submit" });
 
-	const [job] = calls(table, "memory.job");
+	const [job] = turnJobs(table);
 	assert.ok(job, "narrate 之后先取任务包");
 	assert.deepEqual(job.params, { campaign: "test-camp", turn: 1 }, "任务包按已提交的那一回合取，不带 call_id");
 
@@ -235,7 +255,7 @@ test("车道模型出错：记忆落 memory.fail，校验只落遥测，都不�
 	assert.match(String(fail.params.detail), /faux/i);
 	assert.equal(calls(table, "memory.submit").length, 0, "抽不出来就不提交");
 	assert.equal(
-		table.telemetry().filter((row) => row.method === "memory.job").length + calls(table, "memory.job").length,
+		table.telemetry().filter((row) => row.method === "memory.job").length + turnJobs(table).length,
 		1,
 		"一个任务包只取一次，重试重试的是子会话与提交",
 	);
@@ -275,16 +295,16 @@ test("连着两次提交：记忆车道排队，不重叠", async (t) => {
 	table.lanes.memory.setResponses([responder(first), responder(undefined)]);
 
 	await table.session.prompt("我检查地窖门的门框");
-	await waitFor(() => calls(table, "memory.job").length === 1, { label: "第一个任务包" });
+	await waitFor(() => turnJobs(table).length === 1, { label: "第一个任务包" });
 	await table.session.prompt("我推开地窖门");
 
-	assert.equal(calls(table, "memory.job").length, 1, "第一个任务还没跑完，第二个只排队，不去取任务包");
+	assert.equal(turnJobs(table).length, 1, "第一个任务还没跑完，第二个只排队，不去取任务包");
 
 	first.open();
 	await waitFor(() => calls(table, "memory.submit").length === 2, { label: "两个任务都收尾" });
 	assert.equal(maxInFlight, 1, "同一时刻只有一个子会话在跑");
 	assert.deepEqual(
-		calls(table, "memory.job").map((entry) => entry.params.turn),
+		turnJobs(table).map((entry) => entry.params.turn),
 		[1, 2],
 		"两个回合各取一次任务包，按提交顺序",
 	);
@@ -371,4 +391,149 @@ test("回合中途断了：恢复消息里带检查点的那一句话", async (t
 	assert.match(String(host.content), /上次提交停在：第 0 回合：科比特宅/, "resume.one_line 进了恢复消息");
 	assert.match(String(host.content), /我下地窖/, "玩家原文照旧在里面");
 	assert.match(String(host.content), /还欠：narrate/);
+});
+
+test("补抽：开桌后按缺省派发一个一个补，内核回空就收手（#20）", async (t) => {
+	const table = await openTable({
+		// 上次会话留下两个没抽的回合；缺省派发按序把它们交出来，之后回 job_id: null。
+		env: { FAKE_KERNEL_BACKFILL: "[3,4]" },
+		laneResponses: { memory: [noCandidates(), noCandidates()] },
+	});
+	t.after(() => table.dispose());
+
+	await waitFor(() => calls(table, "memory.submit").length === 2, { label: "两个补抽任务" });
+	await settle();
+
+	assert.deepEqual(
+		backfillJobs(table).map((entry) => entry.params),
+		[{ campaign: "test-camp" }, { campaign: "test-camp" }, { campaign: "test-camp" }],
+		"缺省派发不带 turn：两个任务包，加上最后那次回空的",
+	);
+	assert.deepEqual(
+		calls(table, "memory.submit").map((entry) => entry.params.job_id),
+		["extract:test-camp:t3", "extract:test-camp:t4"],
+		"补的是内核挑的那两个回合，不是扩展猜的",
+	);
+	assert.equal(turnJobs(table).length, 0, "没有桌上的回合提交，就没有带 turn 的派发");
+
+	const rows = laneRows(table, "memory");
+	assert.deepEqual(rows.map((row) => row.turn), [3, 4]);
+	assert.ok(rows.every((row) => row.backfill === true), "补抽的遥测行都带 backfill: true（契约 §12.8）");
+	assert.ok(rows.every((row) => row.ok === true));
+});
+
+test("补抽有上限：PI_COC_MEMORY_BACKFILL 说几个就几个（#20）", async (t) => {
+	const table = await openTable({
+		env: { FAKE_KERNEL_BACKFILL: "[3,4,5]", PI_COC_MEMORY_BACKFILL: "2" },
+		laneResponses: { memory: [noCandidates(), noCandidates(), noCandidates()] },
+	});
+	t.after(() => table.dispose());
+
+	await waitFor(() => calls(table, "memory.submit").length === 2, { label: "两个补抽任务" });
+	await settle();
+
+	assert.equal(backfillJobs(table).length, 2, "预算用完就不再问内核，哪怕它那边还有得补");
+	assert.deepEqual(
+		calls(table, "memory.submit").map((entry) => entry.params.job_id),
+		["extract:test-camp:t3", "extract:test-camp:t4"],
+	);
+	assert.equal(table.lanes.memory.getPendingResponseCount(), 1, "第三个任务没起，模型也就没被叫第三次");
+});
+
+test("PI_COC_MEMORY_BACKFILL=0：整条补抽关掉，桌上的抽取照旧（#20）", async (t) => {
+	const table = await openTable({
+		env: { FAKE_KERNEL_BACKFILL: "[3,4]", PI_COC_MEMORY_BACKFILL: "0" },
+		responses: keeperTurn(),
+		laneResponses: { memory: [noCandidates()] },
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我检查地窖门的门框");
+	await waitFor(() => calls(table, "memory.submit").length === 1, { label: "桌上那一回合的抽取" });
+	await settle();
+
+	assert.equal(backfillJobs(table).length, 0, "关掉之后一次缺省派发都不发");
+	assert.deepEqual(
+		turnJobs(table).map((entry) => entry.params.turn),
+		[1],
+		"刚提交的回合照样抽",
+	);
+	assert.equal(laneRows(table, "memory").length, 1);
+	assert.equal(laneRows(table, "memory")[0].backfill, undefined, "桌上那条不是补抽，遥测行不带这个旗");
+});
+
+test("补抽让位给桌子：回合开着不起新的，刚提交的回合插在补抽前面（#20）", async (t) => {
+	const firstBackfill = gate();
+	const keeperHeld = gate();
+	let keeperCalled = false;
+	const table = await openTable({
+		env: { FAKE_KERNEL_BACKFILL: "[3,4,5]", PI_COC_MEMORY_BACKFILL: "3" },
+		responses: [
+			async () => {
+				keeperCalled = true;
+				await keeperHeld.promise;
+				return fauxAssistantMessage([fauxToolCall("narrate", { text: "门框上有一道深深的抓痕。" })], {
+					stopReason: "toolUse",
+				});
+			},
+			fauxAssistantMessage("守秘人在 narrate 之后又写的正文，应该被换掉"),
+		],
+		laneResponses: {
+			memory: [
+				async () => {
+					await firstBackfill.promise;
+					return noCandidates();
+				},
+				noCandidates(),
+				noCandidates(),
+				noCandidates(),
+			],
+		},
+	});
+	t.after(() => {
+		firstBackfill.open();
+		keeperHeld.open();
+		return table.dispose();
+	});
+
+	// 开桌就起了第一个补抽任务，它卡在模型那儿。
+	await waitFor(() => backfillJobs(table).length === 1, { label: "第一个补抽任务" });
+
+	// 玩家开口：这一回合从此开着，守秘人也卡住。
+	const turn = table.session.prompt("我检查地窖门的门框");
+	await waitFor(() => keeperCalled, { label: "守秘人这一轮起跑" });
+
+	// 放掉补抽的第一个：它跑完了，但回合还开着，所以不该有第二个补抽。
+	firstBackfill.open();
+	await waitFor(() => calls(table, "memory.submit").length >= 1, { label: "第一个补抽收尾" });
+	await settle();
+	assert.equal(calls(table, "memory.submit").length, 1, "回合开着的时候第二个补抽不该起跑");
+	assert.equal(backfillJobs(table).length, 1, "回合开着的时候不起新的补抽");
+	assert.equal(turnJobs(table).length, 0, "这一回合还没提交，也就还没有它的任务包");
+
+	// 回合提交：它排在剩下的补抽前面。
+	keeperHeld.open();
+	await turn;
+	await waitFor(() => calls(table, "memory.submit").length === 4, { label: "四个任务都收尾" });
+
+	assert.deepEqual(
+		calls(table, "memory.job").map((entry) => entry.params.turn),
+		[undefined, 1, undefined, undefined],
+		"刚提交的回合插在剩下的补抽前面（契约 §12.8）",
+	);
+	assert.deepEqual(
+		calls(table, "memory.submit").map((entry) => entry.params.job_id),
+		["extract:test-camp:t3", "extract:test-camp:t1", "extract:test-camp:t4", "extract:test-camp:t5"],
+	);
+	const rows = laneRows(table, "memory");
+	assert.deepEqual(
+		rows.map((row) => [row.turn, row.backfill ?? false]),
+		[
+			[3, true],
+			[1, false],
+			[4, true],
+			[5, true],
+		],
+		"桌上那条不带 backfill 旗，补抽那三条带",
+	);
 });

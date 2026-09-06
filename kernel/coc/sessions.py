@@ -232,8 +232,9 @@ def weapon_options(sheet: dict[str, Any]) -> list[str]:
 
 
 def resolve_investigator_weapon(tables: RuleTables, sheet: dict[str, Any], query: str) -> dict[str, Any] | None:
-    """`action.weapon` against the sheet: weapon_id, the row's name, or the catalog's display
-    name; `unarmed` always resolves. None when nothing matches."""
+    """`action.weapon` against the sheet: weapon_id, the row's name, its player-language
+    label (#19 `apply item`), or the catalog's display name; `unarmed` always resolves.
+    None when nothing matches."""
     key = normalize(query)
     for prefix in ("weapon:", "item:"):
         if key.startswith(prefix):
@@ -241,7 +242,7 @@ def resolve_investigator_weapon(tables: RuleTables, sheet: dict[str, Any], query
     catalog = tables.weapons_table() if tables.exists("weapons") else {}
     for row in investigator_weapons(sheet):
         weapon_id = str(row["weapon_id"])
-        names = {normalize(weapon_id), normalize(str(row.get("name") or ""))}
+        names = {normalize(weapon_id), normalize(str(row.get("name") or "")), normalize(str(row.get("label") or ""))}
         entry = catalog.get(weapon_id) if isinstance(catalog, dict) else None
         if isinstance(entry, dict) and entry.get("display_name"):
             names.add(normalize(str(entry["display_name"])))
@@ -250,6 +251,27 @@ def resolve_investigator_weapon(tables: RuleTables, sheet: dict[str, Any], query
             if "damage" not in merged and merged.get("damage_die"):
                 merged["damage"] = merged["damage_die"]
             return merged
+    return None
+
+
+def sheet_skill_value(tables: RuleTables, sheet: dict[str, Any], skill_name: str) -> int | None:
+    """A skill's value for the sheet by name, matched under `normalize` (the weapons table
+    spells `Firearms (Rifle/shotgun)`, the skill list `Firearms (Rifle/Shotgun)`); a skill
+    the sheet does not list falls back to the rulebook's flat base chance, matched the
+    same way. None when neither knows the name — nothing is guessed."""
+    skills = _int_map(sheet.get("skills"))
+    key = normalize(skill_name)
+    for name, value in skills.items():
+        if normalize(name) == key:
+            return int(value)
+    table = tables.skills_table() if tables.exists("skills") else {}
+    for name, spec in table.items():
+        if normalize(name) != key or not isinstance(spec, dict):
+            continue
+        if spec.get("modern_only") is True and str(sheet.get("era") or "").strip().casefold() != "modern":
+            return None
+        base = spec.get("base_chance")
+        return int(base) if isinstance(base, int) and not isinstance(base, bool) else None
     return None
 
 
@@ -262,8 +284,12 @@ def investigator_combat_participant(tables: RuleTables, sheet: dict[str, Any],
     weapons = [weapon] if weapon else [{"weapon_id": "unarmed"}]
     firearms = max([value for key, value in skills.items() if key.startswith("Firearms")] or [0])
     weapon_skill = str((weapon or {}).get("skill") or "")
-    if weapon_skill in skills:
-        firearms = int(skills[weapon_skill]) if weapon_skill.startswith("Firearms") else firearms
+    if weapon_skill.startswith("Firearms"):
+        # The weapon's own skill (a shotgun fires with Rifle/Shotgun, not with the best
+        # Firearms on the sheet): the sheet's value, else the rulebook base for that skill.
+        own = sheet_skill_value(tables, sheet, weapon_skill)
+        if own is not None:
+            firearms = own
     has_firearm = bool(weapon and weapon.get("magazine") is not None)
     hp_max = int(derived.get("HP") or 10)
     current_hp = sheet.get("current_hp")

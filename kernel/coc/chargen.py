@@ -24,6 +24,11 @@ from .text import kebab, normalize
 
 FORMULA_TERM = re.compile(r"([A-Z]{3})\s*\*\s*(\d+)")
 METHODS = ("quick_fire", "rolled")
+#: #21: how occupation points land. `spread` walks the occupational list tier by tier
+#: (the policy block's `tiers`, then the cap); `fill` is the earlier one-point round-robin
+#: over the resolvable entries only. Which one, and the tiers, are content
+#: (steps.json create-investigator.allocation), never a literal here.
+ALLOCATION_POLICIES = ("spread", "fill")
 LUCK_KEY = "Luck"
 
 
@@ -269,10 +274,56 @@ class Chargen:
         sheet = (self.skills_doc.get("standard_sheet") or {}).get(era)
         return [str(s) for s in sheet["default_skill_ids"]] if isinstance(sheet, dict) else None
 
+    def allocation_policy(self, name: Any) -> dict[str, Any]:
+        """The occupation-point policy: `name` when given, else the block's default. The
+        tiers come from the block too; the cap is skills.json's."""
+        block = self.policy.get("allocation") if isinstance(self.policy.get("allocation"), dict) else {}
+        policy = name if name is not None else block.get("default")
+        if policy not in ALLOCATION_POLICIES:
+            raise ChargenError("allocation", f"allocation must be one of {ALLOCATION_POLICIES}",
+                               expected={"options": list(ALLOCATION_POLICIES), "default": block.get("default")})
+        tiers = block.get("tiers") if isinstance(block.get("tiers"), list) else []
+        if not all(isinstance(t, int) and not isinstance(t, bool) for t in tiers):
+            raise ChargenError("allocation", "allocation.tiers must be integers", expected={"tiers": tiers})
+        return {"policy": str(policy), "tiers": [int(t) for t in tiers],
+                "source": "steps.json create-investigator.allocation"}
+
+    @staticmethod
+    def spread(slots: list[str], resolved: set[str], budget: int, values: dict[str, int], cap: int,
+               tiers: list[int]) -> tuple[dict[str, int], list[dict[str, Any]]]:
+        """Every entry of the occupational list is a slot, in the book's order. Tier by
+        tier (`tiers`, then the cap) each resolved skill is raised to the tier; an entry
+        the kernel cannot name (`any one other skill`, a group like `Firearms`) is reserved
+        the tier's value — its base is unknown, so nothing less guarantees the tier — and
+        that reservation stays unspent for the table's development family. Stops when the
+        budget is gone; what is left over is unspent too."""
+        allocations = {slot: 0 for slot in slots if slot in resolved}
+        reserved: dict[str, int] = {slot: 0 for slot in slots if slot not in resolved}
+        remaining = int(budget)
+        targets = [min(int(t), cap) for t in tiers if int(t) < cap] + [cap]
+        for target in targets:
+            for slot in slots:
+                if remaining <= 0:
+                    break
+                if slot in allocations:
+                    need = target - (values[slot] + allocations[slot])
+                else:
+                    need = target - reserved[slot]
+                if need <= 0:
+                    continue
+                give = min(need, remaining)
+                if slot in allocations:
+                    allocations[slot] += give
+                else:
+                    reserved[slot] += give
+                remaining -= give
+        return ({k: v for k, v in allocations.items() if v > 0},
+                [{"for": phrase, "points": points} for phrase, points in reserved.items() if points > 0])
+
     @staticmethod
     def allocate(skill_ids: list[str], budget: int, values: dict[str, int], cap: int) -> dict[str, int]:
-        """One point at a time down the list, skipping skills at the cap, until the budget
-        is spent or nothing can take more (the old allocate_points_in_order)."""
+        """`fill`: one point at a time down the list, skipping skills at the cap, until the
+        budget is spent or nothing can take more (the old allocate_points_in_order)."""
         allocations = {skill_id: 0 for skill_id in skill_ids}
         remaining = int(budget)
         while remaining > 0 and skill_ids:
@@ -292,10 +343,12 @@ class Chargen:
     # ---- the sheet ------------------------------------------------------------------
 
     def build(self, *, investigator_id: str, name: str, occupation_id: str, concept: str | None,
-              age: int, sex: str | None, method: str, seed: str, era: str) -> tuple[dict[str, Any], dict[str, Any]]:
+              age: int, sex: str | None, method: str, seed: str, era: str,
+              allocation: str | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
         if method not in METHODS:
             raise ChargenError("method", f"method must be one of {METHODS}", expected={"options": list(METHODS)})
         occupation_name, spec = self.occupation(occupation_id)
+        policy = self.allocation_policy(allocation)
         formula = parse_formula(str(spec.get("skill_point_formula") or ""))
         rng = random.Random(seed)
         trace: dict[str, Any] = {"seed": seed, "method": method}
@@ -321,12 +374,17 @@ class Chargen:
         sheet_ids = self.standard_sheet(era)
         resolved: list[str] = []
         pending: list[str] = []
+        #: the occupational list in the book's order, each entry its catalog name or,
+        #: when it is a rulebook choice the kernel does not make, the phrase itself
+        slots: list[str] = []
         for phrase in spec.get("occupational_skills") or []:
             found = self.catalog_name(str(phrase))
             if found is None:
                 pending.append(str(phrase))
+                slots.append(str(phrase))
             elif found not in resolved:
                 resolved.append(found)
+                slots.append(found)
         credit_range = [int(v) for v in spec.get("credit_rating_range") or [0, 0]]
         credit_rating = credit_range[0]
         listed = list(sheet_ids or [])
@@ -341,7 +399,12 @@ class Chargen:
         budget = evaluate_formula(formula, characteristics)
         occupation_pool = [s for s in resolved if s != "Credit Rating"]
         occupation_points = max(0, budget["total"] - credit_rating)
-        occupation_alloc = self.allocate(occupation_pool, occupation_points, values, self.cap)
+        reserved: list[dict[str, Any]] = []
+        if policy["policy"] == "spread":
+            occupation_alloc, reserved = self.spread([s for s in slots if s != "Credit Rating"], set(occupation_pool),
+                                                     occupation_points, values, self.cap, policy["tiers"])
+        else:
+            occupation_alloc = self.allocate(occupation_pool, occupation_points, values, self.cap)
         for skill_id, points in occupation_alloc.items():
             values[skill_id] += points
 
@@ -360,7 +423,9 @@ class Chargen:
                                                                 "source": "occupations.credit_rating_range[0]"},
                            "points": occupation_points, "spent": sum(occupation_alloc.values()),
                            "unspent": occupation_points - sum(occupation_alloc.values()),
-                           "allocations": occupation_alloc},
+                           "allocations": occupation_alloc, "allocation": policy["policy"],
+                           # #21: unspent points set aside, per pending entry, for the table
+                           "reserved": reserved},
             "interest": {"budget": interest_budget, "pool": interest_pool, "spent": sum(interest_alloc.values()),
                          "allocations": interest_alloc,
                          "unspent": interest_budget["total"] - sum(interest_alloc.values())},
@@ -376,6 +441,8 @@ class Chargen:
             trace["finance"] = {"available": True, "source": f"cash-assets.periods.{era}"}
         trace["equipment"] = {"source": None,
                               "note": "equipment.json records carry no occupation field; no default kit is invented"}
+        #: #21: the policy by name, with its tiers and where they came from
+        trace["allocation"] = policy
 
         sheet: dict[str, Any] = {
             "schema_version": 1,
@@ -405,7 +472,9 @@ class Chargen:
             "method": method,
             "seed": seed,
             "choices_pending": pending,
+            "allocation": policy["policy"],
             "occupation_unspent": trace["skills"]["occupation"]["unspent"],
+            "occupation_reserved": sum(int(r["points"]) for r in reserved),
             "interest_unspent": trace["skills"]["interest"]["unspent"],
             "finance_available": finance is not None,
         }

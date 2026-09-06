@@ -32,12 +32,14 @@ def test_the_capsule_has_nine_sections_a_head_and_the_clock(kernel):
     knott = capsule["present"][0]
     assert knott["secret"] and knott["fear"]  # keeper-only material, same law as agenda
     assert capsule["situations"] == [] and capsule["situations"] == kernel.table("look")["where"]["situations"]
-    assert "truncated" not in capsule
+    # the nine sections fit untouched; only the first-turn briefing (#22) had its roster
+    # lines shortened to its own 2KB, and says so
+    assert capsule.get("truncated", []) == ["module"]
     for name, budget in BUDGETS.items():
         if name == "style":
             continue  # the first turn of the process doubles it (§13.6)
         assert size(capsule[name]) <= budget, name
-    assert size(capsule["style"]) <= 2048
+    assert size(capsule["style"]) <= 2048 and size(capsule["module"]) <= 2048
 
 
 def test_the_clock_and_elapsed_follow_the_world_minutes(kernel):

@@ -15,6 +15,9 @@
  *   FAKE_KERNEL_DIRECTOR   JSON 对象，合并进胶囊的 `director` 节（用来摆出 override 之类的分支）
  *   FAKE_KERNEL_NO_DIRECTOR "1" 时胶囊不带 `director` 节（切片 0–2 的内核）
  *   FAKE_KERNEL_HANDOUT    JSON 对象，`apply` 带 handout 效果时作为 `attachment` 回（契约 §14.8）
+ *   FAKE_KERNEL_CASH       调查员起始现金，缺省 50（`apply` 的 cash 效果按它算前后，契约 §5）
+ *   FAKE_KERNEL_BACKFILL   JSON 整数数组：还没抽过的回合，`memory.job` 的缺省派发按序取（#20 补抽）；
+ *                          空了就回 job_id: null
  *   FAKE_KERNEL_MODULE     JSON 对象，配模组存储那一面（契约 §14.1、§14.3）：
  *                          {"module_id", "sections": [{id,title,priority,kind,status}],
  *                           "review_pass": {"<section>": <第几轮过，缺省 1；给大数就是永远不过>},
@@ -44,6 +47,20 @@ if (process.env.FAKE_KERNEL_PENDING === "1") {
 }
 
 const SCENE = { name: "corbitt-house", display_name: "科比特宅" };
+const INVESTIGATOR = "托马斯·海耶斯";
+
+/**
+ * 物品与现金（契约 §5 的 item、cash，#19）。真内核写的是 `party/<id>.json` 的
+ * `equipment[]`／`weapons[]` 与 `finance.cash`；这里只留够渲染【变化】行的那点账。
+ */
+let cash = process.env.FAKE_KERNEL_CASH ? Number(process.env.FAKE_KERNEL_CASH) : 50;
+/** 本回合 apply 落下的【变化】行，narrate 渲染时插在明骰之后，交付完清空。 */
+let changeLines = [];
+
+/** 收据 id 里的物品 slug：只做空白归一化，语义判断不在假内核里做。 */
+function slug(name) {
+	return String(name ?? "").trim().replace(/\s+/g, "-").toLowerCase();
+}
 
 // ---------------------------------------------------------------------------
 // 建卡与模组存储（契约 §14）
@@ -82,6 +99,13 @@ function openingReady() {
 
 /** 已经抽过或已经落 backlog 的回合：`memory.job` 不再自动派发（契约 §12.3）。 */
 const settledJobs = new Set();
+
+/**
+ * 缺省派发（`memory.job` 不带 turn）能取到的回合队列：站在真内核「尚未完成任务
+ * 且不在 backlog 里的已提交回合」那个位置上（契约 §12.3、§12.8 的 #20 补抽）。
+ * 取走一个就出队，所以失败落 backlog 的那个不会被再派一次。
+ */
+const BACKFILL_QUEUE = process.env.FAKE_KERNEL_BACKFILL ? JSON.parse(process.env.FAKE_KERNEL_BACKFILL) : [];
 
 function jobTurn(jobId) {
 	const match = /t(\d+)$/.exec(String(jobId ?? ""));
@@ -555,6 +579,7 @@ function handle(method, params) {
 		case "table.player_input":
 			turn += 1;
 			state = "open";
+			changeLines = [];
 			return { ok: true, result: { turn, state, capsule: capsule(params.text) } };
 		case "table.capsule":
 			return { ok: true, result: capsule(null) };
@@ -575,6 +600,33 @@ function handle(method, params) {
 		case "table.apply": {
 			state = "acting";
 			const effects = params.effects ?? [];
+			// 整批先校验后写（契约 §5）：任一条不成立整批不写，收据也不发。
+			for (let index = 0; index < effects.length; index += 1) {
+				const effect = effects[index];
+				if (effect.kind === "item" && !effect.name) {
+					return { ok: false, error: { code: "invalid_params", message: "item 要物品名", details: { index } } };
+				}
+				if (effect.kind === "cash" && typeof effect.delta !== "number") {
+					return { ok: false, error: { code: "invalid_params", message: "cash 要带正负号的 delta", details: { index } } };
+				}
+			}
+			// 物品与现金的【变化】行（契约 §5 的 #19）。move／clue／time 的机制行在
+			// 真内核里也有，假内核不渲染它们：别的用例逐字节比过交付文本。
+			for (const effect of effects) {
+				if (effect.kind === "item") {
+					const who = effect.to ?? INVESTIGATOR;
+					const what = effect.label ?? effect.name;
+					const quantity = typeof effect.quantity === "number" ? effect.quantity : 1;
+					const count = Math.abs(quantity) > 1 ? ` ×${Math.abs(quantity)}` : "";
+					changeLines.push(`【变化】物品：${who} ${quantity < 0 ? "失去" : "得到"} ${what}${count}`);
+				}
+				if (effect.kind === "cash") {
+					const who = effect.subject ?? INVESTIGATOR;
+					const before = cash;
+					cash += effect.delta;
+					changeLines.push(`【变化】现金：${who} ${before} → ${cash}`);
+				}
+			}
 			// 手卡（契约 §14.8）：渲染的【手卡】行是内核的，附件交给扩展。
 			const handout = effects.find((effect) => effect.kind === "handout");
 			const attachment = handout
@@ -590,7 +642,12 @@ function handle(method, params) {
 			return {
 				ok: true,
 				result: {
-					receipts: effects.map((effect) => `${effect.kind}:${params.call_id}`),
+					// 契约 §5：item 的收据带物品 slug，cash 的只带回合与序号。
+					receipts: effects.map((effect) =>
+						effect.kind === "item"
+							? `item:${slug(effect.name)}-${params.call_id}`
+							: `${effect.kind}:${params.call_id}`,
+					),
 					world: { active_scene: SCENE.name, clock: "1925-06-01T09:15" },
 					material_ready: true,
 					...(attachment ? { attachment } : {}),
@@ -630,10 +687,13 @@ function handle(method, params) {
 						},
 						extraction: { job_id: `extract:${params.campaign}:t${closed}` },
 					};
+			// 机制块由内核按本回合的收据渲染（契约 §5、§13）：明骰在前，变化在后。
+			const changes = changeLines.length > 0 ? `\n${changeLines.join("\n")}` : "";
+			changeLines = [];
 			return {
 				ok: true,
 				result: {
-					rendered_text: `${params.text}\n\n【明骰】侦查｜掷骰：42；基础值：55；门槛：普通（≤55）；结果：通过`,
+					rendered_text: `${params.text}\n\n【明骰】侦查｜掷骰：42；基础值：55；门槛：普通（≤55）；结果：通过${changes}`,
 					turn: closed,
 					receipt: `turn:${closed}`,
 					commit: "abc1234",
@@ -645,10 +705,16 @@ function handle(method, params) {
 		case "table.warn":
 			return { ok: true, result: { recorded: (params.findings ?? []).length, dropped: 0 } };
 		case "memory.job": {
-			const target = typeof params.turn === "number" ? params.turn : turn;
+			// 缺省派发（不给 turn）：取还没抽过、也不在 backlog 里的那个回合（契约 §12.3）。
+			// 取走就出队，队空了回 job_id: null——补抽据此收手（#20）。
+			if (typeof params.turn !== "number") {
+				while (BACKFILL_QUEUE.length > 0 && settledJobs.has(BACKFILL_QUEUE[0])) BACKFILL_QUEUE.shift();
+				if (BACKFILL_QUEUE.length === 0) return { ok: true, result: { job_id: null, turn } };
+				return { ok: true, result: jobPacket(params.campaign, BACKFILL_QUEUE.shift()) };
+			}
 			// 已经抽过或已经进 backlog 的回合不再自动派发（契约 §12.3）。
-			if (settledJobs.has(target)) return { ok: true, result: { job_id: null, turn: target } };
-			return { ok: true, result: jobPacket(params.campaign, target) };
+			if (settledJobs.has(params.turn)) return { ok: true, result: { job_id: null, turn: params.turn } };
+			return { ok: true, result: jobPacket(params.campaign, params.turn) };
 		}
 		case "memory.submit":
 			settledJobs.add(jobTurn(params.job_id));

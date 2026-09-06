@@ -38,7 +38,7 @@ Pi 家目录由 `PI_CODING_AGENT_DIR` 指定为仓库内 `.pi/coc-agent`；`sett
 
 ## 3. 扩展 API：我们用到的面
 
-事件：`session_start`、`session_shutdown`、`before_agent_start`、`agent_start`、`agent_end`、`turn_start`、`tool_call`、`tool_result`、`message_end`、`context`。
+事件：`session_start`、`session_shutdown`、`before_agent_start`、`agent_start`、`agent_end`、`agent_settled`、`turn_start`、`tool_call`、`tool_result`、`message_end`、`context`。
 
 方法：`registerTool`（`name`、`label`、`description`、`promptSnippet`、`parameters` TypeBox、`executionMode`、`execute`）、`setActiveTools`（只在 `session_start` 调一次）、`sendMessage`（`customType`、`content`、`display`、`details`，`triggerTurn`）、`appendEntry`、`events`。
 
@@ -64,6 +64,14 @@ Pi 家目录由 `PI_CODING_AGENT_DIR` 指定为仓库内 `.pi/coc-agent`；`sett
 取值形如 `provider/model`，只在**第一个**斜杠上切（模型 id 自己可能带斜杠），再用 `ctx.modelRegistry.find(provider, id)` 取模型。解析不出来或注册表里没有：车道只落一行 `ok: false` 的遥测就结束，不动内核、不催守秘人。
 
 记忆车道**先解析模型再叫 `memory.job`**：解析不出来就不把任务从内核那儿取走，免得它白白进 backlog 等人显式重派。
+
+补抽（契约 §12.8 的 #20）也在这一侧：memory 扩展在 `session_start`（内核扩展已经发过桥）用**不带 `turn` 的** `memory.job` 一个一个地要上次会话漏掉的回合，内核回 `job_id: null` 就收手。
+
+| 环境变量 | 管什么 | 缺省 |
+| --- | --- | --- |
+| `PI_COC_MEMORY_BACKFILL` | 每次会话至多补抽几个回合 | `5`；`0` 关掉整条补抽 |
+
+预算在 `session_start` 读，不在模块顶层读（测试台一个进程里加载多次，顶层常量会被第一次的值冻住）。三条边界与桌子的关系：补抽仍是一次一个、跟桌上的抽取共用同一条队列；刚提交的回合永远排在补抽前面；**回合开着的时候不起新的补抽**——`agent_start` 到 `agent_settled` 之间就算回合开着（宿主自己发起的开场轮、恢复轮、催收轮也算），`agent_settled` 之后泵再踢一次。补抽的每一行遥测都带 `backfill: true`；缺省派发回空是补抽的正常收尾，不落遥测行（每次开桌记一行「没坑可补」只是噪音）。
 
 两条车道各自的边界（扩展这一侧的决定，内核照此实现）：
 
@@ -111,6 +119,7 @@ pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,ba
 | `tool_result` 返回 `{isError:true}` 的局部补丁被采纳 | `session.test.mjs` 内核报错用例 |
 | `message_end` 可用同 role 的替换消息覆盖已完成的助手消息，包括删掉文本块、替换文本块 | `turn.test.mjs`、`real-kernel.test.mjs` |
 | `agent_end` 在每次 agent run 结束时触发，`sendMessage(..., {triggerTurn:true})` 能在其后开新一轮 | `session.test.mjs` 催收用例 |
+| `agent_settled` 在 `_runAgentPrompt` 的 `finally` 里发，所以每一轮（含 `agent_end` 里排上的续行、自动重试、压缩）走完都恰好发一次，SDK 直接建的会话也发；`agent_start` 到它之间就是「回合开着」 | `lanes.test.mjs`「补抽让位给桌子」 |
 | `session_start` 只在 `bindExtensions` 时发；`createAgentSession` 本身不发 | `harness.mjs` 注释与 `openTable` |
 | RPC 帧只以 `\n` 分隔；`set_model` 收 `provider` 与 `modelId` 两个字段；`agent_settled` 是回合真正结束 | `tests/play/test_driver.py` 与真 Pi 冒烟 |
 | 缺省提示替换后不再有「Available tools」一节，工具用法只靠工具自己的 `description` | 真桌回合：守秘人无需索引即能正确调用七个工具 |

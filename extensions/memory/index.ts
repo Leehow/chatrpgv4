@@ -8,6 +8,11 @@
  * 三条边界照契约写死：抽取永不阻塞 narrate（车道整个在交付之后，且不 await）；
  * 同一时刻只跑一个任务，后来的排队；进程退出时没跑完的不拖住关机，
  * 留给下次 `memory.job` 的缺省派发。候选不自动晋升——这里只提交候选。
+ *
+ * 补抽（契约 §12.8 的 #20）：上一次会话留下的坑就是靠那条「缺省派发」补的。
+ * `session_start` 桥就位后，用不带 `turn` 的 `memory.job` 一个一个地要，
+ * 至多 `PI_COC_MEMORY_BACKFILL`（缺省 5）个，内核回 `job_id: null` 就收手。
+ * 补抽让位给桌子：回合开着的时候不起新任务，刚提交的回合永远排在它前面。
  */
 
 import { appendFile, mkdir } from "node:fs/promises";
@@ -31,6 +36,16 @@ const STATES: ReadonlySet<string> = new Set(["accurate", "uncertain", "distorted
 
 const DEFAULT_MAX_CANDIDATES = 12;
 const DEFAULT_MAX_STATEMENT_CHARS = 400;
+/** 每次会话至多补抽几个回合（#20）；`PI_COC_MEMORY_BACKFILL=0` 把整条补抽关掉。 */
+const DEFAULT_BACKFILL_JOBS = 5;
+
+/** 预算在 `session_start` 读，不在模块顶层读：测试台一个进程里加载多次。 */
+function backfillBudget(): number {
+	const raw = process.env.PI_COC_MEMORY_BACKFILL?.trim();
+	if (!raw) return DEFAULT_BACKFILL_JOBS;
+	const parsed = Number.parseInt(raw, 10);
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_BACKFILL_JOBS;
+}
 
 interface Candidate {
 	kind: string;
@@ -61,6 +76,16 @@ interface JobPacket {
 }
 
 type KernelCall = (method: string, params: Record<string, unknown>) => Promise<unknown>;
+
+/**
+ * 一个抽取任务。给了 `turn` 就是刚提交的那一回合；不给是缺省派发（补抽），
+ * 由内核自己挑还没完成任务、也不在 backlog 里的回合（契约 §12.3）。
+ */
+interface Job {
+	campaign: string;
+	turn?: number;
+	backfill?: boolean;
+}
 
 function names(rows: unknown): string {
 	if (!Array.isArray(rows) || rows.length === 0) return "（无）";
@@ -171,7 +196,13 @@ export default function (pi: ExtensionAPI) {
 	let lanes = new AbortController();
 	let stopped = false;
 	let running = false;
-	const queue: Array<{ campaign: string; turn: number }> = [];
+	/** 刚提交的回合，先来先抽；补抽永远排在这条队列后面（#20）。 */
+	const queue: Job[] = [];
+	/** 本次会话还能补抽几个；内核回 `job_id: null` 时 `backfillDone` 收手。 */
+	let backfillLeft = 0;
+	let backfillDone = false;
+	/** agent 跑着就是回合开着：补抽这时候不起新任务，免得跟交付抢。 */
+	let agentRunning = false;
 
 	// ---- 遥测 -------------------------------------------------------------
 
@@ -229,25 +260,32 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	async function runJob(job: { campaign: string; turn: number }): Promise<void> {
+	async function runJob(job: Job): Promise<void> {
 		const began = Date.now();
+		// 补抽的每一行遥测都带 `backfill: true`（契约 §12.8）：桌上的抽取与补漏分得开。
+		const note = (row: Record<string, unknown>) =>
+			record(job.campaign, { ...(job.backfill ? { backfill: true } : {}), ...row });
 		const current = bridge;
 		if (!current || !ctx) {
-			await record(job.campaign, { turn: job.turn, ok: false, reason: "lane_error", detail: "内核桥不在，车道跑不了" });
+			await note({ turn: job.turn, ok: false, reason: "lane_error", detail: "内核桥不在，车道跑不了" });
 			return;
 		}
 		// 模型先解析：解析不出来就别把任务从内核那儿取走，免得它白白进 backlog。
 		const model = resolveLaneModel(ctx, "PI_COC_MEMORY_MODEL");
 		if (!model.ok) {
-			await record(job.campaign, { turn: job.turn, ok: false, reason: "model_unavailable", detail: model.detail });
+			await note({ turn: job.turn, ok: false, reason: "model_unavailable", detail: model.detail });
 			return;
 		}
 
 		let packet: JobPacket;
 		try {
-			packet = ((await current.call("memory.job", { campaign: job.campaign, turn: job.turn })) ?? {}) as JobPacket;
+			// 缺省派发不给 `turn`：内核自己挑还没抽过、也不在 backlog 里的回合（契约 §12.3）。
+			packet = ((await current.call("memory.job", {
+				campaign: job.campaign,
+				...(typeof job.turn === "number" ? { turn: job.turn } : {}),
+			})) ?? {}) as JobPacket;
 		} catch (error) {
-			await record(job.campaign, {
+			await note({
 				turn: job.turn,
 				ok: false,
 				ms: Date.now() - began,
@@ -258,8 +296,14 @@ export default function (pi: ExtensionAPI) {
 		}
 		const jobId = typeof packet.job_id === "string" ? packet.job_id : undefined;
 		if (!jobId) {
+			if (job.backfill) {
+				// 缺省派发回了空：没有坑可补了，这次会话不再要（#20）。
+				// 这是补抽的正常收尾，不落遥测——每次开桌记一行「没事可做」只是噪音。
+				backfillDone = true;
+				return;
+			}
 			// 这一回合没有要抽的（已经抽过，或在 backlog 里等显式重派）。
-			await record(job.campaign, { turn: job.turn, ok: true, ms: Date.now() - began, skipped: "no_job" });
+			await note({ turn: job.turn, ok: true, ms: Date.now() - began, skipped: "no_job" });
 			return;
 		}
 
@@ -267,7 +311,7 @@ export default function (pi: ExtensionAPI) {
 		for (let tries = 0; tries < 2 && !stopped; tries += 1) {
 			const outcome = await attempt(packet, jobId, job.campaign, current.call);
 			if (outcome.ok) {
-				await record(job.campaign, {
+				await note({
 					turn: packet.turn ?? job.turn,
 					job_id: jobId,
 					ok: true,
@@ -290,7 +334,7 @@ export default function (pi: ExtensionAPI) {
 				detail: failure.detail,
 			});
 		} catch (error) {
-			await record(job.campaign, {
+			await note({
 				turn: packet.turn ?? job.turn,
 				job_id: jobId,
 				ok: false,
@@ -299,7 +343,7 @@ export default function (pi: ExtensionAPI) {
 			});
 			return;
 		}
-		await record(job.campaign, {
+		await note({
 			turn: packet.turn ?? job.turn,
 			job_id: jobId,
 			ok: false,
@@ -311,13 +355,27 @@ export default function (pi: ExtensionAPI) {
 		});
 	}
 
+	/**
+	 * 下一个要跑的任务。刚提交的回合永远先走：补抽只在队列空了、
+	 * 回合没开着、预算还有、内核还没说「没坑可补」的时候才起（#20）。
+	 */
+	function nextJob(): Job | undefined {
+		const queued = queue.shift();
+		if (queued) return queued;
+		if (stopped || backfillDone || agentRunning || backfillLeft <= 0) return undefined;
+		const current = bridge;
+		if (!current || !ctx) return undefined;
+		backfillLeft -= 1;
+		return { campaign: current.campaign, backfill: true };
+	}
+
 	/** 同一时刻只跑一个任务；后来的排队，不重叠。 */
 	async function pump(): Promise<void> {
 		if (running) return;
 		running = true;
 		try {
 			while (!stopped) {
-				const job = queue.shift();
+				const job = nextJob();
 				if (!job) break;
 				try {
 					await runJob(job);
@@ -345,6 +403,9 @@ export default function (pi: ExtensionAPI) {
 		bridge = typeof payload.call === "function" && payload.campaign
 			? { campaign: payload.campaign, call: payload.call }
 			: undefined;
+		// 桥比本扩展的 session_start 晚到时补抽也得起得来；早到的那种由
+		// session_start 自己踢（这时 ctx 还没有，泵会空转一圈就退出）。
+		if (bridge && ctx && !stopped) void pump().catch(() => undefined);
 	});
 
 	pi.events.on("coc:turn-committed", (data) => {
@@ -354,17 +415,37 @@ export default function (pi: ExtensionAPI) {
 		void pump().catch(() => undefined);
 	});
 
+	// 回合开着的时候不补抽（#20）：agent 跑起来就是玩家那一回合在走，
+	// 交付、催收、恢复轮都算。`agent_settled` 是「这一轮真的走完了」，
+	// 它在 finally 里发，所以不会漏。
+	pi.on("agent_start", async () => {
+		agentRunning = true;
+	});
+
+	pi.on("agent_settled", async () => {
+		agentRunning = false;
+		if (!stopped) void pump().catch(() => undefined);
+	});
+
 	pi.on("session_start", async (_event, sessionCtx) => {
 		ctx = sessionCtx;
 		stopped = false;
+		agentRunning = false;
 		lanes = new AbortController();
 		queue.length = 0;
+		// 补抽的预算按会话算（契约 §12.8 的 #20）：桥这时候已经由内核扩展发过了
+		// （扩展的 session_start 按加载顺序串行跑，kernel 在最前）。
+		backfillLeft = backfillBudget();
+		backfillDone = backfillLeft <= 0;
+		if (!backfillDone) void pump().catch(() => undefined);
 	});
 
 	pi.on("session_shutdown", async () => {
 		// 关机不等车道：排着的丢掉，在飞的掐断，没抽完的下次 `memory.job` 缺省派发会再取。
 		stopped = true;
 		queue.length = 0;
+		backfillLeft = 0;
+		backfillDone = true;
 		lanes.abort();
 		bridge = undefined;
 		ctx = undefined;

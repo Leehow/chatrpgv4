@@ -27,6 +27,13 @@ from .text import normalize
 
 CANDIDATE_KINDS = ("world_event", "knowledge", "belief", "relationship", "player_assertion",
                    "player_preference", "keeper_correction", "promise")
+#: #20 (§12.4): after overlap with `about`, hits rank by kind — what happened, what is
+#: known, who stands where and what was promised come before what is believed or
+#: preferred; a player_assertion comes last (it mostly restates player input the keeper
+#: has already read). Closed tiers over CANDIDATE_KINDS; ties fall to recency, then id.
+KIND_RANK_TIERS = (("world_event", "knowledge", "relationship", "promise"),
+                   ("belief", "player_preference", "keeper_correction"),
+                   ("player_assertion",))
 #: Kinds where a new row with the same subject and entities closes the old one (§12.3 for
 #: relationship, §13.5 for promise); every other kind only accumulates.
 SUPERSEDING_KINDS = ("relationship", "promise")
@@ -545,10 +552,11 @@ def open_promises(campaign: Campaign) -> list[dict[str, Any]]:
 def query_candidates(campaign: Campaign, entity_index: EntityIndex, *, about: list[str], narrow: bool,
                      turns: list[int] | None = None, kinds: list[str] | None = None,
                      include_superseded: bool = False, limit: int = RECALL_DEFAULT_LIMIT) -> list[dict[str, Any]]:
-    """Deterministic narrowing and ranking (§12.4). `narrow` requires overlap with `about`;
-    the default `about` only ranks."""
+    """Deterministic narrowing and ranking (§12.4): overlap with `about` first, then the
+    kind tier (#20), then recency, then id. `narrow` requires overlap with `about`; the
+    default `about` only ranks."""
     about_keys = {entity_index.lenient_key(name) for name in about}
-    hits: list[tuple[int, int, str, dict[str, Any]]] = []
+    hits: list[tuple[int, int, int, str, dict[str, Any]]] = []
     for row in read_candidates(campaign):
         if not include_superseded and row.get("superseded_by") is not None:
             continue
@@ -562,9 +570,24 @@ def query_candidates(campaign: Campaign, entity_index: EntityIndex, *, about: li
         overlap = len(keys & about_keys)
         if narrow and overlap == 0:
             continue
-        hits.append((-overlap, -valid_from, str(row.get("id")), row))
-    hits.sort(key=lambda item: (item[0], item[1], item[2]))
-    return [hit_view(row) for _, _, _, row in hits[:limit]]
+        hits.append((-overlap, kind_rank(row.get("kind")), -valid_from, str(row.get("id")), row))
+    hits.sort(key=lambda item: item[:4])
+    return [hit_view(row) for *_, row in hits[:limit]]
+
+
+def kind_rank(kind: Any) -> int:
+    """The tier of a candidate kind in KIND_RANK_TIERS; a kind outside the closed list
+    (a row written by a later contract) ranks after every known tier."""
+    for rank, tier in enumerate(KIND_RANK_TIERS):
+        if kind in tier:
+            return rank
+    return len(KIND_RANK_TIERS)
+
+
+def capsule_hit(hit: dict[str, Any]) -> dict[str, Any]:
+    """§12.7 (#20): what a memory hit is in the capsule — id, kind, statement, turn. The
+    knowers, entities, privacy, confidence and state stay behind `recall memory`."""
+    return {"id": hit.get("id"), "kind": hit.get("kind"), "statement": hit.get("statement"), "turn": hit.get("turn")}
 
 
 def hit_view(row: dict[str, Any]) -> dict[str, Any]:

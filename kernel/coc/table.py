@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import copy
+import difflib
 import random
 import shutil
 from pathlib import Path
@@ -19,15 +20,16 @@ from .errors import RpcError, invalid_params, not_implemented
 from .events import append_event
 from .facts import committed_facts, keeper_only_facts, language_of
 from .fileio import file_size, read_json, truncate_file
-from .module_graph import ModuleGraph, record_of
+from .module_graph import NPC_KIND, ModuleGraph, record_of
 from .ontology import Ontology, ontology_not_ready
 from .render import (has_self_written_mechanics, mechanics_block, place, render_choice)
 from .resolve import ResolvePipeline
 from .rules import RuleTables
+from .rules.combat import resolve_module_weapons
 from .rules.graph import REGISTERED_CONDITION_PATHS, semantic_name
 from .rules.percentile import roll_expression
-from .rules.runtime import RulesEngine, SettleContext
-from .sessions import SessionView
+from .rules.runtime import RESOURCE_LABELS_ZH, RulesEngine, SettleContext
+from .sessions import SessionView, module_weapons
 from .setup import (ModuleStore, STATUS_ACTIVE, STATUS_READY, STATUS_SETTING_UP, SetupMethods, deepen,
                     material_status, module_registered)
 from .store import Campaign, Store, fresh_turn, now_iso, parse_call_id
@@ -36,8 +38,14 @@ from .text import normalize, slugify
 INTENTS = frozenset({"investigate", "social", "move", "combat", "flee", "cast", "idle", "meta",
                      "stuck", "ambiguous", "montage"})
 NONE_INTENTS = frozenset({"idle", "meta", "stuck", "ambiguous"})
-APPLY_KINDS = frozenset({"move", "clue", "time", "damage", "handout"})
-APPLY_RESERVED = frozenset({"item", "cash", "npc", "flag", "note", "ruling"})
+APPLY_KINDS = frozenset({"move", "clue", "time", "damage", "handout", "item", "cash"})
+APPLY_RESERVED = frozenset({"npc", "flag", "note", "ruling"})
+#: #19: the sheet fields `apply item` / `apply cash` own; a staged sheet is committed by
+#: overlaying only these onto the file, so a `damage` effect in the same batch (which
+#: mirrors HP straight onto the sheet) is never clobbered.
+SHEET_FIELDS_OWNED_BY_APPLY = ("equipment", "weapons", "finance", "cash")
+#: #19: how many close weapon ids a `needs` lists next to the era's full option list.
+WEAPON_CLOSE_MATCHES = 6
 #: §14.8: what may be handed to the player as a card.
 HANDOUT_VISIBILITIES = frozenset({"player-safe", "revealable"})
 HANDOUT_KINDS = ("handout", "asset")
@@ -64,6 +72,29 @@ def _str(params: dict[str, Any], key: str, *, required: bool = True, default: st
         return None
     if not isinstance(value, str) or not value.strip():
         raise invalid_params(f"params.{key} must be a non-empty string")
+    return value
+
+
+def _label(effect: dict[str, Any]) -> str | None:
+    """The keeper's play_language short name for a mechanics line, or None."""
+    label = effect.get("label")
+    return label.strip() if isinstance(label, str) and label.strip() else None
+
+
+def _mint_id(base: str, taken: set[str]) -> str:
+    """`base`, or `base-2`, `base-3`… when the turn already holds that receipt id."""
+    candidate, n = base, 2
+    while candidate in taken:
+        candidate = f"{base}-{n}"
+        n += 1
+    taken.add(candidate)
+    return candidate
+
+
+def _number(value: Any) -> Any:
+    """A finance amount as the table gives it: an integral float reads as an int."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
     return value
 
 
@@ -463,11 +494,13 @@ class Table:
         style_full = first is None or first == int(turn["turn"])
         if consume_style and first is None:
             self._style_first_turn[campaign.id] = int(turn["turn"])
+        # #22: the module briefing rides under the same condition as the full style — the
+        # first turn this process opened for the campaign (and any capsule before it).
         return build_capsule(graph, campaign, world, turn, campaign.party(), language=language_of(meta),
                              situations=self._situations(campaign, graph, world, turn), director_graph=self.director,
                              ontology=self.ontology, craft=self.craft,
                              register=str(meta.get("register") or DEFAULT_REGISTER), style_full=style_full, resume=resume,
-                             material_of=self.material_of(graph.module_id))
+                             material_of=self.material_of(graph.module_id), module_brief=style_full)
 
     def capsule(self, params: dict[str, Any]) -> dict[str, Any]:
         campaign, graph, world, turn = self._context(params)
@@ -879,6 +912,10 @@ class Table:
         _, ordinal = parse_call_id(call_id)
 
         staged = copy.deepcopy(world)
+        #: #19: investigator sheets touched by item/cash, staged by id and committed with
+        #: the world once every effect of the batch has validated.
+        staged_sheets: dict[str, dict[str, Any]] = {}
+        taken_ids = {str(r.get("id")) for r in turn.get("receipts") or []}
         receipts: list[dict[str, Any]] = []
         events: list[tuple[str, dict[str, Any], str]] = []
         receipt_ids: list[str] = []
@@ -912,11 +949,18 @@ class Table:
                 elif kind == "handout":
                     receipt, event = self._stage_handout(campaign, graph, staged, effect, turn_number, call_id)
                     attachments.append(receipt["attachment"])
+                elif kind == "item":
+                    receipt, event = self._stage_item(campaign, graph, staged_sheets, effect, turn_number, ordinal,
+                                                      call_id, taken_ids)
+                elif kind == "cash":
+                    receipt, event = self._stage_cash(campaign, graph, staged_sheets, effect, turn_number, ordinal,
+                                                      call_id, taken_ids)
                 else:
                     time_effects += 1
                     receipt, event = self._stage_time(staged, effect, turn_number, ordinal, call_id, time_effects)
                 receipts.append(receipt)
                 receipt_ids.append(receipt["id"])
+                taken_ids.add(str(receipt["id"]))
                 events.append((event[0], event[1], receipt["id"]))
                 if kind == "move" and int(receipt.get("minutes") or 0) > 0:
                     # §12.1: travel moves the clock too; the move receipt is its anchor.
@@ -926,6 +970,7 @@ class Table:
                 exc.details = {"index": index, **(exc.details or {})}
                 raise
 
+        self._commit_sheets(campaign, staged_sheets)
         campaign.write_world(staged)
         turn["receipts"].extend(receipts)
         turn["state"] = "acting"
@@ -1116,6 +1161,255 @@ class Table:
         return receipt, ("handout-shown", {"handout": handle, "name": display, "visibility": visibility,
                                            "attachment_available": attachment["available"],
                                            "media_type": attachment["media_type"]})
+
+    # ---- apply item / cash (#19) -----------------------------------------------
+
+    def _staged_sheet(self, campaign: Campaign, sheets: dict[str, dict[str, Any]], name: Any) -> dict[str, Any]:
+        """The batch's working copy of an investigator's sheet (§2 name resolution via
+        `_actor`), one copy per investigator however many effects touch it."""
+        sheet = self._actor(campaign, name)
+        investigator_id = str(sheet["id"])
+        if investigator_id not in sheets:
+            sheets[investigator_id] = copy.deepcopy(sheet)
+        return sheets[investigator_id]
+
+    @staticmethod
+    def _commit_sheets(campaign: Campaign, sheets: dict[str, dict[str, Any]]) -> None:
+        """Overlay only the fields apply owns onto the sheet on disk: a `damage` effect in
+        the same batch wrote HP there already and must not be undone."""
+        for investigator_id, staged in sheets.items():
+            current = next((s for s in campaign.party() if str(s.get("id")) == investigator_id), None)
+            if current is None:
+                continue
+            for field in SHEET_FIELDS_OWNED_BY_APPLY:
+                if field in staged:
+                    current[field] = staged[field]
+            campaign.write_sheet(current)
+
+    def _weapon_catalog(self, graph: ModuleGraph) -> dict[str, dict[str, Any]]:
+        """The rulebook's weapon profiles (`rules-json/weapons.json`, Table XVII: skill,
+        damage, range, magazine, malfunction) with the module's own rows on top — the
+        same merged table a combat session reads, so what `apply item` writes is what the
+        engine will fire."""
+        return resolve_module_weapons(self.tables, module_weapons(self.tables, graph))
+
+    def _weapon_profile(self, graph: ModuleGraph, sheet: dict[str, Any], query: Any) -> dict[str, Any]:
+        """`effect.weapon` → the profile, by id or display name (normalized). A miss is
+        `needs` naming the era's usable ids, closest first."""
+        if not isinstance(query, str) or not query.strip():
+            raise invalid_params("weapon must be a weapons-table id or profile name")
+        catalog = self._weapon_catalog(graph)
+        key = normalize(query)
+        for prefix in ("weapon:", "item:"):
+            if key.startswith(prefix):
+                key = key[len(prefix):]
+        names_of: dict[str, set[str]] = {}
+        for weapon_id, entry in catalog.items():
+            names = {normalize(weapon_id)}
+            for field in ("display_name", "name"):
+                if isinstance(entry.get(field), str):
+                    names.add(normalize(entry[field]))
+            names_of[weapon_id] = names
+            if key in names:
+                return {**entry, "weapon_id": weapon_id}
+        era = str(sheet.get("era") or record_of(graph.module_node).get("era") or "")
+        options = [wid for wid, entry in catalog.items()
+                   if not era or not entry.get("eras") or era in (entry.get("eras") or [])]
+        by_name = {name: wid for wid, names in names_of.items() for name in names}
+        close: list[str] = []
+        for name in difflib.get_close_matches(key, list(by_name), n=WEAPON_CLOSE_MATCHES * 2, cutoff=0.5):
+            if by_name[name] not in close:
+                close.append(by_name[name])
+        raise RpcError("needs", f"{query!r} is not a weapon profile in the rules tables",
+                       fix="set weapon to one of details.needs.options (a weapons.json id or its display name), "
+                           "or leave weapon out for an item that is not a weapon",
+                       details={"needs": {"field": "weapon", "options": options, "close": close[:WEAPON_CLOSE_MATCHES],
+                                          "source": "content/rulesets/coc7/rules-json/weapons.json"}})
+
+    @staticmethod
+    def _weapon_row(profile: dict[str, Any], name: str, label: str | None, turn_number: int) -> dict[str, Any]:
+        """A sheet `weapons[]` row in the pregen shape, every number from the profile."""
+        yards = profile.get("base_range_yards")
+        row: dict[str, Any] = {
+            "weapon_id": str(profile["weapon_id"]), "name": name, "profile": profile.get("display_name"),
+            "skill": profile.get("skill"), "damage": profile.get("damage") or profile.get("damage_die"),
+            "range": f"{yards} yards" if isinstance(yards, int) else None, "attacks": profile.get("uses_per_round"),
+            "ammo": profile.get("magazine"), "malfunction": profile.get("malfunction"), "turn": turn_number,
+        }
+        if label:
+            row["label"] = label
+        return row
+
+    @staticmethod
+    def _item_matches(entry: Any, key: str) -> bool:
+        if isinstance(entry, dict):
+            return key in {normalize(str(entry.get(f) or "")) for f in ("name", "label", "weapon")}
+        return normalize(str(entry)) == key
+
+    @staticmethod
+    def _weapon_matches(row: Any, key: str) -> bool:
+        return isinstance(row, dict) and key in {normalize(str(row.get(f) or "")) for f in ("weapon_id", "name", "label")}
+
+    def _held(self, sheet: dict[str, Any], key: str) -> int:
+        """How many of an item the sheet holds: equipment entries (a bare string counts
+        one), else the matching weapon rows (a pregen's pistol has no equipment entry)."""
+        entries = [e for e in sheet.get("equipment") or [] if self._item_matches(e, key)]
+        if entries:
+            return sum(int(e.get("quantity") or 1) if isinstance(e, dict) else 1 for e in entries)
+        return sum(1 for w in sheet.get("weapons") or [] if self._weapon_matches(w, key))
+
+    def _add_item(self, sheet: dict[str, Any], name: str, quantity: int, turn_number: int, *, source: str | None,
+                  label: str | None, profile: dict[str, Any] | None) -> None:
+        key = normalize(name)
+        equipment = sheet.get("equipment")
+        if not isinstance(equipment, list):
+            equipment = sheet["equipment"] = []
+        for entry in equipment:
+            if isinstance(entry, dict) and normalize(str(entry.get("name") or "")) == key:
+                entry["quantity"] = int(entry.get("quantity") or 1) + quantity
+                break
+        else:
+            entry = {"name": name, "quantity": quantity, "turn": turn_number}
+            if source:
+                entry["from"] = source
+            if label:
+                entry["label"] = label
+            if profile:
+                entry["weapon"] = str(profile["weapon_id"])
+            equipment.append(entry)
+        if profile:
+            weapons = sheet.get("weapons")
+            if not isinstance(weapons, list):
+                weapons = sheet["weapons"] = []
+            if not any(isinstance(w, dict) and str(w.get("weapon_id")) == str(profile["weapon_id"])
+                       and normalize(str(w.get("name") or "")) == key for w in weapons):
+                weapons.append(self._weapon_row(profile, name, label, turn_number))
+
+    def _remove_item(self, sheet: dict[str, Any], name: str, loss: int) -> None:
+        """Take `loss` of an item off the sheet; when none is left the matching weapon
+        rows go too, so `resolve` can no longer fire it."""
+        key = normalize(name)
+        equipment = sheet.get("equipment") if isinstance(sheet.get("equipment"), list) else []
+        weapons = sheet.get("weapons") if isinstance(sheet.get("weapons"), list) else []
+        remaining = loss
+        for index in reversed([i for i, e in enumerate(equipment) if self._item_matches(e, key)]):
+            entry = equipment[index]
+            have = int(entry.get("quantity") or 1) if isinstance(entry, dict) else 1
+            take = min(have, remaining)
+            if isinstance(entry, dict) and have - take > 0:
+                entry["quantity"] = have - take
+            else:
+                del equipment[index]
+            remaining -= take
+            if remaining == 0:
+                break
+        if remaining > 0:
+            # no equipment entry: the item lives only as weapon rows (a pregen's pistol)
+            for index in reversed([i for i, w in enumerate(weapons) if self._weapon_matches(w, key)]):
+                if remaining == 0:
+                    break
+                del weapons[index]
+                remaining -= 1
+        if not any(self._item_matches(e, key) for e in equipment):
+            sheet["weapons"] = [w for w in weapons if not self._weapon_matches(w, key)]
+
+    def _stage_item(self, campaign: Campaign, graph: ModuleGraph, sheets: dict[str, dict[str, Any]],
+                    effect: dict[str, Any], turn_number: int, ordinal: int, call_id: str,
+                    taken: set[str]) -> tuple[dict[str, Any], tuple[str, dict[str, Any]]]:
+        """#19: something that reached (quantity > 0) or left (quantity < 0) an investigator's
+        hands in the narration, written onto the sheet so `resolve` and combat see it."""
+        name = _str(effect, "name")
+        quantity = effect.get("quantity", 1)
+        if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity == 0:
+            raise invalid_params("quantity must be a non-zero integer (negative is a loss)")
+        sheet = self._staged_sheet(campaign, sheets, effect.get("to"))
+        subject_id, subject_label = str(sheet["id"]), str(sheet.get("name") or sheet["id"])
+        label = _label(effect)
+        why = effect.get("why") if isinstance(effect.get("why"), str) else None
+        source_name = effect.get("from")
+        if source_name is not None and (not isinstance(source_name, str) or not source_name.strip()):
+            raise invalid_params("from must be an NPC name")
+        source = None
+        if source_name:
+            # The NPC's canonical name when it resolves (exact, else one whole word of a
+            # name — the §12.4 rule, `Knott` → Steven Knott); the keeper's own words when
+            # it does not: provenance is narrative, not a world write.
+            index = memory.EntityIndex(graph, campaign.party())
+            found = index.matches(source_name, kinds=(NPC_KIND,), investigators=False) or index.loose_matches(source_name, kinds=(NPC_KIND,))
+            source = index.canonical_name(found[0]) if len(found) == 1 else source_name.strip()
+        profile = self._weapon_profile(graph, sheet, effect["weapon"]) if effect.get("weapon") is not None else None
+        key = normalize(name)
+        before = self._held(sheet, key)
+        if quantity > 0:
+            self._add_item(sheet, name, quantity, turn_number, source=source, label=label, profile=profile)
+        else:
+            if before < -quantity:
+                raise invalid_params(f"{subject_label} holds {before} × {name!r}; cannot lose {-quantity}",
+                                     fix="an item leaves the sheet only if it is on it: apply the gain first, or a smaller loss",
+                                     details={"name": name, "held": before, "quantity": quantity})
+            self._remove_item(sheet, name, -quantity)
+        after = self._held(sheet, key)
+        receipt = {"id": _mint_id(f"item:{slugify(name)}-t{turn_number}-c{ordinal}", taken), "kind": "item",
+                   "call_id": call_id, "name": name, "label": label or name, "subject": subject_id,
+                   "subject_label": subject_label, "from": source,
+                   "weapon": str(profile["weapon_id"]) if profile else None, "quantity": quantity,
+                   "before": before, "after": after, "why": why, "at": now_iso()}
+        data: dict[str, Any] = {"name": name, "to": subject_id, "quantity": quantity}
+        if source:
+            data["from"] = source
+        if profile:
+            data["weapon"] = str(profile["weapon_id"])
+        return receipt, ("item-transferred", data)
+
+    def _finance_block(self, graph: ModuleGraph, sheet: dict[str, Any]) -> dict[str, Any]:
+        """A sheet without a finance block gets one from `cash-assets.json` for its era and
+        credit rating (the chargen shape). An era the table has no period for starts at
+        zero and says so: the balance is then the sum of the cash receipts, not a guess."""
+        era = str(sheet.get("era") or record_of(graph.module_node).get("era") or "")
+        credit = sheet.get("credit_rating")
+        if not isinstance(credit, int) or isinstance(credit, bool):
+            credit = (sheet.get("skills") or {}).get("Credit Rating")
+        credit = int(credit) if isinstance(credit, int) and not isinstance(credit, bool) else 0
+        try:
+            finance = self.tables.cash_and_assets(credit, era)
+        except ValueError as exc:
+            currency = str(self.tables.load("cash-assets").get("currency") or "USD")
+            return {"credit_rating": credit, "living_standard": None, "cash": {"amount": 0, "currency": currency},
+                    "assets": None, "spending_level": None, "period": era or None, "source": None,
+                    "note": f"no cash-assets period for era {era!r} ({exc}); the balance is the sum of cash receipts"}
+        finance["source"] = f"cash-assets.periods.{era}"
+        return finance
+
+    def _stage_cash(self, campaign: Campaign, graph: ModuleGraph, sheets: dict[str, dict[str, Any]],
+                    effect: dict[str, Any], turn_number: int, ordinal: int, call_id: str,
+                    taken: set[str]) -> tuple[dict[str, Any], tuple[str, dict[str, Any]]]:
+        """#19: money changing hands, on `finance.cash` of the sheet."""
+        delta = effect.get("delta")
+        if not isinstance(delta, int) or isinstance(delta, bool) or delta == 0:
+            raise invalid_params("delta must be a non-zero integer in the era's currency unit")
+        sheet = self._staged_sheet(campaign, sheets, effect.get("subject"))
+        subject_id, subject_label = str(sheet["id"]), str(sheet.get("name") or sheet["id"])
+        why = effect.get("why") if isinstance(effect.get("why"), str) else None
+        finance = sheet.get("finance")
+        if not isinstance(finance, dict) or not isinstance(finance.get("cash"), dict):
+            finance = self._finance_block(graph, sheet)
+        cash = finance["cash"]
+        before = _number(cash.get("amount") or 0)
+        currency = str(cash.get("currency") or "USD")
+        after = _number(before + delta)
+        if after < 0:
+            raise invalid_params(f"{subject_label} has {before} {currency}; cannot lose {-delta}",
+                                 fix="a smaller delta, or narrate the debt without a cash receipt",
+                                 details={"before": before, "delta": delta, "currency": currency})
+        cash["amount"] = after
+        sheet["finance"] = finance
+        sheet["cash"] = f"{after} {currency}"
+        receipt = {"id": _mint_id(f"cash:t{turn_number}-c{ordinal}", taken), "kind": "cash", "call_id": call_id,
+                   "resource": "cash", "subject": subject_id, "subject_label": subject_label,
+                   "label": RESOURCE_LABELS_ZH["cash"], "before": before, "after": after, "delta": delta,
+                   "currency": currency, "why": why, "at": now_iso()}
+        return receipt, ("resource-changed", {"resource": "cash", "subject": subject_id, "before": before,
+                                              "after": after, "delta": delta, "why": why})
 
     # ---- ask ----------------------------------------------------------------
 

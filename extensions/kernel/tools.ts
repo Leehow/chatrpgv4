@@ -48,9 +48,34 @@ const TimeEffect = Type.Object({
 	why: Type.Optional(Type.String({ description: "一句话：时间花在哪了" })),
 });
 
+/** 物品易手（契约 §5 的 `item`，#19）：叙述里到手或失去的东西由此进调查员表。 */
+const ItemEffect = Type.Object({
+	kind: StringEnum(["item"] as const, { description: "东西易手：到手、交出、消耗、被夺" }),
+	name: Type.String({ description: "物品名；武器与规则表里的东西按表上的名字写" }),
+	to: Type.Optional(Type.String({ description: "东西归谁，缺省当前调查员" })),
+	from: Type.Optional(Type.String({ description: "东西从谁那儿来：NPC 名" })),
+	weapon: Type.Optional(
+		Type.String({
+			description:
+				"这件东西是武器时写规则表里的武器 profile 名（点三八左轮、猎枪这类）；写了内核才取得到伤害、射程、弹容，之后 resolve 的 weapon 才认得它、战斗开局才按它排弹药。表上没有这个 profile 时内核会报 needs 并列出可用的",
+		}),
+	),
+	quantity: Type.Optional(Type.Integer({ description: "数量，缺省 1；负数是失去（消耗、交出、被夺）" })),
+	label: Type.Optional(Type.String({ description: "这件东西在玩家语言里的短名，用于【变化】行；省略则用物品名" })),
+	why: Type.Optional(Type.String({ description: "一句话：怎么到手的，或怎么没的" })),
+});
+
+/** 现金增减（契约 §5 的 `cash`，#19）：写调查员表上的 finance.cash。 */
+const CashEffect = Type.Object({
+	kind: StringEnum(["cash"] as const, { description: "手里的钱变多或变少" }),
+	subject: Type.Optional(Type.String({ description: "谁的钱，缺省当前调查员" })),
+	delta: Type.Integer({ description: "带正负号的变动额，货币单位随时代；花出去写负数，收进来写正数" }),
+	why: Type.Optional(Type.String({ description: "一句话：钱花在哪了，或从哪来的" })),
+});
+
 /** 保留种类：切片 0 内核一律回 not_implemented，形状先留着。 */
 const ReservedEffect = Type.Object({
-	kind: StringEnum(["handout", "item", "cash", "npc", "flag", "note", "ruling"] as const, {
+	kind: StringEnum(["handout", "npc", "flag", "note", "ruling"] as const, {
 		description: "保留种类，本切片内核会回 not_implemented",
 	}),
 	name: Type.Optional(Type.String()),
@@ -279,13 +304,13 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Apply",
 		method: "table.apply",
 		description:
-			"把这一回合世界的改变落地：move 走到另一个场景（结果里直接带目的地场面，不必再 look），clue 让调查员拿到一条线索，time 推进世界时钟，damage 让调查员按规则书的骰子受伤（摔落、火烧、窒息这类没有攻击者的伤）。整批先校验后写，任一条不成立整批都不写，所以可以一次把这回合发生的事全列上。叙述里发生了却没 apply 的事等于没发生：走了要写 move，看见了要写 clue，花了时间要写 time。目的地可以是当前场景的出口，也可以是来时经过的任何场景（where.back 按由近到远列着，退出没有出口的巢穴就靠它）；不可达报 not_reachable 并给两份列表，线索不在此地报 not_here。",
-		promptSnippet: "落地本回合的世界改变：移动、线索、时间",
+			"把这一回合世界的改变落地：move 走到另一个场景（结果里直接带目的地场面，不必再 look），clue 让调查员拿到一条线索，time 推进世界时钟，damage 让调查员按规则书的骰子受伤（摔落、火烧、窒息这类没有攻击者的伤），item 让东西易手，cash 让钱增减。整批先校验后写，任一条不成立整批都不写，所以可以一次把这回合发生的事全列上。叙述里发生了却没 apply 的事等于没发生：走了要写 move，看见了要写 clue，花了时间要写 time，东西到手或交出要写 item，钱进出要写 cash。捡起、买到、被夺、用光的东西都是 item，它进的是调查员表；是武器就顺手给 weapon 写上规则表里的 profile 名，不给的话那把枪之后开不了火。花钱、拿到报酬、贿赂出去的钱是 cash，delta 带正负号，内核自己算前后。目的地可以是当前场景的出口，也可以是来时经过的任何场景（where.back 按由近到远列着，退出没有出口的巢穴就靠它）；不可达报 not_reachable 并给两份列表，线索不在此地报 not_here。",
+		promptSnippet: "落地本回合的世界改变：移动、线索、时间、物品、现金",
 		parameters: Type.Object({
-			effects: Type.Array(Type.Union([MoveEffect, ClueEffect, TimeEffect, DamageEffect, ReservedEffect]), {
-				minItems: 1,
-				description: "这一回合要落地的改变，按发生顺序排",
-			}),
+			effects: Type.Array(
+				Type.Union([MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, CashEffect, ReservedEffect]),
+				{ minItems: 1, description: "这一回合要落地的改变，按发生顺序排" },
+			),
 		}),
 	},
 	{

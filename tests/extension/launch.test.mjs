@@ -51,7 +51,8 @@ test("缺省启动命令：uv run --frozen python -m coc.rpc，cwd 是包根，P
 	});
 
 	assert.deepEqual(
-		table.kernelRequests().map((entry) => entry.method),
+		// 记忆车道的缺省派发（补抽，#20）开桌后也会来一次，跟这个用例无关，滤掉。
+		table.kernelRequests().map((entry) => entry.method).filter((method) => !method.startsWith("memory.")),
 		["kernel.hello", "table.open"],
 		"缺省命令也应该真的把桌子开起来",
 	);

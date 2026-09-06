@@ -167,6 +167,63 @@ def test_occupation_points_follow_the_formula_and_credit_rating_the_range(charge
     assert receipt["choices_pending"] == occ["choices_pending"]
 
 
+def test_spread_reserves_the_entries_it_cannot_name_instead_of_maxing_four_skills(chargen):
+    """#21, the live case: a Military Officer's list is seven entries, three of them rulebook
+    choices the kernel does not make. `fill` poured every point into the four it could
+    name (75/75/75/75 and nothing else); `spread` walks all seven, tier by tier, and sets
+    the choices' share aside for the table."""
+    tiers = POLICY["allocation"]["tiers"]
+    sheet, receipt = build(chargen, occupation_id="Military Officer")
+    occ = sheet["creation"]["skills"]["occupation"]
+    assert occ["allocation"] == "spread" == receipt["allocation"] == POLICY["allocation"]["default"]
+    assert sheet["creation"]["allocation"] == {"policy": "spread", "tiers": tiers, "source": "steps.json create-investigator.allocation"}
+    assert set(occ["allocations"]) == set(occ["resolved"]) and len(occ["resolved"]) == 4
+    # the budget runs out inside the first tier: every named skill sits exactly at tiers[0]
+    assert {sheet["skills"][s] for s in occ["resolved"]} == {tiers[0]}
+    assert [r["for"] for r in occ["reserved"]] == occ["choices_pending"]
+    assert all(0 < r["points"] <= tiers[0] for r in occ["reserved"])
+    assert receipt["occupation_reserved"] == sum(r["points"] for r in occ["reserved"]) <= occ["unspent"]
+    assert occ["spent"] + occ["unspent"] == occ["points"]
+
+    filled, filled_receipt = build(chargen, occupation_id="Military Officer", allocation="fill")
+    filled_occ = filled["creation"]["skills"]["occupation"]
+    assert filled_occ["allocation"] == "fill" and filled["creation"]["allocation"]["policy"] == "fill"
+    assert {filled["skills"][s] for s in filled_occ["resolved"]} == {chargen.cap}  # 75/75/75/75
+    assert filled_occ["reserved"] == [] and filled_receipt["occupation_reserved"] == 0
+    assert filled_occ["points"] == occ["points"]  # same formula, different landing
+
+
+def test_spread_walks_the_list_tier_by_tier_and_the_tiers_come_from_the_table():
+    values = {"A": 10, "B": 20, "C": 30}
+    slots, resolved = ["A", "B", "any one other skill", "C"], {"A", "B", "C"}
+    allocations, reserved = Chargen.spread(slots, resolved, 200, dict(values), 75, [50, 70])
+    # tier 50: A+40 B+30 reserve 50 C+20 (140); tier 70: A+20 B+20 reserve+20 (200) — C never reaches 70
+    assert allocations == {"A": 60, "B": 50, "C": 20}
+    assert reserved == [{"for": "any one other skill", "points": 70}]
+    assert sum(allocations.values()) + sum(r["points"] for r in reserved) == 200
+    # other tiers, other landing: tier 40 takes 100, tier 60 takes 80, the last 20 start the cap pass
+    allocations, reserved = Chargen.spread(slots, resolved, 200, dict(values), 75, [40, 60])
+    assert allocations == {"A": 65, "B": 45, "C": 30} and reserved == [{"for": "any one other skill", "points": 60}]
+    # no tiers: straight to the cap in the book's order (C gets the crumbs)
+    allocations, reserved = Chargen.spread(slots, resolved, 200, dict(values), 75, [])
+    assert allocations == {"A": 65, "B": 55, "C": 5} and reserved == [{"for": "any one other skill", "points": 75}]
+    # a tier above the cap is the cap; a budget nobody can absorb stays unspent
+    allocations, reserved = Chargen.spread(["A"], {"A"}, 500, dict(values), 75, [50, 90])
+    assert allocations == {"A": 65} and reserved == []
+    # fill (the old allocator) still round-robins the named skills and reserves nothing
+    assert Chargen.allocate(["A", "B", "C"], 9, dict(values), 75) == {"A": 3, "B": 3, "C": 3}
+
+
+def test_the_default_policy_is_read_from_the_table_and_unknown_policies_are_refused(chargen):
+    swapped = Chargen(RuleTables(RULES), {**POLICY, "allocation": {**POLICY["allocation"], "default": "fill"}})
+    sheet, _ = build(swapped, occupation_id="Military Officer")
+    assert sheet["creation"]["allocation"]["policy"] == "fill" and sheet["creation"]["skills"]["occupation"]["reserved"] == []
+    with pytest.raises(ChargenError) as refused:
+        build(chargen, occupation_id="Military Officer", allocation="random")
+    assert refused.value.stage == "allocation" and refused.value.expected["options"] == ["spread", "fill"]
+    assert refused.value.expected["default"] == POLICY["allocation"]["default"]
+
+
 def test_skill_values_are_base_plus_points_and_never_above_the_cap(chargen):
     sheet, _ = build(chargen, occupation_id="Journalist")
     skills = json.loads((RULES / "skills.json").read_text())

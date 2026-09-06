@@ -312,6 +312,36 @@ def test_recall_memory_ranks_by_overlap_then_recency_and_narrows_on_about(kernel
     assert kernel.table("recall", what="memory", about=[INV])["hits"]
 
 
+def test_recall_memory_ranks_by_kind_after_overlap_and_before_recency(kernel):
+    """#20 (§12.4): among equal overlap, what happened / is known / stands / was promised
+    comes before what is believed or preferred; a player_assertion last even when newest."""
+    first_turn(kernel)
+    submit(kernel, "extract:c1:t1", [
+        {"kind": "knowledge", "subject": INV, "entities": [KNOTT], "statement": "k1"},
+        {"kind": "player_assertion", "subject": INV, "entities": [KNOTT], "statement": "a1"},
+    ])
+    close_turn(kernel, 2)
+    submit(kernel, "extract:c1:t2", [
+        {"kind": "player_assertion", "subject": INV, "entities": [KNOTT], "statement": "a2"},
+        {"kind": "belief", "subject": INV, "entities": [KNOTT], "statement": "b2"},
+        {"kind": "world_event", "subject": "world", "statement": "w2"},
+        {"kind": "promise", "subject": KNOTT, "entities": [INV], "statement": "p2"},
+    ])
+    hits = kernel.table("recall", what="memory")["hits"]
+    assert [(h["kind"], h["turn"]) for h in hits] == [
+        ("promise", 2), ("knowledge", 1),        # tier 0, newest first
+        ("belief", 2),                           # tier 1, though newer than the knowledge
+        ("player_assertion", 2), ("player_assertion", 1),  # tier 2, newest first
+        ("world_event", 2),                      # overlap 0 still ranks last of all
+    ]
+    # the capsule takes the same head, projected to four fields (§12.7)
+    kernel.table("player_input", text="第 3 回合。")
+    capsule = kernel.table("capsule")["memory"]
+    assert [h["id"] for h in capsule] == [h["id"] for h in hits][:6]
+    assert all(set(h) == {"id", "kind", "statement", "turn"} for h in capsule)
+    assert capsule[0] == {"id": "mem:t2-4", "kind": "promise", "statement": "p2", "turn": 2}
+
+
 def test_prior_in_the_job_packet_follows_the_same_ranking(kernel):
     seed_recall(kernel)
     close_turn(kernel, 3)
