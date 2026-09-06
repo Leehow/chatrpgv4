@@ -65,6 +65,8 @@ def test_open_returns_resume_and_the_first_capsule_carries_it_once(kernel):
     opened = kernel.table("open")
     assert opened["opening_needed"] is False
     assert opened["resume"] == {
+        # §15.6: the checkpoint names the line the next turn will be played on.
+        "worldline": "main",
         "turn": 1, "commit": read_json(checkpoint_path(kernel.workspace))["commit"],
         "scene": {"name": "commission-briefing", "display_name": "Knott's Office"}, "clock": {"minutes": 0},
         "session": None, "one_line": "Turn 1: Knott's Office, clock 0 min, no session; last turn: 第一回合的交付。",

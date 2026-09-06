@@ -115,7 +115,12 @@ def test_domains_the_graph_lacks_are_empty_arrays_never_guesses():
         assert section["factions"] == [] and section["places"] == [] and section["endings"] == []
         assert [p["name"] for p in section["people"]] == [n["name"] for n in raw["nodes"] if n["node_kind"] == "npc"]
         assert len(section["conclusions"]) == sum(1 for n in raw["nodes"] if n["node_kind"] == "conclusion")
-        assert section["structure_type"] == "branching_investigation" and "era" not in section
+        # §15.9: the module node declares itself in `module-meta.json`, so this is the
+        # book's own word, not the reader's default -- the-white-war says `linear_acts`.
+        meta = next(d["root"] for n in raw["nodes"] if n["node_id"].startswith("module-")
+                    for d in n["properties"]["runtime_projection"]["documents"]
+                    if d["filename"] == "module-meta.json")
+        assert section["structure_type"] == meta["structure_type"] and "era" not in section
 
 
 def test_the_line_is_graph_text_never_the_name_repeated():

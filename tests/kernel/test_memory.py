@@ -292,7 +292,9 @@ def test_recall_memory_ranks_by_overlap_then_recency_and_narrows_on_about(kernel
     hit = default["hits"][0]
     assert hit == {"id": "mem:t1-1", "kind": "knowledge", "subject": INV, "knowers": [], "entities": [KNOTT],
                    "statement": "k1：调查员知道诺特急着出租。", "privacy": "player_safe", "state": "accurate",
-                   "confidence": None, "status": "candidate", "turn": 1}
+                   "confidence": None, "status": "candidate", "turn": 1,
+                   # §15.5: which worldline and which circuit of the loop remembered it.
+                   "worldline": "main", "loop": 0}
     # an alias narrows to the rows that name Knott, newest first among equal overlap
     assert [h["id"] for h in kernel.table("recall", what="memory", about=["steven-knott"])["hits"]] == ["mem:t2-1", "mem:t1-1"]
     assert [h["id"] for h in kernel.table("recall", what="memory", about=["world"])["hits"]] == ["mem:t1-2"]
