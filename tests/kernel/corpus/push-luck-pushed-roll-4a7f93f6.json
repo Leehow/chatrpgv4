@@ -1,0 +1,35 @@
+{
+  "source": "push-luck-pushed-roll-4a7f93f6.json",
+  "decision": "push-luck:pushed-roll",
+  "family": "push-luck",
+  "setup": {
+    "prior_failed_check": {
+      "skill": "Climb",
+      "difficulty": "regular",
+      "goal": "safely descend the neglected basement stairs to the cellar floor",
+      "stakes": "slip or mishap on the stairs without controlled access"
+    }
+  },
+  "action": {
+    "intent": "investigate",
+    "goal": "safely descend the neglected basement stairs to the cellar floor",
+    "method": "plant each tread carefully with flashlight braced, testing weight before shifting mass",
+    "stakes": "slip fully, tumble down the stairs with a loud crash, take damage, and alert anything listening in the house",
+    "push": true
+  },
+  "expect": {
+    "decision": "push-luck:pushed-roll",
+    "outcome_kind": "push",
+    "outcome": {
+      "skill": "Climb",
+      "difficulty": "regular",
+      "pushed": true
+    },
+    "effect_kinds_allowed": [],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "second_push_refused": "turn_state"
+  }
+}

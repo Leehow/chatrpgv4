@@ -1,0 +1,36 @@
+{
+  "source": "core-check-ordinary-check-246f6484.json",
+  "decision": "core-check:ordinary-check",
+  "family": "core-check",
+  "setup": {},
+  "action": {
+    "intent": "investigate",
+    "goal": "at the front door, catch whether anything is pursuing up from the basement",
+    "method": "",
+    "skill": "Listen",
+    "stakes": "only the house's ordinary settling noise; no clear read on pursuit",
+    "modifiers": {
+      "difficulty": "regular",
+      "bonus_dice": 0,
+      "penalty_dice": 0
+    }
+  },
+  "expect": {
+    "decision": "core-check:ordinary-check",
+    "outcome_kind": "check",
+    "outcome": {
+      "skill": "Listen",
+      "difficulty": "regular",
+      "pushed": false
+    },
+    "effect_kinds_allowed": [],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "continuations_on_failure": [
+      "push-luck:pushed-roll",
+      "push-luck:luck-spend"
+    ]
+  }
+}

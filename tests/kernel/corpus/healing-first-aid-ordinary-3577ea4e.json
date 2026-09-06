@@ -1,0 +1,36 @@
+{
+  "source": "healing-first-aid-ordinary-3577ea4e.json",
+  "decision": "healing:first-aid-ordinary",
+  "family": "healing",
+  "setup": {
+    "wound": {
+      "hp": 8,
+      "minutes_ago": 0
+    }
+  },
+  "action": {
+    "intent": "investigate",
+    "goal": "包扎伤口",
+    "method": "用急救处理伤口",
+    "skill": "First Aid"
+  },
+  "expect": {
+    "decision": "healing:first-aid-ordinary",
+    "outcome_kind": "healing",
+    "outcome": {
+      "status": "first_aid",
+      "skill": "First Aid",
+      "hp_before": 8
+    },
+    "effect_kinds_allowed": [
+      "hp"
+    ],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "optional_event_types": [
+      "resource-changed"
+    ]
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "source": "core-check-ordinary-check-5ba37300.json",
+  "decision": "core-check:ordinary-check",
+  "family": "core-check",
+  "setup": {},
+  "action": {
+    "intent": "investigate",
+    "goal": "force open the boarded cellar door under the stairs and descend",
+    "method": "",
+    "skill": "STR",
+    "stakes": "boards hold; noise answers upstairs",
+    "modifiers": {
+      "difficulty": "regular",
+      "bonus_dice": 0,
+      "penalty_dice": 0
+    }
+  },
+  "expect": {
+    "decision": "core-check:ordinary-check",
+    "outcome_kind": "check",
+    "outcome": {
+      "skill": "STR",
+      "difficulty": "regular",
+      "pushed": false
+    },
+    "effect_kinds_allowed": [],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "continuations_on_failure": [
+      "push-luck:pushed-roll",
+      "push-luck:luck-spend"
+    ]
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "source": "core-check-ordinary-check-e6f05cb6.json",
+  "decision": "core-check:ordinary-check",
+  "family": "core-check",
+  "setup": {},
+  "action": {
+    "intent": "investigate",
+    "goal": "safely descend the neglected basement stairs with flashlight without falling",
+    "method": "",
+    "skill": "Climb",
+    "stakes": "slip or stumble on the rotten treads",
+    "modifiers": {
+      "difficulty": "regular",
+      "bonus_dice": 0,
+      "penalty_dice": 0
+    }
+  },
+  "expect": {
+    "decision": "core-check:ordinary-check",
+    "outcome_kind": "check",
+    "outcome": {
+      "skill": "Climb",
+      "difficulty": "regular",
+      "pushed": false
+    },
+    "effect_kinds_allowed": [],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "continuations_on_failure": [
+      "push-luck:pushed-roll",
+      "push-luck:luck-spend"
+    ]
+  }
+}

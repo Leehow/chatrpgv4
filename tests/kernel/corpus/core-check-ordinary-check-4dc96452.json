@@ -1,0 +1,36 @@
+{
+  "source": "core-check-ordinary-check-4dc96452.json",
+  "decision": "core-check:ordinary-check",
+  "family": "core-check",
+  "setup": {},
+  "action": {
+    "intent": "investigate",
+    "goal": "rip the iron chain free from the wizened figure throat",
+    "method": "",
+    "skill": "STR",
+    "stakes": "chain holds fast sunk in flesh; figure stirs anyway",
+    "modifiers": {
+      "difficulty": "hard",
+      "bonus_dice": 0,
+      "penalty_dice": 0
+    }
+  },
+  "expect": {
+    "decision": "core-check:ordinary-check",
+    "outcome_kind": "check",
+    "outcome": {
+      "skill": "STR",
+      "difficulty": "hard",
+      "pushed": false
+    },
+    "effect_kinds_allowed": [],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "continuations_on_failure": [
+      "push-luck:pushed-roll",
+      "push-luck:luck-spend"
+    ]
+  }
+}

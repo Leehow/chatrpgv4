@@ -29,7 +29,11 @@ def test_ordinary_check_is_seeded_and_consistent(seeded_kernel, tmp_path):
         assert outcome["level"] == "regular" and outcome["passed"]
     else:
         assert outcome["level"] == "failure" and not outcome["passed"]
-    assert result["session"] is None and result["pending_choice"] is None and result["continuations"] == []
+    assert result["session"] is None and result["pending_choice"] is None
+    if outcome["passed"] or outcome["level"] == "fumble":
+        assert result["continuations"] == []
+    else:
+        assert [c["decision"] for c in result["continuations"]] == ["push-luck:pushed-roll", "push-luck:luck-spend"]
     assert "percentile-check" in result["rule_refs"]
 
     status = seeded_kernel.table("status")
@@ -110,7 +114,7 @@ def test_needs_when_skill_is_ambiguous_or_missing(kernel):
     assert fixed["outcome"]["skill"] == "Spot Hidden"
 
 
-def test_none_intents_and_deferred_intents(kernel):
+def test_none_intents_and_session_intents(kernel):
     open_turn(kernel)
     for n, intent in enumerate(("idle", "meta", "stuck", "ambiguous"), start=1):
         result = resolve(kernel, f"t1-c{n}", intent=intent, goal="", method="")
@@ -120,9 +124,13 @@ def test_none_intents_and_deferred_intents(kernel):
     assert kernel.table("status")["receipts"] == []
     assert kernel.table("status")["state"] == "acting"
 
-    for n, intent in enumerate(("combat", "flee", "cast"), start=5):
+    # combat and flee wait for the session engines; cast is live but needs a spell.
+    for n, intent in enumerate(("combat", "flee"), start=5):
         error = kernel.table_err("resolve", call_id=f"t1-c{n}", action={"intent": intent, "goal": "x", "method": "y"})
-        assert error["code"] == "not_implemented"
+        assert error["code"] == "not_implemented", error
+        assert error["details"]["family"] in ("combat", "chase")
+    cast = kernel.table_err("resolve", call_id="t1-c7", action={"intent": "cast", "goal": "x", "method": "y"})
+    assert cast["code"] == "needs" and cast["details"]["needs"]["field"] == "spell"
     assert kernel.table_err("resolve", call_id="t1-c9", action={"intent": "dance", "goal": "x", "method": "y"})["code"] == "invalid_params"
     assert kernel.table_err("resolve", call_id="nope", action={"intent": "idle"})["code"] == "invalid_params"
     assert kernel.table_err("resolve", action={"intent": "idle"})["code"] == "invalid_params"

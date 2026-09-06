@@ -1,4 +1,4 @@
-"""events.jsonl (contract §7): {seq, turn, type, at, call_id?, receipt?, data}."""
+"""events.jsonl (contract §7 plus the slice-1 settlement types): {seq, turn, type, at, call_id?, receipt?, data}."""
 
 from __future__ import annotations
 
@@ -15,6 +15,9 @@ EVENT_TYPES = frozenset({
     "clue-discovered",
     "time-advanced",
     "turn-finalized",
+    # slice 1: one per resource delta receipt, one per settled RuleGraph decision
+    "resource-changed",
+    "decision-settled",
 })
 
 

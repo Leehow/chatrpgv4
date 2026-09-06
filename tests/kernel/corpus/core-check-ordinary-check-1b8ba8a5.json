@@ -1,0 +1,36 @@
+{
+  "source": "core-check-ordinary-check-1b8ba8a5.json",
+  "decision": "core-check:ordinary-check",
+  "family": "core-check",
+  "setup": {},
+  "action": {
+    "intent": "investigate",
+    "goal": "stand just inside the unlocked front door without going deeper and hear whether the house makes any sound",
+    "method": "",
+    "skill": "Listen",
+    "stakes": "house noise blends with street sound and nothing clear registers",
+    "modifiers": {
+      "difficulty": "regular",
+      "bonus_dice": 0,
+      "penalty_dice": 0
+    }
+  },
+  "expect": {
+    "decision": "core-check:ordinary-check",
+    "outcome_kind": "check",
+    "outcome": {
+      "skill": "Listen",
+      "difficulty": "regular",
+      "pushed": false
+    },
+    "effect_kinds_allowed": [],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "continuations_on_failure": [
+      "push-luck:pushed-roll",
+      "push-luck:luck-spend"
+    ]
+  }
+}

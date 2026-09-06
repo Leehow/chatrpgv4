@@ -1,0 +1,35 @@
+{
+  "source": "core-check-ordinary-check-a70444c3.json",
+  "decision": "core-check:ordinary-check",
+  "family": "core-check",
+  "setup": {},
+  "action": {
+    "intent": "investigate",
+    "goal": "plunge onto the thrashing bed and lock both arms around the frame to stop it",
+    "method": "",
+    "skill": "Fighting (Brawl)",
+    "stakes": "frame tears free and drives investigator into the window wall",
+    "modifiers": {
+      "difficulty": "hard",
+      "bonus_dice": 0,
+      "penalty_dice": 0
+    }
+  },
+  "expect": {
+    "decision": "core-check:ordinary-check",
+    "outcome_kind": "check",
+    "outcome": {
+      "skill": "Fighting (Brawl)",
+      "difficulty": "hard",
+      "pushed": false
+    },
+    "effect_kinds_allowed": [],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "continuations_on_failure": [
+      "push-luck:luck-spend"
+    ]
+  }
+}

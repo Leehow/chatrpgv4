@@ -21,12 +21,24 @@ def has_self_written_mechanics(text: str) -> bool:
 def mechanics_line(receipt: dict[str, Any]) -> str | None:
     kind = receipt.get("kind")
     if kind == "roll":
+        # A keeper-concealed roll (an NPC's, a Psychology observation) never reaches the
+        # player's text; the receipt still exists for the record.
+        if receipt.get("visibility") == "keeper":
+            return None
+        skill = receipt.get("skill_label") or receipt["skill"]
+        if receipt.get("form") == "dice":
+            faces = "+".join(str(f) for f in receipt.get("faces") or [])
+            return f"{DICE_MARKER}{skill}｜{receipt.get('expression')}：{faces} = {receipt.get('total')}"
         difficulty = DIFFICULTY_ZH.get(str(receipt.get("difficulty")), str(receipt.get("difficulty")))
         verdict = "通过" if receipt.get("passed") else "未通过"
-        skill = receipt.get("skill_label") or receipt["skill"]
-        return (f"{DICE_MARKER}{skill}｜掷骰：{receipt['roll']}；"
+        who = f"{receipt['actor_label']}·" if receipt.get("actor_label") else ""
+        pushed = "（推骰）" if receipt.get("pushed") else ""
+        return (f"{DICE_MARKER}{who}{skill}{pushed}｜掷骰：{receipt['roll']}；"
                 f"基础值：{receipt['target']}；门槛：{difficulty}（≤{receipt['threshold']}）；"
                 f"结果：{verdict}")
+    if kind == "delta":
+        subject = receipt.get("subject_label") or receipt.get("subject")
+        return f"{CHANGE_MARKER}{receipt.get('label') or receipt['resource']}：{subject} {receipt['before']} → {receipt['after']}"
     if kind == "move":
         minutes = int(receipt.get("minutes") or 0)
         line = (f"{CHANGE_MARKER}场景：{receipt.get('from_label') or receipt['from']} → "

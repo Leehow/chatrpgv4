@@ -1,16 +1,40 @@
-"""1D100 check with bonus/penalty dice and success levels. Ported from coc_roll.py."""
+"""1D100 checks, dice expressions and Luck arithmetic. Ported from coc_roll.py.
+
+The percentile result carries both vocabularies: the slice-0 contract's
+`target / difficulty / threshold / level` and the canonical receipt contract the
+old engines consume (`base_target / required_level / required_target /
+effective_target / achieved_level / success / surplus_levels / outcome`)."""
 
 from __future__ import annotations
 
 import random
+import re
 from typing import Any
 
 from .tables import RuleTables
 
 _SUCCESS_LEVEL_RANK = {"regular": 1, "hard": 2, "extreme": 3, "critical": 4}
+SUCCESS_OUTCOMES = frozenset({"regular", "hard", "extreme", "critical"})
 
 RULE_REFS = ["percentile-check", "success-levels", "difficulty-levels", "half-fifth-values"]
 MODIFIER_RULE_REF = "roll-modifiers"
+
+ROLL_PATTERN = re.compile(r"^(?P<count>\d+)D(?P<sides>\d+)(?P<modifier>[+-]\d+)?$")
+
+
+def roll_expression(expression: str, rng: random.Random | None = None) -> dict[str, Any]:
+    """Roll `NdM(+k)`; individual faces are kept for receipts."""
+    rng = rng or random.Random()
+    normalized = str(expression).strip().upper()
+    match = ROLL_PATTERN.match(normalized)
+    if match is None:
+        raise ValueError(f"unsupported dice expression: {expression}")
+    count = int(match.group("count"))
+    sides = int(match.group("sides"))
+    modifier = int(match.group("modifier") or 0)
+    rolls = [rng.randint(1, sides) for _ in range(count)]
+    return {"expression": normalized, "count": count, "sides": sides, "modifier": modifier,
+            "rolls": rolls, "total": sum(rolls) + modifier}
 
 
 def resolve_percentile_roll(tables: RuleTables, roll: int, base_target: int,
@@ -36,11 +60,18 @@ def resolve_percentile_roll(tables: RuleTables, roll: int, base_target: int,
     outcome = achieved_level if passed else ("fumble" if achieved_level == "fumble" else "failure")
     return {
         "target": base_target,
+        "base_target": base_target,
         "difficulty": required_level,
+        "required_level": required_level,
         "threshold": required_target,
+        "required_target": required_target,
+        "effective_target": required_target,
         "achieved_level": achieved_level,
         "passed": passed,
+        "success": passed,
+        "surplus_levels": max(0, achieved_rank - required_rank) if passed else 0,
         "level": outcome,
+        "outcome": outcome,
     }
 
 
@@ -89,7 +120,8 @@ def percentile_check(tables: RuleTables, target: int, difficulty: str = "regular
     rng = rng or random.Random()
     percentile_rule = tables.percentile_check_rule()
     modifier_rule = tables.roll_modifiers_rule()
-    net_bonus, net_penalty = _net_roll_modifiers(bonus, penalty, modifier_rule)
+    net_bonus, net_penalty = _net_roll_modifiers(int(bonus or 0), int(penalty or 0), modifier_rule)
+    target = max(percentile_rule["minimum_target"], min(percentile_rule["maximum_target"], int(target)))
 
     if net_bonus == 0 and net_penalty == 0:
         roll = rng.randint(percentile_rule["minimum_roll"], percentile_rule["maximum_roll"])
@@ -122,3 +154,93 @@ def percentile_check(tables: RuleTables, target: int, difficulty: str = "regular
         "units": units,
         "rule_refs": rule_refs,
     }
+
+
+# ---- Luck (Keeper Rulebook p.99) ----------------------------------------------
+
+_LUCK_FORBIDDEN_KINDS = {
+    "luck": "luck_may_not_be_spent_on_luck_rolls",
+    "damage": "luck_may_not_be_spent_on_damage_rolls",
+    "sanity": "luck_may_not_be_spent_on_sanity_rolls",
+    "sanity_loss": "luck_may_not_be_spent_on_sanity_loss_amount_rolls",
+}
+_LUCK_ROLL_KINDS = frozenset({"skill", *_LUCK_FORBIDDEN_KINDS})
+_LUCK_REQUIRED_FIELDS = frozenset({
+    "roll", "base_target", "target", "required_level", "difficulty", "required_target",
+    "effective_target", "achieved_level", "passed", "success", "surplus_levels", "outcome",
+})
+
+
+def spend_luck(tables: RuleTables, result: dict[str, Any], points: int, current_luck: int,
+               *, roll_kind: str = "skill") -> dict[str, Any]:
+    """Recompute a settled check after spending Luck. Raises ValueError naming the
+    violated luck.json constraint. The input must be a canonical percentile result."""
+    if not isinstance(roll_kind, str) or roll_kind not in _LUCK_ROLL_KINDS:
+        raise ValueError("roll_kind_must_be_a_supported_enum")
+    if roll_kind in _LUCK_FORBIDDEN_KINDS:
+        raise ValueError(_LUCK_FORBIDDEN_KINDS[roll_kind])
+    if isinstance(points, bool) or not isinstance(points, int):
+        raise ValueError("points_must_be_an_integer")
+    if isinstance(current_luck, bool) or not isinstance(current_luck, int):
+        raise ValueError("current_luck_must_be_an_integer")
+    if current_luck < 0:
+        raise ValueError("current_luck_must_be_non_negative")
+    if result.get("pushed"):
+        raise ValueError("luck_may_not_alter_a_pushed_roll")
+    missing = sorted(_LUCK_REQUIRED_FIELDS - set(result))
+    if missing:
+        raise ValueError("percentile_result_must_use_canonical_contract: " + ", ".join(missing))
+    roll = int(result["roll"])
+    base_target = int(result["base_target"])
+    required_level = str(result["required_level"])
+    expected = resolve_percentile_roll(tables, roll, base_target, required_level)
+    if any(result.get(key) != expected[key] for key in _LUCK_REQUIRED_FIELDS - {"roll"}):
+        raise ValueError("percentile_result_contradicts_canonical_contract")
+    outcome = str(result["outcome"])
+    if outcome in ("critical", "fumble"):
+        raise ValueError("criticals_fumbles_malfunctions_cannot_be_bought_off")
+    if result["passed"] is True:
+        raise ValueError("luck_may_only_alter_a_failed_roll")
+    if points <= 0:
+        raise ValueError("points_must_be_positive")
+    if points > current_luck:
+        raise ValueError("insufficient_luck")
+    new_roll = roll - int(points)
+    if new_roll <= 1:
+        raise ValueError("criticals_fumbles_malfunctions_cannot_be_bought_off")
+    out = dict(result)
+    out["roll"] = new_roll
+    out.update(resolve_percentile_roll(tables, new_roll, base_target, required_level))
+    out["luck_spent"] = int(points)
+    out["luck_remaining"] = int(current_luck) - int(points)
+    out["improvement_tick_eligible"] = False
+    out["rule_ref"] = "core.optional.spending_luck"
+    return out
+
+
+def recover_luck(current_luck: int, rng: random.Random | None = None) -> dict[str, Any]:
+    """Session-end Luck recovery: 1D100 > current Luck -> +1D10, cap 99 (p.99)."""
+    rng = rng or random.Random()
+    roll = rng.randint(1, 100)
+    success = roll > int(current_luck)
+    gained = rng.randint(1, 10) if success else 0
+    luck_after = min(99, int(current_luck) + gained)
+    return {"roll": roll, "success": success, "gained": luck_after - int(current_luck) if success else 0,
+            "luck_before": int(current_luck), "luck_after": luck_after,
+            "rule_ref": "core.optional.luck_recovery"}
+
+
+def idea_roll(tables: RuleTables, int_value: int, *, difficulty: str = "regular", bonus: int = 0,
+              penalty: int = 0, rng: random.Random | None = None) -> dict[str, Any]:
+    result = percentile_check(tables, int_value, difficulty, bonus, penalty, rng)
+    result["roll_kind"] = "idea"
+    result["characteristic"] = "INT"
+    return result
+
+
+def know_roll(tables: RuleTables, edu_value: int, *, difficulty: str = "regular", bonus: int = 0,
+              penalty: int = 0, rng: random.Random | None = None) -> dict[str, Any]:
+    result = percentile_check(tables, edu_value, difficulty, bonus, penalty, rng)
+    result["roll_kind"] = "know"
+    result["characteristic"] = "EDU"
+    return result

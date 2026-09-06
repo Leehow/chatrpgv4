@@ -1,0 +1,36 @@
+{
+  "source": "core-check-ordinary-check-c9193db8.json",
+  "decision": "core-check:ordinary-check",
+  "family": "core-check",
+  "setup": {},
+  "action": {
+    "intent": "investigate",
+    "goal": "Pressure Knott with legal and financial liability until he accepts two-day advance pay and written disclosure of known accidents",
+    "method": "",
+    "skill": "Intimidate",
+    "stakes": "Knott is thoroughly angered and may end the hiring conversation outright",
+    "modifiers": {
+      "difficulty": "hard",
+      "bonus_dice": 0,
+      "penalty_dice": 0
+    }
+  },
+  "expect": {
+    "decision": "core-check:ordinary-check",
+    "outcome_kind": "check",
+    "outcome": {
+      "skill": "Intimidate",
+      "difficulty": "hard",
+      "pushed": false
+    },
+    "effect_kinds_allowed": [],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "continuations_on_failure": [
+      "push-luck:pushed-roll",
+      "push-luck:luck-spend"
+    ]
+  }
+}

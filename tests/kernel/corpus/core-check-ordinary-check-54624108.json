@@ -1,0 +1,36 @@
+{
+  "source": "core-check-ordinary-check-54624108.json",
+  "decision": "core-check:ordinary-check",
+  "family": "core-check",
+  "setup": {},
+  "action": {
+    "intent": "investigate",
+    "goal": "Get Knott to agree to two days cash advance and write known incidents into the commission",
+    "method": "",
+    "skill": "Persuade",
+    "stakes": "Knott refuses the extras, holds to one-day advance only, and grows more impatient",
+    "modifiers": {
+      "difficulty": "hard",
+      "bonus_dice": 0,
+      "penalty_dice": 0
+    }
+  },
+  "expect": {
+    "decision": "core-check:ordinary-check",
+    "outcome_kind": "check",
+    "outcome": {
+      "skill": "Persuade",
+      "difficulty": "hard",
+      "pushed": false
+    },
+    "effect_kinds_allowed": [],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "continuations_on_failure": [
+      "push-luck:pushed-roll",
+      "push-luck:luck-spend"
+    ]
+  }
+}

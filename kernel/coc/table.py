@@ -16,14 +16,16 @@ from .events import append_event
 from .fileio import file_size, read_json, truncate_file
 from .module_graph import ModuleGraph, record_of
 from .render import (has_self_written_mechanics, mechanics_block, place, render_choice)
-from .rules import RuleTables, SkillResolver, percentile_check
+from .resolve import ResolvePipeline
+from .rules import RuleTables
+from .rules.graph import semantic_name
+from .rules.runtime import RulesEngine, SettleContext
 from .store import Campaign, Store, fresh_turn, now_iso, parse_call_id
-from .text import kebab, normalize, slugify
+from .text import normalize, slugify
 
 INTENTS = frozenset({"investigate", "social", "move", "combat", "flee", "cast", "idle", "meta",
                      "stuck", "ambiguous", "montage"})
 NONE_INTENTS = frozenset({"idle", "meta", "stuck", "ambiguous"})
-DEFERRED_INTENTS = frozenset({"combat", "flee", "cast"})
 APPLY_KINDS = frozenset({"move", "clue", "time"})
 APPLY_RESERVED = frozenset({"handout", "item", "cash", "npc", "flag", "note", "ruling"})
 LOOK_FOCUS = frozenset({"scene", "npc", "investigator", "clues", "time"})
@@ -32,6 +34,10 @@ RECALL_KINDS = frozenset({"transcript", "memory", "history"})
 WRITABLE_STATES = frozenset({"open", "acting"})
 PLAYER_INPUT_STATES = frozenset({"awaiting_player", "asked"})
 DEFAULT_LANGUAGE = "zh-Hans"
+#: Fact namespaces that describe the table's state (a wound, a clock, a pending bout or
+#: settlement). Content availability (`magic.*`) and call facts (`intent.*`, `receipt.*`)
+#: never make a situation.
+SITUATION_FACT_PREFIXES = ("actor.", "time.", "sanity.", "chase.", "development.", "clock.", "subsystem.")
 RECALL_DEFAULT_TURNS = 3
 COMMIT_SUBJECT_CHARS = 60
 
@@ -56,6 +62,7 @@ class Table:
         self.content = Path(content_dir)
         self.rng = rng
         self.tables = RuleTables(self.content / "rulesets" / "coc7" / "rules-json")
+        self.engine = RulesEngine(self.content, self.tables)
         self._graphs: dict[str, ModuleGraph] = {}
 
     # ---- content ----------------------------------------------------------
@@ -237,8 +244,9 @@ class Table:
         self._touch_acting(campaign, turn)
         scene = graph.scene(world["active_scene"])
         if focus == "scene":
-            return {"where": where_section(graph, world, scene),
-                    "present": present_section(graph, world, scene)}
+            where = where_section(graph, world, scene)
+            where["situations"] = self._situations(campaign, graph, world, turn)
+            return {"where": where, "present": present_section(graph, world, scene)}
         if focus == "npc":
             if name is None:
                 return {"present": present_section(graph, world, scene)}
@@ -256,12 +264,28 @@ class Table:
         kind = params.get("kind")
         if kind not in LOOKUP_KINDS:
             raise invalid_params(f"unknown lookup kind {kind!r}", fix=f"one of {sorted(LOOKUP_KINDS)}")
-        if kind in ("rule", "catalog"):
-            raise not_implemented(f"lookup kind {kind!r} is reserved for a later slice")
         self._touch_acting(campaign, turn)
         if kind == "module":
             query = _str(params, "query")
             return {"query": query, "entities": [graph.entity_view(n) for n in graph.search(query)]}
+        if kind == "rule":
+            query = _str(params, "query")
+            return {"query": query, "rules": self._lookup_rules(query)}
+        if kind == "catalog":
+            query = _str(params, "query")
+            kinds = params.get("kinds")
+            if kinds is not None and not (isinstance(kinds, list) and all(isinstance(k, str) for k in kinds)):
+                raise invalid_params("params.kinds must be a list of catalog kinds")
+            limit = params.get("limit")
+            found = self.engine.catalog.search(query, kinds=kinds, limit=limit,
+                                               module_spells=SettleContext.module_spells_for(graph))
+            if not found.get("ok"):
+                error = found.get("error") or {}
+                raise invalid_params(str(error.get("detail") or error.get("code") or "bad catalog query"),
+                                     details=error)
+            return {"query": query, "kinds": found["kinds"], "candidates": found["candidates"],
+                    "truncated": found["truncated"],
+                    "unresolved_family_parameters": found["unresolved_family_parameters"]}
         scope = params.get("scope") or "scene"
         if scope not in ("scene", "module"):
             raise invalid_params("scope must be 'scene' or 'module'")
@@ -291,6 +315,60 @@ class Table:
             "npc_secrets": npc_secrets,
             "module_secrets": secrets,
         }
+
+    def _lookup_rules(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
+        """RuleGraph `rule` nodes whose name or family matches the query; decisions that
+        invoke a matching family ride along as `decisions` so the keeper sees the route."""
+        key = normalize(query)
+        tokens = [t for t in key.split() if t]
+        if not tokens:
+            return []
+        rows: list[tuple[int, dict[str, Any]]] = []
+        for node in self.engine.rule_nodes():
+            family = str((node.get("properties") or {}).get("family_id") or "")
+            haystack = normalize(f"{node.get('name') or ''} {node['node_id']} {family}")
+            hits = sum(1 for t in tokens if t in haystack)
+            if hits == 0:
+                continue
+            exact = key in haystack
+            rows.append((-(hits + (10 if exact else 0)), {
+                "name": node["node_id"], "family": family, "summary": node.get("name"),
+                "evidence_span_ids": list(node.get("evidence_span_ids") or []),
+                "authority": node.get("authority"), "visibility": node.get("visibility"),
+            }))
+        rows.sort(key=lambda item: (item[0], item[1]["name"]))
+        return [row for _, row in rows[:limit]]
+
+    def _situations(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any],
+                    turn: dict[str, Any]) -> list[dict[str, Any]]:
+        """Rule decisions the state alone makes available (no intent): a dying clock, a
+        wound within the hour, a pending settlement. A decision counts when a hard gate
+        holds because of something true about the state, not merely because nothing
+        forbids it."""
+        party = campaign.party()
+        if not party:
+            return []
+        situations: list[dict[str, Any]] = []
+        for sheet in party:
+            ctx = SettleContext(self.engine, campaign, graph, world, turn, f"t{turn['turn']}-c0", 0, self.rng,
+                                sheet, sheet, {})
+            runtime = self.engine.runtime(ctx, intent=None)
+            facts = runtime.facts_for_decision(None)
+            for node in runtime.decision_nodes():
+                ref = str(node["node_id"])
+                applicable, hard_gated = runtime.applicability(ref, facts)
+                if not applicable or not hard_gated:
+                    continue
+                because = [hit for hit in runtime.positive_gate_hits(ref, facts)
+                           if str(hit["path"]).startswith(SITUATION_FACT_PREFIXES)]
+                if not because:
+                    continue
+                situations.append({
+                    "decision": semantic_name(ref), "family": runtime.family_of(ref), "label": node.get("name"),
+                    "investigator": sheet.get("id"),
+                    "because": [f"{hit['path']} = {hit['actual']!r}" for hit in because],
+                })
+        return situations
 
     def recall(self, params: dict[str, Any]) -> dict[str, Any]:
         campaign, graph, world, turn = self._context(params)
@@ -390,13 +468,9 @@ class Table:
         intent = action.get("intent")
         if intent not in INTENTS:
             raise invalid_params(f"unknown intent {intent!r}", fix=f"one of {sorted(INTENTS)}")
-        if intent in DEFERRED_INTENTS:
-            raise not_implemented(f"intent {intent!r} is left to slice 1 (combat, chase, magic)",
-                                  details={"intent": intent})
-        goal = action.get("goal") if isinstance(action.get("goal"), str) else ""
-        method = action.get("method") if isinstance(action.get("method"), str) else ""
         turn_number = int(turn["turn"])
         _, ordinal = parse_call_id(call_id)
+        modifiers = self._modifiers(action.get("modifiers"))
 
         choice_receipt = self._bind_choice(turn, action, call_id)
         new_receipts = [choice_receipt] if choice_receipt else []
@@ -406,74 +480,63 @@ class Table:
                       "note": f"intent {intent}: nothing to roll; answer or clarify in the narration",
                       "session": None, "pending_choice": turn.get("pending_choice"),
                       "continuations": [], "rule_refs": []}
-            self._commit_resolve(campaign, turn, call_id, params, result, new_receipts, None)
+            self._commit_resolve(campaign, turn, call_id, params, result, new_receipts, [])
             return result
 
-        bonus, penalty, difficulty = self._modifiers(action.get("modifiers"))
-        sheet = self._actor(campaign, action.get("actor"))
-        resolver = SkillResolver(self.tables, sheet)
-        skill = self._resolve_skill(resolver, action, goal, method)
-        try:
-            raw_target = resolver.target_value(skill)
-        except KeyError:
-            raise RpcError("needs", f"no target value for {skill!r}",
-                           details={"needs": {"field": "skill", "options": resolver.options_for(method or goal)}})
-        rule = self.tables.percentile_check_rule()
-        target = max(rule["minimum_target"], min(rule["maximum_target"], int(raw_target)))
-        check = percentile_check(self.tables, target, difficulty, bonus, penalty, self.rng)
+        pipeline = ResolvePipeline(self.engine, campaign, graph, world, turn, call_id, ordinal, action, self.rng,
+                                   self._actor, modifiers)
+        settled = pipeline.run()
+        if settled.get("kind") == "none":
+            result = {"outcome": {"kind": "none"}, "note": settled["note"], "session": None,
+                      "pending_choice": turn.get("pending_choice"), "continuations": [], "rule_refs": []}
+            self._commit_resolve(campaign, turn, call_id, params, result, new_receipts, [])
+            return result
 
-        receipt_id = f"roll:{kebab(skill)}-t{turn_number}-c{ordinal}"
-        outcome = {"kind": "check", "skill": skill, "target": check["target"],
-                   "difficulty": check["difficulty"], "threshold": check["threshold"],
-                   "roll": check["roll"], "level": check["level"], "passed": check["passed"],
-                   "bonus": check["bonus"], "penalty": check["penalty"]}
-        receipt = {"id": receipt_id, "kind": "roll", "call_id": call_id, "actor": sheet.get("id"),
-                   **{k: v for k, v in outcome.items() if k != "kind"},
-                   "skill_label": resolver.display_label(skill), "at": now_iso()}
-        new_receipts.append(receipt)
-        result = {"receipt": receipt_id, "outcome": outcome, "session": None,
-                  "pending_choice": turn.get("pending_choice"), "continuations": [],
-                  "rule_refs": check["rule_refs"]}
-        self._commit_resolve(campaign, turn, call_id, params, result, new_receipts,
-                             {"receipt": receipt_id, "data": {**outcome, "actor": sheet.get("id"),
-                                                              "goal": goal, "method": method}})
+        receipts = list(settled["receipts"])
+        roll_ids = [r["id"] for r in receipts if r["kind"] == "roll"]
+        result: dict[str, Any] = {
+            "receipt": roll_ids[0] if roll_ids else (receipts[0]["id"] if receipts else None),
+            "receipts": [r["id"] for r in receipts],
+            "decision": settled["decision"],
+            "family": settled["family"],
+            "outcome": settled["outcome"],
+            "effects": settled["effects"],
+            "session": None,
+            "pending_choice": turn.get("pending_choice"),
+            "continuations": settled["continuations"],
+            "rule_refs": settled["rule_refs"],
+        }
+        if settled.get("hints"):
+            result["hints"] = settled["hints"]
+        if settled.get("warnings"):
+            result["warnings"] = settled["warnings"]
+        events: list[tuple[str, dict[str, Any], str | None]] = []
+        goal = action.get("goal") if isinstance(action.get("goal"), str) else ""
+        method = action.get("method") if isinstance(action.get("method"), str) else ""
+        for receipt in receipts:
+            if receipt["kind"] == "roll":
+                data = {k: v for k, v in receipt.items() if k not in ("check", "id", "kind", "call_id", "at")}
+                events.append(("roll-resolved", {**data, "goal": goal, "method": method}, receipt["id"]))
+            elif receipt["kind"] == "delta":
+                events.append(("resource-changed", {"resource": receipt["resource"], "subject": receipt["subject"],
+                                                    "before": receipt["before"], "after": receipt["after"]}, receipt["id"]))
+        events.append(("decision-settled", {"decision": settled["decision"], "family": settled["family"],
+                                            "outcome_kind": settled["outcome"].get("kind"),
+                                            "effect_kinds": settled["effect_kinds"],
+                                            "effects": [e["kind"] for e in settled["effects"]],
+                                            "continuations": [c["decision"] for c in settled["continuations"]]}, None))
+        self._commit_resolve(campaign, turn, call_id, params, result, new_receipts + receipts, events)
         return result
 
     def _commit_resolve(self, campaign: Campaign, turn: dict[str, Any], call_id: str,
                         params: dict[str, Any], result: dict[str, Any],
-                        receipts: list[dict[str, Any]], roll_event: dict[str, Any] | None) -> None:
+                        receipts: list[dict[str, Any]], events: list[tuple[str, dict[str, Any], str | None]]) -> None:
         turn["receipts"].extend(receipts)
         turn["state"] = "acting"
         Campaign.remember_call(turn, call_id, params, result)
         campaign.write_turn(turn)
-        if roll_event:
-            append_event(campaign, int(turn["turn"]), "roll-resolved", roll_event["data"],
-                         call_id=call_id, receipt=roll_event["receipt"])
-
-    def _resolve_skill(self, resolver: SkillResolver, action: dict[str, Any], goal: str, method: str) -> str:
-        explicit = action.get("skill")
-        if explicit is not None:
-            if not isinstance(explicit, str) or not explicit.strip():
-                raise invalid_params("action.skill must be a non-empty string")
-            found = resolver.resolve_explicit(explicit)
-            if found is None:
-                raise RpcError("needs", f"unknown skill or characteristic {explicit!r}",
-                               fix="set action.skill to one of details.needs.options",
-                               details={"needs": {"field": "skill",
-                                                  "options": resolver.options_for(explicit)}})
-            return found
-        matches = resolver.find_in_text(method)
-        if len(matches) == 1:
-            return matches[0]
-        if not matches:
-            matches = resolver.find_in_text(goal)
-            if len(matches) == 1:
-                return matches[0]
-        options = resolver.options_for(f"{method} {goal}", preferred=matches)
-        message = ("several skills named in method/goal; pick one" if matches
-                   else "no skill or characteristic found in method/goal")
-        raise RpcError("needs", message, fix="set action.skill to one of details.needs.options",
-                       details={"needs": {"field": "skill", "options": options}})
+        for event_type, data, receipt_id in events:
+            append_event(campaign, int(turn["turn"]), event_type, data, call_id=call_id, receipt=receipt_id)
 
     def _modifiers(self, modifiers: Any) -> tuple[int, int, str]:
         if modifiers is None:

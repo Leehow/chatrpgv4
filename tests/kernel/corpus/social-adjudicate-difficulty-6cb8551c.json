@@ -1,0 +1,35 @@
+{
+  "source": "social-adjudicate-difficulty-6cb8551c.json",
+  "decision": "social:adjudicate-difficulty",
+  "family": "social",
+  "setup": {},
+  "action": {
+    "intent": "social",
+    "target": "Steven Knott",
+    "skill": "Persuade",
+    "goal": "让诺特接受两天定金预付，并将他所知历次事故写入书面委托",
+    "method": "让诺特接受两天定金预付，并将他所知历次事故写入书面委托",
+    "stakes": "the described social action does not achieve its declared goal: 让诺特接受两天定金预付，并将他所知历次事故写入书面委托"
+  },
+  "expect": {
+    "decision": "social:adjudicate-difficulty",
+    "outcome_kind": "social",
+    "outcome": {
+      "approach": "persuade",
+      "approach_skill": "Persuade",
+      "feasibility": "roll",
+      "base_difficulty": "regular",
+      "final_difficulty": "regular",
+      "npc": "steven-knott"
+    },
+    "effect_kinds_allowed": [],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "continuations_on_failure": [
+      "push-luck:pushed-roll",
+      "push-luck:luck-spend"
+    ]
+  }
+}

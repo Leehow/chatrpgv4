@@ -115,8 +115,6 @@ def test_lookup_module_and_secret(kernel):
     assert len(module["conclusions"]) == 6
     assert all(c["summary"] for c in module["conclusions"])
 
-    assert kernel.table_err("lookup", kind="rule", query="pushed roll")["code"] == "not_implemented"
-    assert kernel.table_err("lookup", kind="catalog", query="x")["code"] == "not_implemented"
     assert kernel.table_err("lookup", kind="weird", query="x")["code"] == "invalid_params"
 
 

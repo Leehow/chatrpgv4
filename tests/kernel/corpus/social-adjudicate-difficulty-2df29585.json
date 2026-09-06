@@ -1,0 +1,35 @@
+{
+  "source": "social-adjudicate-difficulty-2df29585.json",
+  "decision": "social:adjudicate-difficulty",
+  "family": "social",
+  "setup": {},
+  "action": {
+    "intent": "social",
+    "target": "Steven Knott",
+    "skill": "Persuade",
+    "goal": "get Knott to accept deposit and written incident terms",
+    "method": "get Knott to accept deposit and written incident terms",
+    "stakes": "the described social action does not achieve its declared goal: get Knott to accept deposit and written incident terms"
+  },
+  "expect": {
+    "decision": "social:adjudicate-difficulty",
+    "outcome_kind": "social",
+    "outcome": {
+      "approach": "persuade",
+      "approach_skill": "Persuade",
+      "feasibility": "roll",
+      "base_difficulty": "regular",
+      "final_difficulty": "regular",
+      "npc": "steven-knott"
+    },
+    "effect_kinds_allowed": [],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "continuations_on_failure": [
+      "push-luck:pushed-roll",
+      "push-luck:luck-spend"
+    ]
+  }
+}

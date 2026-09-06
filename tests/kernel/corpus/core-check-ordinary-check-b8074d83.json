@@ -1,0 +1,36 @@
+{
+  "source": "core-check-ordinary-check-b8074d83.json",
+  "decision": "core-check:ordinary-check",
+  "family": "core-check",
+  "setup": {},
+  "action": {
+    "intent": "investigate",
+    "goal": "body-slam backward to break Corbitt claw grip and dive into the passage first",
+    "method": "",
+    "skill": "STR",
+    "stakes": "remain pinned at the chamber mouth under the claw",
+    "modifiers": {
+      "difficulty": "hard",
+      "bonus_dice": 0,
+      "penalty_dice": 0
+    }
+  },
+  "expect": {
+    "decision": "core-check:ordinary-check",
+    "outcome_kind": "check",
+    "outcome": {
+      "skill": "STR",
+      "difficulty": "hard",
+      "pushed": false
+    },
+    "effect_kinds_allowed": [],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "continuations_on_failure": [
+      "push-luck:pushed-roll",
+      "push-luck:luck-spend"
+    ]
+  }
+}

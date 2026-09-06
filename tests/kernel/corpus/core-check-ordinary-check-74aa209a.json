@@ -1,0 +1,35 @@
+{
+  "source": "core-check-ordinary-check-74aa209a.json",
+  "decision": "core-check:ordinary-check",
+  "family": "core-check",
+  "setup": {},
+  "action": {
+    "intent": "investigate",
+    "goal": "put space between himself and the pursuing corpse-thing and keep moving toward an exit from the cellar ritual chamber",
+    "method": "",
+    "skill": "Dodge",
+    "stakes": "Corbitt closes the gap in the ritual chamber; furniture or a clawing lunge forces a stop and the pursuit becomes immediate contact again",
+    "modifiers": {
+      "difficulty": "regular",
+      "bonus_dice": 0,
+      "penalty_dice": 0
+    }
+  },
+  "expect": {
+    "decision": "core-check:ordinary-check",
+    "outcome_kind": "check",
+    "outcome": {
+      "skill": "Dodge",
+      "difficulty": "regular",
+      "pushed": false
+    },
+    "effect_kinds_allowed": [],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "continuations_on_failure": [
+      "push-luck:luck-spend"
+    ]
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "source": "core-check-ordinary-check-56107c0b.json",
+  "decision": "core-check:ordinary-check",
+  "family": "core-check",
+  "setup": {},
+  "action": {
+    "intent": "investigate",
+    "goal": "find a hidden door or trapdoor leading toward the cellar while searching storage and corridor floors and wall bases",
+    "method": "",
+    "skill": "Spot Hidden",
+    "stakes": "floors and wall bases look solid; no trapdoor or secret panel is found this pass",
+    "modifiers": {
+      "difficulty": "regular",
+      "bonus_dice": 0,
+      "penalty_dice": 0
+    }
+  },
+  "expect": {
+    "decision": "core-check:ordinary-check",
+    "outcome_kind": "check",
+    "outcome": {
+      "skill": "Spot Hidden",
+      "difficulty": "regular",
+      "pushed": false
+    },
+    "effect_kinds_allowed": [],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "continuations_on_failure": [
+      "push-luck:pushed-roll",
+      "push-luck:luck-spend"
+    ]
+  }
+}

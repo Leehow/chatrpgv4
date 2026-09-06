@@ -1,0 +1,32 @@
+{
+  "source": "development-settle-ending-a324eb20.json",
+  "decision": "development:settle-ending",
+  "family": "development",
+  "setup": {
+    "pending_ending": true
+  },
+  "action": {
+    "intent": "montage",
+    "goal": "settle",
+    "method": "",
+    "decision": "development:settle-ending"
+  },
+  "expect": {
+    "decision": "development:settle-ending",
+    "outcome_kind": "development",
+    "outcome": {
+      "status": "settled"
+    },
+    "effect_kinds_allowed": [
+      "luck",
+      "san",
+      "skill"
+    ],
+    "event_types": [
+      "decision-settled"
+    ],
+    "optional_event_types": [
+      "resource-changed"
+    ]
+  }
+}

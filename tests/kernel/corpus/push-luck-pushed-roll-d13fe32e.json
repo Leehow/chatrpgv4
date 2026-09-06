@@ -1,0 +1,35 @@
+{
+  "source": "push-luck-pushed-roll-d13fe32e.json",
+  "decision": "push-luck:pushed-roll",
+  "family": "push-luck",
+  "setup": {
+    "prior_failed_check": {
+      "skill": "Persuade",
+      "difficulty": "regular",
+      "goal": "get Knott to accept deposit and written incident terms",
+      "stakes": "the described social action does not achieve its declared goal: get Knott to accept deposit and written incident terms"
+    }
+  },
+  "action": {
+    "intent": "investigate",
+    "goal": "get Knott to accept deposit and written incident terms",
+    "method": "reframes terms as landlord liability risk if known incidents are withheld",
+    "stakes": "Knott becomes thoroughly angry and may cancel the commission entirely",
+    "push": true
+  },
+  "expect": {
+    "decision": "push-luck:pushed-roll",
+    "outcome_kind": "push",
+    "outcome": {
+      "skill": "Persuade",
+      "difficulty": "regular",
+      "pushed": true
+    },
+    "effect_kinds_allowed": [],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "second_push_refused": "turn_state"
+  }
+}

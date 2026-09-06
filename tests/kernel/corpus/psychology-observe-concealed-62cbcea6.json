@@ -1,0 +1,31 @@
+{
+  "source": "psychology-observe-concealed-62cbcea6.json",
+  "decision": "psychology:observe-concealed",
+  "family": "psychology",
+  "setup": {},
+  "action": {
+    "intent": "investigate",
+    "target": "Steven Knott",
+    "goal": "Is Knott deliberately concealing risk when he speaks of the Corbitt House and the former Macario tenants?",
+    "method": "",
+    "decision": "psychology:observe-concealed"
+  },
+  "expect": {
+    "decision": "psychology:observe-concealed",
+    "outcome_kind": "psychology",
+    "outcome": {
+      "status": "observed",
+      "concealed": true,
+      "npc": "steven-knott"
+    },
+    "effect_kinds_allowed": [],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "continuations": [
+      "psychology:realize-player-safe"
+    ],
+    "roll_visibility": "keeper"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "source": "core-check-ordinary-check-e0c2c122.json",
+  "decision": "core-check:ordinary-check",
+  "family": "core-check",
+  "setup": {},
+  "action": {
+    "intent": "investigate",
+    "goal": "break free of Corbitt claw and bolt through the passage up the cellar stairs toward the front door",
+    "method": "",
+    "skill": "Dodge",
+    "stakes": "claw rakes or trip on stairs, Corbitt closes",
+    "modifiers": {
+      "difficulty": "regular",
+      "bonus_dice": 0,
+      "penalty_dice": 0
+    }
+  },
+  "expect": {
+    "decision": "core-check:ordinary-check",
+    "outcome_kind": "check",
+    "outcome": {
+      "skill": "Dodge",
+      "difficulty": "regular",
+      "pushed": false
+    },
+    "effect_kinds_allowed": [],
+    "event_types": [
+      "roll-resolved",
+      "decision-settled"
+    ],
+    "continuations_on_failure": [
+      "push-luck:luck-spend"
+    ]
+  }
+}

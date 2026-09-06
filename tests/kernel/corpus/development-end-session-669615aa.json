@@ -1,0 +1,32 @@
+{
+  "source": "development-end-session-669615aa.json",
+  "decision": "development:end-session",
+  "family": "development",
+  "setup": {},
+  "action": {
+    "intent": "montage",
+    "goal": "托马斯·海斯拒绝诺特的科比特宅委托，未碰钥匙，起身离开咖啡馆，主动结束本次调查。",
+    "method": "",
+    "decision": "development:end-session",
+    "ending": "retreat"
+  },
+  "expect": {
+    "decision": "development:end-session",
+    "outcome_kind": "development",
+    "outcome": {
+      "status": "settled",
+      "ending_kind": "retreat"
+    },
+    "effect_kinds_allowed": [
+      "luck",
+      "san",
+      "skill"
+    ],
+    "event_types": [
+      "decision-settled"
+    ],
+    "optional_event_types": [
+      "resource-changed"
+    ]
+  }
+}
