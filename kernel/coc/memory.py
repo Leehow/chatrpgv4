@@ -50,10 +50,14 @@ class EntityIndex:
     """Names → canonical keys. `allowed` restricts graph nodes to the job's known entities;
     None means the whole graph (recall)."""
 
-    def __init__(self, graph: ModuleGraph, party: list[dict[str, Any]], allowed: list[str] | None = None) -> None:
+    def __init__(self, graph: ModuleGraph, party: list[dict[str, Any]], allowed: list[str] | None = None,
+                 scene_labels: dict[str, str] | None = None) -> None:
         self.graph = graph
         self.party = party
         self.allowed = list(allowed) if allowed is not None else None
+        # The keeper's own names for scenes (world.scene_labels) resolve like aliases;
+        # stored rows keep the graph's name so a relabel never orphans them.
+        self.scene_labels = {str(k): str(v) for k, v in (scene_labels or {}).items()}
 
     @staticmethod
     def node_key(node: dict[str, Any]) -> str:
@@ -105,7 +109,42 @@ class EntityIndex:
             if self.allowed is not None and node_id not in self.allowed:
                 continue
             found.append(self.node_key(node))
+        if SCENE_KIND in kinds:
+            for handle, label in self.scene_labels.items():
+                if normalize(label) != key:
+                    continue
+                node = self.graph.find(handle, (SCENE_KIND,))
+                if node and (self.allowed is None or node["node_id"] in self.allowed):
+                    key_of = self.node_key(node)
+                    if key_of not in found:
+                        found.append(key_of)
         return found
+
+    def loose_matches(self, name: str, *, kinds: tuple[str, ...] = ENTITY_KINDS) -> list[str]:
+        """When the exact name was not given, a whole word of one: 'Knott' names Steven
+        Knott. People (investigators, NPCs) win over places and clues that carry the same
+        word; what stays ambiguous is an error, never a guess."""
+        key = normalize(name)
+        if not key:
+            return []
+        people: list[str] = []
+        others: list[str] = []
+        for sheet in self.party:
+            words = set(normalize(str(sheet.get("name"))).split()) | set(normalize(str(sheet.get("id"))).split())
+            if key in words:
+                people.append(f"investigator:{sheet.get('id')}")
+        for kind in kinds:
+            for node in self.graph.by_kind.get(kind, []):
+                if self.allowed is not None and node["node_id"] not in self.allowed:
+                    continue
+                words: set[str] = set()
+                for alias in (self.graph.display_name(node), self.graph.handle(node), node.get("node_id"),
+                              self.scene_labels.get(self.graph.handle(node)) if kind == SCENE_KIND else None):
+                    if alias:
+                        words |= set(normalize(str(alias)).split())
+                if key in words:
+                    (people if kind == NPC_KIND else others).append(self.node_key(node))
+        return people if people else others
 
     def usable_names(self) -> list[str]:
         names = [str(sheet.get("name")) for sheet in self.party]
@@ -124,7 +163,8 @@ class EntityIndex:
 
 
 def known_entities_for(graph: ModuleGraph, party: list[dict[str, Any]], scene: dict[str, Any],
-                       present: list[dict[str, Any]], clue_handles: list[str]) -> tuple[list[dict[str, str]], list[str]]:
+                       present: list[dict[str, Any]], clue_handles: list[str],
+                       scene_name: str | None = None) -> tuple[list[dict[str, str]], list[str]]:
     """The names a job packet lists: investigators, present NPCs, the scene, the clues
     found so far. Returns (rows, allowed node ids in the same order)."""
     rows: list[dict[str, str]] = [{"name": str(s.get("name")), "kind": "investigator"} for s in party]
@@ -132,7 +172,7 @@ def known_entities_for(graph: ModuleGraph, party: list[dict[str, Any]], scene: d
     for node in present:
         rows.append({"name": graph.display_name(node), "kind": "npc"})
         allowed.append(node["node_id"])
-    rows.append({"name": graph.display_name(scene), "kind": "scene"})
+    rows.append({"name": scene_name or graph.display_name(scene), "kind": "scene"})
     allowed.append(scene["node_id"])
     for handle in clue_handles:
         node = graph.find(handle, (CLUE_KIND,))
@@ -247,7 +287,9 @@ def build_job(campaign: Campaign, graph: ModuleGraph, language: str, turn: int,
     scene = graph.scene(str(scene_name))
     present_names = list(snapshot.get("present") or [])
     present = [node for name in present_names if (node := graph.find(str(name), (NPC_KIND,)))]
-    known, allowed = known_entities_for(graph, party, scene, present, clues_known_by(records, turn))
+    labels = campaign.read_world().get("scene_labels") or {}
+    scene_name = str(labels.get(graph.handle(scene)) or graph.display_name(scene))
+    known, allowed = known_entities_for(graph, party, scene, present, clues_known_by(records, turn), scene_name=scene_name)
     labels = {str(i.get("id")): str(i.get("name")) for i in snapshot.get("investigators") or []}
     facts = record.get("facts") or {}
     committed = list(facts.get("committed") or []) or committed_facts(
@@ -256,13 +298,13 @@ def build_job(campaign: Campaign, graph: ModuleGraph, language: str, turn: int,
     about = [row["name"] for row in known if row["kind"] in ("investigator", "npc")]
     prior = [{"id": h["id"], "kind": h["kind"], "subject": h["subject"], "statement": h["statement"],
               "status": h["status"], "turn": h["turn"]}
-             for h in query_candidates(campaign, EntityIndex(graph, party), about=about, narrow=False,
+             for h in query_candidates(campaign, EntityIndex(graph, party, scene_labels=labels), about=about, narrow=False,
                                        limit=PRIOR_LIMIT)]
     return {
         "job_id": job_id_for(campaign.id, turn),
         "turn": turn,
         "commit": record.get("commit"),
-        "scene": {"name": graph.handle(scene), "display_name": graph.display_name(scene)},
+        "scene": {"name": graph.handle(scene), "display_name": scene_name},
         "present": [graph.display_name(n) for n in present],
         "investigators": [{"id": str(s.get("id")), "name": str(s.get("name"))} for s in party],
         "player_text": record.get("player_text"),
@@ -412,7 +454,8 @@ def submit(campaign: Campaign, graph: ModuleGraph, party: list[dict[str, Any]], 
             return dict(job.get("result") or {}), True
         raise RpcError("idempotency_conflict", f"job {job_id} already completed with different candidates",
                        fix="a completed job is final; nothing to resubmit", details={"job_id": job_id})
-    entity_index = EntityIndex(graph, party, list(job.get("allowed") or []))
+    entity_index = EntityIndex(graph, party, list(job.get("allowed") or []),
+                               scene_labels=campaign.read_world().get("scene_labels"))
     try:
         rows = validate_candidates(entity_index, candidates)
     except RpcError as exc:
@@ -423,7 +466,7 @@ def submit(campaign: Campaign, graph: ModuleGraph, party: list[dict[str, Any]], 
     used = [int(r["id"].rsplit("-", 1)[1]) for r in existing
             if str(r.get("id", "")).startswith(f"mem:t{turn}-") and r["id"].rsplit("-", 1)[1].isdigit()]
     next_k = max(used, default=0) + 1
-    graph_index = EntityIndex(graph, party)
+    graph_index = EntityIndex(graph, party, scene_labels=campaign.read_world().get("scene_labels"))
     written: list[dict[str, Any]] = []
     superseded: list[str] = []
     for row in rows:

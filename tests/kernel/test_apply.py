@@ -163,3 +163,21 @@ def test_damage_effect_rolls_the_dice_and_moves_hp(kernel):
     assert f"【变化】生命值：" in narrated["rendered_text"]
     bad = kernel.table_err("apply", call_id="t2-c1", effects=[{"kind": "damage", "dice": "lots"}])
     assert bad["code"] in ("invalid_params", "turn_state")
+
+
+def test_move_label_names_the_scene_from_then_on(kernel):
+    """A label given once is the scene's name afterwards: capsule, receipts, checkpoint."""
+    open_turn(kernel)
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "hall-of-records", "label": "档案馆",
+                                                     "travel_minutes": 0}])
+    assert world(kernel)["scene_labels"] == {"hall-of-records": "档案馆"}
+    assert kernel.table("look", focus="scene")["where"]["display_name"] == "档案馆"
+    kernel.table("apply", call_id="t1-c2", effects=[{"kind": "move", "to": OPENING_SCENE}])
+    receipt = kernel.table("status")["receipts"][-1]
+    assert receipt["from_label"] == "档案馆" and receipt["to_label"] == "Knott's Office"
+    kernel.table("apply", call_id="t1-c3", effects=[{"kind": "move", "to": "hall-of-records"}])
+    assert kernel.table("look", focus="scene")["where"]["display_name"] == "档案馆"
+    narrated = kernel.table("narrate", call_id="t1-c4", text="你回到了档案馆。")
+    assert "【变化】场景：Knott's Office → 档案馆" in narrated["rendered_text"]
+    record = read_json(campaign_dir(kernel.workspace) / "turns" / "0001.json")
+    assert record["world"]["scene"] == {"name": "hall-of-records", "display_name": "档案馆"}

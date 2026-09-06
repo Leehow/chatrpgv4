@@ -48,6 +48,13 @@ def describe_condition(when: Any) -> str:
 
 # ---- sections -----------------------------------------------------------------
 
+def scene_label(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any]) -> str:
+    """The name the table calls a scene: the label the keeper gave it on `apply move`
+    (kept in `world.scene_labels`, player language) or else the graph's display name."""
+    labels = world.get("scene_labels") or {}
+    return str(labels.get(graph.handle(scene)) or graph.display_name(scene))
+
+
 def where_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any]) -> dict[str, Any]:
     record = record_of(scene)
     exits = []
@@ -91,13 +98,13 @@ def where_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, An
     back = []
     for handle in reversed([str(h) for h in world.get("scene_trail") or []]):
         try:
-            back.append({"to": handle, "display_name": graph.display_name(graph.scene(handle))})
+            back.append({"to": handle, "display_name": scene_label(graph, world, graph.scene(handle))})
         except Exception:  # noqa: BLE001 - a stale handle in an old world is not a reason to lose the section
             back.append({"to": handle})
 
     return {
         "scene": graph.handle(scene),
-        "display_name": graph.display_name(scene),
+        "display_name": scene_label(graph, world, scene),
         "dramatic_question": record.get("dramatic_question"),
         "pressure_moves": list(record.get("pressure_moves") or []),
         "exits": exits,
@@ -254,7 +261,8 @@ def memory_section(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any]
     from .memory import EntityIndex, query_candidates  # local: memory imports facts, which imports render
     about = [graph.display_name(n) for n in npcs_present(graph, world, scene)]
     about.extend(str(sheet.get("name")) for sheet in party)
-    return query_candidates(campaign, EntityIndex(graph, party), about=about, narrow=False, limit=MEMORY_HITS)
+    return query_candidates(campaign, EntityIndex(graph, party, scene_labels=world.get("scene_labels")),
+                            about=about, narrow=False, limit=MEMORY_HITS)
 
 
 def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],

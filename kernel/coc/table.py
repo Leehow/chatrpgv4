@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from . import KERNEL_VERSION, continuation, history, memory, recall as recall_roads, warn as warn_lane
-from .capsule import (build_capsule, clues_here, investigator_view, npc_view, npcs_present,
+from .capsule import (scene_label, build_capsule, clues_here, investigator_view, npc_view, npcs_present,
                       present_section, where_section)
 from .errors import RpcError, invalid_params, not_implemented
 from .events import append_event
@@ -119,7 +119,7 @@ class Table:
         view = SessionView(campaign.dir, graph, party, world)
         session = view.active_session()
         return {
-            "scene": {"name": graph.handle(scene), "display_name": graph.display_name(scene)},
+            "scene": {"name": graph.handle(scene), "display_name": scene_label(graph, world, scene)},
             "clock": {"minutes": int((world.get("clock") or {}).get("minutes") or 0)},
             "present": [graph.display_name(n) for n in npcs_present(graph, world, scene)],
             "investigators": [{"id": s.get("id"), "name": s.get("name"), "hp": s.get("current_hp"),
@@ -179,6 +179,7 @@ class Table:
             "active_scene": start_handle,
             "visited_scenes": [start_handle],
             "scene_trail": [],
+            "scene_labels": {},
             "discovered_clues": [],
             "flags": {},
             "clock": {"minutes": 0},
@@ -278,7 +279,7 @@ class Table:
             "campaign": meta,
             "turn": {"number": turn["turn"], "state": turn["state"]},
             "investigators": self._investigators(campaign),
-            "scene": {"name": graph.handle(scene), "display_name": graph.display_name(scene)},
+            "scene": {"name": graph.handle(scene), "display_name": scene_label(graph, world, scene)},
             "pending_turn": pending_turn,
             "opening_needed": opening_needed,
             "resume": resume,
@@ -451,7 +452,7 @@ class Table:
     def _recall_memory(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any],
                        params: dict[str, Any]) -> dict[str, Any]:
         party = campaign.party()
-        index = memory.EntityIndex(graph, party)
+        index = memory.EntityIndex(graph, party, scene_labels=world.get("scene_labels"))
         about = params.get("about")
         narrow = about is not None
         if about is None:
@@ -461,14 +462,20 @@ class Table:
         elif not isinstance(about, list) or not all(isinstance(a, str) and a.strip() for a in about):
             raise invalid_params("about must be a list of names")
         else:
+            resolved: list[str] = []
             for name in about:
-                found = index.matches(name)
+                # Exact name first; else one whole word of a name ('Knott' → Steven Knott),
+                # people before places and clues. Ambiguity is an error that lists the names.
+                found = index.matches(name) or index.loose_matches(name)
                 if len(found) != 1:
+                    names = [index.canonical_name(k) for k in found] if found else graph.candidates(name, memory.ENTITY_KINDS)
                     raise RpcError("unknown_entity",
                                    f"{name!r} is {'ambiguous' if found else 'not a known name'}",
-                                   fix="use an investigator, NPC, scene or clue name, or world/party/keeper/player",
-                                   details={"query": name, "candidates": graph.candidates(name, memory.ENTITY_KINDS)
-                                            if not found else [index.canonical_name(k) for k in found]})
+                                   fix=f"use one of {names}" if names else
+                                   "use an investigator, NPC, scene or clue name, or world/party/keeper/player",
+                                   details={"query": name, "candidates": names})
+                resolved.append(index.canonical_name(found[0]))
+            about = resolved
         turns = params.get("turns")
         if turns is not None:
             turns = recall_roads.parse_span(turns, 0, 0)
@@ -515,8 +522,12 @@ class Table:
                      {"pending_choice": pending["name"] if pending else None})
         append_event(campaign, number, "player-declared", {"text": text})
         resume = self._resume_pending.pop(campaign.id, None)
-        return {"turn": number, "state": "open",
-                "capsule": build_capsule(graph, campaign, world, new_turn, campaign.party(), resume=resume)}
+        capsule = build_capsule(graph, campaign, world, new_turn, campaign.party(), resume=resume)
+        # What the keeper was told this turn is evidence (spec §13): it rides in turn.json
+        # and lands in the closed record with the receipts.
+        new_turn["capsule"] = capsule
+        campaign.write_turn(new_turn)
+        return {"turn": number, "state": "open", "capsule": capsule}
 
     # ---- resolve ------------------------------------------------------------
 
@@ -774,8 +785,13 @@ class Table:
         label = effect.get("label") if isinstance(effect.get("label"), str) and effect.get("label").strip() else None
         receipt = {"id": f"move:{dest_handle}-t{turn_number}-c{ordinal}", "kind": "move",
                    "call_id": call_id, "from": graph.handle(current), "to": dest_handle,
-                   "from_label": graph.display_name(current), "to_label": label or graph.display_name(destination),
+                   "from_label": scene_label(graph, world, current),
+                   "to_label": label or scene_label(graph, world, destination),
                    "minutes": minutes, "at": now_iso()}
+        if label:
+            # A name given once is the scene's name from then on: 【变化】 lines, the capsule
+            # and the checkpoint all say 罗克斯伯里疗养院, never the handle.
+            world.setdefault("scene_labels", {})[dest_handle] = label
         world["scene_trail"] = trail[:trail.index(dest_handle)] if dest_handle in trail else [*trail, current_handle]
         world["active_scene"] = dest_handle
         if dest_handle not in world.setdefault("visited_scenes", []):
@@ -899,6 +915,7 @@ class Table:
             "text": text or prompt, "rendered_text": rendered, "calls": turn.get("calls", {}), "commit": None,
             "closed_by": "ask", "opened_at": turn.get("opened_at"), "closed_at": now_iso(),
             "pending_choice": pending, "world": self._snapshot(campaign, graph, world, campaign.party()),
+            "capsule": turn.get("capsule"),
         })
         campaign.write_turn(turn)
         campaign.append_transcript(turn_number, "keeper", rendered)
@@ -945,7 +962,7 @@ class Table:
             "turn": turn_number, "player_text": turn.get("player_text"), "receipts": receipts,
             "text": text, "rendered_text": rendered, "placement": placement, "calls": turn.get("calls", {}),
             "commit": None, "closed_by": "narrate", "opened_at": turn.get("opened_at"),
-            "closed_at": now_iso(), "pending_choice": turn.get("pending_choice"),
+            "closed_at": now_iso(), "pending_choice": turn.get("pending_choice"), "capsule": turn.get("capsule"),
             "world": snapshot, "facts": facts,
         }
         campaign.write_turn_record(record)

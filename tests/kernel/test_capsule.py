@@ -134,3 +134,14 @@ def test_recall_transcript(kernel):
     assert kernel.table("recall", what="history")["what"] == "history"
     assert kernel.table_err("recall", what="dreams")["code"] == "invalid_params"
     assert kernel.table_err("recall", what="transcript", turns=[3, 1])["code"] == "invalid_params"
+
+
+def test_capsule_is_kept_with_the_turn_cursor_and_the_closed_record(kernel):
+    from conftest import OPENING_SCENE as _OPENING, campaign_dir as _dir, open_turn as _open_turn, read_json as _read
+    opened = _open_turn(kernel, "我看着诺特。")
+    cursor = _read(_dir(kernel.workspace) / "turn.json")
+    assert cursor["capsule"]["where"]["scene"] == _OPENING
+    assert cursor["capsule"] == opened["capsule"]
+    kernel.table("narrate", call_id="t1-c1", text="他看着你。")
+    record = _read(_dir(kernel.workspace) / "turns" / "0001.json")
+    assert record["capsule"]["turn"]["number"] == 1 and record["capsule"]["where"]["scene"] == _OPENING

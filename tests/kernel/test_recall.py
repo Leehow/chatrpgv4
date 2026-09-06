@@ -124,3 +124,14 @@ def test_history_timeline_events_and_diff(kernel):
     record["receipts"] = [r for r in record["receipts"] if r["kind"] != "clue"]
     path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
     assert kernel.table("recall", what="history", diff=[0, 2])["diff"]["clues_added"] == []
+
+
+def test_recall_memory_about_takes_one_word_of_a_name_people_first(kernel):
+    from conftest import open_turn as _open_turn
+    _open_turn(kernel)
+    hits = kernel.table("recall", what="memory", about=["Knott"])
+    assert hits["about"] == ["Steven Knott"], "a whole word of an NPC name resolves; the clues knott-keys/knott-commission lose to the person"
+    corbitt = kernel.table("recall", what="memory", about=["Corbitt"])
+    assert corbitt["about"] == ["Walter Corbitt"]
+    error = kernel.table_err("recall", what="memory", about=["Atlantis"])
+    assert error["code"] == "unknown_entity"

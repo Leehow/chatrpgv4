@@ -300,8 +300,11 @@ def test_recall_memory_ranks_by_overlap_then_recency_and_narrows_on_about(kernel
     assert [h["id"] for h in kernel.table("recall", what="memory", kinds=["belief", "world_event"])["hits"]] == ["mem:t2-2", "mem:t1-2"]
     assert [h["id"] for h in kernel.table("recall", what="memory", turns=[2, 2])["hits"]] == ["mem:t2-1", "mem:t2-2"]
     assert len(kernel.table("recall", what="memory", limit=1)["hits"]) == 1
-    unknown = kernel.table_err("recall", what="memory", about=["Corbitt"])
-    assert unknown["code"] == "unknown_entity" and unknown["details"]["query"] == "Corbitt"
+    # 'Corbitt' is one word of Walter Corbitt's name and resolves to him (people first);
+    # a name that is nobody's word is still unknown.
+    assert kernel.table("recall", what="memory", about=["Corbitt"])["about"] == ["Walter Corbitt"]
+    unknown = kernel.table_err("recall", what="memory", about=["Atlantis"])
+    assert unknown["code"] == "unknown_entity" and unknown["details"]["query"] == "Atlantis"
     assert kernel.table_err("recall", what="memory", kinds=["rumor"])["code"] == "invalid_params"
     assert kernel.table_err("recall", what="memory", limit=31)["code"] == "invalid_params"
     # readable in every state, including awaiting_player
