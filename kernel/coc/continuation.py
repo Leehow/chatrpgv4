@@ -36,7 +36,8 @@ def read_checkpoint(campaign: Campaign) -> dict[str, Any] | None:
 
 
 def checkpoint_from_record(campaign_id: str, record: dict[str, Any],
-                           fallback_snapshot: dict[str, Any]) -> dict[str, Any]:
+                           fallback_snapshot: dict[str, Any], *,
+                           worldline: str | None = None) -> dict[str, Any]:
     """The checkpoint a committed turn record implies. `record["world"]` is the snapshot
     narrate wrote at close; a record without one (never written by this kernel) takes
     the caller's current snapshot."""
@@ -47,6 +48,9 @@ def checkpoint_from_record(campaign_id: str, record: dict[str, Any],
     return {
         "schema": SCHEMA,
         "campaign": campaign_id,
+        # §15.6: the line this turn was played on. The checkpoint lives in that line's
+        # work tree, so this names the line rather than selecting it.
+        "worldline": worldline,
         "turn": int(record["turn"]),
         "commit": record.get("commit"),
         "at": now_iso(),
@@ -66,7 +70,8 @@ def write_checkpoint(campaign: Campaign, checkpoint: dict[str, Any]) -> None:
     write_json_atomic(campaign.checkpoint_path, checkpoint)
 
 
-def sync_checkpoint(campaign: Campaign, fallback_snapshot: dict[str, Any]) -> tuple[dict[str, Any] | None, bool]:
+def sync_checkpoint(campaign: Campaign, fallback_snapshot: dict[str, Any], *,
+                    worldline: str | None = None) -> tuple[dict[str, Any] | None, bool]:
     """Make the checkpoint agree with HEAD. Returns (checkpoint, rebuilt). HEAD ahead of
     the checkpoint (or no checkpoint at all while HEAD has a turn) rebuilds it from
     HEAD's turn record; no narrate commit yet leaves whatever is there."""
@@ -84,7 +89,7 @@ def sync_checkpoint(campaign: Campaign, fallback_snapshot: dict[str, Any]) -> tu
         # Died after the commit, before the record learned its sha.
         record["commit"] = head
         campaign.write_turn_record(record)
-    checkpoint = checkpoint_from_record(campaign.id, record, fallback_snapshot)
+    checkpoint = checkpoint_from_record(campaign.id, record, fallback_snapshot, worldline=worldline)
     write_checkpoint(campaign, checkpoint)
     return checkpoint, True
 
@@ -131,6 +136,7 @@ def resume_view(checkpoint: dict[str, Any] | None, rebuilt: bool) -> dict[str, A
     return {
         "turn": checkpoint["turn"],
         "commit": checkpoint["commit"],
+        "worldline": checkpoint.get("worldline"),
         "scene": checkpoint.get("scene"),
         "clock": checkpoint.get("clock"),
         "session": checkpoint.get("session"),

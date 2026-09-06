@@ -128,6 +128,27 @@ def history(campaign: Campaign, current: int, params: dict[str, Any]) -> dict[st
     return result
 
 
+def worldline_tree(meta: dict[str, Any]) -> dict[str, Any]:
+    """§15.6: `recall history {lines: true}`. Every line the campaign has, in fork order:
+    where it branched, which circuit of the loop it is, how far it played and whether it
+    is the one at the table. Read from the registry alone; no git object is opened."""
+    from .worldline import active_name, registry  # local: worldline reads history, which reads nothing here
+    lines = registry(meta)
+    active = active_name(meta)
+    rows = []
+    for name in sorted(lines):
+        row = lines[name] if isinstance(lines[name], dict) else {}
+        forked = row.get("forked_from") if isinstance(row.get("forked_from"), dict) else None
+        rows.append({"name": name, "kind": row.get("kind"), "loop": int(row.get("loop") or 0),
+                     "status": row.get("status"), "last_turn": row.get("last_turn"),
+                     "last_commit": row.get("last_commit"),
+                     "forked_from": ({"line": forked.get("line"), "turn": forked.get("turn"),
+                                      "commit": forked.get("commit")} if forked else None),
+                     "parents": row.get("parents") or [],
+                     "active": name == active})
+    return {"active": active, "lines": rows}
+
+
 def history_diff(records: dict[int, dict[str, Any]], diff: Any) -> dict[str, Any]:
     """State at the end of turn a against the end of turn b, accumulated from the receipts
     of turns a+1..b. Only turn records are read."""

@@ -22,7 +22,7 @@ from . import history
 from .chargen import default_investigator_id
 from .errors import RpcError, invalid_params
 from .fileio import read_json, write_json_atomic
-from .module_graph import ModuleGraph, record_of
+from .module_graph import ModuleGraph, module_declaration
 from .store import Campaign, Store, now_iso
 from .text import ascii_slug
 
@@ -36,8 +36,6 @@ FALLBACK_STEM = "investigator"
 LIBRARY_ID = re.compile(r"^(?P<stem>[a-z0-9][a-z0-9-]*)-(?P<n>[1-9]\d*)$")
 #: the turn states in which a card may join the party: the keeper is not acting
 LOADABLE_STATES = frozenset({"awaiting_player", "asked"})
-#: the file in the module node's runtime projection that names the book's era
-MODULE_META_DOCUMENT = "module-meta.json"
 
 
 # ---- errors ---------------------------------------------------------------------------------
@@ -174,16 +172,7 @@ def module_era(graph: ModuleGraph) -> str | None:
     """The era the book declares: `module-meta.json`'s `era` in the module node's runtime
     projection (where every starter carries it), else the node's record. None when the
     graph says nothing -- then there is nothing to mismatch against."""
-    node = graph.module_node
-    if not node:
-        return None
-    projection = (node.get("properties") or {}).get("runtime_projection") or {}
-    for document in projection.get("documents") or []:
-        if isinstance(document, dict) and document.get("filename") == MODULE_META_DOCUMENT:
-            era = (document.get("root") or {}).get("era")
-            if isinstance(era, str) and era:
-                return era
-    era = record_of(node).get("era")
+    era = module_declaration(graph.module_node).get("era")
     return era if isinstance(era, str) and era else None
 
 

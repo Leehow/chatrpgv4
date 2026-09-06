@@ -820,6 +820,29 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 - 真桌：玩到循环终点回溯，第二圈与第一圈不同（骰子、NPC 反应、Director 节拍），声明记得的 NPC 表现出记得；再开一条 if 线并与主线汇流，汇流报告出冲突、守秘人处置、回声被投放并揭示。KPI 与前几个切片同一脚本。
 - 旧树 `tests/test_timeline_dag.py`、`test_timeline_fork_rewinds.py`、`test_timeline_confluence.py`、`test_toolbox_timeline*.py` 的用例名作为行为清单逐条对照（分叉不动主线、切线只动活动线、汇流冲突枚举完整且有序、处置闭合、不可复制类别不合并、重放幂等、状态写失败回滚引用）。
 
+### 15.9 内核的决定（已实现）
+
+**这一轮做了 §15.1、§15.2、§15.3 的 `fork` 与 `switch`、§15.6。** `merge`（§15.3 第三条效果）、汇流报告与回声（§15.4）、跨线记忆与跨圈知晓（§15.5）、扩展侧（§15.7）留给第二轮；`apply merge` 现在报 `not_implemented`，胶囊 `worldlines` 的 `echoes`/`echoes_here`/`previous_loop` 三个键存在但恒为空/零，`recall memory` 没有 `line` 参数，`present[].known_facts` 与 `lookup secret` 没有 `from_other_lines`。
+
+- **一个新模块。** `kernel/coc/worldline.py` 装下整节：注册表、种子、模组声明的读法、锚点快照、`fork`/`switch` 的校验与执行、胶囊节、Director 三信号。`module_graph.py` 一个字没动——`resets-to`、`persists-across-loop`、`remembers_across_loops` 都是从 `graph.raw["relations"]` 与 `record_of(node)` 直接读的，图的接口不为这一节扩张。`history.py` 只加 git 动词（分支、符号引用、检出、脏检查、`show`/`ls-tree`），不含任何世界线判断。
+- **分支与 HEAD。** `campaign.create` 在第一次提交之前就把裸仓库的 HEAD 指到 `refs/heads/wl/main`，所以新战役从第一个提交起就在线上；没有 `wl/` 分支的旧战役在 `table.open` 时把当前 HEAD 登记成 `wl/main` 并移动符号引用，不改任何提交。
+- **`campaign.json` 是战役全局的，但它在工作树里。** 注册表按 §15.1 住在 `campaign.json`，而工作树属于当前分支，所以检出会把它换成目标线的旧副本。定下的规矩是：**注册表是权威，检出之后立刻用内存里的注册表覆盖写回**（`table.open` 与 `transition` 各写一次）。不把 `campaign.json` 排除出仓库——排除之后检出一个更早的提交仍会把它写回来，问题不减反增。
+- **提交形状（契约没写）。** 一次迁移最多留两个提交：离开前在源线上 `worldline <src>: sealed at turn <n>`（回合提交之后总有残渣——回合记录刚学到自己的 sha、注册表刚更新——而检出拒绝脏工作树），落地后在新线上 `worldline <name>: forked from <src> at turn <n>` / `worldline <name>: resumed from <src> at turn <n>` / `loop <n> reset`。工作树干净时不写第二个提交（在本回合提交上开的 `if` 线就是这种）。这些提交的标题**故意不用 `turn <n>:` 开头**：`history.head_turn` 按这个前缀认回合，`continuation.sync_checkpoint` 会把 HEAD 的 sha 补写进回合记录，世界线提交若冒充回合提交就会把记录的 `commit` 指错。
+- **执行顺序（契约说错了一处）。** §15.3 写「在提交后链里，检查点之前」。实际是**检查点之后**：检查点描述的是刚关闭的那一回合，属于源线，先写在源线的工作树里再随 seal 提交进去；若先迁移，这份检查点就会落进目标线的工作树，描述一条它没有的回合。顺序是 `narrate` 提交 → §12.2 的提交后链（检查点、library、episode）→ 世界线迁移 → 按新线的回合号重播骰子。
+- **失败即回滚，回合不回滚。** 迁移是提交后链的一环：任何一步抛异常都强制检出回源线、删掉本次调用刚建的分支、把迁移前的 `campaign.json` 写回去，然后只落一行 `lane: worldline, ok: false` 的遥测。回合已经提交，守秘人不会收到错误；下一回合的胶囊里线名没变，就是它没成的证据。
+- **`mode`，不是 `kind`。** §15.3 的 `fix` 文案写成「`kind: if` forks the line as it stands」，但 `kind` 已经是效果种类（`fork`），模式字段是 `mode`。实现按 `mode` 读，文案改成 `mode: if`。
+- **收据 id 带回合号。** §15.3 写 `fork:<name>` / `switch:<line>`。收据 id 只要求线内唯一（§15.1），而同一条线可以在不同回合切回同一条线，所以实际铸成 `fork:<name>-t<turn>` 与 `switch:<line>-t<turn>`，与 §2 的语义 id 同形。
+- **收据不渲染，投影成一行。** §16 覆盖 §15.3 的【变化】说法：收据 `kind: "worldline"` 投影为 `mechanics` 的 `{"kind": "worldline", "receipt", "operation", "line", "mode", "loop", "from_line", "from_turn", "label"?}`。它不欠数字，所以 `narrate` 的核对（§16.3）对它没有要求。
+- **两个新事件类型。** §12.1 的十八类加 `worldline-forked`、`worldline-switched`。事件**落在迁移之后落地的那条线上**，`turn` 取落地线接下来要打的那一回合，`data.from` 指出从哪条线的哪一回合来；离开的那条线把收据与迁移计划留在自己的回合记录里（`turns/NNNN.json` 的 `worldline`）。理由：事件流是分支里的文件，把源线的回合号写进一条不含那个回合的线的日志只会读错。
+- **一回合一条，且必须最后。** 校验在 `apply` 的批处理里（不是执行时）：不是本批最后一条 → `invalid_params`；本回合已经有一条 → `invalid_params`；`ask` 关回合时如果 `turn.json` 挂着世界线计划 → `invalid_params`。计划落在 `turn.json.worldline`，所以跨多次 `apply` 调用也只算一条。
+- **种子。** `main` 的 `forked_from` 是 null，`sha256("<campaign>:main:")` 取前 16 位（空串占位）。每回合按 `"<seed>:<turn>"` 重播，只在 `table.player_input` 与 `table.open` 重播——回合内不重播，否则同一回合里的两次 `resolve` 会掷出同样的数。给了 `COC_KERNEL_SEED` 就一次都不重播（测试的确定性不变）。
+- **锚点快照从 git 读。** 回合记录只存 §12.2 的摘要（场景、时钟、调查员几个数），重建不出 `world.json`，所以锚点快照是 `git show <commit>:world.json` 与 `party/*.json`，存 `save/worldlines/anchor.json`；已存在就不重算。锚点就是开场场景时取根提交（建战役那一刻），否则取「快照场景等于锚点」的第一条有 commit 的回合记录。
+- **重置口径（契约只给了原则）。** 新世界 = 锚点世界的深拷贝；`discovered_clues` 并上当前线里句柄在 `persists-across-loop` 源集合中的那些；`flags` 同法按 flag 名匹配句柄；`reset.clock == keep` 时保留当前时钟；`reset.investigators == keep` 时整张表原样留下，否则回锚点的表再把名字落在持久集合里的 `equipment`/`weapons` 行与 `conditions` 带回来。匹配一律走名字归一化，不做语义判断。
+- **锚点的选法。** `resets-to` 可以有多条：源节点就是当前场景、或被当前场景以 `contains`/`occurs-at`/`present-in`/`located-in`/`discoverable-at` 任一方向关联的那条优先；都不命中就取按节点 id 排序的第一条，所以在任何场景都能回溯，`loop_available` 只在真的「此处可回溯」时为真。
+- **胶囊与 Director。** `worldlines` 节 1.5KB，超出按尾部裁剪并记 `truncated`；`loop_available` 为真时 `obligations` 多一条 `{"kind": "loop", "who": "keeper"}`；`director.because` 末尾追加 `loop_count`、`echoes_here`、`loop_available` 三行，**不进打分**（`time_loop` 的结构权重图里本来就有）。`head` 多一句说明这一节。
+- **另外三处出口。** `table.open` 的结果加 `worldline: {name, kind, loop}`；`apply` 的结果在挂上计划时加 `worldline: {operation, line, mode, loop, when}`（说明它在本回合 narrate 提交后才发生）；`recall history {lines: true}` 加 `lines: {active, lines: [...]}`，只读注册表，不开 git 对象。续行检查点与 `resume` 加 `worldline` 字段（记名，不用来选线）。
+- **旧树行为清单的对照。** 分叉不动主线、切线只动活动线、重放幂等（同 `call_id` 只分叉一次）、状态写失败回滚引用——四条都有 `tests/kernel/test_worldline.py` 的用例；汇流那几条随 §15.4 一起留到第二轮。
+
 ## 16. 系统语言与机制投影（切片 7，票 #26）
 
 用户 2026-09-06 的裁定，替代此前误写的「语言表」方案：**系统语言是英文，玩家语言由 agent 自己出，机制结果是 JSON。** 不做翻译层，不做按语言分键的字符串表。

@@ -1,6 +1,11 @@
 """Sidecar bare repo per campaign (ADR-0001): .coc/repos/<id>.git with the
 campaign directory as its work tree. One commit per campaign.create and per
-successful narrate."""
+successful narrate.
+
+Contract §15 adds branches: a worldline is the branch `wl/<name>` and the campaign
+directory is whichever one HEAD points at, so switching lines is a checkout and that
+line's world, turns, memory and logs come back with it. Nothing here decides anything
+about worldlines; it is the git verb list worldline.py drives."""
 
 from __future__ import annotations
 
@@ -68,3 +73,95 @@ def head_turn(repo: Path, work_tree: Path) -> int | None:
         return None
     number = subject[len("turn "):].split(":", 1)[0].strip()
     return int(number) if number.isdigit() else None
+
+
+# ---- branches: one per worldline (contract §15.1) ------------------------------------------
+
+#: Every worldline branch is namespaced, so a campaign's lines can never collide with a
+#: branch name git or a human made.
+BRANCH_PREFIX = "wl/"
+
+
+def branch_ref(line: str) -> str:
+    return f"refs/heads/{BRANCH_PREFIX}{line}"
+
+
+def current_line(repo: Path, work_tree: Path) -> str | None:
+    """The worldline HEAD is on, or None when HEAD is detached or on a branch outside the
+    `wl/` namespace (a campaign made before worldlines existed)."""
+    result = _git(repo, work_tree, "symbolic-ref", "--quiet", "HEAD")
+    ref = result.stdout.strip() if result.returncode == 0 else ""
+    prefix = f"refs/heads/{BRANCH_PREFIX}"
+    return ref[len(prefix):] if ref.startswith(prefix) else None
+
+
+def point_head_at(repo: Path, work_tree: Path, line: str) -> None:
+    """Move HEAD's symbolic ref without touching the work tree or any commit -- how an
+    unbranched campaign is adopted as `wl/main` (§15.1)."""
+    _check(_git(repo, work_tree, "symbolic-ref", "HEAD", branch_ref(line)), "symbolic-ref")
+
+
+def line_commit(repo: Path, work_tree: Path, line: str) -> str | None:
+    """The short sha a worldline branch points at, or None when there is no such branch."""
+    result = _git(repo, work_tree, "rev-parse", "--short", "--verify", f"{branch_ref(line)}^{{commit}}")
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def lines(repo: Path, work_tree: Path) -> list[str]:
+    result = _git(repo, work_tree, "for-each-ref", "--format=%(refname)", "refs/heads/")
+    if result.returncode != 0:
+        return []
+    prefix = f"refs/heads/{BRANCH_PREFIX}"
+    return sorted(ref[len(prefix):] for ref in result.stdout.split() if ref.startswith(prefix))
+
+
+def create_branch(repo: Path, work_tree: Path, line: str, commit: str) -> None:
+    _check(_git(repo, work_tree, "branch", f"{BRANCH_PREFIX}{line}", commit), "branch")
+
+
+def delete_branch(repo: Path, work_tree: Path, line: str) -> None:
+    """Only ever used to undo a branch this process just created and could not finish
+    (§15.3 rollback); a worldline that ever held a turn is never deleted."""
+    _git(repo, work_tree, "branch", "-D", f"{BRANCH_PREFIX}{line}")
+
+
+def checkout(repo: Path, work_tree: Path, line: str, *, force: bool = False) -> None:
+    """Make the work tree that line's. Fails closed on a dirty tree unless `force`: the
+    caller commits first, so nothing a turn wrote is ever lost to a checkout."""
+    args = ["checkout", "--quiet"] + (["--force"] if force else []) + [f"{BRANCH_PREFIX}{line}"]
+    _check(_git(repo, work_tree, *args), "checkout")
+
+
+def root_commit(repo: Path, work_tree: Path) -> str | None:
+    """The campaign.create commit of the line HEAD is on -- the state a loop rewinds to
+    when the anchor is the opening scene (§15.2)."""
+    result = _git(repo, work_tree, "rev-list", "--max-parents=0", "--abbrev-commit", "HEAD")
+    shas = result.stdout.split()
+    return shas[-1] if result.returncode == 0 and shas else None
+
+
+def is_dirty(repo: Path, work_tree: Path) -> bool:
+    result = _git(repo, work_tree, "status", "--porcelain")
+    _check(result, "status")
+    return bool(result.stdout.strip())
+
+
+def commit_if_dirty(repo: Path, work_tree: Path, message: str) -> str | None:
+    """Commit whatever the work tree holds, or None when it holds nothing new. A turn
+    leaves residue behind its own commit (the record learning its sha); a line must be
+    clean before it is left, or the checkout would refuse."""
+    if not is_dirty(repo, work_tree):
+        return None
+    return commit(repo, work_tree, message)
+
+
+def read_blob(repo: Path, work_tree: Path, rev: str, path: str) -> str | None:
+    """A file as some commit had it. The anchor snapshot of a time loop is read this way:
+    the turn record keeps only a summary, the commit keeps the whole world (§15.2)."""
+    result = _git(repo, work_tree, "show", f"{rev}:{path}")
+    return result.stdout if result.returncode == 0 else None
+
+
+def list_tree(repo: Path, work_tree: Path, rev: str, prefix: str) -> list[str]:
+    result = _git(repo, work_tree, "ls-tree", "--name-only", rev, prefix)
+    return sorted(result.stdout.split()) if result.returncode == 0 else []
