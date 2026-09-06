@@ -314,13 +314,16 @@ export function gate(steps: Step[], state: GateState, id: string): GateVerdict {
 		const all = steps.map((row) => row.id).join(", ");
 		return { ok: false, reason: withNext(steps, state, `The setup table has no step "${id}". In order it holds: ${all}. `) };
 	}
-	if (step.rejection && (state.completed.has(step.id) || missingNeeds(step, state).length > 0)) {
+	if (step.rejection && (state.completed.has(step.id) || missingNeeds(step, state, steps).length > 0)) {
 		return { ok: false, reason: withNext(steps, state, `${step.rejection}`) };
 	}
 	if (state.completed.has(step.id)) {
 		return { ok: false, reason: withNext(steps, state, `${step.id} is already done and is not redone. `) };
 	}
-	const missing = missingNeeds(step, state);
+	// `steps` is what lets a prerequisite that does not exist in this lane count as satisfied; without it
+	// the starter lane refused `create-campaign` for a `bind-source` that only the PDF lane has, while the
+	// same gate's own "next step" line said to call `create-campaign` — a deadlock at the way in (#32).
+	const missing = missingNeeds(step, state, steps);
 	if (missing.length > 0) {
 		const declared = needsOf(step, state.sourceKind).join(", ");
 		return {

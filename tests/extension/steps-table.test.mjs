@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { allowedSteps, declaredSources, missingNeeds, normalizeSteps, sourceKinds } from "../../extensions/onboarding/steps.ts";
+import { allowedSteps, declaredSources, gate, missingNeeds, normalizeSteps, sourceKinds } from "../../extensions/onboarding/steps.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TABLE = JSON.parse(readFileSync(join(HERE, "..", "..", "content", "setup", "steps.json"), "utf8"));
@@ -42,6 +42,18 @@ test("真表：来源词表取自表自己声明的 sources，不从步骤反推
 	assert.ok(!inferred.includes("starter"), "反推确实丢了 starter，这就是 #32 的根因");
 	assert.deepEqual(sourceKinds(steps, declared), TABLE.sources, "给了声明就用声明");
 	assert.deepEqual(sourceKinds(steps, []), inferred, "没有声明才退回反推");
+});
+
+test("真表：starter 车道能真的走到 create-campaign，闸门不自相矛盾（#32）", () => {
+	const steps = normalizeSteps(TABLE.steps);
+	const state = { completed: new Set(["choose-source"]), sourceKind: "starter" };
+
+	// 闸门自己算出来的下一步就是它；那它就必须放行。
+	const next = allowedSteps(steps, state)[0];
+	assert.equal(next?.id, "create-campaign");
+
+	const verdict = gate(steps, state, "create-campaign");
+	assert.equal(verdict.ok, true, "starter 车道里 bind-source 根本不存在，不能拿它挡路");
 });
 
 test("真表：参数的必选与可省从表读，不靠猜", () => {
