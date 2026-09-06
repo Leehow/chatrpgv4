@@ -18,8 +18,8 @@ the kernel performs it after that turn's `narrate` has committed -- the narratio
 "you open your eyes, and it is the morning again" is delivered first, and the player's
 next line lands on the new line's first turn.
 
-`merge` (§15.3), the confluence report (§15.4) and the cross-line memory projection
-(§15.5) are not implemented here; `stage` refuses `merge` with `not_implemented`.
+`merge` is staged and performed by `confluence.py` (§15.4), which this module hands the
+effect to; echoes -- what another line left standing in a scene -- are `echoes.py`.
 """
 
 from __future__ import annotations
@@ -30,7 +30,8 @@ import re
 from typing import Any, Callable
 
 from . import history
-from .errors import RpcError, invalid_params, not_implemented
+from . import echoes as echoes_mod, memory
+from .errors import RpcError, invalid_params
 from .fileio import read_json, sha256_text, write_json_atomic
 from .module_graph import ModuleGraph, record_of
 from .store import Campaign, now_iso
@@ -43,10 +44,9 @@ MAIN = "main"
 KIND_MAIN, KIND_IF, KIND_LOOP, KIND_MERGE = "main", "if", "loop", "merge"
 #: §15.1 `status`. A line the party left keeps everything and waits; `merged` is closed.
 STATUS_ACTIVE, STATUS_DORMANT, STATUS_MERGED = "active", "dormant", "merged"
-#: §15.3: the two operations of this slice, and the third the contract reserves.
+#: §15.3: the three ways the world's line of history changes.
 FORK, SWITCH, MERGE = "fork", "switch", "merge"
-OPERATIONS = (FORK, SWITCH)
-RESERVED_OPERATIONS = (MERGE,)
+OPERATIONS = (FORK, SWITCH, MERGE)
 #: `apply fork` modes (§15.3).
 MODE_IF, MODE_LOOP = "if", "loop"
 MODES = (MODE_IF, MODE_LOOP)
@@ -70,10 +70,12 @@ DEFAULT_RESET = {facet: RESET_ANCHOR for facet in RESET_FACETS}
 CONTAINMENT_RELATIONS = ("contains", "occurs-at", "present-in", "located-in", "discoverable-at")
 #: §13.1 budget for the capsule's new section.
 CAPSULE_BUDGET = 1536
-#: §15.6 caps inside it; the echo and previous-loop lists are filled by §15.4/§15.5.
+#: §15.6 caps inside it.
 ECHO_LIMIT = 3
 PREVIOUS_LOOP_LIMIT = 4
 LINES_LIMIT = 8
+#: §15.5: how many statements from another circuit or line one declared NPC carries.
+FROM_OTHER_LINES_LIMIT = 3
 #: §15.6: the obligation a scene that can rewind puts on the keeper's slate.
 LOOP_OBLIGATION = "This module's loop can be rewound from here."
 
@@ -420,9 +422,6 @@ def stage(campaign: Campaign, meta: dict[str, Any], graph: ModuleGraph, world: d
     has already been delivered. The plan rides on `turn.json` and the turn record; the
     transition itself happens in `transition()` after `narrate` commits."""
     kind = str(effect.get("kind"))
-    if kind in RESERVED_OPERATIONS:
-        raise not_implemented(f"effect kind {kind!r} is reserved for a later slice",
-                              details={"kind": kind})
     if turn.get("worldline"):
         raise invalid_params("a turn carries at most one worldline effect",
                              fix="fork or switch once per turn; the line changes after this turn commits",
@@ -435,6 +434,15 @@ def stage(campaign: Campaign, meta: dict[str, Any], graph: ModuleGraph, world: d
     source = active_name(meta)
     label = effect.get("label")
     label = label.strip() if isinstance(label, str) and label.strip() else None
+    if kind == MERGE:
+        # local: confluence reads this module's registry; the import cannot be at load time
+        from . import confluence
+        plan = confluence.plan(campaign, graph, meta, effect, source, turn_number)
+        plan["label"] = label
+        plan["source_turn"] = turn_number
+        receipt = confluence.receipt_of(plan, turn_number, call_id, label, mint)
+        plan["receipt"] = receipt["id"]
+        return receipt, plan
     plan = _fork_plan(campaign, meta, graph, world, effect, lines, source, turn_number) if kind == FORK \
         else _switch_plan(campaign, lines, source, effect)
     plan["label"] = label
@@ -535,6 +543,9 @@ def transition(campaign: Campaign, graph: ModuleGraph, plan: dict[str, Any],
     source line sealed at that commit and lands the work tree on the new one; when
     anything here fails, the reference goes back and the campaign stays where it was
     playing. Returns the telemetry row, which also carries the events to append."""
+    if plan["operation"] == MERGE:
+        from . import confluence  # local: see stage()
+        return confluence.perform(campaign, graph, plan, turn_number)
     repo, tree = campaign.repo_dir, campaign.dir
     meta = campaign.read_campaign()
     before = copy.deepcopy(meta)
@@ -575,6 +586,10 @@ def transition(campaign: Campaign, graph: ModuleGraph, plan: dict[str, Any],
             if plan["operation"] == FORK else f"worldline {target}: resumed from {source} at turn {turn_number}"
         if plan["operation"] == FORK and plan.get("mode") == MODE_LOOP:
             _write_reset(campaign, graph, plan)
+            # §15.4: the loop the party just left becomes echoes on the new one -- the
+            # doors it opened, the clues it took, the fights and the deaths, as receipts.
+            fresh = echoes_mod.generate(campaign, source, int(lines.get(source, {}).get("loop") or 0))
+            echoes_mod.write(campaign, echoes_mod.merged_into(echoes_mod.read(campaign), fresh))
             campaign.write_campaign(meta)
             message = f"loop {plan['loop']} reset"
         landed = history.commit_if_dirty(repo, tree, message) or history.head_sha(repo, tree)
@@ -616,6 +631,10 @@ def event_of(plan: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     if plan["operation"] == FORK:
         return "worldline-forked", {"name": plan["line"], "mode": plan.get("mode"), "loop": int(plan["loop"]),
                                     "from": dict(plan["from"])}
+    if plan["operation"] == MERGE:
+        return "worldline-merged", {"name": plan["line"], "lines": list(plan.get("lines") or []),
+                                    "into": plan.get("into"),
+                                    "conflicts": len((plan.get("report") or {}).get("conflicts") or [])}
     return "worldline-switched", {"line": plan["line"], "from": dict(plan["from"])}
 
 
@@ -639,21 +658,60 @@ def capsule_section(graph: ModuleGraph, campaign: Campaign, meta: dict[str, Any]
     else:
         anchor_view = {"scene": anchor.get("scene"), "since_turn": anchor.get("turn")}
     lines = registry(meta)
+    loop = int(row.get("loop") or 0)
+    standing = echoes_mod.here(echoes_mod.read(campaign), graph.handle(scene),
+                               world.get("discovered_echoes"))
     return {
         "line": row.get("name"),
         "kind": row.get("kind"),
-        "loop": int(row.get("loop") or 0),
+        "loop": loop,
         "anchor": anchor_view,
         "persisted": [graph.display_name(n) for n in persisted_nodes(graph)],
         "remembers": [graph.display_name(n) for n in present if remembers_across_loops(graph, n)],
-        "echoes_here": 0,
-        "echoes": [],
-        "previous_loop": [],
+        "echoes_here": len(standing),
+        "echoes": [{"id": echo["id"], "summary": echo.get("summary")} for echo in standing[:ECHO_LIMIT]],
+        "previous_loop": previous_loop(campaign, loop),
         "lines": [{"name": name, "kind": line.get("kind"), "loop": int(line.get("loop") or 0),
                    "last_turn": line.get("last_turn"), "status": line.get("status")}
                   for name, line in sorted(lines.items())][:LINES_LIMIT],
         "loop_available": loop_available(graph, scene),
     }
+
+
+def previous_loop(campaign: Campaign, loop: int) -> list[dict[str, Any]]:
+    """§15.6: what the investigators carry over from the circuit before this one. A `loop`
+    branch keeps the last loop's candidates in its own `memory/` file, so this is a filter
+    on what is already on disk -- ranked as `recall memory` ranks with no `about` to weigh:
+    the kind tier, then the most recent turn, then the id."""
+    if loop <= 0:
+        return []
+    rows = [row for row in memory.read_candidates(campaign)
+            if int(row.get("loop") or 0) == loop - 1 and row.get("superseded_by") is None]
+    rows.sort(key=lambda row: (memory.kind_rank(row.get("kind")),
+                               -int(row.get("valid_from_turn") or 0), str(row.get("id"))))
+    return [{"statement": row.get("statement"), "turn": row.get("valid_from_turn")}
+            for row in rows[:PREVIOUS_LOOP_LIMIT]]
+
+
+def cross_line_reader(campaign: Campaign, graph: ModuleGraph, meta: dict[str, Any],
+                      index: Any) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+    """§15.5: a reader that answers, for one person, what they know from another circuit or
+    another line -- and answers nothing at all for anyone the module did not declare
+    `remembers_across_loops`. The union over the branches is read once, and only if some
+    declared NPC is actually on stage."""
+    line, loop = active_name(meta), int(active_line(meta).get("loop") or 0)
+    rows: list[dict[str, Any]] | None = None
+
+    def read(node: dict[str, Any]) -> list[dict[str, Any]]:
+        nonlocal rows
+        if not remembers_across_loops(graph, node):
+            return []
+        if rows is None:
+            rows = memory.candidates_for(campaign, meta, memory.LINE_ANY)
+        return memory.from_other_lines(rows, index, graph.display_name(node), line, loop,
+                                       FROM_OTHER_LINES_LIMIT)
+
+    return read
 
 
 def loop_obligation(section: dict[str, Any]) -> list[dict[str, Any]]:

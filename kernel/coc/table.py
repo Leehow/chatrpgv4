@@ -11,8 +11,8 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable
 
-from . import (KERNEL_VERSION, bookkeeping, continuation, history, library, memory, recall as recall_roads,
-               warn as warn_lane, worldline)
+from . import (KERNEL_VERSION, bookkeeping, continuation, echoes, history, library, memory,
+               recall as recall_roads, warn as warn_lane, worldline)
 from .capsule import (scene_label, build_capsule, clues_here, investigator_view, npc_view, npcs_present,
                       present_section, where_section)
 from .craft import DEFAULT_REGISTER, TextGraph
@@ -58,6 +58,8 @@ CLUE_SOURCE_RELATIONS = ("held-by", "delivered-by")
 SHEET_FIELDS_OWNED_BY_APPLY = ("equipment", "weapons", "finance", "cash")
 #: #19: how many close weapon ids a `needs` lists next to the era's full option list.
 WEAPON_CLOSE_MATCHES = 6
+#: §15.4: how many echo ids an unknown-echo error offers back.
+ECHO_OPTIONS = 12
 #: §14.8: what may be handed to the player as a card.
 HANDOUT_VISIBILITIES = frozenset({"player-safe", "revealable"})
 HANDOUT_KINDS = ("handout", "asset")
@@ -641,11 +643,18 @@ class Table:
             return {"scope": "module", "module_secrets": secrets, "conclusions": conclusions}
         scene = graph.scene(world["active_scene"])
         where = where_section(graph, world, scene)
+        # §15.5: a person the module declared `remembers_across_loops` carries what they
+        # learned on another circuit or another line. Everyone else gets nothing.
+        across = self._cross_line_reader(campaign, graph, world)
         npc_secrets = []
         for node in npcs_present(graph, world, scene):
             record = record_of(node)
-            npc_secrets.append({"name": graph.display_name(node), "secret": record.get("secret"),
-                                "agenda": record.get("agenda")})
+            entry = {"name": graph.display_name(node), "secret": record.get("secret"),
+                     "agenda": record.get("agenda")}
+            elsewhere = across(node)
+            if elsewhere:
+                entry["from_other_lines"] = elsewhere
+            npc_secrets.append(entry)
         return {
             "scope": "scene",
             "scene": {"name": where["scene"], "display_name": where["display_name"],
@@ -775,9 +784,13 @@ class Table:
         limit = params.get("limit", memory.RECALL_DEFAULT_LIMIT)
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= memory.RECALL_MAX_LIMIT:
             raise invalid_params(f"limit must be 1–{memory.RECALL_MAX_LIMIT}")
+        # §15.5: which worldlines to read. `current` is this branch's file; `any` is the
+        # union over every line; a name is that line alone. Hits carry the line and circuit.
+        line = params.get("line", memory.LINE_CURRENT)
+        rows = memory.candidates_for(campaign, campaign.read_campaign(), line)
         hits = memory.query_candidates(campaign, index, about=about, narrow=narrow, turns=turns, kinds=kinds,
-                                       include_superseded=include_superseded, limit=limit)
-        return {"what": "memory", "about": about, "hits": hits}
+                                       include_superseded=include_superseded, limit=limit, rows=rows)
+        return {"what": "memory", "about": about, "line": line, "hits": hits}
 
     # ---- player input -------------------------------------------------------
 
@@ -1042,7 +1055,7 @@ class Table:
                 if kind == "move":
                     receipt, event = self._stage_move(campaign, graph, staged, effect, turn_number, ordinal, call_id)
                 elif kind == "clue":
-                    receipt, event = self._stage_clue(graph, staged, effect, turn_number, call_id)
+                    receipt, event = self._stage_clue(campaign, graph, staged, effect, turn_number, call_id)
                     if event is None:
                         already.append(receipt["clue"])
                         receipt_ids.append(receipt["id"])
@@ -1197,9 +1210,12 @@ class Table:
             trail = trail[:trail.index(dest)] if dest in trail else [*trail, src]
         return trail
 
-    def _stage_clue(self, graph: ModuleGraph, world: dict[str, Any], effect: dict[str, Any],
-                    turn_number: int, call_id: str) -> tuple[dict[str, Any], tuple[str, dict[str, Any]] | None]:
+    def _stage_clue(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any],
+                    effect: dict[str, Any], turn_number: int,
+                    call_id: str) -> tuple[dict[str, Any], tuple[str, dict[str, Any]] | None]:
         name = _str(effect, "clue")
+        if echoes.is_echo(name):
+            return self._stage_echo(campaign, world, name, effect, turn_number, call_id)
         node = graph.clue(name)
         scene = graph.scene(world["active_scene"])
         here = graph.scene_clue_ids(scene)
@@ -1219,6 +1235,32 @@ class Table:
             return receipt, None
         world["discovered_clues"].append(handle)
         return receipt, ("clue-discovered", {"clue": handle, "scene": receipt["scene"], "how": how})
+
+    @staticmethod
+    def _stage_echo(campaign: Campaign, world: dict[str, Any], handle: str, effect: dict[str, Any],
+                    turn_number: int, call_id: str) -> tuple[dict[str, Any], tuple[str, dict[str, Any]] | None]:
+        """§15.4: reveal one echo. It is a clue effect because it is evidence, and the
+        evidence rule holds -- an echo the keeper only narrated is not discovered. The
+        keeper cannot change what the echo says: `label` names it, the summary is the
+        kernel's projection of the receipts it came from."""
+        row = echoes.find(echoes.read(campaign), handle)
+        if row is None:
+            raise RpcError("unknown_entity", f"no echo {handle!r} on this worldline",
+                           fix="reveal one of details.echoes, or none: echoes come from other lines",
+                           details={"echo": handle,
+                                    "echoes": [e["id"] for e in echoes.read(campaign)][:ECHO_OPTIONS]})
+        label = effect.get("label") if isinstance(effect.get("label"), str) and effect["label"].strip() else None
+        receipt = {"id": f"clue:{handle.replace(':', '-')}-t{turn_number}", "kind": "clue", "call_id": call_id,
+                   "clue": handle, "label": label or row.get("summary"), "summary": row.get("summary"),
+                   "scene": row.get("scene"), "how": effect.get("how") if isinstance(effect.get("how"), str) else None,
+                   "from": None, "echo": {"line": row.get("line"), "loop": row.get("loop"), "turn": row.get("turn"),
+                                          "kind": row.get("kind")},
+                   "at": now_iso()}
+        if handle in world.setdefault("discovered_echoes", []):
+            return receipt, None
+        world["discovered_echoes"].append(handle)
+        return receipt, ("clue-discovered", {"clue": handle, "scene": row.get("scene"),
+                                             "how": receipt["how"], "echo": row.get("line")})
 
     @staticmethod
     def _clue_source(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any],
@@ -1775,6 +1817,13 @@ class Table:
         return moved
 
     # ---- the NPC ledger (§17.3) ---------------------------------------------
+
+    def _cross_line_reader(self, campaign: Campaign, graph: ModuleGraph,
+                           world: dict[str, Any]) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+        """§15.5: what one person knows from another worldline. Built here because both
+        `lookup secret scope=scene` and the capsule's `present` project it."""
+        index = memory.EntityIndex(graph, campaign.party(), scene_labels=world.get("scene_labels"))
+        return worldline.cross_line_reader(campaign, graph, campaign.read_campaign(), index)
 
     def _present(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any],
                  scene: dict[str, Any]) -> list[dict[str, Any]]:

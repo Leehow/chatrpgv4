@@ -1,11 +1,12 @@
-"""Contract §15 (#23), first half: storage and identity (§15.1), the module declarations a
-time loop needs (§15.2), `apply fork` / `apply switch` (§15.3) and the capsule, Director
-signals and resume of §15.6.
+"""Contract §15 (#23): worldlines. Storage and identity (§15.1), the module declarations a
+time loop needs (§15.2), the three `apply` effects (§15.3), the confluence report and
+echoes (§15.4), memory across lines (§15.5), and the capsule, Director signals and resume
+of §15.6.
 
 The old tree's behaviour list is the checklist: a fork does not disturb the line it came
-from, switching moves only the active line, a replayed call forks once, and a failed state
-write rolls the reference back. `merge`, the confluence report (§15.4) and the cross-line
-memory projection (§15.5) are the second half and are only asserted to be refused."""
+from, switching moves only the active line, a confluence enumerates its conflicts in a
+fixed order and settles them from a closed table, classes that cannot be duplicated have no
+`sum`, a replayed call forks once, and a failed state write rolls the reference back."""
 
 from __future__ import annotations
 
@@ -338,12 +339,350 @@ def test_a_turn_that_changes_the_line_cannot_be_closed_by_ask(kernel):
     assert branches(kernel.workspace) == ["refs/heads/wl/main"]
 
 
-def test_merge_is_reserved(kernel):
+# ---- §15.4 the confluence report ---------------------------------------------------------------
+
+def two_lines_that_disagree(client: RpcClient) -> None:
+    """Play main to turn 2, fork `side`, hurt the investigator and set a flag there, then
+    come back to main and set a different flag. The lines now differ in one number and in
+    two flags, one of which only one line has."""
+    play_to_turn(client, 2)
+    fork(client, 3, "side")
+    turn = turn_json(client)["turn"]
+    client.table("player_input", text="我摔了一跤。")
+    client.table("apply", call_id=f"t{turn}-c1",
+                 effects=[{"kind": "damage", "dice": "1D6"},
+                          {"kind": "flag", "name": "side-was-here", "value": True}])
+    narrate(client, f"t{turn}-c2", "你摔在地上。")
+    turn = turn_json(client)["turn"]
+    switch(client, turn, "main")
+    turn = turn_json(client)["turn"]
+    client.table("player_input", text="我在这边留个记号。")
+    client.table("apply", call_id=f"t{turn}-c1", effects=[{"kind": "flag", "name": "main-was-here", "value": True}])
+    narrate(client, f"t{turn}-c2", "你做了个记号。")
+
+
+def merge_err(client: RpcClient, call: str, **extra) -> dict:
+    """One refused confluence. The turn is already open: `apply` never closes it, so the
+    same turn can be offered several settlements before one of them lands."""
+    return client.table_err("apply", call_id=call,
+                            effects=[{"kind": "merge", "name": "joined", "lines": ["main", "side"], **extra}])
+
+
+def test_a_confluence_names_at_least_two_lines_and_must_include_the_one_at_the_table(kernel):
     play_to_turn(kernel, 1)
-    kernel.table("player_input", text="我想把两条线并起来。")
-    error = kernel.table_err("apply", call_id="t2-c1",
-                             effects=[{"kind": "merge", "name": "joined", "lines": ["main"]}])
-    assert error["code"] == "not_implemented"
+    fork(kernel, 2, "side")
+    turn = turn_json(kernel)["turn"]
+    kernel.table("player_input", text="我想把线并起来。")
+    one = kernel.table_err("apply", call_id=f"t{turn}-c1",
+                           effects=[{"kind": "merge", "name": "joined", "lines": ["main"]}])
+    assert one["code"] == "invalid_params" and "two lines" in one["message"]
+    absent = kernel.table_err("apply", call_id=f"t{turn}-c2",
+                              effects=[{"kind": "merge", "name": "joined", "lines": ["main", "ghost"]}])
+    assert absent["code"] == "invalid_params" and "ghost" in absent["message"]
+    # `side` is the line at the table; a confluence it is not part of has nowhere to land.
+    away = kernel.table_err("apply", call_id=f"t{turn}-c3",
+                            effects=[{"kind": "merge", "name": "joined", "lines": ["main", "main"]}])
+    assert away["code"] == "invalid_params"
+    assert branches(kernel.workspace) == ["refs/heads/wl/main", "refs/heads/wl/side"]
+
+
+def test_two_lines_that_disagree_about_a_number_stop_the_merge_until_the_keeper_settles_it(kernel):
+    two_lines_that_disagree(kernel)
+    turn = turn_json(kernel)["turn"]
+    kernel.table("player_input", text="把两条线并起来。")
+    error = merge_err(kernel, f"t{turn}-c1")
+    assert error["code"] == "needs"
+    conflicts = error["details"]["conflicts"]
+    assert [c["id"] for c in conflicts] == ["conflict:numeric:thomas-hayes:hp"]
+    only = conflicts[0]
+    assert only["class"] == "numeric" and only["field"] == "hp"
+    assert sorted(only["values"]) == ["main", "side"] and only["values"]["main"] != only["values"]["side"]
+    # `numeric` may be taken from a line or bounded; it may never be summed.
+    assert only["modes"] == ["from", "min", "max"]
+    # Nothing was written: no branch, no line in the registry, and the flags stand apart.
+    assert "joined" not in meta_of(kernel)["worldlines"]
+    assert "refs/heads/wl/joined" not in branches(kernel.workspace)
+    # The same report, computed again, is the same report.
+    again = merge_err(kernel, f"t{turn}-c2")
+    assert again["details"]["conflicts"] == conflicts
+
+
+def test_a_disposition_the_class_does_not_allow_is_refused_and_a_drop_must_say_why(kernel):
+    two_lines_that_disagree(kernel)
+    turn = turn_json(kernel)["turn"]
+    kernel.table("player_input", text="把两条线并起来。")
+    conflict = merge_err(kernel, f"t{turn}-c1")["details"]["conflicts"][0]["id"]
+    summed = merge_err(kernel, f"t{turn}-c2", dispositions={conflict: {"mode": "sum"}})
+    assert summed["code"] == "invalid_params" and summed["details"]["modes"] == ["from", "min", "max"]
+    elsewhere = merge_err(kernel, f"t{turn}-c3", dispositions={conflict: {"mode": "from", "line": "ghost"}})
+    assert elsewhere["code"] == "invalid_params" and elsewhere["details"]["lines"] == ["main", "side"]
+    unknown = merge_err(kernel, f"t{turn}-c4", dispositions={"conflict:numeric:nobody:hp": {"mode": "max"}})
+    assert unknown["code"] == "invalid_params" and unknown["details"]["unknown"] == ["conflict:numeric:nobody:hp"]
+
+
+def test_a_settled_confluence_lands_a_line_whose_commit_keeps_both_histories(kernel):
+    two_lines_that_disagree(kernel)
+    turn = turn_json(kernel)["turn"]
+    kernel.table("player_input", text="把两条线并起来。")
+    conflicts = merge_err(kernel, f"t{turn}-c1")["details"]["conflicts"]
+    hp = dict(conflicts[0]["values"])
+    kernel.table("apply", call_id=f"t{turn}-c2",
+                 effects=[{"kind": "merge", "name": "joined", "lines": ["main", "side"],
+                           "dispositions": {conflicts[0]["id"]: {"mode": "min"}}}])
+    narrate(kernel, f"t{turn}-c3", "两条线合到了一起。")
+
+    meta = meta_of(kernel)
+    assert meta["active_worldline"] == "joined"
+    joined = meta["worldlines"]["joined"]
+    assert joined["kind"] == "merge" and joined["status"] == "active"
+    assert [p["line"] for p in joined["parents"]] == ["main", "side"]
+    assert meta["worldlines"]["main"]["status"] == "merged"
+    assert meta["worldlines"]["side"]["status"] == "merged"
+    assert head_ref(kernel.workspace) == "refs/heads/wl/joined"
+    # The merge commit keeps both lines reachable; neither history was rewritten.
+    assert len(git(kernel.workspace, "log", "--format=%p", "-1").split()) == 2
+    # The flags are the union and the number is the one the keeper chose.
+    world = world_of(kernel)
+    assert world["flags"]["main-was-here"] is True and world["flags"]["side-was-here"] is True
+    assert kernel.table("look", focus="investigator")["hp"] == min(hp.values())
+
+
+def test_a_merged_line_cannot_be_played_again(kernel):
+    two_lines_that_disagree(kernel)
+    turn = turn_json(kernel)["turn"]
+    kernel.table("player_input", text="把两条线并起来。")
+    conflict = merge_err(kernel, f"t{turn}-c1")["details"]["conflicts"][0]["id"]
+    kernel.table("apply", call_id=f"t{turn}-c2",
+                 effects=[{"kind": "merge", "name": "joined", "lines": ["main", "side"],
+                           "dispositions": {conflict: {"mode": "max"}}}])
+    narrate(kernel, f"t{turn}-c3", "两条线合到了一起。")
+    turn = turn_json(kernel)["turn"]
+    kernel.table("player_input", text="我想回到原来那条线。")
+    error = kernel.table_err("apply", call_id=f"t{turn}-c1", effects=[{"kind": "switch", "line": "side"}])
+    assert error["code"] == "invalid_params" and error["details"]["status"] == "merged"
+
+
+def test_clues_never_conflict_they_are_a_union(kernel):
+    """§15.4: a clue found on either line is found. It is not in the conflict table at all."""
+    play_to_turn(kernel, 1)
+    turn = turn_json(kernel)["turn"]
+    kernel.table("player_input", text="我先问问委托人。")
+    kernel.table("apply", call_id=f"t{turn}-c1", effects=[{"kind": "clue", "clue": FORGOTTEN_CLUE.removeprefix("clue-")}])
+    narrate(kernel, f"t{turn}-c2", "他把委托说清楚了。")
+    turn = turn_json(kernel)["turn"]
+    fork(kernel, turn, "side")
+    turn = turn_json(kernel)["turn"]
+    switch(kernel, turn, "main")
+    turn = turn_json(kernel)["turn"]
+    kernel.table("player_input", text="并线。")
+    kernel.table("apply", call_id=f"t{turn}-c1",
+                 effects=[{"kind": "merge", "name": "joined", "lines": ["main", "side"]}])
+    narrate(kernel, f"t{turn}-c2", "两条线合到了一起。")
+    assert FORGOTTEN_CLUE.removeprefix("clue-") in world_of(kernel)["discovered_clues"]
+
+
+# ---- §15.4 echoes -------------------------------------------------------------------------------
+
+def echoes_of(client: RpcClient) -> list[dict]:
+    return read_json(campaign_dir(client.workspace) / "save" / "worldlines" / "echoes.json")["echoes"]
+
+
+def played_one_loop(client: RpcClient) -> None:
+    """Walk to the house, take a clue there, then rewind. The loop the party left is what
+    the echoes are made of."""
+    play_to_turn(client, 1)
+    client.table("player_input", text="我们去柯比特老宅。")
+    client.table("apply", call_id="t2-c1", effects=[{"kind": "move", "to": HOUSE}])
+    narrate(client, "t2-c2", "你们走到了老宅门前。")
+    client.table("player_input", text="我翻翻这些日记。")
+    client.table("apply", call_id="t3-c1", effects=[{"kind": "clue", "clue": "corbitt-diaries"}])
+    narrate(client, "t3-c2", "你读到了柯比特的日记。")
+    client.table("player_input", text="我要回到今天早上。")
+    client.table("apply", call_id="t4-c1", effects=[{"kind": "fork", "name": "loop-2", "mode": "loop"}])
+    narrate(client, "t4-c2", "你眼前一黑，又回到了诺特的办公室。")
+
+
+def test_a_rewind_leaves_echoes_of_the_loop_it_came_from(tmp_path):
+    """§15.4: echoes are a projection of the last loop's receipts, not narration. Each one
+    names the line, the circuit, the turn and the scene it belongs to."""
+    client = client_for(tmp_path, content=loop_content(tmp_path))
+    try:
+        played_one_loop(client)
+        rows = echoes_of(client)
+        assert [row["kind"] for row in rows] == ["move", "clue_taken"]
+        assert {row["line"] for row in rows} == {"main"}
+        assert {row["loop"] for row in rows} == {0}
+        assert [row["scene"] for row in rows] == [HOUSE, HOUSE]
+        assert rows[0]["id"] == "echo:main-t2-1" and rows[1]["id"] == "echo:main-t3-1"
+        # The summary is the kernel's, made of the receipts it points at (§16: English).
+        assert rows[1]["receipts"] == ["clue:corbitt-diaries-t3"]
+        assert "corbitt-diaries" in rows[1]["summary"]
+        # None of them stand in the briefing, so the capsule offers none here.
+        assert client.table("player_input", text="我看看四周。")["capsule"]["worldlines"]["echoes_here"] == 0
+    finally:
+        client.close()
+
+
+def test_an_echo_is_revealed_by_apply_clue_and_only_then_is_it_known(tmp_path):
+    """§15.4: an echo the keeper only talked about is not discovered. `apply clue` is what
+    reveals it, and the keeper cannot change what it says -- only whether to show it."""
+    client = client_for(tmp_path, content=loop_content(tmp_path))
+    try:
+        played_one_loop(client)
+        client.table("player_input", text="我又走去老宅。")
+        client.table("apply", call_id="t5-c1", effects=[{"kind": "move", "to": HOUSE}])
+        narrate(client, "t5-c2", "你又站在了老宅门前。")
+        section = client.table("player_input", text="这地方我好像来过。")["capsule"]["worldlines"]
+        assert section["echoes_here"] == 2
+        assert [echo["id"] for echo in section["echoes"]] == ["echo:main-t2-1", "echo:main-t3-1"]
+        assert world_of(client).get("discovered_echoes") in (None, [])
+
+        applied = client.table("apply", call_id="t6-c1",
+                               effects=[{"kind": "clue", "clue": "echo:main-t3-1"}])
+        assert applied["receipts"] == ["clue:echo-main-t3-1-t6"]
+        delivered = narrate(client, "t6-c2", "你想起有人在这里读过什么。")
+        # §16.2: it projects as a clue row like any other piece of evidence.
+        row = next(r for r in delivered["mechanics"] if r["kind"] == "clue")
+        assert row["clue"] == "echo:main-t3-1"
+
+        assert world_of(client)["discovered_echoes"] == ["echo:main-t3-1"]
+        capsule = client.table("player_input", text="然后呢。")["capsule"]
+        assert capsule["known"]["discovered_echoes"] == ["echo:main-t3-1"]
+        # Revealed once, it is no longer among the ones still to show.
+        assert [echo["id"] for echo in capsule["worldlines"]["echoes"]] == ["echo:main-t2-1"]
+    finally:
+        client.close()
+
+
+def test_an_echo_no_line_left_behind_is_refused(tmp_path):
+    client = client_for(tmp_path, content=loop_content(tmp_path))
+    try:
+        played_one_loop(client)
+        client.table("player_input", text="我编一个回声。")
+        error = client.table_err("apply", call_id="t5-c1",
+                                 effects=[{"kind": "clue", "clue": "echo:main-t99-9"}])
+        assert error["code"] == "unknown_entity"
+        assert "echo:main-t3-1" in error["details"]["echoes"]
+        assert world_of(client).get("discovered_echoes") in (None, [])
+    finally:
+        client.close()
+
+
+# ---- §15.5 memory across the lines ---------------------------------------------------------------
+
+def remember(client: RpcClient, turn: int, *said: tuple[str, str]) -> None:
+    """Memory candidates for one closed turn, landed through the real extraction path. A
+    turn has exactly one extraction job, so everything it remembered goes in together."""
+    job = client.ok("memory.job", {"campaign": CAMPAIGN, "turn": turn})
+    client.ok("memory.submit", {"campaign": CAMPAIGN, "job_id": job["job_id"], "candidates": [
+        {"kind": "knowledge", "subject": subject, "knowers": [subject], "entities": [subject],
+         "statement": statement, "privacy": "player_safe", "state": "accurate", "confidence": 0.9}
+        for subject, statement in said]})
+
+
+def test_a_candidate_carries_the_line_and_the_circuit_it_was_remembered_on(tmp_path):
+    """§15.5: a memory knows which line and which circuit remembered it, which is the only
+    way the kernel can later tell the last loop from this one."""
+    client = client_for(tmp_path, content=loop_content(tmp_path))
+    try:
+        play_to_turn(client, 1)
+        remember(client, 1, ("Steven Knott", "诺特第一圈就在这张桌子后面。"))
+        client.table("player_input", text="我要回到今天早上。")
+        client.table("apply", call_id="t2-c1", effects=[{"kind": "fork", "name": "loop-2", "mode": "loop"}])
+        narrate(client, "t2-c2", "你眼前一黑，又回到了诺特的办公室。")
+        client.table("player_input", text="我又见到了诺特。")
+        narrate(client, "t3-c1", "诺特还是坐在那里。")
+        remember(client, 3, ("Steven Knott", "诺特在第二圈还是坐在同一张桌子后面。"))
+
+        rows = read_jsonl(campaign_dir(client.workspace) / "memory" / "candidates.jsonl")
+        first, second = rows[0], rows[-1]
+        assert (first["worldline"], first["loop"]) == ("main", 0)
+        assert (second["worldline"], second["loop"]) == ("loop-2", 1)
+    finally:
+        client.close()
+
+
+def test_recall_memory_reads_this_line_by_default_and_every_line_on_request(kernel):
+    play_to_turn(kernel, 1)
+    remember(kernel, 1, ("Steven Knott", "Knott said the house has been empty for years."))
+    fork(kernel, 2, "side")
+    remember(kernel, 2, ("Steven Knott", "On this line Knott admitted he had been inside."))
+
+    here = kernel.table("recall", what="memory", about=["Steven Knott"])
+    assert here["line"] == "current"
+    # `if` branches carry what was written before the fork, and nothing written after it
+    # on the line they left.
+    statements = [hit["statement"] for hit in here["hits"]]
+    assert "On this line Knott admitted he had been inside." in statements
+    assert {hit["worldline"] for hit in here["hits"]} == {"main", "side"}
+
+    kernel.table("player_input", text="我回到原来那条路。")
+    kernel.table("apply", call_id="t3-c9", effects=[{"kind": "switch", "line": "main"}])
+    narrate(kernel, "t3-c10", "你回到了原来的那一条线。")
+    on_main = [hit["statement"] for hit in
+               kernel.table("recall", what="memory", about=["Steven Knott"])["hits"]]
+    assert "On this line Knott admitted he had been inside." not in on_main
+    every = kernel.table("recall", what="memory", about=["Steven Knott"], line="any")["hits"]
+    assert "On this line Knott admitted he had been inside." in [hit["statement"] for hit in every]
+    named = kernel.table("recall", what="memory", about=["Steven Knott"], line="side")["hits"]
+    assert {hit["worldline"] for hit in named} == {"main", "side"}
+    unknown = kernel.table_err("recall", what="memory", about=["Steven Knott"], line="ghost")
+    assert unknown["code"] == "invalid_params"
+
+
+def rewound_with_a_memory(tmp_path: Path, name: str, *, remembers: bool) -> RpcClient:
+    """One circuit in which Knott is told something, then a rewind. The only difference
+    between the two runs is whether the book declared that he remembers."""
+    client = client_for(tmp_path, name, content=loop_content(tmp_path / name, remembers=remembers))
+    play_to_turn(client, 1)
+    remember(client, 1, ("Steven Knott", "Knott watched them leave on the first circuit."))
+    client.table("player_input", text="我要回到今天早上。")
+    client.table("apply", call_id="t2-c1", effects=[{"kind": "fork", "name": "loop-2", "mode": "loop"}])
+    narrate(client, "t2-c2", "你眼前一黑，又回到了诺特的办公室。")
+    return client
+
+
+def test_only_a_declared_person_carries_what_another_circuit_knew(tmp_path):
+    """§15.5: the cross-loop projection is for the people the book declared, and no others.
+    The same play with the declaration taken away gives them nothing."""
+    declared = rewound_with_a_memory(tmp_path, "ws-remembers", remembers=True)
+    try:
+        capsule = declared.table("player_input", text="诺特还在吗。")["capsule"]
+        knott = next(entry for entry in capsule["present"] if entry["name"] == "Steven Knott")
+        assert knott["from_other_lines"] == [{"statement": "Knott watched them leave on the first circuit.",
+                                              "line": "main", "loop": 0, "turn": 1}]
+        assert capsule["worldlines"]["remembers"] == ["Steven Knott"]
+        # The same projection through `lookup secret scope=scene`.
+        secrets = declared.table("lookup", kind="secret", scope="scene")["npc_secrets"]
+        assert next(row for row in secrets if row["name"] == "Steven Knott")["from_other_lines"] \
+            == knott["from_other_lines"]
+    finally:
+        declared.close()
+
+    silent = rewound_with_a_memory(tmp_path, "ws-forgets", remembers=False)
+    try:
+        capsule = silent.table("player_input", text="诺特还在吗。")["capsule"]
+        assert all("from_other_lines" not in entry for entry in capsule["present"])
+        assert capsule["worldlines"]["remembers"] == []
+        secrets = silent.table("lookup", kind="secret", scope="scene")["npc_secrets"]
+        assert all("from_other_lines" not in row for row in secrets)
+    finally:
+        silent.close()
+
+
+def test_the_capsule_carries_the_previous_circuit(tmp_path):
+    client = client_for(tmp_path, content=loop_content(tmp_path))
+    try:
+        play_to_turn(client, 1)
+        remember(client, 1, ("Steven Knott", "他们在第一圈问过钥匙的事。"))
+        client.table("player_input", text="我要回到今天早上。")
+        client.table("apply", call_id="t2-c1", effects=[{"kind": "fork", "name": "loop-2", "mode": "loop"}])
+        narrate(client, "t2-c2", "你眼前一黑，又回到了诺特的办公室。")
+        section = client.table("player_input", text="我看看四周。")["capsule"]["worldlines"]
+        assert section["loop"] == 1
+        assert section["previous_loop"] == [{"statement": "他们在第一圈问过钥匙的事。", "turn": 1}]
+    finally:
+        client.close()
 
 
 # ---- §15.3 rollback ---------------------------------------------------------------------------

@@ -165,3 +165,32 @@ def read_blob(repo: Path, work_tree: Path, rev: str, path: str) -> str | None:
 def list_tree(repo: Path, work_tree: Path, rev: str, prefix: str) -> list[str]:
     result = _git(repo, work_tree, "ls-tree", "--name-only", rev, prefix)
     return sorted(result.stdout.split()) if result.returncode == 0 else []
+
+
+def line_blob(repo: Path, work_tree: Path, line: str, path: str) -> str | None:
+    """A file as another worldline has it (§15.4/§15.5 read every line this way, without
+    ever checking one out)."""
+    return read_blob(repo, work_tree, f"{BRANCH_PREFIX}{line}", path)
+
+
+def line_tree(repo: Path, work_tree: Path, line: str, prefix: str) -> list[str]:
+    return list_tree(repo, work_tree, f"{BRANCH_PREFIX}{line}", prefix)
+
+
+def merge_parents(repo: Path, work_tree: Path, lines: list[str]) -> bool:
+    """§15.4: record other worldlines as parents of the next commit without taking a byte
+    of their trees (`-s ours`). What the merged campaign holds is computed by the kernel
+    from the confluence report, never by git's merge; git is asked only to keep both
+    histories reachable from the line the party plays on. Returns whether a merge was
+    actually staged (nothing to record when the other line is already an ancestor)."""
+    if not lines:
+        return False
+    revs = [f"{BRANCH_PREFIX}{line}" for line in lines]
+    _check(_git(repo, work_tree, "merge", "-s", "ours", "--no-commit", "--no-ff", *revs), "merge")
+    return (repo / "MERGE_HEAD").exists()
+
+
+def abort_merge(repo: Path, work_tree: Path) -> None:
+    """Undo a staged merge. Best effort: it runs on the rollback path, where the caller is
+    already raising and a second failure must not hide the first."""
+    _git(repo, work_tree, "merge", "--abort")

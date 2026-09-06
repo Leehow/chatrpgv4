@@ -215,7 +215,8 @@ def _memory_statements(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 
 def npc_entry(graph: ModuleGraph, world: dict[str, Any], node: dict[str, Any],
-              ledger: dict[str, Any], memories: dict[str, dict[str, Any]]) -> dict[str, Any]:
+              ledger: dict[str, Any], memories: dict[str, dict[str, Any]],
+              across_lines: Callable[[dict[str, Any]], list[dict[str, Any]]] | None = None) -> dict[str, Any]:
     """§17.4: one person as the keeper needs them this turn — the dossier the book wrote
     and the ledger the table wrote, with the causes attached. Every line is copied, never
     paraphrased; the whole entry is keeper-only."""
@@ -247,6 +248,13 @@ def npc_entry(graph: ModuleGraph, world: dict[str, Any], node: dict[str, Any],
     history = _npc_history(row, memories)
     if history:
         entry["history"] = history
+    # §15.5: what this person knows from another circuit or another line. The contract
+    # wrote it onto `known_facts`; §17.4 replaced that key with this dossier, and the
+    # statements land here, where the keeper reads what they know. Empty for everyone the
+    # module did not declare `remembers_across_loops`, whatever the candidates say.
+    elsewhere = across_lines(node) if across_lines else []
+    if elsewhere:
+        entry["from_other_lines"] = elsewhere
     return entry
 
 
@@ -323,10 +331,13 @@ def _present_rank(entry: dict[str, Any]) -> int:
 
 def present_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any],
                     ledger: dict[str, Any] | None = None,
-                    memories: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+                    memories: list[dict[str, Any]] | None = None,
+                    across_lines: Callable[[dict[str, Any]], list[dict[str, Any]]] | None = None
+                    ) -> list[dict[str, Any]]:
     ledger = ledger or {}
     by_id = _memory_statements(memories or [])
-    present = [npc_entry(graph, world, node, ledger, by_id) for node in npcs_present(graph, world, scene)]
+    present = [npc_entry(graph, world, node, ledger, by_id, across_lines)
+               for node in npcs_present(graph, world, scene)]
     present.sort(key=_present_rank)
     return present
 
@@ -364,6 +375,10 @@ def known_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, An
         # §18.1: keeper-only; the flags set so far, most recent write first
         "flags": bookkeeping.known_flags(world),
     }
+    # §15.4: an echo the keeper revealed is evidence the players have; it belongs here
+    # beside the clues, not in the worldlines section, which is what may still be shown.
+    if world.get("discovered_echoes"):
+        section["discovered_echoes"] = list(world["discovered_echoes"])
     if party:
         section["investigator"] = investigator_summary(party[0])
         # §21.3: a library card built for another era plays unchanged; the keeper is told.
@@ -550,7 +565,7 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
                   craft: TextGraph, register: str, style_full: bool = False,
                   resume: dict[str, Any] | None = None,
                   material_of: Callable[[str], str] | None = None, module_brief: bool = False) -> dict[str, Any]:
-    from .memory import open_promises, read_candidates  # local: memory imports facts, which imports render
+    from .memory import EntityIndex, open_promises, read_candidates  # local: memory imports facts, which imports render
     from .npc import read_ledger
     from .rules.healing import read_healing_state
     from .sessions import SessionView, sanity_snapshot  # local: sessions reads capsule.condition_met for chase chains
@@ -610,7 +625,10 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
 
     sections: dict[str, Any] = {
         "where": where,
-        "present": present_section(graph, world, scene, ledger, candidates),
+        "present": present_section(graph, world, scene, ledger, candidates,
+                                   worldline_mod.cross_line_reader(
+                                       campaign, graph, meta,
+                                       EntityIndex(graph, party, scene_labels=world.get("scene_labels")))),
         "known": known_section(graph, world, scene, party),
         "pressures": pressures,
         "obligations": obligations,
