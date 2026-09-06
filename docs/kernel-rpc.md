@@ -1107,6 +1107,16 @@ Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `sessio
 
 旧树在开场之前分三层读（封面目录建骨架 → 选择性补索引 → 开场深读）。这里不重来：`classifyPdf` 一次给身份与页数，抽取按页范围调用，开场之后的深浅由 §14.6 的深挖队列管——队伍走近哪一章就后台读哪一章。所以 ingest 只有两档：**全书抽页**（便宜，本地，一次做完）与 **OCR 补页**（贵，外包，只补名单上的）。
 
+### 20.7 解析一次，之后直接开桌
+
+**已经是这样了，缺的是入口与住处。** 模组存储 `.coc/modules/<id>/` 就是解析产物的家：`module-graph.json`（图）、`module-graph-manifest.json`、`sections.json`、`shards/`、`work/`（构建中间物）、`assets.json`、`build.jsonl`、`bundle/`（页文件）。战役不复制它——`campaign.json` 只记 `module_id`、`module_digest`、`module_generation`，`Table.graph()` 每次读存储的当前 generation（§14.1）。所以同一本书开第二局、第十局，解析成本是零。
+
+三处要补：
+
+1. **建卡选不到已装的书。** `content/setup/steps.json` 的 `choose-source` 只认 `starter` 与 `bundle`，`sources` 是 `["starter", "pdf"]`；而 `campaign.create` 早就接受存储里已登记的模组。加第三种来源 `module`（`module.list` 里 `status: installed` 的），选它就跳过 `build-bundle` 与 `bind-source` 两步直接建战役。**这是「以后直接加载来玩」缺的唯一一环。**
+2. **存储的住处跟着工作目录。** 扩展把 `ctx.cwd` 当 workspace 传给内核，所以 `.coc/` 在哪起 `pi` 就在哪。开发时正好，装成 Electron 应用就不对，而且在另一个目录起就看不见已解析的书。加 `PI_COC_HOME`（缺省仍是 `ctx.cwd`）：**模组是库，战役是存档**，库该在稳定的用户数据目录，存档可以跟着库也可以另放。本票只做环境变量与缺省，拆两个根留给前端那一片。
+3. **带不走。** 没有导出/导入。一本解析好的书这里约 800KB，其中 `work/` 与 `shards/` 是构建中间物，真正开桌要的是图、清单、sections、assets 与 `bundle/`（深挖队列还要回去读页）。`module.export`/`module.import` 留给以后，不在本票。
+
 ### 20.6 验收
 
 - 一本没进过库的真 PDF（《不息的渴望》，41 页，9 页需 OCR）走 `/coc module parse` 到 installed，中途不手工装包；`module.bind` 的逐字节复核通过；OCR 那 9 页的内容进了页文件。
