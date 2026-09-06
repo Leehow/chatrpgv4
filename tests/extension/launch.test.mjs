@@ -120,7 +120,7 @@ test("bin/pi-coc：写 settings.json、导出战役、拼出 pi 的命令行", (
 	assert.equal(run.value("campaign"), "camp-a");
 	assert.deepEqual(run.args, [
 		"--no-builtin-tools",
-		"--append-system-prompt",
+		"--system-prompt",
 		join(root, "prompts", "keeper.md"),
 		"--session-id",
 		"coc-camp-a",
@@ -157,7 +157,7 @@ test("bin/pi-coc：不给战役就不定 session-id，也不导出 PI_COC_CAMPAI
 	assert.equal(run.value("campaign"), "<unset>");
 	assert.deepEqual(run.args, [
 		"--no-builtin-tools",
-		"--append-system-prompt",
+		"--system-prompt",
 		join(root, "prompts", "keeper.md"),
 		"--mode",
 		"rpc",

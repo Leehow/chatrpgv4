@@ -212,7 +212,7 @@ result：`{"rendered_text": "...", "turn": int, "receipt": "turn:<n>", "commit":
 
 `bin/pi-coc [--campaign <id>] [pi 参数...]`：
 - 仓库根目录为 cwd；`PI_CODING_AGENT_DIR=<repo>/.pi/coc-agent`，无 `settings.json` 时写入 `{"packages": ["<repo>"], "quietStartup": true}`；`--campaign` 导出为 `PI_COC_CAMPAIGN`。
-- exec `node_modules/.bin/pi --no-builtin-tools --append-system-prompt prompts/keeper.md --session-id coc-<campaign> <余下参数>`。`--mode rpc` 等 Pi 参数原样透传。
+- exec `node_modules/.bin/pi --no-builtin-tools --system-prompt prompts/keeper.md --session-id coc-<campaign> <余下参数>`。`--mode rpc` 等 Pi 参数原样透传。
 
 ## 10. 真桌驾驭器
 
