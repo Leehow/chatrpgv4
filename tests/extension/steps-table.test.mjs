@@ -56,6 +56,28 @@ test("真表：starter 车道能真的走到 create-campaign，闸门不自相�
 	assert.equal(verdict.ok, true, "starter 车道里 bind-source 根本不存在，不能拿它挡路");
 });
 
+test("真表：建完卡就能收工，另一条取卡的路不再挡着 complete（#32、§21.5）", () => {
+	const steps = normalizeSteps(TABLE.steps);
+	const done = new Set(["choose-source", "create-campaign", "create-investigator"]);
+
+	// 两条取卡的路都还没走时，两条都开着，模型可以挑。
+	const open = allowedSteps(steps, { completed: new Set(["choose-source", "create-campaign"]), sourceKind: "starter" });
+	assert.ok(open.some((s) => s.id === "create-investigator"));
+	assert.ok(open.some((s) => s.id === "browse-library"));
+
+	// 走了「新建」这条之后，「从库载入」那条整条离场，complete 不再欠它。
+	const settled = { completed: done, sourceKind: "starter", investigatorSource: "new" };
+	assert.deepEqual(missingNeeds(byIdOf(steps, "complete"), settled, steps), []);
+	assert.equal(gate(steps, settled, "complete").ok, true, "建完卡就该能收工");
+	assert.ok(!allowedSteps(steps, settled).some((s) => s.id === "load-investigator"), "另一条路已经不在表上");
+});
+
+function byIdOf(steps, id) {
+	const step = steps.find((s) => s.id === id);
+	assert.ok(step, `真表里应该有 ${id}`);
+	return step;
+}
+
 test("真表：参数的必选与可省从表读，不靠猜", () => {
 	const steps = normalizeSteps(TABLE.steps);
 	const create = steps.find((s) => s.id === "create-campaign");

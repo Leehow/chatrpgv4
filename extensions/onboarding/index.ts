@@ -95,11 +95,17 @@ export default function (pi: ExtensionAPI) {
 	/** The ops already run within one step (a list lookup like `setup.occupations` is not run twice). */
 	const opCache = new Map<string, unknown>();
 	let sourceKind: string | undefined;
+	/** §21.5's second axis: which investigator lane this run took, set by the first step of one. */
+	let investigatorSource: string | undefined;
 	/** The last step is done: wait for this run to finish speaking, then exit the process. */
 	let handoff: string | undefined;
 
 	function state(): GateState {
-		return { completed, ...(sourceKind ? { sourceKind } : {}) };
+		return {
+			completed,
+			...(sourceKind ? { sourceKind } : {}),
+			...(investigatorSource ? { investigatorSource } : {}),
+		};
 	}
 
 	function paint(): void {
@@ -136,7 +142,11 @@ export default function (pi: ExtensionAPI) {
 			stepsError = undefined;
 			for (const done of Array.isArray(result.completed) ? result.completed : []) {
 				const id = asString(done);
-				if (id) completed.add(id);
+				if (!id) continue;
+				completed.add(id);
+				// A resumed setup that already took one investigator lane keeps that axis settled.
+				const row = rows.find((step) => step.id === id);
+				if (row?.investigatorSource) investigatorSource ??= row.investigatorSource;
 			}
 			const carried = asRecord(result.state);
 			for (const [key, value] of Object.entries(carried)) {
@@ -462,6 +472,9 @@ export default function (pi: ExtensionAPI) {
 	function settle(step: Step, outcome: Record<string, unknown>): void {
 		completed.add(step.id);
 		opCache.clear();
+		// Taking a step that belongs to one investigator lane settles that axis: the other lane's steps
+		// leave the table, and `complete`'s prerequisite on them counts as satisfied (§21.5).
+		if (step.investigatorSource) investigatorSource ??= step.investigatorSource;
 		const source = asRecord(outcome.source);
 		if (Object.keys(source).length > 0) {
 			context.source = source;
@@ -582,6 +595,7 @@ export default function (pi: ExtensionAPI) {
 		completed.clear();
 		opCache.clear();
 		sourceKind = undefined;
+		investigatorSource = undefined;
 		handoff = undefined;
 		const campaign = process.env.PI_COC_CAMPAIGN?.trim();
 		if (campaign) context.campaign = campaign;

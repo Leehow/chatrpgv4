@@ -52,6 +52,8 @@ export interface Step {
 	needs: Record<string, string[]>;
 	/** Appears only in these sources; empty means always. */
 	appliesTo?: string[];
+	/** §21.5's second axis: which way of getting an investigator this step belongs to (`new` or `library`). */
+	investigatorSource?: string;
 	params: ParamSpec[];
 	receipt?: string;
 	label?: string;
@@ -64,6 +66,8 @@ export interface Step {
 export interface GateState {
 	completed: ReadonlySet<string>;
 	sourceKind?: string;
+	/** Set once one investigator lane is taken; until then both lanes are open. */
+	investigatorSource?: string;
 }
 
 function asString(value: unknown): string | undefined {
@@ -191,6 +195,9 @@ export function normalizeSteps(raw: unknown): Step[] {
 			ops,
 			needs: normalizeNeeds(row.needs),
 			...(appliesTo && appliesTo.length > 0 ? { appliesTo } : {}),
+			...(asString(row.investigator_source ?? row.investigatorSource)
+				? { investigatorSource: asString(row.investigator_source ?? row.investigatorSource) as string }
+				: {}),
 			params,
 			...(asString(row.receipt) ? { receipt: asString(row.receipt) as string } : {}),
 			...(asString(row.label) ? { label: asString(row.label) as string } : {}),
@@ -201,8 +208,26 @@ export function normalizeSteps(raw: unknown): Step[] {
 	return steps;
 }
 
-/** Whether this step is needed for this source. While the source is undecided, only steps without `applies_to` count. */
-export function applies(step: Step, sourceKind: string | undefined): boolean {
+/**
+ * Whether this step is part of this run's lane. Two independent axes, both declared by the table
+ * (§14.4, §21.5): the module source (`only_for`) and the way the investigator is obtained
+ * (`investigator_source`). A step that names neither is always in. While an axis is undecided every
+ * value of it is still open, so the model can take either lane; once one is taken the other's steps
+ * drop out and `complete`'s prerequisite on them counts as satisfied.
+ */
+export function applies(step: Step, state: GateState | string | undefined): boolean {
+	const gate: GateState =
+		typeof state === "string" || state === undefined
+			? { completed: new Set<string>(), sourceKind: state }
+			: state;
+	if (step.investigatorSource && gate.investigatorSource && step.investigatorSource !== gate.investigatorSource) {
+		return false;
+	}
+	return appliesToSource(step, gate.sourceKind);
+}
+
+/** The module-source half of `applies`. While the source is undecided, only steps without `applies_to` count. */
+function appliesToSource(step: Step, sourceKind: string | undefined): boolean {
 	if (!step.appliesTo || step.appliesTo.length === 0) return true;
 	if (!sourceKind) return false;
 	return step.appliesTo.includes(sourceKind);
@@ -223,14 +248,14 @@ export function missingNeeds(step: Step, state: GateState, steps?: Step[]): stri
 	return needsOf(step, state.sourceKind).filter((id) => {
 		if (state.completed.has(id)) return false;
 		const needed = byId.get(id);
-		return !(needed && !applies(needed, state.sourceKind));
+		return !(needed && !applies(needed, state));
 	});
 }
 
 /** The steps available now: applicable, not done, prerequisites met. The table's order is their order. */
 export function allowedSteps(steps: Step[], state: GateState): Step[] {
 	return steps.filter(
-		(step) => applies(step, state.sourceKind) && !state.completed.has(step.id) && missingNeeds(step, state, steps).length === 0,
+		(step) => applies(step, state) && !state.completed.has(step.id) && missingNeeds(step, state, steps).length === 0,
 	);
 }
 
@@ -289,7 +314,7 @@ export function declaredSources(raw: unknown): string[] {
 
 /** One progress line for the status bar: how many steps are done and which is next (contract §14.4). */
 export function progressLine(steps: Step[], state: GateState): string | undefined {
-	const applicable = steps.filter((step) => applies(step, state.sourceKind) || state.completed.has(step.id));
+	const applicable = steps.filter((step) => applies(step, state) || state.completed.has(step.id));
 	if (applicable.length === 0) return undefined;
 	const done = applicable.filter((step) => state.completed.has(step.id)).length;
 	const next = nextStep(steps, state);
@@ -335,7 +360,7 @@ export function gate(steps: Step[], state: GateState, id: string): GateVerdict {
 			),
 		};
 	}
-	if (!applies(step, state.sourceKind)) {
+	if (!applies(step, state)) {
 		const only = (step.appliesTo ?? []).join(", ");
 		const kind = state.sourceKind ?? "not decided yet";
 		return { ok: false, reason: withNext(steps, state, `${step.id} only exists when the source is ${only}; this time the source is ${kind}. `) };
