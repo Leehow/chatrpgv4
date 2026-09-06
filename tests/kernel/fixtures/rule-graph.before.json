@@ -2032,33 +2032,6 @@
       "audience": "host-internal",
       "authority": "deterministic",
       "evidence_span_ids": [
-        "span-chase-complete-source-page-141-block-1",
-        "span-chase-complete-source-page-142-block-2",
-        "span-chase-complete-source-page-143-block-3"
-      ],
-      "hard_gate": false,
-      "name": "The player's accepted action is to fight",
-      "node_id": "condition:coc7:chase:intent-combat",
-      "node_kind": "condition",
-      "properties": {
-        "expression": {
-          "of": [
-            {
-              "op": "eq",
-              "path": "intent.action_kind",
-              "value": "combat"
-            }
-          ],
-          "op": "all"
-        },
-        "family_id": "chase"
-      },
-      "visibility": "keeper-only"
-    },
-    {
-      "audience": "host-internal",
-      "authority": "deterministic",
-      "evidence_span_ids": [
         "span-chase-complete-source-page-143-block-3",
         "span-chase-complete-source-page-143-block-4",
         "span-chase-complete-source-page-143-block-5"
@@ -2074,33 +2047,6 @@
               "op": "eq",
               "path": "intent.action_kind",
               "value": "flee"
-            }
-          ],
-          "op": "all"
-        },
-        "family_id": "chase"
-      },
-      "visibility": "keeper-only"
-    },
-    {
-      "audience": "host-internal",
-      "authority": "deterministic",
-      "evidence_span_ids": [
-        "span-chase-complete-source-page-141-block-1",
-        "span-chase-complete-source-page-142-block-2",
-        "span-chase-complete-source-page-143-block-3"
-      ],
-      "hard_gate": false,
-      "name": "The player's accepted action is to go somewhere else",
-      "node_id": "condition:coc7:chase:intent-move",
-      "node_kind": "condition",
-      "properties": {
-        "expression": {
-          "of": [
-            {
-              "op": "eq",
-              "path": "intent.action_kind",
-              "value": "move"
             }
           ],
           "op": "all"
@@ -2273,33 +2219,6 @@
       "audience": "host-internal",
       "authority": "deterministic",
       "evidence_span_ids": [
-        "span-combat-complete-source-page-113-block-17",
-        "span-combat-complete-source-page-113-block-20",
-        "span-combat-complete-source-page-113-block-22"
-      ],
-      "hard_gate": false,
-      "name": "The player's accepted action is to fight",
-      "node_id": "condition:coc7:combat:intent-combat",
-      "node_kind": "condition",
-      "properties": {
-        "expression": {
-          "of": [
-            {
-              "op": "eq",
-              "path": "intent.action_kind",
-              "value": "combat"
-            }
-          ],
-          "op": "all"
-        },
-        "family_id": "combat"
-      },
-      "visibility": "keeper-only"
-    },
-    {
-      "audience": "host-internal",
-      "authority": "deterministic",
-      "evidence_span_ids": [
         "span-combat-complete-source-page-119-block-89"
       ],
       "hard_gate": false,
@@ -2370,87 +2289,6 @@
         "expression": {
           "op": "exists",
           "path": "actor.id"
-        },
-        "family_id": "core-check"
-      },
-      "visibility": "keeper-only"
-    },
-    {
-      "audience": "host-internal",
-      "authority": "deterministic",
-      "evidence_span_ids": [
-        "span-core-check-source-accepted-page-100-block-61",
-        "span-core-check-source-accepted-page-101-block-88",
-        "span-core-check-source-accepted-page-101-block-92"
-      ],
-      "hard_gate": false,
-      "name": "The player's accepted action is to investigate, search or examine",
-      "node_id": "condition:coc7:core-check:intent-investigate",
-      "node_kind": "condition",
-      "properties": {
-        "expression": {
-          "of": [
-            {
-              "op": "eq",
-              "path": "intent.action_kind",
-              "value": "investigate"
-            }
-          ],
-          "op": "all"
-        },
-        "family_id": "core-check"
-      },
-      "visibility": "keeper-only"
-    },
-    {
-      "audience": "host-internal",
-      "authority": "deterministic",
-      "evidence_span_ids": [
-        "span-core-check-source-accepted-page-100-block-61",
-        "span-core-check-source-accepted-page-101-block-88",
-        "span-core-check-source-accepted-page-101-block-92"
-      ],
-      "hard_gate": false,
-      "name": "The player's accepted action is to go somewhere else",
-      "node_id": "condition:coc7:core-check:intent-move",
-      "node_kind": "condition",
-      "properties": {
-        "expression": {
-          "of": [
-            {
-              "op": "eq",
-              "path": "intent.action_kind",
-              "value": "move"
-            }
-          ],
-          "op": "all"
-        },
-        "family_id": "core-check"
-      },
-      "visibility": "keeper-only"
-    },
-    {
-      "audience": "host-internal",
-      "authority": "deterministic",
-      "evidence_span_ids": [
-        "span-core-check-source-accepted-page-100-block-61",
-        "span-core-check-source-accepted-page-101-block-88",
-        "span-core-check-source-accepted-page-101-block-92"
-      ],
-      "hard_gate": false,
-      "name": "The player's accepted action is to talk to, persuade or read another person",
-      "node_id": "condition:coc7:core-check:intent-social",
-      "node_kind": "condition",
-      "properties": {
-        "expression": {
-          "of": [
-            {
-              "op": "eq",
-              "path": "intent.action_kind",
-              "value": "social"
-            }
-          ],
-          "op": "all"
         },
         "family_id": "core-check"
       },
@@ -2575,33 +2413,6 @@
               "op": "lte",
               "path": "time.minutes_since_injury",
               "value": 60
-            }
-          ],
-          "op": "all"
-        },
-        "family_id": "healing"
-      },
-      "visibility": "keeper-only"
-    },
-    {
-      "audience": "host-internal",
-      "authority": "deterministic",
-      "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-1",
-        "span-wounds-and-healing-page-131-block-10",
-        "span-wounds-and-healing-page-131-block-16"
-      ],
-      "hard_gate": false,
-      "name": "The player's accepted action is to investigate, search or examine",
-      "node_id": "condition:coc7:healing:intent-investigate",
-      "node_kind": "condition",
-      "properties": {
-        "expression": {
-          "of": [
-            {
-              "op": "eq",
-              "path": "intent.action_kind",
-              "value": "investigate"
             }
           ],
           "op": "all"
@@ -2909,60 +2720,6 @@
       "visibility": "public"
     },
     {
-      "audience": "host-internal",
-      "authority": "deterministic",
-      "evidence_span_ids": [
-        "span-magic-source-and-runtime-gaps-page-181-block-1",
-        "span-magic-source-and-runtime-gaps-page-183-block-2",
-        "span-magic-source-and-runtime-gaps-page-183-block-3"
-      ],
-      "hard_gate": false,
-      "name": "The player's accepted action is to cast or study a spell",
-      "node_id": "condition:coc7:magic:intent-cast",
-      "node_kind": "condition",
-      "properties": {
-        "expression": {
-          "of": [
-            {
-              "op": "eq",
-              "path": "intent.action_kind",
-              "value": "cast"
-            }
-          ],
-          "op": "all"
-        },
-        "family_id": "magic"
-      },
-      "visibility": "keeper-only"
-    },
-    {
-      "audience": "host-internal",
-      "authority": "deterministic",
-      "evidence_span_ids": [
-        "span-magic-source-and-runtime-gaps-page-181-block-1",
-        "span-magic-source-and-runtime-gaps-page-183-block-2",
-        "span-magic-source-and-runtime-gaps-page-183-block-3"
-      ],
-      "hard_gate": false,
-      "name": "The player's accepted action is to investigate, search or examine",
-      "node_id": "condition:coc7:magic:intent-investigate",
-      "node_kind": "condition",
-      "properties": {
-        "expression": {
-          "of": [
-            {
-              "op": "eq",
-              "path": "intent.action_kind",
-              "value": "investigate"
-            }
-          ],
-          "op": "all"
-        },
-        "family_id": "magic"
-      },
-      "visibility": "keeper-only"
-    },
-    {
       "audience": "keeper",
       "authority": "deterministic",
       "evidence_span_ids": [
@@ -3202,60 +2959,6 @@
       "audience": "host-internal",
       "authority": "deterministic",
       "evidence_span_ids": [
-        "span-psychology-complete-source-page-215-block-56",
-        "span-psychology-complete-source-page-83-block-21",
-        "span-psychology-complete-source-page-83-block-22"
-      ],
-      "hard_gate": false,
-      "name": "The player's accepted action is to investigate, search or examine",
-      "node_id": "condition:coc7:psychology:intent-investigate",
-      "node_kind": "condition",
-      "properties": {
-        "expression": {
-          "of": [
-            {
-              "op": "eq",
-              "path": "intent.action_kind",
-              "value": "investigate"
-            }
-          ],
-          "op": "all"
-        },
-        "family_id": "psychology"
-      },
-      "visibility": "keeper-only"
-    },
-    {
-      "audience": "host-internal",
-      "authority": "deterministic",
-      "evidence_span_ids": [
-        "span-psychology-complete-source-page-215-block-56",
-        "span-psychology-complete-source-page-83-block-21",
-        "span-psychology-complete-source-page-83-block-22"
-      ],
-      "hard_gate": false,
-      "name": "The player's accepted action is to talk to, persuade or read another person",
-      "node_id": "condition:coc7:psychology:intent-social",
-      "node_kind": "condition",
-      "properties": {
-        "expression": {
-          "of": [
-            {
-              "op": "eq",
-              "path": "intent.action_kind",
-              "value": "social"
-            }
-          ],
-          "op": "all"
-        },
-        "family_id": "psychology"
-      },
-      "visibility": "keeper-only"
-    },
-    {
-      "audience": "host-internal",
-      "authority": "deterministic",
-      "evidence_span_ids": [
         "span-push-luck-source-accepted-page-100-block-47",
         "span-push-luck-source-accepted-page-101-block-58",
         "span-push-luck-source-accepted-page-101-block-59",
@@ -3466,141 +3169,6 @@
       "audience": "host-internal",
       "authority": "deterministic",
       "evidence_span_ids": [
-        "span-sanity-complete-source-page-165-block-17",
-        "span-sanity-complete-source-page-165-block-2",
-        "span-sanity-complete-source-page-165-block-4"
-      ],
-      "hard_gate": false,
-      "name": "The player's accepted action is to fight",
-      "node_id": "condition:coc7:sanity:intent-combat",
-      "node_kind": "condition",
-      "properties": {
-        "expression": {
-          "of": [
-            {
-              "op": "eq",
-              "path": "intent.action_kind",
-              "value": "combat"
-            }
-          ],
-          "op": "all"
-        },
-        "family_id": "sanity"
-      },
-      "visibility": "keeper-only"
-    },
-    {
-      "audience": "host-internal",
-      "authority": "deterministic",
-      "evidence_span_ids": [
-        "span-sanity-complete-source-page-165-block-17",
-        "span-sanity-complete-source-page-165-block-2",
-        "span-sanity-complete-source-page-165-block-4"
-      ],
-      "hard_gate": false,
-      "name": "The player's accepted action is to break away and run",
-      "node_id": "condition:coc7:sanity:intent-flee",
-      "node_kind": "condition",
-      "properties": {
-        "expression": {
-          "of": [
-            {
-              "op": "eq",
-              "path": "intent.action_kind",
-              "value": "flee"
-            }
-          ],
-          "op": "all"
-        },
-        "family_id": "sanity"
-      },
-      "visibility": "keeper-only"
-    },
-    {
-      "audience": "host-internal",
-      "authority": "deterministic",
-      "evidence_span_ids": [
-        "span-sanity-complete-source-page-165-block-17",
-        "span-sanity-complete-source-page-165-block-2",
-        "span-sanity-complete-source-page-165-block-4"
-      ],
-      "hard_gate": false,
-      "name": "The player's accepted action is to investigate, search or examine",
-      "node_id": "condition:coc7:sanity:intent-investigate",
-      "node_kind": "condition",
-      "properties": {
-        "expression": {
-          "of": [
-            {
-              "op": "eq",
-              "path": "intent.action_kind",
-              "value": "investigate"
-            }
-          ],
-          "op": "all"
-        },
-        "family_id": "sanity"
-      },
-      "visibility": "keeper-only"
-    },
-    {
-      "audience": "host-internal",
-      "authority": "deterministic",
-      "evidence_span_ids": [
-        "span-sanity-complete-source-page-165-block-17",
-        "span-sanity-complete-source-page-165-block-2",
-        "span-sanity-complete-source-page-165-block-4"
-      ],
-      "hard_gate": false,
-      "name": "The player's accepted action is to go somewhere else",
-      "node_id": "condition:coc7:sanity:intent-move",
-      "node_kind": "condition",
-      "properties": {
-        "expression": {
-          "of": [
-            {
-              "op": "eq",
-              "path": "intent.action_kind",
-              "value": "move"
-            }
-          ],
-          "op": "all"
-        },
-        "family_id": "sanity"
-      },
-      "visibility": "keeper-only"
-    },
-    {
-      "audience": "host-internal",
-      "authority": "deterministic",
-      "evidence_span_ids": [
-        "span-sanity-complete-source-page-165-block-17",
-        "span-sanity-complete-source-page-165-block-2",
-        "span-sanity-complete-source-page-165-block-4"
-      ],
-      "hard_gate": false,
-      "name": "The player's accepted action is to talk to, persuade or read another person",
-      "node_id": "condition:coc7:sanity:intent-social",
-      "node_kind": "condition",
-      "properties": {
-        "expression": {
-          "of": [
-            {
-              "op": "eq",
-              "path": "intent.action_kind",
-              "value": "social"
-            }
-          ],
-          "op": "all"
-        },
-        "family_id": "sanity"
-      },
-      "visibility": "keeper-only"
-    },
-    {
-      "audience": "host-internal",
-      "authority": "deterministic",
-      "evidence_span_ids": [
         "span-sanity-complete-source-page-175-block-139"
       ],
       "hard_gate": true,
@@ -3635,33 +3203,6 @@
           "value": true
         },
         "family_id": "sanity"
-      },
-      "visibility": "keeper-only"
-    },
-    {
-      "audience": "host-internal",
-      "authority": "deterministic",
-      "evidence_span_ids": [
-        "span-social-source-accepted-page-104-block-169",
-        "span-social-source-accepted-page-208-block-182",
-        "span-social-source-accepted-page-208-block-183"
-      ],
-      "hard_gate": false,
-      "name": "The player's accepted action is to talk to, persuade or read another person",
-      "node_id": "condition:coc7:social:intent-social",
-      "node_kind": "condition",
-      "properties": {
-        "expression": {
-          "of": [
-            {
-              "op": "eq",
-              "path": "intent.action_kind",
-              "value": "social"
-            }
-          ],
-          "op": "all"
-        },
-        "family_id": "social"
       },
       "visibility": "keeper-only"
     },
@@ -22852,39 +22393,6 @@
       "evidence_span_ids": [
         "span-chase-complete-source-page-141-block-1",
         "span-chase-complete-source-page-142-block-2",
-        "span-chase-complete-source-page-143-block-3"
-      ],
-      "from_node_id": "decision:coc7:chase:barrier",
-      "relation_id": "relation:coc7:chase:barrier-intent-combat-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:chase:intent-combat"
-    },
-    {
-      "evidence_span_ids": [
-        "span-chase-complete-source-page-141-block-1",
-        "span-chase-complete-source-page-142-block-2",
-        "span-chase-complete-source-page-143-block-3"
-      ],
-      "from_node_id": "decision:coc7:chase:barrier",
-      "relation_id": "relation:coc7:chase:barrier-intent-flee-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:chase:intent-flee"
-    },
-    {
-      "evidence_span_ids": [
-        "span-chase-complete-source-page-141-block-1",
-        "span-chase-complete-source-page-142-block-2",
-        "span-chase-complete-source-page-143-block-3"
-      ],
-      "from_node_id": "decision:coc7:chase:barrier",
-      "relation_id": "relation:coc7:chase:barrier-intent-move-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:chase:intent-move"
-    },
-    {
-      "evidence_span_ids": [
-        "span-chase-complete-source-page-141-block-1",
-        "span-chase-complete-source-page-142-block-2",
         "span-chase-complete-source-page-143-block-3",
         "span-chase-complete-source-page-143-block-4",
         "span-chase-complete-source-page-143-block-5",
@@ -23661,39 +23169,6 @@
       "evidence_span_ids": [
         "span-chase-complete-source-page-141-block-1",
         "span-chase-complete-source-page-142-block-2",
-        "span-chase-complete-source-page-143-block-3"
-      ],
-      "from_node_id": "decision:coc7:chase:conflict",
-      "relation_id": "relation:coc7:chase:conflict-intent-combat-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:chase:intent-combat"
-    },
-    {
-      "evidence_span_ids": [
-        "span-chase-complete-source-page-141-block-1",
-        "span-chase-complete-source-page-142-block-2",
-        "span-chase-complete-source-page-143-block-3"
-      ],
-      "from_node_id": "decision:coc7:chase:conflict",
-      "relation_id": "relation:coc7:chase:conflict-intent-flee-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:chase:intent-flee"
-    },
-    {
-      "evidence_span_ids": [
-        "span-chase-complete-source-page-141-block-1",
-        "span-chase-complete-source-page-142-block-2",
-        "span-chase-complete-source-page-143-block-3"
-      ],
-      "from_node_id": "decision:coc7:chase:conflict",
-      "relation_id": "relation:coc7:chase:conflict-intent-move-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:chase:intent-move"
-    },
-    {
-      "evidence_span_ids": [
-        "span-chase-complete-source-page-141-block-1",
-        "span-chase-complete-source-page-142-block-2",
         "span-chase-complete-source-page-143-block-3",
         "span-chase-complete-source-page-143-block-4",
         "span-chase-complete-source-page-143-block-5",
@@ -24256,39 +23731,6 @@
       "evidence_span_ids": [
         "span-chase-complete-source-page-141-block-1",
         "span-chase-complete-source-page-142-block-2",
-        "span-chase-complete-source-page-143-block-3"
-      ],
-      "from_node_id": "decision:coc7:chase:end",
-      "relation_id": "relation:coc7:chase:end-intent-combat-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:chase:intent-combat"
-    },
-    {
-      "evidence_span_ids": [
-        "span-chase-complete-source-page-141-block-1",
-        "span-chase-complete-source-page-142-block-2",
-        "span-chase-complete-source-page-143-block-3"
-      ],
-      "from_node_id": "decision:coc7:chase:end",
-      "relation_id": "relation:coc7:chase:end-intent-flee-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:chase:intent-flee"
-    },
-    {
-      "evidence_span_ids": [
-        "span-chase-complete-source-page-141-block-1",
-        "span-chase-complete-source-page-142-block-2",
-        "span-chase-complete-source-page-143-block-3"
-      ],
-      "from_node_id": "decision:coc7:chase:end",
-      "relation_id": "relation:coc7:chase:end-intent-move-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:chase:intent-move"
-    },
-    {
-      "evidence_span_ids": [
-        "span-chase-complete-source-page-141-block-1",
-        "span-chase-complete-source-page-142-block-2",
         "span-chase-complete-source-page-143-block-3",
         "span-chase-complete-source-page-143-block-4",
         "span-chase-complete-source-page-143-block-5",
@@ -24796,39 +24238,6 @@
       "relation_id": "relation:coc7:chase:flee-intent-trigger",
       "relation_kind": "available-when",
       "to_node_id": "condition:coc7:chase:intent-flee"
-    },
-    {
-      "evidence_span_ids": [
-        "span-chase-complete-source-page-141-block-1",
-        "span-chase-complete-source-page-142-block-2",
-        "span-chase-complete-source-page-143-block-3"
-      ],
-      "from_node_id": "decision:coc7:chase:hazard",
-      "relation_id": "relation:coc7:chase:hazard-intent-combat-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:chase:intent-combat"
-    },
-    {
-      "evidence_span_ids": [
-        "span-chase-complete-source-page-141-block-1",
-        "span-chase-complete-source-page-142-block-2",
-        "span-chase-complete-source-page-143-block-3"
-      ],
-      "from_node_id": "decision:coc7:chase:hazard",
-      "relation_id": "relation:coc7:chase:hazard-intent-flee-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:chase:intent-flee"
-    },
-    {
-      "evidence_span_ids": [
-        "span-chase-complete-source-page-141-block-1",
-        "span-chase-complete-source-page-142-block-2",
-        "span-chase-complete-source-page-143-block-3"
-      ],
-      "from_node_id": "decision:coc7:chase:hazard",
-      "relation_id": "relation:coc7:chase:hazard-intent-move-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:chase:intent-move"
     },
     {
       "evidence_span_ids": [
@@ -25498,39 +24907,6 @@
       "relation_id": "relation:coc7:chase:join-and-change-mode:part-of-family",
       "relation_kind": "part-of",
       "to_node_id": "rule-family:coc7:chase"
-    },
-    {
-      "evidence_span_ids": [
-        "span-chase-complete-source-page-141-block-1",
-        "span-chase-complete-source-page-142-block-2",
-        "span-chase-complete-source-page-143-block-3"
-      ],
-      "from_node_id": "decision:coc7:chase:move",
-      "relation_id": "relation:coc7:chase:move-intent-combat-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:chase:intent-combat"
-    },
-    {
-      "evidence_span_ids": [
-        "span-chase-complete-source-page-141-block-1",
-        "span-chase-complete-source-page-142-block-2",
-        "span-chase-complete-source-page-143-block-3"
-      ],
-      "from_node_id": "decision:coc7:chase:move",
-      "relation_id": "relation:coc7:chase:move-intent-flee-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:chase:intent-flee"
-    },
-    {
-      "evidence_span_ids": [
-        "span-chase-complete-source-page-141-block-1",
-        "span-chase-complete-source-page-142-block-2",
-        "span-chase-complete-source-page-143-block-3"
-      ],
-      "from_node_id": "decision:coc7:chase:move",
-      "relation_id": "relation:coc7:chase:move-intent-move-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:chase:intent-move"
     },
     {
       "evidence_span_ids": [
@@ -26947,17 +26323,6 @@
       "evidence_span_ids": [
         "span-combat-complete-source-page-113-block-17",
         "span-combat-complete-source-page-113-block-20",
-        "span-combat-complete-source-page-113-block-22"
-      ],
-      "from_node_id": "decision:coc7:combat:aim",
-      "relation_id": "relation:coc7:combat:aim-intent-combat-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:combat:intent-combat"
-    },
-    {
-      "evidence_span_ids": [
-        "span-combat-complete-source-page-113-block-17",
-        "span-combat-complete-source-page-113-block-20",
         "span-combat-complete-source-page-113-block-22",
         "span-combat-complete-source-page-114-block-31",
         "span-combat-complete-source-page-114-block-40",
@@ -27488,17 +26853,6 @@
       "relation_id": "relation:coc7:combat:attack-continues-defense",
       "relation_kind": "continues-as",
       "to_node_id": "decision:coc7:combat:defend"
-    },
-    {
-      "evidence_span_ids": [
-        "span-combat-complete-source-page-113-block-17",
-        "span-combat-complete-source-page-113-block-20",
-        "span-combat-complete-source-page-113-block-22"
-      ],
-      "from_node_id": "decision:coc7:combat:attack",
-      "relation_id": "relation:coc7:combat:attack-intent-combat-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:combat:intent-combat"
     },
     {
       "evidence_span_ids": [
@@ -28181,17 +27535,6 @@
       "evidence_span_ids": [
         "span-combat-complete-source-page-113-block-17",
         "span-combat-complete-source-page-113-block-20",
-        "span-combat-complete-source-page-113-block-22"
-      ],
-      "from_node_id": "decision:coc7:combat:context",
-      "relation_id": "relation:coc7:combat:context-intent-combat-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:combat:intent-combat"
-    },
-    {
-      "evidence_span_ids": [
-        "span-combat-complete-source-page-113-block-17",
-        "span-combat-complete-source-page-113-block-20",
         "span-combat-complete-source-page-113-block-22",
         "span-combat-complete-source-page-114-block-31",
         "span-combat-complete-source-page-114-block-40",
@@ -28465,17 +27808,6 @@
       "relation_id": "relation:coc7:combat:defend-defense-kind",
       "relation_kind": "requires-input",
       "to_node_id": "input-slot:coc7:combat:defense-kind"
-    },
-    {
-      "evidence_span_ids": [
-        "span-combat-complete-source-page-113-block-17",
-        "span-combat-complete-source-page-113-block-20",
-        "span-combat-complete-source-page-113-block-22"
-      ],
-      "from_node_id": "decision:coc7:combat:defend",
-      "relation_id": "relation:coc7:combat:defend-intent-combat-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:combat:intent-combat"
     },
     {
       "evidence_span_ids": [
@@ -29078,28 +28410,6 @@
       "relation_id": "relation:coc7:combat:end-implemented-by-session",
       "relation_kind": "implemented-by",
       "to_node_id": "subsystem:coc7:combat-session"
-    },
-    {
-      "evidence_span_ids": [
-        "span-combat-complete-source-page-113-block-17",
-        "span-combat-complete-source-page-113-block-20",
-        "span-combat-complete-source-page-113-block-22"
-      ],
-      "from_node_id": "decision:coc7:combat:end",
-      "relation_id": "relation:coc7:combat:end-intent-combat-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:combat:intent-combat"
-    },
-    {
-      "evidence_span_ids": [
-        "span-combat-complete-source-page-113-block-17",
-        "span-combat-complete-source-page-113-block-20",
-        "span-combat-complete-source-page-113-block-22"
-      ],
-      "from_node_id": "decision:coc7:combat:end",
-      "relation_id": "relation:coc7:combat:end-intent-flee-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:combat:intent-flee"
     },
     {
       "evidence_span_ids": [
@@ -30305,17 +29615,6 @@
       "evidence_span_ids": [
         "span-combat-complete-source-page-113-block-17",
         "span-combat-complete-source-page-113-block-20",
-        "span-combat-complete-source-page-113-block-22"
-      ],
-      "from_node_id": "decision:coc7:combat:maneuver",
-      "relation_id": "relation:coc7:combat:maneuver-intent-combat-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:combat:intent-combat"
-    },
-    {
-      "evidence_span_ids": [
-        "span-combat-complete-source-page-113-block-17",
-        "span-combat-complete-source-page-113-block-20",
         "span-combat-complete-source-page-113-block-22",
         "span-combat-complete-source-page-114-block-31",
         "span-combat-complete-source-page-114-block-40",
@@ -30769,17 +30068,6 @@
       "relation_id": "relation:coc7:combat:reload-combat-revision",
       "relation_kind": "locks-input",
       "to_node_id": "input-slot:coc7:combat:combat-revision"
-    },
-    {
-      "evidence_span_ids": [
-        "span-combat-complete-source-page-113-block-17",
-        "span-combat-complete-source-page-113-block-20",
-        "span-combat-complete-source-page-113-block-22"
-      ],
-      "from_node_id": "decision:coc7:combat:reload",
-      "relation_id": "relation:coc7:combat:reload-intent-combat-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:combat:intent-combat"
     },
     {
       "evidence_span_ids": [
@@ -31612,28 +30900,6 @@
       "evidence_span_ids": [
         "span-core-check-source-accepted-page-100-block-61",
         "span-core-check-source-accepted-page-101-block-88",
-        "span-core-check-source-accepted-page-101-block-92"
-      ],
-      "from_node_id": "decision:coc7:core-check:combined-check",
-      "relation_id": "relation:coc7:core-check:combined-check-intent-investigate-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:core-check:intent-investigate"
-    },
-    {
-      "evidence_span_ids": [
-        "span-core-check-source-accepted-page-100-block-61",
-        "span-core-check-source-accepted-page-101-block-88",
-        "span-core-check-source-accepted-page-101-block-92"
-      ],
-      "from_node_id": "decision:coc7:core-check:combined-check",
-      "relation_id": "relation:coc7:core-check:combined-check-intent-move-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:core-check:intent-move"
-    },
-    {
-      "evidence_span_ids": [
-        "span-core-check-source-accepted-page-100-block-61",
-        "span-core-check-source-accepted-page-101-block-88",
         "span-core-check-source-accepted-page-101-block-92",
         "span-core-check-source-accepted-page-102-block-101",
         "span-core-check-source-accepted-page-102-block-107",
@@ -31964,39 +31230,6 @@
       "evidence_span_ids": [
         "span-core-check-source-accepted-page-100-block-61",
         "span-core-check-source-accepted-page-101-block-88",
-        "span-core-check-source-accepted-page-101-block-92"
-      ],
-      "from_node_id": "decision:coc7:core-check:opposed-check",
-      "relation_id": "relation:coc7:core-check:opposed-check-intent-investigate-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:core-check:intent-investigate"
-    },
-    {
-      "evidence_span_ids": [
-        "span-core-check-source-accepted-page-100-block-61",
-        "span-core-check-source-accepted-page-101-block-88",
-        "span-core-check-source-accepted-page-101-block-92"
-      ],
-      "from_node_id": "decision:coc7:core-check:opposed-check",
-      "relation_id": "relation:coc7:core-check:opposed-check-intent-move-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:core-check:intent-move"
-    },
-    {
-      "evidence_span_ids": [
-        "span-core-check-source-accepted-page-100-block-61",
-        "span-core-check-source-accepted-page-101-block-88",
-        "span-core-check-source-accepted-page-101-block-92"
-      ],
-      "from_node_id": "decision:coc7:core-check:opposed-check",
-      "relation_id": "relation:coc7:core-check:opposed-check-intent-social-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:core-check:intent-social"
-    },
-    {
-      "evidence_span_ids": [
-        "span-core-check-source-accepted-page-100-block-61",
-        "span-core-check-source-accepted-page-101-block-88",
         "span-core-check-source-accepted-page-101-block-92",
         "span-core-check-source-accepted-page-102-block-101",
         "span-core-check-source-accepted-page-102-block-107",
@@ -32208,39 +31441,6 @@
       "relation_id": "relation:coc7:core-check:ordinary-actor-bound",
       "relation_kind": "available-when",
       "to_node_id": "condition:coc7:core-check:actor-bound"
-    },
-    {
-      "evidence_span_ids": [
-        "span-core-check-source-accepted-page-100-block-61",
-        "span-core-check-source-accepted-page-101-block-88",
-        "span-core-check-source-accepted-page-101-block-92"
-      ],
-      "from_node_id": "decision:coc7:core-check:ordinary-check",
-      "relation_id": "relation:coc7:core-check:ordinary-check-intent-investigate-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:core-check:intent-investigate"
-    },
-    {
-      "evidence_span_ids": [
-        "span-core-check-source-accepted-page-100-block-61",
-        "span-core-check-source-accepted-page-101-block-88",
-        "span-core-check-source-accepted-page-101-block-92"
-      ],
-      "from_node_id": "decision:coc7:core-check:ordinary-check",
-      "relation_id": "relation:coc7:core-check:ordinary-check-intent-move-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:core-check:intent-move"
-    },
-    {
-      "evidence_span_ids": [
-        "span-core-check-source-accepted-page-100-block-61",
-        "span-core-check-source-accepted-page-101-block-88",
-        "span-core-check-source-accepted-page-101-block-92"
-      ],
-      "from_node_id": "decision:coc7:core-check:ordinary-check",
-      "relation_id": "relation:coc7:core-check:ordinary-check-intent-social-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:core-check:intent-social"
     },
     {
       "evidence_span_ids": [
@@ -32948,28 +32148,6 @@
       "evidence_span_ids": [
         "span-wounds-and-healing-page-131-block-1",
         "span-wounds-and-healing-page-131-block-10",
-        "span-wounds-and-healing-page-131-block-16"
-      ],
-      "from_node_id": "decision:coc7:healing:dying-hour-clock",
-      "relation_id": "relation:coc7:healing:dying-hour-clock-intent-investigate-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:healing:intent-investigate"
-    },
-    {
-      "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-1",
-        "span-wounds-and-healing-page-131-block-10",
-        "span-wounds-and-healing-page-131-block-16"
-      ],
-      "from_node_id": "decision:coc7:healing:dying-round-clock",
-      "relation_id": "relation:coc7:healing:dying-round-clock-intent-investigate-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:healing:intent-investigate"
-    },
-    {
-      "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-1",
-        "span-wounds-and-healing-page-131-block-10",
         "span-wounds-and-healing-page-131-block-16",
         "span-wounds-and-healing-page-131-block-8"
       ],
@@ -33222,17 +32400,6 @@
     },
     {
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-1",
-        "span-wounds-and-healing-page-131-block-10",
-        "span-wounds-and-healing-page-131-block-16"
-      ],
-      "from_node_id": "decision:coc7:healing:first-aid-ordinary",
-      "relation_id": "relation:coc7:healing:first-aid-ordinary-intent-investigate-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:healing:intent-investigate"
-    },
-    {
-      "evidence_span_ids": [
         "span-wounds-and-healing-page-131-block-18",
         "span-wounds-and-healing-page-131-block-24"
       ],
@@ -33316,17 +32483,6 @@
       "relation_id": "relation:coc7:healing:first-aid-stabilization-failure-consequence",
       "relation_kind": "requires-input",
       "to_node_id": "input-slot:coc7:healing:failure-consequence"
-    },
-    {
-      "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-1",
-        "span-wounds-and-healing-page-131-block-10",
-        "span-wounds-and-healing-page-131-block-16"
-      ],
-      "from_node_id": "decision:coc7:healing:first-aid-stabilization",
-      "relation_id": "relation:coc7:healing:first-aid-stabilization-intent-investigate-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:healing:intent-investigate"
     },
     {
       "evidence_span_ids": [
@@ -33546,17 +32702,6 @@
     },
     {
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-1",
-        "span-wounds-and-healing-page-131-block-10",
-        "span-wounds-and-healing-page-131-block-16"
-      ],
-      "from_node_id": "decision:coc7:healing:medicine-ordinary",
-      "relation_id": "relation:coc7:healing:medicine-ordinary-intent-investigate-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:healing:intent-investigate"
-    },
-    {
-      "evidence_span_ids": [
         "span-wounds-and-healing-page-131-block-18",
         "span-wounds-and-healing-page-131-block-20",
         "span-wounds-and-healing-page-131-block-24",
@@ -33580,17 +32725,6 @@
       "relation_id": "relation:coc7:healing:medicine-part-of",
       "relation_kind": "part-of",
       "to_node_id": "rule-family:coc7:healing"
-    },
-    {
-      "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-1",
-        "span-wounds-and-healing-page-131-block-10",
-        "span-wounds-and-healing-page-131-block-16"
-      ],
-      "from_node_id": "decision:coc7:healing:medicine-stabilization",
-      "relation_id": "relation:coc7:healing:medicine-stabilization-intent-investigate-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:healing:intent-investigate"
     },
     {
       "evidence_span_ids": [
@@ -33853,17 +32987,6 @@
     },
     {
       "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-1",
-        "span-wounds-and-healing-page-131-block-10",
-        "span-wounds-and-healing-page-131-block-16"
-      ],
-      "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
-      "relation_id": "relation:coc7:healing:weekly-major-wound-recovery-intent-investigate-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:healing:intent-investigate"
-    },
-    {
-      "evidence_span_ids": [
         "span-wounds-and-healing-page-131-block-18",
         "span-wounds-and-healing-page-131-block-20",
         "span-wounds-and-healing-page-131-block-24",
@@ -34023,17 +33146,6 @@
       "relation_id": "relation:coc7:healing:zero-part-of",
       "relation_kind": "part-of",
       "to_node_id": "rule-family:coc7:healing"
-    },
-    {
-      "evidence_span_ids": [
-        "span-magic-source-and-runtime-gaps-page-181-block-1",
-        "span-magic-source-and-runtime-gaps-page-183-block-2",
-        "span-magic-source-and-runtime-gaps-page-183-block-3"
-      ],
-      "from_node_id": "decision:coc7:magic:cast-spell",
-      "relation_id": "relation:coc7:magic:cast-spell-intent-cast-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:magic:intent-cast"
     },
     {
       "evidence_span_ids": [
@@ -37311,28 +36423,6 @@
       "evidence_span_ids": [
         "span-magic-source-and-runtime-gaps-page-181-block-1",
         "span-magic-source-and-runtime-gaps-page-183-block-2",
-        "span-magic-source-and-runtime-gaps-page-183-block-3"
-      ],
-      "from_node_id": "decision:coc7:magic:learn-spell",
-      "relation_id": "relation:coc7:magic:learn-spell-intent-cast-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:magic:intent-cast"
-    },
-    {
-      "evidence_span_ids": [
-        "span-magic-source-and-runtime-gaps-page-181-block-1",
-        "span-magic-source-and-runtime-gaps-page-183-block-2",
-        "span-magic-source-and-runtime-gaps-page-183-block-3"
-      ],
-      "from_node_id": "decision:coc7:magic:learn-spell",
-      "relation_id": "relation:coc7:magic:learn-spell-intent-investigate-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:magic:intent-investigate"
-    },
-    {
-      "evidence_span_ids": [
-        "span-magic-source-and-runtime-gaps-page-181-block-1",
-        "span-magic-source-and-runtime-gaps-page-183-block-2",
         "span-magic-source-and-runtime-gaps-page-183-block-3",
         "span-magic-source-and-runtime-gaps-page-183-block-4",
         "span-magic-source-and-runtime-gaps-page-183-block-5",
@@ -40412,28 +39502,6 @@
       "evidence_span_ids": [
         "span-psychology-complete-source-page-215-block-56",
         "span-psychology-complete-source-page-83-block-21",
-        "span-psychology-complete-source-page-83-block-22"
-      ],
-      "from_node_id": "decision:coc7:psychology:observe-concealed",
-      "relation_id": "relation:coc7:psychology:observe-concealed-intent-investigate-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:psychology:intent-investigate"
-    },
-    {
-      "evidence_span_ids": [
-        "span-psychology-complete-source-page-215-block-56",
-        "span-psychology-complete-source-page-83-block-21",
-        "span-psychology-complete-source-page-83-block-22"
-      ],
-      "from_node_id": "decision:coc7:psychology:observe-concealed",
-      "relation_id": "relation:coc7:psychology:observe-concealed-intent-social-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:psychology:intent-social"
-    },
-    {
-      "evidence_span_ids": [
-        "span-psychology-complete-source-page-215-block-56",
-        "span-psychology-complete-source-page-83-block-21",
         "span-psychology-complete-source-page-83-block-22",
         "span-psychology-complete-source-page-84-block-24",
         "span-psychology-complete-source-page-84-block-25",
@@ -40648,28 +39716,6 @@
       "relation_id": "relation:coc7:psychology:realize-player-safe-inference-ceiling",
       "relation_kind": "locks-input",
       "to_node_id": "input-slot:coc7:psychology:inference-ceiling"
-    },
-    {
-      "evidence_span_ids": [
-        "span-psychology-complete-source-page-215-block-56",
-        "span-psychology-complete-source-page-83-block-21",
-        "span-psychology-complete-source-page-83-block-22"
-      ],
-      "from_node_id": "decision:coc7:psychology:realize-player-safe",
-      "relation_id": "relation:coc7:psychology:realize-player-safe-intent-investigate-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:psychology:intent-investigate"
-    },
-    {
-      "evidence_span_ids": [
-        "span-psychology-complete-source-page-215-block-56",
-        "span-psychology-complete-source-page-83-block-21",
-        "span-psychology-complete-source-page-83-block-22"
-      ],
-      "from_node_id": "decision:coc7:psychology:realize-player-safe",
-      "relation_id": "relation:coc7:psychology:realize-player-safe-intent-social-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:psychology:intent-social"
     },
     {
       "evidence_span_ids": [
@@ -42876,61 +41922,6 @@
       "relation_id": "relation:coc7:sanity:check-implemented-by-session",
       "relation_kind": "implemented-by",
       "to_node_id": "subsystem:coc7:sanity-session"
-    },
-    {
-      "evidence_span_ids": [
-        "span-sanity-complete-source-page-165-block-17",
-        "span-sanity-complete-source-page-165-block-2",
-        "span-sanity-complete-source-page-165-block-4"
-      ],
-      "from_node_id": "decision:coc7:sanity:check",
-      "relation_id": "relation:coc7:sanity:check-intent-combat-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:sanity:intent-combat"
-    },
-    {
-      "evidence_span_ids": [
-        "span-sanity-complete-source-page-165-block-17",
-        "span-sanity-complete-source-page-165-block-2",
-        "span-sanity-complete-source-page-165-block-4"
-      ],
-      "from_node_id": "decision:coc7:sanity:check",
-      "relation_id": "relation:coc7:sanity:check-intent-flee-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:sanity:intent-flee"
-    },
-    {
-      "evidence_span_ids": [
-        "span-sanity-complete-source-page-165-block-17",
-        "span-sanity-complete-source-page-165-block-2",
-        "span-sanity-complete-source-page-165-block-4"
-      ],
-      "from_node_id": "decision:coc7:sanity:check",
-      "relation_id": "relation:coc7:sanity:check-intent-investigate-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:sanity:intent-investigate"
-    },
-    {
-      "evidence_span_ids": [
-        "span-sanity-complete-source-page-165-block-17",
-        "span-sanity-complete-source-page-165-block-2",
-        "span-sanity-complete-source-page-165-block-4"
-      ],
-      "from_node_id": "decision:coc7:sanity:check",
-      "relation_id": "relation:coc7:sanity:check-intent-move-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:sanity:intent-move"
-    },
-    {
-      "evidence_span_ids": [
-        "span-sanity-complete-source-page-165-block-17",
-        "span-sanity-complete-source-page-165-block-2",
-        "span-sanity-complete-source-page-165-block-4"
-      ],
-      "from_node_id": "decision:coc7:sanity:check",
-      "relation_id": "relation:coc7:sanity:check-intent-social-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:sanity:intent-social"
     },
     {
       "evidence_span_ids": [
@@ -46264,17 +45255,6 @@
       "relation_id": "relation:coc7:social:adjudicate-available",
       "relation_kind": "available-when",
       "to_node_id": "condition:coc7:social:ruleset-coc7"
-    },
-    {
-      "evidence_span_ids": [
-        "span-social-source-accepted-page-104-block-169",
-        "span-social-source-accepted-page-208-block-182",
-        "span-social-source-accepted-page-208-block-183"
-      ],
-      "from_node_id": "decision:coc7:social:adjudicate-difficulty",
-      "relation_id": "relation:coc7:social:adjudicate-difficulty-intent-social-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:social:intent-social"
     },
     {
       "evidence_span_ids": [

@@ -21,6 +21,34 @@ interface OpenResult {
 	opening_needed?: boolean;
 }
 
+/**
+ * `resolve` 结果里的会话摘要（契约 §11.5）与待决（§11.3、§11.5）。
+ * 扩展只读它做状态行与遥测，不解释规则；字段缺失时按「没有」处理。
+ */
+type SessionSummary = {
+	kind?: string;
+	round?: number;
+	status?: string;
+	ended?: boolean;
+	/** 轮到谁；契约没定字段名，两种写法都收。 */
+	turn_of?: string;
+	active_actor?: string;
+	pending_defense?: { for?: string; defender?: string; options?: string[] } | null;
+};
+
+type PendingChoice = {
+	name?: string;
+	for?: string;
+	prompt?: string;
+	options?: string[];
+};
+
+type ResolveResult = {
+	outcome?: { kind?: string };
+	session?: SessionSummary | null;
+	pending_choice?: PendingChoice | null;
+};
+
 interface CampaignRow {
 	id: string;
 	title?: string;
@@ -42,6 +70,10 @@ interface TableState {
 	/** narrate/ask 已回 rendered_text，等着替换助手消息交付。 */
 	renderedText?: string;
 	deliveryToolCallId?: string;
+	/** 最近一次 resolve 回来的会话（战斗、追逐、理智发作）；null 表示当前没有会话。 */
+	session: SessionSummary | null;
+	/** 最近一次 resolve 留下的待决；`for` 是 player 时守秘人该用 ask 把它交回玩家。 */
+	pendingChoice: PendingChoice | null;
 	/** 本轮 agent run 里回合是否已经被 narrate/ask 关掉。 */
 	closedThisRun: boolean;
 	steeredThisTurn: boolean;
@@ -94,9 +126,56 @@ function asString(value: unknown): string | undefined {
 	return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+/**
+ * `details` 只到扩展和界面，模型看到的只有工具结果的正文。
+ * 所以 `needs` 的可选值与 `needs_choice` 的候选必须落进正文，
+ * 否则守秘人被告知「有候选」却看不见候选，补不出 decision（契约 §11.3）。
+ */
+function errorDetailLines(details: Record<string, unknown> | undefined): string[] {
+	if (!details) return [];
+	const lines: string[] = [];
+	const needs = details.needs as { field?: string; options?: unknown[] } | undefined;
+	if (needs?.field) {
+		const options = (needs.options ?? []).map((option) => String(option)).join("、");
+		lines.push(options ? `缺 ${needs.field}，可选：${options}` : `缺 ${needs.field}`);
+	}
+	const candidates = details.candidates;
+	if (Array.isArray(candidates) && candidates.length > 0) {
+		lines.push("候选：");
+		for (const candidate of candidates) {
+			if (typeof candidate === "string") {
+				lines.push(`- ${candidate}`);
+				continue;
+			}
+			const row = (candidate ?? {}) as Record<string, unknown>;
+			// 候选的字段名契约没定死：语义名与「何时适用」各收几种写法。
+			const name = asString(row.name) ?? asString(row.id) ?? asString(row.decision) ?? "?";
+			const when = asString(row.when) ?? asString(row.summary) ?? asString(row.description);
+			lines.push(when ? `- ${name}：${when}` : `- ${name}`);
+		}
+	}
+	const exits = details.exits;
+	if (Array.isArray(exits) && exits.length > 0) {
+		lines.push(`可达：${exits.map((exit) => (typeof exit === "string" ? exit : JSON.stringify(exit))).join("、")}`);
+	}
+	return lines;
+}
+
+/** resolve 的遥测多两列：这次裁决属于哪一族，落在哪个会话里（契约 §11.6）。 */
+function resolveTelemetry(result: ResolveResult): Record<string, unknown> {
+	const outcomeKind = asString(result.outcome?.kind);
+	const sessionKind = asString(result.session?.kind ?? undefined);
+	return {
+		...(outcomeKind ? { outcome_kind: outcomeKind } : {}),
+		...(sessionKind ? { session_kind: sessionKind } : {}),
+	};
+}
+
 function errorText(error: unknown): string {
-	if (error instanceof KernelError) return error.toToolText();
-	return error instanceof Error ? error.message : String(error);
+	if (!(error instanceof KernelError)) {
+		return error instanceof Error ? error.message : String(error);
+	}
+	return [error.toToolText(), ...errorDetailLines(error.details)].join("\n");
 }
 
 export default function (pi: ExtensionAPI) {
@@ -159,6 +238,23 @@ export default function (pi: ExtensionAPI) {
 		return mintCallId(state);
 	}
 
+	/**
+	 * `resolve` 的结果可能带会话与待决（契约 §11.5）。回合状态机不因此多一个状态：
+	 * 会话把回合留在 `acting`，守秘人接着用 ask 把玩家的防御选择交回去，
+	 * 或者用 actor 加 defense 替 NPC 作答。这里只镜像摘要，供状态行与遥测用。
+	 */
+	function noteResolve(state: TableState, result: ResolveResult): void {
+		const session = result.session;
+		state.session = session && typeof session === "object" ? session : null;
+		const pending = result.pending_choice;
+		state.pendingChoice = pending && typeof pending === "object" ? pending : null;
+		pi.events.emit("coc:resolve", {
+			campaign: state.campaign,
+			turn: state.turn,
+			result,
+		});
+	}
+
 	function applyToolSuccess(state: TableState, tool: string, toolCallId: string, result: Record<string, unknown>): void {
 		switch (tool) {
 			case "look":
@@ -167,11 +263,16 @@ export default function (pi: ExtensionAPI) {
 				if (state.state === "open") state.state = "acting";
 				break;
 			case "resolve":
+				state.state = "acting";
+				noteResolve(state, result as ResolveResult);
+				break;
 			case "apply":
 				state.state = "acting";
 				break;
 			case "ask":
 				state.state = "asked";
+				// 待决已经交回玩家了，回合欠的不再是 ask。
+				state.pendingChoice = null;
 				state.closedThisRun = true;
 				state.renderedText = asString(result.rendered_text);
 				state.deliveryToolCallId = toolCallId;
@@ -212,9 +313,17 @@ export default function (pi: ExtensionAPI) {
 				started_at: startedAt,
 				ms: Date.now() - began,
 				ok: true,
+				...(spec.name === "resolve" ? resolveTelemetry(result as ResolveResult) : {}),
 			});
 			if (spec.name === "narrate" || spec.name === "ask") {
-				await record({ tool: spec.name, event: "turn-closed", round_trips: state.roundTrips, ok: true });
+				// 会话里的一回合算账要分得出来：战斗的回合往返数跟调查的回合不是一回事。
+				await record({
+					tool: spec.name,
+					event: "turn-closed",
+					round_trips: state.roundTrips,
+					ok: true,
+					...(state.session?.kind ? { session_kind: state.session.kind } : {}),
+				});
 			}
 			return {
 				content: [{ type: "text", text: JSON.stringify(result) }],
@@ -328,6 +437,8 @@ export default function (pi: ExtensionAPI) {
 				state: "awaiting_player",
 				callOrdinal: 0,
 				openingPending: false,
+				session: null,
+				pendingChoice: null,
 				closedThisRun: false,
 				steeredThisTurn: false,
 				roundTrips: 0,
@@ -451,6 +562,8 @@ export default function (pi: ExtensionAPI) {
 		}
 		if (!WRITE_TOOLS.has(name)) return;
 
+		// 会话（战斗、追逐、理智发作）不是回合状态：它把回合留在 acting，
+		// 所以待决防御交回玩家的那次 ask 走的是常规路径，这里不因为有会话在跑就拦。
 		const openingNarrate = name === "narrate" && state.openingPending && state.state === "awaiting_player";
 		if (!openingNarrate && CLOSED_STATES.has(state.state)) {
 			const reason =
@@ -472,7 +585,8 @@ export default function (pi: ExtensionAPI) {
 		if (name === "resolve") {
 			const action = input.action as Record<string, unknown> | undefined;
 			if (!action) return;
-			for (const key of ["actor", "target", "skill", "decision"]) {
+			// actor 现在也可能是 NPC 名，weapon/spell 同样要在图与装备表上匹配（契约 §11.1、§11.4）。
+			for (const key of ["actor", "target", "skill", "decision", "weapon", "spell"]) {
 				if (action[key] !== undefined) action[key] = normalizeName(action[key]);
 			}
 			const choice = action.choice as Record<string, unknown> | undefined;
@@ -541,6 +655,16 @@ export default function (pi: ExtensionAPI) {
 		if (state.steeredThisTurn) return;
 		if (state.state !== "open" && state.state !== "acting") return;
 		state.steeredThisTurn = true;
+		// 会话里留了个给玩家的待决（比如战斗的防御）时，回合欠的是 ask，不是 narrate。
+		const pending = state.pendingChoice;
+		if (pending?.for === "player") {
+			sendHost(
+				`内核在等玩家自己选：${pending.prompt ?? pending.name ?? "上一次裁决留下的待决"}。` +
+					`用一次 ask 把它交回玩家，他的回答会作为下一回合的输入回来。`,
+				"steer",
+			);
+			return;
+		}
 		sendHost("这一回合还没关：用一次 narrate 把它交付给玩家，或者用一次 ask 把选择交回去。", "steer");
 	});
 }

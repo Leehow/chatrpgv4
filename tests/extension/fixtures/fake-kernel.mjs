@@ -72,6 +72,136 @@ function capsule(playerText) {
 	};
 }
 
+/**
+ * 切片 1 的 resolve（契约第 11 节）：按进来的 action 走几条固定分支。
+ * 规则一概不算，只把契约里那几种结果形状摆出来给扩展接。
+ * - goal 里带「歧义」且没给 decision：needs_choice，details.candidates 给候选
+ * - intent 为 combat 且没给 weapon：needs，details.needs 列出可选武器
+ * - 给了 defense：这次防御把战斗结了，session 回 null
+ * - intent 为 combat：战斗结果，带 session 与给玩家的 pending_choice
+ * - push 为 true：推骰结果
+ * - 其余：切片 0 的普通检定
+ */
+function resolve(params) {
+	const action = params.action ?? {};
+	if (typeof action.goal === "string" && action.goal.includes("歧义") && !action.decision) {
+		return {
+			ok: false,
+			error: {
+				code: "needs_choice",
+				message: "这一下有两种规则都接得住",
+				fix: "在 action.decision 里点名一个候选，再调一次 resolve",
+				details: {
+					candidates: [
+						{ name: "core-check:ordinary-check", when: "只是想看清楚，失败就是没看见" },
+						{ name: "psychology:observe-concealed", when: "想读出他藏着的情绪，失败会被他察觉" },
+					],
+				},
+			},
+		};
+	}
+	if (action.intent === "combat" && !action.defense && !action.weapon) {
+		return {
+			ok: false,
+			error: {
+				code: "needs",
+				message: "这次攻击没说用什么打",
+				fix: "在 action.weapon 里写武器名，徒手写 unarmed",
+				details: { needs: { field: "weapon", options: ["点三八左轮", "撬棍", "unarmed"] } },
+			},
+		};
+	}
+	if (action.defense) {
+		return {
+			ok: true,
+			result: {
+				receipt: `roll:dodge-${params.call_id}`,
+				outcome: { kind: "combat", skill: "Dodge", target: 40, roll: 18, level: "regular", passed: true, effects: [] },
+				session: null,
+				pending_choice: null,
+				continuations: [],
+				rule_refs: ["combat"],
+			},
+		};
+	}
+	if (action.intent === "combat") {
+		return {
+			ok: true,
+			result: {
+				receipt: `roll:fighting-brawl-${params.call_id}`,
+				outcome: {
+					kind: "combat",
+					skill: "Fighting (Brawl)",
+					target: 50,
+					roll: 31,
+					level: "regular",
+					passed: true,
+					effects: [],
+				},
+				session: {
+					kind: "combat",
+					round: 1,
+					turn_of: "看门人",
+					pending_defense: { for: "player", defender: "托马斯·海耶斯", options: ["dodge", "fight_back"] },
+				},
+				pending_choice: {
+					name: `combat-defense-t${turn}`,
+					for: "player",
+					prompt: "撬棍朝你的肩膀砸下来，你怎么办？",
+					options: ["dodge", "fight_back"],
+				},
+				continuations: [],
+				rule_refs: ["combat", "percentile-check"],
+			},
+		};
+	}
+	if (action.push === true) {
+		return {
+			ok: true,
+			result: {
+				receipt: `roll:spot-hidden-${params.call_id}`,
+				outcome: {
+					kind: "push",
+					skill: "Spot Hidden",
+					target: 55,
+					roll: 12,
+					level: "hard",
+					passed: true,
+					pushed: true,
+					stakes: action.stakes ?? null,
+					effects: [],
+				},
+				session: null,
+				pending_choice: null,
+				continuations: [],
+				rule_refs: ["pushed-roll"],
+			},
+		};
+	}
+	return {
+		ok: true,
+		result: {
+			receipt: `roll:spot-hidden-${params.call_id}`,
+			outcome: {
+				kind: "check",
+				skill: "Spot Hidden",
+				target: 55,
+				difficulty: "regular",
+				threshold: 55,
+				roll: 42,
+				level: "regular",
+				passed: true,
+				bonus: 0,
+				penalty: 0,
+			},
+			session: null,
+			pending_choice: null,
+			continuations: [],
+			rule_refs: ["percentile-check"],
+		},
+	};
+}
+
 function handle(method, params) {
 	if (ERRORS[method]) {
 		return { ok: false, error: ERRORS[method] };
@@ -125,28 +255,7 @@ function handle(method, params) {
 			return { ok: true, result: { transcript: [] } };
 		case "table.resolve":
 			state = "acting";
-			return {
-				ok: true,
-				result: {
-					receipt: `roll:spot-hidden-${params.call_id}`,
-					outcome: {
-						kind: "check",
-						skill: "Spot Hidden",
-						target: 55,
-						difficulty: "regular",
-						threshold: 55,
-						roll: 42,
-						level: "regular",
-						passed: true,
-						bonus: 0,
-						penalty: 0,
-					},
-					session: null,
-					pending_choice: null,
-					continuations: [],
-					rule_refs: ["percentile-check"],
-				},
-			};
+			return resolve(params);
 		case "table.apply":
 			state = "acting";
 			return {

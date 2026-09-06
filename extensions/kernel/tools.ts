@@ -52,7 +52,11 @@ const ReservedEffect = Type.Object({
 });
 
 const ResolveAction = Type.Object({
-	actor: Type.Optional(Type.String({ description: "调查员名或 id；只有一位调查员时省略" })),
+	actor: Type.Optional(
+		Type.String({
+			description: "谁在动手：调查员名或 id；替 NPC 行动（比如战斗里 NPC 的回合、NPC 的防御）时写 NPC 名；只有一位调查员且是他动手时省略",
+		}),
+	),
 	intent: StringEnum(
 		[
 			"investigate",
@@ -67,7 +71,7 @@ const ResolveAction = Type.Object({
 			"ambiguous",
 			"montage",
 		] as const,
-		{ description: "这次行动属于哪一类；combat、flee、cast 在本切片尚未实现" },
+		{ description: "这次行动属于哪一类；内核按它挑规则族" },
 	),
 	goal: Type.String({ description: "一句话：玩家想达成什么" }),
 	method: Type.String({ description: "一句话：他怎么做；通常含技能名" }),
@@ -81,6 +85,19 @@ const ResolveAction = Type.Object({
 		}),
 	),
 	skill: Type.Optional(Type.String({ description: "显式技能或特征名，优先于从 method 推断" })),
+	weapon: Type.Optional(
+		Type.String({ description: "攻击用的武器名，徒手写 unarmed；intent 为 combat 时必给，缺了内核会报 needs 并列出他持有的武器" }),
+	),
+	spell: Type.Optional(Type.String({ description: "法术名；施法（intent 为 cast）或从典籍里学法术时给" })),
+	defense: Type.Optional(
+		StringEnum(["dodge", "fight_back", "none"] as const, {
+			description: "回应上一次结果里的待决防御：闪避、反击或放弃防御；玩家的防御先用 ask 问他，NPC 的防御你配 actor 自己定",
+		}),
+	),
+	push: Type.Optional(
+		Type.Boolean({ description: "对上一次失败的检定推骰；为 true 时 stakes 必填，写明推失败要付的代价" }),
+	),
+	luck: Type.Optional(Type.Integer({ description: "花掉的幸运点数，把上一次差一点的检定补成通过" })),
 	choice: Type.Optional(
 		Type.Object({
 			pending: Type.String({ description: "待决名，来自上一回合 ask 的 pending_choice" }),
@@ -150,8 +167,8 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Resolve",
 		method: "table.resolve",
 		description:
-			"把玩家的行动交给规则裁决。玩家的行动有不确定、有代价、有对抗时用它：写清谁、想达成什么、怎么做、对谁、赌什么，内核挑技能、取目标值、掷百分骰，回来的是收据加成功等级。你不掷骰、不算数、不改数值；日常无争议的行动不要用它。intent 为 idle、meta、stuck、ambiguous 时不掷骰只回一句判断；combat、flee、cast 本切片会回 not_implemented。技能认不出来时内核报 needs 并给候选，补上 skill 再调一次。",
-		promptSnippet: "掷骰裁决一次玩家行动，回来是收据与成功等级",
+			"把一次行动交给规则裁决。你只描述行动，规则由内核挑：写清谁、想达成什么、怎么做、对谁、赌什么，它选决策、取目标值、掷骰，回来是收据、成功等级，以及可能的会话（战斗、追逐、理智发作）与可接的后续。你不掷骰、不算数、不改数值；日常无争议的行动不要用它。攻击写 intent 为 combat 加 target 与 weapon（徒手写 unarmed）；内核报 needs_choice 时它已把候选和各自适用的场合列出来，挑一个写进 decision 再调一次；结果里的待决防御若是玩家的，用 ask 把闪避还是反击交回他，他答了下一回合再用 defense 解，若是 NPC 的就你自己配 actor 与 defense 定；失败的检定想推骰就 push 为 true 并在 stakes 里写明推失败的代价，想花幸运就给 luck。技能认不出来时内核报 needs 并给候选，补上 skill 再调一次；intent 为 idle、meta、stuck、ambiguous 时不掷骰只回一句判断。",
+		promptSnippet: "掷骰裁决一次行动，回来是收据、成功等级与会话状态",
 		parameters: Type.Object({
 			action: ResolveAction,
 		}),

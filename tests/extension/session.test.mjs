@@ -155,6 +155,11 @@ test("内核意外退出后重新拉起并重开桌", async (t) => {
 
 	await table.session.prompt("我推门进去");
 	await waitForIdle(table.session);
+	// 重新拉起是内核客户端在子进程退出时自己发起的，落到请求日志上比这一轮结束晚一点。
+	const deadline = Date.now() + 5_000;
+	while (Date.now() < deadline && table.kernelRequests().length < 5) {
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
 
 	const methods = table.kernelRequests().map((entry) => entry.method);
 	assert.deepEqual(

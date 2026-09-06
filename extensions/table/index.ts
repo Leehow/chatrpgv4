@@ -1,9 +1,25 @@
 /**
- * 开桌欢迎。内核扩展开桌成功后在总线上发 `coc:table-open`，这里报一行桌况。
- * 切片 0 只有欢迎，没有 HUD。
+ * 桌况显示。内核扩展开桌成功后在总线上发 `coc:table-open`，这里报一行桌况；
+ * 每次 `resolve` 回来发 `coc:resolve`，带会话（战斗、追逐、理智发作）时把
+ * 会话摘要挂在状态行上，会话没了就摘掉。规则一概不在这里解释。
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+
+/** 契约 §11.5 的会话摘要；字段缺了就不显示那一段。 */
+interface SessionSummary {
+	kind?: string;
+	round?: number;
+	status?: string;
+	ended?: boolean;
+	turn_of?: string;
+	active_actor?: string;
+	pending_defense?: { for?: string; defender?: string; options?: string[] } | null;
+}
+
+interface ResolveEvent {
+	result?: { session?: SessionSummary | null };
+}
 
 interface TableOpenEvent {
 	campaign?: string;
@@ -26,10 +42,37 @@ function describe(payload: TableOpenEvent): string {
 	return `《${title}》　第 ${turn} 回合　${scene}${who ? `\n${who}` : ""}`;
 }
 
+/** 会话种类与防御方式都是契约里的闭合枚举，认不出的原样显示。 */
+const SESSION_KINDS: Record<string, string> = {
+	combat: "战斗",
+	chase: "追逐",
+	sanity: "理智发作",
+	sanity_bout: "理智发作",
+};
+const DEFENSES: Record<string, string> = { dodge: "闪避", fight_back: "反击" };
+
+/** 一行会话摘要；没有会话或会话已结束时回 undefined，调用方据此摘掉状态行。 */
+function sessionLine(session: SessionSummary | null | undefined): string | undefined {
+	if (!session?.kind) return undefined;
+	if (session.ended === true || session.status === "ended") return undefined;
+	const parts = [SESSION_KINDS[session.kind] ?? session.kind];
+	if (typeof session.round === "number") parts.push(`第 ${session.round} 轮`);
+	const whose = session.turn_of ?? session.active_actor;
+	if (whose) parts.push(`轮到 ${whose}`);
+	const defense = session.pending_defense;
+	if (defense) {
+		const who = defense.for === "player" ? "玩家" : (defense.defender ?? "NPC");
+		const options = (defense.options ?? []).map((option) => DEFENSES[option] ?? option).join("／");
+		parts.push(`待防御：${who}${options ? `（${options}）` : ""}`);
+	}
+	return parts.join("　");
+}
+
 export default function (pi: ExtensionAPI) {
 	let ctx: ExtensionContext | undefined;
 	let payload: TableOpenEvent | undefined;
 	let announced = false;
+	let session: string | undefined;
 
 	function announce(): void {
 		if (announced || !payload || !ctx) return;
@@ -42,10 +85,22 @@ export default function (pi: ExtensionAPI) {
 		pi.appendEntry("coc-welcome", { campaign: payload.campaign, text });
 	}
 
+	function paintSession(): void {
+		if (!ctx?.hasUI) return;
+		ctx.ui.setStatus("coc-session", session);
+	}
+
 	// 总线事件可能早于本扩展的 session_start（内核扩展先加载），两种顺序都要接住。
 	pi.events.on("coc:table-open", (data) => {
 		payload = (data ?? {}) as TableOpenEvent;
 		announce();
+	});
+
+	pi.events.on("coc:resolve", (data) => {
+		const next = sessionLine(((data ?? {}) as ResolveEvent).result?.session);
+		if (next === session) return;
+		session = next;
+		paintSession();
 	});
 
 	pi.on("session_start", async (_event, sessionCtx) => {
@@ -54,6 +109,10 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async () => {
+		if (session !== undefined) {
+			session = undefined;
+			paintSession();
+		}
 		ctx = undefined;
 		payload = undefined;
 		announced = false;

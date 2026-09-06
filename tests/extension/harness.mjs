@@ -74,6 +74,8 @@ function setEnv(values) {
 export function createFakeUI({ selections = [] } = {}) {
 	const notifications = [];
 	const prompts = [];
+	/** setStatus 的调用序列：{key, text}，text 为 undefined 表示摘掉那一行。 */
+	const statuses = [];
 	const queue = [...selections];
 	const noop = () => undefined;
 	const context = {
@@ -87,7 +89,7 @@ export function createFakeUI({ selections = [] } = {}) {
 		input: async () => undefined,
 		notify: (message, type) => notifications.push({ message, type }),
 		onTerminalInput: () => noop,
-		setStatus: noop,
+		setStatus: (key, text) => statuses.push({ key, text }),
 		setWorkingMessage: noop,
 		setWorkingVisible: noop,
 		setWorkingIndicator: noop,
@@ -104,7 +106,7 @@ export function createFakeUI({ selections = [] } = {}) {
 		addAutocompleteProvider: noop,
 		setEditor: noop,
 	};
-	return { context, notifications, prompts };
+	return { context, notifications, prompts, statuses };
 }
 
 /**
