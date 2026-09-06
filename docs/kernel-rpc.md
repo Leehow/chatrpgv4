@@ -855,7 +855,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 - **不能复制的类别没有 `sum`。** 闭表写死在 `confluence.DISPOSITIONS`：`numeric` → from|min|max，`dead_alive` → from，`consumed` → from|drop，`flag` → from，`npc_presence` → from|sum。`clue` 根本不在表里——线索、回声、手卡、走过的场景一律并集，不产生冲突。旧树的 `NON_DUPLICABLE_CONFLICT_CLASSES` 就体现为这张表里没有的那些模式。
 - **未处置就整批不写。** `needs` 在 `apply` 的批处理里抛出，`details.conflicts` 是完整的冲突列表（每条带 `values` 与 `modes`）。处置里出现报告没有的 id、类别不允许的 mode、`from` 指向不在本次汇流里的线、`drop` 没有 `note`，都是 `invalid_params`。同一回合可以反复试，`apply` 不关回合。
 - **时钟与足迹。** 合并后的时钟取两条线里走得最远的那个（时间不倒流）；`scene_trail` 清空（合并后的队伍站在一处，不拼两段过去）；`scene_labels` 取并集。
-- **物品按名字并、不按数量加。** 两条线都拿着同一样东西是一样东西；一条线花掉了、另一条还在，是 `consumed` 冲突，`drop` 才真的删掉那一行。武器行与状态取并集。
+- **物品按名字并、不按数量加；`consumed` 看收据不看有无。** 两条线都拿着同一样东西是一样东西。一条线**没有**它有两种可能：从来没捡过（那就是并集，不问守秘人），或者花掉了。区分靠该线回合记录里有没有 `quantity < 0` 的 `item` 收据（§5、#19），只有后者才报 `consumed`。处置里 `drop` 与「`from` 指向那条花掉它的线」都真的删掉那一行，`from` 指向还拿着它的线才保留。武器行与状态取并集。
 - **记忆并集按 id。** 候选 id 是按线按回合铸的，所以同一个 id 就是同一条记忆；`memory/candidates.jsonl` 写成所有父线的并集。
 - **回声由「没走进去的那些父线」生成。** 新分支起点是 `lines[0]`，所以它的过去就是这条线的过去；其余父线的回合记录投影成回声。
 

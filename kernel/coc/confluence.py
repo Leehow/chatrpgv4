@@ -51,6 +51,9 @@ RESOURCES = (("hp", "current_hp"), ("san", "current_san"), ("mp", "current_mp"),
 DEAD_CONDITION = "dead"
 #: The world keys a merge unions outright; none of them can disagree.
 UNION_LISTS = ("visited_scenes", "discovered_clues", "discovered_echoes", "handouts_shown")
+#: A presence conflict where one line moved someone and another left them where the book
+#: put them names that third option here; it is not a worldline and cannot be switched to.
+BOOK = "*book*"
 
 
 def conflict_id(kind: str, subject: str, field: str) -> str:
@@ -90,7 +93,32 @@ def line_state(campaign: Campaign, line: str) -> dict[str, Any]:
             continue
         if isinstance(parsed, dict):
             candidates.append(parsed)
-    return {"line": line, "world": json.loads(raw), "party": party, "candidates": candidates}
+    return {"line": line, "world": json.loads(raw), "party": party, "candidates": candidates,
+            "spent": spent_items(campaign, line)}
+
+
+def spent_items(campaign: Campaign, line: str) -> set[tuple[str, str]]:
+    """`(investigator, item)` for every object this line used up, handed over or had taken
+    away -- an `item` receipt with a negative quantity (§5, #19). This is the difference
+    between a thing one line never picked up and a thing one line *spent*: the first is an
+    ordinary union, the second is the `consumed` conflict of §15.4."""
+    repo, tree = campaign.repo_dir, campaign.dir
+    spent: set[tuple[str, str]] = set()
+    for path in history.line_tree(repo, tree, line, "turns/"):
+        raw = history.line_blob(repo, tree, line, path)
+        if raw is None:
+            continue
+        try:
+            record = json.loads(raw)
+        except ValueError:
+            continue
+        for receipt in (record.get("receipts") or []) if isinstance(record, dict) else []:
+            if not isinstance(receipt, dict) or receipt.get("kind") != "item":
+                continue
+            quantity = receipt.get("quantity")
+            if isinstance(quantity, int) and quantity < 0:
+                spent.add((str(receipt.get("subject")), normalize(str(receipt.get("name") or ""))))
+    return spent
 
 
 # ---- the report -------------------------------------------------------------------------
@@ -172,7 +200,7 @@ def _merge_presence(graph: ModuleGraph, states: list[dict[str, Any]], scene: str
             # Two lines put the same person in different places, or one moved them and the
             # other left them where the book had them. Both are the keeper's to settle.
             if base.get(npc) is not None and len(by_line) < len(states):
-                by_line = {**by_line, "*book*": base[npc]}
+                by_line = {**by_line, BOOK: base[npc]}
             conflicts.append({"id": conflict_id(NPC_PRESENCE, npc, "scene"), "class": NPC_PRESENCE,
                               "subject": npc, "field": "scene", "values": by_line,
                               "modes": list(DISPOSITIONS[NPC_PRESENCE])})
@@ -181,6 +209,7 @@ def _merge_presence(graph: ModuleGraph, states: list[dict[str, Any]], scene: str
 
 
 def _merge_party(states: list[dict[str, Any]], conflicts: list[dict[str, Any]]) -> dict[str, Any]:
+    spent_by_line = {state["line"]: state.get("spent") or set() for state in states}
     ids: list[str] = []
     for state in states:
         for sheet_id in sorted(state["party"]):
@@ -192,7 +221,7 @@ def _merge_party(states: list[dict[str, Any]], conflicts: list[dict[str, Any]]) 
         base = copy.deepcopy(next(iter(sheets.values())))
         _numbers(sheet_id, sheets, base, conflicts)
         _life(sheet_id, sheets, base, conflicts)
-        _belongings(sheet_id, sheets, base, conflicts)
+        _belongings(sheet_id, sheets, base, conflicts, spent_by_line)
         merged[sheet_id] = base
     return merged
 
@@ -224,7 +253,7 @@ def _alive(sheet: dict[str, Any]) -> bool:
 
 
 def _belongings(sheet_id: str, sheets: dict[str, Any], base: dict[str, Any],
-                conflicts: list[dict[str, Any]]) -> None:
+                conflicts: list[dict[str, Any]], spent_by_line: dict[str, set[tuple[str, str]]]) -> None:
     """Items merge by name. Holding the same thing on both lines is one thing, not two --
     the union is over what the party has, never over how many. A name one line still holds
     and another spent is a `consumed` conflict: it is the keeper's call whether the object
@@ -239,11 +268,13 @@ def _belongings(sheet_id: str, sheets: dict[str, Any], base: dict[str, Any],
     rows: list[Any] = []
     for key in sorted(held):
         by_line = held[key]
-        if len(by_line) < len(sheets):
-            gone = sorted(set(sheets) - set(by_line))
+        # Only a line that actually spent it disagrees. A line that simply never picked the
+        # thing up is not in conflict with the line that did: that is the union.
+        spent = sorted(line for line in sheets if line not in by_line and (sheet_id, key) in spent_by_line[line])
+        if spent:
             conflicts.append({"id": conflict_id(CONSUMED, sheet_id, key), "class": CONSUMED,
                               "subject": sheet_id, "field": key,
-                              "values": {**{line: "held" for line in by_line}, **{line: "spent" for line in gone}},
+                              "values": {**{line: "held" for line in by_line}, **{line: "spent" for line in spent}},
                               "modes": list(DISPOSITIONS[CONSUMED])})
         rows.append(copy.deepcopy(next(iter(by_line.values()))))
     base["equipment"] = rows
@@ -316,11 +347,13 @@ def _resolve(result: dict[str, Any], row: dict[str, Any], given: dict[str, Any])
         conditions = [c for c in sheet.get("conditions") or [] if normalize(str(c)) != DEAD_CONDITION]
         sheet["conditions"] = conditions if alive else sorted({*conditions, DEAD_CONDITION})
     elif kind == CONSUMED:
-        if mode == DROP:
+        # `drop` says the object did not survive the confluence; `from` takes one line's
+        # word for it, and the line that spent it says it is gone.
+        gone = mode == DROP or values.get(given.get("line")) == "spent"
+        if gone:
             sheet = result["party"][subject]
             sheet["equipment"] = [r for r in sheet.get("equipment") or []
                                   if normalize(str((r or {}).get("name") if isinstance(r, dict) else r)) != field]
-        # `from` keeps the row the report already merged in; the object survived.
     elif kind == FLAG:
         result["world"]["flags"][subject] = values[given["line"]]
     elif kind == NPC_PRESENCE:

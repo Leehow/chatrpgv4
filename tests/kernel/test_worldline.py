@@ -462,6 +462,45 @@ def test_a_merged_line_cannot_be_played_again(kernel):
     assert error["code"] == "invalid_params" and error["details"]["status"] == "merged"
 
 
+def test_a_thing_one_line_spent_is_a_conflict_but_a_thing_it_never_had_is_not(kernel):
+    """§15.4: `consumed` is about a line that used something up, not about a line that
+    simply never picked it up. The second is an ordinary union and asks the keeper nothing."""
+    play_to_turn(kernel, 1)
+    turn = turn_json(kernel)["turn"]
+    kernel.table("player_input", text="我把两样东西都收好。")
+    kernel.table("apply", call_id=f"t{turn}-c1",
+                 effects=[{"kind": "item", "name": "brass key"}])
+    narrate(kernel, f"t{turn}-c2", "你把黄铜钥匙收进口袋。")
+    fork(kernel, turn_json(kernel)["turn"], "side")
+    turn = turn_json(kernel)["turn"]
+    kernel.table("player_input", text="我用掉了钥匙，又捡到一盏灯。")
+    kernel.table("apply", call_id=f"t{turn}-c1",
+                 effects=[{"kind": "item", "name": "brass key", "quantity": -1},
+                          {"kind": "item", "name": "storm lantern"}])
+    narrate(kernel, f"t{turn}-c2", "钥匙留在了锁里，你顺手拿走了那盏灯。")
+    switch(kernel, turn_json(kernel)["turn"], "main")
+
+    turn = turn_json(kernel)["turn"]
+    kernel.table("player_input", text="把两条线并起来。")
+    conflicts = merge_err(kernel, f"t{turn}-c1")["details"]["conflicts"]
+    # The key: main still holds it, side spent it. The lantern: side has it, main never
+    # had it -- no conflict, it is simply in the union.
+    assert [c["id"] for c in conflicts] == ["conflict:consumed:thomas-hayes:brass key"]
+    only = conflicts[0]
+    assert only["values"] == {"main": "held", "side": "spent"}
+    assert only["modes"] == ["from", "drop"]
+
+    dropped = merge_err(kernel, f"t{turn}-c2", dispositions={only["id"]: {"mode": "drop"}})
+    assert dropped["code"] == "invalid_params" and "why" in dropped["message"]
+    kernel.table("apply", call_id=f"t{turn}-c3",
+                 effects=[{"kind": "merge", "name": "joined", "lines": ["main", "side"],
+                           "dispositions": {only["id"]: {"mode": "drop", "note": "它留在了锁里。"}}}])
+    narrate(kernel, f"t{turn}-c4", "两条线合到了一起。")
+    equipment = [str(row.get("name")) if isinstance(row, dict) else str(row) for row in
+                 read_json(campaign_dir(kernel.workspace) / "party" / "thomas-hayes.json")["equipment"]]
+    assert "brass key" not in equipment and "storm lantern" in equipment
+
+
 def test_clues_never_conflict_they_are_a_union(kernel):
     """§15.4: a clue found on either line is found. It is not in the conflict table at all."""
     play_to_turn(kernel, 1)
