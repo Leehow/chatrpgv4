@@ -46,6 +46,31 @@ def record_of(node: dict[str, Any] | None) -> dict[str, Any]:
     return record if isinstance(record, dict) else {}
 
 
+#: The document a module node's projection keeps its own declarations in. Every other kind
+#: of node carries a `record`; the module node carries the book's documents instead, so a
+#: reader that only knows `record_of` silently reads nothing from it (§21.3 found this with
+#: `era`, §15.2 needs it for `structure_type`).
+MODULE_META_DOCUMENT = "module-meta.json"
+
+
+def module_declaration(node: dict[str, Any] | None) -> dict[str, Any]:
+    """What the module node declares about the book itself: `module-meta.json`'s root in
+    its runtime projection, with the node's own `record` behind it for a graph that was
+    projected the other way. One reader for every caller."""
+    if not node:
+        return {}
+    projection = (node.get("properties") or {}).get("runtime_projection") or {}
+    declared: dict[str, Any] = {}
+    for document in projection.get("documents") or []:
+        if not isinstance(document, dict) or document.get("filename") != MODULE_META_DOCUMENT:
+            continue
+        root = document.get("root")
+        if isinstance(root, dict):
+            declared = root
+        break
+    return {**record_of(node), **declared}
+
+
 # ---- authored conditions ---------------------------------------------------------------
 
 #: The spellings an authored flag gate comes in: the starters' `flag_set` / `flag_id`, the

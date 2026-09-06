@@ -17,6 +17,7 @@ import json
 import re
 from typing import Any
 
+from . import history
 from .errors import RpcError, invalid_params
 from .facts import committed_facts, instruction, prose_of
 from .fileio import (append_jsonl, canonical_json, read_json, read_jsonl, sha256_text, write_json_atomic,
@@ -456,8 +457,11 @@ def submit(campaign: Campaign, graph: ModuleGraph, party: list[dict[str, Any]], 
            candidates: Any) -> tuple[dict[str, Any], bool]:
     """Validate, land, supersede. Returns (result, replayed). Same job + same content is
     idempotent; different content on a completed job is `idempotency_conflict`."""
+    from .worldline import active_line, active_name  # local: worldline reads memory back
     job_id = str(job["job_id"])
     turn = int(job["turn"])
+    meta = campaign.read_campaign()
+    line, loop = active_name(meta), int(active_line(meta).get("loop") or 0)
     digest = candidates_digest(candidates)
     if job.get("status") == "done":
         if job.get("candidates_sha256") == digest:
@@ -497,6 +501,10 @@ def submit(campaign: Campaign, graph: ModuleGraph, party: list[dict[str, Any]], 
             "id": new_id, **row, "status": "candidate",
             "source": {"turn": turn, "commit": job.get("commit"), "episode_id": episode_id(turn),
                        "receipts": list(job.get("receipts") or [])},
+            # §15.5: which worldline and which circuit of the loop remembered this. The row
+            # travels with the branch, so a rewind carries the last loop's candidates onto
+            # the next one and this is how the kernel tells them apart.
+            "worldline": line, "loop": loop,
             "valid_from_turn": turn, "job_id": job_id, "at": now_iso(),
         }
         existing.append(landed)
@@ -551,13 +559,15 @@ def open_promises(campaign: Campaign) -> list[dict[str, Any]]:
 
 def query_candidates(campaign: Campaign, entity_index: EntityIndex, *, about: list[str], narrow: bool,
                      turns: list[int] | None = None, kinds: list[str] | None = None,
-                     include_superseded: bool = False, limit: int = RECALL_DEFAULT_LIMIT) -> list[dict[str, Any]]:
+                     include_superseded: bool = False, limit: int = RECALL_DEFAULT_LIMIT,
+                     rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     """Deterministic narrowing and ranking (§12.4): overlap with `about` first, then the
     kind tier (#20), then recency, then id. `narrow` requires overlap with `about`; the
-    default `about` only ranks."""
+    default `about` only ranks. `rows` overrides the file on disk -- §15.5's `line: any`
+    hands in the union read out of the other branches."""
     about_keys = {entity_index.lenient_key(name) for name in about}
     hits: list[tuple[int, int, int, str, dict[str, Any]]] = []
-    for row in read_candidates(campaign):
+    for row in (read_candidates(campaign) if rows is None else rows):
         if not include_superseded and row.get("superseded_by") is not None:
             continue
         if kinds and row.get("kind") not in kinds:
@@ -594,8 +604,81 @@ def hit_view(row: dict[str, Any]) -> dict[str, Any]:
     hit = {"id": row.get("id"), "kind": row.get("kind"), "subject": row.get("subject"),
            "knowers": list(row.get("knowers") or []), "entities": list(row.get("entities") or []),
            "statement": row.get("statement"), "privacy": row.get("privacy"), "state": row.get("state"),
-           "confidence": row.get("confidence"), "status": row.get("status"), "turn": row.get("valid_from_turn")}
+           "confidence": row.get("confidence"), "status": row.get("status"), "turn": row.get("valid_from_turn"),
+           "worldline": row.get("worldline"), "loop": row.get("loop")}
     if row.get("superseded_by") is not None:
         hit["superseded_by"] = row["superseded_by"]
         hit["valid_until_turn"] = row.get("valid_until_turn")
     return hit
+
+
+# ---- reading other worldlines' memory (§15.5) -----------------------------------------------
+
+#: `recall memory {line}`: this branch's file, every line's union, or one line by name.
+LINE_CURRENT, LINE_ANY = "current", "any"
+
+
+def line_candidates(campaign: Campaign, line: str) -> list[dict[str, Any]]:
+    """Another worldline's candidates, read out of git. A line that never wrote any (or a
+    branch whose file was never committed) contributes nothing rather than failing."""
+    raw = history.line_blob(campaign.repo_dir, campaign.dir, line, "memory/candidates.jsonl") or ""
+    rows: list[dict[str, Any]] = []
+    for text in raw.splitlines():
+        if not text.strip():
+            continue
+        try:
+            parsed = json.loads(text)
+        except ValueError:
+            continue
+        if isinstance(parsed, dict):
+            rows.append(parsed)
+    return rows
+
+
+def candidates_for(campaign: Campaign, meta: dict[str, Any], line: Any) -> list[dict[str, Any]]:
+    """§15.5: which rows a `recall memory` reads. `current` (the default) is this branch's
+    file and nothing else; `any` is the union over every line, the branch on disk winning
+    on a shared id because it is the one that may have been superseded since; a name is
+    that line alone."""
+    from .worldline import active_name, registry  # local: worldline reads memory back
+    if line in (None, LINE_CURRENT):
+        return read_candidates(campaign)
+    lines = registry(meta)
+    if line != LINE_ANY:
+        if line not in lines:
+            raise invalid_params(f"no worldline {line!r}",
+                                 fix=f"one of {LINE_CURRENT!r}, {LINE_ANY!r}, or {sorted(lines)}",
+                                 details={"line": line, "lines": sorted(lines)})
+        return line_candidates(campaign, str(line))
+    active = active_name(meta)
+    rows: dict[str, dict[str, Any]] = {}
+    for name in sorted(lines):
+        if name == active:
+            continue
+        for row in line_candidates(campaign, name):
+            rows.setdefault(str(row.get("id")), row)
+    for row in read_candidates(campaign):
+        rows[str(row.get("id"))] = row
+    return [rows[key] for key in sorted(rows)]
+
+
+def from_other_lines(rows: list[dict[str, Any]], entity_index: EntityIndex, name: str,
+                     line: str, loop: int, limit: int) -> list[dict[str, Any]]:
+    """§15.5: what this person knows that belongs to another circuit or another line. Only
+    ever asked about an NPC the module declared `remembers_across_loops`; every other NPC
+    is given nothing, whatever the rows say."""
+    key = entity_index.lenient_key(name)
+    found: list[tuple[int, str, dict[str, Any]]] = []
+    for row in rows:
+        if row.get("superseded_by") is not None:
+            continue
+        their_line, their_loop = row.get("worldline"), int(row.get("loop") or 0)
+        if not (their_loop < loop or (isinstance(their_line, str) and their_line != line)):
+            continue
+        names = [row.get("subject"), *(row.get("knowers") or [])]
+        if key not in {entity_index.lenient_key(str(n)) for n in names if n}:
+            continue
+        found.append((-int(row.get("valid_from_turn") or 0), str(row.get("id")), row))
+    found.sort(key=lambda item: item[:2])
+    return [{"statement": row.get("statement"), "line": row.get("worldline"), "loop": int(row.get("loop") or 0),
+             "turn": row.get("valid_from_turn")} for *_, row in found[:limit]]

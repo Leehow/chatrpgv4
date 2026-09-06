@@ -11,7 +11,8 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable
 
-from . import KERNEL_VERSION, bookkeeping, continuation, history, library, memory, recall as recall_roads, warn as warn_lane
+from . import (KERNEL_VERSION, bookkeeping, continuation, echoes, history, library, memory,
+               recall as recall_roads, warn as warn_lane, worldline)
 from .capsule import (scene_label, build_capsule, clues_here, investigator_view, npc_view, npcs_present,
                       present_section, where_section)
 from .craft import DEFAULT_REGISTER, TextGraph
@@ -20,7 +21,7 @@ from .errors import RpcError, invalid_params, not_implemented
 from .events import append_event
 from .facts import committed_facts, keeper_only_facts, language_of
 from .fileio import append_jsonl, file_size, read_json, read_jsonl, truncate_file
-from .module_graph import NPC_KIND, ModuleGraph, record_of
+from .module_graph import NPC_KIND, ModuleGraph, module_declaration, record_of
 from .ontology import Ontology, ontology_not_ready
 from . import npc as npc_lane
 from .render import check_numbers, mechanics, render_choice
@@ -41,8 +42,11 @@ INTENTS = frozenset({"investigate", "social", "move", "combat", "flee", "cast", 
                      "stuck", "ambiguous", "montage"})
 NONE_INTENTS = frozenset({"idle", "meta", "stuck", "ambiguous"})
 APPLY_KINDS = frozenset({"move", "clue", "time", "damage", "handout", "item", "cash", "flag", "note", "ruling",
-                         "npc"})
-#: §17 (#29) made `npc` live; §18 (#27) made flag, note and ruling live. Nothing is reserved.
+                         "npc",
+                         # §15.3 (#23): the world changing lines. Performed after the turn commits.
+                         "fork", "switch", "merge"})
+#: §17 (#29) made `npc` live; §18 (#27) made flag, note and ruling live; §15 (#23) made the
+#: three worldline effects live. Nothing is reserved.
 APPLY_RESERVED: frozenset[str] = frozenset()
 #: §17.3: where `apply npc to` may put someone, next to a scene name.
 NPC_HERE, NPC_AWAY = "here", "away"
@@ -54,6 +58,8 @@ CLUE_SOURCE_RELATIONS = ("held-by", "delivered-by")
 SHEET_FIELDS_OWNED_BY_APPLY = ("equipment", "weapons", "finance", "cash")
 #: #19: how many close weapon ids a `needs` lists next to the era's full option list.
 WEAPON_CLOSE_MATCHES = 6
+#: §15.4: how many echo ids an unknown-echo error offers back.
+ECHO_OPTIONS = 12
 #: §14.8: what may be handed to the player as a card.
 HANDOUT_VISIBILITIES = frozenset({"player-safe", "revealable"})
 HANDOUT_KINDS = ("handout", "asset")
@@ -121,10 +127,15 @@ def _turn_state_error(turn: dict[str, Any], method: str, allowed: str) -> RpcErr
 
 
 class Table:
-    def __init__(self, store: Store, content_dir: Path, rng: random.Random) -> None:
+    def __init__(self, store: Store, content_dir: Path, rng: random.Random, *,
+                 seed_locked: bool = False) -> None:
         self.store = store
         self.content = Path(content_dir)
         self.rng = rng
+        #: §15.1: without an explicit COC_KERNEL_SEED the dice are reseeded per worldline
+        #: and turn, so the same action on two lines cannot roll the same numbers. A test
+        #: that pinned the seed keeps its one sequence and nothing reseeds it.
+        self.seed_locked = bool(seed_locked)
         self.tables = RuleTables(self.content / "rulesets" / "coc7" / "rules-json")
         self.engine = RulesEngine(self.content, self.tables)
         #: §14.1: graphs are read from the module store once a module is registered;
@@ -398,6 +409,11 @@ class Table:
             "created_at": now_iso(),
             "opening_scene": start_handle,
             "investigators": [sheet["id"]] if sheet is not None else [],
+            # §15.1: every campaign starts on one worldline, `main`, and the sidecar repo's
+            # HEAD is that line's branch from the first commit on.
+            "active_worldline": worldline.MAIN,
+            "worldlines": {worldline.MAIN: worldline.new_line(campaign_id, worldline.MAIN,
+                                                              worldline.KIND_MAIN, 0, None)},
         }
 
         campaign = Campaign(self.store, campaign_id)
@@ -412,6 +428,7 @@ class Table:
             campaign.write_campaign(meta)
             campaign.write_turn(fresh_turn(0))
             history.init_repo(campaign.repo_dir, campaign.dir)
+            history.point_head_at(campaign.repo_dir, campaign.dir, worldline.MAIN)
             history.commit(campaign.repo_dir, campaign.dir, f"campaign {campaign_id}: created")
         except history.CommitFailed as exc:
             shutil.rmtree(campaign.dir, ignore_errors=True)
@@ -449,6 +466,14 @@ class Table:
                                 "candidates": [{"name": s.get("name"), "kind": "investigator",
                                                 "display_name": s.get("id")} for s in party]})
 
+    def _seed_line(self, meta: dict[str, Any], turn_number: int) -> None:
+        """§15.1: replay this line's dice from its seed and the turn number. Called when a
+        turn opens and when the table is opened, never inside a turn -- two resolves in one
+        turn must go on drawing from the same sequence."""
+        if self.seed_locked:
+            return
+        self.rng.seed(worldline.turn_seed(str(worldline.active_line(meta).get("seed") or ""), turn_number))
+
     def _touch_acting(self, campaign: Campaign, turn: dict[str, Any]) -> None:
         if turn["state"] == "open":
             turn["state"] = "acting"
@@ -458,7 +483,12 @@ class Table:
         # §14.4: only ready_for_table or active opens; the first open of a ready campaign
         # makes it active (the setup handoff is consumed here).
         campaign = self.store.open(params.get("campaign"), require_turn=False)
-        legacy_module = str(campaign.read_campaign().get("module_id") or "")
+        # §15.6: the table opens on `active_worldline`. This runs before anything reads
+        # world.json or turn.json, because a checkout replaces both.
+        opening_meta = campaign.read_campaign()
+        if worldline.open_active_line(campaign, opening_meta):
+            campaign.write_campaign(opening_meta)
+        legacy_module = str(opening_meta.get("module_id") or "")
         if legacy_module in self.modules() and not module_registered(self.module_store, legacy_module):
             # A campaign created before the module store existed: register its starter now
             # (§14.1: the first reference copies the graph in).
@@ -480,7 +510,8 @@ class Table:
             self._rebuild_ledger(campaign, graph)
         # §12.2: the checkpoint follows HEAD; a lost turn.json is rebuilt from it.
         checkpoint, rebuilt = continuation.sync_checkpoint(campaign,
-                                                           self._snapshot(campaign, graph, world, party))
+                                                           self._snapshot(campaign, graph, world, party),
+                                                           worldline=worldline.active_name(meta))
         turn = continuation.readable_turn(campaign)
         if turn is None:
             turn = continuation.rebuild_turn(campaign, checkpoint)
@@ -497,6 +528,7 @@ class Table:
                             "owed": ["narrate"], "since": turn.get("opened_at"),
                             "last_call_ordinal": max(ordinals, default=0)}
         opening_needed = turn["turn"] == 0 and turn["state"] == "awaiting_player"
+        self._seed_line(meta, int(turn["turn"]))
         resume = None if opening_needed else continuation.resume_view(checkpoint, rebuilt)
         if resume is not None:
             self._resume_pending[campaign.id] = resume
@@ -510,6 +542,10 @@ class Table:
             "pending_turn": pending_turn,
             "opening_needed": opening_needed,
             "resume": resume,
+            # §15.6: which line the table just opened on, and how many circuits in.
+            "worldline": {"name": worldline.active_name(meta),
+                          "kind": worldline.active_line(meta).get("kind"),
+                          "loop": int(worldline.active_line(meta).get("loop") or 0)},
         }
 
     def status(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -527,7 +563,7 @@ class Table:
             self._style_first_turn[campaign.id] = int(turn["turn"])
         # #22: the module briefing rides under the same condition as the full style — the
         # first turn this process opened for the campaign (and any capsule before it).
-        return build_capsule(graph, campaign, world, turn, campaign.party(), language=language_of(meta),
+        return build_capsule(graph, campaign, world, turn, campaign.party(), language=language_of(meta), meta=meta,
                              situations=self._situations(campaign, graph, world, turn), director_graph=self.director,
                              ontology=self.ontology, craft=self.craft,
                              register=str(meta.get("register") or DEFAULT_REGISTER), style_full=style_full, resume=resume,
@@ -607,11 +643,18 @@ class Table:
             return {"scope": "module", "module_secrets": secrets, "conclusions": conclusions}
         scene = graph.scene(world["active_scene"])
         where = where_section(graph, world, scene)
+        # §15.5: a person the module declared `remembers_across_loops` carries what they
+        # learned on another circuit or another line. Everyone else gets nothing.
+        across = self._cross_line_reader(campaign, graph, world)
         npc_secrets = []
         for node in npcs_present(graph, world, scene):
             record = record_of(node)
-            npc_secrets.append({"name": graph.display_name(node), "secret": record.get("secret"),
-                                "agenda": record.get("agenda")})
+            entry = {"name": graph.display_name(node), "secret": record.get("secret"),
+                     "agenda": record.get("agenda")}
+            elsewhere = across(node)
+            if elsewhere:
+                entry["from_other_lines"] = elsewhere
+            npc_secrets.append(entry)
         return {
             "scope": "scene",
             "scene": {"name": where["scene"], "display_name": where["display_name"],
@@ -695,7 +738,12 @@ class Table:
         if what == "transcript":
             return recall_roads.transcript(campaign, current, params)
         if what == "history":
-            return recall_roads.history(campaign, current, params)
+            result = recall_roads.history(campaign, current, params)
+            if params.get("lines"):
+                # §15.6: the tree of worldlines -- every line, its fork point, its circuit
+                # and its last turn. No line is ever removed from it.
+                result["lines"] = recall_roads.worldline_tree(campaign.read_campaign())
+            return result
         return self._recall_memory(campaign, graph, world, params)
 
     def _recall_memory(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any],
@@ -736,14 +784,19 @@ class Table:
         limit = params.get("limit", memory.RECALL_DEFAULT_LIMIT)
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= memory.RECALL_MAX_LIMIT:
             raise invalid_params(f"limit must be 1–{memory.RECALL_MAX_LIMIT}")
+        # §15.5: which worldlines to read. `current` is this branch's file; `any` is the
+        # union over every line; a name is that line alone. Hits carry the line and circuit.
+        line = params.get("line", memory.LINE_CURRENT)
+        rows = memory.candidates_for(campaign, campaign.read_campaign(), line)
         hits = memory.query_candidates(campaign, index, about=about, narrow=narrow, turns=turns, kinds=kinds,
-                                       include_superseded=include_superseded, limit=limit)
-        return {"what": "memory", "about": about, "hits": hits}
+                                       include_superseded=include_superseded, limit=limit, rows=rows)
+        return {"what": "memory", "about": about, "line": line, "hits": hits}
 
     # ---- player input -------------------------------------------------------
 
     def player_input(self, params: dict[str, Any]) -> dict[str, Any]:
-        campaign, graph, world, turn = self._context(params)
+        campaign, meta, graph, world = self._load(params)
+        turn = campaign.read_turn()
         text = _str(params, "text")
         if turn["state"] not in PLAYER_INPUT_STATES:
             raise _turn_state_error(turn, "table.player_input",
@@ -765,6 +818,8 @@ class Table:
             number = int(turn["turn"])
         new_turn = fresh_turn(number, "open", pending)
         new_turn["player_text"] = text
+        # §15.1: this line's dice, replayed from its seed and this turn number.
+        self._seed_line(meta, number)
         campaign.write_turn(new_turn)
         campaign.append_transcript(number, "player", text)
         append_event(campaign, number, "turn-started",
@@ -958,7 +1013,8 @@ class Table:
     # ---- apply --------------------------------------------------------------
 
     def apply(self, params: dict[str, Any]) -> dict[str, Any]:
-        campaign, graph, world, turn = self._context(params)
+        campaign, meta, graph, world = self._load(params)
+        turn = campaign.read_turn()
         call_id, replay = self._begin_write(campaign, turn, "table.apply", params)
         if replay is not None:
             return replay
@@ -982,6 +1038,10 @@ class Table:
         receipt_ids: list[str] = []
         already: list[str] = []
         attachments: list[dict[str, Any] | None] = []
+        #: §15.3: the fork or switch this turn asked for. It is staged like any other
+        #: effect but performed after `narrate` commits, so the keeper delivers "and you
+        #: are back in the morning" before the line actually moves.
+        staged_worldline: dict[str, Any] | None = None
         time_effects = 0
         for index, effect in enumerate(effects):
             try:
@@ -995,7 +1055,7 @@ class Table:
                 if kind == "move":
                     receipt, event = self._stage_move(campaign, graph, staged, effect, turn_number, ordinal, call_id)
                 elif kind == "clue":
-                    receipt, event = self._stage_clue(graph, staged, effect, turn_number, call_id)
+                    receipt, event = self._stage_clue(campaign, graph, staged, effect, turn_number, call_id)
                     if event is None:
                         already.append(receipt["clue"])
                         receipt_ids.append(receipt["id"])
@@ -1026,6 +1086,16 @@ class Table:
                                                         mint, staged_rulings)
                 elif kind == "npc":
                     receipt, event = self._stage_npc(graph, staged, effect, turn_number, ordinal, call_id, mint)
+                elif kind in worldline.OPERATIONS:
+                    receipt, staged_worldline = worldline.stage(
+                        campaign, meta, graph, staged, effect, turn, index=index, count=len(effects),
+                        turn_number=turn_number, call_id=call_id, mint=mint)
+                    receipts.append(receipt)
+                    receipt_ids.append(receipt["id"])
+                    taken_ids.add(str(receipt["id"]))
+                    # No event yet: `worldline-forked`/`-switched` are appended when the
+                    # transition actually happens, after this turn's commit (§15.3).
+                    continue
                 else:
                     time_effects += 1
                     receipt, event = self._stage_time(staged, effect, turn_number, ordinal, call_id, time_effects)
@@ -1049,6 +1119,8 @@ class Table:
             append_jsonl(campaign.rulings_path, row)
         turn["receipts"].extend(receipts)
         turn["state"] = "acting"
+        if staged_worldline is not None:
+            turn["worldline"] = staged_worldline
         destination = graph.scene(staged["active_scene"])
         material = self.material_of(graph.module_id)(graph.handle(destination))
         result: dict[str, Any] = {"receipts": receipt_ids,
@@ -1064,6 +1136,12 @@ class Table:
             # §14.8: the extension hands these to the player as message attachments.
             result["attachments"] = [a for a in attachments if a]
             result["attachment"] = result["attachments"][0] if result["attachments"] else None
+        if staged_worldline is not None:
+            # §15.3: staged, not done. The keeper narrates the turn first; the line moves
+            # when that narrate commits, and the player's next line opens the new line.
+            result["worldline"] = {"operation": staged_worldline["operation"], "line": staged_worldline["line"],
+                                   "mode": staged_worldline.get("mode"), "loop": int(staged_worldline["loop"]),
+                                   "when": "after this turn's narrate commits"}
         if already:
             result["already_discovered"] = already
             if not receipts:
@@ -1132,9 +1210,12 @@ class Table:
             trail = trail[:trail.index(dest)] if dest in trail else [*trail, src]
         return trail
 
-    def _stage_clue(self, graph: ModuleGraph, world: dict[str, Any], effect: dict[str, Any],
-                    turn_number: int, call_id: str) -> tuple[dict[str, Any], tuple[str, dict[str, Any]] | None]:
+    def _stage_clue(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any],
+                    effect: dict[str, Any], turn_number: int,
+                    call_id: str) -> tuple[dict[str, Any], tuple[str, dict[str, Any]] | None]:
         name = _str(effect, "clue")
+        if echoes.is_echo(name):
+            return self._stage_echo(campaign, world, name, effect, turn_number, call_id)
         node = graph.clue(name)
         scene = graph.scene(world["active_scene"])
         here = graph.scene_clue_ids(scene)
@@ -1154,6 +1235,32 @@ class Table:
             return receipt, None
         world["discovered_clues"].append(handle)
         return receipt, ("clue-discovered", {"clue": handle, "scene": receipt["scene"], "how": how})
+
+    @staticmethod
+    def _stage_echo(campaign: Campaign, world: dict[str, Any], handle: str, effect: dict[str, Any],
+                    turn_number: int, call_id: str) -> tuple[dict[str, Any], tuple[str, dict[str, Any]] | None]:
+        """§15.4: reveal one echo. It is a clue effect because it is evidence, and the
+        evidence rule holds -- an echo the keeper only narrated is not discovered. The
+        keeper cannot change what the echo says: `label` names it, the summary is the
+        kernel's projection of the receipts it came from."""
+        row = echoes.find(echoes.read(campaign), handle)
+        if row is None:
+            raise RpcError("unknown_entity", f"no echo {handle!r} on this worldline",
+                           fix="reveal one of details.echoes, or none: echoes come from other lines",
+                           details={"echo": handle,
+                                    "echoes": [e["id"] for e in echoes.read(campaign)][:ECHO_OPTIONS]})
+        label = effect.get("label") if isinstance(effect.get("label"), str) and effect["label"].strip() else None
+        receipt = {"id": f"clue:{handle.replace(':', '-')}-t{turn_number}", "kind": "clue", "call_id": call_id,
+                   "clue": handle, "label": label or row.get("summary"), "summary": row.get("summary"),
+                   "scene": row.get("scene"), "how": effect.get("how") if isinstance(effect.get("how"), str) else None,
+                   "from": None, "echo": {"line": row.get("line"), "loop": row.get("loop"), "turn": row.get("turn"),
+                                          "kind": row.get("kind")},
+                   "at": now_iso()}
+        if handle in world.setdefault("discovered_echoes", []):
+            return receipt, None
+        world["discovered_echoes"].append(handle)
+        return receipt, ("clue-discovered", {"clue": handle, "scene": row.get("scene"),
+                                             "how": receipt["how"], "echo": row.get("line")})
 
     @staticmethod
     def _clue_source(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any],
@@ -1357,7 +1464,7 @@ class Table:
             names_of[weapon_id] = names
             if key in names:
                 return {**entry, "weapon_id": weapon_id}
-        era = str(sheet.get("era") or record_of(graph.module_node).get("era") or "")
+        era = str(sheet.get("era") or module_declaration(graph.module_node).get("era") or "")
         options = [wid for wid, entry in catalog.items()
                    if not era or not entry.get("eras") or era in (entry.get("eras") or [])]
         by_name = {name: wid for wid, names in names_of.items() for name in names}
@@ -1514,7 +1621,7 @@ class Table:
         """A sheet without a finance block gets one from `cash-assets.json` for its era and
         credit rating (the chargen shape). An era the table has no period for starts at
         zero and says so: the balance is then the sum of the cash receipts, not a guess."""
-        era = str(sheet.get("era") or record_of(graph.module_node).get("era") or "")
+        era = str(sheet.get("era") or module_declaration(graph.module_node).get("era") or "")
         credit = sheet.get("credit_rating")
         if not isinstance(credit, int) or isinstance(credit, bool):
             credit = (sheet.get("skills") or {}).get("Credit Rating")
@@ -1574,6 +1681,12 @@ class Table:
             raise invalid_params("params.options must be a non-empty list of strings")
         binds = _str(params, "binds", required=False)
         text = _str(params, "text", required=False)
+        if turn.get("worldline"):
+            # §15.3: a turn that changes the worldline cannot end on a question -- the
+            # answer would land on a line the player has not been told about yet.
+            raise invalid_params("a turn that forks or switches the worldline cannot be closed by ask",
+                                 fix="close this turn with narrate; ask on the new line's first turn",
+                                 details={"worldline": turn["worldline"].get("operation")})
         receipts = list(turn.get("receipts", []))
         # §16.3: the question closes the turn, so the player must see this turn's rolls
         # before choosing. The keeper states them in `text`; no text states nothing, so a
@@ -1649,6 +1762,9 @@ class Table:
             "closed_at": now_iso(), "pending_choice": turn.get("pending_choice"), "capsule": turn.get("capsule"),
             "world": snapshot, "facts": facts, "intents": list(turn.get("intents") or []),
             "director_adoption": self._adoption(campaign, graph, turn, snapshot, closed_by="narrate"),
+            # §15.3: the fork or switch this turn asked for, performed below once the
+            # commit stands. It rides in the record so a crash between the two is visible.
+            "worldline": turn.get("worldline"),
         }
         campaign.write_turn_record(record)
         self._update_ledger(campaign, graph, record)
@@ -1672,10 +1788,42 @@ class Table:
         record["commit"] = sha
         record["calls"][call_id]["result"]["commit"] = sha
         campaign.write_turn_record(record)
-        self._after_commit(campaign, record, snapshot)
-        return {**result, "commit": sha}
+        moved = self._after_commit(campaign, graph, record, snapshot, turn_number)
+        return {**result, "commit": sha, **({"worldline": moved} if moved else {})}
+
+    def _move_worldline(self, campaign: Campaign, graph: ModuleGraph, record: dict[str, Any],
+                        turn_number: int) -> dict[str, Any] | None:
+        """§15.3: perform the turn's staged fork, switch or merge, after the commit and
+        before the checkpoint. Like everything else in the post-commit chain a failure here
+        is telemetry, never an error to the keeper: `transition` has already put the
+        reference back, so the table keeps playing the line it was on and the next capsule
+        says so."""
+        plan = record.get("worldline")
+        if not isinstance(plan, dict) or not plan.get("operation"):
+            return None
+        try:
+            moved = worldline.transition(campaign, graph, plan, turn_number)
+        except Exception as exc:  # noqa: BLE001 - the turn is committed; the line simply did not move
+            campaign.append_telemetry({"lane": "worldline", "turn": turn_number, "ok": False,
+                                       "operation": plan.get("operation"), "line": plan.get("line"),
+                                       "error": f"{type(exc).__name__}: {exc}"})
+            return None
+        landed = int(campaign.read_turn().get("turn") or turn_number + 1)
+        event_type, data = worldline.event_of(plan)
+        append_event(campaign, landed, event_type, data, receipt=str(plan.get("receipt") or ""))
+        campaign.append_telemetry({"lane": "worldline", "turn": turn_number, "ok": True, **moved})
+        # The line's dice from here on are its own (§15.1).
+        self._seed_line(campaign.read_campaign(), landed)
+        return moved
 
     # ---- the NPC ledger (§17.3) ---------------------------------------------
+
+    def _cross_line_reader(self, campaign: Campaign, graph: ModuleGraph,
+                           world: dict[str, Any]) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+        """§15.5: what one person knows from another worldline. Built here because both
+        `lookup secret scope=scene` and the capsule's `present` project it."""
+        index = memory.EntityIndex(graph, campaign.party(), scene_labels=world.get("scene_labels"))
+        return worldline.cross_line_reader(campaign, graph, campaign.read_campaign(), index)
 
     def _present(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any],
                  scene: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1763,21 +1911,49 @@ class Table:
             "keeper_only": keeper_only_facts(graph, world, scene, npcs_present(graph, world, scene)),
         }
 
-    def _after_commit(self, campaign: Campaign, record: dict[str, Any], snapshot: dict[str, Any]) -> None:
+    def _after_commit(self, campaign: Campaign, graph: ModuleGraph, record: dict[str, Any],
+                      snapshot: dict[str, Any], turn_number: int) -> dict[str, Any] | None:
         """§12.2–12.3: checkpoint, then episode. The turn is already closed; a failure
-        here is telemetry, never an error to the keeper and never a rollback."""
-        for step, action in (
-            ("checkpoint", lambda: continuation.write_checkpoint(
-                campaign, continuation.checkpoint_from_record(campaign.id, record, snapshot))),
-            # §21.4: the library cards at the table mirror the committed sheet; never raises
-            ("library", lambda: library.write_back(self.store, campaign, record)),
-            ("episode", lambda: memory.write_episode(campaign, record)),
-        ):
-            try:
-                action()
-            except Exception as exc:  # noqa: BLE001 - the commit stands whatever happens after it
-                campaign.append_telemetry({"lane": "kernel", "step": step, "turn": int(record["turn"]),
-                                           "ok": False, "error": f"{type(exc).__name__}: {exc}"})
+        here is telemetry, never an error to the keeper and never a rollback.
+
+        §15.3 puts the worldline transition in this chain, before the checkpoint, so the
+        checkpoint names the line the *next* turn will be played on. A turn that moves the
+        line therefore writes its library card and its episode first -- those belong to the
+        line the turn was played on, and the fork point seals them into it -- and takes the
+        checkpoint afterwards, off the state the table actually landed in (a rewind has
+        replaced the world by then)."""
+        moves = isinstance(record.get("worldline"), dict) and record["worldline"].get("operation")
+        checkpoint = ("checkpoint", lambda: continuation.write_checkpoint(
+            campaign, continuation.checkpoint_from_record(
+                campaign.id, record, snapshot,
+                worldline=worldline.active_name(campaign.read_campaign()))))
+        # §21.4: the library cards at the table mirror the committed sheet; never raises
+        rest = (("library", lambda: library.write_back(self.store, campaign, record)),
+                ("episode", lambda: memory.write_episode(campaign, record)))
+        for step, action in (rest if moves else (checkpoint, *rest)):
+            self._post_commit_step(campaign, record, step, action)
+        if not moves:
+            return None
+        moved = self._move_worldline(campaign, graph, record, turn_number)
+        if moved is not None:
+            # The world on disk is the new line's now; the checkpoint describes where the
+            # next turn resumes from, not the turn that asked for the move.
+            world = campaign.read_world()
+            landed = self._snapshot(campaign, graph, world, campaign.party())
+            checkpoint = ("checkpoint", lambda: continuation.write_checkpoint(
+                campaign, continuation.checkpoint_from_record(
+                    campaign.id, {**record, "world": None}, landed,
+                    worldline=worldline.active_name(campaign.read_campaign()))))
+        self._post_commit_step(campaign, record, *checkpoint)
+        return moved
+
+    def _post_commit_step(self, campaign: Campaign, record: dict[str, Any], step: str,
+                          action: Callable[[], Any]) -> None:
+        try:
+            action()
+        except Exception as exc:  # noqa: BLE001 - the commit stands whatever happens after it
+            campaign.append_telemetry({"lane": "kernel", "step": step, "turn": int(record["turn"]),
+                                       "ok": False, "error": f"{type(exc).__name__}: {exc}"})
 
     # ---- lanes (§12.3, §12.5): no call_id, no turn-state gate ------------------
 

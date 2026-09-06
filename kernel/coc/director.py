@@ -19,7 +19,8 @@ from typing import Any, Iterable
 
 from .errors import RpcError
 from .fileio import read_json
-from .module_graph import CLUE_KIND, ModuleGraph, condition_met, describe_condition, record_of
+from .module_graph import (CLUE_KIND, ModuleGraph, condition_met, describe_condition,
+                           module_declaration, record_of)
 from .rules.graph_digest import compute_graph_content_digest
 from .text import normalize
 
@@ -287,7 +288,7 @@ def main_line_complete(graph: ModuleGraph, world: dict[str, Any]) -> bool:
 
 
 def structure_type_of(graph: ModuleGraph) -> str:
-    declared = record_of(graph.module_node).get("structure_type") if graph.module_node else None
+    declared = module_declaration(graph.module_node).get("structure_type") if graph.module_node else None
     return str(declared) if isinstance(declared, str) and declared else DEFAULT_STRUCTURE
 
 
@@ -379,7 +380,8 @@ def score(dg: DirectorGraph, sig: dict[str, Any], scene: dict[str, Any], *, can_
     """Three layers: hard rules first, then Layer-1 hits x Layer-2 structure weight, then the
     tiebreak order. Returns {beat, reason, because, scores, override?, hit_rules}. `hit_rules`
     are Director-graph node ids for the ontology (not a capsule field)."""
-    because = [f"{name} = {sig[name]}" for name in SIGNAL_ORDER]
+    because = [f"{name} = {sig[name]}" for name in SIGNAL_ORDER if name in sig]
+    because += [f"{name} = {sig[name]}" for name in WORLDLINE_SIGNALS if name in sig]
     digits = int(dg.threshold("score-precision-digits"))
     name = override_of(sig)
     if name is not None:
@@ -427,13 +429,17 @@ def score(dg: DirectorGraph, sig: dict[str, Any], scene: dict[str, Any], *, can_
 SIGNAL_ORDER = ("structure_type", "intent", "undiscovered_here", "agenda_npc_present", "dramatic_question",
                 "exit_condition_met", "main_line_complete", "stalled_turns", "turns_in_scene", "hp_state",
                 "sanity_state", "session", "last_roll", "pushed_fail_pending", "pending_choice", "clock_near_full")
+#: §15.6: three more signals ride in `because` on a time loop. They add no number to the
+#: scoring -- the structure weights the graph already holds for `time_loop` do that work.
+WORLDLINE_SIGNALS = ("loop_count", "echoes_here", "loop_available")
 
 
 def signals(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any], turn: dict[str, Any], *,
             party: list[dict[str, Any]], present: list[dict[str, Any]], undiscovered_here: int,
             records: dict[int, dict[str, Any]], session: dict[str, Any] | None, clock_near_full: bool,
-            conditions_of: Any, sanity_of: Any) -> dict[str, Any]:
-    """The sixteen signals of §13.3, every one from state or the closed turn records.
+            conditions_of: Any, sanity_of: Any, worldline: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The sixteen signals of §13.3 plus §15.6's three, every one from state or the closed
+    turn records.
     `conditions_of(sheet)` and `sanity_of(sheet)` read the healing and sanity snapshots;
     the party's worst investigator sets `hp_state` / `sanity_state` (dying beats wounded)."""
     scene_handle = graph.handle(scene)
@@ -472,6 +478,8 @@ def signals(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any], tu
         "pushed_fail_pending": pushed_fail_pending(previous),
         "pending_choice": bool(turn.get("pending_choice")),
         "clock_near_full": bool(clock_near_full),
+        **{name: (worldline or {}).get(name, 0 if name != "loop_available" else False)
+           for name in WORLDLINE_SIGNALS},
     }
 
 

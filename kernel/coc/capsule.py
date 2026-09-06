@@ -10,12 +10,14 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from . import bookkeeping, director as director_mod, npc as npc_lane, pressures as pressures_mod
+from . import (bookkeeping, director as director_mod, npc as npc_lane, pressures as pressures_mod,
+               worldline as worldline_mod)
 from .craft import TextGraph
 from .director import DirectorGraph
 from .library import era_note
 from .module_graph import (ASSERTS, BELIEVES, HIDES, NPC_KIND, ModuleGraph,  # noqa: F401 - condition helpers re-exported
-                           condition_met, condition_status, describe_condition, record_of)
+                           condition_met, condition_status, describe_condition, module_declaration,
+                           record_of)
 from .ontology import Ontology
 from .rules.graph import semantic_name
 from .store import Campaign
@@ -35,6 +37,8 @@ PRESENT_TIES = 6
 PRESENT_PROMISES = 3
 BECAUSE_LINES = 3
 SLICE3_BUDGETS = {"pressures": 1024, "obligations": 1024, "director": 1536, "situations": 1024, "style": 1024}
+#: §15.6: which line this is, its circuit, the anchor, what a rewind leaves standing.
+WORLDLINES_BUDGET = worldline_mod.CAPSULE_BUDGET
 #: §18.3: the rulings that bind here (a ranked list, newest first, sheds its tail).
 RULINGS_BUDGET = bookkeeping.RULINGS_BUDGET
 #: §18.1: `known.flags`, most recent writes first, its own budget inside `known`'s.
@@ -67,7 +71,10 @@ HEAD = ("Everything at the start of this turn: the clock, the undiscovered clues
         "far the book has been read: ready, reading, or missing. An exit's unlock_when.met is true, false, or null "
         "when the kernel cannot tell; a gate never blocks a move. known.flags lists the flags set so far; "
         "obligations of kind note are your own open continuity notes; rulings are your earlier rulings that "
-        "bind here, reminders, not rules.")
+        "bind here, reminders, not rules. worldlines is which line the table is on and which circuit of the "
+        "loop, where the anchor is, what a rewind would leave standing and who would remember it; "
+        "loop_available true means this scene can be rewound with apply fork mode: loop, which happens after "
+        "you narrate this turn.")
 #: #22: appended to `head` when the `module` section rides along.
 HEAD_MODULE = (" This turn also carries a module section (the table briefing, this once): what the book is about, its era, "
                "the factions, places and people (absent ones included, keeper-only), the ending and conclusion names and "
@@ -97,7 +104,7 @@ def clock_section(graph: ModuleGraph, world: dict[str, Any]) -> dict[str, Any]:
     minutes = int((world.get("clock") or {}).get("minutes") or 0)
     clock: dict[str, Any] = {"minutes": minutes,
                              "elapsed": ELAPSED.format(hours=minutes // MINUTES_PER_HOUR, minutes=minutes % MINUTES_PER_HOUR)}
-    start = record_of(graph.module_node).get("start_time") if graph.module_node else None
+    start = module_declaration(graph.module_node).get("start_time") if graph.module_node else None
     if isinstance(start, str) and ":" in start:
         try:
             hour, minute = (int(part) for part in start.split(":", 1))
@@ -209,7 +216,8 @@ def _memory_statements(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 
 def npc_entry(graph: ModuleGraph, world: dict[str, Any], node: dict[str, Any],
-              ledger: dict[str, Any], memories: dict[str, dict[str, Any]]) -> dict[str, Any]:
+              ledger: dict[str, Any], memories: dict[str, dict[str, Any]],
+              across_lines: Callable[[dict[str, Any]], list[dict[str, Any]]] | None = None) -> dict[str, Any]:
     """§17.4: one person as the keeper needs them this turn — the dossier the book wrote
     and the ledger the table wrote, with the causes attached. Every line is copied, never
     paraphrased; the whole entry is keeper-only."""
@@ -241,6 +249,13 @@ def npc_entry(graph: ModuleGraph, world: dict[str, Any], node: dict[str, Any],
     history = _npc_history(row, memories)
     if history:
         entry["history"] = history
+    # §15.5: what this person knows from another circuit or another line. The contract
+    # wrote it onto `known_facts`; §17.4 replaced that key with this dossier, and the
+    # statements land here, where the keeper reads what they know. Empty for everyone the
+    # module did not declare `remembers_across_loops`, whatever the candidates say.
+    elsewhere = across_lines(node) if across_lines else []
+    if elsewhere:
+        entry["from_other_lines"] = elsewhere
     return entry
 
 
@@ -317,10 +332,13 @@ def _present_rank(entry: dict[str, Any]) -> int:
 
 def present_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any],
                     ledger: dict[str, Any] | None = None,
-                    memories: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+                    memories: list[dict[str, Any]] | None = None,
+                    across_lines: Callable[[dict[str, Any]], list[dict[str, Any]]] | None = None
+                    ) -> list[dict[str, Any]]:
     ledger = ledger or {}
     by_id = _memory_statements(memories or [])
-    present = [npc_entry(graph, world, node, ledger, by_id) for node in npcs_present(graph, world, scene)]
+    present = [npc_entry(graph, world, node, ledger, by_id, across_lines)
+               for node in npcs_present(graph, world, scene)]
     present.sort(key=_present_rank)
     return present
 
@@ -358,6 +376,10 @@ def known_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, An
         # §18.1: keeper-only; the flags set so far, most recent write first
         "flags": bookkeeping.known_flags(world),
     }
+    # §15.4: an echo the keeper revealed is evidence the players have; it belongs here
+    # beside the clues, not in the worldlines section, which is what may still be shown.
+    if world.get("discovered_echoes"):
+        section["discovered_echoes"] = list(world["discovered_echoes"])
     if party:
         section["investigator"] = investigator_summary(party[0])
         # §21.3: a library card built for another era plays unchanged; the keeper is told.
@@ -510,11 +532,12 @@ def director_section(dg: DirectorGraph, ontology: Ontology, graph: ModuleGraph, 
                      scene: dict[str, Any], turn: dict[str, Any], party: list[dict[str, Any]], present: list[dict[str, Any]],
                      records: dict[int, dict[str, Any]], session: dict[str, Any] | None, *,
                      clock_near_full: bool, memory_rows: list[dict[str, Any]], conditions_of: Callable[[dict[str, Any]], list[str]],
-                     sanity_of: Callable[[dict[str, Any]], dict[str, Any] | None]) -> dict[str, Any]:
+                     sanity_of: Callable[[dict[str, Any]], dict[str, Any] | None],
+                     worldline: dict[str, Any] | None = None) -> dict[str, Any]:
     undiscovered = [c for c in clues_here(graph, world, scene) if not c["discovered"]]
     sig = director_mod.signals(graph, world, scene, turn, party=party, present=present, undiscovered_here=len(undiscovered),
                                records=records, session=session, clock_near_full=clock_near_full,
-                               conditions_of=conditions_of, sanity_of=sanity_of)
+                               conditions_of=conditions_of, sanity_of=sanity_of, worldline=worldline)
     names = [graph.display_name(n) for n in present] + list(world.get("discovered_clues") or [])
     overlap = director_mod.memory_overlap_count(memory_rows, names)
     can_move = bool(graph.scene_exits(scene)) or bool(world.get("scene_trail"))
@@ -538,12 +561,12 @@ def director_section(dg: DirectorGraph, ontology: Ontology, graph: ModuleGraph, 
 # ---- assembly -----------------------------------------------------------------
 
 def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
-                  turn: dict[str, Any], party: list[dict[str, Any]], *, language: str,
+                  turn: dict[str, Any], party: list[dict[str, Any]], *, language: str, meta: dict[str, Any],
                   situations: list[dict[str, Any]], director_graph: DirectorGraph, ontology: Ontology,
                   craft: TextGraph, register: str, style_full: bool = False,
                   resume: dict[str, Any] | None = None,
                   material_of: Callable[[str], str] | None = None, module_brief: bool = False) -> dict[str, Any]:
-    from .memory import open_promises, read_candidates  # local: memory imports facts, which imports render
+    from .memory import EntityIndex, open_promises, read_candidates  # local: memory imports facts, which imports render
     from .npc import read_ledger
     from .rules.healing import read_healing_state
     from .sessions import SessionView, sanity_snapshot  # local: sessions reads capsule.condition_met for chase chains
@@ -572,13 +595,18 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
                  + pressures_mod.rule_pressures(continuations))
     present_names = [graph.display_name(n) for n in present_nodes] + [graph.handle(n) for n in present_nodes]
     here = [graph.handle(scene), scene_label(graph, world, scene)]
+    # §15.6: the line the table is on. It is computed before the obligations and the
+    # Director because both read it: a scene that can rewind owes the keeper a decision,
+    # and the loop's three signals ride in `because`.
+    worldlines = worldline_mod.capsule_section(graph, campaign, meta, world, scene, present_nodes)
     obligations = (pressures_mod.choice_obligation(turn.get("pending_choice"))
                    + pressures_mod.session_obligation(session)
                    + pressures_mod.continuation_obligations(continuations)
                    + pressures_mod.quest_obligations(graph, world)
                    + pressures_mod.promise_obligations(open_promises(campaign))
                    # §18.2: the keeper's own open notes -- those about someone here first
-                   + bookkeeping.note_obligations(bookkeeping.open_notes(campaign), present_names, here))
+                   + bookkeeping.note_obligations(bookkeeping.open_notes(campaign), present_names, here)
+                   + worldline_mod.loop_obligation(worldlines))
     # §18.3: the rulings that bind here, by identifier equality only
     rulings = bookkeeping.rulings_for_capsule(bookkeeping.active_rulings(campaign), session_kind=(session or {}).get("kind"),
                                               present=[graph.handle(n) for n in present_nodes], scene=graph.handle(scene),
@@ -592,17 +620,22 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
     director = director_section(director_graph, ontology, graph, world, scene, turn, party, present_nodes, records, session,
                                 clock_near_full=near_full, memory_rows=candidates,
                                 conditions_of=conditions_of,
-                                sanity_of=lambda sheet: sanity_snapshot(campaign.dir, str(sheet.get("id"))))
+                                sanity_of=lambda sheet: sanity_snapshot(campaign.dir, str(sheet.get("id"))),
+                                worldline=worldline_mod.director_signals(worldlines))
     style = craft.style_section(language=language, register=register, beat=director["beat"], full=style_full)
 
     sections: dict[str, Any] = {
         "where": where,
-        "present": present_section(graph, world, scene, ledger, candidates),
+        "present": present_section(graph, world, scene, ledger, candidates,
+                                   worldline_mod.cross_line_reader(
+                                       campaign, graph, meta,
+                                       EntityIndex(graph, party, scene_labels=world.get("scene_labels")))),
         "known": known_section(graph, world, scene, party),
         "pressures": pressures,
         "obligations": obligations,
         "director": director,
         "situations": situations,
+        "worldlines": worldlines,
         "rulings": rulings,
         "memory": memory_section(graph, campaign, world, scene, party),
         "style": style,
@@ -629,6 +662,8 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
             truncated.append(name)
     if fit_budget(sections["rulings"], RULINGS_BUDGET, drop="last"):
         truncated.append("rulings")
+    if fit_budget(sections["worldlines"], WORLDLINES_BUDGET, drop="last"):
+        truncated.append("worldlines")
     head = HEAD
     if module_brief:
         # #22: the briefing rides once, on the process's first turn after open.

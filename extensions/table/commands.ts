@@ -132,6 +132,22 @@ export function panelLines(input: {
 		lines.push(`party   ${name}  ${parts.join("  ")}`);
 	}
 
+	// Contract §15.7: which worldline the table is on, and which circuit of the loop.
+	const worldlines = rec(capsule.worldlines);
+	const line = str(worldlines.line);
+	if (line) {
+		const kind = str(worldlines.kind);
+		const loop = num(worldlines.loop);
+		const anchor = rec(worldlines.anchor);
+		const at = str(anchor.scene);
+		const others = arr(worldlines.lines).length;
+		lines.push(
+			`line    ${line}${kind ? ` (${kind})` : ""}${loop ? `  loop ${loop}` : ""}` +
+				`${at ? `  anchor ${at}` : ""}${others > 1 ? `  of ${others} lines` : ""}` +
+				`${worldlines.loop_available === true ? "  rewindable here" : ""}`,
+		);
+	}
+
 	const session = rec(where.session);
 	const sessionKind = str(session.kind);
 	lines.push(

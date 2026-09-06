@@ -1,7 +1,7 @@
 """events.jsonl (contract §7, §12.1): {seq, turn, type, at, call_id?, receipt?, data}.
 
-Eighteen canonical types, closed. Anything else is a kernel defect (ValueError), never a
-keeper error."""
+A closed enumeration -- eighteen types in §12.1, plus the two §15 worldline transitions.
+Anything else is a kernel defect (ValueError), never a keeper error."""
 
 from __future__ import annotations
 
@@ -36,6 +36,10 @@ EVENT_TYPES = frozenset({
     "ruling-made",
     # §17.3 (#29): a person moved on or off the stage, or the keeper set where they stand
     "npc-changed",
+    # §15 (#23): a worldline forked, resumed or merged, appended after that turn's commit
+    "worldline-forked",
+    "worldline-switched",
+    "worldline-merged",
 })
 
 

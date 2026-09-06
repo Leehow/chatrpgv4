@@ -91,6 +91,16 @@ def mechanics_of(receipt: dict[str, Any]) -> dict[str, Any] | None:
         return out
     if kind == "choice":
         return {"kind": "choice", "receipt": receipt_id, "option": receipt.get("option")}
+    if kind == "worldline":
+        # §15.3 said this receipt renders a change line; §16 replaced every such line with
+        # a projected row, and this is the row: which line the table moved to, whether it
+        # was forked or resumed, and which circuit of the loop it is.
+        out = {"kind": "worldline", "receipt": receipt_id, "operation": receipt.get("operation"),
+               "line": receipt.get("line"), "mode": receipt.get("mode"), "loop": int(receipt.get("loop") or 0),
+               "from_line": (receipt.get("from") or {}).get("line"),
+               "from_turn": (receipt.get("from") or {}).get("turn")}
+        _with_label(out, "label", receipt.get("label"))
+        return out
     if kind == "handout":
         attachment = receipt.get("attachment") if isinstance(receipt.get("attachment"), dict) else {}
         out = {"kind": "handout", "receipt": receipt_id, "name": receipt.get("name") or receipt.get("handout"),

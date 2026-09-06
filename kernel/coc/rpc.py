@@ -107,7 +107,9 @@ def make_rng() -> random.Random:
 def serve(workspace: Path, content: Path, stdin=None, stdout=None) -> int:
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout
-    table = Table(Store(workspace), content, make_rng())
+    # §15.1: an explicit COC_KERNEL_SEED locks the dice to one sequence (tests); without it
+    # every turn is reseeded from its worldline's seed and its turn number.
+    table = Table(Store(workspace), content, make_rng(), seed_locked=bool(os.environ.get(SEED_ENV)))
     methods = build_methods(table)
     log(f"ready workspace={workspace} content={content}")
     while True:

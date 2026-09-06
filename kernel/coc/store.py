@@ -126,6 +126,11 @@ class Campaign:
         self.npc_ledger_path = self.dir / "npc-ledger.json"
         self.notes_path = self.dir / "notes.jsonl"
         self.rulings_path = self.dir / "rulings.jsonl"
+        #: §15.2: the time loop's anchor snapshot -- the world and the sheets as they stood
+        #: the first time the party reached the anchor scene; every rewind returns to it.
+        self.worldlines_dir = self.dir / "save" / "worldlines"
+        self.anchor_path = self.worldlines_dir / "anchor.json"
+        self.echoes_path = self.worldlines_dir / "echoes.json"
 
     # ---- documents --------------------------------------------------------
 

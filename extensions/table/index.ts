@@ -175,6 +175,14 @@ function mechanicsFragment(row: Record<string, unknown>): string | undefined {
 			return `choice ${text(row.option) ?? ""}`.trim();
 		case "handout":
 			return `handout ${text(row.name) ?? ""}`.trim();
+		case "worldline": {
+			// Contract §15.7: which line the table moved to, and which circuit of the loop.
+			const line = text(row.label) ?? text(row.line) ?? "";
+			const operation = text(row.operation) ?? "worldline";
+			const loop = num(row.loop);
+			const circuit = text(row.mode) === "loop" && loop ? ` loop ${loop}` : "";
+			return `${operation} -> ${line}${circuit}`.trim();
+		}
 		default:
 			return kind;
 	}

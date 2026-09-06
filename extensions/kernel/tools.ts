@@ -31,7 +31,10 @@ const MoveEffect = Type.Object({
 
 const ClueEffect = Type.Object({
 	kind: StringEnum(["clue"] as const, { description: "the investigator obtains one clue" }),
-	clue: Type.String({ description: "clue name; must be a clue obtainable in the current scene" }),
+	clue: Type.String({
+		description:
+			"clue name; must be a clue obtainable in the current scene. An echo id from the capsule's worldlines.echoes (it starts with echo:) reveals what another worldline left standing here — you decide whether to show it and how to tell it, never what it says",
+	}),
 	how: Type.Optional(Type.String({ description: "one sentence: how they got it" })),
 	from: Type.Optional(Type.String({ description: "the NPC who handed it over, when someone did; it goes on their ledger as something they disclosed" })),
 	label: Type.Optional(Type.String({ description: "short name of this clue in the player's language; omitted means the clue name" })),
@@ -123,6 +126,60 @@ const NpcEffect = Type.Object({
 		description: "your own reading of where they stand with the party; the kernel keeps the settled checks' account on its own, so set this only when you decide something the dice did not",
 	})),
 	why: Type.Optional(Type.String({ description: "one sentence: why they moved, or why they now stand there" })),
+});
+
+/**
+ * The world's line of history changing (contract §15.3, #23). None of the three happens
+ * during the batch: the kernel performs it after this turn's narrate commits, so the
+ * narration of the change is delivered first and the player's next line lands on the new
+ * line. One per turn, last in the batch, and never with ask.
+ */
+const ForkEffect = Type.Object({
+	kind: StringEnum(["fork"] as const, {
+		description: "branch the worldline: if leaves the world as it stands, loop rewinds it to the module's anchor",
+	}),
+	name: Type.String({ description: "a short kebab name for the new line, e.g. loop-2 or without-the-key" }),
+	mode: StringEnum(["if", "loop"] as const, {
+		description:
+			"if branches the line as it stands and plays on from here; loop rewinds to the anchor the book declared (the capsule's worldlines.loop_available says whether that is possible here) and starts the next circuit",
+	}),
+	from_turn: Type.Optional(
+		Type.Integer({ description: "if only: branch from an earlier committed turn of this line instead of this one" }),
+	),
+	label: Type.Optional(Type.String({ description: "short name of this line in the player's language" })),
+});
+
+const SwitchEffect = Type.Object({
+	kind: StringEnum(["switch"] as const, { description: "resume another worldline the campaign already has" }),
+	line: Type.String({ description: "the line's name, from the capsule's worldlines.lines; a merged line cannot be resumed" }),
+	label: Type.Optional(Type.String({ description: "short name of this line in the player's language" })),
+});
+
+const MergeEffect = Type.Object({
+	kind: StringEnum(["merge"] as const, { description: "flow two or more worldlines together into a new one" }),
+	name: Type.String({ description: "a short kebab name for the line they flow into" }),
+	lines: Type.Array(Type.String(), {
+		minItems: 2,
+		description: "the lines flowing together; the line at the table must be one of them",
+	}),
+	into: Type.Optional(Type.String({ description: "the scene the merged world stands in; omitted means where the first line stands" })),
+	dispositions: Type.Optional(
+		Type.Record(
+			Type.String(),
+			Type.Object({
+				mode: StringEnum(["from", "min", "max", "sum", "drop"] as const, {
+					description: "how to settle this conflict; each conflict lists the modes its class allows",
+				}),
+				line: Type.Optional(Type.String({ description: "mode from: which line's value stands" })),
+				note: Type.Optional(Type.String({ description: "mode drop: one sentence saying why it is gone. Required" })),
+			}),
+			{
+				description:
+					"how each conflict is settled, keyed by the conflict id. Call once without it: the kernel reports needs and lists every conflict with the modes it allows, and writes nothing; send them back with this and the merge lands",
+			},
+		),
+	),
+	label: Type.Optional(Type.String({ description: "short name of this line in the player's language" })),
 });
 
 /** Reserved kinds: the kernel answers not_implemented; the shape is here already. */
@@ -363,11 +420,11 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Apply",
 		method: "table.apply",
 		description:
-			"Land this turn's changes to the world: move walks to another scene (the result carries the destination scene, so no second look is needed), clue gives the investigator a clue, time advances the world clock, damage hurts the investigator with the rulebook's dice (a fall, fire, suffocation — harm with no attacker), item makes something change hands, cash makes money go up or down. The whole batch is validated before anything is written, and one bad effect writes none of them, so you can list everything that happened this turn in one call. What happens in your narration without an apply did not happen: walking is a move, seeing is a clue, time spent is a time, something gained or handed over is an item, money in or out is a cash. Everything picked up, bought, taken away or used up is an item and reaches the investigator sheet; if it is a weapon, put the profile name from the rules table in weapon, or that gun will never fire later. Money spent, earned or paid out is a cash with a signed delta, and the kernel works out the before and after itself. Someone walking into or out of the scene is an npc with to (a scene name, here, or away) — until you land it, they are not in the room and cannot be targeted; npc also takes stance when you decide where someone stands with the party for a reason the dice did not settle. A destination may be an exit of the current scene or any scene on the way in (where.back lists them nearest first, which is how you back out of a lair with no exits); an unreachable one reports not_reachable with both lists, and a clue that is not here reports not_here.",
+			"Land this turn's changes to the world: move walks to another scene (the result carries the destination scene, so no second look is needed), clue gives the investigator a clue, time advances the world clock, damage hurts the investigator with the rulebook's dice (a fall, fire, suffocation — harm with no attacker), item makes something change hands, cash makes money go up or down. The whole batch is validated before anything is written, and one bad effect writes none of them, so you can list everything that happened this turn in one call. What happens in your narration without an apply did not happen: walking is a move, seeing is a clue, time spent is a time, something gained or handed over is an item, money in or out is a cash. Everything picked up, bought, taken away or used up is an item and reaches the investigator sheet; if it is a weapon, put the profile name from the rules table in weapon, or that gun will never fire later. Money spent, earned or paid out is a cash with a signed delta, and the kernel works out the before and after itself. Someone walking into or out of the scene is an npc with to (a scene name, here, or away) — until you land it, they are not in the room and cannot be targeted; npc also takes stance when you decide where someone stands with the party for a reason the dice did not settle. A destination may be an exit of the current scene or any scene on the way in (where.back lists them nearest first, which is how you back out of a lair with no exits); an unreachable one reports not_reachable with both lists, and a clue that is not here reports not_here. fork, switch and merge change which worldline the table is playing: none of them happens during the call — the kernel performs it after this turn's narrate commits, so you narrate the change first and the player's next line lands on the new line. At most one of the three per turn, it must be the last effect of the batch, and a turn that carries one cannot be closed with ask. A merge called without dispositions reports needs and lists every conflict with the modes its class allows, having written nothing; settle them and call again.",
 		promptSnippet: "Land this turn's world changes: move, clue, time, item, cash",
 		parameters: Type.Object({
 			effects: Type.Array(
-				Type.Union([MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, ReservedEffect]),
+				Type.Union([MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, ForkEffect, SwitchEffect, MergeEffect, ReservedEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
 		}),
