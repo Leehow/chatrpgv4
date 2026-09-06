@@ -1,0 +1,3 @@
+#!/bin/sh
+# 驾驭器只会传 --campaign/--mode/--no-session：这一层把它们交给 bin/pi-coc 的 setup 模式。
+exec "$(dirname "$0")/pi-coc" setup "$@"

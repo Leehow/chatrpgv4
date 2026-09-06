@@ -7,7 +7,7 @@ import json
 from conftest import CAMPAIGN, CONTENT_DIR, MODULE, PREGEN, campaign_dir, git_log, read_json, read_jsonl
 
 STEPS_PATH = CONTENT_DIR / "setup" / "steps.json"
-STEP_IDS = ["choose-source", "build-bundle", "create-campaign", "bind-source", "build-opening",
+STEP_IDS = ["choose-source", "build-bundle", "bind-source", "create-campaign", "build-opening",
             "create-investigator", "complete"]
 
 

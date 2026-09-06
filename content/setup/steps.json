@@ -81,52 +81,9 @@
       ]
     },
     {
-      "id": "create-campaign",
-      "needs": [
-        "choose-source"
-      ],
-      "only_for": null,
-      "kind": "op",
-      "op": "campaign.create",
-      "params": {
-        "id": {
-          "description": "campaign id (short slug)",
-          "required": true
-        },
-        "module": {
-          "description": "starter id, or the module id the bundle will bind to",
-          "required": true
-        },
-        "title": {
-          "description": "optional",
-          "required": false
-        },
-        "play_language": {
-          "description": "BCP-47, default zh-Hans",
-          "required": false
-        },
-        "register": {
-          "description": "purist | pulp, default purist",
-          "required": false
-        }
-      },
-      "receipt": "campaign_id",
-      "lines": {
-        "zh-Hans": {
-          "do": "campaign.create：status 为 setting_up；starter 时同时把模组登记进存储。",
-          "next": "建战役：给一个战役 id（和标题，可省略）。"
-        },
-        "en": {
-          "do": "campaign.create: status setting_up; a starter is registered into the module store at the same time.",
-          "next": "Create the campaign: give a campaign id (and an optional title)."
-        }
-      }
-    },
-    {
       "id": "bind-source",
       "needs": [
-        "build-bundle",
-        "create-campaign"
+        "build-bundle"
       ],
       "only_for": "pdf",
       "kind": "op",
@@ -134,7 +91,8 @@
       "params": {
         "bundle": {
           "description": "bundle directory",
-          "required": true
+          "required": true,
+          "from": "bundle"
         },
         "module_id": {
           "description": "optional override of the manifest slug",
@@ -155,6 +113,51 @@
       "applies_to": [
         "pdf"
       ]
+    },
+    {
+      "id": "create-campaign",
+      "needs": [
+        "choose-source",
+        "bind-source"
+      ],
+      "only_for": null,
+      "kind": "op",
+      "op": "campaign.create",
+      "params": {
+        "id": {
+          "description": "campaign id (short slug)",
+          "required": true,
+          "from": "campaign"
+        },
+        "module": {
+          "description": "starter id, or the module id module.bind returned (carried automatically)",
+          "required": true,
+          "from": "module_id"
+        },
+        "title": {
+          "description": "optional",
+          "required": false
+        },
+        "play_language": {
+          "description": "BCP-47 tag the kernel has templates for: zh-Hans | en (default zh-Hans)",
+          "required": false
+        },
+        "register": {
+          "description": "purist | pulp, default purist",
+          "required": false
+        }
+      },
+      "receipt": "campaign_id",
+      "lines": {
+        "zh-Hans": {
+          "do": "campaign.create：status 为 setting_up；starter 时同时把模组登记进存储。",
+          "next": "建战役：给一个战役 id（和标题，可省略）。"
+        },
+        "en": {
+          "do": "campaign.create: status setting_up; a starter is registered into the module store at the same time.",
+          "next": "Create the campaign: give a campaign id (and an optional title)."
+        }
+      }
     },
     {
       "id": "build-opening",

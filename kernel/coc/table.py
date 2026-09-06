@@ -49,6 +49,8 @@ RECALL_KINDS = frozenset({"transcript", "memory", "history"})
 WRITABLE_STATES = frozenset({"open", "acting"})
 PLAYER_INPUT_STATES = frozenset({"awaiting_player", "asked"})
 DEFAULT_LANGUAGE = "zh-Hans"
+#: the languages the kernel has sentence templates for (facts.py, steps.json lines)
+SUPPORTED_LANGUAGES = ("zh-Hans", "en")
 #: Fact namespaces that describe the table's state (a wound, a clock, a pending bout or
 #: settlement). Content availability (`magic.*`) and call facts (`intent.*`, `receipt.*`)
 #: never make a situation.
@@ -290,6 +292,8 @@ class Table:
         module_id = _str(params, "module")
         pregen_id = _str(params, "pregen", required=False)
         language = _str(params, "play_language", required=False) or DEFAULT_LANGUAGE
+        if language not in SUPPORTED_LANGUAGES:
+            raise invalid_params(f"unsupported play_language {language!r}", fix=f"one of {list(SUPPORTED_LANGUAGES)}")
         register = _str(params, "register", required=False) or DEFAULT_REGISTER
         if register not in self.craft.registers:
             raise invalid_params(f"unknown register {register!r}", fix=f"one of {self.craft.registers}")

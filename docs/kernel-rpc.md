@@ -664,8 +664,8 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 | --- | --- | --- | --- | --- |
 | `choose-source` | — | ask | 玩家选 starter（`campaign.list` 给的 starter 名单）或给一个资料包目录 | `source: {kind, module_id|bundle}` |
 | `build-bundle` | choose-source（pdf） | external | 资料包不存在时告诉玩家怎么用宿主的 PDF 技能产出它，并等；存在则过 | `bundle_path` |
-| `create-campaign` | choose-source | op | `campaign.create {module, title?, play_language, register}`，status `setting_up`；starter 时同时注册模组 | `campaign_id` |
-| `bind-source` | build-bundle, create-campaign（pdf） | op | `module.bind`，再 `module.plan` | `module_id`, `sections: n` |
+| `bind-source` | build-bundle（pdf） | op | `module.bind`，再 `module.plan`；模组 id 是这一步的产物 | `module_id`, `sections: n` |
+| `create-campaign` | choose-source（starter）/ bind-source（pdf） | op | `campaign.create {id, module, title?, play_language, register}`，`module` 取 starter 名或上一步的 `module_id`，status `setting_up`；starter 时同时注册模组；`play_language` 只收内核有模板的标签（`zh-Hans`、`en`） | `campaign_id` |
 | `build-opening` | bind-source（pdf） | op | 起构建（`module.build` 由 module 扩展驱动，见 14.5），等到 `opening_ready` | `opening_ready: true`, `sections_accepted` |
 | `create-investigator` | create-campaign（starter）/ build-opening（pdf） | op | 14.7 | `investigator_id` |
 | `complete` | create-investigator | op | `setup.complete`：写 `setup_handoff` 收据，战役 `ready_for_table`，进程退出并打印 `bin/pi-coc --campaign <id>` | `handoff` |

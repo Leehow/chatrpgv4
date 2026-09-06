@@ -118,8 +118,8 @@ test("pdf 那条路：资料包没到手就等，绑定与构建各归各的，�
 
 	table.faux.setResponses([
 		setupCall({ step: "build-bundle" }),
-		setupCall({ step: "create-campaign", title: "他们也没想太多", play_language: "zh-Hans" }),
 		setupCall({ step: "bind-source" }),
+		setupCall({ step: "create-campaign", title: "他们也没想太多", play_language: "zh-Hans" }),
 		setupCall({ step: "build-opening" }),
 		setupCall({ step: "create-investigator", name: "林素", occupation: "journalist" }),
 		setupCall({ step: last.id }),
