@@ -106,9 +106,6 @@ DECISION_INTENTS: dict[str, frozenset[str]] = {
     "decision:coc7:healing:first-aid-stabilization": frozenset({"investigate"}),
     "decision:coc7:healing:medicine-ordinary": frozenset({"investigate"}),
     "decision:coc7:healing:medicine-stabilization": frozenset({"investigate"}),
-    "decision:coc7:healing:dying-hour-clock": frozenset({"investigate"}),
-    "decision:coc7:healing:dying-round-clock": frozenset({"investigate"}),
-    "decision:coc7:healing:weekly-major-wound-recovery": frozenset({"investigate"}),
     "decision:coc7:sanity:check": frozenset({"investigate", "combat", "flee", "move", "social"}),
 }
 
@@ -117,6 +114,9 @@ DECISION_INTENTS: dict[str, frozenset[str]] = {
 #: answering a turn they only follow.  `sanity:context` is a state query and is
 #: named by neither the mapping nor the fallback routing table.
 DECISIONS_WITHOUT_INTENT = frozenset({
+    "decision:coc7:healing:dying-hour-clock",
+    "decision:coc7:healing:dying-round-clock",
+    "decision:coc7:healing:weekly-major-wound-recovery",
     "decision:coc7:sanity:bout-tick",
     "decision:coc7:sanity:bout-end",
     "decision:coc7:sanity:reality-check",

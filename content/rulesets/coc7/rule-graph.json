@@ -32948,28 +32948,6 @@
       "evidence_span_ids": [
         "span-wounds-and-healing-page-131-block-1",
         "span-wounds-and-healing-page-131-block-10",
-        "span-wounds-and-healing-page-131-block-16"
-      ],
-      "from_node_id": "decision:coc7:healing:dying-hour-clock",
-      "relation_id": "relation:coc7:healing:dying-hour-clock-intent-investigate-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:healing:intent-investigate"
-    },
-    {
-      "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-1",
-        "span-wounds-and-healing-page-131-block-10",
-        "span-wounds-and-healing-page-131-block-16"
-      ],
-      "from_node_id": "decision:coc7:healing:dying-round-clock",
-      "relation_id": "relation:coc7:healing:dying-round-clock-intent-investigate-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:healing:intent-investigate"
-    },
-    {
-      "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-1",
-        "span-wounds-and-healing-page-131-block-10",
         "span-wounds-and-healing-page-131-block-16",
         "span-wounds-and-healing-page-131-block-8"
       ],
@@ -33850,17 +33828,6 @@
       "relation_id": "relation:coc7:healing:weekly-invokes",
       "relation_kind": "invokes",
       "to_node_id": "capability:coc7:weekly-recovery"
-    },
-    {
-      "evidence_span_ids": [
-        "span-wounds-and-healing-page-131-block-1",
-        "span-wounds-and-healing-page-131-block-10",
-        "span-wounds-and-healing-page-131-block-16"
-      ],
-      "from_node_id": "decision:coc7:healing:weekly-major-wound-recovery",
-      "relation_id": "relation:coc7:healing:weekly-major-wound-recovery-intent-investigate-trigger",
-      "relation_kind": "available-when",
-      "to_node_id": "condition:coc7:healing:intent-investigate"
     },
     {
       "evidence_span_ids": [
