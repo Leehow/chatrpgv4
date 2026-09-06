@@ -16,7 +16,8 @@ from .craft import TextGraph
 from .director import DirectorGraph
 from .library import era_note
 from .module_graph import (ASSERTS, BELIEVES, HIDES, NPC_KIND, ModuleGraph,  # noqa: F401 - condition helpers re-exported
-                           condition_met, condition_status, describe_condition, record_of)
+                           condition_met, condition_status, describe_condition, module_declaration,
+                           record_of)
 from .ontology import Ontology
 from .rules.graph import semantic_name
 from .store import Campaign
@@ -103,7 +104,7 @@ def clock_section(graph: ModuleGraph, world: dict[str, Any]) -> dict[str, Any]:
     minutes = int((world.get("clock") or {}).get("minutes") or 0)
     clock: dict[str, Any] = {"minutes": minutes,
                              "elapsed": ELAPSED.format(hours=minutes // MINUTES_PER_HOUR, minutes=minutes % MINUTES_PER_HOUR)}
-    start = record_of(graph.module_node).get("start_time") if graph.module_node else None
+    start = module_declaration(graph.module_node).get("start_time") if graph.module_node else None
     if isinstance(start, str) and ":" in start:
         try:
             hour, minute = (int(part) for part in start.split(":", 1))

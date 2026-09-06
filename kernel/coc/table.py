@@ -21,7 +21,7 @@ from .errors import RpcError, invalid_params, not_implemented
 from .events import append_event
 from .facts import committed_facts, keeper_only_facts, language_of
 from .fileio import append_jsonl, file_size, read_json, read_jsonl, truncate_file
-from .module_graph import NPC_KIND, ModuleGraph, record_of
+from .module_graph import NPC_KIND, ModuleGraph, module_declaration, record_of
 from .ontology import Ontology, ontology_not_ready
 from . import npc as npc_lane
 from .render import check_numbers, mechanics, render_choice
@@ -1464,7 +1464,7 @@ class Table:
             names_of[weapon_id] = names
             if key in names:
                 return {**entry, "weapon_id": weapon_id}
-        era = str(sheet.get("era") or record_of(graph.module_node).get("era") or "")
+        era = str(sheet.get("era") or module_declaration(graph.module_node).get("era") or "")
         options = [wid for wid, entry in catalog.items()
                    if not era or not entry.get("eras") or era in (entry.get("eras") or [])]
         by_name = {name: wid for wid, names in names_of.items() for name in names}
@@ -1621,7 +1621,7 @@ class Table:
         """A sheet without a finance block gets one from `cash-assets.json` for its era and
         credit rating (the chargen shape). An era the table has no period for starts at
         zero and says so: the balance is then the sum of the cash receipts, not a guess."""
-        era = str(sheet.get("era") or record_of(graph.module_node).get("era") or "")
+        era = str(sheet.get("era") or module_declaration(graph.module_node).get("era") or "")
         credit = sheet.get("credit_rating")
         if not isinstance(credit, int) or isinstance(credit, bool):
             credit = (sheet.get("skills") or {}).get("Credit Rating")
