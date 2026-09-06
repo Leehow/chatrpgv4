@@ -805,3 +805,38 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 - 用新管线从 41 页 OCR 重新构建《不息的渴望》，读者提示里点明循环词表（`resets-to`、`persists-across-loop`、`remembers_across_loops`）；图不带循环声明就是构建缺陷，不手补内容。
 - 真桌：玩到循环终点回溯，第二圈与第一圈不同（骰子、NPC 反应、Director 节拍），声明记得的 NPC 表现出记得；再开一条 if 线并与主线汇流，汇流报告出冲突、守秘人处置、回声被投放并揭示。KPI 与前几个切片同一脚本。
 - 旧树 `tests/test_timeline_dag.py`、`test_timeline_fork_rewinds.py`、`test_timeline_confluence.py`、`test_toolbox_timeline*.py` 的用例名作为行为清单逐条对照（分叉不动主线、切线只动活动线、汇流冲突枚举完整且有序、处置闭合、不可复制类别不合并、重放幂等、状态写失败回滚引用）。
+
+## 16. 语言：任何人读的字都来自内容表，不在代码里（切片 7，票 #24）
+
+现状（2026-09-06 审计）：`kernel/`、`extensions/`、`bin/` 里有约 700 行含中文字面量——渲染标记（【明骰】【变化】【第 n 轮】【手卡】）、资源与会话标签、事实句模板、胶囊 `head`、压力/待办的状态词、Director 的 reason、宿主消息（开桌/恢复/催收/状态行）、七个工具与 `setup` 的描述、读者 brief、两条车道的提示、`bin/pi-coc` 的说明。`facts.py`、`steps.json`、`beat-directives.json` 已经按语言分键，是对的形状；其余不是。产品要做多语言，所以定法：
+
+**法则：** `kernel/**`、`extensions/**`、`bin/**` 里不出现任何自然语言字面量（中文或英文的整句）。玩家看到的、守秘人在 play_language 里看到的、建卡助手说的、读者读到的，一律从 `content/i18n/<lang>/` 与 `prompts/<lang>/` 取，按语言键选。契约、收据 id、事件类型、错误 `code`、日志、遥测是机器面，保持 ASCII 英文；RPC 错误的 `message`/`fix` 是给模型的操作指令，也用英文（这是唯一的英文例外，列在这里）。
+
+### 16.1 内容表
+
+```
+content/i18n/<lang>/kernel.json   markers（dice/change/round/handout）、资源与会话标签、成功等级、结局词、事实句模板（facts.py 的两套字典迁入）、
+                                  胶囊 head 与各节的说明词、pressures/obligations 的状态词、Director 的 reason 与 override 名、warn 种类的说明、
+                                  检查点 one_line 模板、抽取指令、建卡回执行、汇流冲突类别说明
+content/i18n/<lang>/tools.json    七个动词与 setup 的 description / promptSnippet / 每个参数的 description、apply 各 kind 的说明
+content/i18n/<lang>/host.json     扩展的宿主消息：开桌、恢复、催收、状态行、setup 闸门的模板（steps.json 的 lines 仍留在 steps.json，按同一语言键）、读者 brief 的固定句
+prompts/<lang>/keeper.md、setup.md、reader.md
+```
+
+- 支持的语言 = 三张表与三份提示都齐全的语言；首批 `zh-Hans`（现有文本逐字搬入）与 `en`（译文）。缺一个键的语言不算支持，开桌时报 `campaign_not_ready`。
+- 规则术语（技能、武器、法术的显示名）继续走规则数据的术语表（`skill_label`），不进 i18n 表；模组内容按模组自己的 `source_language`。
+- 选语言：战役用 `campaign.json.play_language`；建卡进程与开桌前的宿主消息用 `PI_COC_LANGUAGE`（缺省 `zh-Hans`）；`campaign.create` 只收支持的语言。
+
+### 16.2 内核暴露给扩展的东西
+
+扩展不再自己认 `【明骰】`：`kernel.hello` 返回 `i18n: {languages: [...], markers: {<lang>: {dice, change, round, handout}}}`；`table.open` 返回 `play_language` 与该语言的 `markers`；扩展剥机制行、渲染状态行、拼宿主消息都用它们。工具描述在 `session_start` 从 `tools.json` 按语言装进 `registerTool`（建卡进程按 `PI_COC_LANGUAGE`）。
+
+### 16.3 守卫
+
+- 测试：对 `kernel/**/*.py`、`extensions/**/*.ts`、`bin/*` 扫 CJK 字符与「整句英文字面量」（启发式：含空格且以句号/问号/句末标点结尾的字符串），任一命中即失败；注释不计（先剥注释）。测试夹具与内容目录不受限。
+- 测试：每种支持的语言，三张表的键集合与 `zh-Hans` 完全相同，三份提示存在且非空。
+- 真桌：一局 `en` 的 the-haunting 三回合（`play_language: en`），交付、胶囊、状态行、错误 fix 里没有一个中文字；同一晚一局 `zh-Hans` 三回合对照没有退化。
+
+### 16.4 迁移
+
+先把现有中文逐字搬进 `zh-Hans` 表与 `prompts/zh-Hans/`（不改措辞），代码改成读键；再由一个 worker 产 `en` 表与提示（译文，守秘人提示的 `en` 版由用户审）；守卫测试最后打开。切片 6（世界线）在这一节落地之后再开，免得再添一批字面量。
