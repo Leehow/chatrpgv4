@@ -23,7 +23,8 @@ def test_player_input_capsule_has_all_sections(kernel):
     assert where["pressure_moves"]
     exits = {e["to"]: e for e in where["exits"]}
     assert "hall-of-records" in exits
-    assert exits["hall-of-records"]["unlock_when"] == "clue_discovered: knott-research-leads"
+    # §18.1: the gate and whether it is met (false: the clue is not found yet)
+    assert exits["hall-of-records"]["unlock_when"] == {"condition": "clue_discovered: knott-research-leads", "met": False}
     affordances = {a["id"]: a for a in where["affordances"]}
     assert affordances["confirm-commission-terms"]["clue"] == "knott-commission"
     assert affordances["confirm-commission-terms"]["npc"] == "Steven Knott"

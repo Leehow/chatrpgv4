@@ -32,7 +32,7 @@ Pi 家目录由 `PI_CODING_AGENT_DIR` 指定为仓库内 `.pi/coc-agent`；`sett
 
 ## 2. 包清单
 
-`package.json` 的 `pi` 字段只声明 `extensions`，五个：`kernel`（内核子进程与七个动词、校验车道）、`onboarding`（建卡的一个 `setup` 工具，只在 setup 模式注册）、`module`（无人值守构建与按需深读，两个模式都不注册工具）、`memory`（记忆抽取车道）、`table`（桌况显示）。加载顺序有意义：`kernel` 在最前，它在 `session_start` 里把内核 RPC 闭包发上总线，后面几个扩展的 `session_start` 才拿得到（扩展的 `session_start` 按加载顺序串行跑）；即便如此每个扩展都在**加载时**就订阅 `coc:kernel-bridge`，两种顺序都接得住。
+`package.json` 的 `pi` 字段只声明 `extensions`，五个：`kernel`（内核子进程与七个动词、校验车道）、`onboarding`（建卡的一个 `setup` 工具，只在 setup 模式注册）、`module`（无人值守构建与按需深读，两个模式都不注册工具）、`memory`（记忆抽取车道）、`table`（桌况显示、`/coc` 命令面、COC 自己的上下文折叠——契约 §19，见第 3.5 节；这三件都只在 play 模式注册）。加载顺序有意义：`kernel` 在最前，它在 `session_start` 里把内核 RPC 闭包发上总线，后面几个扩展的 `session_start` 才拿得到（扩展的 `session_start` 按加载顺序串行跑）；即便如此每个扩展都在**加载时**就订阅 `coc:kernel-bridge`，两种顺序都接得住。
 
 `extensions/lanes/` 不是扩展，是几个扩展共用的模块，只被 import，不进 `pi.extensions`：`subsession.ts`（两条车道的零工具补全）与 `host.ts`（运行模式与 JSONL 追加）。手艺文档走回合胶囊的 `style` 节，不走 Pi skills；`prompts` 目录只被启动器读取，不交给 Pi 发现。
 
@@ -40,11 +40,11 @@ Pi 家目录由 `PI_CODING_AGENT_DIR` 指定为仓库内 `.pi/coc-agent`；`sett
 
 ## 3. 扩展 API：我们用到的面
 
-事件：`session_start`、`session_shutdown`、`before_agent_start`、`agent_start`、`agent_end`、`agent_settled`、`turn_start`、`tool_call`、`tool_result`、`message_end`、`context`。
+事件：`session_start`、`session_shutdown`、`before_agent_start`、`agent_start`、`agent_end`、`agent_settled`、`turn_start`、`tool_call`、`tool_result`、`message_end`、`context`、`session_before_compact`、`session_compact`（后两个是契约 §19.2 的折叠，见第 3.5 节）。
 
-方法：`registerTool`（`name`、`label`、`description`、`promptSnippet`、`parameters` TypeBox、`executionMode`、`execute`）、`setActiveTools`（只在 `session_start` 调一次）、`sendMessage`（`customType`、`content`、`display`、`details`，`triggerTurn`）、`appendEntry`、`events`。
+方法：`registerTool`（`name`、`label`、`description`、`promptSnippet`、`parameters` TypeBox、`executionMode`、`execute`）、`setActiveTools`（只在 `session_start` 调一次）、`sendMessage`（`customType`、`content`、`display`、`details`，`triggerTurn`）、`appendEntry`、`events`、`registerCommand`（`description`、`handler`）、`setModel`、`getThinkingLevel`、`setThinkingLevel`。**后四个在 `pi` 上，不在 `ctx` 上**——契约 §19 写的 `ctx.setModel` / `ctx.setThinkingLevel` 在 0.85.1 里不存在（见第 3.5 节）。
 
-上下文：`ctx.cwd`、`ctx.hasUI`、`ctx.ui.notify` / `select` / `setStatus`、`ctx.model`、`ctx.modelRegistry.find` / `complete`。
+上下文：`ctx.cwd`、`ctx.hasUI`、`ctx.mode`、`ctx.ui.notify` / `select` / `setStatus`、`ctx.model`、`ctx.thinkingLevel`、`ctx.modelRegistry.find` / `getAll` / `getAvailable` / `complete`、`ctx.getContextUsage()`、`ctx.compact(options)`。
 
 总线：`pi.events.emit` / `on`。`on` 返回一个退订闭包，**没有 `off`**：要临时订阅（建卡等构建那一步）就得留着它自己收。十个频道：`coc:table-open`、`coc:resolve`、`coc:capsule`（本回合胶囊原样一份，桌况显示用它取 Director 节拍，契约 §13.9）、`coc:turn-committed`（契约 §12.8 的提交载荷）、`coc:mechanics`（契约 §16.2 的机制投影，见第 3.4 节）、`coc:kernel-bridge`（内核 RPC 闭包，见下），加上模组那四条（契约 §14.5）：`coc:module-build`（建卡的 `build-opening` 发起构建）、`coc:module-opening-ready`（开场就绪）、`coc:module-build-done`（整本读完，带报告）、`coc:module-build-failed`（构建起不来；有它建卡那一步才不会干等）。
 
@@ -54,7 +54,7 @@ Pi 家目录由 `PI_CODING_AGENT_DIR` 指定为仓库内 `.pi/coc-agent`；`sett
 
 契约 §12.3 与 §12.5 要的是「扩展内用 Pi SDK 起零工具内存会话」。Pi 里够得着这件事的面是 **`ctx.modelRegistry.complete(model, context, options)`**——`ModelRegistry` 自己的注释写着它就是「暴露给扩展的同步门面」，内部转 `ModelRuntime.stream().result()`，鉴权、baseUrl、自定义 provider 全走当前会话那一份。`context` 是 `{systemPrompt, messages, tools?}`；**`tools` 不给就是零工具**。实现在 `extensions/lanes/subsession.ts`，两条车道共用。
 
-这不是绕路，是这条路本来就在扩展面上；但它是一次补全，不是一个会话，代价记在第 5 节。
+这不是绕路，是这条路本来就在扩展面上；但它是一次补全，不是一个会话——嵌套的真会话在 0.85.1 里也起得了，为什么没走、代价是什么，记在第 5 节。
 
 模型选择（契约 §12.5、§12.8）：
 
@@ -121,6 +121,28 @@ pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,ba
 
 **`appendEntry` 会发 `entry_appended`**（`agent-session.js` 里 `appendCustomEntry` 之后 `_emit({type: "entry_appended", entry})`），RPC 模式的 `toJsonEvent` 除 `message_update` 外原样透传，所以这条事件进 Pi RPC 事件流。`tests/play/driver.py` 把**收到的每一行**都写进 `events.jsonl`，因此机制投影不改驾驭器就已经落进证据；它没有进驾驭器自己的 `turn-<n>.json`（那份只记 `final_text` 与工具调用），要的话是驾驭器那一侧的一个小改动。
 
+### 3.5 `/coc` 命令面与 COC 自己的上下文折叠（契约 §19，票 #28）
+
+**命令怎么派。** `pi.registerCommand(name, {description, handler})`；`handler(args, ctx)` 收的是 `ExtensionCommandContext`。`AgentSession.prompt(text)` 在做任何别的事之前先看 `text` 是不是以 `/` 开头，命中已注册的命令就当场跑 handler 并 `return`——**不建用户消息、不发 `before_agent_start`、不起回合**。契约 §19.1 要的「不占回合、不动回合状态机、不进模型上下文」因此不是我们自己实现的，是这条派发路本来的语义；用例断言的正是它（`command.test.mjs`）。`ctx.mode` 有四个值（`tui`/`rpc`/`json`/`print`），由运行模式在 `bindExtensions` 时给；非 `tui` 时 `/coc` 只 `ctx.ui.notify` 一行就返回。
+
+**模型与思考等级在 `pi` 上。** 契约 §19 写的 `ctx.setModel` / `ctx.setThinkingLevel` 在 0.85.1 里不存在：`ExtensionContext` 那边只有只读的 `ctx.model`、`ctx.thinkingLevel`、`ctx.modelRegistry`；改值的是 `pi.setModel(model)`（返回 `false` 表示那个 provider 没配鉴权，模型不换）与 `pi.setThinkingLevel(level)`。`setThinkingLevel` 会**按模型能力把等级夹一下**，所以要用 `pi.getThinkingLevel()` 读回真值再报给人，不能照着请求写。候选清单取 `ctx.modelRegistry.getAvailable()`（配了鉴权的），空了退到 `getAll()`。
+
+**折叠钩子只收「一个切点 + 一段摘要」。** `session_before_compact` 的返回是 `{cancel?, compaction?}`，`compaction` 是 `CompactionResult`：`{summary, firstKeptEntryId, tokensBefore, details?}`。给了它 Pi 就**不叫模型**，压缩条目记 `fromHook: true`。宿主的 `buildContextEntries` 只认这一个切点：`firstKeptEntryId` 之前的一切换成那段摘要，之后的原样留。**没有「挑着丢某几条」的接口**，所以契约 §19.2 的「整段丢 / 原样留」是这样落的：
+
+- 切点放在**倒数第二回合的开头**（回合的开头 = 一条进上下文的 user 消息，也就是玩家输入）。最近两回合于是原样在上下文里，胶囊、工具往返一条不少。
+- 切点之前的那些条目由扩展**自己确定性地渲染成摘要**：`coc-capsule` 消息、`coc-mechanics` 条目、带 `toolCall` 块的助手消息与 `toolResult` 消息整段丢；user 消息、没有 `toolCall` 的助手消息（也就是交付）、`coc-host` 消息按原文留成 `player:` / `keeper:` / `host:` 三种行。判据只有条目类型、消息角色、块类型与回合距离——**一行文本都不读**（`Agents.md`「语义问题不许硬编码」）。
+- 唯一的例外是折叠自己上一次留下的那条说明（`coc-host` 且 `details.kind === "compacted"`，这个 kind 是本扩展自己铸的）：这一次的折叠顶掉上一次的，不然它会一层层堆进逐字记录。
+- 逐字记录挂在 `CompactionResult.details` 上（`{coc_fold: {version, lines, dropped}}`），落进 `CompactionEntry.details`。下一次折叠从**上一条压缩条目**读回来接着写，不回头解析摘要。压缩是迭代的：`prepareCompaction` 的边界从上一条压缩的 `firstKeptEntryId` 起算，折叠也必须从那里起算，否则上一次折掉的条目会被拉回上下文并在摘要里出现两次。
+- COC 的切点比 Pi 的靠前（留得更多）时以 COC 的为准；只有 COC 这条规则**没有**比最近两回合更旧的东西可折时，才退到 `preparation.firstKeptEntryId`——这样桌子永远不会被一个模型去总结。
+
+**压缩后的那条宿主消息**在 `session_compact` 里用 `pi.sendMessage(..., {triggerTurn: false})` 发，`display: false`，`details.kind = "compacted"`。内容是一句英文：桌面状态在下一回合的胶囊里、往事用 `recall`、本回合欠什么（取自胶囊 `turn.pending_choice` 与 `obligations` 的条数，只读结构字段）。
+
+**预压缩（阈值）。** `ctx.getContextUsage()` 给 `{tokens, contextWindow, percent}`，`percent` 是 0–100，**压缩之后到下一条助手消息之前是 `null`**（宿主自己注释了原因：旧 usage 反映的是压缩前的上下文）。`before_agent_start` 里越过 `PI_COC_COMPACT_AT`（缺省 70%；> 1 当百分数，≤ 1 当分数，所以 `1` 是 100%）就先压再进回合。`ctx.compact(options)` 是 **fire-and-forget**（宿主里是 `void (async () => …)()`），要等它只能靠 `onComplete` / `onError` 兜成 promise；它内部走 `AgentSession.compact()`（manual 那条），会先 `await this.abort()`——`before_agent_start` 时并不在流式中，所以那是空转。`prepareCompaction` 给不出东西时它抛 `Nothing to compact (session too small)`，走 `onError`，回合照常开。
+
+**扩展加载顺序的后果**：`table` 排在 `kernel` 之后，所以预压缩发生在 `table.player_input` **之后**、第一次模型调用之前。回合已经在内核那边开了，但压缩只动 Pi 的上下文，不碰内核的回合状态机；要防的「压缩落在工具往返中间」照样防住了。
+
+**车道超时得自己做。** `ctx.modelRegistry.complete()` 没有超时；`runLane` 因此收一个 `timeoutMs`，用一个 `AbortController` 把调用者的 signal 与超时并到一起，超时就掐断并返回 `reason: "timeout"`。校验车道用 `PI_COC_LANE_TIMEOUT_MS`（缺省 2 分钟）；记忆车道不给，走它自己的老路。
+
 ## 4. 我们依赖的行为，以及各自的核对方法
 
 每条都有一个测试或一次真桌回合能证明；升版后失一条就是不兼容。
@@ -152,6 +174,16 @@ pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,ba
 | `pi.appendEntry(customType, data)` 写一条 `CustomEntry`，它不进 `buildSessionContext`，但会发 `entry_appended`，RPC 模式原样透传 | `turn.test.mjs`／`real-kernel.test.mjs`：`coc-mechanics` 条目里是每条收据的投影 |
 | `message_end` 的替换消息可以**一个块都不剩**（内核以 `mechanics_missing` 退回隐式 narrate 时，被退回的正文整块摘掉，不留成一次交付） | `turn.test.mjs`「隐式 narrate 缺数字」 |
 | 工具的 `parameters` 用 `additionalProperties: true` 时，模型摊在顶层的参数原样进 `execute` | `setup.test.mjs` 全部用例：`setup {step, ...params}` |
+| `pi.registerCommand` 注册的命令由 `AgentSession.prompt` 在建提示之前派掉，命中就返回：不产生用户消息、不发 `before_agent_start`、不起回合 | `command.test.mjs`「桌况面板走 ctx.ui，不占回合……」：消息数不变、玩家消息仍只有一条、`table.player_input` 仍只有一次 |
+| `ctx.mode` 由运行模式在 `bindExtensions` 时给；非 `tui` 的命令降级只回一行 | `command.test.mjs`「非交互模式」：六条子命令各一行 warning，零内核调用、零遥测、模型没换 |
+| `pi.setModel(model)` 换当前会话的模型，`ctx.model` 立刻反映；provider 没配鉴权时返回 `false` 且不换 | `command.test.mjs`「/coc model」 |
+| `pi.setThinkingLevel(level)` 按模型能力夹等级，真值要 `pi.getThinkingLevel()` 读回来 | `command.test.mjs`「/coc thinking」：遥测记的是读回来的值，不是请求的值 |
+| `session_before_compact` 返回 `{compaction}` 时 Pi 不叫模型；压缩条目记 `fromHook: true`，`details` 原样落盘 | `fold.test.mjs`「折叠按类型与回合距离丢」 |
+| `buildContextEntries` 只认 `firstKeptEntryId` 一个切点：之前的一切换成摘要，之后的原样留 | 同上：折叠后上下文里恰好两条玩家输入、两份胶囊、四条工具结果 |
+| `CompactionEntry.details` 原样保存扩展写的东西，下一次 `session_before_compact` 能从上一条压缩条目读回来 | `fold.test.mjs`「连着折叠两次」 |
+| `session_compact` 之后 `pi.sendMessage(..., {triggerTurn:false})` 把宿主消息接在压缩之后，不起回合 | `fold.test.mjs`「折叠之后补一条宿主消息」 |
+| `ctx.getContextUsage().percent` 是 0–100；`ctx.compact()` 不返回 promise，只能靠 `onComplete`/`onError` 等 | `fold.test.mjs`「阈值到了就在回合之前先压」与「阈值没到就不压」 |
+| `ctx.modelRegistry.complete()` 没有超时，超时得自己用 `AbortController` 做 | `lanes.test.mjs`「车道超时也留一行」 |
 
 ## 5. 已知限制与我们的绕法
 
@@ -160,12 +192,16 @@ pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,ba
 - **工具结果没有 `isError`**：扩展在 `tool_result` 钩子里补旗。
 - **`pi.getActiveTools` 只在扩展内可用**：测试台挂一个 inline 探针扩展取 `pi`。
 - **Node 24 的 `node --test <目录>`** 把目录当文件：用 `npm run test:ext` 里的引号 glob。
-- **扩展里起不了嵌套 agent 会话**：`createAgentSession` 要 `ModelRuntime` 与 `ResourceLoader`，扩展只拿得到 `ModelRegistry` 这个门面；就算硬凑出来，它会把本包的扩展再绑一遍，内核子进程就成了两个，违反契约 §1。所以车道是**一次补全，不是一个会话**：没有工具、没有多轮、不进会话记录、不吃 `SettingsManager` 的重试与压缩设置，token 也不进 Pi 的上下文统计（只进我们自己的遥测行）。两条车道的产出是 ≤ 12 条候选或 ≤ 10 条发现的短 JSON，本来就在一条助手消息的上限之下（规格第六、九节），所以这条限制现在不咬人；哪天车道要用工具，得先有上游的路，不是在这里凑。
+- **车道是一次补全，不是一个会话——能是会话，是选了不是**（2026-09-06 用户裁定：只改记账，实现不动）。0.85.1 的公开面起得了嵌套零工具内存会话：`createAgentSession` 的选项全是可选的（`ModelRuntime` 与 `ResourceLoader` 不给就各自建缺省），`DefaultResourceLoader({noExtensions: true, noSkills: true, noContextFiles: true, ...})` 挡住本包扩展再绑一遍——实测 `extensions loaded: 0`，不会有第二个内核子进程，不违反契约 §1——再配 `SessionManager.inMemory()` 与 `noTools: "all"`，实测 `getActiveToolNames()` 与 `getAllTools()` 都是空。没走的理由是代价换不来东西：嵌套会话会自己建一个 `ModelRuntime`，从 `~/.pi/agent` 的 `auth.json` 与 `models.json` 重读，而当前会话那一份只藏在 `ModelRegistry` 的 TS-private `runtime` 字段里（JS 层够得着，但那是钻私有面）；本树目前没有任何地方调 `registerProvider`，所以现在不会漂，哪天桌子在会话内注册了自定义 provider，嵌套会话就看不见它。换来的多轮（同一份上下文里当场修 JSON）、`SettingsManager` 的重试与压缩、以后给车道加工具的路，对 ≤ 12 条候选或 ≤ 10 条发现的短 JSON 都用不上（规格第六、九节）。所以现在这个形状的代价是：没有工具、没有多轮、不进会话记录、不吃 `SettingsManager` 的重试与压缩设置，token 也不进 Pi 的上下文统计（只进我们自己的遥测行）。哪天车道要用工具、或要在同一份上下文里修 JSON，改这里就够，**不是上游没路**。
 - **`AgentSession.dispose()` 会把扩展 ctx 作废**：`dispose` 调 `runner.invalidate()`，之后那个 ctx 的每个 getter 都抛「stale after session replacement or reload」。车道是异步的，续行完全可能落在 dispose 之后（用户在车道飞着的时候退出 pi），所以**每一次碰 ctx 都当成会抛**：`runLane` 整个身子在 try 里，记忆车道的队列泵与遥测也各自兜住。漏一个就是一条没人接的 promise rejection——扩展测试跑六遍里中过两次。
 - **子会话的思考等级不受控**：`complete()` 的选项按 api 分型，我们一个都不传，模型自己的缺省 reasoning 生效。强制思考的型号会把输出预算花在思考上，而车道要的是一段短 JSON——选车道模型时避开这类型号。
 - **扩展之间没有共享服务**：只有 `pi.events` 一条载荷为 `unknown` 的总线，没有请求/响应语义，也没有「等对方就位」的握手。我们的绕法是 kernel 扩展在 `session_start` 把内核 RPC 闭包发上 `coc:kernel-bridge`；memory、module、onboarding 三个扩展在加载时就订阅，所以两种加载顺序都接得住。建卡那条「发起构建并等开场就绪」也只能用总线拼出来：`coc:module-build` 出去，`coc:module-opening-ready` / `coc:module-build-done` / `coc:module-build-failed` 回来，外加一个超时（`PI_COC_BUILD_WAIT_MS`，缺省 30 分钟）——没有请求/响应，就得自己给每一种「不会再有回音」的情况留出口。
 - **出站没有附件通道**：助手消息装不下图片或文件（第 3.3 节）。手卡因此退成「机制投影里的一条 `path` + 遥测」，玩家在 TUI 里看不到文件在哪——前端渲染投影之后才看得到。上游请求见第 6 节第 5 条。
 - **关机之后车道的调用会把内核子进程重新拉起来**：`KernelClient.close()` 之前只是「杀掉子进程 + 拒掉在飞的请求」，但排队里剩下的请求随后照样被 dispatch，而 dispatch 见 `child` 为空就再 spawn 一个——那个新内核没人再 close 它，工作区被它占着，管道也让宿主进程退不出去（`node --test` 因此挂住不退）。车道（记忆抽取、按需深读）是异步的，关机那一刻它们的调用完全可能还排在队里，所以这条路一定会被走到。现在两道闸：`close()` 之后 `dispatch` 直接拒（`client.ts`），并且总线上发出去的那个 RPC 闭包在 `shutdownKernel` 里当场失效（`index.ts` 的 `bridgeGate`）。`uv run` 那一层还是会留下一个短命的孤儿 python（uv 被 SIGTERM 掉之后它才收到 stdin EOF），但它自己会退。
+- **压缩钩子挑不了条目**：`session_before_compact` 只收「一个切点 + 一段摘要」（`CompactionResult`），没有「保留这几条、丢那几条」的接口。我们的绕法是把切点放在倒数第二回合的开头，再由扩展自己把切点之前的条目**确定性地**渲染成摘要（第 3.5 节）。代价是：留下来的玩家输入与交付是原文累积的，长局里这段摘要会随逐字记录一起长——它比原来的上下文小得多（胶囊、工具往返、机制投影全没了），但不是常数。上游请求见第 6 节第 6 条。
+- **`ctx.compact()` 不返回 promise**：宿主里是 `void (async () => …)()`，只能用 `onComplete` / `onError` 兜成一个 promise 再 await。上游请求见第 6 节第 7 条。
+- **`ctx` 上没有 `setModel` / `setThinkingLevel`**：它们在 `pi` 上（契约 §19 写错了）。`ctx` 那边只有只读的 `ctx.model`、`ctx.thinkingLevel`、`ctx.modelRegistry`。
+- **子会话没有超时**：`ctx.modelRegistry.complete()` 不接受超时，一个不回答的模型会让车道一直挂着。`runLane` 自己加了 `timeoutMs`（校验车道用 `PI_COC_LANE_TIMEOUT_MS`），超时就 abort 并落一行 `reason: "timeout"` 的遥测。
 - **`ctx.shutdown()` 分模式**：交互与 RPC 模式给了 `shutdownHandler`，print 模式与 SDK 直接建的会话没给，调用空转（第 3 节）。所以建卡的收尾是「把开桌命令交出去」+ `ctx.shutdown()`，两件事都做，不指望其中任何一件单独成立。
 
 ## 6. 想请上游做的（不是补丁）
@@ -175,6 +211,9 @@ pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,ba
 3. `AgentToolResult` 增加 `isError`。
 4. 扩展之间的共享服务：一个有类型的服务注册表，或者让扩展声明依赖另一个扩展的导出。现在跨扩展只能靠 `pi.events` 传 `unknown`，我们在总线上递了一个函数闭包（第 5 节），能用但没有契约保证。
 5. 出站附件：让宿主随一条助手消息交给客户端一个文件（图片、PDF），哪怕只是 RPC 模式下的一个 `attachments` 字段。现在图只能进不能出（第 3.3 节），手卡只好退成机制投影里的一条路径。
+
+6. 压缩钩子能返回一份**要保留的条目清单**，而不是只有一个切点：可再生的条目（我们的回合胶囊、机制投影、工具往返）本来可以整段丢而不必把留下来的东西复制进摘要。
+7. `ctx.compact()` 返回一个 promise（或者至少在 `CompactOptions` 里明说 `onComplete` 是唯一的等待方式）。
 
 提了就在这里记编号与状态；被采纳后删掉第 5 节对应的绕法。
 

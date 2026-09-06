@@ -142,7 +142,7 @@ def test_batch_is_atomic(kernel):
 
 def test_reserved_and_unknown_effect_kinds(kernel):
     open_turn(kernel)
-    # #19 made item and cash live; npc/flag/note/ruling stay reserved
+    # #19 made item and cash live, §18 (#27) flag/note/ruling; npc stays reserved for §17 (#29)
     reserved = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 1},
                                                                     {"kind": "npc", "name": "x"}])
     assert reserved["code"] == "not_implemented" and reserved["details"]["index"] == 1

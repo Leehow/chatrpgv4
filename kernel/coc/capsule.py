@@ -10,10 +10,11 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from . import director as director_mod, pressures as pressures_mod
+from . import bookkeeping, director as director_mod, pressures as pressures_mod
 from .craft import TextGraph
 from .director import DirectorGraph
-from .module_graph import NPC_KIND, ModuleGraph, condition_met, describe_condition, record_of  # noqa: F401 - condition helpers re-exported
+from .module_graph import (NPC_KIND, ModuleGraph, condition_met, condition_status,  # noqa: F401 - condition helpers re-exported
+                           describe_condition, record_of)
 from .ontology import Ontology
 from .rules.graph import semantic_name
 from .store import Campaign
@@ -27,6 +28,10 @@ SLICE2_BUDGETS = {"memory": 1536, "warnings": 1024}
 #: §13.1: the new sections and their budgets. `style` doubles on the first capsule after
 #: the process opened the table (§13.6).
 SLICE3_BUDGETS = {"pressures": 1024, "obligations": 1024, "director": 1536, "situations": 1024, "style": 1024}
+#: §18.3: the rulings that bind here (a ranked list, newest first, sheds its tail).
+RULINGS_BUDGET = bookkeeping.RULINGS_BUDGET
+#: §18.1: `known.flags`, most recent writes first, its own budget inside `known`'s.
+KNOWN_FLAGS_BUDGET = bookkeeping.KNOWN_FLAGS_BUDGET
 STYLE_FULL_BUDGET = 2048
 #: #22 (§13.1): the module briefing, only on this process's first turn after open — the
 #: same condition as the full `style` — built from the module graph alone.
@@ -52,7 +57,10 @@ HEAD = ("Everything at the start of this turn: the clock, the undiscovered clues
         "and agendas of those present, the way back and the exits, pressures and obligations, the rule-layer "
         "situations, the Director's suggested beat, related memory and the style contract. Do not look/lookup "
         "for what is already here; director is advice, not lines. where.material and each exit's material say how "
-        "far the book has been read: ready, reading, or missing.")
+        "far the book has been read: ready, reading, or missing. An exit's unlock_when.met is true, false, or null "
+        "when the kernel cannot tell; a gate never blocks a move. known.flags lists the flags set so far; "
+        "obligations of kind note are your own open continuity notes; rulings are your earlier rulings that "
+        "bind here, reminders, not rules.")
 #: #22: appended to `head` when the `module` section rides along.
 HEAD_MODULE = (" This turn also carries a module section (the table briefing, this once): what the book is about, its era, "
                "the factions, places and people (absent ones included, keeper-only), the ending and conclusion names and "
@@ -106,8 +114,10 @@ def where_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, An
         if "travel_minutes" in exit_:
             entry["travel_minutes"] = exit_["travel_minutes"]
         when = exit_.get("when")
-        if when and not condition_met(when, world):
-            entry["unlock_when"] = describe_condition(when)
+        if when and not (isinstance(when, dict) and when.get("kind") == "always"):
+            # §18.1: three-state -- true / false when the kernel can decide (a clue, a
+            # flag), null when it cannot (a narrative cut). Never a reason to refuse a move.
+            entry["unlock_when"] = {"condition": describe_condition(when), "met": condition_status(when, world)}
         entry["material"] = material(exit_["to"])
         exits.append(entry)
 
@@ -241,6 +251,8 @@ def known_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, An
     section: dict[str, Any] = {
         "discovered_clues": list(world.get("discovered_clues") or []),
         "clues_here": clues_here(graph, world, scene),
+        # §18.1: keeper-only; the flags set so far, most recent write first
+        "flags": bookkeeping.known_flags(world),
     }
     if party:
         section["investigator"] = investigator_summary(party[0])
@@ -446,11 +458,19 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
     continuations = pressures_mod.unanswered_continuations(previous, list(turn.get("receipts") or []))
     pressures = (clocks + pressures_mod.threat_pressures(graph, scene, present_nodes)
                  + pressures_mod.rule_pressures(continuations))
+    present_names = [graph.display_name(n) for n in present_nodes] + [graph.handle(n) for n in present_nodes]
+    here = [graph.handle(scene), scene_label(graph, world, scene)]
     obligations = (pressures_mod.choice_obligation(turn.get("pending_choice"))
                    + pressures_mod.session_obligation(session)
                    + pressures_mod.continuation_obligations(continuations)
                    + pressures_mod.quest_obligations(graph, world)
-                   + pressures_mod.promise_obligations(open_promises(campaign)))
+                   + pressures_mod.promise_obligations(open_promises(campaign))
+                   # §18.2: the keeper's own open notes -- those about someone here first
+                   + bookkeeping.note_obligations(bookkeeping.open_notes(campaign), present_names, here))
+    # §18.3: the rulings that bind here, by identifier equality only
+    rulings = bookkeeping.rulings_for_capsule(bookkeeping.active_rulings(campaign), session_kind=(session or {}).get("kind"),
+                                              present=[graph.handle(n) for n in present_nodes], scene=graph.handle(scene),
+                                              module_id=graph.module_id)
 
     def conditions_of(sheet: dict[str, Any]) -> list[str]:
         healing = read_healing_state(campaign.dir, str(sheet.get("id")))
@@ -471,12 +491,17 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
         "obligations": obligations,
         "director": director,
         "situations": situations,
+        "rulings": rulings,
         "memory": memory_section(graph, campaign, world, scene, party),
         "style": style,
         "recent": recent_section(campaign, int(turn["turn"])),
         "warnings": latest_warnings(campaign, int(turn["turn"])),
     }
     truncated = []
+    # §18.1: `known.flags` keeps its own 512B before `known` as a whole is fitted; the
+    # list is newest first, so shedding the tail drops the oldest writes.
+    if fit_budget(sections["known"]["flags"], KNOWN_FLAGS_BUDGET, drop="last"):
+        truncated.append("known.flags")
     for name, budget in BUDGETS.items():
         if fit_budget(sections[name], budget):
             truncated.append(name)
@@ -490,6 +515,8 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
             budget = STYLE_FULL_BUDGET
         if fit_budget(sections[name], budget, drop="last"):
             truncated.append(name)
+    if fit_budget(sections["rulings"], RULINGS_BUDGET, drop="last"):
+        truncated.append("rulings")
     head = HEAD
     if module_brief:
         # #22: the briefing rides once, on the process's first turn after open.

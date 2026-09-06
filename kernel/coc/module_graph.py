@@ -13,7 +13,7 @@ from typing import Any
 
 from .errors import RpcError
 from .fileio import canonical_json, read_json, sha256_file
-from .text import normalize, strip_prefix
+from .text import kebab, normalize, normalize_text, strip_prefix
 
 SCENE_KIND = "scene"
 CLUE_KIND = "clue"
@@ -37,23 +37,88 @@ def record_of(node: dict[str, Any] | None) -> dict[str, Any]:
 
 # ---- authored conditions ---------------------------------------------------------------
 
-def condition_met(when: Any, world: dict[str, Any]) -> bool:
-    """Machine-checkable authored conditions only: `always`, `clue_discovered`. A
-    `narrative` condition is never met by the kernel (the keeper cuts explicitly)."""
+#: The spellings an authored flag gate comes in: the starters' `flag_set` / `flag_id`, the
+#: contract's (§18.1) `flag` / `flag`. A closed vocabulary, not a guess at meaning.
+FLAG_CONDITION_KINDS = ("flag_set", "flag")
+FLAG_CONDITION_KEYS = ("flag_id", "flag", "name")
+
+
+def condition_flag(when: Any) -> str | None:
+    """The flag slug an authored flag condition names, or None when the condition is not
+    about a flag (a bare string condition is read as a flag name: the-white-war's
+    `exit_conditions`)."""
+    if isinstance(when, str):
+        return kebab(when) or None
+    if not isinstance(when, dict) or when.get("kind") not in FLAG_CONDITION_KINDS:
+        return None
+    for key in FLAG_CONDITION_KEYS:
+        value = when.get(key)
+        if isinstance(value, str) and kebab(value):
+            return kebab(value)
+    return None
+
+
+def flag_is_set(flags: dict[str, Any], slug: str, expected: Any = None) -> bool:
+    """`expected` given: the flag holds exactly that value; else: the flag is set to
+    anything but false."""
+    if expected is not None:
+        return slug in flags and flags[slug] == expected
+    return slug in flags and flags[slug] is not False
+
+
+def condition_status(when: Any, world: dict[str, Any]) -> bool | None:
+    """§18.1 three-state: True/False when the kernel can decide, None when it cannot.
+    Decidable: `always`, `clue_discovered`, a flag condition (`flag_set`/`flag`, by slug),
+    and a condition whose text names a flag the world already holds, as a whole
+    normalized token sequence (`records-serious-crime-destination-known` in a
+    `narrative` description). Anything else is None -- the kernel never guesses."""
+    flags = world.get("flags") or {}
+    if isinstance(when, str):
+        slug = kebab(when)
+        return flag_is_set(flags, slug) if slug and slug in flags else None
     if not isinstance(when, dict):
-        return False
+        return None
     kind = when.get("kind")
     if kind == "always":
         return True
     if kind == "clue_discovered":
         clue = strip_prefix(str(when.get("clue_id", "")), CLUE_KIND)
         return clue in (world.get("discovered_clues") or [])
-    return False
+    slug = condition_flag(when)
+    if slug is not None:
+        return flag_is_set(flags, slug, when.get("value"))
+    named = _flags_named_in(when, flags)
+    if named:
+        return all(flag_is_set(flags, slug) for slug in named)
+    return None
+
+
+def _flags_named_in(when: dict[str, Any], flags: dict[str, Any]) -> list[str]:
+    """The known flags whose slug appears, as whole tokens, in any string of the
+    condition. Identifier containment over normalized text; no semantics."""
+    texts = [f" {normalize_text(v)} " for v in when.values() if isinstance(v, str) and v.strip()]
+    named: list[str] = []
+    for slug in flags:
+        token = f" {normalize_text(slug)} "
+        if token.strip() and any(token in text for text in texts):
+            named.append(slug)
+    return named
+
+
+def condition_met(when: Any, world: dict[str, Any]) -> bool:
+    """Machine-checkable authored conditions only: `always`, `clue_discovered`, a flag
+    the world holds (§18.1). A `narrative` condition is never met by the kernel (the
+    keeper cuts explicitly)."""
+    return condition_status(when, world) is True
 
 
 def describe_condition(when: Any) -> str:
     if isinstance(when, dict) and when.get("kind") == "clue_discovered":
         return f"clue_discovered: {strip_prefix(str(when.get('clue_id', '')), CLUE_KIND)}"
+    slug = condition_flag(when)
+    if slug is not None:
+        expected = when.get("value") if isinstance(when, dict) else None
+        return f"flag_set: {slug}" + (f" = {expected!r}" if expected is not None else "")
     return canonical_json(when)
 
 
@@ -226,6 +291,10 @@ class ModuleGraph:
         if isinstance(minutes, int):
             entry["travel_minutes"] = minutes
         when = props.get("when") or props.get("unlock_when") or props.get("conditions")
+        if not when and isinstance(props.get("flag"), str) and props["flag"].strip():
+            # A built book's `route-to` derived from an exit-entry flag (the-white-war):
+            # the gate is that flag, spelled as the starters spell it.
+            when = {"kind": "flag_set", "flag_id": props["flag"]}
         if when:
             entry["when"] = when
         return entry

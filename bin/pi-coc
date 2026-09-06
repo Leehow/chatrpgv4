@@ -12,7 +12,11 @@
 #   PI_COC_BUILD_PARALLEL   the build concurrency cap, 1 by default (contract §14.5)
 #   PI_COC_READER_TIMEOUT_MS the cap on one reader round, 15 minutes by default
 #   PI_COC_BUILD_WAIT_MS    how long setup waits for opening readiness, 30 minutes by default; at the deadline it answers "still reading" and can wait again
-# Lane models are in docs/pi-host-contract.md §3.1, the reader subprocess in §3.2.
+#   PI_COC_LANE_TIMEOUT_MS  cap on one verifier-lane round, 2 minutes by default; past it the lane is cut off and leaves a timeout row
+#   PI_COC_COMPACT_AT       context share at which the table folds its own context before a turn (contract §19.2),
+#                           70% by default; a value above 1 is a percentage, a value at or below 1 is a fraction
+# Lane models are in docs/pi-host-contract.md §3.1, the reader subprocess in §3.2,
+# the /coc command surface and the context fold in §3.5.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

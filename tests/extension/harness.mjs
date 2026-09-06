@@ -123,6 +123,10 @@ export function createFakeUI({ selections = [] } = {}) {
  * @param {"play"|"setup"} [options.mode] PI_COC_MODE：建卡进程用 setup（契约 §14.4）
  * @param {{memory?: any[], verifier?: any[]}} [options.laneResponses] 两条车道的假模型在开桌**之前**就装好的回答；
  *   记忆车道的补抽（#20）在 `session_start` 就起跑，来不及等测试体里再 setResponses
+ * @param {"tui"|"rpc"|"json"|"print"} [options.uiMode] `bindExtensions` 的运行模式，也就是 `ctx.mode`。
+ *   缺省 `print`；`/coc` 命令（契约 §19.1）只在 `tui` 下工作，验降级的用例保持缺省即可
+ * @param {object} [options.settings] 合并进 `SettingsManager.inMemory` 的设置。压缩相关的用例要调
+ *   `compaction`（缺省整个关掉，回合才确定）
  */
 export async function openTable({
 	responses = [],
@@ -132,6 +136,8 @@ export async function openTable({
 	realKernel = false,
 	mode = "play",
 	laneResponses = {},
+	uiMode = "print",
+	settings = {},
 } = {}) {
 	const workspace = mkdtempSync(join(tmpdir(), "pi-coc-ext-"));
 	const requestLog = join(workspace, "kernel-requests.jsonl");
@@ -180,7 +186,11 @@ export async function openTable({
 	const mechanics = [];
 	/** 模组构建那几条总线事件，按到达顺序：{channel, data}。 */
 	const bus = [];
-	const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
+	const settingsManager = SettingsManager.inMemory({
+		compaction: { enabled: false },
+		retry: { enabled: false },
+		...settings,
+	});
 	// 会话条目由 sessionManager 保管：测试从这里读 `coc-mechanics`（契约 §16.2）。
 	const sessionManager = SessionManager.inMemory();
 	const resourceLoader = new DefaultResourceLoader({
@@ -226,7 +236,7 @@ export async function openTable({
 	// session_start（也就是开桌）是 bindExtensions 发出来的，运行模式各自负责。
 	const extensionErrors = [...created.extensionsResult.errors];
 	await created.session.bindExtensions({
-		mode: "print",
+		mode: uiMode,
 		...(ui ? { uiContext: ui.context } : {}),
 		onError: (error) => extensionErrors.push({ path: error.extensionPath, error: error.error }),
 	});
@@ -255,6 +265,11 @@ export async function openTable({
 				.getEntries()
 				.filter((entry) => entry.type === "custom" && (!customType || entry.customType === customType))
 				.map((entry) => entry.data),
+		/**
+		 * 会话的全部条目原样（`message`、`custom_message`、`custom`、`compaction`……）。
+		 * 上下文折叠（契约 §19.2）验的是「按类型与回合距离丢对了没有」，只能看这一层。
+		 */
+		rawEntries: () => sessionManager.getEntries(),
 		/** 模组车道的总线事件，按到达顺序。 */
 		bus: (channel) => (channel ? bus.filter((row) => row.channel === channel) : [...bus]),
 		/**

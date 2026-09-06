@@ -12,8 +12,12 @@
 import { parseJsonWithRepair } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-/** The closed set of lane failure reasons; the memory lane maps it onto `memory.fail`'s reason. */
-export type LaneFailureReason = "model_unavailable" | "model_error" | "bad_output";
+/**
+ * The closed set of lane failure reasons; the memory lane maps it onto `memory.fail`'s reason.
+ * `timeout` only happens where the caller asked for one (`timeoutMs`): a completion that never
+ * answers used to leave no trace at all, which is the hole ticket #28 closes.
+ */
+export type LaneFailureReason = "model_unavailable" | "model_error" | "bad_output" | "timeout";
 
 export type LaneResult<T> =
 	| { ok: true; value: T; ms: number; model: string; raw: string }
@@ -65,6 +69,12 @@ export interface LaneRequest<T> {
 	input: string;
 	signal?: AbortSignal;
 	/**
+	 * Cap on one lane round. Without it a completion that never answers leaves the lane pending
+	 * for ever and writes no telemetry row at all; with it the lane answers `timeout`, aborts its
+	 * own completion, and the caller still gets exactly one row.
+	 */
+	timeoutMs?: number;
+	/**
 	 * Shape check: narrow the parsed object down to the closed shape the lane wants, or undefined.
 	 * Only fields and closed enums are checked here; every semantic judgement belongs to the model
 	 * (contract §12.5: the lanes use neither keywords nor regexes).
@@ -76,12 +86,55 @@ export interface LaneRequest<T> {
 export async function runLane<T>(request: LaneRequest<T>): Promise<LaneResult<T>> {
 	const began = Date.now();
 	let label: string | undefined;
+	// One controller for this round: the caller's signal and the timeout both cut the same completion.
+	const controller = new AbortController();
+	const relay = () => controller.abort();
+	if (request.signal) {
+		if (request.signal.aborted) controller.abort();
+		else request.signal.addEventListener("abort", relay, { once: true });
+	}
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const deadline =
+		typeof request.timeoutMs === "number" && request.timeoutMs > 0
+			? new Promise<LaneResult<T>>((settle) => {
+					timer = setTimeout(() => {
+						controller.abort();
+						settle({
+							ok: false,
+							reason: "timeout",
+							detail: `the lane did not answer within ${request.timeoutMs} ms`,
+							ms: Date.now() - began,
+							...(label ? { model: label } : {}),
+						});
+					}, request.timeoutMs);
+					timer.unref?.();
+				})
+			: undefined;
+	try {
+		const attempt = runLaneAttempt(request, controller.signal, began, (value) => {
+			label = value;
+		});
+		return deadline ? await Promise.race([attempt, deadline]) : await attempt;
+	} finally {
+		if (timer) clearTimeout(timer);
+		request.signal?.removeEventListener("abort", relay);
+	}
+}
+
+async function runLaneAttempt<T>(
+	request: LaneRequest<T>,
+	signal: AbortSignal,
+	began: number,
+	remember: (label: string) => void,
+): Promise<LaneResult<T>> {
+	let label: string | undefined;
 	try {
 		const resolved = resolveLaneModel(request.ctx, request.envName);
 		if (!resolved.ok) {
 			return { ok: false, reason: "model_unavailable", detail: resolved.detail, ms: Date.now() - began };
 		}
 		label = modelLabel(resolved.model);
+		remember(label);
 		const reply = await request.ctx.modelRegistry.complete(
 			resolved.model,
 			{
@@ -89,7 +142,7 @@ export async function runLane<T>(request: LaneRequest<T>): Promise<LaneResult<T>
 				messages: [{ role: "user", content: [{ type: "text", text: request.input }] }],
 				// tools omitted: that is what makes this a zero-tool session.
 			},
-			request.signal ? { signal: request.signal } : {},
+			{ signal },
 		);
 		if (reply.stopReason === "error" || reply.stopReason === "aborted") {
 			return {

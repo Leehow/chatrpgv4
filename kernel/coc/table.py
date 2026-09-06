@@ -11,7 +11,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable
 
-from . import KERNEL_VERSION, continuation, history, memory, recall as recall_roads, warn as warn_lane
+from . import KERNEL_VERSION, bookkeeping, continuation, history, memory, recall as recall_roads, warn as warn_lane
 from .capsule import (scene_label, build_capsule, clues_here, investigator_view, npc_view, npcs_present,
                       present_section, where_section)
 from .craft import DEFAULT_REGISTER, TextGraph
@@ -19,7 +19,7 @@ from .director import DirectorGraph, director_adoption
 from .errors import RpcError, invalid_params, not_implemented
 from .events import append_event
 from .facts import committed_facts, keeper_only_facts, language_of
-from .fileio import file_size, read_json, truncate_file
+from .fileio import append_jsonl, file_size, read_json, truncate_file
 from .module_graph import NPC_KIND, ModuleGraph, record_of
 from .ontology import Ontology, ontology_not_ready
 from .render import check_numbers, mechanics, render_choice
@@ -28,6 +28,7 @@ from .rules import RuleTables
 from .rules.combat import resolve_module_weapons
 from .rules.graph import REGISTERED_CONDITION_PATHS, semantic_name
 from .rules.percentile import roll_expression
+from .rules.skills import SkillResolver
 from .rules.runtime import RulesEngine, SettleContext
 from .sessions import SessionView, module_weapons
 from .setup import (ModuleStore, STATUS_ACTIVE, STATUS_READY, STATUS_SETTING_UP, SetupMethods, deepen,
@@ -38,8 +39,9 @@ from .text import ascii_slug, normalize, slugify
 INTENTS = frozenset({"investigate", "social", "move", "combat", "flee", "cast", "idle", "meta",
                      "stuck", "ambiguous", "montage"})
 NONE_INTENTS = frozenset({"idle", "meta", "stuck", "ambiguous"})
-APPLY_KINDS = frozenset({"move", "clue", "time", "damage", "handout", "item", "cash"})
-APPLY_RESERVED = frozenset({"npc", "flag", "note", "ruling"})
+APPLY_KINDS = frozenset({"move", "clue", "time", "damage", "handout", "item", "cash", "flag", "note", "ruling"})
+#: `npc` belongs to §17 (#29); §18 (#27) made flag, note and ruling live.
+APPLY_RESERVED = frozenset({"npc"})
 #: #19: the sheet fields `apply item` / `apply cash` own; a staged sheet is committed by
 #: overlaying only these onto the file, so a `damage` effect in the same batch (which
 #: mirrors HP straight onto the sheet) is never clobbered.
@@ -51,7 +53,7 @@ HANDOUT_VISIBILITIES = frozenset({"player-safe", "revealable"})
 HANDOUT_KINDS = ("handout", "asset")
 #: §14.6: deepen-queue priorities — the scene underfoot, one step away, the opening.
 DEEPEN_PRIORITY = {"move": 100, "adjacent": 80, "opening": 90}
-LOOK_FOCUS = frozenset({"scene", "npc", "investigator", "clues", "time"})
+LOOK_FOCUS = frozenset({"scene", "npc", "investigator", "clues", "time", "session"})
 LOOKUP_KINDS = frozenset({"module", "secret", "rule", "catalog"})
 RECALL_KINDS = frozenset({"transcript", "memory", "history"})
 WRITABLE_STATES = frozenset({"open", "acting"})
@@ -529,6 +531,12 @@ class Table:
         if focus == "clues":
             return {"discovered_clues": list(world.get("discovered_clues") or []),
                     "clues_here": clues_here(graph, world, scene)}
+        if focus == "session":
+            # §18.4: the live session in full (11.9 shape: kind, round, turn_of, actions,
+            # pending defense, participants), rebuilt from the engine snapshots on disk, so
+            # it survives a process restart; `{"session": null}` when none is live.
+            view = SessionView(campaign.dir, graph, campaign.party(), world)
+            return {"session": view.active_session(), "pending_choice": view.pending_choice()}
         return {"clock": world.get("clock") or {"minutes": 0}}
 
     def lookup(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -840,6 +848,8 @@ class Table:
             "continuations": settled["continuations"],
             "rule_refs": settled["rule_refs"],
         }
+        # §18.3: the rulings whose anchor equals what this settlement selected
+        result["rulings"] = self._rulings_for(campaign, graph, world, action, settled, receipts)
         if settled.get("decision_source"):
             result["decision_source"] = settled["decision_source"]
         if settled.get("hints"):
@@ -874,6 +884,24 @@ class Table:
                                             "pending_choice": (pending or {}).get("name")}, None))
         self._commit_resolve(campaign, turn, call_id, params, result, new_receipts + receipts, events)
         return result
+
+    def _rulings_for(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any], action: dict[str, Any],
+                     settled: dict[str, Any], receipts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """§18.3 projection 1: the facets this settlement selected -- the decision, its
+        family, the skills rolled, the graph entities the action named -- against the
+        active rulings' anchors, identifier for identifier."""
+        skills = [str(r["skill"]) for r in receipts if r.get("kind") == "roll" and r.get("form") != "dice" and r.get("skill")]
+        outcome = settled.get("outcome") or {}
+        if isinstance(outcome.get("skill"), str):
+            skills.append(outcome["skill"])
+        entities: list[str] = []
+        for name in (action.get("target"), action.get("actor"), outcome.get("target")):
+            node = graph.find(name) if isinstance(name, str) and name.strip() else None
+            if node is not None and graph.handle(node) not in entities:
+                entities.append(graph.handle(node))
+        return bookkeeping.rulings_for_resolve(bookkeeping.active_rulings(campaign), decision=str(settled["decision"]),
+                                               family=str(settled["family"]), skills=skills, entities=entities,
+                                               scene=str(world["active_scene"]), module_id=graph.module_id)
 
     def _commit_resolve(self, campaign: Campaign, turn: dict[str, Any], call_id: str,
                         params: dict[str, Any], result: dict[str, Any],
@@ -918,7 +946,11 @@ class Table:
         #: #19: investigator sheets touched by item/cash, staged by id and committed with
         #: the world once every effect of the batch has validated.
         staged_sheets: dict[str, dict[str, Any]] = {}
+        #: §18: ledger rows (notes, rulings) staged by the batch, appended after the world.
+        staged_notes: list[dict[str, Any]] = []
+        staged_rulings: list[dict[str, Any]] = []
         taken_ids = {str(r.get("id")) for r in turn.get("receipts") or []}
+        mint = lambda base: _mint_id(base, taken_ids)  # noqa: E731 - the batch's id minter
         receipts: list[dict[str, Any]] = []
         events: list[tuple[str, dict[str, Any], str]] = []
         receipt_ids: list[str] = []
@@ -958,6 +990,14 @@ class Table:
                 elif kind == "cash":
                     receipt, event = self._stage_cash(campaign, graph, staged_sheets, effect, turn_number, ordinal,
                                                       call_id, taken_ids)
+                elif kind == "flag":
+                    receipt, event = bookkeeping.stage_flag(staged, effect, turn_number, ordinal, call_id, mint)
+                elif kind == "note":
+                    receipt, event = bookkeeping.stage_note(campaign, graph, campaign.party(), effect, turn_number,
+                                                            ordinal, call_id, mint, staged_notes)
+                elif kind == "ruling":
+                    receipt, event = self._stage_ruling(campaign, graph, staged, effect, turn_number, ordinal, call_id,
+                                                        mint, staged_rulings)
                 else:
                     time_effects += 1
                     receipt, event = self._stage_time(staged, effect, turn_number, ordinal, call_id, time_effects)
@@ -975,6 +1015,10 @@ class Table:
 
         self._commit_sheets(campaign, staged_sheets)
         campaign.write_world(staged)
+        for row in staged_notes:
+            append_jsonl(campaign.notes_path, row)
+        for row in staged_rulings:
+            append_jsonl(campaign.rulings_path, row)
         turn["receipts"].extend(receipts)
         turn["state"] = "acting"
         destination = graph.scene(staged["active_scene"])
@@ -1164,6 +1208,23 @@ class Table:
         return receipt, ("handout-shown", {"handout": handle, "name": display, "visibility": visibility,
                                            "attachment_available": attachment["available"],
                                            "media_type": attachment["media_type"]})
+
+    # ---- apply ruling (§18.3) ----------------------------------------------------
+
+    def _stage_ruling(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any], effect: dict[str, Any],
+                      turn_number: int, ordinal: int, call_id: str, mint: Callable[[str], str],
+                      staged: list[dict[str, Any]]) -> tuple[dict[str, Any], tuple[str, dict[str, Any]]]:
+        """The anchor is validated against the RuleGraph (families, decision names), the
+        skill catalog and the module graph before anything is written."""
+        party = campaign.party()
+        nodes = self.engine.graph.get("nodes") or []
+        anchor = bookkeeping.anchor_of(
+            effect.get("anchor"),
+            families=sorted(self.engine.graph.get("coverage") or {}),
+            decisions=sorted(semantic_name(str(n["node_id"])) for n in nodes if n.get("node_kind") == "decision"),
+            resolver=SkillResolver(self.tables, party[0] if party else {}), graph=graph)
+        return bookkeeping.stage_ruling(campaign, effect, turn_number, ordinal, call_id, mint, staged, anchor=anchor,
+                                        scene=str(world["active_scene"]), module_id=graph.module_id)
 
     # ---- apply item / cash (#19) -----------------------------------------------
 

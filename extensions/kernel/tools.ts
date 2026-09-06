@@ -74,10 +74,49 @@ const CashEffect = Type.Object({
 	why: Type.Optional(Type.String({ description: "one sentence: where the money went, or where it came from" })),
 });
 
-/** Reserved kinds: in this slice the kernel always answers not_implemented; the shape is here already. */
+/** The Keeper's bookkeeping (contract §18, #27): world switches, debts owed, table rulings. */
+const FlagEffect = Type.Object({
+	kind: StringEnum(["flag"] as const, { description: "set a world switch: something is now barred, lit, alarmed, opened" }),
+	name: Type.String({ description: "the switch's name; a name the book uses for a gate reads back on the exits that gate on it" }),
+	value: Type.Optional(Type.String({ description: 'omitted means true; "false" clears it; any other short string is kept as the switch\'s value' })),
+	why: Type.Optional(Type.String({ description: "one sentence: what set it" })),
+});
+
+const NoteEffect = Type.Object({
+	kind: StringEnum(["note"] as const, {
+		description: "record continuity you owe the fiction later: a thread left hanging, someone waiting for an answer, a detail you must honour",
+	}),
+	name: Type.String({ description: "a short name for this debt; you close it later by this name" }),
+	text: Type.Optional(Type.String({ description: "one sentence: what is owed. Required when opening a note" })),
+	entities: Type.Optional(Type.Array(Type.String(), { description: "who or what it concerns; the capsule raises the note when they are present" })),
+	closes: Type.Optional(Type.String({ description: "the name of an open note this settles; give it alone to close, or with text to replace" })),
+});
+
+const RulingEffect = Type.Object({
+	kind: StringEnum(["ruling"] as const, {
+		description: "record how you ruled something at this table, so the same judgement comes back to you next time it arises",
+	}),
+	name: Type.String({ description: "a short name for the ruling" }),
+	statement: Type.String({ description: "one sentence: how you ruled" }),
+	anchor: Type.Object(
+		{
+			family: Type.Optional(Type.String({ description: "a rule family this ruling governs, such as combat or social" })),
+			decision: Type.Optional(Type.String({ description: "one decision's semantic name, such as combat:attack" })),
+			skill: Type.Optional(Type.String({ description: "a skill name this ruling governs" })),
+			entities: Type.Optional(Type.Array(Type.String(), { description: "the people or things it is about" })),
+		},
+		{
+			description:
+				"what brings the ruling back. Give at least one; every field you give must match for it to be raised again, so name only what the ruling really depends on",
+		},
+	),
+	scope: Type.Optional(StringEnum(["campaign", "module", "scene"] as const, { description: "how far it reaches; defaults to campaign" })),
+});
+
+/** Reserved kinds: the kernel answers not_implemented; the shape is here already. */
 const ReservedEffect = Type.Object({
-	kind: StringEnum(["handout", "npc", "flag", "note", "ruling"] as const, {
-		description: "reserved kinds; in this slice the kernel answers not_implemented",
+	kind: StringEnum(["handout", "npc"] as const, {
+		description: "reserved kinds; the kernel answers not_implemented for npc",
 	}),
 	name: Type.Optional(Type.String()),
 	value: Type.Optional(Type.String()),
@@ -187,11 +226,11 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Look",
 		method: "table.look",
 		description:
-			"See the side the turn capsule did not answer. The capsule already carries the current value of all of this: the world clock, the scene and its exits, the way back (the scenes walked through, nearest first), the clues here that are still undiscovered and how they are obtained, the agendas and secrets of those present, and what is pressing — do not look those up again, the capsule is current. Use this for what the capsule does not have: with no parameters it re-reads the scene (dramatic question, pressure moves, exits, affordances, who is present); focus npc with a name gives the Keeper view of an entity the capsule did not list (agenda, fear, secret, voice, relationships, known facts); focus investigator gives the detail of the investigator sheet; focus clues gives what is discovered and what is obtainable here; focus time gives the world clock. The opening turn has no capsule, so look at the opening scene first. Everything it returns is Keeper-only and must never be copied into the player's text.",
-		promptSnippet: "See the side the capsule did not answer: scene, NPC, investigator, clues, or the clock",
+			"See the side the turn capsule did not answer. The capsule already carries the current value of all of this: the world clock, the scene and its exits, the way back (the scenes walked through, nearest first), the clues here that are still undiscovered and how they are obtained, the agendas and secrets of those present, and what is pressing — do not look those up again, the capsule is current. Use this for what the capsule does not have: with no parameters it re-reads the scene (dramatic question, pressure moves, exits, affordances, who is present); focus npc with a name gives the Keeper view of an entity the capsule did not list (agenda, fear, secret, voice, relationships, known facts); focus investigator gives the detail of the investigator sheet; focus clues gives what is discovered and what is obtainable here; focus time gives the world clock; focus session gives the whole of a fight, a chase or a bout of madness that is underway — the round, whose turn it is, what may be done, what is owed — which is the one thing that survives a restart nowhere else. The opening turn has no capsule, so look at the opening scene first. Everything it returns is Keeper-only and must never be copied into the player's text.",
+		promptSnippet: "See the side the capsule did not answer: scene, NPC, investigator, clues, the clock, or the session underway",
 		parameters: Type.Object({
 			focus: Type.Optional(
-				StringEnum(["scene", "npc", "investigator", "clues", "time"] as const, {
+				StringEnum(["scene", "npc", "investigator", "clues", "time", "session"] as const, {
 					description: "which side to look at; defaults to scene",
 				}),
 			),
@@ -318,7 +357,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		promptSnippet: "Land this turn's world changes: move, clue, time, item, cash",
 		parameters: Type.Object({
 			effects: Type.Array(
-				Type.Union([MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, CashEffect, ReservedEffect]),
+				Type.Union([MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, ReservedEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
 		}),

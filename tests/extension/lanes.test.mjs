@@ -192,7 +192,7 @@ test("提交载荷上总线：campaign、turn、commit、job_id、facts、render
 	assert.deepEqual(Object.keys(payload.facts).sort(), ["committed", "keeper_only"]);
 });
 
-test("内核不回 facts 时校验车道不跑：没有事实清单就没有可校验的", async (t) => {
+test("内核不回 facts 时校验车道不跑，但「没跑」也留一行带原因码的遥测（#28）", async (t) => {
 	const table = await openTable({ env: { FAKE_KERNEL_NO_FACTS: "1" }, responses: keeperTurn() });
 	t.after(() => table.dispose());
 	table.lanes.memory.setResponses([fauxAssistantMessage(JSON.stringify({ candidates: [] }))]);
@@ -202,9 +202,87 @@ test("内核不回 facts 时校验车道不跑：没有事实清单就没有可�
 	await waitFor(() => calls(table, "memory.submit").length > 0, { label: "memory.submit" });
 
 	assert.equal(calls(table, "table.warn").length, 0, "切片 0、1 的内核没有 facts，校验车道整条不起");
-	assert.deepEqual(laneRows(table, "verifier"), [], "不起就不落遥测，也不算失败");
 	assert.equal(table.lanes.verifier.getPendingResponseCount(), 1, "校验车道那个模型一次都没被叫过");
+
+	// 真桌证据（toomany-s4 第 3、4、14 回合）：不跑就一行都不留，事后没人看得出来。
+	const rows = await waitFor(() => (laneRows(table, "verifier").length > 0 ? laneRows(table, "verifier") : undefined), {
+		label: "校验车道「没跑」的遥测",
+	});
+	assert.equal(rows.length, 1, "narrate 关掉的回合恰好一行校验车道遥测");
+	assert.equal(rows[0].ok, false);
+	assert.equal(rows[0].ran, false, "这一行说的是「没跑」，不是「跑了没发现」");
+	assert.equal(rows[0].reason, "no_facts");
+	assert.equal(rows[0].turn, 1);
+
 	assert.equal((await waitForLaneRow(table, "memory")).ok, true, "记忆车道照跑：任务包由内核按回合出，不看 facts");
+});
+
+test("车道超时也留一行：模型不回答时按 PI_COC_LANE_TIMEOUT_MS 掐断并记 timeout（#28）", async (t) => {
+	const held = gate();
+	const table = await openTable({
+		responses: keeperTurn(),
+		// 校验车道 30 毫秒就掐；记忆车道不给 timeoutMs，走它自己的老路。
+		env: { PI_COC_LANE_TIMEOUT_MS: "30" },
+	});
+	t.after(() => {
+		held.open();
+		return table.dispose();
+	});
+	table.lanes.memory.setResponses([fauxAssistantMessage(JSON.stringify({ candidates: [] }))]);
+	// 一个永远不回答的模型：以前它会让车道一直挂着，一行遥测都不留。
+	table.lanes.verifier.setResponses([
+		async () => {
+			await held.promise;
+			return fauxAssistantMessage(JSON.stringify({ findings: [] }));
+		},
+	]);
+
+	await table.session.prompt("我检查地窖门的门框");
+	const row = await waitForLaneRow(table, "verifier");
+
+	assert.equal(row.ok, false);
+	assert.equal(row.reason, "timeout");
+	assert.equal(row.turn, 1);
+	assert.equal(row.model, "verifier/v1", "超时那一行照样说得出用的是哪个模型");
+	assert.match(String(row.detail), /30 ms/);
+	assert.equal(calls(table, "table.warn").length, 0, "超时不往内核送空发现");
+	assert.equal(assistantTexts(table.session).filter((text) => text.length > 0).at(-1), RENDERED, "掐断车道不动交付");
+});
+
+test("每个 narrate 关掉的回合恰好一行校验车道遥测：三种收尾都不留静默的洞（#28）", async (t) => {
+	const table = await openTable({
+		responses: [
+			// 第一回合：车道跑通，落 ok
+			...keeperTurn("第一回合的交付。"),
+			// 第二回合：车道模型出错（假 provider 的回答队列空了），落 model_error
+			...keeperTurn("第二回合的交付。"),
+			// 第三回合：车道模型出错，再落一行
+			...keeperTurn("第三回合的交付。"),
+		],
+	});
+	t.after(() => table.dispose());
+	table.lanes.memory.setResponses([noCandidates(), noCandidates(), noCandidates()]);
+	table.lanes.verifier.setResponses([fauxAssistantMessage(JSON.stringify({ findings: [] }))]);
+
+	await table.session.prompt("第一句");
+	await table.session.prompt("第二句");
+	await table.session.prompt("第三句");
+	const rows = await waitFor(() => (laneRows(table, "verifier").length >= 3 ? laneRows(table, "verifier") : undefined), {
+		label: "三行校验车道遥测",
+	});
+
+	assert.equal(calls(table, "table.narrate").length, 3, "三个回合都由 narrate 关掉");
+	assert.equal(rows.length, 3, "一个回合一行，不多不少");
+	assert.deepEqual(
+		rows.map((row) => row.turn),
+		[1, 2, 3],
+		"每一行认得出自己是哪一回合",
+	);
+	assert.equal(rows[0].ok, true, "第一回合车道跑通");
+	for (const row of rows.slice(1)) {
+		assert.equal(row.ok, false);
+		assert.ok(typeof row.reason === "string" && row.reason.length > 0, "失败的行必须带原因码");
+	}
 });
 
 test("交付不等车道：正文换完的时候两条车道都还没跑完", async (t) => {

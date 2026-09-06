@@ -114,6 +114,14 @@ interface TableState {
 	callKeys: Map<string, string>;
 	/** The turn narrate has committed but the verifier lane has not yet started on (contract §12.5: it runs after the delivery replacement). */
 	pendingCommit?: CommitPayload;
+	/**
+	 * A turn narrate has closed and the verifier lane still owes a telemetry row for (ticket #28).
+	 * It is set the moment narrate succeeds, before anything about the lane is known, so that the
+	 * ways the lane can fail to start — no `facts`, no session, a throw — each leave a row with a
+	 * reason instead of leaving nothing at all. Real-table evidence (`toomany-s4` turns 3, 4 and 14)
+	 * had three narrate-closed turns with no lane row and no way to see why.
+	 */
+	verifierOwed?: { turn: number };
 	/** Handout attachments landed by `apply` this turn (contract §14.8), waiting to join the mechanics projection. */
 	attachments: HandoutAttachment[];
 	/** Cut off lane completions still in flight when the session ends; they must not hold up the exit. */
@@ -402,18 +410,48 @@ export default function (pi: ExtensionAPI) {
 	 * The verifier lane (contract §12.5): fire-and-forget after the delivery replacement, never
 	 * awaited, never blocking, never nagging. A kernel without `facts` (slices 0 and 1) does not
 	 * run it: there is no fact list to read.
+	 *
+	 * Whatever happens, a turn that narrate closed leaves exactly one `lane: "verifier"` row
+	 * (ticket #28). The lane not running is itself a result and carries its reason:
+	 *
+	 * | reason | what happened |
+	 * | --- | --- |
+	 * | `no_delivery` | narrate succeeded but returned no `rendered_text`, so there is nothing to read |
+	 * | `no_facts` | the kernel returned no fact lists (slice 0 and 1 kernels): reading without them is guessing |
+	 * | `session_gone` | the session was disposed before the lane could start |
+	 * | `lane_crashed` | the lane itself threw where nothing else could catch it |
+	 *
+	 * The reasons for a lane that did start (`model_unavailable`, `model_error`, `bad_output`,
+	 * `timeout`, `warn_failed`) are written by `runVerifierLane`.
 	 */
-	function scheduleVerifier(state: TableState): void {
+	function settleVerifier(state: TableState): void {
+		const owed = state.verifierOwed;
+		state.verifierOwed = undefined;
 		const payload = state.pendingCommit;
 		state.pendingCommit = undefined;
-		if (!payload?.facts) return;
+		if (!owed) return;
+		const miss = (reason: string, detail: string): void => {
+			void record({ lane: "verifier", turn: payload?.turn ?? owed.turn, ok: false, ran: false, reason, detail });
+		};
+		if (!payload) {
+			miss("no_delivery", "narrate returned no rendered_text, so the lane had nothing to read");
+			return;
+		}
+		if (!payload.facts) {
+			miss("no_facts", "the kernel returned no fact lists with this narrate, so the lane cannot judge anything");
+			return;
+		}
 		const ctx = sessionCtx;
-		if (!ctx) return;
+		if (!ctx) {
+			miss("session_gone", "the session was gone before the lane could start");
+			return;
+		}
 		const kernel = state.kernel;
 		const signal = state.lanes.signal;
 		const playLanguage = state.playLanguage;
 		const timer = setTimeout(() => {
-			// The lane is advisory: however it breaks, it must not surface as an unhandled rejection.
+			// The lane is advisory: however it breaks, it must not surface as an unhandled rejection —
+			// but it must not vanish either, so the last-resort catch writes the row itself.
 			void runVerifierLane({
 				ctx,
 				payload,
@@ -421,7 +459,16 @@ export default function (pi: ExtensionAPI) {
 				call: (method, params) => kernel.call(method, params),
 				record,
 				signal,
-			}).catch(() => undefined);
+			}).catch((error) => {
+				void record({
+					lane: "verifier",
+					turn: payload.turn,
+					ok: false,
+					ran: false,
+					reason: "lane_crashed",
+					detail: (error instanceof Error ? error.message : String(error)).slice(0, 200),
+				});
+			});
 		}, 0);
 		timer.unref?.();
 	}
@@ -532,6 +579,8 @@ export default function (pi: ExtensionAPI) {
 				state.closedThisRun = true;
 				state.renderedText = asString(result.rendered_text);
 				state.deliveryToolCallId = toolCallId;
+				// From here on this turn owes a verifier-lane row, whatever the lane turns out to do (ticket #28).
+				state.verifierOwed = { turn: typeof result.turn === "number" ? result.turn : state.turn };
 				const mechanics = withHandouts(state, readMechanics(result));
 				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn, mechanics);
 				noteCommit(state, result, mechanics);
@@ -1064,7 +1113,7 @@ export default function (pi: ExtensionAPI) {
 		state.mechanicsFix = undefined;
 		// The delivery replacement takes effect when this message is returned, and the lane queues behind it:
 		// a zero-millisecond timer only runs after that.
-		scheduleVerifier(state);
+		settleVerifier(state);
 		return { message: { ...event.message, content: next } };
 	});
 
@@ -1073,7 +1122,9 @@ export default function (pi: ExtensionAPI) {
 		if (!state) return;
 		// When the Keeper ends on the message that carried the narrate call there is no second assistant
 		// message, and so no delivery replacement to wait for; this run ending is the lane's starting gun.
-		if (state.pendingCommit) scheduleVerifier(state);
+		// This is also the backstop for the accounting: a narrate-closed turn cannot leave this run
+		// without a verifier row, even when the lane never ran (ticket #28).
+		if (state.verifierOwed) settleVerifier(state);
 		if (state.closedThisRun || state.renderedText) return;
 		if (state.steeredThisTurn) return;
 		// The kernel refused the implicit delivery for missing numbers: hand its own fix back, once.

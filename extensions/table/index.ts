@@ -7,10 +7,21 @@
  * interpreted, never acted on); each turn's mechanics projection arrives on `coc:mechanics` and a
  * compact status line is drawn from it (contract §16.2 — a status line, never an injection into
  * the Keeper's prose). No rule is ever explained here.
+ *
+ * Two more duties from contract §19 live here, both of them about the long game:
+ * - the `/coc` command surface (§19.1, in `./commands.ts`): status, model, thinking level, lanes
+ *   and evidence, all of it through `ctx.ui`, none of it in the Keeper's context;
+ * - the COC-shaped context fold (§19.2, in `./fold.ts`): `session_before_compact` hands Pi a cut
+ *   point and a summary this extension wrote itself, and `before_agent_start` compacts early
+ *   enough that it never lands in the middle of a tool round trip.
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { cocMode } from "../lanes/host.ts";
+import type { CompactionResult, ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { appendJsonl, cocMode } from "../lanes/host.ts";
+import { type CommandDeps, registerCocCommand } from "./commands.ts";
+import { compactAt, FOLD_NOTE_KIND, foldContext } from "./fold.ts";
 
 /** The session summary of contract §11.5; a missing field just means that piece is not shown. */
 interface SessionSummary {
@@ -34,7 +45,13 @@ interface DirectorSection {
 }
 
 interface CapsuleEvent {
-	capsule?: { director?: DirectorSection | null } | null;
+	capsule?: ({ director?: DirectorSection | null } & Record<string, unknown>) | null;
+}
+
+/** The kernel RPC closure the kernel extension puts on `coc:kernel-bridge`; `call: undefined` revokes it. */
+interface KernelBridgeEvent {
+	campaign?: string;
+	call?: (method: string, params: Record<string, unknown>) => Promise<unknown>;
 }
 
 interface MechanicsEvent {
@@ -45,7 +62,7 @@ interface MechanicsEvent {
 interface TableOpenEvent {
 	campaign?: string;
 	open?: {
-		campaign?: { title?: string };
+		campaign?: { title?: string; module_id?: string };
 		turn?: { number?: number; state?: string };
 		investigators?: Array<{ name?: string; hp?: number; san?: number }>;
 		scene?: { name?: string; display_name?: string };
@@ -186,6 +203,31 @@ export default function (pi: ExtensionAPI) {
 	let director: string | undefined;
 	let mechanics: string | undefined;
 	const handoutsSeen = new Set<string>();
+	/** This turn's capsule, verbatim off the bus: the panel and the post-fold note read it, nothing rewrites it. */
+	let capsule: Record<string, unknown> | undefined;
+	/** The kernel RPC closure (docs/pi-host-contract.md §3.1); undefined before the table opens and after it closes. */
+	let bridge: ((method: string, params: Record<string, unknown>) => Promise<unknown>) | undefined;
+
+	/** The campaign directory of the open table, or undefined before `coc:table-open`. */
+	function campaignDir(): string | undefined {
+		const campaign = payload?.campaign;
+		if (!campaign || !ctx) return undefined;
+		return join(ctx.cwd, ".coc", "campaigns", campaign);
+	}
+
+	/**
+	 * One telemetry row, the same shape and the same file the kernel and memory extensions write
+	 * (contract §8): a session entry that never enters the model context, plus one JSONL line.
+	 */
+	function record(row: Record<string, unknown>): void {
+		try {
+			pi.appendEntry("coc-telemetry", row);
+		} catch {
+			/* telemetry must never break a turn */
+		}
+		const dir = campaignDir();
+		if (dir) void appendJsonl(join(dir, "telemetry.jsonl"), row);
+	}
 
 	function announce(): void {
 		if (announced || !payload || !ctx) return;
@@ -245,10 +287,18 @@ export default function (pi: ExtensionAPI) {
 
 	// The capsule is delivered by the kernel extension in `before_agent_start`; the same copy goes on the bus verbatim (contract §13.9).
 	pi.events.on("coc:capsule", (data) => {
-		const next = directorLine(((data ?? {}) as CapsuleEvent).capsule?.director);
+		const event = (data ?? {}) as CapsuleEvent;
+		capsule = event.capsule ?? undefined;
+		const next = directorLine(event.capsule?.director);
 		if (next === director) return;
 		director = next;
 		paintDirector();
+	});
+
+	// The kernel RPC closure (docs/pi-host-contract.md §5: extensions share nothing but this bus).
+	// `/coc` reads `table.status` and `module.status` over it; a revoked bridge just leaves those rows out.
+	pi.events.on("coc:kernel-bridge", (data) => {
+		bridge = ((data ?? {}) as KernelBridgeEvent).call;
 	});
 
 	pi.events.on("coc:resolve", (data) => {
@@ -267,6 +317,175 @@ export default function (pi: ExtensionAPI) {
 		if (next === mechanics) return;
 		mechanics = next;
 		paintMechanics();
+	});
+
+	// ---- The command surface (contract §19.1) -----------------------------
+
+	const deps: CommandDeps = {
+		campaign: () => payload?.campaign,
+		open: () => payload?.open as Record<string, unknown> | undefined,
+		capsule: () => capsule,
+		call: () => bridge,
+		record,
+		telemetryTail: (limit) => {
+			const dir = campaignDir();
+			if (!dir) return [];
+			try {
+				return readFileSync(join(dir, "telemetry.jsonl"), "utf8")
+					.split("\n")
+					.slice(-limit)
+					.flatMap((line) => {
+						if (!line.trim()) return [];
+						try {
+							const row = JSON.parse(line);
+							return row && typeof row === "object" && !Array.isArray(row) ? [row as Record<string, unknown>] : [];
+						} catch {
+							return [];
+						}
+					});
+			} catch {
+				// No file yet, or it cannot be read: the lanes view says there is nothing rather than failing.
+				return [];
+			}
+		},
+		paths: () => {
+			const dir = campaignDir();
+			if (!dir || !ctx) return [];
+			const moduleId = payload?.open?.campaign?.module_id;
+			return [
+				{ label: "campaign", path: dir },
+				{ label: "telemetry", path: join(dir, "telemetry.jsonl") },
+				{ label: "transcript", path: join(dir, "transcript.jsonl") },
+				{ label: "events", path: join(dir, "events.jsonl") },
+				{ label: "turns", path: join(dir, "turns") },
+				...(moduleId ? [{ label: "module", path: join(ctx.cwd, ".coc", "modules", moduleId) }] : []),
+				{ label: "playtests", path: join(ctx.cwd, ".coc", "playtests") },
+			];
+		},
+	};
+	registerCocCommand(pi, deps);
+
+	// ---- The COC context fold (contract §19.2) ----------------------------
+
+	/**
+	 * The one host message that follows a fold. It says where the table state is — in the next
+	 * turn's capsule, as it is every turn — and what this turn still owes, taken from the capsule's
+	 * own structural fields. It never restates the story: that is what the fold's summary keeps.
+	 */
+	function foldNote(byThisTable: boolean): string {
+		const turn = (capsule?.turn ?? {}) as Record<string, unknown>;
+		const pending = (turn.pending_choice ?? null) as { name?: string; prompt?: string } | null;
+		const obligations = Array.isArray(capsule?.obligations) ? (capsule.obligations as unknown[]).length : 0;
+		const owed = pending
+			? `This turn owes the player an answer to: ${pending.name ?? pending.prompt ?? "the pending choice"}.`
+			: obligations > 0
+				? `${obligations} obligation(s) are open; the capsule lists them.`
+				: "Nothing is pending on your side right now.";
+		// Pi can compact on its own if this table's fold could name no cut point; then the first
+		// sentence would not be true, so it is only said when the fold was in fact this table's.
+		const what = byThisTable
+			? "The table's context was folded. Older turn capsules, mechanics projections and tool round trips were dropped whole; " +
+				"every player line and every delivered narration was kept word for word. "
+			: "The context was compacted. ";
+		return (
+			`${what}Do not try to remember the table state from what is left: the next turn's capsule carries the scene, the clock, ` +
+			`who is present, the pressures and the obligations, exactly as it does every turn, and recall brings back anything older. ${owed}`
+		);
+	}
+
+	pi.on("session_before_compact", async (event) => {
+		const fold = foldContext({
+			entries: event.branchEntries as SessionEntry[],
+			fallbackFirstKeptEntryId: event.preparation.firstKeptEntryId,
+		});
+		if (!fold) {
+			// No cut point can be named at all: leave the compaction to Pi rather than guess.
+			record({ lane: "fold", ok: false, reason: "no_cut_point", trigger: event.reason });
+			return;
+		}
+		record({
+			lane: "fold",
+			ok: true,
+			trigger: event.reason,
+			folded_entries: fold.folded,
+			kept_lines: fold.lines.length,
+			dropped: fold.dropped,
+			tokens_before: event.preparation.tokensBefore,
+		});
+		const compaction: CompactionResult = {
+			summary: fold.summary,
+			firstKeptEntryId: fold.firstKeptEntryId,
+			tokensBefore: event.preparation.tokensBefore,
+			details: fold.details,
+		};
+		return { compaction };
+	});
+
+	pi.on("session_compact", async (event) => {
+		try {
+			pi.sendMessage(
+				{
+					customType: "coc-host",
+					content: foldNote(event.fromExtension === true),
+					display: false,
+					details: { coc_host: true, kind: FOLD_NOTE_KIND },
+				},
+				{ triggerTurn: false },
+			);
+		} catch {
+			/* the note is a courtesy; a session that will not take it must not break the turn */
+		}
+	});
+
+	/**
+	 * Compact before the turn rather than inside it (contract §19.2). Pi's own threshold fires on
+	 * an assistant message, which in a COC turn is usually in the middle of a tool round trip; the
+	 * table would rather pay the fold now, with the turn state machine untouched. `ctx.compact` is
+	 * fire-and-forget, so it is awaited through its own callbacks — the turn starts on the folded
+	 * context, not beside it.
+	 */
+	pi.on("before_agent_start", async (_event, turnCtx) => {
+		const usage = turnCtx.getContextUsage();
+		const percent = usage?.percent;
+		if (typeof percent !== "number") return;
+		const threshold = compactAt() * 100;
+		if (percent < threshold) return;
+		const began = Date.now();
+		await new Promise<void>((done) => {
+			try {
+				turnCtx.compact({
+					onComplete: () => {
+						record({ lane: "fold", event: "pre-emptive", ok: true, percent, threshold, ms: Date.now() - began });
+						done();
+					},
+					onError: (error) => {
+						// "Nothing to compact" lands here too: the turn goes ahead either way.
+						record({
+							lane: "fold",
+							event: "pre-emptive",
+							ok: false,
+							percent,
+							threshold,
+							ms: Date.now() - began,
+							reason: "compact_failed",
+							detail: error.message.slice(0, 200),
+						});
+						done();
+					},
+				});
+			} catch (error) {
+				record({
+					lane: "fold",
+					event: "pre-emptive",
+					ok: false,
+					percent,
+					threshold,
+					reason: "compact_unavailable",
+					detail: (error instanceof Error ? error.message : String(error)).slice(0, 200),
+				});
+				done();
+			}
+		});
 	});
 
 	pi.on("session_start", async (_event, sessionCtx) => {
@@ -289,6 +508,8 @@ export default function (pi: ExtensionAPI) {
 		}
 		ctx = undefined;
 		payload = undefined;
+		capsule = undefined;
+		bridge = undefined;
 		announced = false;
 	});
 }

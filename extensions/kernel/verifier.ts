@@ -17,6 +17,16 @@ const FINDING_KINDS: ReadonlySet<string> = new Set(["reveal", "uncommitted_state
 /** The kernel takes at most 10 (§12.5), so trim here rather than have the whole batch judged invalid_params. */
 const MAX_FINDINGS = 10;
 
+/** Cap on one verifier round, `PI_COC_LANE_TIMEOUT_MS`. Read per call: one process loads this several times. */
+const DEFAULT_LANE_TIMEOUT_MS = 120_000;
+
+export function laneTimeoutMs(): number {
+	const raw = process.env.PI_COC_LANE_TIMEOUT_MS?.trim();
+	if (!raw) return DEFAULT_LANE_TIMEOUT_MS;
+	const value = Number(raw);
+	return Number.isFinite(value) && value > 0 ? value : DEFAULT_LANE_TIMEOUT_MS;
+}
+
 export interface Finding {
 	kind: string;
 	quote: string;
@@ -103,6 +113,13 @@ export interface VerifierLaneOptions {
  * Run the verifier lane once. It never throws: any failure writes one
  * `lane: "verifier", ok: false` telemetry row and stops there.
  * The caller fires and forgets; the delivery does not wait for it.
+ *
+ * Exactly one row is written, always, whichever way the round ends — the model reference not
+ * resolving (`model_unavailable`), the completion erroring (`model_error`), the answer not being
+ * the shape asked for (`bad_output`), the round running past its cap (`timeout`), or `table.warn`
+ * refusing the findings (`warn_failed`). The two ways a lane can fail to start at all — the kernel
+ * returning no `facts`, and the session being gone — are accounted for by the caller, which is the
+ * only place that knows a turn was closed by narrate at all (ticket #28).
  */
 export async function runVerifierLane(options: VerifierLaneOptions): Promise<void> {
 	const { ctx, payload, call, record } = options;
@@ -113,6 +130,7 @@ export async function runVerifierLane(options: VerifierLaneOptions): Promise<voi
 		systemPrompt: verifierSystemPrompt(options.playLanguage),
 		input: buildVerifierInput(payload),
 		...(options.signal ? { signal: options.signal } : {}),
+		timeoutMs: laneTimeoutMs(),
 		shape: shapeFindings,
 	});
 	if (!lane.ok) {

@@ -1,16 +1,19 @@
-"""Slice 2, 12.1: the twelve canonical events, all emitted through the RPC seam by one
-campaign, and the three new ones anchored where the contract says."""
+"""Slice 2, 12.1: the canonical events one campaign emits through the RPC seam (the
+twelve of slice 2 plus §18's three; setup, handout and item have their own tests), and
+the ones slice 2 added anchored where the contract says."""
 
 from conftest import RpcClient, ask, campaign_dir, narrate, open_turn, read_jsonl
 from test_rules_families import resolve, walk_to_confrontation
 
-TWELVE = {
+EMITTED = {
     "turn-started", "player-declared", "roll-resolved", "scene-moved", "clue-discovered", "time-advanced",
     "resource-changed", "decision-settled", "session-changed", "choice-asked", "memory-written", "turn-finalized",
+    # §18 (#27)
+    "flag-set", "note-written", "ruling-made",
 }
 
 
-def test_twelve_canonical_events_end_to_end(tmp_path):
+def test_canonical_events_end_to_end(tmp_path):
     client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "9"})
     try:
         open_turn(client, "我举枪对准棺材里的东西。")
@@ -18,6 +21,9 @@ def test_twelve_canonical_events_end_to_end(tmp_path):
             {"kind": "clue", "clue": "knott-keys"},
             {"kind": "time", "minutes": 5},
             {"kind": "damage", "dice": "1D3", "why": "被门夹了"},
+            {"kind": "flag", "name": "door-open"},
+            {"kind": "note", "name": "the door", "text": "say what the door did"},
+            {"kind": "ruling", "name": "doors", "statement": "doors bite for 1D3", "anchor": {"family": "core-check"}},
         ])
         n = walk_to_confrontation(client, start=2)
         attack = resolve(client, f"t1-c{n}", intent="combat", goal="朝科比特开枪", method="用左轮射击",
@@ -31,7 +37,8 @@ def test_twelve_canonical_events_end_to_end(tmp_path):
                                     "candidates": [{"kind": "world_event", "subject": "world", "statement": "枪响了。"}]})
 
         events = read_jsonl(campaign_dir(client.workspace) / "events.jsonl")
-        assert {e["type"] for e in events} == TWELVE
+        assert {e["type"] for e in events} == EMITTED
+        assert [e["type"] for e in events if e.get("call_id") == "t1-c1"][-3:] == ["flag-set", "note-written", "ruling-made"]
         assert [e["seq"] for e in events] == list(range(1, len(events) + 1))
 
         session = [e for e in events if e["type"] == "session-changed"]

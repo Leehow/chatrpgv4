@@ -37,7 +37,7 @@
     turn.json            当前回合游标：{turn, state, player_text, opened_at, calls: {call_id: {params_sha256, result}}, receipts: [...], pending_choice, capsule}
     turns/<NNNN>.json    已关闭回合的完整记录：玩家原文、收据、rendered_text、commit、world 快照、facts、warnings、capsule（守秘人这一回合拿到的胶囊，规格第十三节的证据）
     transcript.jsonl     逐字记录：{turn, role: player|keeper, text, at}
-    events.jsonl         事件流，十五类 canonical 事件见第 7 节
+    events.jsonl         事件流，十八类 canonical 事件见第 7 节
     save/continuation/latest.json   续行检查点：最近一次提交的回合摘要，可重建的缓存（12.2）
     memory/episodes.jsonl           每个已提交回合一条 episode（12.3）
     memory/candidates.jsonl         候选断言，只增不删；矛盾用 superseded_by 关闭（12.3）
@@ -203,7 +203,7 @@ result：`{"rendered_text": "<即 text，正文原样>", "mechanics": [...], "tu
 
 ## 7. 事件
 
-`events.jsonl` 每行 `{"seq", "turn", "type", "at", "call_id"?, "receipt"?, "data": {...}}`。十五类 canonical 事件闭合枚举，见 12.1；切片 0 写前七类，切片 1 加 `resource-changed`、`decision-settled`，切片 2 补齐 `session-changed`、`choice-asked`、`memory-written`，切片 4 加 `setup-completed`、`handout-shown`，#19 加 `item-transferred`。代码里的闭合表是 `kernel/coc/events.py`。
+`events.jsonl` 每行 `{"seq", "turn", "type", "at", "call_id"?, "receipt"?, "data": {...}}`。十八类 canonical 事件闭合枚举，见 12.1；切片 0 写前七类，切片 1 加 `resource-changed`、`decision-settled`，切片 2 补齐 `session-changed`、`choice-asked`、`memory-written`，切片 4 加 `setup-completed`、`handout-shown`，#19 加 `item-transferred`。代码里的闭合表是 `kernel/coc/events.py`。
 
 ## 8. 扩展侧职责（kernel 扩展）
 
@@ -333,7 +333,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 
 守秘人的上下文是可丢弃的缓存；桌子的真相在战役目录与 sidecar 仓库里。这一节把 `narrate` 提交之后的链条写死：事件批、续行检查点、记忆 episode 与异步抽取、三路 `recall`、advisory 校验车道。三条法则从旧树原样带过来：**候选不自动晋升**（记忆是参考，不是状态）；**矛盾不删除**（用 `valid_until_turn` 与 `superseded_by` 关闭，两条都可寻址）；**抽取与校验永不阻塞 `narrate`**（失败只进 backlog 与遥测）。旧树的时间线分叉、汇流、双层状态不带过来（规格「范围外」）。
 
-### 12.1 事件批：十五类
+### 12.1 事件批：十八类
 
 `EVENT_TYPES` 闭合枚举，其他类型报 `ValueError`（内核缺陷，不是守秘人错误）：
 
@@ -350,7 +350,13 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 | `session-changed` | `resolve` | `{family: combat|chase|sanity_bout, transition: start|end|round, outcome?, summary?}`，对应每条 `session` 收据 |
 | `choice-asked` | `ask` | `{name, prompt, options, binds}` |
 | `memory-written` | `memory.submit` | `{job_id, turn, candidates: n, superseded: n}` |
-| `turn-finalized` | `narrate` | `{receipts, placement, commit?}` |
+| `turn-finalized` | `narrate` | `{receipts, commit?}` |
+| `setup-completed` | `setup.complete`（切片 4） | `{module_id, module_generation, investigators}` |
+| `handout-shown` | `apply handout`（切片 4） | `{name, kind, available}` |
+| `item-transferred` | `apply item`（#19） | `{name, to, from?, weapon?, quantity}` |
+| `flag-set` | `apply flag`（#27） | `{name, value, previous}` |
+| `note-written` | `apply note`（#27） | `{name, status, entities, closes}` |
+| `ruling-made` | `apply ruling`（#27） | `{name, anchor, scope, supersedes}` |
 
 每条事件的 `receipt` 指向它对应的收据 id；`session-changed` 与 `choice-asked` 从切片 2 起补发，切片 1 的会话收据只有 `decision-settled`。查询走 `recall history`（12.4），不另开方法。
 
@@ -432,7 +438,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 
 三类分别是：越权揭示了 `keeper_only` 里的事实；声称了 `committed` 里没有的状态变化（走了没 move、拿了没 clue、掉了没 delta）；替玩家做了未授权的自愿行为。扩展把结果交给 `table.warn`，params `{"campaign", "turn", "lane": "verifier", "findings": [...]}`：内核校验 `kind` 枚举，`quote` 必须是该回合 `rendered_text` 的子串（唯一的确定性锚点；不是子串的整条丢弃并记 `dropped`），最多 10 条；写进 `turns/NNNN.json` 的 `warnings`、遥测一行，并在**下一次** `player_input` 的胶囊里带 `warnings: [{"turn", "kind", "quote", "why"}]`（只带最近一个已提交回合的，≤ 1KB）。全部 advisory：不改状态，不拦交付，不重开回合。车道不用关键词、不用正则；能确定性判的（自写骰面、未关的 `needs`）仍在内核。
 
-零工具子会话是规格第六、九节定下的形状：产出是 ≤ 12 条候选或 ≤ 10 条发现的短 JSON，远在单条助手消息的上限之下，不是把整本书塞进一次补全。Pi 0.85.1 里扩展够得着的面是 `ctx.modelRegistry.complete`（一次不带工具的补全，复用当前会话的注册表与鉴权），扩展里起不了嵌套 agent 会话；这条路的边界记在 `docs/pi-host-contract.md` 3.1 与第 5 节。车道跑成功就调一次 `table.warn`，`findings` 为空也调：内核由此分得清「跑了没发现」与「没跑」，所以 `table.warn` 必须收 `findings: []`。校验车道选 `why` 的语言用 `table.open` 结果 `campaign.play_language`。
+零工具子会话是规格第六、九节定下的形状：产出是 ≤ 12 条候选或 ≤ 10 条发现的短 JSON，远在单条助手消息的上限之下，不是把整本书塞进一次补全。实现取的是 `ctx.modelRegistry.complete`（一次不带工具的补全，复用当前会话的注册表与鉴权）；0.85.1 里真的嵌套零工具内存会话也起得了，是权衡后没走，不是上游没路——两边的代价记在 `docs/pi-host-contract.md` 3.1 与第 5 节。车道跑成功就调一次 `table.warn`，`findings` 为空也调：内核由此分得清「跑了没发现」与「没跑」，所以 `table.warn` 必须收 `findings: []`。校验车道选 `why` 的语言用 `table.open` 结果 `campaign.play_language`。
 
 **advisory 的去留（2026-09-06 证据复核，报告在玩测证据旁）**：**保持 advisory**。两局 42 个关回合、52 条发现逐条判：`uncommitted_state` 22 真 0 假 6 判不了、`reveal` 2 真 1 假（n=3）、`player_agency` 1 真 20 假。升级为阻塞门的条件按类分开：`uncommitted_state` 最强，但它最大的一簇（NPC 被叙述进场却不在提交的在场表里）是产品缺口不是守秘人失误，要先落 #27 的 `apply npc`，再看一局 30–40 回合的召回；`player_agency` 定义过宽（把转述玩家请求成台词、「你转过身」判成越权），先收窄定义再重新计量；`reveal` 样本太小，要 100+ 回合。已证实的价值在人不在模型：重复出现的那条发现是 #19 的立票依据，没有证据表明胶囊 `warnings` 改变过守秘人下一回合的行为。
 
@@ -1008,11 +1014,26 @@ canonical 事件枚举（§12.1，代码里实为十五类：`kernel/coc/events.
 - 内核用例：三种效果各自的写侧与校验、`ruling` 的锚点匹配与接续、`note` 的开关、`flag` 的 `met` 三态、`look focus=session`；每条产品修复配一个能被变异杀死的用例。
 - 真桌（`toomany-s4` 续局或新建）：置一个开关并在胶囊里看到某条出口的 `met: false`；开一条 note 并在两回合后关掉；做一次裁定，随后在同族的第二次判定里从 `resolve` 结果看到它被提醒；战斗里 `look focus=session` 拿到完整会话视图。
 
+### 18.7 The kernel's decisions (implemented, ticket #27)
+
+- **Where it lives.** `kernel/coc/bookkeeping.py` holds the three effects, their validation, the two ledgers and both projections; `table.py` only routes (`APPLY_KINDS` gains `flag`, `note`, `ruling`; `APPLY_RESERVED` keeps `npc` for §17). The three receipts carry `visibility: "keeper"`, so `mechanics` (§16.2) projects nothing for them and `narrate`/`ask` owe no number; `facts.committed` (§12.5) has no sentence for them either — they are the keeper's bookkeeping, not events the player saw. `recall history` timeline counts keep their six kinds.
+- **Ledgers.** `notes.jsonl` and `rulings.jsonl` sit in the campaign directory (`Campaign.notes_path` / `rulings_path`), append-only; the current state of a note or ruling is its last row by normalized name. A batch stages its rows and appends them right after `world.json` is written, so a failed effect writes nothing; the per-turn commit carries them like every other file. A closed note is a new row `{...open row, "status": "closed", "closed_turn", "closed_by": <call_id>}`; a superseded ruling is a new row `{...old row, "status": "superseded", "superseded_by": <new name>, "superseded_turn"}`, followed by the new one.
+- **`flag`.** The key is `kebab(name)` (`Records serious crime destination known` → `records-serious-crime-destination-known`; `reached_blast_chamber` → `reached-blast-chamber`); `value` is `true` (default), `false`, or a non-empty string of at most 40 characters — anything else is `invalid_params`; the words `"true"`/`"false"` (any case, trimmed) read as the booleans, because a host tool schema that types `value` as a string would otherwise store the word and a gate would read `"false"` as set. `world.flags` stays a plain map `{slug: value}` in write order: a re-set flag is moved to the end, so recency is the map order and no timestamps are stored. Receipt `flag:<ascii slug, 24 chars>-t<n>-c<k>` with `{name: slug, value, previous, why}`; event `flag-set` `{name, value, previous}`.
+- **Exit gates.** `where.exits[].unlock_when` is now an object `{"condition": "<described>", "met": true | false | null}`, present on every exit whose authored condition is not `always` (before this slice it was a string, shown only while unmet). Decidable: `clue_discovered`, and a flag condition in either spelling — the starters' `{"kind": "flag_set", "flag_id": ...}` (the-haunting: `hall-of-records → higher-courts-central-police`) or §18.1's `{"kind": "flag", "flag": ...}`, optionally with `value`; a flag not in the map reads `false`, a flag set to `false` reads `false`, any other value reads `true` (with `value` given: exact equality). A built book's `route-to` edge that carries only `properties.flag` (the-white-war's `derived_from: exit-entry-flag`) is read as a `flag_set` gate, and a bare-string condition as a flag name. A condition of any other kind reads the flags the world already holds by whole-token containment of the slug in its strings (`narrative` text naming `door-open` → that flag's truth); with no known flag named it is `null`. `condition_met` (chase chains, sessions) is now `condition_status(...) is True`, so a held flag also satisfies it. `apply move` never consults a gate.
+- **`known.flags`.** `[{name, value}]`, most recent write first, fitted to its own 512 B by shedding the tail before `known` is fitted to 3 KB; a cut is recorded as `known.flags` in `truncated`.
+- **`note`.** `text` opens a note (then `name` is required); `closes` closes the open note of that name (`name` and `text` may then be omitted); both in one effect replace one note by another, and `name == closes` with `text` restates a note. Opening a name that is already open is `invalid_params` (`details.open_since_turn`); closing a name that is not open is `invalid_params` (`details.open` lists what is). `entities` resolve like §12.4's `about` — the canonical name when exactly one investigator, NPC, scene or clue matches (exact, else one whole word), the keeper's own words otherwise: a note is a memo, not a world write. Receipt `note:<slug>-t<n>-c<k>` `{name, status: open|closed, text, entities, closes}`; event `note-written` with the same four fields. Capsule `obligations` rows: `{"kind": "note", "name", "who": "keeper", "state": <text>, "turn", "cue"?: <entities joined>}` — every open note whose entities meet a present NPC (display name or handle) or this scene (handle or the keeper's label) first, then the most recent three of the rest.
+- **`ruling`.** `anchor` is validated closed and spelled canonically before anything is written: `family` against the RuleGraph coverage families (`details.options`), `decision` against the decisions' semantic names (a full `decision:coc7:...` ref is accepted and reduced), `skill` through `SkillResolver.resolve_explicit` (`details.options` = the closest sheet skills), `entities` through `graph.resolve` on any node kind, stored as sorted handles (`details.candidates` on a miss); at least one facet, no other keys. `scope` is `campaign` (default), `module` or `scene`; the row also records the scene it was made in and the module id. A new ruling supersedes every active ruling with the same normalized name **or** the identical anchor (canonical JSON, entities sorted). Receipt `ruling:<slug>-t<n>-c<k>` `{name, statement, anchor, scope, supersedes: [names]}`; event `ruling-made` with the same fields minus the statement.
+- **Matching is a conjunction.** §18.3's "任一相等即命中" is read as: whichever facets the anchor names, each must be equal to the facet at hand (an anchor `{skill: Spot Hidden, decision: ordinary-check}` does not fire on a Listen ordinary check); `entities` counts as met when any anchored handle is among the handles at hand. In `resolve` the facets are the settled `decision` and `family`, the `skill` of every D100 roll receipt of the settlement plus `outcome.skill`, and the graph handles of `action.target`, `action.actor` and `outcome.target`. `result.rulings: [{name, statement}]`, newest first (turn, then ledger order), at most three; only settled results carry it (an `outcome.kind: none` selected nothing). In the capsule the facets a turn can judge are the live session's family (`combat`, `chase`, `sanity_bout → sanity`) and the present NPC handles plus this scene's handle; a family facet outside the session families (`core-check`, `social`, …) is not held against the ruling there, a `decision` or `skill` facet never is, and an anchor with nothing judgeable is left to `resolve`. A `scope: "scene"` ruling made in this scene shows regardless of its anchor. `scope: "scene"` filters both projections to the scene the ruling was made in; `scope: "module"` compares module ids, which inside one campaign is always equal (cross-campaign sharing is not in this slice).
+- **Capsule section.** `situations` is a list of state-driven decisions, so `situations.rulings` cannot exist; the rulings ride as a top-level section `rulings: [{name, statement, anchor, scope}]`, budget 1 KB, tail-dropped, `truncated: "rulings"`. `look focus=scene` does not carry it.
+- **`look focus=session`.** `{"session": <11.9 view or null>, "pending_choice": <11.9 pending or null>}` — the same `SessionView` the capsule and every `resolve` echo, rebuilt from the engine snapshots under `save/`, so a fresh process returns the same fight; `{"session": null, "pending_choice": null}` when nothing is live.
+- **Events and counts.** `kernel/coc/events.py` is closed at eighteen: `flag-set` (`apply flag`, `{name, value, previous}`), `note-written` (`apply note`, `{name, status, entities, closes}`), `ruling-made` (`apply ruling`, `{name, anchor, scope, supersedes}`), each anchored on its receipt; `tests/kernel/test_apply_bookkeeping.py` pins the enum. The §12.1 table and the "fifteen" wording in §3, §7 and §12.1 were not edited by this slice (a parallel session owns that file's §17); the three rows above are what §12.1 needs, and the count becomes eighteen.
+- **Left to the extension.** The `apply` tool description does not list `flag`/`note`/`ruling` and the keeper prompt says nothing about rulings or notes; `look` schema does not list `session`.
+
 ## 19. 桌况扩展：命令面、模型切换、COC 自己的上下文折叠（切片 10，票 #28）
 
 规格 #12 第一节给 table 扩展派了五件事：HUD、欢迎页、上下文折叠、`/system` 命令、模型与思考等级切换。落地的只有前两件（状态行 `coc-session`/`coc-director` 与 `coc-welcome` 条目），后三件一直空着，扩展里没有一个 `registerCommand`。长局因此有两个真问题：会话记录被每回合的胶囊与工具往返撑大，Pi 的缺省压缩不知道哪些能整段丢；桌上换模型（守秘人太贵、太慢、抽风）只能杀进程重开。
 
-宿主接口都在（`docs/pi-host-contract.md` 第 2 节补登记）：`pi.registerCommand(name, {description, handler})`、`ctx.setModel(model)` / `ctx.setThinkingLevel(level)` / `ctx.modelRegistry`、`session_before_compact` 事件与 `ctx.compact(options)`。
+宿主接口都在（`docs/pi-host-contract.md` 第 2 节与新的 3.5 节登记了实测行为）：`pi.registerCommand(name, {description, handler})`、`pi.setModel(model)` / `pi.setThinkingLevel(level)`（在 `ExtensionAPI` 上，不在 `ctx` 上；`ctx` 只有只读的 `model`、`thinkingLevel`、`modelRegistry`，且思考等级会被模型能力钳住，必须 `pi.getThinkingLevel()` 读回）、`session_before_compact` 事件与 `ctx.compact(options)`（fire-and-forget，要抢在回合前落地得自己包 `onComplete`）。
 
 ### 19.1 一个命令，几个子命令
 
@@ -1023,19 +1044,20 @@ canonical 事件枚举（§12.1，代码里实为十五类：`kernel/coc/events.
 | `/coc`（无参） | 桌况面板：战役 id 与标题、回合号与状态、场景与时钟、队伍 HP/SAN/MP、活跃会话、Director 上一个节拍与理由、模组材料就绪度、当前模型与思考等级。数据取 `table.status` 与本回合胶囊，只读。 |
 | `/coc model [provider/model]` | 无参列出注册表里的候选（`ctx.modelRegistry`）与当前值；有参切换（`ctx.setModel`），回合中途切了下一回合生效，当前回合不回滚。切换写一行遥测。 |
 | `/coc thinking <level>` | `ctx.setThinkingLevel`，同上。 |
-| `/coc lanes` | 校验与记忆两条车道的模型、最近 10 行车道遥测（成功/失败/耗时）。车道今天失败是静默的，这是唯一能看见它的地方。 |
+| `/coc lanes` | 校验与记忆两条车道的模型、最近 10 行车道遥测（成功/失败/耗时/原因码）。每个 `narrate` 关掉的回合都留一行，包括车道根本没跑的四种（没有事实清单、模型解析不出、调用抛错、超时），静默不跑不再可能。 |
 | `/coc evidence` | 打印证据路径：战役目录、遥测、逐字记录、模组存储、玩测目录。给人用来开另一个终端看。 |
 
 `ctx.mode !== "tui"` 时（RPC 模式、print 模式）命令只回一行「interactive only」，不做别的：驾驭器不靠它。
 
 ### 19.2 COC 自己的上下文折叠
 
-Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `session_before_compact`，给它一份 COC 口径的保留清单：
+Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `session_before_compact`。**这个钩子表达不了「按条目挑着丢」**：它的返回是一个切点加一段摘要，Pi 用摘要替换切点之前的一切。所以「整段丢那些、原样留这些」只能实现成「选好切点，把要留的原样抄进摘要」。COC 口径如下：
 
-- **整段丢**：所有 `coc-capsule` 条目（每回合重新生成，旧的一律是废页）、所有 `coc-mechanics` 条目（前端用的投影，模型不需要回看）、最近两回合之外的工具调用与工具结果（收据在内核里，`recall` 能拿回来）。
+- **整段丢**：所有 `coc-capsule` 消息（每回合重新生成，旧的一律是废页）、带工具调用的助手消息与工具结果消息（收据在内核里，`recall` 能拿回来）、上一次折叠自己写的那条说明。（`coc-mechanics` 是 `CustomEntry`，本来就不进模型上下文，丢它不改变守秘人看到的东西。）
 - **原样留**：玩家输入与已交付的正文（它们是逐字记录的对应物）、系统提示、最近两回合的全部往返、任何 `pending_*` 相关的宿主消息。
 - **压缩后补一条宿主消息**：一行英文，说明桌面状态在下一回合的胶囊里、往事用 `recall`、本回合的待决是什么。守秘人不需要从摘要里回忆状态——状态本来就每回合重发。
-- 触发：除了 Pi 自己的阈值，`before_agent_start` 里当上下文占用超过阈值（缺省 70%，`PI_COC_COMPACT_AT` 可调）就先 `ctx.compact()` 再进回合，避免压缩发生在工具往返中间。
+- 触发：除了 Pi 自己的阈值，`before_agent_start` 里当上下文占用超过阈值（缺省 70%，`PI_COC_COMPACT_AT` 可调）就先 `ctx.compact()` 再进回合，避免压缩发生在工具往返中间。刚折叠完 `getContextUsage().percent` 是 `null`，那一轮不判。
+- 代价说清楚：留下的逐字对话随局增长，所以折叠**不是定长**的——胶囊、机制、工具往返都没了，但玩家原文与交付会一直累积。要定长得等上游给「按条目丢」的能力（宿主契约第 6 节的请求）。
 
 判据是**条目类型与回合距离，不是内容语义**——不读文本、不做相关性判断（`Agents.md`「语义问题不许硬编码」）。
 
