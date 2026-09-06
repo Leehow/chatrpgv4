@@ -228,3 +228,54 @@ def test_a_lost_ledger_is_rebuilt_from_the_closed_turns(kernel):
     path.unlink()
     kernel.ok("table.open", {"campaign": CAMPAIGN})
     assert json.loads(path.read_text(encoding="utf-8")) == before
+
+
+# ---- the dossier survives the build path (§17.2) ---------------------------------------------
+
+def test_a_reader_s_dossier_claims_reach_the_graph_and_the_table(kernel, tmp_path):
+    """§17.2/§17.7: the asks added to the reader are worth nothing unless what it writes
+    survives the three gates, the merge, and the projection. This walks one book's
+    `believes` and `hides` claims all the way to `look focus=<npc>` -- the path a re-read
+    of a real book would take, with no model in the loop."""
+    from module_helpers import (TINY_ID, bind_tiny, claim, module_dir, node, packet_for, plan_whole_book,
+                                reader_shard, review, span_with, write_shard)
+
+    bind_tiny(kernel, tmp_path)
+    section_id = plan_whole_book(kernel)
+    packet, work_dir = packet_for(kernel, section_id)
+    shard = reader_shard(packet)
+
+    # what the page actually says about him: he saw the sailor go in at night, and he is timid
+    seen = span_with(packet, "见过船工深夜进货栈")
+    timid = span_with(packet, "嘴碎但胆小")
+    assert seen and timid
+    shard["nodes"].append(node("secret", "sailor-entered-at-night", "船工深夜进货栈", [seen],
+                               "老周见过船工深夜进货栈，但不敢说。"))
+    shard["claims"] += [
+        claim("npc-lao-zhou", "hides", "secret-sailor-entered-at-night", [seen]),
+        claim("npc-lao-zhou", "knows", "clue-brass-whistle", [span_with(packet, "一枚铜哨")]),
+        claim("npc-lao-zhou", "believes", "secret-sailor-entered-at-night", [timid]),
+    ]
+    write_shard(work_dir, shard)
+    report = review(kernel, section_id)
+    assert report["accepted"], report["findings"]
+    kernel.ok("module.accept", {"module_id": TINY_ID, "section_id": section_id})
+    assembled = kernel.ok("module.assemble", {"module_id": TINY_ID})
+    assert assembled["merge"]["conflicts"] == 0 and assembled["merge"]["dangling_relations"] == 0
+
+    graph = ModuleGraph(TINY_ID, module_dir(kernel.workspace) / "module-graph.json")
+    zhou = graph.npc("老周")
+    assert [c["object"]["node_id"] for c in graph.npc_claims(zhou, "hides")] == ["secret-sailor-entered-at-night"]
+    assert [e["handle"] for e in graph.npc_knows(zhou)] == ["brass-whistle"]
+    assert graph.npc_claim_lines(zhou, "believes") == ["老周见过船工深夜进货栈，但不敢说。"]
+    # the machine's own `known_by_ids` reading (§17.2), computed rather than stored
+    assert graph.npcs_knowing(graph.nodes["clue-brass-whistle"]) == ["npc-lao-zhou"]
+    # and a person with a dossier is no longer counted as material-less by the brief
+    assert graph.npc_has_material(zhou) is True
+
+    # §17.4: and it is the projection the keeper reads, not just the graph
+    from coc.capsule import npc_entry
+    entry = npc_entry(graph, {"discovered_clues": [], "npc_presence": {"lao-zhou": "dock-teahouse"}},
+                      zhou, {}, {})
+    assert entry["believes"] == ["老周见过船工深夜进货栈，但不敢说。"]
+    assert [k["clue"] for k in entry["knows"]] == ["brass-whistle"]
