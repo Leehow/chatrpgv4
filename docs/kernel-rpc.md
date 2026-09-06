@@ -167,20 +167,20 @@ result：`{"receipts": ["move:hall-of-records-t3-c2", ...], "world": {"active_sc
 
 ### table.ask（切片 0）
 params：`{"call_id", "prompt": "<给玩家的问题>", "options": ["...", "..."], "binds"?: "<待决名>", "text"?: "<问题之前的叙述>"}`。
-- 记录 `pending_choice = {"name": "<ask-<slug>-t<turn>>", "prompt", "options", "binds"}`，状态进 `asked`，写逐字记录（keeper）。交付 = `text`（可省略）加本回合已落收据的机制块加 `prompt` 与编号选项：玩家先看到那一枪怎么打的，再选闪避还是反击。`text` 里同样不得自写【明骰】【变化】。不再调用 `narrate`。
+- 记录 `pending_choice = {"name": "<ask-<slug>-t<turn>>", "prompt", "options", "binds"}`，状态进 `asked`，写逐字记录（keeper）。交付 = `text`（可省略，同样要交代本回合公开收据的数字，同一套核对）加 `prompt` 与编号选项（编号是语言中立的 `1.`、`2.`）；`mechanics` 随结果给出。不再调用 `narrate`。
 result：`{"pending_choice": {...}, "rendered_text": "<叙述、机制块、prompt 与选项>", "turn": int, "state": "asked"}`。
 
 ### table.narrate（切片 0）
 params：`{"call_id", "text": "<本回合叙述>", "placement"?: "auto"|"end"}`。
 流水线：
 1. 状态必须是 `open` 或 `acting`。
-2. 守秘人自写骰面检查：`text` 中出现 `【明骰】` 或 `【变化】` 行时报 `invalid_params`，`fix` 说明这些块由内核插入。
-3. 渲染机制块：每条 `roll` 收据一行 `【明骰】<技能名>｜掷骰：<roll>；基础值：<target>；门槛：<难度>（≤<threshold>）；结果：通过/未通过`，技能名用规则术语表里的 play_language 译名，没有译名时用表上原名；每条 `move` 一行 `【变化】场景：<从> → <到>`，有行程时间时加 `（<n> 分钟）`，名字取 `label` 否则取 display_name；每条 `clue` 一行 `【变化】线索：<label 或 id>`；每条 `time` 一行 `【变化】时间：+<n> 分钟`。
-4. 放置：`auto` 时，`text` 按空行分段，段数 ≥ 2 则全部机制块插在第 1 段之后，否则追加在末尾；`end` 时追加在末尾。
+2. 机制核对（§16）：内核不再渲染任何机制行。守秘人在 `text` 里用玩家语言自己交代本回合每条**公开**收据的结果；内核只做确定性核对——每条公开 `roll` 的掷出值与目标值、每条 `delta` 的前后值、每条 dice 的合计、每条 `time` 的分钟数，都必须以数字形式出现在 `text` 里（纯字符串包含，不做语义判断）。缺了报 `invalid_params`，`code_detail: "mechanics_missing"`，`details.missing: [{"receipt", "expected": [数字...]}]`，`fix` 说明补上哪些数。名字（技能、场景、线索、物品）不核对——它们由守秘人按玩家语言写。
+3. `mechanics`：本回合全部收据的结构化投影（§16.2），语言中立，随结果返回并进交付通道，供前端渲染；正文里不插入它。
+4. `placement` 参数废止（忽略）。
 5. 写 `turns/<NNNN>.json`、逐字记录（keeper，写 rendered_text）、`turn-finalized` 事件。
 6. 同步 git 提交，提交信息 `turn <n>: <前 60 字>`；失败报 `commit_failed`，回合保持 `acting`，不递增。
 7. 成功后 `turn.json` 进 `awaiting_player`，`turn + 1`。
-result：`{"rendered_text": "...", "turn": int, "receipt": "turn:<n>", "commit": "<短 sha>", "facts": {...}, "extraction": {"job_id"}}`；`facts` 与 `extraction` 见 12.5 与 12.3。提交之后的链（检查点、episode、抽取任务）在 12.2–12.3，其中任何一步失败都不撤销已成功的提交：回合已关，失败只进遥测与 backlog。
+result：`{"rendered_text": "<即 text，正文原样>", "mechanics": [...], "turn": int, "receipt": "turn:<n>", "commit": "<短 sha>", "facts": {...}, "extraction": {"job_id"}}`；`facts` 与 `extraction` 见 12.5 与 12.3。提交之后的链（检查点、episode、抽取任务）在 12.2–12.3，其中任何一步失败都不撤销已成功的提交：回合已关，失败只进遥测与 backlog。
 
 开桌回合（turn 0）：`table.open` 返回 `opening_needed: true` 时，扩展先让守秘人 `look`，再 `narrate` 开场；此时状态从 `awaiting_player` 直接允许 `narrate`，内核视作 turn 0 的关闭。
 
@@ -210,7 +210,7 @@ result：`{"rendered_text": "...", "turn": int, "receipt": "turn:<n>", "commit":
 - `call_id` 铸造：每次会改状态的调用（`resolve`、`apply`、`ask`、`narrate`）递增回合内计数器；读调用不带。
 - `before_agent_start`：把玩家 prompt 交给 `table.player_input`，把返回的胶囊作为 `customType: "coc-capsule"`、`display: false` 的消息注入。宿主自己发出的消息（恢复、开场）不是玩家输入，不进 `player_input`。
 - `tool_call`：同名同参的调用在本回合被内核拒过两次后第三次拦下，理由里复述上次的错误（原样重发不会有不同结果）；`awaiting_player`/`committed` 拒写；`narrate` 成功后同一批次余下的调用一律 `block` 并说明回合已关闭；`apply`/`resolve` 的名字做大小写与空白归一化。
-- `message_end`：带工具调用的助手消息只保留调用块，删掉其中的文本：守秘人在调用前写的过程话不是台词。本回合 `narrate` 或 `ask` 已返回 `rendered_text` 时，把随后那条助手消息的文本整体替换为 `rendered_text`；守秘人在工具之后写的正文被丢弃。守秘人写了正文却没调 `narrate` 就收工时，宿主替它关回合：剥掉自写的【明骰】【变化】行后把正文作为 `text` 调 `table.narrate`；内核留有 `for: player` 的待决时改调 `table.ask`，正文是 `text`，问题、选项与 `binds` 取自待决。交付仍是内核渲染的文本。只有正文为空（只想不说）时才催一次。玩家可见文字只由 `narrate` 与 `ask` 产生。
+- `message_end`：带工具调用的助手消息只保留调用块，删掉其中的文本：守秘人在调用前写的过程话不是台词。本回合 `narrate` 或 `ask` 已返回 `rendered_text` 时，把随后那条助手消息的文本整体替换为 `rendered_text`；守秘人在工具之后写的正文被丢弃。守秘人写了正文却没调 `narrate` 就收工时，宿主替它关回合：把正文原样作为 `text` 调 `table.narrate`（内核的机制核对照跑，缺数字就退回守秘人补）；内核留有 `for: player` 的待决时改调 `table.ask`，正文是 `text`，问题、选项与 `binds` 取自待决。交付是守秘人的正文，外加一条 `coc-mechanics` 会话条目（§16.2 的 JSON，前端与驾驭器由此渲染，TUI 不显示）。只有正文为空（只想不说）时才催一次。玩家可见文字只由 `narrate` 与 `ask` 产生。
 - `agent_end`：回合仍在 `acting` 且没有 `narrate`，注入一条宿主消息「回合未关闭，用 narrate 交付」并触发一轮；最多一次。
 - 遥测：每次工具调用记录 `{turn, tool, call_id?, started_at, ms, ok, code?}` 到 `.coc/campaigns/<id>/telemetry.jsonl`，每回合结束记录模型往返数。
 
@@ -418,7 +418,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 - `committed`：本回合已提交的事实，每条一句 play_language，确定性地从收据与世界状态生成：第一句是玩家原文（`玩家声明：<原文>`，校验车道据此判断哪些自愿行为是玩家自己声明的）；每条 `roll` 一句（谁、什么检定、过没过）、`move` 一句、`clue` 一句、`delta` 一句（资源 前 → 后）、`session` 一句、`time` 一句，再加「地点：<display_name>」与「在场：<名字>」。
 - `keeper_only`：本场景尚未发现的线索（名字与摘要）、在场 NPC 的 `agenda` 与 `secret`、模组级秘密里与本场景相关的条目；总量 ≤ 2KB，超出按项裁剪。
 
-校验车道在 kernel 扩展内：交付完成后（`message_end` 替换之后）用 Pi SDK 起零工具内存会话，模型由 `PI_COC_VERIFIER_MODEL`（`provider/model`）指定，缺省与桌子同模型；输入是 `rendered_text` 去掉机制行后的正文、`facts.committed`、`facts.keeper_only`，要求只返回 JSON：
+校验车道在 kernel 扩展内：交付完成后（`message_end` 替换之后）用 Pi SDK 起零工具内存会话，模型由 `PI_COC_VERIFIER_MODEL`（`provider/model`）指定，缺省与桌子同模型；输入是正文（`rendered_text`）、`facts.committed`、`facts.keeper_only`（三者都是系统语言英文，正文除外），要求只返回 JSON：
 
 ```
 {"findings": [{"kind": "reveal"|"uncommitted_state"|"player_agency", "quote": "<正文里的原句，≤ 120 字>", "why": "<≤ 200 字>"}]}
@@ -806,37 +806,40 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 - 真桌：玩到循环终点回溯，第二圈与第一圈不同（骰子、NPC 反应、Director 节拍），声明记得的 NPC 表现出记得；再开一条 if 线并与主线汇流，汇流报告出冲突、守秘人处置、回声被投放并揭示。KPI 与前几个切片同一脚本。
 - 旧树 `tests/test_timeline_dag.py`、`test_timeline_fork_rewinds.py`、`test_timeline_confluence.py`、`test_toolbox_timeline*.py` 的用例名作为行为清单逐条对照（分叉不动主线、切线只动活动线、汇流冲突枚举完整且有序、处置闭合、不可复制类别不合并、重放幂等、状态写失败回滚引用）。
 
-## 16. 语言：任何人读的字都来自内容表，不在代码里（切片 7，票 #24）
+## 16. 系统语言与机制投影（切片 7，票 #24）
 
-现状（2026-09-06 审计）：`kernel/`、`extensions/`、`bin/` 里有约 700 行含中文字面量——渲染标记（【明骰】【变化】【第 n 轮】【手卡】）、资源与会话标签、事实句模板、胶囊 `head`、压力/待办的状态词、Director 的 reason、宿主消息（开桌/恢复/催收/状态行）、七个工具与 `setup` 的描述、读者 brief、两条车道的提示、`bin/pi-coc` 的说明。`facts.py`、`steps.json`、`beat-directives.json` 已经按语言分键，是对的形状；其余不是。产品要做多语言，所以定法：
+用户 2026-09-06 的裁定，替代此前误写的「语言表」方案：**系统语言是英文，玩家语言由 agent 自己出，机制结果是 JSON。** 不做翻译层，不做按语言分键的字符串表。
 
-**法则：** `kernel/**`、`extensions/**`、`bin/**` 里不出现任何自然语言字面量（中文或英文的整句）。玩家看到的、守秘人在 play_language 里看到的、建卡助手说的、读者读到的，一律从 `content/i18n/<lang>/` 与 `prompts/<lang>/` 取，按语言键选。契约、收据 id、事件类型、错误 `code`、日志、遥测是机器面，保持 ASCII 英文；RPC 错误的 `message`/`fix` 是给模型的操作指令，也用英文（这是唯一的英文例外，列在这里）。
+### 16.1 系统语言
 
-### 16.1 内容表
+- 代码、契约、提示词（守秘人、建卡、读者）、工具描述、宿主消息、胶囊里内核写的说明（`head`、压力/待办的状态词、Director 的 reason、检查点 one_line）、事实清单、抽取指令、校验车道的输入与发现、读者 brief、启动器帮助——全部英文。代码里不出现中文；守卫测试扫 `kernel/**`、`extensions/**`、`bin/**`、`prompts/**`、`content/setup/*.json`、`content/craft/beat-directives.json`，命中 CJK 即失败（模组内容与规则术语表是数据，不受限）。
+- 玩家看到的一切由守秘人按战役 `play_language` 写（提示里的那一句是唯一机制）；记忆候选的 `statement` 也按 `play_language` 写（守秘人之后要读它、玩家可能通过 recall 看到它）；校验发现的 `why` 与遥测用英文。
+- 规则术语表（技能、武器的各语言译名）留在规则数据里，不再被渲染路径消费；守秘人自己把 `Spot Hidden` 说成玩家语言里的词。
 
-```
-content/i18n/<lang>/kernel.json   markers（dice/change/round/handout）、资源与会话标签、成功等级、结局词、事实句模板（facts.py 的两套字典迁入）、
-                                  胶囊 head 与各节的说明词、pressures/obligations 的状态词、Director 的 reason 与 override 名、warn 种类的说明、
-                                  检查点 one_line 模板、抽取指令、建卡回执行、汇流冲突类别说明
-content/i18n/<lang>/tools.json    七个动词与 setup 的 description / promptSnippet / 每个参数的 description、apply 各 kind 的说明
-content/i18n/<lang>/host.json     扩展的宿主消息：开桌、恢复、催收、状态行、setup 闸门的模板（steps.json 的 lines 仍留在 steps.json，按同一语言键）、读者 brief 的固定句
-prompts/<lang>/keeper.md、setup.md、reader.md
-```
+### 16.2 机制投影（`mechanics`）
 
-- 支持的语言 = 三张表与三份提示都齐全的语言；首批 `zh-Hans`（现有文本逐字搬入）与 `en`（译文）。缺一个键的语言不算支持，开桌时报 `campaign_not_ready`。
-- 规则术语（技能、武器、法术的显示名）继续走规则数据的术语表（`skill_label`），不进 i18n 表；模组内容按模组自己的 `source_language`。
-- 选语言：战役用 `campaign.json.play_language`；建卡进程与开桌前的宿主消息用 `PI_COC_LANGUAGE`（缺省 `zh-Hans`）；`campaign.create` 只收支持的语言。
+内核不再把收据拼成句子。`narrate`/`ask` 的结果与 `table.status` 带 `mechanics: [...]`，每条一个语言中立的对象，直接对应收据：
 
-### 16.2 内核暴露给扩展的东西
+| kind | 字段 |
+| --- | --- |
+| `roll` | `actor`, `skill`, `roll`, `target`, `threshold`, `difficulty`, `level`, `passed`, `pushed`, `visibility` |
+| `dice` | `actor`, `label`, `expression`, `faces`, `total` |
+| `change` | `resource`, `subject`, `before`, `after` |
+| `scene` | `from`, `to`, `minutes`, `via`? |
+| `clue` | `clue`, `label`? |
+| `time` | `minutes` |
+| `item` | `name`, `quantity`, `to`, `weapon`? |
+| `cash` | `subject`, `before`, `after` |
+| `session` | `family`, `transition`, `round`?, `outcome`? |
+| `choice` | `option` |
+| `handout` | `name`, `path`? |
 
-扩展不再自己认 `【明骰】`：`kernel.hello` 返回 `i18n: {languages: [...], markers: {<lang>: {dice, change, round, handout}}}`；`table.open` 返回 `play_language` 与该语言的 `markers`；扩展剥机制行、渲染状态行、拼宿主消息都用它们。工具描述在 `session_start` 从 `tools.json` 按语言装进 `registerTool`（建卡进程按 `PI_COC_LANGUAGE`）。
+扩展把它作为会话条目 `coc-mechanics`（`{turn, mechanics}`）追加到 Pi 会话并发到总线 `coc:mechanics`；Pi RPC 事件流因此带着它，驾驭器落进证据；未来的 Electron/web 前端按它渲染骰子卡与变化条。TUI 只显示守秘人的正文。§5、§11.6、§11.9、§12.5 里任何「渲染【明骰】【变化】行」的旧说法以本节为准。
 
-### 16.3 守卫
+### 16.3 确定性底线
 
-- 测试：对 `kernel/**/*.py`、`extensions/**/*.ts`、`bin/*` 扫 CJK 字符与「整句英文字面量」（启发式：含空格且以句号/问号/句末标点结尾的字符串），任一命中即失败；注释不计（先剥注释）。测试夹具与内容目录不受限。
-- 测试：每种支持的语言，三张表的键集合与 `zh-Hans` 完全相同，三份提示存在且非空。
-- 真桌：一局 `en` 的 the-haunting 三回合（`play_language: en`），交付、胶囊、状态行、错误 fix 里没有一个中文字；同一晚一局 `zh-Hans` 三回合对照没有退化。
+数值只出自内核，这条不变；守的方式从「内核插行」改为「内核核对」：`narrate`/`ask` 时每条公开收据的关键数字必须出现在正文里（§5 第 2 步），否则退回守秘人补。守秘人提示里写明：公开的检定与变化要在正文里用玩家语言交代，数字照收据抄，内核会核对。
 
-### 16.4 迁移
+### 16.4 验收
 
-先把现有中文逐字搬进 `zh-Hans` 表与 `prompts/zh-Hans/`（不改措辞），代码改成读键；再由一个 worker 产 `en` 表与提示（译文，守秘人提示的 `en` 版由用户审）；守卫测试最后打开。切片 6（世界线）在这一节落地之后再开，免得再添一批字面量。
+- 守卫测试绿；两场真桌各三回合：`toomany-s4`（zh-Hans）正文中文、机制数字齐全、`coc-mechanics` 条目随每回合落到证据；一局新建的 the-haunting（`play_language: en`）正文英文、没有一个中文字。
