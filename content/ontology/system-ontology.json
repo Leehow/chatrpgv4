@@ -1280,18 +1280,6 @@
       "to_ref": "ref:rule:coc7:decision-coc7-core-check-ordinary-check"
     },
     {
-      "relation_id": "relation:system:director-investigate-grounded-healing-dying-hour-clock",
-      "relation_kind": "grounded-by",
-      "from_ref": "ref:director:investigate-intent",
-      "to_ref": "ref:rule:coc7:dying-hour-clock"
-    },
-    {
-      "relation_id": "relation:system:director-investigate-grounded-healing-dying-round-clock",
-      "relation_kind": "grounded-by",
-      "from_ref": "ref:director:investigate-intent",
-      "to_ref": "ref:rule:coc7:dying-round-clock"
-    },
-    {
       "relation_id": "relation:system:director-investigate-grounded-healing-first-aid-ordinary",
       "relation_kind": "grounded-by",
       "from_ref": "ref:director:investigate-intent",
@@ -1314,12 +1302,6 @@
       "relation_kind": "grounded-by",
       "from_ref": "ref:director:investigate-intent",
       "to_ref": "ref:rule:coc7:medicine-stabilization"
-    },
-    {
-      "relation_id": "relation:system:director-investigate-grounded-healing-weekly-major-wound-recovery",
-      "relation_kind": "grounded-by",
-      "from_ref": "ref:director:investigate-intent",
-      "to_ref": "ref:rule:coc7:weekly-major-wound-recovery"
     },
     {
       "relation_id": "relation:system:director-investigate-grounded-magic-learn-spell",
