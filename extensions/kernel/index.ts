@@ -9,11 +9,12 @@ import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KernelClient, KernelError } from "./client.ts";
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
+import { type CommitPayload, runVerifierLane, stripMechanicsLines } from "./verifier.ts";
 
 type TurnState = "awaiting_player" | "open" | "acting" | "asked" | "committed";
 
 interface OpenResult {
-	campaign?: { id?: string; title?: string };
+	campaign?: { id?: string; title?: string; play_language?: string };
 	turn?: { number?: number; state?: TurnState };
 	investigators?: Array<Record<string, unknown>>;
 	scene?: { name?: string; display_name?: string };
@@ -24,6 +25,8 @@ interface OpenResult {
 		since?: string;
 		last_call_ordinal?: number;
 	} | null;
+	/** 续行检查点（契约 §12.2）：重开后第一回合的胶囊自己带这一节，扩展不为它单独发宿主消息。 */
+	resume?: { turn?: number; commit?: string; one_line?: string; rebuilt?: boolean } | null;
 	opening_needed?: boolean;
 }
 
@@ -67,6 +70,8 @@ interface TableState {
 	kernel: KernelClient;
 	campaign: string;
 	telemetryPath: string;
+	/** 战役的 play_language，用来告诉校验车道 `why` 用哪种语言写；内核没给就不提。 */
+	playLanguage?: string;
 	turn: number;
 	state: TurnState;
 	/** 本回合已铸造的会改状态调用序号。 */
@@ -85,6 +90,10 @@ interface TableState {
 	steeredThisTurn: boolean;
 	roundTrips: number;
 	mintedCallIds: Map<string, string>;
+	/** narrate 已提交、校验车道还没起跑的那一回合（契约 §12.5：交付替换之后才跑）。 */
+	pendingCommit?: CommitPayload;
+	/** 会话结束时掐断还在飞的车道补全，别让它拖住退出。 */
+	lanes: AbortController;
 }
 
 const PKG_ROOT = packageRoot();
@@ -93,6 +102,8 @@ const TURN_CLOSED_REASON = "回合已关闭，等待玩家";
 
 let table: TableState | undefined;
 let startupError: string | undefined;
+/** session_start 那个 ctx 的字段都是取值时算的，所以留着它就等于留着一份活的会话视图。 */
+let sessionCtx: ExtensionContext | undefined;
 
 function packageRoot(): string {
 	const here = dirname(fileURLToPath(import.meta.url));
@@ -262,6 +273,53 @@ export default function (pi: ExtensionAPI) {
 		});
 	}
 
+	/**
+	 * narrate 提交成功：总线上发一条 `coc:turn-committed`（契约 §12.8），记忆扩展据此起车道；
+	 * 同一份载荷留给校验车道，等交付替换完成再跑。
+	 */
+	function noteCommit(state: TableState, result: Record<string, unknown>): void {
+		const renderedText = asString(result.rendered_text);
+		if (!renderedText) return;
+		const extraction = (result.extraction ?? {}) as { job_id?: unknown };
+		const payload: CommitPayload = {
+			campaign: state.campaign,
+			turn: typeof result.turn === "number" ? result.turn : state.turn,
+			rendered_text: renderedText,
+			...(asString(result.commit) ? { commit: asString(result.commit) } : {}),
+			...(asString(extraction.job_id) ? { job_id: asString(extraction.job_id) } : {}),
+			...(result.facts && typeof result.facts === "object" ? { facts: result.facts as CommitPayload["facts"] } : {}),
+		};
+		state.pendingCommit = payload;
+		pi.events.emit("coc:turn-committed", payload);
+	}
+
+	/**
+	 * 校验车道（契约 §12.5）：交付替换之后 fire-and-forget，不 await、不拦、不催。
+	 * 没有 `facts` 的内核（切片 0、1）不跑：没有事实清单可读。
+	 */
+	function scheduleVerifier(state: TableState): void {
+		const payload = state.pendingCommit;
+		state.pendingCommit = undefined;
+		if (!payload?.facts) return;
+		const ctx = sessionCtx;
+		if (!ctx) return;
+		const kernel = state.kernel;
+		const signal = state.lanes.signal;
+		const playLanguage = state.playLanguage;
+		const timer = setTimeout(() => {
+			// 车道是 advisory 的：它自己怎么坏都不该冒出去变成没人接的拒绝。
+			void runVerifierLane({
+				ctx,
+				payload,
+				...(playLanguage ? { playLanguage } : {}),
+				call: (method, params) => kernel.call(method, params),
+				record,
+				signal,
+			}).catch(() => undefined);
+		}, 0);
+		timer.unref?.();
+	}
+
 	function applyToolSuccess(state: TableState, tool: string, toolCallId: string, result: Record<string, unknown>): void {
 		switch (tool) {
 			case "look":
@@ -290,6 +348,7 @@ export default function (pi: ExtensionAPI) {
 				state.closedThisRun = true;
 				state.renderedText = asString(result.rendered_text);
 				state.deliveryToolCallId = toolCallId;
+				noteCommit(state, result);
 				break;
 		}
 	}
@@ -408,11 +467,17 @@ export default function (pi: ExtensionAPI) {
 	async function shutdownKernel(): Promise<void> {
 		const current = table;
 		table = undefined;
-		if (current) await current.kernel.close();
+		if (current) {
+			// 还在飞的车道补全先掐断：进程要退出时不该等一次模型往返。
+			current.lanes.abort();
+			pi.events.emit("coc:kernel-bridge", { campaign: current.campaign, call: undefined });
+			await current.kernel.close();
+		}
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
 		await shutdownKernel();
+		sessionCtx = ctx;
 		startupError = undefined;
 		let kernel: KernelClient | undefined;
 		try {
@@ -450,11 +515,19 @@ export default function (pi: ExtensionAPI) {
 				steeredThisTurn: false,
 				roundTrips: 0,
 				mintedCallIds: new Map(),
+				lanes: new AbortController(),
 			};
 			const open = await kernel.call<OpenResult>("table.open", { campaign });
 			applyOpen(open);
+			table.playLanguage = asString(open.campaign?.play_language);
 			// 工具面固定：只这七个，之后不再变形。
 			pi.setActiveTools([...COC_TOOL_NAMES]);
+			// 一个 Pi 会话一个内核子进程（契约 §1），所以内核 RPC 只有这一份。
+			// 记忆扩展的车道要 `memory.job`／`submit`／`fail`，走这条总线上的桥，不另起进程。
+			pi.events.emit("coc:kernel-bridge", {
+				campaign,
+				call: (method: string, params: Record<string, unknown>) => kernel.call(method, params),
+			});
 			pi.events.emit("coc:table-open", { campaign, open });
 
 			if (ctx.hasUI) {
@@ -466,8 +539,13 @@ export default function (pi: ExtensionAPI) {
 			const pending = open.pending_turn;
 			if (pending) {
 				const owed = (pending.owed ?? []).join("、") || "narrate";
+				// 检查点的一句话（契约 §12.2）说的是「上一个已提交回合停在哪」，
+				// 恢复消息带上它，守秘人不必先 recall 就知道自己接在什么后面。
+				const oneLine = asString(open.resume?.one_line);
 				sendHost(
-					`上次会话在回合中途断了，这一回合还没交付。玩家原文：${pending.player_text ?? "（无）"}。` +
+					`上次会话在回合中途断了，这一回合还没交付。` +
+						(oneLine ? `上次提交停在：${oneLine}。` : "") +
+						`玩家原文：${pending.player_text ?? "（无）"}。` +
 						`已落收据：${JSON.stringify(pending.receipts ?? [])}。还欠：${owed}。` +
 						`先 look 看清现在的场面，把这一回合做完，再用 narrate 交付。`,
 					"recovery",
@@ -488,6 +566,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async () => {
 		await shutdownKernel();
+		sessionCtx = undefined;
 	});
 
 	// ---- 回合 -------------------------------------------------------------
@@ -639,14 +718,12 @@ export default function (pi: ExtensionAPI) {
 		if (!rendered) {
 			// 守秘人写了台词却没调 narrate：这段正文就是叙述。宿主替它关回合，
 			// 玩家看到的仍是内核渲染的文本，收据一条不少。
-			const prose = blocks
-				.filter((b) => b.type === "text" && typeof b.text === "string")
-				.map((b) => String(b.text))
-				.join("")
-				.split("\n")
-				.filter((line) => !/^\s*【(明骰|变化|第 ?\d+ ?轮)】/.test(line))
-				.join("\n")
-				.trim();
+			const prose = stripMechanicsLines(
+				blocks
+					.filter((b) => b.type === "text" && typeof b.text === "string")
+					.map((b) => String(b.text))
+					.join(""),
+			);
 			const canClose = state.state === "open" || state.state === "acting"
 				|| (state.state === "awaiting_player" && state.openingPending);
 			if (!prose || !canClose || state.closedThisRun) return;
@@ -696,12 +773,17 @@ export default function (pi: ExtensionAPI) {
 		state.callOrdinal = 0;
 		state.mintedCallIds.clear();
 		state.steeredThisTurn = false;
+		// 交付替换在返回这条消息时生效，车道排在它后面：定时器排到 0 毫秒之后才跑。
+		scheduleVerifier(state);
 		return { message: { ...event.message, content: next } };
 	});
 
 	pi.on("agent_end", async () => {
 		const state = table;
 		if (!state) return;
+		// 守秘人以 narrate 那条带工具调用的消息收尾时不会再有第二条助手消息，
+		// 也就没有交付替换可等；这一轮结束就是车道的起跑点。
+		if (state.pendingCommit) scheduleVerifier(state);
 		if (state.closedThisRun || state.renderedText) return;
 		if (state.steeredThisTurn) return;
 		if (state.state !== "open" && state.state !== "acting") return;

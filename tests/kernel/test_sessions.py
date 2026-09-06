@@ -378,7 +378,8 @@ def test_sanity_check_bout_recovery_and_reality_check(tmp_path):
         assert sheet(client)["current_san"] == 47
         snapshot = read_json(save_path(client, "sanity-state", f"{INVESTIGATOR}.json"))
         assert snapshot["bout_active"] is True and snapshot["recovery_trigger"]["handler"] == "recover_temporary_insanity"
-        assert events_after(client.workspace, before)[-2:] == ["resource-changed", "decision-settled"]
+        # slice 2: the bout's session receipt also lands a session-changed event (12.1)
+        assert events_after(client.workspace, before)[-3:] == ["resource-changed", "session-changed", "decision-settled"]
         san_roll = receipts(client)[f"roll:san-t1-c{n}"]
         assert san_roll["skill_label"] == "理智" and san_roll["roll_kind"] == "sanity_check"
 

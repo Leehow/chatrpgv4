@@ -12,6 +12,7 @@
   "pi": {
     "extensions": [
       "./extensions/kernel",
+      "./extensions/memory",
       "./extensions/table"
     ]
   },

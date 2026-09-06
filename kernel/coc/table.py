@@ -10,11 +10,12 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from . import KERNEL_VERSION, history
+from . import KERNEL_VERSION, continuation, history, memory, recall as recall_roads, warn as warn_lane
 from .capsule import (build_capsule, clues_here, investigator_view, npc_view, npcs_present,
                       present_section, where_section)
 from .errors import RpcError, invalid_params, not_implemented
 from .events import append_event
+from .facts import committed_facts, keeper_only_facts, language_of
 from .fileio import file_size, read_json, truncate_file
 from .module_graph import ModuleGraph, record_of
 from .render import (has_self_written_mechanics, mechanics_block, place, render_choice)
@@ -42,7 +43,6 @@ DEFAULT_LANGUAGE = "zh-Hans"
 #: settlement). Content availability (`magic.*`) and call facts (`intent.*`, `receipt.*`)
 #: never make a situation.
 SITUATION_FACT_PREFIXES = ("actor.", "time.", "sanity.", "chase.", "development.", "clock.", "subsystem.")
-RECALL_DEFAULT_TURNS = 3
 COMMIT_SUBJECT_CHARS = 60
 
 
@@ -68,6 +68,9 @@ class Table:
         self.tables = RuleTables(self.content / "rulesets" / "coc7" / "rules-json")
         self.engine = RulesEngine(self.content, self.tables)
         self._graphs: dict[str, ModuleGraph] = {}
+        #: §12.2: the resume block `table.open` produced, carried into the first
+        #: `player_input` capsule of this process and then dropped.
+        self._resume_pending: dict[str, dict[str, Any]] = {}
 
     # ---- content ----------------------------------------------------------
 
@@ -90,8 +93,8 @@ class Table:
             self._graphs[module_id] = ModuleGraph(module_id, path)
         return self._graphs[module_id]
 
-    def _context(self, params: dict[str, Any]) -> tuple[Campaign, ModuleGraph, dict[str, Any], dict[str, Any]]:
-        campaign = self.store.open(params.get("campaign"))
+    def _load(self, params: dict[str, Any], *, require_turn: bool = True) -> tuple[Campaign, dict[str, Any], ModuleGraph, dict[str, Any]]:
+        campaign = self.store.open(params.get("campaign"), require_turn=require_turn)
         meta = campaign.read_campaign()
         if meta.get("status") != "active":
             raise RpcError("campaign_not_ready", f"campaign {campaign.id!r} is {meta.get('status')!r}")
@@ -101,7 +104,31 @@ class Table:
             # Worlds written before the trail existed rebuild it from the event log, once.
             world["scene_trail"] = self._replay_trail(campaign)
             campaign.write_world(world)
+        return campaign, meta, graph, world
+
+    def _context(self, params: dict[str, Any]) -> tuple[Campaign, ModuleGraph, dict[str, Any], dict[str, Any]]:
+        campaign, _, graph, world = self._load(params)
         return campaign, graph, world, campaign.read_turn()
+
+    def _snapshot(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any],
+                  party: list[dict[str, Any]]) -> dict[str, Any]:
+        """The `world` block a closed turn record carries: where the table stood when the
+        turn closed. history's timeline and diff, the checkpoint and the job packet all
+        read this instead of the mutable world.json (§12.2–12.4)."""
+        scene = graph.scene(world["active_scene"])
+        view = SessionView(campaign.dir, graph, party, world)
+        session = view.active_session()
+        return {
+            "scene": {"name": graph.handle(scene), "display_name": graph.display_name(scene)},
+            "clock": {"minutes": int((world.get("clock") or {}).get("minutes") or 0)},
+            "present": [graph.display_name(n) for n in npcs_present(graph, world, scene)],
+            "investigators": [{"id": s.get("id"), "name": s.get("name"), "hp": s.get("current_hp"),
+                               "san": s.get("current_san"), "mp": s.get("current_mp"), "luck": s.get("current_luck")}
+                              for s in party],
+            "session": ({"kind": session.get("kind"), "status": session.get("status"), "round": session.get("round")}
+                        if session else None),
+            "pending_choice": view.pending_choice(),
+        }
 
     # ---- kernel / campaign --------------------------------------------------
 
@@ -221,7 +248,17 @@ class Table:
             campaign.write_turn(turn)
 
     def open(self, params: dict[str, Any]) -> dict[str, Any]:
-        campaign, graph, world, turn = self._context(params)
+        campaign, meta, graph, world = self._load(params, require_turn=False)
+        party = campaign.party()
+        # §12.2: the checkpoint follows HEAD; a lost turn.json is rebuilt from it.
+        checkpoint, rebuilt = continuation.sync_checkpoint(campaign, language_of(meta),
+                                                           self._snapshot(campaign, graph, world, party))
+        turn = continuation.readable_turn(campaign)
+        if turn is None:
+            turn = continuation.rebuild_turn(campaign, checkpoint)
+            if turn is None:
+                raise RpcError("campaign_not_ready", f"campaign {campaign.id!r} has no turn.json and no checkpoint to rebuild it from")
+            rebuilt = True
         scene = graph.scene(world["active_scene"])
         pending_turn = None
         if turn["state"] in WRITABLE_STATES:
@@ -231,13 +268,20 @@ class Table:
             pending_turn = {"player_text": turn.get("player_text"), "receipts": turn.get("receipts", []),
                             "owed": ["narrate"], "since": turn.get("opened_at"),
                             "last_call_ordinal": max(ordinals, default=0)}
+        opening_needed = turn["turn"] == 0 and turn["state"] == "awaiting_player"
+        resume = None if opening_needed else continuation.resume_view(checkpoint, rebuilt)
+        if resume is not None:
+            self._resume_pending[campaign.id] = resume
+        else:
+            self._resume_pending.pop(campaign.id, None)
         return {
-            "campaign": campaign.read_campaign(),
+            "campaign": meta,
             "turn": {"number": turn["turn"], "state": turn["state"]},
             "investigators": self._investigators(campaign),
             "scene": {"name": graph.handle(scene), "display_name": graph.display_name(scene)},
             "pending_turn": pending_turn,
-            "opening_needed": turn["turn"] == 0 and turn["state"] == "awaiting_player",
+            "opening_needed": opening_needed,
+            "resume": resume,
         }
 
     def status(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -396,22 +440,49 @@ class Table:
         what = params.get("what")
         if what not in RECALL_KINDS:
             raise invalid_params(f"unknown recall kind {what!r}", fix=f"one of {sorted(RECALL_KINDS)}")
-        if what != "transcript":
-            raise not_implemented(f"recall {what!r} is reserved for a later slice")
         self._touch_acting(campaign, turn)
         current = int(turn["turn"])
-        span = params.get("turns")
-        if span is None:
-            span = [max(0, current - RECALL_DEFAULT_TURNS + 1), current]
-        if (not isinstance(span, list) or len(span) != 2
-                or not all(isinstance(v, int) and v >= 0 for v in span) or span[0] > span[1]):
-            raise invalid_params("turns must be [from, to] with 0 <= from <= to")
-        role = params.get("role")
-        if role is not None and role not in ("player", "keeper"):
-            raise invalid_params("role must be 'player' or 'keeper'")
-        entries = [e for e in campaign.read_transcript()
-                   if span[0] <= int(e["turn"]) <= span[1] and (role is None or e["role"] == role)]
-        return {"what": "transcript", "turns": span, "entries": entries}
+        if what == "transcript":
+            return recall_roads.transcript(campaign, current, params)
+        if what == "history":
+            return recall_roads.history(campaign, current, params)
+        return self._recall_memory(campaign, graph, world, params)
+
+    def _recall_memory(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any],
+                       params: dict[str, Any]) -> dict[str, Any]:
+        party = campaign.party()
+        index = memory.EntityIndex(graph, party)
+        about = params.get("about")
+        narrow = about is not None
+        if about is None:
+            scene = graph.scene(world["active_scene"])
+            about = [graph.display_name(n) for n in npcs_present(graph, world, scene)]
+            about.extend(str(s.get("name")) for s in party)
+        elif not isinstance(about, list) or not all(isinstance(a, str) and a.strip() for a in about):
+            raise invalid_params("about must be a list of names")
+        else:
+            for name in about:
+                found = index.matches(name)
+                if len(found) != 1:
+                    raise RpcError("unknown_entity",
+                                   f"{name!r} is {'ambiguous' if found else 'not a known name'}",
+                                   fix="use an investigator, NPC, scene or clue name, or world/party/keeper/player",
+                                   details={"query": name, "candidates": graph.candidates(name, memory.ENTITY_KINDS)
+                                            if not found else [index.canonical_name(k) for k in found]})
+        turns = params.get("turns")
+        if turns is not None:
+            turns = recall_roads.parse_span(turns, 0, 0)
+        kinds = params.get("kinds")
+        if kinds is not None:
+            if not isinstance(kinds, list) or not all(k in memory.CANDIDATE_KINDS for k in kinds):
+                raise invalid_params("kinds must be a list of candidate kinds", fix=f"one of {list(memory.CANDIDATE_KINDS)}")
+        include_superseded = bool(params.get("include_superseded", False))
+        limit = params.get("limit", memory.RECALL_DEFAULT_LIMIT)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= memory.RECALL_MAX_LIMIT:
+            raise invalid_params(f"limit must be 1–{memory.RECALL_MAX_LIMIT}")
+        hits = memory.query_candidates(campaign, index, about=about, narrow=narrow, turns=turns, kinds=kinds,
+                                       include_superseded=include_superseded, limit=limit)
+        return {"what": "memory", "about": about, "hits": hits}
 
     # ---- player input -------------------------------------------------------
 
@@ -431,6 +502,7 @@ class Table:
                 "turn": 0, "player_text": None, "receipts": [], "text": None, "rendered_text": None,
                 "calls": turn.get("calls", {}), "commit": None, "closed_by": "implicit",
                 "opened_at": turn.get("opened_at"), "closed_at": now_iso(), "pending_choice": None,
+                "world": self._snapshot(campaign, graph, world, campaign.party()),
             })
             number = 1
         else:
@@ -442,8 +514,9 @@ class Table:
         append_event(campaign, number, "turn-started",
                      {"pending_choice": pending["name"] if pending else None})
         append_event(campaign, number, "player-declared", {"text": text})
+        resume = self._resume_pending.pop(campaign.id, None)
         return {"turn": number, "state": "open",
-                "capsule": build_capsule(graph, campaign, world, new_turn, campaign.party())}
+                "capsule": build_capsule(graph, campaign, world, new_turn, campaign.party(), resume=resume)}
 
     # ---- resolve ------------------------------------------------------------
 
@@ -553,6 +626,13 @@ class Table:
             elif receipt["kind"] == "delta":
                 events.append(("resource-changed", {"resource": receipt["resource"], "subject": receipt["subject"],
                                                     "before": receipt["before"], "after": receipt["after"]}, receipt["id"]))
+            elif receipt["kind"] == "session":
+                data = {"family": receipt.get("family"), "transition": receipt.get("transition")}
+                if receipt.get("outcome") is not None:
+                    data["outcome"] = receipt["outcome"]
+                if receipt.get("summary") is not None:
+                    data["summary"] = receipt["summary"]
+                events.append(("session-changed", data, receipt["id"]))
         events.append(("decision-settled", {"decision": settled["decision"], "family": settled["family"],
                                             "outcome_kind": settled["outcome"].get("kind"),
                                             "effect_kinds": settled["effect_kinds"],
@@ -640,6 +720,10 @@ class Table:
                 receipts.append(receipt)
                 receipt_ids.append(receipt["id"])
                 events.append((event[0], event[1], receipt["id"]))
+                if kind == "move" and int(receipt.get("minutes") or 0) > 0:
+                    # §12.1: travel moves the clock too; the move receipt is its anchor.
+                    events.append(("time-advanced", {"minutes": int(receipt["minutes"]), "why": "travel",
+                                                     "clock": dict(staged.get("clock") or {})}, receipt["id"]))
             except RpcError as exc:
                 exc.details = {"index": index, **(exc.details or {})}
                 raise
@@ -814,10 +898,13 @@ class Table:
             "turn": turn_number, "player_text": turn.get("player_text"), "receipts": turn.get("receipts", []),
             "text": text or prompt, "rendered_text": rendered, "calls": turn.get("calls", {}), "commit": None,
             "closed_by": "ask", "opened_at": turn.get("opened_at"), "closed_at": now_iso(),
-            "pending_choice": pending,
+            "pending_choice": pending, "world": self._snapshot(campaign, graph, world, campaign.party()),
         })
         campaign.write_turn(turn)
         campaign.append_transcript(turn_number, "keeper", rendered)
+        append_event(campaign, turn_number, "choice-asked",
+                     {"name": pending["name"], "prompt": prompt, "options": list(options), "binds": binds},
+                     call_id=call_id)
         return result
 
     # ---- narrate ------------------------------------------------------------
@@ -840,8 +927,12 @@ class Table:
         rendered = place(text, mechanics_block(receipts), placement)
         receipt_id = f"turn:{turn_number}"
         subject = " ".join(text.split())[:COMMIT_SUBJECT_CHARS]
+        party = campaign.party()
+        snapshot = self._snapshot(campaign, graph, world, party)
+        facts = self._facts(campaign, graph, world, party, receipts, snapshot)
         result: dict[str, Any] = {"rendered_text": rendered, "turn": turn_number,
-                                  "receipt": receipt_id, "commit": None}
+                                  "receipt": receipt_id, "commit": None, "facts": facts,
+                                  "extraction": {"job_id": memory.job_id_for(campaign.id, turn_number)}}
 
         before = copy.deepcopy(turn)
         transcript_size = file_size(campaign.transcript_path)
@@ -855,6 +946,7 @@ class Table:
             "text": text, "rendered_text": rendered, "placement": placement, "calls": turn.get("calls", {}),
             "commit": None, "closed_by": "narrate", "opened_at": turn.get("opened_at"),
             "closed_at": now_iso(), "pending_choice": turn.get("pending_choice"),
+            "world": snapshot, "facts": facts,
         }
         campaign.write_turn_record(record)
         campaign.append_transcript(turn_number, "keeper", rendered)
@@ -877,4 +969,81 @@ class Table:
         record["commit"] = sha
         record["calls"][call_id]["result"]["commit"] = sha
         campaign.write_turn_record(record)
+        self._after_commit(campaign, language_of(campaign.read_campaign()), record, snapshot)
         return {**result, "commit": sha}
+
+    def _facts(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any], party: list[dict[str, Any]],
+               receipts: list[dict[str, Any]], snapshot: dict[str, Any]) -> dict[str, Any]:
+        """§12.5: `committed` from the receipts and the snapshot, `keeper_only` from what
+        the graph still hides here."""
+        language = language_of(campaign.read_campaign())
+        labels = {str(s.get("id")): str(s.get("name")) for s in party}
+        scene = graph.scene(world["active_scene"])
+        return {
+            "committed": committed_facts(language, receipts, snapshot, lambda actor: labels.get(actor, actor)),
+            "keeper_only": keeper_only_facts(language, graph, world, scene, npcs_present(graph, world, scene)),
+        }
+
+    def _after_commit(self, campaign: Campaign, language: str, record: dict[str, Any], snapshot: dict[str, Any]) -> None:
+        """§12.2–12.3: checkpoint, then episode. The turn is already closed; a failure
+        here is telemetry, never an error to the keeper and never a rollback."""
+        for step, action in (
+            ("checkpoint", lambda: continuation.write_checkpoint(
+                campaign, continuation.checkpoint_from_record(campaign.id, language, record, snapshot))),
+            ("episode", lambda: memory.write_episode(campaign, record)),
+        ):
+            try:
+                action()
+            except Exception as exc:  # noqa: BLE001 - the commit stands whatever happens after it
+                campaign.append_telemetry({"lane": "kernel", "step": step, "turn": int(record["turn"]),
+                                           "ok": False, "error": f"{type(exc).__name__}: {exc}"})
+
+    # ---- lanes (§12.3, §12.5): no call_id, no turn-state gate ------------------
+
+    def warn(self, params: dict[str, Any]) -> dict[str, Any]:
+        campaign, _, _, _ = self._load(params)
+        return warn_lane.warn(campaign, params)
+
+    def memory_job(self, params: dict[str, Any]) -> dict[str, Any]:
+        campaign, meta, graph, world = self._load(params)
+        turn = params.get("turn")
+        if turn is None:
+            turn = memory.default_job_turn(campaign)
+            if turn is None:
+                return {"job_id": None, "turn": None}
+        elif not isinstance(turn, int) or isinstance(turn, bool) or turn < 0:
+            raise invalid_params("params.turn must be a committed turn number")
+        packet = memory.build_job(campaign, graph, language_of(meta), int(turn), campaign.party(), world)
+        return memory.open_job(campaign, packet)
+
+    def _job_for(self, campaign: Campaign, meta: dict[str, Any], graph: ModuleGraph, world: dict[str, Any],
+                 job_id: Any) -> tuple[dict[str, Any] | None, int]:
+        turn = memory.parse_job_id(campaign, job_id)
+        job = memory.read_job(campaign, str(job_id))
+        if job is None and turn in memory.committed_records(campaign):
+            # submit without a prior memory.job in this process (§12.6): the packet is
+            # rebuilt from the turn record.
+            memory.open_job(campaign, memory.build_job(campaign, graph, language_of(meta), turn, campaign.party(), world))
+            job = memory.read_job(campaign, str(job_id))
+        return job, turn
+
+    def memory_submit(self, params: dict[str, Any]) -> dict[str, Any]:
+        campaign, meta, graph, world = self._load(params)
+        job, turn = self._job_for(campaign, meta, graph, world, params.get("job_id"))
+        if job is None:
+            raise invalid_params(f"no extraction job for turn {turn}", fix="call memory.job first",
+                                 details={"job_id": params.get("job_id")})
+        result, replayed = memory.submit(campaign, graph, campaign.party(), job, params.get("candidates"))
+        if replayed:
+            return {**result, "replayed": True}
+        append_event(campaign, turn, "memory-written",
+                     {"job_id": result["job_id"], "turn": turn, "candidates": result["candidates"],
+                      "superseded": len(result["superseded"])})
+        return result
+
+    def memory_fail(self, params: dict[str, Any]) -> dict[str, Any]:
+        campaign, meta, graph, world = self._load(params)
+        job_id = params.get("job_id")
+        job, turn = self._job_for(campaign, meta, graph, world, job_id)
+        detail = params.get("detail")
+        return memory.fail(campaign, job, str(job_id), turn, params.get("reason"), detail)

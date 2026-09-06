@@ -74,7 +74,9 @@ class Store:
                            fix="pick another id or open the existing campaign")
         return campaign_id
 
-    def open(self, campaign_id: Any) -> "Campaign":
+    def open(self, campaign_id: Any, *, require_turn: bool = True) -> "Campaign":
+        """`require_turn=False` is for `table.open`, which may rebuild a lost turn.json
+        from the continuation checkpoint before anything reads it (contract §12.2)."""
         if not isinstance(campaign_id, str) or not campaign_id:
             raise RpcError("invalid_params", "params.campaign is required")
         campaign = Campaign(self, campaign_id)
@@ -82,10 +84,11 @@ class Store:
             raise RpcError("campaign_not_found", f"no campaign {campaign_id!r}",
                            fix="call campaign.list, or campaign.create",
                            details={"campaigns": self.campaign_ids()})
-        for required in (campaign.world_json, campaign.turn_json):
-            if not required.exists():
+        required = [campaign.world_json] + ([campaign.turn_json] if require_turn else [])
+        for path in required:
+            if not path.exists():
                 raise RpcError("campaign_not_ready",
-                               f"campaign {campaign_id!r} is missing {required.name}")
+                               f"campaign {campaign_id!r} is missing {path.name}")
         return campaign
 
 
@@ -102,6 +105,14 @@ class Campaign:
         self.turns_dir = self.dir / "turns"
         self.transcript_path = self.dir / "transcript.jsonl"
         self.events_path = self.dir / "events.jsonl"
+        self.telemetry_path = self.dir / "telemetry.jsonl"
+        # slice 2 (contract §3, §12): the rebuildable checkpoint and the memory stores
+        self.checkpoint_path = self.dir / "save" / "continuation" / "latest.json"
+        self.memory_dir = self.dir / "memory"
+        self.episodes_path = self.memory_dir / "episodes.jsonl"
+        self.candidates_path = self.memory_dir / "candidates.jsonl"
+        self.jobs_dir = self.memory_dir / "jobs"
+        self.backlog_path = self.memory_dir / "backlog.jsonl"
 
     # ---- documents --------------------------------------------------------
 
@@ -160,6 +171,14 @@ class Campaign:
 
     def read_events(self) -> list[dict[str, Any]]:
         return read_jsonl(self.events_path)
+
+    def append_telemetry(self, row: dict[str, Any]) -> None:
+        """One flat line per lane step (contract §8, §12.5). The extension writes its own
+        rows to the same file; the kernel's carry `lane`."""
+        append_jsonl(self.telemetry_path, {"at": now_iso(), **row})
+
+    def turn_records_by_number(self) -> dict[int, dict[str, Any]]:
+        return {int(r["turn"]): r for r in self.closed_turns()}
 
     # ---- idempotency (contract §2) ----------------------------------------
 

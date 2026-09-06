@@ -14,6 +14,9 @@ from .store import Campaign
 from .text import strip_prefix
 
 BUDGETS = {"where": 4096, "present": 3072, "known": 3072, "recent": 2048}
+#: slice 2 (§12.7): ranked lists that shed their tail, not their head
+SLICE2_BUDGETS = {"memory": 1536, "warnings": 1024}
+MEMORY_HITS = 6
 RECENT_TURNS = 2
 KEEPER_EXCERPT = 200
 SKILLS_OF_NOTE = 8
@@ -215,9 +218,10 @@ def _is_leaf(lst: list) -> bool:
     return not any(nested for item in lst for nested in _lists(item, []))
 
 
-def fit_budget(section: Any, budget: int) -> bool:
+def fit_budget(section: Any, budget: int, *, drop: str = "oldest") -> bool:
     """Trim by item until the section fits: innermost non-empty lists first (an NPC's
-    known_facts before the NPC itself), oldest turn first for `recent`. Returns whether
+    known_facts before the NPC itself), oldest turn first for `recent`. A ranked list
+    (`drop="last"`: memory hits, warnings) sheds its tail instead. Returns whether
     anything was cut."""
     cut = False
     while json_size(section) > budget:
@@ -228,7 +232,8 @@ def fit_budget(section: Any, budget: int) -> bool:
         victim = max(leaves or lists, key=json_size)
         if victim is section and len(victim) == 1:
             break  # never empty the section; shorten its strings instead
-        if victim is section and all(isinstance(item, dict) and "turn" in item for item in victim):
+        if (victim is section and drop == "oldest"
+                and all(isinstance(item, dict) and "turn" in item for item in victim)):
             victim.pop(0)
         else:
             victim.pop()
@@ -242,9 +247,21 @@ def fit_budget(section: Any, budget: int) -> bool:
     return cut
 
 
+def memory_section(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any], scene: dict[str, Any],
+                   party: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """`recall memory` with its default `about` (present NPCs plus the investigators),
+    first MEMORY_HITS hits (§12.7)."""
+    from .memory import EntityIndex, query_candidates  # local: memory imports facts, which imports render
+    about = [graph.display_name(n) for n in npcs_present(graph, world, scene)]
+    about.extend(str(sheet.get("name")) for sheet in party)
+    return query_candidates(campaign, EntityIndex(graph, party), about=about, narrow=False, limit=MEMORY_HITS)
+
+
 def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
-                  turn: dict[str, Any], party: list[dict[str, Any]]) -> dict[str, Any]:
+                  turn: dict[str, Any], party: list[dict[str, Any]], *,
+                  resume: dict[str, Any] | None = None) -> dict[str, Any]:
     from .sessions import SessionView  # local: sessions reads capsule.condition_met for chase chains
+    from .warn import latest_warnings
     scene = graph.scene(world["active_scene"])
     where = where_section(graph, world, scene)
     where["session"] = SessionView(campaign.dir, graph, party, world).active_session()
@@ -253,6 +270,8 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
         "present": present_section(graph, world, scene),
         "known": known_section(graph, world, scene, party),
         "recent": recent_section(campaign, int(turn["turn"])),
+        "memory": memory_section(graph, campaign, world, scene, party),
+        "warnings": latest_warnings(campaign, int(turn["turn"])),
     }
     truncated = []
     for name, budget in BUDGETS.items():
@@ -260,6 +279,9 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
             truncated.append(name)
             if isinstance(sections[name], dict):
                 sections[name]["truncated"] = True
+    for name, budget in SLICE2_BUDGETS.items():
+        if fit_budget(sections[name], budget, drop="last"):
+            truncated.append(name)
     capsule: dict[str, Any] = {
         "turn": {
             "number": turn["turn"],
@@ -269,6 +291,8 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
         },
         **sections,
     }
+    if resume is not None:
+        capsule["resume"] = resume
     if truncated:
         capsule["truncated"] = truncated
     return capsule

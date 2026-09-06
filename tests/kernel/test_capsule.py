@@ -129,6 +129,8 @@ def test_recall_transcript(kernel):
     only_player = kernel.table("recall", what="transcript", role="player")
     assert [e["role"] for e in only_player["entries"]] == ["player"]
     assert kernel.table("recall", what="transcript", turns=[1, 1])["entries"][0]["turn"] == 1
-    assert kernel.table_err("recall", what="memory")["code"] == "not_implemented"
-    assert kernel.table_err("recall", what="history")["code"] == "not_implemented"
+    # slice 2: the other two roads are open (12.4); their shapes are covered in test_recall.py
+    assert kernel.table("recall", what="memory")["what"] == "memory"
+    assert kernel.table("recall", what="history")["what"] == "history"
+    assert kernel.table_err("recall", what="dreams")["code"] == "invalid_params"
     assert kernel.table_err("recall", what="transcript", turns=[3, 1])["code"] == "invalid_params"

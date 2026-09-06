@@ -185,20 +185,82 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Recall",
 		method: "table.recall",
 		description:
-			"翻逐字记录。what 为 transcript 时回指定回合区间的原文，缺省最近 3 回合，可以用 role 只要玩家或只要守秘人的那一半。玩家提到「刚才」「你说过」，或者你要接上几回合前的线头时用它，不要凭印象编造已经发生过的事。what 的 memory 与 history 本切片会回 not_implemented。",
-		promptSnippet: "翻最近几回合的逐字记录",
+			"回看过去，三条路。memory：过去回合抽出的往事断言，缺省给跟当前在场者与调查员相关的，用 about 点名别人，用 kinds 收窄种类；断言是候选，可能过时、可能只是某人的信念，信不信你判断。transcript：逐字原文，不带 read 时给候选卡（哪一回合、谁说的、开头 80 字），看准了再用 read 把那一段整段读出来，回来会说这段原文跟回合记录对不对得上。history：时间线，每回合的场景、时钟、收据条数与交付开头，用 types 只要某几类事件，用 diff 问两个回合之间到底变了什么。玩家提到「刚才」「你说过」，或者你要接上几回合前的线头时用它，不要凭印象编造已经发生过的事。",
+		promptSnippet: "回看往事：memory 断言、transcript 原文、history 时间线",
 		parameters: Type.Object({
 			what: StringEnum(["transcript", "memory", "history"] as const, {
-				description: "翻什么；memory 与 history 本切片未实现",
+				description: "回看哪一路：往事断言、逐字原文、还是时间线",
 			}),
 			turns: Type.Optional(
 				Type.Array(Type.Integer(), {
 					minItems: 2,
 					maxItems: 2,
-					description: "回合区间 [起, 止]，缺省最近 3 回合",
+					description: "回合区间 [起, 止]；transcript 缺省最近 3 回合",
 				}),
 			),
-			role: Type.Optional(StringEnum(["player", "keeper"] as const, { description: "只要哪一方的记录" })),
+			role: Type.Optional(StringEnum(["player", "keeper"] as const, { description: "transcript：只要哪一方的记录" })),
+			read: Type.Optional(
+				Type.Object(
+					{
+						turn: Type.Integer({ description: "哪一回合" }),
+						role: StringEnum(["player", "keeper"] as const, { description: "玩家原文还是守秘人交付" }),
+					},
+					{ description: "transcript：把某一回合某一方的原文整段读出来；不给时只回候选卡" },
+				),
+			),
+			about: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "memory：只要跟这些名字有关的往事；缺省取当前在场者加调查员",
+				}),
+			),
+			kinds: Type.Optional(
+				Type.Array(
+					StringEnum(
+						[
+							"world_event",
+							"knowledge",
+							"belief",
+							"relationship",
+							"player_assertion",
+							"player_preference",
+							"keeper_correction",
+						] as const,
+					),
+					{ description: "memory：只要这几类断言" },
+				),
+			),
+			include_superseded: Type.Optional(
+				Type.Boolean({ description: "memory：连已经被后来的关系关掉的旧条一起给" }),
+			),
+			limit: Type.Optional(Type.Integer({ description: "memory：最多给几条，上限 30" })),
+			types: Type.Optional(
+				Type.Array(
+					StringEnum(
+						[
+							"turn-started",
+							"player-declared",
+							"roll-resolved",
+							"scene-moved",
+							"clue-discovered",
+							"time-advanced",
+							"resource-changed",
+							"decision-settled",
+							"session-changed",
+							"choice-asked",
+							"memory-written",
+							"turn-finalized",
+						] as const,
+					),
+					{ description: "history：只要这几类事件" },
+				),
+			),
+			diff: Type.Optional(
+				Type.Array(Type.Integer(), {
+					minItems: 2,
+					maxItems: 2,
+					description: "history：两个回合之间变了什么 [起, 止]",
+				}),
+			),
 		}),
 	},
 	{

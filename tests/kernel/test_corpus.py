@@ -101,7 +101,9 @@ def _check(client: RpcClient, workspace: Path, call_id: str, action: dict, expec
             assert outcome.get(key) == value, key
     assert {e["kind"] for e in result["effects"]} <= set(expect["effect_kinds_allowed"])
     events = [e["type"] for e in read_jsonl(campaign_dir(workspace) / "events.jsonl")[before:]]
-    optional = set(expect.get("optional_event_types") or [])
+    # slice 2 (12.1): every session receipt also emits `session-changed`; the recorded
+    # slice-1 expectations predate it, so it is optional everywhere.
+    optional = set(expect.get("optional_event_types") or []) | {"session-changed"}
     assert [e for e in events if e not in optional] == expect["event_types"]
     for event_type, minimum in (expect.get("event_counts_min") or {}).items():
         assert events.count(event_type) >= minimum, event_type

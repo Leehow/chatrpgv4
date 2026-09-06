@@ -1,4 +1,7 @@
-"""events.jsonl (contract §7 plus the slice-1 settlement types): {seq, turn, type, at, call_id?, receipt?, data}."""
+"""events.jsonl (contract §7, §12.1): {seq, turn, type, at, call_id?, receipt?, data}.
+
+Twelve canonical types, closed. Anything else is a kernel defect (ValueError), never a
+keeper error."""
 
 from __future__ import annotations
 
@@ -18,6 +21,10 @@ EVENT_TYPES = frozenset({
     # slice 1: one per resource delta receipt, one per settled RuleGraph decision
     "resource-changed",
     "decision-settled",
+    # slice 2: one per session receipt, one per ask, one per accepted memory.submit
+    "session-changed",
+    "choice-asked",
+    "memory-written",
 })
 
 

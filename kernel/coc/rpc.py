@@ -38,6 +38,11 @@ def build_methods(table: Table) -> dict[str, Callable[[dict[str, Any]], dict[str
         "table.apply": table.apply,
         "table.ask": table.ask,
         "table.narrate": table.narrate,
+        # slice 2 lanes (contract §12.3, §12.5, §12.8): no call_id, no turn-state gate
+        "table.warn": table.warn,
+        "memory.job": table.memory_job,
+        "memory.submit": table.memory_submit,
+        "memory.fail": table.memory_fail,
     }
 
 

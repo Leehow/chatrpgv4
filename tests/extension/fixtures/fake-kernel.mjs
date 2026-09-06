@@ -7,9 +7,11 @@
  *   FAKE_KERNEL_LOG        收到的每个请求追加一行 JSON 到这个文件
  *   FAKE_KERNEL_OPENING    "1" 时 table.open 回 opening_needed: true
  *   FAKE_KERNEL_PENDING    "1" 时 table.open 回 pending_turn
+ *   FAKE_KERNEL_RESUME     "1" 时 table.open 回 resume（续行检查点，契约 §12.2）
  *   FAKE_KERNEL_CAMPAIGNS  campaign.list 的 JSON 数组
  *   FAKE_KERNEL_ERRORS     {"<method>": {"code","message","fix"?}} 的 JSON，命中就回错误信封
  *   FAKE_KERNEL_EXIT_AFTER 收到第 N 个请求后直接退出（测重启）
+ *   FAKE_KERNEL_NO_FACTS   "1" 时 narrate 不回 facts/extraction（切片 0、1 的内核）
  */
 
 import { appendFileSync } from "node:fs";
@@ -32,6 +34,37 @@ if (process.env.FAKE_KERNEL_PENDING === "1") {
 }
 
 const SCENE = { name: "corbitt-house", display_name: "科比特宅" };
+
+/** 已经抽过或已经落 backlog 的回合：`memory.job` 不再自动派发（契约 §12.3）。 */
+const settledJobs = new Set();
+
+function jobTurn(jobId) {
+	const match = /t(\d+)$/.exec(String(jobId ?? ""));
+	return match ? Number(match[1]) : -1;
+}
+
+/** 抽取任务包（契约 §12.3）：只有名字与两段文字，没有 commit、收据 id 之外的机器键。 */
+function jobPacket(campaign, target) {
+	return {
+		job_id: `extract:${campaign}:t${target}`,
+		turn: target,
+		commit: "abc1234",
+		scene: SCENE,
+		present: ["看门人"],
+		investigators: [{ id: "thomas-hayes", name: "托马斯·海耶斯" }],
+		player_text: "我检查地窖门的门框",
+		keeper_text: "门框上有一道深深的抓痕。",
+		committed_facts: ["托马斯·海耶斯用侦查看门框，通过。", "地点：科比特宅。"],
+		known_entities: [
+			{ name: "托马斯·海耶斯", kind: "investigator" },
+			{ name: "看门人", kind: "npc" },
+			{ name: "科比特宅", kind: "scene" },
+		],
+		prior: [],
+		budget: { max_candidates: 12, max_statement_chars: 400 },
+		instruction: "只写这一回合新出现的事实、知晓、信念、关系、玩家断言；主语用可用名字里的名字；不写数值与骰面。",
+	};
+}
 
 function capsule(playerText) {
 	return {
@@ -220,10 +253,11 @@ function handle(method, params) {
 		case "table.open": {
 			const opening = process.env.FAKE_KERNEL_OPENING === "1";
 			const pending = process.env.FAKE_KERNEL_PENDING === "1";
+			const resume = process.env.FAKE_KERNEL_RESUME === "1";
 			return {
 				ok: true,
 				result: {
-					campaign: { id: params.campaign, title: "闹鬼的房子", module_id: "the-haunting" },
+					campaign: { id: params.campaign, title: "闹鬼的房子", module_id: "the-haunting", play_language: "zh-Hans" },
 					turn: { number: turn, state },
 					investigators: [
 						{ id: "thomas-hayes", name: "托马斯·海耶斯", occupation: "记者", hp: 12, san: 55, mp: 11, luck: 60 },
@@ -231,6 +265,17 @@ function handle(method, params) {
 					scene: SCENE,
 					pending_turn: pending
 						? { player_text: "我下地窖", receipts: ["roll:spot-hidden-t1-c1"], owed: ["narrate"], since: "2026-01-01T00:00:00Z", last_call_ordinal: 1 }
+						: null,
+					resume: resume
+						? {
+								turn: 0,
+								commit: "abc1234",
+								scene: SCENE,
+								clock: { minutes: 555 },
+								session: null,
+								one_line: "第 0 回合：科比特宅，09:15；上回合：门厅里落满灰。",
+								rebuilt: false,
+							}
 						: null,
 					opening_needed: opening,
 				},
@@ -285,6 +330,20 @@ function handle(method, params) {
 		case "table.narrate": {
 			const closed = turn;
 			state = "awaiting_player";
+			const facts = process.env.FAKE_KERNEL_NO_FACTS === "1"
+				? {}
+				: {
+						// 契约 §12.5：确定性地从收据与世界状态生成的两份清单。
+						facts: {
+							committed: [
+								"托马斯·海耶斯用侦查看门框，通过。",
+								"地点：科比特宅。",
+								"在场：看门人。",
+							],
+							keeper_only: ["未发现的线索：地窖的抓痕——门框上有指甲划痕。", "看门人的秘密：他知道地窖下面有东西。"],
+						},
+						extraction: { job_id: `extract:${params.campaign}:t${closed}` },
+					};
 			return {
 				ok: true,
 				result: {
@@ -292,9 +351,25 @@ function handle(method, params) {
 					turn: closed,
 					receipt: `turn:${closed}`,
 					commit: "abc1234",
+					...facts,
 				},
 			};
 		}
+		// 两条车道的 RPC（契约 §12.8）：不带 call_id、不看回合状态，晚到也收。
+		case "table.warn":
+			return { ok: true, result: { recorded: (params.findings ?? []).length, dropped: 0 } };
+		case "memory.job": {
+			const target = typeof params.turn === "number" ? params.turn : turn;
+			// 已经抽过或已经进 backlog 的回合不再自动派发（契约 §12.3）。
+			if (settledJobs.has(target)) return { ok: true, result: { job_id: null, turn: target } };
+			return { ok: true, result: jobPacket(params.campaign, target) };
+		}
+		case "memory.submit":
+			settledJobs.add(jobTurn(params.job_id));
+			return { ok: true, result: { written: (params.candidates ?? []).length, superseded: 0 } };
+		case "memory.fail":
+			settledJobs.add(jobTurn(params.job_id));
+			return { ok: true, result: { backlogged: true } };
 		default:
 			return { ok: false, error: { code: "unknown_method", message: `假内核不认识 ${method}` } };
 	}

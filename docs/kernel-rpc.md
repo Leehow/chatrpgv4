@@ -424,7 +424,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 
 三类分别是：越权揭示了 `keeper_only` 里的事实；声称了 `committed` 里没有的状态变化（走了没 move、拿了没 clue、掉了没 delta）；替玩家做了未授权的自愿行为。扩展把结果交给 `table.warn`，params `{"campaign", "turn", "lane": "verifier", "findings": [...]}`：内核校验 `kind` 枚举，`quote` 必须是该回合 `rendered_text` 的子串（唯一的确定性锚点；不是子串的整条丢弃并记 `dropped`），最多 10 条；写进 `turns/NNNN.json` 的 `warnings`、遥测一行，并在**下一次** `player_input` 的胶囊里带 `warnings: [{"turn", "kind", "quote", "why"}]`（只带最近一个已提交回合的，≤ 1KB）。全部 advisory：不改状态，不拦交付，不重开回合。车道不用关键词、不用正则；能确定性判的（自写骰面、未关的 `needs`）仍在内核。
 
-零工具子会话是规格第六、九节定下的形状：产出是 ≤ 12 条候选或 ≤ 10 条发现的短 JSON，远在单条助手消息的上限之下，不是把整本书塞进一次补全。
+零工具子会话是规格第六、九节定下的形状：产出是 ≤ 12 条候选或 ≤ 10 条发现的短 JSON，远在单条助手消息的上限之下，不是把整本书塞进一次补全。Pi 0.85.1 里扩展够得着的面是 `ctx.modelRegistry.complete`（一次不带工具的补全，复用当前会话的注册表与鉴权），扩展里起不了嵌套 agent 会话；这条路的边界记在 `docs/pi-host-contract.md` 3.1 与第 5 节。车道跑成功就调一次 `table.warn`，`findings` 为空也调：内核由此分得清「跑了没发现」与「没跑」，所以 `table.warn` 必须收 `findings: []`。校验车道选 `why` 的语言用 `table.open` 结果 `campaign.play_language`。
 
 ### 12.6 崩溃恢复与幂等
 
@@ -442,5 +442,20 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 
 - kernel 扩展：`narrate` 成功后在总线上发 `coc:turn-committed {campaign, turn, commit, job_id, facts, rendered_text}`；交付替换完成后自己跑校验车道并 `table.warn`。车道出错只写遥测（`lane: verifier, ok: false`），不催守秘人，不阻塞。
 - memory 扩展（`extensions/memory`）：订阅 `coc:turn-committed`，`memory.job` → 零工具子会话（模型 `PI_COC_MEMORY_MODEL`，缺省与桌子同模型）→ `memory.submit`；失败一次重试，再失败 `memory.fail`。同一时刻只跑一个任务，后来的排队；进程退出时未完成的任务留给下次 `memory.job` 缺省派发。
-- 两条车道的 RPC（`memory.job`、`memory.submit`、`memory.fail`、`table.warn`）不带 `call_id`、不看回合状态；结果按 `turn` 落到对应回合记录，晚到也收。
+- 两条车道的 RPC（`memory.job`、`memory.submit`、`memory.fail`、`table.warn`）不带 `call_id`、不看回合状态；结果按 `turn` 落到对应回合记录，晚到也收。memory 扩展派任务时给显式 `turn`（刚提交的那一回合）；`memory.job` 的缺省派发只在重开进程后补漏时用。
+- 内核子进程一个会话只有一个（§1），memory 扩展没有自己的客户端：kernel 扩展在 `session_start` 于总线 `coc:kernel-bridge` 发布一个 `call(method, params)` 闭包，`session_shutdown` 时收回；memory 扩展只经它调内核。
 - 子会话的建法与模型选择写进 `docs/pi-host-contract.md` 第 3–5 节。
+
+### 12.9 内核的决定（已实现）
+
+- **回合记录带世界快照。** `narrate` 与 `ask` 写的 `turns/NNNN.json` 多一个 `world` 块：`{scene: {name, display_name}, clock, present: [NPC 名], investigators: [{id, name, hp, san, mp, luck}], session, pending_choice}`，是回合关闭那一刻的状态；`narrate` 的记录另存 `facts`。检查点、episode、`memory.job` 的任务包、`history` 的时间线与 `diff` 全从这个块读，不碰可变的 `world.json`，也不读 git 对象。turn 0 被 `player_input` 隐式关闭时同样写快照。
+- **检查点与 HEAD 的同步。** `table.open` 先让检查点跟上 HEAD：HEAD 的回合号从提交信息 `turn <n>:` 读，回合记录缺 `commit` 时补上再重建；检查点缺失、损坏、或 `commit`/`turn` 与 HEAD 不符都算「HEAD 领先」，`resume.rebuilt: true`。还没有任何 `narrate` 提交时不动检查点。`turn.json` 丢失或损坏：有检查点 → `fresh_turn(checkpoint.turn + 1)`；若检查点之后有一条 `ask` 关闭的记录，则重建成那一回合的 `asked` 并带回 `pending_choice`（玩家的回答还落得下去）；一次提交都没有时重建成 turn 0。`resume` 只在 `open` 后本进程第一次 `player_input` 的胶囊里出现一次。
+- **`facts.keeper_only` 是句子列表**，与 `committed` 同形：`未发现线索：<名>——<摘要>`、`<NPC>的秘密——agenda：…；secret：…`、`模组秘密：<名>——<摘要>`。模组图上的 secret 节点没有指向场景的关系，「与本场景相关」无法结构性判定：秘密排在最后，2KB 预算裁剪时最先被裁。成功等级用规则表的闭合枚举译成 play_language（大成功/极难成功/困难成功/普通成功/失败/大失败）。`choice` 收据也各出一句（`玩家选择：<选项>`）。
+- **`time-advanced` 补上有行程的 `move`**：事件 `receipt` 指向那条 `move` 收据，`data.why` 为 `travel`；零分钟的移动只有 `scene-moved`。`session-changed` 的 `data` 带收据上的 `outcome` 与 `summary`（有则带）。`choice-asked` 没有对应收据，事件不带 `receipt`。
+- **任务包里的名字。** `known_entities` 为：调查员（表上名字）、在场 NPC（display_name）、当前场景（display_name）、到该回合为止已发现的线索（图上句柄，如 `knott-keys`，因为线索的 authored name 是一整句摘要）。解析用图上全部别名（句柄、display_name、节点 id）与调查员的 id/名字，归一化后精确匹配，只在 `known_entities` 范围内。歧义时 `fix` 与 `details.candidates` 给能唯一解析的 id：调查员给表 id，图节点给带种类前缀的节点 id（`npc-steven-knott`），因为句柄与名字在归一化下会撞（`steven-knott` == `Steven Knott`）。`knowers` 只接受调查员、NPC 与 `party`/`keeper`/`player`；`entities` 不接受保留主语。落盘的 `subject`/`knowers`/`entities` 一律写规范名（调查员名字、NPC display_name、场景 display_name、线索句柄）。
+- **`memory.job` 缺省派发**从最新的已提交回合往前扫，跳过已完成任务与 backlog 里 `status: pending` 的回合，开桌回合 turn 0 也算；全部完成返回 `{job_id: null, turn: null}`。显式 `turn` 对已完成或已失败的任务仍返回任务包，只是不再改写任务文件。`memory.submit` 没有先调 `memory.job` 时（另一进程派发过）从回合记录重建任务再落盘。
+- **提交的校验失败也进 backlog**（`reason: invalid`，`detail` 为错误信息），随后一次成功提交把该任务的 pending 行改成 `recovered`。任务文件 `status` 取 `open` → `done` | `failed`，完成时存 `candidates_sha256`、`submitted` 与 `result`；重放比较提交的候选列表的规范化 JSON sha256。候选 id `mem:t<n>-<k>`，`k` 接着该回合已有的最大值。`candidates.jsonl` 以整文件原子重写来给旧行加 `valid_until_turn`/`superseded_by`（并把 `status` 改成 `superseded`）：不删行，两条都可寻址。接续判定用规范键比较 `subject` 与 `entities` 集合，只对 `relationship`。
+- **`recall memory` 的 `about`。** 显式给 `about` 时收窄（命中至少一个名字）；缺省的 `about`（在场 NPC 加调查员）只排序不收窄，否则 `world_event` 永远不会出现。`about` 里解析不到或歧义的名字报 `unknown_entity`（§2）。同重叠数、同回合的命中按 id 排序。`limit` 缺省 12，上限 30；胶囊的 `memory` 节取缺省查询的前 6 条。`history` 缺省区间为最近 20 回合，`events` 取区间内最新的 200 条。
+- **`table.warn`** 的 `lane` 闭合为 `verifier`；`kind` 不在枚举里整批报 `invalid_params`（`details.index`），引文不是子串的单条丢弃并在 `dropped` 里给 `index` 与理由；多次 `warn` 同一回合追加。遥测行写在 `telemetry.jsonl`（与扩展同一文件，内核的行带 `lane`），检查点或 episode 写失败也各一行（`lane: kernel, step, ok: false`）。
+- **`fit_budget` 增加 `drop` 方向**：排过序的列表（`memory`、`warnings`）从尾部裁，`recent` 仍从最旧裁；被裁的节名照旧进胶囊的 `truncated`。
+

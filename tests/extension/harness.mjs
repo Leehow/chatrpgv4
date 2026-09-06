@@ -1,6 +1,6 @@
 /**
  * 扩展接缝的测试台：真的 Pi 会话 + 脚本化的假模型 + 假内核。
- * 走的是产品路径（DefaultResourceLoader 加载 extensions/kernel 与 extensions/table），
+ * 走的是产品路径（DefaultResourceLoader 加载 extensions/kernel、extensions/memory 与 extensions/table），
  * 不手搓扩展内部状态。
  *
  * Pi 0.85.1 在这里逼出来的三处将就，换 Pi 版本时先看这里：
@@ -127,6 +127,11 @@ export async function openTable({ responses = [], campaign = "test-camp", env = 
 		PI_COC_CAMPAIGN: campaign ?? undefined,
 		FAKE_KERNEL_LOG: requestLog,
 		PI_OFFLINE: "1",
+		// 两条车道各有一个专属的假 provider，各有各的回答队列：
+		// 不这么分的话车道会从守秘人的队列里抢答案，回合就不确定了。
+		// 想验「缺省与桌子同模型」的用例把这两个变量显式删掉即可。
+		PI_COC_VERIFIER_MODEL: "verifier/v1",
+		PI_COC_MEMORY_MODEL: "memory/m1",
 		...env,
 	});
 
@@ -134,6 +139,8 @@ export async function openTable({ responses = [], campaign = "test-camp", env = 
 
 	const faux = fauxProvider();
 	faux.setResponses(responses);
+	const verifierFaux = fauxProvider({ provider: "verifier", models: [{ id: "v1" }] });
+	const memoryFaux = fauxProvider({ provider: "memory", models: [{ id: "m1" }] });
 	const modelRuntime = await ModelRuntime.create({
 		authPath: join(workspace, "auth.json"),
 		modelsPath: null,
@@ -141,20 +148,29 @@ export async function openTable({ responses = [], campaign = "test-camp", env = 
 		refreshOnCreate: false,
 	});
 	modelRuntime.registerNativeProvider(faux.provider);
+	modelRuntime.registerNativeProvider(verifierFaux.provider);
+	modelRuntime.registerNativeProvider(memoryFaux.provider);
 	const model = faux.getModel();
 
 	let api;
+	/** 总线上的提交载荷（契约 §12.8）：探针扩展在加载时就订阅，早于任何 session_start。 */
+	const committed = [];
 	const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
 	const resourceLoader = new DefaultResourceLoader({
 		cwd: workspace,
 		agentDir: join(workspace, "agent"),
 		settingsManager,
-		additionalExtensionPaths: [join(REPO, "extensions", "kernel"), join(REPO, "extensions", "table")],
+		additionalExtensionPaths: [
+			join(REPO, "extensions", "kernel"),
+			join(REPO, "extensions", "memory"),
+			join(REPO, "extensions", "table"),
+		],
 		extensionFactories: [
 			{
 				name: "probe",
 				factory: (pi) => {
 					api = pi;
+					pi.events.on("coc:turn-committed", (data) => committed.push(data));
 				},
 			},
 		],
@@ -186,10 +202,14 @@ export async function openTable({ responses = [], campaign = "test-camp", env = 
 		session: created.session,
 		extensionsResult: created.extensionsResult,
 		faux,
+		/** 两条车道的假模型：各自 setResponses，跟守秘人的队列互不干扰。 */
+		lanes: { verifier: verifierFaux, memory: memoryFaux },
 		ui,
 		/** 扩展加载与事件里出的错，测试里当断言用。 */
 		extensionErrors,
 		activeTools: () => api?.getActiveTools() ?? [],
+		/** 总线上 `coc:turn-committed` 的载荷，按到达顺序。 */
+		committed: () => [...committed],
 		/** 假内核收到的请求，按到达顺序。 */
 		kernelRequests: () =>
 			existsSync(requestLog)
@@ -221,6 +241,20 @@ export async function openTable({ responses = [], campaign = "test-camp", env = 
 		},
 	};
 	return table;
+}
+
+/**
+ * 等一个条件成立。车道是 fire-and-forget 的（契约 §12.5、§12.8：不阻塞交付），
+ * 所以断言车道结果要等，不能在 prompt 返回的那一刻就看。
+ */
+export async function waitFor(predicate, { timeoutMs = 10_000, label = "条件" } = {}) {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		const value = await predicate();
+		if (value) return value;
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+	throw new Error(`等 ${label} 超时（${timeoutMs} 毫秒）`);
 }
 
 /** 等宿主自己发起的那一轮（开桌、恢复、催收）跑完。 */

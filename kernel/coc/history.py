@@ -53,3 +53,18 @@ def commit(repo: Path, work_tree: Path, message: str) -> str:
 def head_sha(repo: Path, work_tree: Path) -> str | None:
     result = _git(repo, work_tree, "rev-parse", "--short", "HEAD")
     return result.stdout.strip() if result.returncode == 0 else None
+
+
+def head_subject(repo: Path, work_tree: Path) -> str | None:
+    """The subject line of HEAD: `turn <n>: ...` after a narrate, `campaign <id>: created`
+    before any. The continuation checkpoint reads the turn number from it (§12.2)."""
+    result = _git(repo, work_tree, "log", "-1", "--format=%s")
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def head_turn(repo: Path, work_tree: Path) -> int | None:
+    subject = head_subject(repo, work_tree)
+    if not subject or not subject.startswith("turn "):
+        return None
+    number = subject[len("turn "):].split(":", 1)[0].strip()
+    return int(number) if number.isdigit() else None

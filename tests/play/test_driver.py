@@ -192,6 +192,87 @@ def test_log_tails_the_driver_log(started_run):
     assert "daemon ready" in proc.stdout
 
 
+def test_second_run_on_same_campaign_continues_the_kernel_turn_and_records_resume():
+    """Two separate driver runs against the *same campaign*, as a real playtest would
+    see across a killed-and-restarted pi-coc process (docs/kernel-rpc.md §12.2, §12.6):
+    campaign state lives on disk, so a new run picks up where the old one left off and
+    its first player_input carries a `resume` note.
+
+    The driver itself has no concept of this -- `Daemon.turn_count` (and so this run's
+    own turn-<n>.json numbering) starts at 0 for every run, by design; that is a
+    driver-local evidence-file counter, not the campaign's turn. So this cannot assert
+    the *driver's* numbering "continues" -- run B's first turn is still its own
+    turn-1.json. What can be asserted, and is asserted here, is that whatever the
+    keeper actually did gets recorded faithfully: `tests/play/fixtures/fake_pi_rpc.py`
+    stands in for a real kernel-backed keeper by persisting its own kernel_turn counter
+    across the two runs (FAKE_PI_KERNEL_STATE) and speaking up about it -- in its
+    assistant text and in the `look` tool's args/result -- exactly once, on the first
+    prompt after a restart. Both are things the driver already records verbatim, in
+    turn-1.json and in the raw events.jsonl line, with no driver.py change needed.
+    """
+    state_file = REPO_ROOT / ".coc" / "playtests" / f".fixture-kernel-state-{uuid.uuid4().hex[:10]}.json"
+    campaign = "resume-continuity"
+    run_a = f"resume-a-{uuid.uuid4().hex[:10]}"
+    run_b = f"resume-b-{uuid.uuid4().hex[:10]}"
+
+    def cleanup(run_id: str) -> None:
+        run_driver("stop", "--run", run_id, timeout=15.0)
+        rdir = run_dir(run_id)
+        info = read_json(rdir / "daemon.json") if (rdir / "daemon.json").exists() else {}
+        for key in ("daemon_pid", "pi_pid"):
+            pid = info.get(key)
+            if pid and pid_alive(pid):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        shutil.rmtree(rdir, ignore_errors=True)
+
+    try:
+        # Run A: this campaign's very first turn ever -- nothing to resume yet.
+        assert run_driver("start", "--campaign", campaign, "--run", run_a, "--launcher", str(FAKE_PI),
+                           env={"FAKE_PI_KERNEL_STATE": str(state_file)}).returncode == 0
+        proc_a = run_driver("turn", "Explore the cellar.", "--run", run_a, "--timeout", "20")
+        assert proc_a.returncode == 0, proc_a.stderr
+        summary_a = read_json(run_dir(run_a) / "turn-1.json")
+        assert "resumed" not in summary_a["final_text"]
+        assert "resume" not in summary_a["tools"][0]["args"]
+        assert run_driver("stop", "--run", run_a, timeout=15.0).returncode == 0
+        assert read_json(run_dir(run_a) / "final.json")["turn_count"] == 1
+
+        # Run B: a brand-new driver run (new run_id, new daemon, new fake-pi process),
+        # same campaign, same persisted kernel state -- standing in for pi-coc having
+        # been killed and restarted against the same on-disk campaign.
+        assert run_driver("start", "--campaign", campaign, "--run", run_b, "--launcher", str(FAKE_PI),
+                           env={"FAKE_PI_KERNEL_STATE": str(state_file)}).returncode == 0
+        proc_b = run_driver("turn", "Look again.", "--run", run_b, "--timeout", "20")
+        assert proc_b.returncode == 0, proc_b.stderr
+
+        # Run B's own evidence file is still named turn-1.json (its local counter reset,
+        # as expected) but its *content* shows the kernel-level turn continuing (1 -> 2)
+        # and the resume note, exactly as the driver recorded them verbatim.
+        summary_b = read_json(run_dir(run_b) / "turn-1.json")
+        tool_b = summary_b["tools"][0]
+        assert tool_b["args"]["kernel_turn"] == 2
+        assert tool_b["args"]["resume"] == {"turn": 1}
+        assert "resumed: continuing from committed turn 1" in summary_b["final_text"]
+        assert "(resume: from turn 1 to turn 2)" in tool_b["result_text"]
+
+        # And the raw RPC event stream -- not just the driver's derived summary --
+        # carries the same resume note on the tool call that produced it.
+        events_b = [json.loads(line) for line in
+                    (run_dir(run_b) / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+        tool_start = next(e for e in events_b if e.get("type") == "tool_execution_start")
+        assert tool_start["args"]["resume"] == {"turn": 1}
+    finally:
+        cleanup(run_a)
+        cleanup(run_b)
+        try:
+            state_file.unlink()
+        except FileNotFoundError:
+            pass
+
+
 @pytest.mark.skipif(not REAL_PI.exists(), reason="node_modules/.bin/pi not installed")
 def test_real_pi_get_state_smoke():
     """Confirms the JSONL/get_state framing assumptions against the real pi binary.

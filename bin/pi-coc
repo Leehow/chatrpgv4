@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # pi-coc 启动器。契约见 docs/kernel-rpc.md 第 9 节。
 # 用法：bin/pi-coc [--campaign <id>] [pi 参数...]
+#
+# 认这几个环境变量（原样传给 pi，扩展自己读）：
+#   PI_COC_CAMPAIGN         战役 id，等价于 --campaign
+#   PI_COC_VERIFIER_MODEL   校验车道的模型，形如 provider/model；缺省与桌子同模型
+#   PI_COC_MEMORY_MODEL     记忆抽取车道的模型，同上
+# 后两个见 docs/pi-host-contract.md 第 3.1 节。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

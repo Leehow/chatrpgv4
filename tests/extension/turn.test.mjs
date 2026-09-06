@@ -102,7 +102,8 @@ test("一个玩家回合：七个工具、胶囊、call_id、rendered_text 交�
 	);
 
 	const telemetry = table.telemetry();
-	const tools = telemetry.filter((row) => row.ms !== undefined).map((row) => row.tool);
+	// 车道（记忆、校验）也写遥测，但它们不是工具调用：按 lane 列排除（契约 §12.8）。
+	const tools = telemetry.filter((row) => row.ms !== undefined && row.lane === undefined).map((row) => row.tool);
 	assert.deepEqual(tools, ["table.player_input", "look", "resolve", "apply", "narrate"]);
 	assert.ok(telemetry.every((row) => typeof row.turn === "number"));
 });
