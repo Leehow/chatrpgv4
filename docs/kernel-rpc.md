@@ -596,3 +596,110 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 - **`where.clock.day_part`** 只在模组节点记录声明 `start_time`（`HH:MM`）时给（The Haunting 没有）；`structure_type` 读模组节点记录的 `structure_type`，没有就 `branching_investigation`。`campaign.create` 接受 `register`（文本图 `play-register` 的 legacy key，缺省 `purist`），写进 `campaign.json`。
 - **本体校验的池。** `graph:rule:coc7` 对规则图节点 id；`graph:director:production` 对 Director 图节点 id；`graph:text:production` 对文本图节点 id；`graph:live-state:campaign` 的 `locator` 对 RuleGraph 的 `REGISTERED_CONDITION_PATHS`；`graph:execution:coc7-resolver` 的 `locator` 对 resolver 的 `public_api_index` 加内核执行器名；`graph:module:<id>` 对该模组图的节点 id（当前注册表没有模组引用）。关系两端必须是已登记的 `ref_id`。每进程校验一次，结果缓存。
 - **`may-emit-effect` 的效果清单**以 `Ontology.effect_ids()` 暴露（决策 → 效果 id）。本树的 `narrate` 没有「每个状态效果恰交代一次」的确定性检查——12.5 的 `committed` 句子直接由收据生成——所以这份清单目前没有消费者；接那条检查的切片直接读它，不另抄一份。
+
+## 14. 建卡、模组存储与来源车道（切片 4，票 #17）
+
+从零到开桌：玩家选一本书或一个 starter，建卡，坐下。这一节定四件事的形状：模组存储（多战役共享、只增不删）、三条来源车道（starter 直接注册、PDF 资料包绑定、无人值守构建）、建卡进程（一个 `setup` 工具、一张七步表）、按需深读与资产。旧树的教训整条带过来：**仓库不解析 PDF**（外部宿主技能产出资料包，仓库只校验字节）；**读书的模型工作跑成带工具的 Pi agent**（一段 section 一个有界的子 `pi` 进程，不是一次补全——用户 2026-09-04 的法则）；**给读者工具而不是原始 JSON**（证据查询与闸门是它能自己跑的命令）；**构建必须装配**（`assembled` 与 `dangling_relations == 0` 才算成，只看「每片通过」是空心的）；**整图有可玩性标准**（十条不变量恒成立，十五项度量只报不卡）；**机器能推的不让模型写**（relations、visibility、coverage 记账是机器的）；**模组是参考不是圣经**（门取向偏开）。
+
+### 14.1 模组存储
+
+工作区 `.coc/modules/<module_id>/`：
+
+```
+module.json                身份：id、title、source: starter|pdf、languages、bundle_sha256?、page_count?、
+                           graph_digest、generation、status: registered|planned|building|assembled|assembled_not_playable|installed
+module-graph.json          v3 契约的整图（与 content/starters 同一加载器）；generation 每次合并递增
+module-graph-manifest.json 摘要（算法同规则图）
+bundle/manifest.json       校验过的资料包清单（宿主产出，逐字节）；bundle/pages/NNNN.md 每页 Markdown
+sections.json              全书 section 索引：id、title、pages: [from, to]、kind、priority、status: planned|reading|accepted|failed|skipped、shard、rounds
+shards/<section_id>.json   已接受的分片（v3 shard）
+work/<section_id>/         抽取包 packet.json、读者的 shard.json 与 findings.json、每轮日志
+assets.json                手卡、地图、插图登记：id、kind: handout|map|illustration、name、pages、path、visibility
+deepen-queue.json          按需深读队列：{section_id, reason: move|adjacent|opening, priority, status, claimed_by?, at}
+build.jsonl                构建遥测：每 section 每轮 {section_id, round, model, ms, findings_codes, accepted}
+```
+
+- 战役 `campaign.json` 只记 `module_id`、`module_digest`（建战役时的图摘要）与 `module_generation`；`look`/`lookup`/`apply` 读存储里当前代际的图，图长了战役就看得到（深读的意义所在）；`module_digest` 只做溯源，不锁读。
+- 同一模组的多个战役共享目录；分片与页只增不删；`status` 只前进。
+- Starter：`content/starters/<id>/module-graph.json` 在第一次被 `campaign.create` 或 `module.register` 引用时复制进存储并置 `installed`；`source: starter`，没有 bundle 与 sections。
+- 模组 id 是名字（`the-haunting`、`they-did-not-think-it-too-many`），不是文件哈希；PDF 的 id 由 `module.bind` 从清单里的 `module_identity.slug` 取，缺省由标题转 kebab。
+
+### 14.2 PDF 资料包与 `module.bind`
+
+资料包由宿主的外部 PDF 技能产出（本仓库的 `skills/trpg-pdf-ingest` 契约不变；在这台机器上宿主就是 Claude Code 自己读 PDF 写 Markdown），仓库不 import 任何 PDF 解析库（保留旧树的契约测试）。目录形状：
+
+```
+<bundle>/manifest.json   {"contract": "coc.pdf-bundle.v1", "producer": "<技能名>", "module_identity": {"title", "slug", "language", "authors"?, "edition"?},
+                          "source": {"file_sha256", "page_count", "filename"}, "pages": [{"pdf_index": 0, "path": "pages/0000.md", "sha256", "chars"}],
+                          "assets"?: [{"id", "kind", "pages": [..], "path", "sha256", "media_type"}], "outline"?: [{"title", "level", "pdf_index"}]}
+<bundle>/pages/NNNN.md   每页 UTF-8 Markdown；空页也要有文件（内容为空），页码从 0 起连续
+<bundle>/assets/...      图片原件
+```
+
+`module.bind` params `{"bundle": "<目录>", "module_id"?: "<覆盖 slug>"}`：逐页复核 sha256、页码连续、`page_count` 与页数相等、资产哈希；不合报 `invalid_params`，`details.pages` 列坏页。通过则复制进 `modules/<id>/bundle/`，写 `module.json`（`registered`），登记 `assets.json`，返回 `{"module_id", "page_count", "assets": n}`。绑定不读书、不做 section、不起构建（各是各的调用，出错各自可重试）。
+
+### 14.3 无人值守构建
+
+**`module.plan`** params `{"module_id", "budget"?: <每 section 字符上限，缺省 60000>}`：先由机器量（旧 `coc_module_plan` 的算法：目录页、标题深度、按预算切；一本 20 页的书是一个 section，654 页的书按章再按预算切），产出候选切法；再由**一次 Pi agent 会话**（14.5 的读者形状，但只给标题、页码与每页首两行，不给正文）给每个 section 定 `kind`（front|keeper-truth|scene|npc-roster|handouts|appendix|rules|pregens|other）与 `priority`（opening 相关的最高）。分类是全书级判断，交给模型；切法是测量，交给机器。写 `sections.json`，状态 `planned`。
+
+**`module.packet`** params `{"module_id", "section_id"}`：写 `work/<section_id>/packet.json`：section 的页正文切成带 id 的证据 span（`span-p<page>-<n>`，机器切段）、`page_window`（本节覆盖哪几页、前后各多少页——旧树 1281 条编造 span 全指向切片之后的页，加了这个降到 0）、骨架（module 节点、已接受分片里的场景/NPC/线索名册，供引用而非重定义）、v3 词表与 id 法则、`coverage` 要声明的十个域、`machine_filled_keys`。返回 packet 路径与 `brief`（读者的标准命令，见 14.5）。
+
+**`module.review`** params `{"module_id", "section_id"}`：对 `work/<section_id>/shard.json` 跑三道确定性门，每道都跑、都不降级：`shape`（契约 v3 键、`node_id` 以 kind 前缀、`claim_id` 以 `claim-` 前缀、语义 id 法则、词表闭合）、`grounding`（每个名字与数字的引用 span 存在且含该名字/数字；不存在的 span id 是 `unknown_evidence_span`）、`coverage`（每个域已声明；span 消费率与实质段落未引用数只报）。机器填充在校验前做：从 claims 推 relations、visibility 缺省、coverage 记账。返回 `{"accepted": bool, "findings": [{"gate", "code", "path", "message"}], "measures"}`，并写 `findings.json`。
+
+**`module.accept`** params `{"module_id", "section_id"}`：review 通过的 shard 复制到 `shards/`，`sections.json` 状态 `accepted`；未通过报 `invalid_params` 带 findings。
+
+**`module.assemble`** params `{"module_id"}`：骨架 + 全部 `accepted` 分片合并成整图；合并冲突（同 id 不同 kind、悬空引用）是报告不是异常；然后跑**可玩性标准**——十条不变量：`dangling_relation`、`scene_graph_fragmented`、`scene_unreachable_from_entrance`、`no_entrance_declared`、`no_ending_declared`、`clue_supports_nothing`、`conclusion_without_support`、`clue_nowhere_to_find`、`actor_in_no_scene`、`node_without_page`（交代法则：一本没有结局的书用显式空声明回答，拒绝的是沉默）；十五项度量只报。全过 → `assembled`，否则 `assembled_not_playable`（图照写，`module.json.playability` 存报告）。写 `module-graph.json` 并递增 `generation`。
+
+**`module.install`** params `{"module_id"}`：`assembled` 或 `assembled_not_playable` 的图登记摘要，状态 `installed`；`assembled_not_playable` 的安装要 `force: true` 并把报告写进 `module.json`（守秘人开桌时胶囊 `where` 会说材料不全）。
+
+**开桌就绪**（`module.status` 的 `opening_ready`）：module 节点、起始场景、其出口指向的场景、起始场景的 NPC 与线索都在图里，且起始子图上十条不变量成立。构建顺序按 `priority`：front / keeper-truth / opening 场景所在 section 先；`opening_ready` 一到就允许 `setup.complete`，其余 section 继续在后台读（14.6）。
+
+### 14.4 建卡进程与七步表
+
+`bin/pi-coc setup [--campaign <id>]` 起一个独立 `pi` 进程：`PI_COC_MODE=setup`，只有 `onboarding` 扩展注册工具（`kernel`/`table`/`memory` 扩展在 setup 模式下不注册任何工具、不拉内核之外的车道），系统提示是一页建卡专用的话，`--no-builtin-tools`。工具只有一个：`setup {step, ...}`。
+
+七步表住在 `content/setup/steps.json`，每步 `(id, needs, kind: ask|external|op, op?, params, receipt)`，扩展与内核都从它派生顺序、可用动作、拒绝语与下一步说明——任何顺序信息只写一次：
+
+| id | needs | kind | 做什么 | 回执 |
+| --- | --- | --- | --- | --- |
+| `choose-source` | — | ask | 玩家选 starter（`campaign.list` 给的 starter 名单）或给一个资料包目录 | `source: {kind, module_id|bundle}` |
+| `build-bundle` | choose-source（pdf） | external | 资料包不存在时告诉玩家怎么用宿主的 PDF 技能产出它，并等；存在则过 | `bundle_path` |
+| `create-campaign` | choose-source | op | `campaign.create {module, title?, play_language, register}`，status `setting_up`；starter 时同时注册模组 | `campaign_id` |
+| `bind-source` | build-bundle, create-campaign（pdf） | op | `module.bind`，再 `module.plan` | `module_id`, `sections: n` |
+| `build-opening` | bind-source（pdf） | op | 起构建（`module.build` 由 module 扩展驱动，见 14.5），等到 `opening_ready` | `opening_ready: true`, `sections_accepted` |
+| `create-investigator` | create-campaign（starter）/ build-opening（pdf） | op | 14.7 | `investigator_id` |
+| `complete` | create-investigator | op | `setup.complete`：写 `setup_handoff` 收据，战役 `ready_for_table`，进程退出并打印 `bin/pi-coc --campaign <id>` | `handoff` |
+
+`setup` 的 `step` 不在表里、前置未满足、或重复已完成的步 → 工具结果带该步的拒绝语与「下一步」（从表派生），不改状态。建卡进程没有胶囊、没有 Director；内核 `table.open` 只开 `ready_for_table` 或 `active` 的战役，其他状态报 `campaign_not_ready` 并给 `fix: bin/pi-coc setup --campaign <id>`。
+
+### 14.5 读者：一段 section 一个子 `pi` 进程
+
+模型侧的读书工作由 `module` 扩展驱动，不在内核里、也不是 `modelRegistry.complete`：每个 section 起一个子进程 `pi -p --no-session --no-context-files --tools read,write,edit,bash --system-prompt content/setup/reader.md`（工作目录 `work/<section_id>/`，模型 `PI_COC_BUILD_MODEL`，缺省与桌子同模型），标准命令由 `module.packet` 返回的 `brief` 给：读 `packet.json`，用 `bin/coc-evidence`（仓库脚本：`search <名字>` 在全节 span 里找、`verify <span-id>` 查 id 是否存在、`page <n>` 看整页）查证据，把 shard 写到 `shard.json`，跑 `bin/coc-review --module <id> --section <id>`（即 `module.review`）看 findings，改到 `accepted` 或放弃。每 section 至多 3 轮（子进程退出后 review 不过就带着 findings 原样重起一轮），超过记 `failed`；读者产出的一切只在 `work/` 里，进 `shards/` 的只有 review 通过并 `module.accept` 的。这是用户法则要求的形状：带工具的 agent 自己开包、自己分多次写、自己跑闸门。
+
+`module.build` 是扩展侧的驱动循环（不是内核方法）：plan → 按 priority 逐 section packet → 子进程 → review → accept → 每接受一片就 `module.assemble`（增量合并，`generation` 递增）→ `opening_ready` 一到发总线事件 `coc:module-opening-ready` → 剩余 section 继续 → 全部结束 `module.install`。并发上限 `PI_COC_BUILD_PARALLEL`（缺省 1）。构建遥测进 `build.jsonl`。
+
+### 14.6 按需深读
+
+`apply` 的 `move` 成功后内核把目标场景所在 section 与其 `route-to` 邻居的 section 中未 `accepted` 的入队（`deepen-queue.json`，reason `move`/`adjacent`，priority 脚下 100、一步之内 80）；`table.open` 时起始场景同理（reason `opening`，90）。module 扩展在游玩进程里有一条后台车道：认领队列（`module.deepen.claim` → `{section_id}`，同一时刻一个），跑 14.5 的读者，review、accept、assemble，`module.deepen.complete`；失败标 `failed` 并留在队列（下次开桌重试一次）。图换代后内核的图缓存按 `generation` 失效。胶囊 `where.exits[].material` 与 `where.material` 取 `ready|reading|missing`（该 section 的状态），守秘人据此知道往哪走会「书还没读到」；`head` 会说。
+
+### 14.7 建卡：模型只问名字与职业概念，数值由内核推导
+
+`setup.occupations` params `{"campaign"}` → `content/rulesets/coc7/rules-json/occupations.json` 的职业清单（id、名字、技能点公式、职业技能、信用评级范围），供建卡进程把玩家的一句「我想玩个战地记者」落到一个职业 id——这一步是语义判断，归模型；内核只认 id。
+
+`setup.investigator` params `{"campaign", "name", "occupation": "<id>", "concept"?: "<一句>", "age"?: int, "sex"?, "method"?: "quick_fire"|"rolled"}`：内核确定性地生成整张表——特征值（`quick_fire` 用规则书快速数组按职业主特征分配；`rolled` 用 `characteristic-dice.json` 掷，种子写进收据）、年龄修正（旧 `coc_character` 的规则）、衍生值（HP/MP/SAN/幸运/伤害加值/体格/移动）、职业技能点按公式并按职业技能表顺序分配（缺省分配法写死并写进回执，玩家可在桌上用 `development` 族改）、兴趣点分给 `concept` 无关的规则书通用技能（缺省列表来自规则数据，不是代码字面量）、信用评级取职业范围下限、现金与资产按时代与信用等级、随身装备取职业缺省。写 `party/<id>.json`（与 pregen 同形）与收据 `investigator:<id>`。名字与概念原样存，不做任何判断。同一战役第二次调用是第二个调查员（多人桌留口，本切片桌上仍只用第一位）。
+
+`setup.complete` params `{"campaign"}`：`party/` 至少一人、模组 `installed`（或 `opening_ready`）→ `campaign.json.status = ready_for_table`，写 `setup_handoff` 收据（模组 id、代际、调查员 id、时刻），事件 `setup-completed`。
+
+### 14.8 资产
+
+`assets.json` 由 `module.bind` 从资料包清单登记，`module.assemble` 再把图上 `asset`/`handout` 节点与登记合并（按页码对齐）。`apply` 新增种类 `handout`：`{"kind": "handout", "name": "<资产或 handout 节点名>", "label"?}` → 校验该资产 `visibility` 可给玩家（`player-safe`/`revealable`），写收据 `handout:<id>`，渲染 `【手卡】<label 或名字>`，事件 `handout-shown`，`rendered_text` 之外结果里带 `attachment: {"path", "media_type"}` 供扩展作为附件交给玩家（Pi RPC 的消息附件；驾驭器落到证据目录）。守秘人专属图像走 `lookup {kind: "secret", scope: "scene"}` 的 `assets` 字段（路径），不进玩家文字。
+
+### 14.9 两个 starter 转成模组图
+
+`mystery-house` 与 `the-white-war` 在旧树里只有七文件 IR；把旧 `coc_starter_graph.build_starter_graph`（IR → v3 图的确定性投影）移植为仓库脚本 `scripts/starter_graph.py`，产出 `content/starters/<id>/module-graph.json`（+ manifest），并要求两张图过 14.3 的可玩性标准（不过的先修 IR，不改标准）。此后三个 starter 走同一条注册车道；the-haunting 的图重新投影一次做逐字节对照（`section-curated-starter-projection`）。
+
+### 14.10 验收与证据
+
+- 一本真 PDF（《他们也没想太多》，20 页，zh-Hans；宿主把它读成资料包）从 `bin/pi-coc setup` 走七步到 `ready_for_table`，再 `bin/pi-coc --campaign` 开桌三回合：开场材料（场景、在场者、线索）全部来自构建出的图，守秘人不翻书。证据：`modules/<id>/build.jsonl`、`sections.json`、可玩性报告、三回合的回合记录与胶囊。
+- 建卡进程的每一步拒绝与下一步说明只能追溯到七步表（测试从表生成用例）。
+- 构建的每一片都有 review findings 日志；装配报告 `dangling_relations == 0`；两个 starter 图过十条不变量。
