@@ -79,7 +79,7 @@ test("pending_turn：注入恢复消息，玩家原文与欠的步骤都在里�
 	assert.ok(!methods.includes("table.player_input"), "恢复消息不是玩家输入");
 	const narrate = table.kernelRequests().find((entry) => entry.method === "table.narrate");
 	assert.ok(narrate, "恢复的回合要能被 narrate 关掉");
-	assert.equal(narrate.params.call_id, "t1-c1", "接着做的是原来那个回合");
+	assert.equal(narrate.params.call_id, "t1-c2", "接着做的是原来那个回合，序号从死掉的进程之后接着铸");
 });
 
 test("内核报错：模型拿到 code: message 与 fix，结果标成错误", async (t) => {

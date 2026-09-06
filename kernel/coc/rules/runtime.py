@@ -25,7 +25,7 @@ from .resolver import Resolver
 from .skills import SkillResolver
 from .tables import RuleTables
 
-RESOURCE_LABELS_ZH = {"hp": "生命值", "san": "理智", "mp": "魔法值", "luck": "幸运"}
+RESOURCE_LABELS_ZH = {"hp": "生命值", "san": "理智", "mp": "魔法值", "luck": "幸运", "armor": "护甲", "ammo": "弹药"}
 SOCIAL_SKILLS = ("Charm", "Fast Talk", "Intimidate", "Persuade")
 
 
@@ -407,17 +407,17 @@ class SettleContext:
         return self.graph.display_name(node) if node else str(subject)
 
     def add_delta(self, resource: str, subject: str, before: Any, after: Any, *,
-                  source_receipt: str | None = None) -> str:
+                  source_receipt: str | None = None, **extra: Any) -> str:
         receipt_id = self._mint(f"delta:{resource}-t{self.turn_number}-c{self.ordinal}")
         label = RESOURCE_LABELS_ZH.get(resource, resource)
         subject_label = self.subject_label(subject)
         receipt = {"id": receipt_id, "kind": "delta", "call_id": self.call_id, "resource": resource,
                    "subject": subject, "subject_label": subject_label, "label": label, "before": before,
-                   "after": after, "at": now_iso()}
+                   "after": after, **extra, "at": now_iso()}
         if source_receipt:
             receipt["source_receipt"] = source_receipt
         self.receipts.append(receipt)
-        self.effects.append({"kind": resource, "subject": subject, "before": before, "after": after})
+        self.effects.append({"kind": resource, "subject": subject, "before": before, "after": after, **extra})
         return receipt_id
 
     def add_effect(self, kind: str, subject: str, before: Any, after: Any, **extra: Any) -> None:

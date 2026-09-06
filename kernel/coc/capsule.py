@@ -85,12 +85,20 @@ def where_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, An
     for cond in record.get("exit_conditions") or []:
         keeper_notes.append("exit condition: " + describe_condition(cond))
 
+    back = []
+    for handle in reversed([str(h) for h in world.get("scene_trail") or []]):
+        try:
+            back.append({"to": handle, "display_name": graph.display_name(graph.scene(handle))})
+        except Exception:  # noqa: BLE001 - a stale handle in an old world is not a reason to lose the section
+            back.append({"to": handle})
+
     return {
         "scene": graph.handle(scene),
         "display_name": graph.display_name(scene),
         "dramatic_question": record.get("dramatic_question"),
         "pressure_moves": list(record.get("pressure_moves") or []),
         "exits": exits,
+        "back": back,
         "affordances": affordances,
         "keeper_notes": keeper_notes,
         "assets": graph.scene_assets(scene),

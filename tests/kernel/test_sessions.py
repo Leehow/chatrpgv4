@@ -93,13 +93,19 @@ def test_combat_against_corbitt_with_the_revolver(tmp_path):
         ammo = [e for e in defend["effects"] if e["kind"] == "ammo"]
         assert ammo == [{"kind": "ammo", "subject": INVESTIGATOR, "before": 6, "after": 5, "weapon": "revolver_38_or_9mm"}]
         assert any(e["kind"] == "armor" and e["subject"] == CORBITT for e in defend["effects"])
+        # Ammo spent and armor soaked are receipts the player reads, not just effects.
+        logged = {r["id"]: r for r in client.table("status")["receipts"]}
+        assert logged[f"delta:ammo-t1-c{n + 1}"]["label"] == "弹药"
+        assert logged[f"delta:armor-t1-c{n + 1}"]["label"] == "护甲"
         assert defend["session"]["turn_of"] == CORBITT and defend["session"]["pending_defense"] is None
         assert defend["pending_choice"] is None
         assert [a["decision"] for a in defend["session"]["actions"]] == ["combat:attack", "combat:maneuver", "combat:end"]
         events = read_jsonl(campaign_dir(client.workspace) / "events.jsonl")
         settled = [e for e in events if e["type"] == "decision-settled"][-1]
         assert settled["data"]["session_kind"] == "combat" and settled["data"]["session_status"] == "active"
-        assert [e["type"] for e in events][-4:] == ["roll-resolved", "roll-resolved", "resource-changed", "decision-settled"]
+        # hp, then the spent round, then the ward soaking the rest: three resource changes.
+        assert [e["type"] for e in events][-6:] == ["roll-resolved", "roll-resolved", "resource-changed",
+                                                    "resource-changed", "resource-changed", "decision-settled"]
 
         # Corbitt's turn: the keeper acts as him; the investigator's defense is the player's.
         strike = resolve(client, f"t1-c{n + 2}", intent="combat", goal="科比特挥刀扑上来", method="", actor="Walter Corbitt",
@@ -497,3 +503,23 @@ def test_round_headers_when_combat_dice_span_rounds():
     bout = mechanics_block([{"kind": "session", "family": "sanity_bout", "transition": "start", "summary": "Faint（3 轮）"},
                             {"kind": "session", "family": "chase", "transition": "end", "outcome": "escaped", "summary": "逃脱"}])
     assert bout.splitlines() == ["【变化】理智发作：Faint（3 轮）", "【变化】追逐结束：逃脱"]
+
+
+def test_chase_end_reads_the_schema_vocabulary_from_the_quarry_side():
+    import pytest
+    from coc.errors import RpcError
+    from coc.sessions import chase_end_word
+
+    assert chase_end_word(None, None, quarry_is_investigator=True) == "concluded"
+    assert chase_end_word("fled", "captured", quarry_is_investigator=True) == "captured"  # the engine's verdict wins
+    assert chase_end_word("fled", None, quarry_is_investigator=True) == "escaped"
+    assert chase_end_word("investigators_win", None, quarry_is_investigator=True) == "escaped"
+    assert chase_end_word("monsters_win", None, quarry_is_investigator=True) == "captured"
+    assert chase_end_word("investigators_win", None, quarry_is_investigator=False) == "captured"
+    assert chase_end_word("monsters_win", None, quarry_is_investigator=False) == "escaped"
+    assert chase_end_word("stalemate", None, quarry_is_investigator=False) == "concluded"
+    assert chase_end_word("captured", None, quarry_is_investigator=True) == "captured"
+    with pytest.raises(RpcError) as raised:
+        chase_end_word("victory", None, quarry_is_investigator=True)
+    assert raised.value.code == "invalid_params"
+    assert "fled" in raised.value.details["options"] and "escaped" in raised.value.details["options"]

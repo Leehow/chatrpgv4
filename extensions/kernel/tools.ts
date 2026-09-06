@@ -217,7 +217,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Apply",
 		method: "table.apply",
 		description:
-			"把这一回合世界的改变落地：move 走到另一个场景（结果里直接带目的地场面，不必再 look），clue 让调查员拿到一条线索，time 推进世界时钟，damage 让调查员按规则书的骰子受伤（摔落、火烧、窒息这类没有攻击者的伤）。整批先校验后写，任一条不成立整批都不写，所以可以一次把这回合发生的事全列上。叙述里发生了却没 apply 的事等于没发生：走了要写 move，看见了要写 clue，花了时间要写 time。目的地不可达报 not_reachable 并给可达列表，线索不在此地报 not_here。",
+			"把这一回合世界的改变落地：move 走到另一个场景（结果里直接带目的地场面，不必再 look），clue 让调查员拿到一条线索，time 推进世界时钟，damage 让调查员按规则书的骰子受伤（摔落、火烧、窒息这类没有攻击者的伤）。整批先校验后写，任一条不成立整批都不写，所以可以一次把这回合发生的事全列上。叙述里发生了却没 apply 的事等于没发生：走了要写 move，看见了要写 clue，花了时间要写 time。目的地可以是当前场景的出口，也可以是来时经过的任何场景（where.back 按由近到远列着，退出没有出口的巢穴就靠它）；不可达报 not_reachable 并给两份列表，线索不在此地报 not_here。",
 		promptSnippet: "落地本回合的世界改变：移动、线索、时间",
 		parameters: Type.Object({
 			effects: Type.Array(Type.Union([MoveEffect, ClueEffect, TimeEffect, DamageEffect, ReservedEffect]), {

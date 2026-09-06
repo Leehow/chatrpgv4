@@ -17,7 +17,13 @@ interface OpenResult {
 	turn?: { number?: number; state?: TurnState };
 	investigators?: Array<Record<string, unknown>>;
 	scene?: { name?: string; display_name?: string };
-	pending_turn?: { player_text?: string; receipts?: unknown[]; owed?: string[]; since?: string } | null;
+	pending_turn?: {
+		player_text?: string;
+		receipts?: unknown[];
+		owed?: string[];
+		since?: string;
+		last_call_ordinal?: number;
+	} | null;
 	opening_needed?: boolean;
 }
 
@@ -215,7 +221,8 @@ export default function (pi: ExtensionAPI) {
 		table.turn = typeof open.turn?.number === "number" ? open.turn.number : table.turn;
 		table.state = open.turn?.state ?? table.state;
 		table.openingPending = open.opening_needed === true;
-		table.callOrdinal = 0;
+		// 恢复的回合接着死掉的进程铸序号，否则第一次写就撞 idempotency_conflict。
+		table.callOrdinal = open.pending_turn?.last_call_ordinal ?? 0;
 		table.mintedCallIds.clear();
 		table.renderedText = undefined;
 		table.deliveryToolCallId = undefined;
@@ -572,6 +579,10 @@ export default function (pi: ExtensionAPI) {
 					: `当前回合状态是 ${state.state}，不能改状态：等玩家开口，或者先只用 look、lookup、recall`;
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "turn_state", reason });
 			return { block: true, reason };
+		}
+		if (name === "ask" && !input.binds && state.pendingChoice?.for === "player" && state.pendingChoice.name) {
+			// 契约 §11.9：守秘人漏填 binds 时用内核最近一条给玩家的待决名补上。
+			input.binds = state.pendingChoice.name;
 		}
 		state.mintedCallIds.set(event.toolCallId, mintCallId(state));
 	});

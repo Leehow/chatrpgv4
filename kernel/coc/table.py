@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import copy
 import random
 import shutil
@@ -94,7 +96,12 @@ class Table:
         if meta.get("status") != "active":
             raise RpcError("campaign_not_ready", f"campaign {campaign.id!r} is {meta.get('status')!r}")
         graph = self.graph(str(meta["module_id"]))
-        return campaign, graph, campaign.read_world(), campaign.read_turn()
+        world = campaign.read_world()
+        if "scene_trail" not in world:
+            # Worlds written before the trail existed rebuild it from the event log, once.
+            world["scene_trail"] = self._replay_trail(campaign)
+            campaign.write_world(world)
+        return campaign, graph, world, campaign.read_turn()
 
     # ---- kernel / campaign --------------------------------------------------
 
@@ -144,6 +151,7 @@ class Table:
         world = {
             "active_scene": start_handle,
             "visited_scenes": [start_handle],
+            "scene_trail": [],
             "discovered_clues": [],
             "flags": {},
             "clock": {"minutes": 0},
@@ -217,8 +225,12 @@ class Table:
         scene = graph.scene(world["active_scene"])
         pending_turn = None
         if turn["state"] in WRITABLE_STATES:
+            # The dead process minted call ids before it died; the next one must not reuse them.
+            ordinals = [int(key.rsplit("-c", 1)[1]) for key in (turn.get("calls") or {})
+                        if "-c" in key and key.rsplit("-c", 1)[1].isdigit()]
             pending_turn = {"player_text": turn.get("player_text"), "receipts": turn.get("receipts", []),
-                            "owed": ["narrate"], "since": turn.get("opened_at")}
+                            "owed": ["narrate"], "since": turn.get("opened_at"),
+                            "last_call_ordinal": max(ordinals, default=0)}
         return {
             "campaign": campaign.read_campaign(),
             "turn": {"number": turn["turn"], "state": turn["state"]},
@@ -608,7 +620,7 @@ class Table:
                 if kind not in APPLY_KINDS:
                     raise invalid_params(f"unknown effect kind {kind!r}", fix=f"one of {sorted(APPLY_KINDS)}")
                 if kind == "move":
-                    receipt, event = self._stage_move(graph, staged, effect, turn_number, ordinal, call_id)
+                    receipt, event = self._stage_move(campaign, graph, staged, effect, turn_number, ordinal, call_id)
                 elif kind == "clue":
                     receipt, event = self._stage_clue(graph, staged, effect, turn_number, call_id)
                     if event is None:
@@ -652,21 +664,27 @@ class Table:
             append_event(campaign, turn_number, event_type, data, call_id=call_id, receipt=receipt_id)
         return result
 
-    def _stage_move(self, graph: ModuleGraph, world: dict[str, Any], effect: dict[str, Any],
+    def _stage_move(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any], effect: dict[str, Any],
                     turn_number: int, ordinal: int, call_id: str) -> tuple[dict[str, Any], tuple[str, dict[str, Any]]]:
         to = _str(effect, "to")
         current = graph.scene(world["active_scene"])
+        current_handle = graph.handle(current)
         exits = {e["to"]: e for e in graph.scene_exits(current)}
         destination = graph.scene(to)
         dest_handle = graph.handle(destination)
-        if dest_handle not in exits:
-            raise RpcError("not_reachable", f"{dest_handle!r} is not reachable from {graph.handle(current)!r}",
-                           fix="move to one of details.exits first",
-                           details={"from": graph.handle(current), "to": dest_handle,
-                                    "exits": sorted(exits)})
+        # The way you came in is always a way out: the trail of scenes the party walked through
+        # to get here can be retraced in one move, even out of a lair with no authored exit.
+        trail = [str(h) for h in world.get("scene_trail") or []]
+        back = list(reversed(trail))
+        if dest_handle not in exits and dest_handle not in trail:
+            raise RpcError("not_reachable", f"{dest_handle!r} is not reachable from {current_handle!r}",
+                           fix=f"move to one of {sorted(exits)} or retrace to one of {back}",
+                           details={"from": current_handle, "to": dest_handle,
+                                    "exits": sorted(exits), "back": back})
         minutes = effect.get("travel_minutes")
         if minutes is None:
-            minutes = exits[dest_handle].get("travel_minutes", 0)
+            edge = exits.get(dest_handle) or next((e for e in graph.scene_exits(destination) if e["to"] == current_handle), {})
+            minutes = edge.get("travel_minutes", 0)
         if not isinstance(minutes, int) or isinstance(minutes, bool) or minutes < 0:
             raise invalid_params("travel_minutes must be a non-negative integer")
         label = effect.get("label") if isinstance(effect.get("label"), str) and effect.get("label").strip() else None
@@ -674,11 +692,30 @@ class Table:
                    "call_id": call_id, "from": graph.handle(current), "to": dest_handle,
                    "from_label": graph.display_name(current), "to_label": label or graph.display_name(destination),
                    "minutes": minutes, "at": now_iso()}
+        world["scene_trail"] = trail[:trail.index(dest_handle)] if dest_handle in trail else [*trail, current_handle]
         world["active_scene"] = dest_handle
         if dest_handle not in world.setdefault("visited_scenes", []):
             world["visited_scenes"].append(dest_handle)
         world.setdefault("clock", {"minutes": 0})["minutes"] = int(world["clock"].get("minutes", 0)) + minutes
         return receipt, ("scene-moved", {"from": receipt["from"], "to": dest_handle, "minutes": minutes})
+
+    @staticmethod
+    def _replay_trail(campaign: Campaign) -> list[str]:
+        """The trail is what replaying every `scene-moved` event with the retrace rule leaves."""
+        trail: list[str] = []
+        if not campaign.events_path.exists():
+            return trail
+        for line in campaign.events_path.read_text(encoding="utf-8").splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if event.get("type") != "scene-moved":
+                continue
+            data = event.get("data") or {}
+            src, dest = str(data.get("from")), str(data.get("to"))
+            trail = trail[:trail.index(dest)] if dest in trail else [*trail, src]
+        return trail
 
     def _stage_clue(self, graph: ModuleGraph, world: dict[str, Any], effect: dict[str, Any],
                     turn_number: int, call_id: str) -> tuple[dict[str, Any], tuple[str, dict[str, Any]] | None]:

@@ -114,6 +114,7 @@ def test_pending_turn_survives_a_crash(tmp_path):
         assert [r["id"] for r in pending["receipts"]] == ["roll:spot-hidden-t1-c1"]
         assert pending["owed"] == ["narrate"]
         assert pending["since"]
+        assert pending["last_call_ordinal"] == 1  # t1-c1 was spent before the crash
         # The keeper finishes the turn in the new process.
         result = second.table("narrate", call_id="t1-c2", text="办公室里只有雪茄味。")
         assert "【明骰】侦查" in result["rendered_text"]

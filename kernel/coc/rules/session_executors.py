@@ -165,9 +165,10 @@ def _emit_state_deltas(ctx: Any, session: CombatSession, before: dict[str, dict[
         for weapon_id, loaded in now["ammo"].items():
             was = prior["ammo"].get(weapon_id)
             if was is not None and was != loaded:
-                ctx.add_effect("ammo", pid, was, loaded, weapon=weapon_id)
+                ctx.add_delta("ammo", pid, was, loaded, weapon=weapon_id)
         if now["armor"] != prior["armor"]:
-            ctx.add_effect("armor", pid, prior["armor"], now["armor"])
+            # A ward soaking a hit is the only thing that explains "3 damage, no wound" to the player.
+            ctx.add_delta("armor", pid, prior["armor"], now["armor"])
     ctx.sync_combatants(session, concluded=session.status != "active")
 
 
@@ -250,10 +251,10 @@ def _start_combat(ctx: Any, args: Mapping[str, Any], sessions: SessionView) -> t
             participant["armor"] = int(rolled["total"])
             participant["armor_rule"] = preparation.get("armor_rule")
             row["armor"] = int(rolled["total"])
-            ctx.add_dice_roll(actor=str(preparation["actor_id"]), label=str(preparation.get("effect_kind") or "armor"),
-                              skill_label=DICE_LABELS_ZH.get("Flesh Ward"), expression=rolled["expression"],
-                              faces=rolled["rolls"], total=rolled["total"])
-            ctx.add_effect("armor", str(preparation["actor_id"]), 0, int(rolled["total"]))
+            roll_id = ctx.add_dice_roll(actor=str(preparation["actor_id"]), label=str(preparation.get("effect_kind") or "armor"),
+                                        skill_label=DICE_LABELS_ZH.get("Flesh Ward"), expression=rolled["expression"],
+                                        faces=rolled["rolls"], total=rolled["total"])
+            ctx.add_delta("armor", str(preparation["actor_id"]), 0, int(rolled["total"]), source_receipt=roll_id)
         session.apply_effect(str(preparation["actor_id"]), str(preparation.get("effect_kind") or "preparation"),
                              str(preparation["actor_id"]), int(preparation.get("duration_rounds") or 1),
                              metadata={"rule_ref": preparation.get("rule_ref")})

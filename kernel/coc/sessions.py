@@ -19,10 +19,32 @@ from .rules.chase import DEFAULT_GAP, DEFAULT_LOCATION_COUNT, ChaseSession, chas
 from .rules.combat import CombatSession
 from .rules.sanity import SanitySession, sanity_gain_pending_path, sanity_snapshot_path
 from .rules.tables import RuleTables
+from .errors import invalid_params
 from .text import normalize
 
 COMBAT_FILE = "combat.json"
 CHASE_FILE = "chase.json"
+CHASE_END_WORDS = ("escaped", "captured", "concluded")
+# The tool schema speaks combat's end vocabulary; a chase reads it from the quarry's side.
+COMBAT_END_WORDS = ("investigators_win", "monsters_win", "fled", "stalemate")
+
+
+def chase_end_word(word: Any, reached: str | None, *, quarry_is_investigator: bool) -> str:
+    if reached:
+        return reached
+    if word is None:
+        return "concluded"
+    word = str(word)
+    if word in CHASE_END_WORDS:
+        return word
+    mapped = {"fled": "escaped", "stalemate": "concluded",
+              "investigators_win": "escaped" if quarry_is_investigator else "captured",
+              "monsters_win": "captured" if quarry_is_investigator else "escaped"}.get(word)
+    if mapped is None:
+        raise invalid_params(f"unknown chase outcome {word!r}",
+                             fix="omit outcome to let the chase state decide, or give one of details.options",
+                             details={"options": list(COMBAT_END_WORDS) + list(CHASE_END_WORDS)})
+    return mapped
 
 #: Contract vocabulary for a defense (§11.9) against the engine's own; a firearm attack
 #: can only be dived away from, which the keeper still calls `dodge`.
@@ -492,6 +514,14 @@ class SessionView:
             if remaining <= 0 and action["decision"] == "chase:move":
                 action.update({"cost": 0, "note": "no movement actions this round (hazard debt): the actor passes"})
         return actions
+
+    def chase_end_outcome(self, word: Any) -> str:
+        """What `chase:end` records: the engine's verdict once it has one, else the keeper's word."""
+        snapshot = self.chase if isinstance(self.chase, dict) else {}
+        quarry_is_investigator = any(isinstance(row, dict) and row.get("side") == "quarry"
+                                     and self.is_investigator(str(row.get("actor_id")))
+                                     for row in snapshot.get("participants") or [])
+        return chase_end_word(word, self._chase_outcome(snapshot), quarry_is_investigator=quarry_is_investigator)
 
     @staticmethod
     def _chase_outcome(snapshot: dict[str, Any]) -> str | None:

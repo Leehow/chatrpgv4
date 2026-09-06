@@ -717,10 +717,7 @@ class ResolvePipeline:
         participants = {str(p.get("actor_id")): p for p in snapshot.get("participants") or [] if isinstance(p, dict)}
         binding["revision"] = snapshot.get("revision")
         if suffix == "end":
-            outcome = action.get("outcome") or sessions._chase_outcome(snapshot) or "concluded"
-            if outcome not in ("escaped", "captured", "concluded"):
-                raise invalid_params(f"unknown chase outcome {outcome!r}", details={"options": ["escaped", "captured", "concluded"]})
-            sem["outcome"] = str(outcome)
+            sem["outcome"] = sessions.chase_end_outcome(action.get("outcome"))
             binding["chase_id"] = snapshot.get("chase_id")
             return sem, binding
         turn_of = sessions.chase_turn_of(snapshot)
@@ -927,7 +924,9 @@ class ResolvePipeline:
             if not candidates or not (explicit or implicit):
                 raise RpcError("turn_state", message, fix=str(details.get("fix")), details=details)
         if not candidates:
-            return {"kind": "none", "note": f"intent {self.intent}: nothing to roll; narrate the outcome directly"}
+            note = (f"intent {self.intent}: nothing to roll; a scene change is apply's business (effects: move)"
+                    if self.intent == "move" else f"intent {self.intent}: nothing to roll; narrate the outcome directly")
+            return {"kind": "none", "note": note}
 
         source = latest_check_receipt(ctx)
         provisional = self._provisional_semantic(ctx, target)

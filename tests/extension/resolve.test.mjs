@@ -284,3 +284,32 @@ test("待决防御没交回去就收工：宿主替它 ask，叙述是 text，�
 	const delivered = assistantTexts(table.session).filter((text) => text.length > 0).at(-1);
 	assert.ok(delivered.endsWith("1. dodge\n2. fight_back"), "交付的是内核渲染的问题与选项");
 });
+
+test("守秘人自己 ask 却漏填 binds：宿主用内核留下的待决名补上", async (t) => {
+	const table = await openTable({
+		responses: [
+			fauxAssistantMessage(
+				[
+					fauxToolCall("resolve", {
+						action: { intent: "combat", goal: "把看门人放倒", method: "抡起铁撬砸他", target: "看门人", weapon: "撬棍" },
+					}),
+				],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage(
+				[fauxToolCall("ask", { text: "撬棍砸下来。", prompt: "你怎么办？", options: ["闪避", "反击"] })],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage("收尾"),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我抄起铁撬砸他");
+	await waitForIdle(table.session);
+
+	const ask = table.kernelRequests().find((entry) => entry.method === "table.ask");
+	assert.ok(ask, "守秘人的 ask 到了内核");
+	assert.equal(ask.params.binds, "combat-defense-t1", "漏填的 binds 由宿主补上");
+	assert.deepEqual(ask.params.options, ["闪避", "反击"], "守秘人自己的选项原样保留");
+});

@@ -1,3 +1,5 @@
+import json
+
 from conftest import OPENING_SCENE, campaign_dir, open_turn, read_json, read_jsonl
 
 
@@ -34,6 +36,38 @@ def test_move_reachable_and_unreachable(kernel):
     back = kernel.table("apply", call_id="t1-c2", effects=[{"kind": "move", "to": "scene-newspaper-morgue"}])
     assert back["world"]["clock"] == {"minutes": 30}
     assert kernel.table("status")["receipts"][-1]["minutes"] == 0
+
+
+def test_move_retraces_the_trail(kernel):
+    """Corbitt's lair has no authored exit; the way in is still the way out, all the way back."""
+    open_turn(kernel)
+    path = ["newspaper-morgue", "corbitt-house-ground", "basement-rites", "corbitt-confrontation"]
+    for n, scene in enumerate(path, start=1):
+        kernel.table("apply", call_id=f"t1-c{n}", effects=[{"kind": "move", "to": scene, "travel_minutes": 0}])
+    trail = [OPENING_SCENE, "newspaper-morgue", "corbitt-house-ground", "basement-rites"]
+    assert world(kernel)["scene_trail"] == trail
+    seen = kernel.table("look", focus="scene")["where"]
+    assert seen["exits"] == [] and [b["to"] for b in seen["back"]] == list(reversed(trail))
+
+    error = kernel.table_err("apply", call_id="t1-c5", effects=[{"kind": "move", "to": "central-library"}])
+    assert error["code"] == "not_reachable"
+    assert error["details"]["exits"] == [] and error["details"]["back"] == list(reversed(trail))
+    assert "basement-rites" in error["fix"] and "corbitt-house-ground" in error["fix"]
+
+    # Two scenes back in one move: the trail is cut to the destination.
+    back = kernel.table("apply", call_id="t1-c5", effects=[{"kind": "move", "to": "corbitt-house-ground"}])
+    assert back["receipts"] == ["move:corbitt-house-ground-t1-c5"]
+    assert back["world"]["active_scene"] == "corbitt-house-ground"
+    assert world(kernel)["scene_trail"] == [OPENING_SCENE, "newspaper-morgue"]
+    kernel.table("apply", call_id="t1-c6", effects=[{"kind": "move", "to": "basement-rites"}])
+    assert world(kernel)["scene_trail"] == [OPENING_SCENE, "newspaper-morgue", "corbitt-house-ground"]
+
+    # A world written before the trail existed rebuilds it from the event log on the next call.
+    state = world(kernel)
+    del state["scene_trail"]
+    (campaign_dir(kernel.workspace) / "world.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    kernel.table("look", focus="time")
+    assert world(kernel)["scene_trail"] == [OPENING_SCENE, "newspaper-morgue", "corbitt-house-ground"]
 
 
 def test_clue_here_not_here_and_duplicate(kernel):
