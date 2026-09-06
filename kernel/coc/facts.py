@@ -61,6 +61,9 @@ TEMPLATES: dict[str, str] = {
         "statement; a world_event's subject must be world; a relationship names exactly one entity in entities. "
         "When someone promised something with a deadline or a condition, write a promise: subject is the one who "
         "promised, entities the one promised to and what it concerns, statement the condition or deadline. "
+        "When an NPC learned something, took a position or gave their word this turn, say so with them in it: a "
+        "knowledge or belief whose knowers include them, or a promise whose subject is them -- that is what puts it "
+        "on their account, and the keeper reads it back the next time they are in the room. "
         "Write every statement in the campaign's play language ({language}): the keeper reads it back and the player "
         "may see it through recall. Never write ids, turn numbers, receipts or any machine key."
     ),

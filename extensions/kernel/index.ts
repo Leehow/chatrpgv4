@@ -240,6 +240,22 @@ function errorDetailLines(details: Record<string, unknown> | undefined): string[
 	return lines;
 }
 
+/**
+ * Read telemetry carries what was asked about (contract §17.6): `look focus=npc name=X` and
+ * `lookup name=X` are the calls the capsule is supposed to make unnecessary, and a KPI that
+ * cannot see the target cannot tell a lookup of someone in the room from one of a stranger.
+ * Names only -- no prose, no free text from the model's other parameters.
+ */
+function readTelemetry(tool: string, params: Record<string, unknown>): Record<string, unknown> {
+	if (tool !== "look" && tool !== "lookup") return {};
+	const focus = asString(params.focus);
+	const name = asString(params.name);
+	return {
+		...(focus ? { focus } : {}),
+		...(name ? { about: name } : {}),
+	};
+}
+
 /** resolve telemetry carries two extra columns: which family this adjudication belongs to and which session it fell in (contract §11.6). */
 function resolveTelemetry(result: ResolveResult): Record<string, unknown> {
 	const outcomeKind = asString(result.outcome?.kind);
@@ -621,6 +637,7 @@ export default function (pi: ExtensionAPI) {
 				ms: Date.now() - began,
 				ok: true,
 				...(spec.name === "resolve" ? resolveTelemetry(result as ResolveResult) : {}),
+				...readTelemetry(spec.name, params),
 			});
 			if (spec.name === "narrate" || spec.name === "ask") {
 				// A turn inside a session must be accountable on its own: round trips in combat are not the same as in investigation.

@@ -32,8 +32,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import statistics
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -117,20 +119,71 @@ def turn_metrics(calls: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def compute(rows: list[dict[str, Any]], turns: tuple[int, int] | None = None) -> dict[int, dict[str, Any]]:
+def normalize(name: str) -> str:
+    """The same case/width/separator-insensitive key the kernel matches names by, so a
+    `lookup` of "Steven Knott" and a capsule entry "steven-knott" are one name here too."""
+    text = unicodedata.normalize("NFKC", str(name)).lower()
+    return re.sub(r"[\s_\-]+", " ", text).strip()
+
+
+def present_names(workspace: str, campaign: str) -> dict[int, set[str]]:
+    """Who the capsule already put in the room, per closed turn (§17.6). Read from the turn
+    records' own `capsule`, which is what the keeper actually saw -- not rebuilt from the
+    graph, and not from the mutable world."""
+    directory = Path(workspace) / "campaigns" / campaign / "turns"
+    by_turn: dict[int, set[str]] = {}
+    for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        capsule = record.get("capsule")
+        if not isinstance(record.get("turn"), int) or not isinstance(capsule, dict):
+            continue
+        names = {normalize(entry["name"]) for entry in capsule.get("present") or []
+                 if isinstance(entry, dict) and isinstance(entry.get("name"), str)}
+        if names:
+            by_turn[int(record["turn"])] = names
+    return by_turn
+
+
+def redundant_npc_reads(calls: list[dict[str, Any]], here: set[str]) -> int:
+    """§17.6: read calls aimed at someone the capsule already described in full. A `lookup`
+    or `look focus=npc` naming one of them is the call the NPC layer is supposed to make
+    unnecessary; a call about anyone else is a real question and is not counted."""
+    hits = 0
+    for call in calls:
+        if call.get("tool") not in ("look", "lookup"):
+            continue
+        about = call.get("about")
+        if isinstance(about, str) and normalize(about) in here:
+            hits += 1
+    return hits
+
+
+def compute(rows: list[dict[str, Any]], turns: tuple[int, int] | None = None,
+            present: dict[int, set[str]] | None = None) -> dict[int, dict[str, Any]]:
     by_turn = group_by_turn(rows)
     selected = sorted(by_turn)
     if turns is not None:
         lo, hi = turns
         selected = [t for t in selected if lo <= t <= hi]
-    return {t: turn_metrics(by_turn[t]) for t in selected}
+    metrics = {t: turn_metrics(by_turn[t]) for t in selected}
+    for turn, here in (present or {}).items():
+        if turn in metrics:
+            metrics[turn]["npcs_present"] = len(here)
+            metrics[turn]["redundant_npc_reads"] = redundant_npc_reads(by_turn[turn], here)
+            metrics[turn]["reads_carry_about"] = any(
+                call.get("tool") in ("look", "lookup") and isinstance(call.get("about"), str)
+                for call in by_turn[turn])
+    return metrics
 
 
 def summarize(per_turn: dict[int, dict[str, Any]]) -> dict[str, Any]:
     if not per_turn:
         return {"turns": 0}
     reads = [m["reads_before_write"] for m in per_turn.values()]
-    return {
+    summary: dict[str, Any] = {
         "turns": len(per_turn),
         "reads_before_write_median": statistics.median(reads),
         "reads_before_write_mean": round(sum(reads) / len(reads), 3),
@@ -140,6 +193,22 @@ def summarize(per_turn: dict[int, dict[str, Any]]) -> dict[str, Any]:
         "reached_rules_layer_turns": sum(1 for m in per_turn.values() if m["reached_rules_layer"]),
         "reached_write_turns": sum(1 for m in per_turn.values() if m["reached_write"]),
     }
+    # §17.6: over the turns that had anyone in the room, how often the keeper still went
+    # and looked one of them up. The capsule carries the dossier and the account, so the
+    # acceptance number is a median of zero.
+    with_npcs = [m for m in per_turn.values() if m.get("npcs_present")]
+    if with_npcs:
+        summary["turns_with_npcs"] = len(with_npcs)
+        if any(m.get("reads_carry_about") for m in with_npcs):
+            reads = [m["redundant_npc_reads"] for m in with_npcs]
+            summary["redundant_npc_reads_median"] = statistics.median(reads)
+            summary["redundant_npc_reads_total"] = sum(reads)
+        else:
+            # A run recorded before the read rows carried `about` cannot answer this: every
+            # count would be zero because the column is missing, not because the keeper
+            # stopped asking. Say so rather than reporting a zero that means nothing.
+            summary["redundant_npc_reads_median"] = "unmeasurable (telemetry has no `about` column)"
+    return summary
 
 
 def format_report(per_turn: dict[int, dict[str, Any]], summary: dict[str, Any], *, title: str) -> str:
@@ -192,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
 
     path = telemetry_path(args.workspace, campaign)
     rows = load_rows(path)
-    per_turn = compute(rows, turns)
+    per_turn = compute(rows, turns, present_names(args.workspace, campaign))
     summary = summarize(per_turn)
     print(format_report(per_turn, summary, title=title))
     return 0
