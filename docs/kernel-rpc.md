@@ -1123,3 +1123,55 @@ Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `sessio
 - 断网（或不给 token）重跑：需 OCR 的页记 `ocr_unavailable`，其余页照常成书，作业不整体失败，缺页在可玩性简报里点名。
 - 同一本再跑一次：页文件复用，飞桨零调用。
 - 真桌：用这本书新建战役开三回合，开场材料来自构建而不是临场翻书。
+
+## 21. 调查员库：建一次，之后哪一局都能用（切片 12，票 #31）
+
+用户 2026-09-06 的四条拍板：**载入整卡快照原样带过**；**库里的卡与新模组时代不符也允许，原样不动**；**在战役里玩过之后每回合自动回流**；建卡与载入都要有入口。
+
+今天只有建卡：`setup.investigator` 在一个战役里造一张卡，写进 `<campaign>/party/<id>.json`，局终则止。同一个人物在下一本书里要重造一遍，练出来的技能、掉过的理智、攒下的东西全丢。
+
+### 21.1 库住在哪，里面是什么
+
+`<PI_COC_HOME>/.coc/investigators/<library_id>.json`（`PI_COC_HOME` 见 §20.7；模组是库、战役是存档，调查员同理）。`library_id` 是名字的 ascii slug 加短序号，机器铸，模型不写。
+
+一行就是一张整卡加一段来历：
+
+```
+{"library_id", "sheet": {<party/<id>.json 原样>},
+ "origin": {"created_in": "<campaign id>", "created_at", "era_at_creation"},
+ "play": {"last_campaign", "last_turn", "last_commit", "updated_at", "campaigns": ["<id>", ...]},
+ "schema_version": 1}
+```
+
+`sheet` 是逐字节的整卡：`characteristics`、`skills`、`derived`、`equipment`、`weapons`、`finance`、`cash`、`creation`、`era`、`occupation`、`current_hp/san/mp/luck`。实测这张表是自足的——伤口与状态活在引擎快照里而不在卡上，所以整卡搬家不会带出指向别局收据的悬空引用。
+
+### 21.2 四个方法
+
+- `investigator.list` → `[{library_id, name, occupation, era, current_hp, current_san, last_campaign, last_turn, updated_at}]`，按 `updated_at` 新到旧。
+- `investigator.get {library_id}` → 整行。
+- `investigator.save {campaign, investigator?}`：把战役里的卡存进库。已经有来历的更新那一行，没有的新建并在战役卡上写 `origin.library_id`。
+- `investigator.load {campaign, library_id, as?}`：**整卡快照原样带过**——`sheet` 逐字节拷进 `<campaign>/party/<新 id>.json`，只改 `id`，并写 `origin: {library_id, loaded_at_turn}`。不折算、不重掷、不校时代。
+
+### 21.3 时代不符：允许，原样不动
+
+库里的卡是 1920s、新书是现代或古罗马，一律照收：不换属性、不换技能表、不换现金表。内核只把两个时代都记进战役记录（`campaign.json.era_mismatch: {sheet, module}`），胶囊 `known.investigator` 带一句英文提示让守秘人知道，怎么圆是他的事。**没有转换器**——时代折算是开放语义问题，不硬编码（`Agents.md`）。`setup.investigator` 现有的时代守卫只管新建卡，不管载入。
+
+### 21.4 每回合自动回流
+
+回流挂在提交后链（§12.2）里，检查点之后、抽取任务之前：本回合关闭时，凡是带 `origin.library_id` 的在场调查员，把它当前的整卡写回库，并更新 `play.last_campaign/last_turn/last_commit/updated_at`，`campaigns` 去重追加。
+
+- **不阻塞回合**：写库失败只进遥测（`lane: "library"`，原因码 `library_unwritable`、`library_conflict`），回合已经关了，不回滚。
+- **整文件原子写**，与别处一致。
+- **同一张卡同时在两局里玩**：允许，后写的赢，`play.last_campaign` 与 `updated_at` 记着是谁最后写的——库是这个人物的当前状态，不是版本控制。真要分身就 `load` 成两张（`as` 给新名字），那是两个人。
+- 回流只写库，**永不反向覆盖战役**：战役是权威，库是它的镜子。
+
+### 21.5 入口
+
+建卡表（§14.4）的 `create-investigator` 加来源选择，与 §20.7 给模组加的第三种来源同一形状：**新建**（现有七步不变）或**从库里载入**（`investigator.list` 选一张，`investigator.load`，跳过职业与属性分配）。命令面加 `/coc investigator`（列库）与 `/coc investigator save`（手动存一次，回流之外的保险），输出只走界面。
+
+### 21.6 验收
+
+- 建一张卡，存进库；新建另一局（另一本书），从库里载入，逐字节比对整卡一致，只有 `id` 与 `origin` 不同。
+- 时代不符那一局照常开桌，胶囊里有提示，数值一个没变。
+- 真桌玩三回合，其中有技能成长或理智损失：每回合结束后库里那一行跟着变，`last_turn` 对得上。
+- 断开库目录的写权限：回合照常关闭，遥测有 `library_unwritable`，下一回合仍然能玩。
