@@ -193,7 +193,7 @@ result：`{"rendered_text": "<即 text，正文原样>", "mechanics": [...], "tu
 {"turn": {"number", "state", "pending_choice": null | {...}, "player_text": "<本回合玩家原文或 null>"},
  "where": {"scene": "<name>", "display_name", "dramatic_question", "pressure_moves": [...], "exits": [{"to", "travel_minutes"?, "unlock_when"?}], "back": [{"to", "display_name"}]（来路，由近到远）,
            "affordances": [{"id", "cue", "clue"?, "npc"?}], "keeper_notes": [...], "assets": [{"name", "kind"}]},
- "present": [{"name", "relationship", "agenda", "voice", "known_facts": [...], "attitude"?}],
+ "present": [{"name", "role", "wants", "fears"?, "hides"?, "voice"?, "knows": [...], ...}]（§17.4 起是档案加账本，旧的 relationship/agenda/known_facts/attitude 已删）,
  "known": {"discovered_clues": [names], "clues_here": [{"name", "summary", "delivery_kind", "discovered": bool}],
            "investigator": {"name", "occupation", "hp", "san", "mp", "luck", "skills_of_note": [{"name", "value"}]}},
  "recent": [{"turn", "player", "keeper": "<前 200 字>"}]   最近 2 回合
@@ -963,6 +963,22 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 2. 先在 toomany 上重跑构建看读者能抽出多少作者材料，再定 17.2 的 asks 措辞；不按 starter 的厚度想当然。
 3. 账本与投影（17.3、17.4）在作者层之后；投影必须走真产品路径验（胶囊落到 `turns/NNNN.json` 的 `capsule`），不认 CLI 打印。
 4. 排在 #26（切片 7）落定之后开工；实现决定记在 17.8「内核的决定」。
+
+### 17.8 内核的决定（已实现）
+
+- **档案的读法只有一处。** `ModuleGraph.npc_profile(node)` 先读一等 `properties`，再退到 `properties.runtime_projection.record`（starter 在 #29 之前的投影）。已建战役是编译快照（改 starter 不回溯），所以退路必须留着；the-haunting 的 11 个 NPC 在两条路上读出同一份档案。`sessions.npc_profile` 是同名的另一件事——战斗属性块，不要混用。
+- **`knows` 有两个来源，同一个出口。** `npc_knows` 合并以该 NPC 为主语的 `knows` claim 与 starter 记录里的 `facts[].clue_id`，按图上顺序去重。`npc_claim_lines` 取对象节点的 summary/name，再退到 claim 的 `statement`，只复制不改写。`npcs_knowing` 按 `knows` claim 反算 `known_by_ids`，不改图上已授权的那份。
+- **`min_trust` 丢弃。** starter 的 `facts[].min_trust` 没有任何消费者，投影时不带；没有规则读的数字不是事实。
+- **关系不新增。** `npc_ties` 只读 §17.2 列的十种关系，两个方向都读，按 `(种类, 对端)` 去重；`present` 里按「在场者 → 派系/组织 → 其余」排序后裁到 6 条。
+- **`apply npc` 的形状。** `{kind: "npc", name, to?, stance?, why?}`，`to` 取场景名、`here`（当前场景）或 `away`（下场），`stance` 取账本四词；两者全缺报 `invalid_params`。收据 `npc:<slug>-t<n>-c<k>`（句柄无拉丁 slug 时退到 `npc:t<n>-c<k>`，与 `item`/`cash` 同一条），事件 **`npc-changed`**（事件枚举因此从十八类变十九类）。`to` 写 `world.npc_presence`——位置的唯一真相仍在世界里，账本只引用。
+- **账本是收据的折叠，别的什么都不是。** `npc.apply_receipts` 只认四种收据：`roll`（互动与 stance）、`clue`（`from` → `disclosed`）、`npc`（守秘人显式改写）、`delta`（NPC 的 HP ≤ 0 → `dead`）。因此 `_rebuild_ledger` 重放 `turns/*.json` 与 `memory/candidates.jsonl` 就能重建整份账本——崩溃恢复、世界线切换、以及本切片之前的老战役第一次 `table.open`，走的是同一条路。只在文件不存在时重建：磁盘上的账本就是状态。
+- **收据自己说清是谁。** `resolve` 结算后给本次调用的 roll 收据补 `family`、`npc`（本次判定针对的在场 NPC，NPC 自己掷的那条不补）与 `approach`。这是让账本能只读收据的前提；守秘人从不被问这件事。
+- **stance 的数全在表里。** `content/rulesets/coc7/rules-json/npc-stance.json`：初值 0、区间 −5..5、四档阈值（≤ −3 hostile、≤ −1 wary、≤ 1 neutral、其余 warm）、`social[approach][level]` 的增减、`pushed_failure_delta`、`combat_target_score`。代码里没有一个字面量；表里没写的 approach 或 level 一律动 0——沉默是零，不是猜。显式 `apply npc stance` 把分数置为该档下界。
+- **`present` 的旧字段删干净。** `relationship`/`agenda`/`known_facts`/`attitude` 与死字段 `npc_attitude` 全部消失，换成 §17.4 的形状；`look focus=<npc>` 给全量并原样附账本行（没有账本行时为 `null`）。`history.dead_since_turn` 是实现补的一项：账本记了 `dead` 就在投影里说一句。
+- **Director 跟着改读法。** `agenda_npc_present` 从 `record_of(n).get("agenda")` 改成 `graph.npc_profile(n).get("agenda")`，构建出来的书的 NPC 因此也数得进去；信号不新增。
+- **`clue.from` 的机器补全只在唯一时发生。** 守秘人给了 `from` 就用它；没给时，只有当该线索的 `held-by`/`delivered-by` 指向**恰好一个在场 NPC** 才补，两个及以上不选——机器不做归属判断。
+- **简报只报不卡。** `npcs_without_material` 数「没有任何档案键、没有任何 `knows`/`believes`/`asserts`/`hides` claim、也没有 starter `facts`」的 NPC。the-haunting 报 1 个，they-did-not-think-it-too-many 报 10 个（11 个里）——#29 的证据本身。模板法则不变：结构性才是不变量，数量只度量。
+- **按需深读认 `focus: {npc}`。** 该 NPC `present-in` 的场景所在 section，加上图上 `node_refs_by_section` 里定义它的 section，去重后入队。
 
 ## 18. `apply` 补齐：flag、note、ruling，与 `look focus=session`（切片 8，票 #27）
 
