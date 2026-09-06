@@ -459,3 +459,120 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 - **`table.warn`** 的 `lane` 闭合为 `verifier`；`kind` 不在枚举里整批报 `invalid_params`（`details.index`），引文不是子串的单条丢弃并在 `dropped` 里给 `index` 与理由；多次 `warn` 同一回合追加。遥测行写在 `telemetry.jsonl`（与扩展同一文件，内核的行带 `lane`），检查点或 episode 写失败也各一行（`lane: kernel, step, ok: false`）。
 - **`fit_budget` 增加 `drop` 方向**：排过序的列表（`memory`、`warnings`）从尾部裁，`recent` 仍从最旧裁；被裁的节名照旧进胶囊的 `truncated`。
 
+## 13. 回合胶囊九节、Director 与本体（切片 3，票 #16）
+
+胶囊是守秘人每回合动手前拿到的一切。切片 0–2 的证据（`haunting-s0` 13–25 回合）说明它还不够：守秘人平均在第一次写状态之前先读 5 次（中位数 4，最多 17），查的东西胶囊里本来该有——时钟、本场景未发现的线索与 NPC 秘密、能去哪、上回合变了什么。这一节把九节写全，把 DirectorGraph 的打分接成 `director` 节，把本体 `grounded-by` 读进运行时。三条边界：**Director 没有写侧**（建议是参考，采纳与否由收据推断）；**胶囊全部守秘人专属**（不进逐字记录，不进玩家文字）；**打分的每个数都来自图**（`content/director/director-graph.json`，缺图或对不上就开桌失败，不回退到代码里的字面量）。
+
+### 13.1 胶囊的形状与预算
+
+`table.player_input` 与 `table.capsule` 返回：
+
+```
+{"head": "<一句固定的话：以下是本回合开始时的全部场面，已含时钟、未发现线索、在场者秘密与来路；胶囊里有的不必再 look/lookup>",
+ "turn": {...同 §6...},
+ "where": {...同 §6 与 12.2 的 back...,
+           "clock": {"minutes", "elapsed": "<n 小时 m 分钟>", "day_part"?: "<模组给了起始时刻才有>"},
+           "session": null | {...11.9...}},
+ "present": [{...同 §6..., "secret"?, "fear"?}],
+ "known": {...同 §6...},
+ "pressures": [{"kind": "clock"|"threat"|"rule", "name", "state": "<段数或到期描述>", "due"?: "<回合或分钟>", "cue"?: "<作者的压力动作或规则的下一步>"}],
+ "obligations": [{"kind": "choice"|"session"|"continuation"|"quest"|"promise", "name", "who"?: "player"|"keeper"|"<NPC>", "state", "cue"?}],
+ "director": {"beat": "<十一节拍之一>", "reason": "<一句>", "because": ["<信号 = 值>", ...],
+              "grounded_by": ["<规则决策语义名或效果>", ...],
+              "scores": {"<beat>": <0–1>, ...}（前三）,
+              "override"?: "<第三层硬规则名>",
+              "reveal"?: [{"clue", "gate": "<delivery_kind 或 unlock 条件>"}]},
+ "situations": [...同 look 的 situations（11.10）...],
+ "memory": [{"id", "kind", "statement", "turn"}],
+ "style": {"language", "register": "purist"|"pulp", "axes": [...], "directives": [{"id", "line"}]},
+ "recent": [...§6...], "warnings": [...12.5...], "resume"?: {...12.2...},
+ "truncated": [节名]}
+```
+
+字节预算（超出按节裁剪并记入 `truncated`）：`where` 4KB、`present` 3KB、`known` 3KB、`pressures` 1KB、`obligations` 1KB、`director` 1.5KB、`situations` 1KB、`memory` 1.5KB、`style` 1KB（重开进程后的第一回合 2KB，见 13.6）、`recent` 2KB、`warnings` 1KB。`head` 与 `turn` 不计预算。
+
+- `where.clock`：`elapsed` 由世界时钟分钟数确定性生成；`day_part` 只在模组图的 `module` 节点声明了起始时刻时给（没有就不猜）。
+- `present[].secret`/`fear`：NPC 档案里有就给；这是守秘人专属材料，与 `agenda` 同一条法则。
+- `known.clues_here` 已含 `discovered: false` 的线索与 `delivery_kind`：这就是 `lookup secret scope=scene` 的内容，胶囊里有了，`head` 会说。
+
+### 13.2 `pressures` 与 `obligations` 的来源
+
+全部结构性来源，不做语义判断：
+
+| 节 | kind | 来源 |
+| --- | --- | --- |
+| pressures | `clock` | 规则层的时钟事实：濒死小时钟、重伤一小时、理智发作剩余轮数（`situations` 里的 `time.*`/`clock.*`/`sanity.*` 事实转成一行） |
+| pressures | `threat` | 模组图 `threat` 节点里与当前场景或在场 NPC 相关（`present-in`/`located-in`/`contains` 关系可达）的那些，`cue` 取场景的 `pressure_moves` |
+| pressures | `rule` | 上回合留下的 `continuations`（可推、可花幸运）尚未被回答的 |
+| obligations | `choice` | `turn.pending_choice`（`for` 标 who） |
+| obligations | `session` | 活跃会话：种类、轮到谁、可用动作 |
+| obligations | `continuation` | 上回合结果里 `continuations` 列出但没接的（推骰待玩家认账） |
+| obligations | `quest` | 模组图 `quest` 节点：`state` 由其 `supports`/`may-lead-to` 关系指向的线索发现情况推出（未开始/进行中/可结束） |
+| obligations | `promise` | 记忆候选里 `kind: promise` 且未关闭的（13.5 新增种类） |
+
+### 13.3 Director：三层打分，图是唯一的数
+
+内容目录加 `content/director/director-graph.json` 与 `director-graph-manifest.json`（旧树 `references/director-graph.json` 原样带过来，摘要照旧校验；只读 `director-action`、`structure-type`、`structure-weight`、`scoring-rule`、`threshold`、`tiebreak-order`、`player-signal` 六类节点，`storylet`、`multiplier`、`time-cost-category` 留在文件里不读——这次不带 storylet）。
+
+**信号**（全部由内核从状态与上回合确定性算出，写进 `director.because`）：
+
+| 信号 | 取值 | 来源 |
+| --- | --- | --- |
+| `structure_type` | 七种之一 | 模组图 `module` 节点声明；没有则 `branching_investigation` |
+| `intent` | 上一回合 `resolve` 的 `intent`，没有 resolve 则由收据推：有 `move` 收据为 `move`，只有 `time` 为 `idle`，没有收据为 `none` | 回合记录 |
+| `undiscovered_here` | 本场景未发现线索数 | 图 + 世界 |
+| `agenda_npc_present` | 在场且档案有 `agenda` 的 NPC 数 | 图 + 世界 |
+| `dramatic_question` | 场景有无 | 图 |
+| `exit_condition_met` | 场景 `exit_conditions` 任一成立 | 图 + 世界 |
+| `main_line_complete` | 模组图 `conclusion` 节点任一可达（其 `supports` 线索全部已发现） | 图 + 世界 |
+| `stalled_turns` | 连续多少回合没有新线索、没有移动、没有会话变化 | 回合记录 |
+| `turns_in_scene` | 连续在本场景的回合数 | 回合记录 |
+| `hp_state` | healthy / wounded / major_wound / dying / dead（规则书 p.119–120：hp<0 dead；hp==0 且 major_wound 为 dying；有 major_wound 为 major_wound；hp<max 为 wounded） | 调查员表 |
+| `sanity_state` | stable / shaken（本场景内掉过理智）/ bout_active / indefinite（理智 ≤ 0） | 表 + 会话快照 |
+| `session` | none / combat / chase / sanity_bout | 会话快照 |
+| `last_roll` | none / passed / failed / critical / fumble | 上回合最后一条 roll 收据 |
+| `pushed_fail_pending` | 上回合推骰失败且后果未落 | 回合记录 |
+| `pending_choice` | 有无给玩家的待决 | turn.json |
+| `clock_near_full` | 任一 `pressures.clock` 的段数 ≥ 总段数的 2/3（图上阈值 `pressure-clock-near-full-fraction`） | 13.2 |
+
+**第三层硬规则**（先于打分，命中即定，写 `director.override`）：会话进行中（`session != none`）→ `SUBSYSTEM`；`hp_state == dying` → `SUBSYSTEM`（并把 `PRESSURE` 加进 because）；`last_roll == fumble` → `PRESSURE`；`pending_choice` → `CHOICE`。旧树的「守秘人提案覆盖」不带：v2 的守秘人自己就是决策者，Director 只建议。
+
+**第一层基础分**：每个节拍取图上 `scoring-rule` 里条件成立的最大值；条件语义闭合如下（条件名即图上的 `condition_id`）：`investigate-intent`/`social-intent`（REVEAL，且 `undiscovered_here > 0`）、`dramatic-question-present`（DEEPEN，且 intent 是 investigate/social）、`baseline`/`clock-near-full-or-stalled`（`stalled_turns ≥ 阈值 pressure-stalled-turns`）/`yielded-scene`（`turns_in_scene ≥ 3` 且 `undiscovered_here == 0` 且场景有 `pressure_moves`）/`pushed-fail-nudge`（PRESSURE；posture 两条不带，没有 rich intent）、`agenda-npc-in-scene`（CHARACTER）、`two-undiscovered-clues`（CHOICE，阈值 `choice-undiscovered-clue-count`）、`exit-condition-met`/`explicit-move-intent`/`main-line-complete`/`stalled-transition-pressure`（CUT；capped-linear 三元组 `[base, per_turn, cap]` 按 `stalled_turns - 阈值 cut-stalled-transition-turns` 线性封顶）、`montage-intent`（MONTAGE）、`structured-entity-overlap`（PAYOFF；重叠数 = 本场景在场 NPC 与已发现线索在记忆候选里被提到的条数，同样 capped-linear）、`stalled-turns`（RECOVER，阈值 `recover-stalled-turns`）、`combat-flee-cast-intent`（SUBSYSTEM）。`ADVANCE` 是规格加的第十一个节拍：没有任何条件成立（全部 0 分）时的缺省，理由写「无触发，推进」；旧图的无触发缺省 `CHOICE` 不沿用。
+
+**第二层**：分数 × `structure-weight[structure_type][beat]`；四位小数；并列按 `tiebreak-order`。
+
+**`reveal`**：节拍为 REVEAL 时列本场景未发现线索（≤ 5），每条带 `gate`：线索的 `delivery_kind` 与 `unlock`/`requires` 条件的描述（`describe_condition`）。
+
+**`grounded_by`**：本体注册表里 `grounded-by` 关系从命中的 scoring-rule 指向的规则决策语义名（如 `magic:cast-spell`），加上该节拍在本体里 `may-emit-effect` 的效果名；没有关系的节拍给空数组，不编。
+
+### 13.4 本体注册表进运行时
+
+`content/ontology/system-ontology.json` 开桌时读入并校验：每条 `references` 的 `semantic_id` 必须在其 `graph_id` 对应的已加载图里存在（规则图节点、Director 图节点、live-state 事实路径在 RuleGraph 的 `registered_condition_paths`、resolver 能力在 `catalog`），`relations` 的两端必须是已登记的 ref；对不上 → `kernel.hello` 仍成功但 `table.open` 报 `campaign_not_ready`，`details.ontology` 列出坏引用。运行时读两类关系：
+
+- `grounded-by`（Director → 规则决策）：13.3 的 `grounded_by`，以及 **`resolve` 的候选收窄**：`needs_choice` 时若本回合胶囊 `director.beat` 的 grounded 决策与候选有交集，交集只有一个就直接选它（结果 `decision_source: "director"`），多于一个则只把交集列为候选并在 `fix` 里说明；没有交集照旧。收窄只在多候选时发生，永远不推翻守秘人显式给的 `decision`。
+- `may-emit-effect`（规则 → 规则）：`grounded_by` 里的效果名；此外 `narrate` 的确定性检查用它核对「每个状态效果恰交代一次」时的效果种类清单（12.5 已提交事实的种类由它闭合）。
+
+`requires-live-state-fact`、`invokes-capability`、`renders-settled-output` 只校验、不驱动行为（切片 1 的 RuleGraph 运行时已经按自己的事实路径工作）。
+
+### 13.5 记忆新增种类 `promise`
+
+候选 `kind` 增加 `promise`：某人答应了有到期或有条件的事（`subject` 为许诺者，`entities` 为受诺者与相关实体，`statement` 写清条件或期限）。抽取指令加一句；`obligations.promise` 取未关闭的。关闭的路径与其他候选一样：同 `subject` 同 `entities` 的新 `promise` 接续旧的。
+
+### 13.6 `style`：手艺进胶囊
+
+内容目录加 `content/craft/text-graph.json`（旧树 `references/text-graph.json` 原样带过来）。只读 `play-register`、`style-axis`、`craft-directive`、`beat-type` 四类。`style` 节：`language` 取战役；`register` 取战役的 `register`（建战役时可给，缺省 `purist`）；`axes` 是九条 style-axis 的短句（play_language）；`directives` 按节拍挑：图上 craft-directive 与 Director 节拍的对应表写在 `content/craft/beat-directives.json`（每节拍 ≤ 4 条 directive id，内容团队维护的闭合表，不是模型判断）。重开进程后的第一回合给全部 directive（预算 2KB），之后只给按节拍挑的（1KB）。
+
+### 13.7 采纳证据（无写侧）
+
+`narrate` 关回合时内核算 `director_adoption` 写进回合记录与遥测：`{beat, adopted: bool, evidence: [收据 id]}`。判定表闭合：REVEAL → 本回合有 `reveal` 列表里的 `clue` 收据；PRESSURE → 有 `time`/`damage`/`delta`（负向）/`session start` 收据；CHOICE → 回合以 `ask` 关闭；SUBSYSTEM → 有 `session` 收据；CHARACTER → 有 social 族的 roll 收据或 `present` 非空且无移动；RECOVER → healing/development 族决策结算；CUT/ADVANCE → 有 `move` 收据；MONTAGE → 有 `time` 收据且 ≥ 60 分钟；DEEPEN → 有 core-check 族 roll 收据且无 `move`；PAYOFF → 有 `clue` 收据且该线索 `supports` 某 `conclusion`。这是遥测，不是奖惩：胶囊不据此改变下一回合的建议。
+
+### 13.8 `head` 与查询预算
+
+`head` 是固定文本（play_language），列出胶囊已含的内容；`look`/`lookup` 的工具描述同步改成「胶囊里没有的才查」。验收指标：同一造景（`haunting-s0` 的第 13–25 回合同类回合，或新战役的同一段）下「第一次写状态前的只读调用数」中位数从 4 降到 ≤ 2，均值从 5.3 降到 ≤ 3；进规则层的 lane 数不降。指标脚本走遥测（`tests/play/kpi.py`）。
+
+### 13.9 扩展侧（切片 3）
+
+- 胶囊仍是一条 `coc-capsule` 宿主消息，内容原样 JSON；不做二次渲染。
+- `table` 扩展状态行加 Director 节拍（`director.beat`）与 `override`，只显示。
+- 守秘人提示加一段：九节各是什么、`director` 是建议不是台词、`pressures`/`obligations` 是这回合该记得的账。
+- 工具描述：`look` 与 `lookup` 说明胶囊已含的内容；`resolve` 的 `needs_choice` 结果里若 `decision_source: "director"` 会直接结算，无需再调。
