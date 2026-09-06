@@ -114,3 +114,18 @@ def test_reserved_and_unknown_effect_kinds(kernel):
     assert world(kernel)["clock"] == {"minutes": 0}
     assert kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "teleport"}])["code"] == "invalid_params"
     assert kernel.table_err("apply", call_id="t1-c1", effects=[])["code"] == "invalid_params"
+
+
+def test_damage_effect_rolls_the_dice_and_moves_hp(kernel):
+    open_turn(kernel)
+    before = kernel.table("look", focus="investigator")["hp"]
+    result = kernel.table("apply", call_id="t1-c1", effects=[{"kind": "damage", "dice": "1D6", "why": "从楼梯上摔下来"}])
+    assert any(r.startswith("roll:damage-t1") for r in result["receipts"])
+    assert any(r.startswith("delta:hp-t1") for r in result["receipts"])
+    after = kernel.table("look", focus="investigator")["hp"]
+    assert 0 <= before - after <= 6 and after < before
+    narrated = kernel.table("narrate", call_id="t1-c2", text="你摔了下去。")
+    assert "【明骰】伤害｜" in narrated["rendered_text"]
+    assert f"【变化】生命值：" in narrated["rendered_text"]
+    bad = kernel.table_err("apply", call_id="t2-c1", effects=[{"kind": "damage", "dice": "lots"}])
+    assert bad["code"] in ("invalid_params", "turn_state")

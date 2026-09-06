@@ -35,6 +35,13 @@ const ClueEffect = Type.Object({
 	label: Type.Optional(Type.String({ description: "这条线索在玩家语言里的短名，用于【变化】行；省略则用线索名" })),
 });
 
+const DamageEffect = Type.Object({
+	kind: StringEnum(["damage"] as const, { description: "没有攻击者的伤害：摔落、火烧、坠物、窒息" }),
+	dice: Type.String({ description: "规则书给的伤害骰，如 1D6；内核来掷" }),
+	subject: Type.Optional(Type.String({ description: "受伤者，缺省当前调查员" })),
+	why: Type.Optional(Type.String({ description: "一句话：怎么伤的" })),
+});
+
 const TimeEffect = Type.Object({
 	kind: StringEnum(["time"] as const, { description: "世界时钟往前走" }),
 	minutes: Type.Integer({ description: "推进的分钟数" }),
@@ -97,6 +104,38 @@ const ResolveAction = Type.Object({
 	push: Type.Optional(
 		Type.Boolean({ description: "对上一次失败的检定推骰；为 true 时 stakes 必填，写明推失败要付的代价" }),
 	),
+	san_loss: Type.Optional(
+		Type.String({ description: "理智检定的损失表达式，成功/失败，如 0/1D6；见到恐怖之物做 sanity:check 时必给，目标 NPC 档案里写了的可以省略" }),
+	),
+	involuntary: Type.Optional(
+		Type.String({
+			description: "理智检定失败时的失控行为，五选一：faint、flee、scream、freeze、attack；sanity:check 必给，由你按场面定",
+		}),
+	),
+	outcome: Type.Optional(
+		StringEnum(["investigators_win", "monsters_win", "fled", "stalemate"] as const, {
+			description: "结束战斗时给：谁赢了、逃了、还是僵持",
+		}),
+	),
+	skills: Type.Optional(
+		Type.Array(Type.String(), { description: "合并检定用到的两个以上技能或特征名" }),
+	),
+	mode: Type.Optional(StringEnum(["any", "all"] as const, { description: "合并检定过一项即可还是全过" })),
+	motive: Type.Optional(
+		Type.Object({
+			direction: StringEnum(["for", "against", "neutral"] as const, { description: "NPC 对这个目标是倾向、抵触还是中立" }),
+			intensity: Type.Optional(Type.Integer({ description: "0 到 2，越大越强" })),
+		}, { description: "社交判定时 NPC 对玩家目标的倾向；省略视为中立" }),
+	),
+	support: Type.Optional(Type.String({ description: "社交判定里玩家拿出来的实证：一条已发现线索的名字" })),
+	interrupted: Type.Optional(Type.Boolean({ description: "施法被打断" })),
+	rest: Type.Optional(
+		Type.Object({
+			complete_rest: Type.Optional(Type.Boolean()),
+			poor_environment: Type.Optional(Type.Boolean()),
+		}, { description: "每周重伤恢复时的休养条件" }),
+	),
+	ending: Type.Optional(Type.String({ description: "结束会话时的结局种类；省略视为 conclusion" })),
 	luck: Type.Optional(Type.Integer({ description: "花掉的幸运点数，把上一次差一点的检定补成通过" })),
 	choice: Type.Optional(
 		Type.Object({
@@ -178,10 +217,10 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Apply",
 		method: "table.apply",
 		description:
-			"把这一回合世界的改变落地。本切片认三种：move 走到另一个场景，clue 让调查员拿到一条线索，time 推进世界时钟。整批先校验后写，任一条不成立整批都不写，所以可以一次把这回合发生的事全列上。叙述里发生了却没 apply 的事等于没发生：走了要写 move，看见了要写 clue，花了时间要写 time。目的地不可达报 not_reachable 并给可达列表，线索不在此地报 not_here。",
+			"把这一回合世界的改变落地：move 走到另一个场景（结果里直接带目的地场面，不必再 look），clue 让调查员拿到一条线索，time 推进世界时钟，damage 让调查员按规则书的骰子受伤（摔落、火烧、窒息这类没有攻击者的伤）。整批先校验后写，任一条不成立整批都不写，所以可以一次把这回合发生的事全列上。叙述里发生了却没 apply 的事等于没发生：走了要写 move，看见了要写 clue，花了时间要写 time。目的地不可达报 not_reachable 并给可达列表，线索不在此地报 not_here。",
 		promptSnippet: "落地本回合的世界改变：移动、线索、时间",
 		parameters: Type.Object({
-			effects: Type.Array(Type.Union([MoveEffect, ClueEffect, TimeEffect, ReservedEffect]), {
+			effects: Type.Array(Type.Union([MoveEffect, ClueEffect, TimeEffect, DamageEffect, ReservedEffect]), {
 				minItems: 1,
 				description: "这一回合要落地的改变，按发生顺序排",
 			}),

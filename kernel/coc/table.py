@@ -19,6 +19,7 @@ from .render import (has_self_written_mechanics, mechanics_block, place, render_
 from .resolve import ResolvePipeline
 from .rules import RuleTables
 from .rules.graph import semantic_name
+from .rules.percentile import roll_expression
 from .rules.runtime import RulesEngine, SettleContext
 from .sessions import SessionView
 from .store import Campaign, Store, fresh_turn, now_iso, parse_call_id
@@ -27,7 +28,7 @@ from .text import normalize, slugify
 INTENTS = frozenset({"investigate", "social", "move", "combat", "flee", "cast", "idle", "meta",
                      "stuck", "ambiguous", "montage"})
 NONE_INTENTS = frozenset({"idle", "meta", "stuck", "ambiguous"})
-APPLY_KINDS = frozenset({"move", "clue", "time"})
+APPLY_KINDS = frozenset({"move", "clue", "time", "damage"})
 APPLY_RESERVED = frozenset({"handout", "item", "cash", "npc", "flag", "note", "ruling"})
 LOOK_FOCUS = frozenset({"scene", "npc", "investigator", "clues", "time"})
 LOOKUP_KINDS = frozenset({"module", "secret", "rule", "catalog"})
@@ -614,6 +615,13 @@ class Table:
                         already.append(receipt["clue"])
                         receipt_ids.append(receipt["id"])
                         continue
+                elif kind == "damage":
+                    damage_receipts, event = self._stage_damage(campaign, graph, staged, turn, effect,
+                                                                call_id, ordinal)
+                    receipts.extend(damage_receipts)
+                    receipt_ids.extend(r["id"] for r in damage_receipts)
+                    events.append((event[0], event[1], damage_receipts[-1]["id"]))
+                    continue
                 else:
                     time_effects += 1
                     receipt, event = self._stage_time(staged, effect, turn_number, ordinal, call_id, time_effects)
@@ -693,6 +701,29 @@ class Table:
             return receipt, None
         world["discovered_clues"].append(handle)
         return receipt, ("clue-discovered", {"clue": handle, "scene": receipt["scene"], "how": how})
+
+    def _stage_damage(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any], turn: dict[str, Any],
+                      effect: dict[str, Any], call_id: str, ordinal: int) -> tuple[list[dict[str, Any]], tuple[str, dict[str, Any]]]:
+        """Damage with no attacker (a fall, fire, a collapsing stair): the keeper names the
+        rulebook's dice, the kernel rolls them and moves HP, one roll receipt and one delta."""
+        dice = _str(effect, "dice")
+        try:
+            rolled = roll_expression(dice, self.rng)
+        except ValueError as exc:
+            raise invalid_params(f"damage dice {dice!r} is not a dice expression", fix="use the rulebook form, e.g. 1D6 or 2D6+2") from exc
+        sheet = self._actor(campaign, effect.get("subject"))
+        subject_id = str(sheet["id"])
+        ctx = SettleContext(self.engine, campaign, graph, world, turn, call_id, ordinal, self.rng, sheet, sheet, {})
+        why = effect.get("why") if isinstance(effect.get("why"), str) else None
+        roll_id = ctx.add_dice_roll(actor=subject_id, label="damage", expression=rolled["expression"],
+                                    faces=rolled["rolls"], total=rolled["total"], skill_label="伤害", why=why)
+        before = int(sheet.get("current_hp") or 0)
+        after = max(0, before - int(rolled["total"]))
+        ctx.add_delta("hp", subject_id, before, after, source_receipt=roll_id)
+        ctx.mirror_investigator(subject_id, current_hp=after, wounds=[roll_id])
+        return list(ctx.receipts), ("resource-changed", {"resource": "hp", "subject": subject_id,
+                                                          "before": before, "after": after, "dice": dice,
+                                                          "total": rolled["total"], "why": why})
 
     def _stage_time(self, world: dict[str, Any], effect: dict[str, Any], turn_number: int,
                     ordinal: int, call_id: str, nth: int) -> tuple[dict[str, Any], tuple[str, dict[str, Any]]]:
