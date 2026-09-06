@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import RpcError
-from .fileio import read_json, sha256_file
+from .fileio import canonical_json, read_json, sha256_file
 from .text import normalize, strip_prefix
 
 SCENE_KIND = "scene"
@@ -26,6 +26,28 @@ def record_of(node: dict[str, Any] | None) -> dict[str, Any]:
     projection = (node.get("properties") or {}).get("runtime_projection") or {}
     record = projection.get("record")
     return record if isinstance(record, dict) else {}
+
+
+# ---- authored conditions ---------------------------------------------------------------
+
+def condition_met(when: Any, world: dict[str, Any]) -> bool:
+    """Machine-checkable authored conditions only: `always`, `clue_discovered`. A
+    `narrative` condition is never met by the kernel (the keeper cuts explicitly)."""
+    if not isinstance(when, dict):
+        return False
+    kind = when.get("kind")
+    if kind == "always":
+        return True
+    if kind == "clue_discovered":
+        clue = strip_prefix(str(when.get("clue_id", "")), CLUE_KIND)
+        return clue in (world.get("discovered_clues") or [])
+    return False
+
+
+def describe_condition(when: Any) -> str:
+    if isinstance(when, dict) and when.get("kind") == "clue_discovered":
+        return f"clue_discovered: {strip_prefix(str(when.get('clue_id', '')), CLUE_KIND)}"
+    return canonical_json(when)
 
 
 class ModuleGraph:

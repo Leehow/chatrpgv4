@@ -13,15 +13,18 @@ from typing import Any
 from . import KERNEL_VERSION, continuation, history, memory, recall as recall_roads, warn as warn_lane
 from .capsule import (scene_label, build_capsule, clues_here, investigator_view, npc_view, npcs_present,
                       present_section, where_section)
+from .craft import DEFAULT_REGISTER, TextGraph
+from .director import DirectorGraph, director_adoption
 from .errors import RpcError, invalid_params, not_implemented
 from .events import append_event
 from .facts import committed_facts, keeper_only_facts, language_of
 from .fileio import file_size, read_json, truncate_file
 from .module_graph import ModuleGraph, record_of
+from .ontology import Ontology, ontology_not_ready
 from .render import (has_self_written_mechanics, mechanics_block, place, render_choice)
 from .resolve import ResolvePipeline
 from .rules import RuleTables
-from .rules.graph import semantic_name
+from .rules.graph import REGISTERED_CONDITION_PATHS, semantic_name
 from .rules.percentile import roll_expression
 from .rules.runtime import RulesEngine, SettleContext
 from .sessions import SessionView
@@ -71,6 +74,14 @@ class Table:
         #: §12.2: the resume block `table.open` produced, carried into the first
         #: `player_input` capsule of this process and then dropped.
         self._resume_pending: dict[str, dict[str, Any]] = {}
+        #: §13.6: the turn whose capsules carry every craft directive — the first turn this
+        #: process opened with `player_input` for the campaign (a restart starts over).
+        self._style_first_turn: dict[str, int] = {}
+        #: §13.3, §13.4, §13.6: the content graphs, loaded once and failing closed.
+        self._director: DirectorGraph | None = None
+        self._craft: TextGraph | None = None
+        self._ontology: Ontology | None = None
+        self._ontology_checked = False
 
     # ---- content ----------------------------------------------------------
 
@@ -92,6 +103,44 @@ class Table:
                                      fix=f"one of {self.modules()}")
             self._graphs[module_id] = ModuleGraph(module_id, path)
         return self._graphs[module_id]
+
+    @property
+    def director(self) -> DirectorGraph:
+        if self._director is None:
+            self._director = DirectorGraph(self.content / "director")
+        return self._director
+
+    @property
+    def craft(self) -> TextGraph:
+        if self._craft is None:
+            self._craft = TextGraph(self.content / "craft", self.director.beats)
+        return self._craft
+
+    @property
+    def ontology(self) -> Ontology:
+        if self._ontology is None:
+            self._ontology = Ontology(self.content / "ontology" / "system-ontology.json")
+        return self._ontology
+
+    def _module_node_ids(self, module_id: str) -> list[str] | None:
+        try:
+            return list(self.graph(module_id).nodes)
+        except RpcError:
+            return None
+
+    def validate_ontology(self) -> None:
+        """§13.4: every registry reference must resolve in its graph, once per process.
+        `kernel.hello` never calls this; `table.open` does, and fails with `campaign_not_ready`."""
+        if self._ontology_checked:
+            return
+        bad = self.ontology.validate(
+            rule_node_ids=[n["node_id"] for n in self.engine.graph.get("nodes") or [] if isinstance(n, dict)],
+            director_node_ids=list(self.director.nodes), text_node_ids=list(self.craft.nodes),
+            registered_paths=REGISTERED_CONDITION_PATHS, capabilities=list(self.engine.resolver_index()),
+            module_node_ids=self._module_node_ids)
+        if bad:
+            raise ontology_not_ready(bad)
+        self._ontology_checked = True
 
     def _load(self, params: dict[str, Any], *, require_turn: bool = True) -> tuple[Campaign, dict[str, Any], ModuleGraph, dict[str, Any]]:
         campaign = self.store.open(params.get("campaign"), require_turn=require_turn)
@@ -152,6 +201,9 @@ class Table:
         module_id = _str(params, "module")
         pregen_id = _str(params, "pregen")
         language = _str(params, "play_language", required=False) or DEFAULT_LANGUAGE
+        register = _str(params, "register", required=False) or DEFAULT_REGISTER
+        if register not in self.craft.registers:
+            raise invalid_params(f"unknown register {register!r}", fix=f"one of {self.craft.registers}")
         graph = self.graph(module_id)
         pregen_path = self.content / "starters" / module_id / "pregens" / pregen_id / "character.json"
         if not pregen_path.exists():
@@ -191,6 +243,7 @@ class Table:
             "module_id": module_id,
             "module_digest": graph.digest,
             "play_language": language,
+            "register": register,
             "status": "active",
             "created_at": now_iso(),
             "opening_scene": start_handle,
@@ -250,6 +303,7 @@ class Table:
 
     def open(self, params: dict[str, Any]) -> dict[str, Any]:
         campaign, meta, graph, world = self._load(params, require_turn=False)
+        self.validate_ontology()
         party = campaign.party()
         # §12.2: the checkpoint follows HEAD; a lost turn.json is rebuilt from it.
         checkpoint, rebuilt = continuation.sync_checkpoint(campaign, language_of(meta),
@@ -290,9 +344,21 @@ class Table:
         return {"turn": turn["turn"], "state": turn["state"], "receipts": turn.get("receipts", []),
                 "pending_choice": turn.get("pending_choice")}
 
+    def _capsule(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any], turn: dict[str, Any], *,
+                 resume: dict[str, Any] | None = None, consume_style: bool = False) -> dict[str, Any]:
+        meta = campaign.read_campaign()
+        first = self._style_first_turn.get(campaign.id)
+        style_full = first is None or first == int(turn["turn"])
+        if consume_style and first is None:
+            self._style_first_turn[campaign.id] = int(turn["turn"])
+        return build_capsule(graph, campaign, world, turn, campaign.party(), language=language_of(meta),
+                             situations=self._situations(campaign, graph, world, turn), director_graph=self.director,
+                             ontology=self.ontology, craft=self.craft,
+                             register=str(meta.get("register") or DEFAULT_REGISTER), style_full=style_full, resume=resume)
+
     def capsule(self, params: dict[str, Any]) -> dict[str, Any]:
         campaign, graph, world, turn = self._context(params)
-        return build_capsule(graph, campaign, world, turn, campaign.party())
+        return self._capsule(campaign, graph, world, turn)
 
     def look(self, params: dict[str, Any]) -> dict[str, Any]:
         campaign, graph, world, turn = self._context(params)
@@ -522,7 +588,7 @@ class Table:
                      {"pending_choice": pending["name"] if pending else None})
         append_event(campaign, number, "player-declared", {"text": text})
         resume = self._resume_pending.pop(campaign.id, None)
-        capsule = build_capsule(graph, campaign, world, new_turn, campaign.party(), resume=resume)
+        capsule = self._capsule(campaign, graph, world, new_turn, resume=resume, consume_style=True)
         # What the keeper was told this turn is evidence (spec §13): it rides in turn.json
         # and lands in the closed record with the receipts.
         new_turn["capsule"] = capsule
@@ -580,6 +646,8 @@ class Table:
 
         choice_receipt = self._bind_choice(turn, action, call_id)
         new_receipts = [choice_receipt] if choice_receipt else []
+        # §13.3: the Director's `intent` signal reads the previous turn's declared intents.
+        turn.setdefault("intents", []).append(intent)
 
         def session_state(settled: dict[str, Any] | None = None) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
             """11.9: the live session and its pending choice are echoed on every resolve; a
@@ -623,6 +691,8 @@ class Table:
             "continuations": settled["continuations"],
             "rule_refs": settled["rule_refs"],
         }
+        if settled.get("decision_source"):
+            result["decision_source"] = settled["decision_source"]
         if settled.get("hints"):
             result["hints"] = settled["hints"]
         if settled.get("warnings"):
@@ -910,12 +980,14 @@ class Table:
         turn["pending_choice"] = pending
         turn["state"] = "asked"
         Campaign.remember_call(turn, call_id, params, result)
+        snapshot = self._snapshot(campaign, graph, world, campaign.party())
         campaign.write_turn_record({
             "turn": turn_number, "player_text": turn.get("player_text"), "receipts": turn.get("receipts", []),
             "text": text or prompt, "rendered_text": rendered, "calls": turn.get("calls", {}), "commit": None,
             "closed_by": "ask", "opened_at": turn.get("opened_at"), "closed_at": now_iso(),
-            "pending_choice": pending, "world": self._snapshot(campaign, graph, world, campaign.party()),
-            "capsule": turn.get("capsule"),
+            "pending_choice": pending, "world": snapshot,
+            "capsule": turn.get("capsule"), "intents": list(turn.get("intents") or []),
+            "director_adoption": self._adoption(campaign, graph, turn, snapshot, closed_by="ask"),
         })
         campaign.write_turn(turn)
         campaign.append_transcript(turn_number, "keeper", rendered)
@@ -963,7 +1035,8 @@ class Table:
             "text": text, "rendered_text": rendered, "placement": placement, "calls": turn.get("calls", {}),
             "commit": None, "closed_by": "narrate", "opened_at": turn.get("opened_at"),
             "closed_at": now_iso(), "pending_choice": turn.get("pending_choice"), "capsule": turn.get("capsule"),
-            "world": snapshot, "facts": facts,
+            "world": snapshot, "facts": facts, "intents": list(turn.get("intents") or []),
+            "director_adoption": self._adoption(campaign, graph, turn, snapshot, closed_by="narrate"),
         }
         campaign.write_turn_record(record)
         campaign.append_transcript(turn_number, "keeper", rendered)
@@ -988,6 +1061,21 @@ class Table:
         campaign.write_turn_record(record)
         self._after_commit(campaign, language_of(campaign.read_campaign()), record, snapshot)
         return {**result, "commit": sha}
+
+    def _adoption(self, campaign: Campaign, graph: ModuleGraph, turn: dict[str, Any], snapshot: dict[str, Any], *,
+                  closed_by: str) -> dict[str, Any] | None:
+        """§13.7: whether the receipts of this turn touched what the capsule's Director
+        suggested. Telemetry only; None when the turn had no capsule (turn 0)."""
+        capsule = turn.get("capsule") if isinstance(turn.get("capsule"), dict) else None
+        director = (capsule or {}).get("director") if capsule else None
+        if not isinstance(director, dict) or not director.get("beat"):
+            return None
+        adoption = director_adoption(str(director["beat"]), list(director.get("reveal") or []),
+                                     list(turn.get("receipts") or []), closed_by=closed_by,
+                                     turn_calls=turn.get("calls") or {}, present=list(snapshot.get("present") or []),
+                                     graph=graph)
+        campaign.append_telemetry({"lane": "director", "turn": int(turn["turn"]), "closed_by": closed_by, **adoption})
+        return adoption
 
     def _facts(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any], party: list[dict[str, Any]],
                receipts: list[dict[str, Any]], snapshot: dict[str, Any], player_text: str | None = None) -> dict[str, Any]:

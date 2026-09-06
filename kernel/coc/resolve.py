@@ -953,11 +953,25 @@ class ResolvePipeline:
         explicit_decision = self.action.get("decision") is not None or self.action.get("push") or self.action.get("luck") is not None
         if not cards:
             self._raise_no_candidates(candidates, withheld, source)
+        decision_source: str | None = None
         if len(cards) > 1 and not explicit_decision:
-            raise RpcError("needs_choice", "several rule decisions fit this action; pick one",
-                           fix="set action.decision to one of details.candidates[].name and call resolve again",
-                           details={"candidates": [{"name": card["name"], "when": card["label"]}
-                                                   for card in sorted(cards.values(), key=lambda c: c["decision_ref"])]})
+            # §13.4: the ontology's grounded-by relations for this turn's Director beat
+            # narrow the choice. One decision in the intersection settles it; several keep
+            # the choice but list only those; none leaves the full list. An explicit
+            # `decision` never reaches here, so the keeper's word is never overturned.
+            beat, grounded = self._director_grounding()
+            narrowed = [ref for ref in sorted(cards) if ref in grounded]
+            if len(narrowed) == 1:
+                decision_source = "director"
+                cards = {narrowed[0]: cards[narrowed[0]]}
+            else:
+                listed = narrowed if narrowed else sorted(cards)
+                fix = "set action.decision to one of details.candidates[].name and call resolve again"
+                if narrowed:
+                    fix = f"the Director beat {beat} grounds {len(narrowed)} of these; " + fix
+                raise RpcError("needs_choice", "several rule decisions fit this action; pick one", fix=fix,
+                               details={"candidates": [{"name": cards[ref]["name"], "when": cards[ref]["label"]} for ref in listed],
+                                        **({"narrowed_by": beat} if narrowed else {})})
         chosen_ref = sorted(cards)[0] if len(cards) == 1 else candidates[0]
         chosen = cards[chosen_ref]
 
@@ -970,9 +984,19 @@ class ResolvePipeline:
         envelope = self._settle(ctx, runtime, adapter, chosen_ref, chosen, resolver, npc, target_investigator, source)
         self._record_ticks(ctx)
         shaped = self._shape(ctx, runtime, chosen, envelope)
+        if decision_source is not None:
+            shaped["decision_source"] = decision_source
         if chosen_ref == COMBAT_FLEE_REF and (shaped["outcome"].get("combat_outcome") == "fled"):
             self._continue_into_chase(ctx, adapter, resolver, shaped)
         return shaped
+
+    def _director_grounding(self) -> tuple[str | None, set[str]]:
+        """The decisions the capsule's `director.grounded_by` named this turn, as full refs.
+        Effect names ride in the same list and are skipped."""
+        from .ontology import is_effect_name  # local: ontology is content-side
+        director = ((self.turn.get("capsule") or {}).get("director") or {}) if isinstance(self.turn.get("capsule"), dict) else {}
+        names = [str(n) for n in director.get("grounded_by") or [] if not is_effect_name(str(n))]
+        return director.get("beat"), {full_decision_ref(n) for n in names}
 
     def _settle(self, ctx: SettleContext, runtime: Any, adapter: Coc7RuleGraphAdapter, chosen_ref: str,
                 chosen: dict[str, Any], resolver: SkillResolver, npc: dict[str, Any] | None,

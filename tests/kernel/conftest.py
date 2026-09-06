@@ -21,14 +21,15 @@ CAMPAIGN = "c1"
 
 
 class RpcClient:
-    def __init__(self, workspace: Path, env: dict[str, str] | None = None) -> None:
+    def __init__(self, workspace: Path, env: dict[str, str] | None = None, content: Path | None = None) -> None:
         self.workspace = Path(workspace)
         self.workspace.mkdir(parents=True, exist_ok=True)
+        self.content = Path(content) if content is not None else CONTENT_DIR
         merged = {**os.environ, "PYTHONPATH": str(KERNEL_DIR), "PYTHONDONTWRITEBYTECODE": "1"}
         merged.update(env or {})
         self.proc = subprocess.Popen(
             ["uv", "run", "--frozen", "python", "-m", "coc.rpc",
-             "--workspace", str(self.workspace), "--content", str(CONTENT_DIR)],
+             "--workspace", str(self.workspace), "--content", str(self.content)],
             cwd=WORKTREE, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", bufsize=1, env=merged,
         )

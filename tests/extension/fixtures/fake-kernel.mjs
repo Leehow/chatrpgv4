@@ -12,6 +12,8 @@
  *   FAKE_KERNEL_ERRORS     {"<method>": {"code","message","fix"?}} 的 JSON，命中就回错误信封
  *   FAKE_KERNEL_EXIT_AFTER 收到第 N 个请求后直接退出（测重启）
  *   FAKE_KERNEL_NO_FACTS   "1" 时 narrate 不回 facts/extraction（切片 0、1 的内核）
+ *   FAKE_KERNEL_DIRECTOR   JSON 对象，合并进胶囊的 `director` 节（用来摆出 override 之类的分支）
+ *   FAKE_KERNEL_NO_DIRECTOR "1" 时胶囊不带 `director` 节（切片 0–2 的内核）
  */
 
 import { appendFileSync } from "node:fs";
@@ -22,6 +24,7 @@ const CAMPAIGNS = process.env.FAKE_KERNEL_CAMPAIGNS
 	? JSON.parse(process.env.FAKE_KERNEL_CAMPAIGNS)
 	: [{ id: "test-camp", title: "闹鬼的房子", module_id: "the-haunting", status: "active", turn: 0 }];
 const EXIT_AFTER = process.env.FAKE_KERNEL_EXIT_AFTER ? Number(process.env.FAKE_KERNEL_EXIT_AFTER) : 0;
+const DIRECTOR_PATCH = process.env.FAKE_KERNEL_DIRECTOR ? JSON.parse(process.env.FAKE_KERNEL_DIRECTOR) : {};
 
 let received = 0;
 let turn = 0;
@@ -66,8 +69,31 @@ function jobPacket(campaign, target) {
 	};
 }
 
-function capsule(playerText) {
+/** 契约 §13.1 的头一句：说清胶囊里已经装了什么，`look`/`lookup` 只查它没答的。 */
+const HEAD = "以下是本回合开始时的全部场面，已含时钟、本场景未发现的线索、在场者的秘密与来路；胶囊里有的不必再 look/lookup。";
+
+/** 契约 §13.3 的 `director` 节：节拍、一句理由、信号、依据、前三名的分。 */
+function director() {
+	if (process.env.FAKE_KERNEL_NO_DIRECTOR === "1") return undefined;
 	return {
+		beat: "REVEAL",
+		reason: "这一场还有没被翻出来的东西",
+		because: ["intent = investigate", "undiscovered_here = 1", "structure_type = branching_investigation"],
+		grounded_by: ["core-check:ordinary-check"],
+		scores: { REVEAL: 0.6, DEEPEN: 0.36, PRESSURE: 0.24 },
+		reveal: [{ clue: "地窖的抓痕", gate: "spot" }],
+		...DIRECTOR_PATCH,
+	};
+}
+
+/**
+ * 契约 §13.1 的九节胶囊：where、present、known、pressures、obligations、director、
+ * situations、memory、style，外加不计预算的 head 与 turn，以及 recent。
+ */
+function capsule(playerText) {
+	const beat = director();
+	return {
+		head: HEAD,
 		turn: { number: turn, state, pending_choice: null, player_text: playerText ?? null },
 		where: {
 			scene: SCENE.name,
@@ -75,9 +101,12 @@ function capsule(playerText) {
 			dramatic_question: "谁还留在这栋房子里？",
 			pressure_moves: ["地板在头顶上响"],
 			exits: [{ to: "front-lawn", travel_minutes: 1 }],
+			back: [{ to: "front-lawn", display_name: "前院" }],
 			affordances: [{ id: "cellar-door", cue: "地窖门虚掩着" }],
 			keeper_notes: ["科比特在地窖下面"],
 			assets: [],
+			clock: { minutes: 555, elapsed: "9 小时 15 分钟", day_part: "上午" },
+			session: null,
 		},
 		present: [
 			{
@@ -86,6 +115,8 @@ function capsule(playerText) {
 				agenda: "把人赶走",
 				voice: "沙哑",
 				known_facts: ["房子空了三十年"],
+				secret: "他知道地窖下面有东西",
+				fear: "地窖",
 			},
 		],
 		known: {
@@ -101,7 +132,34 @@ function capsule(playerText) {
 				skills_of_note: [{ name: "侦查", value: 55 }],
 			},
 		},
+		// 契约 §13.2：两本账都是结构性来源，假内核只把形状摆出来。
+		pressures: [
+			{ kind: "threat", name: "地窖里的东西", state: "还没露面", cue: "地板在头顶上响" },
+		],
+		obligations: [
+			{ kind: "quest", name: "查清科比特宅出了什么事", who: "keeper", state: "进行中" },
+		],
+		...(beat ? { director: beat } : {}),
+		// 契约 §11.10：无需意图、由状态事实激活的硬门决策。
+		situations: [
+			{
+				decision: "sanity:check",
+				family: "sanity",
+				label: "理智检定",
+				investigator: "thomas-hayes",
+				because: ["sanity.exposed_to_horror = True"],
+			},
+		],
+		memory: [],
+		style: {
+			language: "zh-Hans",
+			register: "purist",
+			axes: ["感官先于解释", "留白胜过说明"],
+			directives: [{ id: "reveal-through-detail", line: "把线索藏进一个具体的东西里，别直接报答案。" }],
+		},
 		recent: [],
+		warnings: [],
+		truncated: [],
 	};
 }
 
@@ -394,13 +452,25 @@ process.stdin.on("data", (chunk) => {
 		}
 		received += 1;
 		const params = request.params ?? {};
-		if (LOG) {
-			appendFileSync(LOG, `${JSON.stringify({ method: request.method, params })}\n`);
-		}
 		if (EXIT_AFTER && received >= EXIT_AFTER) {
+			if (LOG) appendFileSync(LOG, `${JSON.stringify({ method: request.method, params })}\n`);
 			process.exit(7);
 		}
 		const outcome = handle(request.method, params);
+		if (LOG) {
+			// 回了胶囊的请求另记一份内核这边实际序列化出来的原文：扩展不得对它做
+			// 二次渲染（契约 §13.9），测试拿这一行跟注入的 coc-capsule 消息逐字节比。
+			const body = outcome.ok ? (outcome.result ?? {}) : {};
+			const capsuleJson = body.capsule
+				? JSON.stringify(body.capsule)
+				: request.method === "table.capsule"
+					? JSON.stringify(body)
+					: undefined;
+			appendFileSync(
+				LOG,
+				`${JSON.stringify({ method: request.method, params, ...(capsuleJson ? { capsule_json: capsuleJson } : {}) })}\n`,
+			);
+		}
 		process.stdout.write(`${JSON.stringify({ id: request.id, ...outcome })}\n`);
 	}
 });

@@ -1,0 +1,180 @@
+{
+  "contract_id": "coc.beat-directives.v1",
+  "schema_version": 1,
+  "note": "Closed table maintained by the content team (contract §13.6): which craft-directive nodes of content/craft/text-graph.json the capsule's `style.directives` carries for each Director beat (at most 4 per beat), plus the play_language lines for the nine style axes and the seventeen directives. Every id must exist in the text graph; the kernel validates this at load and never judges prose to pick a line.",
+  "beats": {
+    "REVEAL": [
+      "observable-before-interpretation",
+      "skill-interpretation-after-visible-evidence",
+      "scene-sensory-anchor",
+      "npc-direct-speech"
+    ],
+    "PRESSURE": [
+      "crisis-scene-clarity",
+      "rewrite-expository-choice-summary",
+      "spend-budget-on-scene-texture",
+      "observable-before-interpretation"
+    ],
+    "CHOICE": [
+      "rewrite-expository-choice-summary",
+      "npc-direct-speech",
+      "spend-budget-on-scene-texture"
+    ],
+    "SUBSYSTEM": [
+      "crisis-scene-clarity",
+      "player-action-uptake",
+      "rewrite-expository-choice-summary",
+      "final-prose-guard-before-output"
+    ],
+    "CHARACTER": [
+      "npc-direct-speech",
+      "observable-before-interpretation",
+      "rewrite-abstract-psychological-explanation",
+      "rewrite-abstract-explanation-to-action"
+    ],
+    "RECOVER": [
+      "repetition-policy",
+      "rewrite-ai-summary-voice",
+      "spend-budget-on-scene-texture",
+      "player-action-uptake"
+    ],
+    "CUT": [
+      "scene-sensory-anchor",
+      "rewrite-camera-direction-staging",
+      "repetition-policy",
+      "spend-budget-on-scene-texture"
+    ],
+    "ADVANCE": [
+      "player-action-uptake",
+      "action-uptake-review",
+      "scene-sensory-anchor",
+      "repetition-policy"
+    ],
+    "MONTAGE": [
+      "repetition-policy",
+      "rewrite-ai-summary-voice",
+      "spend-budget-on-scene-texture",
+      "rewrite-passive-translation-ese"
+    ],
+    "DEEPEN": [
+      "rewrite-abstract-psychological-explanation",
+      "skill-interpretation-after-visible-evidence",
+      "npc-direct-speech",
+      "observable-before-interpretation"
+    ],
+    "PAYOFF": [
+      "repetition-policy",
+      "skill-interpretation-after-visible-evidence",
+      "npc-direct-speech",
+      "rewrite-ai-summary-voice"
+    ]
+  },
+  "axis_lines": {
+    "style-axis:avoid-translationese": {
+      "zh-Hans": "忌翻译腔",
+      "en": "avoid translationese"
+    },
+    "style-axis:avoid-ai-summary-voice": {
+      "zh-Hans": "忌总结口吻",
+      "en": "avoid summary voice"
+    },
+    "style-axis:avoid-log-style-summary": {
+      "zh-Hans": "忌流水账",
+      "en": "avoid log-style summary"
+    },
+    "style-axis:avoid-semantic-repetition": {
+      "zh-Hans": "忌语义重复",
+      "en": "avoid semantic repetition"
+    },
+    "style-axis:avoid-abstract-psychological-explanation": {
+      "zh-Hans": "忌抽象心理解释",
+      "en": "avoid abstract psychological explanation"
+    },
+    "style-axis:prefer-short-sentences": {
+      "zh-Hans": "短句",
+      "en": "short sentences"
+    },
+    "style-axis:prefer-concrete-sensory-detail": {
+      "zh-Hans": "具体感官细节",
+      "en": "concrete sensory detail"
+    },
+    "style-axis:prefer-observable-behavior": {
+      "zh-Hans": "可见的行为",
+      "en": "observable behavior"
+    },
+    "style-axis:prefer-open-ended-prompt": {
+      "zh-Hans": "开放式收尾",
+      "en": "open-ended prompt"
+    }
+  },
+  "directive_lines": {
+    "observable-before-interpretation": {
+      "zh-Hans": "先写可见行为，再写解释。",
+      "en": "show observable behaviour before interpreting it"
+    },
+    "player-action-uptake": {
+      "zh-Hans": "用世界视角演出玩家已宣告的行动。",
+      "en": "enact a committed player action as world-perspective prose alongside its settled outcome"
+    },
+    "rewrite-abstract-explanation-to-action": {
+      "zh-Hans": "内心解释换成动作、声音、姿态、目光、物证。",
+      "en": "replace abstract inner-state explanation with action, voice, posture, gaze, hesitation or physical evidence"
+    },
+    "skill-interpretation-after-visible-evidence": {
+      "zh-Hans": "技能判断放在可见证据之后。",
+      "en": "place a skill-justified interpretation after the visible evidence"
+    },
+    "crisis-scene-clarity": {
+      "zh-Hans": "紧急场面先写清空间、力量、风险、把手。",
+      "en": "draft urgent physical scenes so space, force, risk and handles are clear"
+    },
+    "final-prose-guard-before-output": {
+      "zh-Hans": "难写的草稿出手前按语义再审。",
+      "en": "review a genuinely difficult draft semantically before release"
+    },
+    "repetition-policy": {
+      "zh-Hans": "已立事实压缩带过；玩家当前行动仍用你的话演出。",
+      "en": "compress an established fact; still enact the current player action in your own words"
+    },
+    "action-uptake-review": {
+      "zh-Hans": "检查草稿演出了玩家行动，没有照抄其句式。",
+      "en": "check the draft enacts the player action without cloning the player's sentence structure"
+    },
+    "final-output-pass": {
+      "zh-Hans": "复审只在草稿难写时做。",
+      "en": "the review pass is for hard drafts, not every routine turn"
+    },
+    "rewrite-ai-summary-voice": {
+      "zh-Hans": "信息用场景细节或 NPC 的话说出，不用汇报腔。",
+      "en": "express the same information through scene detail or NPC speech instead of report phrasing"
+    },
+    "rewrite-expository-choice-summary": {
+      "zh-Hans": "空间、动势、风险、把手写成场景，不写选项说明。",
+      "en": "render the spatial setup, motion, force, worsening risk and visible handles as scene prose"
+    },
+    "rewrite-camera-direction-staging": {
+      "zh-Hans": "一句自然的话点出人和视线焦点。",
+      "en": "name the person and the visible focus in one natural sentence"
+    },
+    "rewrite-passive-translation-ese": {
+      "zh-Hans": "改成主语清楚、动作具体的主动句。",
+      "en": "rewrite into active voice with a clear subject and concrete action"
+    },
+    "rewrite-abstract-psychological-explanation": {
+      "zh-Hans": "先写可见行为，解释只在证据或技能结果之后。",
+      "en": "lead with observable behaviour; interpret only after visible evidence or a skill result"
+    },
+    "npc-direct-speech": {
+      "zh-Hans": "NPC 给新信息或拒绝时，至少一句直接引语。",
+      "en": "when an NPC delivers new information or a refusal, quote at least one utterance in their own voice"
+    },
+    "scene-sensory-anchor": {
+      "zh-Hans": "进新场景先给一个可感知的具体细节。",
+      "en": "on entering a new scene, place one concrete sensory detail before any interpretation"
+    },
+    "spend-budget-on-scene-texture": {
+      "zh-Hans": "篇幅花在质地、声音、空间、动势上，不塞事件。",
+      "en": "spend the length budget on texture, voice, space and motion; never cram events or restate the player's action"
+    }
+  }
+}

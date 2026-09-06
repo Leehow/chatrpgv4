@@ -26,7 +26,10 @@ from .store import Campaign, now_iso
 from .text import normalize
 
 CANDIDATE_KINDS = ("world_event", "knowledge", "belief", "relationship", "player_assertion",
-                   "player_preference", "keeper_correction")
+                   "player_preference", "keeper_correction", "promise")
+#: Kinds where a new row with the same subject and entities closes the old one (§12.3 for
+#: relationship, §13.5 for promise); every other kind only accumulates.
+SUPERSEDING_KINDS = ("relationship", "promise")
 CANDIDATE_FIELDS = frozenset({"kind", "subject", "knowers", "statement", "entities", "privacy", "state", "confidence"})
 MACHINE_KEYS = frozenset({"commit", "receipt", "receipts", "turn", "id", "job_id", "episode_id", "call_id", "source"})
 PRIVACY = ("player_safe", "keeper_only")
@@ -473,9 +476,9 @@ def submit(campaign: Campaign, graph: ModuleGraph, party: list[dict[str, Any]], 
         keys = row.pop("_keys")
         new_id = f"mem:t{turn}-{next_k}"
         next_k += 1
-        if row["kind"] == "relationship":
+        if row["kind"] in SUPERSEDING_KINDS:
             for old in existing:
-                if (old.get("kind") == "relationship" and old.get("status") == "candidate"
+                if (old.get("kind") == row["kind"] and old.get("status") == "candidate"
                         and old.get("superseded_by") is None
                         and graph_index.lenient_key(str(old.get("subject"))) == keys["subject"]
                         and sorted(graph_index.lenient_key(str(e)) for e in old.get("entities") or []) == keys["entities"]):
@@ -527,6 +530,14 @@ def fail(campaign: Campaign, job: dict[str, Any] | None, job_id: str, turn: int,
     if job is not None and job.get("status") != "done":
         write_job(campaign, {**job, "status": "failed", "failed_at": now_iso(), "reason": reason, "detail": detail})
     return {"job_id": job_id, "turn": turn, "status": row["status"], "reason": reason}
+
+
+# ---- open promises (§13.5) ----------------------------------------------------------------
+
+def open_promises(campaign: Campaign) -> list[dict[str, Any]]:
+    """`promise` candidates nobody has closed: `obligations.promise` reads these."""
+    return [hit_view(row) for row in read_candidates(campaign)
+            if row.get("kind") == "promise" and row.get("status") == "candidate" and row.get("superseded_by") is None]
 
 
 # ---- recall memory ------------------------------------------------------------------------

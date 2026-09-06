@@ -57,8 +57,10 @@ TEMPLATES: dict[str, dict[str, str]] = {
             "只写这一回合新出现的事实、知晓、信念、关系、玩家断言；主语用 known_entities 里的名字，"
             "或保留主语 world、party、keeper、player；不写数值与骰面；不复述 prior 已有的。"
             "每条给 kind（world_event、knowledge、belief、relationship、player_assertion、"
-            "player_preference、keeper_correction 之一）、subject、statement；world_event 的 subject 必须是 world；"
-            "relationship 的 entities 恰好一个名字。不要写 id、回合号、收据或任何机器键。"
+            "player_preference、keeper_correction、promise 之一）、subject、statement；world_event 的 subject 必须是 world；"
+            "relationship 的 entities 恰好一个名字。"
+            "有人答应了有期限或有条件的事时写一条 promise：subject 是许诺者，entities 列受诺者与相关实体，statement 写清条件或期限。"
+            "不要写 id、回合号、收据或任何机器键。"
         ),
     },
     "en": {
@@ -93,8 +95,10 @@ TEMPLATES: dict[str, dict[str, str]] = {
             "Write only what is new this turn: facts, knowledge, beliefs, relationships, player assertions. "
             "Use names from known_entities as subjects, or the reserved subjects world, party, keeper, player; "
             "no numbers or dice; do not repeat what prior already holds. Each candidate has kind (one of world_event, "
-            "knowledge, belief, relationship, player_assertion, player_preference, keeper_correction), subject and "
+            "knowledge, belief, relationship, player_assertion, player_preference, keeper_correction, promise), subject and "
             "statement; a world_event's subject must be world; a relationship names exactly one entity in entities. "
+            "When someone promised something with a deadline or a condition, write a promise: subject is the one who "
+            "promised, entities the one promised to and what it concerns, statement the condition or deadline. "
             "Never write ids, turn numbers, receipts or any machine key."
         ),
     },

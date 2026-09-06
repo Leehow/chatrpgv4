@@ -152,8 +152,8 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Look",
 		method: "table.look",
 		description:
-			"看当前场面。不给参数就是看场景：戏剧问题、压力动作、出口、可用的着力点、在场者。focus 给 npc 加 name 时返回这个 NPC 的守秘人视图（企图、恐惧、秘密、声音、关系、已知事实）；focus 给 investigator 返回当前调查员表与运行时数值；focus 给 clues 返回已发现的与此地可得的线索；focus 给 time 返回世界时钟。每回合开场先 look 再动手，返回的一切都是守秘人专属，不能照抄进玩家文字。",
-		promptSnippet: "看场面、NPC、调查员、线索或时钟的守秘人视图",
+			"看胶囊没答的那一面。回合胶囊已经带着这些的当前值：世界时钟、场面与出口、来路（走过的场景，由近到远）、此地尚未被发现的线索与它们的获取方式、在场者的企图与秘密、以及正压着的东西——这些不必再 look 一遍，胶囊就是最新的。胶囊没有的才用它：不给参数是重看场景（戏剧问题、压力动作、出口、着力点、在场者）；focus 给 npc 加 name 看某个胶囊没列的实体的守秘人视图（企图、恐惧、秘密、声音、关系、已知事实）；focus 给 investigator 看调查员表的细目；focus 给 clues 看已发现的与此地可得的线索；focus 给 time 看世界时钟。开桌那一回合没有胶囊，先 look 看开场场面。返回的一切都是守秘人专属，不能照抄进玩家文字。",
+		promptSnippet: "看胶囊没答的那一面：场面、NPC、调查员、线索或时钟",
 		parameters: Type.Object({
 			focus: Type.Optional(
 				StringEnum(["scene", "npc", "investigator", "clues", "time"] as const, {
@@ -168,8 +168,8 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Lookup",
 		method: "table.lookup",
 		description:
-			"查模组。kind 为 module 时按名字或别名在模组图上找实体，最多回 8 条，每条给摘要、可见性与关系，用来确认玩家说的东西在不在这本模组里；kind 为 secret 时回当前场景的守秘人简报：戏剧问题、压力动作、守秘人笔记、尚未被发现的线索、NPC 的秘密与企图，scope 给 module 则回整本的秘密与结局节点。玩家提到你不确定的名字、或者你需要知道这里还藏着什么时用它。kind 的 rule 与 catalog 本切片会回 not_implemented。",
-		promptSnippet: "在模组图上查实体，或调当前场景的守秘人秘密简报",
+			"查模组图上胶囊没答的东西。kind 为 secret、scope 为 scene 的那份简报——本场景尚未被发现的线索、在场者的秘密与企图、守秘人笔记——胶囊里已经带着了，别再查一遍；要整本的秘密与结局节点时才用 scope 给 module。kind 为 module 时按名字或别名在模组图上找实体，最多回 8 条，每条给摘要、可见性与关系，用来确认玩家提到的名字在不在这本模组里；匹配的是图上的名字与句柄，用模组里的中文名或胶囊里出现过的名字去查，英文关键词查不到。kind 的 rule 与 catalog 本切片会回 not_implemented。",
+		promptSnippet: "在模组图上查胶囊没答的实体，或调整本的秘密与结局",
 		parameters: Type.Object({
 			kind: StringEnum(["module", "secret", "rule", "catalog"] as const, {
 				description: "查什么；rule 与 catalog 本切片未实现",
@@ -268,7 +268,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Resolve",
 		method: "table.resolve",
 		description:
-			"把一次行动交给规则裁决。你只描述行动，规则由内核挑：写清谁、想达成什么、怎么做、对谁、赌什么，它选决策、取目标值、掷骰，回来是收据、成功等级，以及可能的会话（战斗、追逐、理智发作）与可接的后续。你不掷骰、不算数、不改数值；日常无争议的行动不要用它。攻击写 intent 为 combat 加 target 与 weapon（徒手写 unarmed）；内核报 needs_choice 时它已把候选和各自适用的场合列出来，挑一个写进 decision 再调一次；结果里的待决防御若是玩家的，用 ask 把闪避还是反击交回他，他答了下一回合再用 defense 解，若是 NPC 的就你自己配 actor 与 defense 定；失败的检定想推骰就 push 为 true 并在 stakes 里写明推失败的代价，想花幸运就给 luck。技能认不出来时内核报 needs 并给候选，补上 skill 再调一次；intent 为 idle、meta、stuck、ambiguous 时不掷骰只回一句判断。",
+			"把一次行动交给规则裁决。你只描述行动，规则由内核挑：写清谁、想达成什么、怎么做、对谁、赌什么，它选决策、取目标值、掷骰，回来是收据、成功等级，以及可能的会话（战斗、追逐、理智发作）与可接的后续。你不掷骰、不算数、不改数值；日常无争议的行动不要用它。攻击写 intent 为 combat 加 target 与 weapon（徒手写 unarmed）；内核报 needs_choice 时它已把候选和各自适用的场合列出来，挑一个写进 decision 再调一次；本该报 needs_choice 但候选里只有一条对得上本回合胶囊建议的节拍时，内核直接替你结算并在结果里写 decision_source 为 director——那一次已经算数了，不要再为它调第二次；结果里的待决防御若是玩家的，用 ask 把闪避还是反击交回他，他答了下一回合再用 defense 解，若是 NPC 的就你自己配 actor 与 defense 定；失败的检定想推骰就 push 为 true 并在 stakes 里写明推失败的代价，想花幸运就给 luck。技能认不出来时内核报 needs 并给候选，补上 skill 再调一次；intent 为 idle、meta、stuck、ambiguous 时不掷骰只回一句判断。",
 		promptSnippet: "掷骰裁决一次行动，回来是收据、成功等级与会话状态",
 		parameters: Type.Object({
 			action: ResolveAction,

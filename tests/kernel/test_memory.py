@@ -333,7 +333,9 @@ def test_post_commit_failures_are_telemetry_not_errors(kernel):
     assert kernel.table("status") == {"turn": 2, "state": "awaiting_player", "receipts": [], "pending_choice": None}
     assert read_json(campaign_dir(kernel.workspace) / "save" / "continuation" / "latest.json")["turn"] == 1
     telemetry = read_jsonl(campaign_dir(kernel.workspace) / "telemetry.jsonl")
-    assert [(t["lane"], t["step"], t["turn"], t["ok"]) for t in telemetry] == [("kernel", "episode", 1, False)]
-    assert "episodes.jsonl" in telemetry[0]["error"] or "Is a directory" in telemetry[0]["error"]
+    # the director lane (§13.7) writes its own row at every close; only the kernel lane reports steps
+    kernel_rows = [t for t in telemetry if t["lane"] == "kernel"]
+    assert [(t["lane"], t["step"], t["turn"], t["ok"]) for t in kernel_rows] == [("kernel", "episode", 1, False)]
+    assert "episodes.jsonl" in kernel_rows[0]["error"] or "Is a directory" in kernel_rows[0]["error"]
     # and the job can still be built from the turn record alone
     assert job(kernel, turn=1)["present"] == [KNOTT]

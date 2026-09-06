@@ -30,7 +30,7 @@ Pi 家目录由 `PI_CODING_AGENT_DIR` 指定为仓库内 `.pi/coc-agent`；`sett
 
 上下文：`ctx.cwd`、`ctx.hasUI`、`ctx.ui.notify` / `select` / `setStatus`、`ctx.model`、`ctx.modelRegistry.find` / `complete`。
 
-总线：`pi.events.emit` / `on`。四个频道：`coc:table-open`、`coc:resolve`（桌况显示用）、`coc:turn-committed`（契约 §12.8 的提交载荷）、`coc:kernel-bridge`（内核 RPC 闭包，见下）。
+总线：`pi.events.emit` / `on`。五个频道：`coc:table-open`、`coc:resolve`、`coc:capsule`（本回合胶囊原样一份，桌况显示用它取 Director 节拍，契约 §13.9）、`coc:turn-committed`（契约 §12.8 的提交载荷）、`coc:kernel-bridge`（内核 RPC 闭包，见下）。
 
 ### 3.1 零工具子会话：两条车道怎么起
 
@@ -63,7 +63,7 @@ Pi 家目录由 `PI_CODING_AGENT_DIR` 指定为仓库内 `.pi/coc-agent`；`sett
 
 | 行为 | 核对 |
 | --- | --- |
-| `before_agent_start.prompt` 是玩家原文；返回 `message` 会在本轮开始前注入一条 custom 消息，`display:false` 仍进模型上下文 | `tests/extension/turn.test.mjs` 胶囊断言 |
+| `before_agent_start.prompt` 是玩家原文；返回 `message` 会在本轮开始前注入一条 custom 消息，`display:false` 仍进模型上下文，`content` 字符串原样进上下文（不被重排、不被美化） | `tests/extension/turn.test.mjs` 胶囊断言、`capsule.test.mjs` 逐字节断言 |
 | `tool_call` 里就地改 `event.input` 会生效；返回 `{block, reason}` 让模型收到一条错误结果而不执行 | `gates.test.mjs` |
 | `executionMode: "sequential"` 的工具按 assistant 消息里的顺序逐个 preflight 与执行，所以 `narrate` 之后同批余下调用能被拦住、`call_id` 序号确定 | `gates.test.mjs`、`turn.test.mjs` |
 | `tool_result` 返回 `{isError:true}` 的局部补丁被采纳 | `session.test.mjs` 内核报错用例 |

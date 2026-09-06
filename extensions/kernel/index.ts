@@ -615,6 +615,13 @@ export default function (pi: ExtensionAPI) {
 				ms: Date.now() - began,
 				ok: true,
 			});
+			// 契约 §13.9：胶囊原样进模型上下文；别的扩展要看它（桌况显示读 director 节拍）
+			// 只从总线上拿，不去二次解析那条宿主消息，也不改动它的 JSON。
+			pi.events.emit("coc:capsule", {
+				campaign: state.campaign,
+				turn: state.turn,
+				capsule: result.capsule ?? {},
+			});
 			return {
 				message: {
 					customType: "coc-capsule",
