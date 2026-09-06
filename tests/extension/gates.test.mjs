@@ -101,3 +101,39 @@ test("开桌回合：awaiting_player 拒写，但 narrate 放行", async (t) => 
 		"一九二五年的波士顿，雨还没停。\n\n【明骰】侦查｜掷骰：42；基础值：55；门槛：普通（≤55）；结果：通过",
 	);
 });
+
+
+test("同名同参连发：被内核拒过两次之后第三次拦下，改了参数的照常放行", async (t) => {
+	const same = { action: { intent: "social", goal: "压价", method: "摊牌", motive: { direction: "oppose" } } };
+	const table = await openTable({
+		env: {
+			FAKE_KERNEL_ERRORS: JSON.stringify({
+				"table.resolve": { code: "invalid_params", message: "action.motive 不对", fix: "direction 用 support|neutral|oppose" },
+			}),
+		},
+		responses: [
+			fauxAssistantMessage([fauxToolCall("resolve", same)], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("resolve", same)], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("resolve", same)], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "social", goal: "压价", method: "摊牌" } })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "他没有松口。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("收尾"),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我压价");
+	await waitForIdle(table.session);
+
+	const results = toolResults(table.session, "resolve");
+	assert.equal(results.length, 4);
+	assert.match(resultText(results[0]), /invalid_params/);
+	assert.match(resultText(results[1]), /invalid_params/);
+	assert.match(resultText(results[2]), /拒了 2 次/, "第三次原样重发被扩展拦下");
+	assert.match(resultText(results[2]), /action.motive 不对/, "拦下时把上次的错误再念一遍");
+	assert.match(resultText(results[3]), /invalid_params/, "改了参数的那次到了内核");
+	const sent = table.kernelRequests().filter((entry) => entry.method === "table.resolve");
+	assert.equal(sent.length, 3, "两次原样加一次改参，第三次原样没出扩展");
+	const blocked = table.telemetry().filter((row) => row.code === "blocked");
+	assert.equal(blocked.length, 1);
+});

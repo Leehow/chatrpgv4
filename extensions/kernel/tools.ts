@@ -123,7 +123,7 @@ const ResolveAction = Type.Object({
 	mode: Type.Optional(StringEnum(["any", "all"] as const, { description: "合并检定过一项即可还是全过" })),
 	motive: Type.Optional(
 		Type.Object({
-			direction: StringEnum(["for", "against", "neutral"] as const, { description: "NPC 对这个目标是倾向、抵触还是中立" }),
+			direction: StringEnum(["support", "neutral", "oppose"] as const, { description: "NPC 对这个目标是支持、中立还是抵触" }),
 			intensity: Type.Optional(Type.Integer({ description: "0 到 2，越大越强" })),
 		}, { description: "社交判定时 NPC 对玩家目标的倾向；省略视为中立" }),
 	),

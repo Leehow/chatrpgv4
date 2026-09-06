@@ -36,6 +36,7 @@ def test_narrate_facts_are_sentences_from_receipts_and_world(kernel):
     result = kernel.table("narrate", call_id="t1-c3", text="你出了门。")
     verdict = "通过" if roll["passed"] else "未通过"
     assert result["facts"]["committed"] == [
+        "玩家声明：我翻看桌上的文件。",
         f"{INV}的侦查检定{verdict}（{LEVEL_ZH[roll['level']]}）",
         "发现线索：钥匙",
         "时间推进 15 分钟",

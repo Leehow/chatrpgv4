@@ -929,7 +929,7 @@ class Table:
         subject = " ".join(text.split())[:COMMIT_SUBJECT_CHARS]
         party = campaign.party()
         snapshot = self._snapshot(campaign, graph, world, party)
-        facts = self._facts(campaign, graph, world, party, receipts, snapshot)
+        facts = self._facts(campaign, graph, world, party, receipts, snapshot, turn.get("player_text"))
         result: dict[str, Any] = {"rendered_text": rendered, "turn": turn_number,
                                   "receipt": receipt_id, "commit": None, "facts": facts,
                                   "extraction": {"job_id": memory.job_id_for(campaign.id, turn_number)}}
@@ -973,14 +973,15 @@ class Table:
         return {**result, "commit": sha}
 
     def _facts(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any], party: list[dict[str, Any]],
-               receipts: list[dict[str, Any]], snapshot: dict[str, Any]) -> dict[str, Any]:
+               receipts: list[dict[str, Any]], snapshot: dict[str, Any], player_text: str | None = None) -> dict[str, Any]:
         """§12.5: `committed` from the receipts and the snapshot, `keeper_only` from what
         the graph still hides here."""
         language = language_of(campaign.read_campaign())
         labels = {str(s.get("id")): str(s.get("name")) for s in party}
         scene = graph.scene(world["active_scene"])
         return {
-            "committed": committed_facts(language, receipts, snapshot, lambda actor: labels.get(actor, actor)),
+            "committed": committed_facts(language, receipts, snapshot, lambda actor: labels.get(actor, actor),
+                                         player_text=player_text),
             "keeper_only": keeper_only_facts(language, graph, world, scene, npcs_present(graph, world, scene)),
         }
 

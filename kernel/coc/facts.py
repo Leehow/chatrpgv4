@@ -35,6 +35,7 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "delta": "{label}：{subject} {before} → {after}",
         "time": "时间推进 {minutes} 分钟",
         "choice": "玩家选择：{option}",
+        "declared": "玩家声明：{text}",
         "session_start": "{start}",
         "session_end": "{end}：{outcome}",
         "session_end_plain": "{end}",
@@ -70,6 +71,7 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "delta": "{label}: {subject} {before} → {after}",
         "time": "Time advances {minutes} min",
         "choice": "Player chose: {option}",
+        "declared": "Player declared: {text}",
         "session_start": "{start}",
         "session_end": "{end}: {outcome}",
         "session_end_plain": "{end}",
@@ -135,10 +137,14 @@ def json_size(payload: Any) -> int:
 # ---- committed ----------------------------------------------------------------------------
 
 def committed_facts(language: str, receipts: list[dict[str, Any]], snapshot: dict[str, Any],
-                    label_of: Callable[[str], str]) -> list[str]:
-    """One sentence per receipt, then the place and who is present. `snapshot` is the
-    turn record's `world` block; `label_of` maps an actor id to its display name."""
+                    label_of: Callable[[str], str], player_text: str | None = None) -> list[str]:
+    """The player's declaration first (the verifier must know what the player actually said
+    before judging agency), then one sentence per receipt, then the place and who is
+    present. `snapshot` is the turn record's `world` block; `label_of` maps an actor id
+    to its display name."""
     facts: list[str] = []
+    if isinstance(player_text, str) and player_text.strip():
+        facts.append(t(language, "declared", text=" ".join(player_text.split())))
     for receipt in receipts:
         kind = receipt.get("kind")
         if kind == "roll":

@@ -90,6 +90,10 @@ interface TableState {
 	steeredThisTurn: boolean;
 	roundTrips: number;
 	mintedCallIds: Map<string, string>;
+	/** 本回合被内核拒过的调用：同名同参的键 → 次数与最近一次错误。原样重发两次之后拦下。 */
+	rejected: Map<string, { count: number; last: string }>;
+	/** toolCallId → 上面的键，tool_result 里据此计数。 */
+	callKeys: Map<string, string>;
 	/** narrate 已提交、校验车道还没起跑的那一回合（契约 §12.5：交付替换之后才跑）。 */
 	pendingCommit?: CommitPayload;
 	/** 会话结束时掐断还在飞的车道补全，别让它拖住退出。 */
@@ -235,6 +239,8 @@ export default function (pi: ExtensionAPI) {
 		// 恢复的回合接着死掉的进程铸序号，否则第一次写就撞 idempotency_conflict。
 		table.callOrdinal = open.pending_turn?.last_call_ordinal ?? 0;
 		table.mintedCallIds.clear();
+		table.rejected.clear();
+		table.callKeys.clear();
 		table.renderedText = undefined;
 		table.deliveryToolCallId = undefined;
 		table.closedThisRun = false;
@@ -435,8 +441,16 @@ export default function (pi: ExtensionAPI) {
 	// AgentToolResult 没有 isError 字段，错误旗只能在 tool_result 上翻。
 	pi.on("tool_result", async (event) => {
 		if (!COC_TOOL_NAMES.includes(event.toolName as never)) return;
-		const details = event.details as { coc_error?: unknown } | undefined;
-		if (details?.coc_error) return { isError: true };
+		const details = event.details as { coc_error?: { code?: unknown; message?: unknown } } | undefined;
+		if (!details?.coc_error) return;
+		const state = table;
+		const key = state?.callKeys.get(event.toolCallId);
+		if (state && key) {
+			const previous = state.rejected.get(key);
+			const last = `${String(details.coc_error.code ?? "error")}: ${String(details.coc_error.message ?? "")}`.slice(0, 160);
+			state.rejected.set(key, { count: (previous?.count ?? 0) + 1, last });
+		}
+		return { isError: true };
 	});
 
 	// ---- 开桌 -------------------------------------------------------------
@@ -515,6 +529,8 @@ export default function (pi: ExtensionAPI) {
 				steeredThisTurn: false,
 				roundTrips: 0,
 				mintedCallIds: new Map(),
+				rejected: new Map(),
+				callKeys: new Map(),
 				lanes: new AbortController(),
 			};
 			const open = await kernel.call<OpenResult>("table.open", { campaign });
@@ -586,6 +602,8 @@ export default function (pi: ExtensionAPI) {
 			state.state = result.state ?? "open";
 			state.callOrdinal = 0;
 			state.mintedCallIds.clear();
+			state.rejected.clear();
+			state.callKeys.clear();
 			state.renderedText = undefined;
 			state.deliveryToolCallId = undefined;
 			state.closedThisRun = false;
@@ -645,6 +663,16 @@ export default function (pi: ExtensionAPI) {
 		if (state.closedThisRun) {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: TURN_CLOSED_REASON });
 			return { block: true, reason: TURN_CLOSED_REASON };
+		}
+		// 同名同参原样重发：内核的答案不会变。守秘人曾把同一组参数连发十三次，
+		// 每次都被拒；拒过两次之后拦下，把上次的错误再念一遍。
+		const key = `${name}\u0000${JSON.stringify(input)}`;
+		state.callKeys.set(event.toolCallId, key);
+		const strikes = state.rejected.get(key);
+		if (strikes && strikes.count >= 2) {
+			const reason = `这组参数已被内核拒了 ${strikes.count} 次（${strikes.last}）。原样重发不会有不同结果：按 fix 改参数，或者换个做法。`;
+			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason });
+			return { block: true, reason };
 		}
 		if (!WRITE_TOOLS.has(name)) return;
 
@@ -772,6 +800,8 @@ export default function (pi: ExtensionAPI) {
 		state.deliveryToolCallId = undefined;
 		state.callOrdinal = 0;
 		state.mintedCallIds.clear();
+		state.rejected.clear();
+		state.callKeys.clear();
 		state.steeredThisTurn = false;
 		// 交付替换在返回这条消息时生效，车道排在它后面：定时器排到 0 毫秒之后才跑。
 		scheduleVerifier(state);

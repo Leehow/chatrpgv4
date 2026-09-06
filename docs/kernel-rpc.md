@@ -207,7 +207,7 @@ result：`{"rendered_text": "...", "turn": int, "receipt": "turn:<n>", "commit":
 - 七个工具用 TypeBox 定义参数，描述里写清用法与何时用；`resolve.action.intent` 用枚举；`apply.effects` 用 kind 判别联合。工具面固定，不调用 `setActiveTools` 变形。
 - `call_id` 铸造：每次会改状态的调用（`resolve`、`apply`、`ask`、`narrate`）递增回合内计数器；读调用不带。
 - `before_agent_start`：把玩家 prompt 交给 `table.player_input`，把返回的胶囊作为 `customType: "coc-capsule"`、`display: false` 的消息注入。宿主自己发出的消息（恢复、开场）不是玩家输入，不进 `player_input`。
-- `tool_call`：`awaiting_player`/`committed` 拒写；`narrate` 成功后同一批次余下的调用一律 `block` 并说明回合已关闭；`apply`/`resolve` 的名字做大小写与空白归一化。
+- `tool_call`：同名同参的调用在本回合被内核拒过两次后第三次拦下，理由里复述上次的错误（原样重发不会有不同结果）；`awaiting_player`/`committed` 拒写；`narrate` 成功后同一批次余下的调用一律 `block` 并说明回合已关闭；`apply`/`resolve` 的名字做大小写与空白归一化。
 - `message_end`：带工具调用的助手消息只保留调用块，删掉其中的文本：守秘人在调用前写的过程话不是台词。本回合 `narrate` 或 `ask` 已返回 `rendered_text` 时，把随后那条助手消息的文本整体替换为 `rendered_text`；守秘人在工具之后写的正文被丢弃。守秘人写了正文却没调 `narrate` 就收工时，宿主替它关回合：剥掉自写的【明骰】【变化】行后把正文作为 `text` 调 `table.narrate`；内核留有 `for: player` 的待决时改调 `table.ask`，正文是 `text`，问题、选项与 `binds` 取自待决。交付仍是内核渲染的文本。只有正文为空（只想不说）时才催一次。玩家可见文字只由 `narrate` 与 `ask` 产生。
 - `agent_end`：回合仍在 `acting` 且没有 `narrate`，注入一条宿主消息「回合未关闭，用 narrate 交付」并触发一轮；最多一次。
 - 遥测：每次工具调用记录 `{turn, tool, call_id?, started_at, ms, ok, code?}` 到 `.coc/campaigns/<id>/telemetry.jsonl`，每回合结束记录模型往返数。
@@ -228,7 +228,7 @@ result：`{"rendered_text": "...", "turn": int, "receipt": "turn:<n>", "commit":
 
 ### 11.1 输入补充
 
-`action` 在切片 0 的字段之外接受（扩展的工具表必须逐一声明，否则模型无处可填）：`san_loss`（理智检定的成功/失败损失表达式，如 `0/1D6`）、`involuntary`（理智失败时的失控行为，`faint`、`flee`、`scream`、`freeze`、`attack` 之一）、`outcome`（结束战斗时的结果）、`skills` 与 `mode`（合并检定）、`motive` 与 `support`（社交判定里 NPC 倾向与玩家实证）、`interrupted`（施法）、`rest`（每周恢复条件）、`ending`（结束会话的结局种类）；以及：`weapon`（武器名，攻击时用；`unarmed` 表示徒手）、`spell`（法术名）、`defense`（`dodge` 或 `fight_back`，回应待决防御时用）、`push: true`（对上一次失败检定推骰，`stakes` 必填，是宣告的后果）、`luck: <点数>`（花幸运补上一次检定）。`actor` 可以是 NPC 名：守秘人替 NPC 行动时用，比如战斗里 NPC 的回合。
+`action` 在切片 0 的字段之外接受（扩展的工具表必须逐一声明，否则模型无处可填）：`san_loss`（理智检定的成功/失败损失表达式，如 `0/1D6`）、`involuntary`（理智失败时的失控行为，`faint`、`flee`、`scream`、`freeze`、`attack` 之一）、`outcome`（结束战斗时的结果）、`skills` 与 `mode`（合并检定）、`motive`（`{direction: support|neutral|oppose, intensity: 0..2}`，工具表与内核用同一套词）与 `support`（社交判定里 NPC 倾向与玩家实证）、`interrupted`（施法）、`rest`（每周恢复条件）、`ending`（结束会话的结局种类）；以及：`weapon`（武器名，攻击时用；`unarmed` 表示徒手）、`spell`（法术名）、`defense`（`dodge` 或 `fight_back`，回应待决防御时用）、`push: true`（对上一次失败检定推骰，`stakes` 必填，是宣告的后果）、`luck: <点数>`（花幸运补上一次检定）。`actor` 可以是 NPC 名：守秘人替 NPC 行动时用，比如战斗里 NPC 的回合。
 
 ### 11.2 事实
 
@@ -413,7 +413,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 
 `narrate` 结果里的 `facts`：
 
-- `committed`：本回合已提交的事实，每条一句 play_language，确定性地从收据与世界状态生成：每条 `roll` 一句（谁、什么检定、过没过）、`move` 一句、`clue` 一句、`delta` 一句（资源 前 → 后）、`session` 一句、`time` 一句，再加「地点：<display_name>」与「在场：<名字>」。
+- `committed`：本回合已提交的事实，每条一句 play_language，确定性地从收据与世界状态生成：第一句是玩家原文（`玩家声明：<原文>`，校验车道据此判断哪些自愿行为是玩家自己声明的）；每条 `roll` 一句（谁、什么检定、过没过）、`move` 一句、`clue` 一句、`delta` 一句（资源 前 → 后）、`session` 一句、`time` 一句，再加「地点：<display_name>」与「在场：<名字>」。
 - `keeper_only`：本场景尚未发现的线索（名字与摘要）、在场 NPC 的 `agenda` 与 `secret`、模组级秘密里与本场景相关的条目；总量 ≤ 2KB，超出按项裁剪。
 
 校验车道在 kernel 扩展内：交付完成后（`message_end` 替换之后）用 Pi SDK 起零工具内存会话，模型由 `PI_COC_VERIFIER_MODEL`（`provider/model`）指定，缺省与桌子同模型；输入是 `rendered_text` 去掉机制行后的正文、`facts.committed`、`facts.keeper_only`，要求只返回 JSON：
