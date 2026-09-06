@@ -160,8 +160,8 @@ params：`{"call_id": "...", "effects": [{"kind": "move", "to": "<场景名>", "
 - `move`：目的地必须是图上从当前场景可达的场景（`route-to`，或可玩性模板的入口关系 `play-precedes`/`may-lead-to`/`alternative-to`/`hands-off-to`——构建出的书多按演出顺序连场景，运行时与可玩性检查用同一套词，出口条目带 `via`），或 `scene_edges` 声明的目的地，或来路上的任何场景（`world.scene_trail`：到达当前场景所经过的场景栈，来路总是可退：没有作者出口的巢穴也能一步退回地窖或一楼）；否则 `not_reachable`，`fix` 里直接写出两份名字，`details.exits` 给出口，`details.back` 给来路（由近到远）。`travel_minutes` 缺省取图上边的值（退一步取反向边），没有则 0。`label` 给过一次就是这个场景从此的名字：写进 `world.scene_labels[<场景>]`，之后的 `【变化】场景` 行、胶囊 `where`、检查点、任务包都用它，记忆解析把它当场景的别名。写 `world.active_scene`、`scene_trail`（前进则压入当前场景，退回则截断到目的地之前）、`visited_scenes`、`scene-moved` 事件。旧世界没有 `scene_trail` 时在 `_context` 里按同一规则重放 `scene-moved` 事件一次性补上。
 - `clue`：必须是图上存在的 clue 节点，且 `discoverable-at` 当前场景或在当前场景 record 的 `available_clues` 里；否则 `not_here`。已发现的重复写入返回 `replayed: true`，不报错。写 `discovered_clues`、`clue-discovered` 事件。
 - `time`：推进世界时钟，写 `time-advanced` 事件。
-- `item`（#19）：`{"kind": "item", "name": "<物品名>", "to"?: "<调查员>", "from"?: "<NPC 名>", "weapon"?: "<规则表武器 id 或 profile 名>", "quantity"?: int, "label"?: "<玩家语言短名>", "why"?}`。叙述里到手的东西由此进调查员表：写 `party/<id>.json` 的 `equipment[]`（名字、数量、来源回合），`weapon` 给了就同时写 `weapons[]`（从 `rules-json/equipment.json` 的武器 profile 取伤害、射程、弹容、技能，取不到报 `needs`，`details.needs.options` 列可用 id），之后 `resolve` 的 `weapon` 能解析它、战斗开局按它排弹药。收据 `item:<slug>-t<turn>-c<n>`，渲染 `【变化】物品：<人> 得到 <label 或名>`，事件 `item-transferred`（`{name, to, from?, weapon?, quantity}`）。`quantity` 为负是失去（消耗、交出、被夺），表上没有就报 `invalid_params`。
-- `cash`（#19）：`{"kind": "cash", "subject"?: "<调查员>", "delta": <整数，货币单位随时代>, "why"?}`；写表上 `finance.cash`（没有 finance 块的时代按 `rules-json/cash-assets.json` 建一个），收据 `cash:t<turn>-c<n>`，渲染 `【变化】现金：<人> <前> → <后>`，事件 `resource-changed`（`resource: cash`）。
+- `item`（#19）：`{"kind": "item", "name": "<物品名>", "to"?: "<调查员>", "from"?: "<NPC 名>", "weapon"?: "<规则表武器 id 或 profile 名>", "quantity"?: int, "label"?: "<玩家语言短名>", "why"?}`。叙述里到手的东西由此进调查员表：写 `party/<id>.json` 的 `equipment[]`（名字、数量、来源回合），`weapon` 给了就同时写 `weapons[]`（从 `rules-json/weapons.json` 的武器 profile 取伤害、射程、弹容、技能（`equipment.json` 只是价目表），取不到报 `needs`，`details.needs.options` 列可用 id），之后 `resolve` 的 `weapon` 能解析它、战斗开局按它排弹药。收据 `item:<slug>-t<turn>-c<n>`，渲染 `【变化】物品：<人> 得到 <label 或名>`，事件 `item-transferred`（`{name, to, from?, weapon?, quantity}`）。`quantity` 为负是失去（消耗、交出、被夺），表上没有就报 `invalid_params`。
+- `cash`（#19）：`{"kind": "cash", "subject"?: "<调查员>", "delta": <整数，货币单位随时代>, "why"?}`；写表上 `finance.cash`（没有 finance 块的时代按 `rules-json/cash-assets.json` 建一个），收据 `cash:t<turn>-c<n>`，渲染 `【变化】现金：<人> <前> → <后>`（没有 `label`，标签固定为 play_language 的「现金」），事件 `resource-changed`（`resource: cash`）。
 - 其余种类报 `not_implemented`。
 result：`{"receipts": ["move:hall-of-records-t3-c2", ...], "world": {"active_scene", "clock"}, "material_ready": true}`。切片 0 `material_ready` 恒为 true。
 
@@ -445,7 +445,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 - kernel 扩展：`narrate` 成功后在总线上发 `coc:turn-committed {campaign, turn, commit, job_id, facts, rendered_text}`；交付替换完成后自己跑校验车道并 `table.warn`。车道出错只写遥测（`lane: verifier, ok: false`），不催守秘人，不阻塞。
 - memory 扩展（`extensions/memory`）：订阅 `coc:turn-committed`，`memory.job` → 零工具子会话（模型 `PI_COC_MEMORY_MODEL`，缺省与桌子同模型）→ `memory.submit`；失败一次重试，再失败 `memory.fail`。同一时刻只跑一个任务，后来的排队；进程退出时未完成的任务留给下次 `memory.job` 缺省派发。
 - 两条车道的 RPC（`memory.job`、`memory.submit`、`memory.fail`、`table.warn`）不带 `call_id`、不看回合状态；结果按 `turn` 落到对应回合记录，晚到也收。memory 扩展派任务时给显式 `turn`（刚提交的那一回合）；`memory.job` 的缺省派发只在重开进程后补漏时用。
-- 补抽（#20）：memory 扩展在 `session_start`（桥就位后）用 `memory.job` 的缺省派发补抽尚未完成任务且不在 backlog 里的回合，每次会话至多 `PI_COC_MEMORY_BACKFILL`（缺省 5）个，仍是一次一个、不阻塞回合、先让位给刚提交的回合；遥测行带 `backfill: true`。
+- 补抽（#20）：memory 扩展在 `session_start`（桥就位后）用 `memory.job` 的缺省派发补抽尚未完成任务且不在 backlog 里的回合，每次会话至多 `PI_COC_MEMORY_BACKFILL`（缺省 5）个，仍是一次一个、不阻塞回合、先让位给刚提交的回合；遥测行带 `backfill: true`；缺省派发回 `job_id: null` 时不写遥测行（那是常态，不是事件）。
 - 内核子进程一个会话只有一个（§1），memory 扩展没有自己的客户端：kernel 扩展在 `session_start` 于总线 `coc:kernel-bridge` 发布一个 `call(method, params)` 闭包，`session_shutdown` 时收回；memory 扩展只经它调内核。
 - 子会话的建法与模型选择写进 `docs/pi-host-contract.md` 第 3–5 节。
 
@@ -744,3 +744,64 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 - **可玩性检查的现状。** 两张新图与 the-haunting 一起过 K5a 的十条不变量：没有源文档的 starter 每个节点都是 `node_without_page`（the-haunting 也有 32 个），检查器目前没有「本模组无页」的声明口；此外 mystery-house 的 `npc-rat-swarm` 不在任何场景，the-white-war 有三条线索无处可得——都是 IR 事实，测试把它们钉住，改了 IR 会立刻看见。
 - **`apply item` / `apply cash`（#19，已实现）。** 两种效果都在批内的暂存表副本上算，整批校验通过后才写；写回只覆盖 `equipment`/`weapons`/`finance`/`cash` 四个字段（同批的 `damage` 直接把 HP 镜像到表上，不能被暂存副本盖掉）。`item`：`to` 缺省为唯一调查员（多人报 `needs_choice`）；`from` 先按图上 NPC 精确名解析、再按 12.4 的整词规则（`Knott` → Steven Knott），解析不到原样保留（来源是叙事，不是世界写入）；`quantity` 缺省 1、必须非零整数；`weapon` 对合并表解析（`weapons.json` 全表加模组自己的行，与战斗会话读的是同一张——契约写的 `equipment.json` 是 Table XVII 价目表，没有伤害/射程/弹容，profile 一直住在 `weapons.json`），按 id 或 display_name 归一化匹配，取不到报 `needs`（`options` 为该时代可用的 id，`close` 为 difflib 最近的至多 6 个，`source` 指向表）。得到时 `equipment[]` 追加 `{name, quantity, turn, from?, label?, weapon?}`（同名字典条目合并数量），给了 `weapon` 就同时追加 `weapons[]` 一行（pregen 同形：`weapon_id, name, label?, profile, skill, damage, range, attacks, ammo, malfunction, turn`，数值全出自 profile）；`resolve_investigator_weapon` 从此也认 `label`。失去时按 `name`/`label`/`weapon_id` 归一化匹配，持有数 = 装备条目数量之和（裸字符串算 1），没有装备条目时数武器行（pregen 的手枪只有武器行）；持有不足报 `invalid_params`（`details.held`）；清零后同名武器行一并删除。收据 `item:<slugify(name)>-t<turn>-c<n>`（同批重复加 `-2`…），带 `before/after` 持有数；渲染 `【变化】物品：<人> 得到/失去 <label 或名>[ ×n]`；facts 句 `物品：<人> 得到 <名>`；事件 `item-transferred {name, to, from?, weapon?, quantity}`。`cash`：`subject` 缺省同上；`delta` 非零整数；表上没有 `finance` 块（pregen 的 `cash` 是散文，不解析）就按 `cash-assets.json` 的时代与信用评级建一个（chargen 同形，`source: cash-assets.periods.<era>`）；时代没有档（`ww1`）从 0 起、`source: null` 并在 `note` 写明余额是现金收据之和；余额不能为负（`invalid_params`，`details.before/delta`）；同时更新 `sheet.cash` 显示串。收据 `cash:t<turn>-c<n>`，`resource: cash`、`label: 现金`、`before/after/delta/currency`；渲染 `【变化】现金：<人> <前> → <后>`；facts 用 `delta` 句式；事件 `resource-changed`（`resource: cash`）。事件类型表加 `item-transferred`（十五类）。
 - **职业点分配策略（#21，已实现）。** `steps.json` 的 `create-investigator.allocation = {default: spread, options: [spread, fill], tiers: [50, 70]}`，`params.allocation` 可选覆盖；不认识的策略报 `invalid_params`（`details.stage: allocation`，`expected.options/default`）。`spread` 把职业技能表**每一项**当一个槽位，按书上顺序、按层（`tiers`，再到上限）走：能落到目录名的技能抬到该层；落不到的短语（`any one other skill`、`Firearms` 这类组名）**预留该层的值**——基础值未知，少于此不保证到层——记在 `occupation.reserved[{for, points}]`，仍算 `unspent`，留给桌上的 development 族；预算耗尽即停。`fill` 保留旧的一点轮转（只在能落到目录名的技能上，不预留）。`sheet.creation.allocation = {policy, tiers, source}`，`occupation.allocation` 与收据 `allocation` 给策略名，收据另给 `occupation_reserved`。真桌案例（Military Officer，快速数组，300 点）：`fill` 给 75/75/75/75 余 35；`spread` 给 50/50/50/50，预留 Firearms 50、两项交涉技能 50、任一其他 35——「四项到 75」与「其余为零」是同一个原因：三个短语从未参与分配，光换层不换槽位仍是 75×4。兴趣点仍按旧法轮转（本票未动）。
+
+## 15. 世界线：if 线、时间回溯、跨线知晓与汇流（切片 6，票 #23）
+
+一条世界线就是战役 sidecar 仓库里的一条分支。玩家在一个战役里同一时刻只玩一条线；可以分叉、回溯、切换、汇流；所有线都留着（证据永不删除）。什么跨线留下、谁记得别的线、汇流时怎么合，由模组图声明、内核确定性地算；守秘人只在胶囊里看到这是第几圈、锚点在哪、留下了什么、谁记得、有哪些回声可投放。世界线操作是世界的改变，所以走 `apply`（法则二），并在那一回合提交之后由内核执行——守秘人仍然只有七个动词。旧树世界线系统的双时态断言、九种记忆状态、跨战役转移、自动合并策略都不回来。
+
+### 15.1 存储与身份
+
+- `campaign.json` 加 `active_worldline`（缺省 `main`）与 `worldlines`：`{<name>: {"name", "kind": main|if|loop|merge, "loop": <圈数，main 为 0>, "forked_from": {"line", "turn", "commit"} | null, "parents": [{"line", "turn", "commit"}]（merge 才有）, "seed": "<sha256 前 16 位>", "status": active|dormant|merged, "last_turn", "last_commit", "created_at"}}`。
+- git：分支 `wl/<name>`。没有 `worldlines` 的旧战役第一次 `table.open` 时把当前 HEAD 登记为 `wl/main`（裸仓库的 HEAD 符号引用指向它），不改任何提交。
+- 战役目录始终是活动线的工作树：`world.json`、`turn.json`、`turns/`、`save/`、`memory/`、`transcript.jsonl`、`events.jsonl`、`telemetry.jsonl` 都被提交，所以切线 = 检出另一条分支，那条线的一切自然回来。
+- 回合号按线延续：在第 N 回合的提交上分出的线，第一回合是 N+1；线内收据 id 不变（线内唯一），跨线引用一律用 `{line, turn, receipt}` 三元组；记忆候选写入时带 `worldline` 与 `loop`。
+- 每条线一个骰子种子：`sha256("<campaign>:<line>:<forked_from.commit>")` 前 16 位，激活线时按它与回合号重播 rng；`COC_KERNEL_SEED` 仍能覆盖（测试）。同一动作在两条线上掷出不同的骰。
+
+### 15.2 模组声明（没有声明就没有循环）
+
+- `resets-to`：从循环终点（`ending`/`event`/`scene` 节点）指向锚点场景。`properties.reset` 闭合：`{"clock": "anchor"|"keep", "investigators": "anchor"|"keep"}`，缺省都是 `anchor`。
+- `persists-across-loop`：从线索/物品/条件/知晓节点指向模组节点或锚点场景：回溯时这些东西留下（已发现的线索仍算发现，物品仍在表上——依赖 #19，条件仍在）。没有这条关系的一律重置。
+- NPC 跨圈记得：NPC record 的 `remembers_across_loops: true`，或 NPC 到模组节点的 `knows` 关系带 `properties.across_loops: true`。只有这些 NPC 能看到别的圈的知晓。
+- 模组节点 record 的 `structure_type: time_loop`：Director 用 `time_loop` 的结构权重；`loop_count`、`echoes_here`、`loop_available` 三个信号进 `because`。
+- 锚点快照：第一次 `loop` 分叉时，内核从回合记录里找到队伍**第一次进入锚点场景**的那一回合（世界快照的场景等于锚点），以那一回合关闭时的世界与表为锚点快照，存 `save/worldlines/anchor.json`；起始场景就是锚点时取建战役时的状态。之后每次回溯都回到这份快照，不重新算。
+- 没有 `resets-to` 的模组：`fork` 的 `kind: loop` 报 `invalid_params`（`fix: this module declares no loop anchor; kind: if forks the line as it stands`）；`if` 永远可用。
+
+### 15.3 `apply` 的三个世界线效果
+
+世界线操作是回合里的一条效果，和别的效果一样整批校验、落收据、进遥测；执行在**那一回合 `narrate` 提交之后**（12.2 的提交后链里，检查点之前），所以叙述先交付「你眼前一黑，又回到了……」，下一条玩家输入落在新线的第一回合。一个回合最多一条世界线效果，且它必须是本批最后一条；带世界线效果的回合不能用 `ask` 关闭。
+
+- `{"kind": "fork", "name": "<线名>", "mode": "if"|"loop", "from_turn"?: int, "label"?}`：`if` 在 `from_turn`（缺省本回合）的提交上开分支，世界原样；`loop` 在本回合提交上开分支，然后按 15.2 写重置后的世界与表作为新线的第一个提交（`loop <n> reset`），`loop = 父线 loop + 1`。收据 `fork:<name>`，渲染 `【变化】世界线：<label 或名>（if | 第 n 圈）`，事件 `worldline-forked`。父线转 `dormant` 并记 `last_turn`。
+- `{"kind": "switch", "line": "<线名>", "label"?}`：本回合提交后检出那条线；收据 `switch:<line>`，渲染 `【变化】世界线：切到 <名>`，事件 `worldline-switched`。目标线必须存在且不是 `merged`。
+- `{"kind": "merge", "name": "<新线名>", "lines": ["<a>", "<b>", ...], "into"?: "<场景>", "dispositions"?: {"<conflict id>": {"mode": "from", "line": "<a>"} | {"mode": "min"|"max"|"sum"} | {"mode": "drop", "note": "..."}}}`：先算汇流报告（15.4）；有未处置的冲突就报 `needs`，`details.conflicts` 列出每条冲突与它允许的处置模式，整批不写；处置齐了才落收据 `merge:<name>`，渲染 `【变化】世界线：<a>、<b> 汇入 <名>`，事件 `worldline-merged`；提交后新建分支 `wl/<name>`（起点取 `lines[0]` 的末提交），写合并后的世界、表、记忆并集、回声，做一次带全部父提交的合并提交（`git merge -s ours --no-commit` 记父，再 `commit`），被合并的线转 `merged`。
+
+### 15.4 汇流报告与回声
+
+- 合并口径：在场者取并集（按图重算 `npc_presence` 后叠加各线的移动）；已发现线索取并集；`flags` 取并集（冲突则报）；物品按名字取并集，但一条线消耗掉（`quantity` 为负的 `item` 收据）而另一条线还在的报 `consumed`；调查员的 HP/SAN/MP/幸运各线不同报 `numeric`；一条线死了（HP < 0 或 `dead` 条件）另一条活着报 `dead_alive`；一次性效果与已掷的骰**不合并**（它们是各线历史里的收据，合并提交把两段历史都留着，不重复计入状态）。
+- 冲突类别与允许的处置（闭合表）：`numeric` → from|min|max；`dead_alive` → from；`consumed` → from|drop；`flag` → from；`npc_presence` → from|sum（并集）；`clue` 永不冲突（并集）。`drop` 必须带 `note`。旧树的清单 `NON_DUPLICABLE_CONFLICT_CLASSES`（死亡、一次性效果、消耗、已掷骰）在这里体现为：这些类别没有 `sum`/`duplicate` 模式。
+- 冲突 id 是语义的：`conflict:<class>:<subject>:<field>`，同一报告重算两次逐字节相同。
+- 回声：分叉（loop）与汇流时，内核从其他父线（回溯时是上一圈）的回合记录生成 `save/worldlines/echoes.json`：每条 `{"id": "echo:<line>-t<n>-<k>", "line", "loop", "turn", "scene", "kind": presence|clue_taken|fight|death|move|handout, "summary": "<从收据确定性生成的一句 play_language>", "receipts": [...], "entities": [名]}`。回声是守秘人专属的可投放证据：`apply {"kind": "clue", "clue": "echo:<id>"}` 把它揭示给玩家（渲染 `【变化】线索：<label 或 summary>`，进 `world.discovered_echoes`），之后 `known` 里能看到；回声不是叙述，是收据的投影，守秘人不能改它的内容，只能决定揭不揭示、怎么讲。
+
+### 15.5 记忆与跨线知晓
+
+- 候选写入时带 `worldline` 与 `loop`。分支包含 `memory/` 文件，所以 `if` 线自然带着分叉点之前的记忆；`loop` 线也带着上一圈的候选——调查员记得上一圈，这是设计。
+- `recall memory` 加 `line: current|any|<name>`（缺省 `current` = 当前分支文件里的一切）；`any` 从 git 读每条线的 `memory/candidates.jsonl`（`git show wl/<x>:memory/candidates.jsonl`）取并集，命中带 `worldline`、`loop`。
+- 跨圈知晓的投影只对 15.2 声明的 NPC：`present[].known_facts` 与 `lookup secret scope=scene` 里多一组 `from_other_lines: [{statement, line, loop}]`，取该 NPC 作为主语或知情者、且 `loop < 当前圈` 或 `worldline != 当前线` 的候选；其他 NPC 一条不给。
+- 胶囊 `worldlines.previous_loop`：调查员上一圈的候选前 4 条（`recall memory` 排序），标「上一圈」。
+
+### 15.6 胶囊、Director、恢复
+
+- 胶囊加 `worldlines`（≤ 1.5KB）：`{"line", "kind", "loop", "anchor": {"scene", "since_turn"} | null, "persisted": [名], "remembers": [在场且跨圈记得的 NPC 名], "echoes_here": n, "echoes": [{"id", "summary"}]（≤ 3）, "previous_loop": [{"statement", "turn"}], "lines": [{"name", "kind", "loop", "last_turn", "status"}], "loop_available": bool}`。`loop_available` 在当前场景/事件带 `resets-to` 时为真，同时 `obligations` 多一条 `kind: loop` 的账（「模组的循环在此可回溯」），由守秘人决定问不问玩家；玩家说「回溯」时守秘人用 `apply fork mode: loop`。
+- Director：`time_loop` 结构权重来自图；三个新信号进 `because`；不加新的数。
+- 续行检查点记 `worldline`；`table.open` 打开 `active_worldline`；`recall history {lines: true}` 返回线的树（每条线的分叉点、圈数、末回合、父线）。所有线都是分支，永不删除。
+
+### 15.7 扩展侧
+
+- `tools.ts`：`apply` 的 `effects` 加 `fork`/`switch`/`merge` 三种，描述里写清「回合提交后才发生、一回合一条、必须最后一条、不能配 `ask`」。
+- 守秘人提示加一段：世界线是什么、回溯与 if 的分别、回声只能揭示不能改、跨圈记得的只有胶囊说记得的那些 NPC。
+- `table` 扩展状态行显示线名与圈数。
+
+### 15.8 验收
+
+- 用新管线从 41 页 OCR 重新构建《不息的渴望》，读者提示里点明循环词表（`resets-to`、`persists-across-loop`、`remembers_across_loops`）；图不带循环声明就是构建缺陷，不手补内容。
+- 真桌：玩到循环终点回溯，第二圈与第一圈不同（骰子、NPC 反应、Director 节拍），声明记得的 NPC 表现出记得；再开一条 if 线并与主线汇流，汇流报告出冲突、守秘人处置、回声被投放并揭示。KPI 与前几个切片同一脚本。
+- 旧树 `tests/test_timeline_dag.py`、`test_timeline_fork_rewinds.py`、`test_timeline_confluence.py`、`test_toolbox_timeline*.py` 的用例名作为行为清单逐条对照（分叉不动主线、切线只动活动线、汇流冲突枚举完整且有序、处置闭合、不可复制类别不合并、重放幂等、状态写失败回滚引用）。
