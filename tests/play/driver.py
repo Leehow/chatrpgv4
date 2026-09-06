@@ -460,9 +460,13 @@ class Daemon:
                 elif etype == "message_end":
                     msg = event.get("message") or {}
                     if msg.get("role") == "assistant":
-                        for block in msg.get("content") or []:
-                            if isinstance(block, dict) and block.get("type") == "text":
-                                final_text_parts.append(block.get("text") or "")
+                        # The delivery is the last assistant message; earlier ones carry
+                        # tool calls (their text, if any, is not table speech).
+                        final_text_parts = [
+                            block.get("text") or ""
+                            for block in msg.get("content") or []
+                            if isinstance(block, dict) and block.get("type") == "text"
+                        ]
                 elif etype == "tool_execution_start":
                     tcid = event.get("toolCallId")
                     tools[tcid] = {"name": event.get("toolName"), "args": event.get("args"),

@@ -75,7 +75,12 @@ class ModuleGraph:
             value = record.get(field)
             if isinstance(value, str) and value:
                 return value
-        return node.get("name") or self.handle(node)
+        name = node.get("name")
+        # Graph nodes without an authored title carry a placeholder name spelled from the id
+        # ("scene newspaper morgue"); the kebab handle reads better than that.
+        if isinstance(name, str) and name and name.replace(" ", "-") != node["node_id"]:
+            return name
+        return self.handle(node)
 
     def title(self) -> str:
         if self.module_node and self.module_node.get("name"):

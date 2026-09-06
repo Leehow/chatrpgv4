@@ -91,7 +91,7 @@ def test_ask_closes_turn_and_pending_choice_carries_over(kernel):
     assert receipts == [{**receipts[0], "id": f"choice:{pending['name']}-t2", "kind": "choice", "option": "报社档案"}]
     kernel.table("apply", call_id="t2-c2", effects=[{"kind": "move", "to": "newspaper-morgue"}])
     narrated = kernel.table("narrate", call_id="t2-c3", text="你们出发去报社。")
-    assert narrated["rendered_text"] == "你们出发去报社。\n\n【变化】场景：commission-briefing → newspaper-morgue（0 分钟）"
+    assert narrated["rendered_text"] == "你们出发去报社。\n\n【变化】场景：Knott's Office → newspaper-morgue"
 
 
 def test_pending_turn_survives_a_crash(tmp_path):
@@ -116,7 +116,7 @@ def test_pending_turn_survives_a_crash(tmp_path):
         assert pending["since"]
         # The keeper finishes the turn in the new process.
         result = second.table("narrate", call_id="t1-c2", text="办公室里只有雪茄味。")
-        assert "【明骰】Spot Hidden" in result["rendered_text"]
+        assert "【明骰】侦查" in result["rendered_text"]
         assert second.table("open")["pending_turn"] is None
     finally:
         second.close()
@@ -171,5 +171,5 @@ def test_commit_failure_keeps_the_turn_open(kernel):
 
     result = kernel.table("narrate", call_id="t1-c2", text="第一段。\n\n第二段。")
     assert result["commit"]
-    assert "【明骰】Listen" in result["rendered_text"]
+    assert "【明骰】聆听" in result["rendered_text"]
     assert kernel.table("status") == {"turn": 2, "state": "awaiting_player", "receipts": [], "pending_choice": None}

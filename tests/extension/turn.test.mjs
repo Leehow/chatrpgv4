@@ -92,6 +92,14 @@ test("一个玩家回合：七个工具、胶囊、call_id、rendered_text 交�
 		"最后一条助手消息的正文就是内核渲染的 rendered_text",
 	);
 	assert.ok(!texts.includes("守秘人在 narrate 之后又写的正文，应该被换掉"), "守秘人自写的收尾正文被丢掉");
+	const toolCallMessages = table.session.messages.filter(
+		(message) => message.role === "assistant" && (message.content ?? []).some((block) => block.type === "toolCall"),
+	);
+	assert.ok(toolCallMessages.length >= 3, "这一回合有带工具调用的助手消息");
+	assert.ok(
+		toolCallMessages.every((message) => !(message.content ?? []).some((block) => block.type === "text")),
+		"带工具调用的助手消息不再带文本：过程话不进记录",
+	);
 
 	const telemetry = table.telemetry();
 	const tools = telemetry.filter((row) => row.ms !== undefined).map((row) => row.tool);

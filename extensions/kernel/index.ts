@@ -499,13 +499,19 @@ export default function (pi: ExtensionAPI) {
 	pi.on("message_end", async (event) => {
 		const state = table;
 		if (!state || event.message.role !== "assistant") return;
-		const rendered = state.renderedText;
-		if (!rendered) return;
 		const blocks = (event.message.content ?? []) as Array<Record<string, unknown>>;
-		// narrate/ask 自己所在的那条助手消息不动：交付发生在它之后的那一条。
-		if (state.deliveryToolCallId && blocks.some((b) => b.type === "toolCall" && b.id === state.deliveryToolCallId)) {
+		const hasToolCalls = blocks.some((b) => b.type === "toolCall");
+		if (hasToolCalls) {
+			// 带工具调用的助手消息只保留调用：守秘人在调用前写的过程话
+			// （「先核对线索再叙述」）不是台词，玩家可见文字只由 narrate/ask 交付。
+			const withoutText = blocks.filter((b) => b.type !== "text");
+			if (withoutText.length !== blocks.length) {
+				return { message: { ...event.message, content: withoutText } };
+			}
 			return;
 		}
+		const rendered = state.renderedText;
+		if (!rendered) return;
 		const next: Array<Record<string, unknown>> = [];
 		let placed = false;
 		for (const block of blocks) {

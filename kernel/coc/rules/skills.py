@@ -105,6 +105,16 @@ class SkillResolver:
 
     # ---- resolution -------------------------------------------------------
 
+    def display_label(self, canonical: str) -> str:
+        """The play-language (zh-Hans) label for a resolved skill or characteristic; the
+        canonical name when the table has none."""
+        for abbr, (english, zh) in CHARACTERISTICS.items():
+            if canonical in (abbr, english):
+                return zh
+        labels = (self.table_skills.get(canonical) or {}).get("localized_labels") or {}
+        zh = labels.get("zh-Hans")
+        return zh if isinstance(zh, str) and zh.strip() else canonical
+
     def resolve_explicit(self, text: str) -> str | None:
         key = normalize_text(text)
         if key in self._unique:

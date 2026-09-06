@@ -23,14 +23,17 @@ def mechanics_line(receipt: dict[str, Any]) -> str | None:
     if kind == "roll":
         difficulty = DIFFICULTY_ZH.get(str(receipt.get("difficulty")), str(receipt.get("difficulty")))
         verdict = "通过" if receipt.get("passed") else "未通过"
-        return (f"{DICE_MARKER}{receipt['skill']}｜掷骰：{receipt['roll']}；"
+        skill = receipt.get("skill_label") or receipt["skill"]
+        return (f"{DICE_MARKER}{skill}｜掷骰：{receipt['roll']}；"
                 f"基础值：{receipt['target']}；门槛：{difficulty}（≤{receipt['threshold']}）；"
                 f"结果：{verdict}")
     if kind == "move":
-        return (f"{CHANGE_MARKER}场景：{receipt['from']} → {receipt['to']}"
-                f"（{int(receipt.get('minutes') or 0)} 分钟）")
+        minutes = int(receipt.get("minutes") or 0)
+        line = (f"{CHANGE_MARKER}场景：{receipt.get('from_label') or receipt['from']} → "
+                f"{receipt.get('to_label') or receipt['to']}")
+        return f"{line}（{minutes} 分钟）" if minutes > 0 else line
     if kind == "clue":
-        return f"{CHANGE_MARKER}线索：{receipt['clue']}"
+        return f"{CHANGE_MARKER}线索：{receipt.get('label') or receipt['clue']}"
     if kind == "time":
         return f"{CHANGE_MARKER}时间：+{int(receipt['minutes'])} 分钟"
     return None

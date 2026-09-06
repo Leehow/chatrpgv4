@@ -13,11 +13,23 @@ def stage_receipts(client):
     roll = client.table("status")["receipts"][0]
     verdict = "通过" if roll["passed"] else "未通过"
     return [
-        f"【明骰】Spot Hidden｜掷骰：{roll['roll']}；基础值：55；门槛：普通（≤55）；结果：{verdict}",
+        f"【明骰】侦查｜掷骰：{roll['roll']}；基础值：55；门槛：普通（≤55）；结果：{verdict}",
         "【变化】线索：knott-research-leads",
         "【变化】时间：+10 分钟",
-        "【变化】场景：commission-briefing → hall-of-records（20 分钟）",
+        "【变化】场景：Knott's Office → hall-of-records（20 分钟）",
     ]
+
+
+def test_labels_and_zero_travel_time_in_mechanics_lines(kernel):
+    open_turn(kernel)
+    kernel.table("apply", call_id="t1-c1", effects=[
+        {"kind": "clue", "clue": "knott-research-leads", "label": "诺特给的查证方向"},
+        {"kind": "move", "to": "hall-of-records", "label": "市政厅档案室"},
+    ])
+    result = kernel.table("narrate", call_id="t1-c2", text="你出了门。")
+    assert result["rendered_text"] == (
+        "你出了门。\n\n【变化】线索：诺特给的查证方向\n【变化】场景：Knott's Office → 市政厅档案室"
+    )
 
 
 def test_auto_placement_after_first_paragraph(kernel):

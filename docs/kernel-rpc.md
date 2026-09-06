@@ -151,7 +151,7 @@ result：
 成功等级定义随规则表：大成功 1，极难 ≤1/5，困难 ≤1/2，普通 ≤目标，大失败 96 到 100（目标 <50）或 100。
 
 ### table.apply（切片 0：move、clue、time；保留：handout、item、cash、npc、flag、note、ruling）
-params：`{"call_id": "...", "effects": [{"kind": "move", "to": "<场景名>", "travel_minutes"?: int}, {"kind": "clue", "clue": "<线索名>", "how"?: "<一句话>"}, {"kind": "time", "minutes": int, "why"?: "..."}]}`。
+params：`{"call_id": "...", "effects": [{"kind": "move", "to": "<场景名>", "travel_minutes"?: int, "label"?: "<玩家语言的短名>"}, {"kind": "clue", "clue": "<线索名>", "how"?: "<一句话>", "label"?: "<玩家语言的短名>"}, {"kind": "time", "minutes": int, "why"?: "..."}]}`。`label` 是守秘人用 play_language 给玩家看的短名，只用于机制块；省略时机制块用图上的 display_name 或 id。
 - 整批先校验后写，任一条失败整批不写：`{"code": "...", "details": {"index": i, ...}}`。
 - `move`：目的地必须是图上 `route-to` 从当前场景可达的场景，或 `scene_edges` 声明的目的地；否则 `not_reachable`，`details.exits` 给可达列表。`travel_minutes` 缺省取图上边的值，没有则 0。写 `world.active_scene`、`visited_scenes`、`scene-moved` 事件。
 - `clue`：必须是图上存在的 clue 节点，且 `discoverable-at` 当前场景或在当前场景 record 的 `available_clues` 里；否则 `not_here`。已发现的重复写入返回 `replayed: true`，不报错。写 `discovered_clues`、`clue-discovered` 事件。
@@ -169,7 +169,7 @@ params：`{"call_id", "text": "<本回合叙述>", "placement"?: "auto"|"end"}`�
 流水线：
 1. 状态必须是 `open` 或 `acting`。
 2. 守秘人自写骰面检查：`text` 中出现 `【明骰】` 或 `【变化】` 行时报 `invalid_params`，`fix` 说明这些块由内核插入。
-3. 渲染机制块：每条 `roll` 收据一行 `【明骰】<技能名>｜掷骰：<roll>；基础值：<target>；门槛：<难度>（≤<threshold>）；结果：通过/未通过`；每条 `move` 一行 `【变化】场景：<从> → <到>（<n> 分钟）`；每条 `clue` 一行 `【变化】线索：<名字>`；每条 `time` 一行 `【变化】时间：+<n> 分钟`。
+3. 渲染机制块：每条 `roll` 收据一行 `【明骰】<技能名>｜掷骰：<roll>；基础值：<target>；门槛：<难度>（≤<threshold>）；结果：通过/未通过`，技能名用规则术语表里的 play_language 译名，没有译名时用表上原名；每条 `move` 一行 `【变化】场景：<从> → <到>`，有行程时间时加 `（<n> 分钟）`，名字取 `label` 否则取 display_name；每条 `clue` 一行 `【变化】线索：<label 或 id>`；每条 `time` 一行 `【变化】时间：+<n> 分钟`。
 4. 放置：`auto` 时，`text` 按空行分段，段数 ≥ 2 则全部机制块插在第 1 段之后，否则追加在末尾；`end` 时追加在末尾。
 5. 写 `turns/<NNNN>.json`、逐字记录（keeper，写 rendered_text）、`turn-finalized` 事件。
 6. 同步 git 提交，提交信息 `turn <n>: <前 60 字>`；失败报 `commit_failed`，回合保持 `acting`，不递增。
@@ -204,7 +204,7 @@ result：`{"rendered_text": "...", "turn": int, "receipt": "turn:<n>", "commit":
 - `call_id` 铸造：每次会改状态的调用（`resolve`、`apply`、`ask`、`narrate`）递增回合内计数器；读调用不带。
 - `before_agent_start`：把玩家 prompt 交给 `table.player_input`，把返回的胶囊作为 `customType: "coc-capsule"`、`display: false` 的消息注入。宿主自己发出的消息（恢复、开场）不是玩家输入，不进 `player_input`。
 - `tool_call`：`awaiting_player`/`committed` 拒写；`narrate` 成功后同一批次余下的调用一律 `block` 并说明回合已关闭；`apply`/`resolve` 的名字做大小写与空白归一化。
-- `message_end`：本回合 `narrate` 或 `ask` 已返回 `rendered_text` 时，把该助手消息的文本内容整体替换为 `rendered_text`；守秘人在工具之后写的正文被丢弃。
+- `message_end`：带工具调用的助手消息只保留调用块，删掉其中的文本：守秘人在调用前写的过程话不是台词。本回合 `narrate` 或 `ask` 已返回 `rendered_text` 时，把随后那条助手消息的文本整体替换为 `rendered_text`；守秘人在工具之后写的正文被丢弃。玩家可见文字只由 `narrate` 与 `ask` 产生。
 - `agent_end`：回合仍在 `acting` 且没有 `narrate`，注入一条宿主消息「回合未关闭，用 narrate 交付」并触发一轮；最多一次。
 - 遥测：每次工具调用记录 `{turn, tool, call_id?, started_at, ms, ok, code?}` 到 `.coc/campaigns/<id>/telemetry.jsonl`，每回合结束记录模型往返数。
 

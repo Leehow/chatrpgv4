@@ -428,7 +428,8 @@ class Table:
                    "roll": check["roll"], "level": check["level"], "passed": check["passed"],
                    "bonus": check["bonus"], "penalty": check["penalty"]}
         receipt = {"id": receipt_id, "kind": "roll", "call_id": call_id, "actor": sheet.get("id"),
-                   **{k: v for k, v in outcome.items() if k != "kind"}, "at": now_iso()}
+                   **{k: v for k, v in outcome.items() if k != "kind"},
+                   "skill_label": resolver.display_label(skill), "at": now_iso()}
         new_receipts.append(receipt)
         result = {"receipt": receipt_id, "outcome": outcome, "session": None,
                   "pending_choice": turn.get("pending_choice"), "continuations": [],
@@ -569,8 +570,10 @@ class Table:
             minutes = exits[dest_handle].get("travel_minutes", 0)
         if not isinstance(minutes, int) or isinstance(minutes, bool) or minutes < 0:
             raise invalid_params("travel_minutes must be a non-negative integer")
+        label = effect.get("label") if isinstance(effect.get("label"), str) and effect.get("label").strip() else None
         receipt = {"id": f"move:{dest_handle}-t{turn_number}-c{ordinal}", "kind": "move",
                    "call_id": call_id, "from": graph.handle(current), "to": dest_handle,
+                   "from_label": graph.display_name(current), "to_label": label or graph.display_name(destination),
                    "minutes": minutes, "at": now_iso()}
         world["active_scene"] = dest_handle
         if dest_handle not in world.setdefault("visited_scenes", []):
@@ -591,8 +594,9 @@ class Table:
                            details={"clue": handle, "scene": graph.handle(scene),
                                     "clues_here": [graph.handle(graph.nodes[c]) for c in here]})
         how = effect.get("how") if isinstance(effect.get("how"), str) else None
+        label = effect.get("label") if isinstance(effect.get("label"), str) and effect.get("label").strip() else None
         receipt = {"id": f"clue:{handle}-t{turn_number}", "kind": "clue", "call_id": call_id,
-                   "clue": handle, "summary": node.get("summary") or node.get("name"),
+                   "clue": handle, "label": label or handle, "summary": node.get("summary") or node.get("name"),
                    "scene": graph.handle(scene), "how": how, "at": now_iso()}
         if handle in world.setdefault("discovered_clues", []):
             return receipt, None

@@ -25,12 +25,14 @@ const MoveEffect = Type.Object({
 	kind: StringEnum(["move"] as const, { description: "走到另一个场景" }),
 	to: Type.String({ description: "目的地场景名，必须是当前场景可达的出口之一" }),
 	travel_minutes: Type.Optional(Type.Integer({ description: "路上花的分钟数；省略则取图上这条边的值" })),
+	label: Type.Optional(Type.String({ description: "目的地在玩家语言里的短名，用于【变化】行；省略则用场景名" })),
 });
 
 const ClueEffect = Type.Object({
 	kind: StringEnum(["clue"] as const, { description: "调查员拿到一条线索" }),
 	clue: Type.String({ description: "线索名，必须是当前场景可得的线索" }),
 	how: Type.Optional(Type.String({ description: "一句话：他们是怎么拿到的" })),
+	label: Type.Optional(Type.String({ description: "这条线索在玩家语言里的短名，用于【变化】行；省略则用线索名" })),
 });
 
 const TimeEffect = Type.Object({
