@@ -34,6 +34,10 @@ const REPO = join(HERE, "..", "..");
 export const FAKE_KERNEL = join(HERE, "fixtures", "fake-kernel.mjs");
 /** 站在子 `pi` 读者那个位置上的假读者（契约 §14.5，接缝见 docs/pi-host-contract.md 第 3.2 节）。 */
 export const FAKE_READER = join(HERE, "fixtures", "fake-reader.mjs");
+/** PDF 摄入那三个适配器的替身（契约 §20.1）：抽取、OCR、打包器。 */
+export const FAKE_EXTRACT = join(HERE, "fixtures", "fake-extract.mjs");
+export const FAKE_OCR = join(HERE, "fixtures", "fake-ocr.mjs");
+export const FAKE_BUNDLE = join(HERE, "fixtures", "fake-bundle.mjs");
 
 /**
  * 真内核模式：在工作区里先建一张桌子。走的是内核自己的 RPC，不碰它的文件布局。
@@ -72,13 +76,18 @@ function setEnv(values) {
 	};
 }
 
-/** 假的 ctx.ui：hasUI 由「有没有 uiContext」决定，所以给了它就等于有界面。 */
-export function createFakeUI({ selections = [] } = {}) {
+/**
+ * 假的 ctx.ui：hasUI 由「有没有 uiContext」决定，所以给了它就等于有界面。
+ * `selections` 是 `select` 依次的答案，`inputs` 是 `input` 依次的答案（问完就空，空了回 undefined
+ * ——等于人按了取消）。
+ */
+export function createFakeUI({ selections = [], inputs = [] } = {}) {
 	const notifications = [];
 	const prompts = [];
 	/** setStatus 的调用序列：{key, text}，text 为 undefined 表示摘掉那一行。 */
 	const statuses = [];
 	const queue = [...selections];
+	const answers = [...inputs];
 	const noop = () => undefined;
 	const context = {
 		select: async (title, options) => {
@@ -88,7 +97,10 @@ export function createFakeUI({ selections = [] } = {}) {
 			return typeof next === "number" ? options[next] : next;
 		},
 		confirm: async () => true,
-		input: async () => undefined,
+		input: async (title, placeholder) => {
+			prompts.push({ kind: "input", title, placeholder });
+			return answers.shift();
+		},
 		notify: (message, type) => notifications.push({ message, type }),
 		onTerminalInput: () => noop,
 		setStatus: (key, text) => statuses.push({ key, text }),
@@ -212,7 +224,17 @@ export async function openTable({
 					pi.events.on("coc:turn-committed", (data) => committed.push(data));
 					pi.events.on("coc:mechanics", (data) => mechanics.push(data));
 					// 模组车道的总线（契约 §14.5）：构建起没起、开场就绪没有，测试从这里看。
-					for (const channel of ["coc:module-build", "coc:module-opening-ready", "coc:module-build-done", "coc:module-build-failed"]) {
+					for (const channel of [
+						"coc:module-build",
+						"coc:module-opening-ready",
+						"coc:module-build-done",
+						"coc:module-build-failed",
+						// PDF 摄入那四条（契约 §20.2）。
+						"coc:module-ingest",
+						"coc:module-ingest-progress",
+						"coc:module-ingest-done",
+						"coc:module-ingest-failed",
+					]) {
 						pi.events.on(channel, (data) => bus.push({ channel, data }));
 					}
 				},

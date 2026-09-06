@@ -8,7 +8,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cocMode } from "../lanes/host.ts";
+import { cocHome, cocMode } from "../lanes/host.ts";
 import { KernelClient, KernelError } from "./client.ts";
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
@@ -155,8 +155,13 @@ function packageRoot(): string {
 	return resolvePath(here, "..", "..");
 }
 
-/** The launch command: the uv command from contract §1 by default, replaced by PI_COC_KERNEL_CMD (a JSON array) in tests. */
-function kernelCommand(workspace: string): string[] {
+/**
+ * The launch command: the uv command from contract §1 by default, replaced by PI_COC_KERNEL_CMD (a
+ * JSON array) in tests. The workspace is `PI_COC_HOME` when it is set and the session's working
+ * directory otherwise (contract §20.7), which is what decides where `.coc/` — the module library and
+ * the campaign saves — actually lives.
+ */
+export function kernelCommand(workspace: string): string[] {
 	const override = process.env.PI_COC_KERNEL_CMD?.trim();
 	if (override) {
 		const parsed: unknown = JSON.parse(override);
@@ -748,7 +753,7 @@ export default function (pi: ExtensionAPI) {
 		let kernel: KernelClient | undefined;
 		try {
 			kernel = new KernelClient({
-				command: kernelCommand(ctx.cwd),
+				command: kernelCommand(cocHome(ctx.cwd)),
 				cwd: PKG_ROOT,
 				env: { PYTHONPATH: join(PKG_ROOT, "kernel") },
 				onDiagnostic: (message) => {
@@ -791,7 +796,7 @@ export default function (pi: ExtensionAPI) {
 			table = {
 				kernel,
 				campaign,
-				telemetryPath: join(ctx.cwd, ".coc", "campaigns", campaign, "telemetry.jsonl"),
+				telemetryPath: join(cocHome(ctx.cwd), ".coc", "campaigns", campaign, "telemetry.jsonl"),
 				turn: 0,
 				state: "awaiting_player",
 				callOrdinal: 0,

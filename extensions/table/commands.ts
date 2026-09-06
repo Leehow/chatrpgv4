@@ -7,7 +7,12 @@
  * before it ever builds a prompt (`AgentSession.prompt` returns as soon as the handler ran), so a
  * `/coc` neither spends a turn, nor touches the kernel's turn state machine, nor shows up as
  * player input. The only kernel calls made here are reads (`table.status`, `table.capsule`,
- * `module.status`).
+ * `module.list`, `module.status`).
+ *
+ * `/coc module` (contract §20.3) is the same kind of thing: the store and what can be played right
+ * now are two reads, `use` prints commands, and `parse` writes no logic of its own — it puts one
+ * request on `coc:module-ingest`, exactly the request a front end's file picker sends (contract
+ * §20.4), and reports the job's progress back through the same interface.
  *
  * Outside an interactive terminal (`ctx.mode !== "tui"`: RPC and print) the command answers one
  * line and does nothing else. The real-table driver does not use it.
@@ -53,6 +58,10 @@ function arr(value: unknown): unknown[] {
 
 /** What the command surface needs from the extension around it. Every getter may answer nothing. */
 export interface CommandDeps {
+	/** One line to the person at the table, from outside a command handler (the ingest job's progress). No-op without an interface. */
+	notify(message: string, type?: "info" | "warning" | "error"): void;
+	/** The workspace root (`PI_COC_HOME`, contract §20.7), for the paths the module view prints. */
+	home(): string | undefined;
 	/** The campaign id of the open table, or undefined before `coc:table-open`. */
 	campaign(): string | undefined;
 	/** The `table.open` result, as it came over the bus. */
@@ -290,6 +299,251 @@ function lanesView(ctx: ExtensionCommandContext, deps: CommandDeps): string {
 	}).join("\n");
 }
 
+// ---- The module store (contract §20.3) -------------------------------------
+
+/**
+ * `<pdf path> [--id x] [--title t] [--language zh-Hans]`, tokenised the way a shell would: quotes hold
+ * a path with spaces together, everything that is not a flag is a positional. Nothing here reads the
+ * words themselves — this is punctuation, not meaning.
+ */
+export function parseArguments(input: string): { positional: string[]; flags: Record<string, string> } {
+	const tokens: string[] = [];
+	let current = "";
+	let quote: string | undefined;
+	let quoted = false;
+	for (const character of input) {
+		if (quote) {
+			if (character === quote) quote = undefined;
+			else current += character;
+			continue;
+		}
+		if (character === '"' || character === "'") {
+			quote = character;
+			quoted = true;
+			continue;
+		}
+		if (/\s/.test(character)) {
+			if (current || quoted) tokens.push(current);
+			current = "";
+			quoted = false;
+			continue;
+		}
+		current += character;
+	}
+	if (current || quoted) tokens.push(current);
+
+	const positional: string[] = [];
+	const flags: Record<string, string> = {};
+	for (let index = 0; index < tokens.length; index += 1) {
+		const token = tokens[index];
+		if (!token.startsWith("--")) {
+			positional.push(token);
+			continue;
+		}
+		const equals = token.indexOf("=");
+		if (equals > 2) {
+			flags[token.slice(2, equals)] = token.slice(equals + 1);
+			continue;
+		}
+		const next = tokens[index + 1];
+		if (next !== undefined && !next.startsWith("--")) {
+			flags[token.slice(2)] = next;
+			index += 1;
+		} else {
+			flags[token.slice(2)] = "";
+		}
+	}
+	return { positional, flags };
+}
+
+/** One row of the store, as `module.list` plus one `module.status` read give it. */
+export interface ModuleRow {
+	module_id: string;
+	title?: string;
+	source?: string;
+	status?: string;
+	page_count?: number;
+	sections_accepted?: number;
+	sections_total?: number;
+	opening_ready?: boolean;
+}
+
+/**
+ * Can this book be played right now (the ticket's third acceptance point)? Installed and with its
+ * opening material in the graph — the two conditions `campaign.create` and `table.open` are about
+ * (contract §14.3). Anything else says which of the two is missing rather than just "no".
+ */
+export function playableNow(row: ModuleRow): { ok: boolean; why: string } {
+	if (row.status !== "installed") return { ok: false, why: `not yet (${row.status ?? "unknown"})` };
+	if (row.opening_ready === false) return { ok: false, why: "not yet (opening material missing)" };
+	return { ok: true, why: "playable now" };
+}
+
+export function moduleListLines(rows: ModuleRow[], storeDir: string | undefined): string[] {
+	const lines = [`modules ${storeDir ?? "(no workspace)"}`];
+	if (rows.length === 0) {
+		lines.push("  (the store is empty; /coc module parse <pdf> reads a book in)");
+		return lines;
+	}
+	const idWidth = Math.max(...rows.map((row) => row.module_id.length));
+	const titleWidth = Math.min(32, Math.max(...rows.map((row) => (row.title ?? "").length)));
+	for (const row of rows) {
+		const sections =
+			row.sections_total === undefined || row.sections_total === 0
+				? "sections -"
+				: `sections ${row.sections_accepted ?? 0}/${row.sections_total}`;
+		const pages = row.page_count === undefined ? "pages -" : `pages ${row.page_count}`;
+		const opening = row.opening_ready === true ? "opening ready" : row.opening_ready === false ? "opening not ready" : "opening ?";
+		lines.push(
+			`  ${row.module_id.padEnd(idWidth)}  ${(row.title ?? "").padEnd(titleWidth)}  ${(row.source ?? "?").padEnd(7)}  ${(row.status ?? "?").padEnd(10)}  ${pages.padEnd(10)}  ${sections.padEnd(14)}  ${opening.padEnd(17)}  ${playableNow(row).why}`,
+		);
+	}
+	lines.push("  /coc module use <id> prints how to play one; /coc module parse <pdf> reads a new book in.");
+	return lines;
+}
+
+/**
+ * Contract §20.3: there is no "load". A play session binds one campaign at `session_start`, so this
+ * never switches books; it prints the two commands that start a table on this one.
+ */
+export function moduleUseLines(row: ModuleRow | undefined, id: string, campaign: string | undefined): string[] {
+	if (!row) return [`use     ${id} is not in the store. Run /coc module to see what is.`];
+	const playable = playableNow(row);
+	const lines = [`use     ${row.module_id}${row.title ? `  ${row.title}` : ""}  ${playable.why}`];
+	lines.push(
+		`  A running session cannot switch campaigns: this one is bound to ${campaign ?? "its campaign"} until you quit.`,
+	);
+	if (!playable.ok) {
+		lines.push(`  This book is not ready to play yet, so there is nothing to open a table on.`);
+		return lines;
+	}
+	lines.push("  Playing this book means starting a campaign on it. In another terminal:");
+	lines.push(`    bin/pi-coc setup            then choose the module ${row.module_id} as the source`);
+	lines.push("    bin/pi-coc --campaign <the campaign id setup prints>");
+	return lines;
+}
+
+/** One progress line for the person watching an ingest (contract §20.2's `-progress` payload). */
+export function ingestProgressLine(row: Record<string, unknown>): string {
+	const stage = str(row.stage) ?? "?";
+	const page = num(row.page);
+	const of = num(row.of);
+	const where = of === undefined ? "" : page === undefined ? `  0/${of}` : `  ${page + 1}/${of}`;
+	return `parse   ${stage}${where}${str(row.detail) ? `  ${str(row.detail)}` : ""}`;
+}
+
+/** The one line the person gets when a job ends, either way. */
+export function ingestDoneLine(row: Record<string, unknown>): string {
+	const id = str(row.module_id) ?? "?";
+	const pages = num(row.page_count);
+	const missing = arr(row.ocr_missing).length;
+	const reason = str(row.ocr_reason);
+	return [
+		`parse   done  ${id}`,
+		pages !== undefined ? `  pages ${pages}` : "",
+		`  sections ${num(row.sections_accepted) ?? 0} accepted`,
+		row.installed === true ? "  installed" : "  not installed",
+		row.opening_ready === true ? "  opening ready" : "  opening not ready",
+		missing > 0 ? `  ${missing} page(s) still need OCR (${reason ?? "unknown"})` : "",
+	].join("");
+}
+
+export function ingestFailedLine(row: Record<string, unknown>): string {
+	return `parse   failed  ${str(row.reason) ?? "internal"}  ${str(row.detail) ?? ""}`.trimEnd();
+}
+
+async function moduleRows(deps: CommandDeps): Promise<ModuleRow[]> {
+	const call = deps.call();
+	const listed = await readOrUndefined(call, "module.list", {});
+	const rows: ModuleRow[] = [];
+	for (const entry of arr(listed?.modules).map(rec)) {
+		const id = str(entry.module_id) ?? str(entry.id);
+		if (!id) continue;
+		const status = await readOrUndefined(call, "module.status", { module_id: id });
+		// `module.status` answers `sections` as a list in one kernel and as `{total, rows}` in another; both are read.
+		const sections = status ? status.sections : undefined;
+		const sectionRows = Array.isArray(sections) ? sections.map(rec) : arr(rec(sections).rows).map(rec);
+		const total = Array.isArray(sections) ? sectionRows.length : (num(rec(sections).total) ?? sectionRows.length);
+		rows.push({
+			module_id: id,
+			...(str(entry.title) ?? str(status?.title) ? { title: (str(entry.title) ?? str(status?.title)) as string } : {}),
+			...(str(entry.source) ?? str(status?.source) ? { source: (str(entry.source) ?? str(status?.source)) as string } : {}),
+			...(str(status?.status) ?? str(entry.status) ? { status: (str(status?.status) ?? str(entry.status)) as string } : {}),
+			...(num(status?.page_count) !== undefined ? { page_count: num(status?.page_count) as number } : {}),
+			sections_accepted: sectionRows.filter((row) => str(row.status) === "accepted").length,
+			sections_total: total,
+			...(typeof status?.opening_ready === "boolean" ? { opening_ready: status.opening_ready } : {}),
+		});
+	}
+	return rows;
+}
+
+const MODULE_USAGE = [
+	"module  /coc module                       what is in the store, and what can be played right now",
+	"        /coc module parse <pdf> [--id <module_id>] [--title <t>] [--language <BCP 47>]",
+	"        /coc module use <id>              how to start a table on that book",
+].join("\n");
+
+/**
+ * `/coc module parse`: it only puts the request on the bus (contract §20.4 — the front end's file
+ * picker sends the same one), and the progress lines that follow come from the job's own channel.
+ *
+ * The language is asked for rather than guessed: which language a book is written in is an open
+ * semantic question, and this repository answers those with a person or a model, never with a table.
+ */
+async function moduleParse(pi: ExtensionAPI, ctx: ExtensionCommandContext, deps: CommandDeps, argument: string): Promise<string> {
+	const { positional, flags } = parseArguments(argument);
+	const pdf = positional[0];
+	if (!pdf) return `module  give me a PDF to read.\n${MODULE_USAGE}`;
+	let language = (flags.language ?? flags.lang ?? "").trim();
+	if (!language) {
+		try {
+			language = (await ctx.ui.input("Which language is this book written in? (BCP 47, e.g. zh-Hans or en)", "zh-Hans"))?.trim() ?? "";
+		} catch {
+			language = "";
+		}
+	}
+	if (!language) {
+		return "module  the book's language has to be declared: /coc module parse <pdf> --language <BCP 47 tag>, e.g. zh-Hans or en.";
+	}
+	const request = {
+		pdf,
+		...(flags.id?.trim() ? { module_id: flags.id.trim() } : {}),
+		...(flags.title?.trim() ? { title: flags.title.trim() } : {}),
+		language,
+	};
+	deps.record({ lane: "command", command: "module parse", ok: true, pdf, language, ...(request.module_id ? { module_id: request.module_id } : {}) });
+	pi.events.emit("coc:module-ingest", request);
+	return [
+		`parse   ${pdf}`,
+		`  language ${language}${request.module_id ? `  id ${request.module_id}` : ""}`,
+		"  The job runs in the background: classify, extract, OCR the pages that need it, pack, bind, build.",
+		"  Progress appears here; the table is not interrupted.",
+	].join("\n");
+}
+
+async function moduleView(pi: ExtensionAPI, ctx: ExtensionCommandContext, deps: CommandDeps, argument: string): Promise<string> {
+	const space = argument.indexOf(" ");
+	const verb = (space === -1 ? argument : argument.slice(0, space)).toLowerCase();
+	const rest = (space === -1 ? "" : argument.slice(space + 1)).trim();
+	if (verb === "parse") return await moduleParse(pi, ctx, deps, rest);
+	if (verb === "use") {
+		const id = parseArguments(rest).positional[0];
+		if (!id) return `module  which book? /coc module use <id>\n${MODULE_USAGE}`;
+		const rows = await moduleRows(deps);
+		return moduleUseLines(
+			rows.find((row) => row.module_id === id),
+			id,
+			deps.campaign(),
+		).join("\n");
+	}
+	if (verb !== "") return `module  "${verb}" is not a /coc module sub-command.\n${MODULE_USAGE}`;
+	// An empty store and a closed kernel look the same from here; say which it is.
+	if (!deps.call()) return "modules  the kernel is not open, so the store cannot be read.";
+	const home = deps.home();
+	return moduleListLines(await moduleRows(deps), home ? `${home}/.coc/modules` : undefined).join("\n");
+}
+
 function evidenceView(deps: CommandDeps): string {
 	const rows = deps.paths();
 	if (rows.length === 0) return "evidence  (no table is open, so there is no campaign directory yet)";
@@ -302,8 +556,28 @@ function evidenceView(deps: CommandDeps): string {
 export const COC_COMMAND = "coc";
 
 export function registerCocCommand(pi: ExtensionAPI, deps: CommandDeps): void {
+	// The ingest job (contract §20.2) reports on the bus, whoever started it. Its progress belongs to
+	// the person watching, so it goes through `ctx.ui` like every other line here and never into the
+	// Keeper's context. Only stage changes and every tenth page are shown: a 41-page book must not
+	// scroll the table away.
+	let lastStage: string | undefined;
+	pi.events.on("coc:module-ingest", () => {
+		lastStage = undefined;
+	});
+	pi.events.on("coc:module-ingest-progress", (data) => {
+		const row = rec(data);
+		const stage = str(row.stage);
+		const page = num(row.page);
+		const of = num(row.of);
+		const worthShowing = stage !== lastStage || (page !== undefined && of !== undefined && of > 0 && (page % 10 === 0 || page + 1 === of));
+		lastStage = stage;
+		if (worthShowing) deps.notify(ingestProgressLine(row), "info");
+	});
+	pi.events.on("coc:module-ingest-done", (data) => deps.notify(ingestDoneLine(rec(data)), "info"));
+	pi.events.on("coc:module-ingest-failed", (data) => deps.notify(ingestFailedLine(rec(data)), "error"));
+
 	pi.registerCommand(COC_COMMAND, {
-		description: "COC table: status, model, thinking, lanes, evidence",
+		description: "COC table: status, model, thinking, lanes, evidence, module",
 		handler: async (args, ctx) => {
 			// RPC and print modes get one line and nothing else (contract §19.1).
 			if (ctx.mode !== "tui") {
@@ -331,9 +605,12 @@ export function registerCocCommand(pi: ExtensionAPI, deps: CommandDeps): void {
 					case "evidence":
 						ctx.ui.notify(evidenceView(deps), "info");
 						return;
+					case "module":
+						ctx.ui.notify(await moduleView(pi, ctx, deps, argument), "info");
+						return;
 					default:
 						ctx.ui.notify(
-							`"${sub}" is not a /coc sub-command. Use /coc, /coc model [provider/model], /coc thinking <level>, /coc lanes, /coc evidence.`,
+							`"${sub}" is not a /coc sub-command. Use /coc, /coc model [provider/model], /coc thinking <level>, /coc lanes, /coc evidence, /coc module.`,
 							"warning",
 						);
 						return;

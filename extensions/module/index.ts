@@ -1,5 +1,6 @@
 /**
- * The module extension: the driver loop of the unattended build (contract §14.5) and the on-demand deepening lane (contract §14.6).
+ * The module extension: the driver loop of the unattended build (contract §14.5), the on-demand
+ * deepening lane (contract §14.6) and the PDF ingest job (contract §20.2).
  *
  * It registers no tools. Each mode runs one thing:
  * - setup: onboarding's `build-opening` step puts `coc:module-build` on the bus, this runs
@@ -10,13 +11,19 @@
  *   reviews, accepts, assembles, then `module.deepen.complete`. One at a time, none started while a
  *   turn is in flight (contract §14.6: it never blocks a turn), and stopped at shutdown.
  *
+ * Both modes also answer `coc:module-ingest`: a PDF path in, an installed module out, with
+ * `coc:module-ingest-progress` per stage and `-done`/`-failed` at the end. No logic lives in the
+ * command that starts it (contract §20.4) — the terminal and a future Electron front end put the same
+ * request on the same channel and read the same progress.
+ *
  * There is only one kernel RPC (contract §1), taken from the bus's `coc:kernel-bridge` as the memory extension does.
  */
 
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { appendJsonl, cocMode } from "../lanes/host.ts";
-import { type BuildContext, buildModule, type KernelCall, readSection, resetReviewProbe } from "./build.ts";
+import { appendJsonl, cocHome, cocMode } from "../lanes/host.ts";
+import { type BuildContext, type BuildReport, buildModule, type KernelCall, readSection, resetReviewProbe } from "./build.ts";
+import { ingest, IngestError, type IngestRequest } from "./ingest.ts";
 
 /** The build concurrency cap (contract §14.5); 1 by default. */
 function buildParallel(): number {
@@ -69,6 +76,17 @@ export default function (pi: ExtensionAPI) {
 
 	// ---- Telemetry --------------------------------------------------------
 
+	/** The workspace root (contract §20.7); undefined once the session is disposed and its getters throw. */
+	function home(): string | undefined {
+		try {
+			// After the session is disposed the ctx getters throw (docs/pi-host-contract.md §5).
+			const cwd = ctx?.cwd;
+			return cwd ? cocHome(cwd) : undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
 	/** Build telemetry: the module's `build.jsonl` (contract §14.1), plus one line each in the session record and the campaign telemetry. */
 	function record(module: string, row: Record<string, unknown>): void {
 		const line = { lane: "module", module_id: module, at: new Date().toISOString(), ...row };
@@ -77,16 +95,28 @@ export default function (pi: ExtensionAPI) {
 		} catch {
 			/* telemetry must not break a lane */
 		}
-		let cwd: string | undefined;
+		const root = home();
+		if (!root) return;
+		void appendJsonl(join(root, ".coc", "modules", module, "build.jsonl"), line);
+		if (campaign) void appendJsonl(join(root, ".coc", "campaigns", campaign, "telemetry.jsonl"), line);
+	}
+
+	/**
+	 * Ingest telemetry (contract §20.2): `lane: "ingest"`, one row per stage. It goes to the job's own
+	 * work directory as well as the session record, because an ingest may well have no campaign and no
+	 * module id yet. The OCR credential is never part of a row: only whether the adapter could see one.
+	 */
+	function recordIngest(row: Record<string, unknown>): void {
+		const line = { lane: "ingest", at: new Date().toISOString(), ...row };
 		try {
-			// After the session is disposed the ctx getters throw (docs/pi-host-contract.md §5).
-			cwd = ctx?.cwd;
+			pi.appendEntry("coc-telemetry", line);
 		} catch {
-			cwd = undefined;
+			/* telemetry must not break a lane */
 		}
-		if (!cwd) return;
-		void appendJsonl(join(cwd, ".coc", "modules", module, "build.jsonl"), line);
-		if (campaign) void appendJsonl(join(cwd, ".coc", "campaigns", campaign, "telemetry.jsonl"), line);
+		const root = home();
+		const workDir = typeof row.work_dir === "string" ? row.work_dir : undefined;
+		if (workDir) void appendJsonl(join(workDir, "ingest.jsonl"), line);
+		if (root && campaign) void appendJsonl(join(root, ".coc", "campaigns", campaign, "telemetry.jsonl"), line);
 	}
 
 	/**
@@ -95,13 +125,13 @@ export default function (pi: ExtensionAPI) {
 	 */
 	function context(call: KernelCall): BuildContext | undefined {
 		try {
-			const cwd = ctx?.cwd;
-			if (!cwd) return undefined;
+			const workspace = home();
+			if (!workspace) return undefined;
 			const timeout = readerTimeoutMs();
 			const model = readerModel(ctx);
 			return {
 				call,
-				workspace: cwd,
+				workspace,
 				...(model ? { model } : {}),
 				signal: lanes.signal,
 				record,
@@ -115,15 +145,24 @@ export default function (pi: ExtensionAPI) {
 
 	// ---- Building (setup mode) --------------------------------------------
 
-	async function runBuild(request: { module_id: string; campaign?: string }): Promise<void> {
+	/**
+	 * One unattended build, with the four bus channels of contract §14.5. It throws on failure (after
+	 * emitting `coc:module-build-failed`, so a waiting setup step is never left hanging), because the
+	 * ingest job of contract §20.2 runs the very same build and has to know whether it finished.
+	 */
+	async function runBuild(request: { module_id: string; campaign?: string }): Promise<BuildReport> {
 		const current = bridge;
 		const build = current ? context(current.call) : undefined;
-		if (!current || !build) {
-			pi.events.emit("coc:module-build-failed", { module_id: request.module_id, detail: "the kernel bridge is gone; the build cannot start" });
-			return;
+		// An ingest already holds the lane for its own build; anything else waits for its turn rather than colliding.
+		const holds = ingestHoldsLane;
+		if (!current || !build || (busy && !holds)) {
+			const detail = busy
+				? "another build is already running in this session"
+				: "the kernel bridge is gone; the build cannot start";
+			pi.events.emit("coc:module-build-failed", { module_id: request.module_id, detail });
+			throw new Error(detail);
 		}
-		if (busy) return;
-		busy = true;
+		if (!holds) busy = true;
 		try {
 			const report = await buildModule(build, request.module_id, {
 				parallel: buildParallel(),
@@ -136,12 +175,67 @@ export default function (pi: ExtensionAPI) {
 				},
 			});
 			pi.events.emit("coc:module-build-done", { module_id: request.module_id, report });
+			return report;
 		} catch (error) {
 			const detail = errorText(error);
 			record(request.module_id, { section_id: null, round: 0, reason: "build", accepted: false, detail });
 			pi.events.emit("coc:module-build-failed", { module_id: request.module_id, detail });
+			throw error;
 		} finally {
+			if (!holds) busy = false;
+		}
+	}
+
+	// ---- PDF ingest (contract §20.2) --------------------------------------
+
+	/** One ingest at a time per file: the job is reentrant across runs, not concurrent with itself. */
+	const ingesting = new Set<string>();
+	/** The ingest holds the single lane for its whole run, so no deepening cuts in and its own build is not refused. */
+	let ingestHoldsLane = false;
+
+	async function runIngest(request: IngestRequest): Promise<void> {
+		const pdf = request.pdf?.trim() ?? "";
+		const current = bridge;
+		const root = home();
+		const fail = (reason: string, detail: string) => {
+			recordIngest({ stage: "classify", ok: false, reason, detail, pdf });
+			pi.events.emit("coc:module-ingest-failed", { pdf, reason, detail });
+		};
+		if (!current || !root) {
+			fail("kernel_unavailable", "the kernel bridge is gone; the book cannot be read in");
+			return;
+		}
+		if (ingesting.has(pdf)) {
+			fail("already_running", `${pdf} is already being read in`);
+			return;
+		}
+		ingesting.add(pdf);
+		busy = true;
+		ingestHoldsLane = true;
+		try {
+			const report = await ingest(
+				{
+					call: current.call,
+					home: root,
+					signal: lanes.signal,
+					stopped: () => stopped,
+					record: (row) => recordIngest({ ...row, pdf }),
+					progress: (row) => pi.events.emit("coc:module-ingest-progress", { ...row, pdf }),
+					build: (moduleId) => runBuild({ module_id: moduleId, ...(campaign ? { campaign } : {}) }),
+				},
+				request,
+			);
+			pi.events.emit("coc:module-ingest-done", { pdf, ...report });
+		} catch (error) {
+			const reason = error instanceof IngestError ? error.reason : "internal";
+			const stage = error instanceof IngestError ? error.stage : "classify";
+			const detail = errorText(error);
+			recordIngest({ stage, ok: false, reason, detail, pdf });
+			pi.events.emit("coc:module-ingest-failed", { pdf, reason, detail, stage });
+		} finally {
+			ingestHoldsLane = false;
 			busy = false;
+			ingesting.delete(pdf);
 		}
 	}
 
@@ -244,6 +338,19 @@ export default function (pi: ExtensionAPI) {
 		void runBuild({
 			module_id: target,
 			...(asString(payload.campaign) ? { campaign: asString(payload.campaign) as string } : {}),
+		}).catch(() => undefined);
+	});
+
+	// `/coc module parse` (and, later, a front end's file picker) starts the ingest job the same way (contract §20.4).
+	pi.events.on("coc:module-ingest", (data) => {
+		const payload = asRecord(data);
+		const pdf = asString(payload.pdf);
+		if (!pdf || stopped) return;
+		void runIngest({
+			pdf,
+			...(asString(payload.module_id) ? { module_id: asString(payload.module_id) as string } : {}),
+			...(asString(payload.title) ? { title: asString(payload.title) as string } : {}),
+			...(asString(payload.language) ? { language: asString(payload.language) as string } : {}),
 		}).catch(() => undefined);
 	});
 

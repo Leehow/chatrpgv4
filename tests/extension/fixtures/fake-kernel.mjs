@@ -111,6 +111,12 @@ const SECTIONS = (MODULE.sections ?? []).map((row) => ({ status: "planned", prio
 const REVIEW_PASS = MODULE.review_pass ?? {};
 const OPENING_AFTER = typeof MODULE.opening_after === "number" ? MODULE.opening_after : 1;
 const DEEPEN_QUEUE = [...(MODULE.deepen ?? [])];
+/**
+ * `module.list` 的存储名册（契约 §20.3 的 `/coc module` 读它）：
+ * 每行 {module_id, title, source, status, page_count?, opening_ready?, sections?}，
+ * 不给就是「存储里只有这一本」。
+ */
+const LIBRARY = MODULE.library ?? null;
 
 /** 每个 section 被 review 过几次：`review_pass` 说的那一轮才过（契约 §14.5 至多三轮）。 */
 const reviewRounds = new Map();
@@ -593,7 +599,28 @@ function handle(method, params) {
 		case "module.install":
 			moduleStatus = "installed";
 			return { ok: true, result: { module_id: params.module_id ?? MODULE_ID, status: moduleStatus, generation } };
-		case "module.status":
+		case "module.list": {
+			const rows = LIBRARY ?? [{ module_id: MODULE_ID, title: "模组", source: "pdf", status: moduleStatus, generation }];
+			return { ok: true, result: { modules: rows.map((row) => ({ generation, ...row })) } };
+		}
+		case "module.status": {
+			// 名册里点了名的书按它自己那一行回，其余按这个假内核正在构建的那一本回。
+			const listed = (LIBRARY ?? []).find((row) => row.module_id === params.module_id);
+			if (listed) {
+				return {
+					ok: true,
+					result: {
+						module_id: listed.module_id,
+						title: listed.title,
+						source: listed.source,
+						status: listed.status,
+						generation,
+						page_count: listed.page_count,
+						opening_ready: listed.opening_ready ?? false,
+						sections: listed.sections ?? [],
+					},
+				};
+			}
 			return {
 				ok: true,
 				result: {
@@ -605,6 +632,7 @@ function handle(method, params) {
 					sections: planned ? SECTIONS.map((row) => ({ ...row })) : [],
 				},
 			};
+		}
 		case "module.deepen.claim": {
 			// 同一时刻一个（契约 §14.6）：认领了没完成就不再发第二段。
 			if (deepenInFlight) return { ok: true, result: { section_id: null, claimed: deepenInFlight } };

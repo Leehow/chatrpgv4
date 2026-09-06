@@ -46,7 +46,7 @@ Pi 家目录由 `PI_CODING_AGENT_DIR` 指定为仓库内 `.pi/coc-agent`；`sett
 
 上下文：`ctx.cwd`、`ctx.hasUI`、`ctx.mode`、`ctx.ui.notify` / `select` / `setStatus`、`ctx.model`、`ctx.thinkingLevel`、`ctx.modelRegistry.find` / `getAll` / `getAvailable` / `complete`、`ctx.getContextUsage()`、`ctx.compact(options)`。
 
-总线：`pi.events.emit` / `on`。`on` 返回一个退订闭包，**没有 `off`**：要临时订阅（建卡等构建那一步）就得留着它自己收。十个频道：`coc:table-open`、`coc:resolve`、`coc:capsule`（本回合胶囊原样一份，桌况显示用它取 Director 节拍，契约 §13.9）、`coc:turn-committed`（契约 §12.8 的提交载荷）、`coc:mechanics`（契约 §16.2 的机制投影，见第 3.4 节）、`coc:kernel-bridge`（内核 RPC 闭包，见下），加上模组那四条（契约 §14.5）：`coc:module-build`（建卡的 `build-opening` 发起构建）、`coc:module-opening-ready`（开场就绪）、`coc:module-build-done`（整本读完，带报告）、`coc:module-build-failed`（构建起不来；有它建卡那一步才不会干等）。
+总线：`pi.events.emit` / `on`。`on` 返回一个退订闭包，**没有 `off`**：要临时订阅（建卡等构建那一步）就得留着它自己收。十四个频道：`coc:table-open`、`coc:resolve`、`coc:capsule`（本回合胶囊原样一份，桌况显示用它取 Director 节拍，契约 §13.9）、`coc:turn-committed`（契约 §12.8 的提交载荷）、`coc:mechanics`（契约 §16.2 的机制投影，见第 3.4 节）、`coc:kernel-bridge`（内核 RPC 闭包，见下），加上模组那四条（契约 §14.5）：`coc:module-build`（建卡的 `build-opening` 发起构建）、`coc:module-opening-ready`（开场就绪）、`coc:module-build-done`（整本读完，带报告）、`coc:module-build-failed`（构建起不来；有它建卡那一步才不会干等），再加 PDF 摄入那四条（契约 §20.2，见第 3.6 节）：`coc:module-ingest`（起作业，命令与前端发的是同一条）、`coc:module-ingest-progress`（`{stage, page?, of?}`）、`coc:module-ingest-done`、`coc:module-ingest-failed`（带原因码）。
 
 `ctx.shutdown()`（「优雅退出 pi」）只在**交互模式与 RPC 模式**下真的做事：那两个模式在 `bindExtensions` 时给了 `shutdownHandler`，print 模式与 SDK 直接建的会话没给，调用是空转。建卡最后一步靠它退出进程，所以 `bin/pi-coc setup` 起的是交互模式；测试台里它是空转，所以断言看的是交接命令有没有交出去，不是进程有没有真的退。
 
@@ -142,6 +142,26 @@ pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,ba
 **扩展加载顺序的后果**：`table` 排在 `kernel` 之后，所以预压缩发生在 `table.player_input` **之后**、第一次模型调用之前。回合已经在内核那边开了，但压缩只动 Pi 的上下文，不碰内核的回合状态机；要防的「压缩落在工具往返中间」照样防住了。
 
 **车道超时得自己做。** `ctx.modelRegistry.complete()` 没有超时；`runLane` 因此收一个 `timeoutMs`，用一个 `AbortController` 把调用者的 signal 与超时并到一起，超时就掐断并返回 `reason: "timeout"`。校验车道用 `PI_COC_LANE_TIMEOUT_MS`（缺省 2 分钟）；记忆车道不给，走它自己的老路。
+
+### 3.6 PDF 摄入的三个子进程与 `PI_COC_HOME`（契约 §20，票 #30）
+
+**摄入作业不在 Pi 面上，在扩展里。** `extensions/module/ingest.ts` 是一个后台作业，由总线 `coc:module-ingest` 起（`/coc module parse` 与将来 Electron 的文件选择器发的是同一条），进度走 `coc:module-ingest-progress`，结束走 `-done`／`-failed`；`ctx.ui` 只负责把这些打给人看，不进模型上下文。命令里没有逻辑，所以前端不必再写一遍（契约 §20.4）。
+
+**三个子进程，一套约定。** 都用 `spawn` 直起（不过 shell），命令由环境变量替换，取值是**一个裸路径**或**一个 JSON 字符串数组**（要在脚本前面放解释器时用后者）——跟 `PI_COC_KERNEL_CMD`、`PI_COC_READER_CMD` 同一个套路：
+
+| 变量 | 缺省 | 约定 |
+| --- | --- | --- |
+| `PI_COC_EXTRACT` | 本地库 `@firecrawl/pdf-inspector`（`optionalDependencies`，每平台一个约 9MB 的原生包） | `<cmd> classify <pdf>` 打一个 JSON 对象；`<cmd> extract <pdf> --pages 0,1 --out <dir>` 写 `<dir>/NNNN.md`。`none` 表示没有抽取器，作业报 `no_extractor` |
+| `PI_COC_OCR_CMD` | `bin/coc-ocr` | `<cmd> <pdf> --pages 0,1,11 --out <dir>` 写 `<dir>/NNNN.md`（**原书页码**），stdout 打一条 JSON 摘要，非零退出是失败。`none` 关掉 OCR |
+| `PI_COC_BUNDLE_CMD` | `bin/coc-bundle` | 打包器，清单只由它签（契约 §20.1）。这条纯粹是测试接缝 |
+
+三条边界是这一侧定的：
+
+- **库是惰性 import，且失败不致命。** `await import("@firecrawl/pdf-inspector")` 包在 try 里：平台没有预编译二进制时它抛，适配器回 undefined，作业报 `no_extractor`，而**扩展照样加载**、桌子照样开。1.17.0 给 `extractPagesMarkdownAsync`，老一点的只有同步的 `extractPagesMarkdown`，两个都认；返回值是数组还是 `{pages: [...]}` 也都认（实测 1.12.0 回的是后者，还顺带带 `pagesNeedingOcr` 与 `ocrReasonsByPage`）。
+- **子进程的产物以磁盘为准，不以它自己的话为准。** 抽取器与 OCR 命令都打 JSON 摘要，但作业只认 `--out` 目录里真的出现的 `NNNN.md`：一次跑一半的 OCR 值多少页就是多少页。
+- **凭证只走环境。** `BAIDUOCR_TOKEN` 从 `process.env` 继承给子进程，从不进参数表、日志或产物；作业只判断「有没有」，没有就直接记 `ocr_unavailable` 而不 spawn（省一次外包调用）。`lane: "ingest"` 的遥测每阶段一行，只记 `reason`，不记值。
+
+**`PI_COC_HOME`（契约 §20.7）。** 扩展原来把 `ctx.cwd` 当 workspace 传给内核，`.coc/` 于是跟着起 `pi` 的目录跑：换个目录就看不见已解析的书，装成应用更不对。现在读 `PI_COC_HOME`（`extensions/lanes/host.ts` 的 `cocHome(cwd)`，缺省仍是 `ctx.cwd`，`~/` 展开、相对路径按 `cwd` 解析），四处一起走：内核子进程的 `--workspace`、战役遥测、模组的 `build.jsonl` 与摄入工作目录、`/coc evidence` 打给人的路径。**模组是库、战役是存档**，拆成两个根留给前端那一片；本票只有这一个根。变量在每次调用时读，不在模块顶层冻住（测试台一个进程里绑多次会话）。
 
 ## 4. 我们依赖的行为，以及各自的核对方法
 

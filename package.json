@@ -24,6 +24,9 @@
     "@earendil-works/pi-agent-core": "*",
     "typebox": "*"
   },
+  "optionalDependencies": {
+    "@firecrawl/pdf-inspector": "1.17.0"
+  },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "0.85.1"
   },

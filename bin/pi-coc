@@ -6,6 +6,10 @@
 # These environment variables are honoured (passed to pi verbatim and read by the extensions):
 #   PI_COC_CAMPAIGN         campaign id, the same as --campaign
 #   PI_COC_MODE             play|setup, exported by this script; the extensions register their tools by it (contract §14.4)
+#   PI_COC_HOME             where .coc/ lives: the module library and the campaign saves (contract §20.7).
+#                           Defaults to the directory pi was started in, so a developer running from the
+#                           repository sees no change; set it (an absolute path, a relative one, or ~/...) to keep
+#                           one library across directories, which is what an installed application needs
 #   PI_COC_VERIFIER_MODEL   the verifier lane's model, as provider/model; defaults to the table's own model
 #   PI_COC_MEMORY_MODEL     the memory extraction lane's model, likewise
 #   PI_COC_BUILD_MODEL      the reader subprocess's model, likewise (contract §14.5)
@@ -15,6 +19,13 @@
 #   PI_COC_LANE_TIMEOUT_MS  cap on one verifier-lane round, 2 minutes by default; past it the lane is cut off and leaves a timeout row
 #   PI_COC_COMPACT_AT       context share at which the table folds its own context before a turn (contract §19.2),
 #                           70% by default; a value above 1 is a percentage, a value at or below 1 is a fraction
+# The PDF ingest job (contract §20) reads three more, all of them a command (a bare path, or a JSON array
+# of strings when an interpreter has to go in front of a script):
+#   PI_COC_EXTRACT          replaces the local extractor (the @firecrawl/pdf-inspector optionalDependency).
+#                           `none` means there is none, which is the `no_extractor` path
+#   PI_COC_OCR_CMD          replaces bin/coc-ocr; `none` switches OCR off. It reads BAIDUOCR_TOKEN from the
+#                           environment, which is the only place that credential ever travels
+#   PI_COC_BUNDLE_CMD       replaces bin/coc-bundle, the packer that signs the manifest (a test seam)
 # Lane models are in docs/pi-host-contract.md §3.1, the reader subprocess in §3.2,
 # the /coc command surface and the context fold in §3.5.
 set -euo pipefail

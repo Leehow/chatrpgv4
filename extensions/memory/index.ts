@@ -22,7 +22,7 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { cocMode } from "../lanes/host.ts";
+import { cocHome, cocMode } from "../lanes/host.ts";
 import { resolveLaneModel, runLane } from "../lanes/subsession.ts";
 
 /** The closed fields and closed enums of a candidate assertion (contract §12.3). No extra field is ever sent to the kernel. */
@@ -226,7 +226,7 @@ export default function (pi: ExtensionAPI) {
 			/* telemetry must not break a lane */
 		}
 		if (!cwd) return;
-		const path = join(cwd, ".coc", "campaigns", campaign, "telemetry.jsonl");
+		const path = join(cocHome(cwd), ".coc", "campaigns", campaign, "telemetry.jsonl");
 		try {
 			await mkdir(dirname(path), { recursive: true });
 			await appendFile(path, `${JSON.stringify(line)}\n`, "utf8");

@@ -19,7 +19,7 @@
 import type { CompactionResult, ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { appendJsonl, cocMode } from "../lanes/host.ts";
+import { appendJsonl, cocHome, cocMode } from "../lanes/host.ts";
 import { type CommandDeps, registerCocCommand } from "./commands.ts";
 import { compactAt, FOLD_NOTE_KIND, foldContext } from "./fold.ts";
 
@@ -208,11 +208,23 @@ export default function (pi: ExtensionAPI) {
 	/** The kernel RPC closure (docs/pi-host-contract.md §3.1); undefined before the table opens and after it closes. */
 	let bridge: ((method: string, params: Record<string, unknown>) => Promise<unknown>) | undefined;
 
+	/** The workspace root (`PI_COC_HOME`, contract §20.7); undefined before the session starts. */
+	function home(): string | undefined {
+		try {
+			const cwd = ctx?.cwd;
+			return cwd ? cocHome(cwd) : undefined;
+		} catch {
+			// After the session is disposed every ctx getter throws (docs/pi-host-contract.md §5).
+			return undefined;
+		}
+	}
+
 	/** The campaign directory of the open table, or undefined before `coc:table-open`. */
 	function campaignDir(): string | undefined {
 		const campaign = payload?.campaign;
-		if (!campaign || !ctx) return undefined;
-		return join(ctx.cwd, ".coc", "campaigns", campaign);
+		const root = home();
+		if (!campaign || !root) return undefined;
+		return join(root, ".coc", "campaigns", campaign);
 	}
 
 	/**
@@ -350,7 +362,8 @@ export default function (pi: ExtensionAPI) {
 		},
 		paths: () => {
 			const dir = campaignDir();
-			if (!dir || !ctx) return [];
+			const root = home();
+			if (!dir || !root) return [];
 			const moduleId = payload?.open?.campaign?.module_id;
 			return [
 				{ label: "campaign", path: dir },
@@ -358,9 +371,17 @@ export default function (pi: ExtensionAPI) {
 				{ label: "transcript", path: join(dir, "transcript.jsonl") },
 				{ label: "events", path: join(dir, "events.jsonl") },
 				{ label: "turns", path: join(dir, "turns") },
-				...(moduleId ? [{ label: "module", path: join(ctx.cwd, ".coc", "modules", moduleId) }] : []),
-				{ label: "playtests", path: join(ctx.cwd, ".coc", "playtests") },
+				...(moduleId ? [{ label: "module", path: join(root, ".coc", "modules", moduleId) }] : []),
+				{ label: "playtests", path: join(root, ".coc", "playtests") },
 			];
+		},
+		home,
+		notify: (message, type) => {
+			try {
+				if (ctx?.hasUI) ctx.ui.notify(message, type);
+			} catch {
+				/* the session is gone; one background progress line is not worth an exception */
+			}
 		},
 	};
 	registerCocCommand(pi, deps);
