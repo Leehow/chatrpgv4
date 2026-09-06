@@ -4,6 +4,7 @@ COC Keeper for Pi：一个 Pi 包加一个 Python 内核子进程。守秘人只
 
 - 架构规格：GitHub issue #12。切片票：#13 到 #18。
 - 扩展与内核之间的契约：`docs/kernel-rpc.md`。
+- 对 Pi 的依赖与升版流程：`docs/pi-host-contract.md`，不 fork、不打补丁。
 
 ## 布局
 
@@ -12,7 +13,6 @@ extensions/   Pi 扩展：kernel（七个工具、回合事务）、table（HUD 
 kernel/coc/   Python 内核包，入口 `python -m coc.rpc`
 content/      只读内容：rulesets/coc7、starters/<module>
 prompts/      守秘人系统提示
-skills/       桌面手艺，按需读
 tests/        kernel（内核接缝）、extension（扩展接缝）、play（真桌驾驭器）
 bin/pi-coc    启动器
 ```

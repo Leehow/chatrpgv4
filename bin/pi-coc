@@ -83,6 +83,7 @@ fi
 
 exec "$PI_BIN" \
 	--no-builtin-tools \
+	--no-context-files \
 	--system-prompt "$KEEPER_PROMPT" \
 	${session_args[@]+"${session_args[@]}"} \
 	${args[@]+"${args[@]}"}

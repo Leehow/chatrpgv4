@@ -4,11 +4,16 @@
   "private": true,
   "type": "module",
   "description": "COC Keeper for Pi: seven verbs over a deterministic Python kernel",
-  "keywords": ["pi-package", "coc", "trpg"],
+  "keywords": [
+    "pi-package",
+    "coc",
+    "trpg"
+  ],
   "pi": {
-    "extensions": ["./extensions/kernel", "./extensions/table"],
-    "skills": ["./skills"],
-    "prompts": ["./prompts"]
+    "extensions": [
+      "./extensions/kernel",
+      "./extensions/table"
+    ]
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
