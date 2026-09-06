@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { allowedSteps, declaredSources, gate, missingNeeds, normalizeSteps, sourceKinds } from "../../extensions/onboarding/steps.ts";
+import { allowedSteps, axisProducts, declaredSources, gate, missingNeeds, normalizeSteps, sourceKinds } from "../../extensions/onboarding/steps.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TABLE = JSON.parse(readFileSync(join(HERE, "..", "..", "content", "setup", "steps.json"), "utf8"));
@@ -77,6 +77,18 @@ function byIdOf(steps, id) {
 	assert.ok(step, `真表里应该有 ${id}`);
 	return step;
 }
+
+test("真表：翻了一下空库不算选定了那条路，还能回头建卡（#32）", () => {
+	const steps = normalizeSteps(TABLE.steps);
+	// 两条取卡的路都承诺同一份收据，那份收据才是「真的拿到人了」的标志。
+	assert.deepEqual([...axisProducts(steps)], ["investigator_id"]);
+	const browse = steps.find((s) => s.id === "browse-library");
+	assert.ok(browse && !axisProducts(steps).has(browse.receipt), "翻库只产出一份名单，不产出人");
+
+	// 翻过库之后仍然可以建卡：库是空的时候，这是唯一的活路。
+	const looked = { completed: new Set(["choose-source", "create-campaign", "browse-library"]), sourceKind: "starter" };
+	assert.equal(gate(steps, looked, "create-investigator").ok, true);
+});
 
 test("真表：参数的必选与可省从表读，不靠猜", () => {
 	const steps = normalizeSteps(TABLE.steps);

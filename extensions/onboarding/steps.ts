@@ -240,6 +240,23 @@ export function needsOf(step: Step, sourceKind: string | undefined): string[] {
 	return [...new Set([...shared, ...branch])];
 }
 
+/**
+ * The receipts that two different investigator lanes both promise: a step producing one of these is
+ * the step that actually yields the investigator, and only that settles the axis. Browsing the
+ * library promises something else (a list), so looking and then deciding to build a card instead
+ * stays open — the run is committed by what it produced, never by what it looked at (#32).
+ */
+export function axisProducts(steps: Step[]): Set<string> {
+	const byReceipt = new Map<string, Set<string>>();
+	for (const step of steps) {
+		if (!step.investigatorSource || !step.receipt) continue;
+		const lanes = byReceipt.get(step.receipt) ?? new Set<string>();
+		lanes.add(step.investigatorSource);
+		byReceipt.set(step.receipt, lanes);
+	}
+	return new Set([...byReceipt].filter(([, lanes]) => lanes.size > 1).map(([receipt]) => receipt));
+}
+
 /** The prerequisites not yet done. */
 export function missingNeeds(step: Step, state: GateState, steps?: Step[]): string[] {
 	// A prerequisite that does not appear at all for this source (the starter lane has no build-opening)
@@ -361,6 +378,17 @@ export function gate(steps: Step[], state: GateState, id: string): GateVerdict {
 		};
 	}
 	if (!applies(step, state)) {
+		// Name the axis that refused, or the message reads as nonsense ("only exists when the source is").
+		if (step.investigatorSource && state.investigatorSource && step.investigatorSource !== state.investigatorSource) {
+			return {
+				ok: false,
+				reason: withNext(
+					steps,
+					state,
+					`${step.id} belongs to the ${step.investigatorSource} way of getting an investigator; this run already took the ${state.investigatorSource} one. `,
+				),
+			};
+		}
 		const only = (step.appliesTo ?? []).join(", ");
 		const kind = state.sourceKind ?? "not decided yet";
 		return { ok: false, reason: withNext(steps, state, `${step.id} only exists when the source is ${only}; this time the source is ${kind}. `) };

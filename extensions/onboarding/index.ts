@@ -28,6 +28,7 @@ import {
 	type GateState,
 	instructionFor,
 	nextStep,
+	axisProducts,
 	declaredSources,
 	normalizeSteps,
 	type OpSpec,
@@ -146,7 +147,9 @@ export default function (pi: ExtensionAPI) {
 				completed.add(id);
 				// A resumed setup that already took one investigator lane keeps that axis settled.
 				const row = rows.find((step) => step.id === id);
-				if (row?.investigatorSource) investigatorSource ??= row.investigatorSource;
+				if (row?.investigatorSource && row.receipt && axisProducts(rows).has(row.receipt)) {
+					investigatorSource ??= row.investigatorSource;
+				}
 			}
 			const carried = asRecord(result.state);
 			for (const [key, value] of Object.entries(carried)) {
@@ -472,9 +475,12 @@ export default function (pi: ExtensionAPI) {
 	function settle(step: Step, outcome: Record<string, unknown>): void {
 		completed.add(step.id);
 		opCache.clear();
-		// Taking a step that belongs to one investigator lane settles that axis: the other lane's steps
-		// leave the table, and `complete`'s prerequisite on them counts as satisfied (§21.5).
-		if (step.investigatorSource) investigatorSource ??= step.investigatorSource;
+		// Producing the investigator settles that axis: the other lane's steps leave the table and
+		// `complete`'s prerequisite on them counts as satisfied (§21.5). Only production counts —
+		// browsing an empty library must leave the door to building a card open (#32).
+		if (step.investigatorSource && step.receipt && axisProducts(steps ?? []).has(step.receipt)) {
+			investigatorSource ??= step.investigatorSource;
+		}
 		const source = asRecord(outcome.source);
 		if (Object.keys(source).length > 0) {
 			context.source = source;
