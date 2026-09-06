@@ -37,7 +37,12 @@
     turn.json            当前回合游标：{turn, state, player_text, opened_at, calls: {call_id: {params_sha256, result}}, receipts: [...], pending_choice}
     turns/<NNNN>.json    已关闭回合的完整记录：玩家原文、收据、rendered_text、commit
     transcript.jsonl     逐字记录：{turn, role: player|keeper, text, at}
-    events.jsonl         事件流（切片 0 只写 turn-started、player-declared、roll-resolved、scene-moved、clue-discovered、time-advanced、turn-finalized）
+    events.jsonl         事件流，十二类 canonical 事件见第 7 节
+    save/continuation/latest.json   续行检查点：最近一次提交的回合摘要，可重建的缓存（12.2）
+    memory/episodes.jsonl           每个已提交回合一条 episode（12.3）
+    memory/candidates.jsonl         候选断言，只增不删；矛盾用 superseded_by 关闭（12.3）
+    memory/jobs/<job_id>.json       抽取任务包与结果，整文件原子写（12.3）
+    memory/backlog.jsonl            抽取失败或被拒的任务，显式可恢复（12.3）
   repos/<campaign_id>.git   sidecar 裸仓库，战役目录是其工作树；每次 narrate 成功后一次提交（ADR-0001）
   playtests/<run_id>/       真桌证据，由驾驭器写
 ```
@@ -111,10 +116,9 @@ params：`{"kind": "module"|"secret"|"rule"|"catalog", "query": "<名字或问�
 - `secret`：`scope` 缺省 `scene`。返回当前场景的守秘人专属简报：`{"scene": {...dramatic_question, pressure_moves, keeper_notes}, "undiscovered_clues": [{"name", "summary", "delivery_kind"}], "npc_secrets": [{"name", "secret", "agenda"}], "module_secrets": [{"name", "summary"}]}`。`scope: "module"` 给整模组的 `secret` 与 `conclusion` 节点。
 - `rule`、`catalog`：报 `not_implemented`。
 
-### table.recall（切片 0：transcript；保留：memory、history）
-params：`{"what": "transcript"|"memory"|"history", "turns"?: [from, to], "role"?: "player"|"keeper"}`。
-- `transcript`：返回区间内逐字记录，缺省最近 3 回合。
-- 其余报 `not_implemented`。
+### table.recall（切片 0：transcript；切片 2 三路齐全，见 12.4）
+params：`{"what": "transcript"|"memory"|"history", ...}`，三路各自的参数与结果在 12.4。
+- `transcript`：返回区间内逐字记录，缺省最近 3 回合；切片 2 加候选卡与经摘要校验的原文读取。
 
 ### table.resolve（切片 0：普通检定；切片 1 全族见第 11 节）
 params：
@@ -174,7 +178,7 @@ params：`{"call_id", "text": "<本回合叙述>", "placement"?: "auto"|"end"}`�
 5. 写 `turns/<NNNN>.json`、逐字记录（keeper，写 rendered_text）、`turn-finalized` 事件。
 6. 同步 git 提交，提交信息 `turn <n>: <前 60 字>`；失败报 `commit_failed`，回合保持 `acting`，不递增。
 7. 成功后 `turn.json` 进 `awaiting_player`，`turn + 1`。
-result：`{"rendered_text": "...", "turn": int, "receipt": "turn:<n>", "commit": "<短 sha>"}`。
+result：`{"rendered_text": "...", "turn": int, "receipt": "turn:<n>", "commit": "<短 sha>", "facts": {...}, "extraction": {"job_id"}}`；`facts` 与 `extraction` 见 12.5 与 12.3。提交之后的链（检查点、episode、抽取任务）在 12.2–12.3，其中任何一步失败都不撤销已成功的提交：回合已关，失败只进遥测与 backlog。
 
 开桌回合（turn 0）：`table.open` 返回 `opening_needed: true` 时，扩展先让守秘人 `look`，再 `narrate` 开场；此时状态从 `awaiting_player` 直接允许 `narrate`，内核视作 turn 0 的关闭。
 
@@ -195,7 +199,7 @@ result：`{"rendered_text": "...", "turn": int, "receipt": "turn:<n>", "commit":
 
 ## 7. 事件
 
-`events.jsonl` 每行 `{"seq", "turn", "type", "at", "call_id"?, "receipt"?, "data": {...}}`。切片 0 类型：`turn-started`、`player-declared`、`roll-resolved`、`scene-moved`、`clue-discovered`、`time-advanced`、`turn-finalized`。
+`events.jsonl` 每行 `{"seq", "turn", "type", "at", "call_id"?, "receipt"?, "data": {...}}`。十二类 canonical 事件闭合枚举，见 12.1；切片 0 写前七类，切片 1 加 `resource-changed`、`decision-settled`，切片 2 补齐 `session-changed`、`choice-asked`、`memory-written`。
 
 ## 8. 扩展侧职责（kernel 扩展）
 
@@ -316,3 +320,127 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 - `chase:start` 的路线 = 当前场景加 `route-to` 邻居（至多 8），不足时由引擎生成补到差距加三；需要一个有档案的在场 NPC，否则 `needs` 字段 `target`。`chase:conflict` 是引擎的擒抱，只在追者与被追者同位时待决。`chase:end` 的 `outcome` 可省略：引擎已判出 `escaped` / `captured` 时以引擎为准；守秘人给的是工具 schema 里战斗结局的四个词时按被追者是谁翻译（调查员是被追者：`fled`、`investigators_win` → `escaped`，`monsters_win` → `captured`；反之对调），`stalemate` → `concluded`；别的词报 `invalid_params`，`details.options` 列全两套词。追逐结束不改场景：人在哪里由守秘人随后 `apply` move 落地。
 - `recover-temporary` 与 `apply-treatment` 由守秘人调用即视为安全处所；治疗是一次精神分析检定。`san_max = 99 − 克苏鲁神话`。
 - 新增收据种类 `session`，渲染 `【变化】战斗开始/结束：<结果>`、`追逐开始/结束`、`理智发作：<摘要>`；跨轮的回合在骰行前加 `【第 n 轮】`；`effects` 增 `ammo`、`armor`、`position`、`mp`；`ammo` 与 `armor` 同时落 `delta` 收据，渲染 `【变化】弹药：<人> 6 → 5`、`【变化】护甲：<人> 4 → 1`，玩家由此知道那三点伤害去了哪里。NPC 的 HP 与 MP 只活在战斗快照里。
+
+## 12. `narrate` 之后的提交链（切片 2，票 #15）
+
+守秘人的上下文是可丢弃的缓存；桌子的真相在战役目录与 sidecar 仓库里。这一节把 `narrate` 提交之后的链条写死：事件批、续行检查点、记忆 episode 与异步抽取、三路 `recall`、advisory 校验车道。三条法则从旧树原样带过来：**候选不自动晋升**（记忆是参考，不是状态）；**矛盾不删除**（用 `valid_until_turn` 与 `superseded_by` 关闭，两条都可寻址）；**抽取与校验永不阻塞 `narrate`**（失败只进 backlog 与遥测）。旧树的时间线分叉、汇流、双层状态不带过来（规格「范围外」）。
+
+### 12.1 事件批：十二类
+
+`EVENT_TYPES` 闭合枚举，其他类型报 `ValueError`（内核缺陷，不是守秘人错误）：
+
+| 类型 | 谁发 | data |
+| --- | --- | --- |
+| `turn-started` | `player_input` | `{state}` |
+| `player-declared` | `player_input` | `{text}` |
+| `roll-resolved` | `resolve`、`apply damage` | 收据字段 |
+| `scene-moved` | `apply move` | `{from, to, minutes}` |
+| `clue-discovered` | `apply clue` | `{clue}` |
+| `time-advanced` | `apply time`、`apply move` 有行程时 | `{minutes, why?}` |
+| `resource-changed` | `resolve`、`apply damage` | `{resource, subject, before, after}` |
+| `decision-settled` | `resolve` | `{decision, family, outcome_kind, session_kind?, session_status?}` |
+| `session-changed` | `resolve` | `{family: combat|chase|sanity_bout, transition: start|end|round, outcome?, summary?}`，对应每条 `session` 收据 |
+| `choice-asked` | `ask` | `{name, prompt, options, binds}` |
+| `memory-written` | `memory.submit` | `{job_id, turn, candidates: n, superseded: n}` |
+| `turn-finalized` | `narrate` | `{receipts, placement, commit?}` |
+
+每条事件的 `receipt` 指向它对应的收据 id；`session-changed` 与 `choice-asked` 从切片 2 起补发，切片 1 的会话收据只有 `decision-settled`。查询走 `recall history`（12.4），不另开方法。
+
+### 12.2 续行检查点
+
+`narrate` 提交成功后写 `save/continuation/latest.json`：
+
+```
+{"schema": 1, "campaign": "<id>", "turn": <已提交回合>, "commit": "<短 sha>", "at": "<iso>",
+ "scene": {"name", "display_name"}, "clock": {"minutes"},
+ "investigators": [{"id", "name", "hp", "san", "mp", "luck"}],
+ "session": null | {"kind", "status", "round"},
+ "pending_choice": null | {...},
+ "receipts_digest": "<sha256 of turns/NNNN.json receipts>",
+ "one_line": "<第 n 回合：<场景>，<时钟>，<会话>；上回合：<守秘人交付前 60 字>>"}
+```
+
+- 检查点是可重建缓存，不是历史：写失败只进遥测，回合仍算已提交。`turns/NNNN.json` 与 git 提交才是真相。
+- `table.open` 的规则：`turn.json` 可读 → 照旧从它取 `pending_turn`（4 节、12.6）；`turn.json` 缺失或损坏而检查点存在 → 若 HEAD 等于检查点 `commit`，用 `fresh_turn(checkpoint.turn + 1)` 重建 `turn.json`，`resume.rebuilt: true`；HEAD 领先检查点（提交后、写检查点前死掉）→ 从 HEAD 的回合记录重建检查点再继续，不报错。
+- `table.open` 结果加 `resume: null | {turn, commit, scene, clock, session, one_line, rebuilt: bool}`，`opening_needed` 时为 null。
+- 重开进程后的第一条 `player_input` 胶囊带 `resume` 节（同一对象），之后不再带；扩展不为重开单独注入宿主消息，胶囊就是恢复说明。`pending_turn` 的恢复消息仍照 8 节，文字里带 `resume.one_line`。
+
+### 12.3 记忆：episode、抽取任务、候选断言
+
+**Episode**（`narrate` 提交后追加 `memory/episodes.jsonl`）：`{"episode_id": "ep:t<n>", "turn", "commit", "scene", "present": [NPC 名], "investigators": [id], "receipts": [id], "clues_discovered": [名], "player_chars", "keeper_chars", "at"}`。
+
+**抽取任务** `memory.job`，params `{"campaign", "turn"?: int}`；缺省取最新的、还没有完成任务且没在 backlog 里的已提交回合。result：
+
+```
+{"job_id": "extract:<campaign>:t<n>" | null, "turn", "commit",
+ "scene": {"name", "display_name"}, "present": [名], "investigators": [{"id", "name"}],
+ "player_text": "...", "keeper_text": "<rendered_text 去掉【明骰】【变化】【第 n 轮】行>",
+ "committed_facts": [...同 12.5 的 committed...],
+ "known_entities": [{"name", "kind": investigator|npc|scene|clue}],
+ "prior": [{"id", "kind", "subject", "statement", "status", "turn"}]（与在场实体相关的既有候选，≤ 12，按 12.4 排序）,
+ "budget": {"max_candidates": 12, "max_statement_chars": 400},
+ "instruction": "<固定的 play_language 指令：只写这一回合新出现的事实、知晓、信念、关系、玩家断言；主语用 known_entities 里的名字；不写数值与骰面；不复述 prior 已有的>"}
+```
+
+任务包只含名字，不含 commit、收据 id、回合号之外的任何机器键；`turn` 与 `commit` 是给扩展回填遥测用的，不进模型提示。
+
+**候选提交** `memory.submit`，params `{"campaign", "job_id", "candidates": [{...}]}`，每条候选闭合字段：
+
+| 字段 | 取值 |
+| --- | --- |
+| `kind` | `world_event`、`knowledge`、`belief`、`relationship`、`player_assertion`、`player_preference`、`keeper_correction` |
+| `subject` | `known_entities` 里的名字，或保留主语 `world`、`party`、`keeper`、`player`；`world_event` 的主语必须是 `world` |
+| `knowers`? | 名字列表（调查员、NPC、`party`、`keeper`、`player`） |
+| `statement` | 1–400 字 |
+| `entities`? | 名字列表；`relationship` 恰好一个 |
+| `privacy`? | `player_safe`（缺省）或 `keeper_only` |
+| `state`? | `accurate`（缺省）、`uncertain`、`distorted` |
+| `confidence`? | 0–1 |
+
+校验闭合：未知字段、任何机器键（`commit`、`receipt`、`turn`、`id`）、解析不到的名字、同名歧义（图上两个实体同名且都在场）都报 `invalid_params`，`details.index` 指到那一条，`fix` 写出可用的名字；整批要么全落要么全不落。落盘：每条得 `id: "mem:t<n>-<k>"`，`status: "candidate"`，`source: {turn, commit, episode_id, receipts}`，`valid_from_turn: n`。**确定性接续**只做一种：同 `subject` 与同 `entities` 的新 `relationship` 关闭旧的（旧条加 `valid_until_turn: n`、`superseded_by`），其余种类只累积。任务文件 `memory/jobs/<job_id>.json` 整文件原子写；同任务同内容重放幂等，内容不同报 `idempotency_conflict`。成功发 `memory-written` 事件。校验失败或扩展报告车道失败（`memory.fail {"campaign", "job_id", "reason", "detail"}`）写 `memory/backlog.jsonl` 一行 `{job_id, turn, reason: invalid|lane_error|model_error, detail, at, status: pending}`；backlog 里的任务 `memory.job` 不再自动派发，重派要显式给 `turn`。
+
+候选不晋升：本切片没有把候选变成状态或规则事实的路径；`apply` 的 `note` 与 `ruling` 仍保留给后续切片。`recall memory` 把候选连同 `status` 一起给守秘人，相关与否由它判断。
+
+### 12.4 `recall` 三路
+
+- **memory**：params `{"what": "memory", "about"?: [名], "turns"?: [from, to], "kinds"?: [...], "include_superseded"?: bool, "limit"?: ≤ 30}`。收窄全是确定性的：名字按图上名字与别名归一化后精确匹配 `subject`、`knowers`、`entities`；`turns` 落在 `valid_from_turn`；缺省不含已关闭的。排序：与 `about`（缺省取当前在场实体加调查员）重叠数多者先，再按 `valid_from_turn` 晚者先。result `{"what": "memory", "about": [...], "hits": [{"id", "kind", "subject", "knowers", "entities", "statement", "privacy", "state", "confidence", "status", "turn", "superseded_by"?}]}`。不接受散文筛选，没有关键词与正则。
+- **transcript**：params `{"what": "transcript", "turns"?: [from, to], "role"?: "player"|"keeper", "read"?: {"turn", "role"}}`。不带 `read` 时返回 `cards: [{"turn", "role", "chars", "head": "<前 80 字>"}]`（区间缺省最近 3 回合，最多 40 张），并在区间 ≤ 3 回合时同时返回切片 0 的 `entries`；带 `read` 时返回 `{"turn", "role", "text", "verified": bool}`，`verified` 表示逐字记录里的文本与 `turns/NNNN.json` 记录（守秘人取 `rendered_text`，玩家取 `player_text`）的 sha256 一致；不一致仍返回文本但 `verified: false`。
+- **history**：params `{"what": "history", "turns"?: [from, to], "types"?: [事件类型], "diff"?: [turn_a, turn_b]}`。result `{"timeline": [{"turn", "commit", "scene", "clock", "closed_by", "receipts": {"roll": n, "move": n, "clue": n, "delta": n, "session": n, "time": n}, "head": "<守秘人交付前 60 字>"}], "events": [...]（按 `types` 过滤，最多 200 条，缺省不含 `player-declared` 之外的原文）, "diff"?: {"from", "to", "scene": [a, b], "clock": [a, b], "clues_added": [名], "resources": [{"subject", "resource", "from", "to"}], "sessions": [{"turn", "family", "transition", "outcome"?}], "moves": [{"turn", "from", "to"}]}}`。`diff` 只从回合记录里的收据累计，不读 git 对象。
+
+三路都在 `open`、`acting`、`asked`、`awaiting_player` 任何状态可调，只读；写状态的调用照旧要在回合内。
+
+### 12.5 事实清单与校验车道
+
+`narrate` 结果里的 `facts`：
+
+- `committed`：本回合已提交的事实，每条一句 play_language，确定性地从收据与世界状态生成：每条 `roll` 一句（谁、什么检定、过没过）、`move` 一句、`clue` 一句、`delta` 一句（资源 前 → 后）、`session` 一句、`time` 一句，再加「地点：<display_name>」与「在场：<名字>」。
+- `keeper_only`：本场景尚未发现的线索（名字与摘要）、在场 NPC 的 `agenda` 与 `secret`、模组级秘密里与本场景相关的条目；总量 ≤ 2KB，超出按项裁剪。
+
+校验车道在 kernel 扩展内：交付完成后（`message_end` 替换之后）用 Pi SDK 起零工具内存会话，模型由 `PI_COC_VERIFIER_MODEL`（`provider/model`）指定，缺省与桌子同模型；输入是 `rendered_text` 去掉机制行后的正文、`facts.committed`、`facts.keeper_only`，要求只返回 JSON：
+
+```
+{"findings": [{"kind": "reveal"|"uncommitted_state"|"player_agency", "quote": "<正文里的原句，≤ 120 字>", "why": "<≤ 200 字>"}]}
+```
+
+三类分别是：越权揭示了 `keeper_only` 里的事实；声称了 `committed` 里没有的状态变化（走了没 move、拿了没 clue、掉了没 delta）；替玩家做了未授权的自愿行为。扩展把结果交给 `table.warn`，params `{"campaign", "turn", "lane": "verifier", "findings": [...]}`：内核校验 `kind` 枚举，`quote` 必须是该回合 `rendered_text` 的子串（唯一的确定性锚点；不是子串的整条丢弃并记 `dropped`），最多 10 条；写进 `turns/NNNN.json` 的 `warnings`、遥测一行，并在**下一次** `player_input` 的胶囊里带 `warnings: [{"turn", "kind", "quote", "why"}]`（只带最近一个已提交回合的，≤ 1KB）。全部 advisory：不改状态，不拦交付，不重开回合。车道不用关键词、不用正则；能确定性判的（自写骰面、未关的 `needs`）仍在内核。
+
+零工具子会话是规格第六、九节定下的形状：产出是 ≤ 12 条候选或 ≤ 10 条发现的短 JSON，远在单条助手消息的上限之下，不是把整本书塞进一次补全。
+
+### 12.6 崩溃恢复与幂等
+
+- `acting` 与 `committed` 之间死掉：`table.open` 从 `turn.json` 给 `pending_turn`（含 `last_call_ordinal`），守秘人接着做完；已落收据不重掷（`resolve`/`apply` 的 `call_id` 幂等回放）。
+- `narrate` 提交后、写检查点或 episode 之前死掉：重开时检查点从 HEAD 重建；episode 与抽取任务缺失时 `memory.job` 仍能按 `turn` 从回合记录出任务。
+- 同一 `call_id` 的 `narrate` 重放返回已存的结果，不再提交；这是唯一的「不重复提交」机制，扩展不做补偿。
+
+### 12.7 胶囊新增节（切片 2）
+
+- `memory`（≤ 1.5KB）：`recall memory` 缺省排序的前 6 条命中，字段同 12.4；没有候选时为空数组。
+- `warnings`（≤ 1KB）：12.5。
+- `resume`：12.2，只在重开后的第一回合出现。
+
+### 12.8 扩展侧职责（切片 2）
+
+- kernel 扩展：`narrate` 成功后在总线上发 `coc:turn-committed {campaign, turn, commit, job_id, facts, rendered_text}`；交付替换完成后自己跑校验车道并 `table.warn`。车道出错只写遥测（`lane: verifier, ok: false`），不催守秘人，不阻塞。
+- memory 扩展（`extensions/memory`）：订阅 `coc:turn-committed`，`memory.job` → 零工具子会话（模型 `PI_COC_MEMORY_MODEL`，缺省与桌子同模型）→ `memory.submit`；失败一次重试，再失败 `memory.fail`。同一时刻只跑一个任务，后来的排队；进程退出时未完成的任务留给下次 `memory.job` 缺省派发。
+- 两条车道的 RPC（`memory.job`、`memory.submit`、`memory.fail`、`table.warn`）不带 `call_id`、不看回合状态；结果按 `turn` 落到对应回合记录，晚到也收。
+- 子会话的建法与模型选择写进 `docs/pi-host-contract.md` 第 3–5 节。
