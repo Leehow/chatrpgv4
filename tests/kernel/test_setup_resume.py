@@ -1,7 +1,7 @@
 """§14.4 for a bound book: the world starts at the first setup call that finds the graph,
 and setup.steps {campaign} tells a restarted setup process what is already done."""
 
-from conftest import CAMPAIGN, campaign_dir, read_json
+from conftest import CAMPAIGN, MODULE, campaign_dir, read_json
 from module_helpers import TINY_ID, bind_tiny, module_dir, packet_for, reader_shard, review, write_shard
 
 
@@ -89,5 +89,57 @@ def test_module_source_reuses_an_installed_book_and_skips_the_build_lane(kernel,
     handoff = kernel.ok("setup.complete", {"campaign": second})
     assert handoff["status"] == "ready_for_table" and handoff["module_id"] == TINY_ID
 
+    opened = kernel.table("open", campaign=second)
+    assert opened["campaign"]["status"] == "active"
+
+
+# ---- §21.5: the setup entry point for the investigator library ---------------------------
+
+
+def test_investigator_source_reuses_a_saved_card_and_skips_occupation_and_points(kernel):
+    """§21.5: a card built through setup.investigator in one campaign, saved to the
+    library, then loaded straight into a second campaign's setup instead of building a
+    new one -- no occupation, no point allocation, no create-investigator call at all.
+    setup.steps reports the library lane done and the new-investigator lane not
+    applicable; the mirror image of test_module_source_reuses_an_installed_book_and_
+    skips_the_build_lane above, on the second, independent axis (contract §21.5)."""
+    first = "first-camp"
+    kernel.ok("campaign.create", {"id": first, "module": MODULE, "play_language": "en"})
+    made = kernel.ok("setup.investigator", {"campaign": first, "name": "Marlowe", "occupation": "Journalist", "seed": "lib-1"})
+    kernel.ok("setup.complete", {"campaign": first})
+    saved = kernel.ok("investigator.save", {"campaign": first})
+    library_id = saved["library_id"]
+
+    second = "second-camp"
+    kernel.ok("campaign.create", {"id": second, "module": MODULE, "play_language": "en"})
+    # what the table's browse-library/load-investigator pair does: list, then load by id.
+    listed = kernel.ok("investigator.list", {})["investigators"]
+    assert library_id in [row["library_id"] for row in listed]
+    loaded = kernel.ok("investigator.load", {"campaign": second, "library_id": library_id})
+
+    source = read_json(campaign_dir(kernel.workspace, first) / "party" / f"{made['investigator']['id']}.json")
+    target = read_json(campaign_dir(kernel.workspace, second) / "party" / f"{loaded['investigator']['id']}.json")
+
+    def without_id_and_origin(sheet):
+        return {k: v for k, v in sheet.items() if k not in ("id", "origin")}
+
+    # byte-identical apart from id and origin: no conversion, no re-roll (contract §21.3).
+    # (the two campaigns are separate directories, so the id happening to coincide --
+    # both are the first investigator in an otherwise empty party -- is not a collision.)
+    assert without_id_and_origin(source) == without_id_and_origin(target)
+    # `investigator.save` stamped the source sheet's origin (no `loaded_at_turn`); `load`
+    # stamps the target's differently (`loaded_at_turn` added) -- the two origins differ.
+    assert source["origin"] == {"library_id": library_id}
+    assert target["origin"] == {"library_id": library_id, "loaded_at_turn": 0}
+
+    # the setup table sees the library lane, not the new-investigator lane: occupation
+    # and point allocation were skipped, so create-investigator reports not applicable
+    # rather than merely undone (contract §21.5's "not applicable" vs. "missing").
+    resume = kernel.ok("setup.steps", {"campaign": second})
+    assert "browse-library" in resume["completed"] and "load-investigator" in resume["completed"]
+    assert "create-investigator" not in resume["completed"]
+
+    handoff = kernel.ok("setup.complete", {"campaign": second})
+    assert handoff["status"] == "ready_for_table" and handoff["investigators"] == [loaded["investigator"]["id"]]
     opened = kernel.table("open", campaign=second)
     assert opened["campaign"]["status"] == "active"

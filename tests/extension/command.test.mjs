@@ -164,6 +164,81 @@ test("/coc evidence：证据路径，给人开另一个终端看", async (t) => 
 	assert.match(view, /\.coc\/playtests$/m);
 });
 
+test("/coc investigator：库的名册，最新的在前（契约 §21.5）", async (t) => {
+	const table = await tableAfterOneTurn(t, {
+		env: {
+			FAKE_KERNEL_INVESTIGATORS: JSON.stringify([
+				{
+					library_id: "ada-lovelace-1", name: "Ada Lovelace", occupation: "Journalist", era: "1920s",
+					current_hp: 12, current_san: 55, last_campaign: "old-camp", last_turn: 7,
+					updated_at: "2026-02-01T00:00:00Z",
+				},
+				{
+					library_id: "bob-reed-1", name: "Bob Reed", occupation: "Artist", era: "1920s",
+					current_hp: 10, current_san: 60, updated_at: "2026-01-01T00:00:00Z",
+				},
+			]),
+		},
+	});
+	const requestsBefore = table.kernelRequests().length;
+
+	await table.session.prompt("/coc investigator");
+	const view = lastNotice(table).message;
+	assert.match(view, /^investigators$/m, "抬头");
+	assert.match(view, /^ {2}ada-lovelace-1.*Ada Lovelace.*Journalist.*1920s.*HP 12 SAN 55.*old-camp t7$/m, "第一张卡，带上一局与回合");
+	assert.match(view, /^ {2}bob-reed-1.*Bob Reed.*Artist.*1920s.*HP 10 SAN 60.*never played$/m, "没玩过的那张卡");
+	assert.match(view, /\/coc investigator save/, "说清楚存卡的命令");
+
+	// 一次读调用，不占回合、不进模型上下文（按需深读那条车道是异步的，跟这条命令无关）
+	assert.deepEqual(
+		table
+			.kernelRequests()
+			.slice(requestsBefore)
+			.map((row) => row.method)
+			.filter((method) => !method.startsWith("module.deepen.")),
+		["investigator.list"],
+	);
+	assert.equal(
+		table.session.messages.filter((message) => message.role === "user").length,
+		1,
+		"没有变成玩家输入",
+	);
+});
+
+test("/coc investigator：库是空的", async (t) => {
+	const table = await tableAfterOneTurn(t);
+
+	await table.session.prompt("/coc investigator");
+	assert.match(lastNotice(table).message, /^investigators$/m);
+	assert.match(lastNotice(table).message, /the library is empty/);
+});
+
+test("/coc investigator save：把当前桌子的卡手动存进库（契约 §21.5，回流之外的保险）", async (t) => {
+	const table = await tableAfterOneTurn(t);
+	const requestsBefore = table.kernelRequests().length;
+
+	await table.session.prompt("/coc investigator save");
+	assert.match(lastNotice(table).message, /^investigator {2}saved 托马斯·海耶斯 to the library as thomas-hayes-1 {2}\(new row\)\.$/m);
+	assert.deepEqual(
+		table
+			.kernelRequests()
+			.slice(requestsBefore)
+			.map((row) => row.method)
+			.filter((method) => !method.startsWith("module.deepen.")),
+		["investigator.save"],
+	);
+	const rows = table.entries("coc-telemetry").filter((row) => row.lane === "command" && row.command === "investigator save");
+	assert.equal(rows.length, 1);
+	assert.deepEqual(
+		{ ok: rows[0].ok, library_id: rows[0].library_id, created: rows[0].created },
+		{ ok: true, library_id: "thomas-hayes-1", created: true },
+	);
+
+	// 再存一次：假内核这次回 created: false，命令原样报告「更新」
+	await table.session.prompt("/coc investigator save");
+	assert.match(lastNotice(table).message, /\(updated\)\.$/m);
+});
+
 test("/coc 认不出的子命令：一条警告，把子命令表说清楚", async (t) => {
 	const table = await tableAfterOneTurn(t);
 
@@ -181,11 +256,14 @@ test("非交互模式：`/coc` 只回一行 interactive only，别的什么都�
 	table.ui.notifications.length = 0;
 	const requestsBefore = table.kernelRequests().length;
 
-	for (const command of ["/coc", "/coc model", "/coc model verifier/v1", "/coc thinking high", "/coc lanes", "/coc evidence"]) {
+	for (const command of [
+		"/coc", "/coc model", "/coc model verifier/v1", "/coc thinking high", "/coc lanes", "/coc evidence",
+		"/coc investigator", "/coc investigator save",
+	]) {
 		await table.session.prompt(command);
 	}
 
-	assert.equal(table.ui.notifications.length, 6, "每次一行，不多");
+	assert.equal(table.ui.notifications.length, 8, "每次一行，不多");
 	for (const note of table.ui.notifications) {
 		assert.equal(note.type, "warning");
 		assert.match(note.message, /^\/coc is interactive only/);

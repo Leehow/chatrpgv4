@@ -7,12 +7,17 @@
  * before it ever builds a prompt (`AgentSession.prompt` returns as soon as the handler ran), so a
  * `/coc` neither spends a turn, nor touches the kernel's turn state machine, nor shows up as
  * player input. The only kernel calls made here are reads (`table.status`, `table.capsule`,
- * `module.list`, `module.status`).
+ * `module.list`, `module.status`, `investigator.list`) plus one write (`investigator.save`).
  *
  * `/coc module` (contract §20.3) is the same kind of thing: the store and what can be played right
  * now are two reads, `use` prints commands, and `parse` writes no logic of its own — it puts one
  * request on `coc:module-ingest`, exactly the request a front end's file picker sends (contract
  * §20.4), and reports the job's progress back through the same interface.
+ *
+ * `/coc investigator` (contract §21.5) is the manual half of the investigator library: with no
+ * argument it lists the library (`investigator.list`), and `save` stores the current table's card
+ * into it by hand (`investigator.save`) -- the insurance beside the automatic per-turn write-back
+ * (contract §21.4), which needs no command at all because it is not optional.
  *
  * Outside an interactive terminal (`ctx.mode !== "tui"`: RPC and print) the command answers one
  * line and does nothing else. The real-table driver does not use it.
@@ -551,6 +556,91 @@ function evidenceView(deps: CommandDeps): string {
 	return ["evidence", ...rows.map((row) => `  ${row.label.padEnd(width)}  ${row.path}`)].join("\n");
 }
 
+// ---- The investigator library (contract §21.5) -----------------------------
+
+/** One row of the library, exactly `investigator.list`'s summary shape (contract §21.2). */
+export interface InvestigatorRow {
+	library_id: string;
+	name?: string;
+	occupation?: string;
+	era?: string;
+	current_hp?: number;
+	current_san?: number;
+	last_campaign?: string;
+	last_turn?: number;
+	updated_at?: string;
+}
+
+/** Newest first, exactly as `investigator.list` already sorts it -- nothing here re-sorts. */
+export function investigatorListLines(rows: InvestigatorRow[]): string[] {
+	const lines = ["investigators"];
+	if (rows.length === 0) {
+		lines.push("  (the library is empty; /coc investigator save stores the current table's card)");
+		return lines;
+	}
+	const idWidth = Math.max(...rows.map((row) => row.library_id.length));
+	const nameWidth = Math.min(24, Math.max(...rows.map((row) => (row.name ?? "").length)));
+	const occWidth = Math.min(20, Math.max(...rows.map((row) => (row.occupation ?? "").length)));
+	for (const row of rows) {
+		const hpSan = `HP ${row.current_hp ?? "?"} SAN ${row.current_san ?? "?"}`;
+		const last = row.last_campaign ? `${row.last_campaign} t${row.last_turn ?? "?"}` : "never played";
+		lines.push(
+			`  ${row.library_id.padEnd(idWidth)}  ${(row.name ?? "?").padEnd(nameWidth)}  ${(row.occupation ?? "?").padEnd(occWidth)}  ${(row.era ?? "?").padEnd(8)}  ${hpSan.padEnd(16)}  ${last}`,
+		);
+	}
+	lines.push("  /coc investigator save stores the current table's card into the library by hand.");
+	return lines;
+}
+
+async function investigatorRows(deps: CommandDeps): Promise<InvestigatorRow[]> {
+	const listed = await readOrUndefined(deps.call(), "investigator.list", {});
+	return arr(listed?.investigators)
+		.map(rec)
+		.map((row) => ({
+			library_id: str(row.library_id) ?? "?",
+			...(str(row.name) ? { name: str(row.name) as string } : {}),
+			...(str(row.occupation) ? { occupation: str(row.occupation) as string } : {}),
+			...(str(row.era) ? { era: str(row.era) as string } : {}),
+			...(num(row.current_hp) !== undefined ? { current_hp: num(row.current_hp) as number } : {}),
+			...(num(row.current_san) !== undefined ? { current_san: num(row.current_san) as number } : {}),
+			...(str(row.last_campaign) ? { last_campaign: str(row.last_campaign) as string } : {}),
+			...(num(row.last_turn) !== undefined ? { last_turn: num(row.last_turn) as number } : {}),
+			...(str(row.updated_at) ? { updated_at: str(row.updated_at) as string } : {}),
+		}));
+}
+
+/**
+ * `/coc investigator save [name]`: the insurance beside the automatic per-turn write-back
+ * (contract §21.4) -- that one is not optional and needs no command; this is for saving before
+ * the first commit, or right after a change the player wants in the library immediately.
+ */
+async function investigatorSave(deps: CommandDeps, who: string): Promise<string> {
+	const campaign = deps.campaign();
+	if (!campaign) return "investigator  no table is open, so there is no campaign to save from.";
+	const call = deps.call();
+	if (!call) return "investigator  the kernel is not open, so nothing can be saved.";
+	const result = rec(await call("investigator.save", { campaign, ...(who ? { investigator: who } : {}) }));
+	const libraryId = str(result.library_id) ?? "?";
+	const created = result.created === true;
+	deps.record({ lane: "command", command: "investigator save", ok: true, library_id: libraryId, created });
+	return `investigator  saved ${str(result.name) ?? str(result.investigator) ?? "the card"} to the library as ${libraryId}${created ? "  (new row)" : "  (updated)"}.`;
+}
+
+const INVESTIGATOR_USAGE = [
+	"investigator  /coc investigator        the library: name, occupation, era, HP/SAN, last campaign and turn, newest first",
+	"              /coc investigator save   save the current table's investigator into the library by hand",
+].join("\n");
+
+async function investigatorView(deps: CommandDeps, argument: string): Promise<string> {
+	const space = argument.indexOf(" ");
+	const verb = (space === -1 ? argument : argument.slice(0, space)).toLowerCase();
+	const rest = (space === -1 ? "" : argument.slice(space + 1)).trim();
+	if (verb === "save") return await investigatorSave(deps, rest);
+	if (verb !== "") return `investigator  "${verb}" is not a /coc investigator sub-command.\n${INVESTIGATOR_USAGE}`;
+	if (!deps.call()) return "investigators  the kernel is not open, so the library cannot be read.";
+	return investigatorListLines(await investigatorRows(deps)).join("\n");
+}
+
 // ---- Registration ----------------------------------------------------------
 
 export const COC_COMMAND = "coc";
@@ -577,7 +667,7 @@ export function registerCocCommand(pi: ExtensionAPI, deps: CommandDeps): void {
 	pi.events.on("coc:module-ingest-failed", (data) => deps.notify(ingestFailedLine(rec(data)), "error"));
 
 	pi.registerCommand(COC_COMMAND, {
-		description: "COC table: status, model, thinking, lanes, evidence, module",
+		description: "COC table: status, model, thinking, lanes, evidence, module, investigator",
 		handler: async (args, ctx) => {
 			// RPC and print modes get one line and nothing else (contract §19.1).
 			if (ctx.mode !== "tui") {
@@ -608,9 +698,12 @@ export function registerCocCommand(pi: ExtensionAPI, deps: CommandDeps): void {
 					case "module":
 						ctx.ui.notify(await moduleView(pi, ctx, deps, argument), "info");
 						return;
+					case "investigator":
+						ctx.ui.notify(await investigatorView(deps, argument), "info");
+						return;
 					default:
 						ctx.ui.notify(
-							`"${sub}" is not a /coc sub-command. Use /coc, /coc model [provider/model], /coc thinking <level>, /coc lanes, /coc evidence, /coc module.`,
+							`"${sub}" is not a /coc sub-command. Use /coc, /coc model [provider/model], /coc thinking <level>, /coc lanes, /coc evidence, /coc module, /coc investigator.`,
 							"warning",
 						);
 						return;

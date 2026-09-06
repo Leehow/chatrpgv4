@@ -1,10 +1,14 @@
 {
   "contract": "coc.setup-steps.v1",
-  "note": "The seven-step setup table (kernel-rpc.md §14.4). Both the onboarding extension and the kernel read this file; order, available actions, rejection lines and next-step lines (English, kernel-rpc.md §16.1; the setup model says them in the player's language) are written here once and derived everywhere else. `needs` are step ids; a step whose `only_for` names a source kind counts as satisfied for the other kind. `kind` is ask (the model asks the player), external (the host does something outside the kernel) or op (a method named by `op`; `side` is kernel unless the op is the module extension's own driver loop, §14.5).",
+  "note": "The seven-step setup table (kernel-rpc.md §14.4). Both the onboarding extension and the kernel read this file; order, available actions, rejection lines and next-step lines (English, kernel-rpc.md §16.1; the setup model says them in the player's language) are written here once and derived everywhere else. `needs` are step ids; a step whose `only_for` names a source kind counts as satisfied for the other kind. `kind` is ask (the model asks the player), external (the host does something outside the kernel) or op (a method named by `op`; `side` is kernel unless the op is the module extension's own driver loop, §14.5). `investigator_source` is the same idea on a second, independent axis (kernel-rpc.md §21.5): which of `investigator_sources` a step belongs to when getting an investigator onto the party, checked the same way `only_for` is (SetupSteps.applies), so a resumed setup's `completed` list correctly reports the lane not taken as not applicable rather than missing -- it is a separate field from `only_for` precisely so a live setup process (which tracks one source kind) is not made to also arbitrate this second choice.",
   "sources": [
     "starter",
     "pdf",
     "module"
+  ],
+  "investigator_sources": [
+    "new",
+    "library"
   ],
   "start": "choose-source",
   "table_open_fix": "bin/pi-coc setup --campaign {campaign}",
@@ -163,6 +167,7 @@
         "build-opening"
       ],
       "only_for": null,
+      "investigator_source": "new",
       "kind": "op",
       "op": "setup.investigator",
       "params": {
@@ -243,9 +248,56 @@
       }
     },
     {
+      "id": "browse-library",
+      "needs": [
+        "create-campaign",
+        "build-opening"
+      ],
+      "only_for": null,
+      "investigator_source": "library",
+      "kind": "op",
+      "op": "investigator.list",
+      "params": {},
+      "receipt": "library_options",
+      "lines": {
+        "do": "investigator.list returns every card in the investigator library (name, occupation, era, HP/SAN, last campaign and turn, newest first); read it out and let the player choose one by its library_id, or say they would rather build a new investigator instead (create-investigator).",
+        "next": "List the library (investigator.list) so the player can choose a card, or use create-investigator for a brand-new one."
+      }
+    },
+    {
+      "id": "load-investigator",
+      "needs": [
+        "browse-library"
+      ],
+      "only_for": null,
+      "investigator_source": "library",
+      "kind": "op",
+      "op": "investigator.load",
+      "params": {
+        "campaign": {
+          "description": "filled in automatically from the campaign already being set up",
+          "required": true
+        },
+        "library_id": {
+          "description": "one of the library_id values investigator.list returned",
+          "required": true
+        },
+        "as": {
+          "description": "optional: play this card under a new name, which mints it a row of its own (a second person, not a rename) instead of sharing the original's",
+          "required": false
+        }
+      },
+      "receipt": "investigator_id",
+      "lines": {
+        "do": "investigator.load copies the chosen card's sheet into this campaign byte for byte -- no conversion, no re-roll, no era gate (contract §21.3); occupation and point allocation are skipped because the sheet already carries them.",
+        "next": "Load the investigator: give the library_id to use (from browse-library's list)."
+      }
+    },
+    {
       "id": "complete",
       "needs": [
-        "create-investigator"
+        "create-investigator",
+        "load-investigator"
       ],
       "only_for": null,
       "kind": "op",

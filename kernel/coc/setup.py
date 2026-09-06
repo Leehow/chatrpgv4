@@ -13,7 +13,7 @@ import datetime as _dt
 import json
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from .chargen import Chargen, ChargenError, METHODS, default_investigator_id
 from .errors import RpcError, invalid_params
@@ -58,9 +58,12 @@ class SetupSteps:
         self.validate()
 
     def validate(self) -> None:
-        """Ids unique, needs known, only_for a declared source, kinds closed, op present
-        for op steps, and the needs form a DAG."""
+        """Ids unique, needs known, only_for a declared source, investigator_source a
+        declared investigator source (§21.5's second, independent axis -- new vs.
+        loaded from the library), kinds closed, op present for op steps, and the
+        needs form a DAG."""
         sources = set(self.raw.get("sources") or [])
+        investigator_sources = set(self.raw.get("investigator_sources") or [])
         if len(self.by_id) != len(self.steps):
             raise ValueError("setup steps: duplicate step id")
         for step in self.steps:
@@ -70,6 +73,9 @@ class SetupSteps:
                 raise ValueError(f"setup step {step['id']}: op steps name their kernel method")
             if step.get("only_for") is not None and step["only_for"] not in sources:
                 raise ValueError(f"setup step {step['id']}: only_for must be one of {sorted(sources)}")
+            if step.get("investigator_source") is not None and step["investigator_source"] not in investigator_sources:
+                raise ValueError(f"setup step {step['id']}: investigator_source must be one of "
+                                 f"{sorted(investigator_sources)}")
             for need in step.get("needs") or []:
                 if need not in self.by_id:
                     raise ValueError(f"setup step {step['id']} needs unknown step {need!r}")
@@ -95,8 +101,9 @@ class SetupSteps:
     def step(self, step_id: str) -> dict[str, Any]:
         return self.by_id[step_id]
 
-    def order(self, source: str) -> list[str]:
-        """Topological order for one source kind, steps for the other kind left out."""
+    def order(self, source: str | Iterable[str]) -> list[str]:
+        """Topological order for one source kind (or set of active kinds, §21.5), steps
+        for another kind left out."""
         out: list[str] = []
         for step in self.steps:
             if not self.applies(step["id"], source):
@@ -105,13 +112,27 @@ class SetupSteps:
                 out.append(step["id"])
         return out
 
-    def applies(self, step_id: str, source: str) -> bool:
-        """Whether this step is part of the table for this source kind: unset `only_for`
-        applies everywhere, a set one only to its own source. A third source (`module`,
-        §20.7) automatically excludes every `pdf`-only step -- no new data is written for
-        it, the same field that already keeps `starter` out of `build-bundle`/`bind-source`
-        keeps `module` out too."""
-        return self.step(step_id).get("only_for") in (None, source)
+    def applies(self, step_id: str, source: str | Iterable[str]) -> bool:
+        """Whether this step is part of the table for this source (or set of active
+        kinds): unset `only_for` applies everywhere, a set one only to its own source. A
+        third source (`module`, §20.7) automatically excludes every `pdf`-only step -- no
+        new data is written for it, the same field that already keeps `starter` out of
+        `build-bundle`/`bind-source` keeps `module` out too.
+
+        `source` may also be a set of kind tokens rather than one string: §21.5 adds a
+        second, independent axis (`investigator_source`, new vs. library) that is live at
+        the same time as the module-source axis (`only_for`) without either one gating the
+        other -- a step is excluded only if *its own* declared field (whichever one it
+        set) is not among the active kinds; a step that sets neither always applies."""
+        kinds = {source} if isinstance(source, str) else set(source)
+        step = self.step(step_id)
+        only_for = step.get("only_for")
+        if only_for is not None and only_for not in kinds:
+            return False
+        investigator_source = step.get("investigator_source")
+        if investigator_source is not None and investigator_source not in kinds:
+            return False
+        return True
 
     def table_open_fix(self, campaign_id: str) -> str:
         return str(self.raw["table_open_fix"]).format(campaign=campaign_id)
@@ -361,11 +382,27 @@ class SetupMethods:
         if self.steps.applies("build-opening", kind) and module and \
                 (module.get("status") == "installed" or module.get("opening_ready") is True):
             completed.add("build-opening")
-        if campaign.party():
+        # §21.5's second axis: which investigator source(s) this campaign's setup
+        # receipts actually show, derived from campaign state the same way `kind` is --
+        # never a stored "chosen lane". `setup.investigator`'s receipt never carries a
+        # `source` key; `investigator.load`'s does, and only says "library" (kernel/coc/
+        # library.py `load`). A mixed party (one card built, one loaded) reports both.
+        receipts = (meta.get("setup") or {}).get("receipts") or []
+        investigator_kinds: set[str] = set()
+        for receipt in receipts:
+            if not isinstance(receipt, dict) or receipt.get("kind") != "investigator":
+                continue
+            investigator_kinds.add("library" if receipt.get("source") == "library" else "new")
+        if "new" in investigator_kinds:
             completed.add("create-investigator")
+        if "library" in investigator_kinds:
+            # `browse-library` (investigator.list) changes nothing on its own, so there is
+            # no receipt to check it against; a completed load implies it was consulted.
+            completed.update({"browse-library", "load-investigator"})
         if meta.get("status") in (STATUS_READY, STATUS_ACTIVE):
             completed.add("complete")
-        ordered_completed = [step_id for step_id in self.steps.order(kind) if step_id in completed]
+        active_kinds = {kind, *investigator_kinds}
+        ordered_completed = [step_id for step_id in self.steps.order(active_kinds) if step_id in completed]
         state: dict[str, Any] = {"campaign": campaign.id, "module_id": module_id, "module": module_id,
                                  "source": {"kind": kind, "module_id": module_id}, "source_kind": kind}
         return {**table, "completed": ordered_completed, "state": state}

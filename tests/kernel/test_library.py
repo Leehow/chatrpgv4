@@ -106,8 +106,14 @@ def test_load_copies_the_sheet_byte_for_byte_except_id_and_origin(kernel):
     receipt = meta["setup"]["receipts"][-1]
     assert receipt == {**receipt, "id": f"investigator:{new_id}", "kind": "investigator", "source": "library",
                        "library_id": library_id, "forked_from": None}
-    # the setup ladder sees a party and the table opens on it
-    assert "create-investigator" in kernel.ok("setup.steps", {"campaign": SECOND})["completed"]
+    # the setup ladder sees a party and the table opens on it -- through the library
+    # lane (browse-library, load-investigator), not create-investigator: this campaign's
+    # only investigator receipt says source: library, so occupation and point
+    # allocation were skipped, and the table's own applies()/order() (contract §21.5)
+    # report create-investigator as not applicable rather than merely undone.
+    completed = kernel.ok("setup.steps", {"campaign": SECOND})["completed"]
+    assert "browse-library" in completed and "load-investigator" in completed
+    assert "create-investigator" not in completed
     assert kernel.ok("setup.complete", {"campaign": SECOND})["investigators"] == [new_id]
     assert kernel.ok("table.open", {"campaign": SECOND})["investigators"][0]["id"] == new_id
     # loading is read-only on the row: it still says the card was last in c1
