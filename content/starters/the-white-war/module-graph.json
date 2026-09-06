@@ -1435,7 +1435,12 @@
         "fear": "Being held responsible for sending men into an obvious trap, or for failing to act on a real opportunity.",
         "secret": "He has been ordered to treat the patrol as expendable; the reconnaissance matters more to the battalion than any single squad.",
         "voice": "Curt, military, hides urgency behind procedure. Speaks in short declarative orders.",
-        "relationship_to_investigators": "superior_officer"
+        "relationship_to_investigators": "superior_officer",
+        "deflect_lines": [
+          {
+            "line": "Your orders contain every fact you need for the patrol."
+          }
+        ]
       },
       "source_refs": []
     },
@@ -1594,7 +1599,12 @@
         "fear": "The whistler; the mountains at night; being left behind.",
         "secret": "He is one of the civilian prisoners the Austrians conscripted to dig their fortifications. He knows the whistler only as a folk demon, not its true nature.",
         "voice": "Old, regional dialect, switches between lucid warning and frantic prayer. Names the thing by a local folk word for 'the whistler.'",
-        "relationship_to_investigators": "victim"
+        "relationship_to_investigators": "victim",
+        "deflect_lines": [
+          {
+            "line": "He folds into prayer and cannot force out another word."
+          }
+        ]
       },
       "source_refs": []
     },

@@ -134,6 +134,13 @@ def _node_id(kind: str, raw: str) -> str:
     return candidate
 
 
+def _handle_of(node_id: str) -> str:
+    """The handle the table uses for a node id (`clue-knott-commission` -> `knott-commission`),
+    the same spelling `ModuleGraph.handle` produces."""
+    kind, _, rest = node_id.partition("-")
+    return rest or node_id
+
+
 def _cjk_count(value: Any) -> int:
     return len(_CJK.findall(json.dumps(value, ensure_ascii=False)))
 
@@ -599,10 +606,28 @@ def build_starter_graph(starter_dir: Path | str, *, asset_catalog: Path | str | 
             value = record.get(key)
             if isinstance(value, str) and value.strip():
                 npc_node["properties"][key] = value.strip()
+        by_fact: dict[str, str] = {}
         for fact in record.get("facts") or []:
-            clue_node = _node_id("clue", str(fact.get("clue_id"))) if isinstance(fact, dict) else None
+            if not isinstance(fact, dict):
+                continue
+            clue_node = _node_id("clue", str(fact.get("clue_id")))
             if clue_node in nodes and nodes[clue_node].get("node_kind") == "clue":
                 add_relation("knows", npc_id, clue_node)
+                if isinstance(fact.get("fact_id"), str):
+                    by_fact[fact["fact_id"]] = clue_node
+        # §17.2: what he would say instead of the plain truth. A lie is about a fact, so it
+        # is an `asserts` claim on that clue; a deflection is a line, and the contract keeps
+        # prose in `properties` -- so the line stays there, next to the fact it stalls.
+        for lie in record.get("lie_options") or []:
+            clue_node = by_fact.get(str(lie.get("fact_id"))) if isinstance(lie, dict) else None
+            if clue_node:
+                add_relation("asserts", npc_id, clue_node)
+        deflects = [{"line": d["player_safe_line"],
+                     **({"clue": _handle_of(by_fact[str(d.get("fact_id"))])} if by_fact.get(str(d.get("fact_id"))) else {})}
+                    for d in record.get("deflect_options") or []
+                    if isinstance(d, dict) and isinstance(d.get("player_safe_line"), str) and d["player_safe_line"].strip()]
+        if deflects:
+            npc_node["properties"]["deflect_lines"] = deflects
 
     # Quest target refs are already structured authoring decisions.
     for quest_id, quest_node in list(nodes.items()):

@@ -4,10 +4,10 @@
   "module_id": "module-mystery-house",
   "generation": 1,
   "graph_contract_id": "coc.module-graph.v3",
-  "graph_content_digest": "09dd90b9d2513623b12ec49bf7a8bff84f2a509779ed8b0118b05658172eeaef",
+  "graph_content_digest": "39740d2da5db3efd45bc99956f24e66b7b07e5590467b5df84775ca31593df0f",
   "node_count": 116,
-  "relation_count": 266,
-  "claim_count": 266,
+  "relation_count": 267,
+  "claim_count": 267,
   "node_kinds": {
     "beat": 12,
     "clue": 39,

@@ -60,6 +60,24 @@ def test_the_dossier_is_read_the_same_way_from_a_starter_and_a_built_book():
     assert starter.npc_has_material(bare) is False
 
 
+def test_what_someone_would_say_instead_reaches_the_projection():
+    """§17.2/§17.4: a lie the book wrote is an `asserts` claim about the clue it is told
+    over; a deflection is a line, so it stays in `properties` where the contract keeps
+    prose. Both answer the same question for the keeper, so both land in `would_lie_about`."""
+    starter = ModuleGraph("the-haunting", CONTENT / "starters" / "the-haunting" / "module-graph.json")
+    dooley = starter.npc("Mr. Dooley")
+    # he embellishes the burning-eyes account, and he stalls for the price of a paper
+    assert [c["object"]["node_id"] for c in starter.npc_claims(dooley, "asserts")] == ["clue-burning-eyes-form"]
+    said = starter.npc_would_say(dooley)
+    assert any("memory improves" in line for line in said), said
+    assert len(said) == 2  # one lie, one deflection
+
+    knott = starter.npc("Steven Knott")
+    assert starter.npc_claims(knott, "asserts") == []  # the book gives him no lie
+    assert starter.npc_would_say(knott) == [
+        "Start with the papers; we can discuss the rest when you have something concrete."]
+
+
 def test_ties_come_from_the_relations_the_graph_already_has():
     """§17.2: no new relation kind; who someone stands with is read off the graph both ways
     round, and the people in the room sort first (§17.4)."""

@@ -438,6 +438,17 @@ class ModuleGraph:
                 lines.append(line.strip())
         return lines
 
+    def npc_would_say(self, node: dict[str, Any]) -> list[str]:
+        """§17.4 `would_lie_about`: what this person says instead of the plain truth — the
+        clue an `asserts` claim says they lie about, plus the deflection lines the book
+        wrote for them. Copied, never composed."""
+        lines = self.npc_claim_lines(node, ASSERTS)
+        for deflect in (node.get("properties") or {}).get("deflect_lines") or []:
+            line = deflect.get("line") if isinstance(deflect, dict) else None
+            if isinstance(line, str) and line.strip() and line.strip() not in lines:
+                lines.append(line.strip())
+        return lines
+
     def npc_ties(self, node: dict[str, Any]) -> list[dict[str, Any]]:
         """Who this person stands with and against: the tie relations either way round,
         deduplicated by (kind, other node), in graph order."""

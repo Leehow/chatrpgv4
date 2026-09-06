@@ -2708,7 +2708,13 @@
         "fear": "Wasting breath on snobs who look down on street vendors.",
         "secret": "He exaggerates; not every line is true. He can still point to the chapel ruins and name the house 'the Crowe House'.",
         "voice": "Salesman banter, neighborhood Irish-Boston color, enjoys a listener.",
-        "relationship_to_investigators": "informant"
+        "relationship_to_investigators": "informant",
+        "deflect_lines": [
+          {
+            "line": "Buy a paper first, then perhaps my memory improves.",
+            "clue": "chapel-ruins-location"
+          }
+        ]
       },
       "source_refs": []
     },
@@ -2916,7 +2922,13 @@
         "fear": "Being stuck with a worthless haunted white elephant that ruins his credit.",
         "secret": "RULE GYM: Crane is a Mythos magician who will teach any listed spell on request. He still plays the impatient landlord in public.",
         "voice": "Practical, impatient, money-minded. Speaks in short offers and deadlines.",
-        "relationship_to_investigators": "employer"
+        "relationship_to_investigators": "employer",
+        "deflect_lines": [
+          {
+            "line": "Start with the papers; we can discuss the rest when you have something concrete.",
+            "clue": "crane-research-leads"
+          }
+        ]
       },
       "source_refs": []
     },
@@ -3110,7 +3122,12 @@
         "fear": "The presence returning; questions that drag her back into the bedrooms.",
         "secret": "She can describe night visits and poltergeist anger but cannot give tactical specifics or Ke's name.",
         "voice": "Fragile, soft, cuts off when pressed. Speaks of 'it', not a man with a biography.",
-        "relationship_to_investigators": "victim"
+        "relationship_to_investigators": "victim",
+        "deflect_lines": [
+          {
+            "line": "Please—not all of it at once."
+          }
+        ]
       },
       "source_refs": []
     },
@@ -6947,6 +6964,22 @@
   ],
   "claims": [
     {
+      "claim_id": "claim-asserts-253",
+      "subject_id": "npc-dooley",
+      "predicate": "asserts",
+      "object": {
+        "node_id": "clue-burning-eyes-form"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
       "claim_id": "claim-contains-1",
       "subject_id": "module-mystery-house",
       "predicate": "contains",
@@ -8835,7 +8868,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-knows-253",
+      "claim_id": "claim-knows-254",
       "subject_id": "npc-howard-crane",
       "predicate": "knows",
       "object": {
@@ -8851,7 +8884,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-knows-254",
+      "claim_id": "claim-knows-255",
       "subject_id": "npc-howard-crane",
       "predicate": "knows",
       "object": {
@@ -8867,7 +8900,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-knows-255",
+      "claim_id": "claim-knows-256",
       "subject_id": "npc-howard-crane",
       "predicate": "knows",
       "object": {
@@ -8883,7 +8916,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-knows-256",
+      "claim_id": "claim-knows-257",
       "subject_id": "npc-maria-costa",
       "predicate": "knows",
       "object": {
@@ -8899,7 +8932,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-knows-257",
+      "claim_id": "claim-knows-258",
       "subject_id": "npc-maria-costa",
       "predicate": "knows",
       "object": {
@@ -8915,7 +8948,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-knows-258",
+      "claim_id": "claim-knows-259",
       "subject_id": "npc-maria-costa",
       "predicate": "knows",
       "object": {
@@ -8931,7 +8964,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-knows-259",
+      "claim_id": "claim-knows-260",
       "subject_id": "npc-ruth-blake",
       "predicate": "knows",
       "object": {
@@ -8947,7 +8980,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-knows-260",
+      "claim_id": "claim-knows-261",
       "subject_id": "npc-vittorio-costa",
       "predicate": "knows",
       "object": {
@@ -8963,7 +8996,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-261",
+      "claim_id": "claim-may-lead-to-262",
       "subject_id": "quest-knott-commission",
       "predicate": "may-lead-to",
       "object": {
@@ -8979,7 +9012,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-262",
+      "claim_id": "claim-may-lead-to-263",
       "subject_id": "quest-knott-commission",
       "predicate": "may-lead-to",
       "object": {
@@ -8995,7 +9028,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-263",
+      "claim_id": "claim-may-lead-to-264",
       "subject_id": "quest-knott-commission",
       "predicate": "may-lead-to",
       "object": {
@@ -9011,7 +9044,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-264",
+      "claim_id": "claim-may-lead-to-265",
       "subject_id": "quest-retrieve-chapel-journal",
       "predicate": "may-lead-to",
       "object": {
@@ -9027,7 +9060,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-265",
+      "claim_id": "claim-may-lead-to-266",
       "subject_id": "quest-end-corbitt-threat",
       "predicate": "may-lead-to",
       "object": {
@@ -9043,7 +9076,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-266",
+      "claim_id": "claim-may-lead-to-267",
       "subject_id": "quest-end-corbitt-threat",
       "predicate": "may-lead-to",
       "object": {
@@ -11205,6 +11238,14 @@
   ],
   "relations": [
     {
+      "relation_id": "relation-asserts-253",
+      "relation_kind": "asserts",
+      "from_node_id": "npc-dooley",
+      "to_node_id": "clue-burning-eyes-form",
+      "claim_id": "claim-asserts-253",
+      "properties": {}
+    },
+    {
       "relation_id": "relation-contains-1",
       "relation_kind": "contains",
       "from_node_id": "module-mystery-house",
@@ -12379,18 +12420,10 @@
       "properties": {}
     },
     {
-      "relation_id": "relation-knows-253",
-      "relation_kind": "knows",
-      "from_node_id": "npc-howard-crane",
-      "to_node_id": "clue-crane-commission",
-      "claim_id": "claim-knows-253",
-      "properties": {}
-    },
-    {
       "relation_id": "relation-knows-254",
       "relation_kind": "knows",
       "from_node_id": "npc-howard-crane",
-      "to_node_id": "clue-crane-research-leads",
+      "to_node_id": "clue-crane-commission",
       "claim_id": "claim-knows-254",
       "properties": {}
     },
@@ -12398,15 +12431,15 @@
       "relation_id": "relation-knows-255",
       "relation_kind": "knows",
       "from_node_id": "npc-howard-crane",
-      "to_node_id": "clue-crane-macario-summary",
+      "to_node_id": "clue-crane-research-leads",
       "claim_id": "claim-knows-255",
       "properties": {}
     },
     {
       "relation_id": "relation-knows-256",
       "relation_kind": "knows",
-      "from_node_id": "npc-maria-costa",
-      "to_node_id": "clue-gabriela-night-visitor",
+      "from_node_id": "npc-howard-crane",
+      "to_node_id": "clue-crane-macario-summary",
       "claim_id": "claim-knows-256",
       "properties": {}
     },
@@ -12414,7 +12447,7 @@
       "relation_id": "relation-knows-257",
       "relation_kind": "knows",
       "from_node_id": "npc-maria-costa",
-      "to_node_id": "clue-burning-eyes-form",
+      "to_node_id": "clue-gabriela-night-visitor",
       "claim_id": "claim-knows-257",
       "properties": {}
     },
@@ -12422,39 +12455,39 @@
       "relation_id": "relation-knows-258",
       "relation_kind": "knows",
       "from_node_id": "npc-maria-costa",
-      "to_node_id": "clue-boys-burning-eyes",
+      "to_node_id": "clue-burning-eyes-form",
       "claim_id": "claim-knows-258",
       "properties": {}
     },
     {
       "relation_id": "relation-knows-259",
       "relation_kind": "knows",
-      "from_node_id": "npc-ruth-blake",
-      "to_node_id": "clue-globe-fire-cutoff",
+      "from_node_id": "npc-maria-costa",
+      "to_node_id": "clue-boys-burning-eyes",
       "claim_id": "claim-knows-259",
       "properties": {}
     },
     {
       "relation_id": "relation-knows-260",
       "relation_kind": "knows",
-      "from_node_id": "npc-vittorio-costa",
-      "to_node_id": "clue-vittorio-bible-weapon",
+      "from_node_id": "npc-ruth-blake",
+      "to_node_id": "clue-globe-fire-cutoff",
       "claim_id": "claim-knows-260",
       "properties": {}
     },
     {
-      "relation_id": "relation-may-lead-to-261",
-      "relation_kind": "may-lead-to",
-      "from_node_id": "quest-knott-commission",
-      "to_node_id": "npc-howard-crane",
-      "claim_id": "claim-may-lead-to-261",
+      "relation_id": "relation-knows-261",
+      "relation_kind": "knows",
+      "from_node_id": "npc-vittorio-costa",
+      "to_node_id": "clue-vittorio-bible-weapon",
+      "claim_id": "claim-knows-261",
       "properties": {}
     },
     {
       "relation_id": "relation-may-lead-to-262",
       "relation_kind": "may-lead-to",
       "from_node_id": "quest-knott-commission",
-      "to_node_id": "scene-crowe-house-ground",
+      "to_node_id": "npc-howard-crane",
       "claim_id": "claim-may-lead-to-262",
       "properties": {}
     },
@@ -12462,23 +12495,23 @@
       "relation_id": "relation-may-lead-to-263",
       "relation_kind": "may-lead-to",
       "from_node_id": "quest-knott-commission",
-      "to_node_id": "clue-crowe-body-found",
+      "to_node_id": "scene-crowe-house-ground",
       "claim_id": "claim-may-lead-to-263",
       "properties": {}
     },
     {
       "relation_id": "relation-may-lead-to-264",
       "relation_kind": "may-lead-to",
-      "from_node_id": "quest-retrieve-chapel-journal",
-      "to_node_id": "clue-chapel-journal-burial",
+      "from_node_id": "quest-knott-commission",
+      "to_node_id": "clue-crowe-body-found",
       "claim_id": "claim-may-lead-to-264",
       "properties": {}
     },
     {
       "relation_id": "relation-may-lead-to-265",
       "relation_kind": "may-lead-to",
-      "from_node_id": "quest-end-corbitt-threat",
-      "to_node_id": "npc-calvin-crowe",
+      "from_node_id": "quest-retrieve-chapel-journal",
+      "to_node_id": "clue-chapel-journal-burial",
       "claim_id": "claim-may-lead-to-265",
       "properties": {}
     },
@@ -12486,8 +12519,16 @@
       "relation_id": "relation-may-lead-to-266",
       "relation_kind": "may-lead-to",
       "from_node_id": "quest-end-corbitt-threat",
-      "to_node_id": "clue-own-dagger-ends-him",
+      "to_node_id": "npc-calvin-crowe",
       "claim_id": "claim-may-lead-to-266",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-may-lead-to-267",
+      "relation_kind": "may-lead-to",
+      "from_node_id": "quest-end-corbitt-threat",
+      "to_node_id": "clue-own-dagger-ends-him",
+      "claim_id": "claim-may-lead-to-267",
       "properties": {}
     },
     {

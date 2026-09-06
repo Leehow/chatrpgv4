@@ -228,7 +228,7 @@ def npc_entry(graph: ModuleGraph, world: dict[str, Any], node: dict[str, Any],
     believes = graph.npc_claim_lines(node, BELIEVES)[:PRESENT_CLAIM_LINES]
     if believes:
         entry["believes"] = believes
-    lies = graph.npc_claim_lines(node, ASSERTS)[:PRESENT_CLAIM_LINES]
+    lies = graph.npc_would_say(node)[:PRESENT_CLAIM_LINES]
     if lies:
         entry["would_lie_about"] = lies
     ties = _ordered_ties(graph, world, node)
@@ -679,10 +679,13 @@ def npc_view(graph: ModuleGraph, world: dict[str, Any], node: dict[str, Any],
               "discovered": entry["handle"] in discovered} for entry in graph.npc_knows(node)]
     if knows:
         view["knows"] = knows
-    for predicate, field in ((BELIEVES, "believes"), (ASSERTS, "would_lie_about"), (HIDES, "hides_claims")):
+    for predicate, field in ((BELIEVES, "believes"), (HIDES, "hides_claims")):
         lines = graph.npc_claim_lines(node, predicate)
         if lines:
             view[field] = lines
+    would_say = graph.npc_would_say(node)
+    if would_say:
+        view["would_lie_about"] = would_say
     ties = graph.npc_ties(node)
     if ties:
         view["ties"] = [{"kind": tie["kind"], "to": tie["to"], "kind_of": tie["node"]["node_kind"]} for tie in ties]
