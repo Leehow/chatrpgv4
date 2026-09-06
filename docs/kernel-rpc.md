@@ -154,12 +154,14 @@ result：
 ```
 成功等级定义随规则表：大成功 1，极难 ≤1/5，困难 ≤1/2，普通 ≤目标，大失败 96 到 100（目标 <50）或 100。
 
-### table.apply（切片 0：move、clue、time；保留：handout、item、cash、npc、flag、note、ruling）
+### table.apply（切片 0：move、clue、time；切片 1 damage；切片 4 handout；#19 item、cash；保留：npc、flag、note、ruling）
 params：`{"call_id": "...", "effects": [{"kind": "move", "to": "<场景名>", "travel_minutes"?: int, "label"?: "<玩家语言的短名>"}, {"kind": "clue", "clue": "<线索名>", "how"?: "<一句话>", "label"?: "<玩家语言的短名>"}, {"kind": "time", "minutes": int, "why"?: "..."}, {"kind": "damage", "dice": "1D6", "subject"?: "<调查员>", "why"?: "..."}]}`。`damage` 是没有攻击者的伤（摔落、火烧、坠物）：守秘人给规则书的骰子，内核掷骰、写一条 `roll` 收据与一条 `delta` 收据、更新 HP 与伤口记录；有攻击者的伤走 `resolve`。`move` 的结果带目的地的 `where` 与 `present`，守秘人不必再 `look`。`label` 是守秘人用 play_language 给玩家看的短名，只用于机制块；省略时机制块用图上的 display_name 或 id。
 - 整批先校验后写，任一条失败整批不写：`{"code": "...", "details": {"index": i, ...}}`。
 - `move`：目的地必须是图上从当前场景可达的场景（`route-to`，或可玩性模板的入口关系 `play-precedes`/`may-lead-to`/`alternative-to`/`hands-off-to`——构建出的书多按演出顺序连场景，运行时与可玩性检查用同一套词，出口条目带 `via`），或 `scene_edges` 声明的目的地，或来路上的任何场景（`world.scene_trail`：到达当前场景所经过的场景栈，来路总是可退：没有作者出口的巢穴也能一步退回地窖或一楼）；否则 `not_reachable`，`fix` 里直接写出两份名字，`details.exits` 给出口，`details.back` 给来路（由近到远）。`travel_minutes` 缺省取图上边的值（退一步取反向边），没有则 0。`label` 给过一次就是这个场景从此的名字：写进 `world.scene_labels[<场景>]`，之后的 `【变化】场景` 行、胶囊 `where`、检查点、任务包都用它，记忆解析把它当场景的别名。写 `world.active_scene`、`scene_trail`（前进则压入当前场景，退回则截断到目的地之前）、`visited_scenes`、`scene-moved` 事件。旧世界没有 `scene_trail` 时在 `_context` 里按同一规则重放 `scene-moved` 事件一次性补上。
 - `clue`：必须是图上存在的 clue 节点，且 `discoverable-at` 当前场景或在当前场景 record 的 `available_clues` 里；否则 `not_here`。已发现的重复写入返回 `replayed: true`，不报错。写 `discovered_clues`、`clue-discovered` 事件。
 - `time`：推进世界时钟，写 `time-advanced` 事件。
+- `item`（#19）：`{"kind": "item", "name": "<物品名>", "to"?: "<调查员>", "from"?: "<NPC 名>", "weapon"?: "<规则表武器 id 或 profile 名>", "quantity"?: int, "label"?: "<玩家语言短名>", "why"?}`。叙述里到手的东西由此进调查员表：写 `party/<id>.json` 的 `equipment[]`（名字、数量、来源回合），`weapon` 给了就同时写 `weapons[]`（从 `rules-json/equipment.json` 的武器 profile 取伤害、射程、弹容、技能，取不到报 `needs`，`details.needs.options` 列可用 id），之后 `resolve` 的 `weapon` 能解析它、战斗开局按它排弹药。收据 `item:<slug>-t<turn>-c<n>`，渲染 `【变化】物品：<人> 得到 <label 或名>`，事件 `item-transferred`（`{name, to, from?, weapon?, quantity}`）。`quantity` 为负是失去（消耗、交出、被夺），表上没有就报 `invalid_params`。
+- `cash`（#19）：`{"kind": "cash", "subject"?: "<调查员>", "delta": <整数，货币单位随时代>, "why"?}`；写表上 `finance.cash`（没有 finance 块的时代按 `rules-json/cash-assets.json` 建一个），收据 `cash:t<turn>-c<n>`，渲染 `【变化】现金：<人> <前> → <后>`，事件 `resource-changed`（`resource: cash`）。
 - 其余种类报 `not_implemented`。
 result：`{"receipts": ["move:hall-of-records-t3-c2", ...], "world": {"active_scene", "clock"}, "material_ready": true}`。切片 0 `material_ready` 恒为 true。
 
@@ -403,7 +405,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 
 ### 12.4 `recall` 三路
 
-- **memory**：params `{"what": "memory", "about"?: [名], "turns"?: [from, to], "kinds"?: [...], "include_superseded"?: bool, "limit"?: ≤ 30}`。收窄全是确定性的：`about` 里的名字先精确匹配图上名字、别名与 `scene_labels`，不中时取「一个名字里的整词」（`Knott` → Steven Knott），人（调查员、NPC）优先于地点与线索，仍歧义则 `unknown_entity` 且 `fix` 列出候选名；命中按图上名字与别名归一化后精确匹配 `subject`、`knowers`、`entities`；`turns` 落在 `valid_from_turn`；缺省不含已关闭的。排序：与 `about`（缺省取当前在场实体加调查员）重叠数多者先，再按 `valid_from_turn` 晚者先。result `{"what": "memory", "about": [...], "hits": [{"id", "kind", "subject", "knowers", "entities", "statement", "privacy", "state", "confidence", "status", "turn", "superseded_by"?}]}`。不接受散文筛选，没有关键词与正则。
+- **memory**：params `{"what": "memory", "about"?: [名], "turns"?: [from, to], "kinds"?: [...], "include_superseded"?: bool, "limit"?: ≤ 30}`。收窄全是确定性的：`about` 里的名字先精确匹配图上名字、别名与 `scene_labels`，不中时取「一个名字里的整词」（`Knott` → Steven Knott），人（调查员、NPC）优先于地点与线索，仍歧义则 `unknown_entity` 且 `fix` 列出候选名；命中按图上名字与别名归一化后精确匹配 `subject`、`knowers`、`entities`；`turns` 落在 `valid_from_turn`；缺省不含已关闭的。排序：与 `about`（缺省取当前在场实体加调查员）重叠数多者先，再按种类权重（#20：`world_event`、`knowledge`、`relationship`、`promise` 先于 `belief`、`player_preference`、`keeper_correction`，`player_assertion` 最后——它多半是玩家输入的复述，守秘人已经读过），再按 `valid_from_turn` 晚者先。result `{"what": "memory", "about": [...], "hits": [{"id", "kind", "subject", "knowers", "entities", "statement", "privacy", "state", "confidence", "status", "turn", "superseded_by"?}]}`。不接受散文筛选，没有关键词与正则。
 - **transcript**：params `{"what": "transcript", "turns"?: [from, to], "role"?: "player"|"keeper", "read"?: {"turn", "role"}}`。不带 `read` 时返回 `cards: [{"turn", "role", "chars", "head": "<前 80 字>"}]`（区间缺省最近 3 回合，最多 40 张），并在区间 ≤ 3 回合时同时返回切片 0 的 `entries`；带 `read` 时返回 `{"turn", "role", "text", "verified": bool}`，`verified` 表示逐字记录里的文本与 `turns/NNNN.json` 记录（守秘人取 `rendered_text`，玩家取 `player_text`）的 sha256 一致；不一致仍返回文本但 `verified: false`。
 - **history**：params `{"what": "history", "turns"?: [from, to], "types"?: [事件类型], "diff"?: [turn_a, turn_b]}`。result `{"timeline": [{"turn", "commit", "scene", "clock", "closed_by", "receipts": {"roll": n, "move": n, "clue": n, "delta": n, "session": n, "time": n}, "head": "<守秘人交付前 60 字>"}], "events": [...]（按 `types` 过滤，最多 200 条，缺省不含 `player-declared` 之外的原文）, "diff"?: {"from", "to", "scene": [a, b], "clock": [a, b], "clues_added": [名], "resources": [{"subject", "resource", "from", "to"}], "sessions": [{"turn", "family", "transition", "outcome"?}], "moves": [{"turn", "from", "to"}]}}`。`diff` 只从回合记录里的收据累计，不读 git 对象。
 
@@ -434,7 +436,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 
 ### 12.7 胶囊新增节（切片 2）
 
-- `memory`（≤ 1.5KB）：`recall memory` 缺省排序的前 6 条命中，字段同 12.4；没有候选时为空数组。
+- `memory`（≤ 1.5KB）：`recall memory` 缺省排序的前 6 条命中，投影成 `{id, kind, statement, turn}`（#20：`knowers`/`entities`/`privacy`/`confidence`/`state` 不进胶囊，要的时候 `recall memory` 拿全条），预算内装得下的条数因此翻倍；没有候选时为空数组。
 - `warnings`（≤ 1KB）：12.5。
 - `resume`：12.2，只在重开后的第一回合出现。
 
@@ -443,6 +445,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 - kernel 扩展：`narrate` 成功后在总线上发 `coc:turn-committed {campaign, turn, commit, job_id, facts, rendered_text}`；交付替换完成后自己跑校验车道并 `table.warn`。车道出错只写遥测（`lane: verifier, ok: false`），不催守秘人，不阻塞。
 - memory 扩展（`extensions/memory`）：订阅 `coc:turn-committed`，`memory.job` → 零工具子会话（模型 `PI_COC_MEMORY_MODEL`，缺省与桌子同模型）→ `memory.submit`；失败一次重试，再失败 `memory.fail`。同一时刻只跑一个任务，后来的排队；进程退出时未完成的任务留给下次 `memory.job` 缺省派发。
 - 两条车道的 RPC（`memory.job`、`memory.submit`、`memory.fail`、`table.warn`）不带 `call_id`、不看回合状态；结果按 `turn` 落到对应回合记录，晚到也收。memory 扩展派任务时给显式 `turn`（刚提交的那一回合）；`memory.job` 的缺省派发只在重开进程后补漏时用。
+- 补抽（#20）：memory 扩展在 `session_start`（桥就位后）用 `memory.job` 的缺省派发补抽尚未完成任务且不在 backlog 里的回合，每次会话至多 `PI_COC_MEMORY_BACKFILL`（缺省 5）个，仍是一次一个、不阻塞回合、先让位给刚提交的回合；遥测行带 `backfill: true`。
 - 内核子进程一个会话只有一个（§1），memory 扩展没有自己的客户端：kernel 扩展在 `session_start` 于总线 `coc:kernel-bridge` 发布一个 `call(method, params)` 闭包，`session_shutdown` 时收回；memory 扩展只经它调内核。
 - 子会话的建法与模型选择写进 `docs/pi-host-contract.md` 第 3–5 节。
 
@@ -485,11 +488,13 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
  "situations": [...同 look 的 situations（11.10）...],
  "memory": [{"id", "kind", "statement", "turn"}],
  "style": {"language", "register": "purist"|"pulp", "axes": [...], "directives": [{"id", "line"}]},
+ "module"?: {"title", "era"?, "synopsis": "<模组节点摘要>", "factions": [{"name", "line"}], "places": [{"name", "line"}],
+             "people": [{"name", "line"}]（守秘人专属，含未登场者）, "endings": [名], "conclusions": [名], "structure_type"}（#22：只在开桌后第一回合出现）,
  "recent": [...§6...], "warnings": [...12.5...], "resume"?: {...12.2...},
  "truncated": [节名]}
 ```
 
-字节预算（超出按节裁剪并记入 `truncated`）：`where` 4KB、`present` 3KB、`known` 3KB、`pressures` 1KB、`obligations` 1KB、`director` 1.5KB、`situations` 1KB、`memory` 1.5KB、`style` 1KB（重开进程后的第一回合 2KB，见 13.6）、`recent` 2KB、`warnings` 1KB。`head` 与 `turn` 不计预算。
+字节预算（超出按节裁剪并记入 `truncated`）：`where` 4KB、`present` 3KB、`known` 3KB、`pressures` 1KB、`obligations` 1KB、`director` 1.5KB、`situations` 1KB、`memory` 1.5KB、`style` 1KB（重开进程后的第一回合 2KB，见 13.6）、`recent` 2KB、`warnings` 1KB、`module` 2KB（#22：只在开桌后本进程的第一回合出现，与 `resume`/首回合 `style` 同一条件；内容全部来自模组图——模组节点摘要与时代、派系/地点/人物名册各带一句摘要、结局与结论的名字、结构类型；没有的域给空数组；`head` 说明这一节在，守秘人开桌前不必再 `lookup` 这本书讲什么）。`head` 与 `turn` 不计预算。
 
 - `where.clock`：`elapsed` 由世界时钟分钟数确定性生成；`day_part` 只在模组图的 `module` 节点声明了起始时刻时给（没有就不猜）。
 - `present[].secret`/`fear`：NPC 档案里有就给；这是守秘人专属材料，与 `agenda` 同一条法则。
@@ -686,7 +691,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 `setup.occupations` params `{"campaign"}` → `content/rulesets/coc7/rules-json/occupations.json` 的职业清单（id、名字、技能点公式、职业技能、信用评级范围），供建卡进程把玩家的一句「我想玩个战地记者」落到一个职业 id——这一步是语义判断，归模型；内核只认 id。
 
-`setup.investigator` params `{"campaign", "name", "occupation": "<id>", "concept"?: "<一句>", "age"?: int, "sex"?, "method"?: "quick_fire"|"rolled"}`：内核确定性地生成整张表——特征值（`quick_fire` 用规则书快速数组按职业主特征分配；`rolled` 用 `characteristic-dice.json` 掷，种子写进收据）、年龄修正（旧 `coc_character` 的规则）、衍生值（HP/MP/SAN/幸运/伤害加值/体格/移动）、职业技能点按公式并按职业技能表顺序分配（缺省分配法写死并写进回执，玩家可在桌上用 `development` 族改）、兴趣点分给 `concept` 无关的规则书通用技能（缺省列表来自规则数据，不是代码字面量）、信用评级取职业范围下限、现金与资产按时代与信用等级、随身装备取职业缺省。写 `party/<id>.json`（与 pregen 同形）与收据 `investigator:<id>`。名字与概念原样存，不做任何判断。同一战役第二次调用是第二个调查员（多人桌留口，本切片桌上仍只用第一位）。
+`setup.investigator` params `{"campaign", "name", "occupation": "<id>", "concept"?: "<一句>", "age"?: int, "sex"?, "method"?: "quick_fire"|"rolled"}`：内核确定性地生成整张表——特征值（`quick_fire` 用规则书快速数组按职业主特征分配；`rolled` 用 `characteristic-dice.json` 掷，种子写进收据）、年龄修正（旧 `coc_character` 的规则）、衍生值（HP/MP/SAN/幸运/伤害加值/体格/移动）、职业技能点按公式分配，分配策略是内容不是代码（#21：`steps.json` 的建卡策略块 `allocation`，缺省 `spread`：先把职业技能表每项抬到 `tiers[0]`（如 50），再轮到 `tiers[1]`（如 70），最后到上限，用不完的记 `unspent`；`fill` 是旧的填满式，留作可选；策略名写进 `sheet.creation.allocation`，玩家可在桌上用 `development` 族改）、兴趣点分给 `concept` 无关的规则书通用技能（缺省列表来自规则数据，不是代码字面量）、信用评级取职业范围下限、现金与资产按时代与信用等级、随身装备取职业缺省。写 `party/<id>.json`（与 pregen 同形）与收据 `investigator:<id>`。名字与概念原样存，不做任何判断。同一战役第二次调用是第二个调查员（多人桌留口，本切片桌上仍只用第一位）。
 
 `setup.complete` params `{"campaign"}`：`party/` 至少一人、模组 `installed`（或 `opening_ready`）→ `campaign.json.status = ready_for_table`，写 `setup_handoff` 收据（模组 id、代际、调查员 id、时刻），事件 `setup-completed`。
 
