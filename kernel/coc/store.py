@@ -76,9 +76,11 @@ class Store:
                            fix="pick another id or open the existing campaign")
         return campaign_id
 
-    def open(self, campaign_id: Any, *, require_turn: bool = True) -> "Campaign":
+    def open(self, campaign_id: Any, *, require_turn: bool = True, require_world: bool = True) -> "Campaign":
         """`require_turn=False` is for `table.open`, which may rebuild a lost turn.json
-        from the continuation checkpoint before anything reads it (contract §12.2)."""
+        from the continuation checkpoint before anything reads it (contract §12.2);
+        `require_world=False` is for the setup methods: a campaign created for a bound
+        book has no world until its graph exists (§14.4)."""
         if not isinstance(campaign_id, str) or not campaign_id:
             raise RpcError("invalid_params", "params.campaign is required")
         campaign = Campaign(self, campaign_id)
@@ -86,7 +88,7 @@ class Store:
             raise RpcError("campaign_not_found", f"no campaign {campaign_id!r}",
                            fix="call campaign.list, or campaign.create",
                            details={"campaigns": self.campaign_ids()})
-        required = [campaign.world_json] + ([campaign.turn_json] if require_turn else [])
+        required = ([campaign.world_json] if require_world else []) + ([campaign.turn_json] if require_turn else [])
         for path in required:
             if not path.exists():
                 raise RpcError("campaign_not_ready",

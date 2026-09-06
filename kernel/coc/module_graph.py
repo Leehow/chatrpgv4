@@ -18,6 +18,13 @@ from .text import normalize, strip_prefix
 SCENE_KIND = "scene"
 CLUE_KIND = "clue"
 NPC_KIND = "npc"
+INVESTIGATOR_TEMPLATE_KIND = "investigator-template"
+#: relation kinds that carry the party from one scene to the next: `route-to` (a road) and
+#: the play-order kinds the playability template calls entrances. A built book links its
+#: scenes by play order far more often than by roads; both are exits at the table.
+EXIT_RELATION_KINDS = ("route-to", "play-precedes", "may-lead-to", "alternative-to", "hands-off-to")
+#: what a lookup says next to a book's pregen: the table's investigator is in the capsule
+TEMPLATE_NOTE = "书里的预设调查员，不在本桌；本桌的调查员见胶囊 known.investigator"
 
 
 def record_of(node: dict[str, Any] | None) -> dict[str, Any]:
@@ -151,8 +158,11 @@ class ModuleGraph:
         return [self.describe(self.nodes[i]) for i in ranked[:limit]]
 
     def describe(self, node: dict[str, Any]) -> dict[str, Any]:
-        return {"name": self.handle(node), "kind": node["node_kind"],
+        view = {"name": self.handle(node), "kind": node["node_kind"],
                 "display_name": self.display_name(node)}
+        if node["node_kind"] == INVESTIGATOR_TEMPLATE_KIND:
+            view["note"] = TEMPLATE_NOTE
+        return view
 
     # ---- scenes -----------------------------------------------------------
 
@@ -176,13 +186,16 @@ class ModuleGraph:
         """route-to relations plus the record's scene_edges, deduplicated by destination."""
         exits: dict[str, dict[str, Any]] = {}
         for rel in self.out_rel.get(scene["node_id"], []):
-            if rel["relation_kind"] != "route-to":
+            if rel["relation_kind"] not in EXIT_RELATION_KINDS:
                 continue
             target = self.nodes.get(rel["to_node_id"])
             if not target or target["node_kind"] != SCENE_KIND:
                 continue
             props = rel.get("properties") or {}
-            exits[self.handle(target)] = self._exit_entry(self.handle(target), props)
+            entry = self._exit_entry(self.handle(target), props)
+            if rel["relation_kind"] != "route-to":
+                entry.setdefault("via", rel["relation_kind"])
+            exits.setdefault(self.handle(target), entry)
         for edge in record_of(scene).get("scene_edges") or []:
             to = edge.get("to")
             target = self.scene_by_handle(to) if isinstance(to, str) else None
@@ -199,7 +212,7 @@ class ModuleGraph:
         section nobody has read (§14.6). Returns the missing target ids."""
         missing: list[str] = []
         for rel in self.out_rel.get(scene["node_id"], []):
-            if rel["relation_kind"] != "route-to":
+            if rel["relation_kind"] not in EXIT_RELATION_KINDS:
                 continue
             target_id = str(rel.get("to_node_id"))
             if target_id not in self.nodes and target_id not in missing:
@@ -300,7 +313,11 @@ class ModuleGraph:
             elif key in normalize(node.get("summary") or "") or key in normalize(self.prose(node)):
                 by_summary.append(node)
         by_name.sort(key=lambda item: (item[0], item[1]))
-        return (exact + [node for _, _, node in by_name] + by_summary)[:limit]
+        ranked = exact + [node for _, _, node in by_name] + by_summary
+        # A book's pregenerated investigators are reference, never people at this table:
+        # they rank after everything else so a name search finds the NPC first.
+        ranked.sort(key=lambda node: node["node_kind"] == INVESTIGATOR_TEMPLATE_KIND)
+        return ranked[:limit]
 
     def prose(self, node: dict[str, Any]) -> str:
         record = record_of(node)
@@ -326,7 +343,7 @@ class ModuleGraph:
         return out[:limit]
 
     def entity_view(self, node: dict[str, Any]) -> dict[str, Any]:
-        return {
+        view = {
             "name": self.handle(node),
             "display_name": self.display_name(node),
             "kind": node["node_kind"],
@@ -334,3 +351,6 @@ class ModuleGraph:
             "visibility": node.get("visibility"),
             "relations": self.relations_of(node),
         }
+        if node["node_kind"] == INVESTIGATOR_TEMPLATE_KIND:
+            view["note"] = TEMPLATE_NOTE
+        return view

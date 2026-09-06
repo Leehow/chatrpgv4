@@ -291,16 +291,63 @@ class SetupMethods:
         self.chargen = Chargen(table.tables, self.steps.step("create-investigator"))
 
     def _campaign(self, params: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
-        campaign = self.table.store.open(params.get("campaign"), require_turn=False)
+        campaign = self.table.store.open(params.get("campaign"), require_turn=False, require_world=False)
         meta = campaign.read_campaign()
         if meta.get("status") != STATUS_SETTING_UP:
             raise RpcError("campaign_not_ready", f"campaign {campaign.id!r} is {meta.get('status')!r}, not setting up",
                            fix="setup methods only run while the campaign is setting_up",
                            details={"status": meta.get("status")})
+        self._start_world_if_ready(campaign, meta)
         return campaign, meta
 
+    def _start_world_if_ready(self, campaign: Any, meta: dict[str, Any]) -> bool:
+        """§14.4: a campaign created for a bound book has no world until the book's graph
+        exists. The first setup call that finds the graph starts the world; idempotent."""
+        if campaign.world_json.exists() and meta.get("opening_scene"):
+            return False
+        module_id = str(meta.get("module_id"))
+        if not self.table.module_store.graph_path(module_id).exists():
+            return False
+        graph = self.table.graph(module_id)
+        world, start_handle = self.table.initial_world(graph)
+        campaign.write_world(world)
+        meta["opening_scene"] = start_handle
+        meta["module_digest"] = graph.digest
+        meta["module_generation"] = self.table.module_store.generation(module_id)
+        campaign.write_campaign(meta)
+        return True
+
     def steps_method(self, params: dict[str, Any]) -> dict[str, Any]:
-        return json.loads(json.dumps(self.steps.raw))
+        """The table, plus — when a campaign is named — what it has already completed and
+        the values the extension carries between steps, so `bin/pi-coc setup --campaign
+        <id>` resumes a half-finished setup (§14.4)."""
+        table = json.loads(json.dumps(self.steps.raw))
+        campaign_id = params.get("campaign")
+        if not isinstance(campaign_id, str) or not campaign_id:
+            return table
+        try:
+            campaign = self.table.store.open(campaign_id, require_turn=False, require_world=False)
+        except RpcError as exc:
+            if exc.code == "campaign_not_found":
+                return {**table, "completed": [], "state": {"campaign": campaign_id}}
+            raise
+        meta = campaign.read_campaign()
+        module_id = str(meta.get("module_id") or "")
+        module = module_meta(self.table.module_store, module_id) if module_id else None
+        starter = module_id in self.table.modules()
+        kind = "starter" if starter else "pdf"
+        completed = ["choose-source", "create-campaign"]
+        state: dict[str, Any] = {"campaign": campaign.id, "module_id": module_id, "module": module_id,
+                                 "source": {"kind": kind, "module_id": module_id}, "source_kind": kind}
+        if not starter and module:
+            completed[1:1] = ["build-bundle", "bind-source"]
+            if module.get("status") == "installed" or module.get("opening_ready") is True:
+                completed.append("build-opening")
+        if campaign.party():
+            completed.append("create-investigator")
+        if meta.get("status") in (STATUS_READY, STATUS_ACTIVE):
+            completed.append("complete")
+        return {**table, "completed": completed, "state": state}
 
     def occupations(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"occupations": self.chargen.occupations(),
@@ -327,9 +374,13 @@ class SetupMethods:
         elif isinstance(seed, bool) or not isinstance(seed, (int, str)):
             raise invalid_params("params.seed must be an integer or string")
         seed = str(seed)
-        graph = self.table.graph(str(meta["module_id"]))
+        module_id = str(meta["module_id"])
         from .module_graph import record_of  # local: keep this module free of graph imports at load
-        era = params.get("era") or record_of(graph.module_node).get("era") or "1920s"
+        module_era = None
+        if self.table.module_store.graph_path(module_id).exists() or module_id in self.table.modules():
+            module_era = record_of(self.table.graph(module_id).module_node).get("era")
+        # A bound book whose graph has not landed yet has no era to read: the rulebook default.
+        era = params.get("era") or module_era or "1920s"
         if not isinstance(era, str):
             raise invalid_params("params.era must be a string")
         party = campaign.party()
@@ -370,7 +421,7 @@ class SetupMethods:
         }
 
     def complete(self, params: dict[str, Any]) -> dict[str, Any]:
-        campaign = self.table.store.open(params.get("campaign"), require_turn=False)
+        campaign = self.table.store.open(params.get("campaign"), require_turn=False, require_world=False)
         meta = campaign.read_campaign()
         language = str(meta.get("play_language") or "zh-Hans")
         if meta.get("status") in (STATUS_READY, STATUS_ACTIVE) and (meta.get("setup") or {}).get("handoff"):
@@ -390,13 +441,8 @@ class SetupMethods:
                            fix="finish build-opening (module.build until opening_ready) first",
                            details={"module": module})
         generation = self.table.module_store.generation(module_id)
-        if not campaign.world_json.exists() or not meta.get("opening_scene"):
-            # The book's graph arrived after the campaign was created: the world starts now.
-            graph = self.table.graph(module_id)
-            world, start_handle = self.table.initial_world(graph)
-            campaign.write_world(world)
-            meta["opening_scene"] = start_handle
-            meta["module_digest"] = graph.digest
+        if self._start_world_if_ready(campaign, meta):
+            meta = campaign.read_campaign()
         handoff = {
             "receipt": HANDOFF_RECEIPT,
             "module_id": module_id,

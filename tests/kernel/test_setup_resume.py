@@ -1,0 +1,57 @@
+"""§14.4 for a bound book: the world starts at the first setup call that finds the graph,
+and setup.steps {campaign} tells a restarted setup process what is already done."""
+
+from conftest import CAMPAIGN, campaign_dir, read_json
+from module_helpers import TINY_ID, bind_tiny, packet_for, reader_shard, review, write_shard
+
+
+def _build(kernel, tmp_path):
+    bind_tiny(kernel, tmp_path)
+    kernel.ok("module.plan", {"module_id": TINY_ID})
+    packet, work_dir = packet_for(kernel, "section-01")
+    write_shard(work_dir, reader_shard(packet))
+    assert review(kernel, "section-01")["accepted"]
+    kernel.ok("module.accept", {"module_id": TINY_ID, "section_id": "section-01"})
+    kernel.ok("module.assemble", {"module_id": TINY_ID})
+
+
+def test_bound_book_campaign_gets_its_world_when_the_graph_arrives(kernel, tmp_path):
+    bind_tiny(kernel, tmp_path)
+    kernel.ok("module.plan", {"module_id": TINY_ID})
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": TINY_ID, "play_language": "zh-Hans"})
+    assert read_json(campaign_dir(kernel.workspace) / "campaign.json")["status"] == "setting_up"
+    assert not (campaign_dir(kernel.workspace) / "world.json").exists()
+    # before the graph exists the resume view already knows the lane
+    resume = kernel.ok("setup.steps", {"campaign": CAMPAIGN})
+    assert resume["completed"] == ["choose-source", "build-bundle", "bind-source", "create-campaign"]
+    assert resume["state"]["module_id"] == TINY_ID and resume["state"]["source"]["kind"] == "pdf"
+    occupation = kernel.ok("setup.occupations", {"campaign": CAMPAIGN})["occupations"][0]["id"]
+    # no graph yet: the investigator can still be made, the world is not started
+    kernel.ok("setup.investigator", {"campaign": CAMPAIGN, "name": "Marcus", "occupation": occupation, "seed": 3})
+    assert not (campaign_dir(kernel.workspace) / "world.json").exists()
+    # the graph lands; the next setup call starts the world
+    packet, work_dir = packet_for(kernel, "section-01")
+    write_shard(work_dir, reader_shard(packet))
+    assert review(kernel, "section-01")["accepted"]
+    kernel.ok("module.accept", {"module_id": TINY_ID, "section_id": "section-01"})
+    kernel.ok("module.assemble", {"module_id": TINY_ID})
+    resume = kernel.ok("setup.steps", {"campaign": CAMPAIGN})
+    assert "build-opening" in resume["completed"] and "create-investigator" in resume["completed"]
+    done = kernel.ok("setup.complete", {"campaign": CAMPAIGN})
+    assert done["status"] == "ready_for_table"
+    world = read_json(campaign_dir(kernel.workspace) / "world.json")
+    meta = read_json(campaign_dir(kernel.workspace) / "campaign.json")
+    assert world["active_scene"] == meta["opening_scene"] and meta["module_digest"]
+    opened = kernel.table("open")
+    assert opened["campaign"]["status"] == "active"
+    assert kernel.ok("setup.steps", {"campaign": CAMPAIGN})["completed"][-1] == "complete"
+
+
+def test_steps_resume_for_a_starter_and_an_unknown_campaign(kernel):
+    assert "completed" not in kernel.ok("setup.steps", {})
+    unknown = kernel.ok("setup.steps", {"campaign": "nobody"})
+    assert unknown["completed"] == [] and unknown["state"] == {"campaign": "nobody"}
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "zh-Hans"})
+    resume = kernel.ok("setup.steps", {"campaign": CAMPAIGN})
+    assert resume["completed"] == ["choose-source", "create-campaign"]
+    assert resume["state"]["source"] == {"kind": "starter", "module_id": "the-haunting"}
