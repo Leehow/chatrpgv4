@@ -339,6 +339,30 @@ def test_a_turn_that_changes_the_line_cannot_be_closed_by_ask(kernel):
     assert branches(kernel.workspace) == ["refs/heads/wl/main"]
 
 
+def test_a_book_that_declares_a_time_loop_gets_the_time_loop_weights(tmp_path):
+    """§15.6: the Director's structure weight comes from the book's own `structure_type`.
+    It never arrived before this ticket: a module node carries `documents`, never a
+    `record`, so the reader saw nothing and every book scored as branching_investigation."""
+    client = client_for(tmp_path, content=loop_content(tmp_path))
+    try:
+        play_to_turn(client, 1)
+        director = client.table("player_input", text="我看看四周。")["capsule"]["director"]
+        assert "structure_type = time_loop" in director["because"]
+        # §15.6's three signals ride along; they add no number of their own.
+        assert "loop_count = 0" in director["because"]
+        assert "loop_available = False" in director["because"]
+    finally:
+        client.close()
+
+    plain = client_for(tmp_path, "ws-plain")
+    try:
+        play_to_turn(plain, 1)
+        because = plain.table("player_input", text="我看看四周。")["capsule"]["director"]["because"]
+        assert "structure_type = branching_investigation" in because
+    finally:
+        plain.close()
+
+
 # ---- §15.4 the confluence report ---------------------------------------------------------------
 
 def two_lines_that_disagree(client: RpcClient) -> None:

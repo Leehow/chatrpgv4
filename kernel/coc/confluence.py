@@ -123,8 +123,7 @@ def spent_items(campaign: Campaign, line: str) -> set[tuple[str, str]]:
 
 # ---- the report -------------------------------------------------------------------------
 
-def report(campaign: Campaign, graph: ModuleGraph, states: list[dict[str, Any]],
-           into: str | None) -> dict[str, Any]:
+def report(graph: ModuleGraph, states: list[dict[str, Any]], into: str | None) -> dict[str, Any]:
     """What merging these lines would produce, and everything they disagree about. Pure:
     it writes nothing and the same inputs give the same bytes."""
     first = states[0]
@@ -399,8 +398,7 @@ def plan(campaign: Campaign, graph: ModuleGraph, meta: dict[str, Any], effect: d
     if into is not None:
         into = graph.handle(graph.scene(str(into)))
     states = [line_state(campaign, line) for line in chosen]
-    settled = settle(report(campaign, graph, states, into),
-                     _dispositions(effect.get("dispositions")))
+    settled = settle(report(graph, states, into), _dispositions(effect.get("dispositions")))
     parents = [{"line": line, "turn": int((lines[line] or {}).get("last_turn") or 0),
                 "commit": history.line_commit(campaign.repo_dir, campaign.dir, line)} for line in chosen]
     return {"operation": worldline.MERGE, "line": name, "mode": None, "lines": chosen,
@@ -486,7 +484,7 @@ def _write_memory(campaign: Campaign, plan_row: dict[str, Any]) -> None:
     candidate: ids are minted per line and per turn, so the same id is the same memory."""
     rows: dict[str, Any] = {}
     for line in (str(row["line"]) for row in plan_row["parents"]):
-        for candidate in line_state(campaign, line)["candidates"]:
+        for candidate in memory.line_candidates(campaign, line):
             rows.setdefault(str(candidate.get("id")), candidate)
     memory.write_candidates(campaign, [rows[key] for key in sorted(rows)])
 
