@@ -4,10 +4,10 @@
   "module_id": "module-the-white-war",
   "generation": 1,
   "graph_contract_id": "coc.module-graph.v3",
-  "graph_content_digest": "148b5b570f99614cc529ed68d20d0d5843c15a3820d44b6f24154264c2a382c7",
+  "graph_content_digest": "25f8871204f4f90e84f0487e92b5f3f60d09131f819902c56d14fad02af0ca09",
   "node_count": 77,
-  "relation_count": 112,
-  "claim_count": 112,
+  "relation_count": 114,
+  "claim_count": 114,
   "node_kinds": {
     "beat": 11,
     "clue": 20,

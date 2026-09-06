@@ -25,7 +25,8 @@ def test_the_haunting_is_one_walkable_piece_with_its_own_gaps_reported():
     assert measures["endings"] == 1, "is_final on the confrontation scene is the declared ending"
     assert set(measures) == {"scenes", "scene_exits", "scene_components", "largest_component", "branches", "npcs",
                              "creatures", "clues", "conclusions", "endings", "rules", "nodes", "relations",
-                             "span_consumption", "pages_covered", "substantive_spans_uncited"}
+                             "span_consumption", "pages_covered", "substantive_spans_uncited",
+                                 "npcs_without_material"}  # §17.2 (#29)
     opening = opening_check(starter_graph())
     assert opening["opening_ready"] is True and opening["start_scene"] == "scene-commission-briefing"
 

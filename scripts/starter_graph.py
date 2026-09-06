@@ -75,6 +75,9 @@ COLLECTION_SPECS: dict[str, tuple[tuple[str, str, str | None], ...]] = {
     "quests.json": (("quests", "quest", "quest_id"),),
     "handouts.json": (("handouts", "handout", "asset_id"),),
 }
+#: §17.2: the dossier keys projected up to first-class `properties` on an npc node, so a
+#: starter and a book built from a PDF are read the same way.
+NPC_PROFILE_KEYS = ("agenda", "fear", "secret", "voice", "relationship_to_investigators")
 
 # Which documents feed each coverage domain; a domain is `accepted` when every one of
 # its documents is present, `partial` when some are, `absent` when none is.
@@ -582,6 +585,24 @@ def build_starter_graph(starter_dir: Path | str, *, asset_catalog: Path | str | 
                     present_pairs.add((npc_id, scene_node))
     for npc_id, scene_id in sorted(present_pairs):
         add_relation("present-in", npc_id, scene_id)
+
+    # §17.2: the dossier the keeper plays a person from becomes first-class properties, and
+    # what they know becomes `knows` claims — the same two readings a built book gives.
+    # `min_trust` is dropped: nothing consumes it, and a number no rule reads is not a fact.
+    for npc_id, npc_node in sorted(nodes.items()):
+        if npc_node.get("node_kind") != "npc":
+            continue
+        record = (npc_node.get("properties", {}).get("runtime_projection") or {}).get("record")
+        if not isinstance(record, dict):
+            continue
+        for key in NPC_PROFILE_KEYS:
+            value = record.get(key)
+            if isinstance(value, str) and value.strip():
+                npc_node["properties"][key] = value.strip()
+        for fact in record.get("facts") or []:
+            clue_node = _node_id("clue", str(fact.get("clue_id"))) if isinstance(fact, dict) else None
+            if clue_node in nodes and nodes[clue_node].get("node_kind") == "clue":
+                add_relation("knows", npc_id, clue_node)
 
     # Quest target refs are already structured authoring decisions.
     for quest_id, quest_node in list(nodes.items()):

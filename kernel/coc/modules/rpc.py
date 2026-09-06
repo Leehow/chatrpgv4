@@ -394,6 +394,15 @@ class ModuleMethods:
         reason = _str(params, "reason", required=False) or "move"
         if scene:
             return deepen_lane.enqueue_for_scene(self.store, module_id, scene, reason=reason)
+        # §17.2: a re-read aimed at one person -- every section they appear in, so the pass
+        # that only took their stat block can be asked again for what they want and hide.
+        focus = params.get("focus")
+        if isinstance(focus, dict) and isinstance(focus.get("npc"), str):
+            found = deepen_lane.sections_for_npc(self.store, module_id, focus["npc"])
+            queued = deepen_lane.enqueue(self.store, module_id, found["sections"], reason or "npc",
+                                         deepen_lane.PRIORITY_MOVE)
+            return {"queued": queued, "npc": found["npc"], "sections": found["sections"],
+                    "queue": self.store.read_queue(module_id)}
         section_ids = params.get("section_ids")
         if not isinstance(section_ids, list) or not all(isinstance(s, str) for s in section_ids):
             raise invalid_params("params.section_ids must be a list of section ids (or pass params.scene)")

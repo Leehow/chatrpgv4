@@ -2302,7 +2302,12 @@
               }
             ]
           }
-        }
+        },
+        "agenda": "Guard access to the Globe clippings morgue and enjoy the little power of saying no.",
+        "fear": "Looking weak in front of the newsroom if he caves too easily.",
+        "secret": "He is not professionally skilled at social resistance — Regular difficulty social skills can move him; he just starts unhelpful by policy.",
+        "voice": "Pompous, clipped, editorial. Loves denying 'the general public'.",
+        "relationship_to_investigators": "gatekeeper"
       },
       "source_refs": []
     },
@@ -2493,7 +2498,12 @@
               }
             }
           }
-        }
+        },
+        "agenda": "Mislead and frighten intruders away from his buried body; failing that, murder them and resume feeding on residents.",
+        "fear": "His own ritual dagger in an enemy's hand; prolonged daylight exposure of his lair; being reduced below the point where Flesh Ward and Dominate can buy rounds.",
+        "secret": "He is an undead sorcerer animating his own corpse in the sealed basement; presentation data lives under monsters.json 'Calvin Crowe'.",
+        "voice": "Rarely speaks. Acts through knocks, blood, flying furniture, floating knife, and finally claws.",
+        "relationship_to_investigators": "adversary"
       },
       "source_refs": []
     },
@@ -2564,7 +2574,12 @@
               }
             }
           }
-        }
+        },
+        "agenda": "Drive living things out of the ruined chapel, then flee toward the yard.",
+        "fear": "Fire and loud groups.",
+        "secret": "RULE GYM: SAN-on-sight plus a fightable body (DEX/HP/Fight) that can start a chase.",
+        "voice": "Hissing, no English.",
+        "relationship_to_investigators": "adversary"
       },
       "source_refs": []
     },
@@ -2688,7 +2703,12 @@
               "Fighting (Brawl)": 45
             }
           }
-        }
+        },
+        "agenda": "Sell papers and cigars, gossip for sport, and size people up before sharing.",
+        "fear": "Wasting breath on snobs who look down on street vendors.",
+        "secret": "He exaggerates; not every line is true. He can still point to the chapel ruins and name the house 'the Crowe House'.",
+        "voice": "Salesman banter, neighborhood Irish-Boston color, enjoys a listener.",
+        "relationship_to_investigators": "informant"
       },
       "source_refs": []
     },
@@ -2759,7 +2779,12 @@
               }
             }
           }
-        }
+        },
+        "agenda": "Keep the Costas quiet and bill the city.",
+        "fear": "A patient who is right about the basement.",
+        "secret": "RULE GYM: psychoanalysis / apply-treatment / reality-check. Psychoanalysis skill 70.",
+        "voice": "Even, clinical, slightly bored.",
+        "relationship_to_investigators": "specialist"
       },
       "source_refs": []
     },
@@ -2886,7 +2911,12 @@
               "Shriveling"
             ]
           }
-        }
+        },
+        "agenda": "Clear the Crowe House's reputation so he can rent or sell the inherited property and stop losing money.",
+        "fear": "Being stuck with a worthless haunted white elephant that ruins his credit.",
+        "secret": "RULE GYM: Crane is a Mythos magician who will teach any listed spell on request. He still plays the impatient landlord in public.",
+        "voice": "Practical, impatient, money-minded. Speaks in short offers and deadlines.",
+        "relationship_to_investigators": "employer"
       },
       "source_refs": []
     },
@@ -2959,7 +2989,12 @@
               }
             ]
           }
-        }
+        },
+        "agenda": "Control access to the court file and decide whether a claimed legal contact deserves cooperation.",
+        "fear": "Being blamed for allowing unauthorized access to a politically sensitive police file.",
+        "secret": "On a successful Law contact roll Kim is warm and grants access; on failure Kim demands a bribe, reneges, and denies knowing the investigator.",
+        "voice": "Professional when friendly; evasive and transactional when the contact claim fails.",
+        "relationship_to_investigators": "court_contact"
       },
       "source_refs": []
     },
@@ -3070,7 +3105,12 @@
               }
             ]
           }
-        }
+        },
+        "agenda": "Survive the interview without reliving every night; warn others that something evil lives in that house.",
+        "fear": "The presence returning; questions that drag her back into the bedrooms.",
+        "secret": "She can describe night visits and poltergeist anger but cannot give tactical specifics or Ke's name.",
+        "voice": "Fragile, soft, cuts off when pressed. Speaks of 'it', not a man with a biography.",
+        "relationship_to_investigators": "victim"
       },
       "source_refs": []
     },
@@ -3140,7 +3180,12 @@
               }
             }
           }
-        }
+        },
+        "agenda": "Keep her house quiet and her boarders alive until morning.",
+        "fear": "Police asking why a screaming tenant arrived at midnight.",
+        "secret": "RULE GYM: this house is the safe_place. She will not follow them to Crowe House.",
+        "voice": "Short, practical, slightly annoyed.",
+        "relationship_to_investigators": "host"
       },
       "source_refs": []
     },
@@ -3211,7 +3256,12 @@
               }
             }
           }
-        }
+        },
+        "agenda": "Stop the bleeding and send them back out.",
+        "fear": "A patient dying on her shift.",
+        "secret": "RULE GYM: healing cards. She will not leave the clinic.",
+        "voice": "Brisk, Spanish-accented English, no bedside poetry.",
+        "relationship_to_investigators": "medic"
       },
       "source_refs": []
     },
@@ -3320,7 +3370,12 @@
               ]
             }
           }
-        }
+        },
+        "agenda": "Defend the crawl space nest; swarm whoever breaks into it.",
+        "fear": "Fire and open flame in the confined crawl space.",
+        "secret": "They nest in Ke's hidden crawl space and their filth marks the wall carved 'Chapel of Contemplation'.",
+        "voice": "No speech — squealing, scrabbling claws, and the press of bodies in the dark.",
+        "relationship_to_investigators": "adversary"
       },
       "source_refs": []
     },
@@ -3408,7 +3463,12 @@
               }
             ]
           }
-        }
+        },
+        "agenda": "Do her job in the clippings basement and be treated like a person.",
+        "fear": "Getting in trouble with Arty for letting strangers linger.",
+        "secret": "Friendly investigators learn the 1878 fire cutoff without a roll — the information is color, not the critical clue.",
+        "voice": "Quiet, practical, basement-warm. Speaks in asides while filing.",
+        "relationship_to_investigators": "helpful_staff"
       },
       "source_refs": []
     },
@@ -3469,7 +3529,12 @@
               "Fast Talk": 40
             }
           }
-        }
+        },
+        "agenda": "Keep the stacks orderly and point courteous researchers toward the right jurisdiction.",
+        "fear": "Being blamed for missing felony files that were never held here.",
+        "secret": "City civil files stop short; serious crimes live in county/commonwealth/federal or Central Police holdings.",
+        "voice": "Dry, procedural, slightly helpful if thanked.",
+        "relationship_to_investigators": "bureaucrat"
       },
       "source_refs": []
     },
@@ -3557,7 +3622,12 @@
               }
             ]
           }
-        }
+        },
+        "agenda": "Clutch the bible and point at the false quotation — he cannot otherwise communicate usefully.",
+        "fear": "The burning-eyed form; being left without the book.",
+        "secret": "His pointed line 'By his own weapon is the devil worsted!' is the dagger hint — do not overplay it.",
+        "voice": "Mostly silent. Sudden finger on a page. Occasional babble.",
+        "relationship_to_investigators": "victim"
       },
       "source_refs": []
     },
@@ -8717,7 +8787,183 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-250",
+      "claim_id": "claim-knows-250",
+      "subject_id": "npc-dooley",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-dooley-macario-madness"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-251",
+      "subject_id": "npc-dooley",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-chapel-ruins-location"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-252",
+      "subject_id": "npc-dooley",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-burning-eyes-form"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-253",
+      "subject_id": "npc-howard-crane",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-crane-commission"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-254",
+      "subject_id": "npc-howard-crane",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-crane-research-leads"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-255",
+      "subject_id": "npc-howard-crane",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-crane-macario-summary"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-256",
+      "subject_id": "npc-maria-costa",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-gabriela-night-visitor"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-257",
+      "subject_id": "npc-maria-costa",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-burning-eyes-form"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-258",
+      "subject_id": "npc-maria-costa",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-boys-burning-eyes"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-259",
+      "subject_id": "npc-ruth-blake",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-globe-fire-cutoff"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-260",
+      "subject_id": "npc-vittorio-costa",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-vittorio-bible-weapon"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-may-lead-to-261",
       "subject_id": "quest-knott-commission",
       "predicate": "may-lead-to",
       "object": {
@@ -8733,7 +8979,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-251",
+      "claim_id": "claim-may-lead-to-262",
       "subject_id": "quest-knott-commission",
       "predicate": "may-lead-to",
       "object": {
@@ -8749,7 +8995,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-252",
+      "claim_id": "claim-may-lead-to-263",
       "subject_id": "quest-knott-commission",
       "predicate": "may-lead-to",
       "object": {
@@ -8765,7 +9011,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-253",
+      "claim_id": "claim-may-lead-to-264",
       "subject_id": "quest-retrieve-chapel-journal",
       "predicate": "may-lead-to",
       "object": {
@@ -8781,7 +9027,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-254",
+      "claim_id": "claim-may-lead-to-265",
       "subject_id": "quest-end-corbitt-threat",
       "predicate": "may-lead-to",
       "object": {
@@ -8797,7 +9043,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-255",
+      "claim_id": "claim-may-lead-to-266",
       "subject_id": "quest-end-corbitt-threat",
       "predicate": "may-lead-to",
       "object": {
@@ -12109,51 +12355,139 @@
       }
     },
     {
-      "relation_id": "relation-may-lead-to-250",
+      "relation_id": "relation-knows-250",
+      "relation_kind": "knows",
+      "from_node_id": "npc-dooley",
+      "to_node_id": "clue-dooley-macario-madness",
+      "claim_id": "claim-knows-250",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-251",
+      "relation_kind": "knows",
+      "from_node_id": "npc-dooley",
+      "to_node_id": "clue-chapel-ruins-location",
+      "claim_id": "claim-knows-251",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-252",
+      "relation_kind": "knows",
+      "from_node_id": "npc-dooley",
+      "to_node_id": "clue-burning-eyes-form",
+      "claim_id": "claim-knows-252",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-253",
+      "relation_kind": "knows",
+      "from_node_id": "npc-howard-crane",
+      "to_node_id": "clue-crane-commission",
+      "claim_id": "claim-knows-253",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-254",
+      "relation_kind": "knows",
+      "from_node_id": "npc-howard-crane",
+      "to_node_id": "clue-crane-research-leads",
+      "claim_id": "claim-knows-254",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-255",
+      "relation_kind": "knows",
+      "from_node_id": "npc-howard-crane",
+      "to_node_id": "clue-crane-macario-summary",
+      "claim_id": "claim-knows-255",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-256",
+      "relation_kind": "knows",
+      "from_node_id": "npc-maria-costa",
+      "to_node_id": "clue-gabriela-night-visitor",
+      "claim_id": "claim-knows-256",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-257",
+      "relation_kind": "knows",
+      "from_node_id": "npc-maria-costa",
+      "to_node_id": "clue-burning-eyes-form",
+      "claim_id": "claim-knows-257",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-258",
+      "relation_kind": "knows",
+      "from_node_id": "npc-maria-costa",
+      "to_node_id": "clue-boys-burning-eyes",
+      "claim_id": "claim-knows-258",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-259",
+      "relation_kind": "knows",
+      "from_node_id": "npc-ruth-blake",
+      "to_node_id": "clue-globe-fire-cutoff",
+      "claim_id": "claim-knows-259",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-260",
+      "relation_kind": "knows",
+      "from_node_id": "npc-vittorio-costa",
+      "to_node_id": "clue-vittorio-bible-weapon",
+      "claim_id": "claim-knows-260",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-may-lead-to-261",
       "relation_kind": "may-lead-to",
       "from_node_id": "quest-knott-commission",
       "to_node_id": "npc-howard-crane",
-      "claim_id": "claim-may-lead-to-250",
+      "claim_id": "claim-may-lead-to-261",
       "properties": {}
     },
     {
-      "relation_id": "relation-may-lead-to-251",
+      "relation_id": "relation-may-lead-to-262",
       "relation_kind": "may-lead-to",
       "from_node_id": "quest-knott-commission",
       "to_node_id": "scene-crowe-house-ground",
-      "claim_id": "claim-may-lead-to-251",
+      "claim_id": "claim-may-lead-to-262",
       "properties": {}
     },
     {
-      "relation_id": "relation-may-lead-to-252",
+      "relation_id": "relation-may-lead-to-263",
       "relation_kind": "may-lead-to",
       "from_node_id": "quest-knott-commission",
       "to_node_id": "clue-crowe-body-found",
-      "claim_id": "claim-may-lead-to-252",
+      "claim_id": "claim-may-lead-to-263",
       "properties": {}
     },
     {
-      "relation_id": "relation-may-lead-to-253",
+      "relation_id": "relation-may-lead-to-264",
       "relation_kind": "may-lead-to",
       "from_node_id": "quest-retrieve-chapel-journal",
       "to_node_id": "clue-chapel-journal-burial",
-      "claim_id": "claim-may-lead-to-253",
+      "claim_id": "claim-may-lead-to-264",
       "properties": {}
     },
     {
-      "relation_id": "relation-may-lead-to-254",
+      "relation_id": "relation-may-lead-to-265",
       "relation_kind": "may-lead-to",
       "from_node_id": "quest-end-corbitt-threat",
       "to_node_id": "npc-calvin-crowe",
-      "claim_id": "claim-may-lead-to-254",
+      "claim_id": "claim-may-lead-to-265",
       "properties": {}
     },
     {
-      "relation_id": "relation-may-lead-to-255",
+      "relation_id": "relation-may-lead-to-266",
       "relation_kind": "may-lead-to",
       "from_node_id": "quest-end-corbitt-threat",
       "to_node_id": "clue-own-dagger-ends-him",
-      "claim_id": "claim-may-lead-to-255",
+      "claim_id": "claim-may-lead-to-266",
       "properties": {}
     },
     {

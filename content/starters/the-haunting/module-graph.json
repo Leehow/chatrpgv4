@@ -3719,7 +3719,12 @@
               }
             ]
           }
-        }
+        },
+        "agenda": "Guard access to the Globe clippings morgue and enjoy the little power of saying no.",
+        "fear": "Looking weak in front of the newsroom if he caves too easily.",
+        "secret": "He is not professionally skilled at social resistance — Regular difficulty social skills can move him; he just starts unhelpful by policy.",
+        "voice": "Pompous, clipped, editorial. Loves denying 'the general public'.",
+        "relationship_to_investigators": "gatekeeper"
       },
       "source_refs": [
         {
@@ -3848,7 +3853,12 @@
               }
             ]
           }
-        }
+        },
+        "agenda": "Sell papers and cigars, gossip for sport, and size people up before sharing.",
+        "fear": "Wasting breath on snobs who look down on street vendors.",
+        "secret": "He exaggerates; not every line is true. He can still point to the chapel ruins and name the house 'the Corbitt House'.",
+        "voice": "Salesman banter, neighborhood Irish-Boston color, enjoys a listener.",
+        "relationship_to_investigators": "informant"
       },
       "source_refs": [
         {
@@ -3967,7 +3977,12 @@
               }
             ]
           }
-        }
+        },
+        "agenda": "Survive the interview without reliving every night; warn others that something evil lives in that house.",
+        "fear": "The presence returning; questions that drag her back into the bedrooms.",
+        "secret": "She can describe night visits and poltergeist anger but cannot give tactical specifics or Corbitt's name.",
+        "voice": "Fragile, soft, cuts off when pressed. Speaks of 'it', not a man with a biography.",
+        "relationship_to_investigators": "victim"
       },
       "source_refs": [
         {
@@ -4048,7 +4063,12 @@
               }
             ]
           }
-        }
+        },
+        "agenda": "Control access to the court file and decide whether a claimed legal contact deserves cooperation.",
+        "fear": "Being blamed for allowing unauthorized access to a politically sensitive police file.",
+        "secret": "On a successful Law contact roll Kim is warm and grants access; on failure Kim demands a bribe, reneges, and denies knowing the investigator.",
+        "voice": "Professional when friendly; evasive and transactional when the contact claim fails.",
+        "relationship_to_investigators": "court_contact"
       },
       "source_refs": [
         {
@@ -4188,7 +4208,12 @@
               ]
             }
           }
-        }
+        },
+        "agenda": "Defend the crawl space nest; swarm whoever breaks into it.",
+        "fear": "Fire and open flame in the confined crawl space.",
+        "secret": "They nest in Corbitt's hidden crawl space and their filth marks the wall carved 'Chapel of Contemplation'.",
+        "voice": "No speech — squealing, scrabbling claws, and the press of bodies in the dark.",
+        "relationship_to_investigators": "adversary"
       },
       "source_refs": []
     },
@@ -4247,7 +4272,12 @@
               }
             ]
           }
-        }
+        },
+        "agenda": "Keep the stacks orderly and point courteous researchers toward the right jurisdiction.",
+        "fear": "Being blamed for missing felony files that were never held here.",
+        "secret": "City civil files stop short; serious crimes live in county/commonwealth/federal or Central Police holdings.",
+        "voice": "Dry, procedural, slightly helpful if thanked.",
+        "relationship_to_investigators": "bureaucrat"
       },
       "source_refs": [
         {
@@ -4343,7 +4373,12 @@
               }
             ]
           }
-        }
+        },
+        "agenda": "Do her job in the clippings basement and be treated like a person.",
+        "fear": "Getting in trouble with Arty for letting strangers linger.",
+        "secret": "Friendly investigators learn the 1878 fire cutoff without a roll — the information is color, not the critical clue.",
+        "voice": "Quiet, practical, basement-warm. Speaks in asides while filing.",
+        "relationship_to_investigators": "helpful_staff"
       },
       "source_refs": [
         {
@@ -4464,7 +4499,12 @@
               }
             ]
           }
-        }
+        },
+        "agenda": "Clear the Corbitt House's reputation so he can rent or sell the inherited property and stop losing money.",
+        "fear": "Being stuck with a worthless haunted white elephant that ruins his credit.",
+        "secret": "He knows only rumor and the Macario tragedy — nothing of Corbitt's undead nature — and will not believe Mythos explanations without hard proof.",
+        "voice": "Practical, impatient, money-minded. Speaks in short offers and deadlines.",
+        "relationship_to_investigators": "employer"
       },
       "source_refs": [
         {
@@ -4560,7 +4600,12 @@
               }
             ]
           }
-        }
+        },
+        "agenda": "Clutch the bible and point at the false quotation — he cannot otherwise communicate usefully.",
+        "fear": "The burning-eyed form; being left without the book.",
+        "secret": "His pointed line 'By his own weapon is the devil worsted!' is the dagger hint — do not overplay it.",
+        "voice": "Mostly silent. Sudden finger on a page. Occasional babble.",
+        "relationship_to_investigators": "victim"
       },
       "source_refs": [
         {
@@ -4759,7 +4804,12 @@
               }
             }
           }
-        }
+        },
+        "agenda": "Mislead and frighten intruders away from his buried body; failing that, murder them and resume feeding on residents.",
+        "fear": "His own ritual dagger in an enemy's hand; prolonged daylight exposure of his lair; being reduced below the point where Flesh Ward and Dominate can buy rounds.",
+        "secret": "He is an undead sorcerer animating his own corpse in the sealed basement; presentation data lives under monsters.json 'Walter Corbitt'.",
+        "voice": "Rarely speaks. Acts through knocks, blood, flying furniture, floating knife, and finally claws.",
+        "relationship_to_investigators": "adversary"
       },
       "source_refs": [
         {
@@ -17905,6 +17955,215 @@
       "reason": "Structured curated starter projection."
     },
     {
+      "claim_id": "claim-knows-306",
+      "subject_id": "npc-dooley",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-dooley-macario-madness"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-450-anchor-4",
+        "span-page-450-anchor-8"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-307",
+      "subject_id": "npc-dooley",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-chapel-ruins-location"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-450-anchor-2",
+        "span-page-450-anchor-4"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-308",
+      "subject_id": "npc-dooley",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-burning-eyes-form"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-450-anchor-4",
+        "span-page-450-anchor-8"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-309",
+      "subject_id": "npc-gabriela-macario",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-gabriela-night-visitor"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-450-anchor-3",
+        "span-page-450-anchor-9"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-310",
+      "subject_id": "npc-gabriela-macario",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-burning-eyes-form"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-450-anchor-3",
+        "span-page-450-anchor-8"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-311",
+      "subject_id": "npc-gabriela-macario",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-boys-burning-eyes"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-450-anchor-10",
+        "span-page-450-anchor-3"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-312",
+      "subject_id": "npc-ruth-blake",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-globe-fire-cutoff"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-448-anchor-5",
+        "span-page-448-anchor-9"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-313",
+      "subject_id": "npc-steven-knott",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-knott-commission"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-446-anchor-5",
+        "span-page-446-anchor-6"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-314",
+      "subject_id": "npc-steven-knott",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-knott-research-leads"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-446-anchor-2",
+        "span-page-446-anchor-6"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-315",
+      "subject_id": "npc-steven-knott",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-knott-macario-summary"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-446-anchor-4",
+        "span-page-446-anchor-6"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
+      "claim_id": "claim-knows-316",
+      "subject_id": "npc-vittorio-macario",
+      "predicate": "knows",
+      "object": {
+        "node_id": "clue-vittorio-bible-weapon"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-page-450-anchor-1",
+        "span-page-450-anchor-7"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "Structured curated starter projection."
+    },
+    {
       "claim_id": "claim-liber-located-chapel",
       "subject_id": "tome-liber-ivonis",
       "predicate": "discoverable-at",
@@ -17924,7 +18183,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-306",
+      "claim_id": "claim-may-lead-to-317",
       "subject_id": "quest-knott-commission",
       "predicate": "may-lead-to",
       "object": {
@@ -17942,7 +18201,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-307",
+      "claim_id": "claim-may-lead-to-318",
       "subject_id": "quest-knott-commission",
       "predicate": "may-lead-to",
       "object": {
@@ -17961,7 +18220,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-308",
+      "claim_id": "claim-may-lead-to-319",
       "subject_id": "quest-knott-commission",
       "predicate": "may-lead-to",
       "object": {
@@ -17980,7 +18239,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-309",
+      "claim_id": "claim-may-lead-to-320",
       "subject_id": "quest-retrieve-chapel-journal",
       "predicate": "may-lead-to",
       "object": {
@@ -17999,7 +18258,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-310",
+      "claim_id": "claim-may-lead-to-321",
       "subject_id": "quest-end-corbitt-threat",
       "predicate": "may-lead-to",
       "object": {
@@ -18017,7 +18276,7 @@
       "reason": "Structured curated starter projection."
     },
     {
-      "claim_id": "claim-may-lead-to-311",
+      "claim_id": "claim-may-lead-to-322",
       "subject_id": "quest-end-corbitt-threat",
       "predicate": "may-lead-to",
       "object": {
@@ -22456,6 +22715,94 @@
       "properties": {}
     },
     {
+      "relation_id": "relation-knows-306",
+      "relation_kind": "knows",
+      "from_node_id": "npc-dooley",
+      "to_node_id": "clue-dooley-macario-madness",
+      "claim_id": "claim-knows-306",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-307",
+      "relation_kind": "knows",
+      "from_node_id": "npc-dooley",
+      "to_node_id": "clue-chapel-ruins-location",
+      "claim_id": "claim-knows-307",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-308",
+      "relation_kind": "knows",
+      "from_node_id": "npc-dooley",
+      "to_node_id": "clue-burning-eyes-form",
+      "claim_id": "claim-knows-308",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-309",
+      "relation_kind": "knows",
+      "from_node_id": "npc-gabriela-macario",
+      "to_node_id": "clue-gabriela-night-visitor",
+      "claim_id": "claim-knows-309",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-310",
+      "relation_kind": "knows",
+      "from_node_id": "npc-gabriela-macario",
+      "to_node_id": "clue-burning-eyes-form",
+      "claim_id": "claim-knows-310",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-311",
+      "relation_kind": "knows",
+      "from_node_id": "npc-gabriela-macario",
+      "to_node_id": "clue-boys-burning-eyes",
+      "claim_id": "claim-knows-311",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-312",
+      "relation_kind": "knows",
+      "from_node_id": "npc-ruth-blake",
+      "to_node_id": "clue-globe-fire-cutoff",
+      "claim_id": "claim-knows-312",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-313",
+      "relation_kind": "knows",
+      "from_node_id": "npc-steven-knott",
+      "to_node_id": "clue-knott-commission",
+      "claim_id": "claim-knows-313",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-314",
+      "relation_kind": "knows",
+      "from_node_id": "npc-steven-knott",
+      "to_node_id": "clue-knott-research-leads",
+      "claim_id": "claim-knows-314",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-315",
+      "relation_kind": "knows",
+      "from_node_id": "npc-steven-knott",
+      "to_node_id": "clue-knott-macario-summary",
+      "claim_id": "claim-knows-315",
+      "properties": {}
+    },
+    {
+      "relation_id": "relation-knows-316",
+      "relation_kind": "knows",
+      "from_node_id": "npc-vittorio-macario",
+      "to_node_id": "clue-vittorio-bible-weapon",
+      "claim_id": "claim-knows-316",
+      "properties": {}
+    },
+    {
       "relation_id": "relation-liber-located-chapel",
       "relation_kind": "discoverable-at",
       "from_node_id": "tome-liber-ivonis",
@@ -22464,51 +22811,51 @@
       "properties": {}
     },
     {
-      "relation_id": "relation-may-lead-to-306",
+      "relation_id": "relation-may-lead-to-317",
       "relation_kind": "may-lead-to",
       "from_node_id": "quest-knott-commission",
       "to_node_id": "npc-steven-knott",
-      "claim_id": "claim-may-lead-to-306",
+      "claim_id": "claim-may-lead-to-317",
       "properties": {}
     },
     {
-      "relation_id": "relation-may-lead-to-307",
+      "relation_id": "relation-may-lead-to-318",
       "relation_kind": "may-lead-to",
       "from_node_id": "quest-knott-commission",
       "to_node_id": "scene-corbitt-house-ground",
-      "claim_id": "claim-may-lead-to-307",
+      "claim_id": "claim-may-lead-to-318",
       "properties": {}
     },
     {
-      "relation_id": "relation-may-lead-to-308",
+      "relation_id": "relation-may-lead-to-319",
       "relation_kind": "may-lead-to",
       "from_node_id": "quest-knott-commission",
       "to_node_id": "clue-corbitt-body-found",
-      "claim_id": "claim-may-lead-to-308",
+      "claim_id": "claim-may-lead-to-319",
       "properties": {}
     },
     {
-      "relation_id": "relation-may-lead-to-309",
+      "relation_id": "relation-may-lead-to-320",
       "relation_kind": "may-lead-to",
       "from_node_id": "quest-retrieve-chapel-journal",
       "to_node_id": "clue-chapel-journal-burial",
-      "claim_id": "claim-may-lead-to-309",
+      "claim_id": "claim-may-lead-to-320",
       "properties": {}
     },
     {
-      "relation_id": "relation-may-lead-to-310",
+      "relation_id": "relation-may-lead-to-321",
       "relation_kind": "may-lead-to",
       "from_node_id": "quest-end-corbitt-threat",
       "to_node_id": "npc-walter-corbitt",
-      "claim_id": "claim-may-lead-to-310",
+      "claim_id": "claim-may-lead-to-321",
       "properties": {}
     },
     {
-      "relation_id": "relation-may-lead-to-311",
+      "relation_id": "relation-may-lead-to-322",
       "relation_kind": "may-lead-to",
       "from_node_id": "quest-end-corbitt-threat",
       "to_node_id": "clue-own-dagger-ends-him",
-      "claim_id": "claim-may-lead-to-311",
+      "claim_id": "claim-may-lead-to-322",
       "properties": {}
     },
     {

@@ -33,6 +33,7 @@ const ClueEffect = Type.Object({
 	kind: StringEnum(["clue"] as const, { description: "the investigator obtains one clue" }),
 	clue: Type.String({ description: "clue name; must be a clue obtainable in the current scene" }),
 	how: Type.Optional(Type.String({ description: "one sentence: how they got it" })),
+	from: Type.Optional(Type.String({ description: "the NPC who handed it over, when someone did; it goes on their ledger as something they disclosed" })),
 	label: Type.Optional(Type.String({ description: "short name of this clue in the player's language; omitted means the clue name" })),
 });
 
@@ -113,11 +114,20 @@ const RulingEffect = Type.Object({
 	scope: Type.Optional(StringEnum(["campaign", "module", "scene"] as const, { description: "how far it reaches; defaults to campaign" })),
 });
 
+/** A person moved on or off the stage, or where you read them as standing (contract §17.3). */
+const NpcEffect = Type.Object({
+	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, or set where they stand with the party" }),
+	name: Type.String({ description: "the NPC's name" }),
+	to: Type.Optional(Type.String({ description: "where they are now: a scene name, `here` for this scene, or `away` to take them off stage" })),
+	stance: Type.Optional(StringEnum(["hostile", "wary", "neutral", "warm"] as const, {
+		description: "your own reading of where they stand with the party; the kernel keeps the settled checks' account on its own, so set this only when you decide something the dice did not",
+	})),
+	why: Type.Optional(Type.String({ description: "one sentence: why they moved, or why they now stand there" })),
+});
+
 /** Reserved kinds: the kernel answers not_implemented; the shape is here already. */
 const ReservedEffect = Type.Object({
-	kind: StringEnum(["handout", "npc"] as const, {
-		description: "reserved kinds; the kernel answers not_implemented for npc",
-	}),
+	kind: StringEnum(["handout"] as const, { description: "reserved kind" }),
 	name: Type.Optional(Type.String()),
 	value: Type.Optional(Type.String()),
 	note: Type.Optional(Type.String()),
@@ -353,11 +363,11 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Apply",
 		method: "table.apply",
 		description:
-			"Land this turn's changes to the world: move walks to another scene (the result carries the destination scene, so no second look is needed), clue gives the investigator a clue, time advances the world clock, damage hurts the investigator with the rulebook's dice (a fall, fire, suffocation — harm with no attacker), item makes something change hands, cash makes money go up or down. The whole batch is validated before anything is written, and one bad effect writes none of them, so you can list everything that happened this turn in one call. What happens in your narration without an apply did not happen: walking is a move, seeing is a clue, time spent is a time, something gained or handed over is an item, money in or out is a cash. Everything picked up, bought, taken away or used up is an item and reaches the investigator sheet; if it is a weapon, put the profile name from the rules table in weapon, or that gun will never fire later. Money spent, earned or paid out is a cash with a signed delta, and the kernel works out the before and after itself. A destination may be an exit of the current scene or any scene on the way in (where.back lists them nearest first, which is how you back out of a lair with no exits); an unreachable one reports not_reachable with both lists, and a clue that is not here reports not_here.",
+			"Land this turn's changes to the world: move walks to another scene (the result carries the destination scene, so no second look is needed), clue gives the investigator a clue, time advances the world clock, damage hurts the investigator with the rulebook's dice (a fall, fire, suffocation — harm with no attacker), item makes something change hands, cash makes money go up or down. The whole batch is validated before anything is written, and one bad effect writes none of them, so you can list everything that happened this turn in one call. What happens in your narration without an apply did not happen: walking is a move, seeing is a clue, time spent is a time, something gained or handed over is an item, money in or out is a cash. Everything picked up, bought, taken away or used up is an item and reaches the investigator sheet; if it is a weapon, put the profile name from the rules table in weapon, or that gun will never fire later. Money spent, earned or paid out is a cash with a signed delta, and the kernel works out the before and after itself. Someone walking into or out of the scene is an npc with to (a scene name, here, or away) — until you land it, they are not in the room and cannot be targeted; npc also takes stance when you decide where someone stands with the party for a reason the dice did not settle. A destination may be an exit of the current scene or any scene on the way in (where.back lists them nearest first, which is how you back out of a lair with no exits); an unreachable one reports not_reachable with both lists, and a clue that is not here reports not_here.",
 		promptSnippet: "Land this turn's world changes: move, clue, time, item, cash",
 		parameters: Type.Object({
 			effects: Type.Array(
-				Type.Union([MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, ReservedEffect]),
+				Type.Union([MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, ReservedEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
 		}),

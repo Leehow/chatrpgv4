@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..errors import invalid_params
+from ..errors import RpcError, invalid_params
+from ..module_graph import NPC_KIND
 from .contract import EXIT_RELATION_KINDS
 from .store import ModuleStore, node_pages, now_iso
 
@@ -142,6 +143,30 @@ def enqueue_for_scene(store: ModuleStore, module_id: str, scene_handle: str, *,
     if around["adjacent"]:
         queued += enqueue(store, module_id, around["adjacent"], "adjacent", PRIORITY_ADJACENT)
     return {**around, "queued": queued, "queue": store.read_queue(module_id)}
+
+
+def sections_for_npc(store: ModuleStore, module_id: str, name: str) -> dict[str, Any]:
+    """§17.2: every section this person appears in, so a re-read can look for the dossier
+    the first pass left out. Membership is structural — the sections whose pages hold the
+    scenes they are `present-in`, plus the section that defines the node itself."""
+    graph = store.graph(module_id)
+    node = graph.find(name, (NPC_KIND,))
+    if node is None:
+        raise RpcError("unknown_entity", f"no npc named {name!r} in {module_id!r}",
+                       fix="name one of details.npcs",
+                       details={"npcs": sorted(graph.display_name(n) for n in graph.by_kind.get(NPC_KIND, []))})
+    sections: list[str] = []
+    for scene_id in sorted({rel["to_node_id"] for rel in graph.out_rel.get(node["node_id"], [])
+                            if rel["relation_kind"] == "present-in"}):
+        scene = graph.nodes.get(scene_id)
+        found = store.section_for_scene(module_id, graph.handle(scene)) if scene else None
+        section_id = (found or {}).get("section_id")
+        if isinstance(section_id, str) and section_id not in sections:
+            sections.append(section_id)
+    for section_id, node_ids in (graph.raw.get("node_refs_by_section") or {}).items():
+        if node["node_id"] in (node_ids or []) and section_id not in sections:
+            sections.append(str(section_id))
+    return {"npc": graph.handle(node), "sections": sections}
 
 
 def material_state(store: ModuleStore, module_id: str, scene_handle: str) -> str:

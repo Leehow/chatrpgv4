@@ -82,6 +82,10 @@
       "asks": "How many npc nodes."
     },
     {
+      "code": "npcs_without_material",
+      "asks": "How many npc nodes the book left as a stat block: nothing they want, fear, hide, know or would say. Reported, never thresholded -- a person a book mentions once has nothing to give, and a count is not a defect."
+    },
+    {
       "code": "creatures",
       "asks": "How many creature nodes."
     },

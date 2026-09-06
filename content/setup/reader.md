@@ -79,8 +79,15 @@ one, deterministically, like the gates), and your section is part of that:
 
 - Scenes (`scene` / `event` / `ending`) and their connections; a scene's `summary` holds what the keeper needs to open it.
 - Actors (`npc` / `creature` / `faction` / `organization`): the stat block the book gives goes into `properties` as printed,
-  citing the spans those lines sit in; `present-in` into scenes. Keeper material (`agenda`, `secret`, `fear`) goes into
-  `properties` with `visibility` `keeper-only`.
+  citing the spans those lines sit in; `present-in` into scenes.
+  **A stat block alone is not a person.** When the book says what someone wants, fears, hides, sounds like, or is to the
+  investigators, put it in `properties` as `agenda`, `fear`, `secret`, `voice`, `relationship_to_investigators`, with
+  `visibility` `keeper-only`. Copy the book; do not invent a motive for someone the book only names.
+  What they know and would say goes in claims with the actor as subject: `knows` (a clue, secret, place or person the
+  book says they know), `believes` (what they hold that may be wrong), `asserts` (the line they would give, with
+  `truth_status` `authored-lie` or `authored-rumor`), `hides` (a `secret` node). Who they stand with and against goes in
+  the relations that already exist: `allied-with`, `opposes`, `member-of`, `controls`, `owns`, `possesses`, `worships`,
+  `threatens`, `impersonates`.
 - Clues and conclusions (`clue` / `conclusion`): `discoverable-at` into scenes, `supports` to conclusions; a `clue`'s
   `properties.delivery_kind` records how the book hands it over (`skill_check`, `conversation`, `handout`...).
 - Rules (`rule`): the rulings and numbers the book fixes; a scene `uses-rule` points at it.

@@ -30,7 +30,8 @@ def test_the_capsule_has_nine_sections_a_head_and_the_clock(kernel):
     assert capsule["where"]["clock"] == {"minutes": 0, "elapsed": "0 h 0 min"}  # no start time authored: no day_part
     assert capsule["where"]["session"] is None
     knott = capsule["present"][0]
-    assert knott["secret"] and knott["fear"]  # keeper-only material, same law as agenda
+    # §17.4 renamed these: keeper-only material, same law as `wants`
+    assert knott["hides"] and knott["fears"]
     assert capsule["situations"] == [] and capsule["situations"] == kernel.table("look")["where"]["situations"]
     # the nine sections fit untouched; only the first-turn briefing (#22) had its roster
     # lines shortened to its own 2KB, and says so

@@ -287,6 +287,9 @@ def check(graph: Any, *, evidence_total: int | None = None,
         "largest_component": max((len(c) for c in components), default=0),
         "branches": sum(1 for s in scenes if len(forward.get(s, ())) > 1),
         "npcs": len(by_kind.get("npc", [])),
+        # §17.2: who the book gave nothing to play — no dossier key and no dossier claim.
+        # Reported, never thresholded: a one-scene handout may legitimately have none.
+        "npcs_without_material": len(_npcs_without_material(graph, nodes, by_kind)),
         "creatures": len(by_kind.get("creature", [])),
         "clues": len(clues),
         "conclusions": len(conclusions),
@@ -303,6 +306,35 @@ def check(graph: Any, *, evidence_total: int | None = None,
     counts = Counter(f["code"] for f in findings)
     return {"status": "playable" if not findings else "findings", "findings": findings,
             "finding_counts": dict(sorted(counts.items())), "measures": measures}
+
+
+#: §17.2: the dossier keys and claim predicates that make an NPC playable at the table.
+NPC_PROFILE_KEYS = ("agenda", "fear", "secret", "voice", "relationship_to_investigators")
+NPC_DOSSIER_PREDICATES = ("knows", "believes", "asserts", "hides")
+
+
+def npcs_without_material(graph: dict[str, Any]) -> list[str]:
+    """§17.2 / §14.3: the npc node ids the book left as a stat block — nothing they want,
+    fear, hide, know or would say. The brief names them; nothing fails because of them."""
+    nodes = _nodes(graph)
+    return _npcs_without_material(graph, nodes, _by_kind(nodes))
+
+
+def _npcs_without_material(graph: dict[str, Any], nodes: dict[str, Any],
+                           by_kind: dict[str, list[Any]]) -> list[str]:
+    with_claims = {str(c.get("subject_id")) for c in graph.get("claims") or []
+                   if isinstance(c, dict) and c.get("predicate") in NPC_DOSSIER_PREDICATES}
+    bare: list[str] = []
+    for node in by_kind.get("npc", []):
+        node_id = node.get("node_id") if isinstance(node, dict) else None
+        if not isinstance(node_id, str):
+            continue
+        props = node.get("properties") or {}
+        record = (props.get("runtime_projection") or {}).get("record") or {}
+        has_key = any(str(props.get(k) or record.get(k) or "").strip() for k in NPC_PROFILE_KEYS)
+        if not has_key and node_id not in with_claims and not record.get("facts"):
+            bare.append(node_id)
+    return sorted(bare)
 
 
 def opening_subgraph(graph: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str], str | None]:
