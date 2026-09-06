@@ -624,8 +624,48 @@ export default function (pi: ExtensionAPI) {
 			}
 			return;
 		}
-		const rendered = state.renderedText;
-		if (!rendered) return;
+		let rendered = state.renderedText;
+		if (!rendered) {
+			// 守秘人写了台词却没调 narrate：这段正文就是叙述。宿主替它关回合，
+			// 玩家看到的仍是内核渲染的文本，收据一条不少。
+			const prose = blocks
+				.filter((b) => b.type === "text" && typeof b.text === "string")
+				.map((b) => String(b.text))
+				.join("")
+				.split("\n")
+				.filter((line) => !/^\s*【(明骰|变化|第 ?\d+ ?轮)】/.test(line))
+				.join("\n")
+				.trim();
+			const canClose = state.state === "open" || state.state === "acting"
+				|| (state.state === "awaiting_player" && state.openingPending);
+			if (!prose || !canClose || state.closedThisRun) return;
+			// 内核留了给玩家的待决（战斗的防御）而守秘人只写了叙述：宿主替它把问题接上，
+			// 叙述是 ask 的 text，问题与选项是内核的。
+			const pending = state.pendingChoice;
+			const asPlayerAsk = pending?.for === "player" && typeof pending.prompt === "string"
+				&& Array.isArray(pending.options) && pending.options.length >= 2;
+			const tool = asPlayerAsk ? "ask" : "narrate";
+			const callId = mintCallId(state);
+			const startedAt = new Date().toISOString();
+			const began = Date.now();
+			try {
+				const params: Record<string, unknown> = asPlayerAsk
+					? { campaign: state.campaign, call_id: callId, text: prose, prompt: pending!.prompt, options: pending!.options, binds: pending!.name }
+					: { campaign: state.campaign, call_id: callId, text: prose };
+				const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
+				applyToolSuccess(state, tool, "implicit", result);
+				await record({ tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: true, implicit: true });
+				await record({ tool, event: "turn-closed", round_trips: state.roundTrips, ok: true, implicit: true });
+				rendered = asString(result.rendered_text);
+			} catch (error) {
+				await record({
+					tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: false, implicit: true,
+					code: error instanceof KernelError ? error.code : "internal",
+				});
+				return;
+			}
+			if (!rendered) return;
+		}
 		const next: Array<Record<string, unknown>> = [];
 		let placed = false;
 		for (const block of blocks) {

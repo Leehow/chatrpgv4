@@ -248,7 +248,7 @@ test("推骰：push 与 stakes 原样送到内核，遥测记下这一族", asyn
 	assert.equal(statusLines(table).length, 0, "没有会话就不动状态行");
 });
 
-test("待决防御没交回去就收工：催的是 ask，不是 narrate", async (t) => {
+test("待决防御没交回去就收工：宿主替它 ask，叙述是 text，问题与选项是内核的", async (t) => {
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage(
@@ -265,8 +265,7 @@ test("待决防御没交回去就收工：催的是 ask，不是 narrate", async
 				],
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage("我先想想这一下打得怎么样。"),
-			fauxAssistantMessage("还是想想。"),
+			fauxAssistantMessage("撬棍带着风声砸下来，你只来得及看见它的影子。"),
 		],
 	});
 	t.after(() => table.dispose());
@@ -274,8 +273,14 @@ test("待决防御没交回去就收工：催的是 ask，不是 narrate", async
 	await table.session.prompt("我抄起铁撬砸他");
 	await waitForIdle(table.session);
 
+	const ask = table.kernelRequests().find((entry) => entry.method === "table.ask");
+	assert.ok(ask, "宿主替守秘人调了 table.ask");
+	assert.equal(ask.params.binds, "combat-defense-t1", "绑定内核留下的那条待决");
+	assert.equal(ask.params.prompt, "撬棍朝你的肩膀砸下来，你怎么办？");
+	assert.equal(ask.params.text, "撬棍带着风声砸下来，你只来得及看见它的影子。");
+	assert.deepEqual(ask.params.options, ["dodge", "fight_back"]);
 	const steers = customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "steer");
-	assert.equal(steers.length, 1, "只催一次");
-	assert.match(String(steers[0].content), /用一次 ask 把它交回玩家/);
-	assert.match(String(steers[0].content), /撬棍朝你的肩膀砸下来/, "催收里带上内核给玩家的那句待决");
+	assert.equal(steers.length, 0, "回合已经关了，不再催");
+	const delivered = assistantTexts(table.session).filter((text) => text.length > 0).at(-1);
+	assert.ok(delivered.endsWith("1. dodge\n2. fight_back"), "交付的是内核渲染的问题与选项");
 });

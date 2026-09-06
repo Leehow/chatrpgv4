@@ -130,3 +130,28 @@ test("ask 也关闭回合：交付的是内核渲染的问题加选项", async (
 	assert.equal(ask.params.call_id, "t1-c1");
 	assert.equal(assistantTexts(table.session).at(-1), "你先看哪边？\n1. 地窖门\n2. 楼梯");
 });
+
+test("守秘人写了台词却没调 narrate：宿主替它 narrate，交付仍是内核渲染的文本", async (t) => {
+	const table = await openTable({
+		responses: [
+			fauxAssistantMessage(
+				[fauxToolCall("resolve", { action: { intent: "investigate", goal: "看门框", method: "侦查", skill: "Spot Hidden" } })],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage("门框上有一道深深的抓痕。\n【明骰】守秘人自己写的骰行，该被剥掉\n\n你退后一步。"),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我看门框");
+
+	const narrate = table.kernelRequests().find((entry) => entry.method === "table.narrate");
+	assert.ok(narrate, "宿主替守秘人调了 table.narrate");
+	assert.equal(narrate.params.call_id, "t1-c2");
+	assert.equal(narrate.params.text, "门框上有一道深深的抓痕。\n\n你退后一步。", "自写的骰行被剥掉后才送进内核");
+	const delivered = assistantTexts(table.session).filter((text) => text.length > 0).at(-1);
+	assert.ok(delivered.startsWith("门框上有一道深深的抓痕。"), "交付的是内核渲染的文本");
+	assert.ok(delivered.includes("【明骰】侦查｜掷骰：42"), "内核插入的骰行在交付里");
+	const implicitRows = table.telemetry().filter((row) => row.tool === "narrate" && row.implicit === true);
+	assert.ok(implicitRows.length >= 1, "遥测记录了隐式 narrate");
+});

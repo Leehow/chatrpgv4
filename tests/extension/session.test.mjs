@@ -4,7 +4,7 @@
 
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
 import { createFakeUI, customMessages, openTable, waitForIdle } from "./harness.mjs";
 
 function resultText(message) {
@@ -129,9 +129,10 @@ test("回合没关时催一次，且只催一次", async (t) => {
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-			fauxAssistantMessage("我先想想。"),
-			fauxAssistantMessage("还是想想。"),
-			fauxAssistantMessage("再想想。"),
+			// 只想不说：没有正文可当叙述，宿主才需要催。写了正文的情况走隐式 narrate，见 turn.test。
+			fauxAssistantMessage([fauxThinking("我先想想。")]),
+			fauxAssistantMessage([fauxThinking("还是想想。")]),
+			fauxAssistantMessage([fauxThinking("再想想。")]),
 		],
 	});
 	t.after(() => table.dispose());
