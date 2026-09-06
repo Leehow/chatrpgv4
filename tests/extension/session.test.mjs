@@ -162,7 +162,12 @@ test("内核意外退出后重新拉起并重开桌", async (t) => {
 		await new Promise((resolve) => setTimeout(resolve, 20));
 	}
 
-	const methods = table.kernelRequests().map((entry) => entry.method);
+	// 按需深读的认领（契约 §14.6）也搭在这条内核连接上，开桌之后会来一次；
+	// 这个用例看的是开桌与重开桌那条线，所以把车道的调用滤掉。
+	const methods = table
+		.kernelRequests()
+		.map((entry) => entry.method)
+		.filter((method) => !method.startsWith("module."));
 	assert.deepEqual(
 		methods,
 		["kernel.hello", "table.open", "table.player_input", "kernel.hello", "table.open"],

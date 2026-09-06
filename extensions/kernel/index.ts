@@ -7,6 +7,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
+import { cocMode } from "../lanes/host.ts";
 import { KernelClient, KernelError } from "./client.ts";
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { type CommitPayload, runVerifierLane, stripMechanicsLines } from "./verifier.ts";
@@ -58,6 +59,18 @@ type ResolveResult = {
 	pending_choice?: PendingChoice | null;
 };
 
+/**
+ * `apply` 的 `handout` 效果回来的附件（契约 §14.8）。
+ * Pi 的助手消息只装 text／thinking／toolCall 三种块，出站没有附件通道
+ * （见 docs/pi-host-contract.md 第 4、5 节），所以路径落进交付文本与遥测。
+ */
+interface HandoutAttachment {
+	path: string;
+	media_type?: string;
+	name?: string;
+	receipt?: string;
+}
+
 interface CampaignRow {
 	id: string;
 	title?: string;
@@ -96,6 +109,8 @@ interface TableState {
 	callKeys: Map<string, string>;
 	/** narrate 已提交、校验车道还没起跑的那一回合（契约 §12.5：交付替换之后才跑）。 */
 	pendingCommit?: CommitPayload;
+	/** 本回合 `apply` 落下的手卡附件（契约 §14.8），等着跟交付一起给玩家。 */
+	attachments: HandoutAttachment[];
 	/** 会话结束时掐断还在飞的车道补全，别让它拖住退出。 */
 	lanes: AbortController;
 }
@@ -105,6 +120,15 @@ const CLOSED_STATES: ReadonlySet<TurnState> = new Set<TurnState>(["awaiting_play
 const TURN_CLOSED_REASON = "回合已关闭，等待玩家";
 
 let table: TableState | undefined;
+/** 建卡模式下没有桌子，内核子进程单独挂在这里（契约 §14.4）。 */
+let soloKernel: KernelClient | undefined;
+/**
+ * 总线上那个 RPC 闭包的闸（契约 §12.8 的 `coc:kernel-bridge`）。
+ * 车道是异步的：记忆抽取、按需深读都可能在关机之后才轮到自己发请求，
+ * 而那时内核客户端已经 close 了——它排队里的下一个请求会把子进程再拉起来一次。
+ * 关机时先把这个闸关上，晚到的调用当场失败，不再叫醒一个没人管的内核进程。
+ */
+let bridgeGate = { open: false };
 let startupError: string | undefined;
 /** session_start 那个 ctx 的字段都是取值时算的，所以留着它就等于留着一份活的会话视图。 */
 let sessionCtx: ExtensionContext | undefined;
@@ -199,7 +223,37 @@ function errorText(error: unknown): string {
 	return [error.toToolText(), ...errorDetailLines(error.details)].join("\n");
 }
 
+/**
+ * `apply` 结果里的手卡附件（契约 §14.8）。内核给一条还是一列都收：
+ * 一次 apply 可以投多张手卡，契约只写了单数的形状。
+ */
+function readAttachments(result: Record<string, unknown>): HandoutAttachment[] {
+	const raw = result.attachments ?? result.attachment;
+	const rows = Array.isArray(raw) ? raw : raw ? [raw] : [];
+	const found: HandoutAttachment[] = [];
+	for (const row of rows) {
+		if (!row || typeof row !== "object") continue;
+		const record = row as Record<string, unknown>;
+		const path = asString(record.path);
+		if (!path) continue;
+		found.push({
+			path,
+			...(asString(record.media_type) ? { media_type: asString(record.media_type) } : {}),
+			...(asString(record.name) ?? asString(record.label)
+				? { name: asString(record.name) ?? asString(record.label) }
+				: {}),
+			...(asString(record.receipt) ? { receipt: asString(record.receipt) } : {}),
+		});
+	}
+	return found;
+}
+
 export default function (pi: ExtensionAPI) {
+	// 建卡进程也要内核（`campaign.*`、`module.*`、`setup.*` 都在内核里），
+	// 但它没有桌子：不注册七个动词、不 `table.open`、不跑校验车道（契约 §14.4）。
+	// 模式在工厂里读，不在模块顶层读：一个进程里加载多次时顶层常量会被冻住。
+	const setupMode = cocMode() === "setup";
+
 	// ---- 遥测 -------------------------------------------------------------
 
 	async function record(entry: Record<string, unknown>): Promise<void> {
@@ -245,6 +299,7 @@ export default function (pi: ExtensionAPI) {
 		table.deliveryToolCallId = undefined;
 		table.closedThisRun = false;
 		table.steeredThisTurn = false;
+		table.attachments = [];
 	}
 
 	function mintCallId(state: TableState): string {
@@ -337,9 +392,27 @@ export default function (pi: ExtensionAPI) {
 				state.state = "acting";
 				noteResolve(state, result as ResolveResult);
 				break;
-			case "apply":
+			case "apply": {
 				state.state = "acting";
+				// 手卡（契约 §14.8）：内核渲染的【手卡】行已经在 rendered_text 里，
+				// 附件本身要扩展交给玩家；Pi 没有出站附件通道，所以攒到交付时落成路径。
+				const found = readAttachments(result);
+				if (found.length > 0) {
+					state.attachments.push(...found);
+					for (const attachment of found) {
+						void record({
+							lane: "handout",
+							tool: "apply",
+							ok: true,
+							path: attachment.path,
+							...(attachment.media_type ? { media_type: attachment.media_type } : {}),
+							...(attachment.name ? { name: attachment.name } : {}),
+							...(attachment.receipt ? { receipt: attachment.receipt } : {}),
+						});
+					}
+				}
 				break;
+			}
 			case "ask":
 				state.state = "asked";
 				// 待决已经交回玩家了，回合欠的不再是 ask。
@@ -425,7 +498,8 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	for (const spec of COC_TOOLS) {
+	// 建卡进程的工具面只有 onboarding 的 `setup`：七个动词一个都不注册（契约 §14.4）。
+	for (const spec of setupMode ? [] : COC_TOOLS) {
 		pi.registerTool({
 			name: spec.name,
 			label: spec.label,
@@ -478,7 +552,17 @@ export default function (pi: ExtensionAPI) {
 		return campaigns[index].id;
 	}
 
+	/** 总线上发出去的 RPC 闭包：闸一关，晚到的车道调用当场失败，不再叫醒内核子进程。 */
+	function bridgeCall(kernel: KernelClient): (method: string, params: Record<string, unknown>) => Promise<unknown> {
+		const gate = bridgeGate;
+		return (method, params) =>
+			gate.open
+				? kernel.call(method, params)
+				: Promise.reject(new KernelError({ code: "internal", message: `内核已关闭，${method} 不再发出` }));
+	}
+
 	async function shutdownKernel(): Promise<void> {
+		bridgeGate.open = false;
 		const current = table;
 		table = undefined;
 		if (current) {
@@ -487,11 +571,20 @@ export default function (pi: ExtensionAPI) {
 			pi.events.emit("coc:kernel-bridge", { campaign: current.campaign, call: undefined });
 			await current.kernel.close();
 		}
+		// 建卡进程没有桌子，内核单独挂在这里（契约 §14.4）。
+		const solo = soloKernel;
+		soloKernel = undefined;
+		if (solo) {
+			pi.events.emit("coc:kernel-bridge", { call: undefined });
+			await solo.close();
+		}
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
 		await shutdownKernel();
 		sessionCtx = ctx;
+		// 新会话新闸：上一张桌子发出去的闭包留在别人手里也只会失败，不会摸到这个内核。
+		bridgeGate = { open: true };
 		startupError = undefined;
 		let kernel: KernelClient | undefined;
 		try {
@@ -500,7 +593,14 @@ export default function (pi: ExtensionAPI) {
 				cwd: PKG_ROOT,
 				env: { PYTHONPATH: join(PKG_ROOT, "kernel") },
 				onDiagnostic: (message) => {
-					if (ctx.hasUI) ctx.ui.setStatus("coc-kernel", message.slice(0, 120));
+					// 内核的 stderr 与重启通告可能落在会话 dispose 之后（车道还在飞时用户退出 pi），
+					// 那之后 ctx 的每个 getter 都抛（docs/pi-host-contract.md 第 5 节）：
+					// 诊断一行字不该变成一条没人接的异常。
+					try {
+						if (ctx.hasUI) ctx.ui.setStatus("coc-kernel", message.slice(0, 120));
+					} catch {
+						/* 会话已经不在了 */
+					}
 				},
 				onRestart: async () => {
 					const state = table;
@@ -513,7 +613,20 @@ export default function (pi: ExtensionAPI) {
 				},
 			});
 			kernel.start();
-			await kernel.call("kernel.hello");
+			const hello = await kernel.call<Record<string, unknown>>("kernel.hello");
+			if (setupMode) {
+				// 建卡进程：内核在，桌子不在。把 RPC 闭包发上总线给 onboarding／module 扩展用，
+				// 战役可能还不存在（`create-campaign` 那一步才建），所以不选战役、不 table.open。
+				soloKernel = kernel;
+				const chosen = process.env.PI_COC_CAMPAIGN?.trim();
+				pi.events.emit("coc:kernel-bridge", {
+					mode: "setup",
+					...(chosen ? { campaign: chosen } : {}),
+					hello,
+					call: bridgeCall(kernel),
+				});
+				return;
+			}
 			const campaign = await pickCampaign(kernel, ctx);
 			table = {
 				kernel,
@@ -531,6 +644,7 @@ export default function (pi: ExtensionAPI) {
 				mintedCallIds: new Map(),
 				rejected: new Map(),
 				callKeys: new Map(),
+				attachments: [],
 				lanes: new AbortController(),
 			};
 			const open = await kernel.call<OpenResult>("table.open", { campaign });
@@ -542,7 +656,7 @@ export default function (pi: ExtensionAPI) {
 			// 记忆扩展的车道要 `memory.job`／`submit`／`fail`，走这条总线上的桥，不另起进程。
 			pi.events.emit("coc:kernel-bridge", {
 				campaign,
-				call: (method: string, params: Record<string, unknown>) => kernel.call(method, params),
+				call: bridgeCall(kernel),
 			});
 			pi.events.emit("coc:table-open", { campaign, open });
 
@@ -609,6 +723,7 @@ export default function (pi: ExtensionAPI) {
 			state.closedThisRun = false;
 			state.steeredThisTurn = false;
 			state.roundTrips = 0;
+			state.attachments = [];
 			await record({
 				tool: "table.player_input",
 				started_at: startedAt,
@@ -735,6 +850,32 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
+	/**
+	 * 手卡随交付一起给玩家（契约 §14.8）。Pi 的助手消息装不下附件
+	 * （出站没有附件通道，见 docs/pi-host-contract.md 第 4、5 节），
+	 * 所以退而求其次：把路径写进交付文本的【手卡】行，并记一行遥测。
+	 * 内核渲染的文本里已经点了名字，这里只补文件在哪。
+	 */
+	function withAttachments(state: TableState, rendered: string): string {
+		const pending = state.attachments;
+		state.attachments = [];
+		if (pending.length === 0) return rendered;
+		const lines: string[] = [];
+		for (const attachment of pending) {
+			void record({
+				lane: "handout",
+				event: "delivered",
+				ok: true,
+				path: attachment.path,
+				...(attachment.name ? { name: attachment.name } : {}),
+				delivered_as: "rendered_text",
+			});
+			if (rendered.includes(attachment.path)) continue;
+			lines.push(`【手卡】${attachment.name ?? "手卡"}：${attachment.path}`);
+		}
+		return lines.length > 0 ? `${rendered}\n${lines.join("\n")}` : rendered;
+	}
+
 	pi.on("message_end", async (event) => {
 		const state = table;
 		if (!state || event.message.role !== "assistant") return;
@@ -789,6 +930,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (!rendered) return;
 		}
+		rendered = withAttachments(state, rendered);
 		const next: Array<Record<string, unknown>> = [];
 		let placed = false;
 		for (const block of blocks) {

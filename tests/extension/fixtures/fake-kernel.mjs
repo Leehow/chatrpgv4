@@ -14,9 +14,16 @@
  *   FAKE_KERNEL_NO_FACTS   "1" 时 narrate 不回 facts/extraction（切片 0、1 的内核）
  *   FAKE_KERNEL_DIRECTOR   JSON 对象，合并进胶囊的 `director` 节（用来摆出 override 之类的分支）
  *   FAKE_KERNEL_NO_DIRECTOR "1" 时胶囊不带 `director` 节（切片 0–2 的内核）
+ *   FAKE_KERNEL_HANDOUT    JSON 对象，`apply` 带 handout 效果时作为 `attachment` 回（契约 §14.8）
+ *   FAKE_KERNEL_MODULE     JSON 对象，配模组存储那一面（契约 §14.1、§14.3）：
+ *                          {"module_id", "sections": [{id,title,priority,kind,status}],
+ *                           "review_pass": {"<section>": <第几轮过，缺省 1；给大数就是永远不过>},
+ *                           "opening_after": <接受几片算开场就绪，缺省 1>,
+ *                           "deepen": ["<按需深读队列里的 section>"]}
  */
 
 import { appendFileSync } from "node:fs";
+import { SETUP_STEPS } from "./setup-steps.mjs";
 
 const LOG = process.env.FAKE_KERNEL_LOG;
 const ERRORS = process.env.FAKE_KERNEL_ERRORS ? JSON.parse(process.env.FAKE_KERNEL_ERRORS) : {};
@@ -37,6 +44,41 @@ if (process.env.FAKE_KERNEL_PENDING === "1") {
 }
 
 const SCENE = { name: "corbitt-house", display_name: "科比特宅" };
+
+// ---------------------------------------------------------------------------
+// 建卡与模组存储（契约 §14）
+// ---------------------------------------------------------------------------
+
+const MODULE = process.env.FAKE_KERNEL_MODULE ? JSON.parse(process.env.FAKE_KERNEL_MODULE) : {};
+const MODULE_ID = MODULE.module_id ?? "they-did-not-think-it-too-many";
+/** section 名册；状态在这里就地改（契约 §14.1 的 sections.json）。 */
+const SECTIONS = (MODULE.sections ?? []).map((row) => ({ status: "planned", priority: 0, kind: "scene", ...row }));
+const REVIEW_PASS = MODULE.review_pass ?? {};
+const OPENING_AFTER = typeof MODULE.opening_after === "number" ? MODULE.opening_after : 1;
+const DEEPEN_QUEUE = [...(MODULE.deepen ?? [])];
+
+/** 每个 section 被 review 过几次：`review_pass` 说的那一轮才过（契约 §14.5 至多三轮）。 */
+const reviewRounds = new Map();
+let moduleStatus = SECTIONS.length > 0 ? "planned" : "registered";
+let generation = 0;
+// 切过 section 的书才在 `module.status` 里报名册；没切过的要先 `module.plan`（契约 §14.3）。
+// 深读那一路的书是已经切过的，用 `FAKE_KERNEL_MODULE.planned: true` 摆出来。
+let planned = MODULE.planned === true;
+let campaignSeq = 0;
+let investigatorSeq = 0;
+let deepenInFlight = null;
+
+function sectionRow(id) {
+	return SECTIONS.find((row) => row.id === id);
+}
+
+function acceptedCount() {
+	return SECTIONS.filter((row) => row.status === "accepted").length;
+}
+
+function openingReady() {
+	return SECTIONS.length > 0 && acceptedCount() >= OPENING_AFTER;
+}
 
 /** 已经抽过或已经落 backlog 的回合：`memory.job` 不再自动派发（契约 §12.3）。 */
 const settledJobs = new Set();
@@ -308,6 +350,177 @@ function handle(method, params) {
 			};
 		case "campaign.list":
 			return { ok: true, result: { campaigns: CAMPAIGNS } };
+		// ---- 建卡（契约 §14.4、§14.7） ------------------------------------
+		case "setup.steps":
+			return {
+				ok: true,
+				result: {
+					steps: SETUP_STEPS,
+					completed: [],
+					state: {},
+				},
+			};
+		case "setup.occupations":
+			// 职业清单原样给建卡进程，由模型按玩家那句话挑 id；内核只认 id（契约 §14.7）。
+			return {
+				ok: true,
+				result: {
+					occupations: [
+						{ id: "journalist", name: "记者", skill_points: "EDU × 4", credit_rating: [9, 30] },
+						{ id: "antiquarian", name: "古董商", skill_points: "EDU × 4", credit_rating: [30, 70] },
+						{ id: "police-detective", name: "警探", skill_points: "EDU × 2 + (DEX 或 STR) × 2", credit_rating: [20, 50] },
+					],
+				},
+			};
+		case "setup.investigator": {
+			if (!params.name || !params.occupation) {
+				return { ok: false, error: { code: "invalid_params", message: "建卡要名字与职业 id" } };
+			}
+			investigatorSeq += 1;
+			const id = `inv-${investigatorSeq}`;
+			return {
+				ok: true,
+				result: {
+					investigator_id: id,
+					receipt: `investigator:${id}`,
+					sheet: { name: params.name, occupation: params.occupation, hp: 12, san: 55, luck: 60 },
+				},
+			};
+		}
+		case "setup.complete":
+			return {
+				ok: true,
+				result: {
+					handoff: {
+						campaign: params.campaign,
+						module_id: MODULE_ID,
+						module_generation: generation,
+						investigators: [`inv-${investigatorSeq}`],
+					},
+					status: "ready_for_table",
+				},
+			};
+		case "campaign.create": {
+			campaignSeq += 1;
+			const id = params.id ?? `camp-${campaignSeq}`;
+			return {
+				ok: true,
+				result: {
+					campaign: {
+						id,
+						title: params.title ?? "新战役",
+						module_id: params.module ?? MODULE_ID,
+						play_language: params.play_language ?? "zh-Hans",
+						status: "setting_up",
+					},
+				},
+			};
+		}
+		// ---- 模组存储与无人值守构建（契约 §14.1、§14.3、§14.6） -----------
+		case "module.bind":
+			if (!params.bundle) {
+				return { ok: false, error: { code: "invalid_params", message: "module.bind 要资料包目录" } };
+			}
+			moduleStatus = "registered";
+			return { ok: true, result: { module_id: params.module_id ?? MODULE_ID, page_count: 20, assets: 2 } };
+		case "module.plan":
+			// 机器切法归内核，分类归一次读者：所以这里给包与 brief（契约 §14.3）。
+			return {
+				ok: true,
+				result: {
+					module_id: params.module_id ?? MODULE_ID,
+					work_dir: `.coc/modules/${params.module_id ?? MODULE_ID}/work/plan`,
+					packet: `.coc/modules/${params.module_id ?? MODULE_ID}/work/plan/packet.json`,
+					brief: "读 packet.json 里的目录与每页首两行，给每个 section 定 kind 与 priority，写进 plan.json。",
+					sections: SECTIONS.length,
+				},
+			};
+		case "module.plan.accept":
+			planned = true;
+			moduleStatus = "planned";
+			return { ok: true, result: { sections: SECTIONS.length } };
+		case "module.packet": {
+			const row = sectionRow(params.section_id);
+			if (!row) {
+				return { ok: false, error: { code: "invalid_params", message: `没有 section ${params.section_id}` } };
+			}
+			row.status = "reading";
+			return {
+				ok: true,
+				result: {
+					module_id: params.module_id ?? MODULE_ID,
+					section_id: row.id,
+					work_dir: `.coc/modules/${params.module_id ?? MODULE_ID}/work/${row.id}`,
+					packet: `.coc/modules/${params.module_id ?? MODULE_ID}/work/${row.id}/packet.json`,
+					brief: `读 packet.json，用 bin/coc-evidence 查证据，把 ${row.id} 的分片写进 shard.json，再跑 bin/coc-review。`,
+				},
+			};
+		}
+		case "module.review": {
+			const row = sectionRow(params.section_id);
+			if (!row) {
+				return { ok: false, error: { code: "invalid_params", message: `没有 section ${params.section_id}` } };
+			}
+			const seen = (reviewRounds.get(row.id) ?? 0) + 1;
+			reviewRounds.set(row.id, seen);
+			const passAt = REVIEW_PASS[row.id] ?? 1;
+			if (seen >= passAt) {
+				return { ok: true, result: { accepted: true, findings: [], measures: { span_consumption: 0.8 } } };
+			}
+			// 最后一轮还不过就记 failed（契约 §14.5）：扩展把轮次送进来，状态才写得下。
+			if (params.final === true) row.status = "failed";
+			return {
+				ok: true,
+				result: {
+					accepted: false,
+					findings: [
+						{ gate: "grounding", code: "unknown_evidence_span", path: `clues[0]`, message: `span-p3-2 不在本节证据里` },
+					],
+					measures: { span_consumption: 0.2 },
+				},
+			};
+		}
+		case "module.accept": {
+			const row = sectionRow(params.section_id);
+			if (!row) {
+				return { ok: false, error: { code: "invalid_params", message: `没有 section ${params.section_id}` } };
+			}
+			row.status = "accepted";
+			return { ok: true, result: { section_id: row.id, accepted: true } };
+		}
+		case "module.assemble":
+			generation += 1;
+			moduleStatus = "assembled";
+			return {
+				ok: true,
+				result: { module_id: params.module_id ?? MODULE_ID, generation, dangling_relations: 0, status: moduleStatus },
+			};
+		case "module.install":
+			moduleStatus = "installed";
+			return { ok: true, result: { module_id: params.module_id ?? MODULE_ID, status: moduleStatus, generation } };
+		case "module.status":
+			return {
+				ok: true,
+				result: {
+					module_id: params.module_id ?? MODULE_ID,
+					status: moduleStatus,
+					planned,
+					generation,
+					opening_ready: openingReady(),
+					sections: planned ? SECTIONS.map((row) => ({ ...row })) : [],
+				},
+			};
+		case "module.deepen.claim": {
+			// 同一时刻一个（契约 §14.6）：认领了没完成就不再发第二段。
+			if (deepenInFlight) return { ok: true, result: { section_id: null, claimed: deepenInFlight } };
+			const next = DEEPEN_QUEUE.shift();
+			if (!next) return { ok: true, result: { section_id: null } };
+			deepenInFlight = next;
+			return { ok: true, result: { section_id: next, module_id: MODULE_ID, reason: "move", priority: 100 } };
+		}
+		case "module.deepen.complete":
+			deepenInFlight = null;
+			return { ok: true, result: { section_id: params.section_id, status: params.status ?? "accepted" } };
 		case "table.open": {
 			const opening = process.env.FAKE_KERNEL_OPENING === "1";
 			const pending = process.env.FAKE_KERNEL_PENDING === "1";
@@ -359,16 +572,31 @@ function handle(method, params) {
 		case "table.resolve":
 			state = "acting";
 			return resolve(params);
-		case "table.apply":
+		case "table.apply": {
 			state = "acting";
+			const effects = params.effects ?? [];
+			// 手卡（契约 §14.8）：渲染的【手卡】行是内核的，附件交给扩展。
+			const handout = effects.find((effect) => effect.kind === "handout");
+			const attachment = handout
+				? (process.env.FAKE_KERNEL_HANDOUT
+						? JSON.parse(process.env.FAKE_KERNEL_HANDOUT)
+						: {
+								path: `/tmp/pi-coc-assets/${MODULE_ID}/handout-1.png`,
+								media_type: "image/png",
+								name: handout.label ?? handout.name ?? "手卡",
+								receipt: `handout:${handout.name ?? "handout-1"}`,
+							})
+				: undefined;
 			return {
 				ok: true,
 				result: {
-					receipts: (params.effects ?? []).map((effect) => `${effect.kind}:${params.call_id}`),
+					receipts: effects.map((effect) => `${effect.kind}:${params.call_id}`),
 					world: { active_scene: SCENE.name, clock: "1925-06-01T09:15" },
 					material_ready: true,
+					...(attachment ? { attachment } : {}),
 				},
 			};
+		}
 		case "table.ask":
 			state = "asked";
 			return {

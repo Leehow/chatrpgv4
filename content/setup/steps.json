@@ -1,7 +1,10 @@
 {
   "contract": "coc.setup-steps.v1",
   "note": "The seven-step setup table (kernel-rpc.md §14.4). Both the onboarding extension and the kernel read this file; order, available actions, rejection lines and next-step lines are written here once and derived everywhere else. `needs` are step ids; a step whose `only_for` names a source kind counts as satisfied for the other kind. `kind` is ask (the model asks the player), external (the host does something outside the kernel) or op (a method named by `op`; `side` is kernel unless the op is the module extension's own driver loop, §14.5).",
-  "sources": ["starter", "pdf"],
+  "sources": [
+    "starter",
+    "pdf"
+  ],
   "start": "choose-source",
   "table_open_fix": "bin/pi-coc setup --campaign {campaign}",
   "launch_line": "bin/pi-coc --campaign {campaign}",
@@ -27,8 +30,14 @@
       "kind": "ask",
       "op": null,
       "params": {
-        "starter": "one of campaign.list's starter names (kernel.hello content.modules)",
-        "bundle": "a directory path holding a coc.pdf-bundle.v1 manifest"
+        "starter": {
+          "description": "one of campaign.list's starter names (kernel.hello content.modules)",
+          "required": false
+        },
+        "bundle": {
+          "description": "a directory path holding a coc.pdf-bundle.v1 manifest",
+          "required": false
+        }
       },
       "receipt": "source",
       "lines": {
@@ -44,11 +53,18 @@
     },
     {
       "id": "build-bundle",
-      "needs": ["choose-source"],
+      "needs": [
+        "choose-source"
+      ],
       "only_for": "pdf",
       "kind": "external",
       "op": null,
-      "params": {"bundle_path": "the directory chosen in choose-source"},
+      "params": {
+        "bundle_path": {
+          "description": "the directory chosen in choose-source",
+          "required": true
+        }
+      },
       "receipt": "bundle_path",
       "lines": {
         "zh-Hans": {
@@ -59,20 +75,40 @@
           "do": "If the bundle does not exist, tell the player how to produce it with the host's PDF skill and wait; if it exists, pass.",
           "next": "Confirm the bundle directory exists (the host's PDF skill writes manifest.json and pages/)."
         }
-      }
+      },
+      "applies_to": [
+        "pdf"
+      ]
     },
     {
       "id": "create-campaign",
-      "needs": ["choose-source"],
+      "needs": [
+        "choose-source"
+      ],
       "only_for": null,
       "kind": "op",
       "op": "campaign.create",
       "params": {
-        "id": "campaign id (short slug)",
-        "module": "starter id, or the module id the bundle will bind to",
-        "title": "optional",
-        "play_language": "BCP-47, default zh-Hans",
-        "register": "purist | pulp, default purist"
+        "id": {
+          "description": "campaign id (short slug)",
+          "required": true
+        },
+        "module": {
+          "description": "starter id, or the module id the bundle will bind to",
+          "required": true
+        },
+        "title": {
+          "description": "optional",
+          "required": false
+        },
+        "play_language": {
+          "description": "BCP-47, default zh-Hans",
+          "required": false
+        },
+        "register": {
+          "description": "purist | pulp, default purist",
+          "required": false
+        }
       },
       "receipt": "campaign_id",
       "lines": {
@@ -88,11 +124,23 @@
     },
     {
       "id": "bind-source",
-      "needs": ["build-bundle", "create-campaign"],
+      "needs": [
+        "build-bundle",
+        "create-campaign"
+      ],
       "only_for": "pdf",
       "kind": "op",
       "op": "module.bind",
-      "params": {"bundle": "bundle directory", "module_id": "optional override of the manifest slug"},
+      "params": {
+        "bundle": {
+          "description": "bundle directory",
+          "required": true
+        },
+        "module_id": {
+          "description": "optional override of the manifest slug",
+          "required": false
+        }
+      },
       "receipt": "module_id",
       "lines": {
         "zh-Hans": {
@@ -103,16 +151,26 @@
           "do": "module.bind validates and registers the bundle, then module.plan cuts sections.",
           "next": "Bind the bundle: module.bind, then module.plan."
         }
-      }
+      },
+      "applies_to": [
+        "pdf"
+      ]
     },
     {
       "id": "build-opening",
-      "needs": ["bind-source"],
+      "needs": [
+        "bind-source"
+      ],
       "only_for": "pdf",
       "kind": "op",
       "op": "module.build",
       "side": "extension",
-      "params": {"module_id": "the bound module"},
+      "params": {
+        "module_id": {
+          "description": "the bound module",
+          "required": true
+        }
+      },
       "receipt": "opening_ready",
       "lines": {
         "zh-Hans": {
@@ -123,24 +181,57 @@
           "do": "Start the build (driven by the module extension) and wait for opening_ready.",
           "next": "Build the opening: module.build until module.status reports opening_ready."
         }
-      }
+      },
+      "applies_to": [
+        "pdf"
+      ]
     },
     {
       "id": "create-investigator",
-      "needs": ["create-campaign", "build-opening"],
+      "needs": [
+        "create-campaign",
+        "build-opening"
+      ],
       "only_for": null,
       "kind": "op",
       "op": "setup.investigator",
       "params": {
-        "name": "as the player said it, stored verbatim",
-        "occupation": "an id from setup.occupations (the model maps the player's concept to it)",
-        "concept": "optional, the player's one line, stored verbatim",
-        "age": "optional integer",
-        "sex": "optional, stored verbatim",
-        "method": "quick_fire | rolled",
-        "seed": "optional; rolled characteristics are reproducible from it",
-        "era": "optional override of the module's era for the skill sheet and finance tables",
-        "id": "optional investigator id (slug)"
+        "name": {
+          "description": "as the player said it, stored verbatim",
+          "required": true
+        },
+        "occupation": {
+          "description": "an id from setup.occupations (the model maps the player's concept to it)",
+          "required": true
+        },
+        "concept": {
+          "description": "optional, the player's one line, stored verbatim",
+          "required": false
+        },
+        "age": {
+          "description": "optional integer",
+          "required": false
+        },
+        "sex": {
+          "description": "optional, stored verbatim",
+          "required": false
+        },
+        "method": {
+          "description": "quick_fire | rolled",
+          "required": false
+        },
+        "seed": {
+          "description": "optional; rolled characteristics are reproducible from it",
+          "required": false
+        },
+        "era": {
+          "description": "optional override of the module's era for the skill sheet and finance tables",
+          "required": false
+        },
+        "id": {
+          "description": "optional investigator id (slug)",
+          "required": false
+        }
       },
       "defaults": {
         "method": "quick_fire",
@@ -153,7 +244,10 @@
       },
       "interest_pool": {
         "from": "skills.json standard_sheet.<era>.default_skill_ids",
-        "exclude": ["Cthulhu Mythos", "Credit Rating"],
+        "exclude": [
+          "Cthulhu Mythos",
+          "Credit Rating"
+        ],
         "source_note": "Keeper Rulebook Chapter 3: no points may be put into Cthulhu Mythos at creation; Credit Rating is set from the occupation's range."
       },
       "receipt": "investigator_id",
@@ -170,7 +264,9 @@
     },
     {
       "id": "complete",
-      "needs": ["create-investigator"],
+      "needs": [
+        "create-investigator"
+      ],
       "only_for": null,
       "kind": "op",
       "op": "setup.complete",

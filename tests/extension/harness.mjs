@@ -32,6 +32,8 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..", "..");
 export const FAKE_KERNEL = join(HERE, "fixtures", "fake-kernel.mjs");
+/** 站在子 `pi` 读者那个位置上的假读者（契约 §14.5，接缝见 docs/pi-host-contract.md 第 3.2 节）。 */
+export const FAKE_READER = join(HERE, "fixtures", "fake-reader.mjs");
 
 /**
  * 真内核模式：在工作区里先建一张桌子。走的是内核自己的 RPC，不碰它的文件布局。
@@ -118,13 +120,26 @@ export function createFakeUI({ selections = [] } = {}) {
  * @param {Record<string,string>} [options.env] 追加给假内核与扩展的环境变量
  * @param {object|null} [options.ui] createFakeUI() 的结果；传 null 表示没有界面
  * @param {boolean} [options.realKernel] 用真的 Python 内核而不是假内核；会先在工作区里 campaign.create
+ * @param {"play"|"setup"} [options.mode] PI_COC_MODE：建卡进程用 setup（契约 §14.4）
  */
-export async function openTable({ responses = [], campaign = "test-camp", env = {}, ui = createFakeUI(), realKernel = false } = {}) {
+export async function openTable({
+	responses = [],
+	campaign = "test-camp",
+	env = {},
+	ui = createFakeUI(),
+	realKernel = false,
+	mode = "play",
+} = {}) {
 	const workspace = mkdtempSync(join(tmpdir(), "pi-coc-ext-"));
 	const requestLog = join(workspace, "kernel-requests.jsonl");
+	const readerLog = join(workspace, "reader-runs.jsonl");
 	const restoreEnv = setEnv({
 		PI_COC_KERNEL_CMD: realKernel ? undefined : JSON.stringify([process.execPath, FAKE_KERNEL]),
 		PI_COC_CAMPAIGN: campaign ?? undefined,
+		PI_COC_MODE: mode,
+		// 读者是子 `pi` 进程（契约 §14.5）；测试里换成假读者，跟内核同一个套路。
+		PI_COC_READER_CMD: JSON.stringify([process.execPath, FAKE_READER]),
+		FAKE_READER_LOG: readerLog,
 		FAKE_KERNEL_LOG: requestLog,
 		PI_OFFLINE: "1",
 		// 两条车道各有一个专属的假 provider，各有各的回答队列：
@@ -155,6 +170,8 @@ export async function openTable({ responses = [], campaign = "test-camp", env = 
 	let api;
 	/** 总线上的提交载荷（契约 §12.8）：探针扩展在加载时就订阅，早于任何 session_start。 */
 	const committed = [];
+	/** 模组构建那几条总线事件，按到达顺序：{channel, data}。 */
+	const bus = [];
 	const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
 	const resourceLoader = new DefaultResourceLoader({
 		cwd: workspace,
@@ -162,6 +179,8 @@ export async function openTable({ responses = [], campaign = "test-camp", env = 
 		settingsManager,
 		additionalExtensionPaths: [
 			join(REPO, "extensions", "kernel"),
+			join(REPO, "extensions", "onboarding"),
+			join(REPO, "extensions", "module"),
 			join(REPO, "extensions", "memory"),
 			join(REPO, "extensions", "table"),
 		],
@@ -171,6 +190,10 @@ export async function openTable({ responses = [], campaign = "test-camp", env = 
 				factory: (pi) => {
 					api = pi;
 					pi.events.on("coc:turn-committed", (data) => committed.push(data));
+					// 模组车道的总线（契约 §14.5）：构建起没起、开场就绪没有，测试从这里看。
+					for (const channel of ["coc:module-build", "coc:module-opening-ready", "coc:module-build-done", "coc:module-build-failed"]) {
+						pi.events.on(channel, (data) => bus.push({ channel, data }));
+					}
 				},
 			},
 		],
@@ -210,6 +233,32 @@ export async function openTable({ responses = [], campaign = "test-camp", env = 
 		activeTools: () => api?.getActiveTools() ?? [],
 		/** 总线上 `coc:turn-committed` 的载荷，按到达顺序。 */
 		committed: () => [...committed],
+		/** 模组车道的总线事件，按到达顺序。 */
+		bus: (channel) => (channel ? bus.filter((row) => row.channel === channel) : [...bus]),
+		/**
+		 * 往总线上发一条（探针扩展借的是同一条 `pi.events`）。
+		 * 建卡进程就是这么让 module 扩展开跑的（契约 §14.4 的 `build-opening`），
+		 * 只想验构建循环本身时用它，不必先把七步走一遍。
+		 */
+		emit: (channel, data) => api?.events.emit(channel, data),
+		/** 假读者跑过的每一轮：{cwd, section, brief, argv}。 */
+		readerRuns: () =>
+			existsSync(readerLog)
+				? readFileSync(readerLog, "utf8")
+						.split("\n")
+						.filter((line) => line.trim())
+						.map((line) => JSON.parse(line))
+				: [],
+		/** 构建遥测（契约 §14.1 的 build.jsonl）。 */
+		buildLog: (moduleId) => {
+			const path = join(workspace, ".coc", "modules", moduleId, "build.jsonl");
+			return existsSync(path)
+				? readFileSync(path, "utf8")
+						.split("\n")
+						.filter((line) => line.trim())
+						.map((line) => JSON.parse(line))
+				: [];
+		},
 		/** 假内核收到的请求，按到达顺序。 */
 		kernelRequests: () =>
 			existsSync(requestLog)
@@ -237,7 +286,9 @@ export async function openTable({ responses = [], campaign = "test-camp", env = 
 			}
 			created.session.dispose();
 			restoreEnv();
-			rmSync(workspace, { recursive: true, force: true });
+			// 车道（记忆、校验、深读、构建）都是 fire-and-forget 的，关机那一刻可能还有一行
+			// 遥测正往工作区里写：删目录撞上它就是 ENOTEMPTY。重试几次，别把它算成用例失败。
+			rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 		},
 	};
 	return table;

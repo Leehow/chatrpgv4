@@ -13,6 +13,7 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { cocMode } from "../lanes/host.ts";
 import { resolveLaneModel, runLane } from "../lanes/subsession.ts";
 
 /** 候选断言的闭合字段与闭合枚举（契约 §12.3）。多余的字段一律不往内核送。 */
@@ -162,6 +163,9 @@ function errorText(error: unknown): string {
 }
 
 export default function (pi: ExtensionAPI) {
+	// 建卡进程没有回合，也就没有可抽的记忆：什么都不注册、不订阅（契约 §14.4）。
+	if (cocMode() === "setup") return;
+
 	let ctx: ExtensionContext | undefined;
 	let bridge: { campaign: string; call: KernelCall } | undefined;
 	let lanes = new AbortController();

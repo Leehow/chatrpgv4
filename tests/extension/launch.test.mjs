@@ -82,13 +82,14 @@ function fakeRepo() {
 	copyFileSync(join(REPO, "bin", "pi-coc"), join(root, "bin", "pi-coc"));
 	chmodSync(join(root, "bin", "pi-coc"), 0o755);
 	writeFileSync(join(root, "prompts", "keeper.md"), "# 守秘人\n");
+	writeFileSync(join(root, "prompts", "setup.md"), "# 建卡\n");
 	const piStub = join(root, "node_modules", ".bin", "pi");
 	writeFileSync(
 		piStub,
 		[
 			"#!/usr/bin/env bash",
 			'{ echo "cwd=$(pwd)"; echo "agentdir=$PI_CODING_AGENT_DIR"; echo "campaign=${PI_COC_CAMPAIGN-<unset>}";',
-			'  printf "arg=%s\\n" "$@"; } > "$PI_STUB_LOG"',
+			'  echo "mode=${PI_COC_MODE-<unset>}"; printf "arg=%s\\n" "$@"; } > "$PI_STUB_LOG"',
 			"",
 		].join("\n"),
 	);
@@ -179,4 +180,33 @@ test("bin/pi-coc：没装 pi 时报清楚", (t) => {
 			return true;
 		},
 	);
+});
+
+test("bin/pi-coc setup：建卡进程另起一页提示、另一个模式、另一个会话（契约 §14.4）", (t) => {
+	const root = fakeRepo();
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+
+	const run = runLauncher(root, ["setup", "--campaign", "camp-c"]);
+
+	assert.equal(run.value("mode"), "setup", "扩展按 PI_COC_MODE 决定注册什么工具");
+	assert.equal(run.value("campaign"), "camp-c");
+	assert.deepEqual(run.args, [
+		"--no-builtin-tools",
+		"--no-context-files",
+		"--system-prompt",
+		join(root, "prompts", "setup.md"),
+		"--session-id",
+		"coc-setup-camp-c",
+	]);
+});
+
+test("bin/pi-coc：不写 setup 就是开桌，模式是 play", (t) => {
+	const root = fakeRepo();
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+
+	const run = runLauncher(root, ["--campaign", "camp-d"]);
+
+	assert.equal(run.value("mode"), "play");
+	assert.equal(run.args[3], join(root, "prompts", "keeper.md"), "开桌用守秘人提示");
+	assert.equal(run.args[5], "coc-camp-d", "开桌的会话 id 跟建卡分开");
 });

@@ -166,10 +166,39 @@ class ModuleMethods:
                 "measured": result["measured"], "sections": result["sections"], "pages": heads,
                 "planned_at": now_iso()}
         write_json_atomic(self.store.work_dir(module_id) / "plan.json", plan)
-        return {"module_id": module_id, "budget": budget, "basis": result["basis"],
-                "measured": result["measured"], "sections": result["sections"], "pages": heads,
-                "next": "module.plan.accept {module_id, sections: [{id, kind, priority}]}",
-                "kinds": list(planner.SECTION_KINDS)}
+        out = {"module_id": module_id, "budget": budget, "basis": result["basis"],
+               "measured": result["measured"], "sections": result["sections"], "pages": heads,
+               "next": "module.plan.accept {module_id, sections: [{id, kind, priority}]}",
+               "kinds": list(planner.SECTION_KINDS)}
+        candidates = result["sections"]
+        if len(candidates) == 1:
+            # One packet holds the whole book: nothing to classify, the book is its own scene section.
+            self.plan_accept({"module_id": module_id,
+                              "sections": [{"id": candidates[0]["id"], "kind": "scene", "priority": 100}]})
+            out.update({"auto": "single-section book", "section_count": 1, "next": "module.packet"})
+            return out
+        # Several sections: classification is a whole-book judgement for one reader session
+        # (§14.3). The packet shows titles, pages and each page's first lines, never the book.
+        work = self.store.work_dir(module_id, "_plan")
+        work.mkdir(parents=True, exist_ok=True)
+        packet = {"contract_id": "coc.module-plan-packet.v1", "module_id": module_id,
+                  "module_title": meta.get("title"), "candidates": candidates, "pages": heads,
+                  "kinds": list(planner.SECTION_KINDS),
+                  "priority_hint": {"opening scene / front / keeper-truth": 100, "scenes in play order": 90,
+                                    "npc-roster / handouts": 60, "rules / pregens": 40, "appendix / other": 20}}
+        write_json_atomic(work / "packet.json", packet)
+        plan_path = work / "plan.json"
+        brief = (
+            f"# 给《{meta.get('title') or module_id}》的 section 分类\n\n"
+            f"工作目录 `{work}`。读 `packet.json`：`candidates[]` 是机器按预算切好的 section（id、pages、title），"
+            f"`pages[]` 是每页的首两行。给每个 candidate 定 `kind`（只能取 `kinds` 里的词）与 `priority`（0–100，"
+            f"开场场景、前言、守秘人信息最高；见 `priority_hint`）。\n\n"
+            f"把结果写到 `{plan_path}`：`{{\"sections\": [{{\"id\": \"section-01\", \"kind\": \"scene\", \"priority\": 100}}, ...]}}`，"
+            f"每个 candidate 恰好一行，不增不减。写完即可退出，不要写别的文件。"
+        )
+        out.update({"work_dir": str(work), "packet": str(work / "packet.json"), "brief": brief,
+                    "section_count": len(candidates)})
+        return out
 
     def plan_accept(self, params: dict[str, Any]) -> dict[str, Any]:
         module_id = _str(params, "module_id")
@@ -178,7 +207,15 @@ class ModuleMethods:
         if not plan_path.exists():
             raise invalid_params("no plan to accept", fix="call module.plan first")
         plan = read_json(plan_path)
-        table = planner.accept(plan["sections"], params.get("sections"))
+        classified = params.get("sections")
+        if classified is None:
+            # The classification reader wrote work/_plan/plan.json (§14.3).
+            reader_plan = self.store.work_dir(module_id, "_plan") / "plan.json"
+            if not reader_plan.exists():
+                raise invalid_params("no classification to accept",
+                                     fix="pass sections: [{id, kind, priority}], or let the plan reader write work/_plan/plan.json")
+            classified = read_json(reader_plan).get("sections")
+        table = planner.accept(plan["sections"], classified)
         existing = {row["id"]: row for row in self.store.read_sections(module_id)}
         for row in table:
             old = existing.get(row["id"])
@@ -274,6 +311,10 @@ class ModuleMethods:
         section_id = _str(params, "section_id")
         report = self._review(module_id, section_id, count_round=True)
         report.pop("shard", None)
+        if params.get("final") is True and not report.get("accepted"):
+            # The last round the reader gets (§14.5): the section is failed, the build moves on.
+            self.store.set_section_status(module_id, section_id, "failed", rounds=report.get("round"))
+            report["status"] = "failed"
         return report
 
     def accept(self, params: dict[str, Any]) -> dict[str, Any]:

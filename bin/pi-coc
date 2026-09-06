@@ -1,27 +1,47 @@
 #!/usr/bin/env bash
-# pi-coc 启动器。契约见 docs/kernel-rpc.md 第 9 节。
-# 用法：bin/pi-coc [--campaign <id>] [pi 参数...]
+# pi-coc 启动器。契约见 docs/kernel-rpc.md 第 9 节与 §14.4（建卡进程）。
+# 用法：bin/pi-coc [--campaign <id>] [pi 参数...]          开桌（play 模式）
+#      bin/pi-coc setup [--campaign <id>] [pi 参数...]    建卡（setup 模式）
 #
 # 认这几个环境变量（原样传给 pi，扩展自己读）：
 #   PI_COC_CAMPAIGN         战役 id，等价于 --campaign
+#   PI_COC_MODE             play|setup，由本脚本导出；扩展据此决定注册什么工具（契约 §14.4）
 #   PI_COC_VERIFIER_MODEL   校验车道的模型，形如 provider/model；缺省与桌子同模型
 #   PI_COC_MEMORY_MODEL     记忆抽取车道的模型，同上
-# 后两个见 docs/pi-host-contract.md 第 3.1 节。
+#   PI_COC_BUILD_MODEL      读者子进程的模型，同上（契约 §14.5）
+#   PI_COC_BUILD_PARALLEL   构建并发上限，缺省 1（契约 §14.5）
+#   PI_COC_READER_TIMEOUT_MS 读者一轮的上限，缺省 15 分钟
+#   PI_COC_BUILD_WAIT_MS    建卡等「开场就绪」的上限，缺省 30 分钟；到点回「还在读」，可以再等
+# 车道模型见 docs/pi-host-contract.md 第 3.1 节，读者子进程见第 3.2 节。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 PI_BIN="$REPO/node_modules/.bin/pi"
-KEEPER_PROMPT="$REPO/prompts/keeper.md"
 AGENT_DIR="$REPO/.pi/coc-agent"
 SETTINGS="$AGENT_DIR/settings.json"
+
+# 第一个位置参数是 setup 时走建卡进程：另一页提示、另一套工具面（契约 §14.4）。
+mode="play"
+if [ $# -gt 0 ] && [ "$1" = "setup" ]; then
+	mode="setup"
+	shift
+fi
+
+if [ "$mode" = "setup" ]; then
+	PROMPT="$REPO/prompts/setup.md"
+	PROMPT_WHAT="建卡提示"
+else
+	PROMPT="$REPO/prompts/keeper.md"
+	PROMPT_WHAT="守秘人提示"
+fi
 
 if [ ! -x "$PI_BIN" ]; then
 	echo "找不到 $PI_BIN。先在 $REPO 里跑 npm install。" >&2
 	exit 1
 fi
-if [ ! -f "$KEEPER_PROMPT" ]; then
-	echo "找不到守秘人提示 $KEEPER_PROMPT。" >&2
+if [ ! -f "$PROMPT" ]; then
+	echo "找不到${PROMPT_WHAT} $PROMPT。" >&2
 	exit 1
 fi
 
@@ -80,16 +100,22 @@ if [ -n "$campaign" ]; then
 	export PI_COC_CAMPAIGN="$campaign"
 fi
 export PI_CODING_AGENT_DIR="$AGENT_DIR"
+export PI_COC_MODE="$mode"
 
 cd "$REPO"
 session_args=()
 if [ -n "$campaign" ]; then
-	session_args=(--session-id "coc-$campaign")
+	# 建卡与开桌是两个进程、两段记录：会话 id 也分开，别把建卡的问答混进桌子的会话。
+	if [ "$mode" = "setup" ]; then
+		session_args=(--session-id "coc-setup-$campaign")
+	else
+		session_args=(--session-id "coc-$campaign")
+	fi
 fi
 
 exec "$PI_BIN" \
 	--no-builtin-tools \
 	--no-context-files \
-	--system-prompt "$KEEPER_PROMPT" \
+	--system-prompt "$PROMPT" \
 	${session_args[@]+"${session_args[@]}"} \
 	${args[@]+"${args[@]}"}

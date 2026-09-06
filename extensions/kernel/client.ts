@@ -217,6 +217,13 @@ export class KernelClient {
 		if (this.dead) {
 			return Promise.reject(new KernelError({ code: "internal", message: "内核已停止且无法重启" }));
 		}
+		// close 之后排队里剩下的请求不再发出：下面那句「没有子进程就拉一个」会把内核
+		// 重新拉起来，而这时已经没人再 close 它了——一个孤儿内核进程留在那里占着工作区，
+		// 还攥着管道让宿主进程退不出去。车道（记忆抽取、按需深读）是异步的，
+		// 关机那一刻它们的调用完全可能还排在队里。
+		if (this.closing) {
+			return Promise.reject(new KernelError({ code: "internal", message: `内核已关闭，${method} 不再发出` }));
+		}
 		if (!this.child) {
 			try {
 				this.spawnChild();

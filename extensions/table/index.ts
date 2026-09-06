@@ -7,6 +7,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { cocMode } from "../lanes/host.ts";
 
 /** 契约 §11.5 的会话摘要；字段缺了就不显示那一段。 */
 interface SessionSummary {
@@ -93,6 +94,9 @@ function directorLine(director: DirectorSection | null | undefined): string | un
 }
 
 export default function (pi: ExtensionAPI) {
+	// 建卡进程没有桌子可报：什么都不注册、不订阅（契约 §14.4）。建卡自己的进度行在 onboarding 扩展里。
+	if (cocMode() === "setup") return;
+
 	let ctx: ExtensionContext | undefined;
 	let payload: TableOpenEvent | undefined;
 	let announced = false;

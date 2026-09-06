@@ -12,6 +12,8 @@
   "pi": {
     "extensions": [
       "./extensions/kernel",
+      "./extensions/onboarding",
+      "./extensions/module",
       "./extensions/memory",
       "./extensions/table"
     ]
