@@ -1,0 +1,247 @@
+{
+  "source_note": "Keeper Rulebook Chapter 4 Skill List (p.56 / PDF idx 55). Each entry maps a canonical skill name to its base chance percentage, its specialization group (or null), whether it is modern-era only (Omega marker in the rulebook), and whether it is uncommon (T marker - not printed on the standard investigator sheet). Group skills (G) are broken into separate specializations; this file lists each specialization individually with its group set to the parent skill name (e.g. 'Fighting', 'Firearms'). Source: chapter 4, p.56.",
+  "schema": {
+    "base_chance": "starting percentage for the skill",
+    "group": "parent specialization group (e.g. 'Fighting', 'Firearms', 'Art and Craft', 'Science', 'Language (Other)', 'Survival', 'Pilot') or null for standalone skills",
+    "modern_only": "true when the rulebook marks the skill with Omega (modern era only)",
+    "uncommon": "true when the rulebook marks the skill with T (not on the standard investigator sheet)",
+    "localized_labels": "display aliases keyed by BCP-47 play_language (currently only 'zh-Hans'); data only - machine keys stay canonical English, and selectors may resolve an alias back to its canonical skill name"
+  },
+  "guided_creation_policy": {
+    "starting_skill_cap": 75,
+    "selection": "package-selected optional creation cap",
+    "source_ref": "Keeper Rulebook p.48 / PDF index 59",
+    "source_note": "The optional rule permits a starting-skill upper limit such as 75%; this package selects 75 for guided creation."
+  },
+  "specialization_groups": {
+    "Art and Craft": {
+      "base_chance": 5,
+      "specializations": ["Acting", "Fine Art", "Forgery", "Photography", "Writing"],
+      "note": "Pick one or more specializations; the rulebook cross-references Acting/Fine Art/Forgery/Photography to Art and Craft (05%)."
+    },
+    "Firearms": {
+      "base_chance": "varies",
+      "specializations": {
+        "Handgun": 20,
+        "Rifle/Shotgun": 25,
+        "Bow": 15,
+        "Heavy Weapons": 10,
+        "Flamethrower": 10,
+        "Machine Gun": 10,
+        "Submachine Gun": 15
+      },
+      "note": "G: each specialization is a separate skill with its own base chance."
+    },
+    "Fighting": {
+      "base_chance": "varies",
+      "specializations": {
+        "Brawl": 25,
+        "Axe": 15,
+        "Sword": 20,
+        "Spear": 20,
+        "Flail": 10,
+        "Garrote": 15,
+        "Chainsaw": 10,
+        "Whip": 5
+      },
+      "note": "G: each specialization is a separate skill with its own base chance."
+    },
+    "Language (Other)": {
+      "base_chance": 1,
+      "specializations": "any language other than the investigator's own",
+      "note": "G: pick one language per point; each is a separate skill at 01%."
+    },
+    "Language (Own)": {
+      "base_chance": "EDU",
+      "specializations": null,
+      "note": "The investigator's native language; base chance equals EDUx5 (derived, not a flat number)."
+    },
+    "Pilot": {
+      "base_chance": 1,
+      "specializations": ["Pilot Aircraft", "Pilot Boat"],
+      "note": "G: pick one vehicle type; base chance 01%."
+    },
+    "Science": {
+      "base_chance": 1,
+      "specializations": ["Astronomy", "Biology", "Botany", "Chemistry", "Cryptography", "Forensics", "Geology", "Mathematics", "Medicine", "Meteorology", "Pharmacy", "Physics", "Zoology"],
+      "note": "Several standalone skills (Biology, Botany, Chemistry, etc.) are cross-referenced to Science (01%) in the rulebook; Medicine (01%) and Pharmacy (01%) are listed separately on the sheet but treated as Science specializations."
+    },
+    "Survival": {
+      "base_chance": 10,
+      "specializations": ["any terrain"],
+      "note": "G: pick one terrain type; base chance 10%."
+    }
+  },
+  "standard_sheet": {
+    "1920s": {
+      "default_skill_ids": [
+        "Accounting",
+        "Anthropology",
+        "Appraise",
+        "Archaeology",
+        "Charm",
+        "Climb",
+        "Credit Rating",
+        "Cthulhu Mythos",
+        "Disguise",
+        "Dodge",
+        "Drive Auto",
+        "Electrical Repair",
+        "Fast Talk",
+        "Fighting (Brawl)",
+        "Firearms (Handgun)",
+        "Firearms (Rifle/Shotgun)",
+        "First Aid",
+        "History",
+        "Intimidate",
+        "Jump",
+        "Language (Own)",
+        "Law",
+        "Library Use",
+        "Listen",
+        "Locksmith",
+        "Mechanical Repair",
+        "Medicine",
+        "Natural World",
+        "Navigate",
+        "Occult",
+        "Operate Heavy Machinery",
+        "Persuade",
+        "Pilot",
+        "Psychoanalysis",
+        "Psychology",
+        "Ride",
+        "Science",
+        "Sleight of Hand",
+        "Spot Hidden",
+        "Stealth",
+        "Survival",
+        "Swim",
+        "Throw",
+        "Track"
+      ],
+      "fixed_specialization_ids": [
+        "Fighting (Brawl)",
+        "Firearms (Handgun)",
+        "Firearms (Rifle/Shotgun)",
+        "Language (Own)"
+      ],
+      "player_selected_group_rows": [
+        {
+          "group": "Art and Craft",
+          "catalog_skill_id": null,
+          "base_chance": 5
+        },
+        {
+          "group": "Language (Other)",
+          "catalog_skill_id": null,
+          "base_chance": 1
+        },
+        {
+          "group": "Pilot",
+          "catalog_skill_id": "Pilot",
+          "base_chance": 1
+        },
+        {
+          "group": "Science",
+          "catalog_skill_id": "Science",
+          "base_chance": 1
+        },
+        {
+          "group": "Survival",
+          "catalog_skill_id": "Survival",
+          "base_chance": 10
+        }
+      ],
+      "source_ref": "1920s Era Investigator sheet / PDF index 441",
+      "source_note": "Default ids reproduce printed fixed rows. Art/Craft and Language (Other) have no generic machine key in this catalog; Pilot, Science, and Survival do represent their printed player-selected group row. Blank underlined rows are intentionally untyped."
+    }
+  },
+  "skills": {
+    "Accounting": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "会计"}},
+    "Animal Handling": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": true, "localized_labels": {"zh-Hans": "驯兽"}},
+    "Anthropology": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "人类学"}},
+    "Appraise": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "估价"}},
+    "Archaeology": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "考古学"}},
+    "Art and Craft (Acting)": {"base_chance": 5, "group": "Art and Craft", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "艺术与手艺（表演）"}},
+    "Art and Craft (Fine Art)": {"base_chance": 5, "group": "Art and Craft", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "艺术与手艺（美术）"}},
+    "Art and Craft (Forgery)": {"base_chance": 5, "group": "Art and Craft", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "艺术与手艺（伪造）"}},
+    "Art and Craft (Photography)": {"base_chance": 5, "group": "Art and Craft", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "艺术与手艺（摄影）"}},
+    "Art and Craft (Writing)": {"base_chance": 5, "group": "Art and Craft", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "艺术与手艺（写作）"}},
+    "Artillery": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": true, "localized_labels": {"zh-Hans": "炮术"}},
+    "Craft (Carpentry)": {"base_chance": 5, "group": "Art and Craft", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "手艺（木工）"}},
+    "Craft (Cook)": {"base_chance": 5, "group": "Art and Craft", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "手艺（烹饪）"}},
+    "Craft (Leatherworking)": {"base_chance": 5, "group": "Art and Craft", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "手艺（皮革加工）"}},
+    "Craft (Mechanics)": {"base_chance": 5, "group": "Art and Craft", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "手艺（机械）"}},
+    "Craft (Pottery)": {"base_chance": 5, "group": "Art and Craft", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "手艺（制陶）"}},
+    "Charm": {"base_chance": 15, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "魅惑"}},
+    "Climb": {"base_chance": 20, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "攀爬"}},
+    "Computer Use": {"base_chance": 5, "group": null, "modern_only": true, "uncommon": false, "localized_labels": {"zh-Hans": "计算机使用"}},
+    "Credit Rating": {"base_chance": 0, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "信用评级"}},
+    "Cthulhu Mythos": {"base_chance": 0, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "克苏鲁神话"}},
+    "Demolitions": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": true, "localized_labels": {"zh-Hans": "爆破"}},
+    "Disguise": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "乔装"}},
+    "Diving": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": true, "localized_labels": {"zh-Hans": "潜水"}},
+    "Dodge": {"base_chance": "half_DEX", "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "闪避"}},
+    "Drive Auto": {"base_chance": 20, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "汽车驾驶"}},
+    "Electrical Repair": {"base_chance": 10, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "电气维修"}},
+    "Electronics": {"base_chance": 1, "group": null, "modern_only": true, "uncommon": false, "localized_labels": {"zh-Hans": "电子学"}},
+    "Engineering": {"base_chance": 1, "group": "Science", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "工程学"}},
+    "Science (Biology)": {"base_chance": 1, "group": "Science", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "科学（生物学）"}},
+    "Science (Chemistry)": {"base_chance": 1, "group": "Science", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "科学（化学）"}},
+    "Science (Pharmacy)": {"base_chance": 1, "group": "Science", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "科学（药学）"}},
+    "Fast Talk": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "话术"}},
+    "Fighting (Brawl)": {"base_chance": 25, "group": "Fighting", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "格斗（斗殴）"}},
+    "Fighting (Axe)": {"base_chance": 15, "group": "Fighting", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "格斗（斧）"}},
+    "Fighting (Sword)": {"base_chance": 20, "group": "Fighting", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "格斗（剑）"}},
+    "Fighting (Spear)": {"base_chance": 20, "group": "Fighting", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "格斗（矛）"}},
+    "Fighting (Flail)": {"base_chance": 10, "group": "Fighting", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "格斗（连枷）"}},
+    "Fighting (Garrote)": {"base_chance": 15, "group": "Fighting", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "格斗（绞索）"}},
+    "Fighting (Chainsaw)": {"base_chance": 10, "group": "Fighting", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "格斗（链锯）"}},
+    "Fighting (Whip)": {"base_chance": 5, "group": "Fighting", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "格斗（鞭）"}},
+    "Firearms (Handgun)": {"base_chance": 20, "group": "Firearms", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "火器（手枪）"}},
+    "Firearms (Rifle/Shotgun)": {"base_chance": 25, "group": "Firearms", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "火器（步枪/霰弹枪）"}},
+    "Firearms (Bow)": {"base_chance": 15, "group": "Firearms", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "火器（弓）"}},
+    "Firearms (Heavy Weapons)": {"base_chance": 10, "group": "Firearms", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "火器（重型武器）"}},
+    "Firearms (Flamethrower)": {"base_chance": 10, "group": "Firearms", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "火器（火焰喷射器）"}},
+    "Firearms (Machine Gun)": {"base_chance": 10, "group": "Firearms", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "火器（机枪）"}},
+    "Firearms (Submachine Gun)": {"base_chance": 15, "group": "Firearms", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "火器（冲锋枪）"}},
+    "First Aid": {"base_chance": 30, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "急救"}},
+    "History": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "历史"}},
+    "Hypnosis": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": true, "localized_labels": {"zh-Hans": "催眠"}},
+    "Intimidate": {"base_chance": 15, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "恐吓"}},
+    "Jump": {"base_chance": 20, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "跳跃"}},
+    "Language (Own)": {"base_chance": "EDU", "group": "Language (Own)", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "语言（母语）"}},
+    "Law": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "法律"}},
+    "Library Use": {"base_chance": 20, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "图书馆使用"}},
+    "Listen": {"base_chance": 20, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "聆听"}},
+    "Locksmith": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "锁匠"}},
+    "Lore": {"base_chance": 1, "group": "Lore", "modern_only": false, "uncommon": true, "localized_labels": {"zh-Hans": "学识"}},
+    "Mechanical Repair": {"base_chance": 10, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "机械维修"}},
+    "Medicine": {"base_chance": 1, "group": "Science", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "医学"}},
+    "Natural World": {"base_chance": 10, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "博物学"}},
+    "Navigate": {"base_chance": 10, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "导航"}},
+    "Occult": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "神秘学"}},
+    "Operate Heavy Machinery": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "操作重型机械"}},
+    "Persuade": {"base_chance": 10, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "说服"}},
+    "Pilot": {"base_chance": 1, "group": "Pilot", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "驾驶"}},
+    "Psychoanalysis": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "精神分析"}},
+    "Psychology": {"base_chance": 10, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "心理学"}},
+    "Read Lips": {"base_chance": 1, "group": null, "modern_only": false, "uncommon": true, "localized_labels": {"zh-Hans": "读唇"}},
+    "Ride": {"base_chance": 5, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "骑术"}},
+    "Science": {"base_chance": 1, "group": "Science", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "科学"}},
+    "Sleight of Hand": {"base_chance": 10, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "妙手"}},
+    "Spot Hidden": {"base_chance": 25, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "侦查"}},
+    "Stealth": {"base_chance": 20, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "潜行"}},
+    "Survival": {"base_chance": 10, "group": "Survival", "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "生存"}},
+    "Swim": {"base_chance": 20, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "游泳"}},
+    "Throw": {"base_chance": 20, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "投掷"}},
+    "Track": {"base_chance": 10, "group": null, "modern_only": false, "uncommon": false, "localized_labels": {"zh-Hans": "追踪"}}
+  },
+  "rule_refs": {
+    "skill_list_page": "Keeper Rulebook p.56 (PDF idx 55)",
+    "specialization_marker": "G denotes a group skill broken into specializations",
+    "modern_marker": "Omega denotes a skill available only in Modern Era games",
+    "uncommon_marker": "T denotes an uncommon skill not on the standard investigator sheet"
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "source_rule_id": "core.combat.other_forms_of_damage",
+  "source_note": "Keeper Rulebook Chapter 6 Table III: Other Forms of Damage (p.124). Each injury type is for one incident or one round. Armor does not reduce these sources (p.120).",
+  "severity": {
+    "minor": {
+      "damage_expr": "1D3",
+      "rulebook_page": 124,
+      "note": "A person could survive numerous occurrences of this level of damage."
+    },
+    "moderate": {
+      "damage_expr": "1D6",
+      "rulebook_page": 124,
+      "note": "Might cause a major wound; it would take a few such attacks to kill."
+    },
+    "severe": {
+      "damage_expr": "1D10",
+      "rulebook_page": 124,
+      "note": "Likely to cause a major wound. One or two occurrences would render a person unconscious or dead."
+    },
+    "deadly": {
+      "damage_expr": "2D10",
+      "rulebook_page": 124,
+      "note": "The average person has a 50% chance of dying."
+    },
+    "terminal": {
+      "damage_expr": "4D10",
+      "rulebook_page": 124,
+      "note": "Outright death is likely."
+    },
+    "splat": {
+      "damage_expr": "8D10",
+      "rulebook_page": 124,
+      "note": "Outright death almost certain."
+    }
+  },
+  "presets": {
+    "falling_soft_swamp_per_10ft": {
+      "severity": "minor",
+      "category": "falling",
+      "per": "10_feet",
+      "example": "Falling (per 10 feet) onto soft swamp"
+    },
+    "falling_grass_per_10ft": {
+      "severity": "moderate",
+      "category": "falling",
+      "per": "10_feet",
+      "example": "Falling (per 10 feet) onto grass"
+    },
+    "falling_concrete_per_10ft": {
+      "severity": "severe",
+      "category": "falling",
+      "per": "10_feet",
+      "example": "Falling (per 10 feet) onto concrete"
+    },
+    "fire_torch": {
+      "severity": "moderate",
+      "category": "fire",
+      "example": "Fire (burning torch)"
+    },
+    "fire_burning_room": {
+      "severity": "severe",
+      "category": "fire",
+      "example": "Fire (flamethrower, running through a burning room)"
+    },
+    "smoky_atmosphere": {
+      "severity": "minor",
+      "category": "asphyxiation",
+      "suffocation": true,
+      "example": "Breathing smoky atmosphere"
+    },
+    "drowning": {
+      "severity": "moderate",
+      "category": "asphyxiation",
+      "suffocation": true,
+      "example": "Breathing water"
+    },
+    "vacuum": {
+      "severity": "moderate",
+      "category": "asphyxiation",
+      "suffocation": true,
+      "example": "Exposure to vacuum"
+    },
+    "mild_acid": {
+      "severity": "minor",
+      "category": "acid",
+      "example": "Mild acid"
+    },
+    "strong_acid": {
+      "severity": "moderate",
+      "category": "acid",
+      "example": "Strong acid"
+    },
+    "mild_poison": {
+      "severity": "severe",
+      "category": "poison",
+      "example": "A mild poison (Table III simplified band)"
+    },
+    "strong_poison": {
+      "severity": "deadly",
+      "category": "poison",
+      "example": "A strong poison (Table III simplified band)"
+    },
+    "lethal_poison": {
+      "severity": "terminal",
+      "category": "poison",
+      "example": "A lethal poison (Table III simplified band)"
+    }
+  },
+  "suffocation": {
+    "con_each_round_until_fail": true,
+    "damage_each_round_after_fail": true,
+    "exertion_requires_hard_con": true,
+    "death_at_zero_hp_ignore_major_wound": true,
+    "rulebook_quote": "Death occurs at 0 hit points (ignore the Major Wound rule)."
+  }
+}

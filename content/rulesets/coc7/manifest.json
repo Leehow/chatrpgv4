@@ -1,0 +1,163 @@
+{
+  "ruleset_id": "coc7",
+  "name": "Call of Cthulhu 7th Edition",
+  "version": "1.0.0",
+  "resolution_model": "percentile",
+  "schema_versions": {
+    "campaign": 3,
+    "world": 2,
+    "pacing": 1,
+    "investigator": 2
+  },
+  "entry_points": {
+    "resolver": "resolver.py",
+    "skills": "skills/",
+    "data": "rules-json/",
+    "rule_graph": "rule-graph.json",
+    "rule_graph_manifest": "rule-graph-manifest.json",
+    "rule_graph_adapter": "rule_graph_adapter.py"
+  },
+  "rule_families": [
+    {
+      "family_id": "healing",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "core-check",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "push-luck",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "social",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "psychology",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "combat",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "sanity",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "development",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "chase",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    },
+    {
+      "family_id": "magic",
+      "runtime_owner": "graph",
+      "legacy_surface": "hidden"
+    }
+  ],
+  "optional_rules": [
+    {
+      "option_id": "luck-spend",
+      "display": "Spending Luck",
+      "enabled_by_default": true,
+      "rule_refs": [
+        "rule:coc7:push-luck:luck-spend",
+        "rule:coc7:push-luck:luck-spend-limits"
+      ],
+      "decision_refs": [
+        "decision:coc7:push-luck:luck-spend"
+      ],
+      "operation_gates": [
+        "rules.luck_spend"
+      ],
+      "settlement_gates": [],
+      "source_note": "Keeper Rulebook p.99, Optional Rules: Spending Luck. Rulebook-optional; this package keeps it on by default because the promoted push-luck family and the Keeper guidance assume the option is in play. A table that does not use it records rules.patch DISABLES luck-spend."
+    },
+    {
+      "option_id": "luck-recovery",
+      "display": "Luck Recovery",
+      "enabled_by_default": true,
+      "rule_refs": [
+        "rule:coc7:development:luck-recovery",
+        "rule:coc7:push-luck:luck-recovery"
+      ],
+      "decision_refs": [],
+      "operation_gates": [],
+      "settlement_gates": [
+        "development.luck_recovery"
+      ],
+      "source_note": "Keeper Rulebook p.99, Optional Rules: Luck Recovery (after each session roll 1D100 over current Luck to gain 1D10, capped at 99). Rulebook-optional; on by default for the same reason as luck-spend. Disabling it makes the development settlement skip the recovery roll."
+    }
+  ],
+  "resources": [
+    {
+      "key": "hp",
+      "display": "HP",
+      "kind": "pool",
+      "reset": "session",
+      "projected": true,
+      "recovery_rule": "No automatic refill; recovers via First Aid +1 HP (Keeper Rulebook p.119), Medicine +1D3 (p.120), and the weekly natural recovery roll (p.121)."
+    },
+    {
+      "key": "san",
+      "display": "SAN",
+      "kind": "pool",
+      "reset": "never",
+      "projected": true,
+      "recovery_rule": "No automatic recovery; regained only through development-phase awards (e.g. +2D6 when a skill reaches 90%%, p.94), Keeper scenario awards, or treatment (p.164)."
+    },
+    {
+      "key": "mp",
+      "display": "MP",
+      "kind": "pool",
+      "reset": "daily",
+      "projected": true,
+      "recovery_rule": "Regenerates 1 point per hour (2 per hour if POW over 100) per spell mechanics (Keeper Rulebook pp.176-179)."
+    },
+    {
+      "key": "luck",
+      "display": "Luck",
+      "kind": "pool",
+      "reset": "session",
+      "projected": false,
+      "recovery_rule": "Session-end recovery roll (optional rule, p.99): roll 1D100 over current Luck to gain 1D10, capped at 99."
+    }
+  ],
+  "state_dirs": [
+    {
+      "name": "investigator-state",
+      "create_on_init": true,
+      "role": "actor_state"
+    },
+    {
+      "name": "sanity-state",
+      "create_on_init": false
+    }
+  ],
+  "boundary_terms": [
+    "STR",
+    "CON",
+    "SIZ",
+    "DEX",
+    "APP",
+    "INT",
+    "POW",
+    "EDU",
+    "SAN",
+    "LUCK"
+  ]
+}

@@ -1,0 +1,1617 @@
+{
+  "source_note": "Keeper Rulebook Chapter 4 Skills. Full Keeper-facing prose catalog compiled from Call of Cthulhu Keeper Rulebook 40th Anniversary PDF pages 69–90 (skill definitions), via deterministic two-column word-box reflow. skills.json remains the mechanical base-chance catalog; this file is consumed by rules.skill_describe. Interpersonal four retain curated selection_policy disambiguation. Specialization skills may include parent_description / group_context from Art and Craft, Fighting, Firearms, Science, Pilot, or Survival. Science specialties without a dedicated skills.json key are listed under Science.specialization_blurbs; Language (Other) is attached under Language (Own).",
+  "schema_version": 1,
+  "selection_policy": {
+    "id": "interpersonal-disambiguation",
+    "title": "Interpersonal Skills: Disambiguation",
+    "source_pdf_pages": [
+      72
+    ],
+    "summary": "Players describe what their investigator is doing and saying; the Keeper chooses which of the four interpersonal skills applies. Players do not nominate the skill.",
+    "rules": [
+      {
+        "when": "threatening violence or acting aggressively",
+        "skill": "Intimidate"
+      },
+      {
+        "when": "attempting to befriend or seduce",
+        "skill": "Charm"
+      },
+      {
+        "when": "using rational arguments and debate over a prolonged time",
+        "skill": "Persuade"
+      },
+      {
+        "when": "acting quickly to deceive, con, or trick",
+        "skill": "Fast Talk"
+      }
+    ],
+    "note": "Switching from one interpersonal skill to another to gain a second roll still constitutes a Pushed roll."
+  },
+  "skills": {
+    "Accounting": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        69
+      ],
+      "summary": "Grants understanding of accountancy procedures and reveals the financial functioning of a business or person. Inspecting the books, one might detect cheated employees, siphonedoff funds, payment of bribes or blackmail, and whether the financial condition is better or worse tha...",
+      "description": "Grants understanding of accountancy procedures and reveals the financial functioning of a business or person. Inspecting the books, one might detect cheated employees, siphonedoff funds, payment of bribes or blackmail, and whether the financial condition is better or worse than claimed. Looking through old accounts, one could see how money was gained or lost in the past (grain, slave-trading, whiskey-running, etc.) and to whom and for what payment was made.",
+      "pushing_examples": [
+        "taking more time to review documents",
+        "visiting banks or businesses to validate findings",
+        "double-checking the math and data"
+      ],
+      "pushed_failure_samples": [
+        "discussions between investigators and third parties alert some enemy faction to the investigators’ intentions",
+        "a vital part of the accounts is destroyed or lost (perhaps in their tired state the investigator spills coffee over them)"
+      ],
+      "opposing_notes": "If someone were trying to conceal something, the difficulty level would be based upon the Accountancy skill of the person doing the concealing. i Regular difficulty: comprehensive and well-documented set of account books. i Hard difficulty: disorganized and partial accounts.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she might be found having partially eaten the accounts."
+    },
+    "Animal Handling": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        69
+      ],
+      "summary": "The ability to command and train domesticated animals perform simple tasks. The skill is most commonly applied dogs but may include birds, cats, monkeys, and so on (at the Keeper’s discretion).",
+      "description": "The ability to command and train domesticated animals perform simple tasks. The skill is most commonly applied dogs but may include birds, cats, monkeys, and so on (at the Keeper’s discretion). For riding animals, such as horses camels, the Ride skill is used for breaking in and controlling such mounts.",
+      "pushing_examples": [
+        "taking greater personal risk, in terms getting closer to, or directly handling the animal"
+      ],
+      "pushed_failure_samples": [
+        "the animal attacks the trainer or someone else nearby, most likely causing damage",
+        "the animal escapes"
+      ],
+      "opposing_notes": "i Regular difficulty: getting a trained dog to sit, fetch, or attack on command. i Hard difficulty: getting an untrained or unfamiliar dog to perform a task on command.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she might be found behaving like the animal they were trying to control."
+    },
+    "Anthropology": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        69
+      ],
+      "summary": "Enables the user to identify and understand an individual’s way of life through observation. If the skill-user observes another culture from within for a time, or works from accurate records concerning an extinct culture, then simple predictions can be made about that culture’...",
+      "description": "Enables the user to identify and understand an individual’s way of life through observation. If the skill-user observes another culture from within for a time, or works from accurate records concerning an extinct culture, then simple predictions can be made about that culture’s ways and morals, even though the evidence may be incomplete. Studying the culture for a month or more, the anthropologist begins to understand how the culture functions and, in combination with Psychology, may predict the actions and beliefs of those being studied.",
+      "pushing_examples": [
+        "taking more time to study the target/s",
+        "going “native” for a period",
+        "taking an active role in a ceremony, rite, etc"
+      ],
+      "pushed_failure_samples": [
+        "being attacked or imprisoned by the people studied, due to some perceived transgression of their laws or social mores",
+        "suffering severe side-effects as the result of being involved in a ceremony which involved ingesting psychotropic plants"
+      ],
+      "opposing_notes": "The difficulty for this skill is set according to the exposure of the skill-user to their subject. i Regular difficulty: spending a month or more with the people. i Hard difficulty level: spending only a week or less with the people.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she will be lost among the culture being studied, for example to like Dennis Hopper’s photojournalist character in the film to Apocalypse Now."
+    },
+    "Appraise": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        69,
+        70
+      ],
+      "summary": "Used to estimate the value of a particular item, including the quality, material used, and workmanship. Where relevant, the skill-user could pinpoint the age of the item, assess its historical relevance, and detect forgeries.",
+      "description": "Used to estimate the value of a particular item, including the quality, material used, and workmanship. Where relevant, the skill-user could pinpoint the age of the item, assess its historical relevance, and detect forgeries.",
+      "pushing_examples": [
+        "checking an item’s validity with another expert",
+        "conducting testing",
+        "researching an item"
+      ],
+      "pushed_failure_samples": [
+        "accidentally ruining the item in question",
+        "bringing the item to the attention of other people, leading to its theft",
+        "activating whatever function the item might serve"
+      ],
+      "opposing_notes": "i Regular difficulty: an item that was not rare at its time of manufacture, and is made of a common material (e.g. 50 year-old gold watch). of i Hard difficulty: an unusual item, perhaps made of uncommon materials (e.g. a foreign-made object of several hundred years in age, such as an ancient tome).",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she could destroy the item, believing it to be cursed; alternatively they regard the item as their personal salvation and refuse to give it up to anyone else."
+    },
+    "Archaeology": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        70
+      ],
+      "summary": "Allows dating and identification of artifacts from past cultures, and the detection of fakes. Ensures expertise in setting up and excavating a dig site.",
+      "description": "Allows dating and identification of artifacts from past cultures, and the detection of fakes. Ensures expertise in setting up and excavating a dig site. On inspecting a site, the user might deduce the purposes and way of life of those who left the remains. Anthropology might aid in this. Archaeology also helps identify written forms of extinct human languages.",
+      "pushing_examples": [
+        "taking more time to study the site or item",
+        "conducting further research",
+        "consulting another expert"
+      ],
+      "pushed_failure_samples": [
+        "The site is spoiled, with finds ruined through incompetence, vandalism or theft",
+        "some higher authority seizes the site or the finds from your control",
+        "publicity leads to the finds being stolen"
+      ],
+      "opposing_notes": "i Regular difficulty: sufficient time and resources to do the job properly. i Hard difficulty: a lack of time and/or limited resources.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she keeps digging deeper, ever deeper—the truth is down there somewhere."
+    },
+    "Art and Craft (Acting)": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        70,
+        71
+      ],
+      "summary": "The performer is trained in theatrical and/ or film acting (in the modern era, this may also include television), able to adopt a persona, memorize scripts and utilize stage/movie make-up to alter their appearance. See Disguise (page 62).",
+      "description": "The performer is trained in theatrical and/ or film acting (in the modern era, this may also include television), able to adopt a persona, memorize scripts and utilize stage/movie make-up to alter their appearance. See Disguise (page 62).",
+      "group_context": "Art and Craft",
+      "parent_description": "The investigator sheet contains blank spaces for specializations of this skill. For example: Many of these examples are skills directly linked to a i Acting i Writer of i Barber i Morris Dancer i Calligraphy i Opera Singer i Carpenter i Painter and Decorator i Cook i Photographer i Dancer i Potter i Fine Art i Sculptor i Forgery i Vacuum-Tube Blower profession, but the skill may just be a leisure pursuit. You may spend skill points to purchase any skill specialization. The generic Art 5 70 22 0 2 3 103.86 662.18 15.01 13.49 100 and 5 70 22 0 2 4 121.14 662.18 23.66 13.49 100 Craft skill cannot be purchased. This skill may enable the making or repair of an item— typically requiring equipment and time, to be determined by the Keeper, if necessary. In a situation where graduations of success might be appropriate, a higher level of success indicates the item made is of high quality and/or precision. These 5 70 24 0 0 1 352.24 341.65 22.52 12.26 100 aren't 5 70 24 0 0 2 377.05 341.65 14.23 12.26 100 any 5 70 24 0 0 3 393.57 341.65 44.13 12.26 100 hieroglyphs 5 70 24 0 0 4 439.98 341.65 15.77 12.26 100 that 5 70 24 0 0 5 458.04 341.65 3.35 12.26 100 I 5 70 24 0 0 6 463.68 341.65 21.05 12.26 100 know 5 70 24 0 0 7 487.02 341.65 12.91 12.26 100 of. An art or craft skill might also be used to make a duplicate or fake item. In such a case, the difficulty level would depend on the intricacy and distinctiveness of the original to be copied. In the case of faking documentation, a specific specialization (Forgery) is used. A successful roll might provide information about an item, such as where or when it might have been made, some point of history or technique concerning it, or who might have made it. The holder of a specialism would have a breadth of knowledge within a particular field—knowledge the subject, its history and contemporary practitioners, as well as the ability to perform it.",
+      "pushing_examples": [
+        "reworking the object, piece or composition from scratch",
+        "conducting further research",
+        "checking with another expert"
+      ],
+      "pushed_failure_samples": [
+        "A vast amount of time and money is wasted in creating a failed attempt",
+        "the audience or customer is highly offended or physically injured by some aspect of your work",
+        "the critics slam your work, and no one desires your services any longer"
+      ],
+      "opposing_notes": "i Regular difficulty: making a standard, saleable item. i Hard difficulty: making a higher quality or particularly intricate piece.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she creates a transgressive work that shocks and causes violent reactions in the viewer—perhaps only the most decadent could appreciate it."
+    },
+    "Art and Craft (Fine Art)": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        70,
+        71
+      ],
+      "summary": "The artist is accomplished in the art painting (oils, acrylic, watercolor), as well as sketching pencil, crayon or pastels. While serious works of art might take many days or months to complete, the artist may quickly sketch accurate impressions, objects and people.",
+      "description": "The artist is accomplished in the art painting (oils, acrylic, watercolor), as well as sketching pencil, crayon or pastels. While serious works of art might take many days or months to complete, the artist may quickly sketch accurate impressions, objects and people. The skill also denotes a familiarity with the art world, and the artist may be able to determine a particular artist’s work, their school and known history.",
+      "group_context": "Art and Craft",
+      "parent_description": "The investigator sheet contains blank spaces for specializations of this skill. For example: Many of these examples are skills directly linked to a i Acting i Writer of i Barber i Morris Dancer i Calligraphy i Opera Singer i Carpenter i Painter and Decorator i Cook i Photographer i Dancer i Potter i Fine Art i Sculptor i Forgery i Vacuum-Tube Blower profession, but the skill may just be a leisure pursuit. You may spend skill points to purchase any skill specialization. The generic Art 5 70 22 0 2 3 103.86 662.18 15.01 13.49 100 and 5 70 22 0 2 4 121.14 662.18 23.66 13.49 100 Craft skill cannot be purchased. This skill may enable the making or repair of an item— typically requiring equipment and time, to be determined by the Keeper, if necessary. In a situation where graduations of success might be appropriate, a higher level of success indicates the item made is of high quality and/or precision. These 5 70 24 0 0 1 352.24 341.65 22.52 12.26 100 aren't 5 70 24 0 0 2 377.05 341.65 14.23 12.26 100 any 5 70 24 0 0 3 393.57 341.65 44.13 12.26 100 hieroglyphs 5 70 24 0 0 4 439.98 341.65 15.77 12.26 100 that 5 70 24 0 0 5 458.04 341.65 3.35 12.26 100 I 5 70 24 0 0 6 463.68 341.65 21.05 12.26 100 know 5 70 24 0 0 7 487.02 341.65 12.91 12.26 100 of. An art or craft skill might also be used to make a duplicate or fake item. In such a case, the difficulty level would depend on the intricacy and distinctiveness of the original to be copied. In the case of faking documentation, a specific specialization (Forgery) is used. A successful roll might provide information about an item, such as where or when it might have been made, some point of history or technique concerning it, or who might have made it. The holder of a specialism would have a breadth of knowledge within a particular field—knowledge the subject, its history and contemporary practitioners, as well as the ability to perform it.",
+      "pushing_examples": [
+        "reworking the object, piece or composition from scratch",
+        "conducting further research",
+        "checking with another expert"
+      ],
+      "pushed_failure_samples": [
+        "A vast amount of time and money is wasted in creating a failed attempt",
+        "the audience or customer is highly offended or physically injured by some aspect of your work",
+        "the critics slam your work, and no one desires your services any longer"
+      ],
+      "opposing_notes": "i Regular difficulty: making a standard, saleable item. i Hard difficulty: making a higher quality or particularly intricate piece.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she creates a transgressive work that shocks and causes violent reactions in the viewer—perhaps only the most decadent could appreciate it."
+    },
+    "Art and Craft (Forgery)": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        70,
+        71
+      ],
+      "summary": "Adept at fine detail, the user can produce high quality fake documents, be it a person’s handwriting, a bureaucratic form or permit, or a duplicate of a tome. The forger will require suitable materials (inks, grades of paper, etc.) as well as an original from which to copy.",
+      "description": "Adept at fine detail, the user can produce high quality fake documents, be it a person’s handwriting, a bureaucratic form or permit, or a duplicate of a tome. The forger will require suitable materials (inks, grades of paper, etc.) as well as an original from which to copy. A successful roll indicates the forgery will pass a normal, cursory inspection. Someone spending time and thoroughly examining the forgery would use the Appraise skill (opposed by the original forger’s skill) when determining if the fake can be spotted.",
+      "group_context": "Art and Craft",
+      "parent_description": "The investigator sheet contains blank spaces for specializations of this skill. For example: Many of these examples are skills directly linked to a i Acting i Writer of i Barber i Morris Dancer i Calligraphy i Opera Singer i Carpenter i Painter and Decorator i Cook i Photographer i Dancer i Potter i Fine Art i Sculptor i Forgery i Vacuum-Tube Blower profession, but the skill may just be a leisure pursuit. You may spend skill points to purchase any skill specialization. The generic Art 5 70 22 0 2 3 103.86 662.18 15.01 13.49 100 and 5 70 22 0 2 4 121.14 662.18 23.66 13.49 100 Craft skill cannot be purchased. This skill may enable the making or repair of an item— typically requiring equipment and time, to be determined by the Keeper, if necessary. In a situation where graduations of success might be appropriate, a higher level of success indicates the item made is of high quality and/or precision. These 5 70 24 0 0 1 352.24 341.65 22.52 12.26 100 aren't 5 70 24 0 0 2 377.05 341.65 14.23 12.26 100 any 5 70 24 0 0 3 393.57 341.65 44.13 12.26 100 hieroglyphs 5 70 24 0 0 4 439.98 341.65 15.77 12.26 100 that 5 70 24 0 0 5 458.04 341.65 3.35 12.26 100 I 5 70 24 0 0 6 463.68 341.65 21.05 12.26 100 know 5 70 24 0 0 7 487.02 341.65 12.91 12.26 100 of. An art or craft skill might also be used to make a duplicate or fake item. In such a case, the difficulty level would depend on the intricacy and distinctiveness of the original to be copied. In the case of faking documentation, a specific specialization (Forgery) is used. A successful roll might provide information about an item, such as where or when it might have been made, some point of history or technique concerning it, or who might have made it. The holder of a specialism would have a breadth of knowledge within a particular field—knowledge the subject, its history and contemporary practitioners, as well as the ability to perform it.",
+      "pushing_examples": [
+        "reworking the object, piece or composition from scratch",
+        "conducting further research",
+        "checking with another expert"
+      ],
+      "pushed_failure_samples": [
+        "A vast amount of time and money is wasted in creating a failed attempt",
+        "the audience or customer is highly offended or physically injured by some aspect of your work",
+        "the critics slam your work, and no one desires your services any longer"
+      ],
+      "opposing_notes": "i Regular difficulty: making a standard, saleable item. i Hard difficulty: making a higher quality or particularly intricate piece.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she creates a transgressive work that shocks and causes violent reactions in the viewer—perhaps only the most decadent could appreciate it."
+    },
+    "Art and Craft (Photography)": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        70,
+        71
+      ],
+      "summary": "Covers both still and motion photography. This skill allows one to take clear pictures, develop them properly and enhance half-hidden detail.",
+      "description": "Covers both still and motion photography. This skill allows one to take clear pictures, develop them properly and enhance half-hidden detail. In the 1920s, the user is able to prepare the necessary chemicals to make flashpowder. In the present day, the skill extends to cover video cameras, video playback equipment, digital photography and digital editing, where the user is adept at the manipulation of digital images. Radically different versions can be created from an original source, such as changing the location of person in a photograph, who they are with and what they are doing. Those proficient may also be able to detect when an image has been manipulated. Regular snapshots do not require a skill roll. Rolls would be required to achieve effective candid photographs, or shots that capture fine detail—especially at long range, at speed or in low light. This skill can also allow the investigator to determine if a photograph has been tampered with fabricated, as well as the angle and position from which photograph was taken.",
+      "group_context": "Art and Craft",
+      "parent_description": "The investigator sheet contains blank spaces for specializations of this skill. For example: Many of these examples are skills directly linked to a i Acting i Writer of i Barber i Morris Dancer i Calligraphy i Opera Singer i Carpenter i Painter and Decorator i Cook i Photographer i Dancer i Potter i Fine Art i Sculptor i Forgery i Vacuum-Tube Blower profession, but the skill may just be a leisure pursuit. You may spend skill points to purchase any skill specialization. The generic Art 5 70 22 0 2 3 103.86 662.18 15.01 13.49 100 and 5 70 22 0 2 4 121.14 662.18 23.66 13.49 100 Craft skill cannot be purchased. This skill may enable the making or repair of an item— typically requiring equipment and time, to be determined by the Keeper, if necessary. In a situation where graduations of success might be appropriate, a higher level of success indicates the item made is of high quality and/or precision. These 5 70 24 0 0 1 352.24 341.65 22.52 12.26 100 aren't 5 70 24 0 0 2 377.05 341.65 14.23 12.26 100 any 5 70 24 0 0 3 393.57 341.65 44.13 12.26 100 hieroglyphs 5 70 24 0 0 4 439.98 341.65 15.77 12.26 100 that 5 70 24 0 0 5 458.04 341.65 3.35 12.26 100 I 5 70 24 0 0 6 463.68 341.65 21.05 12.26 100 know 5 70 24 0 0 7 487.02 341.65 12.91 12.26 100 of. An art or craft skill might also be used to make a duplicate or fake item. In such a case, the difficulty level would depend on the intricacy and distinctiveness of the original to be copied. In the case of faking documentation, a specific specialization (Forgery) is used. A successful roll might provide information about an item, such as where or when it might have been made, some point of history or technique concerning it, or who might have made it. The holder of a specialism would have a breadth of knowledge within a particular field—knowledge the subject, its history and contemporary practitioners, as well as the ability to perform it.",
+      "pushing_examples": [
+        "reworking the object, piece or composition from scratch",
+        "conducting further research",
+        "checking with another expert"
+      ],
+      "pushed_failure_samples": [
+        "A vast amount of time and money is wasted in creating a failed attempt",
+        "the audience or customer is highly offended or physically injured by some aspect of your work",
+        "the critics slam your work, and no one desires your services any longer"
+      ],
+      "opposing_notes": "i Regular difficulty: making a standard, saleable item. i Hard difficulty: making a higher quality or particularly intricate piece.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she creates a transgressive work that shocks and causes violent reactions in the viewer—perhaps only the most decadent could appreciate it."
+    },
+    "Art and Craft (Writing)": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        70,
+        71
+      ],
+      "summary": "The investigator sheet contains blank spaces for specializations of this skill. For example: Many of these examples are skills directly linked to a i Acting i Writer of i Barber i Morris Dancer i Calligraphy i Opera Singer i Carpenter i Painter and Decorator i Cook i Photograp...",
+      "description": "The investigator sheet contains blank spaces for specializations of this skill. For example: Many of these examples are skills directly linked to a i Acting i Writer of i Barber i Morris Dancer i Calligraphy i Opera Singer i Carpenter i Painter and Decorator i Cook i Photographer i Dancer i Potter i Fine Art i Sculptor i Forgery i Vacuum-Tube Blower profession, but the skill may just be a leisure pursuit. You may spend skill points to purchase any skill specialization. The generic Art 5 70 22 0 2 3 103.86 662.18 15.01 13.49 100 and 5 70 22 0 2 4 121.14 662.18 23.66 13.49 100 Craft skill cannot be purchased. This skill may enable the making or repair of an item— typically requiring equipment and time, to be determined by the Keeper, if necessary. In a situation where graduations of success might be appropriate, a higher level of success indicates the item made is of high quality and/or precision. These 5 70 24 0 0 1 352.24 341.65 22.52 12.26 100 aren't 5 70 24 0 0 2 377.05 341.65 14.23 12.26 100 any 5 70 24 0 0 3 393.57 341.65 44.13 12.26 100 hieroglyphs 5 70 24 0 0 4 439.98 341.65 15.77 12.26 100 that 5 70 24 0 0 5 458.04 341.65 3.35 12.26 100 I 5 70 24 0 0 6 463.68 341.65 21.05 12.26 100 know 5 70 24 0 0 7 487.02 341.65 12.91 12.26 100 of. An art or craft skill might also be used to make a duplicate or fake item. In such a case, the difficulty level would depend on the intricacy and distinctiveness of the original to be copied. In the case of faking documentation, a specific specialization (Forgery) is used. A successful roll might provide information about an item, such as where or when it might have been made, some point of history or technique concerning it, or who might have made it. The holder of a specialism would have a breadth of knowledge within a particular field—knowledge the subject, its history and contemporary practitioners, as well as the ability to perform it.",
+      "pushing_examples": [
+        "reworking the object, piece or composition from scratch",
+        "conducting further research",
+        "checking with another expert"
+      ],
+      "pushed_failure_samples": [
+        "A vast amount of time and money is wasted in creating a failed attempt",
+        "the audience or customer is highly offended or physically injured by some aspect of your work",
+        "the critics slam your work, and no one desires your services any longer"
+      ],
+      "opposing_notes": "i Regular difficulty: making a standard, saleable item. i Hard difficulty: making a higher quality or particularly intricate piece.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she creates a transgressive work that shocks and causes violent reactions in the viewer—perhaps only the most decadent could appreciate it.",
+      "group_context": "Art and Craft"
+    },
+    "Artillery": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        71
+      ],
+      "summary": "This skill assumes some form of military training and experience. The user is experienced in the operation of field weapons in warfare: able to work in a crew or detachment to operate the projection of munitions beyond the range of personal weapons.",
+      "description": "This skill assumes some form of military training and experience. The user is experienced in the operation of field weapons in warfare: able to work in a crew or detachment to operate the projection of munitions beyond the range of personal weapons. Many weapons of this nature are too large for a single person to operate, and either an individual cannot use the weapon without a crew or the difficulty level should be raised (at the Keeper’s discretion, dependent on the type of weapon employed). Various specializations exist, depending on the period setting of the game, including cannon, howitzer, mortar and rocket launcher.",
+      "opposing_notes": "i Regular difficulty: if the artillery is well maintained and used in favorable conditions. of i Hard difficulty: if the artillery is poorly maintained in or used in a rush and/or while under fire. Note: as a combat skill, this cannot be pushed."
+    },
+    "Charm": {
+      "base_chance": 15,
+      "source_pdf_pages": [
+        71
+      ],
+      "summary": "Physical attraction, seduction, flattery, or warmth of personality used to compel action without forcing behavior completely contrary to the target's normal self.",
+      "description": "Charm takes many forms, including physical attraction, seduction, flattery or simply warmth of personality. Charm may be used to compel someone to act in a certain way, but not in a manner completely contrary to that person's normal behavior. Charm is opposed by the Charm or Psychology skills. Charm may be used for bargaining, to haggle the price of an item or service down. If successful, the seller is won over and they may well reduce the price a little.",
+      "opposed_by": [
+        "Charm",
+        "Psychology"
+      ],
+      "pushing_examples": [
+        "overtly flattering the target with affection",
+        "presenting an expensive gift",
+        "building trust by imparting a secret"
+      ],
+      "approach_reminder": "Remember this is about being charming. If threats are used it may become Intimidate; if a protracted discussion ensues it may become Persuade.",
+      "pushed_failure_samples": [
+        "the target takes offence and will have nothing further to do with you",
+        "the target is associated with your enemies and informs on you while playing along",
+        "a third party intercedes to prevent you from chatting up their girl"
+      ]
+    },
+    "Climb": {
+      "base_chance": 20,
+      "source_pdf_pages": [
+        71,
+        72
+      ],
+      "summary": "This skill allows a character to climb trees, walls and other vertical surfaces with or without ropes and climbing gear. The skill also encompasses rappelling.",
+      "description": "This skill allows a character to climb trees, walls and other vertical surfaces with or without ropes and climbing gear. The skill also encompasses rappelling. Conditions such as firmness of surface, available handholds, wind, visibility, rain, etc., may all affect the difficulty level. Failing this skill on the first roll indicates that the climb is perhaps beyond the investigator’s capability. Failing a pushed roll is likely to indicate a fall with resultant damage. One successful Climb roll should allow the investigator to complete the climb in almost all cases (rather than requiring Interpersonal Skills: Disambiguation The relative values in the Charm, Fast Talk, Intimidate, and skills serve to define a character and how they interact with It is not for the player to nominate which one of these they are using in a given situation. Instead the player should what their investigator is doing and saying, and it is then Keeper to decide which of the four skills is appropriate. T If the investigator is threatening violence or acting the skill is Intimidate. T If the investigator is attempting to befriend or seduce, is Charm. T If the investigator is using rational arguments and debate prolonged time, the skill is Persuade. T If the investigator is acting quickly to deceive, con, or skill is Fast Talk. When Used on Player Characters Each player (normally) has only one investigator through act in the game; it would therefore not be fair to allow one dictate the actions of another player’s investigator. However, player wishes to put pressure on another player’s investigator to bidding, they might use violence (combat rules) or their social skills. The former could inflict damage and ultimately latter is subtler. When one of these four skills is successfully used on an (either by an NPC or another investigator), the player is not to follow the wishes of the other party. If the player refuses accordance with the wishes of the character who is coercing latter can inflict one penalty die on one dice roll (of the coercer’s made by the player of the coerced investigator. This penalty not be applied to the very next dice roll, but does not last Only one penalty die can be held by one character against single character at a time. repeated rolls). A challenging or longer climb should have an increased difficulty level.",
+      "pushing_examples": [
+        "reassessing the climb",
+        "taking a longer route",
+        "straining one’s reach. Sample Consequences of failing a Pushed roll: fall and suffer damage (1D6 damage per ten feet onto grass, or 1D10 damage per 10 feet onto concrete)",
+        "lose a valuable possession as it falls from your pocket (you may not notice this until later)",
+        "become stranded, unable to go up or down. Persuade If an insane investigator fails a people. pushed roll, he or she holds on for dear four skills life and screams at the top of their lungs describe for as long as they can. up to the"
+      ],
+      "opposing_notes": "i Regular difficulty: plenty of handholds; perhaps a rope or drainpipe to climb. i Hard difficulty: few handholds, or surfaces slick with to rain."
+    },
+    "Computer Use": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        72
+      ],
+      "summary": "Modern skill for programming, retrieving obscure data, breaking into secured systems, exploring networks, and detecting or exploiting intrusions.",
+      "description": "This skill allows the investigator to program in various computer languages; retrieve and analyze obscure data; break into a secured system; explore a complicated network; or detect or exploit intrusions, back doors, and viruses. Special manipulation of a computer system may require this roll. The Internet places a wealth of information at the fingertips of an investigator. Use of the Internet to find highly specific and/or obscure information may require a combined dice roll for Computer Use and Library Use. This skill is not needed to use computers when surfing the Internet, collecting email or to run regular commercially available software.",
+      "pushing_examples": [
+        "taking longer to develop a program",
+        "using another's code as a shortcut",
+        "using untested software (e.g. a virus) to exploit a system"
+      ],
+      "pushed_failure_samples": [
+        "accidentally erasing the sought-after files, or even corrupting the whole system",
+        "leaving evidence or alerting others through your actions",
+        "infesting your own computer/network with a virus"
+      ],
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she is lost in cyberspace, and it will require physical intervention to get the person to stop using the computer or look away from the screen.",
+      "opposing_notes": "Regular difficulty: write, analyze and debug a computer program. Hard difficulty: decipher and hack into a secure network without being identified or traced.",
+      "era_marker": "Modern"
+    },
+    "Craft (Carpentry)": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        70,
+        71
+      ],
+      "summary": "The investigator sheet contains blank spaces for specializations of this skill. For example: Many of these examples are skills directly linked to a i Acting i Writer of i Barber i Morris Dancer i Calligraphy i Opera Singer i Carpenter i Painter and Decorator i Cook i Photograp...",
+      "description": "The investigator sheet contains blank spaces for specializations of this skill. For example: Many of these examples are skills directly linked to a i Acting i Writer of i Barber i Morris Dancer i Calligraphy i Opera Singer i Carpenter i Painter and Decorator i Cook i Photographer i Dancer i Potter i Fine Art i Sculptor i Forgery i Vacuum-Tube Blower profession, but the skill may just be a leisure pursuit. You may spend skill points to purchase any skill specialization. The generic Art 5 70 22 0 2 3 103.86 662.18 15.01 13.49 100 and 5 70 22 0 2 4 121.14 662.18 23.66 13.49 100 Craft skill cannot be purchased. This skill may enable the making or repair of an item— typically requiring equipment and time, to be determined by the Keeper, if necessary. In a situation where graduations of success might be appropriate, a higher level of success indicates the item made is of high quality and/or precision. These 5 70 24 0 0 1 352.24 341.65 22.52 12.26 100 aren't 5 70 24 0 0 2 377.05 341.65 14.23 12.26 100 any 5 70 24 0 0 3 393.57 341.65 44.13 12.26 100 hieroglyphs 5 70 24 0 0 4 439.98 341.65 15.77 12.26 100 that 5 70 24 0 0 5 458.04 341.65 3.35 12.26 100 I 5 70 24 0 0 6 463.68 341.65 21.05 12.26 100 know 5 70 24 0 0 7 487.02 341.65 12.91 12.26 100 of. An art or craft skill might also be used to make a duplicate or fake item. In such a case, the difficulty level would depend on the intricacy and distinctiveness of the original to be copied. In the case of faking documentation, a specific specialization (Forgery) is used. A successful roll might provide information about an item, such as where or when it might have been made, some point of history or technique concerning it, or who might have made it. The holder of a specialism would have a breadth of knowledge within a particular field—knowledge the subject, its history and contemporary practitioners, as well as the ability to perform it.",
+      "pushing_examples": [
+        "reworking the object, piece or composition from scratch",
+        "conducting further research",
+        "checking with another expert"
+      ],
+      "pushed_failure_samples": [
+        "A vast amount of time and money is wasted in creating a failed attempt",
+        "the audience or customer is highly offended or physically injured by some aspect of your work",
+        "the critics slam your work, and no one desires your services any longer"
+      ],
+      "opposing_notes": "i Regular difficulty: making a standard, saleable item. i Hard difficulty: making a higher quality or particularly intricate piece.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she creates a transgressive work that shocks and causes violent reactions in the viewer—perhaps only the most decadent could appreciate it.",
+      "group_context": "Art and Craft"
+    },
+    "Craft (Cook)": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        70,
+        71
+      ],
+      "summary": "The investigator sheet contains blank spaces for specializations of this skill. For example: Many of these examples are skills directly linked to a i Acting i Writer of i Barber i Morris Dancer i Calligraphy i Opera Singer i Carpenter i Painter and Decorator i Cook i Photograp...",
+      "description": "The investigator sheet contains blank spaces for specializations of this skill. For example: Many of these examples are skills directly linked to a i Acting i Writer of i Barber i Morris Dancer i Calligraphy i Opera Singer i Carpenter i Painter and Decorator i Cook i Photographer i Dancer i Potter i Fine Art i Sculptor i Forgery i Vacuum-Tube Blower profession, but the skill may just be a leisure pursuit. You may spend skill points to purchase any skill specialization. The generic Art 5 70 22 0 2 3 103.86 662.18 15.01 13.49 100 and 5 70 22 0 2 4 121.14 662.18 23.66 13.49 100 Craft skill cannot be purchased. This skill may enable the making or repair of an item— typically requiring equipment and time, to be determined by the Keeper, if necessary. In a situation where graduations of success might be appropriate, a higher level of success indicates the item made is of high quality and/or precision. These 5 70 24 0 0 1 352.24 341.65 22.52 12.26 100 aren't 5 70 24 0 0 2 377.05 341.65 14.23 12.26 100 any 5 70 24 0 0 3 393.57 341.65 44.13 12.26 100 hieroglyphs 5 70 24 0 0 4 439.98 341.65 15.77 12.26 100 that 5 70 24 0 0 5 458.04 341.65 3.35 12.26 100 I 5 70 24 0 0 6 463.68 341.65 21.05 12.26 100 know 5 70 24 0 0 7 487.02 341.65 12.91 12.26 100 of. An art or craft skill might also be used to make a duplicate or fake item. In such a case, the difficulty level would depend on the intricacy and distinctiveness of the original to be copied. In the case of faking documentation, a specific specialization (Forgery) is used. A successful roll might provide information about an item, such as where or when it might have been made, some point of history or technique concerning it, or who might have made it. The holder of a specialism would have a breadth of knowledge within a particular field—knowledge the subject, its history and contemporary practitioners, as well as the ability to perform it.",
+      "pushing_examples": [
+        "reworking the object, piece or composition from scratch",
+        "conducting further research",
+        "checking with another expert"
+      ],
+      "pushed_failure_samples": [
+        "A vast amount of time and money is wasted in creating a failed attempt",
+        "the audience or customer is highly offended or physically injured by some aspect of your work",
+        "the critics slam your work, and no one desires your services any longer"
+      ],
+      "opposing_notes": "i Regular difficulty: making a standard, saleable item. i Hard difficulty: making a higher quality or particularly intricate piece.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she creates a transgressive work that shocks and causes violent reactions in the viewer—perhaps only the most decadent could appreciate it.",
+      "group_context": "Art and Craft"
+    },
+    "Craft (Leatherworking)": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        70,
+        71
+      ],
+      "summary": "The investigator sheet contains blank spaces for specializations of this skill. For example: Many of these examples are skills directly linked to a i Acting i Writer of i Barber i Morris Dancer i Calligraphy i Opera Singer i Carpenter i Painter and Decorator i Cook i Photograp...",
+      "description": "The investigator sheet contains blank spaces for specializations of this skill. For example: Many of these examples are skills directly linked to a i Acting i Writer of i Barber i Morris Dancer i Calligraphy i Opera Singer i Carpenter i Painter and Decorator i Cook i Photographer i Dancer i Potter i Fine Art i Sculptor i Forgery i Vacuum-Tube Blower profession, but the skill may just be a leisure pursuit. You may spend skill points to purchase any skill specialization. The generic Art 5 70 22 0 2 3 103.86 662.18 15.01 13.49 100 and 5 70 22 0 2 4 121.14 662.18 23.66 13.49 100 Craft skill cannot be purchased. This skill may enable the making or repair of an item— typically requiring equipment and time, to be determined by the Keeper, if necessary. In a situation where graduations of success might be appropriate, a higher level of success indicates the item made is of high quality and/or precision. These 5 70 24 0 0 1 352.24 341.65 22.52 12.26 100 aren't 5 70 24 0 0 2 377.05 341.65 14.23 12.26 100 any 5 70 24 0 0 3 393.57 341.65 44.13 12.26 100 hieroglyphs 5 70 24 0 0 4 439.98 341.65 15.77 12.26 100 that 5 70 24 0 0 5 458.04 341.65 3.35 12.26 100 I 5 70 24 0 0 6 463.68 341.65 21.05 12.26 100 know 5 70 24 0 0 7 487.02 341.65 12.91 12.26 100 of. An art or craft skill might also be used to make a duplicate or fake item. In such a case, the difficulty level would depend on the intricacy and distinctiveness of the original to be copied. In the case of faking documentation, a specific specialization (Forgery) is used. A successful roll might provide information about an item, such as where or when it might have been made, some point of history or technique concerning it, or who might have made it. The holder of a specialism would have a breadth of knowledge within a particular field—knowledge the subject, its history and contemporary practitioners, as well as the ability to perform it.",
+      "pushing_examples": [
+        "reworking the object, piece or composition from scratch",
+        "conducting further research",
+        "checking with another expert"
+      ],
+      "pushed_failure_samples": [
+        "A vast amount of time and money is wasted in creating a failed attempt",
+        "the audience or customer is highly offended or physically injured by some aspect of your work",
+        "the critics slam your work, and no one desires your services any longer"
+      ],
+      "opposing_notes": "i Regular difficulty: making a standard, saleable item. i Hard difficulty: making a higher quality or particularly intricate piece.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she creates a transgressive work that shocks and causes violent reactions in the viewer—perhaps only the most decadent could appreciate it.",
+      "group_context": "Art and Craft"
+    },
+    "Craft (Mechanics)": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        70,
+        71
+      ],
+      "summary": "The investigator sheet contains blank spaces for specializations of this skill. For example: Many of these examples are skills directly linked to a i Acting i Writer of i Barber i Morris Dancer i Calligraphy i Opera Singer i Carpenter i Painter and Decorator i Cook i Photograp...",
+      "description": "The investigator sheet contains blank spaces for specializations of this skill. For example: Many of these examples are skills directly linked to a i Acting i Writer of i Barber i Morris Dancer i Calligraphy i Opera Singer i Carpenter i Painter and Decorator i Cook i Photographer i Dancer i Potter i Fine Art i Sculptor i Forgery i Vacuum-Tube Blower profession, but the skill may just be a leisure pursuit. You may spend skill points to purchase any skill specialization. The generic Art 5 70 22 0 2 3 103.86 662.18 15.01 13.49 100 and 5 70 22 0 2 4 121.14 662.18 23.66 13.49 100 Craft skill cannot be purchased. This skill may enable the making or repair of an item— typically requiring equipment and time, to be determined by the Keeper, if necessary. In a situation where graduations of success might be appropriate, a higher level of success indicates the item made is of high quality and/or precision. These 5 70 24 0 0 1 352.24 341.65 22.52 12.26 100 aren't 5 70 24 0 0 2 377.05 341.65 14.23 12.26 100 any 5 70 24 0 0 3 393.57 341.65 44.13 12.26 100 hieroglyphs 5 70 24 0 0 4 439.98 341.65 15.77 12.26 100 that 5 70 24 0 0 5 458.04 341.65 3.35 12.26 100 I 5 70 24 0 0 6 463.68 341.65 21.05 12.26 100 know 5 70 24 0 0 7 487.02 341.65 12.91 12.26 100 of. An art or craft skill might also be used to make a duplicate or fake item. In such a case, the difficulty level would depend on the intricacy and distinctiveness of the original to be copied. In the case of faking documentation, a specific specialization (Forgery) is used. A successful roll might provide information about an item, such as where or when it might have been made, some point of history or technique concerning it, or who might have made it. The holder of a specialism would have a breadth of knowledge within a particular field—knowledge the subject, its history and contemporary practitioners, as well as the ability to perform it.",
+      "pushing_examples": [
+        "reworking the object, piece or composition from scratch",
+        "conducting further research",
+        "checking with another expert"
+      ],
+      "pushed_failure_samples": [
+        "A vast amount of time and money is wasted in creating a failed attempt",
+        "the audience or customer is highly offended or physically injured by some aspect of your work",
+        "the critics slam your work, and no one desires your services any longer"
+      ],
+      "opposing_notes": "i Regular difficulty: making a standard, saleable item. i Hard difficulty: making a higher quality or particularly intricate piece.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she creates a transgressive work that shocks and causes violent reactions in the viewer—perhaps only the most decadent could appreciate it.",
+      "group_context": "Art and Craft"
+    },
+    "Craft (Pottery)": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        70,
+        71
+      ],
+      "summary": "The investigator sheet contains blank spaces for specializations of this skill. For example: Many of these examples are skills directly linked to a i Acting i Writer of i Barber i Morris Dancer i Calligraphy i Opera Singer i Carpenter i Painter and Decorator i Cook i Photograp...",
+      "description": "The investigator sheet contains blank spaces for specializations of this skill. For example: Many of these examples are skills directly linked to a i Acting i Writer of i Barber i Morris Dancer i Calligraphy i Opera Singer i Carpenter i Painter and Decorator i Cook i Photographer i Dancer i Potter i Fine Art i Sculptor i Forgery i Vacuum-Tube Blower profession, but the skill may just be a leisure pursuit. You may spend skill points to purchase any skill specialization. The generic Art 5 70 22 0 2 3 103.86 662.18 15.01 13.49 100 and 5 70 22 0 2 4 121.14 662.18 23.66 13.49 100 Craft skill cannot be purchased. This skill may enable the making or repair of an item— typically requiring equipment and time, to be determined by the Keeper, if necessary. In a situation where graduations of success might be appropriate, a higher level of success indicates the item made is of high quality and/or precision. These 5 70 24 0 0 1 352.24 341.65 22.52 12.26 100 aren't 5 70 24 0 0 2 377.05 341.65 14.23 12.26 100 any 5 70 24 0 0 3 393.57 341.65 44.13 12.26 100 hieroglyphs 5 70 24 0 0 4 439.98 341.65 15.77 12.26 100 that 5 70 24 0 0 5 458.04 341.65 3.35 12.26 100 I 5 70 24 0 0 6 463.68 341.65 21.05 12.26 100 know 5 70 24 0 0 7 487.02 341.65 12.91 12.26 100 of. An art or craft skill might also be used to make a duplicate or fake item. In such a case, the difficulty level would depend on the intricacy and distinctiveness of the original to be copied. In the case of faking documentation, a specific specialization (Forgery) is used. A successful roll might provide information about an item, such as where or when it might have been made, some point of history or technique concerning it, or who might have made it. The holder of a specialism would have a breadth of knowledge within a particular field—knowledge the subject, its history and contemporary practitioners, as well as the ability to perform it.",
+      "pushing_examples": [
+        "reworking the object, piece or composition from scratch",
+        "conducting further research",
+        "checking with another expert"
+      ],
+      "pushed_failure_samples": [
+        "A vast amount of time and money is wasted in creating a failed attempt",
+        "the audience or customer is highly offended or physically injured by some aspect of your work",
+        "the critics slam your work, and no one desires your services any longer"
+      ],
+      "opposing_notes": "i Regular difficulty: making a standard, saleable item. i Hard difficulty: making a higher quality or particularly intricate piece.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she creates a transgressive work that shocks and causes violent reactions in the viewer—perhaps only the most decadent could appreciate it.",
+      "group_context": "Art and Craft"
+    },
+    "Credit Rating": {
+      "base_chance": 0,
+      "source_pdf_pages": [
+        73
+      ],
+      "summary": "A measure of how prosperous and financially confident the investigator appears to be. Money opens doors; if the investigator is attempting to use his or her financial status to achieve a goal then use of the Credit Rating skill may be appropriate.",
+      "description": "A measure of how prosperous and financially confident the investigator appears to be. Money opens doors; if the investigator is attempting to use his or her financial status to achieve a goal then use of the Credit Rating skill may be appropriate. Credit Rating can be used in place of APP to gauge first impressions. Credit Rating is not so much a skill as a gauge of financial wealth, and should not be ticked as other skills are. A high Credit Rating can be a useful resource in play, and so should be paid for with skill points when creating an investigator. Each occupation has a starting range for Credit Rating, and skill points should be spent to achieve a rating therein. is not a game that requires money to be carefully tracked; however, it is useful to know the bounds of an investigator’s financial reach—for example, can the investigator afford to employ a team of archaeologists and workers to excavate an Egyptian tomb? An investigator’s Credit Rating can change over time. Investigators of the Cthulhu Mythos are prone to insanity, and this may lead to loss of employment and thus a lowering of the investigator’s Credit Rating score. See Credit Rating and Investigator Expenditure (page 95) for a more indepth study of Credit Rating and its use. Opposing skill/Difficulty level: i Regular difficulty: getting a loan from a bank or business; bypassing a demand for credentials; gaining a line of credit in a store or casino; getting the best table in a fancy restaurant. i Hard difficulty: obtaining credit or a loan while implicated (or found guilty) in a criminal investigation; gaining favorable attention after being vilified in the media.",
+      "pushing_examples": [
+        "you offer your house and/or other valuables to secure money from a loan shark",
+        "you attempt to pressure the bank manager into giving you a loan"
+      ],
+      "pushed_failure_samples": [
+        "the loan shark turns nasty and directs his boys to teach you a lesson",
+        "the bank manager calls the police",
+        "you are loaned the money, but it is a ploy to put you in deeper debt with a mobster who plans to buy out your debt and later call on you for a favor"
+      ],
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she loses all faith in capitalism and begins freely handing out his or her money to passersby. (See General Living Standards, page 95 for more details."
+    },
+    "Cthulhu Mythos": {
+      "base_chance": 0,
+      "source_pdf_pages": [
+        73,
+        74
+      ],
+      "summary": "This skill reflects understanding of the inhuman (Lovecraftian) Cthulhu Mythos. It is not founded on the accumulation of knowledge as academic skills are.",
+      "description": "This skill reflects understanding of the inhuman (Lovecraftian) Cthulhu Mythos. It is not founded on the accumulation of knowledge as academic skills are. Rather, it represents the opening and tuning of the human mind to the Cthulhu Mythos. Thus, Cthulhu Mythos skill derived from encountering Deep Ones (for example) is transferable to other situations and entities. Also referred to as that 5 73 7 0 6 6 443.31 140.99 24.05 13.49 100 which 5 73 7 0 6 7 469.01 140.99 17.73 13.49 100 man 5 73 7 0 6 8 488.39 140.99 26.59 13.49 100 should 5 73 7 0 6 9 516.63 140.99 13.27 13.49 100 not 5 73 7 0 6 10 531.55 140.99 26.45 13.49 100 know, the Cthulhu Mythos is antithetical to human understanding, and exposure to it undermines human sanity. No investigator may take points in Cthulhu Mythos as a starting skill (unless agreed with the Keeper). There is no tick-box for Cthulhu Mythos on the investigator sheet, as successful use of the skill does not offer an increase in the investigator’s percentiles in the skill. Instead, points in Cthulhu Mythos are gained by encounters with the Mythos that result in insanity, by insane insights into the true nature of the universe, and by reading forbidden books and other Mythos writings. A character’s Sanity may never be higher than 99 minus his or her Cthulhu Mythos skill. As Cthulhu Mythos points proliferate, they crowd out Sanity points, and leave the investigator vulnerable. Whenever spoor or other evidence of Mythos monsters is found, a successful roll against this skill allows the investigator to identify the entity, deduce something about its behavior or guess at some property it may possess. A successful Cthulhu Mythos roll might also allow an investigator to remember some fact concerning the Mythos, identify a spell by seeing it cast, remember that a particular spell or piece of information may be found in a particular Mythos tome, or achieve some other task. The Cthulhu Mythos skill may also be used to manifest magical ‘spell-like’ effects.",
+      "pushing_examples": [
+        "getting closer to the creature for a better view",
+        "consulting dread tomes, or lore of humans (or otherwise) possessing specialist knowledge",
+        "conducting an autopsy to learn more",
+        "reading aloud as you retrace the strange cryptograms"
+      ],
+      "pushed_failure_samples": [
+        "get too close, exposing oneself to harm or suspicion",
+        "unwittingly read aloud a passage from a tome that activates a summoning spell",
+        "accidentally corrupt or destroy the evidence being studied"
+      ],
+      "opposing_notes": "This skill begins at zero and often remains relatively low. The vast majority of skill rolls will be made at regular difficulty. i Regular difficulty: to correctly identify a mythos entity based upon secondary evidence (spoor, wounds, firsthand accounts). i Hard difficulty: to identify a mythos entity based upon rumors, legends or minimal evidence; to identify a possible vulnerability or knowledge that grants some minor advantage over a mythos entity after thorough research and firsthand experience.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she experiences a vision or revelation that reveals new truths about the Cthulhu Mythos, akin to an insane insight (with possible Cthulhu Mythos skill gain and/or associated Sanity loss)—see Insane Insight, page 169."
+    },
+    "Demolitions": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        74
+      ],
+      "summary": "With this skill the user is familiar in the safe use of demolitions, including setting and defusing explosive charges. Mines and similar devices are designed to be easy to set (no roll required) and more difficult to remove or defuse.",
+      "description": "With this skill the user is familiar in the safe use of demolitions, including setting and defusing explosive charges. Mines and similar devices are designed to be easy to set (no roll required) and more difficult to remove or defuse. This skill also encompasses military-grade demolitions to (anti-personnel mines, plastique, etc.) Given enough time and resources, those proficient may rig charges to demolish a building, clear a blocked tunnel, and repurpose explosive devises (such as constructing lowyield charges, booby-traps, and so on). a",
+      "pushing_examples": [
+        "taking until the very last second to defuse the bomb",
+        "double-checking all the circuits/connections by hand"
+      ],
+      "pushed_failure_samples": [
+        "if defusing or removing an explosive device, the consequence of failing a pushed roll is clear—it explodes! If using the Demolitions skill to place charges, the consequence of failing a pushed roll may be a failure to detonate at the right time (or at all), or that the detonation fails to have the desired effect (either too great or too little)"
+      ],
+      "opposing_notes": "i Regular difficulty: to defuse an explosive device. To know where to place charges for greatest effect when destroying a bridge or building. i Hard difficulty: to defuse an explosive device in limited time.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she devises the most bizarre method of delivering the explosive, such as strapping it to a cat or to themselves."
+    },
+    "Disguise": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        74
+      ],
+      "summary": "To be used whenever you wish to appear to be someone other than whom you are. The user changes posture, costume, and/or voice to enact a disguise, posing as another person or another sort of person.",
+      "description": "To be used whenever you wish to appear to be someone other than whom you are. The user changes posture, costume, and/or voice to enact a disguise, posing as another person or another sort of person. Theatrical makeup may help, as will fake ID.",
+      "pushing_examples": [
+        "undergoing a fully immersive and intensive preparation (losing oneself in the role)",
+        "stealing personal items and utilizing them in the disguise",
+        "overt exaggeration confound the target",
+        "feigning a sudden attack of illness to disorient the observer"
+      ],
+      "pushed_failure_samples": [
+        "Being arrested",
+        "causing offence, leading to violence or criminal charges",
+        "finding that the person being imitated is wanted by criminal gang who come looking for vengeance"
+      ],
+      "opposing_notes": "There are two distinct aspects to this skill: either you are trying to conceal your true identity (such as when the police are looking for you) or you are impersonating someone else. i Regular difficulty: to convince strangers that you are who you say you are. For example, to return to the scene of a crime that you perpetrated yesterday and escape notice. i Hard difficulty: to convince professionals in a faceto-face meeting that you are who you say you are. For example, to pass as a bank employee to gain access to a bank vault. Note that to pass as a specific person in a face-to-face meeting with someone who knows the person being imitated beyond the scope of this skill, and may well indicate the need for a combined skill roll at a higher difficulty (with Persuade, Charm, or Fast Talk).",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, the investigator no longer recognizes his or her own face in the mirror, even when the disguise is removed."
+    },
+    "Diving": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        74,
+        75
+      ],
+      "summary": "The user is trained in the use and maintenance of diving equipment for swimming underwater, including underwater navigation, proper weighting, and emergency procedures. Prior to the invention of the Aqua-Lung in 1942, rigid diving suits were worn with air pumped from the surfa...",
+      "description": "The user is trained in the use and maintenance of diving equipment for swimming underwater, including underwater navigation, proper weighting, and emergency procedures. Prior to the invention of the Aqua-Lung in 1942, rigid diving suits were worn with air pumped from the surface through a connecting tube. In the modern age, a scuba diver will be familiar with the physics of diving, air pressure, and the physiological processes that occur when breathing with pressurized air.",
+      "pushing_examples": [
+        "pushing the limits of the equipment",
+        "methodically double-checking equipment",
+        "gaining professional assistance"
+      ],
+      "pushed_failure_samples": [
+        "become trapped underwater",
+        "attacked by sea creatures",
+        "suffer the bends"
+      ],
+      "opposing_notes": "i Regular difficulty: routine dives using correct and well-maintained equipment. i Hard difficulty: diving in dangerous conditions or with poorly maintained equipment.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she begins to understand whale-song; all you have to do is follow their instructions."
+    },
+    "Dodge": {
+      "base_chance": "half_DEX",
+      "source_pdf_pages": [
+        75
+      ],
+      "summary": "Allows an investigator to instinctively evade blows, thrown missiles and so forth. A character may attempt to use dodge any number of times in a combat round (but only once against a specific attack; see Chapter 6: Combat).",
+      "description": "Allows an investigator to instinctively evade blows, thrown missiles and so forth. A character may attempt to use dodge any number of times in a combat round (but only once against a specific attack; see Chapter 6: Combat). Dodge can increase through experience, like other skills. If an attack can be seen, a character can try to dodge it. It is impossible dodge bullets because they cannot be seen when in motion; the best a character can do is to take evasive action that results in being harder to hit (“diving for cover”).",
+      "opposing_notes": "The Dodge skill is mostly used in combat as part of an opposed roll and so no difficulty level is set. Note: as a combat skill, this cannot be pushed."
+    },
+    "Drive Auto": {
+      "base_chance": 20,
+      "source_pdf_pages": [
+        75
+      ],
+      "summary": "Anyone with this skill can drive a car or light truck, make ordinary maneuvers, and cope with ordinary vehicle problems. If the investigator wants to lose a pursuer or tail someone, a Drive roll would be appropriate.",
+      "description": "Anyone with this skill can drive a car or light truck, make ordinary maneuvers, and cope with ordinary vehicle problems. If the investigator wants to lose a pursuer or tail someone, a Drive roll would be appropriate. Some other cultures might replace this skill with comparative one; the Inuit might use Drive Dogsled, or Victorian might use Drive Carriage.",
+      "pushing_examples": [
+        "driving the vehicle to its limit",
+        "not slowing down, regardless of the risk"
+      ],
+      "pushed_failure_samples": [
+        "crashing",
+        "skidding to a halt, unable to proceed",
+        "being pursued by the police"
+      ],
+      "opposing_notes": "i Regular difficulty: to successfully weave through light traffic at speed to avoid pursuit. i Hard difficulty: to successfully weave through heavy traffic at speed to avoid pursuit.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she will be found behind the wheel of a stationary vehicle making brum-brum noises."
+    },
+    "Electrical Repair": {
+      "base_chance": 10,
+      "source_pdf_pages": [
+        75
+      ],
+      "summary": "Enables the investigator to repair or reconfigure electrical equipment, such as auto ignitions, electric motors, fuse boxes, and burglar alarms. In the present day, this skill has little to do with Electronics.",
+      "description": "Enables the investigator to repair or reconfigure electrical equipment, such as auto ignitions, electric motors, fuse boxes, and burglar alarms. In the present day, this skill has little to do with Electronics. To fix an electrical device may require special parts or tools. Jobs in the 1920s may call for this skill and for Mechanical Repair in combination. Electrical Repair may also be used in conjunction with modern explosives, such as blasting caps, C-4 plastic explosives, and mines. These weapons are designed to be easy to deploy; only a fumble result will lead to misfire (remember the roll can be Pushed). Defusing explosives is far trickier, as they may be fitted with anti-tamper mechanisms; raise the level of difficulty when disarming explosives—see Demolitions skill.",
+      "pushing_examples": [
+        "taking longer to repair or reconfigure to the equipment",
+        "taking a risky short cut"
+      ],
+      "pushed_failure_samples": [
+        "take damage from an electric shock",
+        "blow the fuses and plunge the building into darkness",
+        "wreck the thing you are working on beyond repair"
+      ],
+      "opposing_notes": "i Regular difficulty: repairing or creating a standard electrical device. i Hard difficulty: repairing something that is badly damaged; working without the proper tools.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she attempts to harness the electrical power of living organisms into the device."
+    },
+    "Electronics": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        75,
+        76
+      ],
+      "summary": "For troubleshooting and repairing electronic equipment. Allows simple electronic devices to be made.",
+      "description": "For troubleshooting and repairing electronic equipment. Allows simple electronic devices to be made. This is a skill for the present day—use Physics and Electrical Repair for electronic developments of the 1920s. a Unlike the Electrical Repair skill, parts needed for a electronics work often cannot be jury-rigged: they are designed for precise jobs. Often without the right microchip or circuit board, the skill-user is out of luck unless they can contrive some form of workaround.",
+      "pushing_examples": [
+        "taking longer to construct or repair a device",
+        "researching new or other methodologies"
+      ],
+      "pushed_failure_samples": [
+        "fry circuitry or other delicate parts",
+        "take damage from electric shock",
+        "create a device that does something other than what was intended"
+      ],
+      "opposing_notes": "Time is a factor in fabrication or repair, and the difficulty level should be lowered if time is unlimited, especially if the character has access to manuals and parts. If an investigator has the correct parts and instructions, putting together a standard computer should not even require a skill roll. i Regular difficulty: repairing minor damage to a computer or electronic device — the kind of service one might expect under warranty. i Hard difficulty: use scavenged parts to jury-rig a tracking device to plant in someone’s car.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she becomes paranoid, convinced that every item they come across contains electronic bugging devices: the telephone, the television, the refrigerator."
+    },
+    "Engineering": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        85,
+        86,
+        87
+      ],
+      "summary": "While technically not a science, it is grouped here for convenience. Science is about identifying certain phenomena (through observing and recording), whereas engineering takes such findings and uses them to produce practical applications, such as machines, structures, and mat...",
+      "description": "While technically not a science, it is grouped here for convenience. Science is about identifying certain phenomena (through observing and recording), whereas engineering takes such findings and uses them to produce practical applications, such as machines, structures, and materials. to",
+      "group_context": "Science",
+      "parent_description": "Practical and theoretical ability with a science specialty would suggest some degree of formalized education and training, although a well-read amateur scientist may also be a possibility. Understanding and scope is limited by the era of play. You may spend skill points to purchase any skill specialization. The generic Science skill cannot be purchased. Each specialty covers a particular discipline and the list given is not exhaustive. Many specialties cross and overlap in knowledge, for example Mathematics and Cryptography, Botany and Biology, Chemistry and Pharmacy. When character does not have the obvious discipline specialty, they may roll against an allied specialty with the level of difficulty increased (or penalty die) at the Keeper’s discretion.",
+      "pushing_examples": [
+        "taking more time for study",
+        "conducting further research (perhaps in a better-equipped laboratory)",
+        "consulting another expert",
+        "taking risks"
+      ],
+      "pushed_failure_samples": [
+        "the experiment goes completely awry, causing unforeseen damage (explosion, fire, electrical shock, expulsion to the sixth dimension, etc.)",
+        "you incorrectly prepare the formulae for the magical powder, with disastrous results"
+      ],
+      "opposing_notes": "i Regular difficulty: conducting an experiment; being aware of current scientific theory within your field of specialty: working with proper equipment. i Hard difficulty: conducting a particularly demanding experiment; deciphering disorganized/partial scientific records; working with improvised equipment.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she begins to explore an aspect of weird science related their specialization. This may ultimately lead to actual developments akin to those of Crawford Tillinghast (from Lovecraft’s story From Beyond)."
+    },
+    "Fast Talk": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        76
+      ],
+      "summary": "Short-lived verbal trickery, deception, and misdirection. Effects are temporary; the target usually realizes the con soon after.",
+      "description": "Fast Talk is specifically limited to verbal trickery, deception, and misdirection, such as bamboozling a bouncer to let you inside a club, getting someone to sign a form they haven't read, making a policeman look the other way, and so on. The skill is opposed by Psychology or Fast Talk. After a brief period (usually after the fast talker has left the scene) the target will realize that they have been conned. The effect of Fast Talk is always temporary, though it will last longer if a higher level of success is achieved. Fast Talk may be used to haggle the price of an item or service down. If successful, the seller momentarily thinks that they have struck a good deal; however, if the buyer returns and attempts to purchase another item, the seller may refuse further haggling and even increase the price in order to recoup what they lost on the previous sale!",
+      "opposed_by": [
+        "Psychology",
+        "Fast Talk"
+      ],
+      "pushing_examples": [
+        "getting up close and personal to the target",
+        "talking outlandishly, aiming to confuse the target"
+      ],
+      "approach_reminder": "Remember this is Fast Talk. If threats are used it may become Intimidate; if a protracted discussion ensues it may become Persuade.",
+      "pushed_failure_samples": [
+        "cause great offence leading to violence, outrage, or criminal proceedings"
+      ]
+    },
+    "Fighting (Axe)": {
+      "base_chance": 15,
+      "source_pdf_pages": [
+        76
+      ],
+      "summary": "Use this skill for larger wood axes. A small hatchet can be used with the basic brawling skill.",
+      "description": "Use this skill for larger wood axes. A small hatchet can be used with the basic brawling skill. If thrown, use Throw skill.",
+      "group_context": "Fighting",
+      "parent_description": "Fighting skill denotes a character’s skill in melee combat. You may spend skill points to purchase any skill specialization. The generic Fighting skill cannot be purchased. Choose fighting specializations appropriate to your investigator’s occupation and history. Those starting with a Fighting (Brawl) skill of 50% or higher may wish to choose a type of formal training as part of their background to account for his or her skill level. A myriad of fighting styles exist. Martial arts are simply a way of developing a person’s Fighting skill. Decide how the character learned to fight, whether it be formal military training, martial arts classes, or learned the hard way as a result of street-fighting. The term brawl might feel too crude for a skilled martial artist and could be replaced (with in Karate for example) if a player so wished. Note: as a combat skill, this cannot be pushed. Fighting specializations:"
+    },
+    "Fighting (Brawl)": {
+      "base_chance": 25,
+      "source_pdf_pages": [
+        76
+      ],
+      "summary": "Includes all unarmed fighting and basic weapons that anyone could pick up and make use of, such as clubs (up to cricket bats or baseball bats), knives, and many improvised weapons, such as bottles and chair legs. To determine the damage done with an improvised weapon, the Keeper should refer to the weapon chart and pick something comparable.",
+      "description": "Includes all unarmed fighting and basic weapons that anyone could pick up and make use of, such as clubs (up to cricket bats or baseball bats), knives, and many improvised weapons, such as bottles and chair legs. To determine the damage done with an improvised weapon, the Keeper should refer to the weapon chart and pick something comparable.",
+      "group_context": "Fighting",
+      "parent_description": "Fighting skill denotes a character’s skill in melee combat. You may spend skill points to purchase any skill specialization. The generic Fighting skill cannot be purchased. Choose fighting specializations appropriate to your investigator’s occupation and history. Those starting with a Fighting (Brawl) skill of 50% or higher may wish to choose a type of formal training as part of their background to account for his or her skill level. A myriad of fighting styles exist. Martial arts are simply a way of developing a person’s Fighting skill. Decide how the character learned to fight, whether it be formal military training, martial arts classes, or learned the hard way as a result of street-fighting. The term brawl might feel too crude for a skilled martial artist and could be replaced (with in Karate for example) if a player so wished. Note: as a combat skill, this cannot be pushed. Fighting specializations:"
+    },
+    "Fighting (Chainsaw)": {
+      "base_chance": 10,
+      "source_pdf_pages": [
+        76
+      ],
+      "summary": "The first gasoline-powered, mass-produced chainsaw appeared in 1927; however, earlier versions existed.",
+      "description": "The first gasoline-powered, mass-produced chainsaw appeared in 1927; however, earlier versions existed.",
+      "group_context": "Fighting",
+      "parent_description": "Fighting skill denotes a character’s skill in melee combat. You may spend skill points to purchase any skill specialization. The generic Fighting skill cannot be purchased. Choose fighting specializations appropriate to your investigator’s occupation and history. Those starting with a Fighting (Brawl) skill of 50% or higher may wish to choose a type of formal training as part of their background to account for his or her skill level. A myriad of fighting styles exist. Martial arts are simply a way of developing a person’s Fighting skill. Decide how the character learned to fight, whether it be formal military training, martial arts classes, or learned the hard way as a result of street-fighting. The term brawl might feel too crude for a skilled martial artist and could be replaced (with in Karate for example) if a player so wished. Note: as a combat skill, this cannot be pushed. Fighting specializations:"
+    },
+    "Fighting (Flail)": {
+      "base_chance": 10,
+      "source_pdf_pages": [
+        76
+      ],
+      "summary": "Nunchaku, morning stars, and similar medieval weapons.",
+      "description": "Nunchaku, morning stars, and similar medieval weapons.",
+      "group_context": "Fighting",
+      "parent_description": "Fighting skill denotes a character’s skill in melee combat. You may spend skill points to purchase any skill specialization. The generic Fighting skill cannot be purchased. Choose fighting specializations appropriate to your investigator’s occupation and history. Those starting with a Fighting (Brawl) skill of 50% or higher may wish to choose a type of formal training as part of their background to account for his or her skill level. A myriad of fighting styles exist. Martial arts are simply a way of developing a person’s Fighting skill. Decide how the character learned to fight, whether it be formal military training, martial arts classes, or learned the hard way as a result of street-fighting. The term brawl might feel too crude for a skilled martial artist and could be replaced (with in Karate for example) if a player so wished. Note: as a combat skill, this cannot be pushed. Fighting specializations:"
+    },
+    "Fighting (Garrote)": {
+      "base_chance": 15,
+      "source_pdf_pages": [
+        76
+      ],
+      "summary": "Any length of material used to strangle. Requires the victim to make a Fighting Maneuver to escape, or suffer 1D6 damage per round.",
+      "description": "Any length of material used to strangle. Requires the victim to make a Fighting Maneuver to escape, or suffer 1D6 damage per round.",
+      "group_context": "Fighting",
+      "parent_description": "Fighting skill denotes a character’s skill in melee combat. You may spend skill points to purchase any skill specialization. The generic Fighting skill cannot be purchased. Choose fighting specializations appropriate to your investigator’s occupation and history. Those starting with a Fighting (Brawl) skill of 50% or higher may wish to choose a type of formal training as part of their background to account for his or her skill level. A myriad of fighting styles exist. Martial arts are simply a way of developing a person’s Fighting skill. Decide how the character learned to fight, whether it be formal military training, martial arts classes, or learned the hard way as a result of street-fighting. The term brawl might feel too crude for a skilled martial artist and could be replaced (with in Karate for example) if a player so wished. Note: as a combat skill, this cannot be pushed. Fighting specializations:"
+    },
+    "Fighting (Spear)": {
+      "base_chance": 20,
+      "source_pdf_pages": [
+        76
+      ],
+      "summary": "Lances and spears. If thrown, use Throw skill.",
+      "description": "Lances and spears. If thrown, use Throw skill.",
+      "group_context": "Fighting",
+      "parent_description": "Fighting skill denotes a character’s skill in melee combat. You may spend skill points to purchase any skill specialization. The generic Fighting skill cannot be purchased. Choose fighting specializations appropriate to your investigator’s occupation and history. Those starting with a Fighting (Brawl) skill of 50% or higher may wish to choose a type of formal training as part of their background to account for his or her skill level. A myriad of fighting styles exist. Martial arts are simply a way of developing a person’s Fighting skill. Decide how the character learned to fight, whether it be formal military training, martial arts classes, or learned the hard way as a result of street-fighting. The term brawl might feel too crude for a skilled martial artist and could be replaced (with in Karate for example) if a player so wished. Note: as a combat skill, this cannot be pushed. Fighting specializations:"
+    },
+    "Fighting (Sword)": {
+      "base_chance": 20,
+      "source_pdf_pages": [
+        76
+      ],
+      "summary": "All blades over two feet in length.",
+      "description": "All blades over two feet in length.",
+      "group_context": "Fighting",
+      "parent_description": "Fighting skill denotes a character’s skill in melee combat. You may spend skill points to purchase any skill specialization. The generic Fighting skill cannot be purchased. Choose fighting specializations appropriate to your investigator’s occupation and history. Those starting with a Fighting (Brawl) skill of 50% or higher may wish to choose a type of formal training as part of their background to account for his or her skill level. A myriad of fighting styles exist. Martial arts are simply a way of developing a person’s Fighting skill. Decide how the character learned to fight, whether it be formal military training, martial arts classes, or learned the hard way as a result of street-fighting. The term brawl might feel too crude for a skilled martial artist and could be replaced (with in Karate for example) if a player so wished. Note: as a combat skill, this cannot be pushed. Fighting specializations:"
+    },
+    "Fighting (Whip)": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        76
+      ],
+      "summary": "Bolas and whips. Note: Thrown knives use the Throw skill.",
+      "description": "Bolas and whips. Note: Thrown knives use the Throw skill. Weapons and their skill categories are listed in Table XVII: Weapons (pages 401-405). The above specializations may not cover all weapons, but where possible try to fit other weapons into one of the above categories. Chainsaw included as a weapon because of its use in numerous films, but players should note that the chance of a fumble doubled and that they risk killing their investigator (or losing a limb) should this happen.",
+      "group_context": "Fighting",
+      "parent_description": "Fighting skill denotes a character’s skill in melee combat. You may spend skill points to purchase any skill specialization. The generic Fighting skill cannot be purchased. Choose fighting specializations appropriate to your investigator’s occupation and history. Those starting with a Fighting (Brawl) skill of 50% or higher may wish to choose a type of formal training as part of their background to account for his or her skill level. A myriad of fighting styles exist. Martial arts are simply a way of developing a person’s Fighting skill. Decide how the character learned to fight, whether it be formal military training, martial arts classes, or learned the hard way as a result of street-fighting. The term brawl might feel too crude for a skilled martial artist and could be replaced (with in Karate for example) if a player so wished. Note: as a combat skill, this cannot be pushed. Fighting specializations:"
+    },
+    "Firearms (Bow)": {
+      "base_chance": 15,
+      "source_pdf_pages": [
+        76
+      ],
+      "summary": "Use of bows and crossbows, ranging from medieval longbows to modern, high-powered compound bows.",
+      "description": "Use of bows and crossbows, ranging from medieval longbows to modern, high-powered compound bows.",
+      "group_context": "Firearms",
+      "parent_description": "Covers all manner of firearms, as well as bows and crossbows. You may spend skill points to purchase any skill specialization. The generic Firearms skill cannot be purchased. Choose specializations appropriate to your investigator’s occupation and history. Note: as a combat skill, this cannot be pushed. Firearms specializations:"
+    },
+    "Firearms (Flamethrower)": {
+      "base_chance": 10,
+      "source_pdf_pages": [
+        76,
+        77
+      ],
+      "summary": "Weapons projecting a stream of ignited flammable liquid or gas. May either be carried by the operator or mounted on a vehicle.",
+      "description": "Weapons projecting a stream of ignited flammable liquid or gas. May either be carried by the operator or mounted on a vehicle.",
+      "group_context": "Firearms",
+      "parent_description": "Covers all manner of firearms, as well as bows and crossbows. You may spend skill points to purchase any skill specialization. The generic Firearms skill cannot be purchased. Choose specializations appropriate to your investigator’s occupation and history. Note: as a combat skill, this cannot be pushed. Firearms specializations:"
+    },
+    "Firearms (Handgun)": {
+      "base_chance": 20,
+      "source_pdf_pages": [
+        76
+      ],
+      "summary": "Use for all pistol-like firearms when firing discrete shots. For machine pistols (MAC-11, Uzi pistol, etc.) Modern era games, use the Submachine Gun skill when firing bursts.",
+      "description": "Use for all pistol-like firearms when firing discrete shots. For machine pistols (MAC-11, Uzi pistol, etc.) Modern era games, use the Submachine Gun skill when firing bursts.",
+      "group_context": "Firearms",
+      "parent_description": "Covers all manner of firearms, as well as bows and crossbows. You may spend skill points to purchase any skill specialization. The generic Firearms skill cannot be purchased. Choose specializations appropriate to your investigator’s occupation and history. Note: as a combat skill, this cannot be pushed. Firearms specializations:"
+    },
+    "Firearms (Heavy Weapons)": {
+      "base_chance": 10,
+      "source_pdf_pages": [
+        76
+      ],
+      "summary": "Use for grenade launchers, anti-tank rockets, etc.",
+      "description": "Use for grenade launchers, anti-tank rockets, etc.",
+      "group_context": "Firearms",
+      "parent_description": "Covers all manner of firearms, as well as bows and crossbows. You may spend skill points to purchase any skill specialization. The generic Firearms skill cannot be purchased. Choose specializations appropriate to your investigator’s occupation and history. Note: as a combat skill, this cannot be pushed. Firearms specializations:"
+    },
+    "Firearms (Machine Gun)": {
+      "base_chance": 10,
+      "source_pdf_pages": [
+        76,
+        77
+      ],
+      "summary": "Weapons firing bursts from a bipod or tripod mounted weapon. If single shots are fired from bipod, use Rifle skill.",
+      "description": "Weapons firing bursts from a bipod or tripod mounted weapon. If single shots are fired from bipod, use Rifle skill. The differences between assault rifle, submachine gun and light machine gun are tenuous today.",
+      "group_context": "Firearms",
+      "parent_description": "Covers all manner of firearms, as well as bows and crossbows. You may spend skill points to purchase any skill specialization. The generic Firearms skill cannot be purchased. Choose specializations appropriate to your investigator’s occupation and history. Note: as a combat skill, this cannot be pushed. Firearms specializations:"
+    },
+    "Firearms (Rifle/Shotgun)": {
+      "base_chance": 25,
+      "source_pdf_pages": [
+        76,
+        77
+      ],
+      "summary": "With this skill any type of rifle (whether lever-action, bolt-action or semi-automatic) or scatter-gun can be fired. Since the load from a shotgun expands in spreading pattern, the user’s chance to hit does not decrease with range, but the damage dealt does.",
+      "description": "With this skill any type of rifle (whether lever-action, bolt-action or semi-automatic) or scatter-gun can be fired. Since the load from a shotgun expands in spreading pattern, the user’s chance to hit does not decrease with range, but the damage dealt does. When an assault rifle fires a single shot (or multiple singles) use this skill.",
+      "group_context": "Firearms",
+      "parent_description": "Covers all manner of firearms, as well as bows and crossbows. You may spend skill points to purchase any skill specialization. The generic Firearms skill cannot be purchased. Choose specializations appropriate to your investigator’s occupation and history. Note: as a combat skill, this cannot be pushed. Firearms specializations:"
+    },
+    "Firearms (Submachine Gun)": {
+      "base_chance": 15,
+      "source_pdf_pages": [
+        76,
+        77
+      ],
+      "summary": "Use this skill when firing any machine pistol or submachine gun; also for assault rifles set on burst. Note: Thrown knives use the Throw skill.",
+      "description": "Use this skill when firing any machine pistol or submachine gun; also for assault rifles set on burst. Note: Thrown knives use the Throw skill. Firearms are listed in the Table XVII: Weapons (pages 401-405).",
+      "group_context": "Firearms",
+      "parent_description": "Covers all manner of firearms, as well as bows and crossbows. You may spend skill points to purchase any skill specialization. The generic Firearms skill cannot be purchased. Choose specializations appropriate to your investigator’s occupation and history. Note: as a combat skill, this cannot be pushed. Firearms specializations:"
+    },
+    "First Aid": {
+      "base_chance": 30,
+      "source_pdf_pages": [
+        77
+      ],
+      "summary": "The user is able to provide emergency medical care. This might encompass: applying a splint to a broken leg, stemming bleeding, treating a burn, resuscitating a drowning victim, dressing and cleaning a wound, etc.",
+      "description": "The user is able to provide emergency medical care. This might encompass: applying a splint to a broken leg, stemming bleeding, treating a burn, resuscitating a drowning victim, dressing and cleaning a wound, etc. First Aid cannot be used to treat diseases (where the Medicine skill is required). To be effective, First Aid must be delivered within one hour, in which case it grants 1 hit point. It may be attempted once, with subsequent attempts constituting a Pushed roll. Two people can work together to administer First Aid, with a success granted if either one of them rolls a success. Successful use of First Aid can rouse an unconscious person to consciousness. A character is limited to one successful treatment of both First Aid and Medicine until further damage is taken. When treating a dying character, successful First Aid stabilizes him or her for one hour and grants 1 temporary hit point. At the end of the hour, and each hour thereafter, the character must make a successful CON roll to remain stabilized, otherwise (with a failed CON roll) the character is dying and loses the temporary hit point and must now make a CON roll per round thereafter to stave-off death. the character survives until the following round, First Aid can be attempted again (by up to two individuals). This can be continued (without constituting a Pushed roll) until stabilization or death. First Aid (and only First Aid) can save the life of dying character, after which they must receive a successful Medicine roll or be hospitalized. Thus, First Aid is an important skill to have, alongside Medicine, if you wish be an effective medic.",
+      "pushing_examples": [
+        "taking longer to treat the patient",
+        "ema ploying high-risk methods to stabilize the wound"
+      ],
+      "pushed_failure_samples": [
+        "make things worse, causing an additional point of damage"
+      ],
+      "opposing_notes": "i Administering First Aid to a fellow human is always of Regular difficulty level. If one were treating an alien being whose physiology was unfamiliar, the difficulty level would be higher.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she feels compelled to heal the person, even if it means amputation a or worse. In effect their endeavors constitute physical attacks which may lead to murder if they are not stopped."
+    },
+    "History": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        77
+      ],
+      "summary": "Enables an investigator to remember the significance of a country, city, region, or person, as pertinent. A successful roll might be used to help identify tools, techniques, or ideas familiar to ancestors, but little known today.",
+      "description": "Enables an investigator to remember the significance of a country, city, region, or person, as pertinent. A successful roll might be used to help identify tools, techniques, or ideas familiar to ancestors, but little known today.",
+      "pushing_examples": [
+        "taking more time to examine",
+        "conducting further research",
+        "consulting another expert",
+        "hiring assistants to conduct detailed research, taking months, and at a huge cost"
+      ],
+      "pushed_failure_samples": [
+        "consultations alert your adversaries, who become aware of your intent",
+        "your facts are erroneous and lead you into danger",
+        "much time and money is wasted on fruitless research"
+      ],
+      "opposing_notes": "i Regular difficulty: to recall some pertinent and useful information. i Hard difficulty: to know some obscure, detailed and useful information.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she is convinced that they are somehow displaced in time, or perhaps they start believing they are living in a historic period, dressing and speaking in an archaic manner."
+    },
+    "Hypnosis": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        77,
+        78
+      ],
+      "summary": "The user is able to induce a trancelike state in a willing target who experiences heightened suggestibility, relaxation, and possible recall of forgotten memories. The limits of hypnotism should be decided by the Keeper to fit their game; If it may be that only willing subject...",
+      "description": "The user is able to induce a trancelike state in a willing target who experiences heightened suggestibility, relaxation, and possible recall of forgotten memories. The limits of hypnotism should be decided by the Keeper to fit their game; If it may be that only willing subjects can be hypnotized, or the Keeper may allow it to be used on unwilling targets in a more aggressive manner. This skill may be utilized as hypnotherapy on those suffering mental trauma, reducing the effects of a phobia a or mania in a patient (successful use means that the patient overcomes the phobia or mania on one occasion). Note that a series of successful hypnotherapy sessions may be needed to to fully cure someone of a phobia (minimum of 1D6 sessions, at the Keeper’s discretion).",
+      "pushing_examples": [
+        "increasing your influence on the target by ensuring their full and undivided attention",
+        "assaulting the target’s senses with confusing lights or props",
+        "the use of drugs to make the target more susceptible to suggestion. or"
+      ],
+      "pushed_failure_samples": [
+        "some past memory or trauma is bought to the surface, causing the target 1D6 Sanity loss",
+        "the target falls into a trance, causing them to walk in front of a bus at a later time",
+        "the target’s mind (or the investigator’s mind) is temporarily emptied, allowing possession by a malevolent entity"
+      ],
+      "opposing_notes": "i Hypnosis is opposed with Psychology or POW for an unwilling subject.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, his or her mind regresses to a childlike state until treatment is administered."
+    },
+    "Intimidate": {
+      "base_chance": 15,
+      "source_pdf_pages": [
+        78
+      ],
+      "summary": "Physical force, psychological manipulation, or threats used to frighten or compel action.",
+      "description": "Intimidation can take many forms, including physical force, psychological manipulation, and threats. It is used to frighten or compel a person to act in a certain way. Intimidate is opposed by Intimidate or Psychology. Backing up intimidation with a weapon or some other powerful threat or incentive may reduce the difficulty level. When Pushing an Intimidation roll, one possible consequence of failure is carrying out one's threat, perhaps beyond the level of that which was intended. Intimidate may be used to force down the price of an item or service. If successful, the seller may reduce the price, or hand the item over free of charge, but depending on the situation they may later report the incident to the police or to members of the local organized crime gang.",
+      "opposed_by": [
+        "Intimidate",
+        "Psychology"
+      ],
+      "pushing_examples": [
+        "causing actual physical harm to the target or to something or someone that the target cares about"
+      ],
+      "approach_reminder": "Remember that this is Intimidation. If threats are retracted and the investigator then tries to befriend the target, it may become Charm; if a protracted and unthreatening discussion ensues, it may become Persuade. Pushing Intimidate means taking things to the limit.",
+      "pushed_failure_samples": [
+        "accidentally pulling the trigger of the gun you're waving in the target's face",
+        "the target's mind snaps, resulting in violence or inane babbling",
+        "the target simply laughs in your face and won't break",
+        "the target somehow turns the tables and intimidates the intimidator"
+      ]
+    },
+    "Jump": {
+      "base_chance": 20,
+      "source_pdf_pages": [
+        78
+      ],
+      "summary": "With success, the investigator may leap up or down vertically, jump horizontally from a standing or running start. When falling, Jump may be used to lessen the potential fall damage.",
+      "description": "With success, the investigator may leap up or down vertically, jump horizontally from a standing or running start. When falling, Jump may be used to lessen the potential fall damage. Judgment must be exercised as to what constitutes a regular jump, a hard jump or an extreme jump (respectively requiring Regular success, Hard success, and Extreme success). As a guide, a regular success would be required for an investigator to safely leap down vertically to his or her own height, jump horizontally from a standing start across a gap for a distance equal to the jumper’s own height, or run and then jump horizontally to a distance of twice the jumper’s own height. One might achieve double this distance with an Extreme success, although bear in mind the world record for the long jump is around 29 feet. If falling from a height, a successful Jump prepares for the fall, reducing resultant damage by half.",
+      "pushing_examples": [
+        "Delaying and taking time to assess the jump",
+        "throwing all your weight and force behind the jump— really stretching for it. In some instances a Pushed roll is not possible",
+        "if one leaps across an abyss one cannot have second attempt. However, if one is trapped in a pit and jumping to escape, one could have any number of attempts, which would then be summarized by one Pushed skill roll"
+      ],
+      "pushed_failure_samples": [
+        "fall and suffer physical harm",
+        "achieve the jump but a valuable possession (of the Keeper’s choice) is dropped in the process"
+      ],
+      "opposing_notes": "i Regular difficulty: safely leap down vertically a distance equal to the jumper’s own height; jump horizontally from a standing start, across a gap for a distance equal to the jumper’s own height; run and then jump horizontally to a distance of twice the jumper’s own height. i Hard difficulty: as for a regular difficulty but increase distances by 50%; perhaps attempting to jump from a rooftop and through the window of a neighboring building across the alley.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she will become convinced that they can fly."
+    },
+    "Language (Own)": {
+      "base_chance": "EDU",
+      "source_pdf_pages": [
+        79
+      ],
+      "summary": "When choosing this skill, the exact language must be specified and written next to the skill. In infancy and early childhood, most humans use a single language.",
+      "description": "When choosing this skill, the exact language must be specified and written next to the skill. In infancy and early childhood, most humans use a single language. The tongue chosen by the player for the Own Language automatically starts as equal to the investigator’s EDU characteristic; thereafter the investigator understands, speaks, reads, and writes at that percentage or higher (if further skill points are added during investigator creation).",
+      "pushing_examples": [
+        "see Language (Other) skill, above"
+      ],
+      "opposing_notes": "Normally no skill roll is necessary to use Own Language. Even when technical, archaic, or esoteric terms are used, if both parties are sympathetic to each other and there is sufficient time for conversation, most things should be covered without a die roll. If a document is extremely difficult to read or in an archaic dialect, the Keeper may require a roll.",
+      "group_context": "Language (Own)",
+      "related_language_other": {
+        "summary": "When choosing this skill, the exact language must be specified and written next to the skill. An individual can know any number of languages.",
+        "description": "When choosing this skill, the exact language must be specified and written next to the skill. An individual can know any number of languages. The skill represents the user’s chance to understand, speak, read and write in a language other than his or her own. Ancient or unknown languages (such as Aklo, Hyperborean, etc.) should not be chosen (unless agreed with the Keeper), but ordinary earthly languages may be. The Keeper may raise the difficulty level if archaic speech or writing in that language is encountered. A single successful Other Language roll normally allows comprehension of an entire book. Suggestions regarding the Other Languages skill: i At 5% skill a language can be correctly identified without need for a roll. i At 10% skill simple ideas can be communicated. i At 30% transactional requests can be understood. i At 50% skill a person is fluent. i At 75% skill in a character can pass for a native speaker of a foreign language. i To identify a present-day human language (unknown to the investigator), use a Know roll. i To identify an extinct human language, use an Archaeology or History roll. i To identify an alien language, use a Cthulhu Mythos or possibly an Occult roll.",
+        "source_pdf_pages": [
+          78,
+          79
+        ],
+        "pushing_examples": [
+          "taking longer to think through the words you want to say",
+          "taking long pauses to answer what you have been told",
+          "referencing other books to make a translation"
+        ],
+        "pushed_failure_samples": [
+          "exaggerated or loud discussions between investigators and third parties alert some enemy faction to the investigators’ intentions",
+          "word or phrase is misunderstood (perhaps the meaning reversed)",
+          "the listener takes offense to an unintentional slur, and they respond with their fists, or turn everyone in the neighborhood against you"
+        ]
+      }
+    },
+    "Law": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        79
+      ],
+      "summary": "Represents the chance of knowing pertinent law, precedent, legal maneuvers or court procedure. The practice of law as a profession can lead to great rewards and political office, but it requires intense application over many years—a high Credit Rating is also usually crucial i...",
+      "description": "Represents the chance of knowing pertinent law, precedent, legal maneuvers or court procedure. The practice of law as a profession can lead to great rewards and political office, but it requires intense application over many years—a high Credit Rating is also usually crucial in this regard. In the United States, the State Bar of a particular state must sanction one’s practice of law. When in a foreign country the level of difficulty may be increased when using this skill, unless the character has spent many months studying that nation’s legal system.",
+      "pushing_examples": [
+        "delaying to consider your argument",
+        "explaining in high detail the nuances of the case/situation",
+        "taking significant time to conduct research",
+        "bending the letter of the law to drive your argument"
+      ],
+      "pushed_failure_samples": [
+        "misinterpreting a law or stepping outside of the accepted legal procedure leads you to break the law and draws police attention",
+        "wasting valuable time and money on research and legal fees",
+        "you are held in contempt of court and thrown in the cells for a at least 24 hours. is If a Pushed roll is failed, an insane investigator will now believe that he or she is above the law"
+      ],
+      "opposing_notes": "i Regular difficulty level: understanding and utilizing the details of a relevant law or legal procedure. i Hard difficulty: remembering or understanding an obscure legal precedent, or cross-examining a highly competent hostile witness."
+    },
+    "Library Use": {
+      "base_chance": 20,
+      "source_pdf_pages": [
+        79,
+        80
+      ],
+      "summary": "Library Use enables an investigator to find a piece of information, such as a certain book, newspaper, or reference in a library, collection of documents or database, assuming the item is there. Use of this skill marks several hours of continuous search.",
+      "description": "Library Use enables an investigator to find a piece of information, such as a certain book, newspaper, or reference in a library, collection of documents or database, assuming the item is there. Use of this skill marks several hours of continuous search. This skill can locate a locked case or rare-book special collection, but Persuade, Fast Talk, Charm, Intimidate, Credit Rating, or special credentials may have to be used to get access to the books or information in question.",
+      "pushing_examples": [
+        "pressing the librarian for extensive assistance",
+        "taking longer to systematically work through the stacks"
+      ],
+      "pushed_failure_samples": [
+        "finding a similar book, containing misleading information, which will lead the investigators into danger",
+        "entanglement with an adversary—perhaps they are alerted to your research and act against you, or they check out the book you are searching for (or simply tear out the pages in question)",
+        "getting into an argument with the librarian, resulting in your library membership being revoked"
+      ],
+      "opposing_notes": "i Regular difficulty: locating a book or piece of information in a library. i Hard difficulty: identifying a piece of information in a disorganized library, or if you are extremely pressed for time. a A Library Use will turn up shocking clues.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she hoards books, cutting out pages to stick to their bedroom wall, making copious bizarre notes, linking the pages with threads of cotton and pins. Alternatively, the investigator is obsessed with finding the correct book or piece of information, spending all of their time pilfering and poring over books."
+    },
+    "Listen": {
+      "base_chance": 20,
+      "source_pdf_pages": [
+        80
+      ],
+      "summary": "Measures the ability of an investigator to interpret and understand sound, including overheard conversations, mutters behind a closed door, and whispered words in a cafe. The Keeper may use it to determine the course of an impending encounter: was your investigator awakened by...",
+      "description": "Measures the ability of an investigator to interpret and understand sound, including overheard conversations, mutters behind a closed door, and whispered words in a cafe. The Keeper may use it to determine the course of an impending encounter: was your investigator awakened by that cracking twig? By extension, a high Listen skill can indicate a good level of general awareness in a character. a",
+      "opposed_by": [
+        "Stealth when someone is creeping\nup on you"
+      ],
+      "pushing_examples": [
+        "stopping dead still and listening",
+        "getting closer to the presumed source (e.g. putting your ear to the train track or the door)",
+        "telling everyone to be quiet (making noise yourself) and then listening"
+      ],
+      "pushed_failure_samples": [
+        "the thing has caught you unawares (you are surprised)",
+        "you misheard the conversation and get the facts mixed up",
+        "you are caught trying to eavesdrop, and find yourself in a very embarrassing predicament"
+      ],
+      "opposing_notes": "Listen can be opposed by Stealth when someone is creeping up on you. i Regular difficulty: hearing something approaching you (with a Stealth skill of below 50); eavesdropping on a nearby conversation. i Hard difficulty: hearing something creep up on you (with a Stealth skill of 50 to 89); eavesdropping on whispered conversation.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she becomes overly sensitive to all sounds and is unable to operate without earplugs or similar."
+    },
+    "Locksmith": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        80
+      ],
+      "summary": "Locksmith can open car doors, hot-wire autos, jimmy library windows, figure out Chinese puzzle boxes, and penetrate ordinary commercial alarm systems. The user may repair locks, make keys, or open locks with the aid of skeleton keys, picks and other tools.",
+      "description": "Locksmith can open car doors, hot-wire autos, jimmy library windows, figure out Chinese puzzle boxes, and penetrate ordinary commercial alarm systems. The user may repair locks, make keys, or open locks with the aid of skeleton keys, picks and other tools. Especially difficult locks may be of a higher difficulty level.",
+      "pushing_examples": [
+        "completely dismantling the lock",
+        "taking longer",
+        "using force to pry the mechanism"
+      ],
+      "pushed_failure_samples": [
+        "the lock is damaged beyond repair (perhaps your lock pick has snapped off inside the lock)",
+        "you break the puzzle box (perhaps only smashing it will open it now)",
+        "you trip an alarm, or make enough noise for someone or something to come looking…"
+      ],
+      "opposing_notes": "i Regular difficulty: opening or repairing a standard lock. i Hard difficulty: opening a high-security lock.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she gives up on the lock in question and realizes the higher purpose of unlocking their own mind; a veil has been lifted from their eyes, and they see the world in a new way that makes complete sense to them, but no sense to anyone of sound mind."
+    },
+    "Lore": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        80,
+        81
+      ],
+      "summary": "(Specializations) [Uncommon] This skill represents a character’s expert understanding of subject that falls outside the normal bounds of human knowledge. Specializations of Lore should be specific and unusual, such as: i Dream Lore i Necronomicon Lore (e.g.",
+      "description": "(Specializations) [Uncommon] This skill represents a character’s expert understanding of subject that falls outside the normal bounds of human knowledge. Specializations of Lore should be specific and unusual, such as: i Dream Lore i Necronomicon Lore (e.g. history of) i UFO Lore i Vampire Lore i Werewolf Lore i Yaddithian Lore Where the Keeper wishes to test an investigator’s knowledge of something that falls within the bounds of one of these fields of Lore, but the investigator lacks the relevant Lore specialization, the Keeper may for allow for another (more general) skill to be used but require a higher level success. For example, if the Keeper were testing a modernday investigator’s knowledge of alien abductions in the 1980s, he or she could ask for either a Regular success using UFO Lore or a Hard success using History. Lore skills are also used as a shorthand method communicating the knowledge of a non-player character to the Keeper. In the main, knowledge is represented by the EDU characteristic and specific skills, such as History Cthulhu Mythos. The Keeper should decide when the Lore skill should be incorporated into the game—usually only when a particular area of specialist knowledge is central the campaign being played.",
+      "group_context": "Lore"
+    },
+    "Mechanical Repair": {
+      "base_chance": 10,
+      "source_pdf_pages": [
+        81
+      ],
+      "summary": "This allows the investigator to repair a broken machine or create a new one. Basic carpentry and plumbing projects can be performed, as well as constructing items (such as a pulley system) and repairing items (such as a steam pump).",
+      "description": "This allows the investigator to repair a broken machine or create a new one. Basic carpentry and plumbing projects can be performed, as well as constructing items (such as a pulley system) and repairing items (such as a steam pump). Special tools or parts may be required. This skill can be used to open common household locks, but nothing more advanced—see the Locksmith skill for more complex locks. Mechanical Repair is a companion skill to Electrical Repair, and both may be necessary to fix complex devices, such as a car or an aircraft.",
+      "pushing_examples": [
+        "completely dismantling the device",
+        "taking longer",
+        "risk using excessive force to knock the device into action (e.g. hitting the thing until it works)"
+      ],
+      "pushed_failure_samples": [
+        "you have broken the device beyond repair",
+        "you hurt yourself while working on the device (perhaps cutting your hand, etc.)",
+        "you become obsessed with the device and find you have spent the whole day and night working on it"
+      ],
+      "opposing_notes": "i Regular difficulty: repair or create a simple device; open a basic lock. i Hard difficulty: repair a very badly damaged device; create a complex device with limited resources.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she fills a telephone directory-sized notepad with scribbled designs, culminating in the creation of a bizarre device using organic matter and household appliances."
+    },
+    "Medicine": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        81,
+        85,
+        86,
+        87
+      ],
+      "summary": "The user diagnoses and treats accidents, injuries, diseases, poisonings, etc., and makes public health recommendations. If an era has no good treatment for a malady, the effort is limited, uncertain, or inconclusive.",
+      "description": "The user diagnoses and treats accidents, injuries, diseases, poisonings, etc., and makes public health recommendations. If an era has no good treatment for a malady, the effort is limited, uncertain, or inconclusive. The Medicine skill grants knowledge of a wide variety of drugs and potions, natural and man-made, and understanding of the side effects and contraindications. Treatment using the Medicine skill takes a minimum of of one hour and can be delivered any time after damage is taken, but if this is not performed on the same day, the difficulty level is increased (requiring a Hard success). A person treated successfully with Medicine recovers 1D3 hit points (in addition to any First Aid they have received), except of in the case of a dying character, who must initially receive successful First Aid to stabilize them before a Medicine roll is made. or A character is limited to one treatment of First Aid and Medicine until further damage is taken (except in the case of a dying character who may require stabilizing with First to Aid multiple times). Successful use of Medicine can rouse an unconscious person to consciousness. In treating Major Wounds, successful use of the Medicine skill provides the patient a Bonus die on their to weekly recovery roll. The Keeper may grant automatic success for medical treatment in a contemporary, well-equipped hospital.",
+      "pushing_examples": [
+        "consulting with colleagues",
+        "conducting further research",
+        "trying something experimental or more risky",
+        "performing some form of clinical experiment"
+      ],
+      "pushed_failure_samples": [
+        "you misdiagnose the ailment and you worsen the patient’s condition (perhaps even killing them)",
+        "your good standing comes into question and you are investigated for malpractice. In the case of a dying character, if a Pushed Medicine roll is failed, the patient dies. If an insane investigator fails a Pushed roll, the results will be disturbing in the extreme, perhaps involving amputation or blood poisoning as a result of failed attempts to graft animal parts to the person"
+      ],
+      "opposing_notes": "i Regular difficulty: diagnosis and treatment of standard medical ailments, with access to equipment (at least a doctor’s bag containing drugs and instruments) and a suitable environment. i Hard difficulty: diagnosis and treatment in a dirty and unsafe environment, with the minimum of equipment.",
+      "group_context": "Science",
+      "parent_description": "Practical and theoretical ability with a science specialty would suggest some degree of formalized education and training, although a well-read amateur scientist may also be a possibility. Understanding and scope is limited by the era of play. You may spend skill points to purchase any skill specialization. The generic Science skill cannot be purchased. Each specialty covers a particular discipline and the list given is not exhaustive. Many specialties cross and overlap in knowledge, for example Mathematics and Cryptography, Botany and Biology, Chemistry and Pharmacy. When character does not have the obvious discipline specialty, they may roll against an allied specialty with the level of difficulty increased (or penalty die) at the Keeper’s discretion.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she begins to explore an aspect of weird science related their specialization. This may ultimately lead to actual developments akin to those of Crawford Tillinghast (from Lovecraft’s story From Beyond)."
+    },
+    "Natural World": {
+      "base_chance": 10,
+      "source_pdf_pages": [
+        81,
+        82
+      ],
+      "summary": "Originally the study of plant and animal life in its environment. By the nineteenth century, this study had long separated into a range of academic disciplines (Biology, Botany, etc.) As a skill, Natural World represents the traditional (unscientific) knowledge and personal ob...",
+      "description": "Originally the study of plant and animal life in its environment. By the nineteenth century, this study had long separated into a range of academic disciplines (Biology, Botany, etc.) As a skill, Natural World represents the traditional (unscientific) knowledge and personal observation of farmers, fishermen, inspired amateurs, and hobbyists. It can identify species, habits, and habitats in a general way, and identify tracks, spoors, and calls, as well as allowing guesses as to what may be important to a particular species. For a scientific understanding of the natural world, one should look to the Biology, Botany and Zoology skills. Natural World may or may not be accurate—this is the region of appreciation, judgment, folk tradition, and enthusiasm. Use Natural World to judge horseflesh at the county fair, or decide whether a butterfly collection is excellent or just excellently framed.",
+      "pushing_examples": [
+        "spending much longer (forgetful of the of time) examining the habitat",
+        "tasting the unknown mushroom or plant to get a better idea what it is",
+        "consulting with the old woman in the village about the local wildlife"
+      ],
+      "pushed_failure_samples": [
+        "you spend of long hours obsessively poring over books to identify the species",
+        "you get the facts wrong, and instead of the wasps being repelled by your concoction of swamp mud and herbs, they are drawn to you (with painful results)",
+        "you picked the wrong mushroom and find yourself, hours later, walking naked towards a policeman"
+      ],
+      "opposing_notes": "i Regular difficulty: identifying a particular species; remembering some common lore; knowing the best place to catch some fish. i Hard difficulty: identifying an unusual specimen; locating a rare species of plant or animal; remembering a very obscure fact or piece of lore.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she goes native and will be lost in the wilderness until friends come to their aid."
+    },
+    "Navigate": {
+      "base_chance": 10,
+      "source_pdf_pages": [
+        82
+      ],
+      "summary": "Allows the user to find his or her way in storms or clear weather, in day or at night. Those of higher skill are familiar with astronomical tables, charts, instruments, and satellite location gear, as they exist in the era of play.",
+      "description": "Allows the user to find his or her way in storms or clear weather, in day or at night. Those of higher skill are familiar with astronomical tables, charts, instruments, and satellite location gear, as they exist in the era of play. One could also use this skill to measure and map an area (cartography), whether an island of many square miles or the interior of a single room—use of modern technology may lower or negate the difficulty level. Rolls for this skill may be made as concealed rolls by the Keeper—a matter for the investigators to attempt, and later witness the results. If the character is familiar with the area, a bonus die should be granted to the roll.",
+      "pushing_examples": [
+        "getting the map out and delaying while you attempt to work out where you are",
+        "going back to where you started from and trying again"
+      ],
+      "pushed_failure_samples": [
+        "you get lost and find yourself being watched or ambushed by a bear",
+        "you go round and round in circles, and your companions stop following you (you’re on your own now…)",
+        "you mistake the stars, and rather than getting away from the cultists' search parties, you end up back at the cult’s hidden base"
+      ],
+      "opposing_notes": "i Regular difficulty: keep on the right route; use the sun and stars to identify compass positions; map a small area of terrain. to i Hard difficulty: head in the right direction when there is no clear route or landmarks; map a large area of complex terrain.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she throws away the map (as happens in The Blair Witch Project) and follows their intuition. Their intuition does not work."
+    },
+    "Occult": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        82,
+        83
+      ],
+      "summary": "The user recognizes occult paraphernalia, words and concepts, as well as folk traditions, and can identify grimoires magic and occult codes. The occultist is familiar with the families of secret knowledge passed down from Egypt and Sumer, from the Medieval and Renaissance West...",
+      "description": "The user recognizes occult paraphernalia, words and concepts, as well as folk traditions, and can identify grimoires magic and occult codes. The occultist is familiar with the families of secret knowledge passed down from Egypt and Sumer, from the Medieval and Renaissance West, and perhaps from Asia and Africa as well. Comprehending certain books may provide percentiles Occult. This skill does not apply to spells, books, and magic of the Cthulhu Mythos, although worshipers of the Great Old Ones often adopt occult ideas. Whether non-Mythos magic is real or fraudulent in your game is for the Keeper to determine (see Chapter 9: Magic).",
+      "pushing_examples": [
+        "taking more time to study the site or item",
+        "conducting further research",
+        "consulting another expert",
+        "purging oneself and undertaking extreme personal preparation in advance of ritual performance"
+      ],
+      "pushed_failure_samples": [
+        "information is misremembered, and the ritual is performed incorrectly with disastrous consequences (perhaps the house is burned to the ground)",
+        "in preparing the circle of protection, you use the wrong ingredients, and rather than ward off the spirits you genuinely summon something malevolent",
+        "your research has uncovered a hitherto unknown Mythos link, and your realization shatters your mind (SAN loss)"
+      ],
+      "opposing_notes": "i Regular difficulty: recall information from folklore or occult theories; understand the meaning of tarot cards or other divination techniques. i Hard difficulty: identify rare or unique occult tomes; recall the finer details of secret occult practices and rituals.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, this is likely to manifest in some form on obsession: perhaps the investigator tattoos occult symbols upon his or her cheeks and palms, or cannot act without first using a scrying crystal divine their future."
+    },
+    "Operate Heavy Machinery": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        83
+      ],
+      "summary": "Required to drive and operate a tank, backhoe, steam shovel, or other large-scale construction machine. For very different sorts of machines, the Keeper may decide to raise the difficulty level if the problems encountered are mostly unfamiliar ones; someone used to running a b...",
+      "description": "Required to drive and operate a tank, backhoe, steam shovel, or other large-scale construction machine. For very different sorts of machines, the Keeper may decide to raise the difficulty level if the problems encountered are mostly unfamiliar ones; someone used to running a bulldozer, for instance, will not be quickly competent with the steam turbines in a ship’s engine room.",
+      "pushing_examples": [
+        "going step-by-step with the operating manual",
+        "taking time to practice",
+        "seeking a teacher"
+      ],
+      "pushed_failure_samples": [
+        "you’re driving the bulldozer, but get overconfident, and lose control so it veers into a brick wall (the wall comes down on you, or perhaps worse)"
+      ],
+      "opposing_notes": "i Regular difficulty: operate a crane or road digger. i Hard difficulty: manipulate the machinery to achieve some delicate or specific task, such as unearthing delicate dinosaur eggs with a mechanical digger without breaking them.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she may believe they are tasked with unearthing or building a temple to the old ones."
+    },
+    "Persuade": {
+      "base_chance": 10,
+      "source_pdf_pages": [
+        83
+      ],
+      "summary": "Convincing through reasoned argument, debate, and discussion. Takes time (at least half an hour); for a quick push use Fast Talk instead.",
+      "description": "Use Persuade to convince a target about a particular idea, concept, or belief through reasoned argument, debate and discussion. Persuade may be employed without reference to truth. The successful application of Persuade takes time: at least half an hour. If you want to persuade someone quickly, you should use Fast Talk. Depending on the goal expressed by the player, if the investigator takes sufficient time, the effect may linger indefinitely and insidiously; for years perhaps, until events or another Persuade turn the target's mind in another direction. Persuade may be used for bargaining, to haggle the price of an item or service down. If successful, the seller is thoroughly convinced that they have struck a good deal.",
+      "opposed_by": [
+        "Persuade",
+        "Psychology"
+      ],
+      "time_note": "Successful Persuade takes at least half an hour; quick attempts should use Fast Talk instead.",
+      "pushing_examples": [
+        "getting close and personal to advance your argument or appeal to the target's reason",
+        "demonstrating through logical reasoning and examples, in detail",
+        "using carefully preplanned suggestion techniques to make the target receptive",
+        "putting on a grand show for a group of people"
+      ],
+      "approach_reminder": "Remember that this is Persuade. If threats are used it may become Intimidate; if the investigator is relying on befriending the target, it may become Charm.",
+      "pushed_failure_samples": [
+        "the target takes great offence and refuses further contact",
+        "a bribe appears to work but the target later feels duped and investigates or sues",
+        "the target pulls a knife",
+        "a persuaded guard later loses their job and the consequences may cost Sanity"
+      ]
+    },
+    "Pilot": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        83,
+        84
+      ],
+      "summary": "The air or water equivalent of Drive Automobile, this is the maneuver skill for flying or floating craft. You may spend skill points to purchase any skill specialization.",
+      "description": "The air or water equivalent of Drive Automobile, this is the maneuver skill for flying or floating craft. You may spend skill points to purchase any skill specialization. The generic Pilot skill cannot be purchased. An investigator might have several versions of this skill in the spaces on the investigator sheet (such as Pilot Aircraft, Pilot Dirigible, etc.). Each starts at 01%. Anyone with modest skill can sail or fly on a calm day with good visibility, although skill rolls are required for storms, navigation by instrument, low visibility, and other difficult situations. Bad weather, poor visibility, and damage may raise the difficulty level of skill rolls to pilot air and water craft.",
+      "pushing_examples": [
+        "pulling the aircraft up and making a second and final attempt at landing",
+        "pushing the vehicle to its limit",
+        "making a risky maneuver to lose a pursuer"
+      ],
+      "pushed_failure_samples": [
+        "the results of a failed roll should fit the situation. It may be that the craft in is somehow damaged, and repairs will have to be made before it can be used again (which may prove impossible in remote locations)",
+        "passengers are injured during the maneuver or accident",
+        "you emergency-landed the plane in the jungle, and awake tied to large stones that circle a huge, bubbling cooking pot. Reserve burning wrecks for exceptional circumstances, such as when the pilot is insane, or when taking a crazy risk at high speed"
+      ],
+      "opposing_notes": "at i Regular difficulty: make an emergency landing with a light aircraft in a farmer’s field. i Hard difficulty: pilot the craft in very poor conditions (e.g. extremely bad weather, faulty equipment).",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she will believe that they are capable of death-defying stunts. They are not.",
+      "group_context": "Pilot"
+    },
+    "Psychoanalysis": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        84
+      ],
+      "summary": "The skill refers to the range of emotional therapies, not just to Freudian procedures. Formal psychotherapy was still in its infancy in the 1890s, though some procedures are as old as humanity.",
+      "description": "The skill refers to the range of emotional therapies, not just to Freudian procedures. Formal psychotherapy was still in its infancy in the 1890s, though some procedures are as old as humanity. Sometimes it was looked on as a fraudulent study, even in the 1920s. The common term then for an analyst or scholar of emotional disorders was alienist. In the present day, a combination of therapies has evolved, and this skill now could be justly named Psychiatric Treatment. A Intensive psychoanalysis can return Sanity points to an investigator patient. Once per game month, to learn the progress of the therapy, make a 1D100 roll against the analyst or doctor’s Psychoanalysis skill. If the roll succeeds, the patient gains 1D3 Sanity points. If the roll fails, add no points. If the roll is fumbled, then the patient loses 1D6 Sanity points, and treatment by that analyst concludes: there has been some sort of serious incident or dramatic setback the therapy, and the relationship between patient and therapist has broken down beyond saving. In the game, psychoanalysis alone does not speed recovery from indefinite insanity, which requires 1D6 months of institutional (or similar) care, of which psychotherapy may form a part. Successful use of this skill can allow a character to cope with the subject of a phobia for a short time, or to see delusions for what they are. In play this would allow for an insane investigator to ignore the effects of a phobia or mania for a brief period, allowing a claustrophobe to hide in a broom cupboard for ten minutes, for example. Equally a person might make a Psychoanalysis roll to help a delusional investigator see through their hallucination for a brief period. Treatment by a psychotherapist can add Sanity points during indefinite insanity (see Chapter 8: Sanity). Psychoanalysis cannot increase a person’s Sanity points above 99–Cthulhu Mythos.",
+      "pushing_examples": [
+        "this is a skill which can be attempted month after month without requiring a Pushed skill roll. However, if one failed the skill roll in a given month, one might choose to push a roll during a single session on the following day with some form of radical intervention (if a quick result was required). For example, forcing a patient to face their fear by actively forcing them to confront its physical reality",
+        "getting the patient’s friends and close colleagues actively participate in the therapy"
+      ],
+      "pushed_failure_samples": [
+        "curing the patient’s fear of spiders by locking them in a room full of tarantulas backfires as the patient goes berserk (possible damage to self and to others) and now thinks they are the spider 5 84 8 1 4 1 322.75 578.18 20.93 13.49 100 king (the patient now has a new mania and has lost additional Sanity points—the therapist should make a Sanity roll too, as their actions caused this!) Much like the blind leading the blind, it is possible for an insane character to practice psychoanalysis. An insane character who fails a pushed roll could seek to become a cult leader, with his or her patients as recruits"
+      ],
+      "opposing_notes": "i Regular difficulty: standard therapy within a hospital setting. i Hard difficulty: intermittent therapy over a longer period."
+    },
+    "Psychology": {
+      "base_chance": 10,
+      "source_pdf_pages": [
+        84,
+        85
+      ],
+      "summary": "A perception skill common to all humans, it allows the user to study an individual and form an idea of another person’s motives and character. The Keeper may choose to make concealed Psychology skill rolls on the player’s behalf, announcing only the information, true or false, that the user gained by employing it.",
+      "description": "A perception skill common to all humans, it allows the user to study an individual and form an idea of another person’s motives and character. The Keeper may choose to make concealed Psychology skill rolls on the player’s behalf, announcing only the information, true or false, that the user gained by employing it.",
+      "pushing_examples": [
+        "being very unsubtle and asking highly personal, intimate, or downright direct questions of the target",
+        "immersing yourself in data regarding a specific person (the target of your study) in order to think like them and understand their motivations"
+      ],
+      "pushed_failure_samples": [
+        "you somehow reveal your own motivations to the target",
+        "the target is offended by your prying questions or curious stare, and refuses to speak with you further, or takes action against you (perhaps violence or a call to the police)",
+        "unknown to you, the target is connected with your adversaries, and you unwittingly reveal your own agenda to them",
+        "spending all week locked your room in order to build the profile has left you a physical and mental wreck (penalty die to all rolls until you recover)"
+      ],
+      "opposing_notes": "Psychology can be used to oppose all forms of social interaction rolls: Intimidate, Fast Talk, Persuade, and Charm. It can also be used to see through someone’s disguise (such as when using the Disguise skill). i Regular difficulty: read someone’s intent or determine if the person is lying if their relevant skill (Intimidate, Fast Talk, Persuade, and Charm) is below 50%. i Hard difficulty: read someone’s intent or determine if the person is lying if their relevant skill (Intimidate, Fast Talk, Persuade, and Charm) is between 50% and 89%.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she believes that they hear the target’s evil thoughts, and launches a physical attack upon them."
+    },
+    "Read Lips": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        85
+      ],
+      "summary": "This skill allows the inquisitive investigator to listen in on conversation, without requiring them to hear the speakers. Line of sight is necessary, and if only one speaker’s lips can be seen (the other presumably with their back to the lip reader) then only half of the conve...",
+      "description": "This skill allows the inquisitive investigator to listen in on conversation, without requiring them to hear the speakers. Line of sight is necessary, and if only one speaker’s lips can be seen (the other presumably with their back to the lip reader) then only half of the conversation can be deciphered. Read Lips may also be used to silently communicate with another person (if both are proficient), allowing for relatively complex phrasing and meaning.",
+      "pushing_examples": [
+        "putting yourself in an obvious position and staring unsubtly at the target(s)",
+        "filming the target (and thus likely to be observed filming the target)"
+      ],
+      "pushed_failure_samples": [
+        "the target becomes aware that you are watching them intently, and takes offense and confronts you",
+        "the drunken man across the bar is angered, mistakenly thinking that you are looking at him, and punches you",
+        "you are so intent on the target that you miss what is happening in your close proximity (someone steals your case, or you walk into a lamp post)"
+      ],
+      "opposing_notes": "Depending on the situation, Read Lips is usually unopposed. If attempting to read the lips of a target who wishes remain hidden or unobserved, the skill may be opposed by the Stealth of the target. i Regular difficulty: understand the spoken communication of a person who is in clear sight and in relatively close proximity. i Hard difficulty: determine the spoken communication of a person whose mouth is occasionally obscured and/or is some distance away (e.g. in a large crowd of people).",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, there is plenty of scope for imagining all manner of strange and bizarre things being said."
+    },
+    "Ride": {
+      "base_chance": 5,
+      "source_pdf_pages": [
+        85
+      ],
+      "summary": "This skill is intended to apply to saddle horses, donkeys, or mules, and grants knowledge of basic care of the riding animal, riding gear, and how to handle the steed at a gallop or on difficult terrain. Should a steed unexpectedly rear or stumble, the rider’s chance of remain...",
+      "description": "This skill is intended to apply to saddle horses, donkeys, or mules, and grants knowledge of basic care of the riding animal, riding gear, and how to handle the steed at a gallop or on difficult terrain. Should a steed unexpectedly rear or stumble, the rider’s chance of remaining mounted equals his or her Ride skill. Riding side-saddle increases the level of difficulty by one level. An unfamiliar mount (such as a camel) might be ridden successfully, but the level of difficulty would be higher. If an investigator falls from a mount, either because the animal has collapsed, fallen or died (or because a pushed Ride roll failed), at least 1D6 hit points are lost in the in accident—although a Jump roll can negate this loss.",
+      "pushing_examples": [
+        "whipping or pushing the mount aggressively—perhaps forcing a horse to jump a ravine or high ditch",
+        "taking the risk of keeping your mount rather than jumping clear as trouble approaches"
+      ],
+      "pushed_failure_samples": [
+        "rider is thrown from mount and takes falling damage",
+        "mount is to injured",
+        "rider’s foot is entangled in the mount’s bridle and the rider ends up being dragged for some distance"
+      ],
+      "opposing_notes": "Basic animal handling or riding a mount at walking pace does not require a ride roll. i Regular difficulty: riding at speed; holding onto a scared mount. i Hard difficulty: riding a mount at speed in rough, a unfamiliar terrain where weather conditions are poor (e.g. a heavily wooded forest at night in the pouring rain).",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she becomes obsessed with the animal."
+    },
+    "Science": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        85,
+        86,
+        87
+      ],
+      "summary": "Practical and theoretical ability with a science specialty would suggest some degree of formalized education and training, although a well-read amateur scientist may also be a possibility. Understanding and scope is limited by the era of play.",
+      "description": "Practical and theoretical ability with a science specialty would suggest some degree of formalized education and training, although a well-read amateur scientist may also be a possibility. Understanding and scope is limited by the era of play. You may spend skill points to purchase any skill specialization. The generic Science skill cannot be purchased. Each specialty covers a particular discipline and the list given is not exhaustive. Many specialties cross and overlap in knowledge, for example Mathematics and Cryptography, Botany and Biology, Chemistry and Pharmacy. When character does not have the obvious discipline specialty, they may roll against an allied specialty with the level of difficulty increased (or penalty die) at the Keeper’s discretion.",
+      "pushing_examples": [
+        "taking more time for study",
+        "conducting further research (perhaps in a better-equipped laboratory)",
+        "consulting another expert",
+        "taking risks"
+      ],
+      "pushed_failure_samples": [
+        "the experiment goes completely awry, causing unforeseen damage (explosion, fire, electrical shock, expulsion to the sixth dimension, etc.)",
+        "you incorrectly prepare the formulae for the magical powder, with disastrous results"
+      ],
+      "opposing_notes": "i Regular difficulty: conducting an experiment; being aware of current scientific theory within your field of specialty: working with proper equipment. i Hard difficulty: conducting a particularly demanding experiment; deciphering disorganized/partial scientific records; working with improvised equipment.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she begins to explore an aspect of weird science related their specialization. This may ultimately lead to actual developments akin to those of Crawford Tillinghast (from Lovecraft’s story From Beyond).",
+      "group_context": "Science",
+      "specialization_blurbs": {
+        "Pharmacy": "The study of chemical compounds and their effect on living organisms. Traditionally this has involved the formulation, creation, and dispensing of medications (whether a witch-doctor using combination of herbs or a modern pharmacist operating in a laboratory). The application of this skill ensures the safe and effective use of pharmaceutical drugs, including synthesizing ingredients, identification of toxins, and knowledge of possible side effects.",
+        "Forensics": "The analysis and identification of evidence. Normally associated with crime scene investigation (examination of fingerprints, DNA, hair, and body fluids) and laboratory work in order to determine fact and provide expert witness and evidence for legal disputes.",
+        "Chemistry": "A study of the composition of substances, the effects of temperature, energy, and pressure upon them, a as well as how they affect one another. With chemistry, one might create or extract complex chemical compounds, including simple explosives, poisons, gases, and acids, requiring at least a day or so with the proper equipment and chemicals. The user could also analyze an unknown substance, given proper equipment and reagents.",
+        "Mathematics": "The study of numbers and logic, including mathematical theories and applied and theoretical solution design and development. The skill might allow the identification of non-Euclidian geometries, solve puzzling formulae, and decrypt complex patterns or codes (see Cryptography for specialized study of codes). a",
+        "Physics": "Grants theoretical understanding of pressure, materials, motion, magnetism, electricity, optics, radioactivity, and related phenomena, and some ability to construct experimental devices to test ideas. The degree of knowledge depends on the era of use. Practical devices, such as automobiles, are not the province of physicists, however experimental devices may be, perhaps in conjunction with of Electronics or Mechanical Repair.",
+        "Astronomy": "The user knows how to find out which stars and planets are overhead at a particular day or hour the day or night, when eclipses and meteor showers occur, and the names of important stars. The skill also provides knowledge of current perceptions about life on other worlds, the existence or the formation of galaxies, and so on. An academic might be able to calculate orbits, discuss stellar life cycles, and (in the modern day), have knowledge of infrared astronomy or long-baseline interferometry.",
+        "Cryptography": "The study of secret codes and languages developed by one or more persons to conceal the contents of a conversation or message. A specialized branch of mathematics, this skill enables the identification, creation and/or deciphering of a code. Codes are usually written, but may take other forms, such as a message hidden within a musical composition, graphic art, or computer coding (in modern-day settings). Cracking a code can be painstaking work, often requiring lengthy research and number crunching.",
+        "Botany": "The study of plant life, including classification of species, structure, growth, reproduction, chemical properties, evolutionary principles, diseases, and microscopy. Sub-disciplines of botany include agronomy, forestry, horticulture, and paleobotany. With this skill one might identify the properties of a particular plant (whether poisonous, edible, or psychotropic for example) and its particular uses.",
+        "Geology": "Used to determine the approximate age of of rock strata, recognize fossil types, distinguish minerals and crystals, locate promising sites for drilling or mining, evaluate soils, anticipate volcanism, seismic events, avalanches, and other such phenomena.",
+        "Engineering": "While technically not a science, it is grouped here for convenience. Science is about identifying certain phenomena (through observing and recording), whereas engineering takes such findings and uses them to produce practical applications, such as machines, structures, and materials. to",
+        "Meteorology": "The scientific study of the atmosphere, including weather systems and patterns, and atmospheric phenomena. Use this skill to determine long-range weather patterns and to forecast effects like rain, snow, and fog.",
+        "Biology": "The study of life and living organisms, including cytology, ecology, genetics, histology, microbiology, physiology, and so on. With this skill one might develop vaccine against some hideous Mythos bacterium, isolate the hallucinogenic properties of some jungle plant, or perform analysis of blood and/or organic matter.",
+        "Zoology": "The study of biology that relates specifically to the animal kingdom, including the structure, evolution, classification, behavioral habits, and distribution of animals, both living and extinct. Use this skill to identify animal species from interaction with the environment (tracks, droppings, marks, etc.), likely behaviors, and territorial traits."
+      }
+    },
+    "Science (Biology)": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        85,
+        86,
+        87
+      ],
+      "summary": "The study of life and living organisms, including cytology, ecology, genetics, histology, microbiology, physiology, and so on. With this skill one might develop vaccine against some hideous Mythos bacterium, isolate the hallucinogenic properties of some jungle plant, or perfor...",
+      "description": "The study of life and living organisms, including cytology, ecology, genetics, histology, microbiology, physiology, and so on. With this skill one might develop vaccine against some hideous Mythos bacterium, isolate the hallucinogenic properties of some jungle plant, or perform analysis of blood and/or organic matter.",
+      "group_context": "Science",
+      "parent_description": "Practical and theoretical ability with a science specialty would suggest some degree of formalized education and training, although a well-read amateur scientist may also be a possibility. Understanding and scope is limited by the era of play. You may spend skill points to purchase any skill specialization. The generic Science skill cannot be purchased. Each specialty covers a particular discipline and the list given is not exhaustive. Many specialties cross and overlap in knowledge, for example Mathematics and Cryptography, Botany and Biology, Chemistry and Pharmacy. When character does not have the obvious discipline specialty, they may roll against an allied specialty with the level of difficulty increased (or penalty die) at the Keeper’s discretion.",
+      "pushing_examples": [
+        "taking more time for study",
+        "conducting further research (perhaps in a better-equipped laboratory)",
+        "consulting another expert",
+        "taking risks"
+      ],
+      "pushed_failure_samples": [
+        "the experiment goes completely awry, causing unforeseen damage (explosion, fire, electrical shock, expulsion to the sixth dimension, etc.)",
+        "you incorrectly prepare the formulae for the magical powder, with disastrous results"
+      ],
+      "opposing_notes": "i Regular difficulty: conducting an experiment; being aware of current scientific theory within your field of specialty: working with proper equipment. i Hard difficulty: conducting a particularly demanding experiment; deciphering disorganized/partial scientific records; working with improvised equipment.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she begins to explore an aspect of weird science related their specialization. This may ultimately lead to actual developments akin to those of Crawford Tillinghast (from Lovecraft’s story From Beyond)."
+    },
+    "Science (Chemistry)": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        85,
+        86,
+        87
+      ],
+      "summary": "A study of the composition of substances, the effects of temperature, energy, and pressure upon them, a as well as how they affect one another. With chemistry, one might create or extract complex chemical compounds, including simple explosives, poisons, gases, and acids, requi...",
+      "description": "A study of the composition of substances, the effects of temperature, energy, and pressure upon them, a as well as how they affect one another. With chemistry, one might create or extract complex chemical compounds, including simple explosives, poisons, gases, and acids, requiring at least a day or so with the proper equipment and chemicals. The user could also analyze an unknown substance, given proper equipment and reagents.",
+      "group_context": "Science",
+      "parent_description": "Practical and theoretical ability with a science specialty would suggest some degree of formalized education and training, although a well-read amateur scientist may also be a possibility. Understanding and scope is limited by the era of play. You may spend skill points to purchase any skill specialization. The generic Science skill cannot be purchased. Each specialty covers a particular discipline and the list given is not exhaustive. Many specialties cross and overlap in knowledge, for example Mathematics and Cryptography, Botany and Biology, Chemistry and Pharmacy. When character does not have the obvious discipline specialty, they may roll against an allied specialty with the level of difficulty increased (or penalty die) at the Keeper’s discretion.",
+      "pushing_examples": [
+        "taking more time for study",
+        "conducting further research (perhaps in a better-equipped laboratory)",
+        "consulting another expert",
+        "taking risks"
+      ],
+      "pushed_failure_samples": [
+        "the experiment goes completely awry, causing unforeseen damage (explosion, fire, electrical shock, expulsion to the sixth dimension, etc.)",
+        "you incorrectly prepare the formulae for the magical powder, with disastrous results"
+      ],
+      "opposing_notes": "i Regular difficulty: conducting an experiment; being aware of current scientific theory within your field of specialty: working with proper equipment. i Hard difficulty: conducting a particularly demanding experiment; deciphering disorganized/partial scientific records; working with improvised equipment.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she begins to explore an aspect of weird science related their specialization. This may ultimately lead to actual developments akin to those of Crawford Tillinghast (from Lovecraft’s story From Beyond)."
+    },
+    "Science (Pharmacy)": {
+      "base_chance": 1,
+      "source_pdf_pages": [
+        85,
+        86,
+        87,
+        88
+      ],
+      "summary": "The study of chemical compounds and their effect on living organisms. Traditionally this has involved the formulation, creation, and dispensing of medications (whether a witch-doctor using combination of herbs or a modern pharmacist operating in a laboratory).",
+      "description": "The study of chemical compounds and their effect on living organisms. Traditionally this has involved the formulation, creation, and dispensing of medications (whether a witch-doctor using combination of herbs or a modern pharmacist operating in a laboratory). The application of this skill ensures the safe and effective use of pharmaceutical drugs, including synthesizing ingredients, identification of toxins, and knowledge of possible side effects.",
+      "group_context": "Science",
+      "parent_description": "Practical and theoretical ability with a science specialty would suggest some degree of formalized education and training, although a well-read amateur scientist may also be a possibility. Understanding and scope is limited by the era of play. You may spend skill points to purchase any skill specialization. The generic Science skill cannot be purchased. Each specialty covers a particular discipline and the list given is not exhaustive. Many specialties cross and overlap in knowledge, for example Mathematics and Cryptography, Botany and Biology, Chemistry and Pharmacy. When character does not have the obvious discipline specialty, they may roll against an allied specialty with the level of difficulty increased (or penalty die) at the Keeper’s discretion.",
+      "pushing_examples": [
+        "taking more time for study",
+        "conducting further research (perhaps in a better-equipped laboratory)",
+        "consulting another expert",
+        "taking risks"
+      ],
+      "pushed_failure_samples": [
+        "the experiment goes completely awry, causing unforeseen damage (explosion, fire, electrical shock, expulsion to the sixth dimension, etc.)",
+        "you incorrectly prepare the formulae for the magical powder, with disastrous results"
+      ],
+      "opposing_notes": "i Regular difficulty: conducting an experiment; being aware of current scientific theory within your field of specialty: working with proper equipment. i Hard difficulty: conducting a particularly demanding experiment; deciphering disorganized/partial scientific records; working with improvised equipment.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she begins to explore an aspect of weird science related their specialization. This may ultimately lead to actual developments akin to those of Crawford Tillinghast (from Lovecraft’s story From Beyond)."
+    },
+    "Sleight of Hand": {
+      "base_chance": 10,
+      "source_pdf_pages": [
+        88
+      ],
+      "summary": "Allows the visual covering-up, secreting, or masking of an object or objects, perhaps with debris, cloth, or other intervening or illusion-promoting materials, perhaps by using a secret panel or false compartment. Larger objects of any sort should be increasingly hard to conceal.",
+      "description": "Allows the visual covering-up, secreting, or masking of an object or objects, perhaps with debris, cloth, or other intervening or illusion-promoting materials, perhaps by using a secret panel or false compartment. Larger objects of any sort should be increasingly hard to conceal. Sleight of hand includes pick-pocketing, palming a card, and clandestine use of a cell phone.",
+      "opposed_by": [
+        "Spot Hidden"
+      ],
+      "pushing_examples": [
+        "taking more time to study the target and their behaviors",
+        "physically touching or bumping into the target",
+        "setting up an elaborate rig inside one’s jacket to conceal a card or loaded dice",
+        "having someone cause a distraction"
+      ],
+      "pushed_failure_samples": [
+        "you feel a policeman’s hand on your shoulder",
+        "while no one can prove you pick-pocketed the priceless diamond, someone has their suspicions and you begin to notice that for the last week you have been tailed by a mysterious dark figure",
+        "you’re caught red-handed and the mobster doesn’t take kindly to thieves! You’re taken out back and shown the business end of a couple of baseball bats"
+      ],
+      "opposing_notes": "Sleight of Hand is commonly opposed by Spot Hidden. Adjust the difficulty level according to the size of the task. If it is a small item (which would fit in a pocket or up a sleeve) that is being palmed or concealed, no adjustment is required. If the item is larger, the level of difficulty may be increased. i Regular difficulty: picking the pocket of someone with less than 50% Spot Hidden skill. i Hard difficulty: picking the pocket of someone with 50% to 89% Spot Hidden skill.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she acts like a kleptomaniac."
+    },
+    "Spot Hidden": {
+      "base_chance": 25,
+      "source_pdf_pages": [
+        88
+      ],
+      "summary": "This skill allows the user to spot a secret door or compartment, notice a hidden intruder, find an inconspicuous clue, recognize a repainted automobile, become aware of ambushers, notice a bulging pocket, or anything similar. This is an important skill in the armory of an inve...",
+      "description": "This skill allows the user to spot a secret door or compartment, notice a hidden intruder, find an inconspicuous clue, recognize a repainted automobile, become aware of ambushers, notice a bulging pocket, or anything similar. This is an important skill in the armory of an investigator. If a character has only a fleeting chance to spot something, perhaps while running past it, the Keeper may raise the level difficulty. If the character is conducting a thorough search, the Keeper might award an automatic success. The difficulty level might also be adapted to reflect the environment, it being harder to spot something in a cluttered room.",
+      "pushing_examples": [
+        "taking more time to observe the area",
+        "pulling the place apart",
+        "dismantling the furniture and smashing the porcelain statuettes"
+      ],
+      "pushed_failure_samples": [
+        "inadvertently drop something of your own while searching, which will make it clear that you have been there (the investigator will not realize this at the time)",
+        "you fail to the spot the paw print in the mud and are surprised when the red-eyed beast leaps at you from the trees",
+        "while you managed to find a clue, you didn’t notice the cultists arriving home"
+      ],
+      "opposing_notes": "When searching for a character who is hiding, the opponent’s Stealth skill is used to set the difficulty level for the roll. i Regular difficulty: searching a room for clues. i Hard difficulty: searching for something that has been purposefully well hidden.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she is convinced that something is there and that they will find it under the wallpaper, hidden in the plaster, or beneath the floorboards."
+    },
+    "Stealth": {
+      "base_chance": 20,
+      "source_pdf_pages": [
+        88,
+        89
+      ],
+      "summary": "The art of moving quietly and/or hiding, without alerting those who might hear or see. When attempting to avoid detection, the player should attempt a Stealth skill roll.",
+      "description": "The art of moving quietly and/or hiding, without alerting those who might hear or see. When attempting to avoid detection, the player should attempt a Stealth skill roll. Ability with the skill suggests either that the character is adept at moving quietly (light-footed) and/or skilled in camouflage techniques. The skill might also suggest that the character can maintain a level of patience and cool-headedness to remain still and unseen for long periods.",
+      "pushing_examples": [
+        "taking more time to study the area",
+        "removing your shoes",
+        "causing a distraction",
+        "sitting tight until the coast appears clear"
+      ],
+      "pushed_failure_samples": [
+        "unbeknown to you, you have been spotted and rather than approach you directly, the cultists decide to summon something get you",
+        "you hear the cupboard door behind which you are hiding being locked then nailed shut"
+      ],
+      "opposing_notes": "When attempting to hide, the opponent’s Spot Hidden or Listen skill is used to set the difficulty level for the roll. Situational modifiers may also apply (e.g. darkness or loud noises). i Regular difficulty: moving quietly around the house to avoid detection by average people (those with Spot Hidden and Listen skills of less than 50%). i Hard difficulty: sneaking past an attentive guard dog; having only seconds to find a hiding place.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll the investigator may believe he or she is invisible, when in fact everyone can see them."
+    },
+    "Survival": {
+      "base_chance": 10,
+      "source_pdf_pages": [
+        89
+      ],
+      "summary": "Knowledge of this skill provides the expertise required survive in extreme environments, such as in desert or arctic conditions, as well as upon the sea or in wilderness terrain. Inherent is the knowledge of hunting, building shelters, hazards (such as the avoidance of poisono...",
+      "description": "Knowledge of this skill provides the expertise required survive in extreme environments, such as in desert or arctic conditions, as well as upon the sea or in wilderness terrain. Inherent is the knowledge of hunting, building shelters, hazards (such as the avoidance of poisonous plants), etc., according to the given environment. You may spend skill points to purchase any skill specialization. The generic Survival skill cannot be purchased. An environment specialism should be determined when this skill is chosen, for example: Survival (Desert), (Sea), (Arctic), etc. When a character does not have the obvious survival specialty, they may roll against an allied specialty with the level of difficulty increased (or penalty die) at the Keeper’s discretion.",
+      "pushing_examples": [
+        "trying something risky (e.g. drinking the water without purifying it first",
+        "eating unidentified berries)",
+        "using all of one’s clothing to improve a shelter",
+        "burning every possession to make a signal fire"
+      ],
+      "pushed_failure_samples": [
+        "the cave you found is inhabited by a very angry bear",
+        "having burnt all of your clothes to make a signal fire, you have now given away your position to your pursuers—will your rescuers reach you before the pursuers do?"
+      ],
+      "opposing_notes": "Modifiers may be awarded for the conditions or situation, or where the character has no specialist skill for a particular environment. i Regular difficulty: find/make shelter; locate water and sources of food. i Hard difficulty: as above but when weather conditions are extreme and/or you are badly injured.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she believes themselves to be impervious to the elements and able to exist as a breatharian (able to exist without food and water).",
+      "group_context": "Survival"
+    },
+    "Swim": {
+      "base_chance": 20,
+      "source_pdf_pages": [
+        89
+      ],
+      "summary": "The ability to float and to move through water or other liquid. Only roll Swim in times of crisis or danger, or when the Keeper judges it appropriate.",
+      "description": "The ability to float and to move through water or other liquid. Only roll Swim in times of crisis or danger, or when the Keeper judges it appropriate. Failing a pushed Swim roll can result in loss of hit points. It may also lead to the person being washed away downstream, partially or completely drowned.",
+      "pushing_examples": [
+        "taking a big breath and really going for it with all your remaining strength",
+        "pushing your physical to limits"
+      ],
+      "pushed_failure_samples": [
+        "the current pulls you under and you lose consciousness, awaking on an unknown beach",
+        "you are pulled under and are injured by being dashed against rocks",
+        "you strive for the lifeboat and, just as you make it, you feel something cold and slimy grab your ankle"
+      ],
+      "opposing_notes": "Modifiers may be awarded for the conditions or situation. i Swimming a length in the swimming pool: no roll required to i Regular difficulty: swimming in a fast-moving current. i Hard difficulty: swimming against a rapid current while fully dressed; adverse weather conditions.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she keeps on swimming and probably considers dry ground dangerous for some reason."
+    },
+    "Throw": {
+      "base_chance": 20,
+      "source_pdf_pages": [
+        89,
+        90
+      ],
+      "summary": "Use Throw to hit a target with an object. A palm-sized object of reasonable balance (or any weapon designed to be thrown) can be hurled up to STR divided by 5 in yards.",
+      "description": "Use Throw to hit a target with an object. A palm-sized object of reasonable balance (or any weapon designed to be thrown) can be hurled up to STR divided by 5 in yards. The effective range can be extended up to STR divided by 2 in yards, but a penalty die is applied to the Throw roll. If the object being thrown is heavy (over STR divided by 10 in pounds), the range given above should read as feet rather than yards. If the Throw roll fails, the object lands at some random distance from the target. The Keeper should compare the closeness of the die roll result to the highest number which would have indicated success, and choose a distance between target and thrown object that feels comparable. The Throw skill is used in combat when throwing knives, rocks, spears, grenades, or boomerangs.",
+      "pushing_examples": [
+        "taking more time to assess the distance or waiting some time for more favorable conditions",
+        "putting every ounce of strength into the throw and throwing yourself as you launch the item",
+        "throwing a lot of items in quick succession hoping one will hit the target",
+        "taking a massive run-up and risking your momentum taking you over the ravine"
+      ],
+      "pushed_failure_samples": [
+        "you send the object flying to your companion as you stumble and fall, hitting your head against the jagged rocks",
+        "you throw too hard and the object flies over the high church wall into the graveyard",
+        "the dynamite stick slips from your hand—you look for it in vain but fail to see it in your hood, and only then do you smell the burning fuse"
+      ],
+      "opposing_notes": "Modifiers might be applied for the weight of the object being thrown or, in the case of a very light object, the prevailing wind conditions. i Regular difficulty: throw a basketball through a hoop. i Hard difficulty: an accurate shot at a distance; throw a basketball through a hoop from center court. Once an item has been thrown, it is quite literally out of the investigator’s hands and therefore there is nothing the player can do to justify Pushing the roll. If multiple missiles are available, there is no risk connected with failure and it is only a matter of time until the investigator is successful, don’t roll dice. If multiple missiles are available and there is a distinct risk connected with failure then the Keeper might ask for a Pushed roll.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she will refuse to let go of the item to be thrown."
+    },
+    "Track": {
+      "base_chance": 10,
+      "source_pdf_pages": [
+        90
+      ],
+      "summary": "With Track, an investigator can follow a person, vehicle, or animal over earth and through plants/leaves. Factors such as time passed since the tracks were made, rain, and the type of ground covered may affect the difficulty level.",
+      "description": "With Track, an investigator can follow a person, vehicle, or animal over earth and through plants/leaves. Factors such as time passed since the tracks were made, rain, and the type of ground covered may affect the difficulty level.",
+      "pushing_examples": [
+        "backtracking and taking more time to study the area",
+        "walking in increasing spirals to locate the tracks (taking longer, possibly making more noise and making oneself more visible)"
+      ],
+      "pushed_failure_samples": [
+        "the tracks you are following lead you directly into the path of a hungry bear/lion/cannibal",
+        "you find yourself going round and round in circles, and night is falling as you realize you are now totally lost",
+        "you follow the tracks, only to be ambushed or caught in a trap laid by the thing you are following"
+      ],
+      "opposing_notes": "If tracking someone who is trying to conceal their tracks, the opponent’s Stealth skill should be used to set the difficulty level; modifiers might also be applied for the prevailing weather and terrain. i Regular difficulty: tracking an animal or human in the forest under normal (temperate) conditions. i Hard difficulty: following a trail that is several (or more) days old.",
+      "insane_pushed_failure_note": "If an insane investigator fails a pushed roll, he or she will compulsively follow any tracks (convinced they are the right ones) until they are physically restrained or convinced otherwise."
+    }
+  },
+  "extraction_coverage": {
+    "canonical_skill_count": 79,
+    "described_skill_count": 79,
+    "missing_skill_ids": [],
+    "source_pdf_page_range": [
+      69,
+      90
+    ],
+    "rulebook_titles_extracted": [
+      "Accounting",
+      "Acting",
+      "Animal Handling",
+      "Anthropology",
+      "Appraise",
+      "Archaeology",
+      "Art and Craft",
+      "Artillery",
+      "Astronomy",
+      "Axe",
+      "Biology",
+      "Botany",
+      "Bow",
+      "Brawl",
+      "Chainsaw",
+      "Charm",
+      "Chemistry",
+      "Climb",
+      "Computer Use",
+      "Credit Rating",
+      "Cryptography",
+      "Cthulhu Mythos",
+      "Demolitions",
+      "Disguise",
+      "Diving",
+      "Dodge",
+      "Drive Auto",
+      "Electrical Repair",
+      "Electronics",
+      "Engineering",
+      "Fast Talk",
+      "Fighting",
+      "Fine Art",
+      "Firearms",
+      "First Aid",
+      "Flail",
+      "Flamethrower",
+      "Forensics",
+      "Forgery",
+      "Garrote",
+      "Geology",
+      "Handgun",
+      "Heavy Weapons",
+      "History",
+      "Hypnosis",
+      "Intimidate",
+      "Jump",
+      "Language (Own)",
+      "Language, Other",
+      "Law",
+      "Library Use",
+      "Listen",
+      "Locksmith",
+      "Lore",
+      "Machine Gun",
+      "Mathematics",
+      "Mechanical Repair",
+      "Medicine",
+      "Meteorology",
+      "Natural World",
+      "Navigate",
+      "Occult",
+      "Operate Heavy Machinery",
+      "Persuade",
+      "Pharmacy",
+      "Photography",
+      "Physics",
+      "Pilot",
+      "Psychoanalysis",
+      "Psychology",
+      "Read Lips",
+      "Ride",
+      "Rifle/Shotgun",
+      "Science",
+      "Sleight of Hand",
+      "Spear",
+      "Spot Hidden",
+      "Stealth",
+      "Submachine Gun",
+      "Survival",
+      "Swim",
+      "Sword",
+      "Throw",
+      "Track",
+      "Whip",
+      "Zoology"
+    ],
+    "quality_notes": [
+      "Computer Use prose on PDF p.72 is adjacent to the Interpersonal Skills Disambiguation sidebar; that entry was layout-verified and cleaned by hand.",
+      "Leading orphan column tokens (e.g. Appraise 'or') and lowercase specialization blurbs were normalized after two-column reflow."
+    ]
+  }
+}

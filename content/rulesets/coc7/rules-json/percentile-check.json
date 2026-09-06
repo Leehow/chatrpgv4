@@ -1,0 +1,12 @@
+{
+  "source_rule_id": "core.percentile_check",
+  "source_note": "Keeper Rulebook core percentile skill and characteristic checks use 1D100; success occurs when the roll is less than or equal to the effective target.",
+  "die": "1D100",
+  "minimum_roll": 1,
+  "maximum_roll": 100,
+  "minimum_target": 1,
+  "maximum_target": 100,
+  "success_if_roll_lte_effective_target": true,
+  "zero_zero_result": 100,
+  "digit_base": 10
+}

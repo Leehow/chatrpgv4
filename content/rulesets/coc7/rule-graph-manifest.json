@@ -1,0 +1,188 @@
+{
+  "contract_id": "coc.rule-graph-build-manifest.v1",
+  "schema_version": 1,
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "source_bundles": [
+    {
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "5e1a929b0b37f9782fcfb67a24c94846d6e12612f84b3523f9d01cd97413c8eb",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
+    },
+    {
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "86e7060a49958f0f3a6ecaeb23e71c9bdb85d95e794d009fa0e63763af5c155b",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
+    },
+    {
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "96f09b55e1e9cbe65139e2bbe0498079a063b18140a93b1d94740d15fc25d2d5",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
+    },
+    {
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "ce3c510abac55d751b3d8f35e418d5a17e378baaa3317b2fe75604f3ab2c6754",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
+    },
+    {
+      "source_id": "pdf:coc7-keeper-rulebook-40th",
+      "bundle_sha256": "df4cceb1c29cdc530a43ef8b51122d85c20be2fb43a7fcfd0bbb6191ae1f1ae0",
+      "file_sha256": "a860499cf34b40cac385f51b6e667ab37ec0796c7329494def08c8b161fd71eb"
+    }
+  ],
+  "graph_content_digest": "4b565dde9abb527ad1ff77a8b664a6b7fb0662e9695246a8470bf36cf1e6f4aa",
+  "shards": [
+    {
+      "shard_id": "shard:coc7:chase:section-chase-complete-source",
+      "shard_digest": "f3ef6160ba832e5c798cd00ddae814e531bf8d46314d0cda8505415ad4879945"
+    },
+    {
+      "shard_id": "shard:coc7:combat:section-combat-complete-source",
+      "shard_digest": "0d243f85c2f71fe4ea626a4691298e472aa5f3b0803828cd8c7a7197d188b842"
+    },
+    {
+      "shard_id": "shard:coc7:core-check:section-core-check-source-accepted",
+      "shard_digest": "d986da9f1292433be9eddb4907431ac6b488ae4d3ed40733c1671fba986a9c68"
+    },
+    {
+      "shard_id": "shard:coc7:development:section-development-phase-source",
+      "shard_digest": "fff9c8bc9c400a24278c1a0b53a4870955a77e09c5190aa9851d30a722ffa16b"
+    },
+    {
+      "shard_id": "shard:coc7:healing:section-wounds-and-healing",
+      "shard_digest": "4344dda8affd473b5af5ab8d1bcdfdad6608014b31f3fe408d8b555f263f0b65"
+    },
+    {
+      "shard_id": "shard:coc7:magic:section-magic-source-and-runtime-gaps",
+      "shard_digest": "ea328ea3e3fd260e35c0012c8094c591673177b20ff010464d1c6397491cbd7f"
+    },
+    {
+      "shard_id": "shard:coc7:psychology:section-psychology-complete-source",
+      "shard_digest": "e61c29d464e8eafffe2f2576b0b79863f98bced01e8b1d37a79ef46d740d4d97"
+    },
+    {
+      "shard_id": "shard:coc7:push-luck:section-push-luck-source-accepted",
+      "shard_digest": "0262b574672c8a3866a70adf53649c8a98d69f5e38f91676da4c73929d425103"
+    },
+    {
+      "shard_id": "shard:coc7:sanity:section-sanity-complete-source",
+      "shard_digest": "253e1527cc0ade3eed9e806c0db4375d4846f8fe199abcc5f0e3e8601bd68e6a"
+    },
+    {
+      "shard_id": "shard:coc7:social:section-social-source-accepted",
+      "shard_digest": "538f05d20a22d95c2b7325124f41e97bb50986410989565dfcad48010b65092f"
+    }
+  ],
+  "family_coverage": {
+    "chase": "accepted",
+    "combat": "accepted",
+    "core-check": "accepted",
+    "development": "accepted",
+    "healing": "accepted",
+    "magic": "accepted",
+    "psychology": "accepted",
+    "push-luck": "accepted",
+    "sanity": "accepted",
+    "social": "accepted"
+  },
+  "family_promotion_eligibility": {
+    "chase": {
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
+    },
+    "combat": {
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
+    },
+    "core-check": {
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
+    },
+    "development": {
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
+    },
+    "healing": {
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
+    },
+    "magic": {
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
+    },
+    "psychology": {
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
+    },
+    "push-luck": {
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
+    },
+    "sanity": {
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
+    },
+    "social": {
+      "promotion_eligible": true,
+      "runtime_ownership": "graph"
+    }
+  },
+  "data_table_dependencies": [
+    "chase.json",
+    "combat.json",
+    "development.json",
+    "difficulty-levels.json",
+    "luck.json",
+    "manias.json",
+    "percentile-check.json",
+    "phobias.json",
+    "pushed-roll.json",
+    "roll-modifiers.json",
+    "sanity.json",
+    "skill-descriptions.json",
+    "spells.json",
+    "success-levels.json",
+    "weapons.json"
+  ],
+  "resolver_capability_dependencies": [
+    "chase.context",
+    "chase.execute",
+    "check",
+    "combat.context",
+    "combat.end",
+    "combat.resolve",
+    "development.settle",
+    "dying_check",
+    "first_aid",
+    "luck_spend",
+    "magic.cast",
+    "magic.learn",
+    "medicine",
+    "opposed",
+    "psychology_check_contract",
+    "psychology_policy",
+    "psychology_realization_public_projection",
+    "push_policy",
+    "rules.sanity_check",
+    "sanity.context",
+    "sanity.execute",
+    "sanity.session.gain_san",
+    "sanity.session.reality_check",
+    "social_difficulty",
+    "social_skill_names",
+    "state.end_session",
+    "time.apply_psychoanalysis_treatment",
+    "time.recover_temporary_insanity",
+    "weekly_recovery"
+  ],
+  "compiler_identity": "coc.rule-graph-compiler.v1",
+  "reviewer_identity": "production-composite:accepted-family-reviews",
+  "review_status": "accepted",
+  "findings": [
+    {
+      "code": "source_vs_derivative_mismatch",
+      "path": "/computed_thresholds/ceiling-half-major-wound-threshold",
+      "message": "source (hp_max + 1) // 2 vs derivative hp_max // 2"
+    }
+  ]
+}

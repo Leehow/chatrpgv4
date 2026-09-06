@@ -1,0 +1,140 @@
+{
+  "scenario_id": "the-white-war",
+  "module_title": "The White War",
+  "source_note": "Open Game Content adapted from 'The White War' by Paul StJohn Mackintosh (Cthulhu Reborn Publishing, 2023), published under the Open Gaming License v1.0a. Per the source OGC declaration, numeric game data and creature descriptions (PDF p8-10) are Open Game Content; plots, locations, characters, and dialogue are Product Identity and are NOT reproduced here.",
+  "rules": {
+    "polyp_horror": {
+      "source_rule_id": "module.white_war.polyp_horror",
+      "str": 100,
+      "con": 100,
+      "dex": 15,
+      "int": 25,
+      "pow": 30,
+      "hp": 100,
+      "db": 0,
+      "build": 8,
+      "movement": 10,
+      "san_loss": "1D6/1D12",
+      "retreat_below_hp": 20,
+      "size_bonus_percent": 20,
+      "armor_points": 0,
+      "attacks": {
+        "tentacle_slash": {
+          "skill_percent": 60,
+          "lethality_rating": 50,
+          "knock_down": true,
+          "ignores_armor": true
+        },
+        "wind_blast": {
+          "skill_percent": 99,
+          "area_of_effect_yards": 3,
+          "damage_environmental": "1D8 or 1D10 on impact, or falling damage",
+          "dodge_resisted_by": "Athletics"
+        }
+      },
+      "special_abilities": {
+        "unnatural_matter": "non-Lethal successful attacks deal max 1 HP; see module.white_war.lethality_vs_semi_material",
+        "flying": true,
+        "penetrating_attacks": "all Polyp Horror attacks ignore armor entirely",
+        "daylight_penalty_percent": -20,
+        "daylight_wind_reactivation_prep_rounds": 1
+      }
+    },
+    "cold_exposure": {
+      "source_rule_id": "module.white_war.cold_exposure",
+      "outdoor_temp_celsius": -30,
+      "windchill_temp_celsius": -40,
+      "interval_minutes": 5,
+      "hp_damage_per_interval": "1D8",
+      "stun_threshold": "immobile and suffer 1D8 HP every 5 min",
+      "warmth_recovery": "1 CON point per minute of warmth/shelter",
+      "outdoor_resource_cost_per_interval": 1,
+      "extreme_effort_con_test": "CON x5 to avoid Exhaustion",
+      "frostbite_fumble_hp": 1,
+      "tunnel_interior_temp_celsius": 0,
+      "fully_prepared_in_shelter": true
+    },
+    "lethality_vs_semi_material": {
+      "source_rule_id": "module.white_war.lethality_vs_semi_material",
+      "lethality_below_15_percent": "no damage at all",
+      "lethality_15_plus_odd_roll": "attack passes through, no damage",
+      "lethality_15_plus_even_roll": "Hit Point damage equal to Lethality Rating",
+      "applies_to": "Polyp Horror and other semi-material entities"
+    },
+    "daylight_penalty": {
+      "source_rule_id": "module.white_war.daylight_penalty",
+      "all_skills_penalty_percent": -20,
+      "behavior": "stays in shadows at mountain base in whirl-of-snow form",
+      "wind_reactivation_cost": "1 round preparation, 5 resource points",
+      "applies_to": "Polyp Horror"
+    },
+    "conclusion_sanity_rewards": {
+      "source_rule_id": "module.white_war.conclusion_sanity_rewards",
+      "forced_retreat_reward": "1D6 SAN",
+      "mission_completed_reward": "1D3 SAN",
+      "truth_suppressed_reward": "1D3 SAN",
+      "white_friday_guilt_loss": "0/1D6 SAN [helplessness]"
+    },
+    "avalanche_damage": {
+      "source_rule_id": "module.white_war.avalanche_damage",
+      "damage": "10D6",
+      "entity_not_immune": true,
+      "str_test_to_avoid_being_swept": "STR x5",
+      "trigger_chance_per_shot": "1%",
+      "trigger_chance_per_grenade": "5%",
+      "signal_call_chance_per_turn": "30%"
+    }
+  },
+  "weapons": [
+    {
+      "weapon_id": "mannlicher_carcano_rifle",
+      "name": "Mannlicher-Carcano 6.5mm rifle",
+      "skill": "Firearms (Rifle)",
+      "damage": "1D12+2",
+      "range_yards": 150,
+      "ammo_per_clip": 6,
+      "spare_clips_typical": 4,
+      "condition": "heavily worn"
+    },
+    {
+      "weapon_id": "beretta_9mm_pistol",
+      "name": "Beretta Brevetta 9mm pistol",
+      "skill": "Firearms (Handgun)",
+      "damage": "1D10",
+      "range_yards": 15,
+      "ammo_per_clip": 8,
+      "carried_by": "lieutenant",
+      "condition": "heavily worn"
+    },
+    {
+      "weapon_id": "bessozzi_pineapple_grenade",
+      "name": "Bessozzi pineapple grenade",
+      "skill": "Athletics (Throw)",
+      "damage": "3D6",
+      "lethality_rating_7e_house_rule": 12,
+      "kill_radius_yards": 4,
+      "base_range_yards": 45
+    },
+    {
+      "weapon_id": "trench_knife",
+      "name": "Trench knife",
+      "skill": "Fighting (Brawl)",
+      "damage": "1D6",
+      "range": "melee"
+    },
+    {
+      "weapon_id": "entrenching_tool",
+      "name": "Entrenching tool",
+      "skill": "Fighting (Melee)",
+      "damage": "1D8+1",
+      "range": "melee"
+    },
+    {
+      "weapon_id": "makeshift_club",
+      "name": "Makeshift club",
+      "skill": "Fighting (Melee)",
+      "damage": "1D6",
+      "range": "melee"
+    }
+  ]
+}

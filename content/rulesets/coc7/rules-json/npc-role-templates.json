@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "description": "结构化映射：NPC 的 relationship_to_investigators → npc-social-roles.json 模板。确定性 compile transform 据此注入 social_role，不扫自由文本。template_id 必须匹配 npc-social-roles.json 中已发布的 template_id。",
+  "mappings": {
+    "superior_officer": {"template_id": "scene_safety_authority"},
+    "commanding_officer": {"template_id": "scene_safety_authority"},
+    "subordinate": {"template_id": "specialist_authority", "initiative_style_override": "consultative"},
+    "adversary": {"template_id": "specialist_authority", "initiative_style_override": "commanding"},
+    "victim": {"template_id": "specialist_authority"},
+    "neutral": {},
+    "ally": {"template_id": "specialist_authority"}
+  }
+}

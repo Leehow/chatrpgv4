@@ -1,0 +1,531 @@
+{
+  "schema_version": 1,
+  "kind": "investigator_create_payload_contract",
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "investigator_schema_version": 2,
+  "runtime_authority": {
+    "authoritative_validator": "plugins/coc-keeper/scripts/coc_character.py",
+    "schema_role": "upfront machine-readable construction guidance",
+    "note": "This schema describes the supported payload shapes. The ordinary live path is setup.chargen_run / coc_chargen_delegate; do not hand-assemble investigator.create. Existing deterministic runtime materialization, arithmetic, derived-value consistency, creation-method validation, and state-write checks remain authoritative."
+  },
+  "payload_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "COC7 investigator.create payload",
+    "description": "Complete payload passed as setup.invoke payload when kind is investigator.create. The runtime also requires sheet.id to equal investigator_id; JSON Schema cannot express that cross-field equality.",
+    "oneOf": [
+      {
+        "title": "Deterministic Quick Fire input",
+        "type": "object",
+        "required": [
+          "campaign_id",
+          "investigator_id",
+          "sheet",
+          "creation"
+        ],
+        "properties": {
+          "campaign_id": {
+            "$ref": "#/$defs/safe_id",
+            "description": "Current campaign that owns this Quick Fire creation and its canonical Luck receipt."
+          },
+          "investigator_id": {
+            "$ref": "#/$defs/safe_id"
+          },
+          "sheet": {
+            "$ref": "#/$defs/quick_fire_sheet"
+          },
+          "creation": {
+            "$ref": "#/$defs/quick_fire_creation"
+          }
+        },
+        "additionalProperties": false
+      },
+      {
+        "title": "Explicit complete-sheet import",
+        "type": "object",
+        "required": [
+          "investigator_id",
+          "sheet",
+          "creation"
+        ],
+        "properties": {
+          "investigator_id": {
+            "$ref": "#/$defs/safe_id"
+          },
+          "sheet": {
+            "$ref": "#/$defs/complete_sheet"
+          },
+          "creation": {
+            "$ref": "#/$defs/complete_sheet_creation"
+          }
+        },
+        "additionalProperties": false
+      }
+    ],
+    "$defs": {
+      "safe_id": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+        "description": "Stable safe id. sheet.id must contain the same string."
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": ".*\\S.*",
+        "description": "Non-empty investigator name."
+      },
+      "age": {
+        "type": "integer",
+        "minimum": 15,
+        "maximum": 89,
+        "description": "Age 15-89. Generated create with sheet.age requires EDU/Luck receipts for that bracket; omit receipts is rejected. import_complete_sheet/pregen omit the bundle."
+      },
+      "characteristics": {
+        "type": "object",
+        "required": [
+          "STR",
+          "CON",
+          "SIZ",
+          "DEX",
+          "APP",
+          "INT",
+          "POW",
+          "EDU"
+        ],
+        "properties": {
+          "STR": {
+            "type": "integer"
+          },
+          "CON": {
+            "type": "integer"
+          },
+          "SIZ": {
+            "type": "integer"
+          },
+          "DEX": {
+            "type": "integer"
+          },
+          "APP": {
+            "type": "integer"
+          },
+          "INT": {
+            "type": "integer"
+          },
+          "POW": {
+            "type": "integer"
+          },
+          "EDU": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": true,
+        "description": "Eight COC7 characteristic keys."
+      },
+      "derived": {
+        "type": "object",
+        "required": [
+          "HP",
+          "MP",
+          "SAN",
+          "Luck",
+          "DB",
+          "Build",
+          "MOV"
+        ],
+        "properties": {
+          "HP": {
+            "type": "integer"
+          },
+          "MP": {
+            "type": "integer"
+          },
+          "SAN": {
+            "type": "integer"
+          },
+          "Luck": {
+            "type": "integer"
+          },
+          "DB": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string",
+                "minLength": 1,
+                "pattern": ".*\\S.*"
+              }
+            ],
+            "description": "Damage bonus; canonical zero is \"none\"."
+          },
+          "Build": {
+            "type": "integer"
+          },
+          "MOV": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": true
+      },
+      "skills": {
+        "type": "object",
+        "required": [
+          "Credit Rating"
+        ],
+        "propertyNames": {
+          "pattern": "^(?=\\S)(?=[\\s\\S]*\\S$)[\\x00-\\x7F]+$"
+        },
+        "additionalProperties": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "description": "Canonical English skill keys to non-negative integers, including Credit Rating. Runtime reconciles catalog bases plus allocation deltas and the package 75 cap."
+      },
+      "quick_fire_sheet": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "skills",
+          "player_facing_sheet_zh"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/safe_id"
+          },
+          "name": {
+            "$ref": "#/$defs/name"
+          },
+          "age": {
+            "$ref": "#/$defs/age"
+          },
+          "era": {
+            "type": "string",
+            "enum": [
+              "1920s"
+            ],
+            "description": "Optional closed guided-creation era; omit for 1920s."
+          },
+          "skills": {
+            "$ref": "#/$defs/skills"
+          },
+          "player_facing_sheet_zh": {
+            "$ref": "#/$defs/player_facing_sheet_zh"
+          },
+          "backstory": {
+            "$ref": "#/$defs/chargen_backstory"
+          },
+          "equipment": {
+            "$ref": "#/$defs/chargen_equipment"
+          },
+          "key_connection": {
+            "$ref": "#/$defs/chargen_key_connection"
+          },
+          "own_language": {
+            "$ref": "#/$defs/chargen_prose",
+            "description": "Concrete own-language name in play_language. Machine skill key stays Language (Own)."
+          },
+          "occupation": {
+            "$ref": "#/$defs/name"
+          },
+          "cash": {
+            "$ref": "#/$defs/chargen_finance_amount"
+          },
+          "assets": {
+            "$ref": "#/$defs/chargen_finance_amount"
+          },
+          "spending_level": {
+            "$ref": "#/$defs/chargen_finance_amount"
+          },
+          "living_standard": {
+            "type": "string"
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "characteristics"
+              ]
+            },
+            {
+              "required": [
+                "derived"
+              ]
+            }
+          ]
+        },
+        "additionalProperties": false,
+        "description": "Closed generated Quick Fire sheet. Omit characteristics/derived. Runtime may add cash/assets/spending_level/living_standard from rules.cash_assets; KP must not send them."
+      },
+      "chargen_finance_amount": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "amount": {"type": ["number", "null"]},
+          "currency": {"type": "string"},
+          "formula": {"type": "string"}
+        }
+      },
+      "quick_fire_creation": {
+        "type": "object",
+        "required": [
+          "input_mode",
+          "method",
+          "characteristic_assignment_order",
+          "luck_roll_total",
+          "luck_roll_receipt",
+          "skill_budget"
+        ],
+        "properties": {
+          "input_mode": {
+            "const": "guided_quick_fire"
+          },
+          "method": {
+            "const": "quick_fire_array"
+          },
+          "characteristic_assignment_order": {
+            "type": "array",
+            "minItems": 8,
+            "maxItems": 8,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "STR",
+                "CON",
+                "SIZ",
+                "DEX",
+                "APP",
+                "INT",
+                "POW",
+                "EDU"
+              ]
+            },
+            "description": "Each canonical characteristic exactly once, in descending Quick Fire array-slot priority order."
+          },
+          "luck": {
+            "type": "object",
+            "required": ["mode"],
+            "properties": {
+              "mode": {"const": "auto_roll"}
+            },
+            "additionalProperties": false,
+            "description": "Optional. mode=auto_roll: runtime rolls 3D6 Luck."
+          },
+          "luck_roll_total": {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 18,
+            "description": "Authoritative 3D6 total. The runtime binds it to luck_roll_receipt and multiplies it by five."
+          },
+          "luck_roll_receipt": {
+            "type": "object",
+            "required": [
+              "campaign_id",
+              "decision_id",
+              "roll_id"
+            ],
+            "properties": {
+              "campaign_id": {
+                "$ref": "#/$defs/safe_id",
+                "description": "Current campaign that owns the canonical rules.roll_dice source receipt."
+              },
+              "decision_id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": ".*\\S.*",
+                "description": "Stable decision_id used by the exact Quick-Fire Luck roll."
+              },
+              "roll_id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": ".*\\S.*",
+                "description": "Exact roll_id returned by the canonical rules.roll_dice receipt."
+              }
+            },
+            "additionalProperties": false,
+            "description": "Luck source receipt reference."
+          },
+          "skill_budget": {
+            "$ref": "#/$defs/skill_budget"
+          }
+        },
+        "additionalProperties": true
+      },
+      "chargen_prose": {
+        "type": "string",
+        "minLength": 1
+      },
+      "chargen_backstory": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "personal_description": {"$ref": "#/$defs/chargen_prose"},
+          "ideology_beliefs": {"$ref": "#/$defs/chargen_prose"},
+          "significant_people": {"$ref": "#/$defs/chargen_prose"},
+          "meaningful_locations": {"$ref": "#/$defs/chargen_prose"},
+          "treasured_possessions": {"$ref": "#/$defs/chargen_prose"},
+          "traits": {"$ref": "#/$defs/chargen_prose"},
+          "injuries_scars": {"$ref": "#/$defs/chargen_prose"},
+          "phobias_manias": {"$ref": "#/$defs/chargen_prose"},
+          "encounters": {"$ref": "#/$defs/chargen_prose"},
+          "scenario_bound": {"$ref": "#/$defs/chargen_prose"}
+        }
+      },
+      "chargen_equipment": {
+        "type": "array",
+        "items": {"$ref": "#/$defs/chargen_prose"}
+      },
+      "chargen_key_connection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["backstory_field", "summary"],
+        "properties": {
+          "backstory_field": {
+            "type": "string",
+            "enum": [
+              "personal_description",
+              "ideology_beliefs",
+              "significant_people",
+              "meaningful_locations",
+              "treasured_possessions",
+              "traits"
+            ]
+          },
+          "summary": {"$ref": "#/$defs/chargen_prose"}
+        }
+      },
+      "complete_sheet": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "characteristics",
+          "derived",
+          "skills"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/safe_id"
+          },
+          "name": {
+            "$ref": "#/$defs/name"
+          },
+          "age": {
+            "$ref": "#/$defs/age"
+          },
+          "characteristics": {
+            "$ref": "#/$defs/characteristics"
+          },
+          "derived": {
+            "$ref": "#/$defs/derived"
+          },
+          "skills": {
+            "$ref": "#/$defs/skills"
+          }
+        },
+        "additionalProperties": true,
+        "description": "Complete machine sheet accepted only through the explicit import_complete_sheet path."
+      },
+      "complete_sheet_creation": {
+        "description": "Explicit discriminator for importing an already complete sheet. Guided creation must use the deterministic Quick Fire branch.",
+        "type": "object",
+        "required": [
+          "input_mode"
+        ],
+        "properties": {
+          "input_mode": {
+            "const": "import_complete_sheet"
+          }
+        },
+        "additionalProperties": true
+      },
+      "player_facing_sheet_zh": {
+        "type": "object",
+        "required": [
+          "display_name",
+          "skills"
+        ],
+        "properties": {
+          "display_name": {
+            "$ref": "#/$defs/name"
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "key",
+                "label",
+                "value"
+              ],
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "value": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "skill_budget_account": {
+        "type": "object",
+        "required": [
+          "budget",
+          "spent",
+          "allocations"
+        ],
+        "properties": {
+          "budget": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "spent": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "allocations": {
+            "type": "object",
+            "propertyNames": {
+              "pattern": "^(?=\\S)(?=[\\s\\S]*\\S$)[\\x00-\\x7F]+$"
+            },
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Canonical skills.json key to added points. Runtime sums this map, checks it against spent/budget, and reconciles the final machine value."
+          }
+        },
+        "additionalProperties": false
+      },
+      "skill_budget": {
+        "type": "object",
+        "required": [
+          "occupation_points",
+          "personal_interest_points"
+        ],
+        "properties": {
+          "occupation_points": {
+            "$ref": "#/$defs/skill_budget_account"
+          },
+          "personal_interest_points": {
+            "$ref": "#/$defs/skill_budget_account"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Guided Quick Fire skill accounting. Runtime owns spent/budget vs INT*2 and the package 75 cap; occupation eligibility stays Keeper judgment."
+      }
+    }
+  }
+}

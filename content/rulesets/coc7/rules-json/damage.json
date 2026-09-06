@@ -1,0 +1,12 @@
+{
+  "source_rule_id": "core.damage.roll",
+  "source_note": "Keeper Rulebook damage rolls are non-percentile dice results that reduce hit points; playtest logs must keep the roll id, die expression, total, and HP before/delta/after together.",
+  "resource": "hit_points",
+  "dice_kind": "damage",
+  "requires_roll_id": true,
+  "requires_die": true,
+  "requires_roll_total": true,
+  "requires_resource_before_delta_after": true,
+  "delta_sign": "negative",
+  "non_percentile": true
+}

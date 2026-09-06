@@ -1,0 +1,35 @@
+{
+  "source_note": "Keeper Rulebook Chapter 13: Artifacts and Alien Devices (pp.256-265 / PDF idx 255-264). Each artifact has description and mechanics.",
+  "artifacts": {
+    "Elder Sign": {
+      "description": "A ward against Mythos entities",
+      "mechanics": "Mythos creatures must pass a POW roll to approach",
+      "source_page": 256
+    },
+    "Mirror of Tarkhun Atep": {
+      "description": "Allows scrying on distant locations",
+      "mechanics": "Costs 5 MP + 1 SAN per use; target must be known to user",
+      "source_page": 257
+    },
+    "Crux Ansata": {
+      "description": "Ankh-shaped amulet of protection",
+      "mechanics": "Costs 25 POW to create; grants 1D6 armor",
+      "source_page": 258
+    },
+    "Powder of Ibn-Ghazi": {
+      "description": "Reveals invisible entities",
+      "mechanics": "1 MP per dose; invisible things become visible for 1 round",
+      "source_page": 259
+    },
+    "Space Mead": {
+      "description": "Allows survival in vacuum",
+      "mechanics": "Drinking costs 1D3 SAN; grants 1 hour vacuum survival",
+      "source_page": 260
+    },
+    "Snow Statue of dreaded Yoh": {
+      "description": "Vessel of the Old One",
+      "mechanics": "Contact/summon focus for Yoh",
+      "source_page": 261
+    }
+  }
+}
