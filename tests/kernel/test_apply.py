@@ -142,10 +142,11 @@ def test_batch_is_atomic(kernel):
 
 def test_reserved_and_unknown_effect_kinds(kernel):
     open_turn(kernel)
-    # #19 made item and cash live, §18 (#27) flag/note/ruling; npc stays reserved for §17 (#29)
-    reserved = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 1},
-                                                                    {"kind": "npc", "name": "x"}])
-    assert reserved["code"] == "not_implemented" and reserved["details"]["index"] == 1
+    # #19 made item and cash live, §18 (#27) flag/note/ruling, §17 (#29) npc: nothing is
+    # reserved now, so an npc effect fails on the name it cannot resolve, not on its kind.
+    unknown_npc = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 1},
+                                                                     {"kind": "npc", "name": "x", "to": "here"}])
+    assert unknown_npc["code"] == "unknown_entity" and unknown_npc["details"]["index"] == 1
     # §14.8: handout is live now; an unknown card is unknown_entity, and the batch still does not write
     unknown = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 1},
                                                                    {"kind": "handout", "name": "x"}])

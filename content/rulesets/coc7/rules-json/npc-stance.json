@@ -1,0 +1,21 @@
+{
+  "contract_id": "coc.npc-stance.v1",
+  "schema_version": 1,
+  "note": "Contract §17.3: the closed table the NPC ledger's stance moves by. Every number lives here; kernel/coc/npc.py reads it and writes no literal of its own. A social settlement moves the score by social[approach][level]; a pushed roll that failed adds pushed_failure_delta on top; any combat settled against this person sets the score to combat_target_score. The score is clamped to score_range and its word is the first level whose at_most it does not exceed. An approach or level absent from the table moves nothing: silence is zero, never a guess.",
+  "initial_score": 0,
+  "score_range": [-5, 5],
+  "levels": [
+    {"value": "hostile", "at_most": -3},
+    {"value": "wary", "at_most": -1},
+    {"value": "neutral", "at_most": 1},
+    {"value": "warm", "at_most": 5}
+  ],
+  "social": {
+    "persuade": {"critical": 2, "extreme": 2, "hard": 1, "regular": 1, "failure": 0, "fumble": -1},
+    "charm": {"critical": 2, "extreme": 2, "hard": 1, "regular": 1, "failure": 0, "fumble": -1},
+    "fast_talk": {"critical": 2, "extreme": 1, "hard": 1, "regular": 1, "failure": -1, "fumble": -2},
+    "intimidate": {"critical": 0, "extreme": 0, "hard": 0, "regular": 0, "failure": -1, "fumble": -2}
+  },
+  "pushed_failure_delta": -1,
+  "combat_target_score": -5
+}

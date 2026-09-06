@@ -34,10 +34,16 @@ def test_player_input_capsule_has_all_sections(kernel):
     present = capsule["present"]
     assert [p["name"] for p in present] == ["Steven Knott"]
     knott = present[0]
-    assert knott["relationship"] == "employer"
-    assert knott["agenda"] and knott["voice"]
-    assert {f["clue"] for f in knott["known_facts"]} == {"knott-commission", "knott-research-leads",
-                                                          "knott-macario-summary"}
+    # §17.4: the dossier keys the keeper plays him from, and the clues he is the one to know
+    assert knott["role"] == "employer"
+    assert knott["wants"] and knott["voice"] and knott["fears"] and knott["hides"]
+    assert {f["clue"] for f in knott["knows"]} == {"knott-commission", "knott-research-leads",
+                                                    "knott-macario-summary"}
+    assert all(f["discovered"] is False for f in knott["knows"])
+    # §17.3: the opening turn closed with him on stage, so the ledger has met him once and
+    # nothing else — no roll has been settled against him, so there is no stance yet.
+    assert knott["history"] == {"met_turns": 1, "last_turn": 0}
+    assert "toward_party" not in knott
 
     known = capsule["known"]
     assert known["discovered_clues"] == []
@@ -68,8 +74,11 @@ def test_look_focus_variants(kernel):
     assert npc["kind"] == "npc"
     assert npc["id"] == "steven-knott"
     assert npc["scene"] == OPENING_SCENE
-    for key in ("agenda", "fear", "secret", "voice", "relationship", "keeper_note", "social_role", "known_facts"):
+    for key in ("wants", "fears", "hides", "voice", "role", "keeper_note", "social_role", "knows"):
         assert npc[key], key
+    # §17.4: the row as it stands — he has been on stage, nothing has been settled with him
+    assert npc["ledger"]["turns_present"]["count"] == 1
+    assert npc["ledger"]["stance"] is None and npc["ledger"]["interactions"] == []
     assert kernel.table("look", focus="npc", name="steven-knott") == npc
     assert kernel.table("look", focus="npc")["present"][0]["name"] == "Steven Knott"
 

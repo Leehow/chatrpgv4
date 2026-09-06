@@ -10,12 +10,12 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from . import bookkeeping, director as director_mod, pressures as pressures_mod
+from . import bookkeeping, director as director_mod, npc as npc_lane, pressures as pressures_mod
 from .craft import TextGraph
 from .director import DirectorGraph
 from .library import era_note
-from .module_graph import (NPC_KIND, ModuleGraph, condition_met, condition_status,  # noqa: F401 - condition helpers re-exported
-                           describe_condition, record_of)
+from .module_graph import (ASSERTS, BELIEVES, HIDES, NPC_KIND, ModuleGraph,  # noqa: F401 - condition helpers re-exported
+                           condition_met, condition_status, describe_condition, record_of)
 from .ontology import Ontology
 from .rules.graph import semantic_name
 from .store import Campaign
@@ -28,6 +28,12 @@ BUDGETS = {"where": 4096, "present": 3072, "known": 3072, "recent": 2048}
 SLICE2_BUDGETS = {"memory": 1536, "warnings": 1024}
 #: §13.1: the new sections and their budgets. `style` doubles on the first capsule after
 #: the process opened the table (§13.6).
+#: §17.4: how much of one person's dossier and ledger the `present` section carries.
+PRESENT_KNOWS = 6
+PRESENT_CLAIM_LINES = 3
+PRESENT_TIES = 6
+PRESENT_PROMISES = 3
+BECAUSE_LINES = 3
 SLICE3_BUDGETS = {"pressures": 1024, "obligations": 1024, "director": 1536, "situations": 1024, "style": 1024}
 #: §18.3: the rulings that bind here (a ranked list, newest first, sheds its tail).
 RULINGS_BUDGET = bookkeeping.RULINGS_BUDGET
@@ -198,27 +204,124 @@ def known_facts(graph: ModuleGraph, world: dict[str, Any], record: dict[str, Any
     return facts
 
 
-def present_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any]) -> list[dict[str, Any]]:
-    present = []
-    attitudes = world.get("npc_attitude") or {}
-    for node in npcs_present(graph, world, scene):
-        record = record_of(node)
-        entry: dict[str, Any] = {
-            "name": graph.display_name(node),
-            "relationship": record.get("relationship_to_investigators"),
-            "agenda": record.get("agenda"),
-            "voice": record.get("voice"),
-            "known_facts": known_facts(graph, world, record),
-        }
-        # §13.1: keeper-only material, same law as agenda — never player text.
-        for key in ("secret", "fear"):
-            value = record.get(key)
-            if isinstance(value, str) and value.strip():
-                entry[key] = value
-        attitude = attitudes.get(graph.handle(node))
-        if attitude is not None:
-            entry["attitude"] = attitude
-        present.append(entry)
+def _memory_statements(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {str(row.get("id")): row for row in rows if row.get("id")}
+
+
+def npc_entry(graph: ModuleGraph, world: dict[str, Any], node: dict[str, Any],
+              ledger: dict[str, Any], memories: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """§17.4: one person as the keeper needs them this turn — the dossier the book wrote
+    and the ledger the table wrote, with the causes attached. Every line is copied, never
+    paraphrased; the whole entry is keeper-only."""
+    profile = graph.npc_profile(node)
+    discovered = set(world.get("discovered_clues") or [])
+    knows = [{"clue": entry["handle"], "discovered": entry["handle"] in discovered}
+             for entry in graph.npc_knows(node)]
+    knows.sort(key=lambda row: row["discovered"])
+    entry: dict[str, Any] = {"name": graph.display_name(node)}
+    for key, field in (("relationship_to_investigators", "role"), ("agenda", "wants"),
+                       ("fear", "fears"), ("secret", "hides"), ("voice", "voice")):
+        if profile.get(key):
+            entry[field] = profile[key]
+    if knows:
+        entry["knows"] = knows[:PRESENT_KNOWS]
+    believes = graph.npc_claim_lines(node, BELIEVES)[:PRESENT_CLAIM_LINES]
+    if believes:
+        entry["believes"] = believes
+    lies = graph.npc_claim_lines(node, ASSERTS)[:PRESENT_CLAIM_LINES]
+    if lies:
+        entry["would_lie_about"] = lies
+    ties = _ordered_ties(graph, world, node)
+    if ties:
+        entry["ties"] = ties
+    row = ledger.get(node["node_id"]) or {}
+    toward = _toward_party(row)
+    if toward:
+        entry["toward_party"] = toward
+    history = _npc_history(row, memories)
+    if history:
+        entry["history"] = history
+    return entry
+
+
+def _ordered_ties(graph: ModuleGraph, world: dict[str, Any], node: dict[str, Any]) -> list[dict[str, str]]:
+    """Ties with the people in the room and the bodies they belong to first: those are the
+    ones this scene can act on."""
+    presence = world.get("npc_presence") or {}
+    here = {handle for handle, at in presence.items() if at == presence.get(graph.handle(node))}
+
+    def rank(tie: dict[str, Any]) -> int:
+        other = tie["node"]
+        if graph.handle(other) in here:
+            return 0
+        return 1 if other["node_kind"] in ("faction", "organization") else 2
+
+    ties = sorted(graph.npc_ties(node), key=rank)[:PRESENT_TIES]
+    return [{"kind": tie["kind"], "to": tie["to"]} for tie in ties]
+
+
+def _toward_party(row: dict[str, Any]) -> dict[str, Any] | None:
+    """§17.4: where this person stands with the party and why, newest cause last. The
+    reason lines are the ledger's own record of what settled, in English (§16.1)."""
+    stance = row.get("stance")
+    if not isinstance(stance, dict) or not stance.get("value"):
+        return None
+    because: list[str] = []
+    for cause in (stance.get("because") or [])[-BECAUSE_LINES:]:
+        turn = cause.get("turn")
+        if cause.get("how") == npc_lane.KEEPER_SET:
+            line = f"turn {turn}: keeper set {cause.get('stance')}"
+            if cause.get("why"):
+                line += f": {cause['why']}"
+        elif cause.get("how") == "combat":
+            line = f"turn {turn}: fought"
+        else:
+            line = f"turn {turn}: {cause.get('approach')} {cause.get('level')}"
+        because.append(line)
+    return {"stance": stance["value"], "because": because}
+
+
+def _npc_history(row: dict[str, Any], memories: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    """What this table has already been through with them: how often they were on stage,
+    what they handed over, what they promised."""
+    seen = row.get("turns_present") if isinstance(row.get("turns_present"), dict) else {}
+    disclosed = [str(item.get("clue")) for item in row.get("disclosed") or [] if item.get("clue")]
+    promises = []
+    for item in (row.get("promises") or [])[-PRESENT_PROMISES:]:
+        memory_row = memories.get(str(item.get("memory_id")))
+        if memory_row and memory_row.get("status") != "superseded":
+            promises.append({"statement": memory_row.get("statement"), "turn": item.get("turn")})
+    history: dict[str, Any] = {}
+    if seen.get("count"):
+        history["met_turns"] = seen["count"]
+        history["last_turn"] = seen.get("last")
+    if disclosed:
+        history["disclosed"] = disclosed
+    if promises:
+        history["promises"] = promises
+    if row.get("dead"):
+        history["dead_since_turn"] = (row["dead"] or {}).get("turn")
+    return history or None
+
+
+def _present_rank(entry: dict[str, Any]) -> int:
+    """§17.4: who survives a tight budget — someone owed a promise first, then someone this
+    table has already dealt with, then someone the book gave a want to."""
+    history = entry.get("history") or {}
+    if history.get("promises"):
+        return 0
+    if history.get("met_turns") or entry.get("toward_party"):
+        return 1
+    return 2 if entry.get("wants") else 3
+
+
+def present_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any],
+                    ledger: dict[str, Any] | None = None,
+                    memories: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    ledger = ledger or {}
+    by_id = _memory_statements(memories or [])
+    present = [npc_entry(graph, world, node, ledger, by_id) for node in npcs_present(graph, world, scene)]
+    present.sort(key=_present_rank)
     return present
 
 
@@ -441,6 +544,7 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
                   resume: dict[str, Any] | None = None,
                   material_of: Callable[[str], str] | None = None, module_brief: bool = False) -> dict[str, Any]:
     from .memory import open_promises, read_candidates  # local: memory imports facts, which imports render
+    from .npc import read_ledger
     from .rules.healing import read_healing_state
     from .sessions import SessionView, sanity_snapshot  # local: sessions reads capsule.condition_met for chase chains
     from .warn import latest_warnings
@@ -451,6 +555,11 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
     records = campaign.turn_records_by_number()
     played = director_mod.played_records(records, int(turn["turn"]))
     previous = played[0] if played else None
+
+    # §17.4: the people in the room come with the ledger this table wrote about them, and
+    # the promises they made read their statements out of the memory candidates.
+    ledger = read_ledger(campaign.npc_ledger_path)
+    candidates = read_candidates(campaign)
 
     where = where_section(graph, world, scene, material_of)
     where["clock"] = clock_section(graph, world)
@@ -481,14 +590,14 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
         return [str(c) for c in conditions or []]
 
     director = director_section(director_graph, ontology, graph, world, scene, turn, party, present_nodes, records, session,
-                                clock_near_full=near_full, memory_rows=read_candidates(campaign),
+                                clock_near_full=near_full, memory_rows=candidates,
                                 conditions_of=conditions_of,
                                 sanity_of=lambda sheet: sanity_snapshot(campaign.dir, str(sheet.get("id"))))
     style = craft.style_section(language=language, register=register, beat=director["beat"], full=style_full)
 
     sections: dict[str, Any] = {
         "where": where,
-        "present": present_section(graph, world, scene),
+        "present": present_section(graph, world, scene, ledger, candidates),
         "known": known_section(graph, world, scene, party),
         "pressures": pressures,
         "obligations": obligations,
@@ -546,27 +655,43 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
 
 # ---- single-entity views ------------------------------------------------------
 
-def npc_view(graph: ModuleGraph, world: dict[str, Any], node: dict[str, Any]) -> dict[str, Any]:
-    record = record_of(node)
+def npc_view(graph: ModuleGraph, world: dict[str, Any], node: dict[str, Any],
+             ledger: dict[str, Any] | None = None) -> dict[str, Any]:
+    """§17.4 `look focus=<npc>`: everything, where the capsule's `present` entry carries
+    only what fits — the whole dossier, every claim line, every tie, and the ledger row as
+    it stands. Keeper-only, like the capsule it mirrors."""
     handle = graph.handle(node)
     view: dict[str, Any] = {
         "kind": "npc",
         "name": graph.display_name(node),
         "id": handle,
+        "node_id": node["node_id"],
         "scene": (world.get("npc_presence") or {}).get(handle),
         "summary": node.get("summary"),
         "visibility": node.get("visibility"),
     }
+    view.update({field: value for key, field in (("relationship_to_investigators", "role"),
+                                                 ("agenda", "wants"), ("fear", "fears"),
+                                                 ("secret", "hides"), ("voice", "voice"))
+                 if (value := graph.npc_profile(node).get(key))})
+    discovered = set(world.get("discovered_clues") or [])
+    knows = [{"clue": entry["handle"], "summary": entry["node"].get("summary") or entry["node"].get("name"),
+              "discovered": entry["handle"] in discovered} for entry in graph.npc_knows(node)]
+    if knows:
+        view["knows"] = knows
+    for predicate, field in ((BELIEVES, "believes"), (ASSERTS, "would_lie_about"), (HIDES, "hides_claims")):
+        lines = graph.npc_claim_lines(node, predicate)
+        if lines:
+            view[field] = lines
+    ties = graph.npc_ties(node)
+    if ties:
+        view["ties"] = [{"kind": tie["kind"], "to": tie["to"], "kind_of": tie["node"]["node_kind"]} for tie in ties]
+    view["ledger"] = (ledger or {}).get(node["node_id"])
+    record = record_of(node)
     if record:
         view.update({
-            "agenda": record.get("agenda"),
-            "fear": record.get("fear"),
-            "secret": record.get("secret"),
-            "voice": record.get("voice"),
-            "relationship": record.get("relationship_to_investigators"),
             "keeper_note": record.get("keeper_note"),
             "social_role": record.get("social_role"),
-            "known_facts": known_facts(graph, world, record),
             "deflect_options": record.get("deflect_options") or [],
             "lie_options": record.get("lie_options") or [],
             "availability": record.get("availability"),

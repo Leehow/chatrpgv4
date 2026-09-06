@@ -34,6 +34,8 @@ EVENT_TYPES = frozenset({
     "flag-set",
     "note-written",
     "ruling-made",
+    # §17.3 (#29): a person moved on or off the stage, or the keeper set where they stand
+    "npc-changed",
 })
 
 

@@ -19,9 +19,10 @@ from .director import DirectorGraph, director_adoption
 from .errors import RpcError, invalid_params, not_implemented
 from .events import append_event
 from .facts import committed_facts, keeper_only_facts, language_of
-from .fileio import append_jsonl, file_size, read_json, truncate_file
+from .fileio import append_jsonl, file_size, read_json, read_jsonl, truncate_file
 from .module_graph import NPC_KIND, ModuleGraph, record_of
 from .ontology import Ontology, ontology_not_ready
+from . import npc as npc_lane
 from .render import check_numbers, mechanics, render_choice
 from .resolve import ResolvePipeline
 from .rules import RuleTables
@@ -39,9 +40,14 @@ from .text import ascii_slug, normalize, slugify
 INTENTS = frozenset({"investigate", "social", "move", "combat", "flee", "cast", "idle", "meta",
                      "stuck", "ambiguous", "montage"})
 NONE_INTENTS = frozenset({"idle", "meta", "stuck", "ambiguous"})
-APPLY_KINDS = frozenset({"move", "clue", "time", "damage", "handout", "item", "cash", "flag", "note", "ruling"})
-#: `npc` belongs to §17 (#29); §18 (#27) made flag, note and ruling live.
-APPLY_RESERVED = frozenset({"npc"})
+APPLY_KINDS = frozenset({"move", "clue", "time", "damage", "handout", "item", "cash", "flag", "note", "ruling",
+                         "npc"})
+#: §17 (#29) made `npc` live; §18 (#27) made flag, note and ruling live. Nothing is reserved.
+APPLY_RESERVED: frozenset[str] = frozenset()
+#: §17.3: where `apply npc to` may put someone, next to a scene name.
+NPC_HERE, NPC_AWAY = "here", "away"
+#: §17.3: the relations that say an NPC is the one who hands a clue over.
+CLUE_SOURCE_RELATIONS = ("held-by", "delivered-by")
 #: #19: the sheet fields `apply item` / `apply cash` own; a staged sheet is committed by
 #: overlaying only these onto the file, so a `damage` effect in the same batch (which
 #: mirrors HP straight onto the sheet) is never clobbered.
@@ -67,6 +73,13 @@ SUPPORTED_LANGUAGES = ("zh-Hans", "en")
 #: never make a situation.
 SITUATION_FACT_PREFIXES = ("actor.", "time.", "sanity.", "chase.", "development.", "clock.", "subsystem.")
 COMMIT_SUBJECT_CHARS = 60
+
+
+def _receipt_id_for_npc(handle: str, turn_number: int, ordinal: int, mint: Any) -> str:
+    """§17.3: `npc:<slug>-t<n>-c<k>`, falling back to the bare turn form when the handle
+    carries no Latin slug (§16: ids are machine-face ASCII); the name rides in the receipt."""
+    slug = ascii_slug(handle)
+    return mint(f"npc:{slug}-t{turn_number}-c{ordinal}" if slug else f"npc:t{turn_number}-c{ordinal}")
 
 
 def _str(params: dict[str, Any], key: str, *, required: bool = True, default: str | None = None) -> str | None:
@@ -127,6 +140,7 @@ class Table:
         self._style_first_turn: dict[str, int] = {}
         #: §13.3, §13.4, §13.6: the content graphs, loaded once and failing closed.
         self._director: DirectorGraph | None = None
+        self._stance_table: npc_lane.StanceTable | None = None
         self._craft: TextGraph | None = None
         self._ontology: Ontology | None = None
         self._ontology_checked = False
@@ -225,6 +239,13 @@ class Table:
         if self._director is None:
             self._director = DirectorGraph(self.content / "director")
         return self._director
+
+    @property
+    def stance_table(self) -> npc_lane.StanceTable:
+        """§17.3: the closed table the NPC ledger's stance moves by; loaded once per process."""
+        if self._stance_table is None:
+            self._stance_table = npc_lane.StanceTable(self.tables)
+        return self._stance_table
 
     @property
     def craft(self) -> TextGraph:
@@ -452,6 +473,11 @@ class Table:
         party = campaign.party()
         # §14.6: the opening scene's section (and its neighbours') go on the deepen queue.
         self._enqueue_deepen(graph, graph.scene(world["active_scene"]), "opening")
+        # §17.3: a campaign that predates the NPC ledger — or one whose file was lost — gets
+        # it back by replaying the closed turns and the memory candidates. Never on every
+        # open: the file on disk is the state, and only its absence triggers a rebuild.
+        if not campaign.npc_ledger_path.exists():
+            self._rebuild_ledger(campaign, graph)
         # §12.2: the checkpoint follows HEAD; a lost turn.json is rebuilt from it.
         checkpoint, rebuilt = continuation.sync_checkpoint(campaign,
                                                            self._snapshot(campaign, graph, world, party))
@@ -523,9 +549,9 @@ class Table:
             return self._scene_view(campaign, graph, world, turn, scene)
         if focus == "npc":
             if name is None:
-                return {"present": present_section(graph, world, scene)}
+                return {"present": self._present(campaign, graph, world, scene)}
             node = graph.npc(_str({"name": name}, "name"))
-            return npc_view(graph, world, node)
+            return npc_view(graph, world, node, npc_lane.read_ledger(campaign.npc_ledger_path))
         if focus == "investigator":
             return investigator_view(self._actor(campaign, name))
         if focus == "clues":
@@ -626,7 +652,7 @@ class Table:
         where = where_section(graph, world, scene, self.material_of(graph.module_id))
         where["situations"] = self._situations(campaign, graph, world, turn)
         where["session"] = SessionView(campaign.dir, graph, campaign.party(), world).active_session()
-        return {"where": where, "present": present_section(graph, world, scene)}
+        return {"where": where, "present": self._present(campaign, graph, world, scene)}
 
     def _situations(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any],
                     turn: dict[str, Any]) -> list[dict[str, Any]]:
@@ -998,6 +1024,8 @@ class Table:
                 elif kind == "ruling":
                     receipt, event = self._stage_ruling(campaign, graph, staged, effect, turn_number, ordinal, call_id,
                                                         mint, staged_rulings)
+                elif kind == "npc":
+                    receipt, event = self._stage_npc(graph, staged, effect, turn_number, ordinal, call_id, mint)
                 else:
                     time_effects += 1
                     receipt, event = self._stage_time(staged, effect, turn_number, ordinal, call_id, time_effects)
@@ -1118,13 +1146,66 @@ class Table:
                                     "clues_here": [graph.handle(graph.nodes[c]) for c in here]})
         how = effect.get("how") if isinstance(effect.get("how"), str) else None
         label = effect.get("label") if isinstance(effect.get("label"), str) and effect.get("label").strip() else None
+        source = self._clue_source(graph, world, scene, node, effect.get("from"))
         receipt = {"id": f"clue:{handle}-t{turn_number}", "kind": "clue", "call_id": call_id,
                    "clue": handle, "label": label or handle, "summary": node.get("summary") or node.get("name"),
-                   "scene": graph.handle(scene), "how": how, "at": now_iso()}
+                   "scene": graph.handle(scene), "how": how, "from": source, "at": now_iso()}
         if handle in world.setdefault("discovered_clues", []):
             return receipt, None
         world["discovered_clues"].append(handle)
         return receipt, ("clue-discovered", {"clue": handle, "scene": receipt["scene"], "how": how})
+
+    @staticmethod
+    def _clue_source(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any],
+                     node: dict[str, Any], given: Any) -> str | None:
+        """§17.3 `disclosed`: who handed this clue over. The keeper's `from` wins; otherwise
+        the graph fills it in only when it is unambiguous — the clue is `held-by` /
+        `delivered-by` exactly one NPC who is present. Two candidates means the machine does
+        not choose, and the clue is simply not credited to anyone."""
+        if isinstance(given, str) and given.strip():
+            return graph.handle(graph.npc(given))
+        here = {graph.handle(n) for n in npcs_present(graph, world, scene)}
+        holders = {graph.handle(other) for rel in graph.in_rel.get(node["node_id"], [])
+                   if rel["relation_kind"] in CLUE_SOURCE_RELATIONS
+                   and (other := graph.nodes.get(rel["from_node_id"])) is not None
+                   and other["node_kind"] == NPC_KIND}
+        candidates = sorted(holders & here)
+        return candidates[0] if len(candidates) == 1 else None
+
+    def _stage_npc(self, graph: ModuleGraph, world: dict[str, Any], effect: dict[str, Any], turn_number: int,
+                   ordinal: int, call_id: str, mint: Any) -> tuple[dict[str, Any], tuple[str, dict[str, Any]]]:
+        """§17.3 (with #25): move a person on or off the stage, and record the keeper's own
+        reading of where they stand with the party. `to` is a scene name, `here` for the
+        active scene, or `away` to take them off it; `stance` is one of the ledger's four
+        words. At least one of the two, or there is nothing to apply."""
+        node = graph.npc(_str(effect, "name"))
+        handle = graph.handle(node)
+        to = effect.get("to")
+        stance = effect.get("stance")
+        why = effect.get("why") if isinstance(effect.get("why"), str) and effect["why"].strip() else None
+        if to is None and stance is None:
+            raise invalid_params("an npc effect needs `to`, `stance`, or both",
+                                 fix=f"move them with to: {NPC_HERE}/{NPC_AWAY}/<scene>, "
+                                     f"or set stance to one of {self.stance_table.words}")
+        presence = world.setdefault("npc_presence", {})
+        moved_to: str | None = None
+        if to is not None:
+            if not isinstance(to, str) or not to.strip():
+                raise invalid_params("npc.to must be a scene name, 'here' or 'away'")
+            if to.strip() == NPC_AWAY:
+                presence.pop(handle, None)
+                moved_to = NPC_AWAY
+            else:
+                scene = graph.scene(world["active_scene"]) if to.strip() == NPC_HERE else graph.scene(to)
+                moved_to = graph.handle(scene)
+                presence[handle] = moved_to
+        if stance is not None and (not isinstance(stance, str) or stance not in self.stance_table.words):
+            raise invalid_params(f"npc.stance {stance!r} is not one of the ledger's words",
+                                 fix=f"one of {self.stance_table.words}")
+        receipt = {"id": _receipt_id_for_npc(handle, turn_number, ordinal, mint), "kind": "npc", "call_id": call_id,
+                   "npc": node["node_id"], "handle": handle, "name": graph.display_name(node),
+                   "to": moved_to, "stance": stance, "why": why, "at": now_iso()}
+        return receipt, ("npc-changed", {"npc": handle, "to": moved_to, "stance": stance, "why": why})
 
     def _stage_damage(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any], turn: dict[str, Any],
                       effect: dict[str, Any], call_id: str, ordinal: int) -> tuple[list[dict[str, Any]], tuple[str, dict[str, Any]]]:
@@ -1510,7 +1591,7 @@ class Table:
         turn["state"] = "asked"
         Campaign.remember_call(turn, call_id, params, result)
         snapshot = self._snapshot(campaign, graph, world, campaign.party())
-        campaign.write_turn_record({
+        record = {
             "turn": turn_number, "player_text": turn.get("player_text"), "receipts": receipts,
             "text": text or prompt, "rendered_text": rendered, "mechanics": projected, "calls": turn.get("calls", {}),
             "commit": None,
@@ -1518,7 +1599,9 @@ class Table:
             "pending_choice": pending, "world": snapshot,
             "capsule": turn.get("capsule"), "intents": list(turn.get("intents") or []),
             "director_adoption": self._adoption(campaign, graph, turn, snapshot, closed_by="ask"),
-        })
+        }
+        campaign.write_turn_record(record)
+        self._update_ledger(campaign, graph, record)
         campaign.write_turn(turn)
         campaign.append_transcript(turn_number, "keeper", rendered)
         append_event(campaign, turn_number, "choice-asked",
@@ -1568,6 +1651,7 @@ class Table:
             "director_adoption": self._adoption(campaign, graph, turn, snapshot, closed_by="narrate"),
         }
         campaign.write_turn_record(record)
+        self._update_ledger(campaign, graph, record)
         campaign.append_transcript(turn_number, "keeper", rendered)
         append_event(campaign, turn_number, "turn-finalized",
                      {"receipts": [r["id"] for r in receipts]},
@@ -1590,6 +1674,67 @@ class Table:
         campaign.write_turn_record(record)
         self._after_commit(campaign, record, snapshot)
         return {**result, "commit": sha}
+
+    # ---- the NPC ledger (§17.3) ---------------------------------------------
+
+    def _present(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any],
+                 scene: dict[str, Any]) -> list[dict[str, Any]]:
+        """§17.4: the people in the room, dossier and ledger together — the same projection
+        the capsule carries, so `look` and the capsule never disagree."""
+        from .memory import read_candidates
+        return present_section(graph, world, scene, npc_lane.read_ledger(campaign.npc_ledger_path),
+                               read_candidates(campaign))
+
+
+
+    @staticmethod
+    def _npc_id_resolver(graph: ModuleGraph) -> Any:
+        """Whatever a receipt or a snapshot calls a person — a node id, a handle, a display
+        name — mapped to the node id the ledger is keyed by. Nothing else is an NPC."""
+        cache: dict[str, str | None] = {}
+
+        def resolve(value: Any) -> str | None:
+            if not isinstance(value, str) or not value.strip():
+                return None
+            if value not in cache:
+                node = graph.nodes.get(value) or graph.find(value, (NPC_KIND,))
+                cache[value] = node["node_id"] if node and node["node_kind"] == NPC_KIND else None
+            return cache[value]
+
+        return resolve
+
+    def _fold_turn(self, graph: ModuleGraph, ledger: dict[str, Any], record: dict[str, Any]) -> None:
+        """One closed turn's receipts and world snapshot, folded in. Used both when the turn
+        closes and when the ledger is rebuilt from the records (§12.6, §17.3)."""
+        turn_number = int(record["turn"])
+        npc_id_of = self._npc_id_resolver(graph)
+        npc_lane.apply_receipts(ledger, record.get("receipts") or [], turn=turn_number,
+                                table=self.stance_table, npc_id_of=npc_id_of)
+        present = [npc_id for name in ((record.get("world") or {}).get("present") or [])
+                   if (npc_id := npc_id_of(name))]
+        npc_lane.note_present(ledger, present, turn_number)
+
+    def _update_ledger(self, campaign: Campaign, graph: ModuleGraph, record: dict[str, Any]) -> None:
+        ledger = npc_lane.read_ledger(campaign.npc_ledger_path)
+        self._fold_turn(graph, ledger, record)
+        npc_lane.write_ledger(campaign.npc_ledger_path, ledger)
+
+    def _rebuild_ledger(self, campaign: Campaign, graph: ModuleGraph) -> dict[str, Any]:
+        """§17.3: the ledger is a fold over the closed turns and the memory candidates, so a
+        campaign that predates this slice — or one whose file was lost — gets it back by
+        replaying them in order. Nothing is read from prose."""
+        ledger: dict[str, Any] = {}
+        for path in sorted(campaign.turns_dir.glob("*.json")):
+            try:
+                record = read_json(path)
+            except (OSError, ValueError):
+                continue
+            if isinstance(record, dict) and isinstance(record.get("turn"), int):
+                self._fold_turn(graph, ledger, record)
+        npc_lane.note_memory(ledger, read_jsonl(campaign.candidates_path),
+                             npc_id_of=self._npc_id_resolver(graph))
+        npc_lane.write_ledger(campaign.npc_ledger_path, ledger)
+        return ledger
 
     def _adoption(self, campaign: Campaign, graph: ModuleGraph, turn: dict[str, Any], snapshot: dict[str, Any], *,
                   closed_by: str) -> dict[str, Any] | None:
@@ -1672,10 +1817,23 @@ class Table:
         result, replayed = memory.submit(campaign, graph, campaign.party(), job, params.get("candidates"))
         if replayed:
             return {**result, "replayed": True}
+        self._ledger_note_memory(campaign, graph, set(result.get("written") or []))
         append_event(campaign, turn, "memory-written",
                      {"job_id": result["job_id"], "turn": turn, "candidates": result["candidates"],
                       "superseded": len(result["superseded"])})
         return result
+
+    def _ledger_note_memory(self, campaign: Campaign, graph: ModuleGraph, written: set[str]) -> None:
+        """§17.3: the promises and the said, referenced by memory id. The ledger keeps no
+        copy of the statement — the memory layer owns supersession and closure (§13.5)."""
+        if not written:
+            return
+        rows = [row for row in read_jsonl(campaign.candidates_path) if str(row.get("id")) in written]
+        if not rows:
+            return
+        ledger = npc_lane.read_ledger(campaign.npc_ledger_path)
+        npc_lane.note_memory(ledger, rows, npc_id_of=self._npc_id_resolver(graph))
+        npc_lane.write_ledger(campaign.npc_ledger_path, ledger)
 
     def memory_fail(self, params: dict[str, Any]) -> dict[str, Any]:
         campaign, meta, graph, world = self._load(params)

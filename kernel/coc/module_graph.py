@@ -19,6 +19,17 @@ SCENE_KIND = "scene"
 CLUE_KIND = "clue"
 NPC_KIND = "npc"
 INVESTIGATOR_TEMPLATE_KIND = "investigator-template"
+#: §17.2: the authored dossier keys a `npc` node carries as first-class properties. A
+#: starter projected before #29 keeps them under `runtime_projection.record`; `npc_profile`
+#: reads the first-class key first and falls back, so a compiled campaign is never rebuilt.
+PROFILE_KEYS = ("agenda", "fear", "secret", "voice", "relationship_to_investigators")
+#: §17.2: what an NPC knows, believes, would say and hides — claim predicates of contract
+#: v3, subject the NPC. No new predicate is invented here.
+KNOWS, BELIEVES, ASSERTS, HIDES = "knows", "believes", "asserts", "hides"
+DOSSIER_PREDICATES = (KNOWS, BELIEVES, ASSERTS, HIDES)
+#: §17.2: who an NPC stands with and against, in the vocabulary the graph already has.
+TIE_RELATION_KINDS = ("allied-with", "opposes", "member-of", "controls", "owns", "possesses",
+                      "worships", "threatens", "impersonates", "located-in")
 #: relation kinds that carry the party from one scene to the next: `route-to` (a road) and
 #: the play-order kinds the playability template calls entrances. A built book links its
 #: scenes by play order far more often than by roads; both are exits at the table.
@@ -141,6 +152,12 @@ class ModuleGraph:
         for node in self.raw["nodes"]:
             for key in self._name_keys(node):
                 self._names[normalize(key)].add(node["node_id"])
+        #: §17.2: claims indexed by subject, so an NPC's dossier is one lookup. Claims the
+        #: graph carries but no node backs are kept: the subject index only holds ids.
+        self.claims_by_subject: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for claim in self.raw.get("claims", []):
+            if isinstance(claim, dict) and isinstance(claim.get("subject_id"), str):
+                self.claims_by_subject[claim["subject_id"]].append(claim)
         module_nodes = self.by_kind.get("module") or []
         self.module_node = module_nodes[0] if module_nodes else None
 
@@ -359,6 +376,104 @@ class ModuleGraph:
 
     def npc(self, name: str) -> dict[str, Any]:
         return self.resolve(name, (NPC_KIND,), what="npc")
+
+    # ---- the authored dossier (§17.2) -------------------------------------
+
+    def npc_profile(self, node: dict[str, Any]) -> dict[str, Any]:
+        """What the book says this person wants, fears, hides, sounds like and is to the
+        investigators. First-class `properties` win; a starter compiled before #29 keeps the
+        same keys under `runtime_projection.record`, and an already-compiled campaign is read,
+        never rebuilt. A key the book did not give is absent, never invented."""
+        props = node.get("properties") or {}
+        record = record_of(node)
+        profile: dict[str, Any] = {}
+        for key in PROFILE_KEYS:
+            value = props.get(key)
+            if not (isinstance(value, str) and value.strip()):
+                value = record.get(key)
+            if isinstance(value, str) and value.strip():
+                profile[key] = value.strip()
+        return profile
+
+    def npc_claims(self, node: dict[str, Any], predicate: str) -> list[dict[str, Any]]:
+        """The claims with this NPC as subject and this predicate, in graph order."""
+        return [c for c in self.claims_by_subject.get(node["node_id"], [])
+                if c.get("predicate") == predicate]
+
+    def npc_knows(self, node: dict[str, Any]) -> list[dict[str, Any]]:
+        """What the book says this person knows: `knows` claims whose object is a node,
+        plus the starter's `facts[].clue_id` projection. Each entry is `{node, handle}`;
+        whether the table has found it is the caller's business (the world, not the graph)."""
+        seen: set[str] = set()
+        out: list[dict[str, Any]] = []
+        for claim in self.npc_claims(node, KNOWS):
+            target_id = (claim.get("object") or {}).get("node_id") if isinstance(claim.get("object"), dict) else None
+            target = self.nodes.get(target_id) if isinstance(target_id, str) else None
+            if target and target["node_id"] not in seen:
+                seen.add(target["node_id"])
+                out.append({"node": target, "handle": self.handle(target)})
+        for fact in record_of(node).get("facts") or []:
+            target = self.nodes.get(fact.get("clue_id")) if isinstance(fact.get("clue_id"), str) else None
+            if target and target["node_id"] not in seen:
+                seen.add(target["node_id"])
+                out.append({"node": target, "handle": self.handle(target)})
+        return out
+
+    def npc_claim_lines(self, node: dict[str, Any], predicate: str) -> list[str]:
+        """One short line per claim, copied from the graph and never rewritten: the object
+        node's summary or name, else the claim's own `statement`."""
+        lines: list[str] = []
+        for claim in self.npc_claims(node, predicate):
+            obj = claim.get("object") if isinstance(claim.get("object"), dict) else {}
+            target = self.nodes.get(obj.get("node_id")) if isinstance(obj.get("node_id"), str) else None
+            line = None
+            if target:
+                line = target.get("summary") or target.get("name")
+            for key in ("statement", "text", "value"):
+                if not (isinstance(line, str) and line.strip()) and isinstance(obj.get(key), str):
+                    line = obj[key]
+            if not (isinstance(line, str) and line.strip()) and isinstance(claim.get("statement"), str):
+                line = claim["statement"]
+            if isinstance(line, str) and line.strip():
+                lines.append(line.strip())
+        return lines
+
+    def npc_ties(self, node: dict[str, Any]) -> list[dict[str, Any]]:
+        """Who this person stands with and against: the tie relations either way round,
+        deduplicated by (kind, other node), in graph order."""
+        ties: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for rel, other_key in ((r, "to_node_id") for r in self.out_rel.get(node["node_id"], [])):
+            self._add_tie(ties, seen, rel, rel.get(other_key))
+        for rel in self.in_rel.get(node["node_id"], []):
+            self._add_tie(ties, seen, rel, rel.get("from_node_id"))
+        return ties
+
+    def _add_tie(self, ties: list[dict[str, Any]], seen: set[tuple[str, str]],
+                 rel: dict[str, Any], other_id: Any) -> None:
+        kind = rel.get("relation_kind")
+        if kind not in TIE_RELATION_KINDS or not isinstance(other_id, str):
+            return
+        other = self.nodes.get(other_id)
+        if not other or (kind, other_id) in seen:
+            return
+        seen.add((kind, other_id))
+        ties.append({"kind": kind, "to": self.display_name(other), "node": other})
+
+    def npcs_knowing(self, node: dict[str, Any]) -> list[str]:
+        """§17.2 `known_by_ids`, computed rather than stored: the NPC ids whose `knows`
+        claims point at this node. The graph's own `known_by_ids` is left as authored."""
+        knowers: list[str] = []
+        for npc in self.by_kind.get(NPC_KIND, []):
+            if any(entry["node"]["node_id"] == node["node_id"] for entry in self.npc_knows(npc)):
+                knowers.append(npc["node_id"])
+        return knowers
+
+    def npc_has_material(self, node: dict[str, Any]) -> bool:
+        """§17.2 / §14.3: whether the book gave this person anything to play — a dossier key
+        or one dossier claim. Reported by the brief, never enforced."""
+        return bool(self.npc_profile(node)) or any(self.npc_claims(node, p) for p in DOSSIER_PREDICATES) \
+            or bool(record_of(node).get("facts"))
 
     # ---- search -----------------------------------------------------------
 

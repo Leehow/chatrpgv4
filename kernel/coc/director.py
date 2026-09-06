@@ -457,7 +457,9 @@ def signals(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any], tu
         "structure_type": structure_type_of(graph),
         "intent": intent_of_record(previous),
         "undiscovered_here": int(undiscovered_here),
-        "agenda_npc_present": sum(1 for n in present if str(record_of(n).get("agenda") or "").strip()),
+        # §17.4: the same dossier read the capsule uses, so a built book's NPCs count too —
+        # the starter's projection and the first-class property are one reading now.
+        "agenda_npc_present": sum(1 for n in present if graph.npc_profile(n).get("agenda")),
         "dramatic_question": bool(record_of(scene).get("dramatic_question")),
         "exit_condition_met": exit_condition_met(scene, world),
         "main_line_complete": main_line_complete(graph, world),

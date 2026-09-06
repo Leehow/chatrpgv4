@@ -122,6 +122,8 @@ class Campaign:
         #: §14.8: a text handout is materialized here so the attachment is a file path.
         self.handouts_dir = self.dir / "handouts"
         #: §18: the keeper's two append-only ledgers -- continuity debt and table rulings.
+        #: §17.3: the NPC ledger, committed with the world it belongs to.
+        self.npc_ledger_path = self.dir / "npc-ledger.json"
         self.notes_path = self.dir / "notes.jsonl"
         self.rulings_path = self.dir / "rulings.jsonl"
 

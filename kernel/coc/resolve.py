@@ -996,11 +996,31 @@ class ResolvePipeline:
         envelope = self._settle(ctx, runtime, adapter, chosen_ref, chosen, resolver, npc, target_investigator, source)
         self._record_ticks(ctx)
         shaped = self._shape(ctx, runtime, chosen, envelope)
+        self._tag_npc_receipts(ctx, family, npc, shaped.get("outcome") or {})
         if decision_source is not None:
             shaped["decision_source"] = decision_source
         if chosen_ref == COMBAT_FLEE_REF and (shaped["outcome"].get("combat_outcome") == "fled"):
             self._continue_into_chase(ctx, adapter, resolver, shaped)
         return shaped
+
+    def _tag_npc_receipts(self, ctx: SettleContext, family: str, npc: dict[str, Any] | None,
+                          outcome: dict[str, Any]) -> None:
+        """§17.3: name, on the receipts themselves, which family settled and which person it
+        was settled against, so the NPC ledger is a fold over receipts and nothing else. The
+        keeper is never asked for this: it is what `resolve` already resolved."""
+        against = self.graph.handle(npc) if npc else None
+        if against is None and isinstance(outcome.get("npc"), str):
+            node = self.graph.find(outcome["npc"], (NPC_KIND,))
+            against = self.graph.handle(node) if node else None
+        approach = outcome.get("approach") if isinstance(outcome.get("approach"), str) else None
+        for receipt in ctx.receipts:
+            if receipt.get("kind") != "roll":
+                continue
+            receipt.setdefault("family", family)
+            if against and receipt.get("actor") != against:
+                receipt.setdefault("npc", against)
+            if approach:
+                receipt.setdefault("approach", approach)
 
     def _director_grounding(self) -> tuple[str | None, set[str]]:
         """The decisions the capsule's `director.grounded_by` named this turn, as full refs.
