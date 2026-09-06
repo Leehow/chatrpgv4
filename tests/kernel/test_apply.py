@@ -143,8 +143,12 @@ def test_batch_is_atomic(kernel):
 def test_reserved_and_unknown_effect_kinds(kernel):
     open_turn(kernel)
     reserved = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 1},
-                                                                    {"kind": "handout", "name": "x"}])
+                                                                    {"kind": "item", "name": "x"}])
     assert reserved["code"] == "not_implemented" and reserved["details"]["index"] == 1
+    # §14.8: handout is live now; an unknown card is unknown_entity, and the batch still does not write
+    unknown = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 1},
+                                                                   {"kind": "handout", "name": "x"}])
+    assert unknown["code"] == "unknown_entity" and unknown["details"]["index"] == 1
     assert world(kernel)["clock"] == {"minutes": 0}
     assert kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "teleport"}])["code"] == "invalid_params"
     assert kernel.table_err("apply", call_id="t1-c1", effects=[])["code"] == "invalid_params"

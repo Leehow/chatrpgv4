@@ -1,0 +1,790 @@
+{
+  "conclusions": [
+    {
+      "conclusion_id": "corbitt-house-documentary-history",
+      "importance": "supporting",
+      "minimum_routes": 3,
+      "origin": "source",
+      "description": "Central Library records establish the house's construction, Ke's long and hostile tenure, and the unresolved litigation over his burial.",
+      "fallback_policy": "The investigators may retry Central Library research in half-day increments; a failed Library Use roll costs time but does not exhaust the archive.",
+      "clues": [
+        {
+          "clue_id": "clue-house-built-1835",
+          "delivery": "Central Library Handout 3",
+          "delivery_kind": "skill_check",
+          "presentation_kind": "handout",
+          "handout_number": 3,
+          "skill": "Library Use",
+          "difficulty": "regular",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "In 1835, a prosperous merchant built the house, immediately fell ill, and sold it to Calvin Crowe, Esquire.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 437,
+              "grep_anchor": "In 1835, a prosperous merchant builds the house"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-neighbor-lawsuit-1852",
+          "delivery": "Central Library Handout 4",
+          "delivery_kind": "skill_check",
+          "presentation_kind": "handout",
+          "handout_number": 4,
+          "skill": "Library Use",
+          "difficulty": "regular",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "In 1852, Ke's neighbors sued to force him out because of his strange habits and inauspicious demeanor.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 437,
+              "grep_anchor": "In 1852, Calvin Crowe is sued by neighbours"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-second-lawsuit-outcome-unrecorded",
+          "delivery": "Central Library Handout 6",
+          "delivery_kind": "skill_check",
+          "presentation_kind": "handout",
+          "handout_number": 6,
+          "skill": "Library Use",
+          "difficulty": "regular",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "No outcome of the second lawsuit over Ke's requested basement burial is recorded.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 437,
+              "grep_anchor": "No outcome to the second lawsuit is recorded"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "conclusion_id": "corbitt-buried-in-basement",
+      "importance": "critical",
+      "minimum_routes": 3,
+      "origin": "source",
+      "description": "Calvin Crowe's body was interred in the house basement per his will; his mind still haunts from there.",
+      "fallback_policy": "RECOVER: if all research missed, the chapel journal entry under the ruined cabinet (or the diaries' burial hints) still points below.",
+      "clues": [
+        {
+          "clue_id": "clue-basement-burial-lawsuit",
+          "delivery": "Central Library Handout 5",
+          "delivery_kind": "skill_check",
+          "presentation_kind": "handout",
+          "handout_number": 5,
+          "skill": "Library Use",
+          "difficulty": "regular",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "An 1866 obituary notes a lawsuit to stop Ke being buried in his own basement as his will required.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 437,
+              "grep_anchor": "buried in his basement"
+            }
+          ],
+          "affordance": {
+            "target_entities": [
+              "walter-corbitt",
+              "corbitt-house"
+            ],
+            "verbs": [
+              "research",
+              "read",
+              "trace"
+            ],
+            "skills": [
+              "Library Use",
+              "History"
+            ]
+          }
+        },
+        {
+          "clue_id": "clue-will-executor-chapel",
+          "delivery": "Hall of Records Handout 7",
+          "delivery_kind": "skill_check",
+          "presentation_kind": "handout",
+          "handout_number": 7,
+          "skill": "Library Use",
+          "difficulty": "regular",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Ke's will executor was Pastor Michael Thomas of the Chapel of Contemplation — a church later closed in 1912.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 438,
+              "grep_anchor": "Reverend Michael Thomas"
+            }
+          ],
+          "affordance": {
+            "target_entities": [
+              "chapel-of-contemplation",
+              "walter-corbitt"
+            ],
+            "verbs": [
+              "research",
+              "trace"
+            ],
+            "skills": [
+              "Library Use",
+              "Law"
+            ]
+          }
+        },
+        {
+          "clue_id": "clue-chapel-journal-burial",
+          "delivery": "chapel ruins journal (optional side find; also recoverable via records hint)",
+          "delivery_kind": "skill_check",
+          "skill": "Spot Hidden",
+          "difficulty": "regular",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "A moldering cult journal records that Calvin Crowe was buried in his basement 'in accordance with his wishes and with the wishes of that one who waits in the dark'.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 440,
+              "grep_anchor": "buried in the basement of his house"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-chapel-cellar-remains",
+          "delivery": "sealed chapel cellar beneath weakened floorboards",
+          "delivery_kind": "environmental",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "The sealed chapel cellar contains two skeletons in tattered silk robes beside a cabinet; they may have hidden from the police and died in the fire.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 440,
+              "grep_anchor": "two skeletons dressed in tattered silk robes"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-liber-ivonis-tome",
+          "delivery": "worm-eaten Latin tome beneath the chapel cabinet",
+          "delivery_kind": "skill_check",
+          "skill": "Spot Hidden",
+          "difficulty": "regular",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Beside the cult journal lies a huge, damaged, worm-eaten handwritten Latin manuscript; many passages are unreadable.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 440,
+              "grep_anchor": "a copy of the Liber Ivonis"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-crowe-body-found",
+          "delivery": "breaking into the sealed basement lair",
+          "delivery_kind": "obvious",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Behind the boards lies a wizened, seemingly dead figure on a pallet — saucer eyes, knife-blade nose, a chain at the throat, and a sweet rotten-corn reek.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 445,
+              "grep_anchor": "Lying motionless"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "conclusion_id": "house-haunted-by-corbitt",
+      "importance": "critical",
+      "minimum_routes": 3,
+      "origin": "source",
+      "description": "The Crowe House's tragedies are caused by Ke's lingering will — not mere bad luck or a conventional ghost story.",
+      "fallback_policy": "RECOVER: upstairs poltergeist phenomena make the haunting undeniable even if research was skipped.",
+      "clues": [
+        {
+          "clue_id": "clue-globe-unpublished-story",
+          "delivery": "Boston Globe clippings morgue",
+          "delivery_kind": "handout",
+          "handout_asset_id": "handout-globe-unpublished-1918",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "An unpublished 1918 feature lists prior tenants ruined by accidents, illness, and suicide; the Costas fled under mysterious circumstances.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 437,
+              "grep_anchor": "Unpublished Story"
+            }
+          ],
+          "affordance": {
+            "target_entities": [
+              "corbitt-house",
+              "macario-family"
+            ],
+            "verbs": [
+              "research",
+              "read"
+            ],
+            "skills": [
+              "Library Use",
+              "Persuade"
+            ]
+          }
+        },
+        {
+          "clue_id": "clue-dooley-macario-madness",
+          "delivery": "neighborhood gossip",
+          "delivery_kind": "npc_dialogue",
+          "source_npc_ids": [
+            "npc-dooley"
+          ],
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Dooley says the Ma father went violently mad after an accident, babbling about a haunting form with burning eyes; Mrs. Ma followed him into Roxbury Sanitarium.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 439,
+              "grep_anchor": "burning eyes"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-gabriela-night-visitor",
+          "delivery": "interview at Roxbury Sanitarium",
+          "delivery_kind": "npc_dialogue",
+          "source_npc_ids": [
+            "npc-maria-costa"
+          ],
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Gabriela describes waking to find 'it' leaning over her; when angry it hurled dishes, and it hated Vittorio most of all.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 439,
+              "grep_anchor": "evil presence"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-poltergeist-bed",
+          "delivery": "spare bedroom attack",
+          "delivery_kind": "environmental",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "In Ke's old room a bed can fly of its own accord hard enough to hurl someone through a window — accompanied by a Mythos reek.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 443,
+              "grep_anchor": "bed fly across the room"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-upstairs-disturbance",
+          "delivery": "listening from the ground floor",
+          "delivery_kind": "environmental",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Thumps and scrapes answer from the upper floor when investigators linger — something wants attention upstairs.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 442,
+              "grep_anchor": "noise might be heard upstairs"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "conclusion_id": "corbitt-is-undead-sorcerer",
+      "importance": "critical",
+      "minimum_routes": 3,
+      "origin": "source",
+      "description": "Ke preserved his identity with Mythos magic and can animate his corpse; he is not a harmless shade.",
+      "fallback_policy": "RECOVER: confrontation itself reveals animation; diaries supply the occult frame if read.",
+      "clues": [
+        {
+          "clue_id": "clue-crowe-diaries",
+          "delivery": "boarded cupboard on the ground floor",
+          "delivery_kind": "environmental",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Three bound diaries of W. Ke describe occult experiments, an unearthly summoning, and a spell to call forth an Opener of Ways.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 442,
+              "grep_anchor": "Ke Diaries"
+            }
+          ],
+          "affordance": {
+            "target_entities": [
+              "walter-corbitt",
+              "diaries"
+            ],
+            "verbs": [
+              "search",
+              "read",
+              "force"
+            ],
+            "skills": [
+              "Spot Hidden",
+              "Occult"
+            ]
+          }
+        },
+        {
+          "clue_id": "clue-police-raid-chapel",
+          "delivery": "higher courts / police file",
+          "delivery_kind": "skill_check",
+          "presentation_kind": "handout",
+          "handout_number": 8,
+          "skill": "Law",
+          "difficulty": "regular",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Handout 8 records a secret 1912 raid prompted by affidavits about missing neighborhood children: three policemen and seventeen cult members died; 54 church members were arrested but only eight held; the autopsies lack real detail and a local official appears to have suppressed the story. Pastor Michael Thomas received forty years on five second-degree-murder counts, escaped in 1917, and fled the state.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 438,
+              "grep_anchor": "The file concerns a secret raid"
+            }
+          ],
+          "affordance": {
+            "target_entities": [
+              "chapel-raid-file",
+              "chapel-of-contemplation"
+            ],
+            "verbs": [
+              "request access",
+              "retrieve",
+              "research"
+            ],
+            "skills": [
+              "Law",
+              "Credit Rating",
+              "Persuade",
+              "Charm",
+              "Fast Talk"
+            ]
+          }
+        },
+        {
+          "clue_id": "clue-chapel-eye-symbol",
+          "delivery": "fresh white symbol on the ruined chapel wall (Handout 9)",
+          "delivery_kind": "obvious",
+          "presentation_kind": "handout",
+          "handout_number": 9,
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "A freshly painted white emblem on the ruined wall forms a staring eye from three Y-shapes; standing near it makes the investigators' foreheads prickle until they move away.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 439,
+              "grep_anchor": "three Y's arranged in a triangle"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-crowe-animates",
+          "delivery": "basement confrontation",
+          "delivery_kind": "obvious",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "The 'corpse' spends Magic Points, wards its flesh, and strikes — it is an undead sorcerer animating its own body.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 435,
+              "grep_anchor": "animate his body after death"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-mythos-reek",
+          "delivery": "when Ke wills a deed upstairs",
+          "delivery_kind": "environmental",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "A horrible smell manifests whenever Ke forces a psychic deed — a sure sign this is no parlor haunting.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 443,
+              "grep_anchor": "horrible smell"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "conclusion_id": "own-dagger-ends-corbitt",
+      "importance": "major",
+      "minimum_routes": 2,
+      "origin": "source",
+      "description": "Ke's own ritual dagger bypasses his spells and can reduce him to ash.",
+      "fallback_policy": "If missed, conventional damage can still grind him down; the dagger is the clean solution.",
+      "clues": [
+        {
+          "clue_id": "clue-rusted-basement-dagger",
+          "delivery": "searching the basement tool pile",
+          "delivery_kind": "environmental",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "A blood-rusted old dagger with an ornate hilt lies among the basement tools.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 444,
+              "grep_anchor": "old knife"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-vittorio-bible-weapon",
+          "delivery": "Vittorio at the sanitarium",
+          "delivery_kind": "npc_dialogue",
+          "source_npc_ids": [
+            "npc-vittorio-costa"
+          ],
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Vittorio points to a bible passage that is not scripture: 'By his own weapon is the devil worsted!'",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 439,
+              "grep_anchor": "By his own weapon"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-ritual-dagger-is-his",
+          "delivery": "finding the floating/rusted knife",
+          "delivery_kind": "environmental",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Marks and residue connect the ornate basement dagger to Ke's rites.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 444,
+              "grep_anchor": "Floating Knife"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-own-dagger-ends-him",
+          "delivery": "successful strike in confrontation",
+          "delivery_kind": "obvious",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Struck with his own dagger, Ke's wards fail and he turns to ashes and dust.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 449,
+              "grep_anchor": "own dagger"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "conclusion_id": "commission-and-research-frame",
+      "importance": "minor",
+      "minimum_routes": 1,
+      "origin": "source",
+      "description": "Crane hired them to clear the house's name; research before entry is wise but not mandatory.",
+      "fallback_policy": "The keys and address are enough to enter; research only deepens survival odds.",
+      "clues": [
+        {
+          "clue_id": "clue-crane-macario-summary",
+          "delivery": "opening briefing",
+          "delivery_kind": "npc_dialogue",
+          "source_npc_ids": [
+            "npc-howard-crane"
+          ],
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Crane says the Costas fled after a frightening breakdown and that the father now remains at Roxbury Sanitarium.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 435,
+              "grep_anchor": "Mas"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-crane-commission",
+          "delivery": "opening briefing",
+          "delivery_kind": "npc_dialogue",
+          "source_npc_ids": [
+            "npc-howard-crane"
+          ],
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Landlord Howard Crane pays $20/day to examine the Crowe House, understand the Ma tragedy, and restore the property's name.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 435,
+              "grep_anchor": "Crane"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-crane-research-leads",
+          "delivery": "opening briefing",
+          "delivery_kind": "npc_dialogue",
+          "source_npc_ids": [
+            "npc-howard-crane"
+          ],
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Crane points them toward the Boston Globe, the Central Library / Hall of Records, and other paper trails before they rush the house.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 435,
+              "grep_anchor": "Boston Globe"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-crane-keys",
+          "delivery": "opening briefing",
+          "delivery_kind": "obvious",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Crane hands over the house keys, the address, and $20 cash in advance.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 435,
+              "grep_anchor": "gives you the keys"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-macario-tragedy",
+          "delivery": "Globe clippings / Crane's summary",
+          "delivery_kind": "handout",
+          "handout_asset_id": "handout-globe-unpublished-1918",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "The Ma family rented in 1918 and left almost immediately under mysterious circumstances; they are now linked to Roxbury Sanitarium.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 437,
+              "grep_anchor": "Mas"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-globe-fire-cutoff",
+          "delivery": "Ruth Blake aside",
+          "delivery_kind": "npc_dialogue",
+          "source_npc_ids": [
+            "npc-ruth-blake"
+          ],
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Globe files go back no further than a fire in 1878 — earlier Crowe House mentions are not here.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 437,
+              "grep_anchor": "fire in 1878"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-chapel-closed-1912",
+          "delivery": "church register",
+          "delivery_kind": "obvious",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "The register of churches notes the Chapel of Contemplation closed in 1912.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 438,
+              "grep_anchor": "closure of the Chapel"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-burning-eyes-form",
+          "delivery": "Dooley / Ma boys",
+          "delivery_kind": "npc_dialogue",
+          "source_npc_ids": [
+            "npc-dooley",
+            "npc-maria-costa"
+          ],
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Witnesses speak of a strange man with burning eyes haunting dreams and mad rants alike.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 439,
+              "grep_anchor": "burning eyes"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-chapel-ruins-location",
+          "delivery": "Dooley directions",
+          "delivery_kind": "npc_dialogue",
+          "source_npc_ids": [
+            "npc-dooley"
+          ],
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Dooley can point out where the Chapel of Contemplation stood a few blocks away — now rubble and painted signs.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 439,
+              "grep_anchor": "Chapel of Contemplation"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-boys-burning-eyes",
+          "delivery": "sanitarium / relatives",
+          "delivery_kind": "npc_dialogue",
+          "source_npc_ids": [
+            "npc-maria-costa"
+          ],
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "The Ma boys had nightmares of a strange man with burning eyes in their former home.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 439,
+              "grep_anchor": "nightmares"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-catholic-wards",
+          "delivery": "living room / bedrooms",
+          "delivery_kind": "environmental",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Unusual quantities of crosses, Virgin images, rosaries and candles litter the Ma rooms — wards against something they feared.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 442,
+              "grep_anchor": "Catholic artifacts"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-nailed-windows",
+          "delivery": "exterior / ground floor check",
+          "delivery_kind": "obvious",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Ground-floor windows are nailed shut from inside; the side door carries three bolts and two locks.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 440,
+              "grep_anchor": "nailed shut"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-blood-pool-manifest",
+          "delivery": "spare bedroom phenomena",
+          "delivery_kind": "environmental",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Ke can form pools of blood on floor, ceiling, or walls to frighten intruders away from his secret.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 443,
+              "grep_anchor": "pool of blood"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-floating-knife",
+          "delivery": "basement tool pile / attack",
+          "delivery_kind": "environmental",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "The old knife lifts without a hand and drives its point at intruders under an unseen will.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 444,
+              "grep_anchor": "knife floats"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-hollow-boards",
+          "delivery": "basement wall inspection",
+          "delivery_kind": "obvious",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Closely fitted boards line the basement; a cursory check reveals hollow spaces behind them.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 444,
+              "grep_anchor": "hollow areas"
+            }
+          ]
+        },
+        {
+          "clue_id": "clue-flesh-ward-active",
+          "delivery": "combat observation",
+          "delivery_kind": "skill_check",
+          "skill": "Occult",
+          "difficulty": "hard",
+          "visibility": "player-safe",
+          "origin": "source",
+          "player_safe_summary": "Blows that should bite seem blunted — Ke has warded his flesh with spent Magic Points.",
+          "source_refs": [
+            {
+              "path": "Call of Cthulhu 7e Keeper Rulebook",
+              "page": 448,
+              "grep_anchor": "Flesh Ward"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

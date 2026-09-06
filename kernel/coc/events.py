@@ -25,6 +25,9 @@ EVENT_TYPES = frozenset({
     "session-changed",
     "choice-asked",
     "memory-written",
+    # slice 4 (§14.7, §14.8): the setup handoff and a handout shown to the player
+    "setup-completed",
+    "handout-shown",
 })
 
 

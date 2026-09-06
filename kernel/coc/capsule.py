@@ -37,11 +37,13 @@ MINUTES_PER_DAY = 24 * 60
 HEAD = {
     "zh-Hans": ("以下是本回合开始时的全部场面：已含时钟、本场景未发现的线索与门槛、在场者的秘密与议程、来路与出口、"
                 "压力与待办、规则层的当前形势、Director 的建议节拍、相关记忆与文风契约。胶囊里有的不必再 look/lookup；"
-                "director 是建议不是台词。"),
+                "director 是建议不是台词。where.material 与出口的 material 说的是书读到哪了：ready 可放心去，"
+                "reading 正在读，missing 那一段没有材料。"),
     "en": ("Everything at the start of this turn: the clock, the undiscovered clues here and their gates, the secrets "
            "and agendas of those present, the way back and the exits, pressures and obligations, the rule-layer "
            "situations, the Director's suggested beat, related memory and the style contract. Do not look/lookup "
-           "for what is already here; director is advice, not lines."),
+           "for what is already here; director is advice, not lines. where.material and each exit's material say how "
+           "far the book has been read: ready, reading, or missing."),
 }
 ELAPSED = {"zh-Hans": "{hours} 小时 {minutes} 分钟", "en": "{hours} h {minutes} min"}
 #: Day parts by hour of day, only when the module declares a start time (§13.1).
@@ -86,8 +88,12 @@ def clock_section(graph: ModuleGraph, world: dict[str, Any], language: str) -> d
     return clock
 
 
-def where_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any]) -> dict[str, Any]:
+def where_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any],
+                  material_of: Callable[[str], str] | None = None) -> dict[str, Any]:
+    """`material_of(scene_handle)` is the module store's answer for that scene's section
+    (§14.6: ready | reading | missing); a starter has no sections, so everything is ready."""
     record = record_of(scene)
+    material = material_of or (lambda handle: "ready")
     exits = []
     for exit_ in graph.scene_exits(scene):
         entry: dict[str, Any] = {"to": exit_["to"]}
@@ -96,6 +102,7 @@ def where_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, An
         when = exit_.get("when")
         if when and not condition_met(when, world):
             entry["unlock_when"] = describe_condition(when)
+        entry["material"] = material(exit_["to"])
         exits.append(entry)
 
     affordances = []
@@ -143,6 +150,7 @@ def where_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, An
         "affordances": affordances,
         "keeper_notes": keeper_notes,
         "assets": graph.scene_assets(scene),
+        "material": material(graph.handle(scene)),
     }
 
 
@@ -338,7 +346,8 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
                   turn: dict[str, Any], party: list[dict[str, Any]], *, language: str,
                   situations: list[dict[str, Any]], director_graph: DirectorGraph, ontology: Ontology,
                   craft: TextGraph, register: str, style_full: bool = False,
-                  resume: dict[str, Any] | None = None) -> dict[str, Any]:
+                  resume: dict[str, Any] | None = None,
+                  material_of: Callable[[str], str] | None = None) -> dict[str, Any]:
     from .memory import open_promises, read_candidates  # local: memory imports facts, which imports render
     from .rules.healing import read_healing_state
     from .sessions import SessionView, sanity_snapshot  # local: sessions reads capsule.condition_met for chase chains
@@ -352,7 +361,7 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
     played = director_mod.played_records(records, int(turn["turn"]))
     previous = played[0] if played else None
 
-    where = where_section(graph, world, scene)
+    where = where_section(graph, world, scene, material_of)
     where["clock"] = clock_section(graph, world, language)
     where["session"] = session
 

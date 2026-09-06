@@ -1,0 +1,55 @@
+{
+  "contract_id": "coc.module-graph-manifest.v1",
+  "schema_version": 1,
+  "module_id": "module-mystery-house",
+  "generation": 1,
+  "graph_contract_id": "coc.module-graph.v3",
+  "graph_content_digest": "cadc64b9a257d0bddd48e9be3d8333b97ebc5288416635b2d50e369d7ec47952",
+  "node_count": 116,
+  "relation_count": 255,
+  "claim_count": 255,
+  "node_kinds": {
+    "beat": 12,
+    "clue": 39,
+    "concept": 13,
+    "conclusion": 6,
+    "handout": 1,
+    "module": 1,
+    "npc": 14,
+    "quest": 3,
+    "scene": 19,
+    "secret": 6,
+    "threat": 2
+  },
+  "section_ids": [
+    "section-curated-starter-projection"
+  ],
+  "coverage": {
+    "structure": "accepted",
+    "world": "accepted",
+    "actors": "accepted",
+    "relationships": "accepted",
+    "events": "accepted",
+    "knowledge": "accepted",
+    "causal": "accepted",
+    "mechanics": "accepted",
+    "assets": "accepted",
+    "direction": "accepted"
+  },
+  "projector": "scripts/starter_graph.py",
+  "projection": {
+    "module_id": "module-mystery-house",
+    "scenario_id": "mystery-house",
+    "catalog": null,
+    "source_languages": [
+      "en"
+    ],
+    "absent_documents": [],
+    "cjk_outside_declared_languages": {
+      "module-meta.json": 49,
+      "story-graph.json": 229
+    },
+    "unregistered_fields": {},
+    "derived": {}
+  }
+}

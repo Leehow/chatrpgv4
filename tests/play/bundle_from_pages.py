@@ -1,0 +1,295 @@
+#!/usr/bin/env python3
+"""Host-side tool: package a directory of page Markdown files into a §14.2 bundle.
+
+Contract (`docs/kernel-rpc.md` §14.2, `coc.pdf-bundle.v1`): a PDF-reading skill
+external to this repo turns a book into `NNNN.md` pages (plus an optional
+`assets/` directory of extracted images); this script never opens a PDF and
+imports no PDF-parsing library -- it only reads the Markdown the host already
+produced and writes the manifest `module.bind` will byte-check. The mapping
+from page text to `manifest.json` is a pure function of the page bytes plus
+the identity/source arguments the caller supplies, so running it twice on the
+same input produces a byte-identical manifest, and editing one page changes
+only that page's `sha256`.
+
+`kind`/`pages` for an asset (handout vs. map vs. illustration, which pages it
+belongs to) is an open-ended judgment about the book's content -- this tool
+never guesses it. Pass `--asset-meta` with that mapping (the host that read
+the book already knows it); an asset with no entry there is refused rather
+than defaulted.
+
+CLI:
+    bundle_from_pages.py PAGES_DIR --out BUNDLE_DIR \\
+        --producer NAME --title TITLE --slug SLUG --language LANG \\
+        --file-sha256 HASH --filename FILENAME \\
+        [--authors "A, B"] [--edition ED] \\
+        [--assets ASSETS_DIR] [--asset-meta META.json]
+
+    bundle_from_pages.py --verify BUNDLE_DIR
+
+Library API: `build_manifest(...)`, `write_bundle(...)`, `verify_bundle(...)`.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import mimetypes
+import re
+import sys
+from pathlib import Path
+from typing import Any
+
+CONTRACT = "coc.pdf-bundle.v1"
+PAGE_RE = re.compile(r"^(\d{4})\.md$")
+HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(\S.*?)\s*$")
+_SLUG_NON_WORD = re.compile(r"[^a-z0-9]+")
+
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def slugify(text: str) -> str:
+    slug = _SLUG_NON_WORD.sub("-", text.lower()).strip("-")
+    return slug or "asset"
+
+
+def discover_pages(pages_dir: Path) -> list[int]:
+    """0-based page indices found as `NNNN.md` directly under `pages_dir`, sorted."""
+    indices = []
+    for entry in pages_dir.iterdir():
+        match = PAGE_RE.match(entry.name)
+        if match and entry.is_file():
+            indices.append(int(match.group(1)))
+    return sorted(indices)
+
+
+def _outline_for_page(index: int, text: str) -> list[dict[str, Any]]:
+    outline = []
+    for line in text.splitlines():
+        match = HEADING_RE.match(line)
+        if match:
+            outline.append({"title": match.group(2), "level": len(match.group(1)), "pdf_index": index})
+    return outline
+
+
+def build_manifest(
+    pages_dir: Path,
+    *,
+    producer: str,
+    title: str,
+    slug: str,
+    language: str,
+    file_sha256: str,
+    filename: str,
+    authors: str | None = None,
+    edition: str | None = None,
+    assets_dir: Path | None = None,
+    asset_meta: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Pure function: page bytes + identity/source arguments -> manifest dict.
+    Deterministic -- same inputs always produce the same manifest (sorted keys,
+    no wall-clock fields)."""
+    pages_dir = Path(pages_dir)
+    indices = discover_pages(pages_dir)
+    if not indices:
+        raise ValueError(f"no NNNN.md pages found under {pages_dir}")
+    if indices[0] != 0 or indices != list(range(indices[0], indices[0] + len(indices))):
+        raise ValueError(f"pages must be contiguous starting at 0000; found indices {indices}")
+
+    pages: list[dict[str, Any]] = []
+    outline: list[dict[str, Any]] = []
+    for index in indices:
+        page_path = pages_dir / f"{index:04d}.md"
+        data = page_path.read_bytes()
+        text = data.decode("utf-8")
+        pages.append({
+            "pdf_index": index,
+            "path": f"pages/{index:04d}.md",
+            "sha256": sha256_bytes(data),
+            "chars": len(text),
+        })
+        outline.extend(_outline_for_page(index, text))
+
+    module_identity: dict[str, Any] = {"title": title, "slug": slug, "language": language}
+    if authors:
+        module_identity["authors"] = authors
+    if edition:
+        module_identity["edition"] = edition
+
+    manifest: dict[str, Any] = {
+        "contract": CONTRACT,
+        "producer": producer,
+        "module_identity": module_identity,
+        "source": {"file_sha256": file_sha256, "page_count": len(pages), "filename": filename},
+        "pages": pages,
+    }
+
+    if assets_dir is not None and Path(assets_dir).is_dir():
+        meta = asset_meta or {}
+        assets: list[dict[str, Any]] = []
+        for entry in sorted(Path(assets_dir).iterdir(), key=lambda p: p.name):
+            if not entry.is_file():
+                continue
+            if entry.name not in meta:
+                raise ValueError(
+                    f"asset {entry.name!r} has no entry in --asset-meta; "
+                    "kind/pages is a content judgment this tool will not guess"
+                )
+            info = meta[entry.name]
+            data = entry.read_bytes()
+            assets.append({
+                "id": info.get("id") or slugify(entry.stem),
+                "kind": info["kind"],
+                "pages": info.get("pages", []),
+                "path": f"assets/{entry.name}",
+                "sha256": sha256_bytes(data),
+                "media_type": mimetypes.guess_type(entry.name)[0] or "application/octet-stream",
+            })
+        if assets:
+            manifest["assets"] = assets
+
+    if outline:
+        manifest["outline"] = outline
+
+    return manifest
+
+
+def _manifest_bytes(manifest: dict[str, Any]) -> bytes:
+    return (json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
+def write_bundle(
+    pages_dir: Path,
+    out_dir: Path,
+    **kwargs: Any,
+) -> Path:
+    """Build the manifest and materialize `out_dir/manifest.json`, `out_dir/pages/*`,
+    and (if given) `out_dir/assets/*`. Returns the manifest path."""
+    pages_dir = Path(pages_dir)
+    out_dir = Path(out_dir)
+    assets_dir = kwargs.get("assets_dir")
+    manifest = build_manifest(pages_dir, **kwargs)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pages_out = out_dir / "pages"
+    pages_out.mkdir(exist_ok=True)
+    for entry in manifest["pages"]:
+        name = Path(entry["path"]).name
+        (pages_out / name).write_bytes((pages_dir / name).read_bytes())
+
+    if manifest.get("assets"):
+        assets_out = out_dir / "assets"
+        assets_out.mkdir(exist_ok=True)
+        for asset in manifest["assets"]:
+            name = Path(asset["path"]).name
+            (assets_out / name).write_bytes((Path(assets_dir) / name).read_bytes())
+
+    manifest_path = out_dir / "manifest.json"
+    manifest_path.write_bytes(_manifest_bytes(manifest))
+    return manifest_path
+
+
+def verify_bundle(bundle_dir: Path) -> list[str]:
+    """Re-derive every checkable fact in `bundle_dir/manifest.json` from the bytes on
+    disk and report every mismatch (empty list == the bundle verifies against its own
+    pages). Used by the pytest below and by anything that wants to sanity-check a
+    bundle before handing it to `module.bind` (which does its own, authoritative,
+    check inside the kernel)."""
+    bundle_dir = Path(bundle_dir)
+    manifest_path = bundle_dir / "manifest.json"
+    if not manifest_path.is_file():
+        return [f"missing {manifest_path}"]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    problems: list[str] = []
+
+    if manifest.get("contract") != CONTRACT:
+        problems.append(f"contract is {manifest.get('contract')!r}, expected {CONTRACT!r}")
+
+    pages = manifest.get("pages") or []
+    indices = [p.get("pdf_index") for p in pages]
+    if indices != list(range(len(indices))):
+        problems.append(f"page pdf_index values are not contiguous from 0: {indices}")
+
+    source = manifest.get("source") or {}
+    if source.get("page_count") != len(pages):
+        problems.append(f"source.page_count {source.get('page_count')!r} != {len(pages)} pages listed")
+
+    for entry in pages:
+        path = bundle_dir / entry["path"]
+        if not path.is_file():
+            problems.append(f"missing page file {entry['path']}")
+            continue
+        data = path.read_bytes()
+        digest = sha256_bytes(data)
+        if digest != entry.get("sha256"):
+            problems.append(f"sha256 mismatch for {entry['path']}: manifest={entry.get('sha256')} actual={digest}")
+        chars = len(data.decode("utf-8"))
+        if chars != entry.get("chars"):
+            problems.append(f"chars mismatch for {entry['path']}: manifest={entry.get('chars')} actual={chars}")
+
+    for asset in manifest.get("assets") or []:
+        path = bundle_dir / asset["path"]
+        if not path.is_file():
+            problems.append(f"missing asset file {asset['path']}")
+            continue
+        digest = sha256_bytes(path.read_bytes())
+        if digest != asset.get("sha256"):
+            problems.append(f"sha256 mismatch for asset {asset['path']}: manifest={asset.get('sha256')} actual={digest}")
+
+    return problems
+
+
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("pages_dir", type=Path, nargs="?", help="directory of NNNN.md pages")
+    parser.add_argument("--out", type=Path, required=True, help="bundle output directory (or, with --verify, the bundle to check)")
+    parser.add_argument("--verify", action="store_true", help="verify an existing bundle at --out instead of building one")
+    parser.add_argument("--producer", help="name of the skill/tool that produced the pages")
+    parser.add_argument("--title", help="module title")
+    parser.add_argument("--slug", help="module slug (module_id override)")
+    parser.add_argument("--language", help="page_language, e.g. zh-Hans")
+    parser.add_argument("--file-sha256", help="sha256 of the original source file (computed by the host; this tool never opens it)")
+    parser.add_argument("--filename", help="original source filename")
+    parser.add_argument("--authors", default=None)
+    parser.add_argument("--edition", default=None)
+    parser.add_argument("--assets", type=Path, default=None, help="directory of asset files (default: pages_dir/assets if present)")
+    parser.add_argument("--asset-meta", type=Path, default=None, help="JSON file: {filename: {id?, kind, pages}}")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+
+    if args.verify:
+        problems = verify_bundle(args.out)
+        for problem in problems:
+            print(problem, file=sys.stderr)
+        return 1 if problems else 0
+
+    missing = [name for name in ("pages_dir", "producer", "title", "slug", "language", "file_sha256", "filename")
+               if getattr(args, name) in (None, "")]
+    if missing:
+        print(f"missing required argument(s): {', '.join(missing)}", file=sys.stderr)
+        return 2
+
+    asset_meta = None
+    if args.asset_meta is not None:
+        asset_meta = json.loads(args.asset_meta.read_text(encoding="utf-8"))
+    assets_dir = args.assets if args.assets is not None else (args.pages_dir / "assets")
+    if not assets_dir.is_dir():
+        assets_dir = None
+
+    manifest_path = write_bundle(
+        args.pages_dir, args.out,
+        producer=args.producer, title=args.title, slug=args.slug, language=args.language,
+        file_sha256=args.file_sha256, filename=args.filename,
+        authors=args.authors, edition=args.edition,
+        assets_dir=assets_dir, asset_meta=asset_meta,
+    )
+    print(manifest_path)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

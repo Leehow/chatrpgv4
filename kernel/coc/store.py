@@ -52,6 +52,8 @@ class Store:
         self.root = self.workspace / ".coc"
         self.campaigns_dir = self.root / "campaigns"
         self.repos_dir = self.root / "repos"
+        #: §14.1: the module store, shared by every campaign of the same module.
+        self.modules_dir = self.root / "modules"
 
     def campaign_ids(self) -> list[str]:
         if not self.campaigns_dir.exists():
@@ -113,6 +115,8 @@ class Campaign:
         self.candidates_path = self.memory_dir / "candidates.jsonl"
         self.jobs_dir = self.memory_dir / "jobs"
         self.backlog_path = self.memory_dir / "backlog.jsonl"
+        #: §14.8: a text handout is materialized here so the attachment is a file path.
+        self.handouts_dir = self.dir / "handouts"
 
     # ---- documents --------------------------------------------------------
 

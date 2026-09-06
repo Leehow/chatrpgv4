@@ -1,0 +1,63 @@
+{
+  "contract_id": "coc.module-graph-manifest.v1",
+  "schema_version": 1,
+  "module_id": "module-the-white-war",
+  "generation": 1,
+  "graph_contract_id": "coc.module-graph.v3",
+  "graph_content_digest": "148b5b570f99614cc529ed68d20d0d5843c15a3820d44b6f24154264c2a382c7",
+  "node_count": 77,
+  "relation_count": 112,
+  "claim_count": 112,
+  "node_kinds": {
+    "beat": 11,
+    "clue": 20,
+    "concept": 13,
+    "conclusion": 7,
+    "module": 1,
+    "npc": 3,
+    "scene": 11,
+    "secret": 8,
+    "threat": 3
+  },
+  "section_ids": [
+    "section-curated-starter-projection"
+  ],
+  "coverage": {
+    "structure": "accepted",
+    "world": "accepted",
+    "actors": "accepted",
+    "relationships": "accepted",
+    "events": "accepted",
+    "knowledge": "accepted",
+    "causal": "accepted",
+    "mechanics": "accepted",
+    "assets": "absent",
+    "direction": "partial"
+  },
+  "projector": "scripts/starter_graph.py",
+  "projection": {
+    "module_id": "module-the-white-war",
+    "scenario_id": "the-white-war",
+    "catalog": null,
+    "source_languages": [
+      "en",
+      "zh-Hans"
+    ],
+    "absent_documents": [
+      "quests.json",
+      "handouts.json"
+    ],
+    "cjk_outside_declared_languages": {},
+    "unregistered_fields": {},
+    "derived": {
+      "rule": "exit-entry-flag",
+      "route_to": 11,
+      "entry_scene_ids": [
+        "scene-mission-briefing"
+      ],
+      "ending_scene_ids": [
+        "scene-aftermath-white-friday"
+      ]
+    }
+  }
+}

@@ -7,6 +7,7 @@ from typing import Any
 
 DICE_MARKER = "【明骰】"
 CHANGE_MARKER = "【变化】"
+HANDOUT_MARKER = "【手卡】"
 FORBIDDEN_MARKERS = (DICE_MARKER, CHANGE_MARKER)
 
 DIFFICULTY_ZH = {"regular": "普通", "hard": "困难", "extreme": "极难"}
@@ -50,6 +51,9 @@ def mechanics_line(receipt: dict[str, Any]) -> str | None:
         return f"{CHANGE_MARKER}线索：{receipt.get('label') or receipt['clue']}"
     if kind == "time":
         return f"{CHANGE_MARKER}时间：+{int(receipt['minutes'])} 分钟"
+    if kind == "handout":
+        # §14.8: the card the player is handed; the bytes travel as `attachment`.
+        return f"{HANDOUT_MARKER}{receipt.get('label') or receipt.get('name') or receipt['handout']}"
     if kind == "session":
         start, end = SESSION_ZH.get(str(receipt.get("family")), (str(receipt.get("family")), str(receipt.get("family"))))
         if receipt.get("transition") == "start":

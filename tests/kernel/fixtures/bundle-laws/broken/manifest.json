@@ -1,0 +1,62 @@
+{
+  "contract": "coc.pdf-bundle.v1",
+  "module_identity": {
+    "language": "zh-Hans",
+    "slug": "red-lantern-teahouse-broken",
+    "title": "红灯笼茶馆疑云（残卷）"
+  },
+  "outline": [
+    {
+      "level": 1,
+      "pdf_index": 0,
+      "title": "红灯笼茶馆疑云（残卷）"
+    },
+    {
+      "level": 2,
+      "pdf_index": 1,
+      "title": "场景：茶馆前厅"
+    },
+    {
+      "level": 2,
+      "pdf_index": 2,
+      "title": "场景：后院"
+    },
+    {
+      "level": 2,
+      "pdf_index": 3,
+      "title": "附录：老板娘阿秀的调查员数据"
+    }
+  ],
+  "pages": [
+    {
+      "chars": 60,
+      "path": "pages/0000.md",
+      "pdf_index": 0,
+      "sha256": "7881f704527554e2cc2a6682e8ed67abbaa1531f30576c213bc2e4370df78692"
+    },
+    {
+      "chars": 67,
+      "path": "pages/0001.md",
+      "pdf_index": 1,
+      "sha256": "22c3f48499e759f12b3e7cdc0f627565f7091b210fa18ccd543cf49d1ed20897"
+    },
+    {
+      "chars": 134,
+      "path": "pages/0002.md",
+      "pdf_index": 2,
+      "sha256": "a95f5b331e27d4a4606375883adcfbf2575e1dc91abbd7f5265e9b7576c31951"
+    },
+    {
+      "chars": 108,
+      "path": "pages/0003.md",
+      "pdf_index": 3,
+      "sha256": "974f0bddb340e4c38cae403aa9b46d5267fac7b5dd09b010cbb00ce2298c390f"
+    }
+  ],
+  "producer": "test-harness-h5",
+  "source": {
+    "file_sha256": "53756c16bb544bb0d4fc355cfaeee882bbb113723dca666604a8ef1611a4a861",
+    "filename": "red-lantern-teahouse-broken.pdf",
+    "page_count": 4
+  }
+}

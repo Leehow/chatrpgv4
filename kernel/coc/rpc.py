@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .errors import RpcError
+from .modules.rpc import methods as module_methods
 from .store import Store
 from .table import Table
 
@@ -43,6 +44,13 @@ def build_methods(table: Table) -> dict[str, Callable[[dict[str, Any]], dict[str
         "memory.job": table.memory_job,
         "memory.submit": table.memory_submit,
         "memory.fail": table.memory_fail,
+        # slice 4 (contract §14.4, §14.7): the setup process; no turn, no capsule
+        "setup.steps": table.setup.steps_method,
+        "setup.occupations": table.setup.occupations,
+        "setup.investigator": table.setup.investigator,
+        "setup.complete": table.setup.complete,
+        # slice 4 (contract §14.1–14.3, 14.6, 14.8): module store, bind, build, deepen, assets
+        **module_methods(table),
     }
 
 

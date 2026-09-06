@@ -8,7 +8,7 @@ import copy
 import random
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from . import KERNEL_VERSION, continuation, history, memory, recall as recall_roads, warn as warn_lane
 from .capsule import (scene_label, build_capsule, clues_here, investigator_view, npc_view, npcs_present,
@@ -28,14 +28,21 @@ from .rules.graph import REGISTERED_CONDITION_PATHS, semantic_name
 from .rules.percentile import roll_expression
 from .rules.runtime import RulesEngine, SettleContext
 from .sessions import SessionView
+from .setup import (ModuleStore, STATUS_ACTIVE, STATUS_READY, STATUS_SETTING_UP, SetupMethods, deepen,
+                    material_status, module_registered)
 from .store import Campaign, Store, fresh_turn, now_iso, parse_call_id
 from .text import normalize, slugify
 
 INTENTS = frozenset({"investigate", "social", "move", "combat", "flee", "cast", "idle", "meta",
                      "stuck", "ambiguous", "montage"})
 NONE_INTENTS = frozenset({"idle", "meta", "stuck", "ambiguous"})
-APPLY_KINDS = frozenset({"move", "clue", "time", "damage"})
-APPLY_RESERVED = frozenset({"handout", "item", "cash", "npc", "flag", "note", "ruling"})
+APPLY_KINDS = frozenset({"move", "clue", "time", "damage", "handout"})
+APPLY_RESERVED = frozenset({"item", "cash", "npc", "flag", "note", "ruling"})
+#: §14.8: what may be handed to the player as a card.
+HANDOUT_VISIBILITIES = frozenset({"player-safe", "revealable"})
+HANDOUT_KINDS = ("handout", "asset")
+#: §14.6: deepen-queue priorities — the scene underfoot, one step away, the opening.
+DEEPEN_PRIORITY = {"move": 100, "adjacent": 80, "opening": 90}
 LOOK_FOCUS = frozenset({"scene", "npc", "investigator", "clues", "time"})
 LOOKUP_KINDS = frozenset({"module", "secret", "rule", "catalog"})
 RECALL_KINDS = frozenset({"transcript", "memory", "history"})
@@ -70,7 +77,11 @@ class Table:
         self.rng = rng
         self.tables = RuleTables(self.content / "rulesets" / "coc7" / "rules-json")
         self.engine = RulesEngine(self.content, self.tables)
-        self._graphs: dict[str, ModuleGraph] = {}
+        #: §14.1: graphs are read from the module store once a module is registered;
+        #: the cache is keyed by generation so a deepened graph is picked up.
+        self.module_store = ModuleStore(self.store.workspace)
+        self.setup = SetupMethods(self)
+        self._graphs: dict[str, tuple[int, ModuleGraph]] = {}
         #: §12.2: the resume block `table.open` produced, carried into the first
         #: `player_input` capsule of this process and then dropped.
         self._resume_pending: dict[str, dict[str, Any]] = {}
@@ -96,13 +107,81 @@ class Table:
         return sorted(p.name for p in root.iterdir() if (p / "module-graph.json").exists())
 
     def graph(self, module_id: str) -> ModuleGraph:
-        if module_id not in self._graphs:
-            path = self.content / "starters" / module_id / "module-graph.json"
-            if not path.exists():
-                raise invalid_params(f"unknown module {module_id!r}",
-                                     fix=f"one of {self.modules()}")
-            self._graphs[module_id] = ModuleGraph(module_id, path)
-        return self._graphs[module_id]
+        """The module's current graph: the store's generation when the module is
+        registered there (§14.1), else the content starter (before registration)."""
+        generation = self.module_store.generation(module_id) if module_registered(self.module_store, module_id) else 0
+        cached = self._graphs.get(module_id)
+        if cached is not None and cached[0] == generation:
+            return cached[1]
+        path = self.module_store.graph_path(module_id) if generation else self.content / "starters" / module_id / "module-graph.json"
+        if not path.exists():
+            raise invalid_params(f"unknown module {module_id!r}", fix=f"one of {self.modules()}")
+        graph = ModuleGraph(module_id, path)
+        self._graphs[module_id] = (generation, graph)
+        return graph
+
+    def initial_world(self, graph: ModuleGraph) -> tuple[dict[str, Any], str]:
+        """§3 world.json at the start scene; also what setup.complete writes for a book
+        whose graph arrived after the campaign was created (§14.4)."""
+        start = graph.start_scene()
+        start_handle = graph.handle(start)
+        presence: dict[str, str] = {}
+        for scene in graph.scenes():
+            for npc_id in graph.scene_npc_ids(scene):
+                presence.setdefault(graph.handle(graph.nodes[npc_id]), graph.handle(scene))
+        world = {
+            "active_scene": start_handle,
+            "visited_scenes": [start_handle],
+            "scene_trail": [],
+            "scene_labels": {},
+            "discovered_clues": [],
+            "flags": {},
+            "clock": {"minutes": 0},
+            "npc_presence": presence,
+        }
+        return world, start_handle
+
+    def material_of(self, module_id: str) -> Callable[[str], str]:
+        """§14.6: scene handle → ready | reading | missing from the store's section index."""
+        return lambda handle: material_status(self.module_store.section_for_scene(module_id, handle))
+
+    def _enqueue_deepen(self, graph: ModuleGraph, scene: dict[str, Any], reason: str) -> list[str]:
+        """§14.6: the scene's section and its route-to neighbours' sections that are not
+        yet accepted go on the deepen queue. A starter has no sections; nothing is queued."""
+        module_id = graph.module_id
+        wanted: list[tuple[str, str, int]] = [(graph.handle(scene), reason, DEEPEN_PRIORITY[reason])]
+        wanted.extend((exit_["to"], "adjacent", DEEPEN_PRIORITY["adjacent"]) for exit_ in graph.scene_exits(scene))
+        # Routes into scenes the graph has no node for: their section is unread.
+        wanted.extend((missing, "adjacent", DEEPEN_PRIORITY["adjacent"]) for missing in graph.scene_dangling_exits(scene))
+        queued: list[str] = []
+        here = self.module_store.section_for_scene(module_id, graph.handle(scene))
+        for handle, why, priority in wanted:
+            section = self.module_store.section_for_scene(module_id, handle)
+            if section is None and why == "adjacent":
+                # The neighbour has no node yet: its section is unread. The spine rule
+                # (old read-ahead): the first unaccepted section after the one we stand in,
+                # in print order.
+                section = self._next_unread_section(module_id, here)
+            if not section or section.get("status") == "accepted":
+                continue
+            section_id = str(section.get("section_id"))
+            if section_id in queued:
+                continue
+            queued.extend(deepen.enqueue(self.module_store, module_id, [section_id], why, priority))
+        return queued
+
+    def _next_unread_section(self, module_id: str, here: dict[str, Any] | None) -> dict[str, Any] | None:
+        rows = self.module_store.read_sections(module_id) if hasattr(self.module_store, "read_sections") else []
+        rows = sorted((r for r in rows if isinstance(r, dict)), key=lambda r: (r.get("pages") or [0])[0])
+        start = 0
+        if here and here.get("section_id"):
+            ids = [r.get("id") for r in rows]
+            if here["section_id"] in ids:
+                start = ids.index(here["section_id"]) + 1
+        for row in rows[start:]:
+            if row.get("status") != "accepted":
+                return {"section_id": row.get("id"), "status": row.get("status")}
+        return None
 
     @property
     def director(self) -> DirectorGraph:
@@ -142,11 +221,16 @@ class Table:
             raise ontology_not_ready(bad)
         self._ontology_checked = True
 
-    def _load(self, params: dict[str, Any], *, require_turn: bool = True) -> tuple[Campaign, dict[str, Any], ModuleGraph, dict[str, Any]]:
+    def _load(self, params: dict[str, Any], *, require_turn: bool = True,
+              statuses: frozenset[str] = frozenset({STATUS_ACTIVE})) -> tuple[Campaign, dict[str, Any], ModuleGraph, dict[str, Any]]:
         campaign = self.store.open(params.get("campaign"), require_turn=require_turn)
         meta = campaign.read_campaign()
-        if meta.get("status") != "active":
-            raise RpcError("campaign_not_ready", f"campaign {campaign.id!r} is {meta.get('status')!r}")
+        status = str(meta.get("status"))
+        if status not in statuses:
+            # §14.4: a campaign still setting up is sent back to the setup process.
+            fix = self.setup.steps.table_open_fix(campaign.id) if status == STATUS_SETTING_UP else None
+            raise RpcError("campaign_not_ready", f"campaign {campaign.id!r} is {status!r}", fix=fix,
+                           details={"status": status})
         graph = self.graph(str(meta["module_id"]))
         world = campaign.read_world()
         if "scene_trail" not in world:
@@ -197,57 +281,63 @@ class Table:
         return {"campaigns": rows}
 
     def campaign_create(self, params: dict[str, Any]) -> dict[str, Any]:
+        """§5 / §14.4: with `pregen` the party is complete and the campaign is `active`
+        as before; without it the campaign is `setting_up` with an empty party until
+        `setup.investigator` and `setup.complete`. A starter is registered into the
+        module store either way (§14.1) and the campaign records its digest and
+        generation."""
         campaign_id = self.store.validate_new_id(params.get("id"))
         module_id = _str(params, "module")
-        pregen_id = _str(params, "pregen")
+        pregen_id = _str(params, "pregen", required=False)
         language = _str(params, "play_language", required=False) or DEFAULT_LANGUAGE
         register = _str(params, "register", required=False) or DEFAULT_REGISTER
         if register not in self.craft.registers:
             raise invalid_params(f"unknown register {register!r}", fix=f"one of {self.craft.registers}")
-        graph = self.graph(module_id)
-        pregen_path = self.content / "starters" / module_id / "pregens" / pregen_id / "character.json"
-        if not pregen_path.exists():
-            pregens_dir = self.content / "starters" / module_id / "pregens"
-            available = sorted(p.name for p in pregens_dir.iterdir()) if pregens_dir.exists() else []
-            raise invalid_params(f"unknown pregen {pregen_id!r}", fix=f"one of {available}")
-        title = _str(params, "title", required=False) or graph.title()
+        starter = module_id in self.modules()
+        if not starter and not module_registered(self.module_store, module_id):
+            raise invalid_params(f"unknown module {module_id!r}",
+                                 fix=f"one of {self.modules()}, or a module bound with module.bind")
+        if starter:
+            module_meta = self.module_store.register_starter(module_id, self.content / "starters")
+        else:
+            # §14.4: a bound book may not have a graph yet (create-campaign precedes
+            # build-opening); the world waits for setup.complete.
+            module_meta = self.module_store.module(module_id) or {}
+            if pregen_id is not None:
+                raise invalid_params("pregens exist only for starters", fix="create the investigator with setup.investigator")
+        has_graph = starter or self.module_store.graph_path(module_id).exists()
+        graph = self.graph(module_id) if has_graph else None
+        title = _str(params, "title", required=False) or (graph.title() if graph else str(module_meta.get("title") or module_id))
 
-        sheet = read_json(pregen_path)
-        derived = sheet.get("derived") or {}
-        characteristics = sheet.get("characteristics") or {}
-        sheet["id"] = sheet.get("id") or pregen_id
-        sheet["current_hp"] = derived.get("HP")
-        sheet["current_san"] = derived.get("SAN")
-        sheet["current_mp"] = derived.get("MP")
-        sheet["current_luck"] = characteristics.get("LUCK")
+        sheet = None
+        if pregen_id is not None:
+            pregen_path = self.content / "starters" / module_id / "pregens" / pregen_id / "character.json"
+            if not pregen_path.exists():
+                pregens_dir = self.content / "starters" / module_id / "pregens"
+                available = sorted(p.name for p in pregens_dir.iterdir()) if pregens_dir.exists() else []
+                raise invalid_params(f"unknown pregen {pregen_id!r}", fix=f"one of {available}")
+            sheet = read_json(pregen_path)
+            derived = sheet.get("derived") or {}
+            characteristics = sheet.get("characteristics") or {}
+            sheet["id"] = sheet.get("id") or pregen_id
+            sheet["current_hp"] = derived.get("HP")
+            sheet["current_san"] = derived.get("SAN")
+            sheet["current_mp"] = derived.get("MP")
+            sheet["current_luck"] = characteristics.get("LUCK")
 
-        start = graph.start_scene()
-        start_handle = graph.handle(start)
-        presence: dict[str, str] = {}
-        for scene in graph.scenes():
-            for npc_id in graph.scene_npc_ids(scene):
-                presence.setdefault(graph.handle(graph.nodes[npc_id]), graph.handle(scene))
-        world = {
-            "active_scene": start_handle,
-            "visited_scenes": [start_handle],
-            "scene_trail": [],
-            "scene_labels": {},
-            "discovered_clues": [],
-            "flags": {},
-            "clock": {"minutes": 0},
-            "npc_presence": presence,
-        }
+        world, start_handle = (self.initial_world(graph) if graph else (None, None))
         meta = {
             "id": campaign_id,
             "title": title,
             "module_id": module_id,
-            "module_digest": graph.digest,
+            "module_digest": graph.digest if graph else None,
+            "module_generation": int(module_meta.get("generation") or self.module_store.generation(module_id)),
             "play_language": language,
             "register": register,
-            "status": "active",
+            "status": STATUS_ACTIVE if sheet is not None else STATUS_SETTING_UP,
             "created_at": now_iso(),
             "opening_scene": start_handle,
-            "investigators": [sheet["id"]],
+            "investigators": [sheet["id"]] if sheet is not None else [],
         }
 
         campaign = Campaign(self.store, campaign_id)
@@ -255,8 +345,10 @@ class Table:
         try:
             campaign.party_dir.mkdir()
             campaign.turns_dir.mkdir()
-            campaign.write_sheet(sheet)
-            campaign.write_world(world)
+            if sheet is not None:
+                campaign.write_sheet(sheet)
+            if world is not None:
+                campaign.write_world(world)
             campaign.write_campaign(meta)
             campaign.write_turn(fresh_turn(0))
             history.init_repo(campaign.repo_dir, campaign.dir)
@@ -269,14 +361,15 @@ class Table:
 
     # ---- reads --------------------------------------------------------------
 
+    @staticmethod
+    def investigator_row(sheet: dict[str, Any]) -> dict[str, Any]:
+        return {"id": sheet.get("id"), "name": sheet.get("name"),
+                "occupation": sheet.get("occupation"), "hp": sheet.get("current_hp"),
+                "san": sheet.get("current_san"), "mp": sheet.get("current_mp"),
+                "luck": sheet.get("current_luck")}
+
     def _investigators(self, campaign: Campaign) -> list[dict[str, Any]]:
-        rows = []
-        for sheet in campaign.party():
-            rows.append({"id": sheet.get("id"), "name": sheet.get("name"),
-                         "occupation": sheet.get("occupation"), "hp": sheet.get("current_hp"),
-                         "san": sheet.get("current_san"), "mp": sheet.get("current_mp"),
-                         "luck": sheet.get("current_luck")})
-        return rows
+        return [self.investigator_row(sheet) for sheet in campaign.party()]
 
     def _actor(self, campaign: Campaign, name: Any) -> dict[str, Any]:
         party = campaign.party()
@@ -302,9 +395,24 @@ class Table:
             campaign.write_turn(turn)
 
     def open(self, params: dict[str, Any]) -> dict[str, Any]:
-        campaign, meta, graph, world = self._load(params, require_turn=False)
+        # §14.4: only ready_for_table or active opens; the first open of a ready campaign
+        # makes it active (the setup handoff is consumed here).
+        campaign = self.store.open(params.get("campaign"), require_turn=False)
+        legacy_module = str(campaign.read_campaign().get("module_id") or "")
+        if legacy_module in self.modules() and not module_registered(self.module_store, legacy_module):
+            # A campaign created before the module store existed: register its starter now
+            # (§14.1: the first reference copies the graph in).
+            self.module_store.register_starter(legacy_module, self.content / "starters")
+        campaign, meta, graph, world = self._load(params, require_turn=False,
+                                                  statuses=frozenset({STATUS_READY, STATUS_ACTIVE}))
         self.validate_ontology()
+        if meta.get("status") == STATUS_READY:
+            meta["status"] = STATUS_ACTIVE
+            meta["activated_at"] = now_iso()
+            campaign.write_campaign(meta)
         party = campaign.party()
+        # §14.6: the opening scene's section (and its neighbours') go on the deepen queue.
+        self._enqueue_deepen(graph, graph.scene(world["active_scene"]), "opening")
         # §12.2: the checkpoint follows HEAD; a lost turn.json is rebuilt from it.
         checkpoint, rebuilt = continuation.sync_checkpoint(campaign, language_of(meta),
                                                            self._snapshot(campaign, graph, world, party))
@@ -354,7 +462,8 @@ class Table:
         return build_capsule(graph, campaign, world, turn, campaign.party(), language=language_of(meta),
                              situations=self._situations(campaign, graph, world, turn), director_graph=self.director,
                              ontology=self.ontology, craft=self.craft,
-                             register=str(meta.get("register") or DEFAULT_REGISTER), style_full=style_full, resume=resume)
+                             register=str(meta.get("register") or DEFAULT_REGISTER), style_full=style_full, resume=resume,
+                             material_of=self.material_of(graph.module_id))
 
     def capsule(self, params: dict[str, Any]) -> dict[str, Any]:
         campaign, graph, world, turn = self._context(params)
@@ -466,7 +575,7 @@ class Table:
                     scene: dict[str, Any]) -> dict[str, Any]:
         """`look focus=scene`: the capsule's where/present sections plus the state-driven
         situations and, while one is live, the 11.9 `session` shape."""
-        where = where_section(graph, world, scene)
+        where = where_section(graph, world, scene, self.material_of(graph.module_id))
         where["situations"] = self._situations(campaign, graph, world, turn)
         where["session"] = SessionView(campaign.dir, graph, campaign.party(), world).active_session()
         return {"where": where, "present": present_section(graph, world, scene)}
@@ -770,6 +879,7 @@ class Table:
         events: list[tuple[str, dict[str, Any], str]] = []
         receipt_ids: list[str] = []
         already: list[str] = []
+        attachments: list[dict[str, Any] | None] = []
         time_effects = 0
         for index, effect in enumerate(effects):
             try:
@@ -795,6 +905,9 @@ class Table:
                     receipt_ids.extend(r["id"] for r in damage_receipts)
                     events.append((event[0], event[1], damage_receipts[-1]["id"]))
                     continue
+                elif kind == "handout":
+                    receipt, event = self._stage_handout(campaign, graph, staged, effect, turn_number, call_id)
+                    attachments.append(receipt["attachment"])
                 else:
                     time_effects += 1
                     receipt, event = self._stage_time(staged, effect, turn_number, ordinal, call_id, time_effects)
@@ -812,13 +925,21 @@ class Table:
         campaign.write_world(staged)
         turn["receipts"].extend(receipts)
         turn["state"] = "acting"
+        destination = graph.scene(staged["active_scene"])
+        material = self.material_of(graph.module_id)(graph.handle(destination))
         result: dict[str, Any] = {"receipts": receipt_ids,
                                   "world": {"active_scene": staged["active_scene"], "clock": staged["clock"]},
-                                  "material_ready": True}
+                                  "material_ready": material == "ready", "material": material}
         if any(r.get("kind") == "move" for r in receipts):
             # The destination as `look focus=scene` would show it, so the keeper need not
             # look again after moving.
-            result.update(self._scene_view(campaign, graph, staged, turn, graph.scene(staged["active_scene"])))
+            result.update(self._scene_view(campaign, graph, staged, turn, destination))
+            # §14.6: the scene underfoot and its neighbours go on the deepen queue.
+            result["deepen_queued"] = self._enqueue_deepen(graph, destination, "move")
+        if attachments:
+            # §14.8: the extension hands these to the player as message attachments.
+            result["attachments"] = [a for a in attachments if a]
+            result["attachment"] = result["attachments"][0] if result["attachments"] else None
         if already:
             result["already_discovered"] = already
             if not receipts:
@@ -945,6 +1066,52 @@ class Table:
         receipt = {"id": receipt_id, "kind": "time", "call_id": call_id, "minutes": minutes,
                    "why": why, "clock_before": before, "clock_after": clock["minutes"], "at": now_iso()}
         return receipt, ("time-advanced", {"minutes": minutes, "why": why, "clock": dict(clock)})
+
+    def _stage_handout(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any], effect: dict[str, Any],
+                       turn_number: int, call_id: str) -> tuple[dict[str, Any], tuple[str, dict[str, Any]]]:
+        """§14.8: a handout or asset node the player may see. The receipt carries the
+        attachment the extension hands over: a materialized text file for an authored
+        card, the registered bytes for an image, or an explicit `available: false` when
+        the module only knows the reference (unavailable media is never invented)."""
+        name = _str(effect, "name")
+        node = graph.resolve(name, HANDOUT_KINDS, what="handout")
+        handle = graph.handle(node)
+        visibility = node.get("visibility")
+        if visibility not in HANDOUT_VISIBILITIES:
+            raise invalid_params(f"{handle!r} is {visibility}; it cannot be handed to the player",
+                                 fix="keeper-only images and cards stay in lookup {kind: secret}; hand out a player-safe or revealable one",
+                                 details={"handout": handle, "visibility": visibility})
+        label = effect.get("label") if isinstance(effect.get("label"), str) and effect.get("label").strip() else None
+        display = graph.display_name(node)
+        record = record_of(node)
+        props = node.get("properties") or {}
+        registered = self.module_store.asset(graph.module_id, node["node_id"]) or {}
+        attachment: dict[str, Any] = {"handout": handle, "path": None, "media_type": None, "available": False}
+        text = record.get("authored_text") if isinstance(record.get("authored_text"), str) else registered.get("authored_text")
+        if isinstance(text, str) and text.strip():
+            path = campaign.handouts_dir / f"{handle}.md"
+            campaign.handouts_dir.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"# {display}\n\n{text.strip()}\n", encoding="utf-8")
+            attachment.update({"path": str(path), "media_type": "text/markdown", "available": True})
+        else:
+            ref = registered.get("path") or props.get("asset_ref") or props.get("image_ref")
+            media_type = registered.get("media_type") or props.get("media_type")
+            candidates = [Path(str(ref))] if ref else []
+            module_dir = getattr(self.module_store, "module_dir", None)
+            if ref and callable(module_dir):
+                candidates.insert(0, Path(module_dir(graph.module_id)) / str(ref))
+            found = next((p for p in candidates if p.is_file()), None)
+            attachment.update({"path": str(found) if found else (str(ref) if ref else None),
+                               "media_type": media_type, "available": found is not None})
+        receipt = {"id": f"handout:{handle}-t{turn_number}", "kind": "handout", "call_id": call_id,
+                   "handout": handle, "name": display, "label": label or display, "visibility": visibility,
+                   "summary": node.get("summary"), "attachment": attachment, "at": now_iso()}
+        shown = world.setdefault("handouts_shown", [])
+        if handle not in shown:
+            shown.append(handle)
+        return receipt, ("handout-shown", {"handout": handle, "name": display, "visibility": visibility,
+                                           "attachment_available": attachment["available"],
+                                           "media_type": attachment["media_type"]})
 
     # ---- ask ----------------------------------------------------------------
 

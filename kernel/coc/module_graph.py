@@ -194,6 +194,18 @@ class ModuleGraph:
             exits[entry["to"]] = merged
         return list(exits.values())
 
+    def scene_dangling_exits(self, scene: dict[str, Any]) -> list[str]:
+        """route-to relations whose target has no node yet: a neighbour that lives in a
+        section nobody has read (§14.6). Returns the missing target ids."""
+        missing: list[str] = []
+        for rel in self.out_rel.get(scene["node_id"], []):
+            if rel["relation_kind"] != "route-to":
+                continue
+            target_id = str(rel.get("to_node_id"))
+            if target_id not in self.nodes and target_id not in missing:
+                missing.append(target_id)
+        return missing
+
     @staticmethod
     def _exit_entry(to: str, props: dict[str, Any]) -> dict[str, Any]:
         entry: dict[str, Any] = {"to": to}

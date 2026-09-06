@@ -1,0 +1,78 @@
+{
+  "contract": "coc.pdf-bundle.v1",
+  "producer": "test-fixture",
+  "module_identity": {
+    "title": "灰鹭码头的雾",
+    "slug": "grey-heron-dock",
+    "language": "zh-Hans",
+    "authors": [
+      "无名氏"
+    ]
+  },
+  "source": {
+    "file_sha256": "dd1f520eec431de9154f7cd8ec556a9a698678c0fab46b1686bc4129dbd9fa3b",
+    "page_count": 4,
+    "filename": "grey-heron-dock.pdf"
+  },
+  "pages": [
+    {
+      "pdf_index": 0,
+      "path": "pages/0000.md",
+      "sha256": "f6b6f8ecc70e704886feb9aa2ed00cc5df0ec0b679f7ab46a6ab691fe72f6d11",
+      "chars": 103
+    },
+    {
+      "pdf_index": 1,
+      "path": "pages/0001.md",
+      "sha256": "3cae1542fc6a87e76ec286375326d1a3975465dfdec56b7e921b78bf50d0be04",
+      "chars": 188
+    },
+    {
+      "pdf_index": 2,
+      "path": "pages/0002.md",
+      "sha256": "944f4c3ec7c1de213d9b510e93779bae5ae06b6106dbc407f6e212d712294655",
+      "chars": 148
+    },
+    {
+      "pdf_index": 3,
+      "path": "pages/0003.md",
+      "sha256": "b22f1c4e446d58041b00193ece5a6d3104ea892b7f9eef8aa75b430b0109052a",
+      "chars": 64
+    }
+  ],
+  "assets": [
+    {
+      "id": "map-dock",
+      "kind": "map",
+      "name": "码头与货栈平面图",
+      "pages": [
+        3
+      ],
+      "path": "assets/map-dock.png",
+      "sha256": "e5dd92acd7d1f9550a1848c765289b33b408f0f6c002fd935696ac778965182d",
+      "media_type": "image/png"
+    }
+  ],
+  "outline": [
+    {
+      "title": "灰鹭码头的雾",
+      "level": 1,
+      "pdf_index": 0
+    },
+    {
+      "title": "场景：码头茶棚",
+      "level": 2,
+      "pdf_index": 1
+    },
+    {
+      "title": "场景：废弃货栈",
+      "level": 2,
+      "pdf_index": 2
+    },
+    {
+      "title": "附录：地图",
+      "level": 2,
+      "pdf_index": 3
+    }
+  ]
+}

@@ -45,7 +45,7 @@ def test_a_bad_ontology_reference_stops_the_table_from_opening_but_not_hello(tmp
     content = content_variant(tmp_path, rewrite={"ontology/system-ontology.json": json.dumps(ontology, ensure_ascii=False)})
     client = RpcClient(tmp_path / "ws", content=content)
     try:
-        assert client.ok("kernel.hello")["content"]["modules"] == ["the-haunting"]
+        assert "the-haunting" in client.ok("kernel.hello")["content"]["modules"]
         create_campaign(client)
         error = client.table_err("open")
         assert error["code"] == "campaign_not_ready"

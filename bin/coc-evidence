@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# 读者的证据工具（契约 §14.5）：在一个抽取包上 search / verify / page / outline / read / coverage。
+# 用法：bin/coc-evidence [--packet <work_dir>/packet.json] search <名字>
+#       bin/coc-evidence verify <span-id>[,<span-id>...]
+#       bin/coc-evidence page <pdf_index>
+# 缺省读当前目录的 packet.json。
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+export PYTHONPATH="$REPO/kernel${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONDONTWRITEBYTECODE=1
+exec uv run --frozen --project "$REPO" python -m coc.modules.evidence "$@"
