@@ -1065,3 +1065,51 @@ Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `sessio
 
 - 扩展用例：五个子命令各自的输出形状与 `mode !== "tui"` 的降级；折叠钩子在一个造出来的长会话上按类型丢对了东西、留下了玩家输入与交付、补了那条宿主消息；`before_agent_start` 的阈值触发。
 - 真桌：一局跑到需要压缩（或把阈值调低逼出来），压缩之后守秘人接着走三回合不丢状态：场景、待决、在场 NPC、上一条线索都还在（它们本来就每回合从胶囊来）；桌上用 `/coc model` 换一次模型，下一回合生效且回合状态机没被打断。
+
+## 20. 从 PDF 到可玩：本地抽取、外包 OCR、一个后台作业（切片 11，票 #30）
+
+用户 2026-09-06 的更正与拍板：`@firecrawl/pdf-inspector` 是**本地**原生库（NAPI，按平台带预编译二进制），不是网络服务；OCR 外包给百度飞桨（PaddleOCR AI Studio 的 OCR Jobs API）；库已更新到 1.17.0，用新的，不用 `~/.pi/coc-tools/pdf-inspector` 里那份 1.12.0 的部署。
+
+今天的缺口不是能力是接线：建卡第二步 `build-bundle` 让助手「告诉玩家怎么用宿主的 PDF 技能产出资料包」，仓库里却没有任何东西说得出怎么；装包器 `bundle_from_pages.py` 躺在 `tests/play/`，不在产品路径上。已装的那本 20 页的书是手工装包的。
+
+### 20.1 一条边界，两个适配器
+
+**边界不变**：内核只见成品资料包（§14.2 的 `coc.pdf-bundle.v1`），`module.bind` 逐字节复核。**清单永远由我们签**：适配器只写 `pages/NNNN.md` 与 `assets/`，每页 sha256 由打包器算——让适配器交清单，逐字节复核就变成核对适配器自己的说法。
+
+| 适配器 | 在哪跑 | 干什么 |
+| --- | --- | --- |
+| `extract` | 本地，扩展进程内 | `classifyPdf(buffer)` 给 `{pdfType, pageCount, pagesNeedingOcr, confidence}`；`extractPagesMarkdownAsync(buffer, pages?)` 给每页 `{page（0 起）, markdown, needsOcr, ocrReason?}`。页码从 0 起，正好是资料包的页码 |
+| `ocr` | 外包，飞桨 OCR Jobs API | 只处理 `pagesNeedingOcr` 那几页，回页级 Markdown 与图片；token 走环境变量 `BAIDUOCR_TOKEN`，永不进命令行、源码或产物 |
+
+哪些页要 OCR **不做判断也不用阈值**：`classifyPdf` 直接给名单，`extractPagesMarkdown` 每页还带 `needsOcr` 与 `ocrReason`。实测《不息的渴望》41 页：`Mixed`，需 OCR 的是第 0、1、11、35–40 页，其余原生抽出干净中文，第 2 页就是目录。
+
+**法则修订（本节生效）**：旧说法「仓库不解析 PDF」收窄为 **「内核不解析 PDF；解析只发生在宿主适配器里，产出永远是可逐字节复核的资料包」**。Python 侧禁止 import PDF 库的两条测试不变（内核仍然一行都不解析）；`@firecrawl/pdf-inspector` 作为 `optionalDependencies` 进 Node 侧（每平台一个约 9MB 的原生包，装不上时 ingest 报缺适配器，仍可接手工资料包）。收窄的理由是原来的顾虑不成立：它本地跑、离线、确定，不引入网络也不引入 Python 依赖；真正要守的是「产出必须可复核」，那条一个字没动。
+
+### 20.2 一个后台作业 `ingest`
+
+`extensions/module/ingest.ts`：`{pdf, module_id?}` → 分类 → 原生抽取 → 需要 OCR 的那几页交外包 → 写页文件与资产 → 打包器签清单 → `module.bind` → `module.plan` → 无人值守构建（§14.3 已有）→ `module.install`。作业可重入：同一 PDF 的 `file_sha256` 已有页文件就复用，只补缺页（飞桨那边一次作业不便宜）。
+
+总线新增 `coc:module-ingest`（起）、`coc:module-ingest-progress`（`{stage: classify|extract|ocr|pack|bind, page?, of?}`）、`coc:module-ingest-done`、`coc:module-ingest-failed`；构建那四条（§14.5）不变。遥测 `lane: "ingest"` 每阶段一行，失败带原因码 `no_extractor`、`ocr_unavailable`、`ocr_failed`、`bad_pdf`、`bind_rejected`。
+
+### 20.3 命令面（收进 §19 的 `/coc`）
+
+- `/coc module parse <pdf 路径> [--id <module_id>]`：起作业，进度打在界面上，不进模型上下文。
+- `/coc module`：存储里有什么——id、书名、页数、section 接受/总数、开场是否就绪。
+- `/coc module use <id>`：**不能热切**——一局游玩会话在 `session_start` 就绑死一个战役。它只打印用这本书开桌的命令。「载入」在这个架构里不是动作：解析好的书住在共享存储里，玩它等于在它上面建一个战役。
+
+建卡第二步 `build-bundle` 的 `lines.do` 改成给出这条命令；`bundle_from_pages.py` 挪到 `bin/coc-bundle`（`tests/play/` 留一个 import 转发，玩测脚本不动）。
+
+### 20.4 Electron 是同一个作业
+
+命令里不放逻辑。前端点 PDF 触发的是同一个 `ingest` 作业，进度订阅同一批总线频道，经 Pi RPC 事件流出去（§10 的两个接口不变）。库是本地原生模块，将来也能直接在 Electron 主进程里跑，不需要守护进程。逻辑写进命令就得写两遍。
+
+### 20.5 分层还是按需
+
+旧树在开场之前分三层读（封面目录建骨架 → 选择性补索引 → 开场深读）。这里不重来：`classifyPdf` 一次给身份与页数，抽取按页范围调用，开场之后的深浅由 §14.6 的深挖队列管——队伍走近哪一章就后台读哪一章。所以 ingest 只有两档：**全书抽页**（便宜，本地，一次做完）与 **OCR 补页**（贵，外包，只补名单上的）。
+
+### 20.6 验收
+
+- 一本没进过库的真 PDF（《不息的渴望》，41 页，9 页需 OCR）走 `/coc module parse` 到 installed，中途不手工装包；`module.bind` 的逐字节复核通过；OCR 那 9 页的内容进了页文件。
+- 断网（或不给 token）重跑：需 OCR 的页记 `ocr_unavailable`，其余页照常成书，作业不整体失败，缺页在可玩性简报里点名。
+- 同一本再跑一次：页文件复用，飞桨零调用。
+- 真桌：用这本书新建战役开三回合，开场材料来自构建而不是临场翻书。
