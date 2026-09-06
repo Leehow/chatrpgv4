@@ -32,6 +32,7 @@ from typing import Any
 
 from ..module_graph import record_of
 from ..text import strip_prefix
+from . import contract
 from .contract import (ACTOR_KINDS, EXIT_RELATION_KINDS, INVARIANTS, MEASURES,
                        SUBSTANTIVE_SPAN_CHARS, WALKABLE_KINDS)
 from .store import node_pages
@@ -308,9 +309,9 @@ def check(graph: Any, *, evidence_total: int | None = None,
             "finding_counts": dict(sorted(counts.items())), "measures": measures}
 
 
-#: §17.2: the dossier keys and claim predicates that make an NPC playable at the table.
-NPC_PROFILE_KEYS = ("agenda", "fear", "secret", "voice", "relationship_to_investigators")
-NPC_DOSSIER_PREDICATES = ("knows", "believes", "asserts", "hides")
+#: §17.2: the dossier vocabulary is the contract's (`actor_dossier`), read once there.
+NPC_PROFILE_KEYS = contract.DOSSIER_PROFILE_KEYS
+NPC_DOSSIER_PREDICATES = contract.DOSSIER_PREDICATES
 
 
 def npcs_without_material(graph: dict[str, Any]) -> list[str]:

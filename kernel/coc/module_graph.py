@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import RpcError
+from .modules import contract
 from .fileio import canonical_json, read_json, sha256_file
 from .text import kebab, normalize, normalize_text, strip_prefix
 
@@ -19,17 +20,16 @@ SCENE_KIND = "scene"
 CLUE_KIND = "clue"
 NPC_KIND = "npc"
 INVESTIGATOR_TEMPLATE_KIND = "investigator-template"
-#: §17.2: the authored dossier keys a `npc` node carries as first-class properties. A
-#: starter projected before #29 keeps them under `runtime_projection.record`; `npc_profile`
-#: reads the first-class key first and falls back, so a compiled campaign is never rebuilt.
-PROFILE_KEYS = ("agenda", "fear", "secret", "voice", "relationship_to_investigators")
-#: §17.2: what an NPC knows, believes, would say and hides — claim predicates of contract
-#: v3, subject the NPC. No new predicate is invented here.
-KNOWS, BELIEVES, ASSERTS, HIDES = "knows", "believes", "asserts", "hides"
-DOSSIER_PREDICATES = (KNOWS, BELIEVES, ASSERTS, HIDES)
-#: §17.2: who an NPC stands with and against, in the vocabulary the graph already has.
-TIE_RELATION_KINDS = ("allied-with", "opposes", "member-of", "controls", "owns", "possesses",
-                      "worships", "threatens", "impersonates", "located-in")
+#: §17.2: the dossier vocabulary belongs to the module contract (`content/modules/
+#: module-graph-contract-v3.json`, `actor_dossier`), not to this module — the reader prompt,
+#: the starter projector, the playability brief and the table all read that one list.
+#: A starter projected before #29 keeps the profile keys under `runtime_projection.record`;
+#: `npc_profile` reads the first-class key first and falls back, so a campaign compiled
+#: before this slice is read, never rebuilt.
+PROFILE_KEYS = contract.DOSSIER_PROFILE_KEYS
+DOSSIER_PREDICATES = contract.DOSSIER_PREDICATES
+TIE_RELATION_KINDS = contract.TIE_RELATION_KINDS
+KNOWS, BELIEVES, ASSERTS, HIDES = DOSSIER_PREDICATES
 #: relation kinds that carry the party from one scene to the next: `route-to` (a road) and
 #: the play-order kinds the playability template calls entrances. A built book links its
 #: scenes by play order far more often than by roads; both are exits at the table.

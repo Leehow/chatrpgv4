@@ -978,6 +978,8 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 - **Director 跟着改读法。** `agenda_npc_present` 从 `record_of(n).get("agenda")` 改成 `graph.npc_profile(n).get("agenda")`，构建出来的书的 NPC 因此也数得进去；信号不新增。
 - **`clue.from` 的机器补全只在唯一时发生。** 守秘人给了 `from` 就用它；没给时，只有当该线索的 `held-by`/`delivered-by` 指向**恰好一个在场 NPC** 才补，两个及以上不选——机器不做归属判断。
 - **简报只报不卡。** `npcs_without_material` 数「没有任何档案键、没有任何 `knows`/`believes`/`asserts`/`hides` claim、也没有 starter `facts`」的 NPC。the-haunting 报 1 个，they-did-not-think-it-too-many 报 10 个（11 个里）——#29 的证据本身。模板法则不变：结构性才是不变量，数量只度量。
+- **档案词汇表只有一处。** `content/modules/module-graph-contract-v3.json` 加一块 `actor_dossier`：`profile_keys`（五个档案键）、`prose_keys`（`deflect_lines`——散文留 `properties`，claim 的对象只能是节点）、`claim_predicates`（`knows`/`believes`/`asserts`/`hides`）、`tie_relation_kinds`（十种）。它只**分组**不新增：每个谓词与关系都已在 `relation_kinds` 里。读者提示、starter 投影器、可玩性简报与桌面全部读这一份，`module_graph.PROFILE_KEYS` 等只是它的别名；`test_the_dossier_vocabulary_has_one_home` 钉住这件事，包括「读者提示里逐个点名了这些词」。
+- **`lie_options`/`deflect_options` 的落法。** 谎言是关于一条事实的，所以 `lie_options[].fact_id` 投成对该线索的 `asserts` claim（`authored-lie`）；搪塞是一句台词，契约规定散文留 `properties`，所以 `deflect_options[].player_safe_line` 投成 `properties.deflect_lines`，带上它挡的那条线索。`npc_would_say` 把两者合起来，这就是 `present[].would_lie_about`。
 - **按需深读认 `focus: {npc}`。** 该 NPC `present-in` 的场景所在 section，加上图上 `node_refs_by_section` 里定义它的 section，去重后入队。
 
 ## 18. `apply` 补齐：flag、note、ruling，与 `look focus=session`（切片 8，票 #27）

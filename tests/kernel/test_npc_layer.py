@@ -230,6 +230,35 @@ def test_a_lost_ledger_is_rebuilt_from_the_closed_turns(kernel):
     assert json.loads(path.read_text(encoding="utf-8")) == before
 
 
+def test_the_dossier_vocabulary_has_one_home():
+    """§17.2: the words for a person as a person belong to the module contract, so the
+    reader prompt, the starter projector, the brief and the table cannot drift apart. Every
+    predicate and relation it names must already exist in the contract's own vocabulary --
+    the block groups words, it does not add any."""
+    import importlib.util
+
+    from coc.module_graph import DOSSIER_PREDICATES, PROFILE_KEYS, TIE_RELATION_KINDS
+    from coc.modules import contract
+    from coc.modules.playability import NPC_DOSSIER_PREDICATES, NPC_PROFILE_KEYS
+
+    dossier = contract.CONTRACT["actor_dossier"]
+    assert tuple(dossier["profile_keys"]) == PROFILE_KEYS == NPC_PROFILE_KEYS
+    assert tuple(dossier["claim_predicates"]) == DOSSIER_PREDICATES == NPC_DOSSIER_PREDICATES
+    assert tuple(dossier["tie_relation_kinds"]) == TIE_RELATION_KINDS
+    assert set(dossier["claim_predicates"]) <= contract.RELATION_KINDS
+    assert set(dossier["tie_relation_kinds"]) <= contract.RELATION_KINDS
+
+    spec = importlib.util.spec_from_file_location("starter_graph", KERNEL_DIR.parent / "scripts" / "starter_graph.py")
+    starter_graph = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(starter_graph)
+    assert starter_graph.NPC_PROFILE_KEYS == PROFILE_KEYS
+
+    # and the reader is asked for every one of them by name
+    reader = (CONTENT / "setup" / "reader.md").read_text(encoding="utf-8")
+    for word in list(dossier["profile_keys"]) + list(dossier["claim_predicates"]):
+        assert f"`{word}`" in reader, word
+
+
 # ---- the dossier survives the build path (§17.2) ---------------------------------------------
 
 def test_a_reader_s_dossier_claims_reach_the_graph_and_the_table(kernel, tmp_path):

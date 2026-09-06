@@ -42,6 +42,13 @@ COVERAGE_STATUSES: frozenset[str] = frozenset(CONTRACT["coverage_status"])
 COVERAGE_DOMAINS: tuple[str, ...] = tuple(CONTRACT["coverage_domains"])
 NODE_KINDS: frozenset[str] = frozenset(CONTRACT["node_kinds"])
 RELATION_KINDS: frozenset[str] = frozenset(CONTRACT["relation_kinds"])
+#: §17.2: the words the vocabulary uses for a person as a person. Grouped here, not
+#: invented here -- every predicate and relation named is already in `relation_kinds`.
+_DOSSIER: dict[str, Any] = CONTRACT["actor_dossier"]
+DOSSIER_PROFILE_KEYS: tuple[str, ...] = tuple(_DOSSIER["profile_keys"])
+DOSSIER_PROSE_KEYS: tuple[str, ...] = tuple(_DOSSIER["prose_keys"])
+DOSSIER_PREDICATES: tuple[str, ...] = tuple(_DOSSIER["claim_predicates"])
+TIE_RELATION_KINDS: tuple[str, ...] = tuple(_DOSSIER["tie_relation_kinds"])
 SHARD_KEYS: frozenset[str] = frozenset(CONTRACT["shard_keys"])
 NODE_KEYS: frozenset[str] = frozenset(CONTRACT["node_keys"])
 CLAIM_KEYS: frozenset[str] = frozenset(CONTRACT["claim_keys"])

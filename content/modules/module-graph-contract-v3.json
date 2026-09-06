@@ -216,5 +216,38 @@
       "known_by_ids",
       "validity"
     ]
+  },
+  "actor_dossier": {
+    "why": "A stat block is not a person (contract §17.2). These are the words the extraction vocabulary uses for what a book says about someone as a person, so the reader prompt, the starter projector, the playability brief and the table all read one list instead of each keeping their own.",
+    "profile_keys": [
+      "agenda",
+      "fear",
+      "secret",
+      "voice",
+      "relationship_to_investigators"
+    ],
+    "prose_keys": [
+      "deflect_lines"
+    ],
+    "prose_keys_why": "Prose an actor speaks or the keeper reads stays in `properties`: a claim's object is a node, never a sentence.",
+    "claim_predicates": [
+      "knows",
+      "believes",
+      "asserts",
+      "hides"
+    ],
+    "tie_relation_kinds": [
+      "allied-with",
+      "opposes",
+      "member-of",
+      "controls",
+      "owns",
+      "possesses",
+      "worships",
+      "threatens",
+      "impersonates",
+      "located-in"
+    ],
+    "law": "Every name here already exists in `relation_kinds`; this block groups them by what they are for and adds no vocabulary. A key a book does not give is absent, never invented -- an actor with none is reported by the measure `npcs_without_material` and fails nothing."
   }
 }

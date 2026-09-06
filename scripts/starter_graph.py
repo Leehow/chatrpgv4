@@ -76,8 +76,11 @@ COLLECTION_SPECS: dict[str, tuple[tuple[str, str, str | None], ...]] = {
     "handouts.json": (("handouts", "handout", "asset_id"),),
 }
 #: §17.2: the dossier keys projected up to first-class `properties` on an npc node, so a
-#: starter and a book built from a PDF are read the same way.
-NPC_PROFILE_KEYS = ("agenda", "fear", "secret", "voice", "relationship_to_investigators")
+#: starter and a book built from a PDF are read the same way. The list is the module
+#: contract's (`actor_dossier`), read from the same file the gates read.
+NPC_PROFILE_KEYS: tuple[str, ...] = tuple(
+    json.loads((Path(__file__).resolve().parents[1] / "content" / "modules"
+                / "module-graph-contract-v3.json").read_text(encoding="utf-8"))["actor_dossier"]["profile_keys"])
 
 # Which documents feed each coverage domain; a domain is `accepted` when every one of
 # its documents is present, `partial` when some are, `absent` when none is.
