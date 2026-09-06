@@ -12,14 +12,14 @@ from coc.module_graph import ModuleGraph  # noqa: E402 - the kernel package live
 
 def test_investigator_templates_rank_last_and_carry_the_note(tmp_path):
     graph = json.loads((CONTENT / "starters" / "the-haunting" / "module-graph.json").read_text(encoding="utf-8"))
-    graph["nodes"].append({"node_id": "investigator-template-corbitt-hunter", "node_kind": "investigator-template",
-                           "name": "Corbitt Hunter", "visibility": "keeper-only", "aliases": [],
+    graph["nodes"].append({"node_id": "investigator-template-knott-hunter", "node_kind": "investigator-template",
+                           "name": "Knott Hunter", "visibility": "keeper-only", "aliases": [],
                            "summary": "a pregenerated investigator printed in the book", "evidence_span_ids": [],
                            "properties": {}})
     path = tmp_path / "module-graph.json"
     path.write_text(json.dumps(graph, ensure_ascii=False), encoding="utf-8")
     loaded = ModuleGraph("the-haunting", path)
-    hits = loaded.search("Corbitt", limit=50)
+    hits = loaded.search("Knott", limit=50)
     kinds = [n["node_kind"] for n in hits]
     assert "investigator-template" in kinds and kinds[-1] == "investigator-template"
     assert kinds.index("npc") < kinds.index("investigator-template")
