@@ -15,6 +15,7 @@
  * `node --test "tests/extension/**\/*.test.mjs"`（即 npm run test:ext）。
  */
 
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -31,6 +32,28 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..", "..");
 export const FAKE_KERNEL = join(HERE, "fixtures", "fake-kernel.mjs");
+
+/**
+ * 真内核模式：在工作区里先建一张桌子。走的是内核自己的 RPC，不碰它的文件布局。
+ */
+export function createRealCampaign(workspace, campaign, { module = "the-haunting", pregen = "thomas-hayes" } = {}) {
+	const request = JSON.stringify({
+		id: "create",
+		method: "campaign.create",
+		params: { id: campaign, module, pregen, play_language: "zh-Hans", title: `${campaign} (extension seam)` },
+	});
+	const run = spawnSync(
+		"uv",
+		["run", "--frozen", "python", "-m", "coc.rpc", "--workspace", workspace, "--content", join(REPO, "content")],
+		{ cwd: REPO, env: { ...process.env, PYTHONPATH: join(REPO, "kernel") }, input: `${request}\n`, encoding: "utf8" },
+	);
+	const line = run.stdout.split("\n").find((row) => row.trim());
+	const response = line ? JSON.parse(line) : null;
+	if (!response?.ok) {
+		throw new Error(`campaign.create failed: ${run.stderr}\n${line ?? ""}`);
+	}
+	return response.result;
+}
 
 function setEnv(values) {
 	const previous = new Map();
@@ -92,17 +115,20 @@ export function createFakeUI({ selections = [] } = {}) {
  * @param {string|null} [options.campaign] PI_COC_CAMPAIGN，传 null 表示不设（走 campaign.list 选择）
  * @param {Record<string,string>} [options.env] 追加给假内核与扩展的环境变量
  * @param {object|null} [options.ui] createFakeUI() 的结果；传 null 表示没有界面
+ * @param {boolean} [options.realKernel] 用真的 Python 内核而不是假内核；会先在工作区里 campaign.create
  */
-export async function openTable({ responses = [], campaign = "test-camp", env = {}, ui = createFakeUI() } = {}) {
+export async function openTable({ responses = [], campaign = "test-camp", env = {}, ui = createFakeUI(), realKernel = false } = {}) {
 	const workspace = mkdtempSync(join(tmpdir(), "pi-coc-ext-"));
 	const requestLog = join(workspace, "kernel-requests.jsonl");
 	const restoreEnv = setEnv({
-		PI_COC_KERNEL_CMD: JSON.stringify([process.execPath, FAKE_KERNEL]),
+		PI_COC_KERNEL_CMD: realKernel ? undefined : JSON.stringify([process.execPath, FAKE_KERNEL]),
 		PI_COC_CAMPAIGN: campaign ?? undefined,
 		FAKE_KERNEL_LOG: requestLog,
 		PI_OFFLINE: "1",
 		...env,
 	});
+
+	if (realKernel) createRealCampaign(workspace, campaign);
 
 	const faux = fauxProvider();
 	faux.setResponses(responses);
