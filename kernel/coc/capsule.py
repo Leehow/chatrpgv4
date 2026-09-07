@@ -175,6 +175,7 @@ def where_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, An
     return {
         "scene": graph.handle(scene),
         "display_name": scene_label(graph, world, scene),
+        "summary": scene.get("summary") or graph.prose(scene),
         "dramatic_question": record.get("dramatic_question"),
         "pressure_moves": list(record.get("pressure_moves") or []),
         "exits": exits,

@@ -1,0 +1,23 @@
+{
+  "contract_id": "coc.module-graph-manifest.v1",
+  "schema_version": 1,
+  "module_id": "grey-heron-dock",
+  "generation": 1,
+  "graph_contract_id": "coc.module-graph.v3",
+  "graph_content_digest": "24661dd65bbfc9a3758d30e75ae55909c2be9f8711a31077e8ec9d106d68f8de",
+  "node_count": 8,
+  "relation_count": 10,
+  "claim_count": 10,
+  "node_kinds": {
+    "asset": 1,
+    "clue": 2,
+    "conclusion": 1,
+    "module": 1,
+    "npc": 1,
+    "scene": 2
+  },
+  "section_ids": [
+    "section-01"
+  ],
+  "built_at": "2026-09-07T10:36:12Z"
+}

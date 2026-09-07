@@ -9,6 +9,41 @@ import { assistantTexts, customMessages, openTable, waitForIdle } from "./harnes
 
 const SEVEN = ["apply", "ask", "look", "lookup", "narrate", "recall", "resolve"];
 
+test("source preparation preserves an empty question while explicit rechecks retain their question", async t => {
+	const table = await openTable({ responses: [
+		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Tower" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Tower", question: "What is on the upper floor?" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: "The tower stands ahead." })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("The tower stands ahead."),
+	] });
+	t.after(() => table.dispose());
+	const requests = [];
+	table.emit("coc:reading-bridge", { async ensure(_mid, params) { requests.push(params); return { state: "ready" }; } });
+	await table.session.prompt("Continue the existing tower preparation, then check its upper floor.");
+	assert.deepEqual(requests.map(r => r.question), ["", "What is on the upper floor?"]);
+	assert.ok(requests.every(r => r.focus === "Tower" && r.foreground === true));
+});
+
+test("a source timeout yields the turn instead of allowing another source query", async t => {
+	const table = await openTable({ responses: [
+		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Lena", question: "Her testimony" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Tower", question: "Her testimony" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: "Already read." })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("ask", { prompt: "The source is still being read. Continue waiting?", options: ["Continue waiting", "Pause"] })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("The source is still being read. Continue waiting?"),
+	] });
+	t.after(() => table.dispose());
+	let reads = 0;
+	table.emit("coc:reading-bridge", { async ensure() {
+		reads++;
+		throw Object.assign(new Error("source read timed out"), { details: { reason: "reading_timeout" } });
+	} });
+	await table.session.prompt("Please verify this in the original book.");
+	assert.equal(reads, 1);
+	assert.equal(table.kernelRequests().filter(r => r.method === "table.narrate").length, 0);
+	assert.equal(table.kernelRequests().filter(r => r.method === "table.ask").length, 1);
+});
+
 test("一个玩家回合：七个工具、胶囊、call_id、rendered_text 交付", async (t) => {
 	const table = await openTable({
 		responses: [

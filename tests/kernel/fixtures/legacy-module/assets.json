@@ -1,0 +1,36 @@
+{
+  "contract_id": "coc.module-assets.v1",
+  "schema_version": 1,
+  "assets": [
+    {
+      "id": "asset-dock-map",
+      "kind": "map",
+      "name": "码头与货栈平面图",
+      "aliases": [],
+      "pages": [
+        3
+      ],
+      "path": "bundle/assets/map-dock.png",
+      "media_type": "image/png",
+      "visibility": "player-safe",
+      "node_id": "asset-dock-map",
+      "summary": "码头与货栈平面图。",
+      "bundle_asset_id": "map-dock",
+      "sha256": "e5dd92acd7d1f9550a1848c765289b33b408f0f6c002fd935696ac778965182d"
+    }
+  ],
+  "bundle_assets": [
+    {
+      "id": "map-dock",
+      "kind": "map",
+      "name": "码头与货栈平面图",
+      "pages": [
+        3
+      ],
+      "path": "assets/map-dock.png",
+      "sha256": "e5dd92acd7d1f9550a1848c765289b33b408f0f6c002fd935696ac778965182d",
+      "media_type": "image/png",
+      "bytes": 69
+    }
+  ]
+}

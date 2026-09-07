@@ -1,6 +1,6 @@
 # PDF 直接阅读与按需构图
 
-状态：可实施的目标规格，尚未实现。2026-09-07，核对基线 `7e990cc6`。
+状态：已整合到 `0.9.0a`，集成回归通过。2026-09-07，初始基线 `7e990cc6`；证据与限制见实施记录。
 
 父规格票：[GitHub #34](https://github.com/Leehow/chatrpgv4/issues/34)，已标 `ready-for-agent`。本文件保留本地实施指引；后续拆票以本规格的用户故事、候选切片和验收为依据。
 
@@ -185,6 +185,54 @@
 
 ### 实施记录
 
-2026-09-07：规格与目标契约落地；尚未修改运行时代码，尚未执行本规格的测试与真桌。
+用户已授权实现，并于后续明确要求继续至完成。开发位于隔离 worktree `chatrpgv4-wt-visual-pdf-reader`、分支 `codex/visual-pdf-reader`。旧管线退役及手卡接缝修复已提交为 `cbdab504`；已吸收 `0.9.0a` 的已提交 `40dae53d` 并完成冲突解决和全量验证。后续用户明确授权提交并行任务的工作；该批改动独立提交为 `ffb6361a`，随后整合 PDF 分支。实施 worktree 保留代码、原文件与全部验收证据；生命周期状态另由本任务最终审计记录。
 
-2026-09-07：按 to-spec 模板补齐 32 条用户故事、真实样本与五个候选切片，发布父规格 #34。10 文件/16 页图的 Pi 抽读已完成，属选材调查，不计产品验收。原文件清单、页图、抽读事件与报告保存在本地忽略的研究目录中，未上传原书或摘录。
+| 切片 | 已有证据 | 尚未完成 |
+| --- | --- | --- |
+| A 原页访问 | 原 PDF 页图、旋转、裁剪、缓存校验与区域手卡；真实 Pi 图片读取 | 已验证 |
+| B 原 PDF 到开桌 | 20 页来源已建卡并完成一次真实使节任务；48 页 Cold Harvest 已复核并选对调查开场，退役后实际交付两张手卡并记下调查计划后暂停 | 已验证上述范围 |
+| C 长本按需补读 | 338 页 A Time to Harvest 全书定位；开场仅准备部分材料；正常抵达行动触发未就绪场景细读与第 320 页地图读取；generation 2 发布后实际抵达 | 退役后恢复到同一农舍与 510 分钟，正常暂停；未宣称完成整部长战役 |
+| D 复用与恢复 | 马库斯跨 Pi 会话恢复；朱莉娅在同一模组上另开局，世界时间 30 分钟，与马库斯的 12021 分钟独立；原件恢复、争用与原子发布接缝通过 | 本任务全部 driver 已正常停止，证据保留 |
+| E 旧方法退役 | OCR/资料包命令、旧抽取器依赖、文字 span 管线、旧 build/deepen 编排与专属测试已删除；旧图谱/资产只读兼容保留 | 退役后内核 1027 passed / 1 skipped、扩展 104 passed；长本末轮已正常暂停；本次整合回归见下文 |
+
+真实来源与运行记录（均保留在 `.coc/`，未上传原书）：
+
+- `.coc/research/source-reader-smoke/`：4.5 与 4.6 的实际页图读入探针；只证明视觉输入。
+- `.coc/research/visual-live-home-1/.coc/modules/book-1/`：20 页《他们也没想太多》原文件与图。generation 1 的发布者为原 setup 的 Grok 4.5（read-4，08:16:18Z），后续 reader override 才改为 4.6。
+- `visual-source-setup`、`visual-source-setup-grok46`：原 PDF 建卡。实际战役 `they-did-not-think-it-too-many`，马库斯/军团老兵。
+- `visual-source-play`、`visual-source-play-resume`、`visual-source-play-graph`：马库斯完成旅行、宴会、私人会谈、条约签署与返程复命，最后自然收束。含真实失败检定、玩家放弃推骰与跨会话恢复。源码迭代中出现的失败及被拒调用都保留，不能计作成功回合。
+- `visual-source-reuse-setup`、`visual-source-reuse-play`：朱莉娅新局 `julia-north-mission`，约 20.8 秒建卡，复用 book-1；已实际开场并通过正常玩家输入暂停。该记录验证复用与独立世界，不宣称第二局剧情完结。
+- `.coc/research/long-index/home/.coc/modules/book-1/`：338 页 A Time to Harvest，索引为 338/338。开场 read-32 于 10:45:15Z 完成独立复核后发布 generation 1；此前的 413、阶段超时与语义复核失败均保留。
+- `harvest-visual-setup`、`harvest-visual-play`、`harvest-visual-play-recovery`、`harvest-visual-retired-resume`：真实战役 `a-time-to-harvest`，艾达。启动时一次 driver prompt 被 Pi 的自动开场拒绝，属传输记录，不计玩家回合。抵达动作先因材料未就绪被拒；read-34 发布 generation 2 后，canonical turn 4 只有一次 480 分钟车程和一次 30 分钟卸货，最终世界位置 day-one-arrival、时间 510。第 320 页地图的 23英尺6英寸尺寸误读曾被复核拦下。退役后新进程恢复了 NPC 与同一场景，turn 8 正常暂停，canonical 下一回合为 9/awaiting_player、时间仍 510。下一处 Jim’s Grill 的 read-37 复核尚未发布，退出保留草稿；它不计作新的成功补读。
+- `.coc/research/cold-visual-home/.coc/modules/book-1/`：48 页《冰冷的收获》索引、原页、草稿、复核与图。read-5 的日期、指控内容等误读，以及最后的 50码/50米混淆被复核拦截；read-6 修正后发布。
+- `cold-harvest-ivan` 与 `cold-harvest-ivan-flax` 两个错误试局标记 **invalid-for-intent / invalid-for-acceptance**：图谱已正确区分任务，但建卡候选缺摘要，加上缓存直接复用了旧选择，导致实际开场与玩家意图不符。这两局不计通过，不删除记录。
+- `cold-visual-setup-confirmed` 创建的 `cold-harvest-ivan-correct` 已核对为开场2：查明亚麻产量骤降与电报失联并联系加庞。source kind=module 与 pdf 统一经过 prepare-module，多个候选必须在本次准备选定。
+- 退役后 `cold-visual-graph-play` 与 `cold-visual-handout-play` 暴露了重复原文请求。工具仍把 handout 标为 reserved，现改为必填 name 的已实现效果，Keeper 提示也说明交付现成原图无需转写。`cold-visual-card-delivery` 的 canonical turn 4 已交付两张 image/png 手卡并发出 coc-mechanics；Grok 一次正文异常由下一句正常对话恢复，未重复 apply。turn 5 用 note 记录调查顺序，正常暂停于出发前。两个原图均实际打开检查；信保持原书横置方向。
+
+重要边界与已修系统问题：
+
+1. 原页/图谱为公元80年，旧开场曾误说210年；开场 look 现包含既有模组简报。旧叙述通过玩家正常对话更正并有 note 收据，未改写历史。
+2. 20 页短本采用旧版属性量表，原数字抄录正确不能等同于 CoC7 机制兼容。该样本不用于宣称 NPC 数值兼容；读者/复核现明确 classic CoC7 边界，不猜转换。CoC7 与多开场回归用 Cold Harvest。
+3. 图片历史按每次模型请求至多4张/约8MiB收缩，实际入上下文的图片才算读取；草稿与复核边读边写。
+4. 不带 question 的 source 查询加入原准备任务，显式新问题才另读；超时给原请求字段，必须交还控制，不能把现实等待写成故事时间。
+5. 薄节点首次经复核成为 ready 时可补全 summary；既有正式事实保持冲突检查。已知节点、关系字段向读者提供，身份和理由不因重新措辞而丢失。
+6. 图、manifest 与资产登记统一由 ModuleStore 写入一代；开场选择也不会丢资产。资产按身份匹配，保留原路径和旧别名，新的本地路径只由宿主根据复核过的 image_sources 生成。
+7. 原文件缺失或损坏可用相同摘要的原件恢复；损坏字节另存保留，恢复持有 metadata 锁。索引、任务认领与完成有持久恢复/幂等检查。
+8. 错误跨 Pi 扩展实例按结构传递；主机准备目录异常也会释放已认领任务。既有材料已就绪时不因可选预读缺原文件而阻止开桌。
+
+验证记录：删除前全量内核 1093 passed / 1 skipped，扩展 108 passed / 11 failed（均旧 OCR 导入用例）。删除后扩展 104 passed；内核一轮为 1025 passed / 1 failed / 1 skipped，唯一失败为系统语言测试仍寻找已删除的 reader.md，已改为 visual-reader.md。补齐场景和实体投影后的相关内核 55 passed。最终全量实际退出码均为 0：内核 1027 passed / 1 skipped（208.77 秒），扩展 104 passed。日志为 `.coc/research/final-kernel.log`、`final-extension.log`。补正 handout 工具描述后扩展再次 104 passed，系统语言 5 passed；手卡的真实交付另见上文。
+
+旧图谱兼容由 `tests/kernel/fixtures/legacy-module/` 的冻结合成图验证：无 PDF、无文字资料包仍可加载、开桌与读取资产。它不是 PDF 视觉或真桌证据。历史原文件、图、草稿、图像、战役、逐字记录和遥测全部保留。
+
+观测到的首次开场图发布时间：20 页短本从登记到发布 43.6 分钟；48 页 Cold Harvest 为 114.7 分钟；338 页长本为 186.1 分钟。这些是包含开发修复、失败、人工间隔的真实墙钟时间，不是稳定性能基准，也不代表生成图后所有开场已选定。已有书的复用建卡约 20.8 秒。
+
+集成边界已解除：用户于本次明确要求先提交并行工作再合并。`ffb6361a` 保存人物面板、机制卡与结构化选择；本次合并保留其“系统信息只走 JSON”的约定，以及视觉来源、按需构图和旧流程退役。原实现 worktree 继续保留原文件、图谱、战役和未发布阅读草稿，不作为可删除的临时目录。
+
+上一轮整合 `40dae53d` 的验证：内核 **1035 passed / 1 skipped**（235.62 秒、exit 0），扩展 **106 passed**（exit 0）。日志为 `.coc/research/integrated-kernel.log` 与 `integrated-extension.log`。前端目录与该已提交基线逐字节相同，未在本任务重做前端构建或 GUI 验收。全部本任务玩测 daemon/Pi 已停止。
+
+按 index/read/verify 分组的模型回执用量与图片 read 返回次数在 `.coc/research/visual-pdf-metrics.json`；统计包含失败、恢复和开发期重复尝试，缓存 token 每次请求重复计入，不能当成一次稳定导入的成本。实际图片纳入模型上下文仍以各 attempt 的图片记录和校验结果为准，不能以返回次数替代。
+
+
+本次整合 `ffb6361a` 的验证：内核 **1038 passed**（240.45 秒、exit 0），Pi 扩展 **106 passed**（exit 0），前端相关 5 个测试文件 **107 passed**（exit 0），Web/宿主源码构建通过。证据在当前主工作区 `.coc/research/visual-pdf-merge/`。这次是源码与集成回归，不新增真实模型游玩或打包 App 的声明。
+
+整合修正：阅读等待状态通过 ask.prompt/options 作为交互 JSON 交付；裸等待散文走已有单次修正机制，不再合成空选项 ask，也不进入正文。新增接真内核回归验证这一交付边界。扩展 API 仅在有选定会话时传第四个参数，无会话调用保持原三参数形状。

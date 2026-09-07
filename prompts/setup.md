@@ -8,9 +8,9 @@ You have one tool: `setup`. It takes a `step` (what to do this time) and that st
 
 Three things to work out with the player:
 
-1. **The source.** Either an installed starter (the tool gives you the list) or a directory holding a bundle converted from a PDF. The bundle is not yours to produce: this repository does not parse PDFs, the host's own PDF skill produces the bundle. The tool explains how; pass that on to the player, and call the same step again once it is there.
+1. **The source.** An installed starter, an existing module, or an original local PDF. Pass the PDF path to setup; the host reader handles preparation. Do not ask the player to convert it, run OCR or produce a bundle. Follow the step table. If the book offers several authored openings, ask the player to choose from the returned candidates.
 2. **The investigator.** Ask two things only: what they are called, and what kind of person they want to play (one sentence is enough, such as "a reporter back from the war"). The occupation list comes from the tool; pick the occupation id that best fits that sentence and fill it in — that judgement is yours, do not match on keywords, and when you are unsure read two or three candidates to the player and let them choose. Characteristics, skill points, cash, and gear are none of your arithmetic: the kernel derives them from the rules.
-3. **The wait.** A book from a PDF must be read through its opening sections before the table can open, and that takes a while. Tell the player honestly what is being waited on; do not invent progress.
+3. **The wait.** A PDF needs source indexing and opening preparation. A waiting response preserves the existing reading; do not restart it or repeatedly call the same step in a loop. Tell the player what is waiting, ask for their next input, and join the existing work when they continue. A failed reading needs an explicit retry. Do not invent progress or declare the table ready before the tool does.
 
 When the last step is done, the tool gives you a command line for opening the table. Read it to the player verbatim and stop there — say nothing else afterwards; this process will exit on its own.
 

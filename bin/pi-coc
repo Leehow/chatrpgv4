@@ -13,19 +13,11 @@
 #   PI_COC_VERIFIER_MODEL   the verifier lane's model, as provider/model; defaults to the table's own model
 #   PI_COC_MEMORY_MODEL     the memory extraction lane's model, likewise
 #   PI_COC_BUILD_MODEL      the reader subprocess's model, likewise (contract §14.5)
-#   PI_COC_BUILD_PARALLEL   the build concurrency cap, 1 by default (contract §14.5)
-#   PI_COC_READER_TIMEOUT_MS the cap on one reader round, 15 minutes by default
-#   PI_COC_BUILD_WAIT_MS    how long setup waits for opening readiness, 30 minutes by default; at the deadline it answers "still reading" and can wait again
+#   PI_COC_READER_TIMEOUT_MS the cap on one reader round, 60 minutes by default
 #   PI_COC_LANE_TIMEOUT_MS  cap on one verifier-lane round, 2 minutes by default; past it the lane is cut off and leaves a timeout row
 #   PI_COC_COMPACT_AT       context share at which the table folds its own context before a turn (contract §19.2),
 #                           70% by default; a value above 1 is a percentage, a value at or below 1 is a fraction
-# The PDF ingest job (contract §20) reads three more, all of them a command (a bare path, or a JSON array
-# of strings when an interpreter has to go in front of a script):
-#   PI_COC_EXTRACT          replaces the local extractor (the @firecrawl/pdf-inspector optionalDependency).
-#                           `none` means there is none, which is the `no_extractor` path
-#   PI_COC_OCR_CMD          replaces bin/coc-ocr; `none` switches OCR off. It reads BAIDUOCR_TOKEN from the
-#                           environment, which is the only place that credential ever travels
-#   PI_COC_BUNDLE_CMD       replaces bin/coc-bundle, the packer that signs the manifest (a test seam)
+#   PI_COC_READ_WAIT_MS     foreground material wait, 120 seconds by default; preparation remains resumable
 # Lane models are in docs/pi-host-contract.md §3.1, the reader subprocess in §3.2,
 # the /coc command surface and the context fold in §3.5.
 set -euo pipefail

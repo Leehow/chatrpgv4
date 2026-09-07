@@ -1,12 +1,8 @@
-"""The asset registry: handouts, maps, illustrations (contract §14.8).
-
-`module.bind` registers what the bundle manifest declares; `module.assemble`
-(and starter registration) merges the graph's `asset` / `handout` nodes into it,
-aligned by page. Visibility comes from the node when one is aligned, otherwise
-`keeper-only`: a bundle image nobody has read is not player material yet."""
+"""Published handouts and maps, keyed by identity with source-controlled visibility."""
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 from ..module_graph import record_of
@@ -38,8 +34,8 @@ def _entry_from_node(node: dict[str, Any], bundle_row: dict[str, Any] | None) ->
         "name": str(node.get("name") or node["node_id"]),
         "aliases": [a for a in (node.get("aliases") or []) if isinstance(a, str)],
         "pages": sorted(node_pages(node)),
-        "path": (bundle_row or {}).get("path") or props.get("asset_ref"),
-        "media_type": (bundle_row or {}).get("media_type") or props.get("media_type"),
+        "path": (props.get("asset_ref") if props.get("image_sources") else None) or (bundle_row or {}).get("path") or props.get("asset_ref"),
+        "media_type": (props.get("media_type") if props.get("image_sources") else None) or (bundle_row or {}).get("media_type") or props.get("media_type"),
         "visibility": node.get("visibility") or "keeper-only",
         "node_id": str(node["node_id"]),
         "summary": node.get("summary") or "",
@@ -52,36 +48,14 @@ def _entry_from_node(node: dict[str, Any], bundle_row: dict[str, Any] | None) ->
     if isinstance(title, str) and title and title not in entry["aliases"] and title != entry["name"]:
         entry["aliases"].append(title)
     if bundle_row:
-        entry["bundle_asset_id"] = bundle_row.get("id")
+        entry["bundle_asset_id"] = bundle_row.get("bundle_asset_id") or bundle_row.get("id")
         entry["sha256"] = bundle_row.get("sha256")
     return entry
 
 
-def registry_from_bundle(bundle_assets: list[dict[str, Any]]) -> dict[str, Any]:
-    rows = []
-    for asset in bundle_assets:
-        rows.append({
-            "id": str(asset["id"]),
-            "kind": str(asset.get("kind") or "illustration"),
-            "name": str(asset.get("name") or asset["id"]),
-            "aliases": [],
-            "pages": list(asset.get("pages") or []),
-            # Relative to the module directory: the bundle's bytes live under `bundle/`.
-            "path": f"bundle/{asset['path']}" if asset.get("path") else None,
-            "media_type": asset.get("media_type"),
-            "sha256": asset.get("sha256"),
-            "visibility": "keeper-only",
-            "node_id": None,
-            "bundle_asset_id": str(asset["id"]),
-        })
-    return {"contract_id": REGISTRY_CONTRACT_ID, "schema_version": 1, "assets": rows}
-
-
-def registry_from_graph(graph: dict[str, Any], bundle_assets: list[dict[str, Any]]) -> dict[str, Any]:
-    """Bundle entries first, then graph nodes; a node whose page matches an unclaimed
-    bundle asset of the same kind (or any kind when only one asset sits on that page)
-    takes that asset's bytes."""
-    registry = registry_from_bundle(bundle_assets)
+def registry_from_graph(graph: dict[str, Any], previous_assets: list[dict[str, Any]]) -> dict[str, Any]:
+    """Carry registered assets forward by node identity, preserving legacy paths and aliases."""
+    registry = {"contract_id": REGISTRY_CONTRACT_ID, "schema_version": 1, "assets": copy.deepcopy(previous_assets)}
     rows: list[dict[str, Any]] = registry["assets"]
     by_id = {row["id"]: row for row in rows}
     unclaimed = {row["id"] for row in rows}
@@ -90,8 +64,8 @@ def registry_from_graph(graph: dict[str, Any], bundle_assets: list[dict[str, Any
             continue
         pages = node_pages(node)
         match: dict[str, Any] | None = None
-        candidates = [row for row in rows if row["id"] in unclaimed
-                      and pages and set(row.get("pages") or []) & pages]
+        candidates = [row for row in rows if row["id"] in unclaimed and
+                      (row.get("node_id") == node["node_id"] or row["id"] == node["node_id"])]
         if len(candidates) == 1:
             match = candidates[0]
         elif candidates:

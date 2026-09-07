@@ -1,0 +1,582 @@
+{
+  "contract_id": "coc.module-graph.v3",
+  "schema_version": 3,
+  "module_id": "grey-heron-dock",
+  "source_languages": [
+    "zh-Hans"
+  ],
+  "section_ids": [
+    "section-01"
+  ],
+  "source_refs": [
+    {
+      "source_id": "pdf:grey-heron-dock",
+      "pdf_index": 0,
+      "grep_anchor": "# 灰鹭码头的雾"
+    },
+    {
+      "source_id": "pdf:grey-heron-dock",
+      "pdf_index": 1,
+      "grep_anchor": "## 场景：码头茶棚"
+    },
+    {
+      "source_id": "pdf:grey-heron-dock",
+      "pdf_index": 2,
+      "grep_anchor": "## 场景：废弃货栈"
+    },
+    {
+      "source_id": "pdf:grey-heron-dock",
+      "pdf_index": 3,
+      "grep_anchor": "船工被深潜者带走了；铜哨与账本共同指向这一点。"
+    }
+  ],
+  "coverage": {
+    "structure": "accepted",
+    "world": "accepted",
+    "actors": "accepted",
+    "relationships": "unresolved",
+    "events": "unresolved",
+    "knowledge": "accepted",
+    "causal": "accepted",
+    "mechanics": "accepted",
+    "assets": "accepted",
+    "direction": "accepted"
+  },
+  "coverage_by_section": {
+    "section-01": {
+      "structure": "accepted",
+      "world": "accepted",
+      "actors": "accepted",
+      "knowledge": "accepted",
+      "causal": "accepted",
+      "mechanics": "accepted",
+      "assets": "accepted",
+      "direction": "accepted",
+      "relationships": "unresolved",
+      "events": "unresolved"
+    }
+  },
+  "node_refs_by_section": {
+    "section-01": []
+  },
+  "nodes": [
+    {
+      "node_id": "asset-dock-map",
+      "node_kind": "asset",
+      "name": "码头与货栈平面图",
+      "visibility": "player-safe",
+      "aliases": [],
+      "summary": "码头与货栈平面图。",
+      "evidence_span_ids": [
+        "span-p3-2"
+      ],
+      "properties": {
+        "role": "map"
+      },
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 3,
+          "grep_anchor": "图 1：码头与货栈平面图（见附图）。"
+        }
+      ]
+    },
+    {
+      "node_id": "clue-brass-whistle",
+      "node_kind": "clue",
+      "name": "船工的铜哨",
+      "visibility": "revealable",
+      "aliases": [],
+      "summary": "抽屉里的铜哨刻着货栈编号 7。",
+      "evidence_span_ids": [
+        "span-p1-6"
+      ],
+      "properties": {
+        "delivery_kind": "skill_check"
+      },
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 1,
+          "grep_anchor": "茶棚的抽屉里有一枚铜哨，哨身刻着货栈的编号 7。需要侦查检定才能注意到。"
+        }
+      ]
+    },
+    {
+      "node_id": "clue-wet-ledger",
+      "node_kind": "clue",
+      "name": "湿漉漉的账本",
+      "visibility": "revealable",
+      "aliases": [],
+      "summary": "账本记着每月十五夜取「货」，最后一页是船工的名字；理智 0/1D3。",
+      "evidence_span_ids": [
+        "span-p2-4"
+      ],
+      "properties": {
+        "delivery_kind": "search"
+      },
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 2,
+          "grep_anchor": "账本记着每月十五夜有人来取「货」，最后一页写着失踪船工的名字。理智检定 0/1D3。"
+        }
+      ]
+    },
+    {
+      "node_id": "conclusion-sailor-taken-by-deep-ones",
+      "node_kind": "conclusion",
+      "name": "船工被深潜者带走",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "铜哨与账本共同指向船工被深潜者带走。",
+      "evidence_span_ids": [
+        "span-p3-4"
+      ],
+      "properties": {},
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 3,
+          "grep_anchor": "船工被深潜者带走了；铜哨与账本共同指向这一点。"
+        }
+      ]
+    },
+    {
+      "node_id": "module-grey-heron-dock",
+      "node_kind": "module",
+      "name": "灰鹭码头的雾",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "灰鹭码头的雾",
+      "evidence_span_ids": [
+        "span-p0-1",
+        "span-p0-2"
+      ],
+      "properties": {
+        "source_language": "zh-Hans"
+      },
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 0,
+          "grep_anchor": "# 灰鹭码头的雾"
+        }
+      ]
+    },
+    {
+      "node_id": "npc-lao-zhou",
+      "node_kind": "npc",
+      "name": "老周",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "五十三岁的茶棚老板，嘴碎但胆小；见过船工深夜进货栈。",
+      "evidence_span_ids": [
+        "span-p1-3",
+        "span-p1-4"
+      ],
+      "properties": {
+        "skills": {
+          "侦查": 60,
+          "聆听": 55,
+          "说服": 40
+        },
+        "secret": "见过船工深夜进货栈"
+      },
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 1,
+          "grep_anchor": "### 老周"
+        }
+      ]
+    },
+    {
+      "node_id": "scene-abandoned-warehouse",
+      "node_kind": "scene",
+      "name": "废弃货栈",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "货栈门上挂着 7 号铁牌，地上有拖拽痕迹通向水下。",
+      "evidence_span_ids": [
+        "span-p2-1",
+        "span-p2-2"
+      ],
+      "properties": {
+        "is_ending": true,
+        "runtime_projection": {
+          "document": "story-graph.json",
+          "collection": "scenes",
+          "record": {
+            "scene_id": "abandoned-warehouse",
+            "display_name": "废弃货栈",
+            "is_start": false,
+            "is_final": true,
+            "is_ending": true
+          }
+        }
+      },
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 2,
+          "grep_anchor": "## 场景：废弃货栈"
+        }
+      ]
+    },
+    {
+      "node_id": "scene-dock-teahouse",
+      "node_kind": "scene",
+      "name": "码头茶棚",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "雾锁码头，调查员在茶棚接下寻找失踪船工的委托。",
+      "evidence_span_ids": [
+        "span-p1-1",
+        "span-p1-2"
+      ],
+      "properties": {
+        "is_entrance": true,
+        "runtime_projection": {
+          "document": "story-graph.json",
+          "collection": "scenes",
+          "record": {
+            "scene_id": "dock-teahouse",
+            "display_name": "码头茶棚",
+            "is_start": true,
+            "is_final": false,
+            "is_entrance": true
+          }
+        }
+      },
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 1,
+          "grep_anchor": "## 场景：码头茶棚"
+        }
+      ]
+    }
+  ],
+  "claims": [
+    {
+      "subject_id": "asset-dock-map",
+      "predicate": "depicts",
+      "object": {
+        "node_id": "scene-abandoned-warehouse"
+      },
+      "truth_status": "authored-fact",
+      "evidence_span_ids": [
+        "span-p3-2"
+      ],
+      "claim_id": "claim-asset-dock-map-depicts-scene-abandoned-warehouse",
+      "visibility": "keeper-only",
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 3,
+          "grep_anchor": "图 1：码头与货栈平面图（见附图）。"
+        }
+      ]
+    },
+    {
+      "subject_id": "clue-brass-whistle",
+      "predicate": "discoverable-at",
+      "object": {
+        "node_id": "scene-dock-teahouse"
+      },
+      "truth_status": "authored-fact",
+      "evidence_span_ids": [
+        "span-p1-6"
+      ],
+      "claim_id": "claim-clue-brass-whistle-discoverable-at-scene-dock-teahouse",
+      "visibility": "keeper-only",
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 1,
+          "grep_anchor": "茶棚的抽屉里有一枚铜哨，哨身刻着货栈的编号 7。需要侦查检定才能注意到。"
+        }
+      ]
+    },
+    {
+      "subject_id": "clue-brass-whistle",
+      "predicate": "supports",
+      "object": {
+        "node_id": "conclusion-sailor-taken-by-deep-ones"
+      },
+      "truth_status": "authored-fact",
+      "evidence_span_ids": [
+        "span-p3-4"
+      ],
+      "claim_id": "claim-clue-brass-whistle-supports-conclusion-sailor-taken-by-deep-ones",
+      "visibility": "keeper-only",
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 3,
+          "grep_anchor": "船工被深潜者带走了；铜哨与账本共同指向这一点。"
+        }
+      ]
+    },
+    {
+      "subject_id": "clue-wet-ledger",
+      "predicate": "discoverable-at",
+      "object": {
+        "node_id": "scene-abandoned-warehouse"
+      },
+      "truth_status": "authored-fact",
+      "evidence_span_ids": [
+        "span-p2-4"
+      ],
+      "claim_id": "claim-clue-wet-ledger-discoverable-at-scene-abandoned-warehouse",
+      "visibility": "keeper-only",
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 2,
+          "grep_anchor": "账本记着每月十五夜有人来取「货」，最后一页写着失踪船工的名字。理智检定 0/1D3。"
+        }
+      ]
+    },
+    {
+      "subject_id": "clue-wet-ledger",
+      "predicate": "supports",
+      "object": {
+        "node_id": "conclusion-sailor-taken-by-deep-ones"
+      },
+      "truth_status": "authored-fact",
+      "evidence_span_ids": [
+        "span-p3-4"
+      ],
+      "claim_id": "claim-clue-wet-ledger-supports-conclusion-sailor-taken-by-deep-ones",
+      "visibility": "keeper-only",
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 3,
+          "grep_anchor": "船工被深潜者带走了；铜哨与账本共同指向这一点。"
+        }
+      ]
+    },
+    {
+      "claim_id": "claim-module-grey-heron-dock-contains-scene-abandoned-warehouse",
+      "subject_id": "module-grey-heron-dock",
+      "predicate": "contains",
+      "object": {
+        "node_id": "scene-abandoned-warehouse"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-p2-1",
+        "span-p2-2"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "machine: the module contains this unit",
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 2,
+          "grep_anchor": "## 场景：废弃货栈"
+        }
+      ]
+    },
+    {
+      "claim_id": "claim-module-grey-heron-dock-contains-scene-dock-teahouse",
+      "subject_id": "module-grey-heron-dock",
+      "predicate": "contains",
+      "object": {
+        "node_id": "scene-dock-teahouse"
+      },
+      "truth_status": "authored-fact",
+      "visibility": "keeper-only",
+      "evidence_span_ids": [
+        "span-p1-1",
+        "span-p1-2"
+      ],
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "confidence": 1.0,
+      "reason": "machine: the module contains this unit",
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 1,
+          "grep_anchor": "## 场景：码头茶棚"
+        }
+      ]
+    },
+    {
+      "subject_id": "npc-lao-zhou",
+      "predicate": "present-in",
+      "object": {
+        "node_id": "scene-dock-teahouse"
+      },
+      "truth_status": "authored-fact",
+      "evidence_span_ids": [
+        "span-p1-2"
+      ],
+      "claim_id": "claim-npc-lao-zhou-present-in-scene-dock-teahouse",
+      "visibility": "keeper-only",
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 1,
+          "grep_anchor": "雾锁码头，茶棚里只剩老周一个人守着炉子。调查员在此接下寻找失踪船工的委托。"
+        }
+      ]
+    },
+    {
+      "subject_id": "scene-abandoned-warehouse",
+      "predicate": "route-to",
+      "object": {
+        "node_id": "scene-dock-teahouse"
+      },
+      "truth_status": "authored-fact",
+      "evidence_span_ids": [
+        "span-p1-7"
+      ],
+      "claim_id": "claim-scene-abandoned-warehouse-route-to-scene-dock-teahouse",
+      "visibility": "keeper-only",
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 1,
+          "grep_anchor": "从茶棚沿栈桥向北走 10 分钟可到废弃货栈。"
+        }
+      ]
+    },
+    {
+      "subject_id": "scene-dock-teahouse",
+      "predicate": "route-to",
+      "object": {
+        "node_id": "scene-abandoned-warehouse"
+      },
+      "truth_status": "authored-fact",
+      "evidence_span_ids": [
+        "span-p1-7"
+      ],
+      "claim_id": "claim-scene-dock-teahouse-route-to-scene-abandoned-warehouse",
+      "visibility": "keeper-only",
+      "asserted_by_ids": [],
+      "known_by_ids": [],
+      "validity": null,
+      "source_refs": [
+        {
+          "source_id": "pdf:grey-heron-dock",
+          "pdf_index": 1,
+          "grep_anchor": "从茶棚沿栈桥向北走 10 分钟可到废弃货栈。"
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "rel-asset-dock-map-depicts-scene-abandoned-warehouse",
+      "relation_kind": "depicts",
+      "from_node_id": "asset-dock-map",
+      "to_node_id": "scene-abandoned-warehouse",
+      "claim_id": "claim-asset-dock-map-depicts-scene-abandoned-warehouse",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-clue-brass-whistle-discoverable-at-scene-dock-teahouse",
+      "relation_kind": "discoverable-at",
+      "from_node_id": "clue-brass-whistle",
+      "to_node_id": "scene-dock-teahouse",
+      "claim_id": "claim-clue-brass-whistle-discoverable-at-scene-dock-teahouse",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-clue-brass-whistle-supports-conclusion-sailor-taken-by-deep-ones",
+      "relation_kind": "supports",
+      "from_node_id": "clue-brass-whistle",
+      "to_node_id": "conclusion-sailor-taken-by-deep-ones",
+      "claim_id": "claim-clue-brass-whistle-supports-conclusion-sailor-taken-by-deep-ones",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-clue-wet-ledger-discoverable-at-scene-abandoned-warehouse",
+      "relation_kind": "discoverable-at",
+      "from_node_id": "clue-wet-ledger",
+      "to_node_id": "scene-abandoned-warehouse",
+      "claim_id": "claim-clue-wet-ledger-discoverable-at-scene-abandoned-warehouse",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-clue-wet-ledger-supports-conclusion-sailor-taken-by-deep-ones",
+      "relation_kind": "supports",
+      "from_node_id": "clue-wet-ledger",
+      "to_node_id": "conclusion-sailor-taken-by-deep-ones",
+      "claim_id": "claim-clue-wet-ledger-supports-conclusion-sailor-taken-by-deep-ones",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-module-grey-heron-dock-contains-scene-abandoned-warehouse",
+      "relation_kind": "contains",
+      "from_node_id": "module-grey-heron-dock",
+      "to_node_id": "scene-abandoned-warehouse",
+      "claim_id": "claim-module-grey-heron-dock-contains-scene-abandoned-warehouse",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-module-grey-heron-dock-contains-scene-dock-teahouse",
+      "relation_kind": "contains",
+      "from_node_id": "module-grey-heron-dock",
+      "to_node_id": "scene-dock-teahouse",
+      "claim_id": "claim-module-grey-heron-dock-contains-scene-dock-teahouse",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-npc-lao-zhou-present-in-scene-dock-teahouse",
+      "relation_kind": "present-in",
+      "from_node_id": "npc-lao-zhou",
+      "to_node_id": "scene-dock-teahouse",
+      "claim_id": "claim-npc-lao-zhou-present-in-scene-dock-teahouse",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-scene-abandoned-warehouse-route-to-scene-dock-teahouse",
+      "relation_kind": "route-to",
+      "from_node_id": "scene-abandoned-warehouse",
+      "to_node_id": "scene-dock-teahouse",
+      "claim_id": "claim-scene-abandoned-warehouse-route-to-scene-dock-teahouse",
+      "properties": {}
+    },
+    {
+      "relation_id": "rel-scene-dock-teahouse-route-to-scene-abandoned-warehouse",
+      "relation_kind": "route-to",
+      "from_node_id": "scene-dock-teahouse",
+      "to_node_id": "scene-abandoned-warehouse",
+      "claim_id": "claim-scene-dock-teahouse-route-to-scene-abandoned-warehouse",
+      "properties": {}
+    }
+  ],
+  "merge_notes": []
+}

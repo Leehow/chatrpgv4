@@ -193,12 +193,10 @@ const MergeEffect = Type.Object({
 	label: Type.Optional(Type.String({ description: "short name of this line in the player's language" })),
 });
 
-/** Reserved kinds: the kernel answers not_implemented; the shape is here already. */
-const ReservedEffect = Type.Object({
-	kind: StringEnum(["handout"] as const, { description: "reserved kind" }),
-	name: Type.Optional(Type.String()),
-	value: Type.Optional(Type.String()),
-	note: Type.Optional(Type.String()),
+const HandoutEffect = Type.Object({
+	kind: Type.Literal("handout"),
+	name: Type.String({ description: "the name of a player-safe or revealable handout or image in the module graph" }),
+	label: Type.Optional(Type.String({ description: "an optional player-facing title" })),
 });
 
 const ResolveAction = Type.Object({
@@ -323,10 +321,12 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			"Search the module graph for what the capsule did not answer. The briefing for kind secret with scope scene — the clues in this scene still undiscovered, the secrets and agendas of those present, the Keeper's notes — is already in the capsule; do not look it up again. Use scope module only when you want the whole book's secrets and ending nodes. With kind module it finds entities on the graph by name or alias, at most 8 rows, each with a summary, visibility and relations: use it to confirm whether a name the player mentioned exists in this book. It matches the names and handles on the graph, so search with the module's own names or a name that appeared in the capsule; a translated keyword will not find anything. The kinds rule and catalog answer not_implemented in this slice.",
 		promptSnippet: "Look up an entity the capsule did not answer, or the whole book's secrets and endings",
 		parameters: Type.Object({
-			kind: StringEnum(["module", "secret", "rule", "catalog"] as const, {
-				description: "what to look up; rule and catalog are not implemented in this slice",
+			kind: StringEnum(["module", "source", "secret", "rule", "catalog"] as const, {
+				description: "module reads the compiled graph immediately; source without question prepares missing material or rejoins its reading; source with question explicitly rechecks original pages, even when material exists",
 			}),
 			query: Type.Optional(Type.String({ description: "a name or a question; omissible when kind is secret" })),
+			question: Type.Optional(Type.String({ description: "for source only: the precise original-page question; ordinary module queries do not start reading" })),
+			retry: Type.Optional(Type.Boolean({ description: "explicitly retry a failed source reading" })),
 			scope: Type.Optional(
 				StringEnum(["scene", "module"] as const, { description: "the scope when kind is secret; defaults to scene" }),
 			),
@@ -431,11 +431,11 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Apply",
 		method: "table.apply",
 		description:
-			"Land this turn's changes to the world: move walks to another scene (the result carries the destination scene, so no second look is needed), clue gives the investigator a clue, time advances the world clock, damage hurts the investigator with the rulebook's dice (a fall, fire, suffocation — harm with no attacker), item makes something change hands, cash makes money go up or down. The whole batch is validated before anything is written, and one bad effect writes none of them, so you can list everything that happened this turn in one call. What happens in your narration without an apply did not happen: walking is a move, seeing is a clue, time spent is a time, something gained or handed over is an item, money in or out is a cash. Everything picked up, bought, taken away or used up is an item and reaches the investigator sheet; if it is a weapon, put the profile name from the rules table in weapon, or that gun will never fire later. Money spent, earned or paid out is a cash with a signed delta, and the kernel works out the before and after itself. Someone walking into or out of the scene is an npc with to (a scene name, here, or away) — until you land it, they are not in the room and cannot be targeted; npc also takes stance when you decide where someone stands with the party for a reason the dice did not settle. A destination may be an exit of the current scene or any scene on the way in (where.back lists them nearest first, which is how you back out of a lair with no exits); an unreachable one reports not_reachable with both lists, and a clue that is not here reports not_here. fork, switch and merge change which worldline the table is playing: none of them happens during the call — the kernel performs it after this turn's narrate commits, so you narrate the change first and the player's next line lands on the new line. At most one of the three per turn, it must be the last effect of the batch, and a turn that carries one cannot be closed with ask. A merge called without dispositions reports needs and lists every conflict with the modes its class allows, having written nothing; settle them and call again.",
-		promptSnippet: "Land this turn's world changes: move, clue, time, item, cash",
+			"Land this turn's changes to the world: move walks to another scene (the result carries the destination scene, so no second look is needed), clue gives the investigator a clue, time advances the world clock, damage hurts the investigator with the rulebook's dice (a fall, fire, suffocation — harm with no attacker), item makes something change hands, cash makes money go up or down, handout delivers a prepared card or image by name. Use handout to give the player the existing original-page image; no transcription or source recheck is needed to deliver it. The whole batch is validated before anything is written, and one bad effect writes none of them, so you can list everything that happened this turn in one call. What happens in your narration without an apply did not happen: walking is a move, seeing is a clue, time spent is a time, something gained or handed over is an item, money in or out is a cash. Everything picked up, bought, taken away or used up is an item and reaches the investigator sheet; if it is a weapon, put the profile name from the rules table in weapon, or that gun will never fire later. Money spent, earned or paid out is a cash with a signed delta, and the kernel works out the before and after itself. Someone walking into or out of the scene is an npc with to (a scene name, here, or away) — until you land it, they are not in the room and cannot be targeted; npc also takes stance when you decide where someone stands with the party for a reason the dice did not settle. A destination may be an exit of the current scene or any scene on the way in (where.back lists them nearest first, which is how you back out of a lair with no exits); an unreachable one reports not_reachable with both lists, and a clue that is not here reports not_here. fork, switch and merge change which worldline the table is playing: none of them happens during the call — the kernel performs it after this turn's narrate commits, so you narrate the change first and the player's next line lands on the new line. At most one of the three per turn, it must be the last effect of the batch, and a turn that carries one cannot be closed with ask. A merge called without dispositions reports needs and lists every conflict with the modes its class allows, having written nothing; settle them and call again.",
+		promptSnippet: "Land this turn's world changes: move, clue, time, handout, item, cash",
 		parameters: Type.Object({
 			effects: Type.Array(
-				Type.Union([MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, ForkEffect, SwitchEffect, MergeEffect, ReservedEffect]),
+				Type.Union([MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
 		}),

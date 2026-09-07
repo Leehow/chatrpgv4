@@ -35,8 +35,7 @@ from .rules.percentile import roll_expression
 from .rules.skills import SkillResolver
 from .rules.runtime import RulesEngine, SettleContext
 from .sessions import SessionView, module_weapons
-from .setup import (ModuleStore, STATUS_ACTIVE, STATUS_READY, STATUS_SETTING_UP, SetupMethods, deepen,
-                    material_status, module_registered)
+from .setup import (ModuleStore, STATUS_ACTIVE, STATUS_READY, STATUS_SETTING_UP, SetupMethods, module_registered)
 from .store import Campaign, Store, fresh_turn, now_iso, parse_call_id
 from .text import ascii_slug, normalize, slugify
 
@@ -73,8 +72,6 @@ ECHO_OPTIONS = 12
 #: §14.8: what may be handed to the player as a card.
 HANDOUT_VISIBILITIES = frozenset({"player-safe", "revealable"})
 HANDOUT_KINDS = ("handout", "asset")
-#: §14.6: deepen-queue priorities — the scene underfoot, one step away, the opening.
-DEEPEN_PRIORITY = {"move": 100, "adjacent": 80, "opening": 90}
 LOOK_FOCUS = frozenset({"scene", "npc", "investigator", "clues", "time", "session"})
 LOOKUP_KINDS = frozenset({"module", "secret", "rule", "catalog"})
 RECALL_KINDS = frozenset({"transcript", "memory", "history"})
@@ -151,6 +148,8 @@ class Table:
         #: §14.1: graphs are read from the module store once a module is registered;
         #: the cache is keyed by generation so a deepened graph is picked up.
         self.module_store = ModuleStore(self.store.workspace)
+        from .modules.reading import Reading
+        self.reading = Reading(self.module_store)
         self.setup = SetupMethods(self)
         self._graphs: dict[str, tuple[int, ModuleGraph]] = {}
         #: §12.2: the resume block `table.open` produced, carried into the first
@@ -216,45 +215,44 @@ class Table:
 
     def material_of(self, module_id: str) -> Callable[[str], str]:
         """§14.6: scene handle → ready | reading | missing from the store's section index."""
-        return lambda handle: material_status(self.module_store.section_for_scene(module_id, handle))
+        if self.module_store.exists(module_id) and self.module_store.module(module_id).get("reading_version"):
+            return lambda handle: "ready" if self.reading.material_ready(module_id, handle) else "missing"
+        return lambda _handle: "ready"
 
-    def _enqueue_deepen(self, graph: ModuleGraph, scene: dict[str, Any], reason: str) -> list[str]:
-        """§14.6: the scene's section and its route-to neighbours' sections that are not
-        yet accepted go on the deepen queue. A starter has no sections; nothing is queued."""
+    def _require_material(self, graph: ModuleGraph, names: list[Any]) -> None:
+        """Check authored material before a batch can draw dice or stage effects."""
+        if not self.module_store.exists(graph.module_id) or not self.module_store.module(graph.module_id).get("reading_version"):
+            return
+        from .module_graph import normalize
+        indexed = {normalize(v) for row in self.module_store.read_sections(graph.module_id)
+                   for v in [row.get("name", ""), *row.get("entities", [])] if isinstance(v, str)}
+        for name in names:
+            if not isinstance(name, str) or not name or self.reading.material_ready(graph.module_id, name):
+                continue
+            if graph.find(name) is None and normalize(name) not in indexed:
+                continue  # the ordinary action validator reports genuinely unknown entities
+            raise RpcError("needs", f"the source material for {name!r} is not prepared",
+                           fix="read the required material before retrying this unchanged action",
+                           details={"reason": "material_pending", "read": {"purpose": "detail", "focus": name}})
+
+    def _queue_adjacent_reading(self, graph: ModuleGraph, scene: dict[str, Any], reason: str) -> list[str]:
+        """Queue unprepared neighboring scenes; existing legacy material stays readable."""
         module_id = graph.module_id
-        wanted: list[tuple[str, str, int]] = [(graph.handle(scene), reason, DEEPEN_PRIORITY[reason])]
-        wanted.extend((exit_["to"], "adjacent", DEEPEN_PRIORITY["adjacent"]) for exit_ in graph.scene_exits(scene))
-        # Routes into scenes the graph has no node for: their section is unread.
-        wanted.extend((missing, "adjacent", DEEPEN_PRIORITY["adjacent"]) for missing in graph.scene_dangling_exits(scene))
-        queued: list[str] = []
-        here = self.module_store.section_for_scene(module_id, graph.handle(scene))
-        for handle, why, priority in wanted:
-            section = self.module_store.section_for_scene(module_id, handle)
-            if section is None and why == "adjacent":
-                # The neighbour has no node yet: its section is unread. The spine rule
-                # (old read-ahead): the first unaccepted section after the one we stand in,
-                # in print order.
-                section = self._next_unread_section(module_id, here)
-            if not section or section.get("status") == "accepted":
-                continue
-            section_id = str(section.get("section_id"))
-            if section_id in queued:
-                continue
-            queued.extend(deepen.enqueue(self.module_store, module_id, [section_id], why, priority))
-        return queued
-
-    def _next_unread_section(self, module_id: str, here: dict[str, Any] | None) -> dict[str, Any] | None:
-        rows = self.module_store.read_sections(module_id) if hasattr(self.module_store, "read_sections") else []
-        rows = sorted((r for r in rows if isinstance(r, dict)), key=lambda r: (r.get("pages") or [0])[0])
-        start = 0
-        if here and here.get("section_id"):
-            ids = [r.get("id") for r in rows]
-            if here["section_id"] in ids:
-                start = ids.index(here["section_id"]) + 1
-        for row in rows[start:]:
-            if row.get("status") != "accepted":
-                return {"section_id": row.get("id"), "status": row.get("status")}
-        return None
+        if self.module_store.exists(module_id) and self.module_store.module(module_id).get("reading_version"):
+            queued = []
+            for exit_ in graph.scene_exits(scene):
+                if not self.reading.material_ready(module_id, exit_["to"]):
+                    try:
+                        reply = self.reading.request({"module_id": module_id, "purpose": "detail", "focus": exit_["to"]})
+                    except (RpcError, OSError) as error:
+                        # Optional read-ahead cannot turn a completed move or an available
+                        # opening into an error. Foreground reading reports the source problem.
+                        self.module_store.append_build_log(module_id, {"event": "prefetch-unavailable", "detail": str(error)})
+                        return queued
+                    if reply.get("job_id"):
+                        queued.append(reply["job_id"])
+            return queued
+        return []
 
     @property
     def director(self) -> DirectorGraph:
@@ -379,12 +377,12 @@ class Table:
         starter = module_id in self.modules()
         if not starter and not module_registered(self.module_store, module_id):
             raise invalid_params(f"unknown module {module_id!r}",
-                                 fix=f"one of {self.modules()}, or a module bound with module.bind")
+                                 fix=f"one of {self.modules()}, or a module registered with module.source.bind")
         if starter:
             module_meta = self.module_store.register_starter(module_id, self.content / "starters")
         else:
             # §14.4: a bound book may not have a graph yet (create-campaign precedes
-            # build-opening); the world waits for setup.complete.
+            # source preparation); the world waits for setup.complete.
             module_meta = self.module_store.module(module_id) or {}
             if pregen_id is not None:
                 raise invalid_params("pregens exist only for starters", fix="create the investigator with setup.investigator")
@@ -515,7 +513,7 @@ class Table:
             campaign.write_campaign(meta)
         party = campaign.party()
         # §14.6: the opening scene's section (and its neighbours') go on the deepen queue.
-        self._enqueue_deepen(graph, graph.scene(world["active_scene"]), "opening")
+        self._queue_adjacent_reading(graph, graph.scene(world["active_scene"]), "opening")
         # §17.3: a campaign that predates the NPC ledger — or one whose file was lost — gets
         # it back by replaying the closed turns and the memory candidates. Never on every
         # open: the file on disk is the state, and only its absence triggers a rebuild.
@@ -554,6 +552,7 @@ class Table:
             "scene": {"name": graph.handle(scene), "display_name": scene_label(graph, world, scene)},
             "pending_turn": pending_turn,
             "opening_needed": opening_needed,
+            "module_reading": bool(self.module_store.module(graph.module_id).get("reading_version")),
             "resume": resume,
             # §15.6: which line the table just opened on, and how many circuits in.
             "worldline": {"name": worldline.active_name(meta),
@@ -733,7 +732,11 @@ class Table:
         where = where_section(graph, world, scene, self.material_of(graph.module_id))
         where["situations"] = self._situations(campaign, graph, world, turn)
         where["session"] = SessionView(campaign.dir, graph, campaign.party(), world).active_session()
-        return {"where": where, "present": self._present(campaign, graph, world, scene)}
+        result = {"where": where, "present": self._present(campaign, graph, world, scene)}
+        if int(turn["turn"]) == 0:
+            from .capsule import fitted_module_section
+            result["module"] = fitted_module_section(graph)[0]
+        return result
 
     def _situations(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any],
                     turn: dict[str, Any]) -> list[dict[str, Any]]:
@@ -918,6 +921,8 @@ class Table:
         if intent not in INTENTS:
             raise unsupported_value("intent", intent, sorted(INTENTS),
                                     message=f"unknown intent {intent!r}")
+        if intent not in NONE_INTENTS:
+            self._require_material(graph, [world.get("active_scene"), action.get("actor"), action.get("target")])
         turn_number = int(turn["turn"])
         _, ordinal = parse_call_id(call_id)
         modifiers = self._modifiers(action.get("modifiers"))
@@ -1060,6 +1065,9 @@ class Table:
         effects = params.get("effects")
         if not isinstance(effects, list) or not effects:
             raise invalid_params("params.effects must be a non-empty list")
+        authored_fields = {"move": "to", "clue": "clue", "npc": "name", "handout": "name"}
+        self._require_material(graph, [effect.get(authored_fields[effect["kind"]]) for effect in effects
+                                      if isinstance(effect, dict) and effect.get("kind") in authored_fields])
         turn_number = int(turn["turn"])
         _, ordinal = parse_call_id(call_id)
 
@@ -1188,10 +1196,9 @@ class Table:
             # the scene underfoot is already on the deepen queue.
             result.update(self._scene_view(campaign, graph, staged, turn, destination))
             # §14.6: the scene underfoot and its neighbours go on the deepen queue.
-            result["deepen_queued"] = self._enqueue_deepen(graph, destination, "move")
+            result["deepen_queued"] = self._queue_adjacent_reading(graph, destination, "move")
         if recovered:
-            # So the keeper learns the numbers here rather than from the number check's
-            # refusal after they have already written the night away.
+            # Recovery is projected with the other public mechanics.
             result["recovered"] = recovered
         if attachments:
             # §14.8: the extension hands these to the player as message attachments.
@@ -1873,16 +1880,13 @@ class Table:
             raise invalid_params("a turn that forks or switches the worldline cannot be closed by ask",
                                  fix="close this turn with narrate; ask on the new line's first turn",
                                  details={"worldline": turn["worldline"].get("operation")})
-        # §16.3: player-facing fields first owe the campaign's play_language script, then
-        # the public numbers. Script is a closed character class, not language detection.
+        # §16.3: check the player-language script, not the presence of receipt numbers.
         check_play_language(language_of(campaign.read_campaign()), {
             **({"prompt": prompt, **{f"options[{i}]": option for i, option in enumerate(options)}} if kind == "story" else {}),
             **({"text": text} if text else {}),
         })
         receipts = list(turn.get("receipts", []))
-        # §16.3: the question closes the turn, so the player must see this turn's rolls
-        # before choosing. The keeper states them in `text`; no text states nothing, so a
-        # turn with public numbers refuses an ask without one.
+        # §16.3: story, receipts and choices travel as separate fields.
         turn_number = int(turn["turn"])
         pending = {"name": f"ask-{slugify(binds or prompt or kind)}-t{turn_number}", "prompt": prompt,
                    "options": list(options), "binds": binds, "kind": kind}
@@ -1924,9 +1928,7 @@ class Table:
         # `placement` (pre-§16) is accepted and ignored: nothing is placed any more.
         turn_number = int(turn["turn"])
         receipts = list(turn.get("receipts", []))
-        # §16.3: player-facing text first owes the campaign's play_language script, then
-        # the public numbers. The kernel renders no mechanics; it delivers the text verbatim
-        # and the receipts ride beside it as the language-neutral projection (§16.2).
+        # §16.3: deliver story text verbatim; receipts travel as the separate mechanics projection.
         check_play_language(language_of(campaign.read_campaign()), {"text": text})
         rendered = text
         projected = mechanics(receipts)

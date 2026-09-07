@@ -50,7 +50,7 @@ def record_of(node: dict[str, Any] | None) -> dict[str, Any]:
         return {}
     projection = (node.get("properties") or {}).get("runtime_projection") or {}
     record = projection.get("record")
-    return record if isinstance(record, dict) else {}
+    return record if isinstance(record, dict) else {k: v for k, v in (node.get("properties") or {}).items() if k != "runtime_projection"}
 
 
 #: The document a module node's projection keeps its own declarations in. Every other kind
@@ -75,7 +75,8 @@ def module_declaration(node: dict[str, Any] | None) -> dict[str, Any]:
         if isinstance(root, dict):
             declared = root
         break
-    return {**record_of(node), **declared}
+    properties = {k: v for k, v in (node.get("properties") or {}).items() if k != "runtime_projection"}
+    return {**properties, **record_of(node), **declared}
 
 
 # ---- authored conditions ---------------------------------------------------------------
@@ -749,6 +750,8 @@ class ModuleGraph:
             "display_name": self.display_name(node),
             "kind": node["node_kind"],
             "summary": self.summary(node),
+            "properties": {k: v for k, v in (node.get("properties") or {}).items()
+                           if k not in ("runtime_projection", "asset_ref")},
             "visibility": node.get("visibility"),
             "relations": self.relations_of(node),
         }

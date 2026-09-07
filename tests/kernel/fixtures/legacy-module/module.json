@@ -1,0 +1,74 @@
+{
+  "id": "grey-heron-dock",
+  "title": "灰鹭码头的雾",
+  "source": "pdf",
+  "languages": [
+    "zh-Hans"
+  ],
+  "bundle_sha256": "17e4e5464be460bd319b6578a791b43235806d0d96709dcc57a0b13a73e0fce5",
+  "file_sha256": "dd1f520eec431de9154f7cd8ec556a9a698678c0fab46b1686bc4129dbd9fa3b",
+  "page_count": 4,
+  "producer": "test-fixture",
+  "graph_digest": "997ceb4653d1cf376fe2fc48ca8466218d58d6a3f37dbcb3124b06bf2c149244",
+  "generation": 1,
+  "status": "installed",
+  "created_at": "2026-09-07T10:36:12Z",
+  "updated_at": "2026-09-07T10:36:12Z",
+  "playability": {
+    "status": "playable",
+    "findings": [],
+    "finding_counts": {},
+    "measures": {
+      "scenes": 2,
+      "scene_exits": 2,
+      "scene_components": 1,
+      "largest_component": 2,
+      "branches": 0,
+      "npcs": 1,
+      "npcs_without_material": 0,
+      "creatures": 0,
+      "clues": 2,
+      "conclusions": 1,
+      "endings": 1,
+      "rules": 0,
+      "nodes": 8,
+      "relations": 10,
+      "span_consumption": 0.619,
+      "pages_covered": 4,
+      "substantive_spans_uncited": 0
+    }
+  },
+  "assemble_report": {
+    "notes": [],
+    "conflicts": [],
+    "unresolved_node_refs": [],
+    "dangling_relations": [],
+    "counts": {
+      "nodes": 8,
+      "claims": 10,
+      "relations": 10,
+      "conflicts": 0,
+      "unresolved_node_refs": 0,
+      "dangling_relations": 0
+    }
+  },
+  "opening": {
+    "opening_ready": true,
+    "start_scene": "scene-dock-teahouse",
+    "missing": [],
+    "findings": [],
+    "finding_counts": {},
+    "nodes": 6
+  },
+  "opening_ready": true,
+  "sections_accepted": [
+    "section-01"
+  ],
+  "install": {
+    "at": "2026-09-07T10:36:12Z",
+    "forced": false,
+    "generation": 1,
+    "playability_status": "playable",
+    "finding_counts": {}
+  }
+}

@@ -66,8 +66,7 @@ test("/coc：桌况面板走 ctx.ui，不占回合、不动回合状态机、不
 	const methods = table
 		.kernelRequests()
 		.slice(requestsBefore)
-		.map((row) => row.method)
-		.filter((method) => !method.startsWith("module.deepen."));
+		.map((row) => row.method);
 	assert.deepEqual(methods, ["table.status", "module.status"], "只做两次读调用");
 	assert.equal(
 		table.kernelRequests().filter((row) => row.method === "table.player_input").length,
@@ -194,8 +193,7 @@ test("/coc investigator：库的名册，最新的在前（契约 §21.5）", as
 		table
 			.kernelRequests()
 			.slice(requestsBefore)
-			.map((row) => row.method)
-			.filter((method) => !method.startsWith("module.deepen.")),
+			.map((row) => row.method),
 		["investigator.list"],
 	);
 	assert.equal(
@@ -223,8 +221,7 @@ test("/coc investigator save：把当前桌子的卡手动存进库（契约 §2
 		table
 			.kernelRequests()
 			.slice(requestsBefore)
-			.map((row) => row.method)
-			.filter((method) => !method.startsWith("module.deepen.")),
+			.map((row) => row.method),
 		["investigator.save"],
 	);
 	const rows = table.entries("coc-telemetry").filter((row) => row.lane === "command" && row.command === "investigator save");
@@ -272,8 +269,7 @@ test("非交互模式：`/coc` 只回一行 interactive only，别的什么都�
 		table
 			.kernelRequests()
 			.slice(requestsBefore)
-			.map((row) => row.method)
-			.filter((method) => !method.startsWith("module.deepen.")),
+			.map((row) => row.method),
 		[],
 		"一个内核调用都不发",
 	);

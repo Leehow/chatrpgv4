@@ -8,6 +8,7 @@ same file. Nothing here reads prose."""
 
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -379,9 +380,9 @@ def test_the_dossier_vocabulary_has_one_home():
     assert starter_graph.NPC_PROFILE_KEYS == PROFILE_KEYS
 
     # and the reader is asked for every one of them by name
-    reader = (CONTENT / "setup" / "reader.md").read_text(encoding="utf-8")
-    for word in list(dossier["profile_keys"]) + list(dossier["claim_predicates"]):
-        assert f"`{word}`" in reader, word
+    reader = (CONTENT / "setup" / "visual-reader.md").read_text(encoding="utf-8")
+    assert contract.vocabulary()["actor_dossier"] == dossier
+    assert "task.vocabulary.actor_dossier" in reader
 
 
 # ---- the dossier survives the build path (§17.2) ---------------------------------------------
@@ -391,46 +392,54 @@ def test_a_reader_s_dossier_claims_reach_the_graph_and_the_table(kernel, tmp_pat
     survives the three gates, the merge, and the projection. This walks one book's
     `believes` and `hides` claims all the way to `look focus=<npc>` -- the path a re-read
     of a real book would take, with no model in the loop."""
-    from module_helpers import (TINY_ID, bind_tiny, claim, module_dir, node, packet_for, plan_whole_book,
-                                reader_shard, review, span_with, write_shard)
-
-    bind_tiny(kernel, tmp_path)
-    section_id = plan_whole_book(kernel)
-    packet, work_dir = packet_for(kernel, section_id)
-    shard = reader_shard(packet)
-
-    # what the page actually says about him: he saw the sailor go in at night, and he is timid
-    seen = span_with(packet, "见过船工深夜进货栈")
-    timid = span_with(packet, "嘴碎但胆小")
-    assert seen and timid
-    shard["nodes"].append(node("secret", "sailor-entered-at-night", "船工深夜进货栈", [seen],
-                               "老周见过船工深夜进货栈，但不敢说。"))
-    heading = span_with(packet, "## 场景：码头茶棚")
-    jetty = span_with(packet, "沿栈桥向北走")
-    assert heading and jetty
-    shard["nodes"] += [
-        node("location", "dock-teahouse-building", "码头茶棚", [heading], "雾锁码头的茶棚。"),
-        node("location", "jetty", "栈桥", [jetty], "从茶棚向北通往废弃货栈。"),
-        node("rule", "teahouse-questioning", "茶棚问话", [seen], "向老周打听要一次说服检定。"),
-        node("ending", "sailor-recovered", "船工获救", [jetty], "船工被找回，货栈的门重新锁上。"),
+    from module_helpers import indexed, request, claim, observed, write, finish
+    from coc.modules.visual import check_draft
+    from coc.modules.store import ModuleStore
+    mid, _ = indexed(kernel, tmp_path)
+    request(kernel, mid, "opening")
+    job = claim(kernel, mid)
+    observed(job)
+    frozen = json.loads((Path(__file__).parent / "fixtures/legacy-module/module-graph.json").read_text())
+    nodes = [{k: n[k] for k in ("node_id", "node_kind", "name", "aliases", "summary", "properties", "visibility") if k in n}
+             for n in frozen["nodes"]]
+    for n in nodes:
+        if n["node_kind"] == "module": n["node_id"] = f"module-{mid}"
+        n["source_refs"] = [{"page": 1}]
+        if n["node_kind"] in ("asset", "handout"): n.get("properties", {}).pop("asset_ref", None)
+        if n["node_kind"] == "npc" and "skills" in n.get("properties", {}):
+            n["properties"]["mechanics"] = {"profile": {"skills": n["properties"].pop("skills")}}
+    claims = [{k: c[k] for k in ("subject_id", "predicate", "object", "truth_status", "visibility", "reason", "known_by_ids", "asserted_by_ids", "validity") if k in c}
+              for c in frozen["claims"]]
+    for c in claims:
+        if c["subject_id"].startswith("module-"): c["subject_id"] = f"module-{mid}"
+        c["source_refs"] = [{"page": 1}]
+    def node(kind, slug, name, summary):
+        return {"node_id": f"{kind}-{slug}", "node_kind": kind, "name": name, "summary": summary, "source_refs": [{"page": 1}]}
+    def relation(subject, predicate, target):
+        return {"subject_id": subject, "predicate": predicate, "object": {"node_id": target},
+                "truth_status": "authored-fact", "source_refs": [{"page": 1}]}
+    nodes += [
+        node("secret", "sailor-entered-at-night", "船工深夜进货栈", "老周见过船工深夜进货栈，但不敢说。"),
+        node("location", "dock-teahouse-building", "码头茶棚", "雾锁码头的茶棚。"),
+        node("location", "jetty", "栈桥", "从茶棚向北通往废弃货栈。"),
+        node("rule", "teahouse-questioning", "茶棚问话", "向老周打听要一次说服检定。"),
+        node("ending", "sailor-recovered", "船工获救", "船工被找回，货栈的门重新锁上。"),
     ]
-    shard["claims"] += [
-        claim("scene-dock-teahouse", "occurs-at", "location-dock-teahouse-building", [heading]),
-        claim("location-jetty", "located-in", "location-dock-teahouse-building", [jetty]),
-        claim("scene-dock-teahouse", "uses-rule", "rule-teahouse-questioning", [seen]),
-        claim("scene-dock-teahouse", "may-lead-to", "ending-sailor-recovered", [jetty]),
-        claim("npc-lao-zhou", "hides", "secret-sailor-entered-at-night", [seen]),
-        claim("npc-lao-zhou", "knows", "clue-brass-whistle", [span_with(packet, "一枚铜哨")]),
-        claim("npc-lao-zhou", "believes", "secret-sailor-entered-at-night", [timid]),
-    ]
-    write_shard(work_dir, shard)
-    report = review(kernel, section_id)
-    assert report["accepted"], report["findings"]
-    kernel.ok("module.accept", {"module_id": TINY_ID, "section_id": section_id})
-    assembled = kernel.ok("module.assemble", {"module_id": TINY_ID})
-    assert assembled["merge"]["conflicts"] == 0 and assembled["merge"]["dangling_relations"] == 0
-
-    graph = ModuleGraph(TINY_ID, module_dir(kernel.workspace) / "module-graph.json")
+    claims += [relation(a, p, b) for a, p, b in [
+        ("scene-dock-teahouse", "occurs-at", "location-dock-teahouse-building"),
+        ("location-jetty", "located-in", "location-dock-teahouse-building"),
+        ("scene-dock-teahouse", "uses-rule", "rule-teahouse-questioning"),
+        ("scene-dock-teahouse", "may-lead-to", "ending-sailor-recovered"),
+        ("npc-lao-zhou", "hides", "secret-sailor-entered-at-night"),
+        ("npc-lao-zhou", "knows", "clue-brass-whistle"),
+        ("npc-lao-zhou", "believes", "secret-sailor-entered-at-night"),
+    ]]
+    draft = {"nodes": nodes, "claims": claims, "node_refs": [], "coverage": {}, "dependencies": [], "critical": [], "ready_nodes": [n["node_id"] for n in nodes]}
+    required = check_draft(draft, job)["required_review"]
+    write(Path(job["work_dir"])/"draft.json", draft)
+    write(Path(job["work_dir"])/"review.json", {"checked": [{"paths": required, "verdict": "supported", "source_refs": [{"page": 1}]}], "missing": []})
+    finish(kernel, job)
+    graph = ModuleGraph(mid, ModuleStore(kernel.workspace).graph_path(mid))
     zhou = graph.npc("老周")
     assert [c["object"]["node_id"] for c in graph.npc_claims(zhou, "hides")] == ["secret-sailor-entered-at-night"]
     assert [e["handle"] for e in graph.npc_knows(zhou)] == ["brass-whistle"]
@@ -492,11 +501,11 @@ def test_the_books_numbers_read_out_of_either_shape():
     # Producer and consumer, tied: the reader is asked for exactly the shape this reads, and
     # told what a stat line copied as printed costs. One built book had eleven actors and not
     # a usable skill among them because the ask said "as printed".
-    ask = (CONTENT / "setup" / "reader.md").read_text(encoding="utf-8")
-    assert "`skills`" in ask and '{"Fighting": 50' in ask
+    ask = (CONTENT / "setup" / "visual-reader.md").read_text(encoding="utf-8")
+    assert "properties.mechanics.profile" in ask and '{"Spot Hidden": 60' in ask
     for key in ("STR", "CON", "DEX", "POW", "EDU"):
-        assert f"`{key}`" in ask, key
-    assert "does not read printed notation" in ask
+        assert key in ask, key
+    assert "cannot be used for a roll" in ask
 
 
 def test_an_npc_acts_for_the_party_and_the_roll_is_theirs(kernel):

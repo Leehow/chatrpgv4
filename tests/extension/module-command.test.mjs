@@ -14,7 +14,7 @@ import { execPath } from "node:process";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { createFakeUI, FAKE_BUNDLE, FAKE_EXTRACT, FAKE_OCR, openTable, waitFor } from "./harness.mjs";
+import { createFakeUI, openTable, waitFor } from "./harness.mjs";
 
 /** Two books in the store: one that can be played right now, one still being built. */
 const LIBRARY = [
@@ -100,74 +100,30 @@ test("/coc module use: no hot switch, just the two commands that start a table o
 	assert.match(lastNotice(table).message, /which book\?/);
 });
 
-test("/coc module parse: it only puts the request on the bus, and the job's progress comes back to the person", async (t) => {
-	const scratch = mkdtempSync(join(tmpdir(), "pi-coc-book-"));
-	t.after(() => rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
-	const book = join(scratch, "An Amaranthine Desire.pdf");
-	writeFileSync(book, "%PDF-1.4\nfake\n", "utf8");
-
-	const table = await openWithLibrary(t, {
-		env: {
-			PI_COC_EXTRACT: JSON.stringify([execPath, FAKE_EXTRACT]),
-			PI_COC_OCR_CMD: JSON.stringify([execPath, FAKE_OCR]),
-			PI_COC_BUNDLE_CMD: JSON.stringify([execPath, FAKE_BUNDLE]),
-			BAIDUOCR_TOKEN: "a-token",
-			FAKE_PDF: JSON.stringify({ page_count: 2, pages_needing_ocr: [] }),
-			FAKE_KERNEL_MODULE: JSON.stringify({
-				module_id: "amaranthine-desire",
-				library: LIBRARY,
-				sections: [{ id: "front", priority: 100 }],
-				opening_after: 1,
-			}),
-		},
-	});
-
-	await table.session.prompt(`/coc module parse "${book}" --id amaranthine-desire --language zh-Hans`);
-
-	// The command carries no logic: it emits the same request a front end's file picker would (contract §20.4).
-	const started = table.bus("coc:module-ingest");
-	assert.equal(started.length, 1);
-	assert.deepEqual(started[0].data, { pdf: book, module_id: "amaranthine-desire", language: "zh-Hans" });
-	assert.match(table.ui.notifications[0].message, /^parse {3}.*An Amaranthine Desire\.pdf$/m, "the quoted path survived tokenising");
-	assert.match(table.ui.notifications[0].message, /language zh-Hans {2}id amaranthine-desire/);
-
-	const done = await waitFor(() => table.bus("coc:module-ingest-done")[0], { label: "the parse finished" });
-	assert.equal(done.data.page_count, 2);
-	// The progress and the ending reach the person through the same interface, not the Keeper.
-	const lines = table.ui.notifications.map((row) => row.message);
-	assert.ok(lines.some((line) => line.startsWith("parse   classify")), "the stages are reported");
-	assert.ok(lines.some((line) => /^parse {3}done {2}amaranthine-desire/.test(line)), "so is the end");
-	assert.equal(
-		table.session.messages.filter((message) => message.role === "user").length,
-		1,
-		"none of it became a player line",
-	);
-	const row = table.entries("coc-telemetry").find((entry) => entry.lane === "command" && entry.command === "module parse");
-	assert.equal(row.language, "zh-Hans");
-
-	// The whole book landed under the workspace's own `.coc/ingest/<file digest>/`.
-	assert.ok(existsSync(join(done.data.work_dir, "bundle", "manifest.json")));
-	assert.match(readFileSync(join(done.data.work_dir, "pages", "0001.md"), "utf8"), /native text for page 1/);
+test("/coc module parse forwards the original quoted path and keeps progress out of player context", async (t) => {
+ const table = await openWithLibrary(t);
+ await table.session.prompt('/coc module parse "/tmp/a book.pdf" --id a-book');
+ const started=table.bus("coc:module-ingest");
+ assert.equal(started.length,1);
+ assert.deepEqual(started[0].data,{pdf:"/tmp/a book.pdf",module_id:"a-book"});
+ assert.ok(table.ui.notifications.some(r=>r.message.includes("/tmp/a book.pdf")));
+ await waitFor(()=>table.bus("coc:module-ingest-failed")[0],{label:"missing source is reported"});
+ // Command-view fixtures; source processing is tested at its own seam.
+ table.emit("coc:module-ingest-progress",{stage:"index",page:10,of:20});
+ table.emit("coc:module-ingest-done",{module_id:"a-book",opening_ready:true});
+ assert.ok(table.ui.notifications.some(r=>r.message.includes("page 10/20")));
+ assert.match(lastNotice(table).message,/opening ready/);
+ assert.equal(table.session.messages.filter(m=>m.role==="user").length,1);
 });
 
-test("/coc module parse: the language is asked for, never guessed, and a cancelled answer starts nothing", async (t) => {
-	const asked = await openWithLibrary(t, { ui: createFakeUI({ inputs: ["en"] }) });
-	await asked.session.prompt("/coc module parse /tmp/whatever.pdf");
-	assert.equal(asked.ui.prompts.at(-1).kind, "input", "the person is asked");
-	assert.match(asked.ui.prompts.at(-1).title, /BCP 47/);
-	assert.equal(asked.bus("coc:module-ingest")[0].data.language, "en", "the answer is what the job gets");
-
-	// The default fake interface cancels every prompt, which is a person pressing escape.
-	const cancelled = await openWithLibrary(t);
-	await cancelled.session.prompt("/coc module parse /tmp/whatever.pdf");
-	assert.match(lastNotice(cancelled).message, /language has to be declared/);
-	assert.equal(cancelled.bus("coc:module-ingest").length, 0, "nothing was started");
-
-	await cancelled.session.prompt("/coc module parse");
-	assert.match(lastNotice(cancelled).message, /give me a PDF to read/);
-
-	await cancelled.session.prompt("/coc module frobnicate");
-	assert.match(lastNotice(cancelled).message, /is not a \/coc module sub-command/);
+test("/coc module parse does not require the player to identify the source language", async (t) => {
+ const table=await openWithLibrary(t);
+ await table.session.prompt("/coc module parse /tmp/whatever.pdf");
+ assert.equal(table.ui.prompts.filter(r=>r.kind==="input").length,0);
+ assert.equal(table.bus("coc:module-ingest")[0].data.pdf,"/tmp/whatever.pdf");
+ assert.equal(table.bus("coc:module-ingest")[0].data.language,undefined);
+ await table.session.prompt("/coc module parse");
+ assert.match(lastNotice(table).message,/give me a PDF to read/);
 });
 
 test("/coc module outside an interactive terminal: one line, no bus request, no kernel call (contract §19.1)", async (t) => {
@@ -195,8 +151,7 @@ test("/coc module outside an interactive terminal: one line, no bus request, no 
 		table
 			.kernelRequests()
 			.slice(before)
-			.map((row) => row.method)
-			.filter((method) => !method.startsWith("module.deepen.")),
+			.map((row) => row.method),
 		[],
 		"not one kernel call",
 	);

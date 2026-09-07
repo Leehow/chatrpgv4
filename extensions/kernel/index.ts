@@ -9,7 +9,7 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cocHome, cocMode } from "../lanes/host.ts";
-import { KernelClient, KernelError } from "./client.ts";
+import { KernelClient, KernelError , isKernelError } from "./client.ts";
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 
@@ -104,7 +104,8 @@ interface TableState {
 	/** Whether this agent run has already closed the turn with narrate/ask. */
 	closedThisRun: boolean;
 	steeredThisTurn: boolean;
-	/** The kernel's `fix` for a refused implicit delivery (`mechanics_missing` or `play_language_mismatch`); steered once at agent_end instead of delivering. */
+	readingWait?: boolean;
+	/** The kernel's `fix` for a refused implicit delivery (`play_language_mismatch`); steered once at agent_end instead of delivering. */
 	deliveryFix?: { kind: string; text: string };
 	roundTrips: number;
 	mintedCallIds: Map<string, string>;
@@ -226,17 +227,6 @@ function errorDetailLines(details: Record<string, unknown> | undefined): string[
 	if (Array.isArray(exits) && exits.length > 0) {
 		lines.push(`reachable: ${exits.map((exit) => (typeof exit === "string" ? exit : JSON.stringify(exit))).join(", ")}`);
 	}
-	const missing = details.missing;
-	if (Array.isArray(missing) && missing.length > 0) {
-		// A `mechanics_missing` refusal (contract §5): the numbers the prose must carry belong in the body too.
-		lines.push("numbers still missing from the prose:");
-		for (const row of missing) {
-			const entry = (row ?? {}) as Record<string, unknown>;
-			const receipt = asString(entry.receipt) ?? "?";
-			const expected = Array.isArray(entry.expected) ? entry.expected.map((value) => String(value)).join(", ") : "";
-			lines.push(expected ? `- ${receipt}: ${expected}` : `- ${receipt}`);
-		}
-	}
 	const fields = details.fields;
 	if (Array.isArray(fields) && fields.length > 0) {
 		// A `play_language_mismatch` refusal (contract §16.3): rewrite these player-facing fields.
@@ -272,7 +262,7 @@ function resolveTelemetry(result: ResolveResult): Record<string, unknown> {
 }
 
 function errorText(error: unknown): string {
-	if (!(error instanceof KernelError)) {
+	if (!(isKernelError(error))) {
 		return error instanceof Error ? error.message : String(error);
 	}
 	return [error.toToolText(), ...errorDetailLines(error.details)].join("\n");
@@ -280,11 +270,11 @@ function errorText(error: unknown): string {
 
 /**
  * The kernel's delivery-floor refusals (contract §5 / §16.3): `invalid_params` with
- * `code_detail: "mechanics_missing"` or `"play_language_mismatch"`. The detail is read from
+ * `code_detail: "play_language_mismatch"`. The detail is read from
  * all the places it can travel, because it is one contract field and not a semantic judgement.
  */
 function floorDetail(error: unknown): "play_language_mismatch" | undefined {
-	if (!(error instanceof KernelError)) return undefined;
+	if (!isKernelError(error)) return undefined;
 	const detail =
 		error.code === "play_language_mismatch"
 			? error.code
@@ -300,7 +290,7 @@ function floorSteer(
 	const base = PLAY_LANGUAGE_MISMATCH_STEER;
 	const kind = "play-language-mismatch";
 	const fix =
-		error instanceof KernelError && error.fix ? `${base} The kernel says: ${error.fix}` : base;
+		isKernelError(error) && error.fix ? `${base} The kernel says: ${error.fix}` : base;
 	return { kind, text: fix };
 }
 
@@ -337,6 +327,11 @@ function readMechanics(result: Record<string, unknown>): Array<Record<string, un
 }
 
 export default function (pi: ExtensionAPI) {
+	let reading: { ensure(moduleId: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> } | undefined;
+	let readingModule: string | undefined;
+	pi.events.on("coc:reading-bridge", (value) => {
+		reading = value && typeof (value as any).ensure === "function" ? value as any : undefined;
+	});
 	// The setup process needs the kernel too (`campaign.*`, `module.*` and `setup.*` all live there),
 	// but it has no table: it registers none of the seven verbs, does not `table.open`, and runs no
 	// verifier lane (contract §14.4). The mode is read in the factory rather than at module top level:
@@ -376,6 +371,7 @@ export default function (pi: ExtensionAPI) {
 
 	function applyOpen(open: OpenResult): void {
 		if (!table) return;
+		readingModule = asString(open.campaign?.module_id);
 		table.turn = typeof open.turn?.number === "number" ? open.turn.number : table.turn;
 		table.state = open.turn?.state ?? table.state;
 		table.openingPending = open.opening_needed === true;
@@ -637,6 +633,7 @@ export default function (pi: ExtensionAPI) {
 		spec: CocToolSpec,
 		toolCallId: string,
 		params: Record<string, unknown>,
+		signal?: AbortSignal,
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }> {
 		const state = table;
 		if (!state) {
@@ -649,7 +646,23 @@ export default function (pi: ExtensionAPI) {
 		const startedAt = new Date().toISOString();
 		const began = Date.now();
 		try {
-			const result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload)) ?? {};
+			if (spec.name === "lookup" && params.kind === "source") {
+				if (!reading || !readingModule) throw new KernelError({ code: "needs", message: "the source reading service is unavailable",
+					fix: "reopen the table with its module reading extension available", details: { reason: "reading_failed" } });
+				await reading.ensure(readingModule, { purpose: "detail", focus: params.query,
+					question: params.question ?? "", retry: params.retry === true, foreground: true }, signal);
+				payload.kind = "module";
+			}
+			let result: Record<string, unknown>;
+			try { result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload)) ?? {}; }
+			catch (failure) {
+				if (!(isKernelError(failure)) || failure.details?.reason !== "material_pending" || !reading || !readingModule) throw failure;
+				await reading.ensure(readingModule, { ...(failure.details.read as Record<string, unknown>), foreground: true }, signal);
+				result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload)) ?? {};
+			}
+			if (spec.name === "lookup" && params.kind === "module" && params.question) {
+				result.note = "This is published graph material. Use lookup kind source only if an original-page recheck is needed.";
+			}
 			applyToolSuccess(state, spec.name, toolCallId, result);
 			await record({
 				tool: spec.name,
@@ -675,7 +688,8 @@ export default function (pi: ExtensionAPI) {
 				details: result,
 			};
 		} catch (error) {
-			const code = error instanceof KernelError ? error.code : "internal";
+			const code = isKernelError(error) ? error.code : "internal";
+			if ((error as { details?: { reason?: string } })?.details?.reason === "reading_timeout") state.readingWait = true;
 			const floor = floorDetail(error);
 			await record({
 				tool: spec.name,
@@ -692,9 +706,9 @@ export default function (pi: ExtensionAPI) {
 					coc_error: {
 						code,
 						message: error instanceof Error ? error.message : String(error),
-						...(error instanceof KernelError && error.codeDetail ? { code_detail: error.codeDetail } : {}),
-						...(error instanceof KernelError && error.fix ? { fix: error.fix } : {}),
-						...(error instanceof KernelError && error.details ? { details: error.details } : {}),
+						...(isKernelError(error) && error.codeDetail ? { code_detail: error.codeDetail } : {}),
+						...(isKernelError(error) && error.fix ? { fix: error.fix } : {}),
+						...(isKernelError(error) && error.details ? { details: error.details } : {}),
 					},
 				},
 			};
@@ -711,7 +725,7 @@ export default function (pi: ExtensionAPI) {
 			parameters: spec.parameters,
 			// The actions of a turn are ordered: run them serially, so the calls after narrate in the same batch can be stopped.
 			executionMode: "sequential",
-			execute: async (toolCallId, params) => runTool(spec, toolCallId, params as Record<string, unknown>),
+			execute: async (toolCallId, params, signal) => runTool(spec, toolCallId, params as Record<string, unknown>, signal),
 		});
 	}
 
@@ -929,6 +943,7 @@ export default function (pi: ExtensionAPI) {
 			state.deliveryToolCallId = undefined;
 			state.closedThisRun = false;
 			state.steeredThisTurn = false;
+			state.readingWait = false;
 			state.deliveryFix = undefined;
 			state.roundTrips = 0;
 			state.attachments = [];
@@ -960,7 +975,7 @@ export default function (pi: ExtensionAPI) {
 				started_at: startedAt,
 				ms: Date.now() - began,
 				ok: false,
-				code: error instanceof KernelError ? error.code : "internal",
+				code: isKernelError(error) ? error.code : "internal",
 			});
 			return {
 				message: {
@@ -994,6 +1009,9 @@ export default function (pi: ExtensionAPI) {
 		if (state.closedThisRun) {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: TURN_CLOSED_REASON });
 			return { block: true, reason: TURN_CLOSED_REASON };
+		}
+		if (state.readingWait && name !== "ask") {
+			return { block: true, reason: "Source reading is still pending. Use ask with the preparation notice in prompt and non-empty waiting options; leave text empty and return control; do not start another query, narrate a result, or imply that the refused action or elapsed game time happened. A new player input can continue the existing reading." };
 		}
 		// The same call with the same parameters, resent unchanged: the kernel's answer will not change.
 		// A Keeper once sent one set of parameters thirteen times and was refused every time; after two
@@ -1079,8 +1097,7 @@ export default function (pi: ExtensionAPI) {
 		let rendered = state.renderedText;
 		if (rendered === undefined) {
 			// The Keeper wrote his lines but never called narrate: that prose is the narration. The host closes
-			// the turn for him, sending the prose verbatim — the kernel's number check runs on it as usual, and
-			// a refusal for missing numbers goes back to the Keeper instead of being delivered.
+			// the turn for him, sending the prose verbatim through the play-language guard.
 			const prose = blocks
 				.filter((b) => b.type === "text" && typeof b.text === "string")
 				.map((b) => String(b.text))
@@ -1089,6 +1106,10 @@ export default function (pi: ExtensionAPI) {
 			const canClose = state.state === "open" || state.state === "acting"
 				|| (state.state === "awaiting_player" && state.openingPending);
 			if (!prose || !canClose || state.closedThisRun) return;
+			if (state.readingWait) {
+				state.deliveryFix = { kind: "reading-wait", text: "Source preparation is pending. Use ask with the preparation notice in prompt and at least two player-language options to wait or pause. Leave text empty; the notice belongs to interaction JSON, not narration." };
+				return { message: { ...event.message, content: blocks.filter(block => block.type !== "text") } };
+			}
 			// The kernel left a pending choice for the player (a defence in combat) and the Keeper only wrote
 			// narration: the turn owes an ask, and the question belongs to the Keeper. The kernel's own prompt
 			// is English keeper-facing text (contract §16.1), so the host must not put it in front of the
@@ -1116,10 +1137,10 @@ export default function (pi: ExtensionAPI) {
 				const floor = floorDetail(error);
 				await record({
 					tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: false, implicit: true,
-					code: error instanceof KernelError ? error.code : "internal",
+					code: isKernelError(error) ? error.code : "internal",
 					...(floor ? { code_detail: floor } : {}),
 				});
-				// The kernel refused the delivery (missing numbers, or none of the play_language script):
+				// The kernel refused the delivery (none of the play_language script):
 				// steer once with its own fix at agent_end rather than delivering, and the next run's
 				// narrate closes the turn.
 				if (floor) {

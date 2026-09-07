@@ -71,6 +71,13 @@ describe('createExtensionHostAPI capability trimming', () => {
     await api.invoke?.('ping', { n: 1 })
     expect(invokeExtension).toHaveBeenCalledWith('quota', 'ping', { n: 1 })
 
+    const bound = createExtensionHostAPI({
+      extensionId: 'quota', sessionId: 'selected-session', capabilities: ['invoke.agent'],
+      host: { invokeExtension },
+    })
+    await bound.invoke?.('ping', { n: 2 })
+    expect(invokeExtension).toHaveBeenLastCalledWith('quota', 'ping', { n: 2 }, { sessionId: 'selected-session' })
+
     await api.notify?.('title', 'body')
     expect(notify).toHaveBeenCalledWith('title', 'body')
 

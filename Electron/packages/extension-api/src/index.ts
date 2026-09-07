@@ -550,7 +550,9 @@ export function createExtensionHostAPI(options: CreateExtensionHostAPIOptions): 
   if (caps.has("invoke.agent")) {
     api.invoke = (method, params) => {
       if (!host.invokeExtension) return Promise.resolve(denied("invoke.agent"));
-      return host.invokeExtension(id, method, params, options.sessionId ? {sessionId:options.sessionId} : undefined);
+      return options.sessionId
+        ? host.invokeExtension(id, method, params, {sessionId:options.sessionId})
+        : host.invokeExtension(id, method, params);
     };
   }
 

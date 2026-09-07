@@ -1,24 +1,4 @@
-/**
- * The setup extension (contract §14.4). It registers a tool only in a `PI_COC_MODE=setup` process, and only one: `setup`.
- *
- * The seven-step table is in the kernel (`content/setup/steps.json`, fetched with `setup.steps`). This file does four things:
- * 1. The gate: a `step` not in the table, an unmet prerequisite, a repeat of a completed step — the
- *    refusal and the next step are both derived from the table (see `steps.ts`; ordering is written once in this package).
- * 2. Execution: an `op` step calls the kernel with the method and parameters the table names; a step
- *    with two calls (`module.bind` then `module.plan`) runs in the table's order, feeding the first result to the second.
- * 3. Three kinds of step that are not one kernel call: `ask` (choose the source — the starter list
- *    comes from `kernel.hello`'s content and `campaign.list`, or the player gives a bundle directory),
- *    `external` (when the bundle is not there yet, tell the player how the host's PDF skill produces it
- *    and look again on the next call), and `module.build` (the build loop lives in the module extension;
-  *    this one emits a bus event and waits for `coc:module-opening-ready`).
- * 4. The ending: with no next step in the table, hand over the command that opens the table and let the process exit.
- *
- * The occupation is not judged here: the `setup.occupations` list goes into the tool result verbatim and
- * the model picks one id from the player's own sentence (contract §14.7). There is no keyword table on this side.
- */
-
-import { existsSync, statSync } from "node:fs";
-import { join } from "node:path";
+/** Setup ordering comes from setup.steps; source preparation uses the shared visual reader. */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { cocHome, cocMode } from "../lanes/host.ts";
@@ -38,9 +18,6 @@ import {
 } from "./steps.ts";
 
 type KernelCall = (method: string, params: Record<string, unknown>) => Promise<unknown>;
-
-/** How long the build step waits for `opening_ready`; at the deadline it answers "still reading" and the player can call again to keep waiting. */
-const BUILD_WAIT_MS = Number.parseInt(process.env.PI_COC_BUILD_WAIT_MS?.trim() ?? "", 10) || 30 * 60 * 1000;
 
 /** The code of a kernel error envelope is read structurally: instanceof is unreliable across extensions (two module instances). */
 function errorCode(error: unknown): string | undefined {
@@ -84,6 +61,8 @@ export default function (pi: ExtensionAPI) {
 	if (cocMode() !== "setup") return;
 
 	let ctx: ExtensionContext | undefined;
+	let reading: { prepare(params: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> } | undefined;
+	pi.events.on("coc:reading-bridge", value => { reading = value && typeof (value as any).prepare === "function" ? value as any : undefined; });
 	let bridge: { call: KernelCall; hello?: Record<string, unknown> } | undefined;
 	let steps: Step[] | undefined;
 	/** The `sources` the table declares; the source vocabulary comes from here, not from the steps (#32). */
@@ -238,15 +217,6 @@ export default function (pi: ExtensionAPI) {
 	 * installed in the module store (§20.7's third source — parsed once, played any number of times),
 	 * and the campaigns `campaign.list` already has.
 	 */
-	/** The kinds whose lane has a step the host must produce first: the bundle lanes. */
-	function producedKinds(): Set<string> {
-		return new Set(
-			(steps ?? [])
-				.filter((step) => step.kind === "external")
-				.flatMap((step) => step.appliesTo ?? []),
-		);
-	}
-
 	async function sourceCatalogue(): Promise<Record<string, unknown>> {
 		const modules = asRecord(asRecord(bridge?.hello).content).modules;
 		const starters = Array.isArray(modules) ? modules.filter((row) => typeof row === "string") : [];
@@ -258,9 +228,11 @@ export default function (pi: ExtensionAPI) {
 			/* failing to list them must not block choosing a book */
 		}
 		let installed: string[] = [];
+		let installedModules: Record<string, unknown>[] = [];
 		try {
 			const listed = asRecord(await bridge?.call("module.list", {}));
 			const rows = Array.isArray(listed.modules) ? listed.modules : [];
+			installedModules = rows.map(asRecord).filter(row => row.status === "installed");
 			installed = rows
 				.map((row) => {
 					const record = asRecord(row);
@@ -270,28 +242,24 @@ export default function (pi: ExtensionAPI) {
 		} catch {
 			/* a store that cannot be listed still leaves the starters choosable */
 		}
-		return { starters, installed, campaigns, kinds: sourceKinds(steps ?? [], tableSources) };
+		return { starters, installed, installed_modules: installedModules, campaigns, kinds: sourceKinds(steps ?? [], tableSources) };
 	}
 
 	/**
-	 * Choosing the source (the table's `ask` step): the player either names a starter or gives a bundle directory.
+	 * Choosing the source (the table's `ask` step): the player either names a starter or gives an original PDF path.
 	 * The vocabulary of source kinds comes from the table (`applies_to`); no second one is kept here.
 	 */
 	async function runAsk(step: Step, args: Record<string, unknown>): Promise<Record<string, unknown>> {
 		const catalogue = await sourceCatalogue();
 		const kinds = catalogue.kinds as string[];
 		const module = asString(args.module) ?? asString(args.module_id) ?? asString(args.starter);
-		const bundle = asString(args.bundle) ?? asString(args.bundle_path);
+		const pdf = asString(args.pdf);
 		const starterNames = catalogue.starters as string[];
 		const installedNames = catalogue.installed as string[];
 		let kind = asString(args.kind) ?? asString(args.source_kind);
 		if (!kind) {
-			// Derive the kind from what the player actually named, never from the shape of the table
-			// (#32: inferring "the kind with no external step" made a starter come back as `pdf` and
-			// sent the player off to find a bundle he does not have). A book that has to be produced
-			// first is the bundle lane; a name already in the content catalogue is a starter; a name
-			// already installed in the store is that third source.
-			if (bundle) kind = kinds.find((row) => producedKinds().has(row)) ?? kinds[0];
+			// Source kind follows what was selected, not the shape of the step table.
+			if (pdf) kind = "pdf";
 			else if (module && starterNames.includes(module)) kind = kinds.includes("starter") ? "starter" : kinds[0];
 			else if (module && installedNames.includes(module)) kind = kinds.includes("module") ? "module" : kinds[0];
 		}
@@ -300,7 +268,7 @@ export default function (pi: ExtensionAPI) {
 				ok: false,
 				step: step.id,
 				needs: ["kind"],
-				hint: `Settle the source with the player first: an installed starter, or a bundle converted from a PDF. The table's source kinds are ${kinds.join(", ") || "starter, pdf"}.`,
+				hint: `Settle the source with the player first: a starter, an installed module, or an original PDF. The table's source kinds are ${kinds.join(", ") || "starter, pdf"}.`,
 				...catalogue,
 			};
 		}
@@ -325,199 +293,14 @@ export default function (pi: ExtensionAPI) {
 			}
 			return { ok: true, source: { kind, module_id: module }, ...catalogue };
 		}
-		if (bundle) return { ok: true, source: { kind, bundle }, ...catalogue };
+		if (pdf) return { ok: true, source: { kind, pdf }, ...catalogue };
 		return {
 			ok: false,
 			step: step.id,
-			needs: [module === undefined && bundle === undefined ? "module or bundle" : "module"],
-			hint: "For a starter write module (the list is in starters); for a bundle write bundle (a directory path).",
+			needs: ["module or pdf"],
+			hint: "Choose a named starter or installed module, or provide the original PDF path in pdf.",
 			...catalogue,
 		};
-	}
-
-	/** Whether the thing has arrived: a directory needs a `manifest.json` (the bundle shape, contract §14.2), any other path merely has to exist. */
-	function ready(path: string): boolean {
-		try {
-			if (!existsSync(path)) return false;
-			return statSync(path).isDirectory() ? existsSync(join(path, "manifest.json")) : true;
-		} catch {
-			return false;
-		}
-	}
-
-	/**
-	 * Wait for the host's skill to produce something (the table's `external` step). This repository does not
-	 * parse PDFs (contract §14.2): the host's own PDF skill produces the bundle, and this only checks whether
-	  * it is there, explaining how to produce it when it is not, and looking again next time.
-	 */
-	function runExternal(step: Step, args: Record<string, unknown>): Record<string, unknown> {
-		const values: Record<string, string> = {};
-		const missing: string[] = [];
-		for (const spec of step.params) {
-			const value = asString(args[spec.name]) ?? asString(spec.from ? lookupPath(context, spec.from) : undefined) ?? asString(context[spec.name]);
-			if (!value) {
-				if (spec.required) missing.push(spec.name);
-				continue;
-			}
-			values[spec.name] = value;
-		}
-		if (missing.length > 0) {
-			return { ok: false, step: step.id, needs: missing, hint: instructionFor(step) };
-		}
-		for (const [name, value] of Object.entries(values)) {
-			// Only what looks like a path is checked as one: play_language and the like must not be stat'ed.
-			const looksLikePath = value.includes("/") || existsSync(value);
-			if (!looksLikePath) continue;
-			if (ready(value)) continue;
-			return {
-				ok: false,
-				step: step.id,
-				waiting_on: name,
-				path: value,
-				hint:
-					`${value} is not a bundle yet. Bundles are produced by the host's PDF skill; this repository does not parse PDFs (contract §14.2). ` +
-					`Have the host read that PDF into <dir>/manifest.json (contract coc.pdf-bundle.v1) and <dir>/pages/NNNN.md, one Markdown file per page, ` +
-					`then call this same step again once it is there.`,
-			};
-		}
-		return { ok: true, ...values };
-	}
-
-	/** The books whose opening candidates have already been handed to the assistant once (§14.14). */
-	const openingAsked = new Set<string>();
-
-	/**
-	 * What this step can say about a book that is not `opening_ready` (contract §14.14). Three
-	 * answers and one silence:
-	 *
-	 * - a settled opening finishes the step;
-	 * - an ambiguous one is a question, asked once, with the candidate scenes named — never a wait,
-	 *   because no build will ever resolve it;
-	 * - an installed, playable book whose opening is still undecided finishes the step anyway
-	 *   ("ready, opening undecided"): the flow must not die on it. Asking twice with no answer
-	 *   ends the same way, so this step can never loop.
-	 *
-	 * `undefined` means there is nothing to say yet: the book is still being read. Nothing here
-	 * fires before the book has been read (`afterBuild`, or a store that already says installed):
-	 * a question asked in place of the build would leave the rest of the book unread.
-	 */
-	function settleOpening(moduleId: string, status: Record<string, unknown>,
-		options: { afterBuild?: boolean } = {}): Record<string, unknown> | undefined {
-		if (status.opening_ready === true) return { ok: true, opening_ready: true, status };
-		const opening = asRecord(status.opening);
-		const choice = asRecord(opening.choice);
-		const candidates = Array.isArray(choice.candidates) ? choice.candidates : [];
-		const installed = status.status === "installed";
-		const playable = asRecord(status.playability).status === "playable";
-		const read = installed || options.afterBuild === true;
-		if (candidates.length > 0 && read && !openingAsked.has(moduleId)) {
-			openingAsked.add(moduleId);
-			return {
-				ok: false,
-				opening_ready: false,
-				needs: ["start_scene"],
-				candidates,
-				hint:
-					`This book declares ${candidates.length} opening scenes and the kernel will not guess between them. ` +
-					`Ask the player which one this table starts on, then call this same step again with start_scene set to that scene ` +
-					`(its scene handle or its name). Waiting will not settle it.`,
-			};
-		}
-		if (installed && playable) {
-			return {
-				ok: true,
-				opening_ready: false,
-				opening_pending: true,
-				...(candidates.length > 0 ? { candidates } : {}),
-				status,
-				note:
-					"The book is read in and playable; which scene opens it is still undecided. Setup goes on; " +
-					"the opening can be settled at any time with module.opening.choose.",
-			};
-		}
-		return undefined;
-	}
-
-	/**
-	 * The build step: the loop lives in the module extension (contract §14.5; `module.build` is not a kernel method).
-	 * This starts it and waits for `opening_ready`; at the deadline it answers "still reading" and the player can call again to keep waiting.
-	 * An opening the book leaves ambiguous is a question rather than a wait (contract §14.14).
-	 */
-	async function runModuleBuild(params: Record<string, unknown>): Promise<Record<string, unknown>> {
-		const moduleId = asString(params.module_id) ?? asString(context.module_id);
-		if (!moduleId) return { ok: false, needs: ["module_id"], hint: "Bind the bundle first, or the build does not know which book to read." };
-		const campaign = asString(context.campaign);
-		const wanted = asString(params.start_scene);
-		if (wanted) {
-			// The player answered: settle it in the module store, where every campaign on this book reads it.
-			try {
-				const chosen = asRecord(await bridge?.call("module.opening.choose", { module_id: moduleId, scene: wanted }));
-				return { ok: chosen.opening_ready === true, opening_ready: chosen.opening_ready === true, ...chosen };
-			} catch (error) {
-				const details = asRecord((error as { details?: unknown }).details);
-				return {
-					ok: false,
-					needs: ["start_scene"],
-					...(Array.isArray(details.candidates) ? { candidates: details.candidates } : {}),
-					code: errorCode(error) ?? "internal",
-					message: errorText(error),
-					...((error as { fix?: string }).fix ? { fix: (error as { fix?: string }).fix } : {}),
-				};
-			}
-		}
-		try {
-			const status = asRecord(await bridge?.call("module.status", { module_id: moduleId }));
-			const settled = settleOpening(moduleId, status);
-			if (settled) return settled;
-		} catch {
-			/* an unreadable status does not stop the build from starting */
-		}
-
-		// The bus's `on` returns an unsubscribe closure (Pi has no `off`): the three subscriptions and the timer are cleaned up together.
-		const outcome = await new Promise<Record<string, unknown>>((resolve) => {
-			const disposers: Array<() => void> = [];
-			const done = (payload: Record<string, unknown>) => {
-				clearTimeout(timer);
-				for (const dispose of disposers.splice(0)) dispose();
-				resolve(payload);
-			};
-			const timer = setTimeout(
-				() =>
-					done({
-						ok: false,
-						opening_ready: false,
-						still_building: true,
-						hint: "Still reading this book. Tell the player what is being waited on, and call this same step again in a while to keep waiting.",
-					}),
-				BUILD_WAIT_MS,
-			);
-			timer.unref?.();
-			disposers.push(
-				pi.events.on("coc:module-opening-ready", (data) => done({ ok: true, opening_ready: true, ...asRecord(data) })),
-				pi.events.on("coc:module-build-failed", (data) =>
-					done({ ok: false, opening_ready: false, failed: true, ...asRecord(data) }),
-				),
-				pi.events.on("coc:module-build-done", (data) => {
-					// The whole book was read and it is still not ready: that is this book's problem, so report it rather than wait here.
-					const payload = asRecord(data);
-					if (asRecord(payload.report).opening_ready === true) return;
-					done({ ok: false, opening_ready: false, ...payload });
-				}),
-			);
-			pi.events.emit("coc:module-build", { module_id: moduleId, ...(campaign ? { campaign } : {}) });
-		});
-		if (outcome.ok === true || outcome.still_building === true) return outcome;
-		// The build ended and the opening is still not ready. Whether that is a question for the
-		// player or a book that is simply playable without a settled opening is the store's to say —
-		// answering "not ready" and nothing else is what put 216 identical retries in one turn (#33).
-		try {
-			const status = asRecord(await bridge?.call("module.status", { module_id: moduleId }));
-			const settled = settleOpening(moduleId, status, { afterBuild: true });
-			if (settled) return { ...outcome, ...settled };
-		} catch {
-			/* an unreadable status leaves the build's own answer standing */
-		}
-		return outcome;
 	}
 
 	// ---- One step ---------------------------------------------------------
@@ -528,7 +311,7 @@ export default function (pi: ExtensionAPI) {
 		if (!current) return { ok: false, step: step.id, rejected: "The kernel bridge is gone, so this step cannot run." };
 		const results: Record<string, unknown> = {};
 		for (const [index, op] of step.ops.entries()) {
-			const cacheKey = `${step.id} ${op.method}`;
+			const cacheKey = `${step.id}\u0000${op.method}`;
 			if (opCache.has(cacheKey)) {
 				results[op.method] = opCache.get(cacheKey);
 				continue;
@@ -548,8 +331,8 @@ export default function (pi: ExtensionAPI) {
 			}
 			try {
 				const result =
-					op.method === "module.build"
-						? await runModuleBuild(filled.params)
+					op.method === "module.prepare"
+						? await (reading ? reading.prepare(filled.params) : Promise.reject(new Error("the reading service is unavailable")))
 						: asRecord(await current.call(op.method, filled.params));
 				if (result.ok === false) return { ...result, step: step.id, results };
 				results[op.method] = result;
@@ -593,7 +376,7 @@ export default function (pi: ExtensionAPI) {
 			sourceKind = asString(source.kind) ?? sourceKind;
 			if (asString(source.module_id)) context.module = asString(source.module_id);
 			if (asString(source.module_id)) context.module_id = asString(source.module_id);
-			if (asString(source.bundle)) context.bundle = asString(source.bundle);
+			if (asString(source.pdf)) context.pdf = asString(source.pdf);
 		}
 		for (const [key, value] of Object.entries(outcome)) {
 			if (key === "ok" || key === "step") continue;
@@ -630,9 +413,7 @@ export default function (pi: ExtensionAPI) {
 		const outcome =
 			step.kind === "ask"
 				? await runAsk(step, args)
-				: step.kind === "external"
-					? runExternal(step, args)
-					: await runOps(step, args);
+				: await runOps(step, args);
 
 		if (outcome.ok !== true) {
 			// A step that did not succeed is not booked: the same step can be tried again with the parameters the hint names.

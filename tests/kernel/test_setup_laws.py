@@ -43,7 +43,7 @@ STEPS_PATH = REPO_ROOT / "content" / "setup" / "steps.json"
 # §14.5: module.build is the extension's own driver loop, explicitly *not* a kernel
 # method ("module.build 是扩展侧的驱动循环（不是内核方法）") -- every other `op` in the
 # seven-step table must be a real registered RPC method.
-NON_KERNEL_OP_EXCEPTIONS = frozenset({"module.build"})
+NON_KERNEL_OP_EXCEPTIONS = frozenset({"module.prepare"})
 
 #: Cross-referenced with tests/kernel/test_starters.py's own `KNOWN_IR_FINDINGS`:
 #: pre-existing facts in the projected IR, not defects this ticket's pipeline
