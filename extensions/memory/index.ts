@@ -34,6 +34,10 @@ const CANDIDATE_KINDS: ReadonlySet<string> = new Set([
 	"player_assertion",
 	"player_preference",
 	"keeper_correction",
+	// §13.5. Left out when promise was added, so the lane neither offered it nor let one
+	// through: a fifteen-turn table produced 101 candidates and not one promise, and
+	// `obligations.promise` and an NPC's `history.promises` had nothing to read.
+	"promise",
 ]);
 const PRIVACY: ReadonlySet<string> = new Set(["player_safe", "keeper_only"]);
 const STATES: ReadonlySet<string> = new Set(["accurate", "uncertain", "distorted"]);
@@ -121,7 +125,8 @@ function systemPrompt(packet: JobPacket): string {
 		"Answer with one JSON object only, no code fence and no explanation:",
 		'{"candidates":[{"kind":"...","subject":"...","knowers":["..."],"statement":"...","entities":["..."],"privacy":"player_safe","state":"accurate","confidence":0.8}]}',
 		"Field rules:",
-		"- kind is one of: world_event, knowledge, belief, relationship, player_assertion, player_preference, keeper_correction.",
+		// Built from the set above so the two can never disagree again.
+		`- kind is one of: ${[...CANDIDATE_KINDS].join(", ")}.`,
 		"- privacy is player_safe or keeper_only; state is accurate, uncertain or distorted; confidence is a decimal from 0 to 1.",
 		"- names in subject, knowers and entities must come from the available names below, or be one of the reserved subjects world, party, keeper, player.",
 		"- world_event must have subject world; relationship must have exactly one entity.",

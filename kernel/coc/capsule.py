@@ -35,6 +35,8 @@ PRESENT_KNOWS = 6
 PRESENT_CLAIM_LINES = 3
 PRESENT_TIES = 6
 PRESENT_PROMISES = 3
+#: §17.4: how many past attempts an NPC entry carries, oldest first within the window
+PRESENT_ATTEMPTS = 3
 BECAUSE_LINES = 3
 SLICE3_BUDGETS = {"pressures": 1024, "obligations": 1024, "director": 1536, "situations": 1024, "style": 1024}
 #: §15.6: which line this is, its circuit, the anchor, what a rewind leaves standing.
@@ -296,6 +298,16 @@ def _toward_party(row: dict[str, Any]) -> dict[str, Any] | None:
     return {"stance": stance["value"], "because": because}
 
 
+def _attempt_line(item: dict[str, Any]) -> str:
+    """One interaction as the keeper reads it: `turn 3: charm failure`. The words are the
+    receipt's own -- the approach and the success level -- never a judgement of them."""
+    parts = [str(item.get("approach") or item.get("kind") or "")]
+    level = item.get("level")
+    if isinstance(level, str) and level:
+        parts.append(level)
+    return f"turn {item.get('turn')}: " + " ".join(p for p in parts if p)
+
+
 def _npc_history(row: dict[str, Any], memories: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
     """What this table has already been through with them: how often they were on stage,
     what they handed over, what they promised."""
@@ -314,6 +326,14 @@ def _npc_history(row: dict[str, Any], memories: dict[str, dict[str, Any]]) -> di
         history["disclosed"] = disclosed
     if promises:
         history["promises"] = promises
+    # §17.4: what this table actually tried on them. The stance's `because` only carries
+    # what moved the number, so an attempt the table scores at zero -- a failed Charm, a
+    # read of someone's face -- left no trace at all, and the keeper met them again knowing
+    # only that they had met. Observed at a live table: two failed approaches on the same
+    # newsvendor, and the projection said nothing about either.
+    tried = [_attempt_line(item) for item in (row.get("interactions") or [])[-PRESENT_ATTEMPTS:]]
+    if tried:
+        history["tried"] = tried
     if row.get("dead"):
         history["dead_since_turn"] = (row["dead"] or {}).get("turn")
     return history or None

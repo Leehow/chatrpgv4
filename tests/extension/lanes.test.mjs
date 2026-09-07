@@ -97,6 +97,19 @@ test("记忆车道：narrate 之后 memory.job 取任务包，抽出的候选原
 							turn: 1,
 							commit: "abc1234",
 						},
+						{
+							// §13.5：承诺是闭合枚举里的一种。这一条曾经既不被提示、也过不了车道自己的
+							// 白名单——真桌十五回合抽出 101 条候选，promise 一条也没有，于是
+							// obligations.promise 与 NPC 的 history.promises 永远是空的。
+							kind: "promise",
+							subject: "史蒂文·诺特",
+							knowers: ["史蒂文·诺特"],
+							entities: ["托马斯·海耶斯"],
+							statement: "洗清宅子的名声就再付三十美元。",
+							privacy: "player_safe",
+							state: "accurate",
+							confidence: 0.9,
+						},
 						{ kind: "不认识的种类", subject: "world", statement: "这条形状不对，应该被丢掉。" },
 					],
 				}),
@@ -113,7 +126,11 @@ test("记忆车道：narrate 之后 memory.job 取任务包，抽出的候选原
 
 	const [submit] = calls(table, "memory.submit");
 	assert.equal(submit.params.job_id, "extract:test-camp:t1");
-	assert.equal(submit.params.candidates.length, 1, "形状不对的那条在提交前就被丢掉");
+	assert.equal(submit.params.candidates.length, 2, "形状不对的那条在提交前就被丢掉");
+	assert.ok(seen.systemPrompt.includes("promise"), "字段规则里要列出 promise，否则模型根本不知道可以写");
+	const promise = submit.params.candidates.find((row) => row.kind === "promise");
+	assert.ok(promise, "承诺必须能过车道自己的白名单");
+	assert.equal(promise.statement, "洗清宅子的名声就再付三十美元。");
 	assert.deepEqual(submit.params.candidates[0], {
 		kind: "knowledge",
 		subject: "托马斯·海耶斯",
@@ -136,7 +153,7 @@ test("记忆车道：narrate 之后 memory.job 取任务包，抽出的候选原
 	assert.equal(row.ok, true);
 	assert.equal(row.turn, 1);
 	assert.equal(row.job_id, "extract:test-camp:t1");
-	assert.equal(row.candidates, 1);
+	assert.equal(row.candidates, 2, "遥测数的是送进内核的条数：知识那条加承诺那条");
 	assert.equal(row.model, "memory/m1");
 });
 

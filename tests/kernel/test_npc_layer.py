@@ -249,6 +249,13 @@ def test_a_pushed_social_failure_still_reaches_the_stance(seeded_one):
     assert row["stance"]["value"] == "wary"
     assert row["stance"]["because"][-1]["receipt"] == push_receipt["id"]
 
+    # §17.4: and the keeper meets him again knowing what was tried, not only that they met.
+    # The zero-delta attempt has to show too — that is the one the stance cannot report.
+    entry = next(p for p in seeded_one.table("capsule")["present"] if p["name"] == "Steven Knott")
+    assert entry["history"]["tried"] == [f"turn 1: charm {first['level']}",
+                                         f"turn 1: charm {pushed['level']}"]
+    assert entry["history"]["met_turns"] == 2  # the opening turn and this one
+
 
 def test_the_ledger_records_who_handed_a_clue_over(kernel):
     open_turn(kernel)

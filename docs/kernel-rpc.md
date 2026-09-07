@@ -1034,7 +1034,8 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
  "believes": ["<claim 摘要>"]（≤ 3）, "would_lie_about": ["<asserts 摘要>"]（≤ 3）,
  "ties": [{"kind": "<关系种类>", "to": "<display_name>"}]（≤ 6，在场者与派系优先）,
  "toward_party": {"stance", "because": ["turn <n>: <approach> <level>", "turn <n>: keeper set <stance>: <why>"]}（≤ 3 条，最近的）,
- "history": {"met_turns": n, "last_turn", "disclosed": ["<线索句柄>"], "promises": [{"statement", "turn"}]（≤ 3）}}
+ "history": {"met_turns": n, "last_turn", "disclosed": ["<线索句柄>"], "promises": [{"statement", "turn"}]（≤ 3）,
+             "tried": ["turn <n>: <路数或族> <成功等级>"]（≤ 3，最近的；账本 `interactions` 的投影）}}
 ```
 
 - 多人在场时按「有未关承诺 > 有过互动 > 有 wants > 其余」排序再裁尾，裁了记 `truncated`。
