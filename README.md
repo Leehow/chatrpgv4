@@ -53,4 +53,9 @@ pipicoc/dev --campaign <战役名>     # 关闭建卡窗口后，用同一界面
 
 模型与鉴权沿用 `.pi/coc-agent`，战役与模组默认沿用本仓库 `.coc`。
 `PI_COC_HOME` 可显式选择存档根目录。不要在两个窗口同时打开同一战役。
-当前接入是源码运行；尚未配置独立 App 打包，也不表示视觉 PDF 规格已实现。
+当前支持源码运行和依赖本仓库运行时的本地 App；不表示视觉 PDF 规格已实现。
+
+本地打包：`node pipicoc/package.mjs`，生成 `build/PipiCOC.app`，以 `PipiUI Dev` 签名。
+这个本地包通过运行时描述文件指向当前仓库及 Node/uv；移动或删除仓库会使它无法启动。
+Web 端：`PI_COC_MODE=setup npm --prefix Electron run dev:browser`，打开 `http://localhost:5173`。
+Web 端的“添加项目”使用页面内路径输入；人物面板与骰子组件通过宿主受限接口读取，支持 Codex 内置浏览器。

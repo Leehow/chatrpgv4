@@ -869,7 +869,7 @@ export type UserMcpServer = {
 
 export type StreamEvent =
   | { type: "user_message"; sessionId: string; content: string; id?: string }
-  | { type: "text"; sessionId: string; contentIndex: number; delta: string; segment?: number }
+  | { type: "text"; sessionId: string; contentIndex: number; delta: string; segment?: number; replace?: boolean }
   | { type: "thinking"; sessionId: string; contentIndex: number; delta: string; segment?: number }
   | { type: "tool_call"; sessionId: string; contentIndex?: number; toolCallId: string; name: string; delta?: string; segment?: number; status?: "running" | "completed" | "failed" }
   | {

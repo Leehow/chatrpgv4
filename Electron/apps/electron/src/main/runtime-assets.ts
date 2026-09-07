@@ -1,5 +1,5 @@
-import { accessSync, constants } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { accessSync, constants, readFileSync } from 'node:fs'
+import { dirname, delimiter, join, resolve } from 'node:path'
 import type { PiCommand, RuntimeAssets } from '@pipi/pi-backend'
 
 export interface AssetLookup {
@@ -22,18 +22,25 @@ export const UPDATE_CENTER_RUNTIME_PACKAGE_VERSIONS = MANAGED_RUNTIME_PACKAGE_VE
 
 /** PipiCOC uses the branch's launcher; it never downloads or falls back to another Pi. */
 export function resolveRuntimeAssets(lookup: AssetLookup): ResolvedAssets {
-  if (lookup.packaged) throw new Error('PipiCOC currently runs from its source checkout; packaged delivery is not configured.')
   const electronRoot = resolve(lookup.dirname, '..', '..', '..', '..')
-  const repo = resolve(electronRoot, '..')
+  const delivery = lookup.packaged
+    ? JSON.parse(readFileSync(join(lookup.resourcesPath, 'pi-coc-runtime.json'), 'utf8'))
+    : undefined
+  const repo = delivery ? resolve(delivery.repoRoot) : resolve(electronRoot, '..')
+  const nodePath = delivery?.nodePath
+  if (nodePath) accessSync(nodePath, constants.X_OK)
   const launcher = join(repo, 'pipicoc', 'rpc')
   accessSync(launcher, constants.X_OK)
   return {
-    sourceRoot: join(electronRoot, 'resources', 'runtime'),
+    sourceRoot: join(repo, 'Electron', 'resources', 'runtime'),
     managedNodeModulesRoot: join(repo, 'node_modules'),
     piCommand: {
       executable: launcher,
       piPath: join(repo, 'node_modules', '.bin', 'pi'),
-      env: { PI_CODING_AGENT_DIR: join(repo, '.pi', 'coc-agent') }
+      env: {
+        PI_CODING_AGENT_DIR: join(repo, '.pi', 'coc-agent'),
+        ...(nodePath ? {PATH:[dirname(nodePath),join(repo, '.venv', 'bin'), delivery.toolBin, '/usr/local/bin','/opt/homebrew/bin',lookup.env.PATH].filter(Boolean).join(delimiter)} : {})
+      }
     }
   }
 }

@@ -6060,7 +6060,9 @@ export class PiHostBackend implements HostBackend {
         live.streamRedactors?.thinking.clear();
         const fullText = redactText(assistantVisibleText(endedMessage.content), secrets);
         const already = (live.streamedAssistantText ?? "") + flushed;
-        if (fullText && (!already || (fullText.startsWith(already) && fullText.length > already.length))) {
+        if (already && !fullText.startsWith(already)) {
+          this.stream({type:"text", sessionId:id, contentIndex:0, segment:endingEpoch, delta:fullText, replace:true});
+        } else if (fullText && (!already || (fullText.startsWith(already) && fullText.length > already.length))) {
           this.stream({
             type: "text",
             sessionId: id,

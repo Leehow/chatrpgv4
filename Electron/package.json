@@ -9,11 +9,12 @@
     "benchmark:agent-aging": "node scripts/agent-aging.mjs",
     "dev": "npm run dev -w @pipiui/electron",
     "dev:watch": "npm run dev:watch -w @pipiui/electron",
-    "dev:browser": "npm run build -w @pipi/host-api && npm run build -w @pipiui/extension-api && npm run build -w @pipiui/ui && npm run build -w @pipi/pi-backend && npm run build -w @pipiui/server && PIPIUI_SERVER_HOST=127.0.0.1 PIPIUI_SERVER_PORT=5173 PIPIUI_SERVER_PUBLIC_ORIGIN=http://localhost:5173 npm run start -w @pipiui/server",
+    "dev:browser": "npm run build:web && PIPIUI_SERVER_HOST=127.0.0.1 PIPIUI_SERVER_PORT=5173 PIPIUI_SERVER_PUBLIC_ORIGIN=http://localhost:5173 npm run start -w @pipiui/server",
     "build": "npm run build -w @pipi/host-api && npm run build -w @pipiui/extension-api && npm run build -w @pipi/account-usage-core && npm run build -w @pipiui/electron",
     "test": "vitest run --exclude '**/dist/**' --exclude 'resources/runtime/**' --exclude 'packs/**'",
     "test:win": "vitest run --exclude **/dist/** --exclude resources/runtime/** --exclude packs/** scripts/windows-package-path.test.ts apps/electron/packaging-contract.test.ts apps/electron/src/main/terminal-host.test.ts",
-    "check:boss-tools": "npx --no-install tsx scripts/check-boss-tool-policy.mjs"
+    "check:boss-tools": "npx --no-install tsx scripts/check-boss-tool-policy.mjs",
+    "build:web": "node scripts/build-web.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",

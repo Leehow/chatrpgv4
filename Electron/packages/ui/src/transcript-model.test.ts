@@ -716,3 +716,12 @@ describe('transcript model', () => {
     expect(messages[0].tools?.[0]).toMatchObject({ id: 'xs_1', name: 'x_search', finished: true })
   })
 })
+
+it('replaces a rewritten final segment and retracts discarded drafts', () => {
+  let rows=applyStreamEvent([], {type:'text',sessionId:'table',contentIndex:0,segment:0,delta:'Previous. '})
+  rows=applyStreamEvent(rows,{type:'text',sessionId:'table',contentIndex:0,segment:1,delta:'Internal draft'})
+  rows=applyStreamEvent(rows,{type:'text',sessionId:'table',contentIndex:0,segment:1,delta:'Published.',replace:true})
+  expect(rows[0].content).toBe('Previous. Published.')
+  rows=applyStreamEvent(rows,{type:'text',sessionId:'table',contentIndex:0,segment:1,delta:'',replace:true})
+  expect(rows[0].content).toBe('Previous. ')
+})

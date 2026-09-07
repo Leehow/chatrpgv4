@@ -21,3 +21,16 @@ describe('canonical Keeper runtime', () => {
       dirname:'/missing/Electron/apps/electron/out/main', env:{}})).toThrow()
   })
 })
+
+it('loads the packaged local runtime descriptor without an embedded Pi', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'pipicoc-delivery-'))
+  mkdirSync(join(repo, 'pipicoc'))
+  writeFileSync(join(repo, 'pipicoc/rpc'), '#!/bin/sh\n', {mode:0o755})
+  const resources = join(repo,'resources')
+  mkdirSync(resources)
+  writeFileSync(join(resources,'pi-coc-runtime.json'), JSON.stringify({repoRoot:repo,nodePath:process.execPath,toolBin:'/usr/bin'}))
+  const assets=resolveRuntimeAssets({packaged:true,resourcesPath:resources,dirname:'/irrelevant',env:{PATH:'/bin'}})
+  expect(assets.piCommand?.executable).toBe(join(repo,'pipicoc/rpc'))
+  expect(assets.sourceRoot).toBe(join(repo,'Electron/resources/runtime'))
+  expect(assets.piCommand?.env?.PATH).toContain('/usr/bin')
+})

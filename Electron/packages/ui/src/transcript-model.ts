@@ -561,7 +561,7 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     || event.type === 'server_side_usage'
   // Late hosted code-interpreter events after settle still update the last
   // assistant in place so the virtual card appears immediately.
-  const reuseSettled = (event.type === 'hosted_code_interpreter' || event.type === 'input_file_sources') && index >= 0
+  const reuseSettled = (event.type === 'hosted_code_interpreter' || event.type === 'input_file_sources' || (event.type === 'text' && event.replace === true)) && index >= 0
   const canUpdate = index >= 0
     && (index === previous.length - 1 || mayCrossUserBoundary)
     && (previous[index].streaming || reuseSettled)
@@ -592,7 +592,17 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     return activities!
   }
   const updated: ChatMessage = { ...current }
-  if (event.type === 'text') {
+  if (event.type === 'text' && event.replace) {
+    const segment = event.segment ?? 0
+    const target = ownActivities()
+    const first = target.findIndex(activity => activity.type === 'text' && activity.segment === segment)
+    for (let i = target.length - 1; i >= 0; i--) {
+      if (target[i].type === 'text' && target[i].segment === segment) target.splice(i, 1)
+    }
+    if (event.delta) target.splice(first < 0 ? target.length : first, 0, {type:'text',id:`text:${segment}:${event.contentIndex}`,contentIndex:event.contentIndex,segment,content:event.delta})
+    updated.content = target.filter(activity => activity.type === 'text').map(activity => activity.content).join('')
+    changed = true
+  } else if (event.type === 'text') {
     const nextContent = updated.content + event.delta
     if (nextContent !== updated.content) {
       updated.content = nextContent

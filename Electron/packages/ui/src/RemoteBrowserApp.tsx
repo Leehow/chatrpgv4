@@ -38,7 +38,8 @@ export type RemoteBrowserAppOptions = {
 
 type SocketClose = { code?: number; reason?: string }
 
-function decorateHost(host: PipiHostAPI, open: RemoteBrowserAppOptions['open']): PipiHostAPI {
+function decorateHost(host: PipiHostAPI, open: RemoteBrowserAppOptions['open'], pickProject: () => Promise<string | null>): PipiHostAPI {
+  host.pickProjectDirectory = pickProject
   const opener = open ?? (typeof window !== 'undefined' ? window.open.bind(window) : undefined)
   if (!opener) return host
   host.openExternal = async raw => {
@@ -101,6 +102,21 @@ function waitForSocket(socket: BrowserSocket): Promise<void> {
 }
 
 export function RemoteBrowserApp(options: RemoteBrowserAppOptions = {}) {
+  const [projectPath, setProjectPath] = useState('')
+  const [pickingProject, setPickingProject] = useState(false)
+  const projectAnswer = useRef<((path: string | null) => void) | null>(null)
+  const pickProject = useCallback(() => new Promise<string | null>(resolve => {
+    projectAnswer.current?.(null)
+    projectAnswer.current = resolve
+    setProjectPath('')
+    setPickingProject(true)
+  }), [])
+  const finishProject = (path: string | null) => {
+    projectAnswer.current?.(path)
+    projectAnswer.current = null
+    setPickingProject(false)
+  }
+  useEffect(() => () => { projectAnswer.current?.(null) }, [])
   const [attempt, setAttempt] = useState(0)
   const [host, setHost] = useState<PipiHostAPI | null>(null)
   const [phase, setPhase] = useState<RemotePhase>('connecting')
@@ -307,7 +323,7 @@ export function RemoteBrowserApp(options: RemoteBrowserAppOptions = {}) {
         return
       }
       reconnectAttempt = 0
-      const nextHost = decorateHost(createWsHost(socket as WebSocketLike), opts.open)
+      const nextHost = decorateHost(createWsHost(socket as WebSocketLike), opts.open, pickProject)
       setHost(nextHost)
       setPhase('connected')
       setCloseCopy(null)
@@ -396,7 +412,15 @@ export function RemoteBrowserApp(options: RemoteBrowserAppOptions = {}) {
     }
   }, [attempt])
 
-  if (host && displayPhase === 'connected') return <App host={host} />
+  if (host && displayPhase === 'connected') return <><App host={host} />{pickingProject &&
+    <div style={{position:'fixed',inset:0,background:'#0008',zIndex:10000,display:'grid',placeItems:'center'}}>
+      <form role="dialog" aria-modal="true" aria-label="添加项目" style={{background:'var(--surface, white)',color:'var(--text, black)',padding:24,borderRadius:12,width:'min(520px, 90vw)'}}
+        onSubmit={event => {event.preventDefault(); if(projectPath.trim())finishProject(projectPath.trim())}}>
+        <h2>添加项目</h2><label htmlFor="remote-project-path">服务器上的项目文件夹路径</label>
+        <input id="remote-project-path" autoFocus required value={projectPath} onChange={event=>setProjectPath(event.target.value)} style={{display:'block',width:'100%',margin:'16px 0',padding:8}} />
+        <button type="button" onClick={()=>finishProject(null)}>取消</button><button type="submit" disabled={!projectPath.trim()}>添加</button>
+      </form>
+    </div>}</>
 
   if (host && (displayPhase === 'reconnecting' || displayPhase === 'disconnected')) {
     return (

@@ -584,7 +584,17 @@ export function serverOptionsFromEnvironment(env = process.env): WsHostServerOpt
     // Match Electron main: the external helper runs Pi's canonical
     // ModelRuntime with ~/.pi/agent/.env overlaid in its child environment.
     // Keys remain child-only and never enter the Host API response.
-    backendOptions: { authHelperPath: defaultAuthHelperPath(env) },
+    backendOptions: {
+      authHelperPath: defaultAuthHelperPath(env),
+      piPath: resolve(dirname(fileURLToPath(import.meta.url)), '../../../../pipicoc/rpc'),
+      agentDir: resolve(dirname(fileURLToPath(import.meta.url)), '../../../../.pi/coc-agent'),
+      sharedProfileDir: resolve(dirname(fileURLToPath(import.meta.url)), '../../../../.pi/coc-agent'),
+      sessionsRoot: resolve(dirname(fileURLToPath(import.meta.url)), '../../../../.pi/coc-agent/ui-sessions', env.PI_COC_MODE === 'setup' ? 'setup' : 'play'),
+      managedNodeModulesRoot: resolve(dirname(fileURLToPath(import.meta.url)), '../../../../node_modules'),
+      runtimeRoot: resolve(dirname(fileURLToPath(import.meta.url)), '../../../../.pi/coc-agent/ui-runtime'),
+      defaultPack: 'coc-keeper', product: {id:'pipicoc',name:'PipiCOC',agentMaxDepth:0},
+      resourceMode: 'explicit', profileMode: 'default', env,
+    },
   };
 }
 

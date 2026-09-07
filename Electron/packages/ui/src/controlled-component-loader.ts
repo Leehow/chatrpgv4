@@ -248,8 +248,12 @@ export async function loadControlledContributions(
 ): Promise<Disposer[]> {
   const directory = packageDirectory(descriptor)
   const resolvedImportModule = importModule ?? importExtensionEntry
-  const loadFileEntryModule: EntryModuleLoader = entry =>
-    resolvedImportModule(resolveEntrySpecifier(directory, entry))
+  const loadFileEntryModule: EntryModuleLoader = async entry => {
+    if (!importModule && host.getExtensionUiEntrySource) {
+      return importExtensionSource(await host.getExtensionUiEntrySource(descriptor.id, entry, projectId))
+    }
+    return resolvedImportModule(resolveEntrySpecifier(directory, entry))
+  }
   // Icons are static assets, not modules: read them as text through the same confined
   // RPC the header actions use. A test that injects `importModule` gets no reader and
   // falls back to the generic icon, which keeps those tests independent of the host.

@@ -1476,3 +1476,21 @@ embedded runtimes and user state are excluded.
 The copied host uses a first-message session label only. Model-based title
 refinement is removed: it would otherwise start a second Keeper through the same
 launcher. Shutdown signals the owned process group, including reader children.
+
+### Web and local App delivery (2026-09-07)
+
+The Web server uses the same repository launcher, model/auth home, UI pack and
+separate setup/play session roots as Electron. Browser acceptance uses a real
+Keeper with the main session as player, as explicitly requested for this slice.
+The local App embeds only the frontend. A packaged `pi-coc-runtime.json` points
+to the canonical checkout and installed Node executable; the checkout and its
+Python/Pi dependencies must remain available. No credentials enter the bundle.
+The local canonical artifact is `build/PipiCOC.app` in this checkout.
+
+The frontend's `text` stream event accepts `replace: true` for an authoritative
+final message that differs from its streamed draft. Replacement is scoped to the
+message segment and may be empty (a rejected draft); earlier segments remain.
+This honors Pi's `message_end` extension rewrite rather than retaining discarded
+Keeper instructions on screen. Panel and mechanics modules use the same confined
+`getExtensionUiEntrySource` path as header modules; Web clients never import a
+server filesystem `file://` URL.
