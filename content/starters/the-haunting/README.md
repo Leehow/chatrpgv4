@@ -54,6 +54,41 @@ Mechanical hooks (Flesh Ward, floating knife, own-dagger exception) align with
 `../../../rulesets/coc7/rules-json/the-haunting.json`. Walter Corbitt presentation/stats are
 referenced from `../../../rulesets/coc7/rules-json/monsters.json`.
 
+## Building the source-bound twin from the Rulebook (#29)
+
+This starter is an original derivative: it carries the scenario's structure, not the book's
+prose. The book itself says things the derivative cannot — what Arty Wilmot wants, what
+Corbitt hides, what Dooley would exaggerate — so §17.2's dossier (`believes`, `hides`,
+`asserts`, ties) has no source here to extract from.
+
+A source owner can build a **second, source-bound module** from the Rulebook and play that
+one instead. It does not replace this starter: the starter is the fixture the kernel tests
+are written against, and nothing here is overwritten.
+
+```bash
+# 1. pages 446-462 of the 40th Anniversary Keeper Rulebook are the scenario (0-based pdf
+#    indices; all seventeen extract natively, none needs OCR). Write them as 0000.md..0016.md
+#    with the local adapter (@firecrawl/pdf-inspector, extensions/module/pdf.ts).
+# 2. sign the manifest from the bytes on disk -- never from the adapter's own say-so:
+uv run --frozen python bin/coc-bundle <pages-dir> --out <bundle-dir> \
+  --producer "<the adapter you used>" \
+  --title "The Haunting" --slug the-haunting-rulebook --language en \
+  --authors "Sandy Petersen, Mike Mason, Paul Fricker" \
+  --edition "Keeper Rulebook 40th Anniversary" \
+  --file-sha256 "$(shasum -a 256 '<the pdf>' | cut -d' ' -f1)" --filename "<the pdf's name>"
+# 3. bind and build (module.bind re-checks every page byte for byte), then play it:
+#    module.bind {bundle} -> module.build -> campaign.create {module: "the-haunting-rulebook"}
+```
+
+The bundle and everything built from it stay under `.coc/` (git-ignored): the repository
+holds the recipe, never the book's text. One build round on `grok-relay/grok-4.5` produced
+13 connected scenes, the book's own Handouts 2-8, 5 conclusions, 3 endings and 7 rules,
+with zero playability findings; six of its eight NPCs carry a dossier, every line of it
+cited to a span on the page it came from.
+
+> The sections below predate the 0.9.0a rewrite and still name `plugins/coc-keeper/…`
+> scripts, which live only in the old tree (`0.8.2a`). Treat them as history.
+
 ## Playing
 
 ### One-line quick start (N7)
