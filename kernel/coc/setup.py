@@ -129,6 +129,9 @@ class SetupSteps:
         only_for = step.get("only_for")
         if only_for is not None and only_for not in kinds:
             return False
+        applies_to = step.get("applies_to")
+        if isinstance(applies_to, list) and applies_to and not kinds.intersection(applies_to):
+            return False
         investigator_source = step.get("investigator_source")
         if investigator_source is not None and investigator_source not in kinds:
             return False

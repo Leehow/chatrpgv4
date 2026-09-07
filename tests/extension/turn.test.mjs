@@ -9,6 +9,21 @@ import { assistantTexts, customMessages, openTable, waitForIdle } from "./harnes
 
 const SEVEN = ["apply", "ask", "look", "lookup", "narrate", "recall", "resolve"];
 
+test("source preparation preserves an empty question while explicit rechecks retain their question", async t => {
+	const table = await openTable({ responses: [
+		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Tower" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Tower", question: "What is on the upper floor?" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: "The tower stands ahead." })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("The tower stands ahead."),
+	] });
+	t.after(() => table.dispose());
+	const requests = [];
+	table.emit("coc:reading-bridge", { async ensure(_mid, params) { requests.push(params); return { state: "ready" }; } });
+	await table.session.prompt("Continue the existing tower preparation, then check its upper floor.");
+	assert.deepEqual(requests.map(r => r.question), ["", "What is on the upper floor?"]);
+	assert.ok(requests.every(r => r.focus === "Tower" && r.foreground === true));
+});
+
 test("a source timeout yields the turn instead of allowing another source query", async t => {
 	const table = await openTable({ responses: [
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Lena", question: "Her testimony" })], { stopReason: "toolUse" }),

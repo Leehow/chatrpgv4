@@ -73,6 +73,7 @@ def opening(client, mid):
         {"node_id": "scene-dock", "node_kind": "scene", "name": "Dock", "source_refs": refs,
          "properties": {"is_entrance": True}},
         {"node_id": "scene-tower", "node_kind": "scene", "name": "Tower", "source_refs": [{"page": 2}],
+         "summary": "An old tower beyond the harbor.",
          "properties": {"is_final": True}},
         {"node_id": "npc-lena", "node_kind": "npc", "name": "Lena", "source_refs": refs,
          "properties": {"mechanics": {"profile": {"characteristics": {"STR": 50}}}}}]
@@ -169,6 +170,67 @@ def test_existing_material_does_not_swallow_a_new_question(kernel, tmp_path):
     assert request(kernel, mid, "detail", focus="Lena", question="What does she know of the tower?")["job_id"] != first["job_id"]
 
 
+def test_queued_preparation_reuses_material_published_by_an_earlier_job(kernel, tmp_path):
+    mid, _ = indexed(kernel, tmp_path)
+    first, _, _ = opening(kernel, mid)
+    queued = request(kernel, mid, "detail", focus="Lena")
+    finish(kernel, first)
+    assert claim(kernel, mid) == {"job_id": None}
+    rows = json.loads((kernel.workspace / ".coc/modules" / mid / "deepen-queue.json").read_text())
+    reused = next(row for row in rows if row["job_id"] == queued["job_id"])
+    assert reused["state"] == "completed" and reused["reused_generation"] == 1
+    assert "work_dir" not in reused
+    new_question = request(kernel, mid, "detail", focus="Lena", question="What is her earlier job?")
+    active = claim(kernel, mid)
+    assert active["job_id"] == new_question["job_id"]
+    finish(kernel, active, outcome="cancelled")
+
+
+def test_a_prepared_summary_cannot_be_silently_replaced(kernel, tmp_path):
+    mid, _ = indexed(kernel, tmp_path)
+    first, draft, _ = opening(kernel, mid)
+    draft["nodes"][0]["summary"] = "A working harbor."
+    write(Path(first["work_dir"]) / "draft.json", draft)
+    finish(kernel, first)
+    request(kernel, mid, "detail", focus="Dock", question="What is the harbor like?")
+    job = claim(kernel, mid)
+    observed(job)
+    write(Path(job["work_dir"]) / "draft.json", {"nodes": [{"node_id": "scene-dock", "node_kind": "scene",
+        "name": "Dock", "summary": "An abandoned military base.", "source_refs": [{"page": 1}]}],
+        "claims": [], "node_refs": [], "coverage": {}, "dependencies": [], "critical": [], "ready_nodes": ["scene-dock"]})
+    write(Path(job["work_dir"]) / "review.json", {"checked": [{"path": "/nodes/0", "verdict": "supported",
+        "source_refs": [{"page": 1}]}], "missing": []})
+    err = kernel.err("module.read.finish", {"module_id": mid, "job_id": job["job_id"], "lease": job["lease"],
+        "outcome": "completed", "draft_path": str(Path(job["work_dir"]) / "draft.json"),
+        "review_path": str(Path(job["work_dir"]) / "review.json")})
+    assert err["code"] == "needs_choice" and err["details"]["path"].endswith("/summary")
+    assert kernel.ok("module.status", {"module_id": mid})["generation"] == 1
+    finish(kernel, job, outcome="cancelled")
+
+
+def test_further_reading_reuses_an_existing_claim_identity_and_reason(kernel, tmp_path):
+    mid, _ = indexed(kernel, tmp_path)
+    first, draft, _ = opening(kernel, mid)
+    draft["claims"][0].update(claim_id="claim-harbor-trail", reason="The trail connects the dock and tower.")
+    write(Path(first["work_dir"]) / "draft.json", draft)
+    finish(kernel, first)
+    request(kernel, mid, "detail", focus="Dock", question="Where does its trail lead?")
+    job = claim(kernel, mid)
+    observed(job)
+    assert any(c.get("reason") == "The trail connects the dock and tower." for c in job["known_claims"])
+    write(Path(job["work_dir"]) / "draft.json", {"nodes": [{"node_id": "scene-dock", "node_kind": "scene",
+        "name": "Dock", "source_refs": [{"page": 1}]}], "claims": [{"subject_id": "scene-dock", "predicate": "route-to",
+        "object": {"node_id": "scene-tower"}, "truth_status": "authored-fact", "source_refs": [{"page": 2}]}],
+        "node_refs": ["scene-tower"], "coverage": {}, "dependencies": [], "critical": [], "ready_nodes": ["scene-dock"]})
+    write(Path(job["work_dir"]) / "review.json", {"checked": [{"paths": ["/nodes/0", "/claims/0"],
+        "verdict": "supported", "source_refs": [{"page": 1}, {"page": 2}]}], "missing": []})
+    finish(kernel, job)
+    graph = ModuleStore(kernel.workspace).read_graph(mid)
+    routes = [c for c in graph["claims"] if c["predicate"] == "route-to"]
+    assert len(routes) == 1 and routes[0]["claim_id"] == "claim-harbor-trail"
+    assert routes[0]["reason"] == "The trail connects the dock and tower."
+
+
 def test_published_material_remains_usable_without_the_original_pdf(kernel, tmp_path):
     mid, _ = indexed(kernel, tmp_path)
     job, _, _ = opening(kernel, mid)
@@ -216,6 +278,8 @@ def test_distinct_regions_on_the_same_page_keep_their_own_assets_across_publicat
     next_draft = {"nodes": [], "claims": [], "node_refs": [], "coverage": {}, "dependencies": [], "critical": [], "ready_nodes": []}
     right = attach(next_job, next_draft, {"checked": [], "missing": []}, "right", [0.5, 0, 1, 1])
     finish(kernel, next_job, assets=[right])
+    chosen = kernel.ok("module.opening.choose", {"module_id": mid, "scene": "Dock"})
+    assert chosen["generation"] == 3 and chosen["opening_ready"] is True
     for asset in (left, right):
         result = kernel.ok("module.asset", {"module_id": mid, "name": asset["node_id"]})
         assert result["asset"]["path"] == asset["path"]
@@ -274,12 +338,14 @@ def test_material_preflight_precedes_the_whole_effect_batch_and_rng(kernel, tmp_
     observed(job)
     write(Path(job["work_dir"]) / "draft.json", {"nodes": [
         {"node_id": "scene-tower", "node_kind": "scene", "name": "Tower", "source_refs": [{"page": 2}],
+         "summary": "The tower's upper room holds a ledger.",
          "properties": {"is_final": True, "facts": ["The upper room contains a ledger."]}}],
         "claims": [], "node_refs": [], "coverage": {}, "dependencies": [], "critical": [], "ready_nodes": ["scene-tower"]})
     write(Path(job["work_dir"]) / "review.json", {"checked": [{"paths": ["/nodes/0"], "verdict": "supported", "source_refs": [{"page": 2}]}], "missing": []})
     finish(kernel, job)
     current_graph = ModuleStore(kernel.workspace).read_graph(mid)
     tower = next(n for n in current_graph["nodes"] if n["node_id"] == "scene-tower")
+    assert tower["summary"] == "The tower's upper room holds a ledger."
     assert record_of(tower)["facts"] == ["The upper room contains a ledger."]
     movement = {"call_id": "t1-c1", "effects": [{"kind": "move", "to": "Tower"}]}
     result = kernel.table("apply", **movement)
@@ -398,3 +464,18 @@ def test_rebinding_identical_source_repairs_a_missing_original(kernel, tmp_path)
     original.rename(original.with_suffix(".retained"))
     kernel.ok("module.source.bind", {"source": source})
     assert original.read_bytes() == Path(source["path"]).read_bytes()
+
+
+def test_rebinding_the_matching_original_preserves_corrupted_bytes_and_the_published_graph(kernel, tmp_path):
+    mid, source = indexed(kernel, tmp_path)
+    job, _, _ = opening(kernel, mid)
+    finish(kernel, job)
+    directory = kernel.workspace / ".coc" / "modules" / mid
+    original = directory / "source.pdf"
+    original.write_bytes(b"corrupted source retained for diagnosis")
+    kernel.ok("module.source.bind", {"source": source})
+    assert original.read_bytes() == Path(source["path"]).read_bytes()
+    copies = list(directory.glob("source-corrupt-*.pdf"))
+    assert len(copies) == 1 and copies[0].read_bytes() == b"corrupted source retained for diagnosis"
+    status = kernel.ok("module.status", {"module_id": mid})
+    assert status["generation"] == 1 and status["opening_ready"] is True

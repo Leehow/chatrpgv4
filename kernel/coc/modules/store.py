@@ -178,6 +178,9 @@ class ModuleStore:
             write_json_atomic(path, ordered)
             write_json_atomic(directory / "module-graph-manifest.json",
                               graph_manifest(ordered, module_id=module_id, generation=generation))
+            from .assets import registry_from_graph
+            write_json_atomic(directory / "assets.json",
+                              registry_from_graph(ordered, self.assets(module_id), registered=True))
             meta.update(generation=generation, graph_file=str(path.relative_to(self.module_dir(module_id))),
                         graph_digest=sha256_file(path))
             self._graphs.pop(module_id, None)

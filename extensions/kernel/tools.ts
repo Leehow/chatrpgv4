@@ -324,7 +324,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		promptSnippet: "Look up an entity the capsule did not answer, or the whole book's secrets and endings",
 		parameters: Type.Object({
 			kind: StringEnum(["module", "source", "secret", "rule", "catalog"] as const, {
-				description: "module reads the compiled graph immediately; source explicitly rechecks original PDF pages and may wait; use source only for an actual gap or an explicit original-source check",
+				description: "module reads the compiled graph immediately; source without question prepares missing material or rejoins its reading; source with question explicitly rechecks original pages, even when material exists",
 			}),
 			query: Type.Optional(Type.String({ description: "a name or a question; omissible when kind is secret" })),
 			question: Type.Optional(Type.String({ description: "for source only: the precise original-page question; ordinary module queries do not start reading" })),

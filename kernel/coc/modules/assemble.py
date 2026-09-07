@@ -332,6 +332,8 @@ def apply_opening_choice(graph: dict[str, Any], chosen: str) -> bool:
     node = nodes.get(chosen)
     if node is None or node.get("node_kind") not in WALKABLE_KINDS:
         return False
+    for candidate in start_scene_candidates(graph):
+        nodes[candidate["node_id"]].setdefault("properties", {})["is_entrance"] = True
     graph["entry_scene_ids"] = [chosen]
     for other in nodes.values():
         if other.get("node_kind") != "scene":

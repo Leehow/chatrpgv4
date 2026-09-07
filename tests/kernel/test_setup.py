@@ -106,7 +106,8 @@ def test_steps_table_is_the_seven_steps_in_order_and_a_dag(kernel):
         for need in step["needs"]:
             assert need in by_id and STEP_IDS.index(need) < STEP_IDS.index(step["id"])
         assert step["lines"]["next"] and step["lines"]["do"]  # one English form (§16.1)
-    assert by_id["prepare-module"]["needs"] == ["choose-source"] and by_id["prepare-module"]["only_for"] == "pdf"
+    assert by_id["prepare-module"]["needs"] == ["choose-source"]
+    assert by_id["prepare-module"]["applies_to"] == ["pdf", "module"]
     assert by_id["create-investigator"]["needs"] == ["create-campaign", "prepare-module"]
     assert by_id["create-investigator"]["investigator_source"] == "new"
     assert by_id["browse-library"]["investigator_source"] == by_id["load-investigator"]["investigator_source"] == "library"
@@ -116,30 +117,15 @@ def test_steps_table_is_the_seven_steps_in_order_and_a_dag(kernel):
     assert set(table["templates"]) == {"unknown_step", "needs_unmet", "already_done", "all_done"}
 
 
-def test_module_source_is_declared_and_skips_the_pdf_only_steps_as_not_applicable(kernel):
-    """§20.7: the table's own `only_for`/`applies_to` machinery is what excludes a
-    step for a source, so a third source needs no new step-level data -- just its
-    name added to `sources`. For `module`, `build-bundle`/`bind-source`/`build-opening`
-    (each `only_for: "pdf"`) are excluded the same way they already are for `starter`:
-    not present in that source's order at all, which is "not applicable", a
-    different thing from being present but blocked on an unmet prerequisite
-    ("missing"; see `needs_unmet` for that case)."""
+def test_pdf_and_reused_modules_share_preparation_while_starters_skip_it(kernel):
+    """Both source entries settle an opening before creating a campaign; reuse does not rebuild."""
     table = kernel.ok("setup.steps", {})
     assert table["sources"] == ["starter", "pdf", "module"]
     steps = SetupSteps(STEPS_PATH)
-
-    for pdf_only in ("prepare-module",):
-        assert steps.applies(pdf_only, "pdf") is True
-        assert steps.applies(pdf_only, "starter") is False
-        assert steps.applies(pdf_only, "module") is False
-
-    # `order` also takes a set of active kinds (§21.5's second axis lives alongside this
-    # one): "module" plus "new" is what a resumed module-source, new-investigator setup
-    # actually reports.
-    assert steps.order({"module", "new"}) == ["choose-source", "create-campaign", "create-investigator", "complete"]
-    for pdf_only in ("prepare-module",):
-        assert pdf_only not in steps.order({"module", "new"})
-    # the full pdf lane still has every step, in table order (unaffected by the third source)
+    assert steps.applies("prepare-module", "pdf") is True
+    assert steps.applies("prepare-module", "module") is True
+    assert steps.applies("prepare-module", "starter") is False
+    assert steps.order({"module", "new"}) == NEW_LANE_STEP_IDS
     assert steps.order({"pdf", "new"}) == NEW_LANE_STEP_IDS
 
 

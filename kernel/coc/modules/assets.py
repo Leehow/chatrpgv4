@@ -40,7 +40,7 @@ def _entry_from_node(node: dict[str, Any], bundle_row: dict[str, Any] | None) ->
         "aliases": [a for a in (node.get("aliases") or []) if isinstance(a, str)],
         "pages": sorted(node_pages(node)),
         "path": (props.get("asset_ref") if props.get("image_sources") else None) or (bundle_row or {}).get("path") or props.get("asset_ref"),
-        "media_type": (bundle_row or {}).get("media_type") or props.get("media_type"),
+        "media_type": (props.get("media_type") if props.get("image_sources") else None) or (bundle_row or {}).get("media_type") or props.get("media_type"),
         "visibility": node.get("visibility") or "keeper-only",
         "node_id": str(node["node_id"]),
         "summary": node.get("summary") or "",
@@ -53,7 +53,7 @@ def _entry_from_node(node: dict[str, Any], bundle_row: dict[str, Any] | None) ->
     if isinstance(title, str) and title and title not in entry["aliases"] and title != entry["name"]:
         entry["aliases"].append(title)
     if bundle_row:
-        entry["bundle_asset_id"] = bundle_row.get("id")
+        entry["bundle_asset_id"] = bundle_row.get("bundle_asset_id") or bundle_row.get("id")
         entry["sha256"] = bundle_row.get("sha256")
     return entry
 

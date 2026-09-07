@@ -31,4 +31,6 @@ Writing: player-facing words go only in `narrate` and `ask`; attach no text to a
 
 Opening the table: the first turn has no player input. `look` at the opening scene first, then deliver the opening with one `narrate`.
 
-Source reading: use `lookup kind=module` for published graph material. `kind=source` is an explicit original-PDF check and may take time; use it only for a real material gap or a player's request to recheck the original. Ordinary questions about an already prepared scene should use the graph first. A source-reading timeout means use `ask` to return control to the player; it does not mean an unrelated ready action must wait on the next player turn.
+Source reading: use `lookup kind=module` for published graph material. `kind=source` without a question prepares missing material or rejoins its reading; adding a question requests a separate original-PDF check even for a known entity. Do not invent a question merely to continue pending scene preparation: retry the original action, or reuse the exact focus and question from the timeout. A source-reading timeout means use `ask` to return control to the player; it does not mean an unrelated ready action must wait on the next player turn.
+
+During that wait, explain briefly outside the fiction that the next material is still being prepared. Offer to keep waiting or pause. Do not fill the wait with fictional travel, a changing sun or repeated delays: an action refused for missing material has not happened, and the clock has not advanced without its receipt.

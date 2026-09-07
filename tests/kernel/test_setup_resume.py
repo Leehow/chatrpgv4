@@ -81,7 +81,7 @@ def test_module_source_reuses_an_installed_book_and_skips_the_build_lane(kernel,
     assert (campaign_dir(kernel.workspace, second) / "world.json").exists()
 
     resume = kernel.ok("setup.steps", {"campaign": second})
-    assert resume["completed"] == ["choose-source", "create-campaign"]
+    assert resume["completed"] == ["choose-source", "prepare-module", "create-campaign"]
     assert resume["state"]["source"] == {"kind": "module", "module_id": TINY_ID}
 
     occupation = kernel.ok("setup.occupations", {"campaign": second})["occupations"][0]["id"]

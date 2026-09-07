@@ -1,0 +1,17 @@
+[
+  {
+    "id": "section-01",
+    "title": "",
+    "pages": [
+      0,
+      3
+    ],
+    "chars": 503,
+    "kind": "scene",
+    "priority": 100,
+    "status": "accepted",
+    "shard": "/Users/haoli/leehow/code/chatrpgv4-wt-visual-pdf-reader/.coc/research/legacy-fixture/workspace/.coc/modules/grey-heron-dock/shards/section-01.json",
+    "rounds": 1,
+    "accepted_at": "2026-09-07T10:36:12Z"
+  }
+]

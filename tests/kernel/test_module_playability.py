@@ -67,6 +67,8 @@ def test_two_declared_openings_come_back_as_a_choice_with_both_named():
     graph = starter_graph()
     second = next(n for n in graph["nodes"]
                   if n["node_kind"] == "scene" and n["node_id"] != "scene-commission-briefing")
+    second["summary"] = "Investigate the production failure."
+    next(n for n in graph["nodes"] if n["node_id"] == "scene-commission-briefing")["summary"] = "Serve an arrest order."
     second["properties"]["is_entrance"] = True
     report = opening_check(graph)
     assert report["opening_ready"] is False and report["start_scene"] is None
@@ -75,6 +77,7 @@ def test_two_declared_openings_come_back_as_a_choice_with_both_named():
     assert choice["field"] == "start_scene" and choice["method"] == "module.opening.choose"
     assert {row["node_id"] for row in choice["candidates"]} == {second["node_id"], "scene-commission-briefing"}
     assert all(row["name"] for row in choice["candidates"]), "a candidate is named, not just identified"
+    assert {row["summary"] for row in choice["candidates"]} == {"Investigate the production failure.", "Serve an arrest order."}
 
     # Only the book's own candidates can be named, by node id, handle or name.
     assert resolve_start_scene(graph, "scene-ghost") is None
@@ -87,6 +90,9 @@ def test_two_declared_openings_come_back_as_a_choice_with_both_named():
     starts = [n for n in graph["nodes"] if record_of(n).get("is_start") is True]
     assert [n["node_id"] for n in starts] == ["scene-commission-briefing"], "the table walks the records"
     assert second["properties"]["is_entrance"] is True, "what the book says about the scene is evidence, not a vote"
+    assert resolve_start_scene(graph, second["node_id"]) == second["node_id"], "another table can still choose the other authored opening"
+    assert apply_opening_choice(graph, second["node_id"]) is True
+    assert graph["entry_scene_ids"] == [second["node_id"]]
 
 
 def test_dangling_relation_and_unreachable_scene_are_found():

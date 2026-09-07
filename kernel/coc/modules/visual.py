@@ -131,6 +131,15 @@ def check_draft(draft: Any, packet: dict[str, Any], seen: set[int] | None = None
         reject("declare the nodes whose material this task has prepared", "/ready_nodes")
     if not set(filled["ready_nodes"]) <= defined:
         reject("ready_nodes must be present in the draft so their material can be independently reviewed", "/ready_nodes")
+    known_nodes = {n["node_id"]: n for n in packet.get("known_nodes", [])}
+    for node in nodes:
+        known = known_nodes.get(node["node_id"])
+        if known is None or "ready" not in known or (known["node_kind"] == "module" and not known["ready"]):
+            continue
+        proposed = {k: v for k, v in node.items() if k in known and k != "source_refs"}
+        if not known["ready"] and node["node_id"] in filled["ready_nodes"]:
+            proposed.pop("summary", None)
+        merge_value({k: known[k] for k in proposed}, proposed, "/nodes/" + node["node_id"])
     claim_keys = {"claim_id", "subject_id", "predicate", "object", "truth_status", "visibility", "source_refs", "reason", "known_by_ids", "asserted_by_ids", "validity"}
     claimed: set[str] = set()
     required = set(filled["critical"])
@@ -148,13 +157,17 @@ def check_draft(draft: Any, packet: dict[str, Any], seen: set[int] | None = None
             reject("a claim must connect defined nodes with a supplied predicate", f"/claims/{i}")
         if set(claim["object"]) != {"node_id"}:
             reject("claim objects contain only node_id")
-        claim.setdefault("claim_id", f"claim-{claim['subject_id']}-{claim['predicate']}-{target}")
+        matches = [old for old in packet.get("known_claims", []) if
+                   (old.get("claim_id") == claim["claim_id"] if "claim_id" in claim else
+                    all(old.get(key) == claim.get(key) for key in ("subject_id", "predicate", "object")))]
+        known = matches[0] if len(matches) == 1 else {}
+        claim.setdefault("claim_id", known.get("claim_id") or f"claim-{claim['subject_id']}-{claim['predicate']}-{target}")
         if not valid_semantic_id(claim["claim_id"]) or claim["claim_id"] in claimed:
             reject("claim ids must be unique semantic identifiers")
         claimed.add(claim["claim_id"])
         if claim.get("truth_status") not in TRUTH_STATUSES:
             reject("claims must declare authored fact, belief, rumor, lie or inference using the vocabulary")
-        claim.setdefault("visibility", "keeper-only")
+        claim.setdefault("visibility", known.get("visibility", "keeper-only"))
         if claim["visibility"] not in VISIBILITIES:
             reject("invalid claim visibility")
         claim["source_refs"] = references(claim.get("source_refs"), count, seen)
@@ -162,7 +175,10 @@ def check_draft(draft: Any, packet: dict[str, Any], seen: set[int] | None = None
             claim.setdefault(key, [])
             if not isinstance(claim[key], list) or any(n not in ids for n in claim[key]):
                 reject(f"{key} must name defined nodes")
-        claim.setdefault("validity", None)
+        claim.setdefault("validity", known.get("validity"))
+        if known:
+            fields = {k: v for k, v in claim.items() if k in known and k not in ("claim_id", "source_refs")}
+            merge_value({k: known[k] for k in fields}, fields, "/claims/" + claim["claim_id"])
         required.add(f"/claims/{i}")
     filled["required_review"] = sorted(required)
     return filled
@@ -211,6 +227,7 @@ def assemble_visual(previous: dict[str, Any] | None, filled: dict[str, Any], met
     from .gates import relation_from_claim
 
     mid = module_node_id(meta["id"])
+    ready_before = {nid for material in meta.get("reading", {}).get("materials", []) for nid in material.get("node_ids", [])}
     graph = copy.deepcopy(previous or {"contract_id": GRAPH_CONTRACT_ID, "schema_version": 3,
         "module_id": meta["id"], "nodes": [{"node_id": mid, "node_kind": "module", "name": meta["title"],
             "visibility": "keeper-only", "properties": {}, "aliases": [], "summary": "",
@@ -225,6 +242,9 @@ def assemble_visual(previous: dict[str, Any] | None, filled: dict[str, Any], met
             if rid == mid and previous is None:
                 rows[rid] = {**rows[rid], **row}
             else:
+                if (kind == "nodes" and rid in rows and rid not in ready_before
+                    and rid in filled["ready_nodes"] and "summary" in row):
+                    rows[rid] = {**rows[rid], "summary": row["summary"]}
                 rows[rid] = merge_value(rows[rid], row, "/" + kind + "/" + rid) if rid in rows else row
         graph[kind] = list(rows.values())
     nodes = {n["node_id"]: n for n in graph["nodes"]}

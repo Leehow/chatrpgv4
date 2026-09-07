@@ -85,8 +85,14 @@ export class ReadingService implements ReadingBridge {
 			const bound = await this.deps.call("module.source.bind", { source,
 				...(mid ? { module_id: mid } : {}), title: basename(path, ".pdf") });
 			mid = bound.module_id;
-		}
+        }
 		if (!mid) throw error("needs_source", "choose a PDF or an existing module", "pass pdf or module_id");
+		const status = await this.deps.call("module.status", { module_id: mid });
+		if (!params.start_scene && status.opening_candidates?.length > 1) {
+			throw new KernelError({ code: "needs_choice", message: "choose the opening for this new campaign",
+				fix: "match the player's intent to the candidate summaries, then pass its scene as start_scene in prepare-module",
+				details: { field: "start_scene", candidates: status.opening_candidates } });
+		}
 		if (params.start_scene) await this.deps.call("module.opening.choose", { module_id: mid, scene: params.start_scene });
 		await this.ensure(mid, { purpose: "opening", foreground: true, retry: params.retry === true }, signal);
 		return { ok: true, module_id: mid, opening_ready: true };
@@ -108,7 +114,10 @@ export class ReadingService implements ReadingBridge {
 			const configured = Number(process.env.PI_COC_READ_WAIT_MS);
 			const wait = Number.isFinite(configured) && configured > 0 ? configured : 120_000;
 			const interrupted = new Promise<never>((_resolve, reject) => {
-				timer = setTimeout(() => reject(error("reading_timeout", "the source is still being read", "use ask to return control; on a later player turn, lookup kind=source with the same target and question rejoins the retained reading")), wait);
+				timer = setTimeout(() => reject(error("reading_timeout", "the source is still being read",
+					params.purpose === "opening" ? "return control, then call prepare-module again to rejoin the retained preparation"
+						: "use ask to return control; on a later player turn, retry the original action or lookup kind=source with the exact focus and question in details.read; do not invent another question",
+					{ read: { purpose: params.purpose, focus: params.focus ?? "", question: params.question ?? "" } })), wait);
 				onAbort = () => {
 					if ((this.waiters.get(mid) ?? 0) <= 1) this.controllers.get(mid)?.abort();
 					reject(error("reading_failed", "reading was cancelled", "retry explicitly when ready"));
@@ -150,7 +159,12 @@ export class ReadingService implements ReadingBridge {
 			while (!this.stopped && !controller.signal.aborted) {
 				const job = await this.deps.call("module.read.claim", { module_id: mid, owner: `host-${process.pid}` });
 				if (!job.job_id) return;
-				await this.runJob(job, controller.signal);
+				try { await this.runJob(job, controller.signal); }
+				catch (failure) {
+					// Setup I/O can fail before runJob enters its phase loop; release that claim too.
+					await this.deps.call("module.read.finish", { module_id: mid, job_id: job.job_id, lease: job.lease,
+						outcome: controller.signal.aborted ? "cancelled" : "failed", detail: String(failure) });
+				}
 			}
 		})().finally(() => { this.pumps.delete(mid); this.controllers.delete(mid); });
 		task.catch(() => undefined);
@@ -167,6 +181,9 @@ export class ReadingService implements ReadingBridge {
 			check: `${quote(join(ROOT, "bin/coc-read-check"))} --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
 		const task = { purpose: job.purpose, module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
 			source: { page_count: job.source.page_count }, index: job.index, known_nodes: job.known_nodes,
+			known_claims: (job.known_claims ?? []).map((claim: Row) => Object.fromEntries(
+				["subject_id", "predicate", "object", "truth_status", "visibility", "reason", "known_by_ids", "asserted_by_ids", "validity"]
+					.filter(key => key in claim).map(key => [key, claim[key]]))),
 			vocabulary: job.vocabulary, coverage_domains: job.coverage_domains, commands };
 		await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
 		const observations: Row = { file_sha256: job.source.file_sha256, read_pages: [], full_pages: [], review_pages: [] };

@@ -51,9 +51,10 @@
       "needs": [
         "choose-source"
       ],
-      "only_for": "pdf",
+      "only_for": null,
       "applies_to": [
-        "pdf"
+        "pdf",
+        "module"
       ],
       "kind": "op",
       "op": "module.prepare",
@@ -66,7 +67,8 @@
         },
         "module_id": {
           "description": "a previously registered module, if available",
-          "required": false
+          "required": false,
+          "from": "module_id"
         },
         "start_scene": {
           "description": "an authored opening chosen after candidates were returned",
@@ -79,7 +81,7 @@
       },
       "receipt": "module_id",
       "lines": {
-        "do": "Read the original PDF, prepare its opening, and return module_id. Ask about actual opening choices when candidates are returned.",
+        "do": "Prepare the chosen PDF or reuse the selected module. For multiple authored openings, match the player intent to the candidate summaries and select one before creating the campaign.",
         "next": "Prepare the chosen PDF with prepare-module; if reading is still in progress, wait for the existing job rather than starting another."
       }
     },

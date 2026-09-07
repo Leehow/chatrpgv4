@@ -70,29 +70,34 @@ class Reading:
                 meta = self.store.module(mid)
                 if meta.get("file_sha256") != source["file_sha256"]:
                     continue
-                destination = self.store.module_dir(mid) / "source.pdf"
-                if not meta.get("source_document") or not destination.is_file():
-                    if path != destination.resolve():
-                        temporary = destination.with_name(f"source-copy-{uuid.uuid4().hex}.pdf")
-                        shutil.copyfile(path, temporary)
-                        if digest(temporary) != source["file_sha256"]:
-                            raise invalid_params("source changed during restoration")
-                        os.replace(temporary, destination)
-                    if not meta.get("source_document"):
-                        graph = self.store.read_graph(mid)
-                        queue = self.store.queue_path(mid)
-                        if queue.exists():
-                            queue.rename(queue.with_name(f"legacy-queue-{uuid.uuid4().hex}.json"))
-                        self.store.write_queue(mid, [])
-                        meta["reading"] = self.initial_state()
-                        if graph:
-                            meta["reading"]["materials"] = [{"purpose": "detail", "verification": "legacy",
-                                "node_ids": [n["node_id"] for n in graph.get("nodes", [])],
-                                "generation": meta.get("generation", 0)}]
-                    meta.update(reading_version=1, source_document={"path": "source.pdf", **{k: source[k] for k in ("file_sha256", "page_count")}})
-                    meta["page_count"] = source["page_count"]
-                    self.store.write_module(meta)
-                return {"module_id": mid, "replayed": True}
+                with mutex(self.store.module_dir(mid) / ".metadata.lock"):
+                    meta = self.store.module(mid)
+                    destination = self.store.module_dir(mid) / "source.pdf"
+                    corrupted = destination.is_file() and digest(destination) != source["file_sha256"]
+                    if not meta.get("source_document") or not destination.is_file() or corrupted:
+                        if path != destination.resolve():
+                            temporary = destination.with_name(f"source-copy-{uuid.uuid4().hex}.pdf")
+                            shutil.copyfile(path, temporary)
+                            if digest(temporary) != source["file_sha256"]:
+                                raise invalid_params("source changed during restoration")
+                            if corrupted:
+                                destination.rename(destination.with_name(f"source-corrupt-{uuid.uuid4().hex}.pdf"))
+                            os.replace(temporary, destination)
+                        if not meta.get("source_document"):
+                            graph = self.store.read_graph(mid)
+                            queue = self.store.queue_path(mid)
+                            if queue.exists():
+                                queue.rename(queue.with_name(f"legacy-queue-{uuid.uuid4().hex}.json"))
+                            self.store.write_queue(mid, [])
+                            meta["reading"] = self.initial_state()
+                            if graph:
+                                meta["reading"]["materials"] = [{"purpose": "detail", "verification": "legacy",
+                                    "node_ids": [n["node_id"] for n in graph.get("nodes", [])],
+                                    "generation": meta.get("generation", 0)}]
+                        meta.update(reading_version=1, source_document={"path": "source.pdf", **{k: source[k] for k in ("file_sha256", "page_count")}})
+                        meta["page_count"] = source["page_count"]
+                        self.store.write_module(meta)
+                    return {"module_id": mid, "replayed": True}
             wanted = params.get("module_id")
             if wanted:
                 mid = self.store.validate_id(wanted)
@@ -227,6 +232,13 @@ class Reading:
                         stale.update(state="completed", result=committed)
                     if stale.get("state") == "running":
                         stale["state"] = "queued"
+                    if stale.get("state") == "queued" and (
+                        (stale["purpose"] == "opening" and meta.get("opening_ready")) or
+                        (stale["purpose"] == "detail" and not stale.get("question") and self.material_ready(mid, stale["focus"]))
+                    ):
+                        stale.update(state="completed", finished_at=now_iso(), reused_generation=meta.get("generation", 0),
+                                     result={"state": "ready", "generation": meta.get("generation", 0),
+                                             "opening_ready": bool(meta.get("opening_ready"))})
                 pending = [j for j in queue if j.get("state") == "queued"]
                 if not pending:
                     self.store.write_queue(mid, queue)
@@ -246,11 +258,14 @@ class Reading:
                 self.store.write_queue(mid, queue)
                 self.leases[mid] = (handle, job["job_id"], job["lease"])
                 graph = self.store.read_graph(mid) or {}
-                known = [{k: n[k] for k in ("node_id", "node_kind", "name", "aliases", "properties") if k in n} for n in graph.get("nodes", [])]
+                ready = {nid for material in meta.get("reading", {}).get("materials", []) for nid in material.get("node_ids", [])}
+                known = [{**{k: n[k] for k in ("node_id", "node_kind", "name", "aliases", "summary", "properties", "visibility") if k in n},
+                          "ready": n["node_id"] in ready} for n in graph.get("nodes", [])]
                 if not known:
-                    known = [{"node_id": module_node_id(mid), "node_kind": "module", "name": meta["title"]}]
+                    known = [{"node_id": module_node_id(mid), "node_kind": "module", "name": meta["title"], "ready": False}]
                 packet = {**job, "module_id": mid, "source": source, "index": self.store.read_sections(mid),
-                          "known_nodes": known, "vocabulary": vocabulary(), "coverage_domains": list(COVERAGE_DOMAINS)}
+                          "known_nodes": known, "known_claims": graph.get("claims", []),
+                          "vocabulary": vocabulary(), "coverage_domains": list(COVERAGE_DOMAINS)}
                 write_json_atomic(work / "packet.json", packet)
                 return packet
         except Exception:
@@ -324,10 +339,7 @@ class Reading:
                     "focus": job["focus"], "question": job["question"], "node_ids": filled["ready_nodes"],
                     "generation": meta.get("generation", 0) + 1})
                 meta["status"] = "installed" if meta["opening_ready"] else "assembled"
-                from .assets import registry_from_graph
-                registry = registry_from_graph(graph, self.store.assets(mid), registered=True)
                 self.store.write_graph(meta, graph)
-                write_json_atomic((self.store.module_dir(mid) / meta["graph_file"]).parent / "assets.json", registry)
             result = {"state": "ready" if meta.get("opening_ready") else meta["reading"]["state"],
                       "generation": meta.get("generation", 0), "opening_ready": meta.get("opening_ready", False)}
             job.update(state="completed", result=result, finished_at=now_iso())
@@ -393,6 +405,8 @@ class Reading:
         with mutex(self.store.module_dir(mid) / ".metadata.lock"):
             meta = self.store.module(mid)
             graph = self.store.read_graph(mid)
+            if meta.get("source") != "pdf":
+                raise invalid_params("a starter's opening is defined by its content graph")
             if not graph:
                 raise RpcError("campaign_not_ready", "read the source before choosing its opening")
             candidates = start_scene_candidates(graph)
@@ -404,8 +418,10 @@ class Reading:
             opening = opening_check(graph)
             meta["opening_choice"] = {"start_scene": chosen, "at": now_iso()}
             meta["opening"] = opening
-            meta["opening_ready"] = bool(opening["opening_ready"] and self.material_ready(mid, chosen))
-            meta["reading"]["state"] = "ready" if meta["opening_ready"] else "preparing"
+            meta["opening_ready"] = bool(opening["opening_ready"] and
+                                         (not meta.get("reading_version") or self.material_ready(mid, chosen)))
+            if meta.get("reading_version"):
+                meta["reading"]["state"] = "ready" if meta["opening_ready"] else "preparing"
             if meta["opening_ready"]:
                 meta["status"] = "installed"
             self.store.write_graph(meta, graph)

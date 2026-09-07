@@ -663,7 +663,7 @@ export default function (pi: ExtensionAPI) {
 				if (!reading || !readingModule) throw new KernelError({ code: "needs", message: "the source reading service is unavailable",
 					fix: "reopen the table with its module reading extension available", details: { reason: "reading_failed" } });
 				await reading.ensure(readingModule, { purpose: "detail", focus: params.query,
-					question: params.question ?? "Recheck the original source for this entity.", retry: params.retry === true, foreground: true }, signal);
+					question: params.question ?? "", retry: params.retry === true, foreground: true }, signal);
 				payload.kind = "module";
 			}
 			let result: Record<string, unknown>;
@@ -1023,7 +1023,7 @@ export default function (pi: ExtensionAPI) {
 			return { block: true, reason: TURN_CLOSED_REASON };
 		}
 		if (state.readingWait && name !== "ask") {
-			return { block: true, reason: "Source reading is still pending. Use ask to return control to the player; do not start another query or narrate a result. A new player input can continue the existing reading." };
+			return { block: true, reason: "Source reading is still pending. Use ask to explain the preparation wait outside the fiction and return control; do not start another query, narrate a result, or imply that the refused action or elapsed game time happened. A new player input can continue the existing reading." };
 		}
 		// The same call with the same parameters, resent unchanged: the kernel's answer will not change.
 		// A Keeper once sent one set of parameters thirteen times and was refused every time; after two

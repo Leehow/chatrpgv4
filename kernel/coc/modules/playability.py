@@ -412,11 +412,22 @@ def start_scene_candidates(graph: dict[str, Any]) -> list[dict[str, str]]:
     book, so the candidates are named and the answer is asked for."""
     nodes = _nodes(graph)
     scenes = {nid for nid, n in nodes.items() if n.get("node_kind") in WALKABLE_KINDS}
+    candidates = entrances(graph, scenes)
+    # The active selection narrows graph.entry_scene_ids, while authored entrance
+    # flags and the module declaration retain the alternatives for another table.
+    if _declaration(graph, "entry_scene_ids") != []:
+        candidates |= {nid for nid in scenes if any((nodes[nid].get("properties") or {}).get(k) is True
+                                                   for k in ("is_entrance", "is_start"))}
+        module = _module_node(nodes)
+        declared = (module.get("properties") or {}).get("entry_scene_ids") if module else None
+        if isinstance(declared, list):
+            candidates |= {nid for nid in declared if nid in scenes}
     out = []
-    for node_id in sorted(entrances(graph, scenes)):
+    for node_id in sorted(candidates):
         node = nodes[node_id]
         out.append({"node_id": node_id, "scene": handle_of(node),
-                    "name": str(node.get("name") or handle_of(node))})
+                    "name": str(node.get("name") or handle_of(node)),
+                    "summary": str(node.get("summary") or "")})
     return out
 
 

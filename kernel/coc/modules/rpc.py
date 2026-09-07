@@ -74,7 +74,8 @@ class ModuleMethods:
                     "opening": meta.get("opening", {}), "reading": {**reading,
                         "opening_ready": bool(meta.get("opening_ready")),
                         "queued": sum(j.get("state") == "queued" for j in queue),
-                        "active": next((j["job_id"] for j in queue if j.get("state") == "running"), None)}}
+                        "active": next((j["job_id"] for j in queue if j.get("state") == "running"), None)},
+                    "opening_candidates": start_scene_candidates(self.store.read_graph(module_id) or {})}
         sections = self.store.read_sections(module_id)
         counts: dict[str, int] = {}
         for row in sections:
@@ -105,6 +106,7 @@ class ModuleMethods:
                             "measures": playability.get("measures")} if playability else None,
             "opening_ready": bool(opening.get("opening_ready")),
             "opening": opening,
+            "opening_candidates": start_scene_candidates(graph or {}),
             "install": meta.get("install"),
         }
 
@@ -508,8 +510,7 @@ def methods(table_or_store: Any, content_dir: Path | str | None = None) -> dict[
         "module.accept": api.accept,
         "module.assemble": api.assemble,
         "module.install": api.install,
-        "module.opening.choose": lambda params: reading.choose_opening(params)
-            if store.module(params.get("module_id")).get("reading_version") else api.opening_choose(params),
+        "module.opening.choose": reading.choose_opening,
         "module.deepen.claim": api.deepen_claim,
         "module.deepen.complete": api.deepen_complete,
         "module.deepen.enqueue": api.deepen_enqueue,
