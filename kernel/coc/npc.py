@@ -91,7 +91,7 @@ class StanceTable:
 
 def empty_entry() -> dict[str, Any]:
     return {"stance": None, "disclosed": [], "exchanged": [], "interactions": [], "promises": [],
-            "said": [], "turns_present": None}
+            "said": [], "skills": {}, "turns_present": None}
 
 
 def entry_of(ledger: dict[str, Any], npc_id: str) -> dict[str, Any]:
@@ -231,6 +231,12 @@ def _fold_npc_effect(ledger: dict[str, Any], receipt: dict[str, Any], *, turn: i
     if isinstance(stance, str) and stance in table.words:
         _set_stance(entry, table, table.floor_of(stance), turn, receipt.get("id"),
                     because={"how": KEEPER_SET, "stance": stance, "why": receipt.get("why")})
+    # A number the book never printed, pinned so it is the same one every time after.
+    pinned = receipt.get("skill")
+    if isinstance(pinned, dict) and isinstance(pinned.get("name"), str):
+        entry.setdefault("skills", {})[pinned["name"]] = {
+            "value": pinned.get("value"), "turn": turn, "receipt": receipt.get("id"),
+            **({"why": receipt["why"]} if isinstance(receipt.get("why"), str) else {})}
     # A death the keeper states, for the many ways someone dies that settle no HP.
     if receipt.get("dead") is True:
         entry["dead"] = {"turn": turn, "receipt": receipt.get("id"),

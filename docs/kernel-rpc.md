@@ -244,7 +244,7 @@ result：`{"rendered_text": "<即 text，正文原样>", "mechanics": [...], "tu
 
 ### 11.1 输入补充
 
-`action` 在切片 0 的字段之外接受（扩展的工具表必须逐一声明，否则模型无处可填）：`san_loss`（理智检定的成功/失败损失表达式，如 `0/1D6`）、`involuntary`（理智失败时的失控行为，`faint`、`flee`、`scream`、`freeze`、`attack` 之一）、`outcome`（结束战斗时的结果）、`skills` 与 `mode`（合并检定）、`motive`（`{direction: support|neutral|oppose, intensity: 0..2}`，工具表与内核用同一套词）与 `support`（社交判定里 NPC 倾向与玩家实证）、`interrupted`（施法）、`rest`（每周恢复条件）、`ending`（结束会话的结局种类）；以及：`weapon`（武器名，攻击时用；`unarmed` 表示徒手）、`spell`（法术名）、`defense`（`dodge` 或 `fight_back`，回应待决防御时用）、`push: true`（对上一次失败检定推骰，`stakes` 必填，是宣告的后果）、`luck: <点数>`（花幸运补上一次检定）。`actor` 可以是 NPC 名：守秘人替 NPC 行动时用，比如战斗里 NPC 的回合。
+`action` 在切片 0 的字段之外接受（扩展的工具表必须逐一声明，否则模型无处可填）：`san_loss`（理智检定的成功/失败损失表达式，如 `0/1D6`）、`involuntary`（理智失败时的失控行为，`faint`、`flee`、`scream`、`freeze`、`attack` 之一）、`outcome`（结束战斗时的结果）、`skills` 与 `mode`（合并检定）、`motive`（`{direction: support|neutral|oppose, intensity: 0..2}`，工具表与内核用同一套词）与 `support`（社交判定里 NPC 倾向与玩家实证）、`interrupted`（施法）、`rest`（每周恢复条件）、`ending`（结束会话的结局种类）；以及：`weapon`（武器名，攻击时用；`unarmed` 表示徒手）、`spell`（法术名）、`defense`（`dodge` 或 `fight_back`，回应待决防御时用）、`push: true`（对上一次失败检定推骰，`stakes` 必填，是宣告的后果）、`luck: <点数>`（花幸运补上一次检定）。`actor` 可以是 NPC 名：守秘人替 NPC 行动时用——战斗或追逐里轮到他，**或者他在战斗之外用自己的本事替队伍做一件事**（医生缝合、锁匠开锁、向导认路）。后一种以前被拒（「只能在他参与的战斗或追逐里行动」），于是求医、雇向导这类调查跑团的日常表达不了；更糟的是治疗族把施救者写死成当前调查员，医生给伤员缝手掷的是**伤员自己**的医药基础值（真桌上是 4），必然失败还看着像一次正常判定。详见 §17.9。
 
 ### 11.2 事实
 
@@ -1095,6 +1095,16 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 - **按需深读认 `focus: {npc}`。** 该 NPC `present-in` 的场景所在 section，加上图上 `node_refs_by_section` 里定义它的 section，去重后入队。
 - **信念与谎言按 `truth_status` 分开。** `asserts` 涵盖「他会说的一切」，是哪一种由 `truth_status` 说了算：`authored-lie`/`authored-rumor` 进 `would_lie_about`，`authored-belief` 读作他的 `believes`。从规则书构建 the-haunting 时两种都出现了——Dooley 的说法书上明写「他是推销员，可能会夸大」（rumor），Gabriela 说的「屋里有恶灵」她真信、书上也说是真的（belief）。把后者投成「他会拿这事撒谎」比不给还糟：守秘人会照着演一个撒谎的证人。starter 投影器此前把所有 claim 一律盖 `authored-fact`，同一个错的反面，现在 `lie_options` 投成 `authored-lie`。读者的 ask 说明每个状态的含义，因为状态就是全部差别。
 - **从规则书构建的 the-haunting。** 资料包取原书 pdf 第 446–462 页（17 页，全部原生抽取、无需 OCR），`bin/coc-bundle` 签清单，`module.bind` 逐字节复核，模组 id `the-haunting-rulebook`，与策划版 starter `the-haunting` **并存**：后者是 48 个测试文件的夹具，换掉等于重写回归基线。构建一轮通过（`grok-relay/grok-4.5`，无 findings）：13 场景全连通、13 线索、5 结论、3 结局、7 条 rule，可玩性零 findings；8 个 NPC 里 6 个有档案，`npcs_without_material` 报 2 个（书上只提了一句的那两位）。`hides`/`believes`/`asserts`/`ties` 每条都有 span 溯源。
+
+### 17.9 帮忙的 NPC 用自己的本事（真桌 2026-09-07）
+
+设计稿见 `docs/specs/npc-acts-for-the-party.md`。桌上的症状：急诊医生给调查员缝手，收据是 `{actor: "inv-1", skill: "Medicine", target: 4}`——掷的是**伤员自己**的医药基础值，于是「去找医生」不但没用而且必然失败。三层，每层单独修都不够：
+
+- **读得出书写的数（L1）。** `ModuleGraph.actor_profile` 把两种作者形状归一成 `{characteristics, skills, derived}`：一等 `properties` 优先（构建写的扁平特征值、顶层技能键、`skills` 字典），读不到再退到 `runtime_projection.record.mechanics.profile`（starter 的嵌套形状）。此前只读嵌套的，于是**每一本 PDF 构建的书、每一个 actor 都返回 None**——连带 `npc_social_defense` 对谁都取不到技能、战斗与追逐给作者 NPC 套默认 DEX/HP。`CHARACTERISTIC_KEYS` 与 `DERIVED_KEYS` 是闭合表：HP 与 Move 不是技能。**印成散文的技能（`"50% (Hard 25%)"`）不带数**——内核不解析印刷体，那是抽取层该写成数字的事。
+- **NPC 可以行动，掷的是他的技能（L2）。** `actor` 写 NPC 名不再要求当场有战斗；`npc_in_session` 与 `npc_actor` 分开，只有前者才把路由与 effective intent 推向 combat。治疗族的 `rescuer_ref` 改用 `acting_id`。取值顺序是**最近一次明确的说法优先**：本回合在飞的 `apply npc` 钉值 → 账本里已钉的 → 书上写的。
+- **书没写就问一次，不自己编（L3）。** 取不到值时报 `needs`（`details.needs.field = "npc.skill"`），`fix` 直接给出 `apply npc {name, skill: {name, value}, why}` 的写法。内核不替谁编数字，不是因为编造有罪——桌上的编造就是玩法——而是**内核编的数它下次会编成别的**，同一个医生两次不一样，逻辑就不圆了。守秘人钉一次，收据落进账本 `skills`，此后永远是那个数。
+
+不在图上的人（临时的车夫、旅馆老板）仍不建节点：属性无关紧要的 NPC 由守秘人直接裁定结果，这是规则书自己的答案。
 
 ## 18. `apply` 补齐：flag、note、ruling，与 `look focus=session`（切片 8，票 #27）
 
