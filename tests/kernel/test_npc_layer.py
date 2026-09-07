@@ -382,7 +382,16 @@ def test_a_reader_s_dossier_claims_reach_the_graph_and_the_table(kernel, tmp_pat
     assert seen and timid
     shard["nodes"].append(node("secret", "sailor-entered-at-night", "船工深夜进货栈", [seen],
                                "老周见过船工深夜进货栈，但不敢说。"))
+    heading = span_with(packet, "## 场景：码头茶棚")
+    jetty = span_with(packet, "沿栈桥向北走")
+    assert heading and jetty
+    shard["nodes"] += [
+        node("location", "dock-teahouse-building", "码头茶棚", [heading], "雾锁码头的茶棚。"),
+        node("location", "jetty", "栈桥", [jetty], "从茶棚向北通往废弃货栈。"),
+    ]
     shard["claims"] += [
+        claim("scene-dock-teahouse", "occurs-at", "location-dock-teahouse-building", [heading]),
+        claim("location-jetty", "located-in", "location-dock-teahouse-building", [jetty]),
         claim("npc-lao-zhou", "hides", "secret-sailor-entered-at-night", [seen]),
         claim("npc-lao-zhou", "knows", "clue-brass-whistle", [span_with(packet, "一枚铜哨")]),
         claim("npc-lao-zhou", "believes", "secret-sailor-entered-at-night", [timid]),
@@ -403,6 +412,14 @@ def test_a_reader_s_dossier_claims_reach_the_graph_and_the_table(kernel, tmp_pat
     assert graph.npcs_knowing(graph.nodes["clue-brass-whistle"]) == ["npc-lao-zhou"]
     # and a person with a dossier is no longer counted as material-less by the brief
     assert graph.npc_has_material(zhou) is True
+
+    # §13.1: a book models a building as a place with rooms hanging off it, and the capsule
+    # has to walk that second hop or the rooms never reach the table.
+    from coc.capsule import where_section
+    where = where_section(graph, {"active_scene": "dock-teahouse", "discovered_clues": [],
+                                  "scene_trail": [], "npc_presence": {}},
+                          graph.scene("dock-teahouse"), material_of=lambda _h: "ready")
+    assert where["places"] == [{"name": "栈桥", "line": "从茶棚向北通往废弃货栈。"}]
 
     # §17.4: and it is the projection the keeper reads, not just the graph
     from coc.capsule import npc_entry

@@ -389,6 +389,35 @@ class ModuleGraph:
             assets.append({"name": self.display_name(node), "kind": node["node_kind"]})
         return assets
 
+    #: §13.1: how many rooms of a place the capsule carries, and how long each line may be.
+    SCENE_PLACES = 8
+    SCENE_PLACE_CHARS = 90
+
+    def scene_places(self, scene: dict[str, Any]) -> list[dict[str, Any]]:
+        """The rooms of the place this scene happens at: `scene --occurs-at--> location
+        <--located-in-- rooms`. A built book models a house as a location with rooms hanging
+        off it, and nothing walked that second hop, so a Keeper standing on the ground floor
+        was never told it has a kitchen — six rooms of the Corbitt House, every one cited to
+        its page, invisible at the table."""
+        places: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for rel in self.out_rel.get(scene["node_id"], []):
+            if rel["relation_kind"] != "occurs-at":
+                continue
+            for inner in self.in_rel.get(rel["to_node_id"], []):
+                if inner["relation_kind"] != "located-in":
+                    continue
+                node = self.nodes.get(inner["from_node_id"])
+                if not node or node["node_id"] in seen or len(places) >= self.SCENE_PLACES:
+                    continue
+                seen.add(node["node_id"])
+                line = " ".join(str(node.get("summary") or "").split())[:self.SCENE_PLACE_CHARS]
+                entry = {"name": self.display_name(node)}
+                if line and line != entry["name"]:
+                    entry["line"] = line
+                places.append(entry)
+        return places
+
     def scene_beat(self, scene: dict[str, Any]) -> dict[str, Any] | None:
         handle = self.handle(scene)
         for beat in self.by_kind.get("beat", []):
