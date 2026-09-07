@@ -187,10 +187,10 @@ def test_ask_delivers_this_turns_mechanics_before_the_question(kernel):
                                                     "skill": "Spot Hidden"})
     roll = kernel.table("status")["receipts"][0]
     # No text states nothing: the player must see the roll before choosing (§16.3).
-    bad = kernel.table_err("ask", call_id="t1-c2", prompt="?", options=["a", "b"])
+    bad = kernel.table_err("ask", call_id="t1-c2", prompt="？", options=["甲", "乙"])
     assert bad["code"] == "invalid_params" and bad["code_detail"] == "mechanics_missing"
     assert bad["details"]["missing"] == [{"receipt": "roll:spot-hidden-t1-c1", "expected": [str(roll["roll"]), "55"]}]
-    unstated = kernel.table_err("ask", call_id="t1-c2", text="你举起灯。", prompt="?", options=["a", "b"])
+    unstated = kernel.table_err("ask", call_id="t1-c2", text="你举起灯。", prompt="你要怎么做？", options=["退后", "上前"])
     assert unstated["code_detail"] == "mechanics_missing"
     asked = kernel.table("ask", call_id="t1-c3", text=f"你举起灯，掷出 {roll['roll']}（侦查 55）。\n\n墙上有影子在动。",
                          prompt="你要怎么做？", options=["退后", "上前"])

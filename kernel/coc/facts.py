@@ -72,7 +72,8 @@ TEMPLATES: dict[str, str] = {
 
 def language_of(meta: dict[str, Any] | None) -> str:
     """The campaign's play_language tag as recorded (default zh-Hans). The kernel writes
-    nothing in it (§16.1); it is data for the keeper, the craft table and the extractor."""
+    nothing in it (§16.1); it is data for the keeper, the craft table, the extractor, and
+    the delivery script check (§16.3)."""
     return str((meta or {}).get("play_language") or DEFAULT_LANGUAGE)
 
 

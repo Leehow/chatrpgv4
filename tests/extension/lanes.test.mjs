@@ -54,6 +54,18 @@ function waitForLaneRow(table, lane) {
 	return waitFor(() => laneRows(table, lane).at(-1), { label: `${lane} 车道遥测` });
 }
 
+/**
+ * 等车道把第 n 个任务收完。
+ *
+ * 「收完」的判据只能是遥测行，不能是 `memory.submit` 的条数：那一笔是假内核**收到**请求就记的，
+ * 而车道要等回执回来、再 `await` 一次落盘才写遥测行。等提交条数就会在最后一行还没落盘的时候放行，
+ * 于是「四个任务都收尾」之后只看得见三行——#20 那两条用例间歇红的就是这个缝。
+ * 任务之间是串行的（`pump` 一个跑完才起下一个），所以第 n 行落了，前 n 个任务的全部副作用都已落定。
+ */
+function waitForLaneRows(table, lane, count) {
+	return waitFor(() => laneRows(table, lane).length >= count, { label: `${lane} 车道第 ${count} 行遥测` });
+}
+
 /** 打开一个闸门：车道的假模型停在这里，用来证明交付不等车道。 */
 function gate() {
 	let open;
@@ -480,7 +492,9 @@ test("补抽：开桌后按缺省派发一个一个补，内核回空就收手�
 	});
 	t.after(() => table.dispose());
 
-	await waitFor(() => calls(table, "memory.submit").length === 2, { label: "两个补抽任务" });
+	// 收手那一下才是终点：内核回空的第三次缺省派发。等它，而不是等提交条数——
+	// 第二个任务的提交一送到假内核就记了一笔，那时第三次派发还没发出去。
+	await waitFor(() => backfillJobs(table).length >= 3, { label: "补抽收手" });
 	await settle();
 
 	assert.deepEqual(
@@ -508,7 +522,8 @@ test("补抽有上限：PI_COC_MEMORY_BACKFILL 说几个就几个（#20）", asy
 	});
 	t.after(() => table.dispose());
 
-	await waitFor(() => calls(table, "memory.submit").length === 2, { label: "两个补抽任务" });
+	// 两行遥测落了，泵才轮到「还要不要第三个」那个判断；再 settle 一下证明它答的是不要。
+	await waitForLaneRows(table, "memory", 2);
 	await settle();
 
 	assert.equal(backfillJobs(table).length, 2, "预算用完就不再问内核，哪怕它那边还有得补");
@@ -528,7 +543,7 @@ test("PI_COC_MEMORY_BACKFILL=0：整条补抽关掉，桌上的抽取照旧（#2
 	t.after(() => table.dispose());
 
 	await table.session.prompt("我检查地窖门的门框");
-	await waitFor(() => calls(table, "memory.submit").length === 1, { label: "桌上那一回合的抽取" });
+	await waitForLaneRows(table, "memory", 1);
 	await settle();
 
 	assert.equal(backfillJobs(table).length, 0, "关掉之后一次缺省派发都不发");
@@ -584,7 +599,7 @@ test("补抽让位给桌子：回合开着不起新的，刚提交的回合插�
 
 	// 放掉补抽的第一个：它跑完了，但回合还开着，所以不该有第二个补抽。
 	firstBackfill.open();
-	await waitFor(() => calls(table, "memory.submit").length >= 1, { label: "第一个补抽收尾" });
+	await waitForLaneRows(table, "memory", 1);
 	await settle();
 	assert.equal(calls(table, "memory.submit").length, 1, "回合开着的时候第二个补抽不该起跑");
 	assert.equal(backfillJobs(table).length, 1, "回合开着的时候不起新的补抽");
@@ -593,7 +608,8 @@ test("补抽让位给桌子：回合开着不起新的，刚提交的回合插�
 	// 回合提交：它排在剩下的补抽前面。
 	keeperHeld.open();
 	await turn;
-	await waitFor(() => calls(table, "memory.submit").length === 4, { label: "四个任务都收尾" });
+	await waitForLaneRows(table, "memory", 4);
+	await settle();
 
 	assert.deepEqual(
 		calls(table, "memory.job").map((entry) => entry.params.turn),
@@ -614,5 +630,59 @@ test("补抽让位给桌子：回合开着不起新的，刚提交的回合插�
 			[5, true],
 		],
 		"桌上那条不带 backfill 旗，补抽那三条带",
+	);
+});
+
+/**
+ * 上一条用例里 narrate 是回合跑到一半时提交的，`agentRunning` 还是真，所以那个顺序单靠
+ * 「回合开着不起补抽」这一条就成立了——把 `nextJob` 改成先挑补抽，它照样绿。真要验
+ * 「刚提交的回合插在补抽前面」，得让泵在**回合已经结束**、队列里躺着一个回合、补抽预算
+ * 也还有的那一刻做选择：把第一个补抽卡在模型那儿卡过整轮，放开它时就是这个局面。
+ */
+test("刚提交的回合插在还没跑的补抽前面：泵先挑队列，不挑补抽（#20）", async (t) => {
+	const firstBackfill = gate();
+	const table = await openTable({
+		env: { FAKE_KERNEL_BACKFILL: "[3,4]", PI_COC_MEMORY_BACKFILL: "2" },
+		responses: keeperTurn(),
+		laneResponses: {
+			memory: [
+				async () => {
+					await firstBackfill.promise;
+					return noCandidates();
+				},
+				noCandidates(),
+				noCandidates(),
+			],
+		},
+	});
+	t.after(() => {
+		firstBackfill.open();
+		return table.dispose();
+	});
+
+	// 第一个补抽卡在模型那儿；整个回合从头到尾跑完，它都还没回来。
+	await waitFor(() => backfillJobs(table).length === 1, { label: "第一个补抽任务" });
+	await table.session.prompt("我检查地窖门的门框");
+	await settle();
+	assert.equal(turnJobs(table).length, 0, "泵还占着，刚提交的回合只在队列里排着，还没去取任务包");
+	assert.equal(backfillJobs(table).length, 1, "也还没起第二个补抽");
+
+	// 回合已经结束（`agentRunning` 是假），补抽预算还剩一个：泵现在真要在两者之间挑。
+	firstBackfill.open();
+	await waitForLaneRows(table, "memory", 3);
+	await settle();
+
+	assert.deepEqual(
+		laneRows(table, "memory").map((row) => [row.turn, row.backfill ?? false]),
+		[
+			[3, true],
+			[1, false],
+			[4, true],
+		],
+		"队列里的回合先跑，剩下的补抽排在它后面（契约 §12.8）",
+	);
+	assert.deepEqual(
+		calls(table, "memory.submit").map((entry) => entry.params.job_id),
+		["extract:test-camp:t3", "extract:test-camp:t1", "extract:test-camp:t4"],
 	);
 });

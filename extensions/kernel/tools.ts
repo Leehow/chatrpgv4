@@ -434,7 +434,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Ask",
 		method: "table.ask",
 		description:
-			"Hand one choice back to the player, and close the turn with it. Use it when the player's declaration is too vague to continue, or when the story wants him to decide on the spot: prompt is the question delivered to the player, options are what he can pick. Once you call it the turn is closed: do not narrate, do not write any more prose. The player's answer comes back as the next turn's input, carrying the pending choice with it.",
+			"Hand one choice back to the player, and close the turn with it. Use it when the player's declaration is too vague to continue, or when the story wants him to decide on the spot: prompt is the question delivered to the player, options are what he can pick. Write prompt, options and text in the campaign's play_language — the kernel refuses with play_language_mismatch when a field carries none of that language's script. Once you call it the turn is closed: do not narrate, do not write any more prose. The player's answer comes back as the next turn's input, carrying the pending choice with it.",
 		promptSnippet: "Hand one choice back to the player, and close the turn with it",
 		parameters: Type.Object({
 			text: Type.Optional(
@@ -453,7 +453,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Narrate",
 		method: "table.narrate",
 		description:
-			"Deliver this turn's narration and close the turn. Every turn ends with one narrate (or with one ask): roll what needs resolving and land what needs applying before you call it. text is delivered to the player exactly as written, so it is the whole of what he sees — write it in the campaign's play_language, and state in it every public roll and every state change of this turn, with the numbers copied exactly from the tool results (the roll and the target value, a change's before and after, a dice total, the minutes that passed). The kernel checks those numbers against the receipts and refuses with mechanics_missing when one is absent, naming what to add; the names are yours to say in the player's words. After the call, write no more prose and call no more tools.",
+			"Deliver this turn's narration and close the turn. Every turn ends with one narrate (or with one ask): roll what needs resolving and land what needs applying before you call it. text is delivered to the player exactly as written, so it is the whole of what he sees — write it in the campaign's play_language, and state in it every public roll and every state change of this turn, with the numbers copied exactly from the tool results (the roll and the target value, a change's before and after, a dice total, the minutes that passed). The kernel checks those numbers against the receipts and refuses with mechanics_missing when one is absent, naming what to add; it refuses with play_language_mismatch when the text carries none of the play_language's script. The names are yours to say in the player's words. After the call, write no more prose and call no more tools.",
 		promptSnippet: "Deliver this turn's narration and close the turn",
 		parameters: Type.Object({
 			text: Type.String({ description: "this turn's narration, delivered to the player verbatim" }),

@@ -122,7 +122,8 @@ def test_combat_against_corbitt_with_the_revolver(tmp_path):
         assert client.table("look")["where"]["session"]["pending_defense"]["for"] == "player"
 
         # The keeper hands the defense to the player through ask; the next turn answers it.
-        asked = ask(client, f"t1-c{n + 3}", pending["prompt"], pending["options"], binds=pending["name"])
+        asked = ask(client, f"t1-c{n + 3}", "科比特挥刀扑来，你怎么应对？",
+                    ["躲开", "还手", "硬挨"], binds=pending["name"])
         assert asked["pending_choice"]["binds"] == pending["name"]
         answer = client.table("player_input", text="我闪开！")
         assert answer["turn"] == 2 and answer["capsule"]["where"]["session"]["pending_defense"]["for"] == "player"

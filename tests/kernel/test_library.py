@@ -132,11 +132,11 @@ def test_unknown_row_is_unknown_entity_with_the_candidates(kernel):
 def test_load_waits_for_the_keeper_to_finish_acting(kernel):
     library_id = save_pregen(kernel)
     kernel.ok("campaign.create", {"id": SECOND, "module": "the-haunting", "pregen": PREGEN})
-    kernel.ok("table.narrate", {"campaign": SECOND, "call_id": "t0-c1", "text": "Opening."})
+    kernel.ok("table.narrate", {"campaign": SECOND, "call_id": "t0-c1", "text": "开场。"})
     kernel.ok("table.player_input", {"campaign": SECOND, "text": "I look."})
     refused = kernel.err("investigator.load", {"campaign": SECOND, "library_id": library_id})
     assert refused["code"] == "turn_state" and refused["details"]["state"] == "open"
-    kernel.ok("table.narrate", {"campaign": SECOND, "call_id": "t1-c1", "text": "Nothing here."})
+    kernel.ok("table.narrate", {"campaign": SECOND, "call_id": "t1-c1", "text": "没什么。"})
     # between turns the card joins, at the turn now waiting for the player
     loaded = kernel.ok("investigator.load", {"campaign": SECOND, "library_id": library_id})
     assert loaded["loaded_at_turn"] == 2
@@ -369,7 +369,7 @@ def test_a_row_that_went_missing_is_recreated_from_the_campaign(kernel):
 
 def test_cards_without_an_origin_are_never_written_back(kernel):
     open_turn(kernel)
-    kernel.ok("table.narrate", {"campaign": CAMPAIGN, "call_id": "t1-c1", "text": "Nothing."})
+    kernel.ok("table.narrate", {"campaign": CAMPAIGN, "call_id": "t1-c1", "text": "没事。"})
     assert not library_dir(kernel.workspace).exists()
     assert library_rows(kernel.workspace, CAMPAIGN) == []
 

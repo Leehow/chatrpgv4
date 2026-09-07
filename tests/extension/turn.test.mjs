@@ -236,6 +236,36 @@ test("隐式 narrate 缺数字：内核退回 mechanics_missing，宿主拿它�
 	assert.deepEqual(projected[0].mechanics.map((row) => row.kind), ["roll"]);
 });
 
+test("隐式 narrate 不是玩家语言：内核退回 play_language_mismatch，宿主不交付、催一次", async (t) => {
+	const leaked = "What does the Investigator do in the Scene?";
+	const chinese = "门框上有一道深深的抓痕。";
+	const table = await openTable({
+		responses: [fauxAssistantMessage(leaked), fauxAssistantMessage(chinese)],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我检查地窖门的门框");
+	await waitForIdle(table.session);
+
+	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
+	assert.deepEqual(narrates.map((entry) => entry.params.text), [leaked, chinese], "第一次被退回，第二次才过");
+
+	const steers = customMessages(table.session, "coc-host").filter(
+		(message) => message.details?.kind === "play-language-mismatch",
+	);
+	assert.equal(steers.length, 1, "语言核失败只催一次");
+	assert.match(String(steers[0].content), /play_language_mismatch/);
+	assert.match(String(steers[0].content), /text/, "催的话里带着内核自己的 fix，点名哪个字段");
+
+	const refused = table.telemetry().filter((row) => row.tool === "narrate" && row.ok === false);
+	assert.equal(refused.length, 1);
+	assert.equal(refused[0].code_detail, "play_language_mismatch");
+
+	const texts = assistantTexts(table.session).filter((text) => text.length > 0);
+	assert.equal(texts.at(-1), chinese, "交付的是玩家语言那一版");
+	assert.ok(!texts.includes(leaked), "被内核退回的英文草稿不算交付，不留在记录里");
+});
+
 test("物品与现金：item、cash 原样进内核，收据只进机制投影，不进正文（#19）", async (t) => {
 	const table = await openTable({
 		responses: [

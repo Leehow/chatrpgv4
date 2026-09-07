@@ -104,8 +104,8 @@ interface TableState {
 	/** Whether this agent run has already closed the turn with narrate/ask. */
 	closedThisRun: boolean;
 	steeredThisTurn: boolean;
-	/** The kernel's `fix` for a `mechanics_missing` refusal of an implicit narrate; steered once at agent_end instead of delivering. */
-	mechanicsFix?: string;
+	/** The kernel's `fix` for a refused implicit delivery (`mechanics_missing` or `play_language_mismatch`); steered once at agent_end instead of delivering. */
+	deliveryFix?: { kind: string; text: string };
 	roundTrips: number;
 	mintedCallIds: Map<string, string>;
 	/** Calls the kernel rejected this turn: key of name+params to a count and the last error. Blocked on the third identical resend. */
@@ -134,6 +134,9 @@ const TURN_CLOSED_REASON = "the turn is closed, waiting for the player";
 /** Used when the kernel refuses a delivery for missing numbers but gives no `fix` of its own. */
 const MECHANICS_MISSING_STEER =
 	"The kernel refused this turn's delivery: mechanics_missing. State this turn's public rolls and changes in your prose, with the numbers copied exactly from the tool results, then deliver it again.";
+/** Used when the kernel refuses a delivery that carries none of the campaign's play_language script. */
+const PLAY_LANGUAGE_MISMATCH_STEER =
+	"The kernel refused this turn's delivery: play_language_mismatch. Rewrite every player-facing word in the campaign's play_language, then deliver it again.";
 
 let table: TableState | undefined;
 /** In setup mode there is no table, so the kernel subprocess hangs here on its own (contract §14.4). */
@@ -237,6 +240,11 @@ function errorDetailLines(details: Record<string, unknown> | undefined): string[
 			lines.push(expected ? `- ${receipt}: ${expected}` : `- ${receipt}`);
 		}
 	}
+	const fields = details.fields;
+	if (Array.isArray(fields) && fields.length > 0) {
+		// A `play_language_mismatch` refusal (contract §16.3): rewrite these player-facing fields.
+		lines.push(`rewrite in the campaign's play_language: ${fields.map((field) => String(field)).join(", ")}`);
+	}
 	return lines;
 }
 
@@ -274,14 +282,29 @@ function errorText(error: unknown): string {
 }
 
 /**
- * Whether this refusal is the kernel's number check (contract §5): `invalid_params` with
- * `code_detail: "mechanics_missing"`. The detail is read from all the places it can travel,
- * because it is one contract field and not a semantic judgement.
+ * The kernel's delivery-floor refusals (contract §5 / §16.3): `invalid_params` with
+ * `code_detail: "mechanics_missing"` or `"play_language_mismatch"`. The detail is read from
+ * all the places it can travel, because it is one contract field and not a semantic judgement.
  */
-function isMechanicsMissing(error: unknown): boolean {
-	if (!(error instanceof KernelError)) return false;
-	if (error.code === "mechanics_missing" || error.codeDetail === "mechanics_missing") return true;
-	return (error.details as { code_detail?: unknown } | undefined)?.code_detail === "mechanics_missing";
+function floorDetail(error: unknown): "mechanics_missing" | "play_language_mismatch" | undefined {
+	if (!(error instanceof KernelError)) return undefined;
+	const detail =
+		error.code === "mechanics_missing" || error.code === "play_language_mismatch"
+			? error.code
+			: (error.codeDetail ?? (error.details as { code_detail?: unknown } | undefined)?.code_detail);
+	if (detail === "mechanics_missing" || detail === "play_language_mismatch") return detail;
+	return undefined;
+}
+
+function floorSteer(
+	detail: "mechanics_missing" | "play_language_mismatch",
+	error: unknown,
+): { kind: string; text: string } {
+	const base = detail === "mechanics_missing" ? MECHANICS_MISSING_STEER : PLAY_LANGUAGE_MISMATCH_STEER;
+	const kind = detail === "mechanics_missing" ? "mechanics-missing" : "play-language-mismatch";
+	const fix =
+		error instanceof KernelError && error.fix ? `${base} The kernel says: ${error.fix}` : base;
+	return { kind, text: fix };
 }
 
 /**
@@ -368,7 +391,7 @@ export default function (pi: ExtensionAPI) {
 		table.deliveryToolCallId = undefined;
 		table.closedThisRun = false;
 		table.steeredThisTurn = false;
-		table.mechanicsFix = undefined;
+		table.deliveryFix = undefined;
 		table.attachments = [];
 	}
 
@@ -655,6 +678,7 @@ export default function (pi: ExtensionAPI) {
 			};
 		} catch (error) {
 			const code = error instanceof KernelError ? error.code : "internal";
+			const floor = floorDetail(error);
 			await record({
 				tool: spec.name,
 				call_id: payload.call_id ?? null,
@@ -662,7 +686,7 @@ export default function (pi: ExtensionAPI) {
 				ms: Date.now() - began,
 				ok: false,
 				code,
-				...(isMechanicsMissing(error) ? { code_detail: "mechanics_missing" } : {}),
+				...(floor ? { code_detail: floor } : {}),
 			});
 			return {
 				content: [{ type: "text", text: errorText(error) }],
@@ -906,7 +930,7 @@ export default function (pi: ExtensionAPI) {
 			state.deliveryToolCallId = undefined;
 			state.closedThisRun = false;
 			state.steeredThisTurn = false;
-			state.mechanicsFix = undefined;
+			state.deliveryFix = undefined;
 			state.roundTrips = 0;
 			state.attachments = [];
 			await record({
@@ -1090,18 +1114,17 @@ export default function (pi: ExtensionAPI) {
 				await record({ tool, event: "turn-closed", round_trips: state.roundTrips, ok: true, implicit: true });
 				rendered = asString(result.rendered_text);
 			} catch (error) {
-				const missing = isMechanicsMissing(error);
+				const floor = floorDetail(error);
 				await record({
 					tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: false, implicit: true,
 					code: error instanceof KernelError ? error.code : "internal",
-					...(missing ? { code_detail: "mechanics_missing" } : {}),
+					...(floor ? { code_detail: floor } : {}),
 				});
-				// The kernel refused the delivery for missing numbers: steer once with its own fix at agent_end
-				// rather than delivering, and the next run's narrate closes the turn.
-				if (missing) {
-					state.mechanicsFix = (error instanceof KernelError && error.fix)
-						? `${MECHANICS_MISSING_STEER} The kernel says: ${error.fix}`
-						: MECHANICS_MISSING_STEER;
+				// The kernel refused the delivery (missing numbers, or none of the play_language script):
+				// steer once with its own fix at agent_end rather than delivering, and the next run's
+				// narrate closes the turn.
+				if (floor) {
+					state.deliveryFix = floorSteer(floor, error);
 					// Player-visible text comes only from narrate and ask: prose the kernel refused is
 					// not a delivery, so it is dropped from the record rather than left standing as one.
 					const kept = blocks.filter((block) => block.type !== "text");
@@ -1132,7 +1155,7 @@ export default function (pi: ExtensionAPI) {
 		state.rejected.clear();
 		state.callKeys.clear();
 		state.steeredThisTurn = false;
-		state.mechanicsFix = undefined;
+		state.deliveryFix = undefined;
 		// The delivery replacement takes effect when this message is returned, and the lane queues behind it:
 		// a zero-millisecond timer only runs after that.
 		settleVerifier(state);
@@ -1149,12 +1172,12 @@ export default function (pi: ExtensionAPI) {
 		if (state.verifierOwed) settleVerifier(state);
 		if (state.closedThisRun || state.renderedText) return;
 		if (state.steeredThisTurn) return;
-		// The kernel refused the implicit delivery for missing numbers: hand its own fix back, once.
-		const mechanicsFix = state.mechanicsFix;
-		state.mechanicsFix = undefined;
-		if (mechanicsFix) {
+		// The kernel refused the implicit delivery: hand its own fix back, once.
+		const deliveryFix = state.deliveryFix;
+		state.deliveryFix = undefined;
+		if (deliveryFix) {
 			state.steeredThisTurn = true;
-			sendHost(mechanicsFix, "mechanics-missing");
+			sendHost(deliveryFix.text, deliveryFix.kind);
 			return;
 		}
 		if (state.state !== "open" && state.state !== "acting") return;

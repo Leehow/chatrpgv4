@@ -17,7 +17,8 @@ CONTENT_DIR = WORKTREE / "content"
 
 sys.path.insert(0, str(KERNEL_DIR))
 
-from coc.render import expected_numbers  # noqa: E402
+from coc.facts import language_of  # noqa: E402
+from coc.render import CJK, CJK_PLAY_LANGUAGES, expected_numbers  # noqa: E402
 
 MODULE = "the-haunting"
 PREGEN = "thomas-hayes"
@@ -129,10 +130,16 @@ def open_turn(client: RpcClient, text: str = "我仔细观察诺特。") -> dict
 def stating(client: RpcClient, text: str) -> str:
     """`text` plus one line stating the numbers this turn's public receipts oblige the
     keeper to give (§16.3) when the text does not already: what a keeper does in prose,
-    for tests whose subject is not the number check itself."""
+    for tests whose subject is not the number check itself. On a CJK play_language table
+    a CJK character is appended the same way when the text carries none."""
     owed = [n for r in client.table("status")["receipts"] for n in expected_numbers(r)]
     missing = [n for n in dict.fromkeys(owed) if n not in text]
-    return f"{text}\n\n({' '.join(missing)})" if missing else text
+    body = f"{text}\n\n({' '.join(missing)})" if missing else text
+    meta_path = campaign_dir(client.workspace) / "campaign.json"
+    language = language_of(read_json(meta_path) if meta_path.exists() else None)
+    if body and language in CJK_PLAY_LANGUAGES and not CJK.search(body):
+        body = f"{body}。"
+    return body
 
 
 def narrate(client: RpcClient, call_id: str, text: str, **params: Any) -> dict[str, Any]:

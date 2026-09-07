@@ -91,7 +91,7 @@ def test_flag_writes_world_flags_and_is_keeper_only(kernel):
     kernel.table("apply", call_id="t1-c3", effects=[{"kind": "flag", "name": "door-open", "value": "True"},
                                                     {"kind": "flag", "name": "lantern", "value": " false "}])
     assert world(kernel)["flags"]["door-open"] is True and world(kernel)["flags"]["lantern"] is False
-    assert kernel.table("narrate", call_id="t1-c4", text="Nothing the player sees changes.")["mechanics"] == []
+    assert kernel.table("narrate", call_id="t1-c4", text="玩家看不见任何变化。")["mechanics"] == []
 
 
 def test_flag_validation_and_batch_atomicity(kernel):

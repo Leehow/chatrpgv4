@@ -4,16 +4,40 @@ The kernel writes no mechanics prose. Every receipt of a turn is projected into 
 language-neutral object (`mechanics`, §16.2) that rides with the delivery for the front
 end and the evidence; the keeper states the results itself, in the player's language,
 and the kernel keeps the deterministic floor by checking that every public receipt's
-numbers appear in that text (§16.3). Pure string containment; nothing here reads prose
-for meaning."""
+numbers appear in that text (§16.3) and that player-facing fields carry the campaign's
+play-language script. Pure string containment and a closed character class; nothing here
+reads prose for meaning."""
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .errors import RpcError, invalid_params
 
 MECHANICS_MISSING = "mechanics_missing"
+PLAY_LANGUAGE_MISMATCH = "play_language_mismatch"
+
+# Same ranges as tests/kernel/test_system_language.py: bytes, not semantics.
+CJK = re.compile(
+    "["
+    "\u2e80-\u2fdf"
+    "\u3000-\u303f"
+    "\u3040-\u30ff"
+    "\u3100-\u31ff"
+    "\u3200-\u33ff"
+    "\u3400-\u4dbf"
+    "\u4e00-\u9fff"
+    "\uac00-\ud7af"
+    "\uf900-\ufaff"
+    "\ufe30-\ufe4f"
+    "\uff00-\uffef"
+    "\U00020000-\U0003134f"
+    "]"
+)
+# Closed: which play_language tags oblige a CJK character in player-facing delivery.
+# `en` is the system language; a script check cannot tell player English from keeper English.
+CJK_PLAY_LANGUAGES = frozenset({"zh-Hans"})
 
 
 def _number(value: Any) -> str:
@@ -166,6 +190,23 @@ def check_numbers(text: str, receipts: list[dict[str, Any]]) -> None:
     missing = missing_numbers(text, receipts)
     if missing:
         raise mechanics_missing(missing)
+
+
+def check_play_language(language: str, fields: dict[str, str | None]) -> None:
+    """Refuse player-facing strings that carry none of the campaign's play_language
+    script (§16.3). Pure character-class containment; `en` is unchecked."""
+    if language not in CJK_PLAY_LANGUAGES:
+        return
+    missing = [name for name, text in fields.items() if text and not CJK.search(text)]
+    if not missing:
+        return
+    raise invalid_params(
+        "player-facing text is not in the campaign's play_language",
+        code_detail=PLAY_LANGUAGE_MISMATCH,
+        fix=("rewrite " + ", ".join(missing)
+             + f" in the campaign's play_language ({language}) and call again"),
+        details={"fields": missing, "play_language": language},
+    )
 
 
 def render_choice(prompt: str, options: list[str]) -> str:

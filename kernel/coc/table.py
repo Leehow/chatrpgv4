@@ -24,7 +24,7 @@ from .fileio import append_jsonl, file_size, read_json, read_jsonl, truncate_fil
 from .module_graph import NPC_KIND, ModuleGraph, module_declaration, record_of
 from .ontology import Ontology, ontology_not_ready
 from . import npc as npc_lane
-from .render import check_numbers, mechanics, render_choice
+from .render import check_numbers, check_play_language, mechanics, render_choice
 from .resolve import ResolvePipeline
 from .rules import RuleTables
 from .rules.combat import resolve_module_weapons
@@ -1687,6 +1687,13 @@ class Table:
             raise invalid_params("a turn that forks or switches the worldline cannot be closed by ask",
                                  fix="close this turn with narrate; ask on the new line's first turn",
                                  details={"worldline": turn["worldline"].get("operation")})
+        # §16.3: player-facing fields first owe the campaign's play_language script, then
+        # the public numbers. Script is a closed character class, not language detection.
+        check_play_language(language_of(campaign.read_campaign()), {
+            "prompt": prompt,
+            **{f"options[{i}]": option for i, option in enumerate(options)},
+            **({"text": text} if text else {}),
+        })
         receipts = list(turn.get("receipts", []))
         # §16.3: the question closes the turn, so the player must see this turn's rolls
         # before choosing. The keeper states them in `text`; no text states nothing, so a
@@ -1733,9 +1740,10 @@ class Table:
         # `placement` (pre-§16) is accepted and ignored: nothing is placed any more.
         turn_number = int(turn["turn"])
         receipts = list(turn.get("receipts", []))
-        # §16.3: the kernel renders no mechanics. It checks that the keeper stated every
-        # public receipt's numbers, then delivers the text verbatim; the receipts ride
-        # beside it as the language-neutral projection (§16.2).
+        # §16.3: player-facing text first owes the campaign's play_language script, then
+        # the public numbers. The kernel renders no mechanics; it delivers the text verbatim
+        # and the receipts ride beside it as the language-neutral projection (§16.2).
+        check_play_language(language_of(campaign.read_campaign()), {"text": text})
         check_numbers(text, receipts)
         rendered = text
         projected = mechanics(receipts)
