@@ -25,6 +25,12 @@
  *                           "review_pass": {"<section>": <第几轮过，缺省 1；给大数就是永远不过>},
  *                           "opening_after": <接受几片算开场就绪，缺省 1>,
  *                           "deepen": ["<按需深读队列里的 section>"]}
+ *   FAKE_KERNEL_INVESTIGATORS  JSON 数组，`investigator.list` 的库名册（契约 §21.2 的
+ *                          summary_row 形状：library_id、name、occupation、era、
+ *                          current_hp、current_san、last_campaign、last_turn、
+ *                          updated_at），不给就是「库是空的」；`/coc investigator` 读它
+ *                          （契约 §21.5，票 #31）。`investigator.save` 每次调用回一个
+ *                          新铸的 library_id，不真的把桌上的卡写进这份名册。
  */
 
 import { appendFileSync } from "node:fs";
@@ -74,6 +80,29 @@ function mechanic(row, receipt, expected = []) {
 	if (expected.length > 0) numberChecks.push({ receipt, expected });
 }
 
+/** Contract §16.3: zh-Hans player-facing fields must carry a CJK character. Bytes, not semantics. */
+const CJK =
+	/[\u2E80-\u2FDF\u3000-\u303F\u3040-\u30FF\u3100-\u31FF\u3200-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFFEF]/u;
+let playLanguage = "zh-Hans";
+
+function checkPlayLanguage(fields) {
+	if (playLanguage !== "zh-Hans") return undefined;
+	const missing = Object.entries(fields)
+		.filter(([, text]) => text && !CJK.test(String(text)))
+		.map(([name]) => name);
+	if (missing.length === 0) return undefined;
+	return {
+		ok: false,
+		error: {
+			code: "invalid_params",
+			code_detail: "play_language_mismatch",
+			message: "player-facing text is not in the campaign's play_language",
+			fix: `rewrite ${missing.join(", ")} in the campaign's play_language (${playLanguage}) and call again`,
+			details: { fields: missing, play_language: playLanguage },
+		},
+	};
+}
+
 /** 契约 §5 第 2 步：缺一个数字就整条 narrate 退回，`fix` 说明补哪些数。 */
 function checkNumbers(text) {
 	if (!REQUIRE_NUMBERS) return undefined;
@@ -117,6 +146,14 @@ const DEEPEN_QUEUE = [...(MODULE.deepen ?? [])];
  * 不给就是「存储里只有这一本」。
  */
 const LIBRARY = MODULE.library ?? null;
+
+// ---------------------------------------------------------------------------
+// 调查员库（契约 §21，`/coc investigator` 读它，票 #31）
+// ---------------------------------------------------------------------------
+
+/** `investigator.list` 的名册；每行是契约 §21.2 的 summary_row 形状。 */
+const INVESTIGATORS = process.env.FAKE_KERNEL_INVESTIGATORS ? JSON.parse(process.env.FAKE_KERNEL_INVESTIGATORS) : [];
+let investigatorSaveSeq = 0;
 
 /** 每个 section 被 review 过几次：`review_pass` 说的那一轮才过（契约 §14.5 至多三轮）。 */
 const reviewRounds = new Map();
@@ -504,6 +541,7 @@ function handle(method, params) {
 		case "campaign.create": {
 			campaignSeq += 1;
 			const id = params.id ?? `camp-${campaignSeq}`;
+			playLanguage = params.play_language ?? "zh-Hans";
 			return {
 				ok: true,
 				result: {
@@ -630,6 +668,28 @@ function handle(method, params) {
 					generation,
 					opening_ready: openingReady(),
 					sections: planned ? SECTIONS.map((row) => ({ ...row })) : [],
+				},
+			};
+		}
+		case "investigator.list":
+			return { ok: true, result: { investigators: INVESTIGATORS } };
+		case "investigator.save": {
+			investigatorSaveSeq += 1;
+			const investigatorId = params.investigator ?? "thomas-hayes";
+			const libraryId = `${investigatorId}-${investigatorSaveSeq}`;
+			return {
+				ok: true,
+				result: {
+					library_id: libraryId,
+					investigator: investigatorId,
+					name: INVESTIGATOR,
+					created: investigatorSaveSeq === 1,
+					play: {
+						last_campaign: params.campaign,
+						last_turn: turn || null,
+						updated_at: "2026-01-01T00:00:00Z",
+						campaigns: [params.campaign],
+					},
 				},
 			};
 		}
@@ -791,6 +851,12 @@ function handle(method, params) {
 			};
 		}
 		case "table.ask": {
+			const refusedAskLanguage = checkPlayLanguage({
+				prompt: params.prompt,
+				...Object.fromEntries((params.options ?? []).map((option, i) => [`options[${i}]`, option])),
+				...(params.text ? { text: params.text } : {}),
+			});
+			if (refusedAskLanguage) return refusedAskLanguage;
 			// Contract §5: `text` must account for the public receipts' numbers too, by the same check.
 			const refusedAsk = checkNumbers(params.text ?? "");
 			if (refusedAsk) return refusedAsk;
@@ -821,6 +887,8 @@ function handle(method, params) {
 			};
 		}
 		case "table.narrate": {
+			const refusedLanguage = checkPlayLanguage({ text: params.text ?? "" });
+			if (refusedLanguage) return refusedLanguage;
 			// Contract §5 step 2: the kernel inserts no mechanics lines and only checks whether this turn's public receipt numbers are in the prose.
 			const refused = checkNumbers(params.text ?? "");
 			if (refused) return refused;
