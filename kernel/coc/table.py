@@ -24,7 +24,7 @@ from .fileio import append_jsonl, file_size, read_json, read_jsonl, truncate_fil
 from .module_graph import NPC_KIND, ModuleGraph, module_declaration, record_of
 from .ontology import Ontology, ontology_not_ready
 from . import npc as npc_lane
-from .render import check_play_language, mechanics
+from .render import bind_markers, check_play_language, markers_for, mechanics, strip_markers
 from .resolve import ResolvePipeline
 from .rules import RuleTables
 from .rules.combat import resolve_module_weapons
@@ -131,6 +131,20 @@ def _number(value: Any) -> Any:
 def _turn_state_error(turn: dict[str, Any], method: str, allowed: str) -> RpcError:
     return RpcError("turn_state", f"{method} is not allowed while the turn is {turn['state']!r}",
                     fix=allowed, details={"turn": turn["turn"], "state": turn["state"]})
+
+
+def _markers_of(turn: dict[str, Any], new_receipts: list[dict[str, Any]]) -> list[str]:
+    """The §16.6 markers for the receipts one call just minted, in receipt order.
+
+    Computed over the turn's whole receipt list, already-closed calls included, because a marker is
+    only unique within the turn: the second Spot Hidden of a turn is `check:spot-hidden-2` even when
+    the first belonged to an earlier call. Keyed by receipt id rather than by identity, because
+    `apply` extends the turn before it builds its result and `resolve` extends it after: both orders
+    have to give the same answer."""
+    known = list(turn.get("receipts") or [])
+    known_ids = {r.get("id") for r in known}
+    table = markers_for(known + [r for r in new_receipts if r.get("id") not in known_ids])
+    return [marker for receipt in new_receipts if (marker := table.get(receipt.get("id"))) is not None]
 
 
 class Table:
@@ -970,6 +984,9 @@ class Table:
         result: dict[str, Any] = {
             "receipt": roll_ids[0] if roll_ids else (receipts[0]["id"] if receipts else None),
             "receipts": [r["id"] for r in receipts],
+            # §16.6: the tokens this call earned, in receipt order. The keeper places them in the
+            # delivery; it never mints one, and a receipt it leaves unplaced is still projected.
+            "markers": _markers_of(turn, receipts),
             "decision": settled["decision"],
             "family": settled["family"],
             "outcome": settled["outcome"],
@@ -1193,6 +1210,8 @@ class Table:
         destination = graph.scene(staged["active_scene"])
         material = self.material_of(graph.module_id)(graph.handle(destination))
         result: dict[str, Any] = {"receipts": receipt_ids,
+                                  # §16.6: the tokens this batch earned, in receipt order.
+                                  "markers": _markers_of(turn, receipts),
                                   "world": {"active_scene": staged["active_scene"], "clock": staged["clock"]},
                                   "material_ready": material == "ready", "material": material}
         if any(r.get("kind") == "move" and not r.get("renamed") for r in receipts):
@@ -1890,20 +1909,24 @@ class Table:
             raise invalid_params("a turn that forks or switches the worldline cannot be closed by ask",
                                  fix="close this turn with narrate; ask on the new line's first turn",
                                  details={"worldline": turn["worldline"].get("operation")})
+        receipts = list(turn.get("receipts", []))
+        # §16.6: an ask may carry a delivery too, and its markers place the same way narrate's do.
+        placed = bind_markers(text, receipts) if text else {}
+        stripped = strip_markers(text) if placed else text
         # §16.3: check the player-language script, not the presence of receipt numbers.
         check_play_language(language_of(campaign.read_campaign()), {
             **({"prompt": prompt, **{f"options[{i}]": option for i, option in enumerate(options)}} if kind == "story" else {}),
-            **({"text": text} if text else {}),
+            **({"text": stripped} if stripped else {}),
         })
-        receipts = list(turn.get("receipts", []))
         # §16.3: story, receipts and choices travel as separate fields.
         turn_number = int(turn["turn"])
         pending = {"name": f"ask-{slugify(binds or prompt or kind)}-t{turn_number}", "prompt": prompt,
                    "options": list(options), "binds": binds, "kind": kind}
-        rendered = text.strip() if text else ""
+        rendered = stripped.strip() if stripped else ""
         interaction = {**pending, "play_language": language_of(campaign.read_campaign())}
-        projected = mechanics(receipts)
+        projected = mechanics(receipts, placed)
         result = {"pending_choice": pending, "interaction": interaction, "rendered_text": rendered, "mechanics": projected,
+                  **({"marked_text": text} if placed else {}),
                   "turn": turn_number, "state": "asked"}
         turn["pending_choice"] = pending
         turn["state"] = "asked"
@@ -1938,10 +1961,13 @@ class Table:
         # `placement` (pre-§16) is accepted and ignored: nothing is placed any more.
         turn_number = int(turn["turn"])
         receipts = list(turn.get("receipts", []))
+        # §16.6: the markers say where each receipt happened. They are removed from the delivery a
+        # text consumer reads, so the language check sees the prose and not the tokens.
+        placed = bind_markers(text, receipts)
+        rendered = strip_markers(text) if placed else text
         # §16.3: deliver story text verbatim; receipts travel as the separate mechanics projection.
-        check_play_language(language_of(campaign.read_campaign()), {"text": text})
-        rendered = text
-        projected = mechanics(receipts)
+        check_play_language(language_of(campaign.read_campaign()), {"text": rendered})
+        projected = mechanics(receipts, placed)
         receipt_id = f"turn:{turn_number}"
         subject = " ".join(text.split())[:COMMIT_SUBJECT_CHARS]
         party = campaign.party()
@@ -1949,6 +1975,7 @@ class Table:
         facts = self._facts(campaign, graph, world, party, receipts, snapshot, turn.get("player_text"))
         result: dict[str, Any] = {"rendered_text": rendered, "mechanics": projected, "turn": turn_number,
                                   "receipt": receipt_id, "commit": None, "facts": facts,
+                                  **({"marked_text": text} if placed else {}),
                                   "extraction": {"job_id": memory.job_id_for(campaign.id, turn_number)}}
 
         before = copy.deepcopy(turn)
@@ -1961,6 +1988,7 @@ class Table:
         record = {
             "turn": turn_number, "player_text": turn.get("player_text"), "receipts": receipts,
             "text": text, "rendered_text": rendered, "mechanics": projected, "calls": turn.get("calls", {}),
+            **({"marked_text": text} if placed else {}),
             "commit": None, "closed_by": "narrate", "opened_at": turn.get("opened_at"),
             "closed_at": now_iso(), "pending_choice": turn.get("pending_choice"), "capsule": turn.get("capsule"),
             "world": snapshot, "facts": facts, "intents": list(turn.get("intents") or []),

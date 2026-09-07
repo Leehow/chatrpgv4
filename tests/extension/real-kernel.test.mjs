@@ -168,3 +168,35 @@ test("真内核：开场与一个回合走通，收据、渲染、git 提交齐�
 		.split("\n");
 	assert.ok(log.length >= 3, `建桌、开场、回合各一次提交，实际 ${log.length}: ${log.join(" | ")}`);
 });
+
+test("a placed marker leaves the delivery and reaches the frontend on the projection entry", async t => {
+	// 契约 §16.6：守秘人把内核发给它的标记放进正文；正文交付里没有标记，`marked_text` 只走投影条目。
+	// 这条走真内核，因为要验的正是「内核铸的标记穿过扩展到达前端」这一段接缝，stub 验不了。
+	const table = await openTable({ realKernel: true, campaign: "marker-seam", responses: [
+		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage("开场之后多写的一句，应被替换"),
+		fauxAssistantMessage([fauxToolCall("resolve", { action: {
+			intent: "investigate", goal: "看清他没说的事", method: "打量他的神色", skill: "Spot Hidden",
+		} })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "clue", clue: "clue-knott-research-leads", how: "他提到旧档" }] })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", {
+			text: "你打量他的神色{{check:spot-hidden}}，他松口提起了市政厅的旧档{{clue:knott-research-leads}}。",
+		})], { stopReason: "toolUse" }),
+		fauxAssistantMessage("回合之后多写的一句，应被替换"),
+	] });
+	t.after(() => table.dispose());
+	await waitForIdle(table.session, { timeoutMs: 60_000 });
+	await table.session.prompt("我盯着诺特，看他还瞒着什么。");
+	await waitForIdle(table.session, { timeoutMs: 60_000 });
+
+	const delivered = assistantTexts(table.session).filter(text => text.length > 0).at(-1);
+	assert.ok(!delivered.includes("{{"), `交付里没有标记，终端读到的还是散文：${delivered}`);
+	assert.match(delivered, /你打量他的神色，他松口提起了市政厅的旧档。/);
+
+	const projected = table.entries("coc-mechanics").at(-1);
+	assert.match(projected.marked_text, /\{\{check:spot-hidden\}\}/, "带标记的那份走投影条目，给能挂组件的前端");
+	const markers = Object.fromEntries(projected.mechanics.map(row => [row.kind, row.marker]));
+	assert.equal(markers.roll, "check:spot-hidden");
+	assert.equal(markers.clue, "clue:knott-research-leads");
+});

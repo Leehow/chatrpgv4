@@ -557,13 +557,20 @@ export default function (pi: ExtensionAPI) {
 	 * driver lands it in the evidence and a future front end renders dice cards and change bars from
 	 * it. It is never injected into the prose: the TUI shows only what the Keeper wrote.
 	 */
-	function noteMechanics(state: TableState, turn: number, mechanics: Array<Record<string, unknown>>): void {
+	function noteMechanics(state: TableState, turn: number, mechanics: Array<Record<string, unknown>>,
+		markedText?: string): void {
 		if (mechanics.length === 0) return;
+		// §16.6: `marked_text` rides here rather than in the assistant message, because that message
+		// is also what a terminal reader sees and raw `{{...}}` is not prose. A frontend that has it
+		// draws each marked row where the Keeper put it; one that does not reads the message as before.
+		const entry = { turn, mechanics, play_language: state.playLanguage, ...(markedText ? { marked_text: markedText } : {}) };
 		try {
-			pi.appendEntry("coc-mechanics", { turn, mechanics, play_language: state.playLanguage });
+			pi.appendEntry("coc-mechanics", entry);
 		} catch {
 			/* the projection must never break a turn */
 		}
+		// The bus event keeps its shape: `marked_text` is a rendering hint for the delivery channel,
+		// not a fact about the turn, and a bus subscriber that wanted it would want the entry.
 		pi.events.emit("coc:mechanics", { campaign: state.campaign, turn, mechanics });
 	}
 
@@ -608,7 +615,8 @@ export default function (pi: ExtensionAPI) {
 				state.renderedText = typeof result.rendered_text === "string" ? result.rendered_text : undefined;
 				state.deliveryToolCallId = toolCallId;
                 if (result.interaction) pi.appendEntry("coc-choice", result.interaction);
-				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn, withHandouts(state, readMechanics(result)));
+				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn,
+					withHandouts(state, readMechanics(result)), asString(result.marked_text));
 				break;
 			}
 			case "narrate": {
@@ -620,7 +628,8 @@ export default function (pi: ExtensionAPI) {
 				// From here on this turn owes a verifier-lane row, whatever the lane turns out to do (ticket #28).
 				state.verifierOwed = { turn: typeof result.turn === "number" ? result.turn : state.turn };
 				const mechanics = withHandouts(state, readMechanics(result));
-				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn, mechanics);
+				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn, mechanics,
+					asString(result.marked_text));
 				noteCommit(state, result, mechanics);
 				break;
 			}

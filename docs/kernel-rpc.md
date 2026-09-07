@@ -991,6 +991,78 @@ Existing recorded prose is historical evidence and is not rewritten.
 - **Guard.** `tests/kernel/test_system_language.py` fails on any CJK character in `kernel/**`, `bin/coc-*`, `content/setup/**`, `content/craft/beat-directives.json` (comments included), and pins the zh-Hans turn: `rendered_text == text`, one projection per receipt, `mechanics_missing` naming the receipt whose number the text skipped, and `play_language_mismatch` naming the player-facing field that carried no CJK.
 - **Left to the extension (not in this slice).** `verifier.ts` still strips marker lines; `tools.ts` descriptions still mention the marker lines; `onboarding/steps.ts` reads `lines[language]`; nothing in `extensions/` emits `coc-mechanics` yet.
 
+### 16.6 Mechanics markers: where a receipt happened (2026-09-07 user decision)
+
+§16.3 took the numbers out of the narration and left the mechanic with nowhere to
+be. A five-turn live table showed the shape: the prose carries the consequence of
+a check and nothing marks the moment, so a frontend can only append the whole
+receipt block after the whole delivery, and the player cannot tell which sentence
+a roll produced. §16.3 says what must not be in the text; this says what may.
+
+This is not the `place` marker §16.5 removed. That one had the kernel render
+mechanics *lines* into player-facing prose. This one carries position and nothing
+else: the kernel still writes no player-facing word, and a consumer that ignores
+markers reads exactly what it reads today.
+
+**The kernel mints the marker; the Keeper places it and never invents one.**
+Every receipt that projects (§16.2) has a marker: semantic and readable —
+`check:spot-hidden`, `clue:knott-keys`, `scene:newspaper-morgue`, `cash` — built
+from the receipt's kind and the name the Keeper already uses for that thing, and
+unique within the turn (a second roll of the same skill is `check:spot-hidden-2`).
+It is derived from the turn's receipt list in order, so a marker handed out after
+one call still names the same receipt after the next. It is not a receipt id:
+those are minted with turn and ordinal, and a model copying one drifts, which the
+product invariant already forbids — hashes, receipt ids and call ids are minted by
+the host and the kernel and are not for the model to copy. A marker is a name,
+which is what the model is allowed to hold. `resolve` and `apply` return `markers`
+in receipt order beside `receipts`, so the Keeper is handed the tokens it may place.
+
+**Syntax.** `{{<marker>}}` in `narrate.text` and `ask.text`. A Keeper writing
+Chinese or English prose does not produce that by accident and a Markdown renderer
+passes it through. The scan is literal; no regex reads the prose for meaning.
+
+**What the kernel does with them.**
+
+- A marker naming a receipt of this turn binds to it.
+- A marker naming nothing is `invalid_params` with `code_detail: "unknown_marker"`,
+  `details.unknown` listing them and `details.markers` the turn's available ones.
+  Prose asserting a mechanic that has no receipt is the §16.3 family of error.
+- The same marker twice is `invalid_params` with `code_detail: "duplicate_marker"`.
+  A receipt happened once and has one place.
+- A receipt no marker placed is **not** an error. It projects exactly as today and
+  the frontend groups it after the delivery. Requiring a marker per receipt would
+  make every turn brittle for a cosmetic gain, and a receipt must never be lost
+  because its position was.
+
+**What the delivery carries.**
+
+- `rendered_text` keeps its meaning — the delivery as a text consumer reads it —
+  with every marker removed. The kernel substitutes nothing for a marker: a
+  substitution would be player-facing words written in code, which §16.1 forbids.
+  A terminal reader therefore sees the prose it sees today.
+- `marked_text` is the same delivery with the markers still in it, for a frontend
+  that can mount a component at the position. It is omitted when no marker was
+  placed, so its presence is the signal that there is anything to mount.
+- Each `mechanics` row of a placed receipt carries its `marker`; unplaced rows
+  carry none, which is how a consumer tells the two groups apart.
+- The turn record stores `marked_text` beside `rendered_text` so a consumer can
+  re-render a turn it did not watch. The play-language and number checks run on
+  `rendered_text`: a marker is not player-facing text.
+
+**Open for the frontend slice, recommended not settled.** The delivery reaches the
+UI as the assistant message the extension replaces at `message_end` (§23), and
+that same message is what a terminal reader sees, so only one of them can hold the
+markers. The recommendation is to leave the assistant message as `rendered_text`
+and carry `marked_text` on the `coc-mechanics` entry, letting the frontend render
+the delivery from that entry when it has one; putting `marked_text` in the message
+instead would show raw `{{…}}` in the TUI. Two obligations this project has already
+paid for once each: the `marker` and `marked_text` fields must be registered
+wherever `coc-mechanics` is projected to the host, or they are dropped silently
+between the kernel and the panel; and a delivery streams, so a marker can arrive
+split across deltas — the renderer buffers an unterminated `{{` rather than
+painting half a token. How a placed row is drawn is a frontend decision, not a
+contract one.
+
 ## 17. NPC 层：作者档案、玩出来的账本、带因果的在场者（切片 9，票 #29）
 
 用户 2026-09-06 拍板。目标是 NPC 在桌上有逻辑因果地扮演与互动，而不是模组里的背景板。证据（#29）：PDF 构建出的书里 NPC 只有属性块，`present` 节四个 null；图上已抽出的 NPC 关系没人投影；claim 的 `known_by_ids`/`asserted_by_ids` 零填充；NPC 与调查员之间没有任何运行时状态（`npc_attitude` 无写入者、`min_trust` 无消费者、social 结算不落到 NPC）。

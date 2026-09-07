@@ -9,6 +9,7 @@ import re
 from typing import Any
 
 from .errors import RpcError, invalid_params
+from .text import kebab
 
 PLAY_LANGUAGE_MISMATCH = "play_language_mismatch"
 
@@ -135,9 +136,127 @@ def mechanics_of(receipt: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def mechanics(receipts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The turn's receipts in order, one object each (§16.2)."""
-    return [row for receipt in receipts if (row := mechanics_of(receipt)) is not None]
+#: The `{{marker}}` a keeper may place in a delivery (§16.6). Literal: the prose is never read
+#: for meaning, only scanned for this shape.
+MARKER = re.compile(r"\{\{([a-z0-9][a-z0-9:_-]*)\}\}")
+UNKNOWN_MARKER = "unknown_marker"
+DUPLICATE_MARKER = "duplicate_marker"
+
+
+def _marker_name(receipt: dict[str, Any]) -> str | None:
+    """The semantic marker base for one receipt, or None for a receipt that projects nothing.
+
+    Built from the canonical side of the receipt -- the skill's rulebook name, a scene or clue
+    handle, a resource -- never from a keeper-authored label, so the token stays ASCII and stable
+    whatever language the table plays in. A name that survives no ASCII slug drops to the bare
+    kind, which is still a name and still unique after the suffix pass below."""
+    kind = receipt.get("kind")
+    def part(prefix: str, value: Any) -> str:
+        slug = "".join(c for c in kebab(str(value or "")) if c.isascii() and (c.isalnum() or c == "-")).strip("-")
+        return f"{prefix}:{slug}" if slug else prefix
+    if kind == "roll":
+        return part("dice" if receipt.get("form") == "dice" else "check", receipt.get("skill"))
+    if kind == "delta":
+        return part("change", receipt.get("resource"))
+    if kind == "move":
+        # A move that only names where the party already stands projects nothing, so it takes no
+        # marker: a marker for a row the frontend never receives could never be mounted.
+        return None if receipt.get("renamed") else part("scene", receipt.get("to"))
+    if kind == "clue":
+        return part("clue", receipt.get("clue"))
+    if kind == "item":
+        return part("item", receipt.get("name"))
+    if kind == "handout":
+        return part("handout", receipt.get("handout") or receipt.get("name"))
+    if kind == "session":
+        return part("session", receipt.get("family"))
+    if kind == "worldline":
+        return part("worldline", receipt.get("operation"))
+    if kind in ("time", "cash", "choice"):
+        return str(kind)
+    return None
+
+
+def markers_for(receipts: list[dict[str, Any]]) -> dict[str, str]:
+    """Receipt id -> its `{{marker}}` (§16.6), for the turn's receipts in order.
+
+    Order is the whole contract here: a marker handed to the keeper after one call must still
+    name the same receipt after the next, and a turn's receipt list only ever grows at the end,
+    so walking it in order and suffixing later collisions keeps every earlier marker fixed."""
+    out: dict[str, str] = {}
+    taken: dict[str, int] = {}
+    for receipt in receipts:
+        base = _marker_name(receipt)
+        receipt_id = receipt.get("id")
+        if base is None or not isinstance(receipt_id, str) or mechanics_of(receipt) is None:
+            continue
+        taken[base] = taken.get(base, 0) + 1
+        out[receipt_id] = base if taken[base] == 1 else f"{base}-{taken[base]}"
+    return out
+
+
+def placed_markers(text: str) -> list[str]:
+    """Every marker in a delivery, in the order it appears, repeats included."""
+    return [match.group(1) for match in MARKER.finditer(text or "")]
+
+
+def strip_markers(text: str) -> str:
+    """The delivery a text consumer reads (§16.6): markers removed, nothing put in their place.
+
+    Whitespace around a removed marker is collapsed so a marker on its own between two sentences
+    does not leave a double space; nothing else about the prose is touched."""
+    without = MARKER.sub("", text or "")
+    return re.sub(r"[ \t]{2,}", " ", without).strip()
+
+
+def bind_markers(text: str, receipts: list[dict[str, Any]]) -> dict[str, str]:
+    """Marker -> receipt id for the markers this delivery placed (§16.6).
+
+    Raises on a marker naming no receipt of this turn, and on the same marker placed twice: prose
+    asserting a mechanic that has no receipt is the §16.3 family of error, and a receipt happened
+    once. A receipt nobody placed is not an error and simply does not appear here."""
+    available = {marker: receipt_id for receipt_id, marker in markers_for(receipts).items()}
+    seen: dict[str, str] = {}
+    duplicates: list[str] = []
+    unknown: list[str] = []
+    for marker in placed_markers(text):
+        if marker not in available:
+            if marker not in unknown:
+                unknown.append(marker)
+            continue
+        if marker in seen:
+            if marker not in duplicates:
+                duplicates.append(marker)
+            continue
+        seen[marker] = available[marker]
+    if unknown:
+        raise invalid_params(f"no receipt in this turn is named by {', '.join(unknown)}",
+                             fix="place only the markers resolve and apply handed back, or none",
+                             details={"unknown": unknown, "markers": sorted(available)},
+                             code_detail=UNKNOWN_MARKER)
+    if duplicates:
+        raise invalid_params(f"{', '.join(duplicates)} is placed more than once",
+                             fix="a receipt happened once: place its marker at one point in the text",
+                             details={"duplicate": duplicates},
+                             code_detail=DUPLICATE_MARKER)
+    return seen
+
+
+def mechanics(receipts: list[dict[str, Any]], placed: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    """The turn's receipts in order, one object each (§16.2).
+
+    `placed` is marker -> receipt id from the delivery (§16.6); a row whose receipt was placed
+    carries its `marker`, and a row without one is the frontend's trailing group."""
+    by_receipt = {receipt_id: marker for marker, receipt_id in (placed or {}).items()}
+    rows = []
+    for receipt in receipts:
+        row = mechanics_of(receipt)
+        if row is None:
+            continue
+        if (marker := by_receipt.get(receipt.get("id"))):
+            row["marker"] = marker
+        rows.append(row)
+    return rows
 
 
 def is_public(receipt: dict[str, Any]) -> bool:
