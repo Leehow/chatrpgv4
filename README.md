@@ -35,7 +35,18 @@ bin/pi-coc --campaign <id>            # 开桌
 ```bash
 uv run --frozen python -m pytest tests/kernel tests/play -q
 npm run test:ext
+npm run test:electron        # 复制进来的 PipiUI 套件，比对已记录的失败基线
 ```
+
+`Electron/` 是整包复制进来的（§23），它自带的上游套件在本检出里本来就是红的：packs、workflow
+文件与内置运行时是故意不带的，产品身份换成了 PipiCOC，PipiCOC 的接线又改掉了几处上游用例仍按
+旧样子断言的接缝。这些不逐条修，但也不能就这么红着——一片红里看不出真回归。所以失败按用例记在
+`Electron/scripts/vitest-suite-baseline.json`，`npm run test:electron` 只在出现差异时失败：
+基线之外的新失败是回归；基线里已经不再失败的条目说明基线过期，同样失败，用
+`node Electron/scripts/suite-baseline.mjs --record` 重记。这张表是用来缩短的，不许手写一条进去把红的糊绿。
+这套上游用例本身有时序抖动（jsdom 拆卸、临时目录清理竞争、并发 worker 抢同一份夹具），所以失败
+的用例会先重试两次再记账；确定性的失败三次都失败，藏不住。重试之后仍然翻来翻去的，按名字写进同
+一文件的 `flaky`，两个方向都不查——每条都要写明为什么钉不住。
 
 真桌验收走 `tests/play/driver.py`，grok 当守秘人，Claude 当玩家，一回合一回；方法见 `docs/acceptance.md`。
 

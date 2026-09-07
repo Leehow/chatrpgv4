@@ -115,5 +115,6 @@ Pi 完全隔离在仓库内：游玩用 `{repo}/.pi/coc-agent`（`PI_CODING_AGEN
 - **契约先行**：先在 `docs/kernel-rpc.md` 写形状，再开工；worker 只按契约写，形状对不上以契约为准，集成时补回归用例。
 - **worker 按任务选模型**：内核实现用 Fable；扩展用 Opus；测试、驾驭器、机械迁移用 Sonnet/Haiku；不全用一个模型。同一 worktree 的 worker 路径互斥、`commit_policy: no_commit`，由 lead 集成与提交。
 - 测试：`uv run --frozen python -m pytest tests/kernel tests/play -q` 与 `npm run test:ext`。**不要并发跑两个 pytest**（临时目录会撞出幻影失败）；提交前看真实退出码，别信 `pytest | tail`。
+- 复制进来的 PipiUI 套件用 `npm run test:electron` 跑：它比对 `Electron/scripts/vitest-suite-baseline.json` 里记下的已知失败，只在出现差异时红。基线之外的新失败是回归；基线里不再失败的条目要用 `--record` 重记。**不许手写基线条目**把红的糊绿——那张表只许缩短。
 - 主检出与共享 worktree 上禁用 `git stash`、`reset --hard`、`checkout --`、`clean`；要隔离就开临时 worktree。不推、不删分支、不改共享历史，除非用户当回合明说。
 - 每次真桌验收都会找出几个接缝看不见的系统缺陷：给每个切片预留一次修复提交。
