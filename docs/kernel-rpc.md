@@ -161,11 +161,11 @@ result：
 ### table.apply（切片 0：move、clue、time；切片 1 damage；切片 4 handout；#19 item、cash；保留：npc、flag、note、ruling）
 params：`{"call_id": "...", "effects": [{"kind": "move", "to": "<场景名>", "travel_minutes"?: int, "label"?: "<玩家语言的短名>"}, {"kind": "clue", "clue": "<线索名>", "how"?: "<一句话>", "label"?: "<玩家语言的短名>"}, {"kind": "time", "minutes": int, "why"?: "..."}, {"kind": "damage", "dice": "1D6", "subject"?: "<调查员>", "why"?: "..."}]}`。`damage` 是没有攻击者的伤（摔落、火烧、坠物）：守秘人给规则书的骰子，内核掷骰、写一条 `roll` 收据与一条 `delta` 收据、更新 HP 与伤口记录；有攻击者的伤走 `resolve`。`move` 的结果带目的地的 `where` 与 `present`，守秘人不必再 `look`。`label` 是守秘人用 play_language 给玩家看的短名，只用于机制块；省略时机制块用图上的 display_name 或 id。
 - 整批先校验后写，任一条失败整批不写：`{"code": "...", "details": {"index": i, ...}}`。
-- `move`：目的地必须是图上从当前场景可达的场景（`route-to`，或可玩性模板的入口关系 `play-precedes`/`may-lead-to`/`alternative-to`/`hands-off-to`——构建出的书多按演出顺序连场景，运行时与可玩性检查用同一套词，出口条目带 `via`），或 `scene_edges` 声明的目的地，或来路上的任何场景（`world.scene_trail`：到达当前场景所经过的场景栈，来路总是可退：没有作者出口的巢穴也能一步退回地窖或一楼）；否则 `not_reachable`，`fix` 里直接写出两份名字，`details.exits` 给出口，`details.back` 给来路（由近到远）。`travel_minutes` 缺省取图上边的值（退一步取反向边），没有则 0。`label` 给过一次就是这个场景从此的名字：写进 `world.scene_labels[<场景>]`，之后的 `【变化】场景` 行、胶囊 `where`、检查点、任务包都用它，记忆解析把它当场景的别名。写 `world.active_scene`、`scene_trail`（前进则压入当前场景，退回则截断到目的地之前）、`visited_scenes`、`scene-moved` 事件。旧世界没有 `scene_trail` 时在 `_context` 里按同一规则重放 `scene-moved` 事件一次性补上。
+- `move`：目的地必须是图上从当前场景可达的场景（`route-to`，或可玩性模板的入口关系 `play-precedes`/`may-lead-to`/`alternative-to`/`hands-off-to`——构建出的书多按演出顺序连场景，运行时与可玩性检查用同一套词，出口条目带 `via`），或 `scene_edges` 声明的目的地，或来路上的任何场景（`world.scene_trail`：到达当前场景所经过的场景栈，来路总是可退：没有作者出口的巢穴也能一步退回地窖或一楼）；否则 `not_reachable`，`fix` 里直接写出两份名字，`details.exits` 给出口，`details.back` 给来路（由近到远）。**守秘人可以给一条图上没有的路**：`via` 写清怎么过去的（翻没钉死的二楼窗、下运煤道、跟着人进去），这一步就落地，收据记 `via` 与 `improvised: true`；`via` 写在图上本来就有的边上只是修辞，收据不记。没有这条口子时，书自己的虚构（「二楼的窗没钉」）会被拒，守秘人照样叙述，于是**世界停在街上而故事在楼上**，那一层的线索接着被判 `not_here`，而且没有任何信号说两者已经分叉——静默的分叉比走错出口更坏。`travel_minutes` 缺省取图上边的值（退一步取反向边），没有则 0。`label` 给过一次就是这个场景从此的名字：写进 `world.scene_labels[<场景>]`，之后的 `【变化】场景` 行、胶囊 `where`、检查点、任务包都用它，记忆解析把它当场景的别名。写 `world.active_scene`、`scene_trail`（前进则压入当前场景，退回则截断到目的地之前）、`visited_scenes`、`scene-moved` 事件。旧世界没有 `scene_trail` 时在 `_context` 里按同一规则重放 `scene-moved` 事件一次性补上。
 - `clue`：必须是图上存在的 clue 节点，且 `discoverable-at` 当前场景或在当前场景 record 的 `available_clues` 里；否则 `not_here`。已发现的重复写入返回 `replayed: true`，不报错。写 `discovered_clues`、`clue-discovered` 事件。
 - `time`：推进世界时钟，写 `time-advanced` 事件。
 - `item`（#19）：`{"kind": "item", "name": "<物品名>", "to"?: "<调查员>", "from"?: "<NPC 名>", "weapon"?: "<规则表武器 id 或 profile 名>", "quantity"?: int, "label"?: "<玩家语言短名>", "why"?}`。叙述里到手的东西由此进调查员表：写 `party/<id>.json` 的 `equipment[]`（名字、数量、来源回合），`weapon` 给了就同时写 `weapons[]`（从 `rules-json/weapons.json` 的武器 profile 取伤害、射程、弹容、技能（`equipment.json` 只是价目表），取不到报 `needs`，`details.needs.options` 列可用 id），之后 `resolve` 的 `weapon` 能解析它、战斗开局按它排弹药。收据 `item:<slug>-t<turn>-c<n>`，渲染 `【变化】物品：<人> 得到 <label 或名>`，事件 `item-transferred`（`{name, to, from?, weapon?, quantity}`）。`quantity` 为负是失去（消耗、交出、被夺），表上没有就报 `invalid_params`。
-- `cash`（#19）：`{"kind": "cash", "subject"?: "<调查员>", "delta": <整数，货币单位随时代>, "why"?}`；写表上 `finance.cash`（没有 finance 块的时代按 `rules-json/cash-assets.json` 建一个），收据 `cash:t<turn>-c<n>`，渲染 `【变化】现金：<人> <前> → <后>`（没有 `label`，标签固定为 play_language 的「现金」），事件 `resource-changed`（`resource: cash`）。
+- `cash`（#19）：`{"kind": "cash", "subject"?: "<调查员>", "delta": <整数，货币单位随时代>, "with"?: "<NPC 名>", "why"?}`；`with` 是钱的另一头（付给谁、从谁那儿来），落进那个人的账本 `exchanged`（§17.3）与机制投影；不写就只是钱数变了，没有对方。写表上 `finance.cash`（没有 finance 块的时代按 `rules-json/cash-assets.json` 建一个），收据 `cash:t<turn>-c<n>`，渲染 `【变化】现金：<人> <前> → <后>`（没有 `label`，标签固定为 play_language 的「现金」），事件 `resource-changed`（`resource: cash`）。
 - 其余种类报 `not_implemented`。
 result：`{"receipts": ["move:hall-of-records-t3-c2", ...], "world": {"active_scene", "clock"}, "material_ready": true}`。切片 0 `material_ready` 恒为 true。
 
@@ -199,7 +199,8 @@ result：`{"rendered_text": "<即 text，正文原样>", "mechanics": [...], "tu
  "where": {"scene": "<name>", "display_name", "dramatic_question", "pressure_moves": [...], "exits": [{"to", "travel_minutes"?, "unlock_when"?}], "back": [{"to", "display_name"}]（来路，由近到远）,
            "affordances": [{"id", "cue", "clue"?, "npc"?}], "keeper_notes": [...], "assets": [{"name", "kind"}],
            "places": [{"name", "line"?}]（≤ 8；本场景 `occurs-at` 的地点下面 `located-in` 的房间——书把一栋楼建成「地点 + 一串房间」，只看离场景一跳就永远看不见它们）,
-           "rules": [{"name", "line"?}]（≤ 6；本场景 `uses-rule` 指向的 rule 节点：书为这一场固定的判定与数值。每次构建都接对了这条关系，此前没有任何消费者）},
+           "rules": [{"name", "line"?}]（≤ 6；本场景 `uses-rule` 指向的 rule 节点：书为这一场固定的判定与数值。每次构建都接对了这条关系，此前没有任何消费者）,
+           "endings": [{"name", "via", "line"?}]（≤ 4；本场景 `may-lead-to` 的 ending 节点。结局不是走过去的地方——`WALKABLE_KINDS` 只有场景，且是有意的——它是一次结算（`development:settle-ending`）。此前没有任何东西告诉守秘人有一个够得着，于是一局玩到头就那么停住：巫师被毁，作者写好的收束从未结算，战役状态还是 `active`）},
  "present": [{"name", "role", "wants", "fears"?, "hides"?, "voice"?, "knows": [...], ...}]（§17.4 起是档案加账本，旧的 relationship/agenda/known_facts/attitude 已删）,
  "known": {"discovered_clues": [names], "clues_here": [{"name", "summary", "delivery_kind", "discovered": bool}],
            "investigator": {"name", "occupation", "hp", "san", "mp", "luck", "skills_of_note": [{"name", "value"}]}},
@@ -318,7 +319,8 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 
 - 候选选择是结构性路由：一个决策成为候选，当行动能填满它的语义槽位（心理、社交、对抗需要在场 NPC 目标；学法需要 `spell`；合并检定需要两个以上技能；推骰与幸运需要 `push` 或 `luck`）。图上的意图条件只做否决：`answers_declared_intent` 为 False 的决策不进候选；为 True 但路由不到的也不给。
 - `social` 无 NPC 目标退化为普通检定；有目标走社交难度裁决，`method` 解析为 Psychology 时另给心理观察候选。`investigate` 对着 NPC 且技能解析不出时给两个候选。
-- 推骰与幸运的源是该行动者最近一次 D100 技能或特征检定；已推过、已通过、先花幸运再推都报 `turn_state`；无可推的检定报 `needs` 字段 `intent`；幸运不足报 `invalid_params` 带 `details.reason`。
+- 推骰与幸运的源是该行动者最近一次 D100 技能或特征检定；已推过、已通过、先花幸运再推都报 `turn_state`；无可推的检定报 `needs` 字段 `intent`；幸运不足报 `invalid_params` 带 `details.reason`。**对抗、组合、暗骰与伤害骰不可接续**，所以这几种的结果里不会再出现 `push-luck:*` 续行——广告一条结算必拒的续行，比不给更坏：守秘人会照着问玩家，玩家选了，结算却绑到别的检定上并报那一次的结果。
+- **花幸运也铸收据。** 推骰会为新的掷值铸一条 roll 收据，花幸运此前不铸，于是被买下的那次检定在记录里永远写着 `failure`，成功只活在本次调用的返回里，机制投影里玩家只看见幸运在减少、什么也没买到。现在铸一条 `roll_kind: "luck_bought"` 的收据，带 `source_receipt` 指向原检定与 `luck_spent`；这个种类不在可接续之列，所以没人能从它身上再推一次。
 - 收据 id：NPC 骰 `roll:<skill>-<npc>-t<n>-c<k>`；资源变化 `delta:<resource>-t<n>-c<k>`；同一调用内重复加 `-2`。事件：每次掷骰 `roll-resolved`，每条变化 `resource-changed`，每次 resolve `decision-settled`。
 - `effects` 的 `kind` 另有 `skill`（成长）与 `condition`（治疗）。隐藏骰（心理观察、`visibility: keeper`）有收据不渲染；NPC 的公开对抗骰渲染时带 `名字·` 前缀；推骰行带 `（推骰）`。
 - 治疗对象：`method` 的技能是急救或医学时对象是 `target` 指的调查员，否则是行动者；施救者是行动者。法术来源：在场 NPC 的 `mechanics.profile.spells` 为 person 来源，典籍与生物节点的 `spells` 为 tome 与 entity 来源。
@@ -1022,12 +1024,12 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 | --- | --- |
 | `stance.score` | social 族每次结算按闭合表 `content/rulesets/coc7/rules-json/npc-stance.json` 加减：`{approach × level → delta}`（如 Persuade/Charm 成功 +1、极难/大成功 +2、失败 0、大失败 −1、Intimidate 成功 0 且失败 −1、推骰失败再 −1），初值 0，钳在 −5..5，`value` 由表上阈值推（如 ≤ −3 hostile、−2..−1 wary、0..1 neutral、≥ 2 warm）。任何以他为 `target` 的 combat 结算直接 −5 hostile。数字与阈值全在表里，代码不写字面量 |
 | `stance` 显式改写 | `apply {kind: "npc", name, stance: "<四值之一>", why}`：守秘人的裁量，收据 `npc:<id>-t<turn>-c<n>`，`because` 记这条收据；`score` 置为该档的下界。与 #25 的 `to` 可同批 |
-| `exchanged` | `apply item` 的 `from`（东西从谁手里来的）。谁给的由守秘人说，内核不从「当时谁在场」推断 |
+| `exchanged` | `apply item` 的 `from`（东西从谁手里来的）与 `apply cash` 的 `with`（钱付给谁、从谁那儿来）。两者都由守秘人说，内核不从「当时谁在场」推断。现金那一条记 `{cash, direction, currency}` |
 | `disclosed` | `apply clue` 新增可选 `from: "<NPC 名>"`（他给的）；省略时若该线索有 `held-by`/`delivered-by` 关系指向一个在场 NPC，机器补上；都没有就不记 |
 | `interactions` | 本回合以他为 `target`/`actor` 的 `resolve` 收据 |
 | `promises` / `said` | `memory.submit` 落盘时，`kind: promise` 且 `subject` 是他 → `promises`；`kind: knowledge|belief` 且 `knowers` 含他 → `said`。只挂 id，接续与关闭仍由记忆层（§13.5）管 |
 | `turns_present` | 回合关闭时 `world` 快照的 `present` |
-| `dead` | 会话结算里他 HP ≤ 0 的 `delta` 收据 |
+| `dead` | 会话结算里他 HP ≤ 0 的 `delta` 收据，或 `apply {kind: "npc", name, dead: true, why}`——人死的方式远不止掉血掉到零（当场处决、裁定摧毁、故事杀死），只认前者会让叙述里死掉的人在桌上永远还活着 |
 
 崩溃恢复与世界线（§12.6、§15）：账本与 `world.json` 同一条提交，回滚与切线自然跟着；重建按收据重放，与 `scene_trail` 的补法同一模式。旧战役没有账本时第一次 `table.open` 从 `turns/NNNN.json` 的收据与 `memory/candidates.jsonl` 一次性重放生成。
 
@@ -1041,7 +1043,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
  "believes": ["<claim 摘要>"]（≤ 3）, "would_lie_about": ["<asserts 摘要>"]（≤ 3）,
  "ties": [{"kind": "<关系种类>", "to": "<display_name>"}]（≤ 6，在场者与派系优先）,
  "toward_party": {"stance", "because": ["turn <n>: <approach> <level>", "turn <n>: keeper set <stance>: <why>"]}（≤ 3 条，最近的）,
- "history": {"met_turns": n, "last_turn", "disclosed": ["<线索句柄>"], "exchanged": ["turn <n>: <label 或名>"]（≤ 3）,
+ "history": {"met_turns": n, "last_turn", "disclosed": ["<线索句柄>"], "exchanged": ["turn <n>: <label 或名>" 或 "turn <n>: paid <数额> <币种>"]（≤ 3）, "dead_since_turn"?,
              "promises": [{"statement", "turn"}]（≤ 3）,
              "tried": ["turn <n>: <路数或族> <成功等级>"]（≤ 3，最近的；账本 `interactions` 的投影）}}
 ```
