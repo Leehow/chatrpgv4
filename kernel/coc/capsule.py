@@ -184,6 +184,7 @@ def where_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, An
         "assets": graph.scene_assets(scene),
         "places": graph.scene_places(scene),
         "rules": graph.scene_rules(scene),
+        "endings": graph.scene_endings(scene),
         "material": material(graph.handle(scene)),
     }
 

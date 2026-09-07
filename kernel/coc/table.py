@@ -1296,10 +1296,19 @@ class Table:
         to = effect.get("to")
         stance = effect.get("stance")
         why = effect.get("why") if isinstance(effect.get("why"), str) and effect["why"].strip() else None
-        if to is None and stance is None:
-            raise invalid_params("an npc effect needs `to`, `stance`, or both",
+        # §17.3: `dead` reached the ledger only from a session settlement's HP delta, so a
+        # person killed by narration and a ruling — the sorcerer crumbling to ash under his
+        # own dagger, no combat rolled — stayed unmarked for ever. Whether someone died is
+        # the keeper's to state, the same way their standing is.
+        dead = effect.get("dead")
+        if dead is not None and not isinstance(dead, bool):
+            raise invalid_params("npc.dead must be true or false",
+                                 fix="say true on the turn they died",
+                                 details={"field": "npc.dead"})
+        if to is None and stance is None and dead is None:
+            raise invalid_params("an npc effect needs `to`, `stance`, `dead`, or a combination",
                                  fix=f"move them with to: {NPC_HERE}/{NPC_AWAY}/<scene>, "
-                                     f"or set stance to one of {self.stance_table.words}")
+                                     f"set stance to one of {self.stance_table.words}, or say dead: true")
         presence = world.setdefault("npc_presence", {})
         moved_to: str | None = None
         if to is not None:
@@ -1319,8 +1328,8 @@ class Table:
                                     message=f"npc.stance {stance!r} is not one of the ledger's words")
         receipt = {"id": _receipt_id_for_npc(handle, turn_number, ordinal, mint), "kind": "npc", "call_id": call_id,
                    "npc": node["node_id"], "handle": handle, "name": graph.display_name(node),
-                   "to": moved_to, "stance": stance, "why": why, "at": now_iso()}
-        return receipt, ("npc-changed", {"npc": handle, "to": moved_to, "stance": stance, "why": why})
+                   "to": moved_to, "stance": stance, "dead": dead, "why": why, "at": now_iso()}
+        return receipt, ("npc-changed", {"npc": handle, "to": moved_to, "stance": stance, "dead": dead, "why": why})
 
     def _stage_damage(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any], turn: dict[str, Any],
                       effect: dict[str, Any], call_id: str, ordinal: int) -> tuple[list[dict[str, Any]], tuple[str, dict[str, Any]]]:

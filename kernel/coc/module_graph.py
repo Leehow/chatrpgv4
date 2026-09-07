@@ -321,6 +321,33 @@ class ModuleGraph:
             exits[entry["to"]] = merged
         return list(exits.values())
 
+    #: §13.1: how many authored closes a scene carries, and how long each line may be.
+    SCENE_ENDINGS = 4
+    SCENE_ENDING_CHARS = 140
+
+    def scene_endings(self, scene: dict[str, Any]) -> list[dict[str, Any]]:
+        """The closes this scene can lead to: `scene --may-lead-to--> ending`. An ending is
+        not somewhere the party walks (`WALKABLE_KINDS` is scenes alone, and deliberately),
+        it is a settlement — `development:settle-ending`, the rulebook's development phase.
+        Nothing told the Keeper one was in reach, so a scenario played to its end simply
+        stopped: the sorcerer destroyed, the authored close never settled, the campaign still
+        `active`."""
+        endings: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for rel in self.out_rel.get(scene["node_id"], []):
+            node = self.nodes.get(rel["to_node_id"])
+            if not node or node["node_kind"] != "ending" or node["node_id"] in seen:
+                continue
+            if len(endings) >= self.SCENE_ENDINGS:
+                break
+            seen.add(node["node_id"])
+            line = " ".join(str(node.get("summary") or "").split())[:self.SCENE_ENDING_CHARS]
+            entry = {"name": self.display_name(node), "via": rel["relation_kind"]}
+            if line and line != entry["name"]:
+                entry["line"] = line
+            endings.append(entry)
+        return endings
+
     def scene_dangling_exits(self, scene: dict[str, Any]) -> list[str]:
         """route-to relations whose target has no node yet: a neighbour that lives in a
         section nobody has read (§14.6). Returns the missing target ids."""

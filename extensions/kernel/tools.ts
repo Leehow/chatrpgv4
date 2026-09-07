@@ -119,13 +119,16 @@ const RulingEffect = Type.Object({
 
 /** A person moved on or off the stage, or where you read them as standing (contract §17.3). */
 const NpcEffect = Type.Object({
-	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, or set where they stand with the party" }),
+	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, or record that they died" }),
 	name: Type.String({ description: "the NPC's name" }),
 	to: Type.Optional(Type.String({ description: "where they are now: a scene name, `here` for this scene, or `away` to take them off stage" })),
 	stance: Type.Optional(StringEnum(["hostile", "wary", "neutral", "warm"] as const, {
 		description: "your own reading of where they stand with the party; the kernel keeps the settled checks' account on its own, so set this only when you decide something the dice did not",
 	})),
-	why: Type.Optional(Type.String({ description: "one sentence: why they moved, or why they now stand there" })),
+	dead: Type.Optional(Type.Boolean({
+		description: "true on the turn they died. Say it for every death the dice did not settle — killed outside a fight, destroyed by a ruling, dead of what the story did to them — or the table goes on treating them as someone the party can still meet",
+	})),
+	why: Type.Optional(Type.String({ description: "one sentence: why they moved, why they now stand there, or how they died" })),
 });
 
 /**

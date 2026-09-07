@@ -215,6 +215,12 @@ def _fold_npc_effect(ledger: dict[str, Any], receipt: dict[str, Any], *, turn: i
     if isinstance(stance, str) and stance in table.words:
         _set_stance(entry, table, table.floor_of(stance), turn, receipt.get("id"),
                     because={"how": KEEPER_SET, "stance": stance, "why": receipt.get("why")})
+    # A death the keeper states, for the many ways someone dies that settle no HP.
+    if receipt.get("dead") is True:
+        entry["dead"] = {"turn": turn, "receipt": receipt.get("id"),
+                         **({"why": receipt["why"]} if isinstance(receipt.get("why"), str) else {})}
+    elif receipt.get("dead") is False:
+        entry["dead"] = None
 
 
 def _fold_delta(ledger: dict[str, Any], receipt: dict[str, Any], *, turn: int, npc_id_of: Any) -> None:

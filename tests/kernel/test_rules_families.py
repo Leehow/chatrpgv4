@@ -270,7 +270,21 @@ def test_luck_spend_and_insufficient_luck(seeded_kernel):
     assert outcome["roll"] == failed["outcome"]["roll"] - 3
     assert outcome["source_receipt"] == failed["receipt"]
     assert spent["effects"] == [{"kind": "luck", "subject": "thomas-hayes", "before": 50, "after": 47}]
-    assert spent["receipts"] == [f"delta:luck-t1-c{n + 1}"]
+    # The bought result is a receipt of its own. This used to assert the delta alone, which
+    # pinned a defect: the check stayed `failure` in the record for ever, the success lived
+    # only in the call's return, and the mechanics projection showed the player Luck leaving
+    # with nothing bought. Found at a live table, where 24 Luck turned a 74 into a 50 and the
+    # turn held no roll at all.
+    assert spent["receipts"] == [f"delta:luck-t1-c{n + 1}", f"roll:spot-hidden-t1-c{n + 1}"]
+    bought = next(r for r in read_json(campaign_dir(seeded_kernel.workspace) / "turn.json")["receipts"]
+                  if r["id"] == f"roll:spot-hidden-t1-c{n + 1}")
+    assert bought["roll_kind"] == "luck_bought" and bought["source_receipt"] == failed["receipt"]
+    # It mirrors the recomputed result, whatever it is — here three points is not enough to
+    # turn the check, and the receipt says so rather than implying a success was bought.
+    assert bought["roll"] == outcome["roll"] and bought["passed"] == outcome["passed"]
+    assert bought["level"] == outcome["level"] and bought["luck_spent"] == 3
+    # and it is not itself continuable, so nothing can be pushed off the back of it
+    assert bought["roll_kind"] not in ("skill_check", "characteristic_check")
     assert "core.optional.spending_luck" in spent["rule_refs"]
     assert seeded_kernel.table("look", focus="investigator")["luck"] == 47
     assert read_json(campaign_dir(seeded_kernel.workspace) / "party" / "thomas-hayes.json")["current_luck"] == 47
