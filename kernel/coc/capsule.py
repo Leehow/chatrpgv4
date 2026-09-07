@@ -183,6 +183,7 @@ def where_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, An
         "keeper_notes": keeper_notes,
         "assets": graph.scene_assets(scene),
         "places": graph.scene_places(scene),
+        "rules": graph.scene_rules(scene),
         "material": material(graph.handle(scene)),
     }
 

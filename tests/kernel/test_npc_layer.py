@@ -388,10 +388,12 @@ def test_a_reader_s_dossier_claims_reach_the_graph_and_the_table(kernel, tmp_pat
     shard["nodes"] += [
         node("location", "dock-teahouse-building", "码头茶棚", [heading], "雾锁码头的茶棚。"),
         node("location", "jetty", "栈桥", [jetty], "从茶棚向北通往废弃货栈。"),
+        node("rule", "teahouse-questioning", "茶棚问话", [seen], "向老周打听要一次说服检定。"),
     ]
     shard["claims"] += [
         claim("scene-dock-teahouse", "occurs-at", "location-dock-teahouse-building", [heading]),
         claim("location-jetty", "located-in", "location-dock-teahouse-building", [jetty]),
+        claim("scene-dock-teahouse", "uses-rule", "rule-teahouse-questioning", [seen]),
         claim("npc-lao-zhou", "hides", "secret-sailor-entered-at-night", [seen]),
         claim("npc-lao-zhou", "knows", "clue-brass-whistle", [span_with(packet, "一枚铜哨")]),
         claim("npc-lao-zhou", "believes", "secret-sailor-entered-at-night", [timid]),
@@ -420,6 +422,10 @@ def test_a_reader_s_dossier_claims_reach_the_graph_and_the_table(kernel, tmp_pat
                                   "scene_trail": [], "npc_presence": {}},
                           graph.scene("dock-teahouse"), material_of=lambda _h: "ready")
     assert where["places"] == [{"name": "栈桥", "line": "从茶棚向北通往废弃货栈。"}]
+    # §13.1: and what the book fixes for this scene. `uses-rule` was wired by every build and
+    # read by nothing, so the roll the book prescribes — here, and for the reaction to a
+    # newsvendor, and for the hazard on a staircase — never reached the Keeper standing in it.
+    assert where["rules"] == [{"name": "茶棚问话", "line": "向老周打听要一次说服检定。"}]
 
     # §17.4: and it is the projection the keeper reads, not just the graph
     from coc.capsule import npc_entry
