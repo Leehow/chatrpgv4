@@ -3929,7 +3929,8 @@ export class PiHostBackend implements HostBackend {
     if (this.modelsLoaded) return this.modelsLoaded;
     this.modelsLoaded = (async () => {
       let settings: any = {},
-        catalog: any = {};
+        catalog: any = {},
+        auth: any = {};
       try {
         settings = JSON.parse(
           await fs.readFile(join(this.agentDir, "settings.json"), "utf8"),
@@ -3940,6 +3941,7 @@ export class PiHostBackend implements HostBackend {
           await fs.readFile(join(this.agentDir, "models.json"), "utf8"),
         );
       } catch {}
+      try { auth = JSON.parse(await fs.readFile(join(this.agentDir, "auth.json"), "utf8")); } catch {}
       const configured: Model[] = [];
       for (const [provider, config] of Object.entries<any>(
         catalog.providers ?? {},
@@ -3948,7 +3950,8 @@ export class PiHostBackend implements HostBackend {
         const available =
           typeof key === "string" &&
           key.trim() !== "" &&
-          (key.startsWith("$") ? Boolean(this.env[key.slice(1)]) : true);
+          (key.startsWith("$") ? Boolean(this.env[key.slice(1)]) : true)
+          || (auth[provider] !== null && typeof auth[provider] === "object");
         if (!available) continue;
         for (const model of config.models ?? [])
           if (typeof model?.id === "string")

@@ -38,3 +38,17 @@ it('connects the copied host and sheet bridge to the canonical setup process', a
     await backend.close();
   }
 }, 30000);
+
+it('honors the default provider when its credential lives in auth.json', async () => {
+  const {writeFile} = await import('node:fs/promises');
+  const root=await mkdtemp(join(tmpdir(),'pipicoc-default-'));
+  await writeFile(join(root,'settings.json'),JSON.stringify({defaultProvider:'official',defaultModel:'shared-name',defaultThinkingLevel:'low'}));
+  await writeFile(join(root,'models.json'),JSON.stringify({providers:{relay:{apiKey:'fixture',models:[{id:'shared-name',name:'Relay'}]},official:{models:[{id:'shared-name',name:'Official',reasoning:true}]}}}));
+  await writeFile(join(root,'auth.json'),JSON.stringify({official:{type:'api_key',key:'fixture'}}));
+  const backend=createPiHostBackend({agentDir:root,sessionsRoot:join(root,'sessions'),runtimeRoot:join(root,'runtime')});
+  try {
+    await (backend as any).loadConfiguredModels();
+    expect((backend as any).modelState.model.provider).toBe('official');
+    expect((backend as any).modelState.thinkingLevel).toBe('low');
+  } finally {await backend.close();}
+});

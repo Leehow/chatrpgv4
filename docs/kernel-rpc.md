@@ -1494,3 +1494,6 @@ This honors Pi's `message_end` extension rewrite rather than retaining discarded
 Keeper instructions on screen. Panel and mechanics modules use the same confined
 `getExtensionUiEntrySource` path as header modules; Web clients never import a
 server filesystem `file://` URL.
+The local frontend recognizes credentials from `auth.json` when resolving the
+configured default provider. A same-named relay model must not win merely because
+its key is inline in `models.json`; explicit per-session model selections remain.
