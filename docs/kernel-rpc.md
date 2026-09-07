@@ -1191,6 +1191,21 @@ canonical 事件枚举（§12.1，代码里实为十五类：`kernel/coc/events.
 
 `ctx.mode !== "tui"` 时（RPC 模式、print 模式）命令只回一行「interactive only」，不做别的：驾驭器不靠它。
 
+#### Host decision: explicit reasoning effort (2026-09-07)
+
+For local xAI Grok 4.5/4.6 registrations, declare `reasoning: true` and
+disable unsupported `off` and `minimal` levels with `thinkingLevelMap` values
+of `null`. Grok 4.6 additionally supports `xhigh`. The local table default is
+`low`; explicit supported user selections remain available through Pi.
+These models cannot disable reasoning and default to `high` when effort is
+omitted. Registering them as non-reasoning makes Pi omit effort even when its
+UI reports `off`. Configure the existing repository-local Pi home; do not
+patch Pi or hardcode provider behavior into the kernel. Verify the emitted
+Responses payload and real table quality before claiming a latency benefit.
+
+References: https://docs.x.ai/developers/model-capabilities/text/reasoning
+and Pi 0.85.1 `docs/models.md` (`thinkingLevelMap`).
+
 ### 19.2 COC 自己的上下文折叠
 
 Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `session_before_compact`。**这个钩子表达不了「按条目挑着丢」**：它的返回是一个切点加一段摘要，Pi 用摘要替换切点之前的一切。所以「整段丢那些、原样留这些」只能实现成「选好切点，把要留的原样抄进摘要」。COC 口径如下：
