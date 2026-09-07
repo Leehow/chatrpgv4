@@ -9,6 +9,8 @@ same file. Nothing here reads prose."""
 import json
 import sys
 
+import pytest
+
 from conftest import (CAMPAIGN, KERNEL_DIR, OPENING_SCENE, campaign_dir, narrate, open_turn, read_json)
 from test_rules_families import resolve
 
@@ -16,6 +18,7 @@ if str(KERNEL_DIR) not in sys.path:
     sys.path.insert(0, str(KERNEL_DIR))
 
 from coc.module_graph import ModuleGraph  # noqa: E402
+from coc.errors import RpcError  # noqa: E402
 from coc.npc import StanceTable  # noqa: E402
 from coc.rules.tables import RuleTables  # noqa: E402
 
@@ -255,6 +258,22 @@ def test_a_pushed_social_failure_still_reaches_the_stance(seeded_one):
     assert entry["history"]["tried"] == [f"turn 1: charm {first['level']}",
                                          f"turn 1: charm {pushed['level']}"]
     assert entry["history"]["met_turns"] == 2  # the opening turn and this one
+
+
+def test_the_stance_table_must_say_it_is_the_stance_table():
+    """§13.10's law, which the stance table was left out of: content that does not declare
+    itself fails closed. Without the check a table of another shape is read silently and
+    every approach moves the score by nothing — a table that is there and does nothing looks
+    exactly like a table that is working."""
+    class Wrong:
+        def load(self, _name):
+            return {"initial_score": 0, "score_range": [-5, 5], "levels": [], "social": {},
+                    "pushed_failure_delta": -1, "combat_target_score": -5}
+
+    with pytest.raises(RpcError) as caught:
+        StanceTable(Wrong())
+    assert caught.value.code == "campaign_not_ready"
+    assert "npc-stance" in caught.value.message
 
 
 def test_a_thing_bought_from_someone_goes_on_their_account(kernel):

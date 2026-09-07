@@ -17,10 +17,13 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+from .errors import RpcError
 from .fileio import read_json, write_json_atomic
 
 LEDGER_FILENAME = "npc-ledger.json"
 STANCE_TABLE = "npc-stance"
+#: the table must say it is the table (§13.10's law, applied here too)
+STANCE_CONTRACT_ID = "coc.npc-stance.v1"
 #: §17.3: how the keeper's own `apply npc stance` is recorded next to the settled ones.
 KEEPER_SET = "keeper"
 #: the interaction kinds the ledger keeps, by the family the settlement declared
@@ -36,6 +39,14 @@ class StanceTable:
 
     def __init__(self, tables: Any) -> None:
         self.raw = tables.load(STANCE_TABLE)
+        # Fail closed on the wrong table, the way the Director graph and the text graph do
+        # (§13.10): a stance table of another shape would otherwise be read silently and
+        # every approach would quietly move nothing.
+        if self.raw.get("contract_id") != STANCE_CONTRACT_ID:
+            raise RpcError("campaign_not_ready",
+                           f"{STANCE_TABLE} does not declare {STANCE_CONTRACT_ID}",
+                           fix=f"restore content/rulesets/coc7/rules-json/{STANCE_TABLE}",
+                           details={"stance": {"declared": self.raw.get("contract_id")}})
         self.initial = int(self.raw["initial_score"])
         low, high = self.raw["score_range"]
         self.low, self.high = int(low), int(high)

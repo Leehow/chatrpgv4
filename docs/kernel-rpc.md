@@ -537,6 +537,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 | obligations | `continuation` | 上回合结果里 `continuations` 列出但没接的（推骰待玩家认账） |
 | obligations | `quest` | 模组图 `quest` 节点：`state` 由其 `supports`/`may-lead-to` 关系指向的线索发现情况推出（未开始/进行中/可结束） |
 | obligations | `promise` | 记忆候选里 `kind: promise` 且未关闭的（13.5 新增种类） |
+| obligations | `note` | `apply note` 里未关闭的连续性欠账（§18.2 写着，13.2 的来源表此前漏了） |
 
 ### 13.3 Director：三层打分，图是唯一的数
 
@@ -944,6 +945,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 | `session` | `family`, `transition`, `round`?, `outcome`? |
 | `choice` | `option` |
 | `handout` | `name`, `available`, `label`?, `path`? |
+| `worldline` | `operation`, `line`, `loop`, `from`?（§15.3；切片 8 加的，此前只在实现里，照契约读的前端不知道有这一类） |
 
 扩展把它作为会话条目 `coc-mechanics`（`{turn, mechanics}`）追加到 Pi 会话并发到总线 `coc:mechanics`；Pi RPC 事件流因此带着它（`entry_appended`），驾驭器落进 `events.jsonl`；未来的 Electron/web 前端按它渲染骰子卡与变化条。投影为空时不发条目。TUI 只显示守秘人的正文。
 
