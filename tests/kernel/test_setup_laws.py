@@ -53,6 +53,9 @@ KNOWN_STARTER_IR_FINDINGS = {
     "the-white-war": {("clue_nowhere_to_find", "clue-entity-retreats-low-hp"),
                       ("clue_nowhere_to_find", "clue-ice-seal-blasted-away"),
                       ("clue_nowhere_to_find", "clue-survivor-folklore-of-seal")},
+    # #29: built from the Rulebook by the §14.5 lane rather than projected from IR, so it
+    # carries no inherited IR facts and every node cites the page it came from.
+    "the-haunting-rulebook": set(),
 }
 
 
@@ -341,7 +344,7 @@ def test_setup_complete_module_not_ready_is_unreachable_for_a_starter(kernel):
 # ---- the two new starters ---------------------------------------------------------
 
 
-@pytest.mark.parametrize("starter_id", ["mystery-house", "the-white-war"])
+@pytest.mark.parametrize("starter_id", ["mystery-house", "the-white-war", "the-haunting-rulebook"])
 def test_new_starter_creates_a_campaign_opens_and_passes_the_ten_invariants(starter_id, kernel):
     """§14.9: `mystery-house` and `the-white-war` are projected to v3 graphs by
     `scripts/starter_graph.py` and register through the same starter lane as any
@@ -392,4 +395,8 @@ def test_new_starter_creates_a_campaign_opens_and_passes_the_ten_invariants(star
     assert not (set(report["finding_counts"]) & hard_invariants), report["finding_counts"]
     other_findings = {(f["code"], f["subject"]) for f in report["findings"] if f["code"] != "node_without_page"}
     assert other_findings == KNOWN_STARTER_IR_FINDINGS[starter_id]
-    assert report["finding_counts"].get("node_without_page", 0) == len(graph["nodes"])
+    # A starter projected from IR has no source document, so every node is unprovable and
+    # the checker says so about all of them; one built from a book (#29) cites the page each
+    # node came from, which is the whole point of building it that way.
+    unprovable = report["finding_counts"].get("node_without_page", 0)
+    assert unprovable == (0 if graph.get("source_refs") else len(graph["nodes"])), unprovable
