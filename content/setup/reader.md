@@ -72,7 +72,13 @@ one, deterministically, like the gates), and your section is part of that:
   (see above). Silence is the problem.
 - **Every clue `supports` some conclusion, every conclusion has supporting clues, every clue is `discoverable-at` some
   scene.** A clue that leads to no conclusion never reaches the runtime.
-- **Every NPC / creature is `present-in` at least one scene.**
+- **Every NPC / creature the party can meet is `present-in` at least one scene** — and only those. `present-in` means
+  they are *there*, so the runtime puts them on stage and the Keeper is told they are at hand. Someone the book only
+  records — an executor named in a will, a pastor who vanished decades before play, anyone dead or gone — is `present-in`
+  nothing, however often the papers mention them; the clue that names them carries them instead. Leaving such a person
+  out of every scene is the right answer and the checker will say so (`actor_in_no_scene`), which is an account, not a
+  fault. Putting them somewhere to satisfy the check is how a man who disappeared in 1912 came to be standing in a 1920
+  police station, with the Keeper told each turn that he was in the room.
 - **Every node cites at least one span.** (A span carries its page.)
 
 ## What to extract
