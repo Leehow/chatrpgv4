@@ -94,14 +94,15 @@ export function compare(baseline, current, flaky = []) {
  */
 const RETRIES = 2;
 
-function runSuite() {
+function runSuite(files = [], serial = false) {
 	const testScript = JSON.parse(readFileSync(join(electronRoot, "package.json"), "utf8")).scripts.test;
 	const directory = mkdtempSync(join(tmpdir(), "pipicoc-suite-"));
 	const outputFile = join(directory, "report.json");
 	try {
 		try {
 			execFileSync(join(electronRoot, "node_modules/.bin/vitest"),
-				[...vitestArguments(testScript), `--retry=${RETRIES}`, "--reporter=json", `--outputFile=${outputFile}`],
+				[...vitestArguments(testScript), ...files, ...(serial ? ["--no-file-parallelism"] : []),
+					`--retry=${RETRIES}`, "--reporter=json", `--outputFile=${outputFile}`],
 				{ cwd: electronRoot, stdio: ["ignore", "inherit", "inherit"] });
 		} catch {
 			// A red suite is the normal case here: the report on disk is the answer, not the exit code.
@@ -110,6 +111,29 @@ function runSuite() {
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}
+}
+
+/** The file half of a failure id, which is everything before the first ` > ` or ` [`. */
+export function fileOf(id) {
+	return id.split(/ (?:>|\[)/)[0].trim();
+}
+
+/**
+ * Re-decide a difference by running only the files it touches, one at a time.
+ *
+ * Measured, not assumed: three consecutive full runs of this suite each reported a different one or
+ * two failures, always in files that pass on their own -- jsdom layout read as zero, a sidebar row
+ * not painted yet, a temp directory removed while something still wrote into it. All of it is load,
+ * and a check that cries wolf most runs is worse than no check. So a difference is confirmed by a
+ * serial re-run of just those files before anyone is told about it; a test that is actually broken
+ * fails there too, because nothing is competing with it.
+ */
+export function confirmed(current, differing, run = runSuite) {
+	const files = [...new Set(differing.map(fileOf))];
+	if (!files.length) return current;
+	const again = run(files, true);
+	const touched = new Set(files);
+	return [...current.filter((id) => !touched.has(fileOf(id))), ...again].sort();
 }
 
 function headCommit() {
@@ -132,9 +156,9 @@ export function writeBaseline(observed, commit, flaky = [], treeDirty = false) {
 			"title, an invoke path that answers the investigator panel without a live session.",
 			"Check with `npm run test:electron`; rewrite with `node Electron/scripts/suite-baseline.mjs --record`.",
 			"This list is meant to shrink. Do not add an entry by hand to make a red run go green.",
-			"Failing tests are retried twice before they are recorded, so ordinary timing flakiness in",
-			"this suite does not churn the list. `flaky` is checked in neither direction: those tests fail",
-			"on their own timing even under retry, so pinning",
+			"Two gates keep load-induced flakiness out of the list: failing tests are retried twice, and a",
+			"difference is re-checked by running only its files serially before anyone is told about it.",
+			"`flaky` is checked in neither direction: those tests fail",
 			"them would flip the check between regression and stale baseline on alternate runs. Each one",
 			"carries the reason it cannot be pinned. Adding an id here silences that test -- say why.",
 		],
@@ -160,7 +184,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 		console.log(`Recorded ${current.filter((id) => !flaky.includes(id)).length} known failures at ${commit.slice(0, 8)}.`);
 		process.exit(0);
 	}
-	const { regressions, fixed } = compare(recorded.failures, current, flaky);
+	let { regressions, fixed } = compare(recorded.failures, current, flaky);
+	if (regressions.length || fixed.length) {
+		console.log(`Re-running ${new Set([...regressions, ...fixed].map(fileOf)).size} file(s) on their own to confirm.`);
+		({ regressions, fixed } = compare(recorded.failures, confirmed(current, [...regressions, ...fixed]), flaky));
+	}
 	for (const id of regressions) console.error(`NEW FAILURE        ${id}`);
 	for (const id of fixed) console.error(`NO LONGER FAILING  ${id}`);
 	if (regressions.length === 0 && fixed.length === 0) {

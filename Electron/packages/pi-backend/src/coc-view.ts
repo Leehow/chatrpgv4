@@ -27,8 +27,11 @@ export function mechanicsEntry(row:any, language?:string): HistoryEntry | undefi
   if(row?.type!=='custom'||row.customType!=='coc-mechanics'||!Array.isArray(row.data?.mechanics))return;
   const mechanics=row.data.mechanics.filter((x:any)=>x&&typeof x==='object'&&x.visibility!=='keeper');
   if(!mechanics.length)return;
+  // §16.6: the delivery with its markers still in it, when the Keeper placed any. It rides with the
+  // rows because one component has to own both to draw a row where the sentence is.
+  const marked=typeof row.data.marked_text==='string'&&row.data.marked_text?{marked_text:row.data.marked_text}:{};
   return {id:row.id,role:'assistant',content:'',timestamp:Date.parse(row.timestamp)||0,
-    presentation:{renderer:'coc-mechanics',details:{turn:row.data.turn,mechanics,play_language:row.data.play_language??language??'en'}}};
+    presentation:{renderer:'coc-mechanics',details:{turn:row.data.turn,mechanics,...marked,play_language:row.data.play_language??language??'en'}}};
 }
 export async function readColdSheet(repo:string, context:CocBinding):Promise<unknown> {
   const client=new KernelClient({command:['uv','run','--frozen','python','-m','coc.rpc','--workspace',context.home,'--content',join(repo,'content')],cwd:repo,

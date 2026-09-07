@@ -33,6 +33,14 @@ const CSS = `
 .coc-mech-prose{font-family:var(--coc-serif);font-size:14.5px;line-height:1.75;max-width:64ch;
   white-space:pre-wrap;color:var(--text)}
 
+/* A marked delivery (§16.6): the narration reads straight down and a receipt sits at the point
+   the keeper put it, inset just enough to read as an aside rather than as a paragraph. */
+.coc-mech-inline{max-width:64ch}
+.coc-mech-para{font-family:var(--coc-serif);font-size:14.5px;line-height:1.75;color:var(--text);
+  margin:0 0 0.9em}
+.coc-mech-here{margin:0.35em 0 1em;padding-left:10px;border-left:2px solid var(--border-strong)}
+.coc-mech-inline .coc-mech-list{margin-top:18px}
+
 /* The ledger. These rows are receipts — the contract's own word — so they are ruled entries,
    not cards: a hanging label in the gutter, the entry in the column, the figure at the margin. */
 .coc-mech-list{margin-top:14px;max-width:64ch;border-top:1px solid var(--border)}
@@ -320,6 +328,38 @@ export function createComponent(React) {
     }
   }
 
+  /**
+   * The delivery split at its `{{markers}}` (contract §16.6): text run, placed row, text run.
+   *
+   * Reading order is the whole point, so nothing is reordered and nothing is dropped -- a marker
+   * whose row is not here (a keeper-only roll the projection already hid) leaves its text runs
+   * joined rather than a hole. Paragraph breaks inside a run survive as their own blocks.
+   */
+  function splitDelivery(marked, rows) {
+    const byMarker = new Map(rows.filter(row => typeof row.marker === "string").map(row => [row.marker, row]));
+    const parts = [];
+    let last = 0;
+    const pattern = /\{\{([a-z0-9][a-z0-9:_-]*)\}\}/g;
+    for (let match = pattern.exec(marked); match; match = pattern.exec(marked)) {
+      const row = byMarker.get(match[1]);
+      if (!row) continue;
+      parts.push({ text: marked.slice(last, match.index) });
+      parts.push({ row });
+      last = match.index + match[0].length;
+      byMarker.delete(match[1]);
+    }
+    parts.push({ text: marked.slice(last) });
+    // Whatever the keeper did not place keeps the trailing group it has always had.
+    return { parts, unplaced: rows.filter(row => !row.marker || byMarker.has(row.marker)) };
+  }
+
+  function proseBlocks(chunk, key) {
+    // The markers are gone from these runs; what is left is the keeper's own paragraphing.
+    return chunk.replace(/\{\{[a-z0-9][a-z0-9:_-]*\}\}/g, "").split(/\n{2,}/)
+      .map(block => block.trim()).filter(Boolean)
+      .map((block, index) => h("p", { className: "coc-mech-para", key: `${key}:${index}` }, block));
+  }
+
   /** @param {{content: string, details?: unknown}} props */
   return function DeliveryCard(props) {
     const details = isRecord(props.details) ? props.details : {};
@@ -329,7 +369,24 @@ export function createComponent(React) {
     const term = (name) => (typeof glossary[name] === "string" && glossary[name]) || name;
 
     const prose = text(details.rendered_text);
-    const rows = (Array.isArray(details.mechanics) ? details.mechanics : []).filter(playerVisible);
+    const all = (Array.isArray(details.mechanics) ? details.mechanics : []).filter(playerVisible);
+    const marked = text(details.marked_text);
+    // §16.6: with a marked delivery this card draws the narration itself, because a row can only be
+    // put where the sentence is by whoever holds both. The host folds away the plain copy.
+    if (marked) {
+      const { parts, unplaced } = splitDelivery(marked, all);
+      return h("div", { className: "coc-mech coc-mech-inline" },
+        parts.map((part, index) => part.row
+          ? h("div", { className: "coc-mech-here", key: `row:${index}` }, renderRow(part.row, t, term, index))
+          : proseBlocks(part.text, `text:${index}`)),
+        unplaced.length
+          ? h("section", { className: "coc-mech-list", "aria-label": t.mechanics },
+              h("h2", { className: "coc-mech-cap" }, t.mechanics),
+              unplaced.map((row, i) => renderRow(row, t, term, `rest:${i}`)))
+          : null);
+    }
+
+    const rows = all;
     // Nothing of ours to add: let the host draw its default card rather than an empty one.
     if (!prose && !rows.length) return null;
 

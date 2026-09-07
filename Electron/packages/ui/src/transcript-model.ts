@@ -197,6 +197,41 @@ function displayHistoryEntry(entry: HistoryEntry): HistoryEntry {
   }
 }
 
+/** The `{{marker}}` shape the kernel mints (contract §16.6). Literal: nothing here reads prose. */
+const MECHANICS_MARKER = /\{\{[a-z0-9][a-z0-9:_-]*\}\}/g
+
+/** A delivery with its markers taken out, the way the kernel strips them for `rendered_text`. */
+export function withoutMechanicsMarkers(text: string): string {
+  return text.replace(MECHANICS_MARKER, '').replace(/[ \t]{2,}/g, ' ').trim()
+}
+
+/**
+ * Drop the plain copy of a delivery the mechanics card is already drawing (contract §16.6).
+ *
+ * A marked delivery reaches the frontend twice on purpose: as the assistant message, which is also
+ * what a terminal reader sees and therefore has to stay prose, and as `marked_text` on the
+ * `coc-mechanics` entry, which is the only place a component can be mounted at a position. Showing
+ * both would print the narration twice, so the card wins and the plain copy is folded away.
+ *
+ * The match is exact text equality after stripping, never a guess: two messages that read the same
+ * are the same delivery, and a delivery the card is not drawing is left alone.
+ */
+export function foldMarkedDeliveries(messages: readonly ChatMessage[]): ChatMessage[] {
+  const drawn = new Set<string>()
+  for (const message of messages) {
+    const marked = (message.presentation?.details as { marked_text?: unknown } | undefined)?.marked_text
+    if (message.presentation?.renderer === 'coc-mechanics' && typeof marked === 'string' && marked) {
+      drawn.add(withoutMechanicsMarkers(marked))
+    }
+  }
+  if (!drawn.size) return messages as ChatMessage[]
+  return messages.filter(message =>
+    message.presentation
+    || message.role !== 'assistant'
+    || !message.content
+    || !drawn.has(message.content.trim()))
+}
+
 export function historyMessages(entries: HistoryEntry[]): ChatMessage[] {
   const cards = new Map<string, TranscriptTool>()
   const messages: ChatMessage[] = []

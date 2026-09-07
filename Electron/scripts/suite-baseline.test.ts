@@ -8,12 +8,12 @@
  * failures — because it read the wrong field, or because a file that never loaded contributes no
  * assertion rows — would print "matches its baseline" forever while the suite fell apart.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // @ts-expect-error -- plain ESM tooling, no type declarations
-import { BASELINE_PATH, compare, failureId, failuresOf, vitestArguments } from './suite-baseline.mjs'
+import { BASELINE_PATH, compare, confirmed, failureId, failuresOf, fileOf, vitestArguments } from './suite-baseline.mjs'
 
 const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -88,6 +88,38 @@ describe('comparing against the baseline', () => {
 
   it('still catches a real regression while a flaky test is exempt', () => {
     expect(compare([], ['coin', 'real'], ['coin'])).toEqual({ regressions: ['real'], fixed: [] })
+  })
+})
+
+describe('naming the file a failure lives in', () => {
+  it('takes everything before the test path, so a re-run can target it', () => {
+    expect(fileOf('packages/ui/src/App.test.tsx > layout > maps the model')).toBe('packages/ui/src/App.test.tsx')
+  })
+
+  it('handles a file that never loaded, which has no test path at all', () => {
+    expect(fileOf('scripts/windows-package-path.test.ts [suite failed to run]')).toBe('scripts/windows-package-path.test.ts')
+  })
+})
+
+describe('confirming a difference before anyone is told', () => {
+  it('replaces every result from the re-run files and keeps the rest of the run', () => {
+    const current = ['a.test.ts > one', 'a.test.ts > two', 'b.test.ts > kept']
+    const run = vi.fn(() => ['a.test.ts > two'])
+    expect(confirmed(current, ['a.test.ts > one'], run))
+      .toEqual(['a.test.ts > two', 'b.test.ts > kept'])
+    // Only the differing file is re-run, and serially: the point is to take the load away.
+    expect(run).toHaveBeenCalledWith(['a.test.ts'], true)
+  })
+
+  it('keeps a failure that survives its own serial run, so a real break still reports', () => {
+    const run = vi.fn(() => ['a.test.ts > real'])
+    expect(confirmed(['a.test.ts > real'], ['a.test.ts > real'], run)).toEqual(['a.test.ts > real'])
+  })
+
+  it('runs nothing when there is no difference to confirm', () => {
+    const run = vi.fn(() => [])
+    expect(confirmed(['a.test.ts > one'], [], run)).toEqual(['a.test.ts > one'])
+    expect(run).not.toHaveBeenCalled()
   })
 })
 
