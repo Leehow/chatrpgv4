@@ -6970,7 +6970,7 @@
       "object": {
         "node_id": "clue-burning-eyes-form"
       },
-      "truth_status": "authored-fact",
+      "truth_status": "authored-lie",
       "visibility": "keeper-only",
       "evidence_span_ids": [],
       "asserted_by_ids": [],

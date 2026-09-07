@@ -447,8 +447,11 @@ class ModuleGraph:
     def npc_claim_lines(self, node: dict[str, Any], predicate: str) -> list[str]:
         """One short line per claim, copied from the graph and never rewritten: the object
         node's summary or name, else the claim's own `statement`."""
+        return self._claim_lines(self.npc_claims(node, predicate))
+
+    def _claim_lines(self, claims: list[dict[str, Any]]) -> list[str]:
         lines: list[str] = []
-        for claim in self.npc_claims(node, predicate):
+        for claim in claims:
             obj = claim.get("object") if isinstance(claim.get("object"), dict) else {}
             target = self.nodes.get(obj.get("node_id")) if isinstance(obj.get("node_id"), str) else None
             line = None
@@ -463,11 +466,31 @@ class ModuleGraph:
                 lines.append(line.strip())
         return lines
 
+    #: §17.2: an `asserts` claim's truth_status says which kind of saying it is. One the
+    #: person holds true is a belief of theirs, not a lie they would tell — the built
+    #: the-haunting has both, and telling the keeper Gabriela "would lie about" the presence
+    #: she truly saw would be a worse error than saying nothing.
+    LIE_STATUSES = ("authored-lie", "authored-rumor")
+    BELIEF_STATUS = "authored-belief"
+
+    def _asserts_by_status(self, node: dict[str, Any], statuses: tuple[str, ...]) -> list[str]:
+        wanted = [c for c in self.npc_claims(node, ASSERTS) if c.get("truth_status") in statuses]
+        return self._claim_lines(wanted)
+
+    def npc_beliefs(self, node: dict[str, Any]) -> list[str]:
+        """§17.4 `believes`: what they hold that may be wrong — the `believes` claims, plus
+        the things they assert and hold true."""
+        lines = self.npc_claim_lines(node, BELIEVES)
+        for line in self._asserts_by_status(node, (self.BELIEF_STATUS,)):
+            if line not in lines:
+                lines.append(line)
+        return lines
+
     def npc_would_say(self, node: dict[str, Any]) -> list[str]:
-        """§17.4 `would_lie_about`: what this person says instead of the plain truth — the
-        clue an `asserts` claim says they lie about, plus the deflection lines the book
-        wrote for them. Copied, never composed."""
-        lines = self.npc_claim_lines(node, ASSERTS)
+        """§17.4 `would_lie_about`: what this person says instead of the plain truth — a lie
+        or a rumor they would tell, plus the deflection lines the book wrote for them. What
+        they assert and believe is not here; it is in `npc_beliefs`. Copied, never composed."""
+        lines = self._asserts_by_status(node, self.LIE_STATUSES)
         for deflect in (node.get("properties") or {}).get("deflect_lines") or []:
             line = deflect.get("line") if isinstance(deflect, dict) else None
             if isinstance(line, str) and line.strip() and line.strip() not in lines:

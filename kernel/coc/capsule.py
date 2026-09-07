@@ -233,7 +233,7 @@ def npc_entry(graph: ModuleGraph, world: dict[str, Any], node: dict[str, Any],
             entry[field] = profile[key]
     if knows:
         entry["knows"] = knows[:PRESENT_KNOWS]
-    believes = graph.npc_claim_lines(node, BELIEVES)[:PRESENT_CLAIM_LINES]
+    believes = graph.npc_beliefs(node)[:PRESENT_CLAIM_LINES]
     if believes:
         entry["believes"] = believes
     lies = graph.npc_would_say(node)[:PRESENT_CLAIM_LINES]
@@ -714,10 +714,12 @@ def npc_view(graph: ModuleGraph, world: dict[str, Any], node: dict[str, Any],
               "discovered": entry["handle"] in discovered} for entry in graph.npc_knows(node)]
     if knows:
         view["knows"] = knows
-    for predicate, field in ((BELIEVES, "believes"), (HIDES, "hides_claims")):
-        lines = graph.npc_claim_lines(node, predicate)
-        if lines:
-            view[field] = lines
+    beliefs = graph.npc_beliefs(node)
+    if beliefs:
+        view["believes"] = beliefs
+    hidden = graph.npc_claim_lines(node, HIDES)
+    if hidden:
+        view["hides_claims"] = hidden
     would_say = graph.npc_would_say(node)
     if would_say:
         view["would_lie_about"] = would_say

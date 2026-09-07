@@ -318,10 +318,19 @@ def build_starter_graph(starter_dir: Path | str, *, asset_catalog: Path | str | 
     projection_documents: list[dict[str, Any]] = []
     relation_ordinal = 0
 
-    def add_relation(kind: str, source: str, target: str, **properties: Any) -> None:
+    #: §17.2: relation id -> the claim's truth status when it is not `authored-fact`. The
+    #: starter IR states a lie as a lie; stamping it `authored-fact` like everything else
+    #: would make the table read it as something the person truly says.
+    claim_truth: dict[str, str] = {}
+
+    def add_relation(kind: str, source: str, target: str, truth_status: str | None = None,
+                     **properties: Any) -> None:
         nonlocal relation_ordinal
         relation_ordinal += 1
-        relations.append(_relation(f"relation-{kind}-{relation_ordinal}", kind, source, target, properties=properties))
+        relation_id = f"relation-{kind}-{relation_ordinal}"
+        if truth_status:
+            claim_truth[relation_id] = truth_status
+        relations.append(_relation(relation_id, kind, source, target, properties=properties))
 
     registry = contract.get("record_field_registry") or {}
     for filename in PROJECTED_DOCUMENTS:
@@ -624,7 +633,7 @@ def build_starter_graph(starter_dir: Path | str, *, asset_catalog: Path | str | 
         for lie in record.get("lie_options") or []:
             clue_node = by_fact.get(str(lie.get("fact_id"))) if isinstance(lie, dict) else None
             if clue_node:
-                add_relation("asserts", npc_id, clue_node)
+                add_relation("asserts", npc_id, clue_node, truth_status="authored-lie")
         deflects = [{"line": d["player_safe_line"],
                      **({"clue": _handle_of(by_fact[str(d.get("fact_id"))])} if by_fact.get(str(d.get("fact_id"))) else {})}
                     for d in record.get("deflect_options") or []
@@ -690,7 +699,7 @@ def build_starter_graph(starter_dir: Path | str, *, asset_catalog: Path | str | 
             "subject_id": relation["from_node_id"],
             "predicate": relation["relation_kind"],
             "object": {"node_id": relation["to_node_id"]},
-            "truth_status": "authored-fact",
+            "truth_status": claim_truth.get(relation["relation_id"], "authored-fact"),
             "visibility": visibility,
             "evidence_span_ids": sorted({*source_node.get("evidence_span_ids", []), *target_node.get("evidence_span_ids", [])}),
             "asserted_by_ids": [],

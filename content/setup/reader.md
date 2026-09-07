@@ -84,8 +84,9 @@ one, deterministically, like the gates), and your section is part of that:
   investigators, put it in `properties` as `agenda`, `fear`, `secret`, `voice`, `relationship_to_investigators`, with
   `visibility` `keeper-only`. Copy the book; do not invent a motive for someone the book only names.
   What they know and would say goes in claims with the actor as subject: `knows` (a clue, secret, place or person the
-  book says they know), `believes` (what they hold that may be wrong), `asserts` (the line they would give, with
-  `truth_status` `authored-lie` or `authored-rumor`), `hides` (a `secret` node). Who they stand with and against goes in
+  book says they know), `believes` (what they hold that may be wrong), `asserts` (the line they would give: `truth_status`
+  `authored-lie` or `authored-rumor` when the book says it is false or embellished, `authored-belief` when they say
+  it and hold it true -- the table shows a belief as a belief and a lie as a lie, so the status is the whole difference), `hides` (a `secret` node). Who they stand with and against goes in
   the relations that already exist: `allied-with`, `opposes`, `member-of`, `controls`, `owns`, `possesses`, `worships`,
   `threatens`, `impersonates`.
 - Clues and conclusions (`clue` / `conclusion`): `discoverable-at` into scenes, `supports` to conclusions; a `clue`'s

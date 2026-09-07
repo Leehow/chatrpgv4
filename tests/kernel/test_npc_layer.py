@@ -78,6 +78,34 @@ def test_what_someone_would_say_instead_reaches_the_projection():
         "Start with the papers; we can discuss the rest when you have something concrete."]
 
 
+def test_an_assertion_someone_holds_true_is_a_belief_not_a_lie():
+    """§17.2/§17.4: `asserts` covers everything a person would say, and its `truth_status`
+    says which kind. Telling the keeper that Gabriela "would lie about" the presence she
+    truly saw is a worse error than saying nothing, so the two are read apart."""
+    starter = ModuleGraph("the-haunting", CONTENT / "starters" / "the-haunting" / "module-graph.json")
+    # a node of its own, so the deflection lines the book gave Dooley do not blur the test
+    node = {"node_id": "npc-under-test", "node_kind": "npc", "name": "Under Test", "properties": {}}
+    line = starter.nodes["clue-burning-eyes-form"]["summary"]
+
+    def assert_as(status: str) -> tuple[list[str], list[str]]:
+        starter.claims_by_subject["npc-under-test"] = [
+            {"subject_id": "npc-under-test", "predicate": "asserts", "truth_status": status,
+             "object": {"node_id": "clue-burning-eyes-form"}}]
+        return starter.npc_would_say(node), starter.npc_beliefs(node)
+
+    # a lie and a rumour are things he would say instead of the truth
+    for status in ("authored-lie", "authored-rumor"):
+        would_say, beliefs = assert_as(status)
+        assert would_say == [line] and beliefs == [], status
+    # one he holds true is a belief of his, and never something he would lie about
+    would_say, beliefs = assert_as("authored-belief")
+    assert beliefs == [line] and would_say == []
+
+    # and the starter projector states the book's own lie as a lie, not as a fact
+    dooley = starter.npc("Mr. Dooley")
+    assert [c["truth_status"] for c in starter.npc_claims(dooley, "asserts")] == ["authored-lie"]
+
+
 def test_ties_come_from_the_relations_the_graph_already_has():
     """§17.2: no new relation kind; who someone stands with is read off the graph both ways
     round, and the people in the room sort first (§17.4)."""
