@@ -290,16 +290,20 @@ def _project_scene_records(nodes: dict[str, dict[str, Any]], relations: dict[str
     for node in nodes.values():
         if node.get("node_kind") != "scene":
             continue
-        if isinstance(((node.get("properties") or {}).get("runtime_projection") or {}).get("record"), dict):
-            continue
         props = node.setdefault("properties", {})
+        existing = (props.get("runtime_projection") or {}).get("record")
         record = {
-            **{k: v for k, v in props.items() if k != "runtime_projection"},
             "scene_id": handle_of(node),
             "display_name": node.get("name"),
-            "is_start": bool(props.get("is_entrance") is True or props.get("is_start") is True),
-            "is_final": bool(props.get("is_ending") is True or props.get("is_final") is True),
+            "is_start": False,
+            "is_final": False,
+            **(existing if isinstance(existing, dict) else {}),
+            **{k: v for k, v in props.items() if k != "runtime_projection"},
         }
+        if "is_entrance" in props or "is_start" in props:
+            record["is_start"] = bool(props.get("is_entrance") is True or props.get("is_start") is True)
+        if "is_ending" in props or "is_final" in props:
+            record["is_final"] = bool(props.get("is_ending") is True or props.get("is_final") is True)
         props["runtime_projection"] = {"document": "story-graph.json", "collection": "scenes",
                                        "record": record}
 

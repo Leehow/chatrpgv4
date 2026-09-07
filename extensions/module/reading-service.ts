@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir, copyFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { KernelError } from "../kernel/client.ts";
+import { KernelError , isKernelError } from "../kernel/client.ts";
 import { runReader } from "./reader.ts";
 import { sourceAsset, sourceInfo } from "./source.ts";
 
@@ -76,7 +76,12 @@ export class ReadingService implements ReadingBridge {
 			if (!model.vision) throw error("vision_required", "the configured reader cannot receive images", "select a reader model with image input");
 			const path = resolve(this.deps.home, params.pdf);
 			this.deps.progress({ stage: "source" });
-			const source = await sourceInfo(path);
+			let source: Awaited<ReturnType<typeof sourceInfo>>;
+			try { source = await sourceInfo(path); }
+			catch (failure) {
+				throw error("bad_pdf", `the original PDF could not be opened: ${failure instanceof Error ? failure.message : String(failure)}`,
+					"choose an accessible, readable original PDF");
+			}
 			const bound = await this.deps.call("module.source.bind", { source,
 				...(mid ? { module_id: mid } : {}), title: basename(path, ".pdf") });
 			mid = bound.module_id;
@@ -103,7 +108,7 @@ export class ReadingService implements ReadingBridge {
 			const configured = Number(process.env.PI_COC_READ_WAIT_MS);
 			const wait = Number.isFinite(configured) && configured > 0 ? configured : 120_000;
 			const interrupted = new Promise<never>((_resolve, reject) => {
-				timer = setTimeout(() => reject(error("reading_timeout", "the source is still being read", "continue waiting with lookup for the same target; the existing reading is retained")), wait);
+				timer = setTimeout(() => reject(error("reading_timeout", "the source is still being read", "use ask to return control; on a later player turn, lookup kind=source with the same target and question rejoins the retained reading")), wait);
 				onAbort = () => {
 					if ((this.waiters.get(mid) ?? 0) <= 1) this.controllers.get(mid)?.abort();
 					reject(error("reading_failed", "reading was cancelled", "retry explicitly when ready"));
@@ -130,7 +135,7 @@ export class ReadingService implements ReadingBridge {
 					fix: "choose one candidate using start_scene in prepare-module", details: choice });
 				throw error("reading_failed", (response.missing ?? []).join("; ") || "the reading could not prepare this material", response.fix ?? "retry explicitly");
 			}
-			await this.pump(mid);
+			await Promise.race([this.pump(mid), delay(150)]);
 			await delay(150);
 		}
 		throw error("reading_failed", "the reader host shut down", "resume in a new session");
@@ -198,6 +203,7 @@ export class ReadingService implements ReadingBridge {
 								const checkpoint = JSON.parse(await readFile(join(cwd, "read-complete.json"), "utf8"));
 								if (validCheckpoint(checkpoint, bytes, job)) { previousDraft = JSON.parse(bytes.toString()); previousPages = checkpoint.observations.read_pages; }
 							} catch { /* no completed source reading to carry */ }
+							await writeFile(join(cwd, "baseline.json"), JSON.stringify(previousDraft ?? {}) + "\n");
 							try {
 								const retained = JSON.parse(await readFile(join(cwd, "draft.json"), "utf8"));
 								task.must_view_pages = previousDraft ? [] : draftPages(retained);
@@ -212,6 +218,7 @@ export class ReadingService implements ReadingBridge {
 						await writeFile(instructions, intro + guide.slice(start, end < 0 ? undefined : end) + "\nComplete only this phase and then stop.\n");
 						this.deps.progress({ module_id: job.module_id, stage: phase, focus: job.focus, of: job.source.page_count });
 						const imagePaths = new Set<string>();
+						const imageCalls = new Map<string, string>();
 						const beforeReview = phase === "verify" ? sha(await readFile(join(cwd, "draft.json"))) : undefined;
 						const reads = new Map<string, string>();
 						const configured = Number(process.env.PI_COC_READER_TIMEOUT_MS);
@@ -223,12 +230,16 @@ export class ReadingService implements ReadingBridge {
 							onEvent(event) {
 								if (event.type === "tool_execution_start" && event.toolName === "read" && event.args?.path) reads.set(event.toolCallId, resolve(cwd, event.args.path));
 								if (event.type === "tool_execution_end" && !event.isError && event.result?.content?.some((c: Row) => c.type === "image")) {
-									const path = reads.get(event.toolCallId); if (path) imagePaths.add(path);
+									const path = reads.get(event.toolCallId); if (path) imageCalls.set(event.toolCallId, path);
 								}
 								if (event.type === "message_end" && event.message?.errorMessage) throw new Error(event.message.errorMessage);
 							},
 						});
-						this.deps.record({ lane: "reading", module_id: job.module_id, phase, round, ms: run.ms, ok: run.ok, image_reads: imagePaths.size });
+						if (imageCalls.size) {
+							const visibility = (await readFile(join(cwd, `${phase}-${round}.jsonl.images.jsonl`), "utf8")).trim().split("\n").filter(Boolean).flatMap(line => JSON.parse(line).included ?? []);
+							for (const id of visibility) { const path = imageCalls.get(id); if (path) imagePaths.add(path); }
+						}
+						this.deps.record({ lane: "reading", module_id: job.module_id, model: model.id, phase, round, ms: run.ms, ok: run.ok, image_reads: imagePaths.size });
 						if (!run.ok) throw new Error(run.error || (run.timedOut ? "reader timed out" : run.stderr || "reader failed"));
 						if (beforeReview && beforeReview !== sha(await readFile(join(cwd, "draft.json")))) {
 							readComplete = false;
@@ -276,11 +287,11 @@ export class ReadingService implements ReadingBridge {
 							await writeFile(checkpointPath, JSON.stringify({ ...checkpoint, requires_repair: true }) + "\n");
 						} catch { /* no completed read to invalidate */ }
 					}
-					detail = failure instanceof KernelError ? failure.toToolText() : String(failure);
+					detail = isKernelError(failure) ? failure.toToolText() : String(failure);
 					let review: Row | undefined;
 					try { review = JSON.parse(await readFile(join(cwd, "review.json"), "utf8")); } catch { /* no review yet */ }
 					await writeFile(join(cwd, "findings.json"), JSON.stringify({ error: detail,
-						...(failure instanceof KernelError ? { details: failure.details } : {}),
+						...(isKernelError(failure) ? { details: failure.details } : {}),
 						...(review ? { missing: review.missing, unsupported: review.checked?.filter((row: Row) => row.verdict !== "supported") } : {}) }) + "\n");
 				}
 			}

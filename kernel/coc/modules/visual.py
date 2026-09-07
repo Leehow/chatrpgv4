@@ -50,6 +50,22 @@ def numeric_paths(value: Any, path: str = "") -> list[str]:
     return []
 
 
+def required_view_pages(draft: dict[str, Any], baseline: dict[str, Any] | None = None) -> list[int]:
+    """Tell the reader which changed records need source images before it finishes."""
+    pages: set[int] = set()
+    for collection in ("nodes", "claims"):
+        def identity(row):
+            return row.get("node_id") or row.get("claim_id") or canonical_json([row.get("subject_id"), row.get("predicate"), row.get("object")])
+        old = {identity(r): r for r in (baseline or {}).get(collection, [])}
+        for row in draft.get(collection, []):
+            if old.get(identity(row)) == row:
+                continue
+            for ref in [*row.get("source_refs", []), *row.get("properties", {}).get("image_sources", [])]:
+                if type(ref.get("page")) is int:
+                    pages.add(ref["page"])
+    return sorted(pages)
+
+
 def pointer(value: Any, path: str) -> Any:
     if not isinstance(path, str) or not path.startswith("/"):
         reject("review path must be a JSON pointer into the draft")

@@ -262,7 +262,8 @@ class ModuleStore:
     # ---- sections -------------------------------------------------------------------
 
     def read_sections(self, module_id: str) -> list[dict[str, Any]]:
-        path = self.sections_path(module_id)
+        meta = self.module(module_id)
+        path = self.module_dir(module_id) / meta["index_file"] if meta.get("index_file") else self.sections_path(module_id)
         return list(read_json(path)) if path.exists() else []
 
     def write_sections(self, module_id: str, sections: list[dict[str, Any]]) -> None:

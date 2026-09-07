@@ -236,7 +236,13 @@ class Table:
             queued = []
             for exit_ in graph.scene_exits(scene):
                 if not self.reading.material_ready(module_id, exit_["to"]):
-                    reply = self.reading.request({"module_id": module_id, "purpose": "detail", "focus": exit_["to"]})
+                    try:
+                        reply = self.reading.request({"module_id": module_id, "purpose": "detail", "focus": exit_["to"]})
+                    except (RpcError, OSError) as error:
+                        # Optional read-ahead cannot turn a completed move or an available
+                        # opening into an error. Foreground reading reports the source problem.
+                        self.module_store.append_build_log(module_id, {"event": "prefetch-unavailable", "detail": str(error)})
+                        return queued
                     if reply.get("job_id"):
                         queued.append(reply["job_id"])
             return queued
@@ -728,7 +734,11 @@ class Table:
         where = where_section(graph, world, scene, self.material_of(graph.module_id))
         where["situations"] = self._situations(campaign, graph, world, turn)
         where["session"] = SessionView(campaign.dir, graph, campaign.party(), world).active_session()
-        return {"where": where, "present": self._present(campaign, graph, world, scene)}
+        result = {"where": where, "present": self._present(campaign, graph, world, scene)}
+        if int(turn["turn"]) == 0:
+            from .capsule import fitted_module_section
+            result["module"] = fitted_module_section(graph)[0]
+        return result
 
     def _situations(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any],
                     turn: dict[str, Any]) -> list[dict[str, Any]]:
@@ -914,7 +924,7 @@ class Table:
             raise unsupported_value("intent", intent, sorted(INTENTS),
                                     message=f"unknown intent {intent!r}")
         if intent not in NONE_INTENTS:
-            self._require_material(graph, [world.get("active_scene"), action.get("target")])
+            self._require_material(graph, [world.get("active_scene"), action.get("actor"), action.get("target")])
         turn_number = int(turn["turn"])
         _, ordinal = parse_call_id(call_id)
         modifiers = self._modifiers(action.get("modifiers"))

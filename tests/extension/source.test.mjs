@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
-import { sourceInfo, sourcePage } from "../../extensions/module/source.ts";
+import { sourceAsset, sourceInfo, sourcePage } from "../../extensions/module/source.ts";
 
 function pdf(rotation = 0) {
 	const stream = "1 0 0 rg 0 0 100 100 re f 0 0 1 rg 100 0 100 100 re f";
@@ -74,5 +74,16 @@ test("invalid page selectors, invalid regions and malformed sources fail explici
 	for (const page of [0, 2, 1.5]) await assert.rejects(sourcePage(file, cache, page), /page/);
 	await assert.rejects(sourcePage(file, cache, 1, { box: [0, 0, 2, 1] }), /box/);
 	await writeFile(file, "not a PDF");
-	await assert.rejects(sourceInfo(file));
+    await assert.rejects(sourceInfo(file));
+});
+
+test("a handout preserves its explicitly declared source regions in order", async t => {
+	const { file, cache } = await fixture(t);
+	const output = join(cache, "handout.png");
+	const asset = await sourceAsset(file, cache, [{ page: 1, box: [0, 0, .5, 1] }, { page: 1, box: [.5, 0, 1, 1] }], output);
+	assert.equal(asset.media_type, "image/png");
+	const image = await loadImage(asset.path), canvas = createCanvas(image.width, image.height), ctx = canvas.getContext("2d");
+	ctx.drawImage(image, 0, 0);
+	assert.deepEqual(Array.from(ctx.getImageData(100, 100, 1, 1).data), [255, 0, 0, 255]);
+	assert.deepEqual(Array.from(ctx.getImageData(100, image.height - 100, 1, 1).data), [0, 0, 255, 255]);
 });

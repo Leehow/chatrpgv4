@@ -70,10 +70,27 @@ class Reading:
                 meta = self.store.module(mid)
                 if meta.get("file_sha256") != source["file_sha256"]:
                     continue
-                if not meta.get("source_document"):
-                    shutil.copyfile(path, self.store.module_dir(mid) / "source.pdf")
+                destination = self.store.module_dir(mid) / "source.pdf"
+                if not meta.get("source_document") or not destination.is_file():
+                    if path != destination.resolve():
+                        temporary = destination.with_name(f"source-copy-{uuid.uuid4().hex}.pdf")
+                        shutil.copyfile(path, temporary)
+                        if digest(temporary) != source["file_sha256"]:
+                            raise invalid_params("source changed during restoration")
+                        os.replace(temporary, destination)
+                    if not meta.get("source_document"):
+                        graph = self.store.read_graph(mid)
+                        queue = self.store.queue_path(mid)
+                        if queue.exists():
+                            queue.rename(queue.with_name(f"legacy-queue-{uuid.uuid4().hex}.json"))
+                        self.store.write_queue(mid, [])
+                        meta["reading"] = self.initial_state()
+                        if graph:
+                            meta["reading"]["materials"] = [{"purpose": "detail", "verification": "legacy",
+                                "node_ids": [n["node_id"] for n in graph.get("nodes", [])],
+                                "generation": meta.get("generation", 0)}]
                     meta.update(reading_version=1, source_document={"path": "source.pdf", **{k: source[k] for k in ("file_sha256", "page_count")}})
-                    meta["reading"] = self.initial_state()
+                    meta["page_count"] = source["page_count"]
                     self.store.write_module(meta)
                 return {"module_id": mid, "replayed": True}
             wanted = params.get("module_id")
@@ -117,7 +134,12 @@ class Reading:
             raise RpcError("needs", "the original PDF is required for further reading",
                            fix="bind the matching original PDF with module.source.bind",
                            details={"reason": "needs_source"})
-        path = contained(self.store.module_dir(meta["id"]), str(self.store.module_dir(meta["id"]) / source["path"]))
+        path = self.store.module_dir(meta["id"]) / source["path"]
+        if not path.is_file():
+            raise RpcError("needs", "the original PDF is unavailable for further reading",
+                           fix="bind the matching original PDF with module.source.bind",
+                           details={"reason": "needs_source"})
+        path = contained(self.store.module_dir(meta["id"]), str(path))
         if digest(path) != source["file_sha256"]:
             raise invalid_params("the registered original PDF was modified", fix="supply the matching original source")
         return {**source, "path": str(path)}
@@ -138,7 +160,6 @@ class Reading:
             raise invalid_params(f"purpose must be one of {list(PURPOSES)}")
         with mutex(self.store.module_dir(mid) / ".metadata.lock"):
             meta = self.store.module(mid)
-            source = self.source(meta)
             reading = meta.setdefault("reading", self.initial_state())
             focus, question = params.get("focus") or "", params.get("question") or ""
             if purpose == "opening" and meta.get("opening_choice"):
@@ -152,6 +173,7 @@ class Reading:
                 return {**result, "state": "ready"}
             if purpose == "index" and reading["index_complete"]:
                 return {**result, "state": "ready"}
+            source = self.source(meta)
             if not reading["index_complete"]:
                 purpose, focus, question = "index", "", ""
             pages = []
@@ -303,7 +325,7 @@ class Reading:
                     "generation": meta.get("generation", 0) + 1})
                 meta["status"] = "installed" if meta["opening_ready"] else "assembled"
                 from .assets import registry_from_graph
-                registry = registry_from_graph(graph, self.store.assets(mid))
+                registry = registry_from_graph(graph, self.store.assets(mid), registered=True)
                 self.store.write_graph(meta, graph)
                 write_json_atomic((self.store.module_dir(mid) / meta["graph_file"]).parent / "assets.json", registry)
             result = {"state": "ready" if meta.get("opening_ready") else meta["reading"]["state"],
@@ -347,7 +369,9 @@ class Reading:
             reject("the index omitted pages from its assigned range")
         if 1 in expected and not valid_source_language(draft.get("language")):
             reject("identify the source language using a BCP 47 tag")
-        self.store.write_sections(mid, sections)
+        index_path = Path(job["work_dir"]) / "index.json"
+        write_json_atomic(index_path, sections)
+        meta["index_file"] = str(index_path.relative_to(self.store.module_dir(mid).resolve()))
         if 1 in expected and isinstance(draft.get("title"), str) and draft["title"].strip():
             meta["title"] = draft["title"].strip()
         if 1 in expected and isinstance(draft.get("language"), str) and draft["language"].strip():

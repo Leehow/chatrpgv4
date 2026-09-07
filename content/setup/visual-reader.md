@@ -41,21 +41,28 @@ You are extracting facts, not inventing a scenario. Preserve motive, fear, secre
 Runtime facts that must be connected:
 
 - Scenes are places the player can occupy. Connect authored exits using route-to or other supplied route relations; print order is not causation. A scene declares properties.is_entrance or properties.is_final only when the book supports it.
+- An ending node is a possible authored settlement, not a place to walk. A scene-to-ending may-lead-to relation is shown as an advisory close with its narrative conditions; it is not a direct movement exit and does not require every intermediate scene to be ready. Scene-to-scene route relations do represent movement or playable transitions and must be licensed by the source.
 - The module node in known_nodes holds book-wide properties such as era and entry_scene_ids/ending_scene_ids. Declare alternatives honestly; do not guess among multiple authored openings. Where the book truly states no ending, explicitly declare an empty ending_scene_ids instead of inventing one.
 - Place actors with present-in, clues with discoverable-at, and connect clues to conclusions with supports. Place locations with occurs-at / located-in. A scene's authored mechanical rules connect through uses-rule. Never create a clue solely to satisfy a gate.
+
+present-in means physically at hand in that scene. A person mentioned in a letter, will, rumor or history is not thereby standing there. A dead or absent person can remain unplaced; do not put them on stage to satisfy a structural check. Later actors outside the current opening do not need to be prepared now.
 - Use the existing properties for source facts. Scalar facts belong in properties, while claims connect nodes. A character's stats are a structured block, not a compressed prose summary.
 
 For a player-facing handout or map, declare `properties.image_sources` as a list of `{page, box?}` regions that are safe to reveal. The host renders those regions after review; source_refs alone are citations, not permission to expose a whole page. Multiple regions of one handout are kept in order in one image. Keep different authored handouts separate. Do not include Keeper annotations in a revealable region.
 
 For NPC arithmetic use `properties.mechanics.profile`, with `characteristics` (STR/CON/SIZ/DEX/INT/POW/APP/EDU), `derived` (HP/MP/MOV/DB/Build when supplied), and `skills` (source skill names and scores). Preserve authored values; this reader does not convert rule editions. Do not leave arithmetic only in a standalone stats dictionary that the runtime cannot consume. Other authored dossier fields remain in properties.
 
-Run task.commands.check through bash after writing the draft. Correct structural errors using the original pages. The check returns required_review paths for the verification phase. Do not compact your output to one message; the file is the deliverable. If the source is unclear, leave an explicit dependency rather than guessing.
+The current runtime uses classic Call of Cthulhu 7th edition. Identify the source edition from the book, not from a numeric threshold. Do not put earlier-edition or Pulp-only values into a classic 7th-edition mechanics.profile as if the scales and rules were interchangeable. Preserve incompatible source numbers in source_mechanics with the author's edition and leave an explicit dependency when the current playable scope requires those mechanics. Do not invent a conversion or silently mark that mechanical scope ready.
+
+Run task.commands.check through bash after writing the draft. Correct structural errors using the original pages. It returns required_view_pages: view every listed physical page in this reading phase before finishing, even if the last task saw it. It also returns required_review paths for the verification phase. Do not compact your output to one message; the file is the deliverable. If the source is unclear, leave an explicit dependency rather than guessing.
 
 ## Verify phase
 
 This is a fresh reading session. Read task.json and draft.json, run task.commands.check to obtain required_review, and independently view the original images for the prepared material. Do not modify draft.json. Check numeric fields, critical statements, ready nodes and every claim against their cited regions, including the assignment of numbers to the right person or condition.
 
-Judge completeness only for task.purpose, task.question and ready_nodes. Later chapters, actors and branches deliberately left unprepared are not a missing opening requirement. Global facts that affect the current scope still matter. Route relations are used as possible moves by the runtime: flag a shortcut to an ending that the original book does not actually permit, rather than demanding that the entire campaign be made ready.
+Judge completeness only for task.purpose, task.question and ready_nodes. Later chapters, actors and branches deliberately left unprepared are not a missing opening requirement. Global facts that affect the current scope still matter. Distinguish endpoint kinds: scene-to-scene routes are possible moves; a scene-to-ending edge is an advisory authored close, not a movement exit. Check that the ending and its conditions are supported, but do not demand intermediate scenes merely because such an ending edge exists.
+
+For mechanics.profile, also verify that the source rules and scale are compatible with the current classic 7th-edition runtime. Faithful transcription of an earlier-edition value does not make it a valid runtime statistic. Report incompatible required mechanics in missing; do not convert them during review.
 
 Write review.json:
 

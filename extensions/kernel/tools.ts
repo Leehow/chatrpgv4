@@ -317,11 +317,11 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			"Search the module graph for what the capsule did not answer. The briefing for kind secret with scope scene — the clues in this scene still undiscovered, the secrets and agendas of those present, the Keeper's notes — is already in the capsule; do not look it up again. Use scope module only when you want the whole book's secrets and ending nodes. With kind module it finds entities on the graph by name or alias, at most 8 rows, each with a summary, visibility and relations: use it to confirm whether a name the player mentioned exists in this book. It matches the names and handles on the graph, so search with the module's own names or a name that appeared in the capsule; a translated keyword will not find anything. The kinds rule and catalog answer not_implemented in this slice.",
 		promptSnippet: "Look up an entity the capsule did not answer, or the whole book's secrets and endings",
 		parameters: Type.Object({
-			kind: StringEnum(["module", "secret", "rule", "catalog"] as const, {
-				description: "what to look up; rule and catalog are not implemented in this slice",
+			kind: StringEnum(["module", "source", "secret", "rule", "catalog"] as const, {
+				description: "module reads the compiled graph immediately; source explicitly rechecks original PDF pages and may wait; use source only for an actual gap or an explicit original-source check",
 			}),
 			query: Type.Optional(Type.String({ description: "a name or a question; omissible when kind is secret" })),
-			question: Type.Optional(Type.String({ description: "for module: an explicit source question requiring further reading, even for an already known entity" })),
+			question: Type.Optional(Type.String({ description: "for source only: the precise original-page question; ordinary module queries do not start reading" })),
 			retry: Type.Optional(Type.Boolean({ description: "explicitly retry a failed source reading" })),
 			scope: Type.Optional(
 				StringEnum(["scene", "module"] as const, { description: "the scope when kind is secret; defaults to scene" }),

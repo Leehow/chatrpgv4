@@ -32,7 +32,7 @@ import { fileURLToPath } from "node:url";
 const PKG_ROOT = resolvePath(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /** How long one reader round may run; a timeout counts as a round that did not pass, and leaves its mark in the findings. */
-const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
+const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const STDERR_KEEP = 2000;
 
 export interface ReaderRequest {
@@ -80,6 +80,7 @@ export function readerCommand(model?: string, systemPrompt?: string): string[] {
 		"--no-context-files",
 		"--no-extensions",
 		"--no-skills",
+		...(systemPrompt ? ["--extension", join(PKG_ROOT, "extensions/module/reader-context.ts")] : []),
 		"--tools",
 		"read,write,edit,bash",
 		"--system-prompt",
@@ -116,6 +117,7 @@ export async function runReader(request: ReaderRequest): Promise<ReaderOutcome> 
 	delete env.PI_COC_MODE;
 	if (request.signal?.aborted) return { ok: false, code: null, timedOut: false, ms: 0, stderr: "", command, error: "cancelled" };
 	if (request.eventLog) await mkdir(dirname(request.eventLog), { recursive: true });
+	if (request.eventLog) env.PI_COC_READER_IMAGES_LOG = request.eventLog + ".images.jsonl";
 	if (request.systemPrompt) {
 		const binDir = join(request.cwd, "host-bin");
 		await mkdir(binDir, { recursive: true });

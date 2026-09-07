@@ -37,6 +37,12 @@ export class KernelError extends Error {
 	}
 }
 
+/** Extension loaders may instantiate this module separately; preserve errors across their bridge. */
+export function isKernelError(error: unknown): error is KernelError {
+	const row = error as Partial<KernelError> | null;
+	return !!row && typeof row.code === "string" && typeof row.message === "string" && typeof row.toToolText === "function";
+}
+
 export interface KernelClientOptions {
 	/** The launch command, argv style. */
 	command: string[];

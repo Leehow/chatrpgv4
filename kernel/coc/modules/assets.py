@@ -7,6 +7,7 @@ aligned by page. Visibility comes from the node when one is aligned, otherwise
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 from ..module_graph import record_of
@@ -38,7 +39,7 @@ def _entry_from_node(node: dict[str, Any], bundle_row: dict[str, Any] | None) ->
         "name": str(node.get("name") or node["node_id"]),
         "aliases": [a for a in (node.get("aliases") or []) if isinstance(a, str)],
         "pages": sorted(node_pages(node)),
-        "path": (bundle_row or {}).get("path") or props.get("asset_ref"),
+        "path": (props.get("asset_ref") if props.get("image_sources") else None) or (bundle_row or {}).get("path") or props.get("asset_ref"),
         "media_type": (bundle_row or {}).get("media_type") or props.get("media_type"),
         "visibility": node.get("visibility") or "keeper-only",
         "node_id": str(node["node_id"]),
@@ -77,11 +78,12 @@ def registry_from_bundle(bundle_assets: list[dict[str, Any]]) -> dict[str, Any]:
     return {"contract_id": REGISTRY_CONTRACT_ID, "schema_version": 1, "assets": rows}
 
 
-def registry_from_graph(graph: dict[str, Any], bundle_assets: list[dict[str, Any]]) -> dict[str, Any]:
+def registry_from_graph(graph: dict[str, Any], bundle_assets: list[dict[str, Any]], *, registered: bool = False) -> dict[str, Any]:
     """Bundle entries first, then graph nodes; a node whose page matches an unclaimed
     bundle asset of the same kind (or any kind when only one asset sits on that page)
     takes that asset's bytes."""
-    registry = registry_from_bundle(bundle_assets)
+    registry = ({"contract_id": REGISTRY_CONTRACT_ID, "schema_version": 1, "assets": copy.deepcopy(bundle_assets)}
+                if registered else registry_from_bundle(bundle_assets))
     rows: list[dict[str, Any]] = registry["assets"]
     by_id = {row["id"]: row for row in rows}
     unclaimed = {row["id"] for row in rows}
@@ -90,8 +92,9 @@ def registry_from_graph(graph: dict[str, Any], bundle_assets: list[dict[str, Any
             continue
         pages = node_pages(node)
         match: dict[str, Any] | None = None
-        candidates = [row for row in rows if row["id"] in unclaimed
-                      and pages and set(row.get("pages") or []) & pages]
+        candidates = [row for row in rows if row["id"] in unclaimed and
+                      ((row.get("node_id") == node["node_id"] or row["id"] == node["node_id"]) if registered
+                       else (pages and set(row.get("pages") or []) & pages))]
         if len(candidates) == 1:
             match = candidates[0]
         elif candidates:
