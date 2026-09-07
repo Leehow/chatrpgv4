@@ -170,8 +170,9 @@ class Coc7RuleGraphAdapter:
             locked: dict[str, Any] = {}
             declared = runtime.declared_payload_slots(decision_ref)
             if "first-aid" in decision_ref:
-                sheet = ctx.sheet_by_id(rescuer_id) or ctx.sheet_by_id(investigator_id) or {}
-                value = ctx.skill_value(sheet, "First Aid")
+                # Whoever is treating them, which may be someone with no sheet at all. This
+                # used to fall through to the patient's own sheet when the rescuer was an NPC.
+                value = ctx.actor_of_id_skill_value(rescuer_id, "First Aid")
                 if value is not None:
                     locked["skill_value"] = value
                 locked["rescuer_id"] = rescuer_id
@@ -184,8 +185,7 @@ class Coc7RuleGraphAdapter:
                         locked["assistant_skill_value"] = assistant_value
                         locked["assistant_rescuer_id"] = assistant_id
             elif "medicine" in decision_ref:
-                sheet = ctx.sheet_by_id(rescuer_id) or ctx.sheet_by_id(investigator_id) or {}
-                value = ctx.skill_value(sheet, "Medicine")
+                value = ctx.actor_of_id_skill_value(rescuer_id, "Medicine")
                 if value is not None:
                     locked["skill_value"] = value
                 locked["rescuer_id"] = rescuer_id
@@ -279,6 +279,23 @@ class Coc7RuleGraphAdapter:
 
     # ---- executor arguments -------------------------------------------------------
 
+    def _no_skill_for(self, actor_id: Any, skill: str) -> RpcError:
+        """Nobody has said what this person has for the skill they are using. The way out
+        depends on who they are: another investigator can be named, but an NPC's number has
+        to be pinned once — the book gave none, and the kernel does not choose one."""
+        actor_id = str(actor_id or "")
+        node = self.ctx.npc_node(actor_id)
+        if node is None:
+            return RpcError("needs", f"the rescuer has no {skill} value on the sheet",
+                            fix=f"name an investigator with {skill} as action.actor",
+                            details={"needs": {"field": "actor", "options": self.ctx.party_names()}})
+        who = self.ctx.graph.display_name(node)
+        return RpcError("needs", f"the book gives {who} no {skill}",
+                        fix=f"pin it once with apply npc {{name: \"{who}\", skill: {{name: \"{skill}\", "
+                            "value: <0-100>}}, why: ...}} — it is theirs from then on",
+                        details={"needs": {"field": "npc.skill", "options": []},
+                                 "actor": actor_id, "skill": skill})
+
     def executor_args(self, plan: Mapping[str, Any], selected: Mapping[str, Any], decision_id: str) -> dict[str, Any]:
         payload = (plan.get("command") or {}).get("payload") or {}
         if not isinstance(payload, dict):
@@ -289,9 +306,8 @@ class Coc7RuleGraphAdapter:
         capability = (plan.get("capability") or {}).get("resolver_capability")
         if capability == "first_aid":
             if "skill_value" not in payload:
-                raise RpcError("needs", "the rescuer has no First Aid value on the sheet",
-                               fix="name an investigator with First Aid as action.actor",
-                               details={"needs": {"field": "actor", "options": self.ctx.party_names()}})
+                raise self._no_skill_for(payload.get("rescuer_id") or semantic.get("rescuer_ref") or investigator_id,
+                                         "First Aid")
             out.update({"skill_value": payload["skill_value"],
                         "rescuer_id": payload.get("rescuer_id") or semantic.get("rescuer_ref") or investigator_id,
                         "pushed": bool(payload.get("pushed", False))})
@@ -307,9 +323,8 @@ class Coc7RuleGraphAdapter:
                 out["assistant_rescuer_id"] = payload["assistant_rescuer_id"]
         elif capability == "medicine":
             if "skill_value" not in payload:
-                raise RpcError("needs", "the rescuer has no Medicine value on the sheet",
-                               fix="name an investigator with Medicine as action.actor",
-                               details={"needs": {"field": "actor", "options": self.ctx.party_names()}})
+                raise self._no_skill_for(payload.get("rescuer_id") or semantic.get("rescuer_ref") or investigator_id,
+                                         "Medicine")
             out.update({"skill_value": payload["skill_value"],
                         "rescuer_id": payload.get("rescuer_id") or semantic.get("rescuer_ref") or investigator_id})
         elif capability == "dying_check":

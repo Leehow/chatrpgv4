@@ -165,6 +165,36 @@ class SettleContext:
     def skill_value(self, sheet: Mapping[str, Any] | None, skill_name: str) -> int | None:
         return self.resolver.actor_skill_value(dict(sheet) if sheet else None, skill_name)
 
+    def actor_of_id_skill_value(self, actor_id: str, skill_name: str) -> int | None:
+        """§17.9: what whoever this is has for a skill — an investigator's sheet, or an NPC's
+        authored stat block and then the number a keeper pinned for them. Returns None when
+        nobody has said: the caller asks for one rather than rolling a value nobody chose.
+        Without this an NPC rescuer fell through to the patient's own sheet, and a doctor
+        stitching a hand rolled the patient's Medicine."""
+        sheet = self.sheet_by_id(actor_id)
+        if sheet is not None:
+            return self.skill_value(sheet, skill_name)
+        node = self.npc_node(actor_id)
+        if node is None:
+            return None
+        from ..npc import read_ledger
+        from ..text import normalize
+        wanted = normalize(skill_name)
+        # The most recent thing anyone said wins, and a pin made this turn counts: the ledger
+        # is written when the turn closes, and a keeper pins a number in order to roll it now.
+        for receipt in reversed(self.all_receipts()):
+            if receipt.get("kind") != "npc" or receipt.get("npc") != node["node_id"]:
+                continue
+            pinned = receipt.get("skill")
+            if (isinstance(pinned, dict) and normalize(str(pinned.get("name") or "")) == wanted
+                    and isinstance(pinned.get("value"), int)):
+                return int(pinned["value"])
+        row = read_ledger(self.campaign.npc_ledger_path).get(node["node_id"]) or {}
+        for name, pinned in (row.get("skills") or {}).items():
+            if normalize(name) == normalize(skill_name) and isinstance(pinned.get("value"), int):
+                return int(pinned["value"])
+        return self.graph.actor_skill_value(node, skill_name)
+
     def sync_healing(self, investigator_id: str, current_hp: int, conditions: list[str]) -> None:
         sheet = self.sheet_by_id(investigator_id)
         if sheet is None:

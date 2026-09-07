@@ -16,6 +16,13 @@ from .modules import contract
 from .fileio import canonical_json, read_json, sha256_file
 from .text import kebab, normalize, normalize_text, strip_prefix
 
+#: The names a stat block prints for the two kinds of number that are not skills. Closed
+#: lists, not a judgement about what a word means: everything else carrying a number is a
+#: skill, and a skill printed as prose ("50% (Hard 25%)") carries no number at all — the
+#: kernel does not read printed notation, the reader writes the percentage (`content/setup/reader.md`).
+CHARACTERISTIC_KEYS = frozenset({"STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK", "SAN"})
+DERIVED_KEYS = frozenset({"HP", "MP", "BUILD", "MOVE", "MAGIC_POINTS", "DAMAGE_BONUS", "AGE", "ARMOR"})
+
 SCENE_KIND = "scene"
 CLUE_KIND = "clue"
 NPC_KIND = "npc"
@@ -491,6 +498,68 @@ class ModuleGraph:
 
     def npc(self, name: str) -> dict[str, Any]:
         return self.resolve(name, (NPC_KIND,), what="npc")
+
+    # ---- the authored numbers ---------------------------------------------
+
+    def actor_profile(self, node: dict[str, Any]) -> dict[str, Any]:
+        """An actor's authored numbers, normalized out of whichever shape the book was
+        written in: `{characteristics, skills, derived}`.
+
+        A starter carries them nested, under `runtime_projection.record.mechanics.profile`;
+        a book built from a PDF writes them flat on `properties` — the printed stat block as
+        printed, characteristics by their three-letter names and whatever skills the page
+        happened to list. Only the nested shape was ever read, so every actor in every built
+        book answered nothing: social defence found no skill for anyone, chases handed out
+        default DEX, and there was no number for an NPC to act on. First-class properties
+        win and the record is the fallback, the same law as the dossier (§17.2), so a
+        campaign compiled earlier is read and never rebuilt.
+
+        Nothing is derived here. A skill the book did not print is absent, not guessed from
+        a characteristic — the caller says so rather than rolling an invented number.
+        """
+        props = {k: v for k, v in (node.get("properties") or {}).items() if k != "runtime_projection"}
+        nested = record_of(node).get("mechanics")
+        nested = nested.get("profile") if isinstance(nested, dict) else None
+        nested = nested if isinstance(nested, dict) else {}
+
+        characteristics: dict[str, int] = {}
+        skills: dict[str, int] = {}
+        derived_flat: dict[str, int] = {}
+        for key, value in props.items():
+            if not isinstance(value, int) or isinstance(value, bool):
+                continue
+            upper = key.upper()
+            table = (characteristics if upper in CHARACTERISTIC_KEYS
+                     else derived_flat if upper in DERIVED_KEYS else skills)
+            table[key] = value
+        for key, value in (props.get("skills") or {}).items() if isinstance(props.get("skills"), dict) else ():
+            if isinstance(value, int) and not isinstance(value, bool):
+                skills[str(key)] = value
+        # The nested shape fills only what the flat one did not say.
+        for table, into in (("characteristics", characteristics), ("skills", skills)):
+            for key, value in (nested.get(table) or {}).items() if isinstance(nested.get(table), dict) else ():
+                if isinstance(value, int) and not isinstance(value, bool):
+                    into.setdefault(str(key), value)
+        derived = dict(nested.get("derived") if isinstance(nested.get("derived"), dict) else {})
+        for key, value in derived_flat.items():
+            derived.setdefault(key, value)
+        profile: dict[str, Any] = {"characteristics": characteristics, "skills": skills, "derived": derived}
+        for key in ("attacks", "attacks_per_round", "weapons", "spells", "armor_rule", "san_loss_to_see"):
+            if key in nested:
+                profile[key] = nested[key]
+        return profile
+
+    def actor_skill_value(self, node: dict[str, Any], skill: str) -> int | None:
+        """What the book gives this actor for one skill or characteristic, or None when it
+        gives nothing. Matching is `normalize`d — a book prints `Spot Hidden` where a table
+        writes `spot hidden` — and never falls back to a base value."""
+        profile = self.actor_profile(node)
+        wanted = normalize(skill)
+        for table in ("skills", "characteristics"):
+            for key, value in (profile.get(table) or {}).items():
+                if normalize(key) == wanted:
+                    return int(value)
+        return None
 
     # ---- the authored dossier (§17.2) -------------------------------------
 

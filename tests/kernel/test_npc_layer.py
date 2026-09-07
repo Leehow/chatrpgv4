@@ -12,7 +12,7 @@ import sys
 import pytest
 
 from conftest import (CAMPAIGN, KERNEL_DIR, OPENING_SCENE, campaign_dir, narrate, open_turn, read_json)
-from test_rules_families import resolve
+from test_rules_families import resolve, resolve_err
 
 if str(KERNEL_DIR) not in sys.path:
     sys.path.insert(0, str(KERNEL_DIR))
@@ -463,3 +463,64 @@ def test_a_reader_s_dossier_claims_reach_the_graph_and_the_table(kernel, tmp_pat
                       zhou, {}, {})
     assert entry["believes"] == ["老周见过船工深夜进货栈，但不敢说。"]
     assert [k["clue"] for k in entry["knows"]] == ["brass-whistle"]
+
+
+# ---- an NPC who helps (§17.9) ----------------------------------------------------------------
+
+def test_the_books_numbers_read_out_of_either_shape():
+    """§17.9 L1: a starter carries an actor's stat block nested under
+    `runtime_projection.record.mechanics.profile`; a book built from a PDF writes it flat on
+    `properties`. Only the nested shape was ever read, so every actor in every built book
+    answered nothing — which is also why social defence found no skill for anyone and chases
+    handed out default DEX. Nothing is derived: a skill printed as prose carries no number,
+    and HP and Move are not skills."""
+    starter = ModuleGraph("the-haunting", CONTENT / "starters" / "the-haunting" / "module-graph.json")
+    corbitt = starter.npc("Walter Corbitt")
+    profile = starter.actor_profile(corbitt)
+    assert profile["skills"]["Fighting"] == 50 and profile["characteristics"]["DEX"] == 35
+    assert starter.actor_skill_value(corbitt, "fighting") == 50, "names match the way names match"
+    assert starter.actor_skill_value(corbitt, "Medicine") is None, "the book gives him none"
+
+    flat = {"node_id": "npc-doc", "node_kind": "npc", "name": "医生",
+            "properties": {"STR": 50, "HP": 11, "Move": 8, "Medicine": 65, "Dodge": "17% (Hard 8%)"}}
+    profile = starter.actor_profile(flat)
+    assert profile["characteristics"] == {"STR": 50}
+    assert profile["derived"] == {"HP": 11, "Move": 8}
+    assert profile["skills"] == {"Medicine": 65}, "prose carries no number and is not guessed at"
+    assert starter.actor_skill_value(flat, "Dodge") is None
+
+    # Producer and consumer, tied: the reader is asked for exactly the shape this reads, and
+    # told what a stat line copied as printed costs. One built book had eleven actors and not
+    # a usable skill among them because the ask said "as printed".
+    ask = (CONTENT / "setup" / "reader.md").read_text(encoding="utf-8")
+    assert "`skills`" in ask and '{"Fighting": 50' in ask
+    for key in ("STR", "CON", "DEX", "POW", "EDU"):
+        assert f"`{key}`" in ask, key
+    assert "does not read printed notation" in ask
+
+
+def test_an_npc_acts_for_the_party_and_the_roll_is_theirs(kernel):
+    """§17.9 L2: `actor: <NPC>` was refused outside a live combat or chase, and the healing
+    family bound the rescuer to the acting investigator regardless — so a doctor stitching a
+    hand rolled the *patient's* Medicine at 4%, and consulting anyone was worse than useless.
+    Books rarely print skills for a minor NPC, so the keeper pins one; the kernel asks rather
+    than inventing, because a number it invents is one it would invent differently next time
+    and the second doctor would not be as good as the first."""
+    open_turn(kernel)
+    action = {"intent": "investigate", "goal": "把伤口缝好", "method": "他给我清创缝合",
+              "actor": "Steven Knott", "skill": "Medicine"}
+    asked = resolve_err(kernel, "t1-c1", **action)
+    assert asked["code"] == "needs" and asked["details"]["needs"]["field"] == "npc.skill"
+    assert asked["details"]["actor"] == "steven-knott" and asked["details"]["skill"] == "Medicine"
+    assert "apply npc" in asked["fix"], "the refusal names the way out of itself"
+
+    kernel.table("apply", call_id="t1-c2", effects=[
+        {"kind": "npc", "name": "Steven Knott", "skill": {"name": "Medicine", "value": 65},
+         "why": "书上没写，桌上定为称职的医生"}])
+    settled = resolve(kernel, "t1-c3", **action)["outcome"]
+    assert settled["skill"] == "Medicine" and settled["target"] == 65, "his number, not the sheet's"
+
+    narrate(kernel, "t1-c4", f"他把线收紧。医学 {settled['roll']}，目标 65。")
+    row = ledger(kernel)[KNOTT]
+    assert row["skills"]["Medicine"]["value"] == 65 and row["skills"]["Medicine"]["turn"] == 1
+    assert row["skills"]["Medicine"]["why"] == "书上没写，桌上定为称职的医生"

@@ -1361,10 +1361,28 @@ class Table:
             raise invalid_params("npc.dead must be true or false",
                                  fix="say true on the turn they died",
                                  details={"field": "npc.dead"})
-        if to is None and stance is None and dead is None:
-            raise invalid_params("an npc effect needs `to`, `stance`, `dead`, or a combination",
+        # A number the book never printed. Books rarely give a minor NPC a skill list, and a
+        # Keeper facing a doctor with no printed Medicine simply says what it is — that is
+        # play, not pollution. What must not happen is the kernel inventing one quietly and
+        # passing it off as the book's: pinned here, it is the same number for the rest of
+        # the campaign, and the ledger says a keeper set it.
+        pinned = effect.get("skill")
+        if pinned is not None:
+            if (not isinstance(pinned, dict) or not isinstance(pinned.get("name"), str)
+                    or not pinned["name"].strip()
+                    or not isinstance(pinned.get("value"), int) or isinstance(pinned.get("value"), bool)):
+                raise invalid_params("npc.skill must be {name: \"<skill>\", value: <integer>}",
+                                     fix="name the skill and the percentage this person has",
+                                     details={"field": "npc.skill"})
+            if not 0 <= int(pinned["value"]) <= 100:
+                raise invalid_params(f"npc.skill.value {pinned['value']} is not a percentage",
+                                     fix="a whole number from 0 to 100", details={"field": "npc.skill.value"})
+            pinned = {"name": pinned["name"].strip(), "value": int(pinned["value"])}
+        if to is None and stance is None and dead is None and pinned is None:
+            raise invalid_params("an npc effect needs `to`, `stance`, `dead`, `skill`, or a combination",
                                  fix=f"move them with to: {NPC_HERE}/{NPC_AWAY}/<scene>, "
-                                     f"set stance to one of {self.stance_table.words}, or say dead: true")
+                                     f"set stance to one of {self.stance_table.words}, say dead: true, "
+                                     "or pin a skill they have")
         presence = world.setdefault("npc_presence", {})
         moved_to: str | None = None
         if to is not None:
@@ -1384,8 +1402,9 @@ class Table:
                                     message=f"npc.stance {stance!r} is not one of the ledger's words")
         receipt = {"id": _receipt_id_for_npc(handle, turn_number, ordinal, mint), "kind": "npc", "call_id": call_id,
                    "npc": node["node_id"], "handle": handle, "name": graph.display_name(node),
-                   "to": moved_to, "stance": stance, "dead": dead, "why": why, "at": now_iso()}
-        return receipt, ("npc-changed", {"npc": handle, "to": moved_to, "stance": stance, "dead": dead, "why": why})
+                   "to": moved_to, "stance": stance, "dead": dead, "skill": pinned, "why": why, "at": now_iso()}
+        return receipt, ("npc-changed", {"npc": handle, "to": moved_to, "stance": stance, "dead": dead,
+                                         "skill": pinned, "why": why})
 
     def _stage_damage(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any], turn: dict[str, Any],
                       effect: dict[str, Any], call_id: str, ordinal: int) -> tuple[list[dict[str, Any]], tuple[str, dict[str, Any]]]:

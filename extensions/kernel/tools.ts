@@ -127,6 +127,12 @@ const NpcEffect = Type.Object({
 	stance: Type.Optional(StringEnum(["hostile", "wary", "neutral", "warm"] as const, {
 		description: "your own reading of where they stand with the party; the kernel keeps the settled checks' account on its own, so set this only when you decide something the dice did not",
 	})),
+	skill: Type.Optional(Type.Object({
+		name: Type.String({ description: "the skill, as the rulebook names it" }),
+		value: Type.Integer({ description: "what they have, 0 to 100" }),
+	}, {
+		description: "a number the book never printed for this person. Books rarely give a minor NPC a skill list, so when one of them does something on the party's behalf — a doctor stitching a wound, a locksmith on a lock — say what they have and it is theirs for the rest of the campaign. Pin it once; every later roll uses it",
+	})),
 	dead: Type.Optional(Type.Boolean({
 		description: "true on the turn they died. Say it for every death the dice did not settle — killed outside a fight, destroyed by a ruling, dead of what the story did to them — or the table goes on treating them as someone the party can still meet",
 	})),

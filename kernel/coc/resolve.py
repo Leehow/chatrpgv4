@@ -121,6 +121,7 @@ class ResolvePipeline:
         self.stakes = action.get("stakes") if isinstance(action.get("stakes"), str) else ""
         #: The NPC the keeper acts as (`action.actor` naming an NPC inside a session).
         self.npc_actor: str | None = None
+        self.npc_in_session = False
         self.sessions: SessionView | None = None
 
     # ---- validation ---------------------------------------------------------------
@@ -220,9 +221,10 @@ class ResolvePipeline:
         return None
 
     def _resolve_actor(self, sessions: SessionView) -> dict[str, Any]:
-        """The investigator sheet the settlement is about. An NPC `actor` is admitted only
-        inside a live combat or chase it takes part in (the keeper drives its turn); the
-        sheet is then the investigator the NPC faces."""
+        """The investigator sheet the settlement is about. An NPC `actor` is the person doing
+        it: inside a fight or a chase it is their turn, and outside one it is someone using
+        what they are good at on the party's behalf — a doctor stitching a hand, a locksmith
+        on a lock. Either way the sheet is the investigator the settlement lands on."""
         name = self.action.get("actor")
         if isinstance(name, str) and self._target_investigator(name) is None:
             node = self.graph.find(name, (NPC_KIND,))
@@ -230,17 +232,23 @@ class ResolvePipeline:
                 handle = self.graph.handle(node)
                 snapshot = sessions.combat if combat_active(sessions.combat) else sessions.chase if chase_active(sessions.chase) else None
                 participants = [str(p.get("actor_id")) for p in (snapshot or {}).get("participants") or [] if isinstance(p, dict)]
-                if snapshot is None or handle not in participants:
-                    raise RpcError("turn_state", f"{self.graph.display_name(node)} can act only inside a live combat or chase it takes part in",
-                                   fix="start the fight from the investigator's side (intent combat), or resolve as the investigator",
-                                   details={"actor": handle, "session": None if snapshot is None else snapshot.get("status")})
                 self.npc_actor = handle
-                pending = snapshot.get("pending_attack") if isinstance(snapshot.get("pending_attack"), dict) else None
-                for candidate in ([pending["target_actor_id"], pending["actor_id"]] if pending else []) + participants:
-                    sheet = self._target_investigator(str(candidate))
-                    if sheet is not None:
-                        return sheet
-                return self.actor_lookup(self.campaign, None)
+                #: whether they are acting *in* a fight or a chase. Both routing and the
+                #: effective intent used to read `npc_actor` alone and send everything an NPC
+                #: did down the combat road, which was right while a fight was the only place
+                #: one could act at all.
+                self.npc_in_session = snapshot is not None and handle in participants
+                if self.npc_in_session:
+                    pending = snapshot.get("pending_attack") if isinstance(snapshot.get("pending_attack"), dict) else None
+                    for candidate in ([pending["target_actor_id"], pending["actor_id"]] if pending else []) + participants:
+                        sheet = self._target_investigator(str(candidate))
+                        if sheet is not None:
+                            return sheet
+                    return self.actor_lookup(self.campaign, None)
+                # Outside a session the settlement is still about an investigator — the one
+                # being helped. `target` names them when it is not the only one at the table.
+                return self._target_investigator(str(self.action.get("target") or "")) or \
+                    self.actor_lookup(self.campaign, None)
         return self.actor_lookup(self.campaign, name)
 
     def acting_id(self, ctx: SettleContext) -> str:
@@ -323,7 +331,7 @@ class ResolvePipeline:
                 raise RpcError("needs", "casting needs the spell's name", fix="set action.spell",
                                details={"needs": {"field": "spell", "options": self._known_spells()}})
             return [CAST_SPELL_REF]
-        if intent == "combat" or self.npc_actor:
+        if intent == "combat" or self.npc_in_session:
             return self._with_sanity_offer([COMBAT_ATTACK_REF])
         if intent == "flee":
             return [COMBAT_FLEE_REF] if combat_active(combat) else [CHASE_START_REF]
@@ -369,7 +377,7 @@ class ResolvePipeline:
 
     # ---- slots (11.4) -------------------------------------------------------------------
 
-    def _check_slots(self, resolver: SkillResolver) -> dict[str, Any]:
+    def _check_slots(self, resolver: SkillResolver, ctx: SettleContext) -> dict[str, Any]:
         skill = self._one_skill(resolver)
         modifiers = self.action.get("modifiers") or {}
         bonus, penalty, difficulty = self.modifiers
@@ -383,7 +391,28 @@ class ResolvePipeline:
             sem["bonus"] = bonus
         if penalty:
             sem["penalty"] = penalty
+        if self.npc_actor:
+            sem["target"] = self._npc_target_value(skill, ctx)
         return sem
+
+    def _npc_target_value(self, skill: str, ctx: SettleContext) -> int:
+        """What this person has for the skill they are using on the party's behalf.
+
+        The book first. Books rarely print a skill list for a minor NPC, so when it says
+        nothing the keeper says instead — and the kernel asks for it rather than inventing
+        one, because a number it invents is a number it would have to invent again, and the
+        second doctor would not be as good as the first. Once pinned with `apply npc`, it is
+        that person's number for the rest of the campaign, and the ledger says who set it."""
+        value = ctx.actor_of_id_skill_value(self.npc_actor, skill)
+        if value is not None:
+            return value
+        node = self.graph.find(self.npc_actor, (NPC_KIND,))
+        who = self.graph.display_name(node) if node else self.npc_actor
+        raise RpcError("needs", f"the book gives {who} no {skill}",
+                       fix=f"pin it once with apply npc {{name: \"{who}\", skill: {{name: \"{skill}\", "
+                           "value: <0-100>}}, why: ...}} — it is theirs from then on",
+                       details={"needs": {"field": "npc.skill", "options": []},
+                                "actor": self.npc_actor, "skill": skill})
 
     def _stakes(self) -> dict[str, str]:
         goal = self.goal or self.method or self.intent
@@ -486,7 +515,7 @@ class ResolvePipeline:
         target = action.get("target")
         extras: dict[str, Any] = {}
         if ref == ORDINARY_CHECK_REF or ref == "decision:coc7:push-luck:luck-roll":
-            return self._check_slots(resolver), extras
+            return self._check_slots(resolver, ctx), extras
         if ref == COMBINED_CHECK_REF:
             return self._combined_slots(resolver), extras
         if ref == OPPOSED_CHECK_REF:
@@ -530,7 +559,10 @@ class ResolvePipeline:
         if family == "healing":
             sem: dict[str, Any] = {}
             if "first-aid" in ref or "medicine" in ref or "weekly" in ref:
-                sem["rescuer_ref"] = ctx.actor_id
+                # Whoever is doing it. This was the acting investigator whatever `actor` said,
+                # so a doctor stitching a hand rolled the patient's own Medicine — 4% at the
+                # table, and the visit was worse than useless.
+                sem["rescuer_ref"] = self.acting_id(ctx)
             if "first-aid" in ref:
                 if target_investigator is not None and str(target_investigator["id"]) not in (ctx.actor_id, ctx.subject_id):
                     sem["assistant_rescuer_ref"] = str(target_investigator["id"])
@@ -923,7 +955,7 @@ class ResolvePipeline:
         adapter = Coc7RuleGraphAdapter(ctx)
         # A defense answers an attack and an NPC acts in the fight: both are combat, whatever
         # the keeper wrote as intent.
-        effective_intent = "combat" if (self.action.get("defense") is not None or self.npc_actor) else self.intent
+        effective_intent = "combat" if (self.action.get("defense") is not None or self.npc_in_session) else self.intent
         runtime = self.engine.runtime(ctx, intent=effective_intent, adapter=adapter)
 
         candidates = self._route(resolver, npc, target_investigator)
