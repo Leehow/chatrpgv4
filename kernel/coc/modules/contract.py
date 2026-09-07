@@ -32,7 +32,6 @@ def _load(path: Path) -> dict[str, Any]:
 CONTRACT: dict[str, Any] = _load(CONTRACT_PATH)
 TEMPLATE: dict[str, Any] = _load(TEMPLATE_PATH)
 
-SHARD_CONTRACT_ID = str(CONTRACT["shard_contract_id"])
 GRAPH_CONTRACT_ID = str(CONTRACT["graph_contract_id"])
 SCHEMA_VERSION = int(CONTRACT["schema_version"])
 
@@ -49,14 +48,6 @@ DOSSIER_PROFILE_KEYS: tuple[str, ...] = tuple(_DOSSIER["profile_keys"])
 DOSSIER_PROSE_KEYS: tuple[str, ...] = tuple(_DOSSIER["prose_keys"])
 DOSSIER_PREDICATES: tuple[str, ...] = tuple(_DOSSIER["claim_predicates"])
 TIE_RELATION_KINDS: tuple[str, ...] = tuple(_DOSSIER["tie_relation_kinds"])
-SHARD_KEYS: frozenset[str] = frozenset(CONTRACT["shard_keys"])
-NODE_KEYS: frozenset[str] = frozenset(CONTRACT["node_keys"])
-CLAIM_KEYS: frozenset[str] = frozenset(CONTRACT["claim_keys"])
-RELATION_KEYS: frozenset[str] = frozenset(CONTRACT["relation_keys"])
-MACHINE_FILLED_KEYS: dict[str, list[str]] = {
-    "shard": list(CONTRACT["machine_filled_keys"]["shard"]) + ["evidence_span_ids", "coverage"],
-    "claim": list(CONTRACT["machine_filled_keys"]["claim"]) + ["claim_id"],
-}
 
 INVARIANTS: dict[str, dict[str, str]] = {row["code"]: row for row in TEMPLATE["invariants"]}
 MEASURES: tuple[str, ...] = tuple(row["code"] for row in TEMPLATE["measures"])
@@ -77,24 +68,13 @@ EXIT_RELATION_KINDS: tuple[str, ...] = ENTRANCE_RELATION_KINDS + ("route-to",)
 WALKABLE_KINDS: tuple[str, ...] = ("scene",)
 
 # What a section may be (contract §14.3); the extension's agent picks one per section.
-SECTION_KINDS: tuple[str, ...] = (
-    "front", "keeper-truth", "scene", "npc-roster", "handouts", "appendix", "rules",
-    "pregens", "other",
-)
-SECTION_STATUSES: tuple[str, ...] = ("planned", "reading", "accepted", "failed", "skipped")
-MODULE_STATUSES: tuple[str, ...] = (
-    "registered", "planned", "building", "assembled", "assembled_not_playable", "installed",
-)
 
 # ---- id grammars ------------------------------------------------------------------------
 
 SEMANTIC_ID_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 SOURCE_LANGUAGE_RE = re.compile(r"^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
-SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-# `span-p<page>-<n>` is what module.packet mints (§14.3); `span-page-<page>-...` is the
-# spelling the curated starter graphs carry. Both name a page.
+# Legacy graph references keep their original page-bearing span identifiers.
 SPAN_PAGE_RE = re.compile(r"^span-(?:p|page-)(\d+)-")
-SECTION_ID_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 MODULE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 
@@ -114,23 +94,25 @@ def span_page(span_id: Any) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def span_id_for(page: int, ordinal: int) -> str:
-    return f"span-p{page}-{ordinal}"
 
 
 def module_node_id(module_id: str) -> str:
     return f"module-{module_id}"
 
 
+VISUAL_CONTRACT_ID = "coc.module-graph-shard.v4"
+VISUAL_SHARD_KEYS = frozenset({"contract_id", "nodes", "claims", "node_refs", "coverage", "dependencies", "critical", "ready_nodes"})
+VISUAL_NODE_KEYS = frozenset({"node_id", "node_kind", "name", "aliases", "summary", "properties", "visibility", "source_refs"})
+VISUAL_CLAIM_KEYS = frozenset({"claim_id", "subject_id", "predicate", "object", "truth_status", "visibility", "source_refs", "reason", "known_by_ids", "asserted_by_ids", "validity"})
+
+
 def vocabulary() -> dict[str, Any]:
-    """The closed word lists a reader is handed inside a packet (§14.3)."""
+    """The visual draft schema and the existing graph's closed vocabulary."""
     return {
-        "shard_contract_id": SHARD_CONTRACT_ID,
-        "schema_version": SCHEMA_VERSION,
-        "shard_keys": sorted(SHARD_KEYS),
-        "node_keys": sorted(NODE_KEYS),
-        "claim_keys": sorted(CLAIM_KEYS),
-        "relation_keys": sorted(RELATION_KEYS),
+        "shard_contract_id": VISUAL_CONTRACT_ID,
+        "shard_keys": sorted(VISUAL_SHARD_KEYS),
+        "node_keys": sorted(VISUAL_NODE_KEYS),
+        "claim_keys": sorted(VISUAL_CLAIM_KEYS),
         "node_kinds": list(CONTRACT["node_kinds"]),
         "relation_kinds": list(CONTRACT["relation_kinds"]),
         "visibility": list(CONTRACT["visibility"]),
@@ -139,15 +121,10 @@ def vocabulary() -> dict[str, Any]:
         "coverage_status": list(CONTRACT["coverage_status"]),
         "semantic_id_law": CONTRACT["semantic_id_law"],
         "node_id_law": CONTRACT["node_id_law"],
-        "claim_id_law": "Every claim_id begins with claim- and names the fact it states; "
-                        "omit it and the machine derives claim-<subject>-<predicate>-<object>.",
-        "span_id_law": "Cite only span ids the packet carries; span-p<page>-<n> never "
-                       "continues past the packet's last page.",
-        "coverage_law": CONTRACT["coverage_law"],
-        "source_language_law": CONTRACT["source_language_law"],
-        "ordering_law": CONTRACT["ordering_law"],
+        "claim_id_law": "Claim identifiers are optional; the host reuses or derives them. Distinct assertions may use distinct semantic identifiers.",
+        "source_ref_law": "Use source_refs with a physical page starting at 1 and an optional normalized box. No text spans are required.",
         "exit_relation_kinds": list(EXIT_RELATION_KINDS),
         "playable_node_kinds": list(PLAYABLE_KINDS),
         "actor_kinds": list(ACTOR_KINDS),
-        "invariants": [{"code": row["code"], "asks": row["asks"]} for row in TEMPLATE["invariants"]],
+        "actor_dossier": CONTRACT["actor_dossier"],
     }

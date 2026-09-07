@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-# The reader's gate (contract §14.5): bin/coc-review --module <id> --section <id> [--workspace <dir>]
-# Runs module.review: three deterministic gates, prints the findings, exit code 0 when accepted.
-set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
-export PYTHONPATH="$REPO/kernel${PYTHONPATH:+:$PYTHONPATH}"
-export PYTHONDONTWRITEBYTECODE=1
-exec uv run --frozen --project "$REPO" python -m coc.modules.review_cli "$@"

@@ -16,7 +16,7 @@ from ..fileio import append_jsonl, read_json, read_jsonl, sha256_file, write_jso
 from ..module_graph import ModuleGraph, record_of
 from ..rules.graph_digest import compute_graph_content_digest, sort_graph_lists
 from ..text import normalize
-from .contract import (MODULE_ID_RE, MODULE_STATUSES, SECTION_STATUSES, span_page)
+from .contract import (MODULE_ID_RE, span_page)
 
 GRAPH_NAME = "module-graph.json"
 MANIFEST_NAME = "module-graph-manifest.json"
@@ -25,13 +25,6 @@ MANIFEST_CONTRACT_ID = "coc.module-graph-manifest.v1"
 
 def now_iso() -> str:
     return _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-
-
-def status_rank(status: str) -> int:
-    """`assembled` and `assembled_not_playable` share a rung; everything else is a ladder."""
-    ladder = {"registered": 0, "planned": 1, "building": 2, "assembled": 3,
-              "assembled_not_playable": 3, "installed": 4}
-    return ladder.get(status, -1)
 
 
 def graph_manifest(graph: dict[str, Any], *, module_id: str, generation: int) -> dict[str, Any]:
@@ -88,21 +81,10 @@ class ModuleStore:
             return self.graph_path(module_id).parent / "module-graph-manifest.json"
         return self.module_dir(module_id) / MANIFEST_NAME
 
-    def bundle_dir(self, module_id: str) -> Path:
-        return self.module_dir(module_id) / "bundle"
 
     def sections_path(self, module_id: str) -> Path:
         return self.module_dir(module_id) / "sections.json"
 
-    def shards_dir(self, module_id: str) -> Path:
-        return self.module_dir(module_id) / "shards"
-
-    def shard_path(self, module_id: str, section_id: str) -> Path:
-        return self.shards_dir(module_id) / f"{section_id}.json"
-
-    def work_dir(self, module_id: str, section_id: str | None = None) -> Path:
-        base = self.module_dir(module_id) / "work"
-        return base / section_id if section_id else base
 
     def assets_path(self, module_id: str) -> Path:
         if self.module_json(module_id).exists() and self.module(module_id).get("graph_file"):
@@ -139,7 +121,7 @@ class ModuleStore:
         path = self.module_json(module_id)
         if not path.exists():
             raise invalid_params(f"unknown module {module_id!r}",
-                                 fix="module.bind a bundle or module.register a starter first",
+                                 fix="bind an original PDF with module.source.bind or register a starter",
                                  details={"module_id": module_id, "modules": self.module_ids()})
         return read_json(path)
 
@@ -147,14 +129,6 @@ class ModuleStore:
         meta["updated_at"] = now_iso()
         write_json_atomic(self.module_json(str(meta["id"])), meta)
 
-    def advance(self, meta: dict[str, Any], status: str) -> dict[str, Any]:
-        """Status only moves forward; a lower rung is ignored, a sibling rung replaces."""
-        if status not in MODULE_STATUSES:
-            raise ValueError(f"unknown module status {status!r}")
-        current = str(meta.get("status") or "registered")
-        if status_rank(status) >= status_rank(current):
-            meta["status"] = status
-        return meta
 
     def generation(self, module_id: str) -> int:
         return int(self.module(module_id).get("generation") or 0)
@@ -170,28 +144,21 @@ class ModuleStore:
         module_id = str(meta["id"])
         generation = int(meta.get("generation") or 0) + 1
         ordered = sort_graph_lists(graph)
-        if meta.get("reading_version") == 1:
-            import uuid
-            directory = self.module_dir(module_id) / "generations" / f"generation-{generation}-{uuid.uuid4().hex}"
-            directory.mkdir(parents=True, exist_ok=False)
-            path = directory / GRAPH_NAME
-            write_json_atomic(path, ordered)
-            write_json_atomic(directory / "module-graph-manifest.json",
-                              graph_manifest(ordered, module_id=module_id, generation=generation))
-            from .assets import registry_from_graph
-            write_json_atomic(directory / "assets.json",
-                              registry_from_graph(ordered, self.assets(module_id), registered=True))
-            meta.update(generation=generation, graph_file=str(path.relative_to(self.module_dir(module_id))),
-                        graph_digest=sha256_file(path))
-            self._graphs.pop(module_id, None)
-            return meta
-        write_json_atomic(self.graph_path(module_id), ordered)
-        write_json_atomic(self.manifest_path(module_id),
+        import uuid
+        directory = self.module_dir(module_id) / "generations" / f"generation-{generation}-{uuid.uuid4().hex}"
+        directory.mkdir(parents=True, exist_ok=False)
+        path = directory / GRAPH_NAME
+        write_json_atomic(path, ordered)
+        write_json_atomic(directory / "module-graph-manifest.json",
                           graph_manifest(ordered, module_id=module_id, generation=generation))
-        meta["generation"] = generation
-        meta["graph_digest"] = sha256_file(self.graph_path(module_id))
+        from .assets import registry_from_graph
+        write_json_atomic(directory / "assets.json",
+                          registry_from_graph(ordered, self.assets(module_id)))
+        meta.update(generation=generation, graph_file=str(path.relative_to(self.module_dir(module_id))),
+                    graph_digest=sha256_file(path))
         self._graphs.pop(module_id, None)
         return meta
+
 
     def graph(self, module_id: str) -> ModuleGraph:
         """The indexed current-generation graph; the cache keys on `generation` (§14.6)."""
@@ -202,7 +169,7 @@ class ModuleStore:
         path = self.graph_path(module_id)
         if not path.exists():
             raise RpcError("campaign_not_ready", f"module {module_id!r} has no graph yet",
-                           fix="module.assemble after at least one accepted section")
+                           fix="prepare the original PDF with the visual reading service")
         loaded = ModuleGraph(module_id, path)
         self._graphs[module_id] = (generation, loaded)
         return loaded
@@ -272,71 +239,6 @@ class ModuleStore:
     def write_sections(self, module_id: str, sections: list[dict[str, Any]]) -> None:
         write_json_atomic(self.sections_path(module_id), sections)
 
-    def section(self, module_id: str, section_id: Any) -> dict[str, Any]:
-        if not isinstance(section_id, str) or not section_id:
-            raise invalid_params("params.section_id is required")
-        for row in self.read_sections(module_id):
-            if row.get("id") == section_id:
-                return row
-        raise invalid_params(f"unknown section {section_id!r} in module {module_id!r}",
-                             fix="module.plan then module.plan.accept first",
-                             details={"sections": [r.get("id") for r in self.read_sections(module_id)]})
-
-    def set_section_status(self, module_id: str, section_id: str, status: str,
-                           **fields: Any) -> dict[str, Any]:
-        if status not in SECTION_STATUSES:
-            raise ValueError(f"unknown section status {status!r}")
-        sections = self.read_sections(module_id)
-        found: dict[str, Any] | None = None
-        for row in sections:
-            if row.get("id") == section_id:
-                row["status"] = status
-                row.update(fields)
-                found = row
-        if found is None:
-            raise invalid_params(f"unknown section {section_id!r}",
-                                 fix="use one of details.sections",
-                                 details={"field": "section_id",
-                                          "sections": [str(row.get("id")) for row in sections]})
-        self.write_sections(module_id, sections)
-        return found
-
-    def accepted_shards(self, module_id: str) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-        for row in self.read_sections(module_id):
-            if row.get("status") != "accepted":
-                continue
-            path = self.shard_path(module_id, str(row["id"]))
-            if path.exists():
-                out.append(read_json(path))
-        return out
-
-    def section_for_page(self, module_id: str, page: int) -> dict[str, Any] | None:
-        for row in self.read_sections(module_id):
-            pages = row.get("pages") or [None, None]
-            if isinstance(pages[0], int) and isinstance(pages[1], int) and pages[0] <= page <= pages[1]:
-                return row
-        return None
-
-    def section_for_scene(self, module_id: str, scene_handle: str) -> dict[str, Any] | None:
-        """`{"section_id", "status"}` for the section whose pages hold this scene, so
-        the capsule can say ready|reading|missing (§14.6). A starter (no sections) is
-        wholly present: `section_id` None, status `accepted`. None when the scene is
-        not in the current graph or its pages belong to no planned section."""
-        if not self.exists(module_id) or not self.graph_path(module_id).exists():
-            return None
-        sections = self.read_sections(module_id)
-        graph = self.graph(module_id)
-        scene = graph.scene_by_handle(scene_handle)
-        if scene is None:
-            return None
-        if not sections:
-            return {"section_id": None, "status": "accepted"}
-        for page in sorted(node_pages(scene)):
-            row = self.section_for_page(module_id, page)
-            if row is not None:
-                return {"section_id": row["id"], "status": row.get("status")}
-        return None
 
     # ---- assets (§14.8) ----------------------------------------------------------------
 

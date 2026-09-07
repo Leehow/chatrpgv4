@@ -1,27 +1,4 @@
-/**
- * The reader: one child `pi` process per section (contract §14.5).
- *
- * The user's law of 2026-09-04: model work that reads a book runs as an agent with tools, not as one
- * completion — it opens the extraction packet itself, writes the shard over several turns itself, and runs
- * the gates itself. The lanes' single-completion road (`extensions/lanes/subsession.ts`) is not enough here,
-  * so what is started is a real `pi` process:
- *
- *   pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,bash
- *      --system-prompt content/setup/reader.md [--model <provider/id>] -- <brief>
- *
- * The working directory is `work/<section_id>/`, and `module.packet` gives the `brief` (contract §14.3).
- * Everything the reader produces stays in `work/`; only what passes review and is accepted by `module.accept` reaches `shards/`.
- *
- * Three details settled on this side rather than in the contract, with the reasons in docs/pi-host-contract.md §3.2:
- * - `--no-extensions` is required. Without it the subprocess loads this package's extensions all over again,
- *   which starts a second kernel subprocess (breaking contract §1's one kernel per Pi session), and
- *   `setActiveTools` overrides the `--tools` allow list, leaving the reader without read/write/bash.
- * - `PI_CODING_AGENT_DIR` is inherited verbatim: auth and the model catalogue live there. `PI_COC_CAMPAIGN`
- *   and `PI_COC_MODE` are removed explicitly, so that a loaded extension cannot go and open a table.
- * - `PI_COC_READER_CMD` (a JSON array of strings) replaces the whole command; tests point it at a fake
- *   reader, the same trick as `PI_COC_KERNEL_CMD`, and `brief` is still passed as the last argument.
- */
-
+/** A tool-enabled Pi child for one visual reading or review phase. */
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import { mkdir, writeFile, chmod } from "node:fs/promises";
@@ -36,9 +13,9 @@ const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const STDERR_KEEP = 2000;
 
 export interface ReaderRequest {
-	/** The working directory: `work/<section_id>/`. */
+	/** The working directory: the claimed attempt directory. */
 	cwd: string;
-	/** The standard brief `module.packet` returns. */
+	/** The phase instruction for the claimed reading job. */
 	brief: string;
 	/** `provider/model`; without one, pi's own default model is used. */
 	model?: string;
@@ -84,7 +61,7 @@ export function readerCommand(model?: string, systemPrompt?: string): string[] {
 		"--tools",
 		"read,write,edit,bash",
 		"--system-prompt",
-		systemPrompt ?? join(PKG_ROOT, "content", "setup", "reader.md"),
+		systemPrompt ?? join(PKG_ROOT, "content", "setup", "visual-reader.md"),
 		...(model ? ["--model", model] : []),
 		// Everything after `--` is the prompt: a brief starting with `-` is not taken for an option.
 		"--",
@@ -180,7 +157,7 @@ export async function runReader(request: ReaderRequest): Promise<ReaderOutcome> 
 		};
 		request.signal?.addEventListener("abort", onAbort, { once: true });
 
-		// stdout is the reader's last sentence and we do not read it: whether it wrote correctly is `module.review`'s call.
+		// JSON events provide image-use evidence; a final sentence alone never proves a valid graph.
 		if (!request.eventLog) child.stdout?.resume();
 		else {
 			let pending = "";

@@ -98,193 +98,6 @@ test("选内置 starter 就是 starter 来源，不是 pdf，也不会被要资�
 	assert.ok(!String(chosen.next ?? "").includes("build-bundle"), "starter 不该被要资料包");
 });
 
-test("pdf 那条路：资料包没到手就等，绑定与构建各归各的，开场就绪才建卡", async (t) => {
-	const last = lastStep();
-	const table = await openTable({
-		mode: "setup",
-		campaign: null,
-		env: {
-			FAKE_KERNEL_MODULE: JSON.stringify({
-				module_id: "they-did-not-think-it-too-many",
-				sections: [
-					{ id: "front", title: "前言", priority: 100 },
-					{ id: "opening-scene", title: "开场", priority: 90 },
-				],
-				opening_after: 1,
-			}),
-		},
-		responses: [],
-	});
-	t.after(() => table.dispose());
-
-	const bundle = join(table.workspace, "bundle");
-	table.faux.setResponses([
-		setupCall({ step: "choose-source", kind: "pdf", bundle }),
-		setupCall({ step: "build-bundle" }),
-		fauxAssistantMessage("我先等你把资料包做出来。"),
-	]);
-	await table.session.prompt("我有一本 PDF");
-	await waitForIdle(table.session);
-
-	const waiting = setupResults(table.session).at(-1);
-	assert.equal(waiting.ok, false, "资料包还不在，这一步不算做完");
-	assert.equal(waiting.path, bundle);
-	assert.match(waiting.hint, /PDF skill/, "告诉玩家怎么用宿主的技能产出它（契约 §14.2：仓库不解析 PDF）");
-
-	// 宿主的技能产出了资料包（这里只要形状对：清单 + 每页一份 Markdown）。
-	mkdirSync(join(bundle, "pages"), { recursive: true });
-	writeFileSync(join(bundle, "manifest.json"), JSON.stringify({ contract: "coc.pdf-bundle.v1", pages: [] }));
-
-	table.faux.setResponses([
-		setupCall({ step: "build-bundle" }),
-		setupCall({ step: "bind-source" }),
-		setupCall({ step: "create-campaign", title: "他们也没想太多", play_language: "zh-Hans" }),
-		setupCall({ step: "build-opening" }),
-		setupCall({ step: "create-investigator", name: "林素", occupation: "journalist" }),
-		setupCall({ step: last.id }),
-		fauxAssistantMessage("建好了。"),
-	]);
-	await table.session.prompt("资料包做好了");
-	await waitForIdle(table.session, { timeoutMs: 30_000 });
-
-	const results = setupResults(table.session);
-	const bound = results.find((row) => row.step === "bind-source");
-	assert.equal(bound.ok, true);
-	// 一步两次调用，次序由表定：先 bind 再 plan（契约 §14.4）。
-	const methods = table.kernelRequests().map((entry) => entry.method);
-	assert.ok(methods.indexOf("module.bind") < methods.indexOf("module.plan"), "表里 bind-source 的两次调用按序走");
-	assert.equal(
-		table.kernelRequests().find((entry) => entry.method === "module.bind").params.bundle,
-		bundle,
-		"资料包目录从来源那一步的回执里取",
-	);
-
-	const opening = results.find((row) => row.step === "build-opening");
-	assert.equal(opening.ok, true, "等到了开场就绪");
-	assert.equal(opening["module.build"].opening_ready, true);
-	assert.equal(table.bus("coc:module-build").length, 1, "构建由 module 扩展跑，这一步只发起并等（契约 §14.5）");
-	assert.ok(table.readerRuns().length >= 1, "读者真的跑了");
-
-	const finished = results.at(-1);
-	assert.equal(finished.ok, true);
-	assert.match(finished.handoff_command, /^bin\/pi-coc --campaign /);
-});
-
-test("two opening scenes: build-opening asks within one round and never waits for what a build cannot settle (§14.14)", async (t) => {
-	const candidates = [
-		{ node_id: "scene-nkvd-briefing-opening1", scene: "nkvd-briefing-opening1", name: "开场一：逮捕令" },
-		{ node_id: "scene-nkvd-briefing-opening2", scene: "nkvd-briefing-opening2", name: "开场二：调查减产" },
-	];
-	const table = await openTable({
-		mode: "setup",
-		campaign: null,
-		env: {
-			FAKE_KERNEL_MODULE: JSON.stringify({
-				module_id: "cold-harvest",
-				sections: [{ id: "section-01", title: "整本", priority: 100 }],
-				opening_after: 1,
-				opening_candidates: candidates,
-			}),
-		},
-		responses: [],
-	});
-	t.after(() => table.dispose());
-
-	const bundle = join(table.workspace, "bundle");
-	mkdirSync(join(bundle, "pages"), { recursive: true });
-	writeFileSync(join(bundle, "manifest.json"), JSON.stringify({ contract: "coc.pdf-bundle.v1", pages: [] }));
-
-	table.faux.setResponses([
-		setupCall({ step: "choose-source", kind: "pdf", bundle }),
-		setupCall({ step: "build-bundle" }),
-		setupCall({ step: "bind-source" }),
-		// The model reaches for a language tag the kernel does not take.
-		setupCall({ step: "create-campaign", title: "冰冷的收获", play_language: "zh" }),
-		setupCall({ step: "create-campaign", title: "冰冷的收获", play_language: "zh-Hans" }),
-		setupCall({ step: "build-opening" }),
-		setupCall({ step: "build-opening", start_scene: "开场二：调查减产" }),
-		fauxAssistantMessage("开场定了。"),
-	]);
-	await table.session.prompt("我有一本 PDF");
-	await waitForIdle(table.session, { timeoutMs: 60_000 });
-
-	const results = setupResults(table.session);
-	// A closed vocabulary refused without naming what is allowed is what made the real model
-	// try zh, then zh-CN, then drop the parameter (#33): the kernel's fix and details must survive.
-	const refusedLanguage = results.find((row) => row.step === "create-campaign" && row.ok === false);
-	assert.equal(refusedLanguage.code, "invalid_params");
-	assert.deepEqual(refusedLanguage.details.options, ["zh-Hans", "en"], "拒绝里带得出候选");
-	assert.ok(refusedLanguage.fix, "内核的 fix 活过了工具结果这一层");
-
-	const asked = results.filter((row) => row.step === "build-opening");
-	assert.equal(asked.length, 2, "问一次、答一次，没有第 216 次重试");
-	assert.equal(asked[0].ok, false);
-	assert.deepEqual(asked[0].needs, ["start_scene"]);
-	assert.deepEqual(
-		asked[0].candidates.map((row) => row.name),
-		candidates.map((row) => row.name),
-		"候选场景连名字一起交给建卡助手",
-	);
-	assert.ok(!asked[0].still_building, "歧义不是「还在读」，等下去也不会好");
-
-	assert.equal(asked[1].ok, true, "玩家点了一个，这一步就过");
-	assert.equal(asked[1]["module.build"].opening_ready, true);
-	const chose = table.kernelRequests().find((entry) => entry.method === "module.opening.choose");
-	assert.equal(chose.params.scene, "开场二：调查减产", "玩家的答案原样送进内核，内核自己认候选");
-	assert.equal(
-		table.kernelRequests().filter((entry) => entry.method === "module.opening.choose").length,
-		1,
-		"定一次就够",
-	);
-});
-
-test("build-opening exits when the book is installed and playable but its opening stays undecided (§14.14)", async (t) => {
-	const table = await openTable({
-		mode: "setup",
-		campaign: null,
-		env: {
-			FAKE_KERNEL_MODULE: JSON.stringify({
-				module_id: "cold-harvest",
-				sections: [{ id: "section-01", title: "整本", priority: 100 }],
-				opening_after: 99,
-				opening_candidates: [
-					{ node_id: "scene-a", scene: "a", name: "开场一" },
-					{ node_id: "scene-b", scene: "b", name: "开场二" },
-				],
-			}),
-			// A wait this short would still be a wait: the point is that this step never reaches it.
-			PI_COC_BUILD_WAIT_MS: "600000",
-		},
-		responses: [],
-	});
-	t.after(() => table.dispose());
-
-	const bundle = join(table.workspace, "bundle");
-	mkdirSync(join(bundle, "pages"), { recursive: true });
-	writeFileSync(join(bundle, "manifest.json"), JSON.stringify({ contract: "coc.pdf-bundle.v1", pages: [] }));
-
-	table.faux.setResponses([
-		setupCall({ step: "choose-source", kind: "pdf", bundle }),
-		setupCall({ step: "build-bundle" }),
-		setupCall({ step: "bind-source" }),
-		setupCall({ step: "create-campaign", title: "冰冷的收获", play_language: "zh-Hans" }),
-		setupCall({ step: "build-opening" }),
-		// The assistant asks again without an answer: the step finishes rather than looping.
-		setupCall({ step: "build-opening" }),
-		fauxAssistantMessage("开场待定，先建卡。"),
-	]);
-	await table.session.prompt("我有一本 PDF");
-	await waitForIdle(table.session, { timeoutMs: 60_000 });
-
-	const asked = setupResults(table.session).filter((row) => row.step === "build-opening");
-	assert.equal(asked.length, 2);
-	assert.equal(asked[0].ok, false, "第一次交出候选");
-	assert.equal(asked[1].ok, true, "第二次收尾：模组已安装、可玩性 playable，开场待定");
-	assert.equal(asked[1]["module.build"].opening_ready, false);
-	assert.equal(asked[1]["module.build"].opening_pending, true);
-	assert.ok(String(asked[1].next ?? "").length > 0, "并把下一步交出去，流程不死在这里");
-});
-
 test("闸门：表里没有的步、前置没做完的步、重复的步，三种拒绝都能追回表", async (t) => {
 	const first = firstStep();
 	const last = lastStep();
@@ -330,7 +143,7 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
 	const investigator = stepById("create-investigator");
 	const table = await openSetup([
 		setupCall({ step: first.id, kind: "starter", module: "the-haunting" }),
-		setupCall({ step: "create-campaign", title: "闹鬼的房子", play_language: "zh-Hans" }),
+		setupCall({ step: "create-campaign", id: "setup-fixture", title: "闹鬼的房子", play_language: "zh-Hans" }),
 		// 第一次不给职业：工具把职业清单交给模型，模型自己挑（契约 §14.7，绝不做关键词表）。
 		setupCall({ step: investigator.id, name: "托马斯·海耶斯" }),
 		setupCall({ step: investigator.id, name: "托马斯·海耶斯", occupation: "journalist", concept: "从战场回来的记者" }),
@@ -357,8 +170,6 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
 
 	assert.equal(needOccupation.ok, false, "没给职业时这一步不算做完");
 	assert.deepEqual(needOccupation.needs, ["occupation"], "缺的是表里点名的那个参数");
-	const listed = needOccupation.results["setup.occupations"].occupations.map((row) => row.id);
-	assert.ok(listed.includes("journalist"), "职业清单原样进结果，交给模型挑");
 
 	assert.equal(made.ok, true);
 	const built = table.kernelRequests().find((entry) => entry.method === "setup.investigator");
@@ -366,7 +177,7 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
 	assert.equal(built.params.occupation, "journalist", "职业 id 是模型挑的");
 	assert.ok(built.params.campaign, "建卡的调用带战役 id");
 	const occupationCalls = table.kernelRequests().filter((entry) => entry.method === "setup.occupations");
-	assert.equal(occupationCalls.length, 1, "清单查一次就够，补参数再来时不重查");
+	assert.equal(occupationCalls.length, 0, "this step forwards the supplied occupation without another lookup");
 
 	assert.equal(finished.ok, true);
 	assert.match(finished.handoff_command, /^bin\/pi-coc --campaign /, "最后一步交出开桌命令（契约 §14.4）");

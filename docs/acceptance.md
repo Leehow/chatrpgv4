@@ -6,13 +6,13 @@
 
 - 驾驭器 `tests/play/driver.py`：`start --campaign <id> --run <run_id> [--launcher bin/pi-coc-setup]` 起一个守护进程与 `pi --mode rpc`；`turn "<玩家原文>" --run <run_id> --timeout <秒>` 发一条玩家输入并打印交付；`stop`；`status`；`log`。证据落在 `.coc/playtests/<run_id>/`（每回合 `turn-N.json`、`events.jsonl`、`pi-stderr.log`）。
 - 指标 `tests/play/kpi.py --campaign <id> --turns a-b`：从战役遥测算每回合「第一次写状态前的只读调用数」、工具总数、内核报错、是否进规则层；`--baseline` 给 `haunting-s0` 13–25 回合的基线。
-- 资料包 `tests/play/bundle_from_pages.py`：宿主把 PDF 读成的页 Markdown 装成 `coc.pdf-bundle.v1` 资料包；仓库不解析 PDF。
+- 原 PDF 从 setup 入口准备；页图由 `bin/coc-source` 提供，Python 内核只接收带页来源的图谱草稿。资料包/OCR 入口已退役。
 - 建卡进程走 `bin/pi-coc setup`（驾驭器用 `--launcher bin/pi-coc-setup`），游玩进程走 `bin/pi-coc --campaign <id>`。
 
 ## 证据
 
 - 战役目录 `.coc/campaigns/<id>/`：`turns/NNNN.json`（玩家原文、收据、交付、世界快照、事实清单、警告、胶囊、采纳）、`transcript.jsonl`、`events.jsonl`、`telemetry.jsonl`（工具、车道、Director 采纳）、`memory/`、`save/continuation/`。
-- 模组目录 `.coc/modules/<id>/`：`build.jsonl`（每 section 每轮的门与耗时）、`sections.json`、`work/<section>/`（读者的 shard 与 findings）、`module.json` 里的可玩性报告。
+- 模组目录 `.coc/modules/<id>/`：`reading-telemetry.jsonl`（宿主资料库下的阶段耗时）、阅读索引、`work/<job>/attempt-*/`（草稿、复核、页图使用记录与 findings）、`module.json` 里的可玩性报告。
 - 证据只增不删：战役、逐字记录、遥测、玩测目录永不删除。
 
 ## 每个切片怎么判

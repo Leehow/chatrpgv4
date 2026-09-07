@@ -34,7 +34,7 @@
  */
 
 import { appendFileSync } from "node:fs";
-import { SETUP_STEPS } from "./setup-steps.mjs";
+import { SETUP_STEPS, SETUP_TABLE } from "./setup-steps.mjs";
 
 const LOG = process.env.FAKE_KERNEL_LOG;
 const ERRORS = process.env.FAKE_KERNEL_ERRORS ? JSON.parse(process.env.FAKE_KERNEL_ERRORS) : {};
@@ -135,11 +135,6 @@ function slug(name) {
 
 const MODULE = process.env.FAKE_KERNEL_MODULE ? JSON.parse(process.env.FAKE_KERNEL_MODULE) : {};
 const MODULE_ID = MODULE.module_id ?? "they-did-not-think-it-too-many";
-/** section 名册；状态在这里就地改（契约 §14.1 的 sections.json）。 */
-const SECTIONS = (MODULE.sections ?? []).map((row) => ({ status: "planned", priority: 0, kind: "scene", ...row }));
-const REVIEW_PASS = MODULE.review_pass ?? {};
-const OPENING_AFTER = typeof MODULE.opening_after === "number" ? MODULE.opening_after : 1;
-const DEEPEN_QUEUE = [...(MODULE.deepen ?? [])];
 /**
  * `module.list` 的存储名册（契约 §20.3 的 `/coc module` 读它）：
  * 每行 {module_id, title, source, status, page_count?, opening_ready?, sections?}，
@@ -155,24 +150,10 @@ const LIBRARY = MODULE.library ?? null;
 const INVESTIGATORS = process.env.FAKE_KERNEL_INVESTIGATORS ? JSON.parse(process.env.FAKE_KERNEL_INVESTIGATORS) : [];
 let investigatorSaveSeq = 0;
 
-/** 每个 section 被 review 过几次：`review_pass` 说的那一轮才过（契约 §14.5 至多三轮）。 */
-const reviewRounds = new Map();
-let moduleStatus = SECTIONS.length > 0 ? "planned" : "registered";
-let generation = 0;
-// 切过 section 的书才在 `module.status` 里报名册；没切过的要先 `module.plan`（契约 §14.3）。
-// 深读那一路的书是已经切过的，用 `FAKE_KERNEL_MODULE.planned: true` 摆出来。
-let planned = MODULE.planned === true;
+let moduleStatus = MODULE.status ?? "installed";
+let generation = 1;
 let campaignSeq = 0;
 let investigatorSeq = 0;
-let deepenInFlight = null;
-
-function sectionRow(id) {
-	return SECTIONS.find((row) => row.id === id);
-}
-
-function acceptedCount() {
-	return SECTIONS.filter((row) => row.status === "accepted").length;
-}
 
 /**
  * 开场候选（契约 §14.14）：书里抽出不止一个开场时，`module.status` 的 `opening.choice`
@@ -183,7 +164,7 @@ const OPENING_CANDIDATES = MODULE.opening_candidates ?? [];
 let chosenStartScene = null;
 
 function openingReady() {
-	if (SECTIONS.length === 0 || acceptedCount() < OPENING_AFTER) return false;
+	if (MODULE.opening_ready === false) return false;
 	return OPENING_CANDIDATES.length === 0 || chosenStartScene !== null;
 }
 
@@ -521,6 +502,7 @@ function handle(method, params) {
 			return {
 				ok: true,
 				result: {
+					...SETUP_TABLE,
 					steps: SETUP_STEPS,
 					completed: [],
 					state: {},
@@ -597,87 +579,6 @@ function handle(method, params) {
 			};
 		}
 		// ---- 模组存储与无人值守构建（契约 §14.1、§14.3、§14.6） -----------
-		case "module.bind":
-			if (!params.bundle) {
-				return { ok: false, error: { code: "invalid_params", message: "module.bind 要资料包目录" } };
-			}
-			moduleStatus = "registered";
-			return { ok: true, result: { module_id: params.module_id ?? MODULE_ID, page_count: 20, assets: 2 } };
-		case "module.plan":
-			// 机器切法归内核，分类归一次读者：所以这里给包与 brief（契约 §14.3）。
-			return {
-				ok: true,
-				result: {
-					module_id: params.module_id ?? MODULE_ID,
-					work_dir: `.coc/modules/${params.module_id ?? MODULE_ID}/work/plan`,
-					packet: `.coc/modules/${params.module_id ?? MODULE_ID}/work/plan/packet.json`,
-					brief: "读 packet.json 里的目录与每页首两行，给每个 section 定 kind 与 priority，写进 plan.json。",
-					sections: SECTIONS.length,
-				},
-			};
-		case "module.plan.accept":
-			planned = true;
-			moduleStatus = "planned";
-			return { ok: true, result: { sections: SECTIONS.length } };
-		case "module.packet": {
-			const row = sectionRow(params.section_id);
-			if (!row) {
-				return { ok: false, error: { code: "invalid_params", message: `没有 section ${params.section_id}` } };
-			}
-			row.status = "reading";
-			return {
-				ok: true,
-				result: {
-					module_id: params.module_id ?? MODULE_ID,
-					section_id: row.id,
-					work_dir: `.coc/modules/${params.module_id ?? MODULE_ID}/work/${row.id}`,
-					packet: `.coc/modules/${params.module_id ?? MODULE_ID}/work/${row.id}/packet.json`,
-					brief: `读 packet.json，用 bin/coc-evidence 查证据，把 ${row.id} 的分片写进 shard.json，再跑 bin/coc-review。`,
-				},
-			};
-		}
-		case "module.review": {
-			const row = sectionRow(params.section_id);
-			if (!row) {
-				return { ok: false, error: { code: "invalid_params", message: `没有 section ${params.section_id}` } };
-			}
-			const seen = (reviewRounds.get(row.id) ?? 0) + 1;
-			reviewRounds.set(row.id, seen);
-			const passAt = REVIEW_PASS[row.id] ?? 1;
-			if (seen >= passAt) {
-				return { ok: true, result: { accepted: true, findings: [], measures: { span_consumption: 0.8 } } };
-			}
-			// 最后一轮还不过就记 failed（契约 §14.5）：扩展把轮次送进来，状态才写得下。
-			if (params.final === true) row.status = "failed";
-			return {
-				ok: true,
-				result: {
-					accepted: false,
-					findings: [
-						{ gate: "grounding", code: "unknown_evidence_span", path: `clues[0]`, message: `span-p3-2 不在本节证据里` },
-					],
-					measures: { span_consumption: 0.2 },
-				},
-			};
-		}
-		case "module.accept": {
-			const row = sectionRow(params.section_id);
-			if (!row) {
-				return { ok: false, error: { code: "invalid_params", message: `没有 section ${params.section_id}` } };
-			}
-			row.status = "accepted";
-			return { ok: true, result: { section_id: row.id, accepted: true } };
-		}
-		case "module.assemble":
-			generation += 1;
-			moduleStatus = "assembled";
-			return {
-				ok: true,
-				result: { module_id: params.module_id ?? MODULE_ID, generation, dangling_relations: 0, status: moduleStatus },
-			};
-		case "module.install":
-			moduleStatus = "installed";
-			return { ok: true, result: { module_id: params.module_id ?? MODULE_ID, status: moduleStatus, generation } };
 		case "module.list": {
 			const rows = LIBRARY ?? [{ module_id: MODULE_ID, title: "模组", source: "pdf", status: moduleStatus, generation }];
 			return { ok: true, result: { modules: rows.map((row) => ({ generation, ...row })) } };
@@ -705,12 +606,12 @@ function handle(method, params) {
 				result: {
 					module_id: params.module_id ?? MODULE_ID,
 					status: moduleStatus,
-					planned,
 					generation,
 					opening_ready: openingReady(),
 					opening: openingReport(),
 					playability: { status: "playable", finding_counts: {} },
-					sections: planned ? SECTIONS.map((row) => ({ ...row })) : [],
+					sections: [],
+                    opening_candidates: OPENING_CANDIDATES,
 				},
 			};
 		}
@@ -766,17 +667,10 @@ function handle(method, params) {
 				},
 			};
 		}
-		case "module.deepen.claim": {
-			// 同一时刻一个（契约 §14.6）：认领了没完成就不再发第二段。
-			if (deepenInFlight) return { ok: true, result: { section_id: null, claimed: deepenInFlight } };
-			const next = DEEPEN_QUEUE.shift();
-			if (!next) return { ok: true, result: { section_id: null } };
-			deepenInFlight = next;
-			return { ok: true, result: { section_id: next, module_id: MODULE_ID, reason: "move", priority: 100 } };
-		}
-		case "module.deepen.complete":
-			deepenInFlight = null;
-			return { ok: true, result: { section_id: params.section_id, status: params.status ?? "accepted" } };
+		case "module.read.request":
+            return { ok: true, result: { state: "ready", generation } };
+        case "module.read.claim":
+            return { ok: true, result: { job_id: null } };
 		case "table.open": {
 			const opening = process.env.FAKE_KERNEL_OPENING === "1";
 			const pending = process.env.FAKE_KERNEL_PENDING === "1";

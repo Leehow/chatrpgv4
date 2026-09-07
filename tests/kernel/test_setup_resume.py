@@ -2,39 +2,25 @@
 and setup.steps {campaign} tells a restarted setup process what is already done."""
 
 from conftest import CAMPAIGN, MODULE, campaign_dir, read_json
-from module_helpers import TINY_ID, bind_tiny, module_dir, packet_for, reader_shard, review, write_shard
-
-
-def _build(kernel, tmp_path):
-    bind_tiny(kernel, tmp_path)
-    kernel.ok("module.plan", {"module_id": TINY_ID})
-    packet, work_dir = packet_for(kernel, "section-01")
-    write_shard(work_dir, reader_shard(packet))
-    assert review(kernel, "section-01")["accepted"]
-    kernel.ok("module.accept", {"module_id": TINY_ID, "section_id": "section-01"})
-    kernel.ok("module.assemble", {"module_id": TINY_ID})
+from module_helpers import indexed, opening, finish
 
 
 def test_bound_book_campaign_gets_its_world_when_the_graph_arrives(kernel, tmp_path):
-    bind_tiny(kernel, tmp_path)
-    kernel.ok("module.plan", {"module_id": TINY_ID})
-    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": TINY_ID, "play_language": "zh-Hans"})
+    mid, _ = indexed(kernel, tmp_path)
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": mid, "play_language": "zh-Hans"})
     assert read_json(campaign_dir(kernel.workspace) / "campaign.json")["status"] == "setting_up"
     assert not (campaign_dir(kernel.workspace) / "world.json").exists()
     # before the graph exists the resume view already knows the lane
     resume = kernel.ok("setup.steps", {"campaign": CAMPAIGN})
     assert resume["completed"] == ["choose-source", "create-campaign"]
-    assert resume["state"]["module_id"] == TINY_ID and resume["state"]["source"]["kind"] == "pdf"
+    assert resume["state"]["module_id"] == mid and resume["state"]["source"]["kind"] == "pdf"
     occupation = kernel.ok("setup.occupations", {"campaign": CAMPAIGN})["occupations"][0]["id"]
     # no graph yet: the investigator can still be made, the world is not started
     kernel.ok("setup.investigator", {"campaign": CAMPAIGN, "name": "Marcus", "occupation": occupation, "seed": 3})
     assert not (campaign_dir(kernel.workspace) / "world.json").exists()
     # the graph lands; the next setup call starts the world
-    packet, work_dir = packet_for(kernel, "section-01")
-    write_shard(work_dir, reader_shard(packet))
-    assert review(kernel, "section-01")["accepted"]
-    kernel.ok("module.accept", {"module_id": TINY_ID, "section_id": "section-01"})
-    kernel.ok("module.assemble", {"module_id": TINY_ID})
+    job, _, _ = opening(kernel, mid)
+    finish(kernel, job)
     resume = kernel.ok("setup.steps", {"campaign": CAMPAIGN})
     assert "prepare-module" in resume["completed"] and "create-investigator" in resume["completed"]
     done = kernel.ok("setup.complete", {"campaign": CAMPAIGN})
@@ -68,12 +54,11 @@ def test_module_source_reuses_an_installed_book_and_skips_the_build_lane(kernel,
     `content/setup/steps.json`'s `only_for: "pdf"` on those three steps is what already
     excludes them for any other source kind -- no new data is written for `module`,
     only added to `sources` (contract §20.7, "put the skip in the data")."""
-    _build(kernel, tmp_path)  # TINY_ID is now assembled, with a graph, in the module store
-    kernel.ok("module.install", {"module_id": TINY_ID})  # -> status: installed (module.list's own bar for §20.7)
-    assert read_json(module_dir(kernel.workspace, TINY_ID) / "module.json")["status"] == "installed"
-
+    mid, _ = indexed(kernel, tmp_path)
+    job, _, _ = opening(kernel, mid)
+    finish(kernel, job)
     second = "second-camp"
-    created = kernel.ok("campaign.create", {"id": second, "module": TINY_ID, "play_language": "zh-Hans"})["campaign"]
+    created = kernel.ok("campaign.create", {"id": second, "module": mid, "play_language": "zh-Hans"})["campaign"]
     assert created["status"] == "setting_up" and created["investigators"] == []
     # the graph already existed: campaign.create starts the world immediately (kernel/coc/table.py),
     # unlike the pdf lane's first campaign above, which has no world until the book is built.
@@ -82,12 +67,12 @@ def test_module_source_reuses_an_installed_book_and_skips_the_build_lane(kernel,
 
     resume = kernel.ok("setup.steps", {"campaign": second})
     assert resume["completed"] == ["choose-source", "prepare-module", "create-campaign"]
-    assert resume["state"]["source"] == {"kind": "module", "module_id": TINY_ID}
+    assert resume["state"]["source"] == {"kind": "module", "module_id": mid}
 
     occupation = kernel.ok("setup.occupations", {"campaign": second})["occupations"][0]["id"]
     kernel.ok("setup.investigator", {"campaign": second, "name": "Reused", "occupation": occupation, "seed": 9})
     handoff = kernel.ok("setup.complete", {"campaign": second})
-    assert handoff["status"] == "ready_for_table" and handoff["module_id"] == TINY_ID
+    assert handoff["status"] == "ready_for_table" and handoff["module_id"] == mid
 
     opened = kernel.table("open", campaign=second)
     assert opened["campaign"]["status"] == "active"

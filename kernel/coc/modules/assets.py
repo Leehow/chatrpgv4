@@ -1,9 +1,4 @@
-"""The asset registry: handouts, maps, illustrations (contract §14.8).
-
-`module.bind` registers what the bundle manifest declares; `module.assemble`
-(and starter registration) merges the graph's `asset` / `handout` nodes into it,
-aligned by page. Visibility comes from the node when one is aligned, otherwise
-`keeper-only`: a bundle image nobody has read is not player material yet."""
+"""Published handouts and maps, keyed by identity with source-controlled visibility."""
 
 from __future__ import annotations
 
@@ -58,32 +53,9 @@ def _entry_from_node(node: dict[str, Any], bundle_row: dict[str, Any] | None) ->
     return entry
 
 
-def registry_from_bundle(bundle_assets: list[dict[str, Any]]) -> dict[str, Any]:
-    rows = []
-    for asset in bundle_assets:
-        rows.append({
-            "id": str(asset["id"]),
-            "kind": str(asset.get("kind") or "illustration"),
-            "name": str(asset.get("name") or asset["id"]),
-            "aliases": [],
-            "pages": list(asset.get("pages") or []),
-            # Relative to the module directory: the bundle's bytes live under `bundle/`.
-            "path": f"bundle/{asset['path']}" if asset.get("path") else None,
-            "media_type": asset.get("media_type"),
-            "sha256": asset.get("sha256"),
-            "visibility": "keeper-only",
-            "node_id": None,
-            "bundle_asset_id": str(asset["id"]),
-        })
-    return {"contract_id": REGISTRY_CONTRACT_ID, "schema_version": 1, "assets": rows}
-
-
-def registry_from_graph(graph: dict[str, Any], bundle_assets: list[dict[str, Any]], *, registered: bool = False) -> dict[str, Any]:
-    """Bundle entries first, then graph nodes; a node whose page matches an unclaimed
-    bundle asset of the same kind (or any kind when only one asset sits on that page)
-    takes that asset's bytes."""
-    registry = ({"contract_id": REGISTRY_CONTRACT_ID, "schema_version": 1, "assets": copy.deepcopy(bundle_assets)}
-                if registered else registry_from_bundle(bundle_assets))
+def registry_from_graph(graph: dict[str, Any], previous_assets: list[dict[str, Any]]) -> dict[str, Any]:
+    """Carry registered assets forward by node identity, preserving legacy paths and aliases."""
+    registry = {"contract_id": REGISTRY_CONTRACT_ID, "schema_version": 1, "assets": copy.deepcopy(previous_assets)}
     rows: list[dict[str, Any]] = registry["assets"]
     by_id = {row["id"]: row for row in rows}
     unclaimed = {row["id"] for row in rows}
@@ -93,8 +65,7 @@ def registry_from_graph(graph: dict[str, Any], bundle_assets: list[dict[str, Any
         pages = node_pages(node)
         match: dict[str, Any] | None = None
         candidates = [row for row in rows if row["id"] in unclaimed and
-                      ((row.get("node_id") == node["node_id"] or row["id"] == node["node_id"]) if registered
-                       else (pages and set(row.get("pages") or []) & pages))]
+                      (row.get("node_id") == node["node_id"] or row["id"] == node["node_id"])]
         if len(candidates) == 1:
             match = candidates[0]
         elif candidates:

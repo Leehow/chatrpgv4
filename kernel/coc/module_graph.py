@@ -750,6 +750,8 @@ class ModuleGraph:
             "display_name": self.display_name(node),
             "kind": node["node_kind"],
             "summary": self.summary(node),
+            "properties": {k: v for k, v in (node.get("properties") or {}).items()
+                           if k not in ("runtime_projection", "asset_ref")},
             "visibility": node.get("visibility"),
             "relations": self.relations_of(node),
         }

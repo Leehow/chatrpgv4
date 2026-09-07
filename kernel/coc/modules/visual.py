@@ -9,7 +9,7 @@ from ..errors import RpcError, invalid_params
 from ..fileio import canonical_json
 from .contract import (COVERAGE_DOMAINS, COVERAGE_STATUSES, GRAPH_CONTRACT_ID, NODE_KINDS,
                        RELATION_KINDS, TRUTH_STATUSES, VISIBILITIES, module_node_id,
-                       valid_semantic_id)
+                       valid_semantic_id, VISUAL_CONTRACT_ID, VISUAL_SHARD_KEYS, VISUAL_NODE_KEYS, VISUAL_CLAIM_KEYS)
 
 
 def reject(message: str, path: str = "/") -> None:
@@ -81,10 +81,10 @@ def pointer(value: Any, path: str) -> Any:
 def check_draft(draft: Any, packet: dict[str, Any], seen: set[int] | None = None) -> dict[str, Any]:
     if not isinstance(draft, dict):
         reject("the draft must be an object")
-    allowed = {"contract_id", "nodes", "claims", "node_refs", "coverage", "dependencies", "critical", "ready_nodes"}
+    allowed = VISUAL_SHARD_KEYS
     if set(draft) - allowed:
         reject(f"unknown draft keys: {sorted(set(draft) - allowed)}")
-    if draft.get("contract_id", "coc.module-graph-shard.v4") != "coc.module-graph-shard.v4":
+    if draft.get("contract_id", VISUAL_CONTRACT_ID) != VISUAL_CONTRACT_ID:
         reject("use the visual shard contract coc.module-graph-shard.v4")
     if draft.get("dependencies") != []:
         reject("resolve the current scope's source dependencies before publication", "/dependencies")
@@ -99,7 +99,7 @@ def check_draft(draft: Any, packet: dict[str, Any], seen: set[int] | None = None
     existing = {n["node_id"] for n in packet.get("known_nodes", [])}
     defined: set[str] = set()
     count = packet["source"]["page_count"]
-    node_keys = {"node_id", "node_kind", "name", "aliases", "summary", "properties", "visibility", "source_refs"}
+    node_keys = VISUAL_NODE_KEYS
     for i, node in enumerate(nodes):
         if not isinstance(node, dict) or set(node) - node_keys:
             reject("invalid node fields", f"/nodes/{i}")
@@ -113,6 +113,10 @@ def check_draft(draft: Any, packet: dict[str, Any], seen: set[int] | None = None
         if any(not isinstance(a, str) for a in node.get("aliases", [])):
             reject("aliases must contain names")
         props = node.get("properties", {})
+        if kind in ("asset", "handout") and "asset_ref" in props:
+            prior = next((n for n in packet.get("known_nodes", []) if n["node_id"] == nid), {})
+            if props["asset_ref"] != prior.get("properties", {}).get("asset_ref"):
+                reject("asset_ref is owned by the host; declare image_sources instead of a local file path", f"/nodes/{i}/properties/asset_ref")
         if "image_sources" in props:
             references(props["image_sources"], count, seen)
         if kind == "npc" and any(isinstance(props.get(k), dict) for k in ("stats", "skills", "characteristics", "derived")):
@@ -140,7 +144,7 @@ def check_draft(draft: Any, packet: dict[str, Any], seen: set[int] | None = None
         if not known["ready"] and node["node_id"] in filled["ready_nodes"]:
             proposed.pop("summary", None)
         merge_value({k: known[k] for k in proposed}, proposed, "/nodes/" + node["node_id"])
-    claim_keys = {"claim_id", "subject_id", "predicate", "object", "truth_status", "visibility", "source_refs", "reason", "known_by_ids", "asserted_by_ids", "validity"}
+    claim_keys = VISUAL_CLAIM_KEYS
     claimed: set[str] = set()
     required = set(filled["critical"])
     for p in required:
@@ -222,9 +226,25 @@ def merge_value(old: Any, new: Any, path: str = "") -> Any:
                    details={"path": path, "existing": old, "proposed": new})
 
 
+def relation_from_claim(claim: dict[str, Any]) -> dict[str, Any] | None:
+    claim_id = claim.get("claim_id")
+    predicate = claim.get("predicate")
+    subject_id = claim.get("subject_id")
+    obj = claim.get("object")
+    if not isinstance(claim_id, str) or predicate not in RELATION_KINDS:
+        return None
+    if not isinstance(subject_id, str) or not isinstance(obj, dict):
+        return None
+    target = obj.get("node_id")
+    if not isinstance(target, str):
+        return None
+    stem = claim_id[len("claim-"):] if claim_id.startswith("claim-") else claim_id
+    return {"relation_id": f"rel-{stem}", "relation_kind": predicate, "from_node_id": subject_id,
+            "to_node_id": target, "claim_id": claim_id, "properties": {}}
+
+
 def assemble_visual(previous: dict[str, Any] | None, filled: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
     from .assemble import _project_scene_records
-    from .gates import relation_from_claim
 
     mid = module_node_id(meta["id"])
     ready_before = {nid for material in meta.get("reading", {}).get("materials", []) for nid in material.get("node_ids", [])}

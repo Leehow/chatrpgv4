@@ -32,7 +32,7 @@ no illustrations, and a Keeper running it is expected to own the Rulebook.
 
 ## How it was built
 
-`module.bind` on a 17-page bundle → `module.plan` (one section) → three passes of the §14.5
+Historical provenance (the retired text pipeline): `module.bind` on a 17-page bundle → `module.plan` (one section) → three passes of the §14.5
 reader (`grok-relay/grok-4.5`), the second and third as §14.6 deep reads. 90 nodes after the
 first pass, 127 after the third, nothing dropped, every pass through all three gates with no
 findings. The build telemetry is in the ignored `.coc/modules/the-haunting-rulebook/build.jsonl`.

@@ -6,7 +6,7 @@ import copy
 import json
 
 from conftest import CONTENT_DIR, MODULE
-from module_helpers import KERNEL_DIR  # noqa: F401  (puts kernel/ on sys.path)
+from conftest import KERNEL_DIR  # noqa: F401  (puts kernel/ on sys.path)
 
 from coc.module_graph import record_of
 from coc.modules.assemble import apply_opening_choice, resolve_start_scene

@@ -32,13 +32,6 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..", "..");
 export const FAKE_KERNEL = join(HERE, "fixtures", "fake-kernel.mjs");
-/** 站在子 `pi` 读者那个位置上的假读者（契约 §14.5，接缝见 docs/pi-host-contract.md 第 3.2 节）。 */
-export const FAKE_READER = join(HERE, "fixtures", "fake-reader.mjs");
-/** PDF 摄入那三个适配器的替身（契约 §20.1）：抽取、OCR、打包器。 */
-export const FAKE_EXTRACT = join(HERE, "fixtures", "fake-extract.mjs");
-export const FAKE_OCR = join(HERE, "fixtures", "fake-ocr.mjs");
-export const FAKE_BUNDLE = join(HERE, "fixtures", "fake-bundle.mjs");
-
 /**
  * 真内核模式：在工作区里先建一张桌子。走的是内核自己的 RPC，不碰它的文件布局。
  */
@@ -153,14 +146,10 @@ export async function openTable({
 } = {}) {
 	const workspace = mkdtempSync(join(tmpdir(), "pi-coc-ext-"));
 	const requestLog = join(workspace, "kernel-requests.jsonl");
-	const readerLog = join(workspace, "reader-runs.jsonl");
 	const restoreEnv = setEnv({
 		PI_COC_KERNEL_CMD: realKernel ? undefined : JSON.stringify([process.execPath, FAKE_KERNEL]),
 		PI_COC_CAMPAIGN: campaign ?? undefined,
 		PI_COC_MODE: mode,
-		// 读者是子 `pi` 进程（契约 §14.5）；测试里换成假读者，跟内核同一个套路。
-		PI_COC_READER_CMD: JSON.stringify([process.execPath, FAKE_READER]),
-		FAKE_READER_LOG: readerLog,
 		FAKE_KERNEL_LOG: requestLog,
 		PI_OFFLINE: "1",
 		// 两条车道各有一个专属的假 provider，各有各的回答队列：
@@ -225,10 +214,6 @@ export async function openTable({
 					pi.events.on("coc:mechanics", (data) => mechanics.push(data));
 					// 模组车道的总线（契约 §14.5）：构建起没起、开场就绪没有，测试从这里看。
 					for (const channel of [
-						"coc:module-build",
-						"coc:module-opening-ready",
-						"coc:module-build-done",
-						"coc:module-build-failed",
 						// PDF 摄入那四条（契约 §20.2）。
 						"coc:module-ingest",
 						"coc:module-ingest-progress",
@@ -296,28 +281,10 @@ export async function openTable({
 		bus: (channel) => (channel ? bus.filter((row) => row.channel === channel) : [...bus]),
 		/**
 		 * 往总线上发一条（探针扩展借的是同一条 `pi.events`）。
-		 * 建卡进程就是这么让 module 扩展开跑的（契约 §14.4 的 `build-opening`），
-		 * 只想验构建循环本身时用它，不必先把七步走一遍。
+		 * The probe shares the same bus as the reading and kernel extensions,
+		 * so a transport test can replace a bridge without inventing another host.
 		 */
 		emit: (channel, data) => api?.events.emit(channel, data),
-		/** 假读者跑过的每一轮：{cwd, section, brief, argv}。 */
-		readerRuns: () =>
-			existsSync(readerLog)
-				? readFileSync(readerLog, "utf8")
-						.split("\n")
-						.filter((line) => line.trim())
-						.map((line) => JSON.parse(line))
-				: [],
-		/** 构建遥测（契约 §14.1 的 build.jsonl）。 */
-		buildLog: (moduleId) => {
-			const path = join(workspace, ".coc", "modules", moduleId, "build.jsonl");
-			return existsSync(path)
-				? readFileSync(path, "utf8")
-						.split("\n")
-						.filter((line) => line.trim())
-						.map((line) => JSON.parse(line))
-				: [];
-		},
 		/** 假内核收到的请求，按到达顺序。 */
 		kernelRequests: () =>
 			existsSync(requestLog)

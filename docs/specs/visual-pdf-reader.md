@@ -185,37 +185,45 @@
 
 ### 实施记录
 
-用户于 2026-09-07 授权实现。工作分支 `codex/visual-pdf-reader`，隔离 worktree `chatrpgv4-wt-visual-pdf-reader`。原工作区的并发改动未回滚或覆盖。已提交 WIP `bf58dc0b`，合并上游 `ebbf8dde` 后为 `5805d8f4`；此后仍有本任务的未提交修复。worktree 由当前任务管理，最终须 audit 并明确处置。
+用户已授权实现，并于后续明确要求继续至完成。开发位于隔离 worktree `chatrpgv4-wt-visual-pdf-reader`、分支 `codex/visual-pdf-reader`。最新已提交检查点为 `d3016b50`，之前合并上游 `e71b86cb` 的集成点为 `8601d66b`；旧管线退役及末轮修复当前尚未提交。原工作区仍有其他任务的未提交改动，不覆盖、不回滚。最终须完成 worktree 生命周期审计。
 
-| 切片 | 当前状态 | 尚缺的退出条件 |
+| 切片 | 已有证据 | 尚未完成 |
 | --- | --- | --- |
-| A 原页闭环 | 已实现；5 个渲染用例和真实 Pi 读图通过 | 最终退役后的复查 |
-| B 原 PDF 到开桌 | 来源、队列、复核、建卡和图谱开场已接通；20 页来源已实际建卡游玩 | 自然结局、CoC7 数值与多开场回归 |
-| C 按需补读 | 已有 NPC 的新问题已触发真实读图并发布；材料在结算前检查 | 338 页长本的真实冷内容游玩 |
-| D 恢复复用 | 真桌跨 Pi 会话恢复；进程认领、原子发布、取消、冲突的确定性接缝通过 | 第二局复用的真实入口证据及最终恢复回归 |
-| E 退役 | 已完成调用者清点，旧生产路径仍在 | B–D 的替代链路验收、删除、全量绿和删除后真桌 |
+| A 原页访问 | 原 PDF 页图、旋转、裁剪、缓存校验与区域手卡；真实 Pi 图片读取 | 最终整体验证汇总 |
+| B 原 PDF 到开桌 | 20 页来源已建卡并完成一次真实使节任务；48 页 Cold Harvest 已复核并选对调查开场 | 退役后已实际交付两张手卡并记下调查计划后暂停 |
+| C 长本按需补读 | 338 页 A Time to Harvest 全书定位；开场仅准备部分材料；正常抵达行动触发未就绪场景细读与第 320 页地图读取；generation 2 发布后实际抵达 | 退役后的恢复、手卡与收尾验证 |
+| D 复用与恢复 | 马库斯跨 Pi 会话恢复；朱莉娅在同一模组上另开局，世界时间 30 分钟，与马库斯的 12021 分钟独立；原件恢复、争用与原子发布接缝通过 | 最终进程和证据审计 |
+| E 旧方法退役 | OCR/资料包命令、旧抽取器依赖、文字 span 管线、旧 build/deepen 编排与专属测试已删除；旧图谱/资产只读兼容保留 | 退役后内核 1027 passed / 1 skipped、扩展 104 passed；等待长本末轮与安全集成 |
 
-现有证据及其边界：
+真实来源与运行记录（均保留在 `.coc/`，未上传原书）：
 
-- `.coc/research/source-reader-smoke/`：真实 Grok 读原 PDF 页图，正确取得斗酒侧栏条件；4.5 与 4.6 独立读图探针均退出 0。这里只证明图片输入。
-- `.coc/research/visual-live-home-1/.coc/modules/book-1/`：20 页来源定位完成。read-4 的 generation 1 由原 setup 的 `xai/grok-4.5` 于 08:16:18Z 发布；不能归因于随后切换的 4.6。read-5 对康尼尔斗酒问题的原页复查完成并发布 generation 2，后续发布和历史排队均保留。
-- `visual-source-setup`、`visual-source-setup-grok46`：通过真实 setup 入口准备原 PDF，实际 campaign 为 `they-did-not-think-it-too-many`，人物马库斯。setup.complete 收据为 ready_for_table；短剑、盾、口粮有真实装备记录。
-- `visual-source-play`、`visual-source-play-resume`、`visual-source-play-graph`：同一真实战役跨进程继续，已发生旅行、宴会、私人会谈和晨间谈判；包含真实失败检定与由玩家放弃推骰的选择。Keeper 为 Grok 4.5，后续 source reader 为 4.6。尚未自然结束，不计完整真桌通过。
-- 手工核对原物理页 5 与 7：斗酒 POT 表、超过 HP 后才检定、两次失败条件，以及布拉丹圆屋的三个铜像/头骨细节，在源图、图谱和实际交付之间可对应。原书采用旧版属性量表，原数值抄录正确不代表可直接供 CoC7 计算；该样本不能证明 NPC 规则兼容。读者/复核提示现已明确 classic CoC7 的兼容边界，禁止猜转换。
-- `cold-visual-setup`：按既定样本新增《冰冷的收获》原 PDF 真入口回归，隔离 home 为 `.coc/research/cold-visual-home`，角色伊万/苏联警察；用于 CoC7、地图和开场回归，当前正在读取。
-- `.coc/research/long-index/home/.coc/modules/book-1/`：338 页 A Time to Harvest 已完成 338/338 全书定位。开场抽取因图片历史约 39 MiB 曾报 413；有界图片上下文修复后，第一轮触及旧 15 分钟任务上限，第二轮于 10:12:59Z 成功抽取（749632 ms、30 次不同图片读取），现进行独立复核。长本尚无游戏战役，不计长本真桌。
+- `.coc/research/source-reader-smoke/`：4.5 与 4.6 的实际页图读入探针；只证明视觉输入。
+- `.coc/research/visual-live-home-1/.coc/modules/book-1/`：20 页《他们也没想太多》原文件与图。generation 1 的发布者为原 setup 的 Grok 4.5（read-4，08:16:18Z），后续 reader override 才改为 4.6。
+- `visual-source-setup`、`visual-source-setup-grok46`：原 PDF 建卡。实际战役 `they-did-not-think-it-too-many`，马库斯/军团老兵。
+- `visual-source-play`、`visual-source-play-resume`、`visual-source-play-graph`：马库斯完成旅行、宴会、私人会谈、条约签署与返程复命，最后自然收束。含真实失败检定、玩家放弃推骰与跨会话恢复。源码迭代中出现的失败及被拒调用都保留，不能计作成功回合。
+- `visual-source-reuse-setup`、`visual-source-reuse-play`：朱莉娅新局 `julia-north-mission`，约 20.8 秒建卡，复用 book-1；已实际开场并通过正常玩家输入暂停。该记录验证复用与独立世界，不宣称第二局剧情完结。
+- `.coc/research/long-index/home/.coc/modules/book-1/`：338 页 A Time to Harvest，索引为 338/338。开场 read-32 于 10:45:15Z 完成独立复核后发布 generation 1；此前的 413、阶段超时与语义复核失败均保留。
+- `harvest-visual-setup`、`harvest-visual-play`、`harvest-visual-play-recovery`：真实战役 `a-time-to-harvest`，艾达。启动时一次 driver prompt 被 Pi 的自动开场拒绝，属传输记录，不计玩家回合。抵达动作先因材料未就绪被拒；read-34 发布 generation 2 后，canonical turn 4 只有一次 480 分钟车程和一次 30 分钟卸货，最终世界位置 day-one-arrival、时间 510。第 320 页地图的 23英尺6英寸尺寸误读曾被复核拦下。
+- `.coc/research/cold-visual-home/.coc/modules/book-1/`：48 页《冰冷的收获》索引、原页、草稿、复核与图。read-5 的日期、指控内容等误读，以及最后的 50码/50米混淆被复核拦截；read-6 修正后发布。
+- `cold-harvest-ivan` 与 `cold-harvest-ivan-flax` 两个错误试局标记 **invalid-for-intent / invalid-for-acceptance**：图谱已正确区分任务，但建卡候选缺摘要，加上缓存直接复用了旧选择，导致实际开场与玩家意图不符。这两局不计通过，不删除记录。
+- `cold-visual-setup-confirmed` 创建的 `cold-harvest-ivan-correct` 已核对为开场2：查明亚麻产量骤降与电报失联并联系加庞。source kind=module 与 pdf 统一经过 prepare-module，多个候选必须在本次准备选定。
+- 退役后 `cold-visual-graph-play` 与 `cold-visual-handout-play` 暴露了重复原文请求。工具仍把 handout 标为 reserved，现改为必填 name 的已实现效果，Keeper 提示也说明交付现成原图无需转写。`cold-visual-card-delivery` 的 canonical turn 4 已交付两张 image/png 手卡并发出 coc-mechanics；Grok 一次正文异常由下一句正常对话恢复，未重复 apply。turn 5 用 note 记录调查顺序，正常暂停于出发前。两个原图均实际打开检查；信保持原书横置方向。
 
-真入口发现并已修复的系统接缝：
+重要边界与已修系统问题：
 
-1. 开场 look 缺少已有时代/全局简报，导致源和图谱为 80 年而 Keeper 误说 210 年；现复用已有 module briefing。旧叙述没有被改写，玩家在原局通过正常对话要求更正，Keeper 留了 note 收据。
-2. 普通图谱查询误触发原文读取；现以 lookup kind=module 和 kind=source 区分。一次 reading_timeout 后本回合仅可 ask，新的玩家输入才可继续；前台只等所需材料，不等整个后台队列。
-3. Pi 扩展加载产生不同 KernelError 构造器实例，曾丢失修正细节；现按结构保留 code/fix/details。
-4. 页图历史累积超过请求大小；现仅保留最近至多 4 张/约 8 MiB 的图片，并记录实际进入上下文的工具图片。未包含的图片不能冒充阅读证据。
-5. 索引与图谱均通过 metadata 指针发布；未发布索引文件不会在恢复时重复追加。薄场景补读同步 runtime record；已发布内容在原 PDF 缺失时仍可复用。
-6. 视觉资产按节点身份保留各自裁剪路径，既有资产路径不再被重复加 bundle/ 前缀，也不按同页猜配另一张图片。
+1. 原页/图谱为公元80年，旧开场曾误说210年；开场 look 现包含既有模组简报。旧叙述通过玩家正常对话更正并有 note 收据，未改写历史。
+2. 20 页短本采用旧版属性量表，原数字抄录正确不能等同于 CoC7 机制兼容。该样本不用于宣称 NPC 数值兼容；读者/复核现明确 classic CoC7 边界，不猜转换。CoC7 与多开场回归用 Cold Harvest。
+3. 图片历史按每次模型请求至多4张/约8MiB收缩，实际入上下文的图片才算读取；草稿与复核边读边写。
+4. 不带 question 的 source 查询加入原准备任务，显式新问题才另读；超时给原请求字段，必须交还控制，不能把现实等待写成故事时间。
+5. 薄节点首次经复核成为 ready 时可补全 summary；既有正式事实保持冲突检查。已知节点、关系字段向读者提供，身份和理由不因重新措辞而丢失。
+6. 图、manifest 与资产登记统一由 ModuleStore 写入一代；开场选择也不会丢资产。资产按身份匹配，保留原路径和旧别名，新的本地路径只由宿主根据复核过的 image_sources 生成。
+7. 原文件缺失或损坏可用相同摘要的原件恢复；损坏字节另存保留，恢复持有 metadata 锁。索引、任务认领与完成有持久恢复/幂等检查。
+8. 错误跨 Pi 扩展实例按结构传递；主机准备目录异常也会释放已认领任务。既有材料已就绪时不因可选预读缺原文件而阻止开桌。
 
-最近确定性验证：73 个内核接缝与 33 个扩展用例通过；新增恢复/投影后 32 个相关内核用例通过，新增资产跨代回归后视觉与 handout 合计 22 passed。等待、错误桥接、图片上下文与 bad_pdf 的相关扩展检查退出 0。全量迁移检查此前为 Python 1078 passed / 2 failed / 1 skipped、扩展 95 passed / 16 failed；部分旧断言已修正，旧 ingest 专属测试尚待替换，尚未称全量绿。
+验证记录：删除前全量内核 1093 passed / 1 skipped，扩展 108 passed / 11 failed（均旧 OCR 导入用例）。删除后扩展 104 passed；内核一轮为 1025 passed / 1 failed / 1 skipped，唯一失败为系统语言测试仍寻找已删除的 reader.md，已改为 visual-reader.md。补齐场景和实体投影后的相关内核 55 passed。最终全量实际退出码均为 0：内核 1027 passed / 1 skipped（208.77 秒），扩展 104 passed。日志为 `.coc/research/final-kernel.log`、`final-extension.log`。补正 handout 工具描述后扩展再次 104 passed，系统语言 5 passed；手卡的真实交付另见上文。
 
-历史失败保留在 `.coc/research/reading-service-smoke/`、`.coc/modules/book-1/work/` 和各真实 run 中，包括服务端 `500 Auth context expired`、试跑整体 30 分钟截止、413 与阶段超时。这些原因分别记录，不能混称为同一种失败。所有原 PDF、图、草稿、回合、事件和遥测仅增不删。
+旧图谱兼容由 `tests/kernel/fixtures/legacy-module/` 的冻结合成图验证：无 PDF、无文字资料包仍可加载、开桌与读取资产。它不是 PDF 视觉或真桌证据。历史原文件、图、草稿、图像、战役、逐字记录和遥测全部保留。
 
-下一步：完成短本与长本的真实产品门、第二局复用，随后按退役清单移除旧入口；全量测试和删除后真桌完成才关闭本规格。Electron 不在本轮。
+观测到的首次开场图发布时间：20 页短本从登记到发布 43.6 分钟；48 页 Cold Harvest 为 114.7 分钟；338 页长本为 186.1 分钟。这些是包含开发修复、失败、人工间隔的真实墙钟时间，不是稳定性能基准，也不代表生成图后所有开场已选定。已有书的复用建卡约 20.8 秒。
+
+下一步：完成长本退役后恢复的末轮验证，提交精简实现；原工作区有并发改动时保持隔离，安全集成后审计 worktree。Electron 不在本轮。

@@ -14,7 +14,7 @@ import { execPath } from "node:process";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { createFakeUI, FAKE_BUNDLE, FAKE_EXTRACT, FAKE_OCR, openTable, waitFor } from "./harness.mjs";
+import { createFakeUI, openTable, waitFor } from "./harness.mjs";
 
 /** Two books in the store: one that can be played right now, one still being built. */
 const LIBRARY = [
@@ -151,8 +151,7 @@ test("/coc module outside an interactive terminal: one line, no bus request, no 
 		table
 			.kernelRequests()
 			.slice(before)
-			.map((row) => row.method)
-			.filter((method) => !method.startsWith("module.deepen.")),
+			.map((row) => row.method),
 		[],
 		"not one kernel call",
 	);

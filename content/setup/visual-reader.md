@@ -50,9 +50,13 @@ Runtime facts that must be connected:
 - Place actors with present-in, clues with discoverable-at, and connect clues to conclusions with supports. Place locations with occurs-at / located-in. A scene's authored mechanical rules connect through uses-rule. Never create a clue solely to satisfy a gate.
 
 present-in means physically at hand in that scene. A person mentioned in a letter, will, rumor or history is not thereby standing there. A dead or absent person can remain unplaced; do not put them on stage to satisfy a structural check. Later actors outside the current opening do not need to be prepared now.
+
+For a person's dossier, use the exact property keys and claim predicates in task.vocabulary.actor_dossier. Those names reach the existing NPC projection; do not hide the same material under newly invented parallel labels.
 - Use the existing properties for source facts. Scalar facts belong in properties, while claims connect nodes. A character's stats are a structured block, not a compressed prose summary.
 
 For a player-facing handout or map, declare `properties.image_sources` as a list of `{page, box?}` regions that are safe to reveal. The host renders those regions after review; source_refs alone are citations, not permission to expose a whole page. Multiple regions of one handout are kept in order in one image. Keep different authored handouts separate. Do not include Keeper annotations in a revealable region.
+
+The host owns asset_ref and writes it only after rendering reviewed image_sources. Do not invent or replace local asset paths in the draft.
 
 For NPC arithmetic use `properties.mechanics.profile`, with `characteristics` (STR/CON/SIZ/DEX/INT/POW/APP/EDU), `derived` (HP/MP/MOV/DB/Build when supplied), and `skills` (source skill names and scores). Preserve authored values; this reader does not convert rule editions. Do not leave arithmetic only in a standalone stats dictionary that the runtime cannot consume. Other authored dossier fields remain in properties.
 

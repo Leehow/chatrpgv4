@@ -1,6 +1,6 @@
 # Pi 宿主契约
 
-2026-09-07 的 PDF 视觉阅读替换规格见 [visual-pdf-reader.md](specs/visual-pdf-reader.md)，目标接口见 [内核契约 §22](kernel-rpc.md#22-visual-pdf-reading-and-demand-driven-graph-building)。下文的 section 读者、OCR ingest 与旧 build 总线描述当前运行时；切换尚未实现。实施时沿用带工具子 Pi 与图片 `read`，更新对应宿主决定，不 fork Pi。
+PDF 视觉阅读已按 [visual-pdf-reader.md](specs/visual-pdf-reader.md) 与 [内核契约 §22](kernel-rpc.md#22-visual-pdf-reading-and-demand-driven-graph-building) 接线；旧 OCR、文字资料包和 build/deepen 编排已退役。最后的全量与真桌验证状态见规格中的实施记录。
 
 我们不 fork Pi，也不打补丁。这份文件写清 pi-coc 依赖 Pi 的哪些接口与行为、我们在哪里绕过了它的限制、想请上游改什么，以及 Pi 升版时怎么核对。Pi 升级 = 改一个版本号，然后按第 7 节走一遍。
 
@@ -48,7 +48,7 @@ Pi 家目录由 `PI_CODING_AGENT_DIR` 指定为仓库内 `.pi/coc-agent`；`sett
 
 上下文：`ctx.cwd`、`ctx.hasUI`、`ctx.mode`、`ctx.ui.notify` / `select` / `setStatus`、`ctx.model`、`ctx.thinkingLevel`、`ctx.modelRegistry.find` / `getAll` / `getAvailable` / `complete`、`ctx.getContextUsage()`、`ctx.compact(options)`。
 
-总线：`pi.events.emit` / `on`。`on` 返回一个退订闭包，**没有 `off`**：要临时订阅（建卡等构建那一步）就得留着它自己收。十四个频道：`coc:table-open`、`coc:resolve`、`coc:capsule`（本回合胶囊原样一份，桌况显示用它取 Director 节拍，契约 §13.9）、`coc:turn-committed`（契约 §12.8 的提交载荷）、`coc:mechanics`（契约 §16.2 的机制投影，见第 3.4 节）、`coc:kernel-bridge`（内核 RPC 闭包，见下），加上模组那四条（契约 §14.5）：`coc:module-build`（建卡的 `build-opening` 发起构建）、`coc:module-opening-ready`（开场就绪）、`coc:module-build-done`（整本读完，带报告）、`coc:module-build-failed`（构建起不来；有它建卡那一步才不会干等），再加 PDF 摄入那四条（契约 §20.2，见第 3.6 节）：`coc:module-ingest`（起作业，命令与前端发的是同一条）、`coc:module-ingest-progress`（`{stage, page?, of?}`）、`coc:module-ingest-done`、`coc:module-ingest-failed`（带原因码）。
+总线用 `pi.events.emit` / `on`，`on` 返回退订闭包。现用 `coc:table-open`、`coc:resolve`、`coc:capsule`、`coc:turn-committed`、`coc:mechanics` 与 `coc:kernel-bridge`。模组扩展通过 `coc:reading-bridge` 共享一个 `{prepare, ensure}` 服务闭包；命令沿用 `coc:module-ingest` 及 `-progress/-done/-failed` 事件。没有旧 build 请求/回复频道。
 
 `ctx.shutdown()`（「优雅退出 pi」）只在**交互模式与 RPC 模式**下真的做事：那两个模式在 `bindExtensions` 时给了 `shutdownHandler`，print 模式与 SDK 直接建的会话没给，调用是空转。建卡最后一步靠它退出进程，所以 `bin/pi-coc setup` 起的是交互模式；测试台里它是空转，所以断言看的是交接命令有没有交出去，不是进程有没有真的退。
 
@@ -85,25 +85,18 @@ Pi 家目录由 `PI_CODING_AGENT_DIR` 指定为仓库内 `.pi/coc-agent`；`sett
 
 跨扩展只有总线：memory 扩展要 `memory.job` / `submit` / `fail`，但内核子进程一个会话只有一个（契约 §1），所以 kernel 扩展在 `session_start` 用 `coc:kernel-bridge` 把一个 `call(method, params)` 闭包发上总线，`session_shutdown` 再发一次空的把它撤掉。总线是进程内的 `EventEmitter`，载荷不做序列化，闭包传得过去。
 
-### 3.2 一段 section 一个子 `pi` 进程：读者怎么起
+### 3.2 视觉读者：带工具的子 Pi
 
-契约 §14.5（用户 2026-09-04 的法则）要的是「读书的模型工作跑成带工具的 agent」：它自己开抽取包、自己分多次写分片、自己跑闸门。第 3.1 节那条一次补全的路在这里不够用——它没有工具、没有多轮。所以读者是一个**真的子 `pi` 进程**，由 `extensions/module/reader.ts` 起：
+来源定位、开场准备和补读均由同一种子进程执行：`pi -p --no-session --no-context-files --no-extensions --no-skills --tools read,write,edit,bash --mode json`。每阶段使用独立会话，工作目录为已认领任务的 attempt 目录。图谱草稿、复核、图片使用记录均留在该目录；最终一句话不算完成证明。
 
-```
-pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,bash \
-   --system-prompt content/setup/reader.md [--model <provider/id>] -- <brief>
-```
+- `--no-extensions` 禁止包自动加载，避免递归启动内核；显式加载的 `reader-context.ts` 只有 context hook，不注册工具或内核。
+- 读者模型取 `PI_COC_BUILD_MODEL`，否则沿用当前 Pi 模型。来源准备先核对图片输入能力；缺少能力时明确拒绝。
+- 图片以原 PDF 页或裁剪区域读取。每个模型请求保留最近至多四张、约 8 MiB 图片；未进入上下文的图片不算读取。草稿与复核边看边写，避免在上下文收缩后凭记忆重写。
+- 一阶段默认最多 60 分钟；前台默认等待 120 秒后交还玩家，源任务继续。超时给出原 focus/question，继续等待不能自动生成另一个问题。
+- 验证会话不能修改草稿。宿主核对草稿摘要与实际图片事件，再由同一内核接口校验并发布。
+- 子进程继承仓库隔离的 Pi home，移除游玩 campaign/mode。任务内的 Python 包装器使用仓库锁定的 uv 环境。取消终止子进程组，失败或中断保留工作文件。
 
-工作目录是 `work/<section_id>/`，`brief` 由 `module.packet` 给，作为最后一个位置参数（`--` 之后，所以 `-` 开头也不会被当成参数）。模型取 `PI_COC_BUILD_MODEL`，缺省与桌子同模型（`ctx.model` 拼成 `provider/id`）。
-
-四件在契约里没写、由这一侧定下的事：
-
-- **`--no-extensions` 必须给。** 不给的话子进程会顺着 `PI_CODING_AGENT_DIR` 的 `packages` 把本包的扩展再加载一遍：于是又拉起一个内核子进程（违反契约 §1），而且 kernel 扩展的 `setActiveTools` 会把 `--tools` 的允许清单顶掉，读者反而拿不到 read/write/bash。
-- **`-p` 的语义与退出码。** print 模式跑完一轮 agent 就退出，把最后一条助手消息的文本块写到 stdout；助手消息 `stopReason` 是 `error` 或 `aborted` 时把错误写到 stderr 并 `exit 1`，抛异常也是 1，正常是 0（SIGTERM 143、SIGHUP 129）。我们**不读它的 stdout**：读者写得对不对由 `module.review` 的三道确定性门说了算，不由它自己那句话说了算。退出码只进遥测；非零退出的一轮照样跑一次 review，因为分片可能已经写下了。
-- **环境。** `PI_CODING_AGENT_DIR` 原样继承（鉴权、模型目录在那儿），`PI_COC_CAMPAIGN` 与 `PI_COC_MODE` 显式摘掉，免得万一扩展被加载时它去开桌。
-- **超时。** 一轮 `PI_COC_READER_TIMEOUT_MS`（缺省 15 分钟）后 SIGTERM，两秒后 SIGKILL；超时按「这一轮没过」算，findings 照样从 review 拿。会话关机时 `AbortController` 也走同一条掐断路径。
-
-测试接缝：`PI_COC_READER_CMD`（JSON 字符串数组）替换整条命令，`brief` 仍作为最后一个参数——跟 `PI_COC_KERNEL_CMD` 同一个套路。测试里它指向 `tests/extension/fixtures/fake-reader.mjs`，那个假读者做的正是读者对外可见的那件事：在工作目录里写下 `shard.json`（`FAKE_READER_FAIL` 让指定的 section 非零退出）。**闸门过不过不由假读者决定**，由假内核的 `module.review` 决定，所以「三轮都没过就记 failed」这条路验得到。
+实现与接缝分别在 `extensions/module/reader.ts`、`reading-service.ts`、`reader-context.ts` 及对应测试中。真实视觉读取证据见规格实施记录。
 
 ### 3.3 手卡附件：Pi 没有出站附件通道
 
@@ -145,25 +138,13 @@ pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,ba
 
 **车道超时得自己做。** `ctx.modelRegistry.complete()` 没有超时；`runLane` 因此收一个 `timeoutMs`，用一个 `AbortController` 把调用者的 signal 与超时并到一起，超时就掐断并返回 `reason: "timeout"`。校验车道用 `PI_COC_LANE_TIMEOUT_MS`（缺省 2 分钟）；记忆车道不给，走它自己的老路。
 
-### 3.6 PDF 摄入的三个子进程与 `PI_COC_HOME`（契约 §20，票 #30）
+### 3.6 一个页面访问器与一个模组资料库
 
-**摄入作业不在 Pi 面上，在扩展里。** `extensions/module/ingest.ts` 是一个后台作业，由总线 `coc:module-ingest` 起（`/coc module parse` 与将来 Electron 的文件选择器发的是同一条），进度走 `coc:module-ingest-progress`，结束走 `-done`／`-failed`；`ctx.ui` 只负责把这些打给人看，不进模型上下文。命令里没有逻辑，所以前端不必再写一遍（契约 §20.4）。
+宿主以 PDF.js 和 `@napi-rs/canvas` 提供原 PDF 的页数、页标签、目录、按页渲染和区域裁剪。`bin/coc-source` 是这个页面接口的命令行入口；`bin/coc-read-check` 运行同一套视觉草稿检查。Python 内核不导入 PDF 库。
 
-**三个子进程，一套约定。** 都用 `spawn` 直起（不过 shell），命令由环境变量替换，取值是**一个裸路径**或**一个 JSON 字符串数组**（要在脚本前面放解释器时用后者）——跟 `PI_COC_KERNEL_CMD`、`PI_COC_READER_CMD` 同一个套路：
+原 PDF 按字节身份绑定，定位、初次构图、后续补读走 `module.source.bind` 与 `module.read.request/claim/finish`。原文件和已发布图复用；图、manifest、资产登记先写入不可变代际目录，再由 metadata 指针一起发布。既有图谱和资产保持可读，新补读缺原文件时才返回 needs_source。
 
-| 变量 | 缺省 | 约定 |
-| --- | --- | --- |
-| `PI_COC_EXTRACT` | 本地库 `@firecrawl/pdf-inspector`（`optionalDependencies`，每平台一个约 9MB 的原生包） | `<cmd> classify <pdf>` 打一个 JSON 对象；`<cmd> extract <pdf> --pages 0,1 --out <dir>` 写 `<dir>/NNNN.md`。`none` 表示没有抽取器，作业报 `no_extractor` |
-| `PI_COC_OCR_CMD` | `bin/coc-ocr` | `<cmd> <pdf> --pages 0,1,11 --out <dir>` 写 `<dir>/NNNN.md`（**原书页码**），stdout 打一条 JSON 摘要，非零退出是失败。`none` 关掉 OCR |
-| `PI_COC_BUNDLE_CMD` | `bin/coc-bundle` | 打包器，清单只由它签（契约 §20.1）。这条纯粹是测试接缝 |
-
-三条边界是这一侧定的：
-
-- **库是惰性 import，且失败不致命。** `await import("@firecrawl/pdf-inspector")` 包在 try 里：平台没有预编译二进制时它抛，适配器回 undefined，作业报 `no_extractor`，而**扩展照样加载**、桌子照样开。1.17.0 给 `extractPagesMarkdownAsync`，老一点的只有同步的 `extractPagesMarkdown`，两个都认；返回值是数组还是 `{pages: [...]}` 也都认（实测 1.12.0 回的是后者，还顺带带 `pagesNeedingOcr` 与 `ocrReasonsByPage`）。
-- **子进程的产物以磁盘为准，不以它自己的话为准。** 抽取器与 OCR 命令都打 JSON 摘要，但作业只认 `--out` 目录里真的出现的 `NNNN.md`：一次跑一半的 OCR 值多少页就是多少页。
-- **凭证只走环境。** `BAIDUOCR_TOKEN` 从 `process.env` 继承给子进程，从不进参数表、日志或产物；作业只判断「有没有」，没有就直接记 `ocr_unavailable` 而不 spawn（省一次外包调用）。`lane: "ingest"` 的遥测每阶段一行，只记 `reason`，不记值。
-
-**`PI_COC_HOME`（契约 §20.7）。** 扩展原来把 `ctx.cwd` 当 workspace 传给内核，`.coc/` 于是跟着起 `pi` 的目录跑：换个目录就看不见已解析的书，装成应用更不对。现在读 `PI_COC_HOME`（`extensions/lanes/host.ts` 的 `cocHome(cwd)`，缺省仍是 `ctx.cwd`，`~/` 展开、相对路径按 `cwd` 解析），四处一起走：内核子进程的 `--workspace`、战役遥测、模组的 `build.jsonl` 与摄入工作目录、`/coc evidence` 打给人的路径。**模组是库、战役是存档**，拆成两个根留给前端那一片；本票只有这一个根。变量在每次调用时读，不在模块顶层冻住（测试台一个进程里绑多次会话）。
+`PI_COC_HOME` 指向包含 `.coc/` 的资料库根，默认当前目录。所有路径先归一化；不同战役共用模组资料、保持各自世界状态。OCR 凭据、抽取器和资料包命令覆盖配置已经移除。
 
 ## 4. 我们依赖的行为，以及各自的核对方法
 
@@ -190,7 +171,7 @@ pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,ba
 | `--no-extensions` 真的能让子进程一个扩展都不加载（否则读者会再拉起一个内核） | `module.test.mjs`：整场构建里内核请求只有一份、只有一个内核子进程 |
 | 扩展工厂在每次 `resourceLoader.reload()` 时重跑，所以 `PI_COC_MODE` 在工厂里读得准 | `setup.test.mjs`「建卡模式：只注册 setup 这一个工具」与 `turn.test.mjs`（同一进程里两种模式） |
 | `pi.setActiveTools` 由哪个扩展调都行，工具面按模式分岔 | `setup.test.mjs` 同上：`getActiveTools()` 恰好是 `["setup"]` |
-| `pi.events.on` 返回退订闭包（没有 `off`），临时订阅收得干净 | `setup.test.mjs`「pdf 那条路」：`build-opening` 等到 `coc:module-opening-ready` 后不再堆订阅 |
+| 共享服务与队列正确收尾 | `reading-service.test.mjs` 的等待重入、失败释放与取消接缝；真实恢复见规格 |
 | `ctx.shutdown()` 在没有 `shutdownHandler` 的模式下是空转，不抛 | `setup.test.mjs`「七步表走完」：交接命令交出去，测试台照常收尾 |
 | 助手消息装不下附件（只有 text/thinking/toolCall），出站没有附件通道 | `module.test.mjs`「手卡」：路径落在机制投影与遥测里 |
 | `pi.appendEntry(customType, data)` 写一条 `CustomEntry`，它不进 `buildSessionContext`，但会发 `entry_appended`，RPC 模式原样透传 | `turn.test.mjs`／`real-kernel.test.mjs`：`coc-mechanics` 条目里是每条收据的投影 |
@@ -217,7 +198,7 @@ pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,ba
 - **车道是一次补全，不是一个会话——能是会话，是选了不是**（2026-09-06 用户裁定：只改记账，实现不动）。0.85.1 的公开面起得了嵌套零工具内存会话：`createAgentSession` 的选项全是可选的（`ModelRuntime` 与 `ResourceLoader` 不给就各自建缺省），`DefaultResourceLoader({noExtensions: true, noSkills: true, noContextFiles: true, ...})` 挡住本包扩展再绑一遍——实测 `extensions loaded: 0`，不会有第二个内核子进程，不违反契约 §1——再配 `SessionManager.inMemory()` 与 `noTools: "all"`，实测 `getActiveToolNames()` 与 `getAllTools()` 都是空。没走的理由是代价换不来东西：嵌套会话会自己建一个 `ModelRuntime`，从 `~/.pi/agent` 的 `auth.json` 与 `models.json` 重读，而当前会话那一份只藏在 `ModelRegistry` 的 TS-private `runtime` 字段里（JS 层够得着，但那是钻私有面）；本树目前没有任何地方调 `registerProvider`，所以现在不会漂，哪天桌子在会话内注册了自定义 provider，嵌套会话就看不见它。换来的多轮（同一份上下文里当场修 JSON）、`SettingsManager` 的重试与压缩、以后给车道加工具的路，对 ≤ 12 条候选或 ≤ 10 条发现的短 JSON 都用不上（规格第六、九节）。所以现在这个形状的代价是：没有工具、没有多轮、不进会话记录、不吃 `SettingsManager` 的重试与压缩设置，token 也不进 Pi 的上下文统计（只进我们自己的遥测行）。哪天车道要用工具、或要在同一份上下文里修 JSON，改这里就够，**不是上游没路**。
 - **`AgentSession.dispose()` 会把扩展 ctx 作废**：`dispose` 调 `runner.invalidate()`，之后那个 ctx 的每个 getter 都抛「stale after session replacement or reload」。车道是异步的，续行完全可能落在 dispose 之后（用户在车道飞着的时候退出 pi），所以**每一次碰 ctx 都当成会抛**：`runLane` 整个身子在 try 里，记忆车道的队列泵与遥测也各自兜住。漏一个就是一条没人接的 promise rejection——扩展测试跑六遍里中过两次。
 - **子会话的思考等级不受控**：`complete()` 的选项按 api 分型，我们一个都不传，模型自己的缺省 reasoning 生效。强制思考的型号会把输出预算花在思考上，而车道要的是一段短 JSON——选车道模型时避开这类型号。
-- **扩展之间没有共享服务**：只有 `pi.events` 一条载荷为 `unknown` 的总线，没有请求/响应语义，也没有「等对方就位」的握手。我们的绕法是 kernel 扩展在 `session_start` 把内核 RPC 闭包发上 `coc:kernel-bridge`；memory、module、onboarding 三个扩展在加载时就订阅，所以两种加载顺序都接得住。建卡那条「发起构建并等开场就绪」也只能用总线拼出来：`coc:module-build` 出去，`coc:module-opening-ready` / `coc:module-build-done` / `coc:module-build-failed` 回来，外加一个超时（`PI_COC_BUILD_WAIT_MS`，缺省 30 分钟）——没有请求/响应，就得自己给每一种「不会再有回音」的情况留出口。
+- **扩展通过总线共享闭包**：kernel 扩展提供 `coc:kernel-bridge`，module 扩展提供 `coc:reading-bridge`。订阅在加载时建立，覆盖两种加载顺序；关闭时撤销桥接并停止自有读者，迟到调用不得重启内核。
 - **出站没有附件通道**：助手消息装不下图片或文件（第 3.3 节）。手卡因此退成「机制投影里的一条 `path` + 遥测」，玩家在 TUI 里看不到文件在哪——前端渲染投影之后才看得到。上游请求见第 6 节第 5 条。
 - **关机之后车道的调用会把内核子进程重新拉起来**：`KernelClient.close()` 之前只是「杀掉子进程 + 拒掉在飞的请求」，但排队里剩下的请求随后照样被 dispatch，而 dispatch 见 `child` 为空就再 spawn 一个——那个新内核没人再 close 它，工作区被它占着，管道也让宿主进程退不出去（`node --test` 因此挂住不退）。车道（记忆抽取、按需深读）是异步的，关机那一刻它们的调用完全可能还排在队里，所以这条路一定会被走到。现在两道闸：`close()` 之后 `dispatch` 直接拒（`client.ts`），并且总线上发出去的那个 RPC 闭包在 `shutdownKernel` 里当场失效（`index.ts` 的 `bridgeGate`）。`uv run` 那一层还是会留下一个短命的孤儿 python（uv 被 SIGTERM 掉之后它才收到 stdin EOF），但它自己会退。
 - **压缩钩子挑不了条目**：`session_before_compact` 只收「一个切点 + 一段摘要」（`CompactionResult`），没有「保留这几条、丢那几条」的接口。我们的绕法是把切点放在倒数第二回合的开头，再由扩展自己把切点之前的条目**确定性地**渲染成摘要（第 3.5 节）。代价是：留下来的玩家输入与交付是原文累积的，长局里这段摘要会随逐字记录一起长——它比原来的上下文小得多（胶囊、工具往返、机制投影全没了），但不是常数。上游请求见第 6 节第 6 条。

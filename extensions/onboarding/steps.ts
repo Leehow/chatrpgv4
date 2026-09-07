@@ -1,35 +1,6 @@
-/**
- * The seven-step table (contract §14.4): order, available actions, refusal text and next-step
-  * instructions are all derived from here.
- *
- * The table lives in the kernel's `content/setup/steps.json`, and the extension gets it through `setup.steps`.
- * This file does one thing: read that table into a gate. **No ordering information is written a
- * second time here** — nowhere below does it say "choose-source comes before create-campaign" or
- * "only pdf needs binding"; all of that is computed from each row's `needs` and `applies_to`.
-  * The tests generate their cases from the table too (contract §14.10).
- *
- * One row of the table (read leniently: several spellings are accepted, and an unreadable field takes its default):
- *
- * ```json
- * {"id": "bind-source", "kind": "op", "applies_to": ["pdf"],
- *  "needs": ["build-bundle", "create-campaign"],
- *  "ops": [{"method": "module.bind", "params": ["bundle", "module_id?"]},
- *          {"method": "module.plan", "params": ["module_id"]}],
- *  "receipt": "module_id", "label": "bind the bundle", "instruction": "..."}
- * ```
- *
- * - `needs`: an array of strings, or `{"pdf": [...], "starter": [...]}` (prerequisites forking by source),
- *   or `[{"step": "...", "when": "pdf"}]`.
- * - `applies_to`: which sources this step appears in; unwritten means always.
- * - `kind`: `ask` (ask the player, no kernel call), `external` (wait for the host's skill to produce something), `op` (call the kernel).
- * - `op` / `ops`: one step may be two calls (`bind-source` in the table is `module.bind` then `module.plan`).
- *   Each op is best off carrying its own `params`; with one step-level `params` it belongs to the first op,
- *   and the later ops only get the identity keys already in hand (`module_id`, `campaign`).
- * - an entry of `params` may be `"title?"` (the question mark means omissible) or `{"name": "title", "required": false}`,
- *   and may carry `from` (a path into an earlier step's receipt, such as `source.module_id`).
- */
+/** Normalize the kernel's setup table and derive applicability, ordering and refusals. */
 
-export type StepKind = "ask" | "external" | "op";
+export type StepKind = "ask" | "op";
 
 export interface ParamSpec {
 	name: string;
@@ -168,7 +139,7 @@ function normalizeOps(row: Record<string, unknown>, stepParams: ParamSpec[]): Op
 
 function normalizeKind(raw: unknown, ops: OpSpec[]): StepKind {
 	const kind = asString(raw);
-	if (kind === "ask" || kind === "external" || kind === "op") return kind;
+	if (kind === "ask" || kind === "op") return kind;
 	return ops.length > 0 ? "op" : "ask";
 }
 
@@ -259,7 +230,7 @@ export function axisProducts(steps: Step[]): Set<string> {
 
 /** The prerequisites not yet done. */
 export function missingNeeds(step: Step, state: GateState, steps?: Step[]): string[] {
-	// A prerequisite that does not appear at all for this source (the starter lane has no build-opening)
+	// A prerequisite that does not appear at all for this source (the starter lane has no source preparation)
 	// counts as satisfied, matching the kernel's `only_for` rule.
 	const byId = new Map((steps ?? []).map((s) => [s.id, s] as const));
 	return needsOf(step, state.sourceKind).filter((id) => {
@@ -363,7 +334,7 @@ export function gate(steps: Step[], state: GateState, id: string): GateVerdict {
 		return { ok: false, reason: withNext(steps, state, `${step.id} is already done and is not redone. `) };
 	}
 	// `steps` is what lets a prerequisite that does not exist in this lane count as satisfied; without it
-	// the starter lane refused `create-campaign` for a `bind-source` that only the PDF lane has, while the
+	// the starter lane refused `create-campaign` for source preparation that its lane excludes, while the
 	// same gate's own "next step" line said to call `create-campaign` — a deadlock at the way in (#32).
 	const missing = missingNeeds(step, state, steps);
 	if (missing.length > 0) {

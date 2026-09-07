@@ -35,6 +35,6 @@ def test_a_new_visual_region_preserves_legacy_asset_names_and_uses_its_actual_me
     previous[0]["media_type"] = "image/jpeg"
     node = next(n for n in graph["nodes"] if n["node_id"] == "asset-dock-map")
     node["properties"].update(image_sources=[{"page": 4}], asset_ref="work/new-region.png", media_type="image/png")
-    entry = registry_from_graph(graph, previous, registered=True)["assets"][0]
+    entry = registry_from_graph(graph, previous)["assets"][0]
     assert entry["bundle_asset_id"] == "map-dock"
     assert entry["path"] == "work/new-region.png" and entry["media_type"] == "image/png"

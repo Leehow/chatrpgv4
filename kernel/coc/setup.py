@@ -1,48 +1,29 @@
-"""Setup (contract §14.4, §14.7): the seven-step table, the `setup.*` methods and the
-seam to the module store.
-
-The table lives in `content/setup/steps.json`; the kernel reads it for the
-`table.open` fix line, the chargen policy and `setup.steps`, and the extension reads
-the same file for order and rejection lines. The module store (§14.1) is K5a's
-`coc.modules` package; until it is importable, `StarterModuleStore` below covers the
-starter lane with the same method names so nothing here has to change when it lands."""
+"""The shared setup step table and deterministic campaign/character setup methods."""
 
 from __future__ import annotations
 
 import datetime as _dt
 import json
-import shutil
 from pathlib import Path
 from typing import Any, Iterable
 
 from .chargen import ALLOCATION_POLICIES, Chargen, ChargenError, METHODS, default_investigator_id
 from .errors import RpcError, invalid_params, unsupported_value
 from .events import append_event
-from .fileio import read_json, sha256_file, write_json_atomic
-from .rules.graph_digest import compute_graph_content_digest
+from .fileio import read_json, write_json_atomic
 from .text import normalize
 
 STEPS_CONTRACT = "coc.setup-steps.v1"
-STEP_KINDS = frozenset({"ask", "external", "op"})
+STEP_KINDS = frozenset({"ask", "op"})
 STATUS_SETTING_UP = "setting_up"
 STATUS_READY = "ready_for_table"
 STATUS_ACTIVE = "active"
 STATUSES = (STATUS_SETTING_UP, STATUS_READY, STATUS_ACTIVE)
 HANDOFF_RECEIPT = "setup:handoff"
 #: §14.6: a section's build status → what the keeper is told about the material there.
-MATERIAL_BY_STATUS = {"accepted": "ready", "planned": "reading", "reading": "reading", "claimed": "reading",
-                      "failed": "missing", "skipped": "missing"}
-
 
 def now_iso() -> str:
     return _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-
-
-def material_status(section: dict[str, Any] | None) -> str:
-    """`ready` when the module has no sections (a starter) or the section is accepted."""
-    if not section:
-        return "ready"
-    return MATERIAL_BY_STATUS.get(str(section.get("status")), "missing")
 
 
 # ---- the seven-step table -----------------------------------------------------------
@@ -113,17 +94,7 @@ class SetupSteps:
         return out
 
     def applies(self, step_id: str, source: str | Iterable[str]) -> bool:
-        """Whether this step is part of the table for this source (or set of active
-        kinds): unset `only_for` applies everywhere, a set one only to its own source. A
-        third source (`module`, §20.7) automatically excludes every `pdf`-only step -- no
-        new data is written for it, the same field that already keeps `starter` out of
-        `build-bundle`/`bind-source` keeps `module` out too.
-
-        `source` may also be a set of kind tokens rather than one string: §21.5 adds a
-        second, independent axis (`investigator_source`, new vs. library) that is live at
-        the same time as the module-source axis (`only_for`) without either one gating the
-        other -- a step is excluded only if *its own* declared field (whichever one it
-        set) is not among the active kinds; a step that sets neither always applies."""
+        """Apply the module-source and investigator-source axes from the step table."""
         kinds = {source} if isinstance(source, str) else set(source)
         step = self.step(step_id)
         only_for = step.get("only_for")
@@ -149,150 +120,7 @@ class SetupSteps:
         return str(lines.get("next") or step_id)
 
 
-# ---- module store seam (§14.1, §14.6) ------------------------------------------------
-
-class StarterModuleStore:
-    """The starter lane of the module store: register a `content/starters/<id>` graph
-    into `<workspace>/.coc/modules/<id>/` and answer the reads the table needs. Same
-    method names as `coc.modules.store.ModuleStore`; no sections, no bundle."""
-
-    def __init__(self, workspace_root: Path) -> None:
-        self.root = Path(workspace_root) / ".coc" / "modules"
-
-    def module_dir(self, module_id: str) -> Path:
-        return self.root / module_id
-
-    def module(self, module_id: str) -> dict[str, Any] | None:
-        path = self.module_dir(module_id) / "module.json"
-        return read_json(path) if path.exists() else None
-
-    def graph_path(self, module_id: str) -> Path:
-        return self.module_dir(module_id) / "module-graph.json"
-
-    def generation(self, module_id: str) -> int:
-        meta = self.module(module_id)
-        return int(meta.get("generation") or 0) if meta else 0
-
-    def section_for_scene(self, module_id: str, scene_handle: str) -> dict[str, Any] | None:
-        return None
-
-    def assets(self, module_id: str) -> list[dict[str, Any]]:
-        path = self.module_dir(module_id) / "assets.json"
-        return list(read_json(path).get("assets") or []) if path.exists() else []
-
-    def asset(self, module_id: str, name: str) -> dict[str, Any] | None:
-        key = normalize(name)
-        for row in self.assets(module_id):
-            if key in {normalize(str(row.get("id"))), normalize(str(row.get("name")))}:
-                return row
-        return None
-
-    def register_starter(self, module_id: str, starters_dir: Path) -> dict[str, Any]:
-        """Copy the starter's graph in (once; again only when the content graph's digest
-        changed, which is a new generation). Status is `installed` from the start."""
-        source = Path(starters_dir) / module_id / "module-graph.json"
-        if not source.exists():
-            raise invalid_params(f"unknown module {module_id!r}", fix="one of kernel.hello content.modules")
-        digest = sha256_file(source)
-        existing = self.module(module_id)
-        if existing and existing.get("graph_digest") == digest:
-            return existing
-        graph = read_json(source)
-        target = self.module_dir(module_id)
-        target.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, self.graph_path(module_id))
-        manifest_source = source.parent / "module-graph-manifest.json"
-        if manifest_source.exists():
-            shutil.copyfile(manifest_source, target / "module-graph-manifest.json")
-        else:
-            write_json_atomic(target / "module-graph-manifest.json", {
-                "module_id": graph.get("module_id"), "graph_content_digest": compute_graph_content_digest(graph),
-                "file_sha256": digest, "source": "starter", "note": "no committed manifest; digest computed at registration"})
-        module_node = next((n for n in graph.get("nodes") or [] if n.get("node_kind") == "module"), {})
-        meta = {
-            "id": module_id,
-            "title": module_node.get("name") or module_id,
-            "source": "starter",
-            "languages": list(graph.get("source_languages") or []),
-            "graph_digest": digest,
-            "generation": int((existing or {}).get("generation") or 0) + 1,
-            "status": "installed",
-            "starter_path": str(source),
-            "registered_at": now_iso(),
-        }
-        write_json_atomic(target / "module.json", meta)
-        write_json_atomic(target / "assets.json", {"module_id": module_id, "assets": starter_assets(graph)})
-        return meta
-
-
-def starter_assets(graph: dict[str, Any]) -> list[dict[str, Any]]:
-    """`assets.json` rows from the graph's handout and asset nodes: id, kind, name,
-    pages, path (the graph's asset_ref / image_ref, bytes not shipped), visibility."""
-    rows = []
-    for node in graph.get("nodes") or []:
-        kind = node.get("node_kind")
-        if kind not in ("handout", "asset"):
-            continue
-        props = node.get("properties") or {}
-        record = (props.get("runtime_projection") or {}).get("record") or {}
-        pages = sorted({int(ref["pdf_index"]) for ref in node.get("source_refs") or []
-                        if isinstance(ref, dict) and isinstance(ref.get("pdf_index"), int)})
-        rows.append({
-            "id": node["node_id"],
-            "kind": kind if kind == "handout" else str(props.get("role") or "illustration"),
-            "name": node.get("name"),
-            "pages": pages,
-            "path": props.get("asset_ref") or props.get("image_ref"),
-            "media_type": props.get("media_type"),
-            "visibility": node.get("visibility"),
-            "authored_text": record.get("authored_text"),
-        })
-    return rows
-
-
-class _DeepenShim:
-    """`coc.modules.deepen.enqueue` until K5a's package is importable: rows land in
-    `deepen-queue.json`, one per section, the higher priority winning a repeat."""
-
-    @staticmethod
-    def enqueue(store: Any, module_id: str, section_ids: list[str], reason: str, priority: int) -> list[str]:
-        if not section_ids:
-            return []
-        path = Path(store.module_dir(module_id)) / "deepen-queue.json"
-        # The queue is a plain list (the shape K5a's store.read_queue/write_queue use).
-        loaded = read_json(path) if path.exists() else []
-        rows: list[dict[str, Any]] = list(loaded if isinstance(loaded, list) else loaded.get("queue") or [])
-        by_id = {str(r.get("section_id")): r for r in rows}
-        queued = []
-        for section_id in section_ids:
-            row = by_id.get(section_id)
-            if row is None:
-                row = {"section_id": section_id, "reason": reason, "priority": int(priority), "status": "queued",
-                       "at": now_iso()}
-                rows.append(row)
-                by_id[section_id] = row
-            elif int(row.get("priority") or 0) < int(priority):
-                row.update({"reason": reason, "priority": int(priority), "at": now_iso()})
-            queued.append(section_id)
-        write_json_atomic(path, rows)
-        return queued
-
-
-try:  # K5a's package; the shims above are the same names for the starter lane.
-    # `register_starter` there imports assets and playability lazily, so the seam is
-    # only taken when the whole package is importable.
-    from .modules import assets as _assets, playability as _playability  # noqa: F401  # type: ignore[import-not-found]
-    from .modules.store import ModuleStore  # type: ignore[import-not-found]
-    MODULE_STORE_SOURCE = "coc.modules.store"
-except ImportError:  # pragma: no cover - depends on the concurrent worker's tree
-    ModuleStore = StarterModuleStore  # type: ignore[misc,assignment]
-    MODULE_STORE_SOURCE = "coc.setup.StarterModuleStore"
-try:
-    from .modules import deepen  # type: ignore[import-not-found]
-    DEEPEN_SOURCE = "coc.modules.deepen"
-except ImportError:  # pragma: no cover
-    deepen = _DeepenShim()  # type: ignore[assignment]
-    DEEPEN_SOURCE = "coc.setup._DeepenShim"
+from .modules.store import ModuleStore
 
 
 def module_meta(store: Any, module_id: str) -> dict[str, Any] | None:
@@ -371,7 +199,7 @@ class SetupMethods:
         # `campaign.create` ran (kernel/coc/table.py `campaign_create`: `has_graph` true,
         # so `opening_scene` is filled in immediately) was picked already-installed --
         # the `module` source -- rather than genuinely bound and built in this setup (the
-        # `pdf` source, whose graph lands only later via build-opening, so `opening_scene`
+        # `pdf` source, whose graph is still being prepared, so `opening_scene`
         # stays unset until then). Nothing else distinguishes the two once both are done,
         # which is also the point at which the distinction stops mattering.
         reused = (not starter) and meta.get("opening_scene") is not None

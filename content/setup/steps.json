@@ -32,7 +32,7 @@
           "required": false
         },
         "module": {
-          "description": "an id from module.list with status: installed -- an already-built book, reused directly; this source skips build-bundle and bind-source",
+          "description": "an id from module.list with status: installed -- an already-built book; preparation reuses its material and settles this campaign's opening",
           "required": false
         },
         "pdf": {
@@ -42,8 +42,8 @@
       },
       "receipt": "source",
       "lines": {
-        "do": "Ask the player to pick a starter (the list from kernel.hello), an already-installed module (module.list, status: installed), or to give a bundle directory.",
-        "next": "Choose the source: name a starter, name an installed module, or give a bundle directory."
+        "do": "Ask the player to pick a starter (the list from kernel.hello), an already-installed module (module.list, status: installed), or to give an original PDF path.",
+        "next": "Choose the source: name a starter, name an installed module, or give an original PDF path."
       }
     },
     {
@@ -101,7 +101,7 @@
           "from": "campaign"
         },
         "module": {
-          "description": "starter id, or the module id module.bind returned (carried automatically)",
+          "description": "starter id, or the module id source preparation returned (carried automatically)",
           "required": true,
           "from": "module_id"
         },

@@ -18,74 +18,38 @@ from coc.table import Table
 from coc.module_graph import ModuleGraph, record_of
 from coc.modules.store import ModuleStore
 from coc.modules.reading import Reading
+from coc.modules.visual import check_draft
+from module_helpers import write, bind, request, claim, finish, observed, indexed, opening
 
 
-def write(path, value):
-    Path(path).write_text(json.dumps(value), encoding="utf-8")
+def test_a_reader_cannot_publish_an_arbitrary_local_file_as_a_handout():
+    draft = {"nodes": [{"node_id": "handout-letter", "node_kind": "handout", "name": "Letter",
+        "visibility": "revealable", "source_refs": [{"page": 1}], "properties": {"asset_ref": "/unrelated/private.png"}}],
+        "claims": [], "node_refs": [], "coverage": {}, "critical": [], "dependencies": [], "ready_nodes": ["handout-letter"]}
+    with pytest.raises(RpcError, match="owned by the host"):
+        check_draft(draft, {"module_id": "book-1", "source": {"page_count": 1}, "known_nodes": []}, {1})
 
 
-def bind(client, tmp_path):
-    path = tmp_path / "original.pdf"
-    path.write_bytes(b"%PDF-1.7\nsynthetic transport fixture; not rendered or played\n")
-    source = {"path": str(path), "file_sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "page_count": 2}
-    result = client.ok("module.source.bind", {"source": source})
-    return result["module_id"], source
+def test_retired_source_commands_are_not_registered(kernel):
+    for method in ("bind", "plan", "plan.accept", "packet", "review", "accept", "assemble", "install",
+                   "deepen.claim", "deepen.complete", "deepen.enqueue"):
+        assert kernel.err(f"module.{method}", {})["code"] == "unknown_method"
 
 
-def request(client, mid, purpose, **kwargs):
-    return client.ok("module.read.request", {"module_id": mid, "purpose": purpose, **kwargs})
 
 
-def claim(client, mid):
-    return client.ok("module.read.claim", {"module_id": mid, "owner": "test-host"})
 
 
-def finish(client, job, **kwargs):
-    return client.ok("module.read.finish", {"module_id": job["module_id"], "job_id": job["job_id"],
-        "lease": job["lease"], "outcome": "completed", "draft_path": str(Path(job["work_dir"]) / "draft.json"),
-        "review_path": str(Path(job["work_dir"]) / "review.json"), **kwargs})
 
 
-def observed(job, **kwargs):
-    write(Path(job["work_dir"]) / "observations.json", {"file_sha256": job["source"]["file_sha256"],
-        "read_pages": [1, 2], "full_pages": [1, 2], "review_pages": [1, 2], **kwargs})
 
 
-def indexed(client, tmp_path):
-    mid, source = bind(client, tmp_path)
-    request(client, mid, "opening")
-    job = claim(client, mid)
-    assert job["purpose"] == "index"
-    observed(job)
-    write(Path(job["work_dir"]) / "draft.json", {"title": "The Harbor", "language": "en", "sections": [
-        {"name": "The harbor and the tower", "pages": [[1, 2]], "topics": ["opening"], "entities": ["Dock", "Tower", "Lena"], "references": []}]})
-    finish(client, job)
-    return mid, source
 
 
-def opening(client, mid):
-    request(client, mid, "opening")
-    job = claim(client, mid)
-    assert job["purpose"] == "opening"
-    observed(job)
-    refs = [{"page": 1}]
-    nodes = [
-        {"node_id": "scene-dock", "node_kind": "scene", "name": "Dock", "source_refs": refs,
-         "properties": {"is_entrance": True}},
-        {"node_id": "scene-tower", "node_kind": "scene", "name": "Tower", "source_refs": [{"page": 2}],
-         "summary": "An old tower beyond the harbor.",
-         "properties": {"is_final": True}},
-        {"node_id": "npc-lena", "node_kind": "npc", "name": "Lena", "source_refs": refs,
-         "properties": {"mechanics": {"profile": {"characteristics": {"STR": 50}}}}}]
-    claims = [{"subject_id": a, "predicate": r, "object": {"node_id": b}, "truth_status": "authored-fact", "source_refs": refs}
-              for a, r, b in [("scene-dock", "route-to", "scene-tower"), ("npc-lena", "present-in", "scene-dock")]]
-    draft = {"nodes": nodes, "claims": claims, "node_refs": [], "coverage": {}, "dependencies": [],
-             "critical": [], "ready_nodes": ["scene-dock", "npc-lena"]}
-    paths = ["/nodes/0", "/nodes/2", "/nodes/2/properties/mechanics/profile/characteristics/STR", "/claims/0", "/claims/1"]
-    review = {"checked": [{"path": p, "verdict": "supported", "source_refs": refs, "reason": "fixture support"} for p in paths], "missing": []}
-    write(Path(job["work_dir"]) / "draft.json", draft)
-    write(Path(job["work_dir"]) / "review.json", review)
-    return job, draft, review
+
+
+
+
 
 
 def test_binding_checks_bytes_and_reuses_the_exact_source(kernel, tmp_path):
@@ -307,6 +271,8 @@ def test_two_kernel_sessions_cannot_claim_the_same_job(kernel, tmp_path):
 def test_material_preflight_precedes_the_whole_effect_batch_and_rng(kernel, tmp_path):
     mid, _ = indexed(kernel, tmp_path)
     job, draft, review = opening(kernel, mid)
+    draft["nodes"][0]["summary"] = "The harbor keeper asks for the missing ledger."
+    draft["nodes"][0]["properties"]["mission"] = "Find the missing ledger."
     draft["nodes"].append({"node_id": f"module-{mid}", "node_kind": "module", "name": "The Harbor",
                            "source_refs": [{"page": 1}], "properties": {"era": "80 CE"}})
     draft["ready_nodes"].append(f"module-{mid}")
@@ -318,7 +284,10 @@ def test_material_preflight_precedes_the_whole_effect_batch_and_rng(kernel, tmp_
     kernel.ok("setup.investigator", {"campaign": "c1", "name": "Ada", "occupation": "Journalist"})
     kernel.ok("setup.complete", {"campaign": "c1"})
     kernel.table("open")
-    assert kernel.table("look")["module"]["era"] == "80 CE"
+    viewed = kernel.table("look")
+    assert viewed["module"]["era"] == "80 CE"
+    assert viewed["where"]["summary"] == "The harbor keeper asks for the missing ledger."
+    assert kernel.table("lookup", kind="module", query="Dock")["entities"][0]["properties"]["mission"] == "Find the missing ledger."
     kernel.table("narrate", call_id="t0-c1", text="The harbor waits.")
     kernel.table("player_input", text="I go to the tower.")
     directory = kernel.workspace / ".coc" / "campaigns" / "c1"
