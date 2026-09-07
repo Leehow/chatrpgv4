@@ -1441,3 +1441,38 @@ RPC 顶层错误枚举沿用 §1；具体原因放在 `details.reason`：`bad_pd
 - 2026-09-07：目标契约与规格落地。运行时仍执行旧 §14/§20 流程；本节所有实现、真实 PDF、真桌及退役验收均未完成。
 - 2026-09-07：原书抽读补充物理页定位、作者版本区别与单文件长本的验收样本；父规格为 GitHub #34。抽读不计视觉构图或真桌通过。
 - 每个切片完成后在此记录实际提交、测试退出码、来源/玩测证据路径与未通过的门；不把未来行为改写成已实现。
+
+## 23. PipiCOC local frontend (2026-09-07)
+
+The copied `Electron/` workspace is a frontend owned by this branch. Its only
+Keeper process is `bin/pi-coc` in RPC mode, reached through `pipicoc/rpc`.
+It does not launch an embedded Pi or carry another Python kernel. The five
+canonical extensions are explicitly mounted once; the UI pack adds only the
+investigator sheet. Host coding prompts and tool mounts do not reach the Keeper.
+`pipicoc/dev [setup] [--campaign <name>]` selects the canonical launcher mode.
+The UI owns its transport session file; `PI_COC_HOME` owns campaign/module data,
+and the repository-local `.pi/coc-agent` remains the model/auth home.
+Setup and play run in separate application launches; completing setup exits its
+agent as in the terminal launcher. The next play launch selects the ready table.
+This change does not implement the visual PDF target in §22.
+
+### Kernel decision: read-only sheet
+
+`table.view {campaign}` returns the current turn/state, scene, clock, present
+NPC display names, investigator projections, discovered clues, active subsystem
+and pending choice. It reuses existing projections without touching the turn,
+rolling dice or committing. It exposes no undiscovered clues or Keeper notes.
+The panel must never call `table.look`, which is a Keeper action.
+
+### Host decision: RPC adapter
+
+The adapter preserves transport/session/model options, removes host persona and
+tool-selection arguments, and permits only the UI invoke bridge and sheet mount.
+It then explicitly loads the canonical five extensions with discovery disabled.
+No `~/.pi` or shared credential profile is linked. The frontend reads the same
+local model catalog as the canonical launcher. Copied upstream build artifacts,
+embedded runtimes and user state are excluded.
+
+The copied host uses a first-message session label only. Model-based title
+refinement is removed: it would otherwise start a second Keeper through the same
+launcher. Shutdown signals the owned process group, including reader children.

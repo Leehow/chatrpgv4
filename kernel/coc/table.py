@@ -560,6 +560,21 @@ class Table:
                           "loop": int(worldline.active_line(meta).get("loop") or 0)},
         }
 
+    def view(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Project the public sheet without acting or changing the turn (§23)."""
+        campaign, graph, world, turn = self._context(params)
+        party = campaign.party()
+        snapshot = self._snapshot(campaign, graph, world, party)
+        return {
+            **snapshot,
+            "play_language": language_of(campaign.read_campaign()),
+            "turn": turn["turn"],
+            "state": turn["state"],
+            "investigators": [investigator_view(sheet) for sheet in party],
+            "clues": {"discovered": list(world.get("discovered_clues") or [])},
+            "labels": {},
+        }
+
     def status(self, params: dict[str, Any]) -> dict[str, Any]:
         campaign, _, _, turn = self._context(params)
         receipts = list(turn.get("receipts", []))

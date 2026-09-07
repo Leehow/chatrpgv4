@@ -1,0 +1,11295 @@
+import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
+import { createExtensionHostWorkers, type ExtensionHostWorkers } from "./extension-host-workers.js";
+import { closeSync, constants as fsConstants, createReadStream, createWriteStream, existsSync, lstatSync, openSync, readFileSync, realpathSync, watch, writeSync, promises as fs, type Dirent } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { createInterface } from "node:readline";
+import { pipeline } from "node:stream/promises";
+
+import {
+  PIPI_HOST_PROTOCOL_VERSION,
+  THINKING_LEVELS,
+  documentKindForName,
+  mergeModelCapabilities,
+  normalizeModelCapabilities,
+  resolveThinkingLevel,
+  thinkingLevelsForModel,
+  type AgentDefinition,
+  type AgentEvent,
+  type AgentSummary,
+  type AuthLoginEvent,
+  type AuthProviderInfo,
+  type AuthType,
+  type DocumentContent,
+  type DocumentErrorCode,
+  type DocumentSummary,
+  type HostBackend,
+  type HostEvent,
+  type HostMethod,
+  type HistoryEntry,
+  type HistoryTool,
+  type InputFileAttachment,
+  type InputFileStageRequest,
+  type Model,
+  type ModelCapabilities,
+  type ModelCatalogEvent,
+  type ModelState,
+  type PromptAttachment,
+  type TurnTelemetryRendererSample,
+  type Project,
+  type QueueEnqueueResult,
+  type QuotaSnapshot,
+  type PlanSnapshot,
+  type ProductPackArchiveResult,
+  type ProductPackInstallResult,
+  type Session,
+  type SessionPage,
+  type SessionWorkspace,
+  type SessionPreloadSnapshot,
+  type SessionStats,
+  type SubagentDebugInfo,
+  type SubagentModelSetting,
+  type ThinkingLevel,
+  type ThinkingLevelMap,
+  type UserMcpServer,
+  type WorktreeLifecycle,
+  type WorktreeStatus,
+} from "@pipi/host-api";
+import { isActivityOnlyAgentEvent, mergeAgentActivity } from "./agent-activity.js";
+import { applyTerminalHostReceipt, enrichHostDiagnostics, explicitNullDiagnosticKeys, markPersistedRunningReconciliation, sanitizeAgentDiagnostics } from "./agent-diagnostics.js";
+import { ThinkingControlReporter } from "./thinking-control.js";
+import { PlanStore, readPlanStore } from "./plan-store.js";
+import {
+  assertWorkspaceCwdAllowed,
+  clearSessionWorkspaceFile,
+  isValidWorkspaceBranch,
+  readSessionWorkspace,
+  usableSessionWorkspace,
+  writeSessionWorkspace,
+  type SessionWorkspaceBinding,
+} from "./session-workspace.js";
+import { readUserMcpServers, removeUserMcpServer as removeUserMcpServerEntry, writeUserMcpServer as writeUserMcpServerEntry } from "./user-mcp-servers.js";
+import {
+  assemblePiSpawn,
+  defaultRuntimeRoot,
+  GOAL_AUTO_RESUME_ENV,
+  mergedSpawnEnvironment,
+  removeContributionSnapshotSidecar,
+  resolveKernelPaths,
+  resolvePiExecutable,
+  resolveRuntimeLayout,
+  withToolPath,
+  type PiCommand,
+  type SpawnRegisteredExtension,
+} from "./spawn-assembly.js";
+import { applyExtensionUpdate, extensionUpdateStoreRoot, findPackageRoot, installLocalExtensionPackage, type ExtensionUpdateResult } from "./extension-update-engine.js";
+import {
+  applySeedMountOverrides,
+  extensionUpdateSigningKey,
+  resolveSeedExtension,
+  selectTransactionalUpdateComponent,
+  withSeedVersionPriority,
+} from "./extension-seed.js";
+import { attachCatalogDiagnostics, buildAgentCatalog } from "./agent-catalog.js";
+import { readSubagentDebugInfo, removeSubagentDebugInfo } from "./subagent-debug-info.js";
+import { nativeSearchRuntimeCatalog } from "./generic-search-filter.js";
+import { enrichCapabilitiesForOfficialHostedSearch } from "./hosted-search-capabilities.js";
+import { extractHistoryCitations, extractHistoryCodeInterpreter, extractHistoryFileSources, isHostedAssistantEvent, projectHostedAssistantEvent } from "./hosted-search-stream.js";
+import { installRuntimeTree, type RuntimeAssets } from "./runtime-install.js";
+import { registerContributedAuthProviders as registerExtensionAuthProviders } from "./extension-auth-providers.js";
+import {
+  LEASE_ACQUISITION_METADATA,
+  LeaseManager,
+  type LeaseAcquisitionMetadata,
+  type LeaseStatus,
+} from "./lease.js";
+import { aheadOfHeadCount, checkoutBranch, ensureLocalGitForWorktrees, probeGit, probeGitBinary } from "./git.js";
+import { HostBridge, type ModelPinValidateDecisionV1, type ModelPinValidateRequestV1 } from "./bridge.js";
+import { DocumentFileWatcher } from "./document-watch.js";
+import {
+  FREEZE_PROBE_FILE,
+  freezeProbe,
+  freezeProbeHistoryIpcEnd,
+  freezeProbeHistoryIpcStart,
+  freezeProbeHistoryScanEnd,
+  freezeProbeHistoryScanStart,
+  installFreezeProbe,
+} from "./freeze-probe.js";
+import { buildDocumentsOpenedInjection, DocumentInjectionStore, prependDocumentInjection } from "./document-inject.js";
+import {
+  InputFilesController,
+  JsonInputFileStore,
+  type InputFilesRemote,
+} from "./input-files.js";
+import {
+  StructuredOutputController,
+  type StructuredOutputNormalize,
+  type StructuredOutputsEnabled,
+} from "./structured-output.js";
+import { convertDocumentFileToMarkdown } from "./anydoc-convert.js";
+/**
+ * The package that owns local document conversion. Named here only so the host
+ * can find that package's bundled engine when a project installed it; the base
+ * neither ships it nor requires it.
+ */
+const DOCUMENT_WORKBENCH_EXTENSION_ID = "document-workbench";
+import { ProviderAuthBackend, type AuthRuntimeLike } from "./provider-auth.js";
+import { ExternalAuthRuntime } from "./external-auth-runtime.js";
+import {
+  SessionMessageQueue,
+  type DispatchBehavior,
+  type QueuedDispatchPayload,
+  type QueuedMessage,
+} from "./message-queue.js";
+import { FileQueueStore, type QueueStore } from "./queue-store.js";
+import {
+  StopEscalationScheduler,
+  defaultStopEscalationHooks,
+  readProcessIdentity,
+  type StopEscalationDelays,
+  type StopEscalationHooks,
+} from "./stop-escalation.js";
+import { QuotaStore, parseDotEnv, quotaProviderFor } from "./quota.js";
+import {
+  applySessionMountsToMainEnv,
+  createSessionEnvRefreshGate,
+  deleteSecret,
+  listSecretMeta,
+  listSessionMounts,
+  loadVault,
+  memoryVaultDiagnosis,
+  MIN_SECRET_LEN,
+  mountSecret,
+  putSecret,
+  createSessionRedactionGate,
+  createSessionWriteBarrier,
+  hasSecretPlaceholder,
+  redactSessionJsonl,
+  workerEnvFromVault,
+  redactText,
+  revealRedactionSecrets,
+  StreamRedactor,
+  unmountSecret,
+  type ExclusiveSessionWork,
+  type RevealedSecret,
+  type VaultDiagnosis,
+} from "./secret-vault.js";
+import {
+  appendLedgerRecord,
+  exactAssistantUsage,
+  latestContextBySession,
+  readLedgerFile,
+} from "./token-ledger.js";
+import {
+  ProactiveCompactionScheduler,
+  STANDARD_PROACTIVE_COMPACTION,
+  type ProactiveCompactionConfiguration,
+} from "./proactive-compaction.js";
+import {
+  createCompactionDiagnostics,
+  type CompactionDiagnostics,
+} from "./compaction-diagnostics.js";
+import {
+  isPlaceholderSessionTitle,
+  provisionalSessionTitle,
+} from "./session-title.js";
+import { createToolBatchTelemetry, type ToolBatchTelemetry } from "./tool-batch-telemetry.js";
+import { createTurnTelemetry, type TurnTelemetry } from "./turn-telemetry.js";
+import { ensureWebSearchDefaults } from "./web-search-defaults.js";
+import {
+  createExtensionRegistry,
+  readAppExtensionEnabled,
+  writeAppExtensionEnabled,
+  writeProjectExtensionEnabled,
+  type ExtensionEnableScope,
+  type ExtensionRecord,
+  type ExtensionRegistry,
+} from "./extension-registry.js";
+import { ExtensionLoader, type ExtensionListItem } from "./extension-loader.js";
+import {
+  ExtensionHotReloader,
+  selectHotRestartTargets,
+  stringSetEquals,
+  type HotReloadRoot,
+} from "./extension-hotreload.js";
+import {
+  detectContributionCollisions,
+  extensionAuthStatus,
+  filterCatalogByContributions,
+  mergeContributedModelCapabilities,
+  redactAuthStatus,
+  reservedProviderClaimError,
+  resolveContributedCatalog,
+} from "./extension-provider-contract.js";
+import { handleExtEmit, toolResultDetailsField } from "./extension-channels.js";
+import { ExtensionUiChannel, EXTUI_TIMEOUT_MS } from "./extension-ui-channel.js";
+import type { ExtInvokeResult } from "./extension-settings.js";
+import type { ExtInvokeErrorCode } from "./extension-registry.js";
+import {
+  clearExtensionSecrets,
+  extensionSecretEnvs,
+  putExtensionSecrets,
+  readAppExtensionSettingsDocument,
+  readAppExtensionSettingsValues,
+  readProjectExtensionSettingsDocument,
+  readProjectExtensionSettingsValues,
+  secretPresence,
+  secretPropertyKeys,
+  settingsDenied,
+  validateExtensionSettingsPatch,
+  writeAppExtensionSettingsValues,
+  writeProjectExtensionSettingsValues,
+} from "./extension-settings.js";
+import { migrateExtensionSettings } from "./extension-migrations.js";
+import {
+  evaluateCapabilityGrant,
+  grantFromConfirmation,
+  l2CapabilitiesOf,
+  readAppExtensionGrant,
+  readProjectExtensionGrants,
+  writeAppExtensionGrant,
+  writeProjectExtensionGrant,
+  type ExtensionCapabilityGrant,
+  type ExtensionGrantRecord,
+} from "./extension-grants.js";
+import { removeExtensionPackageDirectory } from "./extension-uninstall.js";
+import { EXTENSION_MANIFEST_FILENAME, parseExtensionManifestJson } from "./extension-manifest.js";
+import { extractZipArchive, installFromProductPackArchive, writeProductPackArchive } from "./product-pack-archive.js";
+import { installLocalProductPack } from "./product-pack-installer.js";
+import { productSpawnFingerprint, resolveProductSpawnPlan } from "./product-spawn-plan.js";
+import {
+  enablementBlockers,
+  formatEnablementIssues,
+  resolveExtensionEnablement,
+  type ExtensionEnablement,
+} from "./extension-enablement.js";
+import {
+  emptyProjectExtensionActivation,
+  projectActivationOverlay,
+  readProjectExtensionActivation,
+  writeProjectExtensionActivation,
+  type ProjectExtensionActivation,
+} from "./extension-activation-store.js";
+
+/**
+ * Label for "this project runs no pack". A plain base project is not a product
+ * with an id; it is the absence of one, and this string exists only so a
+ * Conversation snapshot and the shell have something stable to compare.
+ */
+export const BASE_PACK_ID = "base";
+import {
+  ensureProjectPiHome,
+  migrateSharedProjectModels,
+  projectPiAgentDir,
+  sanitizePiSettingsFile,
+} from "./project-pi-home.js";
+export {
+  ensureProjectPiHome,
+  migrateSharedProjectModels,
+  projectPiAgentDir,
+  projectPiSessionsDir,
+  sanitizePiSettings,
+  sanitizePiSettingsFile,
+} from "./project-pi-home.js";
+export {
+  ProactiveCompactionPolicy,
+  ProactiveCompactionScheduler,
+  STANDARD_PROACTIVE_COMPACTION,
+  contextUsageFraction,
+  type ContextUsageLike,
+  type ProactiveCompactionConfiguration,
+} from "./proactive-compaction.js";
+export {
+  ensureManagedPackage,
+  ensureManagedPackages,
+  globallyRegistered,
+  resolveNpmExecutable,
+  type ManagedInstall,
+} from "./managed-npm.js";
+export {
+  assemblePiSpawn,
+  defaultRuntimeRoot,
+  MANAGED_PACKAGES,
+  mergedSpawnEnvironment,
+  type ManagedPackage,
+  resolveKernelPaths,
+  resolvePiExecutable,
+  resolveRuntimeLayout,
+  sanitizeEnvironment,
+  withElectronRunAsNode,
+  withToolPath,
+  type PiCommand,
+} from "./spawn-assembly.js";
+export {
+  HostBridge,
+  type BridgeAgentEvent,
+  type BridgeHandlers,
+  type ModelPinValidateDecisionV1,
+  type ModelPinValidateDenyCodeV1,
+  type ModelPinValidateRequestV1,
+} from "./bridge.js";
+export {
+  HostCapabilityBroker,
+  type HostCapabilityBrokerOptions,
+  type HostCapabilityDrivers,
+  type HostCapabilityPolicy,
+} from "./host-capability.js";
+export {
+  EXTENSION_HOST_API_VERSION,
+  EXTENSION_PERMISSIONS,
+  type ExtensionPermission,
+} from "./extension-manifest.js";
+export { readProjectExtensionGrants } from "./extension-grants.js";
+export {
+  BROWSER_WATCH_ACTION,
+  BROWSER_WATCH_MAX_TIMEOUT_SECS,
+  BROWSER_WATCH_TRIGGER_ACTION,
+  BrowserWatchCallbackRegistry,
+  deliveryReasonFor,
+  handleBrowserWatchEvent,
+  parseTimeoutSecs,
+  parseWatchCondition,
+  postBrowserWatchTrigger,
+  summarizeWatchCondition,
+  type BrowserWatchCallbackTarget,
+  type BrowserWatchCondition,
+  type BrowserWatchHost,
+  type BrowserWatchTriggerPayload,
+} from "./browser-watch-bridge.js";
+
+/**
+ * The tool whose owner, whoever that is, drives the Plan panel. Named here
+ * rather than an extension id so a replacement plan package inherits the panel.
+ */
+const PLAN_PUBLISH_TOOL = "plan_publish";
+
+const MAX_TEXT_DOCUMENT_BYTES = 2 * 1024 * 1024;
+// Office files with embedded figures routinely pass 50MB; the editor and anydoc both cope with more.
+const MAX_BINARY_DOCUMENT_BYTES = 256 * 1024 * 1024;
+const MAX_PDF_DOCUMENT_BYTES = 128 * 1024 * 1024;
+
+function documentReadLimit(kind: NonNullable<ReturnType<typeof documentKindForName>>): number {
+  if (kind === "markdown" || kind === "plain") return MAX_TEXT_DOCUMENT_BYTES;
+  if (kind === "pdf") return MAX_PDF_DOCUMENT_BYTES;
+  return MAX_BINARY_DOCUMENT_BYTES;
+}
+
+function documentTooLargeMessage(kind: NonNullable<ReturnType<typeof documentKindForName>>, size: number, limit: number): string {
+  if (kind === "pdf") {
+    return `PDF 超过 ${Math.floor(limit / (1024 * 1024))}MB 上限（${size} 字节）`;
+  }
+  return `Document is too large (maximum ${limit} bytes)`;
+}
+export class DocumentReadError extends Error {
+  constructor(readonly code: DocumentErrorCode, message: string) {
+    super(message);
+    this.name = "DocumentReadError";
+  }
+}
+
+function documentError(code: DocumentErrorCode, message: string): DocumentReadError {
+  return new DocumentReadError(code, message);
+}
+
+async function readBoundedFile(
+  handle: Awaited<ReturnType<typeof fs.open>>,
+  limit: number,
+  tooLargeMessage: (size: number) => string,
+): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  while (total <= limit) {
+    const chunk = Buffer.allocUnsafe(Math.min(1024 * 1024, limit + 1 - total));
+    const { bytesRead } = await handle.read(chunk, 0, chunk.length, total);
+    if (bytesRead === 0) break;
+    chunks.push(chunk.subarray(0, bytesRead));
+    total += bytesRead;
+  }
+  if (total > limit) throw documentError("document_too_large", tooLargeMessage(total));
+  return Buffer.concat(chunks, total);
+}
+
+export async function readLocalDocument(input: unknown): Promise<DocumentContent> {
+  if (typeof input !== "string" || !input.trim())
+    throw documentError("document_invalid_path", "document path is required");
+  const path = input.trim();
+  if (!isAbsolute(path)) throw documentError("document_invalid_path", "document path must be absolute");
+  const kind = documentKindForName(extname(path));
+  if (!kind)
+    throw documentError("document_unsupported_type", "unsupported document type");
+  const limit = documentReadLimit(kind);
+  const tooLarge = (size: number) => documentTooLargeMessage(kind, size, limit);
+
+  let handle: Awaited<ReturnType<typeof fs.open>>;
+  try {
+    handle = await fs.open(path, "r");
+  } catch (error: any) {
+    if (error?.code === "ENOENT") throw documentError("document_not_found", `Document does not exist: ${path}`);
+    throw documentError("document_read_failed", `Cannot open document: ${path}`);
+  }
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) throw documentError("document_not_file", `Document is not a regular file: ${path}`);
+    if (stat.size > limit)
+      throw documentError("document_too_large", tooLarge(stat.size));
+
+    // Read through the validated handle in bounded chunks. The cap+1 probe also
+    // catches a file that grows between stat and read without a large up-front allocation.
+    const buffer = await readBoundedFile(handle, limit, tooLarge);
+    const summary = {
+      id: path,
+      name: basename(path),
+      path,
+      kind,
+      size: buffer.byteLength,
+      updatedAt: stat.mtimeMs,
+    };
+    if (kind === "markdown" || kind === "plain")
+      return { ...summary, kind, content: buffer.toString("utf8") };
+    return {
+      ...summary,
+      kind,
+      bytes: new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength),
+    };
+  } catch (error) {
+    if (error instanceof DocumentReadError) throw error;
+    throw documentError("document_read_failed", `Cannot read document: ${path}`);
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Kinds an editing renderer may write back. PDF stays read-only in the panel. */
+const WRITABLE_DOCUMENT_KINDS: ReadonlySet<string> = new Set(["markdown", "plain", "word", "spreadsheet", "presentation"]);
+
+function documentBytesOf(input: unknown): Uint8Array | undefined {
+  if (input instanceof Uint8Array) return input;
+  if (input instanceof ArrayBuffer) return new Uint8Array(input);
+  if (ArrayBuffer.isView(input)) return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+  // A structured-clone-less transport (JSON) delivers Buffer.toJSON() shape.
+  if (input && typeof input === "object" && (input as { type?: unknown }).type === "Buffer" && Array.isArray((input as { data?: unknown }).data)) {
+    return Uint8Array.from((input as { data: number[] }).data);
+  }
+  return undefined;
+}
+
+/**
+ * Overwrite one already-opened local document with new bytes.
+ *
+ * Same validation family as `readLocalDocument` (absolute path, supported kind,
+ * size cap), plus: the file must already exist as a regular file — the panel
+ * saves back into a document the host loaded, it never creates one — and the
+ * write is atomic (temp file in the same directory, then rename) so a crash
+ * mid-write cannot leave a truncated .docx behind.
+ */
+export async function writeLocalDocument(input: unknown, payload: unknown): Promise<DocumentSummary> {
+  if (typeof input !== "string" || !input.trim())
+    throw documentError("document_invalid_path", "document path is required");
+  const path = input.trim();
+  if (!isAbsolute(path)) throw documentError("document_invalid_path", "document path must be absolute");
+  const kind = documentKindForName(extname(path));
+  if (!kind) throw documentError("document_unsupported_type", "unsupported document type");
+  if (!WRITABLE_DOCUMENT_KINDS.has(kind)) throw documentError("document_unsupported_type", `documents of kind ${kind} are read-only`);
+  const bytes = documentBytesOf(payload);
+  if (!bytes) throw documentError("document_write_failed", "document bytes are required");
+  const limit = documentReadLimit(kind);
+  if (bytes.byteLength > limit) throw documentError("document_too_large", documentTooLargeMessage(kind, bytes.byteLength, limit));
+  let stat;
+  try {
+    stat = await fs.stat(path);
+  } catch (error: any) {
+    if (error?.code === "ENOENT") throw documentError("document_not_found", `Document does not exist: ${path}`);
+    throw documentError("document_write_failed", `Cannot inspect document: ${path}`);
+  }
+  if (!stat.isFile()) throw documentError("document_not_file", `Document is not a regular file: ${path}`);
+  const tmp = join(dirname(path), `.${basename(path)}.pipiui-${process.pid}-${Date.now().toString(36)}.tmp`);
+  try {
+    await fs.writeFile(tmp, bytes, { mode: stat.mode & 0o777 });
+    await fs.rename(tmp, path);
+  } catch (error) {
+    await fs.rm(tmp, { force: true }).catch(() => undefined);
+    throw documentError("document_write_failed", `Cannot write document: ${path} (${error instanceof Error ? error.message : String(error)})`);
+  }
+  const written = await fs.stat(path);
+  return { id: path, name: basename(path), path, kind, size: written.size, updatedAt: written.mtimeMs };
+}
+export {
+  mainSessionExcludeToolArgs,
+  resolveMainSessionExcludedTools,
+  type MainToolPolicyInput,
+} from "./main-tool-policy.js";
+export {
+  installRuntimeTree,
+  syncTree,
+  treeSignature,
+  type InstallReport,
+  type RuntimeAssets,
+} from "./runtime-install.js";
+export {
+  checkoutBranch,
+  ensureLocalGitForWorktrees,
+  githubBrowserURL,
+  initGit,
+  parsePorcelain,
+  parseUpstreamCounts,
+  probeGit,
+  probeGitBinary,
+  validateBranchName,
+} from "./git.js";
+export {
+  LeaseManager,
+  DEFAULT_HEARTBEAT_MS,
+  DEFAULT_TTL_MS,
+  LEASE_PROTOCOL_VERSION,
+  type LeaseRecord,
+  type LeaseStatus,
+} from "./lease.js";
+export {
+  SessionMessageQueue,
+  type DispatchBehavior,
+  type DispatchHandler,
+  type EnqueueInput,
+  type EnqueueResult,
+  type QueueChangeListener,
+  type QueuedAttachment,
+  type QueuedDispatchPayload,
+  type QueuedMessage,
+  type QueuedMessageState,
+  type SessionMessageQueueOptions,
+} from "./message-queue.js";
+export { FileQueueStore, type QueueStore } from "./queue-store.js";
+export {
+  DEFAULT_STOP_ESCALATION_DELAYS,
+  StopEscalationScheduler,
+  listDescendantPids,
+} from "./stop-escalation.js";
+export {
+  ledgerLine,
+  parseLedgerLine,
+  readLedgerFile,
+  appendLedgerRecord,
+  exactAssistantUsage,
+  latestContextBySession,
+  type LedgerContextRecord,
+  type SessionLastContext,
+} from "./token-ledger.js";
+export {
+  BALANCE_ACCOUNT_LABEL,
+  balanceProviderFor,
+  codexWindowLabel,
+  CODEX_USAGE_URL,
+  fetchCodexQuota,
+  parseCodexAuth,
+  parseCodexUsageWindows,
+  parseDotEnv,
+  QUOTA_ACCOUNT_LABELS,
+  quotaProviderFor,
+  QuotaStore,
+  QUOTA_STALE_AFTER_MS,
+  type BalanceProviderKind,
+  type CodexCredentials,
+  type QuotaFetchDeps,
+  type QuotaProviderKind,
+} from "./quota.js";
+
+type Rpc = Record<string, any>;
+
+/** Spec D5 invokeExtension timeout (host → agent RPC). Tests may override via options. */
+export const EXT_INVOKE_TIMEOUT_MS = 15_000;
+/**
+ * How long a `ext_invoke_poll` is held open before answering "nothing yet".
+ * Shorter than the invoke timeout, so a poller that raced a request still comes
+ * back and picks it up well inside the panel's wait.
+ */
+export const EXT_INVOKE_POLL_MS = 25_000;
+
+/** Reserved invoke method: the host pushing a settings change into a live session. */
+export const EXT_SETTINGS_CHANGED_METHOD = "pipiui.settings_changed";
+
+/** One panel→agent request while it waits for the session's `ext-invoke` mount. */
+type ExtInvokeRequestRecord = {
+  requestId: string;
+  extensionId: string;
+  method: string;
+  params: unknown;
+  settle: (result: ExtInvokeResult) => void;
+};
+
+type ProcFactory = (
+  bin: string,
+  args: string[],
+  options: any,
+) => ChildProcessWithoutNullStreams;
+
+export interface CanonicalModelsWriteQueue {
+  enqueue<T>(job: () => Promise<T>): Promise<T>;
+}
+
+/** One App-owned FIFO for every canonical models.json read-modify-atomic-write. */
+export function createCanonicalModelsWriteQueue(): CanonicalModelsWriteQueue {
+  let tail: Promise<void> = Promise.resolve();
+  return {
+    enqueue<T>(job: () => Promise<T>): Promise<T> {
+      const run = tail.then(job, job);
+      tail = run.then(() => undefined, () => undefined);
+      return run;
+    },
+  };
+}
+
+async function tightenCanonicalFileMode(path: string): Promise<void> {
+  let stat;
+  try {
+    stat = await fs.lstat(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  if (!stat.isFile()) return;
+  const noFollow = fsConstants.O_NOFOLLOW ?? 0;
+  let handle;
+  try {
+    try {
+      handle = await fs.open(path, fsConstants.O_RDWR | noFollow);
+    } catch (error) {
+      if (!noFollow || !["EINVAL", "ENOTSUP"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+      handle = await fs.open(path, fsConstants.O_RDWR);
+    }
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.dev !== stat.dev || opened.ino !== stat.ino) {
+      throw new Error("canonical models path changed during permission tighten");
+    }
+    await handle.chmod(0o600);
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+}
+
+/**
+ * A downstream product's agentDir may hold `models.json` as a symlink into the shared
+ * credentials directory (see `pi-profile.ts`'s `linkSharedCredentialFiles`). `rename()`
+ * replaces whatever sits at the destination path, symlink included, so an atomic writer must
+ * resolve one hop through an existing symlink and write the real target instead — otherwise
+ * the very first canonical write after linking would silently sever the shared file.
+ */
+async function resolveCanonicalWriteTarget(path: string): Promise<string> {
+  try {
+    const stat = await fs.lstat(path);
+    if (!stat.isSymbolicLink()) return path;
+    const linkTarget = await fs.readlink(path);
+    return isAbsolute(linkTarget) ? linkTarget : resolve(dirname(path), linkTarget);
+  } catch {
+    return path; // missing: the write creates `path` itself, same as today.
+  }
+}
+
+async function writeCanonicalModelsFile(path: string, contents: string): Promise<void> {
+  const target = await resolveCanonicalWriteTarget(path);
+  await fs.mkdir(dirname(target), { recursive: true });
+  const temporary = join(dirname(target), `.${basename(target)}-${process.pid}-${Date.now()}-${crypto.randomUUID()}.tmp`);
+  try {
+    const handle = await fs.open(temporary, "wx", 0o600);
+    try {
+      await handle.writeFile(contents, { encoding: "utf8" });
+      await handle.chmod(0o600);
+    } finally {
+      await handle.close();
+    }
+    await fs.rename(temporary, target);
+    await tightenCanonicalFileMode(target);
+  } catch (error) {
+    await fs.rm(temporary, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+export type PiBackendOptions = {
+  /** Explicit Pi process invocation. Packaged Electron supplies bundled Node + unpacked Pi CLI. */
+  piCommand?: PiCommand;
+  /** Legacy/development shorthand for a directly executable external `pi`. */
+  piPath?: string;
+  sessionsRoot?: string;
+  /** App-specific installed extension tree. */ runtimeRoot?: string;
+  /** Real on-disk node_modules containing the two bundled, pinned managed extensions. */
+  managedNodeModulesRoot?: string;
+  /**
+   * Shipped extension sources. When set, the runtime tree is refreshed from them before every
+   * spawn, so an edit under the Electron runtime source reaches the next session without
+   * relaunching the host — installing only at startup left exactly those files stale in a running
+   * dev app, which is the divergence this whole path exists to close. Signature-gated: an
+   * unchanged tree costs a few milliseconds and writes nothing.
+   */
+  runtimeAssets?: RuntimeAssets;
+  agentDir?: string;
+  /**
+   * The product pack (an extension id) a project runs unless the user says
+   * otherwise. Injected by the host from `product.json`; absent means plain
+   * base — the kernel names no SKU of its own. A product built on the base
+   * (Pipi Coding, Pipi Hydra, …) passes its own pack id here.
+   */
+  defaultPack?: string;
+  /** Identity of the running product; the shell brands itself from it. Defaults to PipiUI. */
+  product?: { id: string; name: string; agentMaxDepth?: number };
+  /**
+   * The machine-wide profile every product shares: login identity and the canonical model
+   * catalog. Per-product `agentDir`s own project lists, settings and enablement, but the
+   * canonical models.json must NOT be one of them — a project opened in two products carries
+   * one symlink, and a canonical dir that moves per product makes that link foreign to
+   * whichever product did not create it ("Refusing untrusted project models.json symlink").
+   * Defaults to `agentDir`, which is the single-product case.
+   */
+  sharedProfileDir?: string;
+  /** App-profile writes that must finish before shared models migration starts. */
+  profileInitialization?: Promise<unknown>;
+  /** Shared App-owned serializer for every canonical models.json writer. */
+  canonicalModelsWrite?: CanonicalModelsWriteQueue;
+  /** Bind Pi children to agentDir/sessionsRoot instead of inheriting their ambient profile. */
+  profileMode?: "default" | "isolated";
+  /** Disable Pi's ambient resource discovery while retaining explicit mounts assembled here. */
+  resourceMode?: "default" | "explicit";
+  spawn?: ProcFactory;
+  env?: NodeJS.ProcessEnv;
+  browserAction?: (
+    request: Record<string, unknown>,
+    sessionId: string,
+  ) => Promise<Record<string, unknown>>;
+  /** Long-lived browser watch register/unwatch/list/subscribe. */
+  browserWatch?: (
+    request: Record<string, unknown>,
+    sessionId: string,
+  ) => Promise<Record<string, unknown>> | Record<string, unknown>;
+  terminalAction?: (
+    request: Record<string, unknown>,
+    sessionId: string,
+  ) => Promise<Record<string, unknown>>;
+  terminalSessionDeleted?: (sessionId: string) => void;
+  /** Versioned Host Capability API — the gated extension→host channel. */
+  hostCapabilityAction?: (
+    request: Record<string, unknown>,
+    sessionId: string,
+  ) => Promise<Record<string, unknown>> | Record<string, unknown>;
+  /** One-time capability token mint for the same channel (fail closed). */
+  hostCapabilityTokenAction?: (
+    request: Record<string, unknown>,
+    sessionId: string,
+  ) => Promise<Record<string, unknown>> | Record<string, unknown>;
+  /** Injectable pi auth runtime for tests; defaults to ModelRuntime in-process. */ authRuntime?: AuthRuntimeLike;
+  /** Packaged helper for the external Pi/Node runtime used by the Electron host. */ authHelperPath?: string;
+  authNodePath?: string;
+  /** Injectable queue persistence; defaults to ~/.pi/agent/pipiui-queues. */ queueStore?: QueueStore;
+  /** Injectable account-quota store for tests; defaults to the real Codex fetch. */ quotaStore?: QuotaStore;
+  /** Injectable tool-batch stats helper for tests; defaults to agentDir JSONL. */ toolBatchTelemetry?: ToolBatchTelemetry;
+  /** Injectable bounded per-turn timing recorder; defaults to agentDir/telemetry/turns.jsonl. */ turnTelemetry?: TurnTelemetry;
+  /** Injectable compaction diagnostics log; defaults to agentDir JSONL. */ compactionDiagnostics?: CompactionDiagnostics;
+  /** Host-injected Chat with Files uploader; absent means file staging is disabled. */ inputFilesRemote?: InputFilesRemote;
+  /** Host-injected Structured Outputs validator; absent means structured outputs are disabled. */ structuredOutputNormalize?: StructuredOutputNormalize;
+  structuredOutputsEnabled?: StructuredOutputsEnabled;
+  /** In-memory vault namespace key. Never used as a disk path. */ vaultDir?: string;
+  /** Watermarks/delays for idle-time compaction; defaults to the Swift app's. */
+  compaction?: ProactiveCompactionConfiguration;
+  /**
+   * Always-on host summary compaction at the 45% + quiet threshold.
+   * Defaults off so context-fold owns the first pass; the scheduler
+   * still falls back to a host `compact` when that rewrite leaves usage at
+   * or above the high watermark. Pi keeps near-overflow / overflow safety.
+   */
+  proactiveSummaryCompaction?: boolean;
+  /** Injectable abort-unresponsive kill ladder (tests). */
+  stopEscalation?: StopEscalationScheduler;
+  stopEscalationHooks?: StopEscalationHooks;
+  stopEscalationDelays?: StopEscalationDelays;
+  /** Max wait for abort RPC ack before emitting stopped (default 1500ms). */
+  abortAckTimeoutMs?: number;
+  /** Max wait for invokeExtension RPC (default 15000ms). */
+  extensionInvokeTimeoutMs?: number;
+  /** Max wait for one held-open `ext_invoke_poll` (default 25000ms). */
+  extensionInvokePollMs?: number;
+  /** Host-side extension_ui dialog timeout (default 30000ms). */
+  extensionUiTimeoutMs?: number;
+  /** Open a project folder in the OS file manager. Defaults to open/explorer/xdg-open. */
+  revealPath?: (path: string) => Promise<void>;
+  /** Injectable registry for tests; defaults to bundled builtins. */
+  extensionRegistry?: ExtensionRegistry;
+  /** Minimum gap between durable agent-index snapshots (default 2000ms; tests shorten it). */
+  agentPersistMinIntervalMs?: number;
+  /** Debounce + minimum gap between durable agent-log snapshots (default 2000ms). */
+  agentLogPersistDebounceMs?: number;
+  /** How many newest terminal agent rows the durable projection retains (default 5000). */
+  agentRetentionMaxTerminal?: number;
+};
+
+type SessionRuntimeToken = number;
+
+type Live = {
+  session: Session;
+  /** Lifecycle token captured when this Pi child was installed. */
+  runtimeToken: SessionRuntimeToken;
+  path: string;
+  cwd: string;
+  process?: ChildProcessWithoutNullStreams;
+  exit?: Promise<void>;
+  exitError?: PiExitedError;
+  buffer: string;
+  stderrTail: string;
+  pending: Map<
+    string,
+    { resolve: (data: any) => void; reject: (e: Error) => void }
+  >;
+  followUps: string[];
+  /** One-shot text for the next `agent_start` after a PipiUI queue drain.
+   *  Pi's own `followUp` list is empty for a regular prompt, and the UI
+   *  otherwise treats that started as a ghost. */
+  pendingDrainPrompt?: string;
+  /** contentIndex → streamed tool-args JSON, assembled from toolcall_delta until toolcall_end. */
+  toolArgs: Map<number, string>;
+  /** Pi restarts contentIndex at every assistant message; this epoch lets the UI
+   *  tell same-index content from different messages apart within one turn. */
+  messageEpoch: number;
+  /** Idle-time context compaction; also tracks pi's own compaction lifecycle. */
+  compaction: ProactiveCompactionScheduler;
+  /**
+   * Which host side issued the pending `compact` RPC — `manual` (`/compact`) or
+   * `proactive_idle` (the scheduler). pi reports both as `reason: "manual"`, so
+   * this intent is what separates them; consumed by the next `compaction_start`.
+   */
+  compactionIntent?: "manual" | "proactive_idle";
+  /** Classification of the in-flight compaction, kept so `compaction_end` can repeat it. */
+  activeCompaction?: { operation: "context_compaction" | "context_fold"; trigger?: CompactionTrigger };
+  /** Diagnostics identity of the in-flight compaction: stable operationId, start time, pre-compaction sample. */
+  activeCompactionDiagnostics?: { operationId: string; startedAt: number; beforeTokens?: number };
+  /** Settle already wrote a fallback end for the last start; a late real end must not repeat it. */
+  compactionDiagnosticsClosedBySettle?: boolean;
+  /** toolCallId → toolName, recorded from `tool_execution_start` so a later
+   *  `tool_execution_end` can prove which tool produced a result. Consumed on
+   *  end and cleared per turn. */
+  toolNames: Map<string, string>;
+  /** Turn epoch of the idle-fold nudge's own short turn. Only a
+   *  `context_manage` fold inside this exact epoch is attributable to the
+   *  idle scheduler; a fold in any other turn is an unconfirmed-trigger fold. */
+  nudgeTurnEpoch?: number;
+  /**
+   * This compaction started outside a turn, so it — not `agent_settled` — owns
+   * the queue's busy flag until `compaction_end`. Prompts typed meanwhile wait
+   * in the normal queue instead of racing pi mid-compaction.
+   */
+  compactionHoldsQueue?: boolean;
+  /**
+   * A successful host abort owns the turn's terminal semantics. Pi may emit a
+   * later generic `agent_settled` (or no terminal event at all), but neither
+   * case may turn an interrupted UI back into a completed one.
+   */
+  hostAbortedTurn?: boolean;
+  /** Queue turn id from the latest `markBusy`; stale settles must pass this to `queueIdle`. */
+  turnEpoch?: number;
+  /** Concatenated `text_delta` for the in-flight assistant message. */
+  streamedAssistantText?: string;
+  /** Concatenated redacted `thinking_delta` for the in-flight assistant message; diffed against the final blocks at message_end. */
+  streamedAssistantThinking?: string;
+  streamRedactors?: { text: Map<number, StreamRedactor>; thinking: Map<number, StreamRedactor>; tool: Map<number, StreamRedactor> };
+  /** Turn already projected terminal to renderers; suppresses late duplicate settle evidence. */
+  terminalEpoch?: number;
+  /** Exact final assistant awaiting the last real subagent terminal event. */
+  pendingFinalReconciliation?: { epoch: number; identity: FinalAssistantIdentity };
+  /** SIGKILL/close in flight: do not write another RPC to this child. */
+  exiting?: boolean;
+  /** Extension ids THIS child's spawn mounted (snapshot; the overlay may already differ). */
+  mountedExtensionIds?: Set<string>;
+  /** A hot-reload/state change wants a respawn; deferred while the session was busy. */
+  pendingExtensionRestart?: boolean;
+  /** The child is not a settled turn until all spawn initialization has succeeded. */
+  spawnInitializing?: boolean;
+  /** Monotonic timestamp of the last turn-related event (agent_start, deltas, tool, message_end). */
+  lastTurnActivityAt?: number;
+  /** Canonical project root. `cwd` may be a session-bound workspace/worktree; identity never follows it. */
+  projectRoot?: string;
+};
+const PI_STDERR_TAIL_LIMIT = 16 * 1024;
+/** Custom-message type pi-ext's idle-fold timer uses for its nudge turn. */
+const CONTEXT_MANAGE_NUDGE_CUSTOM_TYPE = "pipiui-context-manage-nudge";
+/** Compaction classification carried on `compaction` stream events. Exported for tests. */
+export type CompactionTrigger =
+  | "manual"
+  | "proactive_idle"
+  | "near_overflow"
+  | "overflow"
+  | "mid_turn"
+  | "idle_fold"
+  /** A `context_manage` fold whose trigger cannot be confirmed (the agent
+   *  tidied context on its own, outside any idle-nudge turn). */
+  | "auto_fold";
+/**
+ * Why this compaction started. The host initiates `manual` (UI `/compact`) and
+ * `proactive_idle` (scheduler) compactions itself, so a recorded intent is
+ * authoritative for pi's `reason: "manual"` events; pi's own `overflow`
+ * recovery is self-describing. Every pi `threshold` compaction sits past the
+ * reserve line (`window − reserveTokens`, pi's own `shouldCompact`) — one that
+ * arrives while a turn is running was fired by the mid-turn tool-loop guard,
+ * the rest are pre-prompt/post-turn near-overflow protection.
+ */
+export function classifyCompactionTrigger(args: {
+  reason?: string;
+  intent?: "manual" | "proactive_idle";
+  busy: boolean;
+}): CompactionTrigger | undefined {
+  if (args.reason === "manual") return args.intent ?? "manual";
+  if (args.reason === "overflow") return "overflow";
+  if (args.reason === "threshold") return args.busy ? "mid_turn" : "near_overflow";
+  // Unknown/missing reason on a real lifecycle event: leave unclassified so the
+  // renderer's explicit "自动压缩" fallback applies.
+  return undefined;
+}
+/** Main-turn watchdog: turnActive with no event for this long is wedged. */
+export const TURN_WATCHDOG_TIMEOUT_MS = 120_000;
+export const TURN_WATCHDOG_CHECK_INTERVAL_MS = 30_000;
+const TERMINAL_RECONCILIATION_PENDING_RETRY_MS = 250;
+const TERMINAL_RECONCILIATION_PENDING_MAX_RETRIES = 6;
+/** Spawn waits this long for the auth-aware catalog (hosted-search exclusivity),
+ * then proceeds on configured rows; a pending-forever catalog must not wedge startup. */
+const SPAWN_CATALOG_WAIT_MS = 5_000;
+/** Pace for deferred session-file work (redaction / env refresh) while a writer stays busy. */
+const SESSION_FILE_RETRY_PACE_MS = 250;
+/** Matches Swift `SubagentWatchdog.staleThreshold`. */
+const ORPHAN_STALE_MS = 10 * 60 * 1000;
+const ORPHAN_RECONCILE_INTERVAL_MS = 60 * 1000;
+/**
+ * Durable-projection write pacing. The 2026-08-23 freeze ran one full 15MB index /
+ * 40MB log JSON.stringify per event (97% CPU, 3.9GB heap); writes are now
+ * time-throttled and every event burst merges into a single snapshot.
+ */
+const AGENT_PERSIST_MIN_INTERVAL_MS = 2_000;
+// The log store is a whole-file snapshot (currently several MB), so a short
+// interval turns a few active workers into a permanent stringify/write loop.
+// Turn boundaries still schedule a checkpoint and graceful close flushes it.
+const AGENT_LOG_PERSIST_DEBOUNCE_MS = 10_000;
+/** Retention for terminal agent rows: keep live rows plus the newest N terminal rows. */
+const AGENT_RETENTION_MAX_TERMINAL = 5000;
+/**
+ * Recency floor for that retention: a terminal row ended inside the window is
+ * exempt from pruning no matter how far over the cap the projection is — a
+ * record the user watched finish must not vanish behind housekeeping (and must
+ * still be recoverable from the durable index after a restart). Rows without a
+ * usable end timestamp are never pruned either; only strictly older rows
+ * compete for retention slots, so the projection may temporarily hold more
+ * than the cap rather than delete recent completions.
+ */
+const AGENT_RETENTION_PROTECT_WINDOW_MS = 24 * 60 * 60 * 1000;
+const ORPHAN_HOST_UNAVAILABLE_CLOSEOUT =
+  "运行宿主不可用且超过 10 分钟无状态观察；按中断成果保留";
+const ORPHAN_PROCESS_GONE_CLOSEOUT =
+  "执行进程已确认退出；按中断成果保留";
+class PiExitedError extends Error {
+  constructor(
+    readonly code: number | null,
+    readonly signal: NodeJS.Signals | null,
+    stderrTail: string,
+  ) {
+    const status = code !== null
+      ? `code ${code}`
+      : signal
+        ? `signal ${signal}`
+        : "unknown status";
+    const diagnostic = stderrTail.trim();
+    super(`pi exited (${status})${diagnostic ? `: ${diagnostic}` : ""}`);
+    this.name = "PiExitedError";
+  }
+}
+const text = (content: any) =>
+  typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content.map((p) => p.text ?? p.thinking ?? "").join("")
+      : "";
+/** Steer receipts match whitespace-tolerantly: pi may wrap the injected text
+ * (document injection prefix, line wrapping) before echoing it back. */
+export const normalizeSteerText = (value: string): string => value.replace(/\s+/g, " ").trim();
+export const previewSteerText = (value: string): string => {
+  const normalized = normalizeSteerText(value);
+  return normalized.length > 60 ? `${normalized.slice(0, 60)}…` : normalized;
+};
+/** Stable copy taken before send so later queue/caller mutation cannot rewrite the receipt. */
+export const snapshotAttachments = (
+  attachments: QueuedDispatchPayload["attachments"] | undefined,
+): QueuedDispatchPayload["attachments"] => structuredClone(attachments ?? []);
+const assistantVisibleText = (content: any) =>
+  typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content.map((part) => part?.type === "text" ? part.text ?? "" : "").join("")
+      : "";
+/**
+ * Legacy dispatch-seam fixture slugs. Before the explicit `testFixture` flag
+ * existed, dispatch-seam runtime tests persisted rows whose agentId was one of
+ * these slugs. Migration requires BOTH the allowlisted slug AND that row's own
+ * exact `[seam:<agentId>]` (or `[seam:<agentId>:mode]`) marker in the task —
+ * a real episode merely quoting `[seam:` text is never flagged.
+ */
+const LEGACY_SEAM_FIXTURE_IDS = new Set([
+  "blocker", "qfix", "cone", "ctwo", "cthree", "fworker", "fprobe",
+  "hworker", "hang-worker", "queued-fix", "chain-one", "chain-two", "chain-three",
+]);
+/** True when `task` carries this agent's own `[seam:<agentId>` marker with a
+ * valid boundary (`]` or `:mode`); `[seam:<id>extra` never matches. */
+function hasOwnSeamMarker(agentId: string, task: string): boolean {
+  const prefix = `[seam:${agentId}`;
+  let at = task.indexOf(prefix);
+  while (at >= 0) {
+    const next = task[at + prefix.length];
+    if (next === "]" || next === ":") return true;
+    at = task.indexOf(prefix, at + 1);
+  }
+  return false;
+}
+/** Narrow legacy migration for pre-flag persisted rows; explicit flags stay as-is. */
+function migrateLegacySeamFixture(agent: AgentSummary): boolean {
+  if (agent.testFixture) return false;
+  if (!LEGACY_SEAM_FIXTURE_IDS.has(agent.agentId)) return false;
+  if (!hasOwnSeamMarker(agent.agentId, agent.task)) return false;
+  agent.testFixture = true;
+  return true;
+}
+const SUBAGENT_COMPLETION_CUSTOM_TYPE = "pipiui-subagent-complete-v1";
+function isSubagentCompletion(value: any): boolean {
+  if (!value || typeof value !== "object") return false;
+  return value.customType === SUBAGENT_COMPLETION_CUSTOM_TYPE
+    || value.message?.customType === SUBAGENT_COMPLETION_CUSTOM_TYPE;
+}
+function isVisibleCustomMessage(entry: any): boolean {
+  return entry?.type === "custom_message" && (Boolean(entry.display) || isSubagentCompletion(entry));
+}
+function isAlreadyProcessingError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("already processing") && message.includes("streamingBehavior");
+}
+/** Extract display text and inline images from a tool-result content payload.
+ *  Handles structured `{type:"image"}` parts (tools may return images inline). */
+function extractResult(content: any): { text: string; images: { data: string; mimeType: string }[] } {
+  if (typeof content === "string") return { text: content, images: [] }
+  if (!Array.isArray(content)) return { text: "", images: [] }
+  const textParts: string[] = []
+  const images: { data: string; mimeType: string }[] = []
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue
+    if (part.type === "image") {
+      const data = part.data ?? part.source?.data ?? part.source?.url
+      const mimeType = part.mimeType ?? part.source?.mediaType ?? part.source?.mime_type
+      if (typeof data === "string" && data.length > 0) images.push({ data, mimeType: mimeType ?? "image/png" })
+    } else {
+      textParts.push(part.text ?? part.thinking ?? "")
+    }
+  }
+  return { text: textParts.join(""), images }
+}
+const emitFrame = (listeners: Set<(e: HostEvent) => void>, event: HostEvent) =>
+  listeners.forEach((l) => l(event));
+let projectionDebugBackendSerial = 0;
+/** Process-wide lifecycle token serial; per-session token entries are reclaimed. */
+let sessionRuntimeTokenSerial = 0;
+function asTime(value: any): number {
+  const n = Date.parse(value ?? "");
+  return Number.isFinite(n) ? n : Date.now();
+}
+function history(entries: any[]): HistoryEntry[] {
+  return entries
+    .filter((e) => e?.type === "message")
+    .map((e) => {
+      const m = e.message ?? {};
+      const role = m.role === "toolResult" ? "tool" : m.role;
+      return {
+        id: e.id,
+        role: role === "assistant" || role === "tool" ? role : "user",
+        content: text(m.content),
+        timestamp: asTime(e.timestamp ?? m.timestamp),
+      };
+    });
+}
+type SessionLeaseAttempt = {
+  sessionId: string;
+  lease: LeaseManager;
+  /** The manager was installed in this backend's lease map by this call. */
+  installed: boolean;
+  /** This acquire invocation transitioned the manager into ownership. */
+  acquired: boolean;
+  ownershipGeneration: number;
+};
+
+type SessionMeta = {
+  path: string;
+  header: any;
+  name?: string;
+  updatedAt: number;
+  /** Latest `model_change` entry in the JSONL (provider/modelId), when present. */
+  model?: { provider: string; modelId: string } | null;
+  /** Latest persisted Pi thinking level, when the session recorded one. */
+  thinkingLevel?: ThinkingLevel;
+  productProfile?: { id: string; fingerprint: string };
+};
+type SessionFileCandidate = { path: string; size: number; mtimeMs: number };
+const METADATA_HEAD_BYTES = 64 * 1024,
+  METADATA_TAIL_BYTES = 64 * 1024;
+function parseLines(data: string): any[] {
+  const result: any[] = [];
+  for (const line of data.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      result.push(JSON.parse(line));
+    } catch {
+      /* a partial tail record is expected */
+    }
+  }
+  return result;
+}
+function sessionName(records: any[]): string | undefined {
+  for (let i = records.length - 1; i >= 0; i--) {
+    const r = records[i];
+    if (
+      r?.type === "session_info" &&
+      typeof r.name === "string" &&
+      r.name.trim()
+    )
+      return r.name.trim();
+  }
+  for (const r of records) {
+    if (r?.type === "message" && r.message?.role === "user") {
+      const value = text(r.message.content).trim();
+      if (value) return value.slice(0, 80);
+    }
+  }
+}
+/** Latest `model_change` row in file order (pi persists the session model as a model_change entry). */
+function sessionModelFromRows(rows: any[]): { provider: string; modelId: string } | null {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const r = rows[i];
+    if (
+      r?.type === "model_change" &&
+      typeof r.provider === "string" &&
+      r.provider &&
+      typeof r.modelId === "string" &&
+      r.modelId
+    )
+      return { provider: r.provider, modelId: r.modelId };
+  }
+  return null;
+}
+/** Latest valid `thinking_level_change` row in file order. */
+function sessionThinkingLevelFromRows(rows: any[]): ThinkingLevel | undefined {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    if (
+      row?.type === "thinking_level_change" &&
+      THINKING_LEVELS.includes(row.thinkingLevel)
+    )
+      return row.thinkingLevel;
+  }
+}
+type LatestSessionMetadata = {
+  name?: string;
+  model: { provider: string; modelId: string } | null;
+  thinkingLevel?: ThinkingLevel;
+  updatedAt?: number;
+  productProfile?: { id: string; fingerprint: string };
+};
+
+/**
+ * Scan JSONL records newest-first in fixed-size byte chunks. Memory stays
+ * bounded by one chunk plus the largest individual JSONL record, while fields
+ * that happen to sit outside the old fixed tail window are still discovered.
+ */
+async function readLatestSessionMetadata(
+  handle: Awaited<ReturnType<typeof fs.open>>,
+  size: number,
+): Promise<LatestSessionMetadata> {
+  let position = size;
+  let carry = Buffer.alloc(0);
+  let name: string | undefined;
+  let model: { provider: string; modelId: string } | null | undefined;
+  let thinkingLevel: ThinkingLevel | undefined;
+  let foundThinkingLevel = false;
+  let updatedAt: number | undefined;
+  let productProfile: { id: string; fingerprint: string } | undefined;
+  while (position > 0) {
+    const start = Math.max(0, position - METADATA_TAIL_BYTES);
+    const chunk = Buffer.alloc(position - start);
+    await handle.read(chunk, 0, chunk.length, start);
+    const combined = carry.length ? Buffer.concat([chunk, carry]) : chunk;
+    let complete = combined;
+    if (start > 0) {
+      const firstNewline = combined.indexOf(0x0a);
+      if (firstNewline < 0) {
+        carry = combined;
+        position = start;
+        continue;
+      }
+      carry = combined.subarray(0, firstNewline);
+      complete = combined.subarray(firstNewline + 1);
+    }
+    const lines = complete.toString("utf8").split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      let row: any;
+      try {
+        row = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (updatedAt === undefined && typeof row?.timestamp === "string") {
+        const timestamp = Date.parse(row.timestamp);
+        if (Number.isFinite(timestamp)) updatedAt = timestamp;
+      }
+      if (name === undefined && row?.type === "session_info" && typeof row.name === "string" && row.name.trim())
+        name = row.name.trim();
+      if (model === undefined && row?.type === "model_change" && typeof row.provider === "string" && row.provider && typeof row.modelId === "string" && row.modelId)
+        model = { provider: row.provider, modelId: row.modelId };
+      if (!foundThinkingLevel && row?.type === "thinking_level_change" && THINKING_LEVELS.includes(row.thinkingLevel)) {
+        thinkingLevel = row.thinkingLevel;
+        foundThinkingLevel = true;
+      }
+      if (productProfile === undefined && row?.type === "pipiui_product_profile"
+        && typeof row.profileId === "string" && typeof row.fingerprint === "string") {
+        productProfile = { id: row.profileId, fingerprint: row.fingerprint };
+      }
+    }
+    if (name !== undefined && model !== undefined && foundThinkingLevel && updatedAt !== undefined && productProfile !== undefined) break;
+    position = start;
+  }
+  return { name, model: model ?? null, thinkingLevel, updatedAt, productProfile };
+}
+
+/** Bounded-memory metadata scan: a small header read plus newest-first chunks. */
+async function readSessionMeta(path: string): Promise<SessionMeta> {
+  const stat = await fs.stat(path);
+  const handle = await fs.open(path, "r");
+  try {
+    const head = Buffer.alloc(Math.min(METADATA_HEAD_BYTES, stat.size));
+    await handle.read(head, 0, head.length, 0);
+    const headRows = parseLines(head.toString("utf8"));
+    const header = headRows.find((row) => row?.type === "session");
+    if (!header?.id || typeof header.cwd !== "string")
+      throw new Error("invalid session header");
+    const latest = await readLatestSessionMetadata(handle, stat.size);
+    return {
+      path,
+      header,
+      name: latest.name ?? sessionName(headRows),
+      updatedAt: latest.updatedAt ?? stat.mtimeMs,
+      model: latest.model,
+      thinkingLevel: latest.thinkingLevel,
+      productProfile: latest.productProfile,
+    };
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Atomically replace only the JSONL session header without loading a large transcript into memory. */
+async function rewriteSessionCwd(path: string, cwd: string): Promise<void> {
+  const stat = await fs.stat(path);
+  const handle = await fs.open(path, "r");
+  let firstNewline = -1;
+  let header: any;
+  try {
+    const head = Buffer.alloc(Math.min(METADATA_HEAD_BYTES, stat.size));
+    await handle.read(head, 0, head.length, 0);
+    firstNewline = head.indexOf(0x0a);
+    const firstLine = head.subarray(0, firstNewline < 0 ? head.length : firstNewline).toString("utf8").trim();
+    header = JSON.parse(firstLine);
+    if (header?.type !== "session" || typeof header.id !== "string" || typeof header.cwd !== "string")
+      throw new Error("invalid session header");
+  } finally {
+    await handle.close();
+  }
+  const tmp = `${path}.tmp-${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
+  try {
+    await fs.writeFile(tmp, JSON.stringify({ ...header, cwd }) + "\n", { mode: stat.mode });
+    if (firstNewline >= 0 && firstNewline + 1 < stat.size)
+      await pipeline(createReadStream(path, { start: firstNewline + 1 }), createWriteStream(tmp, { flags: "a" }));
+    await fs.rename(tmp, path);
+  } catch (error) {
+    await fs.rm(tmp, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+/**
+ * Map one session message into a transcript entry, preserving the tool/turn
+ * structure (thinking + toolCall parts on assistant, toolCallId on toolResult)
+ * so resumed sessions render the same folded cards as the live stream.
+ */
+function historyEntryFromMessage(entry: any): HistoryEntry | undefined {
+  const message = entry.message ?? {};
+  const role = message.role === "toolResult" ? "tool" : message.role;
+  if (role !== "user" && role !== "assistant" && role !== "tool") return undefined;
+  const content = message.content;
+  let textPart = "";
+  let thinking: string | undefined;
+  let tools: HistoryTool[] | undefined;
+  let activities: NonNullable<HistoryEntry["activities"]> | undefined;
+  let images: { data: string; mimeType: string }[] | undefined;
+  if (typeof content === "string") {
+    textPart = content;
+  } else if (Array.isArray(content)) {
+    for (const [contentIndex, part] of content.entries()) {
+      if (!part || typeof part !== "object") continue;
+      if (part.type === "text") {
+        const fragment = part.text ?? "";
+        textPart += fragment;
+        if (fragment) {
+          activities = activities ?? [];
+          activities.push({ type: "text", contentIndex, content: fragment });
+        }
+      }
+      else if (part.type === "thinking") {
+        const fragment = part.thinking ?? "";
+        thinking = (thinking ?? "") + fragment;
+        activities = activities ?? [];
+        activities.push({ type: "thinking", contentIndex, content: fragment });
+      }
+      else if (part.type === "image") {
+        const imgData = part.data ?? part.source?.data;
+        const imgMime = part.mimeType ?? part.source?.mediaType;
+        if (typeof imgData === "string" && imgData.length > 0) {
+          images = images ?? [];
+          images.push({ data: imgData, mimeType: imgMime ?? "image/png" });
+        }
+      }
+      else if (part.type === "toolCall") {
+        const args = part.arguments;
+        tools = tools ?? [];
+        const tool = {
+          id: String(part.id ?? ""),
+          name: String(part.name ?? "tool"),
+          input:
+            args != null && typeof args === "object"
+              ? JSON.stringify(args)
+              : String(args ?? ""),
+        };
+        tools.push(tool);
+        activities = activities ?? [];
+        activities.push({ type: "tool", contentIndex, tool });
+      }
+    }
+  }
+  const result: HistoryEntry = {
+    id: entry.id,
+    role,
+    content: textPart,
+    timestamp: asTime(entry.timestamp ?? message.timestamp),
+  };
+  if (thinking) result.thinking = thinking;
+  if (tools && tools.length) result.tools = tools;
+  if (activities && activities.length) result.activities = activities;
+  if (role === "assistant") {
+    const citations = extractHistoryCitations(message, textPart);
+    if (citations.length) result.citations = citations;
+    const fileSources = extractHistoryFileSources(message);
+    if (fileSources.length) result.fileSources = fileSources;
+    const hostedCode = extractHistoryCodeInterpreter(message);
+    if (hostedCode.length) {
+      const existing = new Set((result.tools ?? []).map((tool) => tool.id));
+      const extra = hostedCode.filter((tool) => !existing.has(tool.id));
+      if (extra.length) {
+        result.tools = [...(result.tools ?? []), ...extra];
+        result.activities = [
+          ...(result.activities ?? []),
+          ...extra.map((tool, index) => ({
+            type: "tool" as const,
+            contentIndex: (result.activities?.length ?? 0) + index,
+            tool,
+          })),
+        ];
+      }
+    }
+  }
+  if (images && images.length) result.images = images;
+  if (message.role === "toolResult") {
+    result.toolCallId = message.toolCallId;
+    result.toolName = message.toolName;
+    result.isError = Boolean(message.isError);
+    // Structured tool-result details ride on the persisted toolResult message
+    // (pi ToolResultMessage `details`). Kept separate from `content` so typed
+    // image base64 never lands in the plain-text channel.
+    if (message.details !== undefined) result.details = message.details;
+  }
+  if (role === "assistant" && message.stopReason === "error") {
+    const errorMessage =
+      typeof message.errorMessage === "string" && message.errorMessage
+        ? message.errorMessage
+        : undefined;
+    if (errorMessage) result.errorMessage = errorMessage;
+  }
+  return result;
+}
+function redactHistoryEntry(entry: HistoryEntry | undefined, secrets: RevealedSecret[]): HistoryEntry | undefined {
+  if (!entry || secrets.length === 0) return entry;
+  return {
+    ...entry,
+    content: redactText(entry.content, secrets),
+    ...(entry.thinking ? { thinking: redactText(entry.thinking, secrets) } : {}),
+    ...(entry.errorMessage ? { errorMessage: redactText(entry.errorMessage, secrets) } : {}),
+    ...(entry.tools ? { tools: entry.tools.map((tool) => ({ ...tool, input: redactText(tool.input, secrets) })) } : {}),
+  };
+}
+function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = []): HistoryEntry | undefined {
+  if (entry?.type === "message") return redactHistoryEntry(historyEntryFromMessage(entry), secrets);
+  if (isVisibleCustomMessage(entry)) {
+    const content = text(entry.content);
+    if (!content) return undefined;
+    return { id: entry.id, role: "user", content: redactText(content, secrets), timestamp: asTime(entry.timestamp) };
+  }
+  if (entry?.type === "compaction") {
+    return {
+      id: entry.id,
+      role: "compaction",
+      content: redactText(typeof entry.summary === "string" ? entry.summary : "", secrets),
+      timestamp: asTime(entry.timestamp),
+    };
+  }
+}
+
+/**
+ * Visible ids on the active leaf parentId chain.
+ * Chat history keeps the full leaf at every file size: compaction is a visible
+ * card and firstKeptEntryId affects model context, not transcript bubbles.
+ * Metadata rows written with parentId=null (thinking/model/session_info) are
+ * stitched to the previous file-order entry instead of starting a new root.
+ */
+type ContextEntrySummary = {
+  id: string;
+  parentId: string | null;
+  type: string;
+  visible: boolean;
+};
+
+function isMetadataReroot(type: string): boolean {
+  return type === "thinking_level_change" || type === "model_change" || type === "session_info";
+}
+
+function leafBranchFromFileOrder(ordered: ContextEntrySummary[]): ContextEntrySummary[] {
+  if (ordered.length === 0) return [];
+  const byId = new Map(ordered.map(entry => [entry.id, entry]));
+  const previous = new Map<string, ContextEntrySummary>();
+  for (let index = 1; index < ordered.length; index++) previous.set(ordered[index].id, ordered[index - 1]);
+  const branch: ContextEntrySummary[] = [];
+  let current: ContextEntrySummary | undefined = ordered[ordered.length - 1];
+  const visited = new Set<string>();
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    branch.push(current);
+    if (current.parentId && byId.has(current.parentId)) {
+      current = byId.get(current.parentId);
+      continue;
+    }
+    if (!current.parentId && isMetadataReroot(current.type)) {
+      current = previous.get(current.id);
+      continue;
+    }
+    current = undefined;
+  }
+  branch.reverse();
+  return branch;
+}
+
+function visibleIdsFromFileOrder(ordered: ContextEntrySummary[]): string[] {
+  return leafBranchFromFileOrder(ordered).filter(entry => entry.visible).map(entry => entry.id);
+}
+
+function jsonlSnapshotStream(path: string, byteEnd?: number) {
+  if (byteEnd !== undefined && byteEnd < 0) {
+    return createReadStream(path, { encoding: "utf8", start: 0, end: 0 });
+  }
+  return createReadStream(
+    path,
+    byteEnd === undefined
+      ? { encoding: "utf8" }
+      : { encoding: "utf8", start: 0, end: byteEnd },
+  );
+}
+
+async function activeVisibleIds(path: string, byteEnd?: number): Promise<string[]> {
+  if (byteEnd !== undefined && byteEnd < 0) return [];
+  const ordered: ContextEntrySummary[] = [];
+  const lines = createInterface({ input: jsonlSnapshotStream(path, byteEnd), crlfDelay: Infinity });
+  for await (const line of lines) {
+    let entry: any;
+    try { entry = JSON.parse(line); } catch { continue; }
+    if (entry?.type === "session" || typeof entry?.id !== "string") continue;
+    ordered.push({
+      id: entry.id,
+      parentId: typeof entry.parentId === "string" ? entry.parentId : null,
+      type: String(entry.type ?? ""),
+      visible: entry.type === "message"
+        || isVisibleCustomMessage(entry)
+        || entry.type === "compaction",
+    });
+  }
+  return visibleIdsFromFileOrder(ordered);
+}
+
+function historyPage(entries: HistoryEntry[], before: number | string, limit: number): HistoryEntry[] {
+  const end = typeof before === "string"
+    ? entries.findIndex(entry => entry.id === before)
+    : Math.max(0, entries.length - before);
+  if (typeof before === "string" && end < 0) throw new Error(`history cursor no longer exists: ${before}`);
+  return entries.slice(Math.max(0, end - limit), end);
+}
+
+/** History is opened on demand and parsed incrementally; listing never reaches this path. */
+async function readHistoryFallback(
+  path: string,
+  before: number | string = 0,
+  limit = 500,
+  vaultDir?: string,
+  sessionId?: string,
+  byteEnd?: number,
+): Promise<HistoryEntry[]> {
+  if (byteEnd !== undefined && byteEnd < 0) return [];
+  const visibleIds = await activeVisibleIds(path, byteEnd);
+  const end = typeof before === "string"
+    ? visibleIds.indexOf(before)
+    : Math.max(0, visibleIds.length - before);
+  if (typeof before === "string" && end < 0) throw new Error(`history cursor no longer exists: ${before}`);
+  const pageIds = visibleIds.slice(Math.max(0, end - limit), end);
+  const wanted = new Set(pageIds);
+  const mappedById = new Map<string, HistoryEntry>();
+  const lines = createInterface({
+    input: jsonlSnapshotStream(path, byteEnd),
+    crlfDelay: Infinity,
+  });
+  for await (const line of lines) {
+    let entry: any;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!wanted.has(entry?.id)) continue;
+    const secrets = vaultDir && sessionId ? revealRedactionSecrets(vaultDir, sessionId) : [];
+    const mapped = visibleHistoryEntry(entry, secrets);
+    if (!mapped) continue;
+    mappedById.set(mapped.id, mapped);
+  }
+  return pageIds.flatMap(id => {
+    const entry = mappedById.get(id);
+    return entry ? [entry] : [];
+  });
+}
+async function lastJsonlEntryId(path: string): Promise<string | null> {
+  const stat = await fs.stat(path);
+  const length = Math.min(stat.size, 256 * 1024);
+  if (length <= 0) return null;
+  const handle = await fs.open(path, "r");
+  try {
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, stat.size - length);
+    const lines = buffer.toString("utf8").split(/\r?\n/);
+    for (let index = lines.length - 1; index >= 0; index--) {
+      const line = lines[index]!.trim();
+      if (!line) continue;
+      try {
+        const entry = JSON.parse(line);
+        if (entry?.type === "session" || typeof entry?.id !== "string") continue;
+        return entry.id;
+      } catch {
+        /* incomplete leading tail line */
+      }
+    }
+  } finally {
+    await handle.close();
+  }
+  return null;
+}
+const SESSION_MANAGER_MAX_BYTES = 4 * 1024 * 1024;
+let sessionManagerModule: Promise<{ SessionManager: any }> | undefined;
+async function loadSessionManager() {
+  return (sessionManagerModule ??=
+    import("@earendil-works/pi-coding-agent") as Promise<{
+      SessionManager: any;
+    }>);
+}
+/** Chat-window history: full stitched leaf walk, streamed in two passes for bounded paging. */
+async function readHistory(
+  path: string,
+  before: number | string = 0,
+  limit = 500,
+  vaultDir?: string,
+  sessionId?: string,
+): Promise<HistoryEntry[]> {
+  const stat = await fs.stat(path);
+  const large = stat.size > SESSION_MANAGER_MAX_BYTES;
+  if (large) {
+    console.warn(
+      `[pipi-backend] SessionManager skipped for ${path}: ${stat.size} bytes exceeds bounded history limit`,
+    );
+  }
+  if (stat.size <= 0) return [];
+  return readHistoryFallback(path, before, limit, vaultDir, sessionId, stat.size - 1);
+}
+
+const TERMINAL_DURABILITY_TAIL_BYTES = 1024 * 1024;
+type FinalAssistantIdentity = { timestamp: number; responseId?: string };
+function asFinalAssistantTimestamp(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  if (typeof value === "string") {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric;
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return undefined;
+}
+async function isLatestDurableFinalAssistant(path: string, identity: FinalAssistantIdentity): Promise<boolean> {
+  try {
+    const stat = await fs.stat(path);
+    const length = Math.min(stat.size, TERMINAL_DURABILITY_TAIL_BYTES);
+    if (length <= 0) return false;
+    const start = stat.size - length;
+    const handle = await fs.open(path, "r");
+    let text = "";
+    try {
+      const buffer = Buffer.alloc(length);
+      const { bytesRead } = await handle.read(buffer, 0, length, start);
+      text = buffer.subarray(0, bytesRead).toString("utf8");
+    } finally {
+      await handle.close();
+    }
+    const lines = text.split("\n");
+    if (start > 0) lines.shift();
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      const line = lines[index].trim();
+      if (!line) continue;
+      let entry: any;
+      try { entry = JSON.parse(line); } catch { continue; }
+      if (entry?.type !== "message") continue;
+      const message = entry.message;
+      return message?.role === "assistant"
+        && message.stopReason === "stop"
+        && asFinalAssistantTimestamp(message.timestamp) === identity.timestamp
+        && (identity.responseId === undefined || message.responseId === identity.responseId);
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+async function waitForLatestDurableFinalAssistant(
+  path: string,
+  identity: FinalAssistantIdentity,
+  timeoutMs = 30_000,
+): Promise<boolean> {
+  if (await isLatestDurableFinalAssistant(path, identity)) return true;
+  return new Promise<boolean>((resolve) => {
+    let complete = false;
+    let checking = false;
+    let checkAgain = false;
+    let watcher: ReturnType<typeof watch> | undefined;
+    let timer: NodeJS.Timeout | undefined;
+    const finish = (matched: boolean) => {
+      if (complete) return;
+      complete = true;
+      if (timer) clearTimeout(timer);
+      watcher?.close();
+      resolve(matched);
+    };
+    const check = async () => {
+      if (complete) return;
+      if (checking) {
+        checkAgain = true;
+        return;
+      }
+      checking = true;
+      do {
+        checkAgain = false;
+        if (await isLatestDurableFinalAssistant(path, identity)) {
+          finish(true);
+          return;
+        }
+      } while (!complete && checkAgain);
+      checking = false;
+    };
+    try {
+      watcher = watch(path, { persistent: false }, () => void check());
+      watcher.on("error", () => finish(false));
+    } catch {
+      finish(false);
+      return;
+    }
+    timer = setTimeout(() => finish(false), timeoutMs);
+    timer.unref?.();
+    // Close the gap between the initial read and watcher registration.
+    void check();
+  });
+}
+function dirId(path: string) {
+  return Buffer.from(path).toString("base64url");
+}
+function displayNameFor(path: string, names: Record<string, string>): string {
+  const custom = names[path]?.trim();
+  return custom || basename(path) || path;
+}
+/** Open a folder in Finder / Explorer / the desktop file manager. */
+function defaultRevealPath(target: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const spec =
+      process.platform === "darwin"
+        ? { cmd: "open", args: [target] }
+        : process.platform === "win32"
+          ? { cmd: "explorer", args: [target] }
+          : { cmd: "xdg-open", args: [target] };
+    execFile(spec.cmd, spec.args, (error) => {
+      // Windows Explorer often exits 1 after a successful reveal.
+      if (error && process.platform !== "win32") reject(error);
+      else resolve();
+    });
+  });
+}
+const num = (value: any) =>
+  typeof value === "number" && Number.isFinite(value) ? value : 0;
+const nonEmpty = (value: any): string | undefined =>
+  typeof value === "string" && value.trim() ? value : undefined;
+/** `usage` reports whole counts; 0 is meaningful, but a missing field must not overwrite a known one. */
+const num2 = (value: any): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+const positiveWindow = (value: any): number | undefined => {
+  const n = num2(value);
+  return n !== undefined && n > 0 ? n : undefined;
+};
+/** pi model refs are `provider/id`; `start` may send null before the model resolves. */
+const modelRef = (value: any): string | undefined => nonEmpty(value);
+const WORKTREE_LIFECYCLES = new Set<WorktreeLifecycle>([
+  "none",
+  "active",
+  "pendingReview",
+  "merged",
+  "mergedCleanupPending",
+  "discarded",
+]);
+const parseWorktreeLifecycle = (value: unknown): WorktreeLifecycle | undefined =>
+  typeof value === "string" && WORKTREE_LIFECYCLES.has(value as WorktreeLifecycle)
+    ? (value as WorktreeLifecycle)
+    : undefined;
+const providerOf = (ref?: string): string | undefined => {
+  const provider = ref?.split("/")[0];
+  return provider && provider !== ref ? provider : undefined;
+};
+const isRecord = (value: any): value is Record<string, any> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+/**
+ * Image support is declared by the catalog (`input` array). A model that declares
+ * nothing is assumed image-capable: pi rejects unsupported image parts itself, and
+ * the host never infers capability from provider or model names.
+ */
+function supportsImagesFor(
+  _modelId: string,
+  _provider: string,
+  input?: unknown,
+): boolean {
+  if (Array.isArray(input)) return input.some((x) => x === "image");
+  return true;
+}
+function thinkingLevelMapFrom(value: unknown): ThinkingLevelMap | undefined {
+  if (!isRecord(value)) return undefined;
+  const result: ThinkingLevelMap = {};
+  for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const) {
+    const mapped = value[level];
+    if (typeof mapped === "string" || mapped === null) result[level] = mapped;
+  }
+  return result;
+}
+function capabilitiesForHostModel(raw: any, inherited: any): ModelCapabilities | undefined {
+  return mergeModelCapabilities(
+    normalizeModelCapabilities(inherited?.capabilities),
+    normalizeModelCapabilities(raw?.capabilities),
+  );
+}
+/** Display-snapshot contract read by the subagent runtime (`PIPIUI_SUBAGENT_MODEL_CATALOG_FILE`).
+ * v3 snapshots are a PRESENTATION CACHE ONLY: the Boss prompt renders this list, but the ONLY
+ * acceptance decision for an explicit dispatch pin is the synchronous `model_pin_validate`
+ * bridge RPC answered from this process's PinCatalogAuthority. A stale, torn, misaligned or
+ * failed display write can therefore never widen or narrow what is pinnable. */
+export const SUBAGENT_MODEL_CATALOG_SNAPSHOT_VERSION = 3;
+export type SubagentModelCatalogEntry = { id: string; name?: string };
+export type SubagentModelCatalogContent = { version: number; models: SubagentModelCatalogEntry[] };
+/** Best-effort DISPLAY marker published while the authoritative catalog is not usable.
+ * Reason is a stable sanitized code (never provider/runtime error text); detailed messages
+ * stay in logs and RPC callers only. Not a gate — decisions live in the authority. */
+export type SubagentModelCatalogTombstone = { version: number; available: false; reason: string; models: [] };
+/**
+ * Pure builder for the Boss-VISIBLE available-model list (display cache input). The input is
+ * the SAME final merged catalog the renderer's picker shows (configured models.json +
+ * auth-aware runtime + extension contributions) minus the user's `hiddenModelIds`; the output
+ * carries ONLY `{ id: "provider/modelId", name? }` metadata — never API keys, base URLs,
+ * headers or credential state. Authorization itself lives in PinCatalogAuthority, not here.
+ */
+export function buildSubagentModelCatalogSnapshot(
+  models: readonly Model[],
+  hiddenModelIds: readonly string[],
+): SubagentModelCatalogContent {
+  const hidden = new Set(hiddenModelIds.map(id => id.trim()).filter(Boolean));
+  const entries = new Map<string, SubagentModelCatalogEntry>();
+  for (const model of models) {
+    if (!model || typeof model.provider !== "string" || !model.provider || typeof model.id !== "string" || !model.id) continue;
+    const id = `${model.provider}/${model.id}`;
+    if (hidden.has(id) || entries.has(id)) continue; // exact provider/id identity, first wins
+    const name = typeof model.name === "string" ? model.name.replace(/\s+/g, " ").trim().slice(0, 120) : "";
+    entries.set(id, { id, ...(name && name !== model.id ? { name } : {}) });
+  }
+  return {
+    version: SUBAGENT_MODEL_CATALOG_SNAPSHOT_VERSION,
+    models: [...entries.values()].sort((a, b) => a.id.localeCompare(b.id)),
+  };
+}
+/** Reduce Pi's provider-shaped model into the small capability contract renderers need. */
+function hostModelFromPi(raw: any, fallbackProvider?: string, inherited: any = {}): Model {
+  const provider = raw?.provider ?? fallbackProvider ?? inherited?.provider ?? "unknown";
+  const id = raw?.id ?? "unknown";
+  const reasoning = typeof raw?.reasoning === "boolean"
+    ? raw.reasoning
+    : (typeof inherited?.reasoning === "boolean" ? inherited.reasoning : undefined);
+  const thinkingLevelMap = thinkingLevelMapFrom(raw?.thinkingLevelMap ?? inherited?.thinkingLevelMap);
+  // Canonical hosted-search enrichment seam: exact provider+API contracts of the
+  // bundled official server-tools adapters (openai / openai-codex / anthropic /
+  // google) fill the capability bag for rows that declare none, so the
+  // capability-driven filters (main tool policy, worker native-search catalog)
+  // hide generic search for hosted-web models. Declared/contributed
+  // capabilities and x_search-only rows always win — see the seam module.
+  const capabilities = enrichCapabilitiesForOfficialHostedSearch(
+    provider,
+    typeof raw?.api === "string"
+      ? raw.api
+      : (typeof inherited?.api === "string" ? inherited.api : undefined),
+    capabilitiesForHostModel(raw, inherited),
+  );
+  let thinkingConfigurable: boolean | undefined;
+  if (reasoning === false) {
+    thinkingConfigurable = false;
+  } else if (reasoning === true && thinkingLevelMap) {
+    thinkingConfigurable = thinkingLevelsForModel({ provider, id, name: raw?.name ?? id, reasoning, thinkingLevelMap }).length > 0;
+  } else if (reasoning === true) {
+    thinkingConfigurable = true;
+  }
+  return {
+    provider,
+    id,
+    name: raw?.name ?? id,
+    ...(reasoning === undefined ? {} : { reasoning }),
+    ...(thinkingLevelMap === undefined ? {} : { thinkingLevelMap }),
+    ...(thinkingConfigurable === undefined ? {} : { thinkingConfigurable }),
+    supportsImages: supportsImagesFor(id, provider, raw?.input ?? inherited?.input),
+    ...(capabilities === undefined ? {} : { capabilities }),
+  };
+}
+const ATTACHMENT_EXT: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "image/gif": "gif",
+};
+function sanitizeAttachmentName(
+  name: string | undefined,
+  fallback: string,
+): string {
+  const base = basename(name ?? "");
+  const safe = base.replace(/[^\w.\-() ]/g, "").trim();
+  return safe || fallback;
+}
+type CachedAgentLog = { itemType: string; text: string; name?: string; isError?: boolean; toolCallId?: string; contentIndex?: number; charCount?: number };
+function isCachedAgentLog(value: unknown): value is CachedAgentLog {
+  if (!isRecord(value) || typeof value.itemType !== "string" || typeof value.text !== "string") return false;
+  if (value.name !== undefined && typeof value.name !== "string") return false;
+  if (value.isError !== undefined && typeof value.isError !== "boolean") return false;
+  if (value.toolCallId !== undefined && typeof value.toolCallId !== "string") return false;
+  if (value.contentIndex !== undefined && typeof value.contentIndex !== "number") return false;
+  if (value.charCount !== undefined && typeof value.charCount !== "number") return false;
+  return true;
+}
+
+function parsePositiveInt(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return Math.floor(value);
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.trim());
+    if (Number.isFinite(parsed) && parsed > 0) return Math.floor(parsed);
+  }
+  return undefined;
+}
+
+function extractContextWindowFromModelEntry(entry: unknown): number | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const rec = entry as Record<string, unknown>;
+  const keys = ["context_length", "context_window", "contextWindow", "max_model_len", "max_context_length", "context"];
+  for (const key of keys) {
+    const parsed = parsePositiveInt(rec[key]);
+    if (parsed !== undefined) return parsed;
+  }
+  const limits = rec.limits;
+  if (limits && typeof limits === "object") {
+    const nested = limits as Record<string, unknown>;
+    return parsePositiveInt(nested.context) ?? parsePositiveInt(nested.context_length);
+  }
+  return undefined;
+}
+
+async function fetchCompatModelsCatalogStrict(baseUrl: string, apiKey: string): Promise<unknown[]> {
+  const url = `${baseUrl.replace(/\/+$/, "")}/models`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const json: unknown = await response.json();
+    return Array.isArray(json)
+      ? json
+      : json && typeof json === "object" && Array.isArray((json as { data?: unknown }).data)
+        ? (json as { data: unknown[] }).data
+        : [];
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw new Error("请求超时（8 秒）");
+    throw error instanceof Error ? error : new Error(String(error));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Lenient probe variant: context-window backfill only cares about success. */
+async function fetchCompatModelsCatalog(baseUrl: string, apiKey: string): Promise<unknown[]> {
+  try {
+    return await fetchCompatModelsCatalogStrict(baseUrl, apiKey);
+  } catch (error) {
+    console.warn("compat provider context probe failed", error);
+    return [];
+  }
+}
+
+function contextWindowFromCompatList(list: unknown[], modelId: string): number | undefined {
+  const entry = list.find((item: unknown) => {
+    if (!item || typeof item !== "object") return false;
+    const rec = item as Record<string, unknown>;
+    return rec.id === modelId || rec.name === modelId;
+  });
+  return extractContextWindowFromModelEntry(entry);
+}
+
+async function probeCompatContextWindow(baseUrl: string, apiKey: string, modelId: string): Promise<number | undefined> {
+  const list = await fetchCompatModelsCatalog(baseUrl, apiKey);
+  return contextWindowFromCompatList(list, modelId);
+}
+
+/** Normalized model-id candidate for the add-model panel's dropdown. */
+export type CompatModelEntry = { id: string; contextWindow?: number };
+
+function compatModelsFromCatalog(list: unknown[]): CompatModelEntry[] {
+  const models = new Map<string, CompatModelEntry>();
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const id = typeof rec.id === "string" && rec.id.trim()
+      ? rec.id.trim()
+      : typeof rec.name === "string" && rec.name.trim()
+        ? rec.name.trim()
+        : undefined;
+    if (!id || models.has(id)) continue;
+    const contextWindow = extractContextWindowFromModelEntry(rec);
+    models.set(id, contextWindow !== undefined ? { id, contextWindow } : { id });
+  }
+  return [...models.values()].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** The probe asks for a tiny reply and stops early; it must never cost a full generation. */
+const COMPAT_TEST_TIMEOUT_MS = 30_000;
+
+export type CompatModelTestResult = {
+  ok: true;
+  /** Request start → first generated content token, in ms. */
+  firstTokenMs: number;
+  /** Request start → stream end, in ms. */
+  totalMs: number;
+  /** Content deltas received (approximate token count). */
+  tokens: number;
+  /** tokens / generation seconds, one decimal. */
+  tokensPerSecond: number;
+  /** First ~80 chars of generated content. */
+  preview: string;
+};
+
+async function runCompatModelTest(baseUrl: string, apiKey: string, modelId: string): Promise<CompatModelTestResult> {
+  const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), COMPAT_TEST_TIMEOUT_MS);
+  const startedAt = Date.now();
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: modelId,
+        stream: true,
+        messages: [{ role: "user", content: "Hi, reply with exactly: OK" }],
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const body = (await response.text().catch(() => "")).slice(0, 300);
+      throw new Error(`HTTP ${response.status}${body ? `：${body}` : ""}`);
+    }
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("text/event-stream")) {
+      // Non-streaming fallback: some gateways ignore stream:true and answer JSON.
+      const json: unknown = await response.json();
+      const totalMs = Date.now() - startedAt;
+      const usage = (json as { usage?: { completion_tokens?: unknown } })?.usage;
+      const tokens = parsePositiveInt(usage?.completion_tokens) ?? 1;
+      return {
+        ok: true,
+        firstTokenMs: totalMs,
+        totalMs,
+        tokens,
+        tokensPerSecond: Math.round((tokens / (Math.max(totalMs, 1) / 1000)) * 10) / 10,
+        preview: "",
+      };
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("响应没有可读内容");
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let firstTokenMs = 0;
+    let tokens = 0;
+    let preview = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let sep = buffer.indexOf("\n");
+      while (sep >= 0) {
+        const line = buffer.slice(0, sep).trim();
+        buffer = buffer.slice(sep + 1);
+        sep = buffer.indexOf("\n");
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        try {
+          const chunk = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: unknown } }> };
+          const text = chunk.choices?.[0]?.delta?.content;
+          if (typeof text === "string" && text.length > 0) {
+            if (firstTokenMs === 0) firstTokenMs = Date.now() - startedAt;
+            tokens += 1;
+            if (preview.length < 80) preview += text;
+          }
+        } catch {
+          // Skip malformed chunks; the stream continues.
+        }
+      }
+    }
+    const totalMs = Date.now() - startedAt;
+    if (tokens === 0) throw new Error("连接成功但未收到任何生成内容");
+    const generationMs = Math.max(totalMs - firstTokenMs, 1);
+    return {
+      ok: true,
+      firstTokenMs,
+      totalMs,
+      tokens,
+      tokensPerSecond: Math.round((tokens / (generationMs / 1000)) * 10) / 10,
+      preview: preview.slice(0, 80),
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw new Error(`测试超时（${COMPAT_TEST_TIMEOUT_MS / 1000} 秒）`);
+    throw error instanceof Error ? error : new Error(String(error));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+type IsolatedProjectHome = {
+  displayPath: string;
+  realProjectRoot: string;
+  agentDir: string;
+  sessionsDir: string;
+};
+
+export class PiHostBackend implements HostBackend {
+  readonly protocolVersion = 2 as const;
+  private listeners = new Set<(event: HostEvent) => void>();
+  /** Paths opened outside a chat session (for example the global document watcher). */
+  private openedDocumentPaths: string[] = [];
+  /** Panel drops are session-owned and must leave with their session. */
+  private readonly openedDocumentPathsBySession = new Map<string, Set<string>>();
+  /** Opened documents whose panel renderer reports unsaved edits. Cleared on write. */
+  private readonly dirtyDocumentPaths = new Set<string>();
+  /**
+   * Panel → agent invoke traffic (spec D8), per session.
+   *
+   * pi cannot deliver this: its RPC dispatcher rejects anything outside its own
+   * command set, and a registered command returns `void`, so the answer has no
+   * way home. The request therefore waits here until the session's kernel
+   * `ext-invoke` mount long-polls for it over the HostBridge and posts a result
+   * back. `queued` is what has not been handed out yet, `waiting` are pollers
+   * parked on an empty queue, and `awaiting` are requests a poller took and
+   * still owes an answer for.
+   */
+  private readonly extInvokeQueued = new Map<string, ExtInvokeRequestRecord[]>();
+  private readonly extInvokeWaiting = new Map<string, Array<(requests: ExtInvokeRequestRecord[]) => void>>();
+  private readonly extInvokeAwaiting = new Map<string, { sessionId: string; settle: (result: ExtInvokeResult) => void }>();
+  private readonly documentInjections = new DocumentInjectionStore();
+  private readonly documentWatcher = new DocumentFileWatcher((path) => {
+    emitFrame(this.listeners, {
+      protocolVersion: PIPI_HOST_PROTOCOL_VERSION,
+      channel: "document",
+      event: { type: "documentChanged", path },
+    });
+  });
+  private readonly projectionDebugBackendTag = `backend#${projectionDebugBackendSerial += 1}`;
+  private projectionDebugSessionSerial = 0;
+  private projectionDebugAgentSerial = 0;
+  private projectionDebugSessionTags = new Map<string, string>();
+  private projectionDebugAgentTags = new Map<string, string>();
+  private projectionDebugProvenance = new Map<string, string>();
+  private projectionDebugFilePath: string | null | undefined;
+  private live = new Map<string, Live>();
+  private readonly extensionHostWorkers: ExtensionHostWorkers;
+  /** A close/delete race may reach the same child through both teardown and spawn. */
+  private readonly liveStopPromises = new WeakMap<Live, Promise<void>>();
+  /** Active, deduplicated session runtime teardown operations. */
+  private readonly sessionRuntimeTeardowns = new Map<string, Promise<void>>();
+  /** Synchronous fence for late queue/file continuations while teardown settles. */
+  private readonly sessionRuntimeTearingDown = new Set<string>();
+  /** Extends the fence through explicit persistent-file deletion. */
+  private readonly sessionDeletionInProgress = new Set<string>();
+  /** Current lifecycle token per session; entries are removed after teardown drains. */
+  private readonly sessionRuntimeTokens = new Map<string, SessionRuntimeToken>();
+  /** Tombstones remain after teardown starts so callbacks that start before cleanup stay inert. */
+  private readonly sessionRuntimeTombstones = new Set<string>();
+  private sessionFileBarriers = new Map<string, ExclusiveSessionWork>();
+  private readonly sessionRedact = createSessionRedactionGate({
+    hasWork: (sessionId) => this.sessionSecrets(sessionId).length > 0,
+    canRewrite: (sessionId) => this.canRewriteSessionFile(sessionId),
+    confirmWriterIdle: (sessionId) => this.confirmSessionFileIdle(sessionId),
+    rewrite: (sessionId, _generation, lifecycleToken) => this.rewriteSessionSecrets(sessionId, lifecycleToken),
+    scheduleRetry: (sessionId, retry, lifecycleToken) => this.scheduleSessionFileRetry(sessionId, retry, lifecycleToken),
+    captureLifecycleToken: (sessionId) => this.sessionRuntimeToken(sessionId),
+    isLifecycleTokenCurrent: (sessionId, lifecycleToken) => this.sessionRuntimeTokenIsCurrent(sessionId, lifecycleToken),
+  });
+  private readonly sessionEnvRefresh = createSessionEnvRefreshGate({
+    canRefresh: (sessionId) => this.canRewriteSessionFile(sessionId),
+    stopWriter: (sessionId) => this.closeQuietSessionWriter(sessionId),
+    scheduleRetry: (sessionId, retry, lifecycleToken) => this.scheduleSessionFileRetry(sessionId, retry, lifecycleToken),
+    captureLifecycleToken: (sessionId) => this.sessionRuntimeToken(sessionId),
+    isLifecycleTokenCurrent: (sessionId, lifecycleToken) => this.sessionRuntimeTokenIsCurrent(sessionId, lifecycleToken),
+  });
+  private readonly planStore = new PlanStore();
+  private readonly extensions: ExtensionRegistry;
+  private readonly extensionLoader: ExtensionLoader;
+  /** FIFO lane for project-bound scans whose result must survive awaited migrations. */
+  private extensionScanLane: Promise<void> = Promise.resolve();
+  /** Watches extension discovery roots; `changed(id)` drives graceful live-session respawns. */
+  private readonly extensionHotReload: ExtensionHotReloader;
+  /** Per-session hot-restart dedup: a burst or a deferred retry never stacks two stops. */
+  private readonly extensionHotRestartInFlight = new Set<string>();
+  private leases = new Map<string, LeaseManager>();
+  /** Serializes all host-side ownership and lease-map transitions per session. */
+  private readonly leaseOperationLanes = new Map<string, Promise<void>>();
+  /**
+   * Per-session in-flight spawn (ensure) promises. Concurrent ensure() calls for
+   * the same cold session share one spawn, so only the winner races the
+   * single-winner lease acquire(); losers await its result instead of losing
+   * the lease and surfacing a spurious "session is read-only" error. Cleared on
+   * settle (success or failure) so a later call can re-attempt after a failure;
+   * different sessions stay fully parallel.
+   */
+  private ensureInFlight = new Map<string, Promise<Live>>();
+  /** Parsed history for an unchanged JSONL. Switching back must not re-parse on the UI thread. */
+  private historyCache = new Map<string, { mtimeMs: number; size: number; before: number | string; limit: number; entries: HistoryEntry[] }>();
+  /** One in-flight JSONL scan per path+cursor. Overlapping UI retries must not stack full-file parses. */
+  private historyInflight = new Map<string, Promise<HistoryEntry[]>>();
+  /** At most one Swift-parity title side channel may be launched per placeholder session. */
+  private titleGenerationStarted = new Set<string>();
+  /** A user rename always wins over an already-running automatic title refinement. */
+  private manualTitleOverrides = new Set<string>();
+  private backgroundTitleGenerations = new Set<Promise<void>>();
+  private titleGenerationAbort = new AbortController();
+  /** In-memory agent log cache: exact session + agent + run → accumulated log entries. Lets the UI
+   * reconstruct a completed subagent's transcript without a live subscription. */
+  private agentLogCache = new Map<string, CachedAgentLog[]>();
+  private agentLogsPersistTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Coalesce durable index writes: a log_delta burst must not retain one snapshot string per event. */
+  private agentsPersistDirty = false;
+  private agentsPersistInflight = false;
+  /** Throttle state for durable projection writes (see AGENT_PERSIST_MIN_INTERVAL_MS). */
+  private agentsPersistTimer?: ReturnType<typeof setTimeout>;
+  private agentsPersistLastEnd = 0;
+  /** Throttle state for durable agent-log snapshots. */
+  private agentLogsThrottleTimer?: ReturnType<typeof setTimeout>;
+  private agentLogsPersistLastEnd = 0;
+  private readonly agentPersistMinIntervalMs: number;
+  private readonly agentLogPersistDebounceMs: number;
+  private readonly agentRetentionMaxTerminal: number;
+  private readonly hostProcessGeneration = `${process.pid}:${Date.now()}`;
+  /** Cache-first stats refreshes that must settle during graceful close. */
+  private backgroundStatsRefreshes = new Set<Promise<void>>();
+  private models: Model[] = [];
+  private modelState: ModelState = {
+    model: {
+      provider: "unknown",
+      id: "unknown",
+      name: "Unknown",
+      reasoning: false,
+    },
+    thinkingLevel: "off",
+    availableThinkingLevels: [],
+  };
+  private sessionModelStates = new Map<string, ModelState>();
+  /** Records routes whose thinking level is not reaching the wire. See thinking-control.ts. */
+  private thinkingControl?: ThinkingControlReporter;
+  private thinkingControlWrite: Promise<void> = Promise.resolve();
+  private sessionModelSnapshots = new Map<string, ModelState>();
+  /** Per-session last-known context occupancy, rehydrated from the token ledger on cold start. */
+  private sessionContextLastKnown = new Map<
+    string,
+    { tokens: number; contextWindow: number; percent: number | null }
+  >();
+  /** Next exact main-assistant ledger turn, rehydrated from old/new rows. */
+  private sessionLedgerTurns = new Map<string, number>();
+  private sessionContextLedgerLoaded?: Promise<void>;
+  private root: string;
+  /** Stat-validated session metadata cache; re-reads only files whose size/mtime changed. */
+  private indexCache = new Map<string, { size: number; mtimeMs: number; meta: SessionMeta }>();
+  /** Last index, keyed by session id. findSession must not walk the tree again. */
+  private sessionById = new Map<string, SessionMeta>();
+  private indexGenerations = 0;
+  /** Shares one directory scan across the concurrent locate() calls a single UI click triggers. */
+  private indexScan?: Promise<SessionMeta[]>;
+  private piCommand: PiCommand;
+  private runtimeRoot: string;
+  private managedNodeModulesRoot?: string;
+  private runtimeAssets?: RuntimeAssets;
+  private agentDir: string;
+  private vaultDir: string;
+  /** Injected by the host; the base names no pack of its own, so this is usually unset. */
+  private defaultPackOption?: string;
+  private readonly product: { id: string; name: string; agentMaxDepth?: number };
+  private readonly sharedProfileDir: string;
+  private profileMode: "default" | "isolated";
+  private resourceMode: "default" | "explicit";
+  private proc: ProcFactory;
+  private env: NodeJS.ProcessEnv;
+  private modelsLoaded?: Promise<void>;
+  /** True only after configured and auth-aware runtime catalogs have been merged successfully. */
+  private modelCatalogReady = false;
+  /** In-flight or completed full catalog load for the current generation. Cleared on invalidate/failure. */
+  private modelCatalogLoad?: Promise<void>;
+  private modelCatalogIncludeCurrent = false;
+  private modelCatalogGeneration = 0;
+  /** One /models probe per backend lifetime per normalized baseUrl. */
+  private probedCompatBaseUrls = new Set<string>();
+  private modelsJsonUnwritableWarned = false;
+  /** Latest fire-and-forget contextWindow backfill (tests may await). */
+  compatContextBackfill?: Promise<void>;
+  private configuredModels: Model[] = [];
+  /** Cached, deduped pi runtime model catalog for the current auth epoch.
+   * Set to undefined by refreshModelsAfterAuthChange so login/logout re-fetches. */
+  private runtimeModelsPromise?: Promise<Model[]>;
+  private manualModelSelection?: { provider: string; modelId: string };
+  private manualModelSelectionLoaded?: Promise<void>;
+  private manualThinkingLevel?: ThinkingLevel;
+  private manualThinkingLevelLoaded?: Promise<void>;
+  private hiddenIds: string[] = [];
+  private hiddenIdsLoaded?: Promise<void>;
+  private projectPaths: string[] = [];
+  private projectPathsLoaded?: Promise<void>;
+  private projectModelsInitialized?: Promise<void>;
+  private profileInitialization: Promise<void>;
+  private modelsWrite: CanonicalModelsWriteQueue;
+  private isolatedHomes = new Map<string, IsolatedProjectHome>();
+  private projectNames: Record<string, string> = {};
+  private projectNamesLoaded?: Promise<void>;
+  private revealPath: (path: string) => Promise<void>;
+  private settingsWrite: Promise<void> = Promise.resolve();
+  private auth: ProviderAuthBackend;
+  private authRuntimePromise?: Promise<AuthRuntimeLike>;
+  /** Resident external-pi worker (when authHelperPath is used); stopped on backend close. */
+  private externalAuthRuntime?: ExternalAuthRuntime;
+  private queue: SessionMessageQueue;
+  private stopEscalation: StopEscalationScheduler;
+  /** Immediate-send escalation kills only the unresponsive Boss RPC process.
+   * Worker descendants are independent runs and must survive the cut-in. */
+  private cutInStopEscalation: StopEscalationScheduler;
+  private abortAckTimeoutMs: number;
+  private extensionInvokeTimeoutMs: number;
+  private extensionInvokePollMs: number;
+  private extensionUi: ExtensionUiChannel;
+  private queueStore: QueueStore;
+  private quotaStore: QuotaStore;
+  private toolBatchTelemetry: ToolBatchTelemetry;
+  private turnTelemetry: TurnTelemetry;
+  private compactionDiagnostics: CompactionDiagnostics;
+  /** Monotonic per-host counter giving each compaction lifecycle a stable operationId. */
+  private compactionOperationSeq = 0;
+  private queueLoads = new Map<string, Promise<void>>();
+  private queueWrites = new Map<string, Promise<void>>();
+  /** Sessions the user stopped manually; persisted under `sessionManualStopIds` so it survives restarts and queue restores. */
+  private manualStopIds: Set<string>;
+  /** Resolves once the initial manual-stop read from settings has settled. */
+  private manualStopsLoaded: Promise<void>;
+  /** Cached `archivedSessionIds` for synchronous revival checks at spawn/drain time. */
+  private sidebarArchivedCache: Set<string>;
+  /** Resolves once the first archived-id refresh has settled. */
+  private sidebarPrefsLoaded: Promise<void>;
+  /** Sessions where an explicit user send re-enabled automatic delivery despite being archived. */
+  private autoRevivalUserLifts: Set<string>;
+  /** Steer payloads pi acknowledged but never echoed back as a user message.
+   * pi's ack only proves the text entered its in-memory steering queue, which
+   * an aborted/compacted turn can drop; settle recycles them to the FIFO head. */
+  private unconfirmedSteers = new Map<string, QueuedDispatchPayload[]>();
+  private turnWatchdogTimer?: NodeJS.Timeout;
+  private closed = false;
+  private agentTerminalWaiters = new Set<() => void>();
+  private bridge: HostBridge;
+  /** Durable Electron-side projection of runtime lifecycle events. Pi owns the worker
+   * conversations; this small index only lets the UI rebuild its tree after host restart. */
+  private agentsWrite: Promise<void> = Promise.resolve();
+  private compactionConfiguration?: ProactiveCompactionConfiguration;
+  private proactiveSummaryCompaction: boolean;
+  private terminalSessionDeleted?: (sessionId: string) => void;
+  private inputFilesRemote?: InputFilesRemote;
+  private inputFiles?: InputFilesController;
+  private inputFilesReady?: Promise<InputFilesController>;
+  private structuredOutputs?: StructuredOutputController;
+  private structuredOutputsReady?: Promise<StructuredOutputController>;
+  private structuredOutputNormalize?: StructuredOutputNormalize;
+  private structuredOutputsEnabledFn?: StructuredOutputsEnabled;
+  constructor(options: PiBackendOptions = {}) {
+    this.terminalSessionDeleted = options.terminalSessionDeleted;
+    this.compactionConfiguration = options.compaction;
+    this.proactiveSummaryCompaction = options.proactiveSummaryCompaction ?? false;
+    this.agentDir = options.agentDir ?? join(homedir(), ".pi", "agent");
+    this.vaultDir = options.vaultDir ?? this.agentDir;
+    this.defaultPackOption = options.defaultPack;
+    this.product = options.product ?? { id: "pipiui", name: "PipiUI" };
+    this.sharedProfileDir = options.sharedProfileDir ?? this.agentDir;
+    this.agentPersistMinIntervalMs = options.agentPersistMinIntervalMs ?? AGENT_PERSIST_MIN_INTERVAL_MS;
+    this.agentLogPersistDebounceMs = options.agentLogPersistDebounceMs ?? AGENT_LOG_PERSIST_DEBOUNCE_MS;
+    this.agentRetentionMaxTerminal = options.agentRetentionMaxTerminal ?? AGENT_RETENTION_MAX_TERMINAL;
+    installFreezeProbe(join(this.agentDir, FREEZE_PROBE_FILE));
+    this.modelsWrite = options.canonicalModelsWrite ?? createCanonicalModelsWriteQueue();
+    this.profileInitialization = Promise.resolve(options.profileInitialization).then(
+      () => undefined,
+      () => undefined,
+    );
+    if (options.profileInitialization !== undefined) {
+      void this.modelsWrite.enqueue(() => this.profileInitialization);
+    }
+    this.toolBatchTelemetry = options.toolBatchTelemetry ?? createToolBatchTelemetry({ agentDir: this.agentDir });
+    this.turnTelemetry = options.turnTelemetry ?? createTurnTelemetry({
+      agentDir: this.agentDir,
+      resourceSample: () => {
+        try {
+          const rssBytes = process.memoryUsage().rss;
+          // This is deliberately the count of Pi children owned by this host,
+          // not a platform-specific process-tree guess. FD count is omitted
+          // because Node has no portable, truthful descriptor API.
+          const childCount = [...this.live.values()].filter((live) =>
+            live.process?.exitCode === null && !live.process.signalCode,
+          ).length;
+          return { rssBytes, childCount };
+        } catch {
+          return undefined;
+        }
+      },
+    });
+    this.compactionDiagnostics = options.compactionDiagnostics ?? createCompactionDiagnostics({ agentDir: this.agentDir });
+    this.thinkingControl = new ThinkingControlReporter(this.agentDir);
+    this.root = options.sessionsRoot ?? join(this.agentDir, "sessions");
+    this.piCommand = options.piCommand
+      ? {
+          executable: options.piCommand.executable,
+          prefixArgs: [...(options.piCommand.prefixArgs ?? [])],
+          env: { ...(options.piCommand.env ?? {}) },
+          piPath: options.piCommand.piPath,
+        }
+      : { executable: options.piPath ?? resolvePiExecutable(options.env ?? process.env) };
+    this.runtimeRoot = options.runtimeRoot ?? defaultRuntimeRoot();
+    this.inputFilesRemote = options.inputFilesRemote;
+    this.structuredOutputNormalize = options.structuredOutputNormalize;
+    this.structuredOutputsEnabledFn = options.structuredOutputsEnabled;
+    this.managedNodeModulesRoot = options.managedNodeModulesRoot;
+    this.runtimeAssets = options.runtimeAssets;
+    this.profileMode = options.profileMode ?? "default";
+    this.resourceMode = options.resourceMode ?? "default";
+    this.proc = options.spawn ?? (spawn as ProcFactory);
+    this.env = options.env ?? process.env;
+    this.revealPath = options.revealPath ?? defaultRevealPath;
+    const queueRoot =
+      options.agentDir || !options.sessionsRoot
+        ? join(this.agentDir, "pipiui-queues")
+        : join(this.root, ".pipiui-queues");
+    this.queueStore = options.queueStore ?? new FileQueueStore(queueRoot);
+    this.quotaStore = options.quotaStore ?? new QuotaStore(this.env, { agentDir: this.agentDir });
+    this.manualStopIds = new Set<string>();
+    this.sidebarArchivedCache = new Set<string>();
+    this.autoRevivalUserLifts = new Set<string>();
+    // Manual-stop markers and the archived-id cache must be durable across
+    // restarts; both feeds are preloaded eagerly and awaited wherever an
+    // automatic revival decision is made.
+    this.manualStopsLoaded = this.readManualStopsFromSettings().catch(() => undefined);
+    this.sidebarPrefsLoaded = this.refreshSidebarArchivedCache().then(() => undefined).catch(() => undefined);
+    this.queue = new SessionMessageQueue({
+      dispatch: (id, payload, behavior, lifecycleToken) =>
+        this.dispatchQueuedMessage(id, payload, behavior, lifecycleToken),
+      onChange: (id, items, lifecycleToken) => this.queueChanged(id, items, lifecycleToken),
+      captureLifecycleToken: (id) => this.sessionRuntimeToken(id) ?? this.beginSessionRuntime(id),
+      isLifecycleTokenCurrent: (id, lifecycleToken) => this.sessionRuntimeTokenIsCurrent(id, lifecycleToken),
+      // User Stop (and archival) must outlive queue restores: neither
+      // restoreQueue nor a watchdog idle may deliver queued items again.
+      isDrainSuppressed: (id) => this.autoRevivalSuppressed(id),
+    });
+    const stopHooks = options.stopEscalationHooks ?? defaultStopEscalationHooks();
+    const guardedStopHooks: StopEscalationHooks = {
+      ...stopHooks,
+      kill: (pid, signal) => {
+        if (signal === "SIGKILL") this.markLiveExitingByPid(pid);
+        stopHooks.kill(pid, signal);
+      },
+    };
+    this.stopEscalation = options.stopEscalation
+      ?? new StopEscalationScheduler(guardedStopHooks, options.stopEscalationDelays);
+    this.cutInStopEscalation = new StopEscalationScheduler({
+      ...guardedStopHooks,
+      // The Boss process is still force-killed at the last escalation stage;
+      // suppress only descendant TERM/KILL stages so workers survive cut-in.
+      listDescendants: () => [],
+    }, options.stopEscalationDelays);
+    this.abortAckTimeoutMs = options.abortAckTimeoutMs ?? 1_500;
+    this.extensionInvokeTimeoutMs = options.extensionInvokeTimeoutMs ?? EXT_INVOKE_TIMEOUT_MS;
+    this.extensionInvokePollMs = options.extensionInvokePollMs ?? EXT_INVOKE_POLL_MS;
+    this.extensionUi = new ExtensionUiChannel({
+      emit: (event) => emitFrame(this.listeners, event as unknown as HostEvent),
+      timeoutMs: options.extensionUiTimeoutMs,
+      writeResponse: (sessionId, body) => {
+        const live = this.live.get(sessionId);
+        if (!live || !this.liveProcessUsable(live) || !live.process?.stdin) return;
+        void this.writeCommand(live, body);
+      },
+    });
+    this.extensions = options.extensionRegistry ?? createExtensionRegistry();
+    this.refreshRuntimeTree();
+    // No `builtinRoot`: the base ships no bundled packages. Extensions come from
+    // the App profile, the shared store, and the project's own
+    // `.pi/agent/extensions/` — which is also how a product installs one.
+    this.extensionLoader = new ExtensionLoader({
+      registry: this.extensions,
+      appRoot: join(this.agentDir, "extensions"),
+      sharedStoreRoot: this.extensionStoreRoot(),
+    });
+    this.extensionLoader.scan();
+    this.extensionHostWorkers = createExtensionHostWorkers({
+      onEvent: (event) =>
+        console.info(
+          `[pipiui-host-worker] ${event.type} ${event.extensionId}` +
+            ("pid" in event ? ` pid=${event.pid}` : "") +
+            ("code" in event ? ` code=${event.code}` : "") +
+            ("message" in event ? ` ${event.message}` : ""),
+        ),
+    });
+    this.extensionHotReload = new ExtensionHotReloader({
+      roots: [],
+      onChanged: (extensionId) => this.onExtensionFilesChanged(extensionId),
+      onError: (error) => console.warn(`[pipiui-hotreload] extension watcher: ${error.message}`),
+    });
+    this.extensionHotReload.start();
+    this.bridge = new HostBridge({
+      onAgentEvent: (event, sessionId) => this.mapAgentEvent(event, sessionId),
+      onPlanEvent: (event, sessionId) => this.planEvent(event, sessionId),
+      onBrowserAction: async (event, sessionId) =>
+        options.browserAction
+          ? options.browserAction(event, sessionId)
+          : { ok: false, error: "browser host unavailable" },
+      onBrowserWatch: async (event, sessionId) =>
+        options.browserWatch
+          ? options.browserWatch(event, sessionId)
+          : { ok: false, error: "browser watch unavailable" },
+      onTerminalAction: async (event, sessionId) =>
+        options.terminalAction
+          ? options.terminalAction(event, sessionId)
+          : { ok: false, error: "terminal host unavailable" },
+      onHostCapability: async (event, sessionId) =>
+        options.hostCapabilityAction
+          ? options.hostCapabilityAction(event, sessionId)
+          : { ok: false, code: "host_unavailable", error: "host capability broker unavailable" },
+      onHostCapabilityMint: async (event, sessionId) =>
+        options.hostCapabilityTokenAction
+          ? options.hostCapabilityTokenAction(event, sessionId)
+          : { ok: false, code: "host_unavailable", error: "host capability token mint unavailable" },
+      onVaultAction: async (event, sessionId) => this.dispatchVaultHostMethod(event, sessionId),
+      onDocumentsList: (sessionId) => this.listOpenedDocumentsForSession(sessionId),
+      onExtInvokePoll: (sessionId) => this.extInvokePoll(sessionId),
+      onExtInvokeResult: (event, sessionId) => this.extInvokeResult(event as Record<string, unknown>, sessionId),
+      onModelPinValidate: (input) =>
+        // Authorization is proven by the capability→sessionId map; the request body carries
+        // nothing but refs. The synchronous return IS the shared linearization point.
+        this.validateSubagentModelPins(input),
+      onStructuredOutput: async (event, sessionId) => {
+        const op = event.op;
+        if (op !== "take") throw new Error("unsupported structured_output op");
+        return this.structuredOutputs?.take(sessionId) ?? null;
+      },
+      onExtEmit: async (input, sessionId) => {
+        let result = handleExtEmit(this.extensions, input, sessionId);
+        if (!result.ok && result.errorCode === "not_found") {
+          // A project-less rescan drops project-origin records (they must not leak across
+          // projects), but a session that mounted one keeps running — and its emits were
+          // then refused as "unknown extension". Re-resolve against that session's own
+          // project before refusing; authorization still runs on real, current data.
+          const projectRoot = this.live.get(sessionId)?.cwd;
+          if (projectRoot) {
+            result = await this.withStableExtensionScan(projectRoot, () =>
+              handleExtEmit(this.extensions, input, sessionId),
+            );
+          }
+        }
+        if (!result.ok) return result;
+        emitFrame(this.listeners, result.event as unknown as HostEvent);
+        this.maybeApplySessionWorkspaceEmit(input, sessionId);
+        return { ok: true as const };
+      },
+    });
+    if (options.authRuntime) {
+      this.authRuntimePromise = Promise.resolve(options.authRuntime);
+    } else if (options.authHelperPath) {
+      this.externalAuthRuntime = new ExternalAuthRuntime({
+        helperPath: options.authHelperPath,
+        nodePath: options.authNodePath ?? (this.piCommand.prefixArgs?.length ? this.piCommand.executable : undefined),
+        piPath: this.piCommand.piPath ?? this.piCommand.executable,
+        agentDir: this.agentDir,
+        sessionsRoot: this.root,
+        enforceProfile: this.profileMode === "isolated",
+        env: { ...this.env, ...(this.piCommand.env ?? {}) },
+      });
+      this.authRuntimePromise = Promise.resolve(this.externalAuthRuntime);
+    }
+    this.auth = new ProviderAuthBackend({
+      runtime: {
+        getProviders: async () => (await this.modelRuntime()).getProviders(),
+        getAvailable: async () => (await this.modelRuntime()).getAvailable(),
+        login: async (p, t, i) => {
+          // A login attempt may mutate credentials at ANY point before its terminal event
+          // (success, failure or cancellation). Fail closed for the whole attempt: the pin
+          // authority flips shut right here and only a settled canonical rebuild reopens it
+          // (ProviderAuthBackend awaits refreshModelsAfterAuthChange BEFORE 'completed').
+          this.invalidateModelCatalog();
+          this.auth.invalidateProvidersCache();
+          return (await this.modelRuntime()).login(p, t, i);
+        },
+        logout: async (p) => (await this.modelRuntime()).logout(p),
+      },
+      authPath: join(this.agentDir, "auth.json"),
+      onLoginCompleted: () =>
+        // Awaited by ProviderAuthBackend.runLogin BEFORE the terminal 'completed' event:
+        // the model catalog (load + invalidate/publish/tombstone) must settle while the
+        // login is still in flight. A rejection becomes that login's explicit failure.
+        this.refreshModelsAfterAuthChange().then(() => {
+          // Credential state changed: drop the provider cache so panels re-warm from the
+          // runtime. The re-warm runs in the background and never blocks the login path.
+          this.auth.invalidateProvidersCache();
+        }),
+    });
+    // Warm the provider catalog in the background so the first open of the add-model
+    // panel does not wait on a cold pi runtime boot (the panel reads the cache).
+    this.auth.prefetchProviders();
+    // The bridge callback is synchronous, so finish the small durable-index read before this
+    // backend can receive any live event. An async constructor load could otherwise overwrite a
+    // newer same-key run or persist an incomplete map when START arrived immediately.
+    this.loadPersistedAgents();
+    this.loadPersistedAgentLogs();
+    // Preload the pi SessionManager module at startup: otherwise the first session open after
+    // launch pays its ~1s dynamic-import cost and the chat appears to stall before painting.
+    void loadSessionManager();
+    // Isolated init enqueues capability (if provided) then deterministic project migration.
+    // Catalog preload waits on that same promise so the first listModels cannot cache a
+    // pre-migration snapshot.
+    void this.loadModelCatalog().catch(() => undefined);
+    // The sidebar now opens through project-scoped pages and a direct remembered
+    // session lookup. Keep the legacy global index lazy: scanning every JSONL
+    // here delayed first paint even though none of those rows were visible yet.
+    this.turnWatchdogTimer = setInterval(() => void this.checkTurnWatchdogs(), TURN_WATCHDOG_CHECK_INTERVAL_MS);
+    if (this.turnWatchdogTimer.unref) this.turnWatchdogTimer.unref();
+  }
+  subscribe(listener: (event: HostEvent) => void) {
+    this.listeners.add(listener);
+    this.projectionDebug("subscribe", { listeners: this.listeners.size });
+    return () => {
+      this.listeners.delete(listener);
+      this.projectionDebug("unsubscribe", { listeners: this.listeners.size });
+    };
+  }
+  private projectionDebugEnabled(): boolean {
+    return Boolean(this.env?.PIPIUI_STREAM_DEBUG);
+  }
+  private projectionDebugFile(): string | undefined {
+    if (!this.projectionDebugEnabled()) return undefined;
+    if (this.projectionDebugFilePath !== undefined) return this.projectionDebugFilePath ?? undefined;
+    const candidate = this.env?.PIPIUI_STREAM_DEBUG_FILE;
+    try {
+      const stat = typeof candidate === "string" && isAbsolute(candidate) ? lstatSync(candidate) : undefined;
+      this.projectionDebugFilePath = typeof candidate === "string"
+        && isAbsolute(candidate)
+        && stat?.isFile()
+        && !stat.isSymbolicLink()
+        ? candidate
+        : null;
+    } catch {
+      this.projectionDebugFilePath = null;
+    }
+    return this.projectionDebugFilePath ?? undefined;
+  }
+  private projectionDebugLine(line: string, output: "log" | "warn" = "warn"): void {
+    if (!this.projectionDebugEnabled()) return;
+    const bounded = line.slice(0, 1_999);
+    console[output](bounded);
+    const path = this.projectionDebugFile();
+    if (!path) return;
+    let descriptor: number | undefined;
+    try {
+      descriptor = openSync(path, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_NOFOLLOW);
+      writeSync(descriptor, `${bounded}\n`, undefined, "utf8");
+    } catch {
+      // Debug observability is never product behavior. A removed, replaced, or
+      // unwritable sink must not affect the host or create a new file.
+    } finally {
+      if (descriptor !== undefined) {
+        try { closeSync(descriptor); } catch { /* best-effort diagnostic sink */ }
+      }
+    }
+  }
+  private projectionDebugSessionTag(sessionId?: string): string {
+    if (!sessionId) return "session#none";
+    let tag = this.projectionDebugSessionTags.get(sessionId);
+    if (!tag) {
+      tag = `session#${this.projectionDebugSessionSerial += 1}`;
+      this.projectionDebugSessionTags.set(sessionId, tag);
+    }
+    return tag;
+  }
+  private projectionDebugAgentTag(key: string): string {
+    let tag = this.projectionDebugAgentTags.get(key);
+    if (!tag) {
+      tag = `key#${this.projectionDebugAgentSerial += 1}`;
+      this.projectionDebugAgentTags.set(key, tag);
+    }
+    return tag;
+  }
+  private projectionDebugActive(sessionId?: string): { active: number; activeKeys: string } {
+    const rows = [...this.agents.entries()]
+      .filter(([, agent]) => (!sessionId || agent.sessionId === sessionId) && this.isLiveAgentState(agent.state))
+      .sort(([left], [right]) => left.localeCompare(right));
+    const visible = rows.slice(0, 12).map(([key, agent]) =>
+      `${this.projectionDebugAgentTag(key)}:${agent.state}:${this.projectionDebugProvenance.get(key) ?? "unknown"}`);
+    return {
+      active: rows.length,
+      activeKeys: `${visible.join(",") || "none"}${rows.length > visible.length ? `,+${rows.length - visible.length}` : ""}`,
+    };
+  }
+  private projectionDebug(reason: string, fields: Record<string, string | number | boolean | undefined> = {}): void {
+    if (!this.projectionDebugEnabled()) return;
+    const suffix = Object.entries(fields)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => `${key}=${String(value).replace(/\s+/g, "_").slice(0, 256)}`)
+      .join(" ");
+    this.projectionDebugLine(`[projection-debug] backend=${this.projectionDebugBackendTag} reason=${reason}${suffix ? ` ${suffix}` : ""}`);
+  }
+  private childStillRunning(child?: ChildProcessWithoutNullStreams): boolean {
+    return Boolean(child && child.exitCode === null && !child.signalCode);
+  }
+  private liveProcessUsable(live: Live): boolean {
+    return !live.exiting && this.childStillRunning(live.process);
+  }
+  private markLiveExitingByPid(pid: number): void {
+    for (const live of this.live.values()) {
+      if (live.process?.pid === pid) live.exiting = true;
+    }
+  }
+  private async awaitUnusableLiveExit(id: string): Promise<void> {
+    const live = this.live.get(id);
+    if (!live || this.liveProcessUsable(live)) return;
+    await (live.exit ?? Promise.resolve());
+    if (this.live.get(id) === live) this.live.delete(id);
+  }
+
+  /** EOF first; if the child ignores it (or is not Node), SIGTERM then SIGKILL. */
+  private stopLiveProcess(item: Live, graceMs = 250): Promise<void> {
+    const existing = this.liveStopPromises.get(item);
+    if (existing) return existing;
+    const stopping = this.stopLiveProcessNow(item, graceMs);
+    this.liveStopPromises.set(item, stopping);
+    return stopping;
+  }
+
+  private async stopLiveProcessNow(item: Live, graceMs: number): Promise<void> {
+    try {
+      item.process?.stdin.end();
+    } catch {
+      /* process is already gone */
+    }
+    const child = item.process;
+    const finished = item.exit ?? Promise.resolve();
+    if (!this.childStillRunning(child)) {
+      await finished;
+      return;
+    }
+    const wait = (ms: number) =>
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, ms);
+        timer.unref?.();
+      });
+    await Promise.race([finished, wait(graceMs)]);
+    if (this.childStillRunning(child)) {
+      try {
+        child!.kill("SIGTERM");
+      } catch {
+        /* already gone */
+      }
+      await Promise.race([finished, wait(graceMs)]);
+    }
+    if (this.childStillRunning(child)) {
+      try {
+        child!.kill("SIGKILL");
+      } catch {
+        /* already gone */
+      }
+      await Promise.race([finished, wait(graceMs)]);
+    }
+  }
+
+  /** All resident session IDs whose state must be released when the host closes. */
+  private activeRuntimeSessionIds(): Set<string> {
+    const ids = new Set<string>([
+      ...this.live.keys(),
+      ...this.ensureInFlight.keys(),
+      ...this.leases.keys(),
+      ...this.leaseOperationLanes.keys(),
+      ...this.queue.sessionIds(),
+      ...this.queueLoads.keys(),
+      ...this.queueWrites.keys(),
+      ...this.sessionFileBarriers.keys(),
+      ...this.sessionContextLastKnown.keys(),
+      ...this.sessionLedgerTurns.keys(),
+      ...this.sessionModelStates.keys(),
+      ...this.sessionModelSnapshots.keys(),
+      ...this.unconfirmedSteers.keys(),
+      ...this.manualTitleOverrides,
+      ...this.autoRevivalUserLifts,
+      ...this.sessionRuntimeTokens.keys(),
+      ...this.sessionRuntimeTeardowns.keys(),
+      ...this.sessionRuntimeTombstones,
+      ...this.sessionDeletionInProgress,
+      ...this.documentInjections.pendingSessionIds(),
+      ...this.openedDocumentPathsBySession.keys(),
+      ...this.extensions.mountedSessionIds(),
+    ]);
+    for (const sessionId of this.inputFiles?.runtimeSessionIds() ?? []) ids.add(sessionId);
+    return ids;
+  }
+
+  /** Observable session-scoped state counts for lifecycle tests and diagnostics. */
+  runtimeStateCounts(sessionId: string) {
+    const id = sessionId.trim();
+    const path = this.live.get(id)?.path ?? this.sessionById.get(id)?.path;
+    return {
+      live: this.live.has(id) ? 1 : 0,
+      leaseOperationLane: this.leaseOperationLanes.has(id) ? 1 : 0,
+      queue: this.queue.hasSession(id) ? 1 : 0,
+      queueLoad: this.queueLoads.has(id) ? 1 : 0,
+      queueWrite: this.queueWrites.has(id) ? 1 : 0,
+      sessionFileBarrier: this.sessionFileBarriers.has(id) ? 1 : 0,
+      context: this.sessionContextLastKnown.has(id) ? 1 : 0,
+      ledger: this.sessionLedgerTurns.has(id) ? 1 : 0,
+      modelState: this.sessionModelStates.has(id) || this.sessionModelSnapshots.has(id) ? 1 : 0,
+      extensionMount: this.extensions.hasSessionMount(id) ? 1 : 0,
+      documentInjection: this.documentInjections.hasPending(id) ? 1 : 0,
+      openedDocuments: this.openedDocumentPathsBySession.get(id)?.size ?? 0,
+      historyCache: path && this.historyCache.has(path) ? 1 : 0,
+      inputBytes: this.inputFiles?.retainedByteCount(id) ?? 0,
+      inputUploads: this.inputFiles?.inflightCount(id) ?? 0,
+    };
+  }
+
+  /** Process-wide lifecycle registry sizes after create/delete churn. */
+  runtimeRegistryCounts() {
+    const telemetry = this.turnTelemetry.retainedState();
+    return {
+      generations: this.sessionRuntimeTokens.size,
+      leaseOperationLanes: this.leaseOperationLanes.size,
+      tombstones: this.sessionRuntimeTombstones.size,
+      tearingDown: this.sessionRuntimeTearingDown.size,
+      deletionInProgress: this.sessionDeletionInProgress.size,
+      telemetryActive: telemetry.active,
+      telemetryFenced: telemetry.fenced,
+      redactionGenerations: this.sessionRedact.retainedGenerationCount(),
+      envRefreshGenerations: this.sessionEnvRefresh.retainedGenerationCount(),
+    };
+  }
+
+  private async inputFilesForDisposal(): Promise<InputFilesController | undefined> {
+    if (this.inputFiles) return this.inputFiles;
+    if (!this.inputFilesReady) return undefined;
+    return this.inputFilesReady.catch(() => undefined);
+  }
+
+  private async disposeInputFilesSession(sessionId: string): Promise<void> {
+    await (await this.inputFilesForDisposal())?.disposeSession(sessionId);
+  }
+
+  private async disposeAllInputFiles(): Promise<void> {
+    await (await this.inputFilesForDisposal())?.disposeAll();
+  }
+
+  private sessionRuntimeToken(id: string): SessionRuntimeToken | undefined {
+    return this.sessionRuntimeTokens.get(id);
+  }
+
+  /** Start one runtime lifecycle, allocating a globally unique process token. */
+  private beginSessionRuntime(id: string): SessionRuntimeToken {
+    const current = this.sessionRuntimeToken(id);
+    if (current !== undefined) {
+      this.assertSessionRuntimeToken(id, current);
+      return current;
+    }
+    if (this.closed || this.sessionRuntimeTearingDown.has(id)
+      || this.sessionDeletionInProgress.has(id)
+      || this.sessionRuntimeTombstones.has(id)) {
+      throw new Error("session runtime disposed");
+    }
+    const token = ++sessionRuntimeTokenSerial;
+    this.sessionRuntimeTokens.set(id, token);
+    return token;
+  }
+
+  private invalidateSessionRuntime(id: string): SessionRuntimeToken {
+    // A delete/close can reach a cold session that has never spawned Pi. It
+    // still receives a token before the tombstone is installed.
+    const token = this.sessionRuntimeToken(id) ?? ++sessionRuntimeTokenSerial;
+    this.sessionRuntimeTokens.set(id, token);
+    this.sessionRuntimeTombstones.add(id);
+    this.turnTelemetry.fenceSession(id);
+    return token;
+  }
+
+  private reclaimSessionRuntime(id: string): void {
+    if (
+      this.sessionRuntimeTearingDown.has(id)
+      || this.sessionDeletionInProgress.has(id)
+      || this.sessionRuntimeTeardowns.has(id)
+      || this.live.has(id)
+    ) return;
+    this.sessionRuntimeTombstones.delete(id);
+    // Absence is intentional: a continuation carrying this token must fail
+    // closed rather than become implicit generation zero.
+    this.sessionRuntimeTokens.delete(id);
+    this.sessionRedact.reclaim(id);
+    this.sessionEnvRefresh.reclaim(id);
+    this.turnTelemetry.reclaimSession(id);
+  }
+
+  private sessionRuntimeTokenIsCurrent(id: string, token: unknown): token is SessionRuntimeToken {
+    return typeof token === "number"
+      && this.sessionRuntimeTokens.get(id) === token
+      && !this.sessionRuntimeTombstones.has(id)
+      && !this.sessionRuntimeTearingDown.has(id)
+      && !this.sessionDeletionInProgress.has(id)
+      && !this.closed;
+  }
+
+  private assertSessionRuntimeToken(id: string, token: unknown): asserts token is SessionRuntimeToken {
+    if (!this.sessionRuntimeTokenIsCurrent(id, token))
+      throw new Error("session runtime disposed");
+  }
+
+  /** Existing spawn fences use this compatibility assertion; the value is a lifecycle token. */
+  private assertSessionGeneration(id: string, generation: unknown): asserts generation is SessionRuntimeToken {
+    this.assertSessionRuntimeToken(id, generation);
+  }
+
+  private scheduleSessionFileRetry(
+    sessionId: string,
+    retry: () => Promise<unknown>,
+    runtimeToken?: unknown,
+  ): void {
+    if (!this.sessionRuntimeTokenIsCurrent(sessionId, runtimeToken)) return;
+    void this.sessionFileExclusive(sessionId, runtimeToken)(async () => {
+      // Paced retry: the writer-idle probe can legitimately stay false while a
+      // session keeps working. The gate's microtask fence only orders attempts;
+      // without a real pause here a never-idle writer would spin the CPU.
+      await new Promise<void>(resolve => {
+        const pace = setTimeout(resolve, SESSION_FILE_RETRY_PACE_MS);
+        pace.unref?.();
+      });
+      return retry();
+    }).catch((error) => {
+      console.error(
+        `[secret-vault] session retry failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+  }
+
+  /**
+   * Idempotent in-memory teardown boundary. It deliberately does not remove
+   * the JSONL, durable queue, or attachment metadata; explicit deletion does
+   * that only after this method has settled all in-flight session work.
+   */
+  async teardownSessionRuntime(sessionId: string): Promise<void> {
+    const id = sessionId.trim();
+    if (!id) return;
+    const existing = this.sessionRuntimeTeardowns.get(id);
+    if (existing) return existing;
+    this.invalidateSessionRuntime(id);
+    this.sessionRuntimeTearingDown.add(id);
+    const work = this.teardownSessionRuntimeNow(id).finally(() => {
+      if (!this.sessionDeletionInProgress.has(id)) this.queue.finalizeSessionDisposal(id);
+      this.sessionRuntimeTearingDown.delete(id);
+      this.sessionRuntimeTeardowns.delete(id);
+      this.reclaimSessionRuntime(id);
+    });
+    this.sessionRuntimeTeardowns.set(id, work);
+    return work;
+  }
+
+  private async teardownSessionRuntimeNow(id: string): Promise<void> {
+    const sessionPath = this.live.get(id)?.path ?? this.sessionById.get(id)?.path;
+    const queueLoad = this.queueLoads.get(id);
+    const queueWrite = this.queueWrites.get(id);
+    const ensure = this.ensureInFlight.get(id);
+    const barrier = this.sessionFileBarriers.get(id);
+    const historyReads = sessionPath
+      ? [...this.historyInflight.entries()]
+        .filter(([key]) => key.startsWith(`${sessionPath}\0`))
+        .map(([, read]) => read)
+      : [];
+
+    // Fence all new authority/state first. Everything after this point is a
+    // drain of already-started work only. disposeSession returns the queued
+    // dispatch acknowledgement so deletion cannot overtake it.
+    this.bridge.unregister(id);
+    this.stopEscalation.cancel(id);
+    this.cutInStopEscalation.cancel(id);
+    this.extensionUi.abortSession(id);
+    this.extensions.unmountSession(id);
+    this.planStore.forget(id);
+    const queueDispatch = this.queue.disposeSession(id);
+    this.sessionRedact.clear(id);
+    this.sessionEnvRefresh.clear(id);
+    const redaction = this.sessionRedact.waitForSession(id);
+    const envRefresh = this.sessionEnvRefresh.waitForSession(id);
+    this.documentInjections.clearSession(id);
+    this.openedDocumentPathsBySession.delete(id);
+    this.structuredOutputs?.clear(id);
+    this.unconfirmedSteers.delete(id);
+    this.autoRevivalUserLifts.delete(id);
+
+    // Abort attachment uploads immediately, then await their settled store
+    // operations before a delete caller removes files underneath them.
+    const inputFiles = this.disposeInputFilesSession(id);
+
+    const stopLive = async (live: Live | undefined): Promise<void> => {
+      if (!live) return;
+      live.exiting = true;
+      live.compaction.dispose();
+      this.rejectPendingCommands(id, new Error("session runtime disposed"));
+      live.pendingDrainPrompt = undefined;
+      live.followUps = [];
+      if (this.live.get(id) === live) this.live.delete(id);
+      await this.stopLiveProcess(live);
+    };
+    await stopLive(this.live.get(id));
+
+    // A generation check in ensure/spawn prevents a cold spawn from reaching
+    // child creation after this fence. An already-installed child is stopped
+    // above before its ensure promise is awaited, so no polling handoff is
+    // needed here.
+    if (ensure) await Promise.allSettled([ensure]);
+    await stopLive(this.live.get(id));
+
+    // A no-op placed after prior work is the barrier's settle point. Delayed
+    // redaction/env retries are admitted through this same barrier; their own
+    // generations make a revoked retry a no-op even if it was already queued.
+    const barrierDrain = barrier ? barrier(async () => undefined) : undefined;
+    await Promise.allSettled([
+      queueDispatch,
+      ...(queueLoad ? [queueLoad] : []),
+      ...(queueWrite ? [queueWrite] : []),
+      ...historyReads,
+      inputFiles,
+      redaction,
+      envRefresh,
+      ...(barrierDrain ? [barrierDrain] : []),
+    ]);
+    if (this.queueLoads.get(id) === queueLoad) this.queueLoads.delete(id);
+    if (this.queueWrites.get(id) === queueWrite) this.queueWrites.delete(id);
+    if (this.sessionFileBarriers.get(id) === barrier) this.sessionFileBarriers.delete(id);
+
+    await this.withSessionLeaseOperation(id, async () => {
+      const lease = this.leases.get(id);
+      await lease?.release().catch(() => undefined);
+      if (this.leases.get(id) === lease) this.leases.delete(id);
+    });
+
+    this.sessionContextLastKnown.delete(id);
+    this.sessionLedgerTurns.delete(id);
+    this.sessionModelStates.delete(id);
+    this.sessionModelSnapshots.delete(id);
+    this.manualTitleOverrides.delete(id);
+    if (sessionPath) this.historyCache.delete(sessionPath);
+    this.turnTelemetry.clearSession(id);
+  }
+
+  /** Graceful connection teardown for hosts that allocate one backend per client. */
+  async close(): Promise<void> {
+    // 宿主 worker 的生命周期就是"项目开着"，宿主关掉它们就该结束。
+    this.extensionHostWorkers.stopAll();
+    if (this.closed) return;
+    // Sweep before closed=true: abortSessionTurn no longer stops workers, so host
+    // exit is the remaining path that must reap leftover subagent processes.
+    const agentSessionIds = this.activeRuntimeSessionIds();
+    for (const agent of this.agents.values()) {
+      if (agent.sessionId && agent.state === "running") agentSessionIds.add(agent.sessionId);
+    }
+    await Promise.allSettled([...agentSessionIds].map((sessionId) => this.sweepSessionAgents(sessionId)));
+    // Final durable flush after the sweep so its state changes ride the same
+    // snapshot; both bypass the write throttle.
+    this.persistAgentLogs();
+    this.persistAgentsNow();
+    this.closed = true;
+    this.stopEscalation.cancelAll();
+    this.cutInStopEscalation.cancelAll();
+    this.stopOrphanReconcileTimer();
+    if (this.turnWatchdogTimer) { clearInterval(this.turnWatchdogTimer); this.turnWatchdogTimer = undefined; }
+    // Stop the resident external-pi worker if one was spawned during this run.
+    this.externalAuthRuntime?.stop();
+    for (const wake of [...this.agentTerminalWaiters]) wake();
+    this.titleGenerationAbort.abort();
+    this.toolBatchTelemetry.dispose();
+    this.turnTelemetry.dispose();
+    await this.thinkingControlWrite.catch(() => undefined);
+    await Promise.allSettled([...this.backgroundTitleGenerations]);
+
+    // Runtime disposal deliberately preserves durable session files/queues for
+    // a later host. It is the same boundary explicit deletion uses before its
+    // separate persistent-file removal.
+    await Promise.allSettled([...this.activeRuntimeSessionIds()].map((sessionId) => this.teardownSessionRuntime(sessionId)));
+    await this.disposeAllInputFiles();
+    this.queue.disposeAll();
+    this.extensions.unmountAllSessions();
+    this.documentInjections.clearAll();
+    this.openedDocumentPathsBySession.clear();
+    this.openedDocumentPaths = [];
+    this.structuredOutputs?.clearAll();
+    this.extensionUi.dispose();
+    this.planStore.clear();
+    await this.bridge.close();
+    await Promise.allSettled([...this.backgroundStatsRefreshes]);
+
+    // Drain the durable agent index last: events from dying pi processes can
+    // still enqueue persists until their exit settles, and callers (tests,
+    // host shutdown) rely on close() completing every write to agentDir.
+    await this.agentsWrite;
+    // Bounded wait for already-queued stats lines; a hung append must not block exit.
+    await this.toolBatchTelemetry.close();
+    await this.turnTelemetry.close();
+    // Same contract for the compaction diagnostics probe.
+    await this.compactionDiagnostics.close();
+    this.leases.clear();
+    this.leaseOperationLanes.clear();
+    this.queueLoads.clear();
+    this.queueWrites.clear();
+    this.sessionFileBarriers.clear();
+    this.sessionContextLastKnown.clear();
+    this.sessionLedgerTurns.clear();
+    this.sessionModelStates.clear();
+    this.sessionModelSnapshots.clear();
+    this.documentWatcher.stop();
+    this.listeners.clear();
+  }
+  private stream(event: any) {
+    emitFrame(this.listeners, {
+      protocolVersion: PIPI_HOST_PROTOCOL_VERSION,
+      channel: "stream",
+      event,
+    });
+  }
+  private agent(event: AgentEvent) {
+    emitFrame(this.listeners, {
+      protocolVersion: PIPI_HOST_PROTOCOL_VERSION,
+      channel: "agents",
+      event,
+    });
+  }
+  /** Append a log entry to the in-memory cache for a completed-agent transcript. */
+  private resetAgentLogStreamSlots(sessionId: string, agentId: string, runId: string) {
+    const key = this.agentLogKey(sessionId, agentId, runId)
+    const logs = this.agentLogCache.get(key)
+    if (!logs?.length) return
+    this.agentLogCache.set(key, logs.map(log => log.contentIndex === undefined ? log : { ...log, contentIndex: undefined }))
+    this.schedulePersistAgentLogs()
+  }
+  private cacheAgentLog(sessionId: string, agentId: string, runId: string, entry: CachedAgentLog, persist = true) {
+    const key = this.agentLogKey(sessionId, agentId, runId)
+    const logs = this.agentLogCache.get(key) ?? []
+    // log_delta pushes cumulative snapshots keyed by contentIndex; upsert in place.
+    if (entry.contentIndex !== undefined) {
+      const idx = logs.findIndex(l => l.contentIndex === entry.contentIndex)
+      if (idx >= 0) {
+        logs[idx] = entry
+        this.agentLogCache.set(key, logs)
+        if (persist) this.schedulePersistAgentLogs()
+        return
+      }
+    }
+    logs.push(entry)
+    if (logs.length > 500) logs.splice(0, logs.length - 500)
+    this.agentLogCache.set(key, logs)
+    if (persist) this.schedulePersistAgentLogs()
+  }
+  private publicQueueItem(item: QueuedMessage): Omit<QueuedMessage, "turnTelemetry"> {
+    // Correlation samples are in-memory dispatch metadata, not queue payload.
+    // The product queue already persists actionable user content; telemetry must
+    // not create another durable copy or leak timing ids through UI snapshots.
+    const { turnTelemetry: _turnTelemetry, ...publicItem } = item;
+    return publicItem;
+  }
+  private publicQueueItems(items: QueuedMessage[]): Array<Omit<QueuedMessage, "turnTelemetry">> {
+    return items.map((item) => this.publicQueueItem(item));
+  }
+  private queueChanged(id: string, items: QueuedMessage[], lifecycleToken?: unknown) {
+    // Queue snapshots carry the state identity that produced them. A stale
+    // queue continuation must not persist or stream into a recreated session.
+    if (lifecycleToken !== undefined && !this.sessionRuntimeTokenIsCurrent(id, lifecycleToken)) return;
+    if (this.closed || this.sessionRuntimeTearingDown.has(id)
+      || this.sessionDeletionInProgress.has(id)
+      || this.sessionRuntimeTombstones.has(id)) return;
+    const publicItems = this.publicQueueItems(items);
+    this.persistQueue(id, publicItems);
+    this.stream({
+      type: "queue_update",
+      sessionId: id,
+      queue: publicItems,
+      pendingFollowUps: this.live.get(id)?.followUps ?? [],
+    });
+  }
+  private persistQueue(id: string, items: QueuedMessage[]) {
+    const prior = this.queueWrites.get(id) ?? Promise.resolve();
+    const write = prior
+      .catch(() => undefined)
+      .then(() => this.queueStore.save(id, items));
+    this.queueWrites.set(id, write);
+    void write.catch((error) =>
+      console.warn(
+        `[pipi-backend] queue persistence failed for ${id}: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+    );
+  }
+  private async loadQueue(
+    id: string,
+    runtimeToken = this.sessionRuntimeToken(id),
+  ): Promise<void> {
+    // A queue restore is an asynchronous continuation, so it must retain the
+    // token captured by its caller. Missing tokens reject late work after
+    // reclaim instead of falling back to an implicit generation zero.
+    if (!this.sessionRuntimeTokenIsCurrent(id, runtimeToken)) return;
+    let task = this.queueLoads.get(id);
+    if (!task) {
+      task = (async () => {
+        // Revival gates (manual stop / archived) must be resident before any
+        // restored item can reach a drain.
+        if (this.manualStopsLoaded) await this.manualStopsLoaded.catch(() => undefined);
+        if (!this.sessionRuntimeTokenIsCurrent(id, runtimeToken)) return;
+        let items: QueuedMessage[];
+        try {
+          items = await this.queueStore.load(id);
+        } catch (error) {
+          console.warn(
+            `[pipi-backend] queue restore failed for ${id}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          items = [];
+        }
+        // Teardown may begin while the durable read is in flight. In that
+        // case restoring would recreate a disposed session queue.
+        if (this.sessionRuntimeTokenIsCurrent(id, runtimeToken)) this.queue.restoreQueue(id, items, runtimeToken);
+      })();
+      this.queueLoads.set(id, task);
+    }
+    await task;
+  }
+  /** Host entrypoints use this seam to establish a lifecycle before queue IO. */
+  private async loadQueueForSession(id: string): Promise<SessionRuntimeToken> {
+    const runtimeToken = this.beginSessionRuntime(id);
+    await this.loadQueue(id, runtimeToken);
+    this.assertSessionRuntimeToken(id, runtimeToken);
+    return runtimeToken;
+  }
+  private async queueIdle(
+    id: string,
+    epoch?: number,
+    runtimeToken = this.sessionRuntimeToken(id),
+  ): Promise<void> {
+    if (!this.sessionRuntimeTokenIsCurrent(id, runtimeToken)) return;
+    await this.loadQueue(id, runtimeToken);
+    if (!this.sessionRuntimeTokenIsCurrent(id, runtimeToken)) return;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    if (!this.sessionRuntimeTokenIsCurrent(id, runtimeToken)) return;
+    await this.awaitUnusableLiveExit(id);
+    if (this.sessionRuntimeTokenIsCurrent(id, runtimeToken)) {
+      // Steer acks only prove pi queued the text in memory; a turn that
+      // settles without echoing it (compaction/abort dropped it) loses the
+      // message. Recycle before notifyIdle so the drain can redeliver.
+      this.recycleUnconfirmedSteers(id);
+      await this.queue.notifyIdle(id, epoch, runtimeToken);
+      if (!this.sessionRuntimeTokenIsCurrent(id, runtimeToken)) return;
+      // Stats and queue-idle completion can race after agent_settled. Recheck
+      // after the authoritative idle transition so an eligible wait wave is
+      // never lost merely because its fresh stats response arrived first.
+      this.live.get(id)?.compaction.reconsider();
+    }
+    if (!this.sessionRuntimeTokenIsCurrent(id, runtimeToken)) return;
+    try {
+      await this.flushSessionRedact(id, runtimeToken);
+      if (!this.sessionRuntimeTokenIsCurrent(id, runtimeToken)) return;
+      await this.flushSessionEnvRefresh(id, runtimeToken);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[secret-vault] session redaction failed", message);
+      if (this.sessionRuntimeTokenIsCurrent(id, runtimeToken))
+        this.stream({ type: "error", sessionId: id, content: `secret redaction failed: ${message}` });
+    }
+    // A hot restart deferred while the session was busy applies here, on idle.
+    if (this.sessionRuntimeTokenIsCurrent(id, runtimeToken)) {
+      const live = this.live.get(id);
+      if (live?.pendingExtensionRestart) this.requestExtensionHotRestart(id, "state");
+    }
+  }
+  /**
+   * Host abort: emit stopped immediately, write abort without waiting for ack,
+   * escalate hung descendants in the background. User stop never FIFO-drains.
+   * Background subagents keep running; only close() sweeps them.
+   */
+  private async abortSessionTurn(
+    sessionId: string,
+    options: { drain: false | "cutIn" },
+    expectedToken?: unknown,
+  ): Promise<void> {
+    const live = this.live.get(sessionId);
+    const runtimeToken = expectedToken !== undefined
+      ? expectedToken
+      : live?.runtimeToken ?? this.sessionRuntimeToken(sessionId);
+    if (!this.sessionRuntimeTokenIsCurrent(sessionId, runtimeToken)) return;
+    if (live) live.hostAbortedTurn = true;
+    this.extensionUi.abortSession(sessionId);
+    if (options.drain === false) {
+      // User stop owns the queue: a hung prompt or parked cut-in must not keep
+      // the composer locked on `sending`. Cut-in abort leaves pendingCutIn so
+      // the next real idle can dispatch it.
+      this.queue.noteAbort(sessionId, runtimeToken);
+      this.rejectPendingCommands(sessionId, new Error("session stopped"));
+      if (live) live.pendingDrainPrompt = undefined;
+      // Persist the manual-stop intent: queue restores and pi-goal's
+      // session_start/continuation revival must not resurrect the turn until
+      // the user explicitly sends again.
+      void this.markManualStop(sessionId);
+    } else if (!this.queue.hasPendingCutIn(sessionId)) {
+      this.queue.suppressIdleDrain(sessionId, runtimeToken);
+    }
+    const after = this.live.get(sessionId);
+    this.stream({
+      type: "status",
+      sessionId,
+      status: "stopped",
+      pendingFollowUps: after?.followUps ?? live?.followUps ?? [],
+      turnEpoch: after?.turnEpoch ?? live?.turnEpoch,
+    });
+    after?.compaction.settleTurn();
+    const abortPid = after?.process?.pid ?? live?.process?.pid;
+    if (abortPid !== undefined && this.childStillRunning(after?.process ?? live?.process)) {
+      queueMicrotask(() => {
+        const current = this.live.get(sessionId);
+        if (!current || current.runtimeToken !== runtimeToken
+          || !this.sessionRuntimeTokenIsCurrent(sessionId, runtimeToken)
+          || !this.childStillRunning(current.process)) return;
+        const escalation = options.drain === "cutIn" ? this.cutInStopEscalation : this.stopEscalation;
+        escalation.start(
+          sessionId,
+          {
+            piPid: abortPid,
+            piIdentity: readProcessIdentity(abortPid),
+          },
+          () => {
+            const liveNow = this.live.get(sessionId);
+            if (!liveNow) {
+              this.stream({ type: "status", sessionId, status: "stopped", pendingFollowUps: [] });
+              return;
+            }
+            if (liveNow.terminalEpoch !== liveNow.turnEpoch) {
+              this.projectTurnTerminal(liveNow, "stopped");
+            }
+          },
+        );
+      });
+    }
+    void this.command(sessionId, { type: "abort" }, false, runtimeToken).catch(() => undefined);
+  }
+  private async cutInQueuedMessage(
+    sessionId: string,
+    messageId: string,
+    runtimeToken = this.sessionRuntimeToken(sessionId),
+  ): Promise<QueuedMessage> {
+    this.assertSessionRuntimeToken(sessionId, runtimeToken);
+    const message = await this.queue.cutInMessage(sessionId, messageId, runtimeToken);
+    const accepted = this.queue.waitForMessageDelivery(sessionId, messageId, runtimeToken);
+    if (this.queue.hasPendingCutIn(sessionId)) {
+      await this.abortSessionTurn(sessionId, { drain: "cutIn" }, runtimeToken);
+    }
+    await accepted;
+    return message;
+  }
+  private async enqueueMessage(
+    id: string,
+    text: string,
+    attachments?: PromptAttachment[],
+    rendererTelemetry?: TurnTelemetryRendererSample,
+  ): Promise<QueueEnqueueResult> {
+    await this.assertSessionProductProfileWritable(id);
+    const runtimeToken = this.beginSessionRuntime(id);
+    this.assertInputFilesSessionAcceptingWork(id);
+    this.structuredOutputs?.assertReadyToSend(id);
+    // Archived sessions stay dead: refuse instead of reviving; unarchive first.
+    this.assertNotArchived(id);
+    // Explicit user input lifts manual-stop revival suppression.
+    this.noteExplicitUserSend(id);
+    const telemetry = this.turnTelemetry.rendererSubmission(id, rendererTelemetry);
+    await this.loadQueue(id, runtimeToken);
+    this.assertSessionRuntimeToken(id, runtimeToken);
+    const result = this.queue.enqueue(id, { text, attachments, turnTelemetry: telemetry }, runtimeToken);
+    if (result.outcome === "dispatched") {
+      await this.queue.waitForDispatch(id, runtimeToken);
+      this.assertSessionRuntimeToken(id, runtimeToken);
+    }
+    else {
+      this.turnTelemetry.markQueued(telemetry);
+      this.retryPendingFinalReconciliation(id);
+    }
+    return {
+      outcome: result.outcome === "dispatched" ? "direct" : "queued",
+      message: this.publicQueueItem(result.message),
+    };
+  }
+  private async assertSessionProductProfileWritable(sessionId: string): Promise<void> {
+    if (this.profileMode !== "isolated") return;
+    const session = await this.findSession(sessionId);
+    const isolated = await this.ensureIsolatedProjectHome(session.header.cwd, { allowMissing: true, migrate: false });
+    const projectRoot = isolated?.realProjectRoot ?? session.header.cwd;
+    const activePack = await this.withStableExtensionScan(projectRoot, () => this.activePackId(projectRoot));
+    // A session predating packs carries no snapshot; treat it as plain base, the
+    // same assumption a project whose ext-enabled.json names nothing makes.
+    const sessionPackId = session.productProfile?.id ?? BASE_PACK_ID;
+    if (sessionPackId !== activePack) {
+      throw new Error(
+        `Conversation uses extension pack ${sessionPackId}; current project uses ${activePack}. Create a new Conversation for the current pack.`,
+      );
+    }
+  }
+  /** A later user prompt must be able to wake a missed-settled turn and drain. */
+  private retryPendingFinalReconciliation(sessionId: string): void {
+    const live = this.live.get(sessionId);
+    const pending = live?.pendingFinalReconciliation;
+    if (!live || !pending) return;
+    if (live.turnEpoch !== pending.epoch || live.terminalEpoch === pending.epoch) return;
+    void this.reconcileFinalAssistantTurn(live, pending.epoch, pending.identity);
+  }
+  private index(): Promise<SessionMeta[]> {
+    // A single session selection fires several locate() calls at once; share one
+    // scan and reuse stat-validated metadata instead of re-reading every JSONL.
+    return (this.indexScan ??= this.scanIndex().finally(() => {
+      this.indexScan = undefined;
+    }));
+  }
+  /**
+   * Files that can belong to one configured project. The current isolated home
+   * is authoritative; the exact legacy encoded directory remains readable for
+   * pre-migration continuity. Deliberately do not recurse into `sessions/spool`
+   * or unrelated historical project directories.
+   */
+  private async projectSessionCandidates(projectId: unknown): Promise<{ project: Project; files: SessionFileCandidate[]; isolatedHome?: IsolatedProjectHome }> {
+    if (typeof projectId !== "string" || !projectId.trim()) throw new Error("缺少项目");
+    const project = await this.configuredProject(projectId);
+    const directories: string[] = [];
+    const isolated = await this.ensureIsolatedProjectHome(project.path, { migrate: false, allowMissing: true });
+    if (isolated) directories.push(isolated.sessionsDir);
+    const legacy = join(this.root, encodeURIComponent(project.path));
+    if (!directories.includes(legacy)) directories.push(legacy);
+
+    const paths = new Set<string>();
+    for (const directory of directories) {
+      let entries: Dirent[];
+      try {
+        entries = await fs.readdir(directory, { withFileTypes: true });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name.endsWith(".jsonl")) paths.add(join(directory, entry.name));
+      }
+    }
+    const files = (await Promise.all([...paths].map(async path => {
+      try {
+        const stat = await fs.stat(path);
+        return stat.isFile() ? { path, size: stat.size, mtimeMs: stat.mtimeMs } : undefined;
+      } catch {
+        return undefined;
+      }
+    }))).filter((entry): entry is SessionFileCandidate => Boolean(entry));
+    files.sort((left, right) => right.mtimeMs - left.mtimeMs || basename(right.path).localeCompare(basename(left.path)));
+    return { project, files, ...(isolated ? { isolatedHome: isolated } : {}) };
+  }
+  private async sessionMetaFromCandidate(candidate: SessionFileCandidate): Promise<SessionMeta> {
+    const cached = this.indexCache.get(candidate.path);
+    if (cached && cached.size === candidate.size && cached.mtimeMs === candidate.mtimeMs) return cached.meta;
+    const meta = await readSessionMeta(candidate.path);
+    this.rememberSessionMeta(meta, candidate.size, candidate.mtimeMs);
+    return meta;
+  }
+  private async listSessionPage(projectId: unknown, cursorValue: unknown, limitValue: unknown): Promise<SessionPage> {
+    const { project, files, isolatedHome } = await this.projectSessionCandidates(projectId);
+    const parsedCursor = cursorValue === undefined || cursorValue === null || cursorValue === ""
+      ? 0
+      : Number(cursorValue);
+    if (!Number.isInteger(parsedCursor) || parsedCursor < 0) throw new Error("无效的会话分页游标");
+    const requestedLimit = Number(limitValue ?? 10);
+    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(10, Math.floor(requestedLimit))) : 10;
+    const sessions: Session[] = [];
+    const seen = new Set<string>();
+    let candidateIndex = parsedCursor;
+    while (candidateIndex < files.length && sessions.length < limit) {
+      const candidate = files[candidateIndex++]!;
+      try {
+        const meta = await this.sessionMetaFromCandidate(candidate);
+        if (dirId(meta.header.cwd) !== project.id || seen.has(meta.header.id)) continue;
+        seen.add(meta.header.id);
+        sessions.push(this.toSession(meta));
+      } catch {
+        /* incomplete/corrupt rows are skipped without widening beyond this project */
+      }
+    }
+    // The sidebar reads pages, not listSessions: without this the header dual-branch
+    // pair and unmerged badge never see a bound workspace, even after a restart.
+    if (isolatedHome && sessions.length) {
+      await Promise.all(sessions.map(async (session, index) => {
+        const workspace = await this.sessionWorkspaceDto(session.id, isolatedHome.realProjectRoot, isolatedHome.sessionsDir);
+        if (workspace) sessions[index] = { ...session, workspace };
+      }));
+    }
+    return {
+      sessions,
+      ...(candidateIndex < files.length ? { nextCursor: String(candidateIndex) } : {}),
+      hasMore: candidateIndex < files.length,
+    };
+  }
+  private async getProjectSession(projectId: unknown, sessionIdValue: unknown): Promise<Session> {
+    if (typeof sessionIdValue !== "string" || !sessionIdValue.trim()) throw new Error("缺少会话");
+    const sessionId = sessionIdValue.trim();
+    const { project, files, isolatedHome } = await this.projectSessionCandidates(projectId);
+    const known = this.sessionById.get(sessionId);
+    if (known && dirId(known.header.cwd) === project.id) {
+      const withWorkspace = isolatedHome
+        ? await this.sessionWorkspaceDto(sessionId, isolatedHome.realProjectRoot, isolatedHome.sessionsDir)
+        : undefined;
+      return withWorkspace ? { ...this.toSession(known), workspace: withWorkspace } : this.toSession(known);
+    }
+    const suffix = `_${sessionId}.jsonl`;
+    const candidate = files.find(entry => basename(entry.path).endsWith(suffix));
+    if (!candidate) throw new Error(`unknown session ${sessionId}`);
+    const meta = await this.sessionMetaFromCandidate(candidate);
+    if (meta.header.id !== sessionId || dirId(meta.header.cwd) !== project.id) throw new Error(`unknown session ${sessionId}`);
+    const base = this.toSession(meta);
+    if (!isolatedHome) return base;
+    const workspace = await this.sessionWorkspaceDto(sessionId, isolatedHome.realProjectRoot, isolatedHome.sessionsDir);
+    return workspace ? { ...base, workspace } : base;
+  }
+  private async preloadSession(sessionIdValue: unknown): Promise<SessionPreloadSnapshot> {
+    if (typeof sessionIdValue !== "string" || !sessionIdValue.trim()) throw new Error("缺少会话");
+    const sessionId = sessionIdValue.trim();
+    const session = this.sessionById.get(sessionId);
+    if (!session) throw new Error(`unknown session ${sessionId}`);
+    const started = Date.now();
+    const history = await readHistory(session.path, 0, Number.MAX_SAFE_INTEGER, this.vaultDir, sessionId);
+    this.reconcileOrphanedNow(sessionId);
+    const agents = [...this.agents.values()]
+      .filter(agent => agent.sessionId === sessionId)
+      .sort((left, right) => (left.createdAt ?? 0) - (right.createdAt ?? 0) || left.runId.localeCompare(right.runId));
+    const agentLogs: SessionPreloadSnapshot["agentLogs"] = agents.map(agent => ({
+      agentId: agent.agentId,
+      sessionId,
+      runId: agent.runId,
+      entries: (this.agentLogCache.get(this.agentLogKey(sessionId, agent.agentId, agent.runId)) ?? []) as SessionPreloadSnapshot["agentLogs"][number]["entries"],
+    }));
+    freezeProbe("session_preload", {
+      session: sessionId,
+      size: (await fs.stat(session.path)).size,
+      historyRows: history.length,
+      agents: agents.length,
+      logRows: agentLogs.reduce((sum, item) => sum + item.entries.length, 0),
+      ms: Date.now() - started,
+    });
+    return { history, agents, agentLogs };
+  }
+  private async scanIndex(): Promise<SessionMeta[]> {
+    this.indexGenerations += 1;
+    const files: string[] = [];
+    const walk = async (d: string) => {
+      if (!existsSync(d)) return;
+      for (const e of await fs.readdir(d, { withFileTypes: true })) {
+        const p = join(d, e.name);
+        e.isDirectory()
+          ? await walk(p)
+          : e.isFile() && p.endsWith(".jsonl") && files.push(p);
+      }
+    };
+    await walk(this.root);
+    if (this.profileMode === "isolated") {
+      try {
+        for (const project of await this.loadProjectPaths()) {
+          const home = this.lookupIsolatedHome(project);
+          if (home) await walk(home.sessionsDir);
+        }
+      } catch {
+        /* a missing project list must not hide host-root sessions */
+      }
+    }
+    const seen = new Set<string>();
+    const result: SessionMeta[] = [];
+    for (const path of files) {
+      seen.add(path);
+      try {
+        const stat = await fs.stat(path);
+        const cached = this.indexCache.get(path);
+        if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
+          result.push(cached.meta);
+          continue;
+        }
+        const meta = await readSessionMeta(path);
+        this.indexCache.set(path, { size: stat.size, mtimeMs: stat.mtimeMs, meta });
+        result.push(meta);
+      } catch {
+        /* incomplete/corrupt JSONL is not a session */
+      }
+    }
+    for (const path of [...this.indexCache.keys()]) {
+      if (seen.has(path)) continue;
+      try {
+        await fs.stat(path);
+      } catch {
+        const stale = this.indexCache.get(path)?.meta;
+        this.indexCache.delete(path);
+        if (stale) this.sessionById.delete(stale.header.id);
+      }
+    }
+    this.rebuildSessionById();
+    return result;
+  }
+  private rebuildSessionById() {
+    this.sessionById.clear();
+    for (const { meta } of this.indexCache.values())
+      this.sessionById.set(meta.header.id, meta);
+  }
+  private rememberSessionMeta(meta: SessionMeta, size: number, mtimeMs: number) {
+    this.indexCache.set(meta.path, { size, mtimeMs, meta });
+    this.sessionById.set(meta.header.id, meta);
+  }
+  /** Index metadata only. A known id must not walk the session tree again. */
+  private async findSession(id: string) {
+    const cached = this.sessionById.get(id);
+    if (cached) return cached;
+    await this.index();
+    const found = this.sessionById.get(id);
+    if (found) return found;
+    throw new Error(`unknown session ${id}`);
+  }
+  private async locate(id: string) {
+    return this.confirmSessionMeta(await this.findSession(id));
+  }
+  private async readHistoryCached(path: string, before: number | string, limit: number, sessionId?: string): Promise<HistoryEntry[]> {
+    const inflightKey = `${path}\0${String(before)}\0${limit}`;
+    const pending = this.historyInflight.get(inflightKey);
+    if (pending) return pending;
+    const run = this.readHistoryScan(path, before, limit, sessionId).finally(() => {
+      if (this.historyInflight.get(inflightKey) === run) this.historyInflight.delete(inflightKey);
+    });
+    this.historyInflight.set(inflightKey, run);
+    return run;
+  }
+  private async readHistoryScan(path: string, before: number | string, limit: number, sessionId?: string): Promise<HistoryEntry[]> {
+    const stat = await fs.stat(path);
+    const hit = this.historyCache.get(path);
+    if (
+      hit &&
+      hit.mtimeMs === stat.mtimeMs &&
+      hit.size === stat.size &&
+      hit.before === before &&
+      hit.limit === limit
+    ) {
+      freezeProbe("history_cache_hit", { session: sessionId, size: stat.size, before: String(before), limit });
+      return hit.entries;
+    }
+    freezeProbeHistoryScanStart({
+      session: sessionId,
+      file: basename(path),
+      size: stat.size,
+      before: String(before).slice(0, 40),
+      limit,
+    });
+    const started = Date.now();
+    try {
+      const entries = await readHistory(path, before, limit, this.vaultDir, sessionId);
+      this.historyCache.set(path, { mtimeMs: stat.mtimeMs, size: stat.size, before, limit, entries });
+      freezeProbeHistoryScanEnd({ session: sessionId, size: stat.size, ms: Date.now() - started, rows: entries.length });
+      return entries;
+    } catch (error) {
+      freezeProbeHistoryScanEnd({ session: sessionId, size: stat.size, ms: Date.now() - started, failed: 1 });
+      throw error;
+    }
+  }
+  private sessionSecrets(sessionId: string): RevealedSecret[] {
+    try { return revealRedactionSecrets(this.vaultDir, sessionId); }
+    catch { return []; }
+  }
+  private sessionFileExclusive(
+    sessionId: string,
+    runtimeToken: unknown = this.sessionRuntimeToken(sessionId),
+  ): ExclusiveSessionWork {
+    // Direct host-owned file mutations establish a lifecycle lazily; delayed
+    // retries always pass their captured token and therefore never take this
+    // path after reclaim.
+    if (runtimeToken === undefined && !this.closed
+      && !this.sessionRuntimeTearingDown.has(sessionId)
+      && !this.sessionDeletionInProgress.has(sessionId)
+      && !this.sessionRuntimeTombstones.has(sessionId)) {
+      runtimeToken = this.beginSessionRuntime(sessionId);
+    }
+    // Late settle/redaction continuations are harmless during teardown, but
+    // must not recreate a barrier after its safe drain below.
+    if (!this.sessionRuntimeTokenIsCurrent(sessionId, runtimeToken)) {
+      return async <T>(_work: () => Promise<T>): Promise<T> => undefined as T;
+    }
+    const existing = this.sessionFileBarriers.get(sessionId);
+    if (existing) return existing;
+    const created = createSessionWriteBarrier();
+    this.sessionFileBarriers.set(sessionId, created);
+    return created;
+  }
+  private canRewriteSessionFile(sessionId: string): boolean {
+    if (this.closed || this.sessionRuntimeTearingDown.has(sessionId)
+      || this.sessionDeletionInProgress.has(sessionId)
+      || this.sessionRuntimeTombstones.has(sessionId)) return false;
+    const live = this.live.get(sessionId);
+    if (live && this.liveProcessUsable(live)) return this.isSessionQuiet(sessionId);
+    return !this.queue.isBusy(sessionId) && this.queue.listQueue(sessionId).length === 0;
+  }
+  /**
+   * JSONL rewrite only needs the main turn idle. Background workers write their
+   * own session files, so stopping the parent Pi here used to kill them and
+   * leave the panel stuck on 运行中.
+   */
+  private async confirmSessionFileIdle(sessionId: string): Promise<boolean> {
+    if (this.closed || this.sessionRuntimeTearingDown.has(sessionId)
+      || this.sessionDeletionInProgress.has(sessionId)
+      || this.sessionRuntimeTombstones.has(sessionId)) return false;
+    const live = this.live.get(sessionId);
+    if (!live || !this.liveProcessUsable(live)) return true;
+    return this.isSessionQuiet(sessionId);
+  }
+  private sessionHasLiveAgents(sessionId: string): boolean {
+    return [...this.agents.values()].some(
+      (agent) => agent.sessionId === sessionId && this.isLiveAgentState(agent.state),
+    );
+  }
+  /** Reconsider immediately when the exact durable agent projection starts/ends a live wave. */
+  private agentProjectionChanged(sessionId: string | undefined): void {
+    if (!sessionId) return;
+    // Some narrow host-test fakes intentionally implement only dispose(); the
+    // production scheduler owns this method, while legacy fakes may omit it.
+    this.live.get(sessionId)?.compaction.liveAgentStateChanged?.();
+  }
+  private interruptSessionLiveAgents(sessionId: string, reason: string): void {
+    for (const agent of [...this.agents.values()]) {
+      if (agent.sessionId !== sessionId || !this.isLiveAgentState(agent.state)) continue;
+      this.forceAbortAgent(agent, reason);
+    }
+  }
+  private async closeQuietSessionWriter(sessionId: string): Promise<boolean> {
+    const live = this.live.get(sessionId);
+    if (!live || !this.liveProcessUsable(live)) return true;
+    if (!this.isSessionQuiet(sessionId)) return false;
+    if (this.sessionHasLiveAgents(sessionId)) return false;
+    live.exiting = true;
+    live.compaction.dispose();
+    await this.stopLiveProcess(live);
+    await (live.exit ?? Promise.resolve());
+    if (this.childStillRunning(live.process)) return false;
+    if (this.live.get(sessionId) === live) this.live.delete(sessionId);
+    this.interruptSessionLiveAgents(sessionId, "会话 writer 关闭时中断后台工人");
+    return true;
+  }
+  private refreshLiveRedactors(sessionId: string): void {
+    const live = this.live.get(sessionId);
+    if (!live?.streamRedactors) return;
+    const secrets = this.sessionSecrets(sessionId);
+    for (const bag of [live.streamRedactors.text, live.streamRedactors.thinking, live.streamRedactors.tool]) {
+      for (const redactor of bag.values()) redactor.replaceSecrets(secrets);
+    }
+    if (live.streamedAssistantText) live.streamedAssistantText = redactText(live.streamedAssistantText, secrets);
+    if (live.streamedAssistantThinking) live.streamedAssistantThinking = redactText(live.streamedAssistantThinking, secrets);
+  }
+  private publishSessionSecretRedact(sessionId: string, path: string): void {
+    if (!existsSync(path)) return;
+    const messages: Array<{ id: string; role?: HistoryEntry["role"]; content: string; thinking?: string; tools?: HistoryTool[] }> = [];
+    for (const line of readFileSync(path, "utf8").split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let row: unknown;
+      try { row = JSON.parse(trimmed); } catch { continue; }
+      const entry = visibleHistoryEntry(row, []);
+      if (!entry) continue;
+      const marked = hasSecretPlaceholder(entry.content)
+        || hasSecretPlaceholder(entry.thinking)
+        || (entry.tools?.some((tool) => hasSecretPlaceholder(tool.input)) ?? false);
+      if (!marked) continue;
+      messages.push({
+        id: entry.id,
+        role: entry.role,
+        content: entry.content,
+        ...(entry.thinking ? { thinking: entry.thinking } : {}),
+        ...(entry.tools ? { tools: entry.tools } : {}),
+      });
+    }
+    if (messages.length === 0) return;
+    this.stream({ type: "secret_redact", sessionId, messages });
+  }
+  private async rewriteSessionSecrets(
+    sessionId: string,
+    runtimeToken?: unknown,
+  ): Promise<void> {
+    this.assertSessionRuntimeToken(sessionId, runtimeToken);
+    const secrets = this.sessionSecrets(sessionId);
+    if (secrets.length === 0) return;
+    const path = this.live.get(sessionId)?.path ?? (await this.findSession(sessionId).catch(() => undefined))?.path;
+    this.assertSessionRuntimeToken(sessionId, runtimeToken);
+    if (!path) throw new Error("session file unavailable for redaction");
+    const result = await redactSessionJsonl(path, secrets);
+    this.assertSessionRuntimeToken(sessionId, runtimeToken);
+    this.historyCache.delete(path);
+    if (result.changed) this.publishSessionSecretRedact(sessionId, path);
+  }
+  private requestSessionRedact(
+    sessionId: string,
+    runtimeToken: unknown = this.sessionRuntimeToken(sessionId),
+  ): void {
+    if (!this.sessionRuntimeTokenIsCurrent(sessionId, runtimeToken)) return;
+    this.sessionRedact.request(sessionId, runtimeToken);
+  }
+  private async flushSessionRedact(
+    sessionId: string,
+    runtimeToken: unknown = this.sessionRuntimeToken(sessionId),
+  ): Promise<void> {
+    if (!this.sessionRuntimeTokenIsCurrent(sessionId, runtimeToken)) return;
+    await this.sessionFileExclusive(sessionId, runtimeToken)(() => this.sessionRedact.flush(sessionId, runtimeToken));
+  }
+  private async redactSessionFile(sessionId: string): Promise<void> {
+    // Vault puts may target a session that never spawned (no token yet). Match
+    // sessionFileExclusive's lazy establishment: a never-started session is a
+    // valid redaction target, while a torn-down/tombstoned one is not.
+    let runtimeToken = this.sessionRuntimeToken(sessionId);
+    if (runtimeToken === undefined && !this.closed
+      && !this.sessionRuntimeTearingDown.has(sessionId)
+      && !this.sessionDeletionInProgress.has(sessionId)
+      && !this.sessionRuntimeTombstones.has(sessionId)) {
+      runtimeToken = this.beginSessionRuntime(sessionId);
+    }
+    if (!this.sessionRuntimeTokenIsCurrent(sessionId, runtimeToken)) return;
+    this.requestSessionRedact(sessionId, runtimeToken);
+    await this.flushSessionRedact(sessionId, runtimeToken);
+  }
+  private requestSessionEnvRefresh(
+    sessionId: string,
+    runtimeToken: unknown = this.sessionRuntimeToken(sessionId),
+  ): void {
+    if (!this.sessionRuntimeTokenIsCurrent(sessionId, runtimeToken)) return;
+    this.sessionEnvRefresh.request(sessionId, runtimeToken);
+  }
+  private async flushSessionEnvRefresh(
+    sessionId: string,
+    runtimeToken: unknown = this.sessionRuntimeToken(sessionId),
+  ): Promise<void> {
+    if (!this.sessionRuntimeTokenIsCurrent(sessionId, runtimeToken)) return;
+    await this.sessionFileExclusive(sessionId, runtimeToken)(() => this.sessionEnvRefresh.flush(sessionId, runtimeToken));
+  }
+  private async refreshSessionChildEnv(sessionId: string): Promise<void> {
+    const runtimeToken = this.sessionRuntimeToken(sessionId);
+    if (!this.sessionRuntimeTokenIsCurrent(sessionId, runtimeToken)) return;
+    this.requestSessionEnvRefresh(sessionId, runtimeToken);
+    await this.flushSessionEnvRefresh(sessionId, runtimeToken);
+  }
+  private diagnoseVault(): VaultDiagnosis {
+    return memoryVaultDiagnosis();
+  }
+  private async dispatchVaultHostMethod(event: Record<string, unknown>, sessionId: string): Promise<unknown> {
+    const method = String(event.method ?? "");
+    const params = Array.isArray(event.params) ? event.params : [];
+    if (method === "listSecretVault") return this.handle("listSecretVault", [sessionId]);
+    if (method === "putSecretVault") {
+      const input = { ...((params[0] && typeof params[0] === "object") ? params[0] as Record<string, unknown> : {}), sessionId };
+      return this.handle("putSecretVault", [input]);
+    }
+    if (method === "mountSecretVault") return this.handle("mountSecretVault", [sessionId, params[1] ?? params[0], params[2]]);
+    if (method === "unmountSecretVault") return this.handle("unmountSecretVault", [sessionId, params[1] ?? params[0]]);
+    if (method === "deleteSecretVault") return this.handle("deleteSecretVault", [params[0]]);
+    throw new Error(`unsupported vault host method ${method}`);
+  }
+  private async confirmSessionMeta(meta: SessionMeta): Promise<SessionMeta> {
+    try {
+      if ((await fs.stat(meta.path)).size > SESSION_MANAGER_MAX_BYTES)
+        return meta;
+      const { SessionManager } = await loadSessionManager();
+      const manager = SessionManager.open(meta.path);
+      const header = manager.getHeader();
+      if (!header) return meta;
+      const entries = manager.getEntries() as any[];
+      const last = entries.at(-1);
+      return {
+        ...meta,
+        header,
+        name: manager.getSessionName() ?? meta.name,
+        updatedAt: last?.timestamp ? asTime(last.timestamp) : meta.updatedAt,
+        model: sessionModelFromRows(entries) ?? meta.model,
+        thinkingLevel: sessionThinkingLevelFromRows(entries) ?? meta.thinkingLevel,
+      };
+    } catch (error) {
+      console.warn(
+        `[pipi-backend] SessionManager metadata fallback for ${meta.path}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return meta;
+    }
+  }
+  /** Resolve a session's model: in-memory snapshot (set this host run, may not be flushed yet) wins over the JSONL probe. */
+  private sessionModelOf(s: SessionMeta): { provider: string; modelId: string } | null {
+    const inMemory =
+      this.sessionModelStates.get(s.header.id) ??
+      this.sessionModelSnapshots.get(s.header.id);
+    if (inMemory) {
+      const m = inMemory.model;
+      if (m.provider !== "unknown" && m.id !== "unknown")
+        return { provider: m.provider, modelId: m.id };
+    }
+    return s.model ?? null;
+  }
+  /**
+   * Model to spawn a session with: an in-memory selection wins; a cold session
+   * restores its JSONL `model_change` (per-session binding); only sessions with
+   * no model record inherit the configured global default.
+   */
+  private desiredModelFor(s: SessionMeta): ModelState {
+    const inMemory =
+      this.sessionModelStates.get(s.header.id) ??
+      this.sessionModelSnapshots.get(s.header.id);
+    if (inMemory) return inMemory;
+    const base = this.modelState;
+    const ref = this.sessionModelOf(s);
+    if (!ref) {
+      if (s.thinkingLevel === undefined) return base;
+      return {
+        ...base,
+        thinkingLevel: resolveThinkingLevel(s.thinkingLevel, base.availableThinkingLevels, base.thinkingLevel) ?? "off",
+      };
+    }
+    const known = this.models.find(
+      (m) => m.provider === ref.provider && m.id === ref.modelId,
+    );
+    const model: Model = known ?? {
+      provider: ref.provider,
+      id: ref.modelId,
+      name: ref.modelId,
+      reasoning: true,
+    };
+    const availableThinkingLevels = thinkingLevelsForModel(model);
+    return {
+      ...base,
+      model,
+      thinkingLevel: resolveThinkingLevel(s.thinkingLevel ?? base.thinkingLevel, availableThinkingLevels, base.thinkingLevel) ?? "off",
+      availableThinkingLevels,
+    };
+  }
+  private project(path: string, names = this.projectNames): Project {
+    return { id: dirId(path), name: displayNameFor(path, names), path };
+  }
+  private async loadConfiguredModels(): Promise<void> {
+    if (this.modelsLoaded) return this.modelsLoaded;
+    this.modelsLoaded = (async () => {
+      let settings: any = {},
+        catalog: any = {};
+      try {
+        settings = JSON.parse(
+          await fs.readFile(join(this.agentDir, "settings.json"), "utf8"),
+        );
+      } catch {}
+      try {
+        catalog = JSON.parse(
+          await fs.readFile(join(this.agentDir, "models.json"), "utf8"),
+        );
+      } catch {}
+      const configured: Model[] = [];
+      for (const [provider, config] of Object.entries<any>(
+        catalog.providers ?? {},
+      )) {
+        const key = config?.apiKey;
+        const available =
+          typeof key === "string" &&
+          key.trim() !== "" &&
+          (key.startsWith("$") ? Boolean(this.env[key.slice(1)]) : true);
+        if (!available) continue;
+        for (const model of config.models ?? [])
+          if (typeof model?.id === "string")
+            configured.push(hostModelFromPi(model, provider, config));
+      }
+      this.configuredModels = configured;
+      this.models = [...configured];
+      const preferred =
+        configured.find(
+          (model) =>
+            model.provider === settings.defaultProvider &&
+            model.id === settings.defaultModel,
+        ) ??
+        configured.find((model) => model.id === settings.defaultModel) ??
+        configured[0];
+      if (preferred) {
+        const availableThinkingLevels = thinkingLevelsForModel(preferred);
+        this.modelState = {
+          model: preferred,
+          thinkingLevel: resolveThinkingLevel(settings.defaultThinkingLevel ?? "off", availableThinkingLevels) ?? "off",
+          availableThinkingLevels,
+        };
+      }
+    })();
+    return this.modelsLoaded;
+  }
+  async handle(method: HostMethod, params: unknown[]): Promise<unknown> {
+    switch (method as HostMethod | "listExtensions" | "setExtensionEnabled" | "getExtensionSettings" | "updateExtensionSettings" | "invokeExtension" | "listExtensionData" | "readExtensionData" | "writeExtensionData" | "extensionUiResponse" | "uninstallExtension" | "getCapabilityGrant" | "confirmCapabilityGrant" | "getExtensionContributions" | "getExtensionUiEntrySource" | "getExtensionAuthStatus" | "beginExtensionLogin" | "logoutExtension" | "exportProductPackArchive" | "installProductPackArchive" | "installLocalProductPack" | "installExtensionZip") {
+      case "exportProductPackArchive":
+        return this.exportProductPackArchive(params[0], params[1], params[2]);
+      case "installProductPackArchive":
+        return this.installProductPackArchive(params[0], params[1]);
+      case "installExtensionZip":
+        return this.installExtensionZip(params[0], params[1]);
+      case "installLocalProductPack":
+        return this.installLocalProductPack(params[0], params[1]);
+      case "listProjects":
+        return this.listConfiguredProjects();
+      case "listSessionPage":
+        return this.listSessionPage(params[0], params[1], params[2]);
+      case "getSession":
+        return this.getProjectSession(params[0], params[1]);
+      case "preloadSession":
+        return this.preloadSession(params[0]);
+      case "getProjectPaths":
+        return [...(await this.loadProjectPaths())];
+      case "setProjectPaths":
+        return this.saveProjectPaths(params[0]);
+      case "addProject":
+        return this.addProject(params[0]);
+      case "removeProject":
+        return this.removeProject(params[0] as string);
+      case "renameProject":
+        return this.renameProject(params[0] as string, params[1]);
+      case "revealProject":
+        return this.revealProject(params[0] as string);
+      case "listUserMcpServers":
+        return this.listUserMcpServers(params[0]);
+      case "addUserMcpServer":
+        return this.addUserMcpServer(params[0], params[1], params[2]);
+      case "removeUserMcpServer":
+        return this.removeUserMcpServer(params[0], params[1]);
+      case "listExtensions":
+        return this.listExtensions(params[0]);
+      case "setExtensionEnabled":
+        return this.setExtensionEnabled(params[0], params[1], params[2], params[3]);
+      case "getExtensionSettings":
+        return this.getExtensionSettings(params[0], params[1]);
+      case "updateExtensionSettings":
+        return this.updateExtensionSettings(params[0], params[1], params[2]);
+      case "uninstallExtension":
+        return this.uninstallExtension(params[0], params[1]);
+      case "getCapabilityGrant":
+        return this.getCapabilityGrant(params[0], params[1]);
+      case "confirmCapabilityGrant":
+        return this.confirmCapabilityGrant(params[0], params[1], params[2]);
+      case "getExtensionContributions":
+        return this.getExtensionContributions(params[0], params[1]);
+      case "getExtensionUiEntrySource":
+        return this.getExtensionUiEntrySource(params[0], params[1], params[2]);
+      case "getExtensionAuthStatus":
+        return this.getExtensionAuthStatus(params[0], params[1]);
+      case "beginExtensionLogin":
+        return this.beginExtensionLogin(params[0], params[1]);
+      case "logoutExtension":
+        return this.logoutExtension(params[0]);
+      case "invokeExtension":
+        return this.invokeExtension(params[0], params[1], params[2], params[3]);
+      case "listExtensionData":
+        return this.listExtensionData(params[0], params[1], params[2]);
+      case "readExtensionData":
+        return this.readExtensionData(params[0], params[1], params[2], params[3]);
+      case "writeExtensionData":
+        return this.writeExtensionData(params[0], params[1], params[2], params[3]);
+      case "extensionUiResponse":
+        return this.extensionUiResponse(params[0], params[1], params[2]);      case "listDocuments":
+        return this.listOpenedDocuments();
+      case "readDocument":
+        return readLocalDocument(params[0]);
+      case "convertDocumentToMarkdown":
+        // Panel-side conversion when a renderer cannot show a document natively:
+        // convert locally with the bundled anydoc engine (no upload).
+        return convertDocumentFileToMarkdown(
+          typeof params[0] === "string" ? params[0] : "",
+          { anydocRoot: this.anydocRoot() },
+        ) ?? null;
+      case "writeDocument":
+        return this.writeOpenedDocument(params[0], params[1]);
+      case "setDocumentDirty":
+        this.setDocumentDirty(params[0], params[1]);
+        return undefined;
+      case "watchDocument":
+        this.rememberOpenedDocuments([params[0]]);
+        this.documentWatcher.setPath(typeof params[0] === "string" ? params[0].trim() : null);
+        return undefined;
+      case "unwatchDocument":
+        this.documentWatcher.stop();
+        return undefined;
+      case "notifyDocumentsDropped":
+        return this.notifyDocumentsDropped(params[0], params[1]);
+      case "notifyComposerDocumentsDropped":
+        return this.notifyComposerDocumentsDropped(params[0], params[1]);
+      case "stageInputFile":
+        return this.stageInputFile(params[0], params[1]);
+      case "listInputFiles":
+        return this.listInputFiles(params[0]);
+      case "removeInputFile":
+        return this.removeInputFile(params[0], params[1]);
+      case "retryInputFile":
+        return this.retryInputFile(params[0], params[1], params[2]);
+      case "cancelInputFile":
+        return this.cancelInputFile(params[0], params[1]);
+      case "setStructuredOutput":
+        return this.setStructuredOutput(params[0], params[1]);
+      case "listSessions": {
+        const pid = params[0] as string;
+        const paths = await this.loadProjectPaths();
+        if (!paths.some((path) => dirId(path) === pid))
+          throw new Error(`unknown project ${pid}`);
+        const all = await this.index();
+        const projectSessions = all.filter((s) => dirId(s.header.cwd) === pid);
+        const projectHome = this.lookupIsolatedHome(paths.find((path) => dirId(path) === pid) ?? "");
+        const workspaces = new Map<string, SessionWorkspace>();
+        if (projectHome) {
+          await Promise.all(projectSessions.map(async (s) => {
+            const workspace = await this.sessionWorkspaceDto(s.header.id, projectHome.realProjectRoot, projectHome.sessionsDir);
+            if (workspace) workspaces.set(s.header.id, workspace);
+          }));
+        }
+        return projectSessions
+          .map((s) => {
+            // A running Pi owns the newest in-memory session metadata. Its
+            // set_session_name acknowledgement can arrive before the JSONL
+            // stat/index pass observes the appended session_info row, so a
+            // list refresh must not re-publish the older cached title.
+            const live = this.live.get(s.header.id)?.session;
+            return {
+              id: s.header.id,
+              projectId: pid,
+              name: live?.name ?? s.name ?? "Session",
+              updatedAt: Math.max(s.updatedAt, live?.updatedAt ?? 0),
+              model: this.sessionModelOf(s),
+              ...(workspaces.has(s.header.id) ? { workspace: workspaces.get(s.header.id) } : {}),
+            };
+          })
+          .sort((a, b) => b.updatedAt - a.updatedAt);
+      }
+      case "newSession":
+        return this.newSession(
+          params[0] as string,
+          params[1] as string | undefined,
+        );
+      case "resumeSession": {
+        const s = await this.locate(params[0] as string);
+        const runtimeToken = this.beginSessionRuntime(s.header.id);
+        const { attempt } = await this.acquireSessionLease(s, runtimeToken);
+        let committed = false;
+        try {
+          await this.loadQueue(s.header.id, runtimeToken);
+          this.assertSessionRuntimeToken(s.header.id, runtimeToken);
+          committed = true;
+          return this.toSession(s);
+        } catch (error) {
+          if (!committed) await this.rollbackSessionLeaseAttempt(attempt);
+          throw error;
+        }
+      }
+      case "renameSession":
+        return this.renameSession(params[0] as string, params[1] as string);
+      case "deleteSession": {
+        const raw = params[0];
+        if (typeof raw !== "string" || !raw.trim()) throw new Error("缺少会话");
+        const id = raw.trim();
+        // Fence before locate/IO so late mutations reject immediately, even
+        // while teardown later waits on an older queue persistence write.
+        this.sessionDeletionInProgress.add(id);
+        this.turnTelemetry.fenceSession(id);
+        try {
+          const s = await this.locate(id);
+          // The runtime boundary revokes authority synchronously, aborts/settles
+          // in-flight work, and releases all transient state. Persistent deletion
+          // intentionally remains below so host shutdown can use the same cleanup
+          // without deleting a resumable session.
+          this.terminalSessionDeleted?.(s.header.id);
+          await this.teardownSessionRuntime(s.header.id);
+          await this.queueStore.remove(s.header.id);
+          await fs.rm(s.path);
+          // The extension-contribution sidecar is session-owned: it must not outlive the
+          // session. The helper only removes files this system itself wrote (canonical name,
+          // versioned snapshot shape) and never touches anything else in the directory.
+          removeContributionSnapshotSidecar({
+            sessionPath: s.path,
+            sessionsRoot: this.root,
+            agentDir: this.agentDir,
+          });
+          await removeSubagentDebugInfo(s.path);
+          // The workspace binding sidecar is session-owned: it must not outlive the session.
+          await clearSessionWorkspaceFile(dirname(s.path), s.header.id);
+          this.historyCache.delete(s.path);
+          this.indexCache.delete(s.path);
+          this.sessionById.delete(s.header.id);
+        } finally {
+          this.sessionDeletionInProgress.delete(id);
+          this.queue.finalizeSessionDisposal(id);
+          this.reclaimSessionRuntime(id);
+        }
+        return;
+      }
+      case "moveSession":
+        return this.moveSession(params[0] as string, params[1] as string);
+      case "setSessionWorkspace":
+        return this.setSessionWorkspace(params[0], params[1]);
+      case "clearSessionWorkspace":
+        return this.clearSessionWorkspace(params[0]);
+      case "sessionWorkspaceStatus":
+        return this.sessionWorkspaceStatus(params[0]);
+      case "getSessionHistory": {
+        const session = await this.findSession(params[0] as string);
+        const requestedBefore = params[1];
+        const requestedLimit = Number(params[2] ?? 500);
+        const numericBefore = Number(requestedBefore ?? 0);
+        const before = typeof requestedBefore === "string" && requestedBefore
+          ? requestedBefore
+          : Number.isFinite(numericBefore) ? Math.max(0, Math.floor(numericBefore)) : 0;
+        const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(500, Math.floor(requestedLimit))) : 500;
+        freezeProbeHistoryIpcStart({ session: session.header.id, before: String(before).slice(0, 40), limit });
+        const started = Date.now();
+        try {
+          const entries = await this.readHistoryCached(
+            session.path,
+            before,
+            limit,
+            session.header.id,
+          );
+          freezeProbeHistoryIpcEnd({ session: session.header.id, ms: Date.now() - started, rows: entries.length });
+          return entries;
+        } catch (error) {
+          freezeProbeHistoryIpcEnd({ session: session.header.id, ms: Date.now() - started, failed: 1 });
+          throw error;
+        }
+      }
+      case "getSessionLease": {
+        const s = await this.findSession(params[0] as string);
+        return this.leaseFor(s).query();
+      }
+      case "forceTakeoverSessionLease": {
+        const s = await this.locate(params[0] as string);
+        const runtimeToken = this.beginSessionRuntime(s.header.id);
+        return this.forceTakeoverSessionLease(s, runtimeToken);
+      }
+      case "sendPrompt":
+        return this.enqueueMessage(
+          params[0] as string,
+          params[1] as string,
+          params[2] as PromptAttachment[] | undefined,
+          params[3] as TurnTelemetryRendererSample | undefined,
+        );
+      case "listQueue":
+        await this.loadQueueForSession(params[0] as string);
+        return this.publicQueueItems(this.queue.listQueue(params[0] as string));
+      case "enqueueMessage":
+        return this.enqueueMessage(
+          params[0] as string,
+          params[1] as string,
+          params[2] as PromptAttachment[] | undefined,
+          params[3] as TurnTelemetryRendererSample | undefined,
+        );
+      case "updateQueuedMessage": {
+        const sessionId = params[0] as string;
+        const messageId = params[1] as string;
+        const input: {
+          text: string;
+          attachments?: PromptAttachment[];
+          turnTelemetry?: TurnTelemetryRendererSample;
+        } = { text: params[2] as string };
+        if (params.length > 3 && params[3] !== undefined)
+          input.attachments = params[3] as PromptAttachment[];
+        const runtimeToken = await this.loadQueueForSession(sessionId);
+        const current = this.queue.listQueue(sessionId)
+          .find((item) => item.id === messageId);
+        let freshTelemetry: TurnTelemetryRendererSample | undefined;
+        try {
+          if (params.length > 4) {
+            freshTelemetry = this.turnTelemetry.rendererSubmission(sessionId, params[4]);
+            if (freshTelemetry) input.turnTelemetry = freshTelemetry;
+          }
+          const updated = this.queue.updateMessage(sessionId, messageId, input, runtimeToken);
+          // The renderer sample belongs to the old text/attachments. Remove its
+          // pending host turn even when a replacement reuses the same turn id.
+          if (current?.turnTelemetry && current.turnTelemetry.turnId !== updated.turnTelemetry?.turnId) {
+            this.turnTelemetry.discardRendererSubmission(current.turnTelemetry.turnId);
+          }
+          if (freshTelemetry && updated.state === "queued") this.turnTelemetry.markQueued(freshTelemetry);
+          return this.publicQueueItem(updated);
+        } catch (error) {
+          // A rejected edit must not leave a renderer sample waiting for a turn
+          // that was never installed in the queue.
+          if (freshTelemetry) this.turnTelemetry.discardRendererSubmission(freshTelemetry.turnId);
+          throw error;
+        }
+      }
+      case "removeQueuedMessage": {
+        const sessionId = params[0] as string;
+        const runtimeToken = await this.loadQueueForSession(sessionId);
+        const removed = this.queue.removeMessage(sessionId, params[1] as string, runtimeToken);
+        if (removed.turnTelemetry) this.turnTelemetry.discardRendererSubmission(removed.turnTelemetry.turnId);
+        return this.publicQueueItem(removed);
+      }
+      case "promoteQueuedMessage": {
+        const sessionId = params[0] as string;
+        const runtimeToken = await this.loadQueueForSession(sessionId);
+        const promoted = this.queue.promoteMessage(
+          sessionId,
+          params[1] as string,
+          runtimeToken,
+        );
+        return this.publicQueueItem(promoted);
+      }
+      case "steerQueuedMessage": {
+        const sessionId = params[0] as string;
+        const runtimeToken = await this.loadQueueForSession(sessionId);
+        this.assertNotArchived(sessionId);
+        this.noteExplicitUserSend(sessionId);
+        const steered = await this.queue.steerMessage(
+          sessionId,
+          params[1] as string,
+          runtimeToken,
+        );
+        // Steer is a continuation of the current turn, not a new prompt;
+        // discard any queued renderer sample rather than leaving it pending.
+        if (steered.turnTelemetry) this.turnTelemetry.discardRendererSubmission(steered.turnTelemetry.turnId);
+        return this.publicQueueItem(steered);
+      }
+      case "cutInQueuedMessage": {
+        const sessionId = params[0] as string;
+        const runtimeToken = await this.loadQueueForSession(sessionId);
+        this.assertNotArchived(sessionId);
+        this.noteExplicitUserSend(sessionId);
+        const message = await this.cutInQueuedMessage(
+          sessionId,
+          params[1] as string,
+          runtimeToken,
+        );
+        return this.publicQueueItem(message);
+      }
+      case "retryQueuedMessage": {
+        const sessionId = params[0] as string;
+        const runtimeToken = await this.loadQueueForSession(sessionId);
+        this.assertNotArchived(sessionId);
+        this.noteExplicitUserSend(sessionId);
+        const retried = this.queue.retryMessage(
+          sessionId,
+          params[1] as string,
+          runtimeToken,
+        );
+        return this.publicQueueItem(retried);
+      }
+      case "stop":
+        {
+          const sessionId = params[0] as string;
+          await this.abortSessionTurn(sessionId, { drain: false });
+          return undefined;
+        }
+      case "queueFollowUp":
+        return this.prompt(params[0] as string, params[1] as string, true);
+      case "compact":
+        return this.compactSession(params[0] as string);
+      case "getHiddenModelIds":
+        return this.loadHiddenModelIds();
+      case "setHiddenModelIds":
+        return this.saveHiddenModelIds(params[0]);
+      case "getSidebarSessionPreferences":
+        return this.loadSidebarSessionPreferences();
+      case "setSidebarSessionPreferences":
+        return this.saveSidebarSessionPreferences(params[0]);
+      case "authProviders":
+        return this.auth.listProvidersCached();
+      case "beginProviderLogin":
+        return {
+          loginId: this.auth.beginLogin(
+            params[0] as string,
+            params[1] as AuthType,
+          ),
+        };
+      case "continueProviderLogin":
+        return this.auth.continueLogin(
+          params[0] as string,
+          params[1] as string | undefined,
+        );
+      case "cancelProviderLogin":
+        this.auth.cancelLogin(params[0] as string);
+        return;
+      case "removeProviderCredentials":
+        return this.removeProviderCredentials(params[0] as string);
+      case "addOpenAICompatibleProvider":
+        return this.addOpenAICompatibleProvider(params[0]);
+      case "listOpenAICompatibleModels":
+        return this.listOpenAICompatibleModels(params[0]);
+      case "testOpenAICompatibleModel":
+        return this.testOpenAICompatibleModel(params[0]);
+      case "getSubagentModels":
+        return this.loadAndMaterializeSubagentModels(true);
+      case "setSubagentModel":
+        return this.saveSubagentModel(params[0], params[1]);
+      case "getSubagentDebugInfo":
+        return this.getSubagentDebugInfo(params[0]);
+      case "getProduct":
+        return this.product;
+      case "getMemoryReviewModel":
+        return this.loadMemoryReviewModel();
+      case "setMemoryReviewModel":
+        return this.saveMemoryReviewModel(params[0]);
+      case "diagnoseSecretVault":
+        return this.diagnoseVault();
+      case "listSecretVault": {
+        const sessionId = String(params[0] ?? "");
+        return {
+          sessionId,
+          secrets: listSecretMeta(this.vaultDir),
+          mounts: listSessionMounts(this.vaultDir, sessionId),
+        };
+      }
+      case "putSecretVault": {
+        const input = params[0] as { name: string; envName: string; value: string; sessionId: string };
+        const secret = await putSecret(this.vaultDir, input);
+        const mount = await mountSecret(this.vaultDir, String(input.sessionId), secret.id);
+        this.requestSessionEnvRefresh(String(input.sessionId));
+        this.refreshLiveRedactors(String(input.sessionId));
+        await this.redactSessionFile(String(input.sessionId)).catch((error) => {
+          console.error("[secret-vault] session redaction failed", error);
+          throw error;
+        });
+        await this.flushSessionEnvRefresh(String(input.sessionId));
+        return { secret, mount, sessionId: input.sessionId };
+      }
+      case "mountSecretVault": {
+        const sessionId = String(params[0]);
+        const mount = await mountSecret(this.vaultDir, sessionId, String(params[1]), params[2] ? String(params[2]) : undefined);
+        await this.refreshSessionChildEnv(sessionId);
+        return { sessionId, mount };
+      }
+      case "unmountSecretVault": {
+        const sessionId = String(params[0]);
+        const removed = await unmountSecret(this.vaultDir, sessionId, String(params[1]));
+        await this.refreshSessionChildEnv(sessionId);
+        return { sessionId, removed };
+      }
+      case "deleteSecretVault": {
+        const affected = new Set([...Object.keys(loadVault(this.vaultDir).mounts), ...this.live.keys()]);
+        const deleted = await deleteSecret(this.vaultDir, String(params[0]));
+        for (const sessionId of affected) this.requestSessionEnvRefresh(sessionId);
+        for (const sessionId of affected) await this.flushSessionEnvRefresh(sessionId);
+        return { deleted };
+      }
+      case "listAgentDefinitions":
+        return this.listAgentDefinitions(params[0]);
+      case "listModels":
+        // Never straddle an in-flight canonical models write (project
+        // migration): hold on the write-queue tail first, then serve the
+        // (possibly refreshed) catalog. When the queue is idle this is a
+        // no-op turn and the loadModelCatalog cache shortcut still applies.
+        await this.awaitCanonicalModelsIdle();
+        await this.loadModelCatalog();
+        return this.models;
+      case "getModelState":
+        return this.getModelState(params[0] as string | undefined);
+      case "setModel":
+        if (params.length === 2)
+          return this.setConfiguredModel(params[0] as string, params[1] as string);
+        return this.setModel(
+          params[0] as string,
+          params[1] as string,
+          params[2] as string,
+        );
+      case "setThinkingLevel":
+        return this.setThinking(
+          params[0] as string,
+          params[1] as ThinkingLevel,
+        );
+      case "getSessionStats":
+        return this.getSessionStats(params[0] as string | undefined);
+      case "getQuotaSnapshot":
+        return this.getQuotaSnapshot(params[0] as string | undefined);
+      case "listAgents": {
+        const sessionId = params[0] as string | undefined;
+        const started = Date.now();
+        // Reconnect reconciliation: ensure a panel subscribeAgents / session
+        // reload sees the corrected terminal state even before the periodic
+        // orphan timer fires. This is the stale-threshold sweep (10min) run
+        // synchronously on read, using only stored lastObservedAt freshness.
+        if (sessionId) this.reconcileOrphanedNow(sessionId);
+        else this.reconcileAllOrphaned();
+        const rows = [...this.agents.values()].filter(
+          (agent) => !sessionId || agent.sessionId === sessionId,
+        );
+        const result = params[1] === "history" ? rows : this.currentAgentSummaries(rows);
+        freezeProbe("list_agents", {
+          session: sessionId ?? "all",
+          history: params[1] === "history" ? 1 : 0,
+          stored: this.agents.size,
+          rows: result.length,
+          ms: Date.now() - started,
+        });
+        const active = this.projectionDebugActive(sessionId);
+        this.projectionDebug("list_agents", {
+          session: this.projectionDebugSessionTag(sessionId),
+          history: params[1] === "history",
+          rows: result.length,
+          ...active,
+        });
+        return result;
+      }
+      case "getAgentLogs": {
+        const agentId = params[0] as string;
+        const sessionId = params[1] as string;
+        const runId = params[2] as string;
+        if (params[3] === "agent") {
+          const runs = [...this.agents.values()]
+            .filter(agent => agent.agentId === agentId && (agent.sessionId ?? "") === sessionId)
+            .sort((left, right) => (left.createdAt ?? 0) - (right.createdAt ?? 0) || left.runId.localeCompare(right.runId));
+          const logs: CachedAgentLog[] = [];
+          for (const run of runs) {
+            for (const entry of this.agentLogCache.get(this.agentLogKey(sessionId, agentId, run.runId)) ?? []) {
+              logs.push({ itemType: entry.itemType, text: entry.text, name: entry.name, isError: entry.isError, ...(entry.toolCallId ? { toolCallId: entry.toolCallId } : {}) });
+            }
+          }
+          return logs;
+        }
+        return this.agentLogCache.get(this.agentLogKey(sessionId, agentId, runId)) ?? [];
+      }
+      case "abortAgent": {
+        const [aSession, aAgentId, aRunId] = this.episodeWire("abortAgent", params);
+        return this.agentCommand(aSession, aAgentId, aRunId, "abort");
+      }
+      case "resolveAgent": {
+        const [resolveSession, resolveAgentId, resolveRunId] = this.episodeWire("resolveAgent", params);
+        return this.agentCommand(resolveSession, resolveAgentId, resolveRunId, "resolve");
+      }
+      case "checkAgent": {
+        const [checkSession, checkAgentId, checkRunId] = this.episodeWire("checkAgent", params);
+        return this.getAgentExact(checkSession, checkAgentId, checkRunId);
+      }
+      case "getWorktreeStatus": {
+        const [wtSession, wtAgentId, wtRunId] = this.episodeWire("getWorktreeStatus", params);
+        return this.getWorktree(wtSession, wtAgentId, wtRunId);
+      }
+      case "mergeWorktree": {
+        const [mSession, mAgentId, mRunId] = this.episodeWire("mergeWorktree", params);
+        return this.worktreeCommand(mSession, mAgentId, mRunId, "merge");
+      }
+      case "discardWorktree": {
+        const [dSession, dAgentId, dRunId] = this.episodeWire("discardWorktree", params);
+        return this.worktreeCommand(dSession, dAgentId, dRunId, "discard");
+      }
+      case "gitStatus":
+        return probeGit(await this.projectPath(params[0] as string));
+      case "gitCheckout":
+        return checkoutBranch(
+          await this.projectPath(params[0] as string),
+          params[1] as string,
+        );
+      case "probeDirectoryGit":
+        return probeGit(await this.pickedDirectory(params[0]));
+      case "gitInitDirectory":
+        return ensureLocalGitForWorktrees(await this.pickedDirectory(params[0]));
+      case "probeGitBinary":
+        return probeGitBinary();
+      case "getPlans":
+        return this.getPlans(params[0] as string | undefined);
+      case "capabilities":
+        return {
+          revealInFinder: true,
+          terminal: true,
+          git: true,
+          plan: this.planRuntimeAvailable(),
+          retainedWorktreeDisposition: false,
+          compact: true,
+        };
+    }
+  }
+  private rememberOpenedDocuments(input: unknown, sessionId?: string): void {
+    const paths = Array.isArray(input) ? input : [input];
+    const id = sessionId?.trim();
+    const sessionPaths = id
+      ? this.openedDocumentPathsBySession.get(id) ?? new Set<string>()
+      : undefined;
+    for (const raw of paths) {
+      if (typeof raw !== "string") continue;
+      const path = raw.trim();
+      if (!path || !isAbsolute(path) || !documentKindForName(path)) continue;
+      if (sessionPaths) sessionPaths.add(path);
+      else if (!this.openedDocumentPaths.includes(path)) this.openedDocumentPaths.push(path);
+    }
+    if (id && sessionPaths?.size) this.openedDocumentPathsBySession.set(id, sessionPaths);
+  }
+  private isOpenedDocument(path: string): boolean {
+    if (this.openedDocumentPaths.includes(path)) return true;
+    for (const sessionPaths of this.openedDocumentPathsBySession.values()) {
+      if (sessionPaths.has(path)) return true;
+    }
+    return false;
+  }
+  /**
+   * Panel save: only a document the host has already opened may be overwritten,
+   * so a renderer (which never sees paths) cannot be talked into writing
+   * somewhere else. A successful write clears the dirty mark.
+   */
+  private async writeOpenedDocument(rawPath: unknown, bytes: unknown): Promise<DocumentSummary> {
+    const path = typeof rawPath === "string" ? rawPath.trim() : "";
+    if (!path || !this.isOpenedDocument(path)) {
+      throw new DocumentReadError("document_not_open", "only a document opened in the panel can be written");
+    }
+    const summary = await writeLocalDocument(path, bytes);
+    this.dirtyDocumentPaths.delete(path);
+    return summary;
+  }
+  private setDocumentDirty(rawPath: unknown, dirty: unknown): void {
+    const path = typeof rawPath === "string" ? rawPath.trim() : "";
+    if (!path || !isAbsolute(path)) return;
+    if (dirty === true) this.dirtyDocumentPaths.add(path);
+    else this.dirtyDocumentPaths.delete(path);
+  }
+  private async listOpenedDocuments(): Promise<DocumentSummary[]> {
+    const out: DocumentSummary[] = [];
+    const paths = new Set<string>(this.openedDocumentPaths);
+    for (const sessionPaths of this.openedDocumentPathsBySession.values()) {
+      for (const path of sessionPaths) paths.add(path);
+    }
+    for (const path of paths) {
+      const kind = documentKindForName(path);
+      if (!kind) continue;
+      const dirty = this.dirtyDocumentPaths.has(path) ? { dirty: true } : {};
+      const active = this.documentWatcher.path === path ? { active: true } : {};
+      try {
+        const stat = await fs.stat(path);
+        out.push({ id: path, name: basename(path), path, kind, size: stat.size, updatedAt: stat.mtimeMs, ...dirty, ...active });
+      } catch {
+        out.push({ id: path, name: basename(path), path, kind, ...dirty, ...active });
+      }
+    }
+    return out;
+  }
+  /** Capability session only — never merge watcher paths or other sessions, never read body. */
+  private async listOpenedDocumentsForSession(sessionId: string): Promise<{ documents: Array<{
+    name: string;
+    kind: NonNullable<ReturnType<typeof documentKindForName>>;
+    path: string;
+    size?: number;
+    updatedAt?: number;
+    dirty?: boolean;
+    active?: boolean;
+  }> }> {
+    const documents: Array<{
+      name: string;
+      kind: NonNullable<ReturnType<typeof documentKindForName>>;
+      path: string;
+      size?: number;
+      updatedAt?: number;
+      dirty?: boolean;
+      active?: boolean;
+    }> = [];
+    const paths = this.openedDocumentPathsBySession.get(sessionId);
+    if (!paths?.size) return { documents };
+    for (const path of paths) {
+      const kind = documentKindForName(path);
+      if (!kind) continue;
+      const dirty = this.dirtyDocumentPaths.has(path) ? { dirty: true } : {};
+      // The watcher follows the panel's active tab, so it doubles as "which one is in front".
+      const active = this.documentWatcher.path === path ? { active: true } : {};
+      try {
+        const stat = await fs.stat(path);
+        documents.push({ name: basename(path), kind, path, size: stat.size, updatedAt: stat.mtimeMs, ...dirty, ...active });
+      } catch {
+        documents.push({ name: basename(path), kind, path, ...dirty, ...active });
+      }
+    }
+    return { documents };
+  }
+  /**
+   * The anydoc engine root, or `undefined` when no package provides one.
+   *
+   * The engine ships inside the `document-workbench` package, not the runtime:
+   * a base with no packages installed cannot convert Office documents locally,
+   * and saying so is the honest answer. Resolved from the loader so a project
+   * that installed the package into `.pi/agent/extensions/` gets its copy.
+   */
+  private anydocRoot(): string | undefined {
+    const directory = this.extensionLoader.directoryOf(DOCUMENT_WORKBENCH_EXTENSION_ID);
+    if (!directory) return undefined;
+    const root = join(directory, "anydoc");
+    return existsSync(root) ? root : undefined;
+  }
+  private documentInjectionOptions(source: "panel" | "composer") {
+    return { source, anydocRoot: this.anydocRoot() };
+  }
+  private async notifyDocumentsDropped(sessionId: unknown, paths: unknown): Promise<void> {
+    const list = Array.isArray(paths) ? paths.filter((item): item is string => typeof item === "string") : [];
+    const id = typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : undefined;
+    if (!id) {
+      console.warn("[document-drop] no active session; skip announce");
+      return;
+    }
+    const runtimeToken = this.beginSessionRuntime(id);
+    this.assertSessionRuntimeToken(id, runtimeToken);
+    const supported = list.map((item) => item.trim()).filter((item) => item && isAbsolute(item) && documentKindForName(item));
+    if (!supported.length) return;
+    // Panel open/preview/drop only registers a session-available resource.
+    // Do not read, convert, or queue prompt injection — that remains composer-only.
+    this.rememberOpenedDocuments(supported, id);
+  }
+  private async notifyComposerDocumentsDropped(sessionId: unknown, paths: unknown): Promise<void> {
+    if (typeof sessionId !== "string" || !sessionId.trim()) {
+      console.warn("[composer-docs] no active session; skip announce");
+      return;
+    }
+    const id = sessionId.trim();
+    const runtimeToken = this.beginSessionRuntime(id);
+    this.assertSessionRuntimeToken(id, runtimeToken);
+    const list = Array.isArray(paths) ? paths.filter((item): item is string => typeof item === "string") : [];
+    const supported = list.map((item) => item.trim()).filter((item) => item && isAbsolute(item) && documentKindForName(item));
+    if (!supported.length) return;
+    const injection = await buildDocumentsOpenedInjection(supported, this.documentInjectionOptions("composer"));
+    this.assertSessionRuntimeToken(id, runtimeToken);
+    if (!injection) return;
+    this.assertSessionRuntimeToken(id, runtimeToken);
+    this.documentInjections.setPending(id, injection, supported);
+  }
+  private async inputFilesAgentHome(sessionId: string): Promise<string> {
+    const cwd = this.live.get(sessionId)?.cwd ?? (await this.findSession(sessionId)).header.cwd;
+    if (this.profileMode === "isolated") {
+      const home = await this.ensureIsolatedProjectHome(cwd, { allowMissing: true });
+      if (home) return home.agentDir;
+    }
+    return projectPiAgentDir(cwd);
+  }
+  private resolveInputFilesModel(sessionId: string): Model | undefined {
+    const inMemory = this.sessionModelStates.get(sessionId) ?? this.sessionModelSnapshots.get(sessionId);
+    if (inMemory) return inMemory.model;
+    const meta = this.sessionById.get(sessionId);
+    if (meta) return this.desiredModelFor(meta).model;
+    return this.modelState.model;
+  }
+  private async inputFilesController(): Promise<InputFilesController> {
+    if (this.inputFiles) return this.inputFiles;
+    if (!this.inputFilesReady) {
+      this.inputFilesReady = (async () => {
+        const remote = this.inputFilesRemote;
+        this.inputFiles = new InputFilesController(
+          new JsonInputFileStore((sessionId) => this.inputFilesAgentHome(sessionId)),
+          remote,
+          (sessionId) => this.resolveInputFilesModel(sessionId),
+        );
+        return this.inputFiles;
+      })();
+    }
+    return this.inputFilesReady;
+  }
+  private assertInputFilesSessionAcceptingWork(sessionId: string): void {
+    if (this.sessionRuntimeTearingDown.has(sessionId)
+      || this.sessionDeletionInProgress.has(sessionId)
+      || this.sessionRuntimeTombstones.has(sessionId)) {
+      throw new Error("会话正在关闭");
+    }
+  }
+  private async stageInputFile(sessionId: unknown, file: unknown): Promise<InputFileAttachment> {
+    if (typeof sessionId !== "string" || !sessionId.trim()) throw new Error("缺少会话");
+    if (!file || typeof file !== "object" || Array.isArray(file)) throw new Error("缺少文件");
+    const id = sessionId.trim();
+    this.assertInputFilesSessionAcceptingWork(id);
+    const inputFiles = await this.inputFilesController();
+    // Controller initialization can cross the teardown fence; check once more
+    // before letting a late caller begin a new upload.
+    this.assertInputFilesSessionAcceptingWork(id);
+    return inputFiles.stage(id, file as InputFileStageRequest);
+  }
+  private async listInputFiles(sessionId: unknown): Promise<InputFileAttachment[]> {
+    if (typeof sessionId !== "string" || !sessionId.trim()) throw new Error("缺少会话");
+    return (await this.inputFilesController()).list(sessionId.trim());
+  }
+  private async removeInputFile(sessionId: unknown, attachmentId: unknown): Promise<InputFileAttachment[]> {
+    if (typeof sessionId !== "string" || !sessionId.trim()) throw new Error("缺少会话");
+    if (typeof attachmentId !== "string" || !attachmentId.trim()) throw new Error("缺少附件");
+    const id = sessionId.trim();
+    this.assertInputFilesSessionAcceptingWork(id);
+    const inputFiles = await this.inputFilesController();
+    this.assertInputFilesSessionAcceptingWork(id);
+    return inputFiles.remove(id, attachmentId.trim());
+  }
+  private async retryInputFile(sessionId: unknown, attachmentId: unknown, file?: unknown): Promise<InputFileAttachment> {
+    if (typeof sessionId !== "string" || !sessionId.trim()) throw new Error("缺少会话");
+    if (typeof attachmentId !== "string" || !attachmentId.trim()) throw new Error("缺少附件");
+    const id = sessionId.trim();
+    this.assertInputFilesSessionAcceptingWork(id);
+    const request = file && typeof file === "object" && !Array.isArray(file) ? file as InputFileStageRequest : undefined;
+    const inputFiles = await this.inputFilesController();
+    this.assertInputFilesSessionAcceptingWork(id);
+    return inputFiles.retry(id, attachmentId.trim(), request);
+  }
+  private async cancelInputFile(sessionId: unknown, attachmentId: unknown): Promise<InputFileAttachment> {
+    if (typeof sessionId !== "string" || !sessionId.trim()) throw new Error("缺少会话");
+    if (typeof attachmentId !== "string" || !attachmentId.trim()) throw new Error("缺少附件");
+    const id = sessionId.trim();
+    this.assertInputFilesSessionAcceptingWork(id);
+    const inputFiles = await this.inputFilesController();
+    this.assertInputFilesSessionAcceptingWork(id);
+    return inputFiles.cancel(id, attachmentId.trim());
+  }
+  private async structuredOutputController(): Promise<StructuredOutputController> {
+    if (this.structuredOutputs) return this.structuredOutputs;
+    if (!this.structuredOutputsReady) {
+      this.structuredOutputsReady = (async () => {
+        const loaded = this.structuredOutputNormalize
+          ? {
+            normalize: this.structuredOutputNormalize,
+            enabled: this.structuredOutputsEnabledFn,
+          }
+          : undefined;
+        if (!loaded?.normalize) throw new Error("当前环境未启用 Structured Outputs");
+        this.structuredOutputs = new StructuredOutputController(
+          loaded.normalize,
+          (sessionId) => this.resolveInputFilesModel(sessionId),
+          loaded.enabled ?? this.structuredOutputsEnabledFn,
+        );
+        return this.structuredOutputs;
+      })();
+    }
+    return this.structuredOutputsReady;
+  }
+  private async setStructuredOutput(sessionId: unknown, request: unknown): Promise<void> {
+    if (typeof sessionId !== "string" || !sessionId.trim()) throw new Error("缺少会话");
+    const id = sessionId.trim();
+    const runtimeToken = this.beginSessionRuntime(id);
+    this.assertSessionRuntimeToken(id, runtimeToken);
+    const ctl = await this.structuredOutputController();
+    this.assertSessionRuntimeToken(id, runtimeToken);
+    ctl.set(id, request);
+  }
+  /** Configured display path: project identity, settings keys, and returned `path`. */
+  private async configuredProject(projectId: string): Promise<Project> {
+    const projects = (await this.handle("listProjects", [])) as Project[];
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) throw new Error(`unknown project ${projectId}`);
+    return project;
+  }
+  /** Git operations run in a known project work tree only — never in an id-derived path. */
+  private async projectPath(projectId: string): Promise<string> {
+    return this.verifiedProjectRoot((await this.configuredProject(projectId)).path);
+  }
+  /**
+   * Add-project-time git probe/init run in a directory the user just picked in
+   * the native chooser — the same trust level as `addProject`. Still refuse
+   * anything that is not an existing absolute directory so a malformed value
+   * can never point git at an arbitrary file.
+   */
+  private async pickedDirectory(value: unknown): Promise<string> {
+    const path = typeof value === "string" ? value.trim() : "";
+    if (!path || !isAbsolute(path)) throw new Error("目录必须是绝对路径");
+    const stat = await fs.stat(path).catch(() => undefined);
+    if (!stat?.isDirectory()) throw new Error(`目录不存在或不是文件夹：${path}`);
+    return path;
+  }
+  /**
+   * Bring the runtime tree up to the shipped sources, then hand back its root for path
+   * resolution. Runs per spawn rather than once at startup: a host that installs only on launch
+   * hands a running dev app a frozen copy of PiExt/PiPhilosophy, so an edit there shows up in a
+   * rebuild and never in the live session. Warnings are emitted only when a refresh actually
+   * fails, so the common no-op path stays silent.
+   */
+  private refreshRuntimeTree(): string {
+    if (!this.runtimeAssets) return this.runtimeRoot;
+    const report = installRuntimeTree(this.runtimeAssets, this.runtimeRoot);
+    for (const failure of report.failures)
+      console.warn(`[pipi-install] ${failure}`);
+    return this.runtimeRoot;
+  }
+  /** `provider/model` for PIPIUI_MAIN_MODEL, so dispatched workers can size themselves against the main model. Unknown stays absent rather than guessed. */
+  private mainModelId(): string | undefined {
+    const m = this.modelState.model;
+    return m.provider === "unknown" && m.id === "unknown"
+      ? undefined
+      : `${m.provider}/${m.id}`;
+  }
+  private toSession(s: SessionMeta): Session {
+    return {
+      id: s.header.id,
+      projectId: dirId(s.header.cwd),
+      name: s.name ?? "Session",
+      updatedAt: s.updatedAt,
+      model: this.sessionModelOf(s),
+      ...(s.productProfile ? { productProfile: s.productProfile } : {}),
+    };
+  }
+  private leaseFor(s: { path: string; header: any }): LeaseManager {
+    let lease = this.leases.get(s.header.id);
+    if (!lease) {
+      lease = new LeaseManager({ sessionId: s.header.id, sessionPath: s.path });
+      this.leases.set(s.header.id, lease);
+    }
+    return lease;
+  }
+
+  /** Serialize lease ownership and map transitions, pruning idle lanes on release. */
+  private async withSessionLeaseOperation<T>(
+    sessionId: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.leaseOperationLanes.get(sessionId);
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    this.leaseOperationLanes.set(sessionId, current);
+    try {
+      if (previous) await previous;
+      return await operation();
+    } finally {
+      release();
+      if (this.leaseOperationLanes.get(sessionId) === current)
+        this.leaseOperationLanes.delete(sessionId);
+    }
+  }
+
+  /** Roll back only ownership installed by one host operation attempt. Caller holds the lane. */
+  private async rollbackSessionLeaseAttemptInLane(attempt: SessionLeaseAttempt | undefined): Promise<void> {
+    if (!attempt) return;
+    // A later acquisition generation means this attempt no longer owns the
+    // manager. In particular, never release a valid lease reused by another
+    // operation or a lease installed for a recreated lifecycle.
+    if (
+      attempt.acquired
+      && attempt.lease.isOwned
+      && attempt.lease.ownershipGeneration === attempt.ownershipGeneration
+    ) {
+      await attempt.lease.release().catch(() => undefined);
+    }
+    if (
+      attempt.installed
+      && this.leases.get(attempt.sessionId) === attempt.lease
+      && !attempt.lease.isOwned
+    ) {
+      this.leases.delete(attempt.sessionId);
+    }
+  }
+
+  /** Roll back only ownership installed by one host operation attempt. */
+  private async rollbackSessionLeaseAttempt(attempt: SessionLeaseAttempt | undefined): Promise<void> {
+    if (!attempt) return;
+    await this.withSessionLeaseOperation(
+      attempt.sessionId,
+      () => this.rollbackSessionLeaseAttemptInLane(attempt),
+    );
+  }
+
+  /** Acquire a session lease as part of the captured runtime lifecycle. */
+  private async acquireSessionLease(
+    session: { path: string; header: any },
+    runtimeToken: unknown,
+  ): Promise<{ status: LeaseStatus; attempt: SessionLeaseAttempt }> {
+    const sessionId = session.header.id as string;
+    this.assertSessionRuntimeToken(sessionId, runtimeToken);
+    return this.withSessionLeaseOperation(sessionId, async () => {
+      this.assertSessionRuntimeToken(sessionId, runtimeToken);
+      // Look up the manager only after waiting for earlier ownership work. A
+      // queued reuse must never retain a manager that rollback has detached.
+      const existing = this.leases.get(sessionId);
+      const lease = existing ?? this.leaseFor(session);
+      const installed = existing === undefined;
+      const beforeGeneration = lease.ownershipGeneration;
+      let status: LeaseStatus;
+      let attempt: SessionLeaseAttempt | undefined;
+      try {
+        status = await lease.acquire();
+        const metadata = (status as LeaseStatus & {
+          [LEASE_ACQUISITION_METADATA]?: LeaseAcquisitionMetadata;
+        })[LEASE_ACQUISITION_METADATA];
+        attempt = {
+          sessionId,
+          lease,
+          installed,
+          acquired: metadata?.acquired
+            ?? (lease.isOwned && lease.ownershipGeneration !== beforeGeneration),
+          ownershipGeneration: metadata?.ownershipGeneration ?? lease.ownershipGeneration,
+        };
+        // This is the lease-acquire linearization point. No host side effect may
+        // follow a revoke/deletion of the token captured by the caller.
+        this.assertSessionRuntimeToken(sessionId, runtimeToken);
+        if (!status.writable)
+          throw new Error(
+            `session is read-only: held by ${status.holder?.holder ?? "another writer"}`,
+          );
+        return { status, attempt };
+      } catch (error) {
+        // A failed acquire normally cannot claim a lease, but preserve the same
+        // ownership/map cleanup if a future implementation fails after claiming.
+        attempt ??= {
+          sessionId,
+          lease,
+          installed,
+          acquired: lease.isOwned && lease.ownershipGeneration !== beforeGeneration,
+          ownershipGeneration: lease.ownershipGeneration,
+        };
+        await this.rollbackSessionLeaseAttemptInLane(attempt);
+        throw error;
+      }
+    });
+  }
+
+  /** Force takeover as a lifecycle transaction, including rollback of a late reacquire. */
+  private async forceTakeoverSessionLease(
+    session: { path: string; header: any },
+    runtimeToken: unknown,
+  ): Promise<LeaseStatus> {
+    const sessionId = session.header.id as string;
+    this.assertSessionRuntimeToken(sessionId, runtimeToken);
+    return this.withSessionLeaseOperation(sessionId, async () => {
+      this.assertSessionRuntimeToken(sessionId, runtimeToken);
+      // Resolve the manager after lane admission so takeover cannot race a
+      // rollback that removed the previous manager from the backend map.
+      const existing = this.leases.get(sessionId);
+      const lease = existing ?? this.leaseFor(session);
+      const installed = existing === undefined;
+      const beforeGeneration = lease.ownershipGeneration;
+      let status: LeaseStatus;
+      let attempt: SessionLeaseAttempt | undefined;
+      try {
+        status = await lease.forceTakeover();
+        const metadata = (status as LeaseStatus & {
+          [LEASE_ACQUISITION_METADATA]?: LeaseAcquisitionMetadata;
+        })[LEASE_ACQUISITION_METADATA];
+        attempt = {
+          sessionId,
+          lease,
+          installed,
+          acquired: metadata?.acquired
+            ?? (lease.isOwned && lease.ownershipGeneration !== beforeGeneration),
+          ownershipGeneration: metadata?.ownershipGeneration ?? lease.ownershipGeneration,
+        };
+        this.assertSessionRuntimeToken(sessionId, runtimeToken);
+        if (!status.writable)
+          throw new Error(
+            `session is read-only: held by ${status.holder?.holder ?? "another writer"}`,
+          );
+        return status;
+      } catch (error) {
+        attempt ??= {
+          sessionId,
+          lease,
+          installed,
+          acquired: lease.isOwned && lease.ownershipGeneration !== beforeGeneration,
+          ownershipGeneration: lease.ownershipGeneration,
+        };
+        await this.rollbackSessionLeaseAttemptInLane(attempt);
+        throw error;
+      }
+    });
+  }
+
+  private async requireLease(
+    id: string,
+    runtimeToken: unknown = this.sessionRuntimeToken(id),
+  ): Promise<SessionLeaseAttempt> {
+    this.assertSessionRuntimeToken(id, runtimeToken);
+    const session = await this.locate(id);
+    this.assertSessionRuntimeToken(id, runtimeToken);
+    return (await this.acquireSessionLease(session, runtimeToken)).attempt;
+  }
+  private lookupIsolatedHome(projectRoot: string): IsolatedProjectHome | undefined {
+    return this.isolatedHomes.get(projectRoot) ?? this.isolatedHomes.get(resolve(projectRoot));
+  }
+  private rememberIsolatedHome(displayPath: string, home: IsolatedProjectHome): void {
+    this.isolatedHomes.set(displayPath, home);
+    this.isolatedHomes.set(resolve(displayPath), home);
+    this.isolatedHomes.set(home.realProjectRoot, home);
+    this.isolatedHomes.set(home.displayPath, home);
+  }
+  private isolatedProjectPaths(cwd: string): { agentDir?: string; sessionsRoot?: string } {
+    if (this.profileMode !== "isolated") return {};
+    const home = this.lookupIsolatedHome(cwd);
+    if (!home) return {};
+    return {
+      agentDir: home.agentDir,
+      sessionsRoot: home.sessionsDir,
+    };
+  }
+  private verifiedProjectRoot(displayOrCwd: string): string {
+    if (this.profileMode !== "isolated") return displayOrCwd;
+    return this.lookupIsolatedHome(displayOrCwd)?.realProjectRoot ?? displayOrCwd;
+  }
+  private migrateSharedModels(projectRoots: string[]): Promise<void> {
+    return this.modelsWrite.enqueue(async () => {
+      await migrateSharedProjectModels({ canonicalAgentDir: this.sharedProfileDir, projectRoots });
+    }).then(() => undefined);
+  }
+  private async ensureIsolatedProjectHome(
+    projectRoot: string,
+    options?: { migrate?: boolean; allowMissing?: boolean },
+  ): Promise<IsolatedProjectHome | undefined> {
+    if (this.profileMode !== "isolated") return undefined;
+    const cached = this.lookupIsolatedHome(projectRoot);
+    if (cached) {
+      if (options?.migrate !== false) {
+        await this.migrateSharedModels([cached.realProjectRoot]);
+      }
+      return cached;
+    }
+    await sanitizePiSettingsFile(join(this.agentDir, "settings.json")).catch(() => false);
+    let prepared: Awaited<ReturnType<typeof ensureProjectPiHome>>;
+    try {
+      prepared = await ensureProjectPiHome({
+        projectRoot,
+        credentialSeedDir: this.sharedProfileDir,
+        deferModelsMigration: true,
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        if (options?.allowMissing) return undefined;
+        throw new Error(`项目文件夹不存在：${projectRoot}`);
+      }
+      throw error;
+    }
+    const home: IsolatedProjectHome = {
+      displayPath: projectRoot,
+      realProjectRoot: prepared.realProjectRoot,
+      agentDir: prepared.agentDir,
+      sessionsDir: prepared.sessionsDir,
+    };
+    this.rememberIsolatedHome(projectRoot, home);
+    if (options?.migrate !== false) {
+      await this.migrateSharedModels([home.realProjectRoot]);
+    }
+    return home;
+  }
+  private async newSession(projectId: string, name?: string): Promise<Session> {
+    // Session creation needs only local configuration. The optional authenticated runtime
+    // catalog may involve network-backed provider discovery and must never gate a sidebar click.
+    await this.loadConfiguredModels();
+    this.applyManualModelSelection(await this.loadManualModelSelection());
+    this.applyManualThinkingLevel(await this.loadManualThinkingLevel());
+    const projects = (await this.handle("listProjects", [])) as Project[];
+    const p = projects.find((x) => x.id === projectId);
+    if (!p) throw new Error(`unknown project ${projectId}`);
+    const id = crypto.randomUUID();
+    const isolated = this.profileMode === "isolated"
+      ? await this.ensureIsolatedProjectHome(p.path)
+      : undefined;
+    const dir = isolated
+      ? isolated.sessionsDir
+      : join(this.root, encodeURIComponent(p.path));
+    await fs.mkdir(dir, { recursive: true });
+    const path = join(
+      dir,
+      `${new Date().toISOString().replace(/[:.]/g, "-")}_${id}.jsonl`,
+    );
+    const header = {
+      type: "session",
+      version: 3,
+      id,
+      timestamp: new Date().toISOString(),
+      cwd: p.path,
+    };
+    const projectRoot = isolated?.realProjectRoot ?? p.path;
+    // Join the scan lane: a project-less or other-project scan unloads this
+    // project's form, and stamping `base` here locks the composer as a mismatch.
+    const activePack = await this.withStableExtensionScan(projectRoot, () => this.activePackId(projectRoot));
+    const initialProductProfile = {
+      id: activePack,
+      fingerprint: productSpawnFingerprint(activePack, { registeredExtensions: [] }),
+    };
+    const lines = [JSON.stringify(header)];
+    lines.push(JSON.stringify({
+      type: "pipiui_product_profile",
+      profileId: initialProductProfile.id,
+      fingerprint: initialProductProfile.fingerprint,
+      extensions: [],
+    }));
+    if (name)
+      lines.push(
+        JSON.stringify({
+          type: "session_info",
+          id: crypto.randomUUID(),
+          parentId: null,
+          timestamp: new Date().toISOString(),
+          name,
+        }),
+      );
+    const inheritedThinking = this.modelState.thinkingLevel;
+    if (this.modelState.availableThinkingLevels.includes(inheritedThinking)) {
+      lines.push(
+        JSON.stringify({
+          type: "thinking_level_change",
+          id: crypto.randomUUID(),
+          parentId: null,
+          timestamp: new Date().toISOString(),
+          thinkingLevel: inheritedThinking,
+        }),
+      );
+    }
+    await fs.writeFile(path, lines.join("\n") + "\n");
+    const created = await fs.stat(path);
+    this.rememberSessionMeta(
+      {
+        path,
+        header,
+        name: name ?? "New session",
+        updatedAt: Date.now(),
+        thinkingLevel: this.modelState.availableThinkingLevels.includes(inheritedThinking)
+          ? inheritedThinking
+          : undefined,
+        productProfile: initialProductProfile,
+      },
+      created.size,
+      created.mtimeMs,
+    );
+    this.sessionModelSnapshots.set(id, this.modelState);
+    this.beginSessionRuntime(id);
+    return {
+      id,
+      projectId,
+      name: name ?? "New session",
+      updatedAt: Date.now(),
+      productProfile: initialProductProfile,
+    };
+  }
+  private async renameSession(sessionId: string, name: string): Promise<Session> {
+    const title = typeof name === "string" ? name.trim() : "";
+    if (!title || title.length > 120) throw new Error("session name must be 1-120 characters");
+    const session = await this.locate(sessionId);
+    const runtimeToken = this.beginSessionRuntime(sessionId);
+    const { attempt } = await this.acquireSessionLease(session, runtimeToken);
+    let committed = false;
+    this.manualTitleOverrides.add(sessionId);
+    const timestamp = new Date().toISOString();
+    const live = this.live.get(sessionId);
+    try {
+      if (live) {
+        await this.command(sessionId, { type: "set_session_name", name: title }, false, runtimeToken);
+        this.assertSessionRuntimeToken(sessionId, runtimeToken);
+        live.session = { ...live.session, name: title, updatedAt: Date.now() };
+        committed = true;
+      } else {
+        await this.sessionFileExclusive(sessionId, runtimeToken)(async () => {
+          this.assertSessionRuntimeToken(sessionId, runtimeToken);
+          const parentId = await lastJsonlEntryId(session.path);
+          this.assertSessionRuntimeToken(sessionId, runtimeToken);
+          await fs.appendFile(session.path, `${JSON.stringify({
+            type: "session_info",
+            id: crypto.randomUUID(),
+            parentId,
+            timestamp,
+            name: title,
+          })}\n`);
+          committed = true;
+        });
+        this.assertSessionRuntimeToken(sessionId, runtimeToken);
+      }
+
+      this.assertSessionRuntimeToken(sessionId, runtimeToken);
+      this.indexCache.delete(session.path);
+      const refreshed = await readSessionMeta(session.path);
+      const stat = await fs.stat(session.path);
+      this.assertSessionRuntimeToken(sessionId, runtimeToken);
+      this.indexCache.set(session.path, { size: stat.size, mtimeMs: stat.mtimeMs, meta: refreshed });
+      this.assertSessionRuntimeToken(sessionId, runtimeToken);
+      const renamed = live ? { ...live.session, name: title } : this.toSession(refreshed);
+      this.stream({ type: "session_title", sessionId, title, source: "manual" });
+      return renamed;
+    } catch (error) {
+      this.manualTitleOverrides.delete(sessionId);
+      if (!committed) await this.rollbackSessionLeaseAttempt(attempt);
+      throw error;
+    }
+  }
+  /**
+   * Move a session's real working directory. An idle live Pi is closed first so
+   * its in-memory cwd cannot disagree with the durable JSONL header; active or
+   * queued work is never moved underneath a running turn.
+   */
+  private async moveSession(sessionId: string, targetProjectId: string): Promise<Session> {
+    const paths = await this.loadProjectPaths();
+    const targetPath = paths.find(path => dirId(path) === targetProjectId);
+    if (!targetPath) throw new Error(`unknown project ${targetProjectId}`);
+    const session = await this.locate(sessionId);
+    if (dirId(session.header.cwd) === targetProjectId) return this.toSession(session);
+    const runtimeToken = this.beginSessionRuntime(sessionId);
+    await this.loadQueue(sessionId, runtimeToken);
+    this.assertSessionRuntimeToken(sessionId, runtimeToken);
+    if (this.ensureInFlight.has(sessionId) || this.queue.isBusy(sessionId) || this.queue.listQueue(sessionId).length > 0)
+      throw new Error("会话正在执行或仍有排队消息，暂时不能移动");
+    const live = this.live.get(sessionId);
+    if (live) {
+      if (!this.isSessionQuiet(sessionId)) throw new Error("会话正在执行，暂时不能移动");
+      live.compaction.dispose();
+      live.process?.stdin.end();
+      await Promise.race([
+        live.exit ?? Promise.resolve(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("等待会话停止超时，未移动")), 5_000)),
+      ]);
+    }
+    const { attempt } = await this.acquireSessionLease(session, runtimeToken);
+    try {
+      await rewriteSessionCwd(session.path, targetPath);
+      this.assertSessionRuntimeToken(sessionId, runtimeToken);
+      // Old-project contribution/path snapshot must not outlive a successful cwd change.
+      // Same helper as deleteSession: only versioned owned sidecars and our temps, never neighbors.
+      removeContributionSnapshotSidecar({
+        sessionPath: session.path,
+        sessionsRoot: this.root,
+        agentDir: this.agentDir,
+      });
+      await removeSubagentDebugInfo(session.path);
+      // A moved session's binding points into the old project's worktree area; drop it.
+      await clearSessionWorkspaceFile(dirname(session.path), sessionId);
+      this.indexCache.delete(session.path);
+      const moved = await readSessionMeta(session.path);
+      const stat = await fs.stat(session.path);
+      this.assertSessionRuntimeToken(sessionId, runtimeToken);
+      this.indexCache.set(session.path, { size: stat.size, mtimeMs: stat.mtimeMs, meta: moved });
+      this.assertSessionRuntimeToken(sessionId, runtimeToken);
+      return this.toSession(moved);
+    } finally {
+      // Moving is a short-lived file operation. Release only a lease this call
+      // claimed; a valid lease owned by another operation remains installed.
+      await this.rollbackSessionLeaseAttempt(attempt);
+    }
+  }
+  /**
+   * T17 parity: parse the configured agent profile's `.env` for Pi process injection.
+   * A missing/unreadable file is not an error — a GUI launch from Finder may have none.
+   */
+  private async readDotEnv(): Promise<Record<string, string>> {
+    try {
+      return parseDotEnv(await fs.readFile(join(this.agentDir, ".env"), "utf8"));
+    } catch {
+      return {};
+    }
+  }
+  private async ensure(id: string, expectedGeneration?: unknown): Promise<Live> {
+    const generation = expectedGeneration !== undefined
+      ? expectedGeneration
+      : this.sessionRuntimeToken(id) ?? this.beginSessionRuntime(id);
+    this.assertSessionGeneration(id, generation);
+    const live = this.live.get(id);
+    if (live && this.liveProcessUsable(live)) return live;
+    if (live && !this.liveProcessUsable(live)) {
+      await (live.exit ?? Promise.resolve());
+      this.assertSessionGeneration(id, generation);
+      if (this.live.get(id) === live) this.live.delete(id);
+      return this.ensure(id, generation);
+    }
+    const inFlight = this.ensureInFlight.get(id);
+    if (inFlight) return inFlight;
+    this.stopEscalation.cancel(id);
+    this.cutInStopEscalation.cancel(id);
+    // Archive = total death: transcript/detail reads use findSession/index
+    // paths and never reach here; anything that would implicitly respawn pi
+    // for an archived session is refused until the user unarchives it.
+    if (this.sidebarArchivedCache.has(id)) {
+      if (this.manualStopsLoaded) await this.manualStopsLoaded.catch(() => undefined);
+      if (this.sidebarPrefsLoaded) await this.sidebarPrefsLoaded.catch(() => undefined);
+      this.assertSessionGeneration(id, generation);
+      if (this.sidebarArchivedCache.has(id)) {
+        throw new Error("会话已归档：请先在侧栏取消归档，再继续该会话");
+      }
+    }
+    const attempt = this.spawnLive(id, generation).finally(() => {
+      this.ensureInFlight.delete(id);
+    });
+    this.ensureInFlight.set(id, attempt);
+    return attempt;
+  }
+  private async spawnLive(id: string, generation = this.sessionRuntimeToken(id)): Promise<Live> {
+    this.assertSessionGeneration(id, generation);
+    const found = await this.locate(id);
+    this.assertSessionGeneration(id, generation);
+    const rollback: Array<() => void | Promise<void>> = [];
+    let rollbackLive: Live | undefined;
+    let spawnedChild: ChildProcessWithoutNullStreams | undefined;
+    try {
+      const leaseAttempt = await this.acquireSessionLease(found, generation);
+      // Keep the lease until spawn commits. If any later acquisition/setup step
+      // fails, this guard releases only this invocation's claim.
+      rollback.push(() => this.rollbackSessionLeaseAttempt(leaseAttempt.attempt));
+      const session = this.toSession(found);
+      await this.loadConfiguredModels();
+      this.assertSessionGeneration(id, generation);
+      // Hosted-search exclusivity is capability-driven: the auth-aware catalog
+      // (official hosted-web enrichment + extension contributions) must be
+      // resident BEFORE the selected model is resolved for assemblePiSpawn and
+      // before the worker native-search file is materialized below. Best-effort:
+      // an unavailable runtime catalog must never block the spawn (configured
+      // rows still resolve). The bound covers the wedged case too — a catalog
+      // that never settles is unavailable, and startup may not hang on it.
+      try {
+        await Promise.race([
+          this.loadModelCatalog(),
+          new Promise<void>(resolve => {
+            const bound = setTimeout(resolve, SPAWN_CATALOG_WAIT_MS);
+            bound.unref?.();
+          }),
+        ]);
+      } catch {
+        /* runtime catalog unavailable → configured rows only */
+      }
+      this.assertSessionGeneration(id, generation);
+      const desired = this.desiredModelFor(found);
+      const previousModelSnapshot = this.sessionModelSnapshots.get(id);
+      const hadModelSnapshot = this.sessionModelSnapshots.has(id);
+      rollback.push(() => {
+        if (hadModelSnapshot) this.sessionModelSnapshots.set(id, previousModelSnapshot!);
+        else this.sessionModelSnapshots.delete(id);
+      });
+      this.sessionModelSnapshots.set(id, desired);
+      const bridgePort = await this.bridge.listen();
+      this.assertSessionGeneration(id, generation);
+      // Register cleanup first: an injected or future registration error may follow a partial map write.
+      rollback.push(() => this.bridge.unregister(id));
+      const sessionCapability = this.bridge.register(id);
+      await this.loadAndMaterializeSubagentModels();
+      this.assertSessionGeneration(id, generation);
+    // Provider search defaults are a property of the isolated profile home, not of any
+    // one extension: seeding them keeps a project usable the moment web access is enabled.
+    if (this.profileMode === "isolated") {
+      try {
+        await ensureWebSearchDefaults(this.agentDir);
+      } catch (error) {
+        console.warn(
+          `[pipiui] web-search defaults: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    this.assertSessionGeneration(id, generation);
+    const isolated = this.profileMode === "isolated"
+      ? await this.ensureIsolatedProjectHome(found.header.cwd)
+      : undefined;
+    this.assertSessionGeneration(id, generation);
+    // Identity anchor: always the canonical project root, even when a capability has bound
+    // this session to a workspace/worktree. Extension discovery stays rooted here.
+    const canonicalRoot = isolated?.realProjectRoot ?? found.header.cwd;
+    const registeredExtensions = await this.registeredExtensionsForSpawn(canonicalRoot);
+    // The kernel (host machinery) and the runtime layout (bundled catalogs, managed
+    // npm roots) are the only paths the host resolves itself; every capability mount
+    // arrives with `registeredExtensions`, already seed-overridden.
+    const runtimeTree = this.refreshRuntimeTree();
+    const kernelPaths = resolveKernelPaths(runtimeTree);
+    const runtimeLayout = resolveRuntimeLayout(runtimeTree, {
+      managedNodeModulesRoot: this.managedNodeModulesRoot,
+    });
+    this.assertSessionGeneration(id, generation);
+    // Computed once with both durable feeds resident; drives the in-child
+    // pi-goal auto-revival suppression.
+    const goalAutoResume = await this.goalAutoResumeForSpawn(id);
+    this.assertSessionGeneration(id, generation);
+    const activePack = await this.activePackId(canonicalRoot);
+    const productSpawn = resolveProductSpawnPlan({ packId: activePack, registeredExtensions });
+    const productProfile = {
+      id: activePack,
+      fingerprint: productSpawnFingerprint(activePack, productSpawn),
+    };
+    if (found.productProfile?.id !== productProfile.id
+      || found.productProfile.fingerprint !== productProfile.fingerprint) {
+      await fs.appendFile(found.path, `${JSON.stringify({
+        type: "pipiui_product_profile",
+        profileId: productProfile.id,
+        fingerprint: productProfile.fingerprint,
+        extensions: productSpawn.registeredExtensions
+          .filter(item => item.enabled)
+          .map(item => ({ id: item.id, version: item.version ?? "unknown" }))
+          .sort((a, b) => a.id.localeCompare(b.id)),
+      })}\n`, "utf8");
+      found.productProfile = productProfile;
+      const profileStat = await fs.stat(found.path);
+      this.rememberSessionMeta(found, profileStat.size, profileStat.mtimeMs);
+    }
+    this.assertSessionGeneration(id, generation);
+    // A capability-bound workspace (session worktree) redirects only the tool cwd;
+    // identity state stays at the canonical root via `projectRoot` → PIPIUI_PROJECT_ROOT.
+    const sessionWorkspace = await this.readUsableSessionWorkspace(id, canonicalRoot, isolated?.sessionsDir);
+    this.assertSessionGeneration(id, generation);
+    const spawnCwd = sessionWorkspace?.workspaceCwd ?? canonicalRoot;
+    const output = assemblePiSpawn({
+      sessionPath: found.path,
+      sessionId: id,
+      cwd: spawnCwd,
+      projectRoot: canonicalRoot,
+      runtimeRoot: this.runtimeRoot,
+      ...this.isolatedProjectPaths(found.header.cwd),
+      resourceMode: this.resourceMode,
+      kernel: kernelPaths,
+      runtime: runtimeLayout,
+      managedNodeModulesRoot: this.managedNodeModulesRoot,
+      mainModelId: this.mainModelId(),
+      memoryReviewModelId: (await this.loadMemoryReviewModel()) ?? undefined,
+      subagentModelsFile: this.subagentModelsRuntimeFile(),
+      subagentNativeSearchFile: this.nativeSearchRuntimeFile(),
+      subagentModelCatalogFile: this.subagentModelCatalogFile(),
+      model: desired.model,
+      bridgePort,
+      bridgeRoutingKey: id,
+      sessionCapability,
+      vaultDir: this.vaultDir,
+      registeredExtensions: productSpawn.registeredExtensions,
+      internalEnv: {
+        ...(goalAutoResume ? { [GOAL_AUTO_RESUME_ENV]: "blocked" } : {}),
+        ...(typeof this.product.agentMaxDepth === "number"
+          ? { PIPIUI_AGENT_MAX_DEPTH: String(this.product.agentMaxDepth) }
+          : {}),
+      },
+      goalAutoResume,
+    });
+      this.assertSessionGeneration(id, generation);
+      // Mount cleanup is registered before the write for the same partial-acquisition guarantee.
+      rollback.push(() => this.extensions.unmountSession(id));
+      // Hot-reload mount snapshot: which extension ids THIS child spawned with,
+      // so a later on-disk/state change can find the live sessions to restart.
+      const mountedExtensionIds = new Set(
+        productSpawn.registeredExtensions.filter((pkg) => pkg.enabled && pkg.extensionPath).map((pkg) => pkg.id),
+      );
+      this.extensions.mountSession(id, [...mountedExtensionIds]);
+      // close() may race a cache-first background resume before the child is
+      // inserted into `live`. Fail closed here so shutdown cannot miss a late Pi
+      // process or leave its session lease behind.
+      this.assertSessionGeneration(id, generation);
+      const dotEnv = await this.readDotEnv();
+      this.assertSessionGeneration(id, generation);
+      const child = this.proc(this.piCommand.executable, [
+        ...(this.piCommand.prefixArgs ?? []),
+        "--mode",
+        "rpc",
+        ...output.args,
+      ], {
+        cwd: spawnCwd,
+        // T17 parity: the configured agent profile's .env is layered under the internal host contract
+        // (and wins over the host process env), so env-key providers that `listModels`
+        // sees via the auth runtime resolve in the RPC session too.
+        env: withToolPath(
+          // Main Pi and UI share the host in-memory vault. Workers only inherit mounted env vars.
+          applySessionMountsToMainEnv(
+            mergedSpawnEnvironment(this.env, dotEnv, {
+              ...output.env,
+              ...(this.piCommand.env ?? {}),
+            }),
+            workerEnvFromVault(this.vaultDir, id),
+          ),
+          this.piCommand.executable,
+        ),
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      spawnedChild = child;
+      let resolveSpawnedChildExit!: () => void;
+      const spawnedChildExit = new Promise<void>((resolve) => {
+        resolveSpawnedChildExit = resolve;
+      });
+      child.once("close", resolveSpawnedChildExit);
+      rollback.push(async () => {
+        const live = rollbackLive;
+        if (live) {
+          // Rollback owns this child; its close callback must not project a
+          // terminal turn or trigger a queue drain for an uninstalled live.
+          live.exiting = true;
+          if (this.live.get(id) === live) this.live.delete(id);
+          live.compaction.dispose();
+          await this.stopLiveProcess(live).catch(() => undefined);
+          return;
+        }
+        await this.stopLiveProcess({ process: spawnedChild, exit: spawnedChildExit } as Live).catch(() => undefined);
+      });
+      let resolveExit!: () => void;
+    const exit = new Promise<void>((resolve) => {
+      resolveExit = resolve;
+    });
+    let live!: Live;
+      live = {
+        session,
+        runtimeToken: generation,
+        spawnInitializing: true,
+      path: found.path,
+      cwd: spawnCwd,
+      projectRoot: canonicalRoot,
+      process: child,
+      exit,
+      buffer: "",
+      stderrTail: "",
+      pending: new Map(),
+      followUps: [],
+      toolArgs: new Map(),
+      toolNames: new Map(),
+      messageEpoch: 0,
+      compaction: new ProactiveCompactionScheduler({
+        configuration: this.compactionConfiguration,
+        isIdle: () => this.isSessionQuiet(id),
+        hasLiveAgents: () => this.sessionHasLiveAgents(id),
+        shouldCompact: () => this.proactiveSummaryCompaction,
+        observer: (event) => {
+          // Same JSONL as the lifecycle events, always tagged proactive_idle.
+          const usage = event.usage;
+          const usagePercent =
+            typeof usage?.percent === "number"
+              ? usage.percent
+              : typeof usage?.tokens === "number" && typeof usage?.contextWindow === "number" && usage.contextWindow > 0
+                ? (usage.tokens / usage.contextWindow) * 100
+                : undefined;
+          const config = this.compactionConfiguration ?? STANDARD_PROACTIVE_COMPACTION;
+          this.compactionDiagnostics.record({
+            sessionId: id,
+            event: "scheduler_decision",
+            operation: "context_compaction",
+            trigger: "proactive_idle",
+            operationId: null,
+            decision: event.decision,
+            skipReason: event.skipReason,
+            ...(typeof usage?.tokens === "number" ? { contextTokens: usage.tokens } : {}),
+            ...(typeof usage?.contextWindow === "number" ? { contextWindow: usage.contextWindow } : {}),
+            ...(usagePercent !== undefined ? { usagePercent } : {}),
+            ...(event.requiredIdleMs !== undefined ? { requiredIdleMs: event.requiredIdleMs } : {}),
+            ...(event.remainingIdleMs !== undefined ? { remainingIdleMs: event.remainingIdleMs } : {}),
+            highWatermark: config.highWatermark,
+            lowWatermark: config.lowWatermark,
+          });
+        },
+        compact: () => {
+          // pi reports the scheduler's compact RPC as `reason: "manual"`; this
+          // intent is what lets compaction_start attribute it to proactive idle.
+          live.compactionIntent = "proactive_idle";
+          return this.command(id, { type: "compact" }, false, live.runtimeToken).finally(() => {
+            // Request/lifecycle ownership: pi emits `compaction_start`
+            // synchronously before doing any work and settles the compact RPC
+            // only after the whole lifecycle, so an intent still ours here was
+            // never consumed — the RPC failed (rejected, process died) without
+            // running anything. Clear it so it cannot paint the next manual
+            // compaction as proactive idle.
+            if (live.compactionIntent === "proactive_idle") live.compactionIntent = undefined;
+          });
+        },
+      }),
+      };
+      rollbackLive = live;
+      live.mountedExtensionIds = mountedExtensionIds;
+      this.live.set(id, live);
+      child.stdout.on("data", (chunk) => this.lines(live!, chunk.toString()));
+    child.stderr.on("data", (chunk) => {
+      live!.stderrTail = (live!.stderrTail + chunk.toString()).slice(-PI_STDERR_TAIL_LIMIT);
+    });
+    const failPending = (reason: Error) => {
+      for (const p of live!.pending.values()) p.reject(reason);
+      live!.pending.clear();
+    };
+    child.on("error", (error) => failPending(error));
+    child.on("close", (code, signal) => {
+      const reason = new PiExitedError(code, signal, live!.stderrTail);
+      live!.exitError = reason;
+      failPending(reason);
+      const lifecycleCurrent = this.sessionRuntimeTokenIsCurrent(id, live.runtimeToken);
+      if (lifecycleCurrent) {
+        this.bridge.unregister(id);
+        // Panels waiting on this session get an answer now; the poller is gone.
+        this.dropExtInvokes(id);
+        this.extensions.unmountSession(id);
+        this.toolBatchTelemetry.flushSession(id);
+        // Pi sometimes writes the final assistant message and exits without
+        // `agent_settled`. Without this the UI stays 进行中 forever. Rollback
+        // and teardown-owned closes are not completed turns.
+        if (!live.exiting && !live.spawnInitializing && this.queue.isBusy(id))
+          this.projectTurnTerminal(live, live.hostAbortedTurn ? "stopped" : "settled");
+      }
+      live.compaction.dispose();
+      // A dead writer cannot still be compacting; drop the drain gate so FIFO
+      // is not wedged waiting for a compaction_end that will never arrive.
+      if (lifecycleCurrent && !live.exiting && !live.spawnInitializing) this.queue.clearCompacting(id, live.runtimeToken);
+      const finish = () => {
+        const stillCurrent = this.live.get(id) === live;
+        if (stillCurrent) this.live.delete(id);
+        resolveExit();
+        if (!lifecycleCurrent || live.exiting || live.spawnInitializing) return;
+        this.reconcileOrphanedNow(id);
+        // A dead writer cannot still own the turn. Passing its (possibly
+        // stale) epoch into notifyIdle used to be ignored when the queue had
+        // minted a newer epoch, leaving FIFO parked with no process to settle.
+        // A replacement live may already own a newer turn — keep the epoch
+        // fence only in that case.
+        if (stillCurrent) void this.queueIdle(id, undefined, live.runtimeToken);
+        else void this.queueIdle(id, live.turnEpoch, live.runtimeToken);
+      };
+      // Keep the writer lease after Pi exits. Releasing here let another
+      // pipiui-electron (dev:browser, a second App) steal the file while this
+      // UI still looked writable, then the next send failed with
+      // "session is read-only: held by pipiui-electron".
+      finish();
+    });
+    this.assertSessionGeneration(id, generation);
+    if (desired.model.provider !== "unknown" && desired.model.id !== "unknown") {
+      await this.selectExactModel(live, desired.model.provider, desired.model.id);
+      this.assertSessionGeneration(id, generation);
+    }
+    const spawnThinkingLevel = resolveThinkingLevel(
+      desired.thinkingLevel,
+      desired.availableThinkingLevels,
+      this.modelState.thinkingLevel,
+    );
+    if (spawnThinkingLevel !== undefined) {
+      await this.command(id, {
+        type: "set_thinking_level",
+        level: spawnThinkingLevel,
+      });
+      this.assertSessionGeneration(id, generation);
+    }
+      await this.refreshState(live);
+      this.assertSessionGeneration(id, generation);
+      live.spawnInitializing = false;
+      return live;
+    } catch (error) {
+      for (const rollbackStep of rollback.reverse()) {
+        try {
+          await rollbackStep();
+        } catch {
+          /* preserve the spawn failure while every acquired resource is best-effort released */
+        }
+      }
+      throw error;
+    }
+  }
+  private lines(live: Live, chunk: string) {
+    if (this.projectionDebugEnabled()) this.projectionDebugLine(`[stream-debug] stdout session=${this.projectionDebugSessionTag(live.session.id)} t=${Date.now()} bytes=${chunk.length}`, "log");
+    live.buffer += chunk;
+    let at;
+    while ((at = live.buffer.indexOf("\n")) >= 0) {
+      const line = live.buffer.slice(0, at).replace(/\r$/, "");
+      live.buffer = live.buffer.slice(at + 1);
+      if (!line) continue;
+      try {
+        this.rpcEvent(live, JSON.parse(line));
+      } catch {
+        /* pi stderr is diagnostic, stdout malformed lines are ignored */
+      }
+    }
+  }
+  private rpcEvent(live: Live, e: Rpc) {
+    // stdout can still deliver after child close/teardown. The child carries
+    // the lifecycle identity it was born under; absence or mismatch rejects
+    // every late event before it can touch queue, telemetry, or projections.
+    if (!this.sessionRuntimeTokenIsCurrent(live.session.id, live.runtimeToken)) return;
+    try {
+      const model =
+        this.sessionModelStates.get(live.session.id)?.model
+        ?? this.sessionModelSnapshots.get(live.session.id)?.model
+        ?? this.modelState.model;
+      this.toolBatchTelemetry.observeRpc(e, {
+        sessionId: live.session.id,
+        provider: model?.provider,
+        model: model?.id,
+      });
+    } catch {
+      /* best-effort telemetry must not affect the live stream */
+    }
+    try {
+      this.turnTelemetry.observeRpc(live.session.id, e);
+    } catch {
+      /* timing telemetry is observational only */
+    }
+    if (this.extensionUi.handleRpc(live.session.id, e)) return;
+    if (e.type === "agent_event" || e.type === "pipiui_agent_event") {
+      this.mapAgentEvent(e.event ?? e, live.session.id);
+      return;
+    }
+    if (e.type === "response") {
+      const pending = live.pending.get(e.id);
+      if (pending) {
+        live.pending.delete(e.id);
+        e.success
+          ? pending.resolve(e.data)
+          : pending.reject(new Error(e.error ?? "pi RPC failed"));
+      }
+      return;
+    }
+    const id = live.session.id;
+    if (e.type === "agent_start") {
+      live.hostAbortedTurn = false;
+      live.compaction.cancel();
+      // Must be synchronous: fake-pi/real Pi emit agent_start and agent_settled
+      // in the same stdout chunk. An async markBusy lets the settle run with a
+      // stale epoch and drop the drain that should release the next queued item.
+      live.turnEpoch = this.queue.markBusy(id, live.runtimeToken);
+      live.lastTurnActivityAt = Date.now();
+      live.pendingFinalReconciliation = undefined;
+      // A fresh turn invalidates the previous turn's tool identities.
+      live.toolNames.clear();
+      if (!this.queueLoads.has(id)) {
+        // Load only for queue restoration; do not re-mark busy (second epoch would strand the turn).
+        void this.loadQueue(id, live.runtimeToken).catch((error) => {
+          console.warn(`[pipi-backend] agent_start queue load failed for ${id}: ${error instanceof Error ? error.message : String(error)}`);
+        });
+      }
+      const pendingFollowUps = live.followUps.length > 0
+        ? live.followUps
+        : live.pendingDrainPrompt
+          ? [live.pendingDrainPrompt]
+          : [];
+      live.pendingDrainPrompt = undefined;
+      live.streamedAssistantText = "";
+      live.streamedAssistantThinking = "";
+      this.stream({
+        type: "status",
+        sessionId: id,
+        status: "started",
+        pendingFollowUps,
+        turnEpoch: live.turnEpoch,
+      });
+    } else if (e.type === "agent_settled") {
+      this.requestSessionRedact(id, live.runtimeToken);
+      this.projectTurnTerminal(live, live.hostAbortedTurn ? "stopped" : "settled", true);
+    } else if (e.type === "agent_stopped" || e.type === "agent_error") {
+      this.requestSessionRedact(id, live.runtimeToken);
+      this.projectTurnTerminal(live, "stopped");
+    } else if (e.type === "auto_retry_start" || e.type === "auto_retry_end") {
+      // pi is retrying a failed provider call inside the running turn (or the
+      // retry loop just finished). Forward it: a silent backoff window — minutes
+      // with no visible output while queued messages correctly wait for the
+      // settle — otherwise reads to the user as a wedged queue. Redact the
+      // provider error text, matching the message_end error path.
+      const start = e.type === "auto_retry_start";
+      const retryError = redactText(
+        String(start ? (e.errorMessage ?? "") : (e.finalError ?? "")).slice(0, 200),
+        this.sessionSecrets(id),
+      );
+      this.stream({
+        type: "auto_retry",
+        sessionId: id,
+        phase: start ? "start" : "end",
+        ...(start && typeof e.attempt === "number" ? { attempt: e.attempt } : {}),
+        ...(start && typeof e.maxAttempts === "number" ? { maxAttempts: e.maxAttempts } : {}),
+        ...(start && typeof e.delayMs === "number" ? { delayMs: e.delayMs } : {}),
+        ...(start ? {} : { success: e.success === true }),
+        ...(retryError ? { error: retryError } : {}),
+      });
+    } else if (e.type === "compaction_start") {
+      live.compaction.compactionStarted();
+      // Must be synchronous: `loadQueue().then(markBusy)` raced enqueue/drain
+      // and let a prompt reach pi mid-compaction. The queue's compact gate is
+      // independent of turn epochs so restoreQueue cannot clear it.
+      const turnAlreadyHeld = this.queue.isBusy(id);
+      this.queue.markCompacting(id, live.runtimeToken);
+      if (!turnAlreadyHeld) {
+        live.compactionHoldsQueue = true;
+        if (!this.queueLoads.has(id)) {
+          void this.loadQueue(id, live.runtimeToken).catch((error) => {
+            console.warn(`[pipi-backend] compaction_start queue load failed for ${id}: ${error instanceof Error ? error.message : String(error)}`);
+          });
+        }
+      }
+      const trigger = classifyCompactionTrigger({
+        reason: typeof e.reason === "string" ? e.reason : undefined,
+        intent: live.compactionIntent,
+        // A streaming turn (not a pending prompt delivery, not the compaction
+        // gate this handler just armed) is what marks a threshold compaction as
+        // the mid-turn tool-loop guard's work.
+        busy: this.queue.isTurnActive(id),
+      });
+      live.activeCompaction = { operation: "context_compaction", trigger };
+      live.compactionIntent = undefined;
+      const diagnosticsId = `${id}:${++this.compactionOperationSeq}`;
+      const knownContext = this.sessionContextLastKnown.get(id);
+      live.compactionDiagnosticsClosedBySettle = undefined;
+      live.activeCompactionDiagnostics = {
+        operationId: diagnosticsId,
+        startedAt: Date.now(),
+        ...(knownContext ? { beforeTokens: knownContext.tokens } : {}),
+      };
+      this.compactionDiagnostics.record({
+        sessionId: id,
+        event: "compaction_start",
+        operation: "context_compaction",
+        trigger: trigger ?? "unclassified",
+        operationId: diagnosticsId,
+        ...(typeof e.reason === "string" ? { reason: e.reason } : {}),
+        ...(knownContext
+          ? {
+              contextTokens: knownContext.tokens,
+              contextWindow: knownContext.contextWindow,
+              ...(knownContext.percent !== null ? { usagePercent: knownContext.percent } : {}),
+            }
+          : {}),
+      });
+      this.stream({
+        type: "compaction",
+        sessionId: id,
+        phase: "start",
+        reason: typeof e.reason === "string" ? e.reason : undefined,
+        operation: "context_compaction",
+        ...(trigger ? { trigger } : {}),
+        executed: true,
+      });
+    } else if (e.type === "compaction_end") {
+      const aborted = e.aborted === true;
+      const error =
+        typeof e.errorMessage === "string" && e.errorMessage
+          ? e.errorMessage
+          : undefined;
+      const active = live.activeCompaction;
+      const trigger =
+        active?.operation === "context_compaction" && active.trigger
+          ? active.trigger
+          : classifyCompactionTrigger({
+              reason: typeof e.reason === "string" ? e.reason : undefined,
+              busy: this.queue.isTurnActive(id),
+            });
+      live.activeCompaction = undefined;
+      const diagnostics = live.activeCompactionDiagnostics;
+      live.activeCompactionDiagnostics = undefined;
+      if (live.compactionDiagnosticsClosedBySettle) {
+        live.compactionDiagnosticsClosedBySettle = undefined;
+      } else {
+        this.compactionDiagnostics.record({
+          sessionId: id,
+          event: "compaction_end",
+          operation: "context_compaction",
+          trigger: trigger ?? "unclassified",
+          success: !aborted && !error,
+          ...(aborted ? { aborted: true } : {}),
+          ...(error
+            ? {
+                error: redactText(error.slice(0, 200), this.sessionSecrets(id)),
+                errorKind: aborted ? "aborted" : "pi_compaction_error",
+              }
+            : {}),
+          ...(diagnostics
+            ? {
+                operationId: diagnostics.operationId,
+                durationMs: Date.now() - diagnostics.startedAt,
+                ...(diagnostics.beforeTokens !== undefined
+                  ? { beforeTokens: diagnostics.beforeTokens }
+                  : {}),
+              }
+            : {
+                decision: "missing_start",
+                skipReason: "missing_start",
+                errorKind: "missing_start",
+              }),
+        });
+      }
+      live.compaction.compactionFinished(!aborted && !error);
+      this.queue.clearCompacting(id, live.runtimeToken);
+      if (live.compactionHoldsQueue) {
+        live.compactionHoldsQueue = false;
+        void this.queueIdle(id, undefined, live.runtimeToken);
+      }
+      this.stream({
+        type: "compaction",
+        sessionId: id,
+        phase: "end",
+        reason: typeof e.reason === "string" ? e.reason : undefined,
+        aborted: aborted || undefined,
+        error,
+        operation: "context_compaction",
+        ...(trigger ? { trigger } : {}),
+        executed: true,
+      });
+      // Compaction reports null tokens/percent until the next assistant usage;
+      // refresh so the pill drops the stale number instead of showing 316k/200k.
+      void this.pushSessionStats(id);
+    } else if (e.type === "queue_update") {
+      // Follow-up list only. Emitting status:streaming here reopened a settled
+      // composer as 生成中 with no turn — the UI treats streaming as "busy now".
+      live.followUps = e.followUp ?? [];
+      live.compaction.reconsider();
+    } else if (e.type === "message_update") {
+      this.touchTurnActivity(live);
+      const d = e.assistantMessageEvent ?? {};
+      const secrets = this.sessionSecrets(id);
+      live.streamRedactors ??= { text: new Map(), thinking: new Map(), tool: new Map() };
+      const redactor = (kind: "text" | "thinking" | "tool", index: number) => {
+        const bag = live.streamRedactors![kind];
+        const existing = bag.get(index);
+        if (existing) return existing;
+        const created = new StreamRedactor(secrets);
+        bag.set(index, created);
+        return created;
+      };
+      if (d.type === "text_delta") {
+        const delta = redactor("text", d.contentIndex ?? 0).push(d.delta ?? "");
+        live.streamedAssistantText = (live.streamedAssistantText ?? "") + delta;
+        this.stream({
+          type: "text",
+          sessionId: id,
+          contentIndex: d.contentIndex ?? 0,
+          segment: live.messageEpoch,
+          delta,
+        });
+      }
+      if (d.type === "thinking_delta") {
+        const delta = redactor("thinking", d.contentIndex ?? 0).push(d.delta ?? "");
+        live.streamedAssistantThinking = (live.streamedAssistantThinking ?? "") + delta;
+        // Thinking arriving is the only evidence that the dial was ever consulted. A route
+        // whose selected level maps to no provider value reasons at the upstream default
+        // and reports nothing, so this is where that gets noticed rather than inferred.
+        // In-memory only: the write happens once per message, at message_end.
+        this.noteThinkingObserved(id, (d.delta ?? "").length);
+        this.stream({
+          type: "thinking",
+          sessionId: id,
+          contentIndex: d.contentIndex ?? 0,
+          segment: live.messageEpoch,
+          delta,
+        });
+      }
+      if (this.projectionDebugEnabled() && (d.type === "text_delta" || d.type === "thinking_delta"))
+        this.projectionDebugLine(`[stream-debug] emit ${d.type} session=${this.projectionDebugSessionTag(id)} t=${Date.now()} len=${(d.delta ?? "").length}`, "log");
+      if (d.type === "toolcall_start") {
+        // Name/id are stripped from RPC start/delta events. Emit a provisional
+        // card immediately so a long think is not followed by a silent wait
+        // until every toolcall_end arrives in one burst.
+        const index = d.contentIndex ?? 0;
+        if (!live.toolArgs.has(index)) live.toolArgs.set(index, "");
+        this.stream({
+          type: "tool_call",
+          sessionId: id,
+          contentIndex: index,
+          segment: live.messageEpoch,
+          toolCallId: `content-${index}`,
+          name: "tool",
+          delta: "",
+        });
+      } else if (d.type === "toolcall_delta") {
+        const index = d.contentIndex ?? 0;
+        const delta = redactor("tool", index).push(d.delta ?? "");
+        live.toolArgs.set(index, (live.toolArgs.get(index) ?? "") + delta);
+        this.stream({
+          type: "tool_call",
+          sessionId: id,
+          contentIndex: index,
+          segment: live.messageEpoch,
+          toolCallId: `content-${index}`,
+          name: "tool",
+          delta,
+        });
+      } else if (d.type === "toolcall_end") {
+        const index = d.contentIndex ?? 0;
+        const tail = live.streamRedactors?.tool.get(index)?.flush() ?? "";
+        live.streamRedactors?.tool.delete(index);
+        const buffered = (live.toolArgs.get(index) ?? "") + tail;
+        live.toolArgs.delete(index);
+        const call = d.toolCall ?? {};
+        const args =
+          call.arguments != null && typeof call.arguments === "object"
+            ? redactText(JSON.stringify(call.arguments), secrets)
+            : typeof call.arguments === "string"
+              ? redactText(call.arguments, secrets)
+              : buffered;
+        this.stream({
+          type: "tool_call",
+          sessionId: id,
+          contentIndex: index,
+          segment: live.messageEpoch,
+          toolCallId: call.id ?? `content-${index}`,
+          name: call.name ?? "tool",
+          delta: args,
+        });
+      }
+      if (isHostedAssistantEvent(d)) {
+        for (const event of projectHostedAssistantEvent(id, d, live.messageEpoch)) {
+          this.stream(event);
+        }
+      }
+    } else if (e.type === "message_end") {
+      this.touchTurnActivity(live);
+      const endingEpoch = live.messageEpoch;
+      const endedMessage = e.message ?? {};
+      // The idle-fold nudge rides in as a hidden custom message that triggers
+      // its own short turn. Recording that turn's epoch is what lets a later
+      // `context_manage` fold inside it be attributed to the idle scheduler;
+      // a fold in any other turn keeps an unconfirmed trigger.
+      if (
+        live.turnEpoch !== undefined &&
+        (endedMessage.customType === CONTEXT_MANAGE_NUDGE_CUSTOM_TYPE ||
+          (e as { customType?: unknown }).customType === CONTEXT_MANAGE_NUDGE_CUSTOM_TYPE)
+      ) {
+        live.nudgeTurnEpoch = live.turnEpoch;
+      }
+      const secrets = this.sessionSecrets(id);
+      if (endedMessage.role === "assistant") {
+        void this.persistAssistantUsage(id, endedMessage);
+        const flushed = [...(live.streamRedactors?.text.values() ?? [])].map((item) => item.flush()).join("");
+        live.streamRedactors?.text.clear();
+        // Tails count as already-streamed thinking so the catch-up below never re-emits them.
+        let thinkingFlushed = "";
+        live.streamRedactors?.thinking.forEach((item) => {
+          const tail = item.flush();
+          if (tail) {
+            thinkingFlushed += tail;
+            this.stream({ type: "thinking", sessionId: id, contentIndex: 0, segment: endingEpoch, delta: tail });
+          }
+        });
+        live.streamRedactors?.thinking.clear();
+        const fullText = redactText(assistantVisibleText(endedMessage.content), secrets);
+        const already = (live.streamedAssistantText ?? "") + flushed;
+        if (fullText && (!already || (fullText.startsWith(already) && fullText.length > already.length))) {
+          this.stream({
+            type: "text",
+            sessionId: id,
+            contentIndex: 0,
+            segment: endingEpoch,
+            delta: already ? fullText.slice(already.length) : fullText,
+          });
+        } else if (flushed) {
+          this.stream({ type: "text", sessionId: id, contentIndex: 0, segment: endingEpoch, delta: flushed });
+        }
+        live.streamedAssistantText = "";
+        // Thinking suffers the same dropped-delta failure mode as text but had no
+        // repair: a route that persists reasoning while streaming few or no
+        // thinking_delta (kimi k3 silent thinking) left the live turn without its
+        // thinking card until a history reload. Diff the final blocks the same way;
+        // redacted blocks read "[Reasoning redacted]", matching history rendering.
+        const thinkingBlocks = (Array.isArray(endedMessage.content) ? (endedMessage.content as { type?: string; thinking?: string; index?: number }[]) : [])
+          .map((part, contentIndex) =>
+            part?.type === "thinking"
+              ? { index: typeof part.index === "number" ? part.index : contentIndex, text: part.thinking ?? "" }
+              : undefined,
+          )
+          .filter((block): block is { index: number; text: string } => block != null);
+        const fullThinking = redactText(thinkingBlocks.map((block) => block.text).join(""), secrets);
+        const alreadyThinking = (live.streamedAssistantThinking ?? "") + thinkingFlushed;
+        if (fullThinking && fullThinking.startsWith(alreadyThinking) && fullThinking.length > alreadyThinking.length) {
+          // Interleaved turns carry several thinking blocks; per-block attribution
+          // for mid-turn losses is not attempted. The dominant failure is
+          // whole-turn loss, and the missing suffix is keyed to the last block so
+          // the reasoning still lands on a live card.
+          const target = thinkingBlocks[thinkingBlocks.length - 1];
+          this.stream({
+            type: "thinking",
+            sessionId: id,
+            contentIndex: target.index,
+            segment: endingEpoch,
+            delta: fullThinking.slice(alreadyThinking.length),
+          });
+        }
+        live.streamedAssistantThinking = "";
+        const citations = extractHistoryCitations(endedMessage, fullText);
+        if (citations.length) this.stream({ type: "citations", sessionId: id, citations });
+        const fileSources = extractHistoryFileSources(endedMessage);
+        if (fileSources.length) this.stream({ type: "input_file_sources", sessionId: id, sources: fileSources });
+        this.flushThinkingControl();
+      }
+      // A new message restarts content indexing; drop unclaimed tool buffers and
+      // bump the epoch so later thinking segments key apart from earlier ones.
+      live.toolArgs.clear();
+      live.messageEpoch++;
+      // Swift ingests user rows on message_end. Follow-ups such as [subagent-done]
+      // never go through sendPrompt, so without this the live transcript stays on
+      // the previous assistant turn and the composer looks falsely stuck.
+      const message = e.message ?? {};
+      if (message.role === "user" || isSubagentCompletion(message) || isSubagentCompletion(e)) {
+        const content = text(message.content ?? e.content);
+        if (content) {
+          // Pi echoes an injected steer back as a user message_end — that is
+          // the delivery receipt the steer ack alone never gives us.
+          if (message.role === "user") this.confirmUnconfirmedSteer(id, content);
+          this.stream({
+            type: "user_message",
+            sessionId: id,
+            id: typeof message.id === "string" ? message.id : typeof e.id === "string" ? e.id : undefined,
+            content: redactText(content, secrets),
+          });
+        }
+      }
+      // A failed turn still ends with a message_end whose assistant message has
+      // stopReason "error", an errorMessage, and no content — dropping it leaves
+      // the user a blank bubble. Forward it as a stream error so the UI can
+      // render the real provider failure (e.g. a Codex schema validation error).
+      if (message.stopReason === "error") {
+        const content =
+          typeof message.errorMessage === "string" && message.errorMessage
+            ? message.errorMessage
+            : undefined;
+        if (content) this.stream({ type: "error", sessionId: id, content: redactText(content, secrets) });
+        // message_end is the durable terminal boundary even when Pi omits the
+        // subsequent agent_settled event after a provider transport failure.
+        // Release the queue/composer immediately; the epoch fence makes a late
+        // agent_settled idempotent.
+        this.projectTurnTerminal(live, "stopped");
+      }
+      if (
+        message.role === "assistant"
+        && message.stopReason === "stop"
+        && !((Array.isArray(message.content) ? message.content : []).some((part: any) =>
+          part?.type === "toolCall" || part?.type === "tool_call" || part?.type === "tool_use"))
+      ) {
+        const epoch = live.turnEpoch;
+        const timestamp = asFinalAssistantTimestamp(message.timestamp);
+        const identity = timestamp !== undefined
+          ? {
+              timestamp,
+              ...(typeof message.responseId === "string" && message.responseId
+                ? { responseId: message.responseId }
+                : {}),
+            }
+          : undefined;
+        if (epoch !== undefined && identity) {
+          live.pendingFinalReconciliation = { epoch, identity };
+          this.projectionDebug("final_seen", {
+            session: this.projectionDebugSessionTag(id),
+            epoch,
+            terminalEpoch: live.terminalEpoch,
+            listeners: this.listeners.size,
+            ...this.projectionDebugActive(id),
+          });
+          void this.reconcileFinalAssistantTurn(live, epoch, identity);
+        }
+      }
+    } else if (e.type === "tool_execution_start") {
+      // Record the execution's tool identity so the fold check below can prove
+      // a result came from `context_manage` — the details shape alone is not
+      // proof; any tool could return a fold-shaped payload.
+      if (typeof e.toolCallId === "string" && typeof e.toolName === "string") {
+        live.toolNames.set(e.toolCallId, e.toolName);
+      }
+    } else if (e.type === "tool_execution_end") {
+      this.touchTurnActivity(live);
+      const { text: resultText, images } = extractResult(e.result?.content)
+      this.stream({
+        type: "tool_result",
+        sessionId: id,
+        toolCallId: e.toolCallId,
+        content: resultText,
+        images: images.length > 0 ? images : undefined,
+        isError: e.isError,
+        ...toolResultDetailsField(e.result),
+      });
+      // A successful `context_manage` fold (deterministic message rewrite, no
+      // summarizer) is a fold, not a compaction: pi emits no compaction
+      // lifecycle for it, so surface it here as `operation: "context_fold"` —
+      // never labeled 压缩 by the renderer. Identity is proven by the paired
+      // `tool_execution_start` (`toolCallId` → `context_manage`); the result's
+      // own `details` fingerprint (`{ status: "ok", foldedIds, llm: false }`)
+      // only says this execution really folded blocks.
+      const toolName = live.toolNames.get(e.toolCallId);
+      live.toolNames.delete(e.toolCallId);
+      const details = e.result && typeof e.result === "object" ? (e.result as { details?: unknown }).details : undefined;
+      if (
+        toolName === "context_manage" &&
+        e.isError !== true &&
+        details &&
+        typeof details === "object" &&
+        (details as { status?: unknown }).status === "ok" &&
+        (details as { llm?: unknown }).llm === false &&
+        Array.isArray((details as { foldedIds?: unknown }).foldedIds) &&
+        ((details as { foldedIds: unknown[] }).foldedIds.length > 0)
+      ) {
+        // Idle attribution is exact, not assumed: only a fold inside the nudge
+        // turn's own epoch (the idle-fold timer's shortcut) may claim
+        // `idle_fold`. A fold in any other turn — the agent tidying context on
+        // its own — reports the unconfirmed `auto_fold` trigger instead.
+        this.stream({
+          type: "compaction",
+          sessionId: id,
+          phase: "end",
+          operation: "context_fold",
+          trigger:
+            live.turnEpoch !== undefined && live.turnEpoch === live.nudgeTurnEpoch
+              ? "idle_fold"
+              : "auto_fold",
+          executed: true,
+        });
+      }
+    }
+  }
+  private projectTurnTerminal(live: Live, status: "settled" | "stopped", pushStats = false): boolean {
+    const epoch = live.turnEpoch;
+    if (epoch === undefined || live.terminalEpoch === epoch) return false;
+    live.terminalEpoch = epoch;
+    live.pendingFinalReconciliation = undefined;
+    this.turnTelemetry.terminal(live.session.id, status);
+    this.stopEscalation.cancel(live.session.id);
+    this.cutInStopEscalation.cancel(live.session.id);
+    // The durable agent index is authoritative at a terminal boundary. Replay
+    // its current session view so a renderer that missed an end event cannot
+    // retain a stale running projection. Real live agents remain live here;
+    // this does not clear or rewrite any agent state.
+    const replay = this.currentAgentSummaries(
+      [...this.agents.values()].filter(agent => agent.sessionId === live.session.id),
+    );
+    this.projectionDebug("terminal_replay", {
+      session: this.projectionDebugSessionTag(live.session.id),
+      epoch,
+      status,
+      rows: replay.length,
+      listeners: this.listeners.size,
+      ...this.projectionDebugActive(live.session.id),
+    });
+    for (const agent of replay) {
+      const key = this.agentKey(agent.agentId, agent.sessionId, agent.runId);
+      this.projectionDebug("agent_broadcast", {
+        source: "terminal_replay",
+        key: this.projectionDebugAgentTag(key),
+        state: agent.state,
+        provenance: this.projectionDebugProvenance.get(key) ?? "unknown",
+        listeners: this.listeners.size,
+      });
+      this.agent({ type: "agent", agent });
+    }
+    this.stream({
+      type: "status",
+      sessionId: live.session.id,
+      status,
+      pendingFollowUps: live.followUps,
+      turnEpoch: epoch,
+    });
+    this.projectionDebug("terminal_projected", {
+      session: this.projectionDebugSessionTag(live.session.id),
+      epoch,
+      status,
+      listeners: this.listeners.size,
+      ...this.projectionDebugActive(live.session.id),
+    });
+    void this.queueIdle(live.session.id, epoch, live.runtimeToken);
+    // A compact lifecycle that omitted its end event must not wedge the
+    // scheduler; terminal projection is the final authority for this turn.
+    if (live.activeCompactionDiagnostics) {
+      const diagnostics = live.activeCompactionDiagnostics;
+      live.activeCompactionDiagnostics = undefined;
+      live.compactionDiagnosticsClosedBySettle = true;
+      this.compactionDiagnostics.record({
+        sessionId: live.session.id,
+        event: "compaction_end",
+        operation: "context_compaction",
+        trigger: live.activeCompaction?.trigger ?? "unclassified",
+        operationId: diagnostics.operationId,
+        durationMs: Date.now() - diagnostics.startedAt,
+        ...(diagnostics.beforeTokens !== undefined
+          ? { beforeTokens: diagnostics.beforeTokens }
+          : {}),
+        decision: "settled_without_end",
+        skipReason: "settled_without_end",
+        errorKind: "settled_without_end",
+      });
+    }
+    live.compaction.settleTurn();
+    if (pushStats) void this.pushSessionStats(live.session.id);
+    else this.turnTelemetry.flushTerminal(live.session.id);
+    return true;
+  }
+  private terminalReconciliationHasPendingWork(live: Live, state: any): boolean {
+    // Host-queued user prompts and delayed subagent follow-ups are the *next*
+    // turn. Counting them as pending work deadlocks a durable assistant stop
+    // (typed-after-missed-settle, and last night's "延迟重复投递" wedge).
+    const hasRunningAgent = this.sessionHasLiveAgents(live.session.id);
+    return state?.pendingMessageCount !== 0
+      || state?.isCompacting === true
+      || live.pendingDrainPrompt !== undefined
+      || live.compactionHoldsQueue === true
+      || live.compaction.isCompacting
+      || hasRunningAgent;
+  }
+  private debugTerminalReconciliation(
+    live: Live,
+    epoch: number,
+    reason: string,
+    state?: any,
+    durableFinal?: boolean,
+  ): void {
+    if (!this.projectionDebugEnabled()) return;
+    const actionableQueueCount = this.queue.listQueue(live.session.id)
+      .filter(item => item.state === "queued" || item.state === "sending").length;
+    const runningAgentCount = [...this.agents.values()].filter(agent =>
+      agent.sessionId === live.session.id && this.isLiveAgentState(agent.state)).length;
+    this.projectionDebugLine(
+      `[terminal-reconcile] reason=${reason}`
+      + ` backend=${this.projectionDebugBackendTag}`
+      + ` session=${this.projectionDebugSessionTag(live.session.id)}`
+      + ` epoch=${epoch}`
+      + ` epochCurrent=${live.turnEpoch === epoch}`
+      + ` epochTerminal=${live.terminalEpoch === epoch}`
+      + ` streaming=${String(state?.isStreaming)}`
+      + ` compacting=${String(state?.isCompacting)}`
+      + ` pending=${String(state?.pendingMessageCount)}`
+      + ` followUps=${live.followUps.length}`
+      + ` queue=${actionableQueueCount}`
+      + ` agents=${runningAgentCount}`
+      + ` activeKeys=${this.projectionDebugActive(live.session.id).activeKeys}`
+      + ` listeners=${this.listeners.size}`
+      + ` compactionHold=${live.compactionHoldsQueue === true}`
+      + ` compactionLive=${live.compaction.isCompacting}`
+      + ` durable=${String(durableFinal)}`,
+    );
+  }
+  private async reconcileFinalAssistantTurn(live: Live, epoch: number, identity: FinalAssistantIdentity): Promise<void> {
+    this.projectionDebug("reconcile_invoke", {
+      session: this.projectionDebugSessionTag(live.session.id),
+      epoch,
+      terminalEpoch: live.terminalEpoch,
+      listeners: this.listeners.size,
+      ...this.projectionDebugActive(live.session.id),
+    });
+    // Let any normal agent_settled / queued immediate re-entry already present
+    // in the same stdout batch win before asking Pi for its authoritative state.
+    await new Promise<void>(resolve => setImmediate(resolve));
+    if (this.closed || this.live.get(live.session.id) !== live || live.turnEpoch !== epoch || live.terminalEpoch === epoch) {
+      this.debugTerminalReconciliation(live, epoch, "initial_fence");
+      return;
+    }
+    let state: any;
+    try {
+      state = await this.command(live.session.id, { type: "get_state" });
+    } catch {
+      this.debugTerminalReconciliation(live, epoch, "first_state_error");
+      return;
+    }
+    if (this.closed || this.live.get(live.session.id) !== live || live.turnEpoch !== epoch || live.terminalEpoch === epoch) {
+      this.debugTerminalReconciliation(live, epoch, "first_state_fence", state);
+      return;
+    }
+    if (this.terminalReconciliationHasPendingWork(live, state)) {
+      this.debugTerminalReconciliation(live, epoch, "first_state_pending", state);
+      // Bounded retry: pending may be a transient followUp/reentry that clears quickly.
+      // Do not abandon permanently — retry a few times so a delayed drain can still settle.
+      let retried = false;
+      for (let attempt = 0; attempt < TERMINAL_RECONCILIATION_PENDING_MAX_RETRIES; attempt += 1) {
+        await new Promise<void>(resolve => setTimeout(resolve, TERMINAL_RECONCILIATION_PENDING_RETRY_MS));
+        if (this.closed || this.live.get(live.session.id) !== live || live.turnEpoch !== epoch || live.terminalEpoch === epoch) {
+          this.debugTerminalReconciliation(live, epoch, "first_state_pending_fence", state);
+          return;
+        }
+        try {
+          state = await this.command(live.session.id, { type: "get_state" });
+        } catch {
+          this.debugTerminalReconciliation(live, epoch, "first_state_pending_retry_error", state);
+          return;
+        }
+        if (!this.terminalReconciliationHasPendingWork(live, state)) { retried = true; break; }
+        this.debugTerminalReconciliation(live, epoch, `first_state_pending_retry_${attempt + 1}`, state);
+      }
+      if (!retried) {
+        console.warn(`[pipi-backend] reconcile pending still after ${TERMINAL_RECONCILIATION_PENDING_MAX_RETRIES} retries session=${this.projectionDebugSessionTag(live.session.id)} epoch=${epoch}`);
+        // Fall through: a durable JSONL stop already closed this turn. Pi's
+        // leftover pendingMessageCount is not proof a new turn started.
+      }
+    }
+    if (state?.isStreaming === false) {
+      this.debugTerminalReconciliation(live, epoch, "idle_settle", state);
+      this.projectTurnTerminal(live, "settled", true);
+      return;
+    }
+    // Pi can persist the final assistant message but omit agent_settled while
+    // its in-memory isStreaming flag remains stale. Require exact durable
+    // evidence, then a short stable interval. Leftover pendingMessageCount
+    // after the wait above is not a new turn — a later agent_start mints one.
+    const durableFinal = await waitForLatestDurableFinalAssistant(live.path, identity);
+    if (this.closed || this.live.get(live.session.id) !== live || live.turnEpoch !== epoch || live.terminalEpoch === epoch) {
+      this.debugTerminalReconciliation(live, epoch, "durable_wait_fence", state, durableFinal);
+      return;
+    }
+    if (!durableFinal) {
+      this.debugTerminalReconciliation(live, epoch, "durable_missing", state, false);
+      return;
+    }
+    await new Promise<void>(resolve => setTimeout(resolve, 100));
+    if (this.closed || this.live.get(live.session.id) !== live || live.turnEpoch !== epoch || live.terminalEpoch === epoch) {
+      this.debugTerminalReconciliation(live, epoch, "stable_wait_fence", state, true);
+      return;
+    }
+    this.debugTerminalReconciliation(live, epoch, "durable_settle", state, true);
+    this.projectTurnTerminal(live, "settled", true);
+  }
+  private touchTurnActivity(live: Live): void {
+    live.lastTurnActivityAt = Date.now();
+  }
+  private async isSessionTailTerminal(path: string): Promise<boolean> {
+    try {
+      const stat = await fs.stat(path);
+      const length = Math.min(stat.size, TERMINAL_DURABILITY_TAIL_BYTES);
+      if (length <= 0) return false;
+      const start = stat.size - length;
+      const handle = await fs.open(path, "r");
+      let text = "";
+      try {
+        const buffer = Buffer.alloc(length);
+        const { bytesRead } = await handle.read(buffer, 0, length, start);
+        text = buffer.subarray(0, bytesRead).toString("utf8");
+      } finally {
+        await handle.close();
+      }
+      const lines = text.split("\n");
+      if (start > 0) lines.shift();
+      for (let index = lines.length - 1; index >= 0; index -= 1) {
+        const line = lines[index].trim();
+        if (!line) continue;
+        let entry: any;
+        try { entry = JSON.parse(line); } catch { continue; }
+        if (entry?.type === "message") {
+          const message = entry.message;
+          if (!message) return false;
+          // Tool-use in progress is not terminal — long tool calls must not be interrupted.
+          const content = Array.isArray(message.content) ? message.content : [];
+          const hasToolCall = content.some((part: any) => part?.type === "toolCall" || part?.type === "tool_call" || part?.type === "tool_use");
+          if (hasToolCall) return false;
+          if (message.role === "assistant" && (message.stopReason === "stop" || message.stopReason === "error" || message.stopReason === "aborted")) {
+            return true;
+          }
+          return false;
+        }
+        // Abort or custom abort markers also considered terminal
+        if (entry?.type === "abort" || entry?.type === "aborted") return true;
+      }
+    } catch {
+      return false;
+    }
+    return false;
+  }
+  private async checkTurnWatchdogs(): Promise<void> {
+    if (this.closed) return;
+    const now = Date.now();
+    const seen = new Set<string>();
+    for (const live of this.live.values()) {
+      seen.add(live.session.id);
+      const epoch = live.turnEpoch;
+      const active = live.lastTurnActivityAt ?? 0;
+      if (now - active < TURN_WATCHDOG_TIMEOUT_MS) continue;
+      // Must not trigger while queue thinks idle but live still shows busy phantom — check turnActive via queue
+      if (!this.queue.isBusy(live.session.id)) continue;
+      const turnOpen = epoch !== undefined && live.terminalEpoch !== epoch;
+      // Live already closed this turn (or none ever started), yet the queue
+      // gate is still held: the settle's queue-side release was lost (notifyIdle
+      // fenced out by a lifecycle/current-session check). projectTurnTerminal
+      // would return on the terminalEpoch fence and never re-release, and the
+      // orphan sweep below skips sessions that still have a live entry —
+      // without this branch the gate leaks forever: every later prompt parks
+      // behind it ("queued") and nothing ever drains. Require a quiet RPC
+      // surface so a genuinely in-flight dispatch is never released.
+      if (!turnOpen && live.pending.size > 0) continue;
+      const tailTerminal = await this.isSessionTailTerminal(live.path);
+      if (!tailTerminal) {
+        console.warn(`[pipi-backend] turn watchdog no tail terminal session=${this.projectionDebugSessionTag(live.session.id)} epoch=${epoch}`);
+        continue;
+      }
+      if (!turnOpen) {
+        console.warn(`[pipi-backend] turn watchdog releasing leaked queue gate session=${this.projectionDebugSessionTag(live.session.id)} epoch=${epoch} idleMs=${now - active}`);
+        await this.queue.notifyIdle(live.session.id);
+        continue;
+      }
+      console.warn(`[pipi-backend] turn watchdog firing session=${this.projectionDebugSessionTag(live.session.id)} epoch=${epoch} idleMs=${now - active}`);
+      this.projectTurnTerminal(live, "settled", true);
+    }
+    // Writer already gone: the loop above never sees these. JSONL may already
+    // be a durable stop while FIFO stays turnActive (missed agent_settled, then
+    // the child exited and the epoch fence dropped the close-path idle).
+    for (const sessionId of this.queue.busySessionIds()) {
+      if (seen.has(sessionId) || this.ensureInFlight.has(sessionId)) continue;
+      const live = this.live.get(sessionId);
+      if (live && this.liveProcessUsable(live)) continue;
+      const session = this.sessionById.get(sessionId);
+      if (!session) continue;
+      const tailTerminal = await this.isSessionTailTerminal(session.path);
+      if (!tailTerminal) {
+        console.warn(`[pipi-backend] turn watchdog no tail terminal orphan-busy session=${this.projectionDebugSessionTag(sessionId)}`);
+        continue;
+      }
+      console.warn(`[pipi-backend] turn watchdog firing orphan-busy session=${this.projectionDebugSessionTag(sessionId)}`);
+      await this.queueIdle(sessionId);
+    }
+  }
+  private rejectPendingCommands(sessionId: string, error: Error): void {
+    const live = this.live.get(sessionId);
+    if (!live) return;
+    for (const [id, pending] of live.pending) {
+      live.pending.delete(id);
+      pending.reject(error);
+    }
+  }
+  private writeCommand(live: Live, body: Rpc) {
+    // extension_ui_response is a stdin notification keyed by the request id, not an RPC command.
+    if (body?.type === "extension_ui_response") {
+      live.process!.stdin.write(JSON.stringify(body) + "\n");
+      return Promise.resolve(undefined);
+    }
+    return new Promise<any>((resolve, reject) => {
+      const req = crypto.randomUUID();
+      live.pending.set(req, { resolve, reject });
+      live.process!.stdin.write(
+        JSON.stringify({ id: req, ...body }) + "\n",
+      );
+    });
+  }
+  private async extensionUiResponse(
+    sessionIdValue: unknown,
+    requestIdValue: unknown,
+    response: unknown,
+  ): Promise<void> {
+    if (typeof sessionIdValue !== "string" || !sessionIdValue.trim() || typeof requestIdValue !== "string" || !requestIdValue.trim()) {
+      throw new Error("extension ui response rejected: invalid");
+    }
+    const sessionId = sessionIdValue.trim();
+    const requestId = requestIdValue.trim();
+    const result = this.extensionUi.respond(sessionId, requestId, response);
+    if (!result.ok) throw new Error(`extension ui response rejected: ${result.error}`);
+    const live = this.live.get(sessionId);
+    if (!live || !this.liveProcessUsable(live) || !live.process?.stdin) {
+      throw new Error("extension ui response rejected: no_session");
+    }
+    await this.writeCommand(live, result.command);
+  }
+  private writeCommandWithTimeout(live: Live, body: Rpc, timeoutMs: number) {
+    return new Promise<any>((resolve, reject) => {
+      const req = crypto.randomUUID();
+      const timer = setTimeout(() => {
+        if (!live.pending.has(req)) return;
+        live.pending.delete(req);
+        reject(new Error("timeout"));
+      }, timeoutMs);
+      live.pending.set(req, {
+        resolve: (data) => {
+          clearTimeout(timer);
+          resolve(data);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
+      live.process!.stdin.write(
+        JSON.stringify({ id: req, ...body }) + "\n",
+      );
+    });
+  }
+  private async command(id: string, body: Rpc, retried = false, expectedToken?: unknown): Promise<any> {
+    if (expectedToken !== undefined && !this.sessionRuntimeTokenIsCurrent(id, expectedToken)) return;
+    if (body.type === "abort") {
+      const live = this.live.get(id);
+      if (!live || !this.liveProcessUsable(live)) return;
+      return this.writeCommand(live, body);
+    }
+    const live = await this.ensure(id, expectedToken);
+    if (!this.liveProcessUsable(live)) {
+      await (live.exit ?? Promise.resolve());
+      if (this.live.get(id) === live) this.live.delete(id);
+      if (retried) {
+        throw live.exitError ?? new PiExitedError(
+          live.process?.exitCode ?? null,
+          live.process?.signalCode ?? null,
+          live.stderrTail,
+        );
+      }
+      return this.command(id, body, true, expectedToken);
+    }
+    return this.writeCommand(live, body);
+  }
+  /** Pi model ids are not provider-unique. Never silently accept a same-id sibling. */
+  private async selectExactModel(live: Live, provider: string, modelId: string) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await this.command(live.session.id, { type: "set_model", provider, modelId });
+      const state = await this.command(live.session.id, { type: "get_state" });
+      if (state.model?.provider === provider && state.model?.id === modelId) return;
+    }
+    const state = await this.command(live.session.id, { type: "get_state" });
+    throw new Error(
+      `Pi 模型选择未生效：期望 ${provider}/${modelId}，实际 ${state.model?.provider ?? "unknown"}/${state.model?.id ?? "unknown"}`,
+    );
+  }
+  /**
+   * Fold one thinking observation into the host's thinking-control record.
+   *
+   * Fire-and-forget and failure-swallowing on purpose: a diagnostic that can break a
+   * turn is worse than the blind spot it closes. The reporter only asks for a write when
+   * a route/level pair is new or its verdict moved, so a long think costs no extra I/O.
+   */
+  private noteThinkingObserved(sessionId: string, chars: number) {
+    const reporter = this.thinkingControl;
+    const state = this.sessionModelStates.get(sessionId);
+    if (!reporter || !state || chars <= 0) return;
+    reporter.observe(state.model, state.thinkingLevel, state.availableThinkingLevels, chars);
+  }
+
+  /**
+   * Flush the thinking-control record, at most one write per assistant message.
+   *
+   * Chained rather than fired and forgotten. An unanchored promise doing filesystem work
+   * inside a delta handler is not free: it reorders the writes and spawns around it, and
+   * it made an unrelated spawn-env test fail two runs in eight. `close()` awaits this
+   * chain, so a diagnostic can neither outlive the backend nor perturb its shutdown.
+   */
+  private flushThinkingControl() {
+    const reporter = this.thinkingControl;
+    if (!reporter) return;
+    this.thinkingControlWrite = this.thinkingControlWrite
+      .catch(() => undefined)
+      .then(() => reporter.publish())
+      .catch(() => undefined);
+  }
+
+  private async refreshState(live: Live) {
+    try {
+      const models = await this.command(live.session.id, {
+        type: "get_available_models",
+      });
+      const catalogModels = this.models;
+      this.models = (models.models ?? []).map((raw: any) => {
+        const reported = hostModelFromPi(raw);
+        const catalog = catalogModels.find(item => item.provider === reported.provider && item.id === reported.id);
+        if (!catalog) return reported;
+        const thinkingLevelMap = reported.thinkingLevelMap ?? catalog.thinkingLevelMap;
+        const capabilities = mergeModelCapabilities(catalog.capabilities, reported.capabilities);
+        return {
+          ...catalog,
+          ...reported,
+          ...(thinkingLevelMap === undefined ? {} : { thinkingLevelMap }),
+          thinkingConfigurable: thinkingLevelMap
+            ? thinkingLevelsForModel({ ...reported, thinkingLevelMap }).length > 0
+            : (reported.thinkingConfigurable ?? catalog.thinkingConfigurable),
+          ...(capabilities === undefined ? {} : { capabilities }),
+        };
+      });
+      const state = await this.command(live.session.id, { type: "get_state" });
+      const levels = await this.command(live.session.id, {
+        type: "get_available_thinking_levels",
+      });
+      const reportedModel = state.model ? hostModelFromPi(state.model) : undefined;
+      const model = reportedModel
+        ? (this.models.find(item => item.provider === reportedModel.provider && item.id === reportedModel.id) ?? reportedModel)
+        : (this.models[0] ?? this.modelState.model);
+      const availableThinkingLevels = thinkingLevelsForModel(model, levels.levels);
+      const previous = this.sessionModelSnapshots.get(live.session.id);
+      const reportedThinkingLevel = state.thinkingLevel as ThinkingLevel | undefined;
+      const thinkingLevel = resolveThinkingLevel(
+        reportedThinkingLevel,
+        availableThinkingLevels,
+        previous?.thinkingLevel,
+      ) ?? reportedThinkingLevel ?? "off";
+      if (thinkingLevel !== reportedThinkingLevel && availableThinkingLevels.includes(thinkingLevel))
+        await this.command(live.session.id, { type: "set_thinking_level", level: thinkingLevel });
+      this.sessionModelStates.set(live.session.id, {
+        model,
+        thinkingLevel,
+        availableThinkingLevels,
+      });
+    } catch {
+      /* sessions can be viewed without configured models */
+    }
+  }
+  /** Shared atomic settings store. New fields must merge here so model/queue preferences survive project-list updates. */
+  private settingsFile(): string {
+    return join(this.agentDir, "pipiui-settings.json");
+  }
+  private async readSettings(): Promise<Record<string, unknown>> {
+    let value: unknown;
+    try {
+      value = JSON.parse(await fs.readFile(this.settingsFile(), "utf8"));
+    } catch (error: any) {
+      if (error?.code === "ENOENT") return {};
+      throw new Error(
+        `无法读取 PipiUI 设置：${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (!isRecord(value)) throw new Error("PipiUI 设置必须是 object");
+    return value;
+  }
+  private async updateSettings<T>(
+    update: (settings: Record<string, unknown>) => T,
+  ): Promise<T> {
+    let result!: T;
+    const write = this.settingsWrite
+      .catch(() => undefined)
+      .then(async () => {
+        const settings = await this.readSettings();
+        result = update(settings);
+        const target = this.settingsFile();
+        await fs.mkdir(dirname(target), { recursive: true });
+        const tmp = `${target}.tmp-${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
+        await fs.writeFile(
+          tmp,
+          JSON.stringify(settings, null, 2) + "\n",
+          "utf8",
+        );
+        await fs.rename(tmp, target);
+      });
+    this.settingsWrite = write;
+    await write;
+    return result;
+  }
+  private async loadManualModelSelection(): Promise<{ provider: string; modelId: string } | undefined> {
+    if (!this.manualModelSelectionLoaded) {
+      this.manualModelSelectionLoaded = (async () => {
+        const value = (await this.readSettings()).manualModelSelection;
+        this.manualModelSelection =
+          isRecord(value) &&
+          typeof value.provider === "string" && value.provider.trim().length > 0 &&
+          typeof value.modelId === "string" && value.modelId.trim().length > 0
+            ? { provider: value.provider, modelId: value.modelId }
+            : undefined;
+      })();
+    }
+    await this.manualModelSelectionLoaded;
+    return this.manualModelSelection;
+  }
+  private async loadManualThinkingLevel(): Promise<ThinkingLevel | undefined> {
+    if (!this.manualThinkingLevelLoaded) {
+      this.manualThinkingLevelLoaded = (async () => {
+        const value = (await this.readSettings()).manualThinkingLevel;
+        this.manualThinkingLevel =
+          typeof value === "string" && THINKING_LEVELS.includes(value as ThinkingLevel)
+            ? value as ThinkingLevel
+            : undefined;
+      })();
+    }
+    await this.manualThinkingLevelLoaded;
+    return this.manualThinkingLevel;
+  }
+  /** A remembered selection affects only future sessions; existing sessions retain their own model state. */
+  private applyManualModelSelection(selection: { provider: string; modelId: string } | undefined): void {
+    if (!selection) return;
+    const model = this.models.find(
+      (item) => item.provider === selection.provider && item.id === selection.modelId,
+    );
+    if (!model) return;
+    const availableThinkingLevels = thinkingLevelsForModel(model);
+    this.modelState = {
+      ...this.modelState,
+      model,
+      thinkingLevel: resolveThinkingLevel(this.modelState.thinkingLevel, availableThinkingLevels) ?? "off",
+      availableThinkingLevels,
+    };
+  }
+  /** A remembered thinking档 affects only future sessions; existing sessions keep their own level. */
+  private applyManualThinkingLevel(level: ThinkingLevel | undefined): void {
+    if (!level) return;
+    this.modelState = {
+      ...this.modelState,
+      thinkingLevel: resolveThinkingLevel(level, this.modelState.availableThinkingLevels, this.modelState.thinkingLevel) ?? "off",
+    };
+  }
+  private async rememberManualModelSelection(model: Model): Promise<void> {
+    const selection = { provider: model.provider, modelId: model.id };
+    await this.updateSettings((settings) => {
+      settings.manualModelSelection = selection;
+    });
+    this.manualModelSelection = selection;
+    this.manualModelSelectionLoaded = Promise.resolve();
+    const availableThinkingLevels = thinkingLevelsForModel(model);
+    this.modelState = {
+      ...this.modelState,
+      model,
+      thinkingLevel: resolveThinkingLevel(
+        this.manualThinkingLevel ?? this.modelState.thinkingLevel,
+        availableThinkingLevels,
+      ) ?? "off",
+      availableThinkingLevels,
+    };
+  }
+  private async rememberManualThinkingLevel(level: ThinkingLevel): Promise<void> {
+    await this.updateSettings((settings) => {
+      settings.manualThinkingLevel = level;
+    });
+    this.manualThinkingLevel = level;
+    this.manualThinkingLevelLoaded = Promise.resolve();
+    this.applyManualThinkingLevel(level);
+  }
+  private checkedProjectPaths(value: unknown): string[] {
+    if (
+      !Array.isArray(value) ||
+      !value.every((path) => typeof path === "string" && path.length > 0)
+    )
+      throw new Error("projectPaths 必须是 string[]（每项不能为空）");
+    return [...new Set(value)];
+  }
+  private checkedSubagentModelChain(value: unknown, allowLegacyBare = true): SubagentModelSetting[] {
+    if (!Array.isArray(value) || !value.every((entry) =>
+      isRecord(entry) && typeof entry.model === "string" && entry.model.trim().length > 0 &&
+      (entry.thinking === undefined || typeof entry.thinking === "string"),
+    )) throw new Error("subagentModels 必须是 { model, thinking? }[]");
+    return value.map((entry) => {
+      const model = (entry as { model: string }).model.trim();
+      const slash = model.indexOf("/");
+      if (!allowLegacyBare && (slash <= 0 || slash === model.length - 1))
+        throw new Error(`Subagent 模型必须使用 provider/model 完整标识：${model}`);
+      return {
+        model,
+        ...((entry as { thinking?: string }).thinking === undefined
+          ? {}
+          : { thinking: (entry as { thinking: string }).thinking }),
+      };
+    });
+  }
+  private checkedSubagentModels(value: unknown): Record<string, SubagentModelSetting[]> {
+    if (value === undefined) return {};
+    if (!isRecord(value)) throw new Error("subagentModels 必须是 object");
+    return Object.fromEntries(Object.entries(value).flatMap(([name, chain]) => {
+      if (!name.trim()) throw new Error("subagentModels agent name 不能为空");
+      return [[name, this.checkedSubagentModelChain(chain)]];
+    }));
+  }
+  /** Qualify a historical bare id only when the authenticated catalog has one unambiguous owner. */
+  private qualifyLegacySubagentModels(value: Record<string, SubagentModelSetting[]>): { value: Record<string, SubagentModelSetting[]>; changed: boolean } {
+    const refsById = new Map<string, Set<string>>();
+    const exactRefs = new Set<string>();
+    for (const model of this.models) {
+      const ref = `${model.provider}/${model.id}`;
+      exactRefs.add(ref);
+      const refs = refsById.get(model.id) ?? new Set<string>();
+      refs.add(ref);
+      refsById.set(model.id, refs);
+    }
+    let changed = false;
+    const qualified = Object.fromEntries(Object.entries(value).map(([name, chain]) => [name, chain.map(entry => {
+      if (exactRefs.has(entry.model)) return entry;
+      const matches = [...(refsById.get(entry.model) ?? [])];
+      if (matches.length !== 1) return entry;
+      changed = true;
+      return { ...entry, model: matches[0] };
+    })]));
+    return { value: qualified, changed };
+  }
+  private async persistSubagentModels(
+    qualify: boolean,
+  ): Promise<Record<string, SubagentModelSetting[]>> {
+    return this.updateSettings(settings => {
+      const current = this.checkedSubagentModels(settings.subagentModels);
+      const latest = qualify ? this.qualifyLegacySubagentModels(current).value : current;
+      settings.subagentModels = latest;
+      return latest;
+    });
+  }
+  private async loadSubagentModels(waitForCatalog = false): Promise<Record<string, SubagentModelSetting[]>> {
+    const settings = await this.readSettings();
+    const loaded = this.checkedSubagentModels(settings.subagentModels);
+    if (waitForCatalog) {
+      try {
+        await this.loadModelCatalog();
+      } catch {
+        // Preserve legacy settings when the auth-aware catalog is unavailable. Runtime will
+        // reject a still-bare override explicitly instead of letting Pi guess a provider.
+        return loaded;
+      }
+    } else if (!this.modelCatalogReady) {
+      // Session spawn must never wait for the optional auth catalog preload. If it has not
+      // completed yet, materialize the stored value and let the runtime's explicit guard handle it.
+      return loaded;
+    }
+    const normalized = this.qualifyLegacySubagentModels(loaded);
+    if (!normalized.changed) return loaded;
+    return this.persistSubagentModels(true);
+  }
+  private subagentModelsRuntimeFile(): string {
+    return join(this.agentDir, "pipiui-subagent-models-runtime.json");
+  }
+  private nativeSearchRuntimeFile(): string {
+    return join(this.agentDir, "pipiui-native-search-runtime.json");
+  }
+  /** Read-only available-model catalog snapshot handed to the main Pi session (and hot-read per dispatch). */
+  private subagentModelCatalogFile(): string {
+    return join(this.agentDir, "pipiui-subagent-model-catalog-runtime.json");
+  }
+  /** Serializes DISPLAY-cache publications so temp/rename pairs never interleave. Presentation-only. */
+  private subagentCatalogQueue: Promise<void> = Promise.resolve();
+  /** JSON content of the last successfully published display snapshot (skip-churn baseline). */
+  private subagentCatalogLastPublished?: string;
+
+  // ── PinCatalogAuthority: the single cross-process gate for explicit dispatch pins ──────
+  //
+  // Availability IS decided here, synchronously inside this backend process. Three
+  // linearization points share one Node run-to-completion total order:
+  //   • Invalidate LP  — markSubagentPinsUnavailable() swaps the WHOLE authority object,
+  //     synchronously, before any await/queue/disk work of the transition begins.
+  //   • Canonical LP   — commitReadyPinCatalog() installs ONE immutable ready view in the
+  //     same synchronous segment that marks the canonical rebuild committed.
+  //   • Validation LP  — validateSubagentModelPins() captures the object exactly once per
+  //     batch (the bridge calls it without awaiting).
+  // Concurrent invalidate/validate/commit therefore serialize into a deterministic total
+  // order: validate<invalidate allows with the old revision; invalidate<validate denies;
+  // commit<validate judges against exactly the new refs. Disk artifacts (snapshot file,
+  // tombstone) are presentation caches strictly downstream of these points and are never
+  // consulted to accept or refuse a pin.
+  private pinCatalogRevision = 0;
+  private pinCatalogAuthority:
+    | { state: "unavailable"; revision: number; code: "bootstrapping" | "refreshing" | "catalog-error" }
+    | { state: "ready"; revision: number; refs: ReadonlySet<string> } = {
+    state: "unavailable",
+    revision: 0,
+    code: "bootstrapping",
+  };
+
+  /** Invalidate LP helper: swap in an unavailable view WITHOUT disk/queue work — safe inside
+   * any synchronous continuation. Recovery always routes through a full canonical rebuild. */
+  private markSubagentPinsUnavailable(code: "refreshing" | "catalog-error"): void {
+    this.pinCatalogRevision += 1;
+    this.pinCatalogAuthority = { state: "unavailable", revision: this.pinCatalogRevision, code };
+  }
+
+  /** Canonical ready LP: derive the exact `provider/id` set from last-committed models ∖ hidden.
+   * Callers MUST run this in the same synchronous segment that installs those inputs; it never
+   * fabricates readiness while the canonical load has not committed (`modelCatalogReady`). */
+  private commitReadyPinCatalog(): void {
+    if (!this.modelCatalogReady) {
+      this.markSubagentPinsUnavailable("refreshing");
+      return;
+    }
+    const hidden = new Set(this.hiddenIds.map((id) => id.trim()).filter(Boolean));
+    const refs = new Set<string>();
+    for (const model of this.models) {
+      if (!model || typeof model.provider !== "string" || !model.provider || typeof model.id !== "string" || !model.id) continue;
+      const id = `${model.provider}/${model.id}`;
+      if (hidden.has(id)) continue;
+      refs.add(id);
+    }
+    this.pinCatalogRevision += 1;
+    this.pinCatalogAuthority = { state: "ready", revision: this.pinCatalogRevision, refs };
+  }
+
+  /**
+   * THE validation LP for `model_pin_validate`. Synchronous BY CONTRACT (the bridge must not
+   * await it): one capture of the immutable view decides the entire batch. Deny codes are
+   * stable sanitized tokens — provider/runtime internals never reach the wire.
+   */
+  private validateSubagentModelPins(input: ModelPinValidateRequestV1): ModelPinValidateDecisionV1 {
+    const view = this.pinCatalogAuthority; // ── Validation LP ──
+    if (view.state !== "ready") {
+      return {
+        schemaVersion: 1,
+        decision: "deny",
+        code: "catalog_unavailable",
+        authorityRevision: view.revision,
+        retryable: true,
+      };
+    }
+    const refs = input?.refs;
+    if (!Array.isArray(refs) || refs.length === 0 || !refs.every((ref) => typeof ref === "string")) {
+      // Only our own runtime produces batches; a malformed one still fails closed without
+      // echoing internals. Not retryable as-is because retrying identical bytes cannot help.
+      return {
+        schemaVersion: 1,
+        decision: "deny",
+        code: "catalog_unavailable",
+        authorityRevision: view.revision,
+        retryable: false,
+      };
+    }
+    for (let index = 0; index < refs.length; index += 1) {
+      const ref = (refs[index] as string).trim();
+      if (!ref || ref.length > 300 || !view.refs.has(ref)) {
+        return {
+          schemaVersion: 1,
+          decision: "deny",
+          code: "model_unavailable",
+          invalidIndex: index,
+          authorityRevision: view.revision,
+          retryable: false,
+        };
+      }
+    }
+    return { schemaVersion: 1, decision: "allow", authorityRevision: view.revision };
+  }
+
+  /** Atomic write of one DISPLAY cache file (snapshot or tombstone). Failures are logged and
+   * propagate only to the publication caller; nothing gates spawn/dispatch/auth on them. */
+  private async writeSubagentModelState(
+    snapshot: SubagentModelCatalogContent | SubagentModelCatalogTombstone,
+  ): Promise<void> {
+    const target = this.subagentModelCatalogFile();
+    const tmp = `${target}.tmp-${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
+    try {
+      await fs.mkdir(dirname(target), { recursive: true });
+      await fs.writeFile(tmp, JSON.stringify(snapshot, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
+      await fs.rename(tmp, target);
+    } catch (error) {
+      console.warn(`[pipiui] subagent model catalog display write failed: ${error instanceof Error ? error.message : String(error)}`);
+      await fs.rm(tmp, { force: true }).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /**
+   * One serialized DISPLAY publication unit built from LAST-COMMITTED canonical state. Never
+   * a gate: stale/corrupt/absent files degrade prompt cosmetics only, every pin decision goes
+   * through validateSubagentModelPins. While the authority cannot prove readiness (bootstrap,
+   * refresh window, failed visibility/load), an explicit tombstone keeps human inspection
+   * honest instead of leaving a stale model list on disk.
+   */
+  private async publishSubagentModelCatalog(): Promise<void> {
+    let payload: SubagentModelCatalogContent | SubagentModelCatalogTombstone;
+    if (this.modelCatalogReady && this.pinCatalogAuthority.state === "ready") {
+      payload = buildSubagentModelCatalogSnapshot(this.models, this.hiddenIds);
+    } else {
+      payload = {
+        version: SUBAGENT_MODEL_CATALOG_SNAPSHOT_VERSION,
+        available: false,
+        reason: "unavailable",
+        models: [],
+      };
+    }
+    const json = JSON.stringify(payload, null, 2) + "\n";
+    // Steady-state zero churn: unchanged content writes nothing at all.
+    if (json === this.subagentCatalogLastPublished) return;
+    await this.writeSubagentModelState(payload);
+    this.subagentCatalogLastPublished = json;
+  }
+
+  /** Enqueue one display publication unit onto the serialized queue; resolves only when settled. */
+  private materializeSubagentModelCatalog(): Promise<void> {
+    const run = this.subagentCatalogQueue.then(() => this.publishSubagentModelCatalog());
+    this.subagentCatalogQueue = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  /** Fire-and-forget scheduler for display convergence hooks; a failure never breaks its caller. */
+  private scheduleSubagentModelCatalogRefresh(): void {
+    this.materializeSubagentModelCatalog().catch(error => {
+      console.warn(`[pipiui] subagent model catalog refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
+  private async materializeNativeSearchCatalog(): Promise<void> {
+    const fromModels = nativeSearchRuntimeCatalog(this.models);
+    const fromClaims = nativeSearchRuntimeCatalog(
+      this.extensionLoader.contributionClaims().flatMap((claim) =>
+        (claim.contribution.provider.models ?? []).map((model) => ({
+          provider: claim.contribution.provider.id,
+          id: model.id,
+          capabilities: model.capabilities,
+        })),
+      ),
+    );
+    const catalog = { ...fromClaims, ...fromModels };
+    const target = this.nativeSearchRuntimeFile();
+    await fs.mkdir(dirname(target), { recursive: true });
+    const tmp = `${target}.tmp-${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
+    await fs.writeFile(tmp, JSON.stringify(catalog, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
+    await fs.rename(tmp, target);
+  }
+  private async materializeSubagentModels(value: Record<string, SubagentModelSetting[]>): Promise<void> {
+    const target = this.subagentModelsRuntimeFile();
+    await fs.mkdir(dirname(target), { recursive: true });
+    const tmp = `${target}.tmp-${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
+    await fs.writeFile(tmp, JSON.stringify(value, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
+    await fs.rename(tmp, target);
+  }
+  private async loadAndMaterializeSubagentModels(waitForCatalog = false): Promise<Record<string, SubagentModelSetting[]>> {
+    const value = await this.loadSubagentModels(waitForCatalog);
+    await this.materializeSubagentModels(value);
+    await this.materializeNativeSearchCatalog();
+    // NO dispatch gate here anymore: pin acceptance is decided in-memory by
+    // PinCatalogAuthority (validateSubagentModelPins). The display cache converges via the
+    // rebuild hook and never blocks spawn — a slow or failed write is cosmetic only.
+    this.scheduleSubagentModelCatalogRefresh();
+    return value;
+  }
+  private async saveSubagentModel(agentName: unknown, chain: unknown): Promise<Record<string, SubagentModelSetting[]>> {
+    if (typeof agentName !== "string" || !agentName.trim())
+      throw new Error("subagent agentName 必须是非空 string");
+    const name = agentName.trim();
+    const checkedChain = this.checkedSubagentModelChain(chain, false);
+    const all = await this.updateSettings((settings) => {
+      const current = settings.subagentModels;
+      if (current !== undefined && !isRecord(current))
+        throw new Error("subagentModels 必须是 object");
+      const all = this.checkedSubagentModels(current);
+      if (checkedChain.length) all[name] = checkedChain;
+      else delete all[name];
+      settings.subagentModels = all;
+      return all;
+    });
+    await this.materializeSubagentModels(all);
+    return all;
+  }
+  private checkedMemoryReviewModel(value: unknown): string | null {
+    if (value === undefined || value === null || value === "") return null;
+    if (typeof value !== "string")
+      throw new Error("memoryReviewModel 必须是 provider/model 完整标识或 null");
+    const model = value.trim();
+    const slash = model.indexOf("/");
+    if (model.length > 300 || slash <= 0 || slash === model.length - 1 || /[\u0000-\u001f\u007f\s]/u.test(model))
+      throw new Error(`Hermes 复核模型必须使用 provider/model 完整标识：${model}`);
+    return model;
+  }
+  private async loadMemoryReviewModel(): Promise<string | null> {
+    return this.checkedMemoryReviewModel((await this.readSettings()).memoryReviewModel);
+  }
+  private async saveMemoryReviewModel(value: unknown): Promise<string | null> {
+    const checked = this.checkedMemoryReviewModel(value);
+    return this.updateSettings((settings) => {
+      if (checked) settings.memoryReviewModel = checked;
+      else delete settings.memoryReviewModel;
+      return checked;
+    });
+  }
+  /** Initializes an explicit empty sidebar once. Version presence makes [] durable. */
+  private async loadProjectPaths(): Promise<string[]> {
+    if (!this.projectPathsLoaded) {
+      this.projectPathsLoaded = (async () => {
+        const settings = await this.readSettings();
+        if (settings.projectPathsVersion === 1) {
+          this.projectPaths = this.checkedProjectPaths(settings.projectPaths);
+          return;
+        }
+        if (
+          settings.projectPathsVersion !== undefined ||
+          settings.projectPaths !== undefined
+        )
+          throw new Error("unsupported projectPaths settings version");
+        this.projectPaths = await this.updateSettings((current) => {
+          if (current.projectPathsVersion === 1)
+            return this.checkedProjectPaths(current.projectPaths);
+          if (
+            current.projectPathsVersion !== undefined ||
+            current.projectPaths !== undefined
+          )
+            throw new Error("unsupported projectPaths settings version");
+          current.projectPathsVersion = 1;
+          current.projectPaths = [];
+          return [];
+        });
+      })();
+    }
+    await this.projectPathsLoaded;
+    if (this.profileMode === "isolated" && !this.projectModelsInitialized) {
+      const realRoots: string[] = [];
+      for (const projectRoot of this.projectPaths) {
+        const home = await this.ensureIsolatedProjectHome(projectRoot, { migrate: false, allowMissing: true });
+        if (home) realRoots.push(home.realProjectRoot);
+      }
+      const initialization = this.migrateSharedModels(realRoots);
+      this.projectModelsInitialized = initialization;
+      try {
+        await initialization;
+      } catch (error) {
+        if (this.projectModelsInitialized === initialization) this.projectModelsInitialized = undefined;
+        throw error;
+      }
+    } else {
+      await this.projectModelsInitialized;
+    }
+    return [...this.projectPaths];
+  }
+  private async saveProjectPaths(value: unknown): Promise<string[]> {
+    const paths = this.checkedProjectPaths(value);
+    const saved = await this.updateSettings((settings) => {
+      settings.projectPathsVersion = 1;
+      settings.projectPaths = [...paths];
+      return [...paths];
+    });
+    this.projectPaths = saved;
+    this.projectPathsLoaded = Promise.resolve();
+    if (this.profileMode === "isolated") {
+      const realRoots: string[] = [];
+      for (const projectRoot of saved) {
+        const home = await this.ensureIsolatedProjectHome(projectRoot, { migrate: false, allowMissing: true });
+        if (home) realRoots.push(home.realProjectRoot);
+      }
+      const initialization = this.migrateSharedModels(realRoots);
+      this.projectModelsInitialized = initialization;
+      try {
+        await initialization;
+      } catch (error) {
+        if (this.projectModelsInitialized === initialization) this.projectModelsInitialized = undefined;
+        throw error;
+      }
+      this.invalidateModelCatalog();
+      await this.loadModelCatalog(true);
+    }
+    return [...saved];
+  }
+  /**
+   * Export one product pack: its own extension plus the required closure, minus
+   * anything bundled with every host. The pack extension carries the
+   * dependencies and the layout, so the archive needs no second manifest.
+   */
+  private async exportProductPackArchive(
+    projectIdValue: unknown,
+    packIdValue: unknown,
+    destinationValue: unknown,
+  ): Promise<ProductPackArchiveResult> {
+    if (typeof projectIdValue !== "string" || !projectIdValue.trim()) {
+      throw new Error("projectId 必须是非空 string");
+    }
+    if (typeof packIdValue !== "string" || !packIdValue.trim()) {
+      throw new Error("packId 必须是非空 string");
+    }
+    if (typeof destinationValue !== "string" || !destinationValue.trim()) {
+      throw new Error("导出路径必须是非空 string");
+    }
+    const packId = packIdValue.trim();
+    const root = await this.projectPath(projectIdValue.trim());
+    this.extensionLoader.scan(root);
+    const installed = this.extensionLoader.installedExtensions();
+    const pack = installed.find(item => item.id === packId);
+    if (!pack) throw new Error(`unknown extension ${packId}`);
+    if (!pack.layout) throw new Error(`extension ${packId} is not a product pack (no app.ui.layout)`);
+    // Everything off, then the pack on: what comes back is exactly the pack plus
+    // its required closure, resolved by the same code that enables it.
+    const closure = resolveExtensionEnablement({
+      installed: installed.map(item => ({ ...item, defaultEnabled: false })),
+      projectOverrides: { [packId]: true },
+    });
+    if (closure.issues.length) {
+      throw new Error(`product pack ${packId} cannot export: ${formatEnablementIssues(closure.issues)}`);
+    }
+    const records = new Map(this.extensions.list().map(item => [item.id, item]));
+    const extensions: Array<{ id: string; directory: string }> = [];
+    for (const id of closure.enabledIds) {
+      // Bundled packages ship with every host; re-shipping them in the archive
+      // would fork them, not distribute them.
+      if (id !== packId && records.get(id)?.origin === "builtin") continue;
+      const directory = this.extensionLoader.directoryOf(id);
+      if (!directory) throw new Error(`product pack ${packId} cannot export missing extension source ${id}`);
+      extensions.push({ id, directory });
+    }
+    const written = await writeProductPackArchive({
+      destination: destinationValue.trim(),
+      packId,
+      packName: records.get(packId)?.name ?? packId,
+      extensions,
+    });
+    return { ...written, packId };
+  }
+  private async installProductPackArchive(
+    projectIdValue: unknown,
+    sourceArchiveValue: unknown,
+  ): Promise<ProductPackInstallResult> {
+    if (typeof projectIdValue !== "string" || !projectIdValue.trim()) {
+      throw new Error("projectId 必须是非空 string");
+    }
+    if (typeof sourceArchiveValue !== "string" || !sourceArchiveValue.trim()) {
+      throw new Error("扩展包 ZIP 路径必须是非空 string");
+    }
+    const projectId = projectIdValue.trim();
+    return installFromProductPackArchive(sourceArchiveValue.trim(), directory =>
+      this.installLocalProductPack(projectId, directory));
+  }
+  /**
+   * Install ONE extension from a user-picked ZIP: safe-unpack to staging,
+   * locate the package root (pipiui-extension.json at the root or in the
+   * single top-level folder), promote it into the content-addressed store as
+   * a local receipt, then enable it for the requesting project — installing a
+   * zip implies the user wants it on. Rejections: no manifest, multiple
+   * package roots, or path-traversal entries (see extractZipArchive).
+   */
+  private async installExtensionZip(
+    projectIdValue: unknown,
+    sourceArchiveValue: unknown,
+  ): Promise<ExtensionRecord> {
+    if (typeof projectIdValue !== "string" || !projectIdValue.trim()) {
+      throw new Error("projectId 必须是非空 string");
+    }
+    if (typeof sourceArchiveValue !== "string" || !sourceArchiveValue.trim()) {
+      throw new Error("扩展 ZIP 路径必须是非空 string");
+    }
+    const root = await this.projectPath(projectIdValue.trim());
+    const extractionRoot = await fs.mkdtemp(join(tmpdir(), "pipiui-extension-zip-"));
+    try {
+      await extractZipArchive(sourceArchiveValue.trim(), extractionRoot);
+      const packageRoot = await findPackageRoot(extractionRoot);
+      const parsed = parseExtensionManifestJson(
+        await fs.readFile(join(packageRoot, EXTENSION_MANIFEST_FILENAME), "utf8"),
+      );
+      if (!parsed.ok) {
+        throw new Error(`扩展清单无效：${parsed.errors.join("; ")}`);
+      }
+      await installLocalExtensionPackage({
+        extensionId: parsed.manifest.id,
+        sourceDirectory: packageRoot,
+        packId: `local-zip-${parsed.manifest.id}`,
+      }, { storeRoot: this.extensionStoreRoot() });
+      // Rescan so the registry sees the freshly installed store package before enable.
+      this.extensionLoader.scan(root);
+      return this.setExtensionEnabled(parsed.manifest.id, true, "project", projectIdValue.trim());
+    } finally {
+      await fs.rm(extractionRoot, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+  /**
+   * Install a local Product Pack: its extensions land in the shared store, then
+   * the pack extension itself is enabled for this project, which pulls in the
+   * rest of its required closure through the ordinary enable path.
+   */
+  private async installLocalProductPack(
+    projectIdValue: unknown,
+    sourceDirectoryValue: unknown,
+  ): Promise<ProductPackInstallResult> {
+    if (typeof projectIdValue !== "string" || !projectIdValue.trim()) {
+      throw new Error("projectId 必须是非空 string");
+    }
+    const projectId = projectIdValue.trim();
+    const source = await this.pickedDirectory(sourceDirectoryValue);
+    const root = await this.projectPath(projectId);
+    const projectAgentDir = projectPiAgentDir(root);
+    this.extensionLoader.scan(root);
+    const installedVersions = new Map(
+      this.extensionLoader.installedExtensions().map(extension => [extension.id, extension.version]),
+    );
+    const previous = await readProjectExtensionActivation(projectAgentDir);
+    try {
+      const result = await installLocalProductPack<string>({
+        sourceDirectory: source,
+        storeRoot: this.extensionStoreRoot(),
+        projectAgentDir,
+        activatePack: async packId => {
+          this.extensionLoader.scan(root);
+          await this.setExtensionEnabled(packId, true, "project", projectId);
+          return packId;
+        },
+        restoreProjectActivation: async () => { await writeProjectExtensionActivation(projectAgentDir, previous); },
+        reuseInstalledExtension: extension => installedVersions.get(extension.id) === extension.version,
+      });
+      // New mounts reach live sessions only on respawn: restart affected idle ones.
+      void this.onExtensionAvailabilityChanged();
+      const enablement = (await this.resolveProjectEnablement(root)).enablement;
+      return { packId: result.activation, extensionIds: enablement.enabledIds };
+    } catch (error) {
+      // The installer restored mutable slots; rebuild the in-memory registry so
+      // a failed Pack cannot remain visible until the next project operation.
+      this.extensionLoader.scan(root);
+      throw error;
+    }
+  }
+  private async addProject(value: unknown): Promise<Project> {
+    if (typeof value !== "string" || !value.length)
+      throw new Error("project path 必须是非空 string");
+    const paths = await this.loadProjectPaths();
+    if (!paths.includes(value)) await this.saveProjectPaths([value, ...paths]);
+    await this.ensureIsolatedProjectHome(value);
+    this.extensionLoader.scan(value);
+    void this.refreshExtensionHotReloadRoots();
+    await this.loadProjectNames();
+    return this.project(value);
+  }
+  private async listConfiguredProjects(): Promise<Project[]> {
+    const paths = await this.loadProjectPaths();
+    // The UI lists projects at startup: ride this read to pick up per-project
+    // extension watch roots (lazily — never write settings at construction).
+    void this.refreshExtensionHotReloadRoots();
+    const names = await this.loadProjectNames();
+    return paths.map((path) => this.project(path, names));
+  }
+  /** Display name only — never renames the on-disk folder. */
+  private async renameProject(projectId: string, name: unknown): Promise<Project> {
+    if (typeof name !== "string") throw new Error("project name 必须是 string");
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error("项目名称不能为空");
+    if (trimmed.length > 120) throw new Error("项目名称过长");
+    const project = await this.configuredProject(projectId);
+    const displayPath = project.path;
+    const names = await this.loadProjectNames();
+    const next = { ...names };
+    if (trimmed === (basename(displayPath) || displayPath)) delete next[displayPath];
+    else next[displayPath] = trimmed;
+    await this.saveProjectNames(next);
+    return this.project(displayPath, next);
+  }
+  private async getSubagentDebugInfo(sessionId?: unknown): Promise<SubagentDebugInfo> {
+    if (typeof sessionId !== "string" || !sessionId.trim()) {
+      return { available: false, reason: "no-session", bossTools: [], toolCatalog: [], skills: [], subagents: [] };
+    }
+    const session = await this.findSession(sessionId.trim());
+    return readSubagentDebugInfo(session.path, session.header.id);
+  }
+
+  private async listAgentDefinitions(projectId?: unknown): Promise<AgentDefinition[]> {
+    const extra: NonNullable<AgentDefinition["catalogDiagnostics"]> = [];
+    let projectRoot: string | undefined;
+    if (typeof projectId === "string" && projectId.trim()) {
+      try {
+        projectRoot = await this.projectPath(projectId);
+      } catch (error) {
+        extra.push({
+          severity: "error",
+          code: "catalog-project-unavailable",
+          message: `Catalog project is unavailable: ${error instanceof Error ? error.message : String(error)}.`,
+        });
+      }
+    }
+    const list = async (packages: readonly SpawnRegisteredExtension[]) => {
+      const agentHome = this.profileMode === "isolated" && projectRoot
+        ? projectPiAgentDir(projectRoot)
+        : this.agentDir;
+      return buildAgentCatalog({
+        runtimeRoot: this.runtimeRoot,
+        userDir: join(agentHome, "agents"),
+        projectRoot,
+        packages,
+      });
+    };
+    try {
+      this.extensionLoader.scan(projectRoot);
+      const overlay = await this.mergedExtensionOverlay(projectRoot);
+      const catalog = await list(this.extensionLoader.spawnPackages(overlay));
+      return attachCatalogDiagnostics(catalog.agents, [...extra, ...catalog.diagnostics]);
+    } catch (error) {
+      const fallback = await list([]);
+      return attachCatalogDiagnostics(fallback.agents, [
+        ...extra,
+        {
+          severity: "error",
+          code: "catalog-discovery-failed",
+          message: `Agent catalog discovery failed: ${error instanceof Error ? error.message : String(error)}.`,
+        },
+        ...fallback.diagnostics,
+      ]);
+    }
+  }
+  /**
+   * Read-only bundled (builtin/app) extension snapshot for update-center discovery.
+   * Deliberately never scans or migrates: an update refresh must not unload
+   * project-origin extensions, reset the loaded project root, or disturb
+   * active-session enablement/context.
+   */
+  async listBundledUpdateExtensions(): Promise<ExtensionListItem[]> {
+    const overlay = await this.extensionEnableOverlay(undefined);
+    const listed = this.extensionLoader
+      .list(overlay)
+      .filter((item) => item.origin === "builtin" || item.origin === "app");
+    // Recovery-seed version priority: a shared-store install (active or previous
+    // slot) supersedes the bundled declaration, so the 更新中心 compares and
+    // updates against the version the runtime actually mounts.
+    return Promise.all(listed.map(async (item) => {
+      const resolved = await resolveSeedExtension({
+        storeRoot: this.extensionStoreRoot(),
+        seedRoot: this.seedRoot(),
+        extensionId: item.id,
+      });
+      return withSeedVersionPriority(item, resolved);
+    }));
+  }
+  /** App-profile shared extension store (content-addressed objects + slots). */
+  private extensionStoreRoot(): string {
+    return extensionUpdateStoreRoot(this.agentDir);
+  }
+  /**
+   * Read-only recovery seed for the update-engine fallback chain.
+   *
+   * `undefined` on this base: it ships no bundled packages, so there is no seed
+   * tree and the chain fails closed onto whatever the project installed itself.
+   */
+  private seedRoot(): string | undefined {
+    return undefined;
+  }
+  /**
+   * 更新中心 one-click update for a declared extension component. First version
+   * runs githubReleases package-artifact transactions only (official ed25519
+   * signature enforced by the engine); every other component stays
+   * discovery-only. Installs into the App-profile shared store; the bundled
+   * seed tree is never written.
+   */
+  async updateExtensionComponent(extensionId: string, componentId?: string): Promise<ExtensionUpdateResult> {
+    const listed = await this.listBundledUpdateExtensions();
+    const item = listed.find((entry) => entry.id === extensionId);
+    if (!item) throw new Error(`unknown extension ${extensionId}`);
+    const selection = selectTransactionalUpdateComponent({ extensionId, components: item.updateComponents, componentId });
+    if (!selection.ok) {
+      const error = new Error(selection.error) as Error & { code?: string };
+      error.code = selection.code;
+      throw error;
+    }
+    return applyExtensionUpdate(
+      { extensionId, source: selection.component.source, currentVersion: selection.component.version },
+      {
+        storeRoot: this.extensionStoreRoot(),
+        seedRoot: this.seedRoot(),
+        signingPublicKey: extensionUpdateSigningKey(),
+      },
+    );
+  }
+  /**
+   * ExtensionLoader is a shared mutable scanner. Serialize project-bound reads,
+   * then rescan synchronously after awaited migrations so unrelated legacy scan
+   * call sites cannot leave this request pointed at another project.
+   */
+  private async withStableExtensionScan<T>(projectRoot: string | undefined, read: () => T | Promise<T>): Promise<T> {
+    const expectedRoot = projectRoot ? resolve(projectRoot) : undefined;
+    const previous = this.extensionScanLane;
+    let release!: () => void;
+    this.extensionScanLane = new Promise<void>((resolveLane) => { release = resolveLane; });
+    await previous;
+    try {
+      this.extensionLoader.scan(projectRoot);
+      await this.migrateLoadedExtensions(projectRoot);
+      if (this.extensionLoader.loadedProject() !== expectedRoot) this.extensionLoader.scan(projectRoot);
+      await this.reconcileHostWorkers(projectRoot);
+      return await read();
+    } finally {
+      release();
+    }
+  }
+  private async listExtensions(projectId: unknown): Promise<ExtensionListItem[]> {
+    const projectRoot =
+      typeof projectId === "string" && projectId.trim() ? await this.projectPath(projectId) : undefined;
+    const grantsPromise = this.capabilityGrantsOverlay(projectId);
+    // Resolve enablement only inside the lane, after the project scan: a cold
+    // start's construction scan runs without a project, so project-origin
+    // extensions are absent from the registry until scan(root) lands, and an
+    // overlay resolved before that cannot see overrides or defaultPack for them.
+    const listed = await this.withStableExtensionScan(projectRoot, async () =>
+      this.extensionLoader.list(await this.extensionEnableOverlay(projectId)),
+    );
+    const grants = await grantsPromise;
+    return listed.map((item) => {
+      const grant = grants[item.id];
+      if (!grant) return item;
+      return { ...item, grantedCapabilities: grant.grantedCapabilities };
+    });
+  }
+  private async getExtensionContributions(
+    idValue: unknown,
+    projectId?: unknown,
+  ): Promise<ExtensionListItem["contributions"]> {
+    if (typeof idValue !== "string" || !idValue.trim()) throw new Error("extension id 必须是 string");
+    const id = idValue.trim();
+    const listed = await this.listExtensions(projectId);
+    const item = listed.find((entry) => entry.id === id);
+    if (!item) throw new Error(`unknown extension ${id}`);
+    return item.contributions;
+  }
+  private async getExtensionUiEntrySource(
+    idValue: unknown,
+    entryValue: unknown,
+    projectId?: unknown,
+  ): Promise<string> {
+    if (typeof idValue !== "string" || !idValue.trim()) throw new Error("extension id 必须是 string");
+    if (typeof entryValue !== "string" || !entryValue.trim()) throw new Error("extension UI entry 必须是 string");
+    const id = idValue.trim();
+    const projectRoot =
+      typeof projectId === "string" && projectId.trim() ? await this.projectPath(projectId) : undefined;
+    // Same cold-start rule as listExtensions: the overlay must be resolved
+    // after the lane's project scan, not before it.
+    return this.withStableExtensionScan(projectRoot, async () => {
+      const overlay = await this.extensionEnableOverlay(projectId);
+      const item = this.extensionLoader.list(overlay).find((entry) => entry.id === id);
+      if (!item) throw new Error(`unknown extension ${id}`);
+      if (item.state !== "enabled") throw new Error(`extension ${id} is not enabled`);
+      return this.extensionLoader.readUiEntrySource(id, entryValue);
+    });
+  }
+  /**
+   * List one declared data directory. Session-independent on purpose: a dashboard panel
+   * must be readable the moment the app opens, and `invoke` needs a live agent.
+   * Enablement, the declared-path jail and the `data.read` capability are all checked here.
+   */
+  /**
+   * Start a host worker for every enabled extension that declares one, stop the rest.
+   * Idempotent: a rescan that changes nothing spawns nothing. `host.worker` is a declared
+   * capability, so an enabled package without it never runs here.
+   */
+  private async reconcileHostWorkers(projectRoot?: string): Promise<void> {
+    if (!projectRoot) {
+      this.extensionHostWorkers.stopAll();
+      return;
+    }
+    // 必须用与别处一致的启用视图：registry 自己的记录在没套 overlay 时是 disabled，
+    // 用它判断会得出"一个都没启用"，worker 永远起不来。
+    const overlay = await this.mergedExtensionOverlay(projectRoot);
+    const specs = [];
+    for (const item of this.extensionLoader.list(overlay)) {
+      if (item.state !== "enabled") continue;
+      if (!this.extensions.hasCapability(item.id, "host.worker")) continue;
+      const entry = this.extensionLoader.hostWorkerEntry(item.id);
+      if (!entry) continue;
+      specs.push({ extensionId: item.id, entry, projectRoot });
+    }
+    this.extensionHostWorkers.reconcile(specs);
+  }
+
+  private async listExtensionData(
+    idValue: unknown,
+    dirValue: unknown,
+    projectId?: unknown,
+  ): Promise<{ name: string; bytes: number; mtime: number }[]> {
+    const { id, projectRoot } = await this.resolveExtensionDataAccess(idValue, projectId);
+    if (typeof dirValue !== "string" || !dirValue.trim()) throw new Error("data dir 必须是 string");
+    return this.extensionLoader.listDataFiles(id, projectRoot, dirValue);
+  }
+
+  /** Read the tail of one declared data file. Same gates as `listExtensionData`. */
+  private async readExtensionData(
+    idValue: unknown,
+    pathValue: unknown,
+    optionsValue?: unknown,
+    projectId?: unknown,
+  ): Promise<{ content: string; bytes: number; truncated: boolean }> {
+    const { id, projectRoot } = await this.resolveExtensionDataAccess(idValue, projectId);
+    if (typeof pathValue !== "string" || !pathValue.trim()) throw new Error("data path 必须是 string");
+    const tail = isRecord(optionsValue) && typeof optionsValue.tailBytes === "number" ? optionsValue.tailBytes : undefined;
+    return this.extensionLoader.readDataFile(id, projectRoot, pathValue, tail);
+  }
+
+  /**
+   * Replace one declared writable file.
+   *
+   * Same two gates as the read side (installed for this project, path under a declared
+   * root), plus the capability: a package that declares only `app.data.read` cannot reach
+   * this. What it buys a panel is the ability to leave a request for something that
+   * already had the power to act -- it is not a way to do the thing itself.
+   */
+  private async writeExtensionData(
+    idValue: unknown,
+    pathValue: unknown,
+    contentValue: unknown,
+    projectId?: unknown,
+  ): Promise<{ bytes: number }> {
+    const { id, projectRoot } = await this.resolveExtensionDataAccess(idValue, projectId);
+    if (!this.extensions.hasCapability(id, "data.write")) {
+      throw new Error(`extension ${id} does not declare capability 'data.write'`);
+    }
+    if (typeof pathValue !== "string" || !pathValue.trim()) throw new Error("data path 必须是 string");
+    if (typeof contentValue !== "string") throw new Error("data content 必须是 string");
+    return this.extensionLoader.writeDataFile(id, projectRoot, pathValue, contentValue);
+  }
+
+  /**
+   * Serve one declared data file as bytes for the asset protocol.
+   *
+   * Same gates as `readExtensionData` — the extension must be installed for the project and
+   * the path must sit under a declared `app.data.read` root — so the protocol adds a
+   * transport, not a permission.
+   */
+  async readExtensionAsset(
+    idValue: unknown,
+    pathValue: unknown,
+    projectId?: unknown,
+  ): Promise<{ bytes: Buffer; mime: string; size: number }> {
+    const { id, projectRoot } = await this.resolveExtensionDataAccess(idValue, projectId);
+    if (typeof pathValue !== "string" || !pathValue.trim()) throw new Error("data path 必须是 string");
+    return this.extensionLoader.readDataAsset(id, projectRoot, pathValue);
+  }
+
+  private async resolveExtensionDataAccess(
+    idValue: unknown,
+    projectId?: unknown,
+  ): Promise<{ id: string; projectRoot: string }> {
+    if (typeof idValue !== "string" || !idValue.trim()) throw new Error("extension id 必须是 string");
+    const id = idValue.trim();
+    if (typeof projectId !== "string" || !projectId.trim()) throw new Error("data 读取需要 projectId");
+    const projectRoot = await this.projectPath(projectId);
+    if (!projectRoot) throw new Error(`unknown project ${projectId}`);
+    return this.withStableExtensionScan(projectRoot, async () => {
+      const overlay = await this.extensionEnableOverlay(projectId);
+      const item = this.extensionLoader.list(overlay).find((entry) => entry.id === id);
+      if (!item) throw new Error(`unknown extension ${id}`);
+      if (item.state !== "enabled") throw new Error(`extension ${id} is not enabled`);
+      if (!this.extensions.hasCapability(id, "data.read")) throw new Error("capability_denied");
+      return { id, projectRoot };
+    });
+  }
+
+  private async getExtensionAuthStatus(
+    idValue: unknown,
+    projectId?: unknown,
+  ): Promise<ReturnType<typeof extensionAuthStatus>> {
+    if (typeof idValue !== "string" || !idValue.trim()) throw new Error("extension id 必须是 string");
+    const id = idValue.trim();
+    if (!this.extensions.get(id)) throw new Error(`unknown extension ${id}`);
+    const contribution = this.extensionLoader.authContribution(id);
+    if (!contribution) throw new Error(`extension ${id} has no auth contribution`);
+    const overlay = await this.extensionEnableOverlay(projectId);
+    const enabled = this.extensionLoader.list(overlay).find((item) => item.id === id)?.state === "enabled";
+    let loggedIn = false;
+    let expiresAtMs: number | undefined;
+    try {
+      const stored = await this.auth.getStoredAuthStatus(contribution.provider.id);
+      loggedIn = stored.authenticated;
+      expiresAtMs = stored.expiresAtMs;
+    } catch {
+      loggedIn = false;
+    }
+    return redactAuthStatus(extensionAuthStatus({
+      extensionId: id,
+      providerId: contribution.provider.id,
+      enabled: Boolean(enabled),
+      loggedIn,
+      expiresAtMs,
+    }));
+  }
+  private async beginExtensionLogin(
+    idValue: unknown,
+    authTypeValue?: unknown,
+  ): Promise<{ loginId: string }> {
+    if (typeof idValue !== "string" || !idValue.trim()) throw new Error("extension id 必须是 string");
+    const id = idValue.trim();
+    if (!this.extensions.get(id)) throw new Error(`unknown extension ${id}`);
+    const contribution = this.extensionLoader.authContribution(id);
+    if (!contribution) throw new Error(`extension ${id} has no auth contribution`);
+    const overlay = await this.currentExtensionOverlay();
+    if (this.extensionLoader.list(overlay).find((item) => item.id === id)?.state !== "enabled") {
+      throw new Error(`extension ${id} is not enabled`);
+    }
+    let authType: AuthType;
+    if (authTypeValue === "oauth" || authTypeValue === "api_key") {
+      authType = authTypeValue;
+    } else {
+      try {
+        const info = (await this.auth.listProviders()).find((provider) => provider.id === contribution.provider.id);
+        authType = info?.authTypes.includes("oauth") ? "oauth" : info?.authTypes[0] ?? (contribution.provider.oauth === false ? "api_key" : "oauth");
+      } catch {
+        authType = contribution.provider.oauth === false ? "api_key" : "oauth";
+      }
+    }
+    return { loginId: this.auth.beginLogin(contribution.provider.id, authType) };
+  }
+  private async logoutExtension(idValue: unknown): Promise<ModelState> {
+    if (typeof idValue !== "string" || !idValue.trim()) throw new Error("extension id 必须是 string");
+    const id = idValue.trim();
+    if (!this.extensions.get(id)) throw new Error(`unknown extension ${id}`);
+    const contribution = this.extensionLoader.authContribution(id);
+    if (!contribution) throw new Error(`extension ${id} has no auth contribution`);
+    return this.removeProviderCredentials(contribution.provider.id);
+  }
+  private async extensionEnableOverlay(projectId: unknown): Promise<Record<string, boolean>> {
+    if (typeof projectId === "string" && projectId.trim()) {
+      const root = await this.projectPath(projectId);
+      // Same merge spawn uses ({...app, ...project}): project keys win, else inherit App.
+      return this.mergedExtensionOverlay(root);
+    }
+    return readAppExtensionEnabled(await this.readSettings());
+  }
+  private async setExtensionEnabled(
+    idValue: unknown,
+    enabledValue: unknown,
+    scopeValue: unknown,
+    projectIdValue: unknown,
+  ): Promise<ExtensionRecord> {
+    if (typeof idValue !== "string" || !idValue.trim()) throw new Error("extension id 必须是 string");
+    if (typeof enabledValue !== "boolean") throw new Error("enabled 必须是 boolean");
+    const scope = scopeValue as ExtensionEnableScope;
+    if (scope !== "app" && scope !== "project") throw new Error("scope 必须是 app 或 project");
+    const id = idValue.trim();
+    const current = this.extensions.get(id);
+    if (!current) throw new Error(`unknown extension ${id}`);
+    if (current.state === "error") throw new Error(`extension ${id} is in error; not retrying`);
+    if (enabledValue) {
+      await this.assertEnableAllowed(
+        id,
+        typeof projectIdValue === "string" && projectIdValue.trim() ? await this.projectPath(projectIdValue) : undefined,
+      );
+      await this.assertContributionCanEnable(id, projectIdValue);
+    }
+    if (scope === "app") {
+      const overlay = await this.updateSettings((settings) => {
+        writeAppExtensionEnabled(settings, id, enabledValue);
+        return readAppExtensionEnabled(settings);
+      });
+      if (enabledValue) this.extensions.enable(id);
+      else this.extensions.disable(id);
+      // Contribution enablement changes model availability: flip the authority shut in THIS
+      // synchronous continuation, before any further await. A provider-less extension leaves
+      // it untouched (nothing pinnable can change); the refresh below reopens it for real.
+      if (this.extensionLoader.authContribution(id)) this.markSubagentPinsUnavailable("refreshing");
+      const record = this.extensions.list(overlay).find((item) => item.id === id);
+      if (!record) throw new Error(`unknown extension ${id}`);
+      await this.refreshCatalogAfterExtensionChange(id);
+      void this.onExtensionAvailabilityChanged(id);
+      return record;
+    }
+    if (typeof projectIdValue !== "string" || !projectIdValue.trim()) {
+      throw new Error("projectId 必须是 string");
+    }
+    const root = await this.projectPath(projectIdValue);
+    await writeProjectExtensionEnabled(projectPiAgentDir(root), id, enabledValue);
+    const overlay = await this.mergedExtensionOverlay(root);
+    const record = this.extensions.list(overlay).find((item) => item.id === id);
+    if (!record) throw new Error(`unknown extension ${id}`);
+    await this.refreshCatalogAfterExtensionChange(id);
+    void this.onExtensionAvailabilityChanged(id);
+    return record;
+  }
+  private async refreshCatalogAfterExtensionChange(id: string): Promise<void> {
+    if (!this.extensionLoader.authContribution(id)) return;
+    await this.refreshModelsAfterAuthChange(true, "extension");
+    this.fallbackModelIfMissing();
+  }
+  private async assertContributionCanEnable(id: string, projectIdValue: unknown): Promise<void> {
+    const contribution = this.extensionLoader.authContribution(id);
+    if (!contribution) return;
+    const reserved = reservedProviderClaimError(contribution.provider.id, this.reservedOfficialProviderIds());
+    if (reserved) throw new Error(reserved);
+    const overlay = { ...(await this.extensionEnableOverlay(projectIdValue)), [id]: true };
+    const collisions = detectContributionCollisions(this.extensionLoader.contributionClaims(overlay));
+    const self = collisions.find((item) => item.extensionId === id);
+    if (self) throw new Error(self.errors[0]);
+  }
+  private async resolveExtensionSettingsProject(projectId: unknown): Promise<string | undefined> {
+    if (typeof projectId === "string" && projectId.trim()) return this.projectPath(projectId);
+    const paths = await this.loadProjectPaths();
+    return paths[0];
+  }
+  /**
+   * Opaque in-memory vault namespace for extension secret settings. Vault namespaces are
+   * keys, never disk paths; project-scoped secrets must not collide across projects.
+   */
+  private extensionVaultNamespace(scope: string | undefined, projectRoot?: string): string {
+    if (scope !== "project" || !projectRoot) return this.vaultDir;
+    // Canonicalize like verifiedProjectRoot so every caller — settings IPC and spawn
+    // registration alike — lands on the same namespace even across macOS /var↔/private/var.
+    let canonical = resolve(projectRoot);
+    try {
+      canonical = realpathSync(canonical);
+    } catch {
+      /* keep the lexical resolution */
+    }
+    return `${this.vaultDir}?extension-project=${canonical}`;
+  }
+  private async getExtensionSettings(idValue: unknown, projectId?: unknown): Promise<Record<string, unknown>> {
+    if (typeof idValue !== "string" || !idValue.trim()) throw new Error("extension id 必须是 string");
+    const id = idValue.trim();
+    if (!this.extensions.get(id)) throw new Error(`unknown extension ${id}`);
+    const manifest = this.extensions.settingsManifest(id);
+    const secretKeys = secretPropertyKeys(manifest?.schema);
+    const scope = manifest?.scope ?? "app";
+    if (scope === "project") {
+      const root = await this.resolveExtensionSettingsProject(projectId);
+      if (!root) return { ...secretPresence(this.vaultDir, secretKeys) };
+      const presence = secretPresence(this.extensionVaultNamespace(scope, root), secretKeys);
+      const values = await readProjectExtensionSettingsValues(projectPiAgentDir(root), id, secretKeys);
+      return { ...values, ...presence };
+    }
+    const values = readAppExtensionSettingsValues(await this.readSettings(), id, secretKeys);
+    return { ...values, ...secretPresence(this.vaultDir, secretKeys) };
+  }
+  private async updateExtensionSettings(
+    idValue: unknown,
+    patchValue: unknown,
+    projectId?: unknown,
+  ): Promise<ExtInvokeResult<Record<string, unknown>>> {
+    if (typeof idValue !== "string" || !idValue.trim()) {
+      return settingsDenied("not_found", "extension id 必须是 string");
+    }
+    if (!isRecord(patchValue)) return settingsDenied("capability_denied", "patch 必须是 object");
+    const id = idValue.trim();
+    const current = this.extensions.get(id);
+    if (!current) return settingsDenied("not_found", `unknown extension ${id}`);
+    if (current.state === "error") return settingsDenied("disabled", `extension ${id} is in error`);
+    const manifest = this.extensions.settingsManifest(id);
+    const validated = validateExtensionSettingsPatch(id, manifest?.schema, patchValue);
+    if (!validated.ok) return settingsDenied(validated.code, validated.message);
+    // Reject sub-vault-minimum secrets before anything is written.
+    const shortSecret = Object.entries(validated.secrets).find(([, value]) => value.length < MIN_SECRET_LEN);
+    if (shortSecret) {
+      return settingsDenied("capability_denied", `secret values must be at least ${MIN_SECRET_LEN} characters`);
+    }
+    const scope = manifest?.scope ?? "app";
+    if (scope === "project") {
+      const root = await this.resolveExtensionSettingsProject(projectId);
+      if (!root) return settingsDenied("no_session", "project-scoped settings require a project");
+      const namespace = this.extensionVaultNamespace(scope, root);
+      if (Object.keys(validated.secrets).length > 0) {
+        try {
+          await putExtensionSecrets(namespace, validated.secrets);
+        } catch (error) {
+          return settingsDenied("agent_error", error instanceof Error ? error.message : String(error));
+        }
+      }
+      if (validated.cleared.length > 0) {
+        try {
+          await clearExtensionSecrets(namespace, validated.cleared);
+        } catch (error) {
+          return settingsDenied("agent_error", error instanceof Error ? error.message : String(error));
+        }
+      }
+      const secretKeys = secretPropertyKeys(manifest?.schema);
+      const existing = await readProjectExtensionSettingsValues(projectPiAgentDir(root), id, secretKeys);
+      const next = { ...existing, ...validated.values };
+      await writeProjectExtensionSettingsValues(projectPiAgentDir(root), id, next, manifest?.settingsVersion);
+      this.notifyExtensionSettingsChanged(id, next);      return { ok: true, data: next };
+    }
+    if (Object.keys(validated.secrets).length > 0) {
+      try {
+        await putExtensionSecrets(this.vaultDir, validated.secrets);
+      } catch (error) {
+        return settingsDenied("agent_error", error instanceof Error ? error.message : String(error));
+      }
+    }
+    if (validated.cleared.length > 0) {
+      try {
+        await clearExtensionSecrets(this.vaultDir, validated.cleared);
+      } catch (error) {
+        return settingsDenied("agent_error", error instanceof Error ? error.message : String(error));
+      }
+    }
+    const secretKeys = secretPropertyKeys(manifest?.schema);
+    const next = await this.updateSettings((settings) => {
+      const existing = readAppExtensionSettingsValues(settings, id, secretKeys);
+      const merged = { ...existing, ...validated.values };
+      writeAppExtensionSettingsValues(settings, id, merged, manifest?.settingsVersion);
+      return merged;
+    });
+    this.notifyExtensionSettingsChanged(id, next);
+    return { ok: true, data: next };
+  }
+  private async migrateLoadedExtensions(projectRoot?: string): Promise<void> {
+    for (const record of this.extensions.list()) {
+      if (record.state === "error") continue;
+      const manifest = this.extensions.settingsManifest(record.id);
+      const target = manifest?.settingsVersion;
+      if (!manifest || typeof target !== "number") continue;
+      const secretKeys = secretPropertyKeys(manifest.schema);
+      try {
+        if (manifest.scope === "project") {
+          if (!projectRoot) continue;
+          const agentDir = projectPiAgentDir(projectRoot);
+          const document = await readProjectExtensionSettingsDocument(agentDir, record.id, secretKeys);
+          const diskVersion = document.settingsVersion ?? (Object.keys(document.values).length ? 1 : undefined);
+          if (diskVersion === undefined || diskVersion >= target) continue;
+          const migrated = migrateExtensionSettings({
+            diskVersion,
+            targetVersion: target,
+            migrations: manifest.migrations ?? [],
+            settings: document.values,
+          });
+          if (!migrated.ok) {
+            this.extensions.enterError(record.id, migrated.error);
+            continue;
+          }
+          if (migrated.changed) {
+            await writeProjectExtensionSettingsValues(agentDir, record.id, migrated.settings, migrated.settingsVersion);
+          }
+          continue;
+        }
+        const settings = await this.readSettings();
+        const document = readAppExtensionSettingsDocument(settings, record.id, secretKeys);
+        const diskVersion = document.settingsVersion ?? (Object.keys(document.values).length ? 1 : undefined);
+        if (diskVersion === undefined || diskVersion >= target) continue;
+        const migrated = migrateExtensionSettings({
+          diskVersion,
+          targetVersion: target,
+          migrations: manifest.migrations ?? [],
+          settings: document.values,
+        });
+        if (!migrated.ok) {
+          this.extensions.enterError(record.id, migrated.error);
+          continue;
+        }
+        if (migrated.changed) {
+          await this.updateSettings((current) => {
+            writeAppExtensionSettingsValues(current, record.id, migrated.settings, migrated.settingsVersion);
+          });
+        }
+      } catch (error) {
+        this.extensions.enterError(record.id, error instanceof Error ? error.message : String(error));
+      }
+    }
+  }
+  private async capabilityGrantsOverlay(projectId: unknown): Promise<Record<string, ExtensionGrantRecord>> {
+    const appSettings = await this.readSettings();
+    const app: Record<string, ExtensionGrantRecord> = {};
+    for (const item of this.extensions.list()) {
+      const grant = readAppExtensionGrant(appSettings, item.id);
+      if (grant) app[item.id] = grant;
+    }
+    if (typeof projectId !== "string" || !projectId.trim()) return app;
+    const root = await this.projectPath(projectId);
+    const project = await readProjectExtensionGrants(projectPiAgentDir(root));
+    return { ...app, ...project };
+  }
+  private async resolveGrantProjectRoot(projectId: unknown): Promise<string | undefined> {
+    if (typeof projectId === "string" && projectId.trim()) return this.projectPath(projectId);
+    return this.extensionLoader.loadedProject();
+  }
+  private async getCapabilityGrant(idValue: unknown, projectId?: unknown): Promise<ExtensionCapabilityGrant> {
+    if (typeof idValue !== "string" || !idValue.trim()) throw new Error("extension id 必须是 string");
+    const id = idValue.trim();
+    const current = this.extensions.get(id);
+    if (!current) throw new Error(`unknown extension ${id}`);
+    const declared = this.extensions.capabilities(id);
+    const overlay = await this.capabilityGrantsOverlay(projectId);
+    return evaluateCapabilityGrant({
+      id,
+      origin: current.origin,
+      declared,
+      stored: overlay[id],
+    });
+  }
+  private async confirmCapabilityGrant(
+    idValue: unknown,
+    capabilitiesValue: unknown,
+    projectId?: unknown,
+  ): Promise<ExtensionCapabilityGrant> {
+    if (typeof idValue !== "string" || !idValue.trim()) throw new Error("extension id 必须是 string");
+    if (!Array.isArray(capabilitiesValue) || !capabilitiesValue.every((item) => typeof item === "string")) {
+      throw new Error("capabilities 必须是 string[]");
+    }
+    const id = idValue.trim();
+    const current = this.extensions.get(id);
+    if (!current) throw new Error(`unknown extension ${id}`);
+    const refused = [...new Set([...l2CapabilitiesOf(this.extensions.capabilities(id)), ...l2CapabilitiesOf(capabilitiesValue)])];
+    if (refused.length) {
+      return {
+        id,
+        grantedCapabilities: [],
+        needsConfirmation: false,
+        refused: true,
+        refusedCapabilities: refused,
+      };
+    }
+    const grant = grantFromConfirmation(capabilitiesValue);
+    if (typeof projectId === "string" && projectId.trim()) {
+      const root = await this.projectPath(projectId);
+      await writeProjectExtensionGrant(projectPiAgentDir(root), id, grant);
+    } else {
+      await this.updateSettings((settings) => {
+        writeAppExtensionGrant(settings, id, grant);
+      });
+    }
+    return evaluateCapabilityGrant({
+      id,
+      origin: current.origin,
+      declared: this.extensions.capabilities(id),
+      stored: grant,
+    });
+  }
+  private async uninstallExtension(idValue: unknown, projectId?: unknown): Promise<{ id: string; state: "unloaded" }> {
+    if (typeof idValue !== "string" || !idValue.trim()) throw new Error("extension id 必须是 string");
+    const id = idValue.trim();
+    const current = this.extensions.get(id);
+    if (!current) throw new Error(`unknown extension ${id}`);
+    if (current.origin === "builtin" || !current.uninstallable) {
+      throw new Error(`builtin extensions cannot be uninstalled: ${id}`);
+    }
+    if (current.state === "enabled" || current.state === "loaded") {
+      this.extensions.disable(id);
+    } else if (current.state === "discovered") {
+      this.extensions.enterError(id, "uninstalled");
+    }
+    // Same synchronous transition rule as setExtensionEnabled: an auth-contributing
+    // extension disappearing closes the authority before the awaits below.
+    if ((current.state === "enabled" || current.state === "loaded") && this.extensionLoader.authContribution(id)) {
+      this.markSubagentPinsUnavailable("refreshing");
+    }
+    const directory = this.extensionLoader.directoryOf(id);
+    if (!directory) throw new Error(`unknown extension package directory ${id}`);
+    const projectRoot = await this.resolveGrantProjectRoot(projectId);
+    await removeExtensionPackageDirectory({
+      id,
+      origin: current.origin,
+      directory,
+      appRoot: join(this.agentDir, "extensions"),
+      projectRoot,
+    });
+    const hadAuth = Boolean(this.extensionLoader.authContribution(id));
+    if (this.extensions.get(id)) this.extensions.unload(id);
+    this.extensionLoader.forget(id);
+    if (hadAuth) {
+      await this.refreshModelsAfterAuthChange(true, "extension");
+      this.fallbackModelIfMissing();
+    }
+    void this.onExtensionAvailabilityChanged(id);
+    return { id, state: "unloaded" };
+  }
+  /**
+   * Additive enablement for one project. There is no whitelist: a package is on
+   * because its manifest says so or because an enabled pack requires it, and off
+   * only when an explicit toggle says off (project scope over App scope). A pack
+   * is simply an extension that declares `app.ui.layout`; enabling it pulls in
+   * `dependencies.required` transitively, and disabling it releases whatever
+   * nothing else still requires — this resolution is recomputed from scratch, so
+   * release needs no bookkeeping.
+   */
+  private async resolveProjectEnablement(projectRoot?: string): Promise<{
+    enablement: ExtensionEnablement;
+    activation: ProjectExtensionActivation;
+  }> {
+    const appOverrides = readAppExtensionEnabled(await this.readSettings());
+    const activation = projectRoot
+      ? await readProjectExtensionActivation(projectPiAgentDir(projectRoot))
+      : emptyProjectExtensionActivation();
+    const enablement = resolveExtensionEnablement({
+      installed: this.extensionLoader.installedExtensions(),
+      appOverrides,
+      projectOverrides: projectActivationOverlay(activation),
+      defaultPackId: this.defaultPackOption,
+    });
+    if (enablement.issues.length) {
+      console.warn(`[pipiui] extension enablement: ${formatEnablementIssues(enablement.issues)}`);
+    }
+    return { enablement, activation };
+  }
+  private async mergedExtensionOverlay(projectRoot?: string): Promise<Record<string, boolean>> {
+    return (await this.resolveProjectEnablement(projectRoot)).enablement.enabled;
+  }
+  /**
+   * Which form this project is in: the enabled pack's extension id, or `base`
+   * when no pack is on. It labels a Conversation's immutable snapshot, so a
+   * session started under one form can tell that the project moved to another.
+   */
+  private async activePackId(projectRoot?: string): Promise<string> {
+    return (await this.resolveProjectEnablement(projectRoot)).enablement.packIds[0] ?? BASE_PACK_ID;
+  }
+  /**
+   * Refuse a toggle that cannot assemble: a pack whose required package is
+   * missing or version-mismatched, and a pack that `conflicts` with something
+   * already enabled. An explicitly disabled dependency is not a blocker — that
+   * is the user's own standing choice, warned about rather than used to veto.
+   */
+  private async assertEnableAllowed(id: string, projectRoot?: string): Promise<void> {
+    const projectOverrides = projectRoot
+      ? projectActivationOverlay(await readProjectExtensionActivation(projectPiAgentDir(projectRoot)))
+      : {};
+    const base = {
+      installed: this.extensionLoader.installedExtensions(),
+      appOverrides: readAppExtensionEnabled(await this.readSettings()),
+      projectOverrides,
+      defaultPackId: this.defaultPackOption,
+    };
+    const blockers = enablementBlockers(
+      resolveExtensionEnablement(base),
+      resolveExtensionEnablement({ ...base, projectOverrides: { ...projectOverrides, [id]: true } }),
+    );
+    if (blockers.length) throw new Error(`无法启用 ${id}：${formatEnablementIssues(blockers)}`);
+  }
+  private async readExtensionSettingsSnapshot(id: string, projectRoot?: string): Promise<Record<string, unknown>> {
+    const manifest = this.extensions.settingsManifest(id);
+    const secretKeys = secretPropertyKeys(manifest?.schema);
+    const scope = manifest?.scope ?? "app";
+    if (scope === "project") {
+      if (!projectRoot) return {};
+      return readProjectExtensionSettingsValues(projectPiAgentDir(projectRoot), id, secretKeys);
+    }
+    return readAppExtensionSettingsValues(await this.readSettings(), id, secretKeys);
+  }
+  /**
+   * Spawn-time secret delivery for one enabled extension: manifest secret keys are read
+   * from the extension vault namespace (a per-run cache mirroring each key's durable
+   * store) and returned keyed by env var name. Values never enter settings snapshots,
+   * IPC payloads, or redaction/transcript surfaces.
+   */
+  private async spawnSecretEnvFor(extensionId: string, projectRoot: string): Promise<Record<string, string>> {
+    const manifest = this.extensions.settingsManifest(extensionId);
+    const keys = secretPropertyKeys(manifest?.schema);
+    if (!keys.size) return {};
+    const namespace = this.extensionVaultNamespace(manifest?.scope, projectRoot);
+    return extensionSecretEnvs(namespace, keys);
+  }
+  private async registeredExtensionsForSpawn(projectRoot: string): Promise<SpawnRegisteredExtension[]> {
+    this.extensionLoader.scan(projectRoot);
+    const overlay = await this.mergedExtensionOverlay(projectRoot);
+    const packages = this.extensionLoader.spawnPackages(overlay);
+    const out: SpawnRegisteredExtension[] = [];
+    for (const pkg of packages) {
+      if (!pkg.enabled || !pkg.extensionPath) {
+        out.push(pkg);
+        continue;
+      }
+      let settings: Record<string, unknown> = {};
+      try {
+        settings = await this.readExtensionSettingsSnapshot(pkg.id, projectRoot);
+      } catch {
+        settings = {};
+      }
+      let secretEnv: Record<string, string> = {};
+      try {
+        secretEnv = await this.spawnSecretEnvFor(pkg.id, projectRoot);
+      } catch (error) {
+        console.warn(`[${pkg.id}] spawn secret resolution failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      out.push({ ...pkg, settings, ...(Object.keys(secretEnv).length ? { secretEnv } : {}) });
+    }
+    // Recovery-seed mount overrides: shared-store installs (active/previous slot)
+    // supersede the bundled seed copies of the six core-capability extensions.
+    return applySeedMountOverrides({
+      storeRoot: this.extensionStoreRoot(),
+      seedRoot: this.seedRoot(),
+      extensions: out,
+    });
+  }
+  // ── Extension hot reload ──────────────────────────────────────────────────────
+  // pi's RPC mode has no reload wire command, so an extension change reaches a
+  // live session by stopping its pi child while IDLE; the next send respawns it
+  // with fresh `-e` mounts (established respawn semantics) and the session file
+  // keeps the history.
+
+  private onExtensionFilesChanged(extensionId: string): void {
+    for (const [sessionId, live] of [...this.live]) {
+      if (!live.mountedExtensionIds?.has(extensionId)) continue;
+      // Archived sessions never respawn (ensure refuses); leave them alone.
+      if (this.sidebarArchivedCache.has(sessionId)) continue;
+      this.requestExtensionHotRestart(sessionId, "disk");
+    }
+    this.emitExtensionUpdatedEvent(extensionId, "disk");
+  }
+
+  /**
+   * Enable/disable, install, uninstall, profile activation: availability is
+   * overlaid onto the NEXT spawn, so live children whose mount set would change
+   * get the same graceful restart. Without `extensionId` the whole mount set is
+   * compared (pack/profile installs touch several extensions at once).
+   */
+  private async onExtensionAvailabilityChanged(extensionId?: string): Promise<void> {
+    for (const [sessionId, live] of [...this.live]) {
+      if (!live.mountedExtensionIds || this.sidebarArchivedCache.has(sessionId)) continue;
+      let nextMountedIds: ReadonlySet<string>;
+      try {
+        const registered = await this.registeredExtensionsForSpawn(live.cwd);
+        nextMountedIds = new Set(registered.filter((pkg) => pkg.enabled && pkg.extensionPath).map((pkg) => pkg.id));
+      } catch {
+        continue;
+      }
+      const affected = extensionId
+        ? live.mountedExtensionIds.has(extensionId) !== nextMountedIds.has(extensionId)
+        : !stringSetEquals(live.mountedExtensionIds, nextMountedIds);
+      if (!affected) continue;
+      this.requestExtensionHotRestart(sessionId, "state");
+    }
+    if (extensionId) this.emitExtensionUpdatedEvent(extensionId, "state");
+  }
+
+  private requestExtensionHotRestart(sessionId: string, source: "disk" | "state"): void {
+    const live = this.live.get(sessionId);
+    if (!live?.mountedExtensionIds) return;
+    const plan = selectHotRestartTargets([{
+      sessionId,
+      affected: true,
+      busy: this.sessionBusyForHotRestart(sessionId, live),
+      restartInFlight: this.extensionHotRestartInFlight.has(sessionId) || Boolean(live.pendingExtensionRestart),
+    }]);
+    if (!plan.restart.length) {
+      if (plan.defer.length) live.pendingExtensionRestart = true;
+      return;
+    }
+    live.pendingExtensionRestart = false;
+    this.extensionHotRestartInFlight.add(sessionId);
+    void this.stopLiveChildForExtensionReload(sessionId, live, source).finally(() => {
+      this.extensionHotRestartInFlight.delete(sessionId);
+    });
+  }
+
+  /** Busy = a turn is active, spawn init has not finished, or compaction holds the queue. */
+  private sessionBusyForHotRestart(sessionId: string, live: Live): boolean {
+    if (live.spawnInitializing || live.compactionHoldsQueue) return true;
+    try {
+      return this.queue.isTurnActive(sessionId);
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Graceful restart: mark the child exiting and drop it from `live`; the
+   * child's close handler takes the quiet path and the next send respawns with
+   * fresh mounts (ensure → spawnLive). Session history lives in the session
+   * file, so nothing the user sees is lost.
+   */
+  private async stopLiveChildForExtensionReload(sessionId: string, live: Live, source: "disk" | "state"): Promise<void> {
+    try {
+      if (this.live.get(sessionId) !== live) return;
+      if (this.sessionBusyForHotRestart(sessionId, live)) {
+        live.pendingExtensionRestart = true;
+        return;
+      }
+      live.exiting = true;
+      if (this.live.get(sessionId) === live) this.live.delete(sessionId);
+      await this.stopLiveProcess(live);
+      console.info(`[pipiui-hotreload] stopped live child session=${sessionId} source=${source}; next send respawns with fresh mounts`);
+    } catch (error) {
+      console.warn(`[pipiui-hotreload] hot restart failed session=${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /** Host-synthetic event on the D4 `ext.<id>` channel; the renderer refreshes contributions / toasts. */
+  private emitExtensionUpdatedEvent(extensionId: string, source: "disk" | "state"): void {
+    emitFrame(this.listeners, {
+      protocolVersion: PIPI_HOST_PROTOCOL_VERSION,
+      channel: `ext.${extensionId}`,
+      event: { type: "extension_updated", payload: { extensionId, source } },
+    } as unknown as HostEvent);
+  }
+
+  /**
+   * Bind/unbind lands mid-session (first write → ext.emit), but `session.workspace` only
+   * travels to the renderer on listSessions/lazy-page reads. Without this notice the header
+   * dual-branch pair and the sidebar unmerged badge stay stale until the next full reload.
+   */
+  private emitSessionWorkspaceChanged(sessionId: string, op: "bind" | "unbind"): void {
+    emitFrame(this.listeners, {
+      protocolVersion: PIPI_HOST_PROTOCOL_VERSION,
+      channel: "ext.git-capability",
+      event: { type: "session_workspace_changed", payload: { sessionId, op } },
+    } as unknown as HostEvent);
+  }
+
+  /** Watched discovery roots: app dir + shared store + per-project dirs. */
+  private async refreshExtensionHotReloadRoots(): Promise<void> {
+    const roots: HotReloadRoot[] = [
+      { kind: "app", path: join(this.agentDir, "extensions") },
+      { kind: "shared-store", path: this.extensionStoreRoot() },
+    ];
+    try {
+      for (const project of await this.loadProjectPaths()) {
+        roots.push({ kind: "project", path: join(projectPiAgentDir(project), "extensions") });
+      }
+    } catch {
+      /* project list unavailable → global roots only */
+    }
+    // fs.watch throws ENOENT on missing dirs; skip them until the next refresh.
+    this.extensionHotReload.setRoots(roots.filter((root) => existsSync(root.path)));
+  }
+
+  /**
+   * Tell live sessions that a package's settings changed.
+   *
+   * This used to write `ext.settings_changed` to pi's stdin, where pi answered
+   * `Unknown command` and nothing was delivered — the same fiction that hid the
+   * broken invoke path. It rides the ext-invoke channel now, as the reserved
+   * method below. A package that does not register it gets `not_found`, which is
+   * the correct no-op; the settings snapshot in the spawn environment is still
+   * the source of truth for a package that only reads them at load.
+   */
+  private notifyExtensionSettingsChanged(id: string, settings: Record<string, unknown>): void {
+    for (const [sessionId, live] of this.live) {
+      if (!this.liveProcessUsable(live) || !live.process?.stdin) continue;
+      if (!this.extensions.isMounted(sessionId, id)) continue;
+      void this.enqueueExtInvoke(sessionId, id, EXT_SETTINGS_CHANGED_METHOD, { settings }).catch(() => undefined);
+    }
+  }
+  private async invokeExtension(
+    idValue: unknown,
+    methodValue: unknown,
+    params: unknown,
+    optsValue?: unknown,
+  ): Promise<ExtInvokeResult> {
+    if (typeof idValue !== "string" || !idValue.trim()) {
+      return settingsDenied("not_found", "extension id 必须是 string");
+    }
+    if (typeof methodValue !== "string" || !methodValue.trim()) {
+      return settingsDenied("capability_denied", "method 必须是 string");
+    }
+    const id = idValue.trim();
+    const method = methodValue.trim();
+    const current = this.extensions.get(id);
+    if (!current) return settingsDenied("not_found", `unknown extension ${id}`);
+    if (current.state === "error" || current.state === "disabled") {
+      return settingsDenied("disabled", `extension ${id} is ${current.state}`);
+    }
+    let overlayEnabled = current.state === "enabled";
+    try {
+      const projectRoot = this.extensionLoader.loadedProject();
+      const overlay = await this.mergedExtensionOverlay(projectRoot);
+      overlayEnabled = this.extensions.list(overlay).find((item) => item.id === id)?.state === "enabled";
+    } catch {
+      overlayEnabled = current.state === "enabled";
+    }
+    if (!overlayEnabled) return settingsDenied("disabled", `extension ${id} is disabled`);
+    if (!this.extensions.hasCapability(id, "invoke.agent")) {
+      return settingsDenied("capability_denied", "capability_denied");
+    }
+    const sessionId =
+      isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim()
+        ? optsValue.sessionId.trim()
+        : [...this.live.keys()].at(-1);
+    if (!sessionId) return settingsDenied("no_session", "no active session");
+    const live = this.live.get(sessionId);
+    if (!live || !this.liveProcessUsable(live)) return settingsDenied("no_session", "no active session");
+    if (!this.extensions.isMounted(sessionId, id)) {
+      return settingsDenied("capability_denied", "extension not mounted on session");
+    }
+    return this.enqueueExtInvoke(sessionId, id, method, params);
+  }
+
+  /**
+   * Hand one request to the session's `ext-invoke` mount and wait for its answer.
+   *
+   * A poller parked on an empty queue is resolved directly, so a panel that asks
+   * while the agent is idle is answered in one round trip rather than on the next
+   * poll. Timing out drops the record: a late reply for a forgotten request is
+   * ignored instead of resolving a promise nobody holds.
+   */
+  private enqueueExtInvoke(sessionId: string, id: string, method: string, params: unknown): Promise<ExtInvokeResult> {
+    const requestId = crypto.randomUUID();
+    return new Promise<ExtInvokeResult>((resolve) => {
+      const timer = setTimeout(() => {
+        if (!this.extInvokeAwaiting.delete(requestId)) {
+          const queue = this.extInvokeQueued.get(sessionId);
+          if (queue) {
+            const index = queue.findIndex((entry) => entry.requestId === requestId);
+            if (index >= 0) queue.splice(index, 1);
+          }
+        }
+        resolve(settingsDenied("timeout", "extension invoke timed out"));
+      }, this.extensionInvokeTimeoutMs);
+      const settle = (result: ExtInvokeResult) => {
+        clearTimeout(timer);
+        resolve(result);
+      };
+      const record: ExtInvokeRequestRecord = { requestId, extensionId: id, method, params, settle };
+      const waiting = this.extInvokeWaiting.get(sessionId);
+      const poller = waiting?.shift();
+      if (poller) {
+        this.extInvokeAwaiting.set(requestId, { sessionId, settle });
+        poller([record]);
+        return;
+      }
+      const queue = this.extInvokeQueued.get(sessionId) ?? [];
+      queue.push(record);
+      this.extInvokeQueued.set(sessionId, queue);
+    });
+  }
+
+  /** Bridge `ext_invoke_poll`: drain what is queued, else park until something arrives. */
+  private extInvokePoll(sessionId: string): Promise<{ requests: Array<{ requestId: string; extensionId: string; method: string; params: unknown }> }> {
+    const shape = (records: ExtInvokeRequestRecord[]) => ({
+      requests: records.map((record) => ({
+        requestId: record.requestId,
+        extensionId: record.extensionId,
+        method: record.method,
+        params: record.params,
+      })),
+    });
+    const queued = this.extInvokeQueued.get(sessionId);
+    if (queued?.length) {
+      this.extInvokeQueued.delete(sessionId);
+      for (const record of queued) this.extInvokeAwaiting.set(record.requestId, { sessionId, settle: record.settle });
+      return Promise.resolve(shape(queued));
+    }
+    return new Promise((resolve) => {
+      const waiting = this.extInvokeWaiting.get(sessionId) ?? [];
+      const deliver = (records: ExtInvokeRequestRecord[]) => {
+        clearTimeout(timer);
+        resolve(shape(records));
+      };
+      const timer = setTimeout(() => {
+        const list = this.extInvokeWaiting.get(sessionId);
+        const index = list?.indexOf(deliver) ?? -1;
+        if (list && index >= 0) list.splice(index, 1);
+        resolve({ requests: [] });
+      }, this.extensionInvokePollMs);
+      waiting.push(deliver);
+      this.extInvokeWaiting.set(sessionId, waiting);
+    });
+  }
+
+  /** Bridge `ext_invoke_result`: the agent answers one request it took. */
+  private extInvokeResult(input: Record<string, unknown>, sessionId: string): { ok: boolean; error?: string } {
+    const requestId = typeof input.requestId === "string" ? input.requestId.trim() : "";
+    if (!requestId) return { ok: false, error: "requestId is required" };
+    const pending = this.extInvokeAwaiting.get(requestId);
+    // The session comes from the capability, so this also refuses another session's request id.
+    if (!pending || pending.sessionId !== sessionId) return { ok: false, error: "unknown extension invoke request" };
+    this.extInvokeAwaiting.delete(requestId);
+    if (input.ok === true) {
+      pending.settle({ ok: true, data: input.data });
+      return { ok: true };
+    }
+    const code = typeof input.code === "string" ? input.code : "agent_error";
+    const message = typeof input.error === "string" && input.error.trim() ? input.error : "extension invoke failed";
+    pending.settle(settingsDenied(code as ExtInvokeErrorCode, message));
+    return { ok: true };
+  }
+
+  /** Fail every request a dying session still owes, instead of leaving panels to time out. */
+  private dropExtInvokes(sessionId: string): void {
+    for (const [requestId, pending] of [...this.extInvokeAwaiting]) {
+      if (pending.sessionId !== sessionId) continue;
+      this.extInvokeAwaiting.delete(requestId);
+      pending.settle(settingsDenied("no_session", "session ended before the extension answered"));
+    }
+    for (const record of this.extInvokeQueued.get(sessionId) ?? []) {
+      record.settle(settingsDenied("no_session", "session ended before the extension answered"));
+    }
+    this.extInvokeQueued.delete(sessionId);
+    for (const deliver of this.extInvokeWaiting.get(sessionId) ?? []) deliver([]);
+    this.extInvokeWaiting.delete(sessionId);
+  }  private async listUserMcpServers(projectId: unknown): Promise<UserMcpServer[]> {
+    if (typeof projectId !== "string" || !projectId.trim()) return [];
+    let root: string;
+    try {
+      root = await this.projectPath(projectId);
+    } catch {
+      return [];
+    }
+    return readUserMcpServers(join(root, ".pi", "mcp.json"));
+  }
+  private async addUserMcpServer(projectId: unknown, name: unknown, spec: unknown): Promise<UserMcpServer[]> {
+    const root = await this.requireProjectRoot(projectId);
+    return writeUserMcpServerEntry(join(root, ".pi", "mcp.json"), name, spec);
+  }
+  private async removeUserMcpServer(projectId: unknown, name: unknown): Promise<UserMcpServer[]> {
+    const root = await this.requireProjectRoot(projectId);
+    return removeUserMcpServerEntry(join(root, ".pi", "mcp.json"), name);
+  }
+  private async requireProjectRoot(projectId: unknown): Promise<string> {
+    if (typeof projectId !== "string" || !projectId.trim()) throw new Error("缺少有效的项目");
+    return await this.projectPath(projectId);
+  }
+  private async revealProject(projectId: string): Promise<void> {
+    const path = await this.projectPath(projectId);
+    let stat;
+    try {
+      stat = await fs.stat(path);
+    } catch (error: any) {
+      if (error?.code === "ENOENT") throw new Error(`项目文件夹不存在：${path}`);
+      throw new Error(`无法打开项目文件夹：${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!stat.isDirectory()) throw new Error(`项目路径不是文件夹：${path}`);
+    await this.revealPath(path);
+  }
+  private checkedProjectNames(value: unknown): Record<string, string> {
+    if (value === undefined) return {};
+    if (
+      !isRecord(value) ||
+      !Object.entries(value).every(([key, name]) => typeof key === "string" && key.length > 0 && typeof name === "string" && name.trim().length > 0)
+    )
+      throw new Error("projectNames 必须是 Record<string, string>");
+    return Object.fromEntries(Object.entries(value).map(([key, name]) => [key, (name as string).trim()]));
+  }
+  private async loadProjectNames(): Promise<Record<string, string>> {
+    if (!this.projectNamesLoaded) {
+      this.projectNamesLoaded = (async () => {
+        this.projectNames = this.checkedProjectNames((await this.readSettings()).projectNames);
+      })();
+    }
+    await this.projectNamesLoaded;
+    return { ...this.projectNames };
+  }
+  private async saveProjectNames(names: Record<string, string>): Promise<Record<string, string>> {
+    const saved = await this.updateSettings((settings) => {
+      if (Object.keys(names).length === 0) delete settings.projectNames;
+      else settings.projectNames = { ...names };
+      return { ...names };
+    });
+    this.projectNames = saved;
+    this.projectNamesLoaded = Promise.resolve();
+    return { ...saved };
+  }
+  /** Removes only the explicit sidebar entry; session JSONL files remain untouched. */
+  private async removeProject(projectId: string): Promise<void> {
+    const paths = await this.loadProjectPaths();
+    if (!paths.some((path) => dirId(path) === projectId))
+      throw new Error(`unknown project ${projectId}`);
+    await this.saveProjectPaths(
+      paths.filter((path) => dirId(path) !== projectId),
+    );
+  }
+  /** Atomic opt-out visibility store, mirroring Swift ModelVisibility(UserDefaults). */
+  private async loadHiddenModelIds(): Promise<string[]> {
+    if (!this.hiddenIdsLoaded) {
+      const attempt = (async () => {
+        const raw = await this.readSettings();
+        const value = raw.hiddenModelIds;
+        if (value === undefined) {
+          this.hiddenIds = [];
+          return;
+        }
+        if (
+          !Array.isArray(value) ||
+          !value.every((id: unknown) => typeof id === "string")
+        )
+          throw new Error("hiddenModelIds 必须是 string[]");
+        this.hiddenIds = [...new Set(value)].sort();
+      })();
+      // A failed visibility read must not poison every future read: drop the memo so the
+      // next publication retries from disk and recovery needs no restart.
+      attempt.catch(() => {
+        if (this.hiddenIdsLoaded === attempt) this.hiddenIdsLoaded = undefined;
+      });
+      this.hiddenIdsLoaded = attempt;
+    }
+    await this.hiddenIdsLoaded;
+    return [...this.hiddenIds];
+  }
+  private async saveHiddenModelIds(value: unknown): Promise<string[]> {
+    if (!Array.isArray(value) || !value.every((id) => typeof id === "string"))
+      throw new Error("hiddenModelIds 必须是 string[]");
+    const sorted = [...new Set(value)].sort();
+    await this.updateSettings((settings) => {
+      settings.hiddenModelIds = [...sorted];
+    });
+    this.hiddenIds = [...sorted];
+    this.hiddenIdsLoaded = Promise.resolve();
+    // Authority close-out is SYNCHRONOUS and in-memory: from THIS statement the newly hidden
+    // model is rejected by model_pin_validate even while its name lingers in a display file.
+    // No acceptance window exists, so saveHiddenModelIds no longer waits on disk writes.
+    this.commitReadyPinCatalog();
+    // The cosmetic snapshot converges asynchronously; failures are display-only.
+    this.scheduleSubagentModelCatalogRefresh();
+    return [...sorted];
+  }
+  private checkedSidebarSessionPreferences(value: unknown): { pinnedSessionIds: string[]; archivedSessionIds: string[]; archivedSessionTimestamps?: Record<string, number>; orderedSessionIds: string[]; sessionOrderVersion?: 2 | 3 } {
+    if (!isRecord(value)) throw new Error("sidebarSessionPreferences 必须是 object");
+    const checked = (key: "pinnedSessionIds" | "archivedSessionIds" | "orderedSessionIds", optional = false) => {
+      const ids = value[key];
+      if (optional && ids === undefined) return [];
+      if (!Array.isArray(ids) || !ids.every(id => typeof id === "string" && id.length > 0))
+        throw new Error(`${key} 必须是非空 string[]`);
+      return [...new Set(ids)];
+    };
+    const pinnedSessionIds = checked("pinnedSessionIds");
+    const archived = new Set(checked("archivedSessionIds"));
+    const rawTimestamps = value.archivedSessionTimestamps;
+    let archivedSessionTimestamps: Record<string, number> | undefined;
+    if (rawTimestamps !== undefined) {
+      if (!isRecord(rawTimestamps)) throw new Error("archivedSessionTimestamps 必须是 object");
+      archivedSessionTimestamps = {};
+      for (const [id, timestamp] of Object.entries(rawTimestamps)) {
+        if (typeof timestamp !== "number" || !Number.isFinite(timestamp) || timestamp < 0)
+          throw new Error("archivedSessionTimestamps 必须只包含非负时间戳");
+        if (archived.has(id)) archivedSessionTimestamps[id] = timestamp;
+      }
+    }
+    const sessionOrderVersion = value.sessionOrderVersion;
+    if (sessionOrderVersion !== undefined && sessionOrderVersion !== 2 && sessionOrderVersion !== 3)
+      throw new Error("sessionOrderVersion 必须是 2 或 3");
+    let orderedSessionIds: string[];
+    if (sessionOrderVersion === 3) {
+      const ids = value.orderedSessionIds;
+      if (ids === undefined) orderedSessionIds = [];
+      else if (!Array.isArray(ids) || !ids.every(id => typeof id === "string")) throw new Error("orderedSessionIds 必须是 string[]");
+      else orderedSessionIds = [...ids];
+    } else {
+      orderedSessionIds = checked("orderedSessionIds", true);
+    }
+    // A session cannot occupy both semantic sections; archive wins.
+    return { pinnedSessionIds: pinnedSessionIds.filter(id => !archived.has(id)), archivedSessionIds: [...archived], ...(archivedSessionTimestamps === undefined ? {} : { archivedSessionTimestamps }), orderedSessionIds, ...(sessionOrderVersion === 2 || sessionOrderVersion === 3 ? { sessionOrderVersion } : {}) };
+  }
+  private async loadSidebarSessionPreferences(): Promise<{ pinnedSessionIds: string[]; archivedSessionIds: string[]; archivedSessionTimestamps?: Record<string, number>; orderedSessionIds: string[]; sessionOrderVersion?: 2 | 3 }> {
+    const value = (await this.readSettings()).sidebarSessionPreferences;
+    const prefs = value === undefined
+      ? { pinnedSessionIds: [], archivedSessionIds: [], orderedSessionIds: [] }
+      : this.checkedSidebarSessionPreferences(value);
+    this.sidebarArchivedCache = new Set(prefs.archivedSessionIds);
+    return prefs;
+  }
+  private async saveSidebarSessionPreferences(value: unknown): Promise<{ pinnedSessionIds: string[]; archivedSessionIds: string[]; archivedSessionTimestamps?: Record<string, number>; orderedSessionIds: string[]; sessionOrderVersion?: 2 | 3 }> {
+    const checked = this.checkedSidebarSessionPreferences(value);
+    const previouslyArchived = new Set(this.sidebarArchivedCache);
+    const saved = await this.updateSettings(settings => {
+      settings.sidebarSessionPreferences = checked;
+      return { pinnedSessionIds: [...checked.pinnedSessionIds], archivedSessionIds: [...checked.archivedSessionIds], ...(checked.archivedSessionTimestamps === undefined ? {} : { archivedSessionTimestamps: { ...checked.archivedSessionTimestamps } }), orderedSessionIds: [...checked.orderedSessionIds], ...(checked.sessionOrderVersion === 2 || checked.sessionOrderVersion === 3 ? { sessionOrderVersion: checked.sessionOrderVersion } : {}) };
+    });
+    this.sidebarArchivedCache = new Set(checked.archivedSessionIds);
+    // Archive = total death (UI unarchive rewrites the full set through this
+    // same channel, so the cache diff is authoritative both ways). Newly
+    // archived sessions lose every revival lift, their queues go inert, and
+    // any running pi child plus its subagents are torn down immediately.
+    const newlyArchived = checked.archivedSessionIds.filter(id => !previouslyArchived.has(id));
+    if (newlyArchived.length) {
+      for (const id of newlyArchived) this.autoRevivalUserLifts.delete(id);
+      await Promise.allSettled(newlyArchived.map(id => this.teardownArchivedSession(id)));
+    }
+    return saved;
+  }
+
+  /** Archive teardown: freeze the FIFO, reject pending RPCs, kill the live child and its subagents. */
+  private async teardownArchivedSession(sessionId: string): Promise<void> {
+    try {
+      if (this.manualStopsLoaded) await this.manualStopsLoaded.catch(() => undefined);
+      const live = this.live.get(sessionId);
+      this.queue.noteAbort(sessionId);
+      this.rejectPendingCommands(sessionId, new Error("session archived"));
+      if (live) live.pendingDrainPrompt = undefined;
+      void this.sweepSessionAgents(sessionId).catch(() => undefined);
+      if (live && this.liveProcessUsable(live)) await this.stopLiveProcess(live);
+      this.stream({ type: "status", sessionId, status: "stopped", pendingFollowUps: [] });
+    } catch (error) {
+      console.warn(`[pipi-backend] archive teardown failed for ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  /** Refresh the archived-id cache; resolves with it so spawn paths never gate on stale data. */
+  private async refreshSidebarArchivedCache(): Promise<Set<string>> {
+    await this.loadSidebarSessionPreferences();
+    return this.sidebarArchivedCache;
+  }
+
+  /**
+   * Manual-stop persistence. Stored as `sessionManualStopIds` inside the same
+   * pipiui-settings.json the frontend owns, so a user Stop outlives restarts
+   * and is never cleared by restoreQueue or watchdog idle paths.
+   */
+  private async readManualStopsFromSettings(): Promise<void> {
+    const value = (await this.readSettings()).sessionManualStopIds;
+    if (Array.isArray(value)) {
+      for (const id of value) if (typeof id === "string" && id.length > 0) this.manualStopIds.add(id);
+    }
+  }
+
+  private async markManualStop(sessionId: string): Promise<void> {
+    try {
+      if (this.manualStopsLoaded) await this.manualStopsLoaded;
+      // A fresh Stop always wins over an earlier explicit send's revival lift.
+      this.autoRevivalUserLifts.delete(sessionId);
+      if (this.manualStopIds.has(sessionId)) return;
+      this.manualStopIds.add(sessionId);
+      await this.updateSettings(settings => {
+        settings.sessionManualStopIds = [...this.manualStopIds];
+      });
+    } catch (error) {
+      console.warn(`[pipi-backend] persisting manual stop failed for ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private clearManualStop(sessionId: string): Promise<void> {
+    this.autoRevivalUserLifts.add(sessionId);
+    if (!this.manualStopIds.has(sessionId)) return Promise.resolve();
+    this.manualStopIds.delete(sessionId);
+    return this.updateSettings(settings => {
+      settings.sessionManualStopIds = [...this.manualStopIds];
+    }).catch((error) =>
+      console.warn(`[pipi-backend] clearing manual stop failed for ${sessionId}: ${error instanceof Error ? error.message : String(error)}`),
+    );
+  }
+
+  /** Any explicit user send re-enables automatic delivery after a manual stop. */
+  private noteExplicitUserSend(sessionId: string): void {
+    void this.clearManualStop(sessionId);
+  }
+
+  /** Conversing with an archived session requires an explicit unarchive first. */
+  private assertNotArchived(sessionId: string): void {
+    if (!this.sidebarArchivedCache.has(sessionId)) return;
+    throw new Error("会话已归档：请先在侧栏取消归档，再继续该会话");
+  }
+
+  /**
+   * True while automatic FIFO delivery must stay inert: user-stopped sessions,
+   * and archived sessions that have not seen an explicit user send since the
+   * host started. Restore paths can never lift this — only a user send does.
+   */
+  private autoRevivalSuppressed(sessionId: string): boolean {
+    if (this.autoRevivalUserLifts.has(sessionId)) return false;
+    if (this.manualStopIds.has(sessionId)) return true;
+    return this.sidebarArchivedCache.has(sessionId);
+  }
+
+  /** Which goal auto-resume suppression a freshly spawned child must carry. */
+  private async goalAutoResumeForSpawn(sessionId: string): Promise<"blocked" | undefined> {
+    if (this.manualStopsLoaded) await this.manualStopsLoaded;
+    if (this.sidebarPrefsLoaded) await this.sidebarPrefsLoaded;
+    return this.autoRevivalSuppressed(sessionId) ? "blocked" : undefined;
+  }
+  private async modelRuntime(): Promise<AuthRuntimeLike> {
+    if (!this.authRuntimePromise) {
+      this.authRuntimePromise = (async () => {
+        const mod: any = await import("@earendil-works/pi-coding-agent");
+        const real = await mod.ModelRuntime.create({
+          authPath: join(this.agentDir, "auth.json"),
+          modelsPath: join(this.agentDir, "models.json"),
+          allowModelNetwork: false,
+        });
+        await this.registerExtensionAuthProviders(real);
+        return {
+          getProviders: () => real.getProviders(),
+          getAvailable: () => real.getAvailable(),
+          login: (p: any, t: any, i: any) => real.login(p, t, i),
+          logout: (p: any) => real.logout(p),
+        };
+      })();
+    }
+    return this.authRuntimePromise;
+  }
+  /**
+   * Register every scanned extension that declares `auth.provider` and exports
+   * `createAuthProvider`. No per-extension host special case. Secrets stay in
+   * pi's credential store (app-profile auth.json). Re-registration is
+   * idempotent; failures never break auth.
+   */
+  private async registerExtensionAuthProviders(real: {
+    registerProvider?(id: string, config: unknown): void;
+    getProvider?(id: string): unknown;
+  }): Promise<void> {
+    await registerExtensionAuthProviders({
+      runtime: real,
+      claims: this.extensionLoader.contributionClaims(),
+      directoryOf: (id) => this.extensionLoader.directoryOf(id),
+    });
+  }
+  private toRuntimeModel(m: any): Model {
+    return hostModelFromPi(m);
+  }
+  /**
+   * Pi's auth-aware runtime catalog with in-flight dedup + caching. The first
+   * call pays the `list-models` child-process spawn; concurrent callers (the
+   * constructor preload + the renderer's mount-time listModels) and subsequent
+   * callers within the same auth epoch reuse the resolved promise instead of
+   * re-spawning. Invalidated by refreshModelsAfterAuthChange on login/logout.
+   * On failure the cache self-clears so the next call retries.
+   */
+  private runtimeModels(): Promise<Model[]> {
+    if (!this.runtimeModelsPromise) {
+      this.runtimeModelsPromise = (async () => {
+        try {
+          const runtime = await this.modelRuntime();
+          const available = await runtime.getAvailable();
+          return [...available]
+            .map((model) => this.toRuntimeModel(model))
+            .sort(
+              (a, b) =>
+                a.provider.localeCompare(b.provider) ||
+                a.id.localeCompare(b.id),
+            );
+        } catch (error) {
+          this.runtimeModelsPromise = undefined;
+          throw error;
+        }
+      })();
+    }
+    return this.runtimeModelsPromise;
+  }
+  /** Merge configured/custom models with pi's auth-aware runtime catalog in stable order. */
+  private async mergeRuntimeModels(includeCurrent = true): Promise<void> {
+    const merged = new Map<string, Model>(
+      this.configuredModels.map((model) => [
+        `${model.provider}/${model.id}`,
+        model,
+      ]),
+    );
+    try {
+      const additions = await this.runtimeModels();
+      for (const model of additions) {
+        const key = `${model.provider}/${model.id}`;
+        if (!merged.has(key)) merged.set(key, model);
+      }
+    } catch (error) {
+      throw new Error(`Pi 模型目录不可用（未返回可能不完整的配置模型回退）：${error instanceof Error ? error.message : String(error)}`);
+    }
+    const current = this.modelState.model;
+    const currentKey = `${current.provider}/${current.id}`;
+    if (
+      includeCurrent &&
+      current.provider !== "unknown" &&
+      !merged.has(currentKey)
+    )
+      merged.set(currentKey, current);
+    this.models = await this.applyExtensionProviderContributions([...merged.values()]);
+  }
+  private async currentExtensionOverlay(): Promise<Record<string, boolean>> {
+    return this.mergedExtensionOverlay(this.extensionLoader.loadedProject());
+  }
+  private async authenticatedProviderIds(): Promise<Set<string>> {
+    const ids = new Set<string>();
+    try {
+      for (const model of await this.runtimeModels()) ids.add(model.provider);
+    } catch {
+      /* runtime catalog unavailable — fall through to stored metadata */
+    }
+    try {
+      for (const provider of await this.auth.listProviders()) {
+        if (provider.authenticated) ids.add(provider.id);
+      }
+    } catch {
+      /* metadata-only listing failed */
+    }
+    return ids;
+  }
+  private emitModelCatalogChanged(reason: ModelCatalogEvent["reason"]): void {
+    emitFrame(this.listeners, {
+      protocolVersion: PIPI_HOST_PROTOCOL_VERSION,
+      channel: "models",
+      event: { type: "catalog_changed", reason },
+    });
+  }
+  /** Gate contributed providers by enablement + auth. Never writes models.json. */
+  private async applyExtensionProviderContributions(models: Model[]): Promise<Model[]> {
+    const overlay = await this.currentExtensionOverlay();
+    const claims = this.extensionLoader.contributionClaims(overlay);
+    if (!claims.length) return models;
+    const authenticatedProviders = await this.authenticatedProviderIds();
+    const reserved = this.reservedOfficialProviderIds();
+    const usable = claims.filter((claim) => !reservedProviderClaimError(claim.contribution.provider.id, reserved));
+    const filtered = filterCatalogByContributions(models, {
+      claims: usable,
+      authenticatedProviders,
+    });
+    const extra = resolveContributedCatalog({
+      claims: usable,
+      authenticatedProviders,
+      existing: filtered,
+    });
+    const next = mergeContributedModelCapabilities(filtered, {
+      claims: usable,
+      authenticatedProviders,
+    });
+    for (const model of extra.models) {
+      next.push(hostModelFromPi(model, model.provider));
+    }
+    return next;
+  }
+  private fallbackModelIfMissing(): void {
+    const current = this.modelState.model;
+    if (current.provider === "unknown") return;
+    if (this.models.some((model) => model.provider === current.provider && model.id === current.id)) return;
+    const next = this.models[0] ?? {
+      provider: "unknown",
+      id: "unknown",
+      name: "无可用模型",
+      reasoning: false,
+    };
+    const availableThinkingLevels = thinkingLevelsForModel(next);
+    this.modelState = {
+      ...this.modelState,
+      model: next,
+      thinkingLevel: resolveThinkingLevel(this.modelState.thinkingLevel, availableThinkingLevels) ?? "off",
+      availableThinkingLevels,
+    };
+  }
+  private awaitCanonicalModelsIdle(): Promise<void> {
+    return this.modelsWrite.enqueue(async () => undefined);
+  }
+  /** Renderer/API catalog reads wait for isolated init and the current write-queue tail. */
+  private async loadModelCatalog(includeCurrent = true): Promise<void> {
+    if (this.modelCatalogReady && (!includeCurrent || this.modelCatalogIncludeCurrent)) return;
+    if (this.modelCatalogLoad && (!includeCurrent || this.modelCatalogIncludeCurrent)) {
+      return this.modelCatalogLoad;
+    }
+    const generation = this.modelCatalogGeneration;
+    const requestedIncludeCurrent = includeCurrent || this.modelCatalogIncludeCurrent;
+    let load!: Promise<void>;
+    load = (async () => {
+      try {
+        if (this.profileMode === "isolated") {
+          await this.loadProjectPaths();
+          await this.awaitCanonicalModelsIdle();
+        }
+        if (generation !== this.modelCatalogGeneration) return;
+        await this.loadModelCatalogUnsafe(requestedIncludeCurrent);
+        if (generation !== this.modelCatalogGeneration) return;
+        this.modelCatalogIncludeCurrent = requestedIncludeCurrent || this.modelCatalogIncludeCurrent;
+      } catch (error) {
+        if (this.modelCatalogLoad === load) this.modelCatalogLoad = undefined;
+        throw error;
+      }
+    })();
+    this.modelCatalogLoad = load;
+    return load;
+  }
+  /** Queue-job catalog reread. Must not await the write queue it is already running on. */
+  private async loadModelCatalogUnsafe(includeCurrent = true): Promise<void> {
+    const generation = this.modelCatalogGeneration;
+    await this.loadConfiguredModels();
+    if (generation !== this.modelCatalogGeneration) return;
+    await this.mergeRuntimeModels(includeCurrent);
+    if (generation !== this.modelCatalogGeneration) return;
+    this.applyManualModelSelection(await this.loadManualModelSelection());
+    if (generation !== this.modelCatalogGeneration) return;
+    this.applyManualThinkingLevel(await this.loadManualThinkingLevel());
+    if (generation !== this.modelCatalogGeneration) return;
+    // Visibility belongs to the AUTHORITY inputs: a fresh ready view may never be built from
+    // un-proven hidden state. Memoized read; failure throws (fail closed) out of the whole
+    // load so the canonical commit below never lands on guessed visibility.
+    await this.loadHiddenModelIds();
+    if (generation !== this.modelCatalogGeneration) return;
+    // ═══ Canonical commit LP: NO await anywhere between these statements ═══
+    // From this synchronous segment on, model_pin_validate accepts exactly these refs.
+    this.modelCatalogReady = true;
+    this.modelCatalogIncludeCurrent = includeCurrent || this.modelCatalogIncludeCurrent;
+    this.commitReadyPinCatalog();
+    // Keep the Boss-VISIBLE display snapshot convergent with every catalog rebuild path
+    // (listModels, auth refresh, hidden-id changes, spawn). Presentation-only: failures are
+    // logged downstream and never block dispatch or auth.
+    this.scheduleSubagentModelCatalogRefresh();
+    this.scheduleCompatContextBackfill();
+    // Cosmetic session alignment below MAY await (per-session set_thinking persistence). It
+    // cannot retro-actively change the committed view above: a supersede landing inside these
+    // awaits flips the authority shut synchronously and forces its own fresh rebuild.
+    for (const [sessionId, state] of this.sessionModelStates) {
+      const catalog = this.models.find(model =>
+        model.provider === state.model.provider && model.id === state.model.id,
+      );
+      if (!catalog) continue;
+      const availableThinkingLevels = thinkingLevelsForModel(catalog, state.availableThinkingLevels);
+      const snapshot = this.sessionModelSnapshots.get(sessionId);
+      const thinkingLevel = resolveThinkingLevel(
+        state.thinkingLevel,
+        availableThinkingLevels,
+        snapshot?.thinkingLevel,
+      ) ?? state.thinkingLevel;
+      this.sessionModelStates.set(sessionId, {
+        model: catalog,
+        thinkingLevel,
+        availableThinkingLevels,
+      });
+      // A late catalog map (sparse openai-codex) can invalidate a stale "high".
+      // Persist through the existing set-thinking RPC so the next prompt does not send it.
+      if (thinkingLevel !== state.thinkingLevel && availableThinkingLevels.includes(thinkingLevel)) {
+        this.sessionModelSnapshots.set(sessionId, {
+          model: catalog,
+          thinkingLevel,
+          availableThinkingLevels,
+        });
+        if (this.live.has(sessionId)) {
+          try {
+            await this.command(sessionId, { type: "set_thinking_level", level: thinkingLevel });
+          } catch {
+            /* session may have exited between catalog merge and persist */
+          }
+        }
+      }
+    }
+  }
+  private invalidateModelCatalog(): void {
+    // ═══ Invalidate LP: FIRST statement, strictly synchronous. ═══
+    // From this instant no model_pin_validate can accept any previous canonical ref — no
+    // matter how long the reload or its disk work takes. Run-to-completion orders this
+    // before any validation that has not already captured the ready view.
+    this.markSubagentPinsUnavailable("refreshing");
+    this.modelsLoaded = undefined;
+    this.runtimeModelsPromise = undefined;
+    this.modelCatalogReady = false;
+    this.modelCatalogLoad = undefined;
+    this.modelCatalogIncludeCurrent = false;
+    this.modelCatalogGeneration += 1;
+    // Display-only convergence: the publisher tombstones the cache while unavailability
+    // holds and republishes after the next committed rebuild. Never a gate.
+    this.scheduleSubagentModelCatalogRefresh();
+  }
+  /** Rebuild after pi login/logout while preserving still-configured literal/env-key models. */
+  private async refreshModelsAfterAuthChange(
+    includeCurrent = true,
+    reason: ModelCatalogEvent["reason"] = "auth",
+  ): Promise<Model[]> {
+    this.invalidateModelCatalog();
+    await this.loadModelCatalog(includeCurrent);
+    // Display-cache close-out only: the authoritative decision for this transition already
+    // happened in memory (invalidate LP → commit LP). A failed display write must neither
+    // fail the auth lifecycle nor dangle; the cache reconverges on a later rebuild.
+    await this.materializeSubagentModelCatalog().catch((error) => {
+      console.warn(`[pipiui] subagent model catalog display settlement failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+    this.emitModelCatalogChanged(reason);
+    return this.models;
+  }
+  /**
+   * Unsafe twin used from inside `modelsWrite` jobs (custom-provider writes, compat
+   * backfill). It must NOT blockingly settle the catalog queue: publication re-reads
+   * canonical state via loadModelCatalog, which awaits modelsWrite-idle — awaiting that
+   * here would enqueue behind ourselves and deadlock. The load-end converge hook
+   * (scheduleSubagentModelCatalogRefresh) settles it right after the job finishes;
+   * these paths only ever ADD providers, so a briefly older snapshot fails closed on
+   * unknown pins instead of accepting revoked ones.
+   */
+  private async refreshModelsAfterAuthChangeUnsafe(
+    includeCurrent = true,
+  ): Promise<Model[]> {
+    this.invalidateModelCatalog();
+    await this.loadModelCatalogUnsafe(includeCurrent);
+    return this.models;
+  }
+  /**
+   * Invalidate the cached configured/runtime model catalog and reload it from disk.
+   *
+   * The host runs profile migration and bundled model-capability override installs in
+   * the background so the window can paint before they finish. The backend's
+   * constructor preload may therefore read models.json before those overrides land;
+   * this method clears the affected caches and re-reads them so the renderer's next
+   * listModels returns the complete, capability-aware catalog. Safe to call before or
+   * while the constructor's preload is still in flight (it only replaces the result).
+   */
+  async refreshModelCatalog(): Promise<Model[]> {
+    this.invalidateModelCatalog();
+    await this.loadModelCatalog(true);
+    // Same demotion as the auth path: refresh returns once the load committed; the DISPLAY
+    // cache settles best-effort and can no longer fail the API call.
+    await this.materializeSubagentModelCatalog().catch((error) => {
+      console.warn(`[pipiui] subagent model catalog display settlement failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+    return this.models;
+  }
+  private async refreshModelCatalogUnsafe(): Promise<Model[]> {
+    this.invalidateModelCatalog();
+    await this.loadModelCatalogUnsafe(true);
+    return this.models;
+  }
+  private slugifyProviderId(name: string): string {
+    const slug = name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48);
+    return slug || "custom-openai";
+  }
+
+  private reservedOfficialProviderIds(): Set<string> {
+    return new Set([
+      "openai",
+      "anthropic",
+      "google",
+      "google-gemini-cli",
+      "github-copilot",
+      "amazon-bedrock",
+      "azure-openai-responses",
+      "openai-codex",
+      "xai",
+      "groq",
+      "mistral",
+      "openrouter",
+      "deepseek",
+      "minimax",
+      "huggingface",
+      "opencode",
+      "opencode-go",
+      "vercel-ai-gateway",
+      "zai",
+    ]);
+  }
+
+  /** Write openai-completions provider into models.json (literal apiKey + baseUrl + models). */
+  private async addOpenAICompatibleProvider(raw: unknown): Promise<{ providerId: string }> {
+    if (!raw || typeof raw !== "object") throw new Error("参数无效");
+    const input = raw as Record<string, unknown>;
+    const name = typeof input.name === "string" ? input.name.trim() : "";
+    const baseUrl = typeof input.baseUrl === "string" ? input.baseUrl.trim() : "";
+    const apiKey = typeof input.apiKey === "string" ? input.apiKey.trim() : "";
+    const modelId = typeof input.modelId === "string" ? input.modelId.trim() : "";
+    const explicitContextWindow = parsePositiveInt(input.contextWindow);
+    if (!name) throw new Error("名称不能为空");
+    if (!baseUrl) throw new Error("URL 不能为空");
+    if (!/^https?:\/\//i.test(baseUrl)) throw new Error("URL 必须是 http(s) 地址");
+    if (!apiKey) throw new Error("Key 不能为空");
+    if (!modelId) throw new Error("模型 id 不能为空");
+
+    let providerId = this.slugifyProviderId(name);
+    if (this.reservedOfficialProviderIds().has(providerId)) {
+      providerId = `custom-${providerId}`;
+    }
+
+    let contextWindow = explicitContextWindow;
+    if (contextWindow === undefined) {
+      contextWindow = await probeCompatContextWindow(baseUrl, apiKey, modelId);
+    }
+    // Persistence runs on modelsWrite; the catalog lifecycle settles OUTSIDE that queue so
+    // awaiting it here can never enqueue behind ourselves and deadlock. The RPC caller still
+    // observes a fully settled catalog (or an explicit failure) when THIS method returns.
+    const providerIdCommitted = await this.modelsWrite.enqueue(async () => {
+      const modelsPath = join(this.agentDir, "models.json");
+      let catalog: any = { providers: {} };
+      try {
+        catalog = JSON.parse(await fs.readFile(modelsPath, "utf8"));
+      } catch (error: any) {
+        if (error?.code !== "ENOENT") throw new Error(`无法读取 models.json：${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (!catalog || typeof catalog !== "object") catalog = { providers: {} };
+      const providers = catalog.providers && typeof catalog.providers === "object" ? catalog.providers : {};
+      let uniqueId = providerId;
+      let n = 2;
+      while (providers[uniqueId] && providers[uniqueId]?.baseUrl !== baseUrl) {
+        uniqueId = `${providerId}-${n++}`;
+      }
+      const existing = providers[uniqueId] && typeof providers[uniqueId] === "object" ? providers[uniqueId] : {};
+      const models = Array.isArray(existing.models) ? [...existing.models] : [];
+      const existingIndex = models.findIndex((m: any) => m && m.id === modelId);
+      if (existingIndex < 0) {
+        models.push({
+          id: modelId,
+          name: modelId,
+          reasoning: true,
+          ...(contextWindow !== undefined ? { contextWindow } : {}),
+        });
+      } else if (contextWindow !== undefined && parsePositiveInt(models[existingIndex]?.contextWindow) === undefined) {
+        models[existingIndex] = { ...models[existingIndex], contextWindow };
+      }
+      providers[uniqueId] = {
+        ...existing,
+        baseUrl,
+        api: "openai-completions",
+        apiKey,
+        models,
+      };
+      catalog.providers = providers;
+      await writeCanonicalModelsFile(modelsPath, `${JSON.stringify(catalog, null, 2)}\n`);
+      return uniqueId;
+    });
+    try {
+      await this.refreshModelsAfterAuthChange(false);
+    } catch (error) {
+      throw new Error(`自定义 provider 已保存，但模型目录刷新失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    this.auth.invalidateProvidersCache();
+    return { providerId: providerIdCommitted };
+  }
+
+  /** Model-id candidates for the add-model dropdown: GET {baseUrl}/models with the entered key. */
+  private async listOpenAICompatibleModels(raw: unknown): Promise<{ models: CompatModelEntry[] }> {
+    if (!raw || typeof raw !== "object") throw new Error("参数无效");
+    const input = raw as Record<string, unknown>;
+    const baseUrl = typeof input.baseUrl === "string" ? input.baseUrl.trim() : "";
+    const apiKey = typeof input.apiKey === "string" ? input.apiKey.trim() : "";
+    if (!baseUrl) throw new Error("URL 不能为空");
+    if (!/^https?:\/\//i.test(baseUrl)) throw new Error("URL 必须是 http(s) 地址");
+    if (!apiKey) throw new Error("Key 不能为空");
+    const list = await fetchCompatModelsCatalogStrict(baseUrl, apiKey);
+    return { models: compatModelsFromCatalog(list) };
+  }
+
+  /** Streaming connectivity probe for one OpenAI-compatible model (first-token latency + throughput). */
+  private async testOpenAICompatibleModel(raw: unknown): Promise<CompatModelTestResult> {
+    if (!raw || typeof raw !== "object") throw new Error("参数无效");
+    const input = raw as Record<string, unknown>;
+    const baseUrl = typeof input.baseUrl === "string" ? input.baseUrl.trim() : "";
+    const apiKey = typeof input.apiKey === "string" ? input.apiKey.trim() : "";
+    const modelId = typeof input.modelId === "string" ? input.modelId.trim() : "";
+    if (!baseUrl) throw new Error("URL 不能为空");
+    if (!/^https?:\/\//i.test(baseUrl)) throw new Error("URL 必须是 http(s) 地址");
+    if (!apiKey) throw new Error("Key 不能为空");
+    if (!modelId) throw new Error("模型 id 不能为空");
+    return runCompatModelTest(baseUrl, apiKey, modelId);
+  }
+
+  private scheduleCompatContextBackfill(): void {
+    if (this.compatContextBackfill) return;
+    const ready = this.profileMode === "isolated"
+      ? (this.projectModelsInitialized ?? Promise.resolve()).catch(() => undefined)
+      : Promise.resolve();
+    this.compatContextBackfill = ready
+      .then(() => this.modelsWrite.enqueue(() => this.backfillCompatContextWindows()))
+      .catch((error) => {
+        console.warn("compat provider context backfill failed", error);
+      });
+  }
+
+  private resolveLiteralApiKey(raw: unknown): string | undefined {
+    if (typeof raw !== "string") return undefined;
+    const key = raw.trim();
+    if (!key) return undefined;
+    if (key.startsWith("$")) {
+      const envVal = this.env[key.slice(1)];
+      return typeof envVal === "string" && envVal.trim() ? envVal.trim() : undefined;
+    }
+    return key;
+  }
+
+  private async modelsJsonWritable(modelsPath: string): Promise<boolean> {
+    try {
+      await fs.access(modelsPath, fsConstants.W_OK);
+      return true;
+    } catch (error: any) {
+      if (error?.code === "ENOENT") return true;
+      if (!this.modelsJsonUnwritableWarned) {
+        this.modelsJsonUnwritableWarned = true;
+        console.warn("compat provider context backfill skipped: models.json is not writable");
+      }
+      return false;
+    }
+  }
+
+  private async backfillCompatContextWindows(): Promise<void> {
+    const modelsPath = join(this.agentDir, "models.json");
+    if (!(await this.modelsJsonWritable(modelsPath))) return;
+    let catalog: any;
+    try {
+      catalog = JSON.parse(await fs.readFile(modelsPath, "utf8"));
+    } catch {
+      return;
+    }
+    if (!catalog || typeof catalog !== "object") return;
+    const providers = catalog.providers && typeof catalog.providers === "object" ? catalog.providers : null;
+    if (!providers) return;
+
+    type Need = { providerId: string; baseUrl: string; apiKey: string; models: any[] };
+    const needs: Need[] = [];
+    for (const [providerId, raw] of Object.entries(providers)) {
+      if (!raw || typeof raw !== "object") continue;
+      const entry = raw as Record<string, unknown>;
+      if (entry.api !== "openai-completions") continue;
+      const baseUrl = typeof entry.baseUrl === "string" ? entry.baseUrl.trim() : "";
+      if (!/^https?:\/\//i.test(baseUrl)) continue;
+      const apiKey = this.resolveLiteralApiKey(entry.apiKey);
+      if (!apiKey) continue;
+      const models = Array.isArray(entry.models) ? entry.models : [];
+      if (!models.some((m: any) => m && typeof m.id === "string" && parsePositiveInt(m.contextWindow) === undefined)) continue;
+      needs.push({ providerId, baseUrl, apiKey, models });
+    }
+    if (needs.length === 0) return;
+
+    const byBase = new Map<string, Need[]>();
+    for (const need of needs) {
+      const key = need.baseUrl.replace(/\/+$/, "");
+      const list = byBase.get(key) ?? [];
+      list.push(need);
+      byBase.set(key, list);
+    }
+
+    let wrote = false;
+    for (const [normalized, group] of byBase) {
+      if (this.probedCompatBaseUrls.has(normalized)) continue;
+      this.probedCompatBaseUrls.add(normalized);
+      const { baseUrl, apiKey } = group[0];
+      const list = await fetchCompatModelsCatalog(baseUrl, apiKey);
+      if (list.length === 0) continue;
+      for (const need of group) {
+        const nextModels = need.models.map((model: any) => {
+          if (!model || typeof model !== "object" || typeof model.id !== "string") return model;
+          if (parsePositiveInt(model.contextWindow) !== undefined) return model;
+          const window = contextWindowFromCompatList(list, model.id);
+          if (window === undefined) return model;
+          wrote = true;
+          return { ...model, contextWindow: window };
+        });
+        providers[need.providerId] = { ...(providers[need.providerId] as object), models: nextModels };
+      }
+    }
+    if (!wrote) {
+      await tightenCanonicalFileMode(modelsPath);
+      return;
+    }
+    try {
+      await writeCanonicalModelsFile(modelsPath, `${JSON.stringify(catalog, null, 2)}\n`);
+    } catch (error) {
+      if (!this.modelsJsonUnwritableWarned) {
+        this.modelsJsonUnwritableWarned = true;
+        console.warn("compat provider context backfill skipped: models.json is not writable");
+      }
+      return;
+    }
+    await this.refreshModelCatalogUnsafe();
+  }
+
+  private async removeProviderCredentials(
+    providerId: string,
+  ): Promise<ModelState> {
+    const rt = await this.modelRuntime();
+    try {
+      await rt.logout(providerId);
+    } catch (error) {
+      // A logout may still have changed credentials partially before failing. Close the
+      // authoritative window NOW and keep it closed until a later canonical rebuild; then
+      // surface the original error to the caller.
+      this.invalidateModelCatalog();
+      this.scheduleSubagentModelCatalogRefresh();
+      throw error;
+    }
+    // pi 的 logout 只清 auth.json，从不修改 models.json；apiKey 内联在 models.json 里的
+    // 自定义 provider（如 openai-completions 镜像）会原样留在目录中，删除后模型依旧可用，
+    // 用户看到“删不掉”。这里把带 api/apiKey 字段的 provider 定义从 canonical models.json
+    // 一并删除；仅含 modelOverrides 的内置能力覆盖（如 xai）不属于凭证，跳过不动。
+    try {
+      await this.modelsWrite.enqueue(async () => {
+        const modelsPath = join(this.agentDir, "models.json");
+        let catalog: any;
+        try {
+          catalog = JSON.parse(await fs.readFile(modelsPath, "utf8"));
+        } catch (error: any) {
+          if (error?.code !== "ENOENT") throw error;
+          return; // 无 models.json = 无自定义定义可删，不写文件。
+        }
+        const providers = catalog?.providers;
+        if (!providers || typeof providers !== "object") return;
+        const entry = providers[providerId];
+        if (!entry || typeof entry !== "object") return;
+        if (typeof entry.api !== "string" && typeof entry.apiKey !== "string") return;
+        delete providers[providerId];
+        await writeCanonicalModelsFile(modelsPath, `${JSON.stringify(catalog, null, 2)}\n`);
+      });
+    } catch (error) {
+      // Same authoritative-window semantics as a failed logout: surface the error with the
+      // catalog closed so no stale "still configured" view survives.
+      this.invalidateModelCatalog();
+      this.scheduleSubagentModelCatalogRefresh();
+      throw error;
+    }
+    const models = await this.refreshModelsAfterAuthChange(false);
+    this.auth.invalidateProvidersCache();
+    if (this.modelState.model.provider === providerId) {
+      const next = models[0] ?? {
+        provider: "unknown",
+        id: "unknown",
+        name: "无可用模型",
+        reasoning: false,
+      };
+      const availableThinkingLevels = thinkingLevelsForModel(next);
+      this.modelState = {
+        ...this.modelState,
+        model: next,
+        thinkingLevel: resolveThinkingLevel(this.modelState.thinkingLevel, availableThinkingLevels) ?? "off",
+        availableThinkingLevels,
+      };
+    }
+    return this.modelState;
+  }
+  /** Mirror Swift prepareMessage: persist under <cwd>/.pi/attachments and append readable paths. */
+  private async prepareImageMessage(
+    live: Live,
+    text: string,
+    attachments: PromptAttachment[],
+  ): Promise<string> {
+    const dir = join(live.cwd, ".pi", "attachments");
+    await fs.mkdir(dir, { recursive: true });
+    const paths: string[] = [];
+    for (const [i, a] of attachments.entries()) {
+      const ext = ATTACHMENT_EXT[a.mimeType] ?? "img";
+      const name = sanitizeAttachmentName(a.name, `attachment-${i + 1}.${ext}`);
+      const file = name.endsWith(`.${ext}`)
+        ? join(dir, name)
+        : join(dir, `${name}.${ext}`);
+      await fs.writeFile(file, Buffer.from(a.dataBase64, "base64"));
+      paths.push(file);
+    }
+    const trimmed = text.trim();
+    const lines: string[] = [];
+    if (trimmed) lines.push(trimmed);
+    lines.push("");
+    if (paths.length === 1) lines.push(`Attached image file: ${paths[0]}`);
+    else {
+      lines.push("Attached image files:");
+      for (const p of paths) lines.push(`- ${p}`);
+    }
+    lines.push(
+      "(Images are also embedded multimodally; prefer viewing them directly. If you use the read tool, use the paths above — do not invent paths like /home/workdir/attachments/.)",
+    );
+    return lines.join("\n");
+  }
+  private async dispatchQueuedMessage(
+    id: string,
+    payload: QueuedDispatchPayload,
+    behavior: DispatchBehavior,
+    lifecycleToken?: unknown,
+  ) {
+    // Only regular user prompts define a new main turn. Steer/follow-up RPCs
+    // belong to an already-running turn and would otherwise corrupt its phase
+    // boundary with a second correlation id. The token is captured before the
+    // first await so a late dispatch cannot join a recreated session.
+    const runtimeToken = lifecycleToken !== undefined
+      ? lifecycleToken
+      : this.sessionRuntimeToken(id);
+    this.assertSessionRuntimeToken(id, runtimeToken);
+    // Keep the historical local name for the existing dispatch fences; it now
+    // carries the process-monotonic lifecycle token.
+    const generation = runtimeToken;
+    const recordTurn = behavior === "prompt";
+    if (recordTurn) this.turnTelemetry.beginDispatch(id, payload.turnTelemetry);
+    let leaseAttempt: SessionLeaseAttempt | undefined;
+    let leaseCommitted = false;
+    try {
+      leaseAttempt = await this.requireLease(id, generation);
+      this.assertSessionGeneration(id, generation);
+      // This check is the linearization point for a queued dispatch: teardown
+      // can revoke it while lease acquisition is paused, before ensure() runs.
+      const live = await this.ensure(id, generation);
+      this.assertSessionGeneration(id, generation);
+      if (behavior === "prompt" && payload.text.trim()) {
+        await this.startAutomaticSessionTitle(live, payload.text);
+        this.assertSessionGeneration(id, generation);
+      }
+      const attachments = payload.attachments as PromptAttachment[];
+      const promptText = prependDocumentInjection(payload.text, this.documentInjections.takePending(id));
+      const message = attachments.length
+        ? await this.prepareImageMessage(live, promptText, attachments)
+        : promptText;
+      this.assertSessionGeneration(id, generation);
+      const body: Rpc = {
+        type:
+          behavior === "steer"
+            ? "steer"
+            : behavior === "follow_up"
+              ? "follow_up"
+              : "prompt",
+        message,
+      };
+      if (attachments.length && behavior !== "follow_up")
+        body.images = attachments.map((a) => ({
+          type: "image",
+          data: a.dataBase64,
+          mimeType: a.mimeType,
+        }));
+      if (payload.text.trim() && behavior !== "steer") {
+        live.pendingDrainPrompt = payload.text;
+      }
+      if (recordTurn) {
+        // This is the byte size of the JSON RPC written to Pi, not a provider
+        // request/context estimate. Only the number is retained.
+        this.turnTelemetry.preparationComplete(id, Buffer.byteLength(JSON.stringify(body), "utf8"));
+        this.turnTelemetry.dispatchStarted(id);
+      }
+      try {
+        this.structuredOutputs?.assertReadyToSend(id);
+        this.assertSessionGeneration(id, generation);
+        await this.command(id, body, false, runtimeToken);
+        this.assertSessionGeneration(id, generation);
+      } catch (error) {
+        if (body.type !== "prompt" || !isAlreadyProcessingError(error)) {
+          if (live.pendingDrainPrompt === payload.text) live.pendingDrainPrompt = undefined;
+          throw error;
+        }
+        // Queue thought the session was idle (stale settle, follow-up already
+        // running). Pi is the authority: re-send with the behavior it asked for
+        // instead of surfacing the raw RPC error to the composer.
+        this.assertSessionGeneration(id, generation);
+        await this.command(id, { ...body, streamingBehavior: "followUp" }, false, runtimeToken);
+        this.assertSessionGeneration(id, generation);
+      }
+      this.assertSessionGeneration(id, generation);
+      if (recordTurn) this.turnTelemetry.dispatchAccepted(id);
+      if (behavior === "steer" && payload.text.trim()) this.noteUnconfirmedSteer(id, payload);
+      leaseCommitted = true;
+    } catch (error) {
+      if (!leaseCommitted) await this.rollbackSessionLeaseAttempt(leaseAttempt);
+      // A revoked dispatch must not terminalize telemetry belonging to a new
+      // lifecycle that reused this session id.
+      if (recordTurn && this.sessionRuntimeTokenIsCurrent(id, runtimeToken)) this.turnTelemetry.failDispatch(id);
+      throw error;
+    }
+  }
+
+  // --- Steer delivery receipts -----------------------------------------
+  // `steer` resolves the moment pi pushes the text into its in-memory steering
+  // queue. If the running turn is aborted or compacted before the loop drains
+  // that queue, the message silently vanishes while the host already deleted
+  // the queue item. Track every acknowledged steer until pi echoes it back as
+  // a user message; anything still unacknowledged at settle is requeued.
+
+  private noteUnconfirmedSteer(id: string, payload: QueuedDispatchPayload): void {
+    const pending = this.unconfirmedSteers.get(id) ?? [];
+    pending.push({ text: payload.text, attachments: snapshotAttachments(payload.attachments) });
+    this.unconfirmedSteers.set(id, pending);
+    console.warn(`[pipi-backend] steer pending session=${id} count=${pending.length} text=${previewSteerText(payload.text)}`);
+  }
+
+  private confirmUnconfirmedSteer(id: string, content: string): void {
+    const pending = this.unconfirmedSteers.get(id);
+    if (!pending?.length) return;
+    const echoed = normalizeSteerText(content);
+    if (!echoed) return;
+    const remaining = pending.filter(item => !echoed.includes(normalizeSteerText(item.text)));
+    if (remaining.length === pending.length) return;
+    if (remaining.length) this.unconfirmedSteers.set(id, remaining);
+    else this.unconfirmedSteers.delete(id);
+    console.warn(`[pipi-backend] steer confirmed session=${id} remaining=${remaining.length}`);
+  }
+
+  private recycleUnconfirmedSteers(id: string): void {
+    const pending = this.unconfirmedSteers.get(id);
+    if (!pending?.length) return;
+    this.unconfirmedSteers.delete(id);
+    const restored = this.queue.requeueAtHead(id, pending.map(item => ({ text: item.text, attachments: item.attachments })), this.sessionRuntimeToken(id));
+    for (const item of restored) {
+      console.warn(`[pipi-backend] steer requeued session=${id} id=${item.id} text=${previewSteerText(item.text)}`);
+    }
+  }
+
+  /**
+   * Use a first-message label without spawning a background model session.
+   */
+  private async startAutomaticSessionTitle(live: Live, userMessage: string): Promise<void> {
+    const id = live.session.id;
+    if (this.titleGenerationStarted.has(id) || !isPlaceholderSessionTitle(live.session.name)) return;
+    const provisional = provisionalSessionTitle(userMessage);
+    if (!provisional) return;
+    this.titleGenerationStarted.add(id);
+    try {
+      await this.applyAutomaticSessionTitle(live, provisional, "provisional");
+    } catch {
+      // Naming is enhancement-only: never turn a valid user prompt into a send failure.
+    }
+    // A title is a local UI label; this product never starts another Keeper for it.
+  }
+
+  private async applyAutomaticSessionTitle(
+    live: Live,
+    title: string,
+    source: "provisional" | "model",
+  ): Promise<void> {
+    await this.command(live.session.id, { type: "set_session_name", name: title });
+    live.session = { ...live.session, name: title, updatedAt: Date.now() };
+    this.stream({ type: "session_title", sessionId: live.session.id, title, source });
+  }
+
+  private async prompt(
+    id: string,
+    prompt: string,
+    follow: boolean,
+    attachments?: PromptAttachment[],
+  ) {
+    if (!follow) {
+      await this.enqueueMessage(id, prompt, attachments);
+      return;
+    }
+    // Archived sessions stay dead: refuse instead of reviving; unarchive first.
+    this.assertNotArchived(id);
+    // Explicit user input lifts manual-stop revival suppression.
+    this.noteExplicitUserSend(id);
+    this.beginSessionRuntime(id);
+    await this.dispatchQueuedMessage(
+      id,
+      { text: prompt, attachments: [] },
+      "follow_up",
+    );
+    const live = this.live.get(id);
+    if (!live) return;
+    live.followUps.push(prompt);
+    this.stream({
+      type: "status",
+      sessionId: id,
+      status: "started",
+      pendingFollowUps: live.followUps,
+      turnEpoch: live.turnEpoch,
+    });
+  }
+  private async getModelState(sessionId?: string): Promise<ModelState> {
+    await this.loadModelCatalog();
+    if (!sessionId) return this.modelState;
+    if (this.live.has(sessionId) || this.ensureInFlight.has(sessionId)) {
+      await this.ensure(sessionId);
+      const liveState = this.sessionModelStates.get(sessionId) ?? this.sessionModelSnapshots.get(sessionId) ?? this.modelState;
+      const persisted = (await this.findSession(sessionId)).thinkingLevel;
+      if (
+        persisted &&
+        liveState.availableThinkingLevels.includes(persisted) &&
+        liveState.thinkingLevel !== persisted &&
+        liveState.thinkingLevel === liveState.availableThinkingLevels[0]
+      ) {
+        const restored = { ...liveState, thinkingLevel: persisted };
+        this.sessionModelStates.set(sessionId, restored);
+        return restored;
+      }
+      return liveState;
+    }
+    const cached = this.sessionModelStates.get(sessionId) ?? this.sessionModelSnapshots.get(sessionId);
+    if (cached) return cached;
+    const desired = this.desiredModelFor(await this.findSession(sessionId));
+    this.sessionModelSnapshots.set(sessionId, desired);
+    return desired;
+  }
+  /** Legacy/default selection path used before any session exists; live UI changes are session-scoped. */
+  private async setConfiguredModel(provider: string, modelId: string) {
+    await this.loadModelCatalog();
+    const model = this.models.find(
+      (item) => item.provider === provider && item.id === modelId,
+    );
+    if (!model) throw new Error(`unknown model ${provider}/${modelId}`);
+    const availableThinkingLevels = thinkingLevelsForModel(model);
+    this.modelState = {
+      ...this.modelState,
+      model,
+      thinkingLevel: resolveThinkingLevel(this.modelState.thinkingLevel, availableThinkingLevels) ?? "off",
+      availableThinkingLevels,
+    };
+    return this.modelState;
+  }
+  private composeSessionModelState(sessionId: string, provider: string, modelId: string): ModelState {
+    const known = this.models.find((item) => item.provider === provider && item.id === modelId);
+    const model: Model = known ?? { provider, id: modelId, name: modelId, reasoning: true };
+    const current =
+      this.sessionModelStates.get(sessionId) ??
+      this.sessionModelSnapshots.get(sessionId) ??
+      this.modelState;
+    const availableThinkingLevels = thinkingLevelsForModel(model);
+    return {
+      model,
+      thinkingLevel: resolveThinkingLevel(current.thinkingLevel, availableThinkingLevels) ?? "off",
+      availableThinkingLevels,
+    };
+  }
+  /** Append a Pi-shaped JSONL row without opening SessionManager or spawning Pi. */
+  private async persistColdSessionRow(
+    sessionId: string,
+    row:
+      | { type: "model_change"; provider: string; modelId: string }
+      | { type: "thinking_level_change"; thinkingLevel: ThinkingLevel },
+  ): Promise<void> {
+    const meta = await this.findSession(sessionId);
+    const runtimeToken = this.beginSessionRuntime(sessionId);
+    this.assertSessionRuntimeToken(sessionId, runtimeToken);
+    const { attempt } = await this.acquireSessionLease(meta, runtimeToken);
+    let committed = false;
+    try {
+      await this.sessionFileExclusive(sessionId, runtimeToken)(async () => {
+        this.assertSessionRuntimeToken(sessionId, runtimeToken);
+        const parentId = await lastJsonlEntryId(meta.path);
+        this.assertSessionRuntimeToken(sessionId, runtimeToken);
+        await fs.appendFile(
+          meta.path,
+          `${JSON.stringify({
+            ...row,
+            id: crypto.randomUUID(),
+            parentId,
+            timestamp: new Date().toISOString(),
+          })}\n`,
+        );
+        committed = true;
+        const stat = await fs.stat(meta.path);
+        this.assertSessionRuntimeToken(sessionId, runtimeToken);
+        this.rememberSessionMeta(
+          {
+            ...meta,
+            updatedAt: Date.now(),
+            model: row.type === "model_change" ? { provider: row.provider, modelId: row.modelId } : meta.model,
+            thinkingLevel: row.type === "thinking_level_change" ? row.thinkingLevel : meta.thinkingLevel,
+          },
+          stat.size,
+          stat.mtimeMs,
+        );
+      });
+      this.assertSessionRuntimeToken(sessionId, runtimeToken);
+    } catch (error) {
+      if (!committed) await this.rollbackSessionLeaseAttempt(attempt);
+      throw error;
+    }
+  }
+  private async setModel(sessionId: string, provider: string, modelId: string) {
+    await this.loadModelCatalog();
+    if (this.live.has(sessionId) || this.ensureInFlight.has(sessionId)) {
+      let live = await this.ensure(sessionId);
+      try {
+        await this.selectExactModel(live, provider, modelId);
+      } catch (error) {
+        if (!(error instanceof PiExitedError)) throw error;
+        await live.exit;
+        live = await this.ensure(sessionId);
+        await this.selectExactModel(live, provider, modelId);
+      }
+      await this.refreshState(live);
+      const state = this.sessionModelStates.get(sessionId)!;
+      this.sessionModelSnapshots.set(sessionId, state);
+      if (state.model.provider === provider && state.model.id === modelId)
+        await this.rememberManualModelSelection(state.model);
+      this.structuredOutputs?.clear(sessionId);
+      return state;
+    }
+    const next = this.composeSessionModelState(sessionId, provider, modelId);
+    await this.persistColdSessionRow(sessionId, { type: "model_change", provider, modelId });
+    this.sessionModelStates.set(sessionId, next);
+    this.sessionModelSnapshots.set(sessionId, next);
+    await this.rememberManualModelSelection(next.model);
+    this.structuredOutputs?.clear(sessionId);
+    return next;
+  }
+  private async setThinking(sessionId: string, level: ThinkingLevel) {
+    if (!this.modelCatalogReady) await this.loadModelCatalog();
+    const raw =
+      this.sessionModelStates.get(sessionId) ??
+      this.sessionModelSnapshots.get(sessionId);
+    const reported = raw ??
+      ((this.live.has(sessionId) || this.ensureInFlight.has(sessionId))
+        ? this.modelState
+        : await this.getModelState(sessionId));
+    const known = this.models.find(
+      (item) => item.provider === reported.model.provider && item.id === reported.model.id,
+    );
+    const model: Model = known ?? {
+      provider: reported.model.provider,
+      id: reported.model.id,
+      name: reported.model.name || reported.model.id,
+      reasoning: true,
+      ...(reported.model.thinkingLevelMap
+        ? { thinkingLevelMap: reported.model.thinkingLevelMap }
+        : {}),
+      ...(reported.model.capabilities ? { capabilities: reported.model.capabilities } : {}),
+    };
+    const availableThinkingLevels = thinkingLevelsForModel(
+      model,
+      model.thinkingLevelMap !== undefined
+        || model.reasoning === false
+        || model.thinkingConfigurable === false
+        ? undefined
+        : (reported.availableThinkingLevels.length > 0 ? reported.availableThinkingLevels : undefined),
+    );
+    if (!availableThinkingLevels.includes(level))
+      throw new Error(`thinking level ${level} is unavailable`);
+    if (this.live.has(sessionId) || this.ensureInFlight.has(sessionId)) {
+      await this.ensure(sessionId);
+      await this.command(sessionId, { type: "set_thinking_level", level });
+      const catalog = this.models.find(
+        (item) => item.provider === model.provider && item.id === model.id,
+      );
+      const state = {
+        model: catalog ?? model,
+        thinkingLevel: level,
+        availableThinkingLevels: thinkingLevelsForModel(
+          catalog ?? model,
+          availableThinkingLevels,
+        ),
+      };
+      this.sessionModelStates.set(sessionId, state);
+      this.sessionModelSnapshots.set(sessionId, state);
+      await this.rememberManualThinkingLevel(state.thinkingLevel);
+      return state;
+    }
+    const next = { model, thinkingLevel: level, availableThinkingLevels };
+    await this.persistColdSessionRow(sessionId, { type: "thinking_level_change", thinkingLevel: level });
+    this.sessionModelStates.set(sessionId, next);
+    this.sessionModelSnapshots.set(sessionId, next);
+    await this.rememberManualThinkingLevel(next.thinkingLevel);
+    return next;
+  }
+  /**
+   * Per-session last-known context persistence. Same file name and line format
+   * as Swift's TokenLedger (`pipiui-token-ledger.jsonl`), written beside the
+   * host's other state in the active project's Pi home; existing files are
+   * parsed with the same reader, so records from earlier runs (or a Swift host
+   * sharing the sessions) are reused instead of recreated with a new format.
+   */
+  private contextLedgerFile(): string {
+    return join(this.agentDir, "pipiui-token-ledger.jsonl");
+  }
+  private loadSessionContextLedger(): Promise<void> {
+    if (!this.sessionContextLedgerLoaded) {
+      this.sessionContextLedgerLoaded = this.readSessionContextLedger();
+    }
+    return this.sessionContextLedgerLoaded;
+  }
+  private async readSessionContextLedger(): Promise<void> {
+    try {
+      const records = await readLedgerFile(this.contextLedgerFile());
+      for (const record of records) {
+        if (record.channel !== "main") continue;
+        this.sessionLedgerTurns.set(
+          record.session,
+          Math.max(this.sessionLedgerTurns.get(record.session) ?? 0, record.turn),
+        );
+      }
+      for (const [session, context] of latestContextBySession(records)) {
+        if (this.sessionContextLastKnown.has(session)) continue;
+        if (typeof context.contextWindow === "number" && context.contextWindow > 0)
+          this.sessionContextLastKnown.set(session, {
+            tokens: context.tokens,
+            contextWindow: context.contextWindow,
+            percent: context.percent,
+          });
+      }
+    } catch {
+      /* a missing/unreadable ledger is fine; live stats still work */
+    }
+  }
+  /** Persist one exact provider response; cumulative stats never enter here. */
+  private async persistAssistantUsage(id: string, message: any): Promise<void> {
+    const usage = exactAssistantUsage(message?.usage);
+    const provider = nonEmpty(message?.provider);
+    const modelId = nonEmpty(message?.responseModel) ?? nonEmpty(message?.model);
+    const timestamp = num2(message?.timestamp);
+    if (!usage || !provider || !modelId || timestamp === undefined || timestamp < 0) return;
+    let ts: string;
+    try {
+      ts = new Date(timestamp).toISOString();
+    } catch {
+      return;
+    }
+    await this.loadSessionContextLedger();
+    const turn = (this.sessionLedgerTurns.get(id) ?? 0) + 1;
+    this.sessionLedgerTurns.set(id, turn);
+    void appendLedgerRecord(this.contextLedgerFile(), {
+      ts,
+      session: id,
+      channel: "main",
+      depth: 0,
+      model: `${provider}/${modelId}`,
+      turn,
+      ...usage,
+      contextTokens: 0,
+      contextSample: false,
+    });
+  }
+  /** Best-effort ledger append of one observed context sample. */
+  private persistSessionContext(
+    id: string,
+    known: { tokens: number; contextWindow: number },
+    model: Model,
+  ): void {
+    const ref =
+      model.provider === "unknown" && model.id === "unknown"
+        ? "?"
+        : `${model.provider}/${model.id}`;
+    void appendLedgerRecord(this.contextLedgerFile(), {
+      ts: new Date().toISOString(),
+      session: id,
+      channel: "main",
+      depth: 0,
+      model: ref,
+      turn: 0,
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      cost: 0,
+      contextTokens: known.tokens,
+      contextWindow: known.contextWindow,
+      contextSample: true,
+    });
+  }
+  /**
+   * Browsing a session must not spawn Pi. Live RPC is used only when a process
+   * is already running; otherwise the pill reads the token ledger / zeros.
+   */
+  private async getSessionStats(sessionId?: string): Promise<SessionStats> {
+    await this.loadSessionContextLedger();
+    const id = sessionId ?? [...this.live.keys()].at(-1);
+    if (!id) throw new Error("no active session; pass an explicit sessionId");
+    if (this.live.has(id)) return this.sessionStatsData(id);
+    return this.coldSessionStats(id);
+  }
+  private async coldSessionStats(id: string): Promise<SessionStats> {
+    await this.loadConfiguredModels();
+    const cachedState = this.sessionModelStates.get(id) ?? this.sessionModelSnapshots.get(id);
+    const state = cachedState ?? this.desiredModelFor(await this.findSession(id));
+    this.sessionModelSnapshots.set(id, state);
+    const known = this.sessionContextLastKnown.get(id);
+    const performance = this.turnTelemetry.sessionPerformance(id);
+    return {
+      sessionId: id,
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      cost: 0,
+      contextUsage: known
+        ? {
+            tokens: known.tokens,
+            contextWindow: known.contextWindow,
+            percent: known.percent,
+          }
+        : undefined,
+      model:
+        state.model.provider === "unknown" && state.model.id === "unknown"
+          ? undefined
+          : { provider: state.model.provider, id: state.model.id, name: state.model.name },
+      ...(performance ? { performance } : {}),
+    };
+  }
+  /**
+   * Account-quota snapshot for the requested session's model. A session model
+   * can differ from the configured default, so using `this.modelState` here
+   * made a live Codex session ask the quota store for the wrong provider and
+   * silently hide its pills. The optional no-id form remains the legacy
+   * configured-default query.
+   */
+  private async getQuotaSnapshot(sessionId?: string): Promise<QuotaSnapshot | null> {
+    await this.loadConfiguredModels();
+    const state = sessionId
+      ? this.sessionModelStates.get(sessionId) ?? this.sessionModelSnapshots.get(sessionId) ?? await this.getModelState(sessionId)
+      : this.modelState;
+    // OpenCode can report Go as a model id below its generic `opencode`
+    // provider. Prefer the provider normally, but let a quota-capable model id
+    // identify that plan without treating ordinary OpenCode pay-as-you-go
+    // models as subscription quota sessions.
+    const provider = quotaProviderFor(state.model.provider)
+      ? state.model.provider
+      : quotaProviderFor(state.model.id)
+        ? state.model.id
+        : state.model.provider;
+    return this.quotaStore.snapshot(provider);
+  }
+  private async sessionStatsData(id: string): Promise<SessionStats> {
+    await this.loadSessionContextLedger();
+    // Issue order is recorded before the RPC so a stale pre-compaction response
+    // can never re-arm the policy after a compaction already succeeded.
+    const generation = this.live.get(id)?.compaction.beginUsageRequest();
+    const data = await this.command(id, { type: "get_session_stats" });
+    const tokens = isRecord(data?.tokens) ? data.tokens : {};
+    const liveUsage: any = isRecord(data?.contextUsage)
+      ? data.contextUsage
+      : undefined;
+    const model = (this.sessionModelStates.get(id) ?? this.modelState).model;
+    // Per-session last-known context: fresh live occupancy is remembered and
+    // persisted to the token ledger; when pi omits usage (e.g. right after
+    // compaction) the snapshot falls back to last-known instead of dropping
+    // the ring entirely.
+    let contextUsage = liveUsage;
+    if (liveUsage) {
+      const liveTokens =
+        typeof liveUsage.tokens === "number" ? liveUsage.tokens : null;
+      const liveWindow = num(liveUsage.contextWindow);
+      if (liveTokens !== null && liveWindow > 0) {
+        const known = {
+          tokens: liveTokens,
+          contextWindow: liveWindow,
+          percent:
+            typeof liveUsage.percent === "number"
+              ? liveUsage.percent
+              : Math.min(100, (liveTokens / liveWindow) * 100),
+        };
+        this.sessionContextLastKnown.set(id, known);
+        this.persistSessionContext(id, known, model);
+      }
+    } else {
+      const known = this.sessionContextLastKnown.get(id);
+      if (known) {
+        contextUsage = {
+          tokens: known.tokens,
+          contextWindow: known.contextWindow,
+          percent: known.percent,
+        };
+      }
+    }
+    // Only a fresh Pi context payload is a per-turn context sample. The
+    // renderer-facing fallback above is useful UI state but not telemetry.
+    this.turnTelemetry.observeSessionStats(id, {
+      contextTokens: liveUsage?.tokens,
+      contextWindow: liveUsage?.contextWindow,
+    });
+    // Post-settle stats are the last chance to attach an actual context sample
+    // before the terminal row is serialized and its performance aggregate is
+    // projected below. During a live turn this is intentionally a no-op.
+    this.turnTelemetry.flushTerminal(id);
+    const performance = this.turnTelemetry.sessionPerformance(id);
+    const stats: SessionStats = {
+      sessionId: id,
+      tokens: {
+        input: num(tokens.input),
+        output: num(tokens.output),
+        cacheRead: num(tokens.cacheRead),
+        cacheWrite: num(tokens.cacheWrite),
+        total: num(tokens.total),
+      },
+      cost: typeof data?.cost === "number" ? data.cost : 0,
+      contextUsage: contextUsage
+        ? {
+            tokens:
+              typeof contextUsage.tokens === "number"
+                ? contextUsage.tokens
+                : null,
+            contextWindow: num(contextUsage.contextWindow),
+            percent:
+              typeof contextUsage.percent === "number"
+                ? contextUsage.percent
+                : null,
+          }
+        : undefined,
+      model:
+        model.provider === "unknown" && model.id === "unknown"
+          ? undefined
+          : { provider: model.provider, id: model.id, name: model.name },
+      ...(performance ? { performance } : {}),
+    };
+    if (generation !== undefined)
+      this.live.get(id)?.compaction.observeUsage(stats.contextUsage, generation);
+    return stats;
+  }
+  /**
+   * Every live gate the idle-time compaction respects. Deliberately narrower
+   * than "no work anywhere": dispatched workers may keep running in the
+   * background — only main-turn activity blocks a main-session compact.
+   */
+  private isSessionQuiet(id: string): boolean {
+    if (this.closed) return false;
+    const live = this.live.get(id);
+    const child = live?.process;
+    if (!live || !child) return false;
+    if (child.exitCode !== null || child.signalCode) return false;
+    if (live.followUps.length > 0) return false;
+    if (this.queue.isBusy(id)) return false;
+    return this.queue.listQueue(id).length === 0;
+  }
+  /**
+   * Manual `/compact` and the scheduler share this path. Resolves once pi
+   * finished the compaction; `compaction` stream events carry the progress.
+   */
+  private async compactSession(id: string): Promise<void> {
+    const runtimeToken = this.beginSessionRuntime(id);
+    const live = await this.ensure(id, runtimeToken);
+    this.assertSessionRuntimeToken(id, runtimeToken);
+    // The pending quiet-period timer is only a hint; an explicit compact
+    // supersedes it rather than racing a second one behind it.
+    live.compaction.cancel();
+    // User-initiated `/compact`: recorded so the lifecycle events it produces
+    // are attributed to a manual trigger rather than the scheduler's. Same
+    // ownership rule as the scheduler's compact: an intent still ours after the
+    // RPC settled was never consumed by a lifecycle, so the RPC failed — clear
+    // it instead of leaking the attribution onto the next compaction.
+    live.compactionIntent = "manual";
+    try {
+      await this.command(live.session.id, { type: "compact" }, false, runtimeToken);
+    } finally {
+      if (live.compactionIntent === "manual") live.compactionIntent = undefined;
+    }
+  }
+  /** Best-effort post-settle snapshot; the command query above stays authoritative. */
+  private async pushSessionStats(id: string) {
+    try {
+      const stats = await this.sessionStatsData(id);
+      emitFrame(this.listeners, {
+        protocolVersion: PIPI_HOST_PROTOCOL_VERSION,
+        channel: "session_stats",
+        event: { type: "snapshot", sessionId: id, stats },
+      });
+    } catch {
+      /* a missed snapshot is fine; getSessionStats returns the same data on demand */
+    } finally {
+      // A failed stats RPC must not turn telemetry into an unbounded in-memory
+      // queue; it merely leaves unavailable context/token fields absent.
+      this.turnTelemetry.flushTerminal(id);
+    }
+  }
+  private agents = new Map<string, AgentSummary>();
+  private worktrees = new Map<string, WorktreeStatus>();
+  private orphanReconcileTimer?: ReturnType<typeof setInterval>;
+  private agentsFile(): string {
+    return join(this.agentDir, "pipiui-agent-index.json");
+  }
+  private agentLogsFile(): string {
+    return join(this.agentDir, "pipiui-agent-logs.json");
+  }
+  private agentKey(agentId: string, sessionId: string | undefined, runId: string): string {
+    return `${sessionId ?? ""}\u0000${agentId}\u0000${runId}`;
+  }
+  private agentLogKey(sessionId: string, agentId: string, runId: string): string {
+    return `${sessionId}\u0000${agentId}\u0000${runId}`;
+  }
+  private loadPersistedAgents(): void {
+    try {
+      const readStarted = Date.now();
+      const text = readFileSync(this.agentsFile(), "utf8");
+      const readMs = Date.now() - readStarted;
+      const parseStarted = Date.now();
+      const value = JSON.parse(text);
+      freezeProbe("load_agents", {
+        readMs,
+        parseMs: Date.now() - parseStarted,
+        bytes: text.length,
+        agents: isRecord(value) && Array.isArray(value.agents) ? value.agents.length : 0,
+      });
+      if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.agents)) return;
+      const restartedAt = Date.now();
+      let normalized = false;
+      for (const raw of value.agents) {
+        if (!isRecord(raw) || typeof raw.agentId !== "string" || typeof raw.sessionId !== "string") continue;
+        const agent = raw as unknown as AgentSummary;
+        // A process-local `running` bit is never evidence that a worker survived the host.
+        // Its Pi session remains resumable, but the UI must show an interruption, not a spinner.
+        if (agent.state === "running" || agent.state === "stalled") {
+          agent.state = "interrupted";
+          agent.endedAt = agent.endedAt ?? restartedAt;
+          agent.activityActive = false;
+          agent.listSubtitle = undefined;
+          agent.activityToolCallId = undefined;
+          agent.activityEndedAt = agent.activityEndedAt ?? restartedAt;
+          agent.diagnostics = markPersistedRunningReconciliation(agent, {
+            receivedAt: restartedAt,
+            generation: this.hostProcessGeneration,
+          });
+          normalized = true;
+        }
+        // One-time migration of pre-flag-era dispatch-seam fixture rows so the
+        // UI keeps them behind the 历史 group after restart; the next persist
+        // writes the flag back into the durable index.
+        if (migrateLegacySeamFixture(agent)) normalized = true;
+        const key = this.agentKey(agent.agentId, agent.sessionId, agent.runId);
+        this.agents.set(key, agent);
+        this.projectionDebugProvenance.set(key, "durable_load");
+      }
+      if (Array.isArray(value.worktrees)) for (const raw of value.worktrees) {
+        // Composite identity only: an entry without a sessionId cannot be attributed
+        // to one episode, and attributing it by agentId alone would recreate the
+        // cross-session same-slug collision this projection removed. Legacy
+        // session-less entries are dropped; a still-live worker re-establishes its
+        // worktree row from its next event.
+        if (isRecord(raw) && typeof raw.agentId === "string" && typeof raw.sessionId === "string" && typeof raw.runId === "string")
+          this.worktrees.set(this.agentKey(raw.agentId, raw.sessionId, raw.runId), raw as unknown as WorktreeStatus);
+      }
+      // Shrink a bloated projection once at load so the first snapshot is already
+      // bounded; a 15MB index costs a full parse + stringify cycle otherwise.
+      const pruned = this.pruneAgentProjection(Date.now());
+      if (normalized || pruned) this.persistAgents();
+    } catch (error: any) {
+      if (error?.code !== "ENOENT") console.warn(`[pipi-agents] unable to load durable index: ${error?.message ?? error}`);
+    }
+  }
+  private loadPersistedAgentLogs(): void {
+    try {
+      const readStarted = Date.now();
+      const text = readFileSync(this.agentLogsFile(), "utf8");
+      const readMs = Date.now() - readStarted;
+      const parseStarted = Date.now();
+      const value = JSON.parse(text);
+      freezeProbe("load_logs", {
+        readMs,
+        parseMs: Date.now() - parseStarted,
+        bytes: text.length,
+        keys: isRecord(value) && isRecord(value.logs) ? Object.keys(value.logs).length : 0,
+      });
+      if (!isRecord(value) || value.version !== 1 || !isRecord(value.logs)) return;
+      for (const [key, entries] of Object.entries(value.logs)) {
+        if (typeof key !== "string" || !Array.isArray(entries)) continue;
+        this.agentLogCache.set(key, entries.filter(isCachedAgentLog));
+      }
+      // Drop logs whose agent row did not survive load-time retention; otherwise
+      // they stay resident in memory and get rewritten into every snapshot.
+      const retainedKeys = new Set(
+        [...this.agents.values()].map(agent => this.agentLogKey(agent.sessionId ?? "", agent.agentId, agent.runId)),
+      );
+      if (retainedKeys.size) {
+        for (const key of [...this.agentLogCache.keys()]) {
+          if (!retainedKeys.has(key)) this.agentLogCache.delete(key);
+        }
+      }
+    } catch (error: any) {
+      if (error?.code !== "ENOENT") console.warn(`[pipi-agents] unable to load durable logs: ${error?.message ?? error}`);
+    }
+  }
+  private schedulePersistAgentLogs(): void {
+    if (this.closed || this.agentLogsPersistTimer) return;
+    this.agentLogsPersistTimer = setTimeout(() => {
+      this.agentLogsPersistTimer = undefined;
+      this.tryPersistAgentLogs();
+    }, this.agentLogPersistDebounceMs);
+    this.agentLogsPersistTimer.unref?.();
+  }
+  /** Enforce the minimum gap between log snapshots; continuous log_delta streams
+   * used to re-arm a 250ms debounce into a permanent full-serialize loop. */
+  private tryPersistAgentLogs(): void {
+    if (this.closed) return;
+    const waitMs = this.agentLogsPersistLastEnd + this.agentLogPersistDebounceMs - Date.now();
+    if (waitMs > 0 && !this.agentLogsThrottleTimer) {
+      this.agentLogsThrottleTimer = setTimeout(() => {
+        this.agentLogsThrottleTimer = undefined;
+        this.tryPersistAgentLogs();
+      }, waitMs);
+      this.agentLogsThrottleTimer.unref?.();
+      return;
+    }
+    this.persistAgentLogs();
+  }
+  private persistAgentLogs(): void {
+    if (this.agentLogsPersistTimer) {
+      clearTimeout(this.agentLogsPersistTimer);
+      this.agentLogsPersistTimer = undefined;
+    }
+    if (this.agentLogsThrottleTimer) {
+      clearTimeout(this.agentLogsThrottleTimer);
+      this.agentLogsThrottleTimer = undefined;
+    }
+    if (this.closed) return;
+    const known = new Set(
+      [...this.agents.values()].map(agent => this.agentLogKey(agent.sessionId ?? "", agent.agentId, agent.runId)),
+    );
+    const logs: Record<string, CachedAgentLog[]> = {};
+    for (const [key, entries] of this.agentLogCache) {
+      if (!entries.length) continue;
+      if (known.size > 0 && !known.has(key)) continue;
+      logs[key] = entries;
+    }
+    const stringifyStarted = Date.now();
+    const snapshot = JSON.stringify({ version: 1, logs }) + "\n";
+    this.agentLogsPersistLastEnd = Date.now();
+    freezeProbe("persist_logs", {
+      stringifyMs: Date.now() - stringifyStarted,
+      bytes: snapshot.length,
+      keys: Object.keys(logs).length,
+    });
+    this.agentsWrite = this.agentsWrite.then(async () => {
+      await fs.mkdir(dirname(this.agentLogsFile()), { recursive: true });
+      const tmp = `${this.agentLogsFile()}.tmp-${process.pid}`;
+      await fs.writeFile(tmp, snapshot, { encoding: "utf8", mode: 0o600 });
+      await fs.rename(tmp, this.agentLogsFile());
+    }).catch(error => console.warn(`[pipi-agents] unable to persist durable logs: ${error?.message ?? error}`));
+  }
+  private persistAgents(): void {
+    if (this.closed) return;
+    this.agentsPersistDirty = true;
+    this.schedulePersistAgents();
+  }
+  /** Final flush for close(): bypasses the throttle but keeps the write queue ordered. */
+  private persistAgentsNow(): void {
+    if (this.closed) return;
+    this.agentsPersistDirty = true;
+    if (this.agentsPersistTimer) {
+      clearTimeout(this.agentsPersistTimer);
+      this.agentsPersistTimer = undefined;
+    }
+    this.startPersistAgents();
+  }
+  private schedulePersistAgents(): void {
+    if (this.closed || this.agentsPersistTimer || this.agentsPersistInflight) return;
+    const waitMs = Math.max(0, this.agentsPersistLastEnd + this.agentPersistMinIntervalMs - Date.now());
+    this.agentsPersistTimer = setTimeout(() => {
+      this.agentsPersistTimer = undefined;
+      this.startPersistAgents();
+    }, waitMs);
+    this.agentsPersistTimer.unref?.();
+  }
+  private startPersistAgents(): void {
+    if (this.closed || this.agentsPersistInflight || !this.agentsPersistDirty) return;
+    this.agentsPersistInflight = true;
+    this.agentsWrite = this.agentsWrite.then(async () => {
+      try {
+        while (this.agentsPersistDirty) {
+          this.agentsPersistDirty = false;
+          this.pruneAgentProjection(Date.now());
+          const stringifyStarted = Date.now();
+          const snapshot = JSON.stringify({ version: 1, agents: [...this.agents.values()], worktrees: [...this.worktrees.values()] }, null, 2) + "\n";
+          freezeProbe("persist_agents", {
+            stringifyMs: Date.now() - stringifyStarted,
+            bytes: snapshot.length,
+            agents: this.agents.size,
+            worktrees: this.worktrees.size,
+          });
+          const target = this.agentsFile();
+          await fs.mkdir(dirname(target), { recursive: true });
+          const tmp = `${target}.tmp-${process.pid}`;
+          await fs.writeFile(tmp, snapshot, { encoding: "utf8", mode: 0o600 });
+          await fs.rename(tmp, target);
+        }
+      } finally {
+        this.agentsPersistLastEnd = Date.now();
+        this.agentsPersistInflight = false;
+        if (this.agentsPersistDirty && !this.closed) this.schedulePersistAgents();
+      }
+    }).catch(error => {
+      this.agentsPersistLastEnd = Date.now();
+      this.agentsPersistInflight = false;
+      console.warn(`[pipi-agents] unable to persist durable index: ${error?.message ?? error}`);
+    });
+  }
+  /**
+   * Force a throttled flush to start immediately and wait for the write queue
+   * to drain. close() relies on persistAgentsNow instead; this is the path
+   * tests use to observe a durable snapshot without waiting out the interval.
+   */
+  private async flushAgentProjection(): Promise<void> {
+    if (!this.closed && this.agentsPersistTimer) {
+      clearTimeout(this.agentsPersistTimer);
+      this.agentsPersistTimer = undefined;
+      this.startPersistAgents();
+    }
+    await this.agentsWrite;
+    if (this.agentsPersistInflight || this.agentsPersistTimer) await this.flushAgentProjection();
+  }
+  /**
+   * Durable-projection retention. The index grew without bound (3591 agents /
+   * 3128 log keys → 15MB index + 40MB log file) until every event-driven
+   * snapshot stringify pinned the Electron main thread at ~100% CPU
+   * (2026-08-23 freeze). Keep live rows plus the newest N terminal rows and
+   * drop the cached logs and settled worktrees of everything else. Rows ended
+   * inside AGENT_RETENTION_PROTECT_WINDOW_MS (and rows without an end
+   * timestamp) are exempt: when few old rows exist the projection temporarily
+   * holds more than the cap rather than delete recent completions. Pi still
+   * owns the worker transcripts; this projection only rebuilds the UI tree.
+   */
+  private pruneAgentProjection(now: number): boolean {
+    const terminal: Array<[string, AgentSummary]> = [];
+    for (const [key, agent] of this.agents) {
+      if (!this.isLiveAgentState(agent.state)) terminal.push([key, agent]);
+    }
+    const excess = terminal.length - this.agentRetentionMaxTerminal;
+    if (excess <= 0) return false;
+    terminal.sort((a, b) => (this.lastObservedAt(b[1]) ?? 0) - (this.lastObservedAt(a[1]) ?? 0));
+    // Walk oldest → newest and stop once the cap is met again, skipping any row
+    // that is not provably old (endedAt missing or inside the protection
+    // window). Recency beats retention: a completed record the panel can still
+    // show after a restart must not be pruned the moment its page reloads.
+    const drop = new Set<string>();
+    for (let i = terminal.length - 1; i >= 0 && drop.size < excess; i--) {
+      const agent = terminal[i][1];
+      if (agent.endedAt === undefined || now - agent.endedAt < AGENT_RETENTION_PROTECT_WINDOW_MS) continue;
+      drop.add(terminal[i][0]);
+    }
+    for (const key of drop) {
+      const agent = this.agents.get(key);
+      if (!agent) continue;
+      this.agents.delete(key);
+      this.agentLogCache.delete(this.agentLogKey(agent.sessionId ?? "", agent.agentId, agent.runId));
+      this.projectionDebugProvenance.delete(key);
+      // The worktree projection is keyed by the same exact episode key, so it retires
+      // with its row. Actionable worktrees survive retention: pendingReview still
+      // offers manual merge/discard and active belongs to a live worker.
+      const worktree = this.worktrees.get(key);
+      if (worktree && worktree.lifecycle !== "active" && worktree.lifecycle !== "pendingReview") this.worktrees.delete(key);
+    }
+    return drop.size > 0;
+  }
+  /**
+   * Exact episode lookup for control commands (abort/resolve/check). The previous
+   * fuzzy lookup — any row with this agentId, preferring running then newest — let
+   * one session's stop/resolve land on another session's same-slug worker, or on a
+   * newer run that replaced the one the caller was looking at. Both are now
+   * rejected instead of silently routed.
+   */
+  private async getAgentExact(sessionId: string, agentId: string, runId: string) {
+    const agent = this.agents.get(this.agentKey(agentId, sessionId, runId));
+    if (!agent) throw new Error(`unknown agent ${agentId} (session ${sessionId || "?"}, run ${runId || "?"}); it may have been replaced by a newer run`);
+    return agent;
+  }
+  /**
+   * Strict episode wire for agent/worktree control: the only accepted form is
+   * the exact [sessionId, agentId, runId] triple. There is deliberately no
+   * agentId-only or partial form - a fuzzy route would pick a running/newest
+   * same-slug episode, which is precisely the cross-session misbinding this
+   * contract removed. Any other arity fails loud instead of guessing which
+   * episode was meant.
+   */
+  private episodeWire(method: string, params: unknown[]): [string, string, string] {
+    if (params.length === 3 && typeof params[0] === "string" && typeof params[1] === "string" && typeof params[2] === "string")
+      return [params[0], params[1], params[2]];
+    throw new Error(`${method} expects exactly [sessionId, agentId, runId] (exact episode), got ${params.length} argument(s)`);
+  }
+  private getWorktree(sessionId: string, agentId: string, runId: string) {
+    return (
+      this.worktrees.get(this.agentKey(agentId, sessionId, runId)) ??
+      ({
+        agentId,
+        sessionId,
+        runId,
+        lifecycle: "none",
+        merge: "unavailable",
+        discard: "unavailable",
+      } satisfies WorktreeStatus)
+    );
+  }
+  private liveSessionProcess(sessionId: string): Live | undefined {
+    const live = this.live.get(sessionId);
+    if (!live || !this.liveProcessUsable(live)) return undefined;
+    return live;
+  }
+  private diagnosticsConfirmProcessGone(agent: AgentSummary): boolean {
+    const diagnostics = agent.diagnostics;
+    return Boolean(
+      diagnostics?.cpuVerdict === "gone" ||
+      diagnostics?.watchdogDecision === "no-process" ||
+      diagnostics?.watchdogDecision === "process-exited" ||
+      diagnostics?.exitReason,
+    );
+  }
+  private diagnosticChildProcessAlive(agent: AgentSummary): boolean {
+    const pid = agent.diagnostics?.childPid;
+    if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0 || this.diagnosticsConfirmProcessGone(agent)) return false;
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error: any) {
+      // EPERM still proves that the PID exists; only ESRCH positively proves it is gone.
+      return error?.code !== "ESRCH";
+    }
+  }
+  private lastObservedAt(agent: AgentSummary): number | undefined {
+    const businessObservation = agent.updatedAt ?? agent.createdAt;
+    const diagnosticsObservation = this.diagnosticsConfirmProcessGone(agent)
+      ? undefined
+      : agent.diagnostics?.hostReceivedAt;
+    if (businessObservation === undefined) return diagnosticsObservation;
+    if (diagnosticsObservation === undefined) return businessObservation;
+    return Math.max(businessObservation, diagnosticsObservation);
+  }
+  private isLiveAgentState(state: AgentSummary["state"]): boolean {
+    return state === "running" || state === "stalled";
+  }
+  private currentAgentSummaries(rows: AgentSummary[]): AgentSummary[] {
+    const current = new Map<string, AgentSummary>();
+    for (const agent of rows) {
+      const key = `${agent.sessionId ?? ""}\u0000${agent.agentId}`;
+      const previous = current.get(key);
+      if (!previous || Number(this.isLiveAgentState(agent.state)) > Number(this.isLiveAgentState(previous.state)) ||
+        (this.isLiveAgentState(agent.state) === this.isLiveAgentState(previous.state) && (agent.createdAt ?? 0) > (previous.createdAt ?? 0))) {
+        current.set(key, agent);
+      }
+    }
+    return [...current.values()];
+  }
+  private stopOrphanReconcileTimer(): void {
+    if (!this.orphanReconcileTimer) return;
+    clearInterval(this.orphanReconcileTimer);
+    this.orphanReconcileTimer = undefined;
+  }
+  private syncOrphanReconcileTimer(): void {
+    const needsTick = [...this.agents.values()].some(
+      (agent) =>
+        this.isLiveAgentState(agent.state) && Boolean(agent.sessionId),
+    );
+    if (!needsTick || this.closed) {
+      this.stopOrphanReconcileTimer();
+      return;
+    }
+    if (this.orphanReconcileTimer) return;
+    this.orphanReconcileTimer = setInterval(
+      () => this.reconcileAllOrphaned(),
+      ORPHAN_RECONCILE_INTERVAL_MS,
+    );
+    this.orphanReconcileTimer.unref?.();
+  }
+  private retainOrphanWorktree(agent: AgentSummary): void {
+    const key = this.agentKey(agent.agentId, agent.sessionId, agent.runId);
+    const current = this.worktrees.get(key);
+    if (!current?.path || current.lifecycle !== "active") return;
+    const status: WorktreeStatus = {
+      ...current,
+      lifecycle: "pendingReview",
+      merge: "ready",
+      discard: "ready",
+    };
+    this.worktrees.set(key, status);
+    this.agent({ type: "worktree", status });
+  }
+  /**
+   * Orphan sweep: silence is not terminal evidence. A stale projection stays
+   * live while either its owning Pi session or its recorded child PID still
+   * exists. Same-run diagnostics reception is an independent heartbeat; only
+   * a missing host/child or a positive process-gone diagnosis can close it.
+   */
+  private reconcileOrphanedNow(sessionId: string, now = Date.now()): boolean {
+    let changed = false;
+    const liveSession = this.liveSessionProcess(sessionId);
+    for (const agent of [...this.agents.values()]) {
+      if (agent.sessionId !== sessionId || !this.isLiveAgentState(agent.state)) continue;
+      const observed = this.lastObservedAt(agent);
+      if (observed === undefined || now - observed < ORPHAN_STALE_MS) continue;
+      const processGone = this.diagnosticsConfirmProcessGone(agent);
+      if (!processGone && (liveSession || this.diagnosticChildProcessAlive(agent))) continue;
+      const next: AgentSummary = {
+        ...agent,
+        state: "interrupted",
+        stalled: false,
+        stalledIdleSec: undefined,
+        listSubtitle: "",
+        activityActive: false,
+        activityToolCallId: undefined,
+        activityEndedAt: agent.activityEndedAt ?? now,
+        endedAt: agent.endedAt ?? now,
+        closeout: agent.closeout ?? (processGone ? ORPHAN_PROCESS_GONE_CLOSEOUT : ORPHAN_HOST_UNAVAILABLE_CLOSEOUT),
+      };
+      this.agents.set(this.agentKey(agent.agentId, agent.sessionId, agent.runId), next);
+      this.agentProjectionChanged(next.sessionId);
+      this.agent({ type: "agent", agent: next });
+      this.retainOrphanWorktree(next);
+      changed = true;
+    }
+    if (changed) this.persistAgents();
+    this.syncOrphanReconcileTimer();
+    return changed;
+  }
+  private reconcileAllOrphaned(now = Date.now()): void {
+    const sessionIds = new Set(
+      [...this.agents.values()]
+        .map((agent) => agent.sessionId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    for (const sessionId of sessionIds) this.reconcileOrphanedNow(sessionId, now);
+  }
+  private forceAbortAgent(agent: AgentSummary, reason: string): void {
+    const key = this.agentKey(agent.agentId, agent.sessionId, agent.runId);
+    const current = this.agents.get(key);
+    if (!current || current.runId !== agent.runId) return;
+    if (current.state !== "running" && current.state !== "stalled") return;
+    const next: AgentSummary = {
+      ...current,
+      state: "aborted",
+      endedAt: current.endedAt ?? Date.now(),
+      closeout: current.closeout ?? reason,
+    };
+    this.agents.set(key, next);
+    this.agentProjectionChanged(next.sessionId);
+    this.agent({ type: "agent", agent: next });
+    this.persistAgents();
+  }
+  /**
+   * Host-shutdown sweep of the session's background subagents. Reuses
+   * /subagent_abort_all so kill paths, receipt suppression, and the quiet gate
+   * stay owned by the runtime extension. Force-aborts any panel entry still
+   * running afterwards so the UI never wedges on 运行中. User stop / cut-in
+   * must not call this.
+   */
+  private async sweepSessionAgents(sessionId: string): Promise<void> {
+    if (this.closed) return;
+    const running = [...this.agents.values()].filter(
+      (agent) => agent.sessionId === sessionId && agent.state === "running",
+    );
+    // There is no subagent work to abort, so do not make host shutdown wait for
+    // a main Pi child that may already be unresponsive.
+    if (running.length === 0) return;
+    const target = this.live.get(sessionId);
+    if (!target || !this.liveProcessUsable(target)) {
+      for (const agent of running) {
+        this.forceAbortAgent(agent, "宿主停止时无主 Agent 进程，已在界面结束该子任务");
+      }
+      return;
+    }
+    try {
+      if (!this.liveProcessUsable(target)) {
+        throw new Error("宿主停止时目标进程已退出");
+      }
+      await this.withAgentCommandTimeout(
+        this.writeCommand(target, { type: "prompt", message: "/subagent_abort_all", streamingBehavior: "followUp" }),
+        5_000,
+        "停止扫场请求在 5 秒内未被主 Agent 接收",
+      );
+      await Promise.allSettled(
+        running.map((agent) => this.waitForAgentTerminal(agent.agentId, agent.sessionId ?? "", agent.runId, 5_000)),
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "停止扫场请求未能送达";
+      for (const agent of running) this.forceAbortAgent(agent, reason);
+      return;
+    }
+    for (const agent of running) {
+      const current = this.agents.get(this.agentKey(agent.agentId, agent.sessionId, agent.runId));
+      if (current && current.runId === agent.runId && current.state === "running") {
+        this.forceAbortAgent(agent, "停止扫场后未收到终态，已在界面结束该子任务");
+      }
+    }
+  }
+
+  private async agentCommand(sessionId: string, id: string, runId: string, operation: "abort" | "resolve") {
+    // Exact episode binding: the composite key names the row the caller is looking
+    // at. A stale run or another session's same-slug worker is rejected here; the
+    // runtime applies the same exact-run rule again for the live process.
+    const a = await this.getAgentExact(sessionId, id, runId);
+		if (operation === "abort") {
+			if (!a.sessionId || !/^[A-Za-z0-9_-]{2,160}$/.test(id) || !a.runId) throw new Error("agent abort requires a live session and bounded agent id");
+			if (!this.isLiveAgentState(a.state)) throw new Error(`agent ${id} run ${a.runId} already finished (${a.state}); nothing to abort`);
+			const live = this.closed ? undefined : this.liveSessionProcess(a.sessionId);
+			if (live) {
+				// Pi executes extension commands immediately while streaming. Prefer the
+				// real child end event, but never leave the panel stuck on 运行中 if the
+				// owning process is wedged, already gone, or the host is closing.
+				try {
+					await this.withAgentCommandTimeout(
+						// The runId makes the abort exact at the runtime too: a stale panel row
+						// must never kill a NEWER run reusing the same semantic slug.
+						this.command(a.sessionId, { type: "prompt", message: `/subagent_abort ${id} ${a.runId}`, streamingBehavior: "followUp" }),
+						5_000,
+						"停止请求在 5 秒内未被主 Agent 接收",
+					);
+					try {
+						await this.waitForAgentTerminal(a.agentId, a.sessionId, a.runId);
+					} catch (error) {
+						if (error instanceof Error && error.message.includes("切换了运行实例")) throw error;
+						this.forceAbortAgent(a, error instanceof Error ? error.message : "停止请求已发送，但没有收到终态");
+					}
+				} catch (error) {
+					if (error instanceof Error && error.message.includes("切换了运行实例")) throw error;
+					this.forceAbortAgent(a, error instanceof Error ? error.message : "停止请求未能送达");
+				}
+			} else {
+				this.forceAbortAgent(a, "没有可接收停止请求的主 Agent 进程，已在界面结束该子任务");
+			}
+			// Child aborts intentionally leave the Boss turn running so it can
+			// investigate or recover.
+			return;
+		} else {
+      // Bind the resolve to the exact episode: the runtime's /subagent_resolve owns the
+      // interrupted-reminder cancellation and the worktree closeout re-entry, and it
+      // rejects a stale runId itself.
+      //
+      // Live-process rule: when the owning session has a live process, the runtime
+      // forward is authoritative — a send failure or timeout propagates to the caller
+      // and NOTHING is marked handled (a silent local marking would cancel no reminder
+      // and skip the closeout re-entry while the UI shows success). Only when there is
+      // NO live process — an interrupted episode whose owner died, exactly the offline
+      // case — is the host-local handled marking the correct terminal disposition.
+      const hasLiveOwner = Boolean(a.sessionId && a.runId && !this.closed && this.liveSessionProcess(a.sessionId));
+      if (hasLiveOwner) {
+        await this.withAgentCommandTimeout(
+          this.command(a.sessionId!, {
+            type: "prompt",
+            message: `/subagent_resolve ${a.agentId} ${a.runId}`,
+            streamingBehavior: "followUp",
+          }),
+          5_000,
+          "标记已处理请求在 5 秒内未被主 Agent 接收",
+        );
+      }
+      if (!hasLiveOwner) {
+        a.closeout = a.closeout ?? "归属会话已无主进程，仅在本地标记已处理";
+      }
+      a.handled = true;
+    }
+    this.agent({ type: "agent", agent: { ...a } });
+    this.persistAgents();
+  } /**
+   * Manual merge/discard of a retained worker worktree.
+   *
+   * Automatic finalization is real: this host sets PIPIUI_WORKTREE_FINALIZER=pi, so a successful
+   * worker is merged and cleaned up by the audited service inside pi. What is NOT implemented is
+   * this manual fallback for a worktree the policy deliberately retained (failed/aborted work).
+   * It used to flip the status fields to "merged"/"discarded" and report success while touching
+   * no Git at all — telling a user their work was merged when the branch was untouched is worse
+   * than having no button. Until this routes through a real host-api operation, it fails loudly.
+   */
+  private async worktreeCommand(sessionId: string, id: string, runId: string, operation: "merge" | "discard") {
+    // Exact episode binding: a stale run's retained badge must never dispose the
+    // worktree a newer LIVE run of the same slug in the same session now owns —
+    // the physical worktree/branch is shared across runs of that (session, agentId).
+    const newerLiveRun = [...this.agents.values()].some(
+      (agent) =>
+        agent.agentId === id &&
+        (agent.sessionId ?? "") === (sessionId ?? "") &&
+        agent.runId !== runId &&
+        this.isLiveAgentState(agent.state),
+    );
+    if (newerLiveRun)
+      throw new Error(`worktree ${operation} refused: a newer run of ${id} is live in this session and owns the worktree`);
+    const current = await this.getWorktree(sessionId, id, runId);
+    if (current.lifecycle === "none")
+      throw new Error(`no worktree recorded for ${id} run ${runId || "?"} in session ${sessionId || "?"}`);
+    if (operation === "merge" && current.merge !== "ready")
+      throw new Error("worktree cannot be merged");
+    if (operation === "discard" && current.discard !== "ready")
+      throw new Error("worktree cannot be discarded");
+    throw new Error(
+      `manual worktree ${operation} is not implemented in this host yet: retained worktree ${current.path ?? id} on branch ${current.branch ?? "(unknown)"} is untouched. Use Git manually: inspect that exact worktree and branch, then merge or remove them with your normal repository workflow.`,
+    );
+  }
+  /**
+   * True only when a session would actually mount the plan tools.
+   *
+   * The question the host needs answered is "does anything provide the plan
+   * surface", not "is a package called plan-extension installed", so it is asked
+   * of the manifest-declared tool ownership: whichever enabled package declares
+   * `plan_publish` is the one whose events the Plan panel will receive. A host
+   * with no such package must not advertise a panel that can never fill.
+   */
+  private planRuntimeAvailable(): boolean {
+    return Boolean(this.extensionLoader.toolOwner(PLAN_PUBLISH_TOOL));
+  }
+  /**
+   * One `plan_event` from the bundled plan runtime. The extension already wrote
+   * `.pi/plans/current.json`; this mirrors the snapshot for the Plan panel and
+   * republishes it on the `plan` channel. An unrecognizable payload is dropped
+   * rather than thrown — the worker's reporting call must still succeed.
+   */
+  private planEvent(event: Record<string, unknown>, sessionId: string) {
+    const published = this.planStore.accept(event, sessionId);
+    if (!published) return;
+    // The live event supersedes whatever the file said; no cold read can undo it.
+    this.planStore.markHydrated(sessionId);
+    emitFrame(this.listeners, {
+      protocolVersion: PIPI_HOST_PROTOCOL_VERSION,
+      channel: "plan",
+      event: published,
+    });
+  }
+  /**
+   * Plans for one session: the live mirror, backfilled once from the project's
+   * plan file so a resumed session shows the plan it was already executing.
+   */
+  private async getPlans(sessionId?: string): Promise<PlanSnapshot[]> {
+    const id = sessionId ?? [...this.live.keys()].at(-1);
+    if (!id) return [];
+    if (this.planStore.needsHydration(id)) {
+      const cwd = await this.planCwd(id);
+      if (cwd) this.planStore.merge(id, await readPlanStore(cwd, id));
+      this.planStore.markHydrated(id);
+    }
+    return this.planStore.list(id);
+  }
+  /** Project root a session's plan file lives in: identity state never follows a bound workspace. */
+  private async planCwd(sessionId: string): Promise<string | null> {
+    const live = this.live.get(sessionId);
+    if (live) return live.projectRoot ?? live.cwd;
+    try {
+      return (await this.findSession(sessionId)).header.cwd;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * A session's workspace binding for spawn/status: only a still-usable binding (contained
+   * in the project's worktree area, directory present) counts. A stale binding is cleared
+   * here so a cleaned-up worktree never strands the session outside the project root.
+   */
+  private async readUsableSessionWorkspace(
+    sessionId: string,
+    canonicalRoot: string,
+    sessionsDir?: string,
+  ): Promise<SessionWorkspaceBinding | null> {
+    if (!sessionsDir) return null;
+    const binding = await readSessionWorkspace(sessionsDir, sessionId);
+    if (!binding) return null;
+    const usable = await usableSessionWorkspace(binding, canonicalRoot);
+    if (!usable) await clearSessionWorkspaceFile(sessionsDir, sessionId);
+    return usable;
+  }
+
+  /** Sidebar/header DTO. `aheadOfMain` is null when git cannot answer (badge degrades, never lies). */
+  private async sessionWorkspaceDto(
+    sessionId: string,
+    canonicalRoot: string,
+    sessionsDir?: string,
+  ): Promise<SessionWorkspace | undefined> {
+    const binding = await this.readUsableSessionWorkspace(sessionId, canonicalRoot, sessionsDir);
+    if (!binding) return undefined;
+    return {
+      branch: binding.branch,
+      worktreePath: binding.worktreePath,
+      aheadOfMain: await aheadOfHeadCount(canonicalRoot, binding.branch),
+    };
+  }
+
+  /**
+   * Generic session-workspace extension point — capability-agnostic by design: the host
+   * validates containment and persistence, knowing nothing about git. Applying a binding
+   * uses the established graceful-respawn semantics (extension hot reload): an idle child
+   * stops now and the next send respawns it on the workspace; a busy session defers.
+   */
+  private async setSessionWorkspace(sessionIdValue: unknown, bindingValue: unknown): Promise<unknown> {
+    if (typeof sessionIdValue !== "string" || !sessionIdValue.trim()) throw new Error("缺少会话");
+    const sessionId = sessionIdValue.trim();
+    const meta = await this.locate(sessionId);
+    const isolated = await this.ensureIsolatedProjectHome(meta.header.cwd, { allowMissing: true });
+    if (!isolated) throw new Error(`project home unavailable for ${meta.header.cwd}`);
+    const input = (bindingValue ?? {}) as Record<string, unknown>;
+    const workspaceCwd = typeof input.workspaceCwd === "string" ? input.workspaceCwd : "";
+    const worktreePath = typeof input.worktreePath === "string" && input.worktreePath ? input.worktreePath : workspaceCwd;
+    if (!workspaceCwd) throw new Error("workspaceCwd is required");
+    if (!isValidWorkspaceBranch(input.branch)) throw new Error("branch must look like pipiui/session-<slug>");
+    assertWorkspaceCwdAllowed(isolated.realProjectRoot, workspaceCwd);
+    const binding: SessionWorkspaceBinding = {
+      version: 1,
+      sessionId,
+      workspaceCwd: resolve(workspaceCwd),
+      branch: input.branch,
+      worktreePath: resolve(worktreePath),
+      boundAt: new Date().toISOString(),
+    };
+    if (!(await usableSessionWorkspace(binding, isolated.realProjectRoot))) {
+      throw new Error(`session workspace ${workspaceCwd} is not an existing directory in the project worktree area`);
+    }
+    await writeSessionWorkspace(isolated.sessionsDir, binding);
+    if (this.live.has(sessionId)) this.requestExtensionHotRestart(sessionId, "state");
+    this.emitSessionWorkspaceChanged(sessionId, "bind");
+    return this.sessionWorkspaceStatus(sessionId);
+  }
+
+  private async clearSessionWorkspace(sessionIdValue: unknown): Promise<unknown> {
+    if (typeof sessionIdValue !== "string" || !sessionIdValue.trim()) throw new Error("缺少会话");
+    const sessionId = sessionIdValue.trim();
+    const meta = await this.locate(sessionId);
+    const isolated = await this.ensureIsolatedProjectHome(meta.header.cwd, { allowMissing: true });
+    if (isolated) await clearSessionWorkspaceFile(isolated.sessionsDir, sessionId);
+    if (this.live.has(sessionId)) this.requestExtensionHotRestart(sessionId, "state");
+    this.emitSessionWorkspaceChanged(sessionId, "unbind");
+    return { bound: false };
+  }
+
+  private async sessionWorkspaceStatus(sessionIdValue: unknown): Promise<unknown> {
+    if (typeof sessionIdValue !== "string" || !sessionIdValue.trim()) return { bound: false };
+    try {
+      const meta = await this.locate(sessionIdValue.trim());
+      const isolated = await this.ensureIsolatedProjectHome(meta.header.cwd, { allowMissing: true, migrate: false });
+      if (!isolated) return { bound: false };
+      const workspace = await this.sessionWorkspaceDto(meta.header.id, isolated.realProjectRoot, isolated.sessionsDir);
+      return workspace ? { bound: true, workspace } : { bound: false };
+    } catch {
+      return { bound: false };
+    }
+  }
+
+  /**
+   * `git-capability` session-workspace requests arrive on the authenticated ext.emit channel
+   * (`event: "session-workspace"`, payload `{ op: "bind" | "unbind", ... }`). The capability
+   * check already proved the session; bind/unbind still goes through the host's own validation.
+   * Best-effort like every bridge handler: failures are logged, never reported back.
+   */
+  private maybeApplySessionWorkspaceEmit(
+    input: { extensionId: string; event: string; payload?: unknown },
+    sessionId: string,
+  ): void {
+    if (input.extensionId !== "git-capability" || input.event !== "session-workspace") return;
+    const payload = (input.payload ?? {}) as Record<string, unknown>;
+    const work = payload.op === "unbind"
+      ? this.clearSessionWorkspace(sessionId)
+      : payload.op === "bind"
+        ? this.setSessionWorkspace(sessionId, payload)
+        : Promise.resolve();
+    void Promise.resolve(work).catch((error: unknown) => {
+      console.warn(`[pipiui] session-workspace ${String(payload.op)} failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
+	private waitForAgentTerminal(agentId: string, sessionId: string, runId: string, timeoutMs = 15_000): Promise<void> {
+		const key = this.agentKey(agentId, sessionId, runId);
+		const deadline = Date.now() + timeoutMs;
+		return new Promise((resolve, reject) => {
+			let settled = false;
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			const finish = (fn: () => void) => {
+				if (settled) return;
+				settled = true;
+				if (timer !== undefined) clearTimeout(timer);
+				this.agentTerminalWaiters.delete(poll);
+				fn();
+			};
+			const poll = () => {
+				if (this.closed) return finish(() => reject(new Error("PipiUI 已关闭，无法确认 subagent 的停止状态")));
+				const current = this.agents.get(key);
+				if (!current || current.runId !== runId) return finish(() => reject(new Error("subagent 在停止期间切换了运行实例，请刷新后重试")));
+				if (current.state !== "running" && current.state !== "stalled") return finish(() => resolve());
+				if (Date.now() >= deadline) return finish(() => reject(new Error("停止请求已发送，但 15 秒内没有收到 subagent 的终态；请重试或使用“手动检查”查看状态")));
+				timer = setTimeout(poll, 50);
+				timer.unref?.();
+			};
+			this.agentTerminalWaiters.add(poll);
+			poll();
+		});
+	}
+	private withAgentCommandTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+		return new Promise((resolve, reject) => {
+			let settled = false;
+			const timer = setTimeout(() => {
+				settled = true;
+				reject(new Error(message));
+			}, timeoutMs);
+			timer.unref?.();
+			operation.then(
+				(value) => {
+					if (settled) return;
+					settled = true;
+					clearTimeout(timer);
+					resolve(value);
+				},
+				(error) => {
+					if (settled) return;
+					settled = true;
+					clearTimeout(timer);
+					reject(error);
+				},
+			);
+		});
+	}
+  private projectWorktreeFromEvent(raw: any, sessionId: string | undefined, state: AgentSummary["state"]): void {
+    // Exact composite key (session, agent, run): the same semantic slug in another
+    // session/project — or a later run of this session — projects its own entry, so
+    // none of them can overwrite another. The Git branch stays pipiui/<agentId>;
+    // this key is the projection identity, not the branch name.
+    const key = this.agentKey(raw.agentId, sessionId, typeof raw.runId === "string" ? raw.runId : "");
+    // Identity is required on the current wire: a runtime agent event always
+    // carries its session and runId. An identity-less event cannot be attributed
+    // to one episode, and attributing it by agentId alone would recreate the
+    // cross-session same-slug collision this projection removed — drop it.
+    if (!sessionId || typeof raw.runId !== "string") return;
+    const previous = this.worktrees.get(key);
+    // Physical-worktree ownership: runs of one (session, agentId) share the same
+    // worktree path/branch. Once a NEWER run is live, a late event from a retired
+    // run must not re-describe that shared resource — its entry is frozen.
+    const newerLiveRun = [...this.agents.values()].some(
+      (agent) =>
+        agent.agentId === raw.agentId &&
+        (agent.sessionId ?? "") === (sessionId ?? "") &&
+        typeof raw.runId === "string" &&
+        agent.runId !== raw.runId &&
+        this.isLiveAgentState(agent.state),
+    );
+    if (newerLiveRun) return;
+    const explicit = parseWorktreeLifecycle(raw.worktreeLifecycle);
+    const settled =
+      previous &&
+      (previous.lifecycle === "merged" ||
+        previous.lifecycle === "mergedCleanupPending" ||
+        previous.lifecycle === "discarded");
+    const fallback =
+      raw.worktreePath
+        ? state === "running"
+          ? "active"
+          : settled
+            ? previous.lifecycle
+            : "pendingReview"
+        : undefined;
+    const lifecycle = explicit ?? fallback;
+    if (!lifecycle) return;
+    const status: WorktreeStatus = {
+      agentId: raw.agentId,
+      sessionId,
+      runId: raw.runId,
+      path: raw.worktreePath ?? previous?.path,
+      branch: raw.worktreeBranch ?? previous?.branch,
+      error: raw.worktreeError ?? previous?.error,
+      lifecycle,
+      merge:
+        lifecycle === "pendingReview"
+          ? "ready"
+          : lifecycle === "merged" || lifecycle === "mergedCleanupPending"
+            ? "merged"
+            : "unavailable",
+      discard:
+        lifecycle === "pendingReview"
+          ? "ready"
+          : lifecycle === "discarded"
+            ? "discarded"
+            : "unavailable",
+    };
+    this.worktrees.set(key, status);
+    this.agent({ type: "worktree", status });
+  }
+  private mergeAgentDiagnostics(raw: any, current: AgentSummary | undefined, receivedAt = Date.now()) {
+    return enrichHostDiagnostics(
+      sanitizeAgentDiagnostics(raw?.diagnostics),
+      current?.diagnostics,
+      { receivedAt, generation: this.hostProcessGeneration },
+      explicitNullDiagnosticKeys(raw?.diagnostics),
+    );
+  }
+  private mapAgentEvent(raw: any, sessionId?: string) {
+    const key = this.agentKey(raw.agentId, sessionId, raw.runId);
+    const current = this.agents.get(key);
+    const eventKind = ["start", "end", "update", "usage", "log", "log_delta", "closeout", "diagnostics", "activity", "stalled"].includes(raw.kind)
+      ? String(raw.kind)
+      : "unknown";
+    if (raw.kind === "diagnostics") {
+      if (!current || current.runId !== raw.runId) return;
+      const agent: AgentSummary = {
+        ...current,
+        diagnostics: this.mergeAgentDiagnostics(raw, current),
+      };
+      this.agents.set(key, agent);
+      this.projectionDebug("agent_event", {
+        session: this.projectionDebugSessionTag(sessionId),
+        kind: eventKind,
+        key: this.projectionDebugAgentTag(key),
+        before: current.state,
+        after: agent.state,
+        seq: agent.diagnostics?.eventSeq,
+        seqGap: agent.diagnostics?.seqGap,
+      });
+      this.agent({ type: "agent", agent });
+      return;
+    }
+    if (raw.kind === "activity") {
+      if (!current || current.runId !== raw.runId) return;
+      const activity = mergeAgentActivity(raw, current, {
+        sameRun: true,
+        terminal: false,
+        now: Date.now(),
+      });
+      const agent: AgentSummary = {
+        ...current,
+        ...activity,
+      };
+      this.agents.set(key, agent);
+      this.projectionDebug("agent_event", {
+        session: this.projectionDebugSessionTag(sessionId),
+        kind: eventKind,
+        key: this.projectionDebugAgentTag(key),
+        before: current.state,
+        after: agent.state,
+      });
+      this.agent({ type: "agent", agent });
+      return;
+    }
+    if (raw.kind === "closeout") {
+      if (
+        !current ||
+        current.runId !== raw.runId ||
+        raw.disposition !== "cleaned"
+      )
+        return;
+      const agent: AgentSummary = {
+        ...current,
+        handled: true,
+        closeout: raw.reason ?? current.closeout,
+      };
+      this.agents.set(key, agent);
+      this.projectionDebugProvenance.set(key, eventKind);
+      this.projectionDebug("agent_event", {
+        session: this.projectionDebugSessionTag(sessionId),
+        kind: eventKind,
+        key: this.projectionDebugAgentTag(key),
+        before: current.state,
+        after: agent.state,
+      });
+      this.projectionDebug("agent_broadcast", {
+        source: "event",
+        key: this.projectionDebugAgentTag(key),
+        state: agent.state,
+        provenance: eventKind,
+        listeners: this.listeners.size,
+      });
+      this.agent({ type: "agent", agent });
+      this.projectWorktreeFromEvent(raw, agent.sessionId ?? sessionId, agent.state);
+      this.persistAgents();
+      return;
+    }
+    if (raw.kind !== "start" && !current) {
+      this.projectionDebug("agent_event", {
+        session: this.projectionDebugSessionTag(sessionId),
+        kind: eventKind,
+        key: this.projectionDebugAgentTag(key),
+        before: "missing",
+        after: "ignored",
+      });
+      return;
+    }
+    // Identity stability: `start` — or the first event of a new run — establishes
+    // name/role. Same-run update/log/usage/end events carry the *active tool* in
+    // `name` (bash/grep/read/…), which is activity detail, not who the worker is,
+    // so they must never rewrite the identity the start event set.
+    const sameRun = current?.runId === raw.runId;
+    const establishesIdentity = raw.kind === "start" || !sameRun;
+    const stableName = establishesIdentity
+      ? raw.name ?? current?.name ?? "subagent"
+      : current?.name ?? raw.name ?? "subagent";
+    const reportedState = raw.ok
+      ? "ok"
+      : raw.aborted
+        ? "aborted"
+        : raw.interrupted
+          ? "interrupted"
+          : raw.stalled
+            ? "stalled"
+            : raw.kind === "end"
+              ? "failed"
+              : "running";
+    const usage = isRecord(raw.usage) ? raw.usage : undefined;
+    const terminal = raw.kind === "end";
+		const eventAt = raw.at ? asTime(raw.at) : Date.now();
+    const activity = mergeAgentActivity(raw, sameRun ? current : undefined, {
+      sameRun,
+      terminal: terminal || Boolean(raw.aborted),
+      now: eventAt,
+    });
+    const activityOnly = isActivityOnlyAgentEvent(raw);
+		const currentIsTerminal = sameRun && current !== undefined && current.state !== "running" && current.state !== "stalled";
+		// HTTP lifecycle reports can arrive out of order. Once one run reaches a
+		// terminal state, a late preview/update/log/stall may enrich metrics but it
+		// must never reopen that same run. A new runId remains free to start.
+		const staleAfterTerminal = currentIsTerminal && !terminal;
+		const state = staleAfterTerminal ? current.state : reportedState;
+		// A terminal state always drops the transient stall flag: a worker that
+		// finished, failed, or was aborted/interrupted must never keep showing
+		// 卡住 from a stall it recovered from — or outlived — before the end event.
+		const terminalState = state === "ok" || state === "failed" || state === "aborted" || state === "interrupted";
+    const agent: AgentSummary = {
+      agentId: raw.agentId,
+      runId: raw.runId,
+      name: stableName,
+      task: raw.task ?? current?.task ?? "",
+      state,
+      stalled: terminalState ? false : raw.stalled === true,
+      handled: sameRun ? current?.handled : undefined,
+      cost: raw.cost ?? usage?.cost ?? (sameRun ? current?.cost : undefined),
+      turns: raw.turns ?? raw.turn ?? (sameRun ? current?.turns : undefined),
+      outputCount: raw.output ? 1 : sameRun ? current?.outputCount : undefined,
+      sessionId: sessionId ?? current?.sessionId,
+      parentId: raw.parentId !== undefined ? raw.parentId : current?.parentId,
+      toolCallId: nonEmpty(raw.toolCallId) ?? (sameRun ? current?.toolCallId : undefined),
+      depth: raw.depth ?? current?.depth,
+      // `start` — and the first event of a new run — establishes identity: the
+      // runtime's START carries the worker type in `name`, so it may refresh
+      // both fields. current?.* stays as the field-less fallback so a replay
+      // with missing fields never blanks an established identity.
+      role: establishesIdentity
+        ? raw.role ?? raw.agentType ?? raw.name ?? current?.role
+        : current?.role ?? raw.role ?? raw.agentType ?? current?.name,
+      title: raw.title ?? current?.title,
+      createdAt:
+        raw.createdAt ??
+				(raw.at ? asTime(raw.at) : (sameRun ? current?.createdAt : undefined) ?? Date.now()),
+			updatedAt: activityOnly ? (sameRun ? current?.updatedAt : undefined) ?? eventAt : eventAt,
+			// A terminal event always drops the stored deadline: a dead worker must never keep
+			// showing "最迟 NNN 秒后自动中止" from a budget that no longer exists.
+			deadlineAt: num2(raw.deadlineAt) ?? (terminal ? undefined : (sameRun ? current?.deadlineAt : undefined)),
+      // `start` sends `model: null` when the worker inherits the main model, so a null must never
+      // clobber a model a later `usage` event resolved.
+      model: modelRef(raw.model) ?? (sameRun ? current?.model : undefined),
+      provider: providerOf(modelRef(raw.model)) ?? (sameRun ? current?.provider : undefined),
+      // Live tool line. Explicit null/false clears; omitting the field keeps the previous state.
+      listSubtitle: activity.listSubtitle,
+      activityActive: activity.activityActive,
+      activityEndedAt: activity.activityEndedAt,
+      activityToolCallId: activity.activityToolCallId,
+      // `update` carries a rolling snapshot of the output; only the terminal event is the real result,
+      // so a running worker never renders a 最终结果 card built from a half-written answer.
+      finalResult: terminal
+        ? (nonEmpty(raw.output) ?? current?.finalResult)
+        : sameRun ? current?.finalResult : undefined,
+      worktreeError: nonEmpty(raw.worktreeError) ?? (sameRun ? current?.worktreeError : undefined),
+      endedAt: terminal ? (sameRun ? current?.endedAt : undefined) ?? Date.now() : sameRun ? current?.endedAt : undefined,
+      // Usage payloads are already session-cumulative (completed + live
+      // message_update, then message_end). Replace the latest totals; never add.
+      inputTokens: num2(usage?.input) ?? (sameRun ? current?.inputTokens : undefined),
+      outputTokens: num2(usage?.output) ?? (sameRun ? current?.outputTokens : undefined),
+      cacheTokens: num2(usage?.cacheRead) ?? (sameRun ? current?.cacheTokens : undefined),
+      contextTokens: num2(usage?.contextTokens) ?? (sameRun ? current?.contextTokens : undefined),
+      contextWindowTokens: positiveWindow(usage?.contextWindow) ?? positiveWindow(raw.contextWindow) ?? (sameRun ? current?.contextWindowTokens : undefined) ?? (sessionId ? this.sessionContextLastKnown.get(sessionId)?.contextWindow : undefined),
+      diagnostics: terminal
+        ? applyTerminalHostReceipt(
+          this.mergeAgentDiagnostics(raw, sameRun ? current : undefined, eventAt),
+          { receivedAt: Date.now(), generation: this.hostProcessGeneration },
+        )
+        : this.mergeAgentDiagnostics(raw, sameRun ? current : undefined, eventAt),
+    };
+    this.agents.set(key, agent);
+    // log_delta is preview/liveness data. It refreshes the in-memory timestamp
+    // for orphan detection, but it does not change the durable/live-agent
+    // state seen by compaction scheduling.
+    if (raw.kind !== "log_delta") this.agentProjectionChanged(agent.sessionId);
+    this.projectionDebugProvenance.set(key, eventKind);
+    this.projectionDebug("agent_event", {
+      session: this.projectionDebugSessionTag(sessionId),
+      kind: eventKind,
+      key: this.projectionDebugAgentTag(key),
+      before: current?.state ?? "missing",
+      after: agent.state,
+    });
+    if (raw.kind !== "log_delta") this.projectWorktreeFromEvent(raw, agent.sessionId ?? sessionId, state);
+    const logSessionId = agent.sessionId;
+    if (raw.kind === "log_delta" && logSessionId) {
+      // Runtime log_delta pushes cumulative full text keyed by contentIndex; carry
+      // the key so the panel upserts one row instead of adding one per chunk.
+      const contentIndex = num2(raw.contentIndex);
+      const charCount = num2(raw.charCount);
+      const entry = { itemType: raw.itemType, text: raw.text ?? "", name: raw.name, isError: raw.isError, ...(typeof raw.toolCallId === "string" && raw.toolCallId ? { toolCallId: raw.toolCallId } : {}), ...(contentIndex === undefined ? {} : { contentIndex }), ...(charCount === undefined ? {} : { charCount }) };
+      // A streamed preview is superseded by the next cumulative snapshot and
+      // remains recoverable from the in-memory cache. Persist at the runtime's
+      // authoritative turn boundary instead of rewriting the whole log store
+      // for every 50ms preview frame.
+      this.cacheAgentLog(logSessionId, agent.agentId, agent.runId, entry, false);
+      this.agent({ type: "agent_log", sessionId: logSessionId, agentId: agent.agentId, runId: agent.runId, ...entry });
+    } else if (raw.kind === "log" && logSessionId) {
+      this.resetAgentLogStreamSlots(logSessionId, agent.agentId, agent.runId);
+      this.agent({ type: "agent_log", sessionId: logSessionId, agentId: agent.agentId, runId: agent.runId, itemType: "text", text: "", resetStreamSlots: true });
+      for (const item of raw.items ?? []) {
+        const charCount = num2(item.charCount);
+        const entry = { itemType: item.itemType, text: item.text, name: item.name, isError: item.isError, ...(typeof item.toolCallId === "string" && item.toolCallId ? { toolCallId: item.toolCallId } : {}), ...(charCount === undefined ? {} : { charCount }) };
+        this.cacheAgentLog(logSessionId, agent.agentId, agent.runId, entry);
+        this.agent({ type: "agent_log", sessionId: logSessionId, agentId: agent.agentId, runId: agent.runId, ...entry });
+      }
+    }
+    // A text-only turn may produce no terminal `log` batch because its streamed
+    // slot is already authoritative. The final lifecycle event still checkpoints
+    // that in-memory slot, coalesced with other workers by the durable-log timer.
+    if (raw.kind === "end" && logSessionId) this.schedulePersistAgentLogs();
+    if (raw.kind !== "log_delta") {
+      this.projectionDebug("agent_broadcast", {
+        source: "event",
+        key: this.projectionDebugAgentTag(key),
+        state: agent.state,
+        provenance: eventKind,
+        listeners: this.listeners.size,
+      });
+      this.agent({ type: "agent", agent });
+    }
+    // Streaming log_delta is preview-only. Persisting the whole index on every
+    // 50ms flush queued one JSON snapshot per event and froze the Electron main
+    // process (100% CPU, multi-GB heap) once a few workers were live.
+    if (raw.kind !== "log_delta") this.persistAgents();
+    this.syncOrphanReconcileTimer();
+    if (terminal && sessionId) {
+      const live = this.live.get(sessionId);
+      const pending = live?.pendingFinalReconciliation;
+      if (live && pending && live.turnEpoch === pending.epoch && live.terminalEpoch !== pending.epoch) {
+        this.projectionDebug("terminal_retry", {
+          session: this.projectionDebugSessionTag(sessionId),
+          epoch: pending.epoch,
+          key: this.projectionDebugAgentTag(key),
+          state: agent.state,
+          ...this.projectionDebugActive(sessionId),
+        });
+        void this.reconcileFinalAssistantTurn(live, pending.epoch, pending.identity);
+      }
+    }
+  }
+  /** Lease surface deliberately remains absent: no lease is acquired/released in this backend. */
+}
+export function createPiHostBackend(options: PiBackendOptions = {}) {
+  return new PiHostBackend(options);
+}
+export {
+  StructuredOutputController,
+  modelDeclaresStructuredOutputs,
+} from "./structured-output.js";
+export {
+  memoryVaultDiagnosis,
+  resetInMemoryVault,
+  vaultDiagnosisFor,
+  type VaultDiagnosis,
+  type VaultDiagKind,
+} from "./secret-vault.js";
+export { FREEZE_PROBE_FILE, FREEZE_PROBE_PREFIX } from "./freeze-probe.js";

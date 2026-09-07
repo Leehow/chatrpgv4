@@ -1,0 +1,312 @@
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+
+/**
+ * Loopback host bridge — the Node counterpart of Swift `BridgeServer`.
+ *
+ * The subagent extension POSTs one JSON envelope per lifecycle event to
+ * `http://127.0.0.1:<port>/rpc`. Without a listener those POSTs are silently dropped
+ * (`postPipiuiReport` returns early), which is why workers ran but the panel stayed empty.
+ *
+ * This host speaks the canonical v1 protocol only: every request must carry the
+ * per-session capability this process minted. A capability is never derived from the
+ * session id, never reused across sessions, and never read from the inherited
+ * environment — otherwise any local process could inject agent events into a session.
+ */
+export type BridgeAgentEvent = Record<string, unknown> & { kind?: string; agentId?: string; runId?: string };
+
+/** Wire contract for `model_pin_validate`: explicit subagent dispatch pins only. */
+export type ModelPinValidateRequestV1 = { schemaVersion?: unknown; refs?: unknown };
+export type ModelPinValidateDenyCodeV1 = "catalog_unavailable" | "model_unavailable";
+/**
+ * Decision envelope. Logical denies travel over HTTP 200; only transport-level problems
+ * (bad capability, malformed body) use 4xx so a worker cannot confuse its own bug with
+ * "the pinned model is unavailable".
+ */
+export type ModelPinValidateDecisionV1 =
+  | { schemaVersion: 1; decision: "allow"; authorityRevision: number }
+  | {
+      schemaVersion: 1;
+      decision: "deny";
+      code: ModelPinValidateDenyCodeV1;
+      /** Index into the request refs of the first refused pin (`model_unavailable` only). */
+      invalidIndex?: number;
+      authorityRevision: number;
+      retryable: boolean;
+    };
+export type BridgeHandlers = {
+  onAgentEvent(event: BridgeAgentEvent, sessionId: string): void;
+  /** Plan tools POST here; a host with no plan surface still has to answer. */
+  onPlanEvent?(event: Record<string, unknown>, sessionId: string): void;
+  onBrowserAction?(event: Record<string, unknown>, sessionId: string): Promise<Record<string, unknown>>;
+  /** register / unwatch / list / subscribe for long-lived browser watches. */
+  onBrowserWatch?(event: Record<string, unknown>, sessionId: string): Promise<Record<string, unknown>> | Record<string, unknown>;
+  onTerminalAction?(event: Record<string, unknown>, sessionId: string): Promise<Record<string, unknown>>;
+  /** Versioned Host Capability API: the gated extension→host channel (own envelope in `event`). */
+  onHostCapability?(event: Record<string, unknown>, sessionId: string): Promise<Record<string, unknown>> | Record<string, unknown>;
+  /** Token mint for the same channel; logical denies ride HTTP 200 (fail closed when omitted). */
+  onHostCapabilityMint?(event: Record<string, unknown>, sessionId: string): Promise<Record<string, unknown>> | Record<string, unknown>;
+  /** Forwards existing vault host methods (list/put/mount/unmount/delete). */
+  onVaultAction?(event: Record<string, unknown>, sessionId: string): Promise<unknown>;
+  /** Session-scoped open-document registry. Session id comes from the capability, never the body. */
+  onDocumentsList?(sessionId: string): Promise<unknown> | unknown;
+  /** One-shot Structured Outputs take. Session id comes from the capability, never the body. */
+  onStructuredOutput?(event: Record<string, unknown>, sessionId: string): Promise<unknown> | unknown;
+  /**
+   * Authoritative validation of explicit dispatch pins against this process's canonical
+   * catalog. MUST be synchronous and side-effect-free: capturing the current immutable
+   * authority view once is the linearization point the whole batch shares. Omitting the
+   * handler denies everything (fail closed) — there is no legacy fallback.
+   */
+  onModelPinValidate?(input: ModelPinValidateRequestV1, sessionId: string): ModelPinValidateDecisionV1;
+  /**
+   * Spec D8 `invokeExtension`, agent side. The kernel `ext-invoke` mount long-polls
+   * this for work; the host resolves the poll as soon as a panel asks for something.
+   * Session id comes from the capability, never the body.
+   */
+  onExtInvokePoll?(sessionId: string): Promise<{ requests: unknown[] }> | { requests: unknown[] };
+  /** The reply half: the agent posts one handler result back. */
+  onExtInvokeResult?(input: Record<string, unknown>, sessionId: string): { ok: boolean; error?: string };
+  /** Spec D4 `ext.emit`. Fail closed when omitted. */
+  onExtEmit?(
+    input: { extensionId: string; event: string; payload?: unknown },
+    sessionId: string,
+  ): { ok: true } | { ok: false; error: string; errorCode?: string } | Promise<{ ok: true } | { ok: false; error: string; errorCode?: string }>;
+};
+
+/** Agent logs are the largest payload; anything past this is refused, not buffered. */
+const MAX_BODY_BYTES = 4 * 1024 * 1024;
+/** Upper bound of pins accepted per `model_pin_validate` batch. */
+const MAX_MODEL_PIN_REFS = 1000;
+/** Matches the runtime-side length cap for one `provider/modelId` ref. */
+const MAX_MODEL_PIN_REF_LENGTH = 300;
+
+/** Structural pre-parse only; semantic checks belong to the backend authority handler. */
+function parseModelPinValidateEvent(event: unknown): { ok: true; refs: string[] } | { ok: false; error: string } {
+  if (!event || typeof event !== "object" || Array.isArray(event)) {
+    return { ok: false, error: "invalid model_pin_validate event" };
+  }
+  const refs = (event as { refs?: unknown }).refs;
+  if (!Array.isArray(refs)) return { ok: false, error: "refs must be an array of strings" };
+  if (refs.length > MAX_MODEL_PIN_REFS) return { ok: false, error: `too many refs (${refs.length} > ${MAX_MODEL_PIN_REFS})` };
+  for (const ref of refs) {
+    if (typeof ref !== "string") return { ok: false, error: "refs must be an array of strings" };
+    if (ref.length > MAX_MODEL_PIN_REF_LENGTH) return { ok: false, error: "ref too long" };
+  }
+  return { ok: true, refs: [...refs] };
+}
+
+const MODEL_PIN_DENY_CATALOG_UNAVAILABLE: ModelPinValidateDecisionV1 = {
+  schemaVersion: 1,
+  decision: "deny",
+  code: "catalog_unavailable",
+  authorityRevision: -1,
+  retryable: true,
+};
+
+function safeEqual(a: string, b: string): boolean {
+  const left = Buffer.from(a), right = Buffer.from(b);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+export class HostBridge {
+  private server?: Server;
+  private port?: number;
+  /** capability → sessionId. The capability is the only credential; the map is the router. */
+  private sessions = new Map<string, string>();
+
+  constructor(private handlers: BridgeHandlers) {}
+
+  /** Idempotent: repeated calls return the port of the already-listening server. */
+  async listen(): Promise<number> {
+    if (this.port !== undefined) return this.port;
+    const server = createServer((request, response) => this.route(request, response));
+    server.on("clientError", (_error, socket) => socket.destroy());
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      // Loopback only. A bridge reachable off-host would let any machine on the network
+      // drive this session's agent tree.
+      server.listen(0, "127.0.0.1", () => { server.removeListener("error", reject); resolve() });
+    });
+    const address = server.address();
+    if (typeof address === "string" || address === null) throw new Error("bridge failed to bind a TCP port");
+    this.server = server;
+    this.port = address.port;
+    return this.port;
+  }
+
+  /** Mint this session's capability. Re-registering a session rotates it. */
+  register(sessionId: string): string {
+    for (const [capability, owner] of this.sessions) if (owner === sessionId) this.sessions.delete(capability);
+    const capability = randomBytes(32).toString("base64url");
+    this.sessions.set(capability, sessionId);
+    return capability;
+  }
+
+  unregister(sessionId: string): void {
+    for (const [capability, owner] of this.sessions) if (owner === sessionId) this.sessions.delete(capability);
+  }
+
+  async close(): Promise<void> {
+    this.sessions.clear();
+    const server = this.server;
+    this.server = undefined;
+    this.port = undefined;
+    if (!server) return;
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+
+  private sessionFor(capability: unknown): string | undefined {
+    if (typeof capability !== "string" || !capability) return undefined;
+    for (const [known, sessionId] of this.sessions) if (safeEqual(known, capability)) return sessionId;
+    return undefined;
+  }
+
+  private route(request: IncomingMessage, response: ServerResponse): void {
+    if (request.method !== "POST" || (request.url ?? "").split("?")[0] !== "/rpc") {
+      this.reply(response, 404, { ok: false, error: "not found" });
+      request.resume();
+      return;
+    }
+    let size = 0;
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) { this.reply(response, 413, { ok: false, error: "payload too large" }); request.destroy(); return }
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      if (response.writableEnded) return;
+      let body: any;
+      try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")) } catch { return this.reply(response, 400, { ok: false, error: "invalid JSON body" }) }
+      void this.dispatch(body, response);
+    });
+    request.on("error", () => { if (!response.writableEnded) this.reply(response, 400, { ok: false, error: "request aborted" }) });
+  }
+
+  private async dispatch(body: any, response: ServerResponse): Promise<void> {
+    const sessionId = body && typeof body === "object" ? this.sessionFor(body.sessionCapability) : undefined;
+    // Fail closed and identically for a missing, stale or forged capability: an unauthorized
+    // caller learns nothing about which sessions exist.
+    if (!sessionId || body.schemaVersion !== 1) return this.reply(response, 403, { ok: false, error: "unauthorized bridge capability" });
+    if (body.action === "ext.emit") {
+      const extensionId = body.extensionId;
+      const eventName = body.event;
+      if (typeof extensionId !== "string" || !extensionId) {
+        return this.reply(response, 400, { ok: false, error: "missing extensionId" });
+      }
+      if (typeof eventName !== "string" || !eventName) {
+        return this.reply(response, 400, { ok: false, error: "missing event" });
+      }
+      try {
+        const result = await (this.handlers.onExtEmit?.({
+          extensionId,
+          event: eventName,
+          payload: body.payload,
+        }, sessionId) ?? { ok: false as const, error: "capability_denied", errorCode: "capability_denied" });
+        if (!result.ok) return this.reply(response, 403, result);
+        return this.reply(response, 200, { ok: true });
+      } catch (error) {
+        console.warn(`[pipi-bridge] ext.emit handler error: ${error instanceof Error ? error.message : String(error)}`);
+        return this.reply(response, 200, { ok: true });
+      }
+    }
+    const event = body.event;
+    if (!event || typeof event !== "object") return this.reply(response, 400, { ok: false, error: "missing event" });
+    if (body.action === "model_pin_validate") {
+      const handler = this.handlers.onModelPinValidate;
+      // An absent host surface still denies every pin — never a silent allow, never a
+      // legacy fallback. A handler fault is sanitized into the same stable deny: raw
+      // provider/runtime errors never reach the worker.
+      if (!handler) return this.reply(response, 200, MODEL_PIN_DENY_CATALOG_UNAVAILABLE);
+      const parsed = parseModelPinValidateEvent(event);
+      if (!parsed.ok) return this.reply(response, 400, { ok: false, error: parsed.error });
+      try {
+        // Deliberately NOT awaited: run-to-completion makes this single synchronous read of
+        // the backend authority THE linearization point shared by every ref in the batch.
+        return this.reply(response, 200, handler({ refs: parsed.refs }, sessionId));
+      } catch (error) {
+        console.warn(`[pipi-bridge] model_pin_validate handler error: ${error instanceof Error ? error.message : String(error)}`);
+        return this.reply(response, 200, MODEL_PIN_DENY_CATALOG_UNAVAILABLE);
+      }
+    }
+    try {
+      if (body.action === "agent_event") this.handlers.onAgentEvent(event as BridgeAgentEvent, sessionId);
+      else if (body.action === "plan_event") this.handlers.onPlanEvent?.(event as Record<string, unknown>, sessionId);
+      else if (body.action === "browser_action") return this.reply(response, 200, await (this.handlers.onBrowserAction?.(event as Record<string, unknown>, sessionId) ?? Promise.resolve({ ok: false, error: "browser host unavailable" })));
+      else if (body.action === "browser_watch") return this.reply(response, 200, await Promise.resolve(this.handlers.onBrowserWatch?.(event as Record<string, unknown>, sessionId) ?? { ok: false, error: "browser watch unavailable" }));
+      else if (body.action === "host_capability") return this.reply(response, 200, await Promise.resolve(this.handlers.onHostCapability?.(event as Record<string, unknown>, sessionId) ?? { ok: false, code: "host_unavailable", error: "host capability broker unavailable" }));
+      else if (body.action === "host_capability_token") return this.reply(response, 200, await Promise.resolve(this.handlers.onHostCapabilityMint?.(event as Record<string, unknown>, sessionId) ?? { ok: false, code: "host_unavailable", error: "host capability token mint unavailable" }));
+      else if (body.action === "terminal_action") return this.reply(response, 200, await (this.handlers.onTerminalAction?.(event as Record<string, unknown>, sessionId) ?? Promise.resolve({ ok: false, error: "terminal host unavailable" })));
+      else if (body.action === "structured_output") {
+        try {
+          return this.reply(response, 200, {
+            ok: true,
+            result: await (this.handlers.onStructuredOutput?.(event as Record<string, unknown>, sessionId)
+              ?? Promise.resolve(null)),
+          });
+        } catch (error) {
+          return this.reply(response, 200, {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      else if (body.action === "ext_invoke_poll") {
+        try {
+          return this.reply(response, 200, {
+            ok: true,
+            result: await (this.handlers.onExtInvokePoll?.(sessionId) ?? Promise.resolve({ requests: [] })),
+          });
+        } catch (error) {
+          return this.reply(response, 200, { ok: false, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      else if (body.action === "ext_invoke_result") {
+        const outcome = this.handlers.onExtInvokeResult?.(event as Record<string, unknown>, sessionId)
+          ?? { ok: false, error: "extension invoke host unavailable" };
+        return this.reply(response, 200, outcome.ok ? { ok: true, result: {} } : { ok: false, error: outcome.error ?? "rejected" });
+      }
+      else if (body.action === "documents_list") {
+        try {
+          return this.reply(response, 200, {
+            ok: true,
+            result: await (this.handlers.onDocumentsList?.(sessionId)
+              ?? Promise.reject(new Error("documents list unavailable"))),
+          });
+        } catch (error) {
+          return this.reply(response, 200, {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      else if (body.action === "vault_action") {
+        try {
+          return this.reply(response, 200, {
+            ok: true,
+            result: await (this.handlers.onVaultAction?.(event as Record<string, unknown>, sessionId)
+              ?? Promise.reject(new Error("vault host unavailable"))),
+          });
+        } catch (error) {
+          return this.reply(response, 200, {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      else return this.reply(response, 400, { ok: false, error: `unsupported action ${String(body.action)}` });
+    } catch (error) {
+      // A handler fault is this host's problem; never make the worker's reporting call fail.
+      console.warn(`[pipi-bridge] handler error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    this.reply(response, 200, { ok: true });
+  }
+
+  private reply(response: ServerResponse, status: number, payload: unknown): void {
+    if (response.writableEnded) return;
+    const data = Buffer.from(JSON.stringify(payload));
+    response.writeHead(status, { "content-type": "application/json", "content-length": data.length });
+    response.end(data);
+  }
+}

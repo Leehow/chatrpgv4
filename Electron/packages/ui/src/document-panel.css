@@ -1,0 +1,65 @@
+.document-content{display:flex;padding:0;place-items:stretch}
+.document-panel{display:flex;width:100%;height:100%;min-width:0;min-height:0;flex-direction:column;overflow:hidden;background:var(--surface)}
+.document-panel-header{display:flex;min-height:48px;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border)}
+.document-header-icon{flex:none;padding:3px 5px;border-radius:4px;color:var(--accent);background:var(--accent-soft);font:700 9px ui-monospace,SFMono-Regular,Menlo,monospace}
+.document-header-copy{display:grid;min-width:0;flex:1;gap:2px}.document-header-copy b,.document-header-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.document-header-copy b{color:var(--text-strong);font-size:12px}.document-header-copy small{color:var(--muted);font:9px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace}
+.document-reload,.document-external-open{width:26px;height:26px;flex:none;border-radius:5px;color:var(--muted);font-size:17px;line-height:1}.document-reload:hover,.document-external-open:hover{color:var(--text);background:var(--surface-hover)}
+.document-reader{flex:1;min-width:0;min-height:0;overflow:auto;padding:14px;overscroll-behavior:contain}.document-markdown{min-width:0;color:var(--text)}.document-markdown>.markdown{max-width:none}
+.document-pdf-preview{position:relative;width:100%;height:100%;min-width:0;min-height:360px}
+.document-pdf-preview>.document-file-viewer{display:block;width:100%;height:100%;min-width:0;min-height:0}
+/* 内置工具栏已关闭（toolbar:false + pdf.toolbar:false），只保留一个悬浮缩放 pill，
+   叠在文档内容上，不占布局高度。 */
+.document-file-viewer::part(shell){width:100%;max-width:100%;min-width:0}
+.pdf-zoom-pill{position:absolute;right:12px;bottom:12px;z-index:30;display:flex;align-items:center;gap:2px;padding:3px;border:1px solid var(--border);border-radius:999px;background:color-mix(in srgb,var(--surface-raised) 86%,transparent);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:0 2px 10px rgba(0,0,0,.14);opacity:.72;transition:opacity .15s ease}
+.pdf-zoom-pill:hover,.pdf-zoom-pill:focus-within{opacity:1}
+.pdf-zoom-pill button{display:grid;place-items:center;min-width:26px;height:26px;padding:0 6px;border:0;border-radius:999px;background:transparent;color:var(--text);font-size:14px;line-height:1;cursor:pointer;user-select:none}
+.pdf-zoom-pill button:hover:not(:disabled){background:var(--surface-hover)}
+.pdf-zoom-pill button:disabled{opacity:.35;cursor:default}
+.pdf-zoom-pill .pdf-zoom-value{min-width:46px;font-size:11.5px;font-variant-numeric:tabular-nums;color:var(--text-strong)}
+
+/* ── 文档正文排版 ─────────────────────────────────────────────────
+   DocumentPanel 走的是 TranscriptMarkdown，所以 app.css 里 .markdown 的整套
+   规则直接复用；这里只重设 --md-* 三个刻度。面板宽度由用户拖动（--tools-w，
+   默认 368px），固定字号在两端都不对，因此用容器查询让字级跟着面板走。 */
+.document-reader{container-type:inline-size;container-name:doc}
+.document-markdown{--md-fs:13.5px;--md-lh:1.75;--md-block:.95em}
+@container doc (min-width:520px){.document-markdown{--md-fs:14.5px;--md-block:1em}}
+@container doc (min-width:700px){
+  .document-markdown{--md-fs:15.5px;--md-block:1.05em}
+  /* 面板拖得很宽时给正文留出行宽上限，别铺满整屏；两侧留白由此产生，
+     所以不再另外加 reader padding（.document-reader 是容器本身，也无法
+     被自己的 @container 查询命中）。 */
+  .document-markdown>.markdown{max-width:72ch;margin-inline:auto}
+}
+
+/* 纯文本仍用等宽（.txt 靠对齐传达结构），但 11px 太小，且 anywhere 会把
+   单词从中间劈开——长路径交给 break-word 即可。 */
+.document-plain-text{min-width:0;margin:0;color:var(--text);font:12.5px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;tab-size:4}
+.document-loading,.document-empty{display:grid;flex:1;min-width:0;min-height:0;place-content:center;justify-items:center;gap:9px;padding:26px;text-align:center;color:var(--muted)}.document-loading{font-size:11px}.document-empty-icon{color:var(--subtle);font-size:31px}.document-empty b{color:var(--text);font-size:12px}.document-empty p{max-width:250px;margin:0;color:var(--muted);font-size:11px;line-height:1.5}
+.document-error{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:10px;border:1px solid color-mix(in srgb,var(--danger) 38%,var(--border));border-radius:7px;color:var(--danger);background:color-mix(in srgb,var(--danger) 8%,var(--surface-raised));font-size:11px;line-height:1.45}.document-error-actions{display:flex;flex:none;align-items:center;gap:4px}.document-error-actions button{padding:3px 7px;border-radius:5px;color:inherit;background:var(--surface-raised)}
+.document-fallback{display:flex;min-height:0;flex-direction:column;gap:10px}
+.document-fallback-bar{display:flex;flex:none;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:7px;color:var(--muted);background:var(--surface-raised);font-size:11px;line-height:1.45}
+.document-fallback .document-markdown{min-height:0;flex:1}
+
+/* Editing renderers: unsaved badge in the header, external-change prompt above the surface. */
+.document-dirty-badge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--warning, #b7791f);
+  background: color-mix(in srgb, var(--warning, #b7791f) 14%, transparent);
+}
+.document-external-change {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text, inherit);
+  background: color-mix(in srgb, var(--warning, #b7791f) 12%, transparent);
+  border-bottom: 1px solid var(--border, #ddd);
+}

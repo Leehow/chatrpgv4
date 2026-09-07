@@ -252,3 +252,10 @@ pi -p --no-session --no-context-files --no-extensions --tools read,write,edit,ba
 | Pi 版本 | 日期 | 结果 |
 | --- | --- | --- |
 | 0.85.1 | 2026-09-05 | 首版契约；三项旧补丁全部不再需要 |
+
+## 8. PipiCOC frontend
+
+The branch-local Electron copy uses `pipicoc/rpc` to run `bin/pi-coc --mode rpc`.
+See kernel contract §23. `pipicoc/dev` is the local UI entry point; there is no
+external writepaper checkout or embedded Pi prerequisite. JSONL stdin/stdout and
+Pi's extension UI requests remain the transport; the host does not emulate a Keeper.

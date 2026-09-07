@@ -1,0 +1,305 @@
+import { createHash } from "node:crypto";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { createPiHostBackend } from "../src/index.js";
+import {
+  InputFilesController,
+  type InputFilesUploadResult,
+  JsonInputFileStore,
+  modelDeclaresInputFiles,
+  sanitizeInputFileError,
+} from "../src/input-files.js";
+import type { InputFileStageRequest, Model } from "@pipi/host-api";
+
+const dirs: string[] = [];
+afterEach(async () => {
+  await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+});
+
+const grok: Model = {
+  provider: "hosted-provider",
+  id: "hosted-1",
+  name: "Hosted 1",
+  capabilities: { inputFiles: true },
+};
+const claude: Model = { provider: "anthropic", id: "claude-sonnet-4", name: "Claude Sonnet 4" };
+
+function stage(name = "/abs/secret/notes.md", text = "hello files", id?: string): InputFileStageRequest {
+  return {
+    ...(id ? { id } : {}),
+    name,
+    size: Buffer.byteLength(text),
+    mimeType: "text/markdown",
+    dataBase64: Buffer.from(text).toString("base64"),
+  };
+}
+
+async function tempDir(prefix = "pipi-input-files-"): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), prefix));
+  dirs.push(dir);
+  return dir;
+}
+
+describe("input files capability gate", () => {
+  it("fails closed unless live capabilities.inputFiles === true", () => {
+    expect(modelDeclaresInputFiles(undefined)).toBe(false);
+    expect(modelDeclaresInputFiles(claude)).toBe(false);
+    expect(modelDeclaresInputFiles({ capabilities: {} } as Model)).toBe(false);
+    expect(modelDeclaresInputFiles({ capabilities: { inputFiles: false } } as Model)).toBe(false);
+    expect(modelDeclaresInputFiles({ capabilities: { inputFiles: { upload: true } } } as Model)).toBe(false);
+    expect(modelDeclaresInputFiles({ capabilities: { inputFiles: { upload: false } } } as Model)).toBe(false);
+    expect(modelDeclaresInputFiles({ capabilities: { inputFiles: [] } } as Model)).toBe(false);
+    expect(modelDeclaresInputFiles({ capabilities: { inputFiles: "true" } } as Model)).toBe(false);
+    expect(modelDeclaresInputFiles({ provider: "hosted-provider", id: "hosted-1", name: "Hosted" })).toBe(false);
+    expect(modelDeclaresInputFiles(grok)).toBe(true);
+    expect(modelDeclaresInputFiles({ provider: "anthropic", id: "x", name: "x", capabilities: { inputFiles: true } })).toBe(true);
+  });
+});
+
+describe("input files host controller", () => {
+  it("writes project-local 0600 metadata without paths, bytes, or tokens", async () => {
+    const dir = await tempDir();
+    const remote = {
+      upload: async () => ({ fileId: "file-1", name: "notes.md", size: 11, mimeType: "text/markdown", digest: "abc" }),
+      remove: async () => undefined,
+    };
+    let model: Model = claude;
+    const ctl = new InputFilesController(new JsonInputFileStore(dir), remote, () => model);
+    await expect(ctl.stage("s1", stage())).rejects.toThrow(/不支持文件附件/);
+    model = grok;
+    const ready = await ctl.stage("s1", stage());
+    expect(ready).toMatchObject({ name: "notes.md", status: "ready", fileId: "file-1" });
+    expect(ctl.retainedByteCount("s1")).toBe(0);
+    expect(ctl.inflightCount("s1")).toBe(0);
+    expect(JSON.stringify(ready)).not.toContain("/abs/");
+    expect(ready).not.toHaveProperty("digest");
+    const stored = join(dir, "input-files", "s1.json");
+    expect((await stat(stored)).mode & 0o777).toBe(0o600);
+    const raw = await readFile(stored, "utf8");
+    expect(raw).not.toContain("/abs/secret");
+    expect(raw).not.toContain("hello files");
+    expect(raw).not.toContain("at-secret");
+    expect(raw).not.toContain("Bearer");
+    expect(JSON.parse(raw)).toMatchObject({ version: 1, attachments: [{ name: "notes.md", fileId: "file-1", status: "ready" }] });
+  });
+
+  it("reuses a session digest, retries failures, cancels, and best-effort deletes unsent files", async () => {
+    const dir = await tempDir();
+    let uploads = 0;
+    let deletes = 0;
+    const remote = {
+      upload: async (input: { signal?: AbortSignal }) => {
+        uploads += 1;
+        if (uploads === 1) throw new Error("upstream 401 bearer at-secret path=/Users/haoli/x.md");
+        input.signal?.throwIfAborted();
+        const digest = createHash("sha256").update(Buffer.from("hello files")).digest("hex");
+        return { fileId: `file-${uploads}`, name: "notes.md", size: 11, mimeType: "text/markdown", digest };
+      },
+      remove: async () => { deletes += 1; },
+    };
+    const ctl = new InputFilesController(new JsonInputFileStore(dir), remote, () => grok);
+    const failed = await ctl.stage("s1", stage("/abs/secret/notes.md", "hello files", "att-1"));
+    expect(failed.status).toBe("failed");
+    expect(ctl.retainedByteCount("s1")).toBe(Buffer.byteLength("hello files"));
+    expect(ctl.inflightCount("s1")).toBe(0);
+    expect(failed.error).not.toContain("at-secret");
+    expect(failed.error).not.toContain("/Users/haoli");
+    const retried = await ctl.retry("s1", "att-1");
+    expect(retried.status).toBe("ready");
+    expect(retried.fileId).toBe("file-2");
+    expect(ctl.retainedByteCount("s1")).toBe(0);
+    expect(ctl.inflightCount("s1")).toBe(0);
+    const reused = await ctl.stage("s1", stage("other.md", "hello files"));
+    expect(reused.fileId).toBe("file-2");
+    expect(uploads).toBe(2);
+    await ctl.remove("s1", reused.id);
+    expect(deletes).toBe(1);
+    expect(ctl.retainedByteCount("s1")).toBe(0);
+    expect(ctl.inflightCount("s1")).toBe(0);
+  });
+
+  it("does not remote-DELETE a sent file and requires reselect when bytes are gone", async () => {
+    const dir = await tempDir();
+    let deletes = 0;
+    const store = new JsonInputFileStore(dir);
+    const remote = {
+      upload: async () => ({ fileId: "file-sent", name: "notes.md", size: 11, mimeType: "text/markdown", digest: "abc" }),
+      remove: async () => { deletes += 1; },
+    };
+    const ctl = new InputFilesController(store, remote, () => grok);
+    const ready = await ctl.stage("s1", stage(undefined, undefined, "att-sent"));
+    expect(ready.status).toBe("ready");
+    await ctl.markSent("s1", ["att-sent"]);
+    await ctl.remove("s1", "att-sent");
+    expect(deletes).toBe(0);
+
+    const fresh = new InputFilesController(store, remote, () => grok);
+    await store.upsert("s1", {
+      id: "att-retry",
+      name: "notes.md",
+      size: 11,
+      mimeType: "text/markdown",
+      status: "failed",
+      error: "上次失败",
+    });
+    await expect(fresh.retry("s1", "att-retry")).rejects.toThrow(/重新选择/);
+  });
+
+  it("cancels an in-flight upload and isolates concurrent sessions", async () => {
+    const dir = await tempDir();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const remote = {
+      upload: async (input: { signal?: AbortSignal }) => {
+        await gate;
+        input.signal?.throwIfAborted();
+        return { fileId: "file-9", name: "notes.md", size: 11, mimeType: "text/markdown", digest: "abc" };
+      },
+      remove: async () => undefined,
+    };
+    const ctl = new InputFilesController(new JsonInputFileStore(dir), remote, () => grok);
+    const pending = ctl.stage("s1", stage(undefined, undefined, "att-1"));
+    await expect.poll(async () => (await ctl.list("s1"))[0]?.status).toBe("uploading");
+    await expect(ctl.readyForSend("s1")).rejects.toThrow(/仍在上传/);
+    const cancelled = await ctl.cancel("s1", "att-1");
+    expect(cancelled.status).toBe("cancelled");
+    expect(ctl.retainedByteCount("s1")).toBe(0);
+    expect(ctl.inflightCount("s1")).toBe(0);
+    release();
+    expect((await pending).status).toBe("cancelled");
+    expect(ctl.retainedByteCount("s1")).toBe(0);
+    expect(ctl.inflightCount("s1")).toBe(0);
+
+    const other = await ctl.stage("s2", stage("s2.md", "session two", "att-2"));
+    expect(other.status).toBe("ready");
+    expect((await ctl.list("s1")).map((item) => item.id)).toEqual(["att-1"]);
+    expect((await ctl.list("s2")).map((item) => item.id)).toEqual(["att-2"]);
+    expect(JSON.parse(await readFile(join(dir, "input-files", "s1.json"), "utf8")).attachments).toHaveLength(1);
+    expect(JSON.parse(await readFile(join(dir, "input-files", "s2.json"), "utf8")).attachments).toHaveLength(1);
+  });
+
+  it("disposes pending uploads without resurrecting bytes or abort controllers", async () => {
+    const dir = await tempDir();
+    let aborts = 0;
+    const remote = {
+      upload: async ({ signal }: { signal?: AbortSignal }) => new Promise<InputFilesUploadResult>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => {
+          aborts += 1;
+          const error = new Error("aborted");
+          error.name = "AbortError";
+          reject(error);
+        }, { once: true });
+      }),
+      remove: async () => undefined,
+    };
+    const ctl = new InputFilesController(new JsonInputFileStore(dir), remote, () => grok);
+    const pending = ctl.stage("s1", stage(undefined, undefined, "att-teardown"));
+    await expect.poll(() => ctl.inflightCount("s1")).toBe(1);
+    expect(ctl.retainedByteCount("s1")).toBe(Buffer.byteLength("hello files"));
+
+    await ctl.disposeSession("s1");
+    await ctl.disposeSession("s1");
+    expect(aborts).toBe(1);
+    expect((await pending).status).toBe("cancelled");
+    expect(ctl.retainedByteCount("s1")).toBe(0);
+    expect(ctl.inflightCount("s1")).toBe(0);
+    expect((await ctl.list("s1")).at(0)).toMatchObject({ status: "cancelled" });
+    await expect(ctl.retry("s1", "att-teardown")).rejects.toThrow(/重新选择/);
+  });
+
+  it("fails closed when the host injects no remote uploader", async () => {
+    const empty = await tempDir("pipi-input-files-runtime-");
+    const ctl = new InputFilesController(new JsonInputFileStore(empty), undefined, () => grok);
+    await expect(ctl.stage("s1", stage())).rejects.toThrow(/未启用文件上传/);
+  });
+
+  it("redacts secrets from errors", () => {
+    expect(sanitizeInputFileError(new Error("Bearer at-secret /Users/haoli/a.pdf"))).not.toContain("at-secret");
+    expect(sanitizeInputFileError(new Error("Bearer at-secret /Users/haoli/a.pdf"))).not.toContain("/Users/haoli");
+  });
+});
+
+describe("input files backend handler routing", () => {
+  it("routes list/stage/retry/cancel/remove onto the project agent home", async () => {
+    const root = await tempDir("pipi-input-files-be-");
+    const project = join(root, "project");
+    const agentDir = join(root, "app-profile-agent");
+    const sessions = join(root, "sessions");
+    await mkdir(project, { recursive: true });
+    await mkdir(join(sessions, encodeURIComponent(project)), { recursive: true });
+    await writeFile(
+      join(sessions, encodeURIComponent(project), "s1.jsonl"),
+      `${JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: "2026-08-23T00:00:00.000Z", cwd: project })}\n`,
+    );
+    let uploads = 0;
+    let deletes = 0;
+    const backend = createPiHostBackend({
+      agentDir,
+      sessionsRoot: sessions,
+      runtimeRoot: join(root, "runtime"),
+      inputFilesRemote: {
+        upload: async () => {
+          uploads += 1;
+          if (uploads === 1) throw new Error("transient Bearer at-secret /Users/haoli/x.md");
+          return { fileId: "file-be", name: "notes.md", size: 11, mimeType: "text/markdown", digest: "abc" };
+        },
+        remove: async () => { deletes += 1; },
+      },
+    });
+    (backend as unknown as { modelState: { model: Model; thinkingLevel: string; availableThinkingLevels: string[] } }).modelState = {
+      model: grok,
+      thinkingLevel: "off",
+      availableThinkingLevels: [],
+    };
+
+    await expect(backend.handle("listInputFiles", ["s1"])).resolves.toEqual([]);
+    const failed = await backend.handle("stageInputFile", ["s1", stage("/abs/secret/notes.md", "hello files", "att-1")]) as { status: string; error?: string };
+    expect(failed.status).toBe("failed");
+    expect(failed.error).not.toContain("at-secret");
+    const retried = await backend.handle("retryInputFile", ["s1", "att-1"]) as { status: string; fileId?: string };
+    expect(retried).toMatchObject({ status: "ready", fileId: "file-be" });
+    const listed = await backend.handle("listInputFiles", ["s1"]) as Array<{ id: string }>;
+    expect(listed.map((item) => item.id)).toEqual(["att-1"]);
+
+    const stored = join(project, ".pi", "agent", "input-files", "s1.json");
+    expect((await stat(stored)).mode & 0o777).toBe(0o600);
+    const raw = await readFile(stored, "utf8");
+    expect(raw).not.toContain("/abs/secret");
+    await expect(stat(join(agentDir, "input-files", "s1.json"))).rejects.toMatchObject({ code: "ENOENT" });
+
+    await backend.handle("cancelInputFile", ["s1", "att-1"]);
+    await backend.handle("removeInputFile", ["s1", "att-1"]);
+    expect(deletes).toBe(1);
+    expect(await backend.handle("listInputFiles", ["s1"])).toEqual([]);
+
+    (backend as unknown as { modelState: { model: Model; thinkingLevel: string; availableThinkingLevels: string[] } }).modelState.model = claude;
+    await expect(backend.handle("stageInputFile", ["s1", stage()])).rejects.toThrow(/不支持文件附件/);
+
+    await backend.close();
+  });
+
+  it("fails closed when the remote host module is missing", async () => {
+    const root = await tempDir("pipi-input-files-missing-");
+    const project = join(root, "project");
+    await mkdir(join(root, "sessions", encodeURIComponent(project)), { recursive: true });
+    await writeFile(
+      join(root, "sessions", encodeURIComponent(project), "s1.jsonl"),
+      `${JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: "2026-08-23T00:00:00.000Z", cwd: project })}\n`,
+    );
+    const backend = createPiHostBackend({
+      agentDir: join(root, "agent"),
+      sessionsRoot: join(root, "sessions"),
+      runtimeRoot: join(root, "runtime"),
+    });
+    (backend as unknown as { modelState: { model: Model; thinkingLevel: string; availableThinkingLevels: string[] } }).modelState = {
+      model: grok,
+      thinkingLevel: "off",
+      availableThinkingLevels: [],
+    };
+    await expect(backend.handle("stageInputFile", ["s1", stage()])).rejects.toThrow(/未启用文件上传/);
+    await backend.close();
+  });
+});

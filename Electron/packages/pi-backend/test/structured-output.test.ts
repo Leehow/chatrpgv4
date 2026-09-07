@@ -1,0 +1,267 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createPiHostBackend } from "../src/index.js";
+import {
+  StructuredOutputController,
+  modelDeclaresStructuredOutputs,
+  modelUsesResponsesApi,
+  structuredOutputsCapabilityEnabled,
+} from "../src/structured-output.js";
+import type { Model, StructuredOutputRequest } from "@pipi/host-api";
+
+/** Host-injected validator stand-in: the embedder decides what a well-formed request is. */
+function normalizeStructuredOutputRequest(request: unknown): StructuredOutputRequest {
+  if (!request || typeof request !== "object") throw new Error("structured output 请求必须是 object");
+  const { name, schema, strict } = request as { name?: unknown; schema?: unknown; strict?: unknown };
+  if (typeof name !== "string" || !name.trim()) throw new Error("structured output 名称不能为空");
+  if (!schema || typeof schema !== "object") throw new Error("structured output schema 必须是 object");
+  let copy: unknown;
+  try {
+    copy = JSON.parse(JSON.stringify(schema));
+  } catch {
+    throw new Error("structured output schema 存在循环引用");
+  }
+  return { name: name.trim(), schema: copy as StructuredOutputRequest["schema"], strict: strict !== false };
+}
+const structuredOutputsEnabled = (capabilities: unknown) => structuredOutputsCapabilityEnabled(capabilities);
+
+const dirs: string[] = [];
+afterEach(async () => {
+  await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 40, retryDelay: 25 })));
+});
+
+const schema = {
+  type: "object",
+  additionalProperties: false,
+  properties: { secret_schema_field_xyz: { type: "string" } },
+  required: ["secret_schema_field_xyz"],
+};
+
+const request: StructuredOutputRequest = { name: "flag", schema, strict: true };
+
+const grok: Model = {
+  provider: "hosted-provider",
+  id: "hosted-1",
+  name: "Hosted 1",
+  api: "openai-responses",
+  capabilities: { structuredOutputs: true },
+};
+const claude: Model = { provider: "anthropic", id: "claude-sonnet-4", name: "Claude Sonnet 4" };
+const completions: Model = {
+  provider: "openai",
+  id: "gpt-4o",
+  name: "GPT-4o",
+  api: "openai-completions",
+  capabilities: { structuredOutputs: true },
+};
+
+async function tempDir(prefix = "pipi-structured-"): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), prefix));
+  dirs.push(dir);
+  return dir;
+}
+
+describe("structured output capability gate", () => {
+  it("fails closed unless structuredOutputs is explicitly declared", () => {
+    expect(modelDeclaresStructuredOutputs(undefined)).toBe(false);
+    expect(modelDeclaresStructuredOutputs(claude)).toBe(false);
+    expect(modelDeclaresStructuredOutputs({ capabilities: { structuredOutputs: false } })).toBe(false);
+    expect(modelDeclaresStructuredOutputs({ capabilities: { structuredOutputs: { jsonSchema: false } } })).toBe(false);
+    expect(modelDeclaresStructuredOutputs(grok)).toBe(true);
+    expect(modelUsesResponsesApi(completions)).toBe(false);
+    expect(modelUsesResponsesApi(grok)).toBe(true);
+  });
+});
+
+describe("structured output host controller", () => {
+  it("validates immediately, stays in memory, and is one-shot per session", () => {
+    let model: Model = grok;
+    const ctl = new StructuredOutputController(
+      normalizeStructuredOutputRequest,
+      () => model,
+      structuredOutputsEnabled,
+    );
+    expect(ctl.set("s1", request)).toMatchObject({ name: "flag", strict: true });
+    expect(ctl.peek("s1")?.schema).toEqual(schema);
+    expect(ctl.take("s1")?.name).toBe("flag");
+    expect(ctl.take("s1")).toBeUndefined();
+
+    ctl.set("s1", request);
+    ctl.set("s2", { ...request, name: "other" });
+    ctl.set("s1", null);
+    expect(ctl.peek("s1")).toBeUndefined();
+    expect(ctl.peek("s2")?.name).toBe("other");
+
+    model = claude;
+    expect(() => ctl.set("s1", request)).toThrow(/未声明 structuredOutputs/);
+    model = grok;
+    ctl.set("s1", request);
+    model = completions;
+    expect(() => ctl.assertReadyToSend("s1")).toThrow(/Responses/);
+    expect(ctl.peek("s1")).toBeUndefined();
+  });
+
+  it("rejects malformed requests via the shared normalize, not a copied validator", () => {
+    const ctl = new StructuredOutputController(
+      normalizeStructuredOutputRequest,
+      () => grok,
+      structuredOutputsEnabled,
+    );
+    expect(() => ctl.set("s1", { name: "  ", schema })).toThrow(/名称不能为空/);
+    const cyclic: Record<string, unknown> = { type: "object" };
+    cyclic.self = cyclic;
+    expect(() => ctl.set("s1", { name: "out", schema: cyclic })).toThrow(/循环引用/);
+  });
+});
+
+describe("structured output backend handler routing", () => {
+  async function backendWithSession() {
+    const root = await tempDir("pipi-structured-be-");
+    const project = join(root, "project");
+    const sessions = join(root, "sessions");
+    const sessionPath = join(sessions, encodeURIComponent(project), "s1.jsonl");
+    await mkdir(project, { recursive: true });
+    await mkdir(join(sessions, encodeURIComponent(project)), { recursive: true });
+    await writeFile(
+      sessionPath,
+      `${JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: "2026-08-23T00:00:00.000Z", cwd: project })}\n`,
+    );
+    const backend = createPiHostBackend({
+      agentDir: join(root, "app-profile-agent"),
+      sessionsRoot: sessions,
+      runtimeRoot: join(root, "runtime"),
+      structuredOutputNormalize: normalizeStructuredOutputRequest,
+      structuredOutputsEnabled,
+    });
+    (backend as unknown as { modelState: { model: Model; thinkingLevel: string; availableThinkingLevels: string[] } }).modelState = {
+      model: grok,
+      thinkingLevel: "off",
+      availableThinkingLevels: [],
+    };
+    return { backend, root, project, sessions, sessionPath };
+  }
+
+  it("sets/clears via Host API and never writes schema into the session jsonl", async () => {
+    const { backend, sessionPath } = await backendWithSession();
+    const before = await readFile(sessionPath, "utf8");
+    await backend.handle("setStructuredOutput", ["s1", request]);
+    const after = await readFile(sessionPath, "utf8");
+    expect(after).toBe(before);
+    expect(after).not.toContain("secret_schema_field_xyz");
+    await backend.handle("setStructuredOutput", ["s1", null]);
+    expect(await readFile(sessionPath, "utf8")).toBe(before);
+    await backend.close();
+  });
+
+  it("rejects a late set after deletion and accepts the recreated session token", async () => {
+    const { backend, sessionPath, project } = await backendWithSession();
+    const internals = backend as any;
+    const originalController = internals.structuredOutputController.bind(internals);
+    let releaseController!: () => void;
+    let controllerStarted!: () => void;
+    const controllerGate = new Promise<void>((resolve) => { releaseController = resolve; });
+    const controllerStartedGate = new Promise<void>((resolve) => { controllerStarted = resolve; });
+    const oldController = vi.spyOn(internals, "structuredOutputController").mockImplementation(async () => {
+      controllerStarted();
+      await controllerGate;
+      return originalController();
+    });
+
+    const lateSet = backend.handle("setStructuredOutput", ["s1", request]);
+    await controllerStartedGate;
+    const oldToken = internals.sessionRuntimeToken("s1");
+    await backend.handle("deleteSession", ["s1"]);
+    await writeFile(
+      sessionPath,
+      `${JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: "2026-08-23T00:00:00.000Z", cwd: project })}\n`,
+    );
+    await backend.handle("resumeSession", ["s1"]);
+    const newToken = internals.sessionRuntimeToken("s1");
+    expect(newToken).not.toBe(oldToken);
+
+    releaseController();
+    await expect(lateSet).rejects.toThrow(/disposed/);
+    expect(internals.structuredOutputs?.peek("s1")).toBeUndefined();
+
+    oldController.mockRestore();
+    await backend.handle("setStructuredOutput", ["s1", request]);
+    expect(internals.structuredOutputs.peek("s1")).toMatchObject({ name: "flag", strict: true });
+    await backend.close();
+  });
+
+  it("blocks sendPrompt on an unsupported model so no prompt RPC happens", async () => {
+    const { backend } = await backendWithSession();
+    await backend.handle("setStructuredOutput", ["s1", request]);
+    const state = { model: claude, thinkingLevel: "off" as const, availableThinkingLevels: [] as string[] };
+    const boxed = backend as unknown as {
+      modelState: typeof state;
+      sessionModelStates: Map<string, typeof state>;
+      sessionModelSnapshots: Map<string, typeof state>;
+    };
+    boxed.modelState = state;
+    boxed.sessionModelStates.set("s1", state);
+    boxed.sessionModelSnapshots.set("s1", state);
+    let commanded = 0;
+    (backend as unknown as { command: (id: string, body: unknown) => Promise<void> }).command = async () => {
+      commanded += 1;
+    };
+    await expect(backend.handle("sendPrompt", ["s1", "hi"])).rejects.toThrow(/未声明 structuredOutputs/);
+    expect(commanded).toBe(0);
+    await backend.close();
+  });
+
+  it("fails closed when the host injects no structured-output validator", async () => {
+    const root = await tempDir("pipi-structured-missing-");
+    const project = join(root, "project");
+    await mkdir(join(root, "sessions", encodeURIComponent(project)), { recursive: true });
+    await writeFile(
+      join(root, "sessions", encodeURIComponent(project), "s1.jsonl"),
+      `${JSON.stringify({ type: "session", version: 3, id: "s1", timestamp: "2026-08-23T00:00:00.000Z", cwd: project })}\n`,
+    );
+    const backend = createPiHostBackend({
+      agentDir: join(root, "agent"),
+      sessionsRoot: join(root, "sessions"),
+      runtimeRoot: join(root, "runtime"),
+    });
+    (backend as unknown as { modelState: { model: Model; thinkingLevel: string; availableThinkingLevels: string[] } }).modelState = {
+      model: grok,
+      thinkingLevel: "off",
+      availableThinkingLevels: [],
+    };
+    await expect(backend.handle("setStructuredOutput", ["s1", request])).rejects.toThrow(/未启用 Structured Outputs/);
+    await backend.close();
+  });
+
+  it("Host API set then bridge take consumes one-shot for that session only", async () => {
+    const { backend } = await backendWithSession();
+    await backend.handle("setStructuredOutput", ["s1", request]);
+    const boxed = backend as unknown as {
+      bridge: { listen(): Promise<number>; register(id: string): string };
+    };
+    const port = await boxed.bridge.listen();
+    const capability = boxed.bridge.register("s1");
+    const other = boxed.bridge.register("s-other");
+    const take = (cap: string) => fetch(`http://127.0.0.1:${port}/rpc`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        schemaVersion: 1,
+        sessionCapability: cap,
+        action: "structured_output",
+        event: { op: "take" },
+      }),
+    });
+    const first = await (await take(capability)).json() as { ok: boolean; result?: { name?: string } };
+    expect(first).toMatchObject({ ok: true, result: { name: "flag", strict: true } });
+    expect(JSON.stringify(first)).toContain("secret_schema_field_xyz");
+    const second = await (await take(capability)).json() as { result: unknown };
+    expect(second.result).toBeNull();
+    await backend.handle("setStructuredOutput", ["s1", request]);
+    const isolated = await (await take(other)).json() as { result: unknown };
+    expect(isolated.result).toBeNull();
+    await backend.close();
+  });
+});

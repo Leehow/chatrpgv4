@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist",
+    "baseUrl": ".",
+    "paths": {
+      "@pipi/host-api": ["../host-api/dist/index.d.ts"],
+      "@pipi/host-api/browser": ["../host-api/dist/browser.d.ts"],
+      "@pipiui/extension-api": ["../extension-api/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

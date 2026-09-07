@@ -1,0 +1,25 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "description": "Product pack for __NAME__.",
+  "capabilities": [],
+  "defaultEnabled": false,
+  "dependencies": {
+    "required": [
+      { "id": "skill-loader-extension", "version": "^1.0.0" }
+    ]
+  },
+  "app": {
+    "ui": {
+      "viewContainers": [
+        { "id": "__ID__.navigator", "location": "primarySidebar", "title": "__NAME__", "order": 10 }
+      ],
+      "layout": {
+        "primarySidebar": "__ID__.navigator",
+        "center": "pipi.conversation",
+        "activity": ["__ID__.navigator"]
+      }
+    }
+  }
+}

@@ -1,0 +1,77 @@
+/*
+ * QuotaPill — Swift-aligned capsule + popover, scoped strictly to `.quota-pill`
+ * (and its popover `.quota-menu`) so no other composer control (model chip,
+ * thinking chip, context pill) is affected. Swift-aligned Capsule shape with
+ * gray text; sits right of the context pill via its own margin (8px, matching
+ * Swift metricsStatus spacing). Clicking opens a quick-menu popover listing
+ * every window the provider reports; the selected row carries a checkmark.
+ */
+
+.quota-pill {
+  --qp-text: #5a5a63;
+  --qp-bg: #ececf0;
+
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  margin-left: 8px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--qp-bg);
+  color: var(--qp-text);
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.quota-pill:hover {
+  --qp-bg: #e0e0e6;
+}
+
+[data-scheme='dark'] .quota-pill {
+  --qp-text: #c6cbd6;
+  --qp-bg: #2a2a2e;
+}
+
+[data-scheme='dark'] .quota-pill:hover {
+  --qp-bg: #34343a;
+}
+
+/*
+ * Portaled to `.pipiui-shell` (see QuotaPill) so `--surface-raised` inherits.
+ * Falls back to document.body; the #fff fallback keeps the menu opaque when
+ * tokens are missing. Must escape `.chat-column { overflow: hidden }`.
+ */
+.quick-menu.quota-menu {
+  position: fixed;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  z-index: 80;
+  min-width: 200px;
+  background: var(--surface-raised,#fff);
+  color: var(--text,#17171a);
+  border: 1px solid var(--border-strong,#c8c8cf);
+}
+
+.quota-menu-percent {
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* CodexBar-style reset line under the row title (QuotaPill popover only). */
+.quota-menu-reset {
+  display: block;
+  margin-top: 2px;
+  color: var(--subtle);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.quota-menu .quick-menu-check {
+  margin-left: 8px;
+}

@@ -4,7 +4,7 @@ COC Keeper for Pi：一个 Pi 包加一个 Python 内核子进程。守秘人只
 
 - 架构规格：GitHub issue #12。切片票：#13 到 #18。
 - 扩展与内核之间的契约：`docs/kernel-rpc.md`。改契约先于改代码。系统语言英文、玩家语言由守秘人模型按 `play_language` 产出、机制走 JSON 投影：见 `Agents.md`。
-- 下一步实施：[PDF 直接阅读与按需构图](docs/specs/visual-pdf-reader.md)，接口见契约 §22；规格已写，运行时尚未切换，Electron 接入留后。
+- 下一步实施：[PDF 直接阅读与按需构图](docs/specs/visual-pdf-reader.md)，接口见契约 §22；规格已写，PDF 运行时尚未切换；PipiCOC 源码接入另见下文。
 - 对 Pi 的依赖与升版流程：`docs/pi-host-contract.md`，不 fork、不打补丁。
 - 决策记录：`docs/adr/`。真桌验收方法：`docs/acceptance.md`。
 
@@ -38,3 +38,19 @@ npm run test:ext
 ```
 
 真桌验收走 `tests/play/driver.py`，grok 当守秘人，Claude 当玩家，一回合一回；方法见 `docs/acceptance.md`。
+
+## PipiCOC 界面
+
+`Electron/` 是本分支持有的 PipiCOC 界面源码，启动的是本仓库的
+`bin/pi-coc`，不再依赖 writepaper 检出或内置的另一套 Pi。
+
+```bash
+npm ci
+npm ci --prefix Electron
+pipicoc/dev setup                  # 建卡
+pipicoc/dev --campaign <战役名>     # 关闭建卡窗口后，用同一界面开桌
+```
+
+模型与鉴权沿用 `.pi/coc-agent`，战役与模组默认沿用本仓库 `.coc`。
+`PI_COC_HOME` 可显式选择存档根目录。不要在两个窗口同时打开同一战役。
+当前接入是源码运行；尚未配置独立 App 打包，也不表示视觉 PDF 规格已实现。

@@ -1,0 +1,10 @@
+{
+  "id": "pipicoc",
+  "name": "PipiCOC",
+  "appId": "com.leehow.pipicoc",
+  "userDataDirname": "Pipi/pipicoc",
+  "sharedCredentialsDir": "@pipiui/electron/pi-agent",
+  "icon": "pipicoc.png",
+  "defaultPack": "coc-keeper",
+  "agentMaxDepth": 0
+}

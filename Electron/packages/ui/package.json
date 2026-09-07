@@ -1,0 +1,53 @@
+{
+  "name": "@pipiui/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./style.css": "./dist/style.css"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && vite build && vite build --config vite.browser.config.ts",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "devDependencies": {
+    "@file-viewer/vite-plugin": "^2.2.8",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "jsdom": "^29.1.1",
+    "jsqr": "^1.4.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.6.3",
+    "vite": "7.3.6",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@file-viewer/react": "^2.2.8",
+    "@file-viewer/renderer-pdf": "^2.2.8",
+    "@lobehub/icons-static-svg": "^1.94.0",
+    "@pipi/host-api": "file:../host-api",
+    "@pipiui/extension-api": "file:../extension-api",
+    "@streamdown/code": "^1.1.1",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "qrcode-generator": "^2.0.4",
+    "react-diff-view": "^3.3.3",
+    "react-virtuoso": "^4.18.11",
+    "simple-icons": "^16.28.0",
+    "streamdown": "^2.5.0"
+  }
+}

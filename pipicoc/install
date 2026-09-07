@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Install UI assets only; the launcher reads the canonical source in this checkout.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$HERE/.." && pwd)"
+DEST="$REPO/.pi/coc-agent/extensions/coc-keeper"
+mkdir -p "$DEST/pipicoc"
+cp "$REPO/pipiui-extension.json" "$DEST/"
+for asset in panel.js mechanics.js host-bridge.ts sheet.ts agent.ts sheet-icon.svg; do
+  cp "$HERE/$asset" "$DEST/pipicoc/"
+done
+printf 'Installed PipiCOC UI assets at %s\n' "$DEST"

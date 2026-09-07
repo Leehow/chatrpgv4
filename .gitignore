@@ -7,3 +7,10 @@ __pycache__/
 .coc/
 *.log
 .DS_Store
+
+Electron/**/dist/
+Electron/**/out/
+Electron/**/*.tsbuildinfo
+Electron/.embedded-runtimes/
+Electron/.product-stage/
+Electron/packages/pi-backend/src/runtime-agents.bundle.mjs

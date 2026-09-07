@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Run the copied frontend against this checkout's canonical Keeper.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$HERE/.." && pwd)"
+mode=play
+if [ "${1:-}" = setup ]; then mode=setup; shift; fi
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --campaign) export PI_COC_CAMPAIGN="${2:?Missing campaign name}"; shift 2 ;;
+    *) echo 'usage: pipicoc/dev [setup] [--campaign <name>]' >&2; exit 2 ;;
+  esac
+done
+export PI_COC_MODE="$mode"
+export PI_COC_HOME="${PI_COC_HOME:-$REPO}"
+export PIPIUI_PRODUCT_CONFIG="$HERE/product.json"
+"$HERE/install"
+cd "$REPO/Electron"
+exec npm run dev

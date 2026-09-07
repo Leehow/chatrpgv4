@@ -1,0 +1,398 @@
+import { link, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it, vi } from "vitest";
+
+const EXTENSION = "../../../resources/runtime/kernel/pipiui-runtime-info.ts";
+
+type Handler = (event: any, ctx: any) => unknown;
+
+async function loadRuntimeInfo() {
+  vi.resetModules();
+  const handlers = new Map<string, Handler[]>();
+  let tool: any;
+  const pi = {
+    getActiveTools: vi.fn(() => ["read", "pipiui_runtime_info"]),
+    getAllTools: vi.fn(() => [
+      { name: "read", description: "Read file contents", sourceInfo: { source: "builtin", scope: "temporary" } },
+      { name: "pipiui_runtime_info", description: "Read runtime state", sourceInfo: { source: "pipiui-runtime-info", scope: "temporary" } },
+    ]),
+    getThinkingLevel: vi.fn(() => "xhigh"),
+    getSessionName: vi.fn(() => "Current session"),
+    on: vi.fn((event: string, handler: Handler) => {
+      handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+    }),
+    registerTool: vi.fn((definition: any) => { tool = definition; }),
+  };
+  const module = await import(EXTENSION);
+  module.default(pi as never);
+  return {
+    pi,
+    tool,
+    handlers,
+    runtimeDebugSidecarPath: module.runtimeDebugSidecarPath,
+    maxRuntimeDebugBytes: module.MAX_RUNTIME_DEBUG_BYTES,
+  };
+}
+
+function context(overrides: Record<string, unknown> = {}) {
+  return {
+    cwd: "/workspace/project",
+    model: {
+      provider: "xai",
+      id: "grok-test",
+      name: "Grok Test",
+      reasoning: true,
+      thinkingLevelMap: {
+        off: null,
+        minimal: "minimal",
+        low: "low",
+        medium: "medium",
+        high: "high",
+        xhigh: "xhigh",
+        max: null,
+      },
+    },
+    thinkingLevel: "xhigh",
+    sessionManager: {
+      getSessionId: () => "session-1",
+      getSessionName: () => "Current session",
+      getSessionFile: () => undefined,
+    },
+    getContextUsage: () => ({ tokens: 1200, contextWindow: 10000, percent: 12 }),
+    ...overrides,
+  };
+}
+
+function parseResult(result: any) {
+  return JSON.parse(result.content[0].text);
+}
+
+describe("pipiui_runtime_info extension", () => {
+  it("reports live Pi state and authoritative supported thinking levels", async () => {
+    const { tool } = await loadRuntimeInfo();
+    const ctx = context();
+    const first = parseResult(await tool.execute("call-1", {}, undefined, undefined, ctx));
+    expect(first).toMatchObject({
+      provider: "xai",
+      model: { id: "grok-test", name: "Grok Test" },
+      thinking: { current: "xhigh", supported: ["minimal", "low", "medium", "high", "xhigh"] },
+      session: { id: "session-1", name: "Current session" },
+      cwd: "/workspace/project",
+      activeTools: ["read", "pipiui_runtime_info"],
+      contextUsage: { tokens: 1200, contextWindow: 10000, percent: 12 },
+      lastProviderRequest: { status: "not_observed" },
+    });
+
+    ctx.cwd = "/workspace/changed";
+    ctx.sessionManager.getSessionId = () => "session-2";
+    ctx.getContextUsage = () => ({ tokens: 2500, contextWindow: 10000, percent: 25 });
+    const second = parseResult(await tool.execute("call-2", {}, undefined, undefined, ctx));
+    expect(second).toMatchObject({
+      cwd: "/workspace/changed",
+      session: { id: "session-2" },
+      contextUsage: { tokens: 2500, percent: 25 },
+    });
+  });
+
+  it("observes only whitelisted fields from the final provider payload", async () => {
+    const { handlers, tool } = await loadRuntimeInfo();
+    const ctx = context();
+    const beforeRequest = handlers.get("before_provider_request")?.[0];
+    expect(beforeRequest).toBeTypeOf("function");
+    await beforeRequest?.({
+      type: "before_provider_request",
+      payload: {
+        reasoning_effort: "xhigh",
+        messages: [{ role: "system", content: "SECRET SYSTEM PROMPT" }],
+        tools: [{ name: "secret_tool" }],
+        headers: { authorization: "Bearer SECRET" },
+        apiKey: "SECRET KEY",
+        baseUrl: "https://secret.invalid",
+      },
+    }, ctx);
+
+    const result = await tool.execute("call", {}, undefined, undefined, ctx);
+    const info = parseResult(result);
+    expect(info.lastProviderRequest).toMatchObject({
+      status: "observed",
+      provider: "xai",
+      model: "grok-test",
+      thinkingLevel: "xhigh",
+      serializedReasoning: { reasoning_effort: "xhigh" },
+    });
+    expect(info.lastProviderRequest.observedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(result.content[0].text).not.toMatch(/SECRET|messages|headers|apiKey|baseUrl|system prompt/i);
+  });
+
+  it("does not guess reasoning fields and clears evidence on every session start", async () => {
+    const { handlers, tool } = await loadRuntimeInfo();
+    const ctx = context();
+    const beforeRequest = handlers.get("before_provider_request")?.[0];
+    const sessionStart = handlers.get("session_start")?.[0];
+    await beforeRequest?.({ type: "before_provider_request", payload: { temperature: 0.2 } }, ctx);
+    expect(parseResult(await tool.execute("call", {}, undefined, undefined, ctx)).lastProviderRequest)
+      .toMatchObject({ status: "observed", serializedReasoning: { status: "not_observed" } });
+
+    for (const reason of ["startup", "reload", "new", "resume", "fork"]) {
+      await sessionStart?.({ type: "session_start", reason }, ctx);
+      expect(parseResult(await tool.execute("call", {}, undefined, undefined, ctx)).lastProviderRequest)
+        .toEqual({ status: "not_observed" });
+      await beforeRequest?.({ type: "before_provider_request", payload: { reasoning: { effort: "high" } } }, ctx);
+    }
+  });
+
+  it("never exposes request evidence captured for a different live session", async () => {
+    const { handlers, tool } = await loadRuntimeInfo();
+    const firstSession = context();
+    await handlers.get("before_provider_request")?.[0]?.(
+      { type: "before_provider_request", payload: { reasoning_effort: "xhigh" } },
+      firstSession,
+    );
+    const secondSession = context({
+      sessionManager: {
+        getSessionId: () => "session-2",
+        getSessionName: () => "Other session",
+      },
+    });
+    expect(parseResult(await tool.execute("call", {}, undefined, undefined, secondSession)).lastProviderRequest)
+      .toEqual({ status: "not_observed" });
+  });
+
+  it("writes a safe tool and Skill snapshot beside the live session file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pipi-runtime-debug-"));
+    const skillRoot = join(root, "skills");
+    const skillDir = join(skillRoot, "tdd");
+    const sessionFile = join(root, "session.jsonl");
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, "SKILL.md"), "---\nname: tdd\ndescription: Test driven development\n---\nbody\n");
+    const envKeys = [
+      "PIPIUI_BUILT_IN_SKILL_ROOT",
+      "PIPIUI_AGENTS_DIR",
+      "PIPIUI_SUBAGENT_EXT",
+      "PIPIUI_CODING_TOOLS_EXT",
+      "PIPIUI_SKILLLOADER_EXT",
+      "PIPIUI_MEMORY_BROKER_MODE",
+      "PIPIUI_SPAWN_CONTRACT",
+      "PIPIUI_MOUNTED_EXTENSIONS",
+    ] as const;
+    const previous = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
+    process.env.PIPIUI_BUILT_IN_SKILL_ROOT = skillRoot;
+    process.env.PIPIUI_AGENTS_DIR = join(process.cwd(), "packs/agent-orchestration/agents");
+    process.env.PIPIUI_SUBAGENT_EXT = join(process.cwd(), "packs/agent-orchestration/subagent");
+    process.env.PIPIUI_CODING_TOOLS_EXT = join(process.cwd(), "packs/file-tools/agent/pipiui-coding-tools.ts");
+    process.env.PIPIUI_SKILLLOADER_EXT = join(process.cwd(), "packs/skill-loader-extension/agent/pipiui-skillloader.ts");
+    process.env.PIPIUI_MEMORY_BROKER_MODE = "main";
+    // The worker projection reads the mount table the host published, never a
+    // guessed sibling path, so the skill loader has to be in the contract.
+    process.env.PIPIUI_SPAWN_CONTRACT = JSON.stringify({
+      version: 1,
+      layerDirs: [],
+      mounts: [{
+        id: "skill-loader-extension",
+        kind: "extension",
+        path: process.env.PIPIUI_SKILLLOADER_EXT,
+        worker: false,
+      }],
+    });
+    // The kernel does not import a package: the Debug snapshot's skill catalog
+    // and worker projection arrive through the registration seam each owning
+    // package fills in when it loads. Stand in for those two loads here.
+    const skillsKey = Symbol.for("pipiui.runtime-debug.skills");
+    const subagentsKey = Symbol.for("pipiui.runtime-debug.subagents");
+    const registry = globalThis as unknown as Record<symbol, unknown>;
+    const { listSkillCatalogMetadata } = await import(
+      new URL("../../../packs/skill-loader-extension/agent/pipiui-skillloader.ts", import.meta.url).href
+    ) as { listSkillCatalogMetadata: () => unknown[] };
+    const { buildSubagentToolProjection } = await import(
+      new URL("../../../packs/agent-orchestration/agent/subagent-debug-projection.ts", import.meta.url).href
+    ) as { buildSubagentToolProjection: (pi: unknown, cwd: string) => unknown[] };
+    registry[skillsKey] = listSkillCatalogMetadata;
+    registry[subagentsKey] = buildSubagentToolProjection;
+    try {
+      const { handlers, runtimeDebugSidecarPath } = await loadRuntimeInfo();
+      const ctx = context({
+        sessionManager: {
+          getSessionId: () => "session-1",
+          getSessionName: () => "Current session",
+          getSessionFile: () => sessionFile,
+        },
+      });
+      await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+      const snapshot = JSON.parse(await readFile(runtimeDebugSidecarPath(sessionFile), "utf8"));
+      expect(snapshot).toMatchObject({
+        version: 1,
+        sessionId: "session-1",
+        activeTools: ["read", "pipiui_runtime_info"],
+      });
+      expect(snapshot.tools).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "read", description: "Read file contents", source: "builtin" }),
+      ]));
+      expect(snapshot.skills).toEqual(expect.arrayContaining([
+        { name: "tdd", description: "Test driven development", userInvoked: false },
+      ]));
+      expect(snapshot.subagents).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "explore", toolPolicy: "allowlist", tools: expect.arrayContaining(["read", "grep", "skill_load"]) }),
+        expect.objectContaining({ name: "general-purpose", toolPolicy: "allowlist", tools: expect.arrayContaining(["edit", "write", "skill_load"]) }),
+      ]));
+      expect(JSON.stringify(snapshot)).not.toContain("SKILL.md");
+    } finally {
+      delete registry[skillsKey];
+      delete registry[subagentsKey];
+      for (const key of envKeys) {
+        const value = previous[key];
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("never writes an oversized runtime Debug snapshot", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pipi-runtime-debug-budget-"));
+    const sessionFile = join(root, "session.jsonl");
+    try {
+      const { handlers, maxRuntimeDebugBytes, pi, runtimeDebugSidecarPath } = await loadRuntimeInfo();
+      expect(maxRuntimeDebugBytes).toBe(1024 * 1024);
+      pi.getAllTools.mockReturnValue(Array.from({ length: 80 }, (_, index) => ({
+        name: `large-tool-${index}`,
+        description: "x".repeat(20_000),
+        sourceInfo: { source: "fixture", scope: "temporary" },
+      })));
+      const ctx = context({
+        sessionManager: {
+          getSessionId: () => "session-1",
+          getSessionName: () => "Current session",
+          getSessionFile: () => sessionFile,
+        },
+      });
+
+      await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+
+      const sidecar = runtimeDebugSidecarPath(sessionFile);
+      expect((await stat(sidecar)).size).toBeLessThanOrEqual(maxRuntimeDebugBytes);
+      expect(JSON.parse(await readFile(sidecar, "utf8"))).toMatchObject({
+        version: 1,
+        sessionId: "session-1",
+        unavailable: "snapshot-too-large",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to overwrite a symlinked Debug sidecar", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pipi-runtime-debug-symlink-"));
+    const sessionFile = join(root, "session.jsonl");
+    const target = join(root, "target.txt");
+    await writeFile(target, "do not overwrite");
+    try {
+      const { handlers, runtimeDebugSidecarPath } = await loadRuntimeInfo();
+      await symlink(target, runtimeDebugSidecarPath(sessionFile));
+      const ctx = context({
+        sessionManager: {
+          getSessionId: () => "session-1",
+          getSessionName: () => "Current session",
+          getSessionFile: () => sessionFile,
+        },
+      });
+      await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+      expect(await readFile(target, "utf8")).toBe("do not overwrite");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to overwrite a multiply-linked Debug sidecar", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pipi-runtime-debug-hardlink-"));
+    const sessionFile = join(root, "session.jsonl");
+    const target = join(root, "target.txt");
+    await writeFile(target, "do not overwrite");
+    try {
+      const { handlers, runtimeDebugSidecarPath } = await loadRuntimeInfo();
+      await link(target, runtimeDebugSidecarPath(sessionFile));
+      const ctx = context({
+        sessionManager: {
+          getSessionId: () => "session-1",
+          getSessionName: () => "Current session",
+          getSessionFile: () => sessionFile,
+        },
+      });
+      await handlers.get("session_start")?.[0]?.({ type: "session_start", reason: "startup" }, ctx);
+      expect(await readFile(target, "utf8")).toBe("do not overwrite");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("instructs the model to verify runtime questions with the tool first", async () => {
+    const { tool } = await loadRuntimeInfo();
+    expect(tool.parameters).toBeDefined();
+    expect(JSON.stringify(tool.parameters)).not.toMatch(/provider|model|session|path/i);
+    expect(`${tool.description}\n${tool.promptGuidelines.join("\n")}`).toMatch(/call.*first/i);
+    expect(tool.promptGuidelines.join("\n")).toMatch(/history|system prompt|PI_/i);
+  });
+});
+
+
+/**
+ * Prompt provenance. PipiUI mounts this extension last, so its `before_agent_start` handler
+ * receives the assembled prompt after the base, philosophy, the skill catalog and every
+ * provider tip — the only point in the process that sees it whole. Before this existed there
+ * was no way to answer "did the locked base actually reach this session"; the base could have
+ * silently stopped shipping and nothing would have said so.
+ */
+describe("system prompt provenance", () => {
+  const BASE = "<!-- pipiui-system-base v2 -->\nbase text";
+  const PHILOSOPHY = "<!-- pipi-philosophy -->\nlayers";
+  const FRAME = "You are an expert coding assistant.\n";
+
+  it("attributes each contributor and calls the unmarked head Pi's own frame", async () => {
+    const { tool, handlers } = await loadRuntimeInfo();
+    const prompt = `${FRAME}${BASE}\n<project_context>ctx</project_context>\n${PHILOSOPHY}`;
+    await handlers.get("before_agent_start")![0]({ systemPrompt: prompt }, context());
+
+    const info = parseResult(await tool.execute("id", {}, undefined, undefined, context()));
+    expect(info.systemPrompt.segments.map((s: any) => s.id)).toEqual([
+      "pi-frame",
+      "pipiui-base",
+      "project-context",
+      "philosophy",
+    ]);
+    expect(info.systemPrompt.chars).toBe(prompt.length);
+    // Segments partition the prompt: nothing counted twice, nothing unattributed.
+    expect(info.systemPrompt.segments.reduce((n: number, s: any) => n + s.chars, 0)).toBe(prompt.length);
+  });
+
+  it("omits a contributor that is not in the prompt", async () => {
+    // The point of the field: philosophy off has to be visible, not inferred.
+    const { tool, handlers } = await loadRuntimeInfo();
+    await handlers.get("before_agent_start")![0]({ systemPrompt: `${FRAME}${BASE}` }, context());
+
+    const info = parseResult(await tool.execute("id", {}, undefined, undefined, context()));
+    expect(info.systemPrompt.segments.map((s: any) => s.id)).toEqual(["pi-frame", "pipiui-base"]);
+  });
+
+  it("reports not_observed before any turn, and forgets across sessions", async () => {
+    const { tool, handlers } = await loadRuntimeInfo();
+    const before = parseResult(await tool.execute("id", {}, undefined, undefined, context()));
+    expect(before.systemPrompt).toEqual({ status: "not_observed" });
+
+    await handlers.get("before_agent_start")![0]({ systemPrompt: `${FRAME}${BASE}` }, context());
+    await handlers.get("session_start")![0]({}, context());
+
+    const after = parseResult(await tool.execute("id", {}, undefined, undefined, context()));
+    expect(after.systemPrompt).toEqual({ status: "not_observed" });
+  });
+
+  it("digests the prompt so an unchanged composition is recognizable across turns", async () => {
+    const { tool, handlers } = await loadRuntimeInfo();
+    const read = async (prompt: string) => {
+      await handlers.get("before_agent_start")![0]({ systemPrompt: prompt }, context());
+      return parseResult(await tool.execute("id", {}, undefined, undefined, context())).systemPrompt.sha256;
+    };
+    const first = await read(`${FRAME}${BASE}`);
+    expect(await read(`${FRAME}${BASE}`)).toBe(first);
+    expect(await read(`${FRAME}${BASE}\n${PHILOSOPHY}`)).not.toBe(first);
+  });
+});

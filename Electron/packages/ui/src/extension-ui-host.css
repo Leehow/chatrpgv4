@@ -1,0 +1,42 @@
+.extui-notify-stack{position:fixed;z-index:50;top:16px;left:50%;display:flex;width:min(420px,calc(100vw - 32px));transform:translateX(-50%);flex-direction:column;gap:8px;pointer-events:none}
+.extui-notify{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--border-strong);border-radius:10px;background:var(--surface-raised);box-shadow:0 12px 28px rgb(0 0 0 / 28%);pointer-events:auto}
+.extui-notify-message{min-width:0;flex:1;color:var(--text-strong);font-size:12px;line-height:1.45;overflow-wrap:anywhere}
+.extui-notify-close{flex:none;width:22px;height:22px;border-radius:5px;color:var(--muted);font-size:15px}
+.extui-notify-close:hover{background:var(--surface-hover);color:var(--text-strong)}
+.extui-notify.is-warning{border-color:color-mix(in srgb,var(--danger) 45%,var(--border-strong))}
+.extui-notify.is-error{border-color:var(--danger)}
+.extui-dialog-backdrop{position:fixed;z-index:52;inset:0;display:grid;place-items:center;background:rgb(0 0 0 / 45%)}
+.extui-dialog{display:flex;flex-direction:column;width:min(520px,calc(100vw - 40px));max-height:min(560px,calc(100dvh - 48px));overflow:hidden;border:1px solid var(--border-strong);border-radius:12px;background:var(--surface-raised);box-shadow:0 20px 50px rgb(0 0 0 / 35%)}
+.extui-dialog-header{position:relative;min-width:0;padding:15px 48px 10px 16px;border-bottom:1px solid var(--border)}
+.extui-dialog-header h2{margin:0;color:var(--text-strong);font-size:14px}
+.extui-dialog-close{position:absolute;top:10px;right:12px;width:25px;height:25px;border-radius:5px;color:var(--muted);font-size:16px}
+.extui-dialog-close:hover{background:var(--surface-hover);color:var(--text-strong)}
+.extui-dialog-body{display:flex;min-height:0;flex:1 1 auto;flex-direction:column;gap:12px;padding:14px 16px 16px}
+.extui-dialog-message{margin:0;min-height:0;flex:0 1 auto;overflow-y:auto;color:var(--text);white-space:pre-wrap;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.extui-dialog-input{width:100%;min-height:34px;padding:7px 9px;border:1px solid var(--border-strong);border-radius:7px;color:var(--text);background:var(--surface-input);font-size:12px}
+.extui-dialog-options{display:flex;flex-direction:column;gap:6px}
+.extui-dialog-option{padding:7px 10px;border:1px solid var(--border);border-radius:7px;color:var(--text);background:color-mix(in srgb,var(--text) 4%,transparent);text-align:left;font-size:12px}
+.extui-dialog-option:hover{border-color:var(--accent);background:var(--accent-soft)}
+.extui-dialog-actions{display:flex;flex:none;justify-content:flex-end;gap:8px}
+.extui-dialog-actions button{padding:5px 12px;border:1px solid var(--border-strong);border-radius:7px;color:var(--text);background:var(--surface-input);font-size:12px}
+.extui-dialog-actions .extui-dialog-primary{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));color:var(--accent);background:var(--accent-soft);font-weight:600}
+
+/* 就地确认条：和「计划待确认」同一条带，坐在输入框上方。
+   正文默认折叠成两行——它常常很长，展开了会把输入框顶下去；展开后限高可滚，
+   操作区始终在头一行，不随正文滚走。 */
+.extui-confirm-bar{display:flex;flex-direction:column;gap:8px;margin:0 0 8px;padding:9px 11px;border:1px solid color-mix(in srgb,var(--accent) 40%,var(--border));border-radius:9px;background:var(--accent-soft)}
+.extui-confirm-bar-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.extui-confirm-bar-label{flex:none;padding:1px 6px;border-radius:5px;background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent);font-size:11px;font-weight:600}
+.extui-confirm-bar-title{flex:1 1 auto;min-width:0;color:var(--text-strong);font-size:12px;font-weight:600;overflow-wrap:anywhere}
+.extui-confirm-bar-toggle{flex:none;padding:3px 8px;border:1px solid var(--border);border-radius:6px;color:var(--muted);background:transparent;font-size:11px}
+.extui-confirm-bar-toggle:hover{border-color:var(--accent);color:var(--accent)}
+.extui-confirm-bar-actions{display:flex;flex:none;gap:6px}
+.extui-confirm-bar-actions button{padding:4px 11px;border:1px solid var(--border-strong);border-radius:7px;color:var(--text);background:var(--surface-input);font-size:12px}
+.extui-confirm-bar-actions .extui-dialog-primary{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));color:var(--accent);background:var(--accent-soft);font-weight:600}
+.extui-confirm-changed{color:var(--accent);font-weight:600}
+.extui-confirm-danger{color:var(--danger,#c0392b)}
+.extui-confirm-bar-options{display:flex;flex-wrap:wrap;gap:6px}
+.extui-confirm-bar-options .extui-dialog-option{flex:0 1 auto;padding:4px 11px;border:1px solid var(--border-strong);border-radius:7px;color:var(--text);background:var(--surface-input);font-size:12px;text-align:left}
+.extui-confirm-bar-options .extui-dialog-option:hover{border-color:var(--accent);color:var(--accent)}
+.extui-confirm-bar-body{margin:0;max-height:2.9em;overflow:hidden;color:var(--text);white-space:pre-wrap;font-family:inherit;font-size:12px;line-height:1.45;overflow-wrap:anywhere}
+.extui-confirm-bar-body[data-expanded="true"]{max-height:min(320px,38dvh);overflow-y:auto}

@@ -1,0 +1,148 @@
+// @vitest-environment jsdom
+import { act, cleanup, render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { PipiHostAPI, StreamEvent } from '@pipi/host-api'
+
+vi.mock('react-virtuoso', async () => {
+  const React = await import('react')
+  return { Virtuoso: React.forwardRef(({ data, itemContent }: { data: unknown[]; itemContent: (index: number, item: never) => JSX.Element }, ref) => { React.useImperativeHandle(ref, () => ({ scrollToIndex: vi.fn() })); return <div>{data.map((item, index) => <React.Fragment key={index}>{itemContent(index, item as never)}</React.Fragment>)}</div> }) }
+})
+vi.mock('streamdown', () => ({ Streamdown: ({ children }: { children: unknown }) => <>{children}</> }))
+vi.mock('@streamdown/code', () => ({ code: {} }))
+vi.mock('@xterm/xterm', () => ({ Terminal: class { open = vi.fn(); write = vi.fn(); clear = vi.fn(); focus = vi.fn(); scrollToBottom = vi.fn(); loadAddon = vi.fn(); dispose = vi.fn(); buffer = { active: { viewportY: 0, baseY: 0 } }; onData = () => ({ dispose: vi.fn() }); onScroll = () => ({ dispose: vi.fn() }) } }))
+vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit = vi.fn(); dispose = vi.fn() } }))
+
+import { App } from './App'
+import { createMockHost } from './mock-host'
+import { transcriptMessageIdentity, countTranscriptPrepended, nextTranscriptFirstItemIndex, TRANSCRIPT_FIRST_ITEM_BASE } from './transcript-scroll'
+
+beforeEach(() => { localStorage.clear(); Reflect.deleteProperty(window, 'pipiHost') })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); localStorage.clear(); Reflect.deleteProperty(window, 'pipiHost') })
+
+describe('fix1: queue busy local echo + dedup', () => {
+  it('busy send keeps the message out of the transcript until the host echo lands', async () => {
+    let listener: ((event: StreamEvent) => void) | undefined
+    const base = createMockHost()
+    // Make busy by having streaming true after first started
+    const host: PipiHostAPI = {
+      ...base,
+      enqueueMessage: async (_sessionId, text) => ({ outcome: 'queued', message: { id: 'queued-1', sessionId: 'layout', text, attachments: [], createdAt: Date.now(), state: 'queued' as const } }),
+      listQueue: async () => [],
+      subscribeStream: (_sid, cb) => { listener = cb; return () => { listener = undefined } },
+    }
+    const { container } = render(<App host={host} />)
+    await screen.findAllByText('Electron 三栏界面')
+    await waitFor(() => expect(container.querySelector('[data-session-id="layout"]')).toBeTruthy())
+    fireEvent.click(container.querySelector('[data-session-id="layout"]')!)
+    await waitFor(() => expect(listener).toBeDefined())
+
+    act(() => { listener?.({ type: 'status', sessionId: 'layout', status: 'started' }) })
+    // Now queue busy
+    const input = screen.getByLabelText('消息输入框') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: 'queued prompt text' } })
+    fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
+
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+    // The queued message stays in the queue panel — no transcript bubble yet.
+    expect([...document.querySelectorAll('[data-user-prompt]')].every(node => !node.textContent?.includes('queued prompt text'))).toBe(true)
+
+    // The host echo (queue drained) is what puts the bubble in the transcript.
+    act(() => { listener?.({ type: 'user_message', sessionId: 'layout', id: 'srv-queued-1', content: 'queued prompt text' }) })
+    const bubbles = screen.getAllByText('queued prompt text').filter(node => node.closest('[data-user-prompt]'))
+    expect(bubbles.length).toBe(1)
+  })
+})
+
+describe('fix2: turnClosed late events not dropped', () => {
+  it('late text/tool after settled still appears without rereading history per delta', async () => {
+    let listener: ((event: StreamEvent) => void) | undefined
+    let historyCalls = 0
+    const base = createMockHost()
+    const host: PipiHostAPI = {
+      ...base,
+      getSessionHistory: async (sid, before, limit) => {
+        historyCalls++
+        return base.getSessionHistory(sid, before, limit)
+      },
+      subscribeStream: (_sid, cb) => { listener = cb; return () => { listener = undefined } },
+    }
+    const { container } = render(<App host={host} />)
+    await screen.findAllByText('Electron 三栏界面')
+    await waitFor(() => expect(container.querySelector('[data-session-id="layout"]')).toBeTruthy())
+    fireEvent.click(container.querySelector('[data-session-id="layout"]')!)
+    await waitFor(() => expect(listener).toBeDefined())
+
+    act(() => { listener?.({ type: 'status', sessionId: 'layout', status: 'started' }) })
+    act(() => { listener?.({ type: 'text', sessionId: 'layout', contentIndex: 0, delta: 'early' }) })
+    expect(screen.getByText('early')).toBeTruthy()
+    act(() => { listener?.({ type: 'status', sessionId: 'layout', status: 'settled' }) })
+    await waitFor(() => expect(screen.queryByLabelText('停止生成')).toBeNull())
+    // Terminal reconcile fires immediately and again at 250ms. Drain that
+    // before measuring, so leftover trailing loads are not blamed on late live.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)) })
+    historyCalls = 0
+
+    // Late delta after turnClosed should still apply immediately, not wait for history.
+    act(() => { listener?.({ type: 'text', sessionId: 'layout', contentIndex: 0, delta: ' late-needs-show' }) })
+    expect(screen.getByText(/late-needs-show/)).toBeTruthy()
+
+    // A thinking burst after a false settle must not stack full JSONL reloads.
+    act(() => {
+      for (let i = 0; i < 20; i++) {
+        listener?.({ type: 'thinking', sessionId: 'layout', contentIndex: 0, delta: `think-${i}` })
+      }
+      listener?.({ type: 'tool_call', sessionId: 'layout', toolCallId: 'late-tool', name: 'read', delta: '{"path":"a"}' })
+    })
+    expect(document.body.textContent).toContain('read')
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+    expect(historyCalls).toBe(0)
+  })
+
+  it('settled turn rereads history exactly twice: immediate plus one trailing confirmation', async () => {
+    let listener: ((event: StreamEvent) => void) | undefined
+    let historyCalls = 0
+    const base = createMockHost()
+    const host: PipiHostAPI = {
+      ...base,
+      getSessionHistory: async (sid, before, limit) => {
+        historyCalls++
+        return base.getSessionHistory(sid, before, limit)
+      },
+      subscribeStream: (_sid, cb) => { listener = cb; return () => { listener = undefined } },
+    }
+    render(<App host={host} />)
+    await screen.findAllByText('Electron 三栏界面')
+    await waitFor(() => expect(listener).toBeDefined())
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+    historyCalls = 0
+
+    act(() => { listener?.({ type: 'status', sessionId: 'welcome', status: 'started' }) })
+    act(() => { listener?.({ type: 'text', sessionId: 'welcome', contentIndex: 0, delta: 'done' }) })
+    act(() => { listener?.({ type: 'status', sessionId: 'welcome', status: 'settled' }) })
+    await waitFor(() => expect(screen.queryByLabelText('停止生成')).toBeNull())
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 400)) })
+    // The terminal reconciliation reads once immediately and once after the
+    // 250ms trailing window so a compaction record following the terminal
+    // event still converges — and never re-reads beyond that single trailing.
+    expect(historyCalls).toBe(2)
+  })
+})
+
+describe('fix3: identity stable across content streaming', () => {
+  it('transcriptMessageIdentity does not change when content grows', () => {
+    const a = transcriptMessageIdentity({ id: 'm1', role: 'assistant', timestamp: 1, content: 'hello' })
+    const b = transcriptMessageIdentity({ id: 'm1', role: 'assistant', timestamp: 1, content: 'hello world long content that keeps growing during stream' })
+    expect(a).toBe(b)
+  })
+
+  it('countTranscriptPrepended stays valid after streaming content change', () => {
+    const newest = ['m1', 'm2'].map(id => transcriptMessageIdentity({ id, role: 'user', timestamp: 1, content: 'same' }))
+    const streamed = ['m1', 'm2'].map(id => transcriptMessageIdentity({ id, role: 'user', timestamp: 1, content: 'updated content after stream delta' }))
+    // Identities equal despite content change
+    expect(newest).toEqual(streamed)
+    const older = [transcriptMessageIdentity({ id: 'older', role: 'user', timestamp: 0, content: 'x' }), ...streamed]
+    expect(countTranscriptPrepended(streamed, older)).toBe(1)
+    expect(nextTranscriptFirstItemIndex(TRANSCRIPT_FIRST_ITEM_BASE, streamed, older)).toBe(TRANSCRIPT_FIRST_ITEM_BASE - 1)
+  })
+
+})
