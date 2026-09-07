@@ -3,11 +3,14 @@
 Only what the document declares about itself, and only lexically: pages and
 characters, the `#` heading lines and their depth, and which pages are a table
 of contents (a page whose lines reappear as headings later on — never the word
-"contents" in any language). The cut is arithmetic: a book that fits the budget
-is one section; otherwise the shallowest heading depth that actually divides the
-book gives the chapters, and any chapter over budget is split at page
-boundaries. Classification (`kind`, `priority`) is a whole-book judgement and
-belongs to the extension's agent; `plan.accept` writes it down."""
+"contents" in any language). The cut is arithmetic, and it has two numbers: the
+budget is a ceiling no section may cross, the target is the size a section
+should aim at. A book within the target is one section; above it, the book is
+cut at the shallowest heading depth that divides it into sections which are
+themselves within the target, then within the budget, and only a book with no
+usable heading structure is swallowed whole or sliced at page boundaries.
+Classification (`kind`, `priority`) is a whole-book judgement and belongs to the
+extension's agent; `plan.accept` writes it down."""
 
 from __future__ import annotations
 
@@ -18,7 +21,14 @@ from ..errors import invalid_params
 from ..text import normalize_text
 from .contract import SECTION_ID_RE, SECTION_KINDS
 
+#: The ceiling: no section may hold more characters than this.
 DEFAULT_SECTION_BUDGET = 60_000
+#: The target: the size a section should aim at. A book above it is cut wherever its
+#: own headings allow; the budget alone never decides that a book stays whole. What the
+#: number is worth is measured, not assumed: a 48-page book of 53,118 characters fits a
+#: 60,000 budget whole, and read whole it failed both grounding gates, consumed 0.395 of
+#: its spans and left the on-demand deepening queue with nothing to read (issue #33).
+DEFAULT_SECTION_TARGET = 20_000
 TOC_MIN_MATCHES = 8
 TOC_MIN_RATIO = 0.4
 
@@ -155,54 +165,80 @@ def _section_ids(sections: list[dict[str, Any]]) -> None:
         section["id"] = candidate
 
 
-def measure(pages: list[dict[str, Any]], *, budget: int = DEFAULT_SECTION_BUDGET) -> dict[str, Any]:
+def resolve_target(budget: int, target: int | None = None) -> int:
+    """The target never exceeds the ceiling: a caller who lowers the budget below the
+    default target has said the sections must be smaller than that, not larger."""
+    return max(1, min(int(target if target is not None else DEFAULT_SECTION_TARGET), int(budget)))
+
+
+def measure(pages: list[dict[str, Any]], *, budget: int = DEFAULT_SECTION_BUDGET,
+            target: int | None = None) -> dict[str, Any]:
     outline = outline_pages(pages)
     if not outline:
         return {"status": "unmeasurable", "reason": "bundle carries no readable pages"}
+    aim = resolve_target(budget, target)
     total = sum(page["chars"] for page in outline)
+    skip = set(contents_pages(outline))
     attempts = []
     for depth in range(1, 7):
-        cut = cut_at_depth(outline, depth, set())
-        attempts.append({"depth": depth, "sections": len(cut),
-                         "largest_chars": max((s["chars"] for s in cut), default=None)})
+        cut = cut_at_depth(outline, depth, skip)
+        largest = max((s["chars"] for s in cut), default=None)
+        attempts.append({"depth": depth, "sections": len(cut), "largest_chars": largest,
+                         "smallest_chars": min((s["chars"] for s in cut), default=None),
+                         "divides": len(cut) >= 2,
+                         "within_target": bool(cut) and len(cut) >= 2 and largest is not None and largest <= aim,
+                         "within_budget": bool(cut) and len(cut) >= 2 and largest is not None and largest <= budget})
     return {
         "status": "measured",
         "pages": len(outline),
         "chars": total,
         "budget": budget,
+        "target": aim,
         "fits_whole_book": total <= budget,
-        "contents_pages": contents_pages(outline),
+        "fits_target": total <= aim,
+        "contents_pages": sorted(skip),
         "structure_pages": structure_pages(outline),
         "heading_depth_cuts": attempts,
         "page_chars": {str(page["pdf_index"]): page["chars"] for page in outline},
     }
 
 
-def candidates(pages: list[dict[str, Any]], *, budget: int = DEFAULT_SECTION_BUDGET) -> dict[str, Any]:
+def choose_cut(outline: list[dict[str, Any]], measured: dict[str, Any], *,
+               budget: int, target: int) -> tuple[list[dict[str, Any]], str]:
+    """Pick the cut and say why (contract §14.13). The budget is a ceiling, the target is
+    the aim; a book above the target is cut wherever its own headings divide it, and the
+    shallowest depth that works wins because it keeps sections as large as the aim allows.
+
+    The reason travels in the basis, so `plan.json` records which rule fired and
+    `measured.heading_depth_cuts` records the alternatives it beat."""
+    first, last = outline[0]["pdf_index"], outline[-1]["pdf_index"]
+    whole = [{"title": "", "from": first, "to": last, "chars": measured["chars"]}]
+    if measured["fits_target"]:
+        return whole, "whole_book_within_target"
+    skip = set(measured["contents_pages"])
+    cuts = [(depth, cut_at_depth(outline, depth, skip)) for depth in range(1, 7)]
+    dividing = [(depth, cut) for depth, cut in cuts if len(cut) >= 2]
+    for ceiling, why in ((target, "within_target"), (budget, "within_budget")):
+        for depth, cut in dividing:
+            if max(section["chars"] for section in cut) <= ceiling:
+                return cut, f"heading_depth_{depth}_{why}"
+    if dividing:
+        depth, cut = dividing[0]
+        return cut, f"heading_depth_{depth}_split_by_budget"
+    if measured["fits_whole_book"]:
+        return whole, "whole_book_no_heading_structure"
+    return whole, "budget_only"
+
+
+def candidates(pages: list[dict[str, Any]], *, budget: int = DEFAULT_SECTION_BUDGET,
+               target: int | None = None) -> dict[str, Any]:
     """Measurements plus the machine's cut: candidate sections with `kind: null`."""
-    measured = measure(pages, budget=budget)
+    measured = measure(pages, budget=budget, target=target)
     if measured["status"] != "measured":
         raise invalid_params("bundle carries no readable pages", details=measured)
     outline = outline_pages(pages)
     page_chars = {int(k): int(v) for k, v in measured["page_chars"].items()}
-    first, last = outline[0]["pdf_index"], outline[-1]["pdf_index"]
-    basis: str
-    cut: list[dict[str, Any]]
-    if measured["fits_whole_book"]:
-        cut = [{"title": "", "from": first, "to": last, "chars": measured["chars"]}]
-        basis = "whole_book_fits_budget"
-    else:
-        skip = set(measured["contents_pages"])
-        cut = []
-        basis = "budget_only"
-        for depth in range(1, 7):
-            attempt = cut_at_depth(outline, depth, skip)
-            if len(attempt) >= 2:
-                cut = attempt
-                basis = f"heading_depth_{depth}"
-                break
-        if not cut:
-            cut = [{"title": "", "from": first, "to": last, "chars": measured["chars"]}]
+    cut, basis = choose_cut(outline, measured, budget=budget, target=measured["target"])
     sections: list[dict[str, Any]] = []
     for section in cut:
         if section["chars"] > budget:

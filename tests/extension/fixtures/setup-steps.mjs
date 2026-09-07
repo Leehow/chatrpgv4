@@ -54,7 +54,7 @@ export const SETUP_STEPS = [
 		applies_to: ["pdf"],
 		needs: { pdf: ["bind-source"] },
 		op: "module.build",
-		params: ["module_id"],
+		params: ["module_id", "start_scene?"],
 		receipt: "opening_ready",
 		label: "读开场",
 	},

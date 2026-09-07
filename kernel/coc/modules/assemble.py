@@ -15,10 +15,12 @@ from typing import Any
 
 from ..fileio import read_json
 from ..module_graph import record_of
+from ..text import normalize as normalize_name
 from .contract import (COVERAGE_DOMAINS, GRAPH_CONTRACT_ID, PLAYABLE_KINDS, SCHEMA_VERSION,
-                       module_node_id, span_page)
+                       WALKABLE_KINDS, module_node_id, span_page)
 from .packet import span_catalog
-from .playability import check as playability_check, handle_of, opening_check
+from .playability import (check as playability_check, handle_of, opening_check,
+                          start_scene_candidates)
 from .store import ModuleStore
 
 VISIBILITY_RANK = {"keeper-only": 0, "revealable": 1, "player-safe": 2}
@@ -301,6 +303,41 @@ def _project_scene_records(nodes: dict[str, dict[str, Any]], relations: dict[str
                                        "record": record}
 
 
+def resolve_start_scene(graph: dict[str, Any], wanted: str) -> str | None:
+    """Which declared opening the given word means: node id, scene handle or name, folded
+    the way the rest of the kernel folds names. Only the book's own candidates can be
+    named — the choice settles an ambiguity, it does not invent an entrance."""
+    asked = normalize_name(wanted)
+    for candidate in start_scene_candidates(graph):
+        if asked in {normalize_name(candidate["node_id"]), normalize_name(candidate["scene"]),
+                     normalize_name(candidate["name"])}:
+            return candidate["node_id"]
+    return None
+
+
+def apply_opening_choice(graph: dict[str, Any], chosen: str) -> bool:
+    """Write a settled start scene into the graph (§14.14).
+
+    Two machine-owned places carry it: the graph-level `entry_scene_ids` declaration the
+    playability check reads, and each scene's projected `record.is_start`, which is what
+    `ModuleGraph.start_scene()` walks. What the book itself says about the scenes
+    (`properties.is_entrance`) is evidence and is left exactly as the reader wrote it."""
+    nodes = {str(n["node_id"]): n for n in graph.get("nodes") or []
+             if isinstance(n, dict) and isinstance(n.get("node_id"), str)}
+    node = nodes.get(chosen)
+    if node is None or node.get("node_kind") not in WALKABLE_KINDS:
+        return False
+    graph["entry_scene_ids"] = [chosen]
+    for other in nodes.values():
+        if other.get("node_kind") != "scene":
+            continue
+        record = record_of(other)
+        if not record:
+            continue
+        record["is_start"] = other is node
+    return True
+
+
 def assemble(store: ModuleStore, module_id: str) -> dict[str, Any]:
     from .assets import registry_from_graph
     from ..fileio import write_json_atomic
@@ -328,6 +365,11 @@ def assemble(store: ModuleStore, module_id: str) -> dict[str, Any]:
     order = [str(row["id"]) for row in sorted(sections, key=lambda r: (r.get("pages") or [0])[0])]
     graph, report = merge(shards, catalogs, module_id=module_id, title=str(meta.get("title") or module_id),
                           source_language=str((meta.get("languages") or ["und"])[0]), order=order)
+    # A start scene someone settled outlives every later generation: it is replayed onto
+    # each assembly rather than written once into a graph the next merge would overwrite (§14.14).
+    chosen = str((meta.get("opening_choice") or {}).get("start_scene") or "")
+    if chosen:
+        report["opening_choice_applied"] = apply_opening_choice(graph, chosen)
     playability = playability_check(graph, evidence_total=len(evidence_texts) or None,
                                     evidence_texts=evidence_texts or None)
     opening = opening_check(graph)

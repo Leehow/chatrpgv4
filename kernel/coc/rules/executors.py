@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any, Callable, Mapping
 
-from ..errors import RpcError, not_implemented
+from ..errors import RpcError, not_implemented, unsupported_value
 from ..store import now_iso
 from . import development, magic
 from .adapter import npc_check
@@ -549,7 +549,8 @@ def _apply_settlement_effects(ctx: Any, investigator_id: str, before: dict[str, 
 def execute_end_session(ctx: Any, args: dict[str, Any], plan: Mapping[str, Any]) -> tuple[Any, list[str], list[str]]:
     kind = str(args.get("kind") or "conclusion")
     if kind not in development.ENDING_KINDS:
-        raise RpcError("invalid_params", f"ending kind must be one of {list(development.ENDING_KINDS)}")
+        raise unsupported_value("kind", kind, list(development.ENDING_KINDS),
+                                message=f"unknown session ending kind {kind!r}")
     sheets = {str(s["id"]): s for s in ctx.party()}
     record = {"event_type": "session_ending", "scene_id": ctx.active_scene, "kind": kind, "decision_id": ctx.call_id,
               "investigator_ids": sorted(sheets), "summary": args.get("summary") or None}

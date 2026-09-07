@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from ..errors import RpcError, invalid_params
+from ..errors import RpcError, invalid_params, unsupported_value
 from ..sessions import (SessionView, chase_active, combat_active,
                         combat_operation_for, defense_options, engine_defense, investigator_combat_participant,
                         load_chase, load_combat, load_sanity, module_weapons, npc_combat_participant,
@@ -23,6 +23,11 @@ from .percentile import SUCCESS_OUTCOMES, roll_expression
 from .sanity import INVOLUNTARY_KINDS, consume_sanity_gain_pending
 
 SELF_RESOLVING = frozenset({"aim", "reload", "maneuver", "flee"})
+#: The command words `chase.execute` and `sanity.execute` know, so a refusal can name them
+#: instead of only naming the word that was wrong (contract §14.15).
+CHASE_COMMAND_KINDS = ("chase_start", "chase_move", "chase_hazard", "chase_barrier",
+                       "chase_conflict", "chase_end")
+SANITY_EXECUTE_KINDS = ("sanity_check", "bout_tick", "bout_end")
 
 
 def turn_state(message: str, *, fix: str | None = None, **details: Any) -> RpcError:
@@ -393,7 +398,8 @@ def execute_combat_resolve(ctx: Any, args: dict[str, Any], plan: Mapping[str, An
             if _conclusion(session, ctx, operation) is None:
                 _normalize_cursor(session)
         else:
-            raise invalid_params(f"unknown combat action {kind!r}")
+            raise unsupported_value("action_kind", kind, sorted({"attack", "defend"} | SELF_RESOLVING),
+                                    message=f"unknown combat action {kind!r}")
     session.revision += 1
     session.save(ctx.campaign_dir)
     round_no = turn["turn_id"].split("-")[0][1:] if turn else session._current_round
@@ -634,7 +640,8 @@ def execute_chase(ctx: Any, args: dict[str, Any], plan: Mapping[str, Any]) -> tu
             if grab.get("result") == "grabbed":
                 hints.append(f"{target_id} is caught; settle chase:end (captured), then fight it out with intent combat")
         else:
-            raise invalid_params(f"unknown chase command {kind!r}")
+            raise unsupported_value("command.kind", kind, CHASE_COMMAND_KINDS,
+                                    message=f"unknown chase command {kind!r}")
     except ValueError as exc:
         raise turn_state(f"chase action refused by the engine: {exc}") from exc
     data["turn"] = turn
@@ -750,7 +757,8 @@ def execute_sanity(ctx: Any, args: dict[str, Any], plan: Mapping[str, Any]) -> t
             data["bout"] = {"bout_active": False, "bout_rounds_remaining": 0}
         _sanity_rolls(ctx, session)
     else:
-        raise invalid_params(f"unknown sanity command {kind!r}")
+        raise unsupported_value("command.kind", kind, SANITY_EXECUTE_KINDS,
+                                message=f"unknown sanity command {kind!r}")
     return _sanity_finish(ctx, session, before, data, hints, was_bout)
 
 

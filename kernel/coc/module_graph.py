@@ -278,10 +278,17 @@ class ModuleGraph:
 
     def start_scene(self) -> dict[str, Any]:
         starts = [s for s in self.scenes() if record_of(s).get("is_start") is True]
-        if len(starts) != 1:
-            raise RpcError("campaign_not_ready",
-                           f"module {self.module_id} declares {len(starts)} start scenes")
-        return starts[0]
+        if len(starts) == 1:
+            return starts[0]
+        # A refusal that names the trouble must also name the way out (contract §1, §14.14):
+        # a book with two openings is settled by a person, not guessed at by the kernel.
+        candidates = [{"scene": self.handle(scene), "name": self.display_name(scene)}
+                      for scene in (starts or self.scenes())]
+        fix = (f"module.opening.choose {{module_id: {self.module_id!r}, scene: <one of details.candidates>}}"
+               if starts else "the book declares no opening scene; read the section that holds it")
+        raise RpcError("campaign_not_ready",
+                       f"module {self.module_id} declares {len(starts)} start scenes",
+                       fix=fix, details={"field": "start_scene", "candidates": candidates[:20]})
 
     def scene(self, name: str) -> dict[str, Any]:
         return self.resolve(name, (SCENE_KIND,), what="scene")

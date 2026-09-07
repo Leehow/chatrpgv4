@@ -90,3 +90,31 @@ def test_skipping_the_opening_closes_turn_zero_implicitly(kernel):
     assert record["closed_by"] == "implicit"
     assert record["receipts"] == []
     assert kernel.table("open")["opening_needed"] is False
+
+
+def test_a_closed_vocabulary_refusal_names_what_would_have_worked(kernel):
+    """Contract §1 and §14.15: a refusal must carry something the model can act on. The
+    setup model tried play_language 'zh', then 'zh-CN', then dropped the parameter — the
+    options were never anywhere it could read them (#33)."""
+    refused = kernel.err("campaign.create", {"id": CAMPAIGN, "module": MODULE, "pregen": PREGEN,
+                                             "play_language": "zh"})
+    assert refused["code"] == "invalid_params"
+    assert refused["details"]["field"] == "play_language"
+    assert refused["details"]["options"] == ["zh-Hans", "en"]
+    assert "zh-Hans" in refused["fix"] and "en" in refused["fix"]
+
+    register = kernel.err("campaign.create", {"id": CAMPAIGN, "module": MODULE, "pregen": PREGEN,
+                                              "register": "gonzo"})
+    assert "purist" in register["details"]["options"]
+
+    # Every closed vocabulary answers the same way, whichever verb it sits behind.
+    create_campaign(kernel)
+    for method, params, field in (
+        ("table.look", {"focus": "nowhere"}, "focus"),
+        ("table.lookup", {"kind": "nonsense", "name": "x"}, "kind"),
+        ("table.recall", {"what": "nonsense"}, "what"),
+    ):
+        error = kernel.err(method, {"campaign": CAMPAIGN, **params})
+        assert error["details"]["field"] == field, method
+        assert len(error["details"]["options"]) > 1, method
+        assert error["fix"], method

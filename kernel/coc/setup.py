@@ -15,8 +15,8 @@ import shutil
 from pathlib import Path
 from typing import Any, Iterable
 
-from .chargen import Chargen, ChargenError, METHODS, default_investigator_id
-from .errors import RpcError, invalid_params
+from .chargen import ALLOCATION_POLICIES, Chargen, ChargenError, METHODS, default_investigator_id
+from .errors import RpcError, invalid_params, unsupported_value
 from .events import append_event
 from .fileio import read_json, sha256_file, write_json_atomic
 from .rules.graph_digest import compute_graph_content_digest
@@ -434,7 +434,8 @@ class SetupMethods:
         seed = str(seed)
         allocation = params.get("allocation")
         if allocation is not None and not isinstance(allocation, str):
-            raise invalid_params("params.allocation must be a policy name from the steps table")
+            raise unsupported_value("allocation", allocation, ALLOCATION_POLICIES,
+                                    message="params.allocation must be a policy name from the steps table")
         module_id = str(meta["module_id"])
         from .library import module_era as era_of_module  # local: keep this module free of graph imports at load
         module_era = None

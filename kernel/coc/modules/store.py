@@ -267,7 +267,10 @@ class ModuleStore:
                 row.update(fields)
                 found = row
         if found is None:
-            raise invalid_params(f"unknown section {section_id!r}")
+            raise invalid_params(f"unknown section {section_id!r}",
+                                 fix="use one of details.sections",
+                                 details={"field": "section_id",
+                                          "sections": [str(row.get("id")) for row in sections]})
         self.write_sections(module_id, sections)
         return found
 

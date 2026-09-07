@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from .errors import RpcError, invalid_params
+from .errors import RpcError, invalid_params, unsupported_value
 from .fileio import canonical_json, read_jsonl
 from .module_graph import ModuleGraph
 from .rules.graph import semantic_name
@@ -319,7 +319,8 @@ def stage_ruling(campaign: Campaign, effect: dict[str, Any], turn_number: int, o
         raise invalid_params("ruling statement must be a non-empty string", fix="one line: how it is judged")
     scope = effect.get("scope", "campaign")
     if scope not in RULING_SCOPES:
-        raise invalid_params(f"unknown ruling scope {scope!r}", fix=f"one of {list(RULING_SCOPES)}")
+        raise unsupported_value("scope", scope, list(RULING_SCOPES),
+                                message=f"unknown ruling scope {scope!r}")
     ledger = read_rulings(campaign, staged)
     key = anchor_key(anchor)
     superseded = [row for row in ledger.values()

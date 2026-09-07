@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .errors import invalid_params
+from .errors import invalid_params, unsupported_value
 from .store import Campaign, now_iso
 
 LANES = ("verifier",)
@@ -25,7 +25,7 @@ def warn(campaign: Campaign, params: dict[str, Any]) -> dict[str, Any]:
         raise invalid_params("params.turn must be a committed turn number")
     lane = params.get("lane")
     if lane not in LANES:
-        raise invalid_params(f"unknown lane {lane!r}", fix=f"one of {list(LANES)}")
+        raise unsupported_value("lane", lane, list(LANES), message=f"unknown lane {lane!r}")
     findings = params.get("findings")
     if not isinstance(findings, list):
         raise invalid_params("params.findings must be a list")

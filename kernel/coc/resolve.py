@@ -9,7 +9,7 @@ from __future__ import annotations
 import random
 from typing import Any, Mapping
 
-from .errors import RpcError, invalid_params, not_implemented
+from .errors import RpcError, invalid_params, not_implemented, unsupported_value
 from .module_graph import NPC_KIND, ModuleGraph
 from .rules import CHARACTERISTICS, SkillResolver
 from .rules.adapter import (CAST_SPELL_REF, COMBINED_CHECK_REF, END_SESSION_REF, LEARN_SPELL_REF, LUCK_SPEND_REF,
@@ -141,7 +141,7 @@ class ResolvePipeline:
         if action.get("interrupted") is not None and not isinstance(action.get("interrupted"), bool):
             raise invalid_params("action.interrupted must be a boolean")
         if action.get("defense") is not None and action.get("defense") not in ("dodge", "fight_back", "none"):
-            raise invalid_params("action.defense must be dodge, fight_back or none")
+            raise unsupported_value("action.defense", action.get("defense"), ("dodge", "fight_back", "none"))
         if action.get("san_loss") is not None and parse_san_loss(action["san_loss"]) is None:
             raise invalid_params("action.san_loss must read <success>/<failure>, e.g. 0/1D6 or 1/1D8")
         involuntary = action.get("involuntary")
@@ -156,7 +156,7 @@ class ResolvePipeline:
         if skills is not None and (not isinstance(skills, list) or not all(isinstance(s, str) and s.strip() for s in skills)):
             raise invalid_params("action.skills must be a list of skill names")
         if action.get("mode") is not None and action.get("mode") not in ("any", "all"):
-            raise invalid_params("action.mode must be any or all")
+            raise unsupported_value("action.mode", action.get("mode"), ("any", "all"))
 
     # ---- actors and targets ----------------------------------------------------------
 

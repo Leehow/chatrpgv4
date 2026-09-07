@@ -17,7 +17,7 @@ from .capsule import (scene_label, build_capsule, clues_here, investigator_view,
                       present_section, where_section)
 from .craft import DEFAULT_REGISTER, TextGraph
 from .director import DirectorGraph, director_adoption
-from .errors import RpcError, invalid_params, not_implemented
+from .errors import RpcError, invalid_params, not_implemented, unsupported_value
 from .events import append_event
 from .facts import committed_facts, keeper_only_facts, language_of
 from .fileio import append_jsonl, file_size, read_json, read_jsonl, truncate_file
@@ -177,7 +177,8 @@ class Table:
             return cached[1]
         path = self.module_store.graph_path(module_id) if generation else self.content / "starters" / module_id / "module-graph.json"
         if not path.exists():
-            raise invalid_params(f"unknown module {module_id!r}", fix=f"one of {self.modules()}")
+            raise unsupported_value("module", module_id, self.modules(),
+                                    message=f"unknown module {module_id!r}")
         graph = ModuleGraph(module_id, path)
         self._graphs[module_id] = (generation, graph)
         return graph
@@ -360,10 +361,10 @@ class Table:
         pregen_id = _str(params, "pregen", required=False)
         language = _str(params, "play_language", required=False) or DEFAULT_LANGUAGE
         if language not in SUPPORTED_LANGUAGES:
-            raise invalid_params(f"unsupported play_language {language!r}", fix=f"one of {list(SUPPORTED_LANGUAGES)}")
+            raise unsupported_value("play_language", language, SUPPORTED_LANGUAGES)
         register = _str(params, "register", required=False) or DEFAULT_REGISTER
         if register not in self.craft.registers:
-            raise invalid_params(f"unknown register {register!r}", fix=f"one of {self.craft.registers}")
+            raise unsupported_value("register", register, self.craft.registers)
         starter = module_id in self.modules()
         if not starter and not module_registered(self.module_store, module_id):
             raise invalid_params(f"unknown module {module_id!r}",
@@ -386,7 +387,8 @@ class Table:
             if not pregen_path.exists():
                 pregens_dir = self.content / "starters" / module_id / "pregens"
                 available = sorted(p.name for p in pregens_dir.iterdir()) if pregens_dir.exists() else []
-                raise invalid_params(f"unknown pregen {pregen_id!r}", fix=f"one of {available}")
+                raise unsupported_value("pregen", pregen_id, available,
+                                        message=f"unknown pregen {pregen_id!r}")
             sheet = read_json(pregen_path)
             derived = sheet.get("derived") or {}
             characteristics = sheet.get("characteristics") or {}
@@ -577,7 +579,8 @@ class Table:
         campaign, graph, world, turn = self._context(params)
         focus = params.get("focus") or "scene"
         if focus not in LOOK_FOCUS:
-            raise invalid_params(f"unknown focus {focus!r}", fix=f"one of {sorted(LOOK_FOCUS)}")
+            raise unsupported_value("focus", focus, sorted(LOOK_FOCUS),
+                                    message=f"unknown focus {focus!r}")
         name = params.get("name")
         self._touch_acting(campaign, turn)
         scene = graph.scene(world["active_scene"])
@@ -605,7 +608,8 @@ class Table:
         campaign, graph, world, turn = self._context(params)
         kind = params.get("kind")
         if kind not in LOOKUP_KINDS:
-            raise invalid_params(f"unknown lookup kind {kind!r}", fix=f"one of {sorted(LOOKUP_KINDS)}")
+            raise unsupported_value("kind", kind, sorted(LOOKUP_KINDS),
+                                    message=f"unknown lookup kind {kind!r}")
         self._touch_acting(campaign, turn)
         if kind == "module":
             query = _str(params, "query")
@@ -630,7 +634,7 @@ class Table:
                     "unresolved_family_parameters": found["unresolved_family_parameters"]}
         scope = params.get("scope") or "scene"
         if scope not in ("scene", "module"):
-            raise invalid_params("scope must be 'scene' or 'module'")
+            raise unsupported_value("scope", scope, ("scene", "module"))
         secrets = [{"name": graph.handle(n), "summary": graph.summary(n)}
                    for n in graph.by_kind.get("secret", [])]
         if scope == "module":
@@ -732,7 +736,8 @@ class Table:
         campaign, graph, world, turn = self._context(params)
         what = params.get("what")
         if what not in RECALL_KINDS:
-            raise invalid_params(f"unknown recall kind {what!r}", fix=f"one of {sorted(RECALL_KINDS)}")
+            raise unsupported_value("what", what, sorted(RECALL_KINDS),
+                                    message=f"unknown recall kind {what!r}")
         self._touch_acting(campaign, turn)
         current = int(turn["turn"])
         if what == "transcript":
@@ -877,7 +882,8 @@ class Table:
             raise invalid_params("params.action must be an object")
         intent = action.get("intent")
         if intent not in INTENTS:
-            raise invalid_params(f"unknown intent {intent!r}", fix=f"one of {sorted(INTENTS)}")
+            raise unsupported_value("intent", intent, sorted(INTENTS),
+                                    message=f"unknown intent {intent!r}")
         turn_number = int(turn["turn"])
         _, ordinal = parse_call_id(call_id)
         modifiers = self._modifiers(action.get("modifiers"))
@@ -1006,8 +1012,7 @@ class Table:
             if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 2:
                 raise invalid_params(f"modifiers.{label} must be 0, 1 or 2")
         if difficulty not in self.tables.difficulties():
-            raise invalid_params(f"unknown difficulty {difficulty!r}",
-                                 fix=f"one of {self.tables.difficulties()}")
+            raise unsupported_value("difficulty", difficulty, self.tables.difficulties())
         return bonus, penalty, difficulty
 
     # ---- apply --------------------------------------------------------------
@@ -1051,7 +1056,8 @@ class Table:
                 if kind in APPLY_RESERVED:
                     raise not_implemented(f"effect kind {kind!r} is reserved for a later slice")
                 if kind not in APPLY_KINDS:
-                    raise invalid_params(f"unknown effect kind {kind!r}", fix=f"one of {sorted(APPLY_KINDS)}")
+                    raise unsupported_value("kind", kind, sorted(APPLY_KINDS),
+                                            message=f"unknown effect kind {kind!r}")
                 if kind == "move":
                     receipt, event = self._stage_move(campaign, graph, staged, effect, turn_number, ordinal, call_id)
                 elif kind == "clue":
@@ -1298,7 +1304,9 @@ class Table:
         moved_to: str | None = None
         if to is not None:
             if not isinstance(to, str) or not to.strip():
-                raise invalid_params("npc.to must be a scene name, 'here' or 'away'")
+                raise invalid_params("npc.to must be a scene name, 'here' or 'away'",
+                                     fix=f"a scene name on the graph, or {NPC_HERE} / {NPC_AWAY}",
+                                     details={"field": "npc.to", "options": [NPC_HERE, NPC_AWAY]})
             if to.strip() == NPC_AWAY:
                 presence.pop(handle, None)
                 moved_to = NPC_AWAY
@@ -1307,8 +1315,8 @@ class Table:
                 moved_to = graph.handle(scene)
                 presence[handle] = moved_to
         if stance is not None and (not isinstance(stance, str) or stance not in self.stance_table.words):
-            raise invalid_params(f"npc.stance {stance!r} is not one of the ledger's words",
-                                 fix=f"one of {self.stance_table.words}")
+            raise unsupported_value("npc.stance", stance, self.stance_table.words,
+                                    message=f"npc.stance {stance!r} is not one of the ledger's words")
         receipt = {"id": _receipt_id_for_npc(handle, turn_number, ordinal, mint), "kind": "npc", "call_id": call_id,
                    "npc": node["node_id"], "handle": handle, "name": graph.display_name(node),
                    "to": moved_to, "stance": stance, "why": why, "at": now_iso()}
