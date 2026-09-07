@@ -17,7 +17,7 @@ from ..fileio import read_json
 from ..module_graph import record_of
 from ..text import normalize as normalize_name
 from .contract import (COVERAGE_DOMAINS, GRAPH_CONTRACT_ID, PLAYABLE_KINDS, SCHEMA_VERSION,
-                       module_node_id, span_page)
+                       WALKABLE_KINDS, module_node_id, span_page)
 from .packet import span_catalog
 from .playability import (check as playability_check, handle_of, opening_check,
                           start_scene_candidates)
@@ -325,7 +325,7 @@ def apply_opening_choice(graph: dict[str, Any], chosen: str) -> bool:
     nodes = {str(n["node_id"]): n for n in graph.get("nodes") or []
              if isinstance(n, dict) and isinstance(n.get("node_id"), str)}
     node = nodes.get(chosen)
-    if node is None or node.get("node_kind") not in PLAYABLE_KINDS:
+    if node is None or node.get("node_kind") not in WALKABLE_KINDS:
         return False
     graph["entry_scene_ids"] = [chosen]
     for other in nodes.values():

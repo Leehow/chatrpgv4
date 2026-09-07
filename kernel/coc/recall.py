@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .errors import invalid_params
+from .errors import invalid_params, unsupported_value
 from .events import EVENT_TYPES
 from .facts import head_of
 from .fileio import sha256_text
@@ -115,7 +115,8 @@ def history(campaign: Campaign, current: int, params: dict[str, Any]) -> dict[st
             raise invalid_params("types must be a list of event types")
         unknown = sorted(set(types) - EVENT_TYPES)
         if unknown:
-            raise invalid_params(f"unknown event types {unknown}", fix=f"one of {sorted(EVENT_TYPES)}")
+            raise unsupported_value("types", sorted(unknown), sorted(EVENT_TYPES),
+                                    message=f"unknown event types {unknown}")
     records = campaign.turn_records_by_number()
     timeline = [timeline_row(records[n]) for n in sorted(records) if span[0] <= n <= span[1]]
     events = [e for e in campaign.read_events()
