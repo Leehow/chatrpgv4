@@ -11,7 +11,7 @@
  * on-demand deepening lane (contract §14.6), which is why it is a function of its own.
  */
 
-import { mkdir } from "node:fs/promises";
+import { mkdir, rename } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { runReader } from "./reader.ts";
 
@@ -19,6 +19,9 @@ export type KernelCall = (method: string, params: Record<string, unknown>) => Pr
 
 /** Contract §14.5: at most three rounds per section, and beyond that it is recorded failed. */
 export const MAX_ROUNDS = 3;
+/** The shard the reader writes, and where a previous pass's shard is kept when it is read again. */
+export const SHARD_FILE = "shard.json";
+export const PREVIOUS_SHARD_FILE = "shard.previous.json";
 
 export interface Finding {
 	gate?: string;
@@ -166,6 +169,15 @@ export async function readSection(
 
 	const workDir = workDirFor(ctx.workspace, moduleId, sectionId, packet);
 	await mkdir(workDir, { recursive: true }).catch(() => undefined);
+	// A re-read must not inherit its own previous answer. The work directory is reused, so a
+	// section read once already has `shard.json` sitting in it, and the cheapest way to satisfy
+	// "read this again" is to leave that file alone -- which is exactly what a deepening pass
+	// must not do (observed: a second pass over the-haunting returned in 97s having written
+	// nothing, its DONE.json naming the strategy "verify-existing-shard-still-passes"). The
+	// previous shard is moved aside rather than deleted: it is evidence, and the roster the new
+	// pass must keep is in the packet's `skeleton.known_nodes`. Rounds 2 and 3 of one pass are
+	// inside the loop below and still build on the shard that round 1 wrote.
+	await rename(join(workDir, SHARD_FILE), join(workDir, PREVIOUS_SHARD_FILE)).catch(() => undefined);
 	const baseBrief = asString(packet.brief) ?? `Read the extraction packet packet.json of ${sectionId} and write the shard into shard.json.`;
 
 	let findings: Finding[] = [];

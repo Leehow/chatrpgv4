@@ -91,6 +91,13 @@ one, deterministically, like the gates), and your section is part of that:
   `threatens`, `impersonates`.
 - Clues and conclusions (`clue` / `conclusion`): `discoverable-at` into scenes, `supports` to conclusions; a `clue`'s
   `properties.delivery_kind` records how the book hands it over (`skill_check`, `conversation`, `handout`...).
+  **A clue is anything the investigators can come away with** -- by searching, examining, asking, or being there when
+  something happens. The runtime can only hand over what is a `clue` node: what sits in a room's description is
+  something the Keeper may say, never something the players can find, be given, or build a conclusion from. So when a
+  room description contains something findable -- a thing noticed on a check, what is behind or under something, what
+  a search turns up, what someone volunteers -- write **both**: the `location` for the room and a `clue`
+  `discoverable-at` that scene for the finding. Books rarely label these; they are in the prose of the place. Do not
+  invent one, and do not promote pure scenery: if nothing is learned by finding it, it is not a clue.
 - Rules (`rule`): the rulings and numbers the book fixes; a scene `uses-rule` points at it.
 - Locations (`location`): a scene `occurs-at` it; locations are `adjacent-to` / `located-in` each other.
 - Handouts and pictures (`handout` / `asset`): `discoverable-at` or `depicts` to a scene; what the player may see is marked
