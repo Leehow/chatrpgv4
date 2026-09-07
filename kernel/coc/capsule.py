@@ -324,6 +324,10 @@ def _npc_history(row: dict[str, Any], memories: dict[str, dict[str, Any]]) -> di
         history["last_turn"] = seen.get("last")
     if disclosed:
         history["disclosed"] = disclosed
+    exchanged = [f"turn {item.get('turn')}: {item.get('item')}"
+                 for item in (row.get("exchanged") or [])[-PRESENT_ATTEMPTS:] if item.get("item")]
+    if exchanged:
+        history["exchanged"] = exchanged
     if promises:
         history["promises"] = promises
     # §17.4: what this table actually tried on them. The stance's `because` only carries

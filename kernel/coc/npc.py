@@ -79,8 +79,8 @@ class StanceTable:
 
 
 def empty_entry() -> dict[str, Any]:
-    return {"stance": None, "disclosed": [], "interactions": [], "promises": [], "said": [],
-            "turns_present": None}
+    return {"stance": None, "disclosed": [], "exchanged": [], "interactions": [], "promises": [],
+            "said": [], "turns_present": None}
 
 
 def entry_of(ledger: dict[str, Any], npc_id: str) -> dict[str, Any]:
@@ -127,6 +127,9 @@ def apply_receipts(ledger: dict[str, Any], receipts: Iterable[dict[str, Any]], *
             _fold_npc_effect(ledger, receipt, turn=turn, table=table, npc_id_of=npc_id_of)
         elif kind == "delta":
             _fold_delta(ledger, receipt, turn=turn, npc_id_of=npc_id_of)
+        elif kind == "item":
+            _fold_item(ledger, receipt, turn=turn, npc_id_of=npc_id_of)
+
 
 
 def _fold_roll(ledger: dict[str, Any], receipt: dict[str, Any], *, turn: int, table: StanceTable,
@@ -175,6 +178,19 @@ def _fold_clue(ledger: dict[str, Any], receipt: dict[str, Any], *, turn: int, np
     handle = receipt.get("clue")
     if not any(row.get("clue") == handle for row in entry["disclosed"]):
         entry["disclosed"].append({"clue": handle, "turn": turn, "receipt": receipt.get("id")})
+
+
+def _fold_item(ledger: dict[str, Any], receipt: dict[str, Any], *, turn: int, npc_id_of: Any) -> None:
+    """§17.3: a thing that changed hands with someone goes on their account. Only when the
+    keeper named the other party (`apply item`'s `from`): who a thing came from is theirs to
+    say, not the kernel's to infer from who happened to be standing there."""
+    npc_id = npc_id_of(receipt.get("from"))
+    if not npc_id:
+        return
+    entry = entry_of(ledger, npc_id)
+    entry["exchanged"].append(
+        {"item": receipt.get("label") or receipt.get("name"), "turn": turn,
+         "receipt": receipt.get("id")})
 
 
 def _fold_npc_effect(ledger: dict[str, Any], receipt: dict[str, Any], *, turn: int,

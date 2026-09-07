@@ -257,6 +257,24 @@ def test_a_pushed_social_failure_still_reaches_the_stance(seeded_one):
     assert entry["history"]["met_turns"] == 2  # the opening turn and this one
 
 
+def test_a_thing_bought_from_someone_goes_on_their_account(kernel):
+    """§17.3: goods changing hands are part of what this table has been through with a
+    person. Found at a live table: the investigator bought a paper and a box of cigars from
+    the newsvendor, and the ledger — which folded rolls, clues and deltas but not items —
+    had nothing about it, so the next capsule said only that they had met."""
+    open_turn(kernel)
+    kernel.table("apply", call_id="t1-c1", effects=[
+        {"kind": "item", "name": "Boston Globe", "from": "Steven Knott", "label": "今日《环球报》"},
+        {"kind": "item", "name": "lucky pen"},  # nobody named: nothing to put on an account
+    ])
+    narrate(kernel, "t1-c2", "诺特把报纸推过桌面。")
+
+    row = ledger(kernel)[KNOTT]
+    assert [e["item"] for e in row["exchanged"]] == ["今日《环球报》"], "the keeper's label, not the id"
+    entry = next(p for p in kernel.table("capsule")["present"] if p["name"] == "Steven Knott")
+    assert entry["history"]["exchanged"] == ["turn 1: 今日《环球报》"]
+
+
 def test_the_ledger_records_who_handed_a_clue_over(kernel):
     open_turn(kernel)
     kernel.table("apply", call_id="t1-c1",

@@ -1016,6 +1016,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 | --- | --- |
 | `stance.score` | social 族每次结算按闭合表 `content/rulesets/coc7/rules-json/npc-stance.json` 加减：`{approach × level → delta}`（如 Persuade/Charm 成功 +1、极难/大成功 +2、失败 0、大失败 −1、Intimidate 成功 0 且失败 −1、推骰失败再 −1），初值 0，钳在 −5..5，`value` 由表上阈值推（如 ≤ −3 hostile、−2..−1 wary、0..1 neutral、≥ 2 warm）。任何以他为 `target` 的 combat 结算直接 −5 hostile。数字与阈值全在表里，代码不写字面量 |
 | `stance` 显式改写 | `apply {kind: "npc", name, stance: "<四值之一>", why}`：守秘人的裁量，收据 `npc:<id>-t<turn>-c<n>`，`because` 记这条收据；`score` 置为该档的下界。与 #25 的 `to` 可同批 |
+| `exchanged` | `apply item` 的 `from`（东西从谁手里来的）。谁给的由守秘人说，内核不从「当时谁在场」推断 |
 | `disclosed` | `apply clue` 新增可选 `from: "<NPC 名>"`（他给的）；省略时若该线索有 `held-by`/`delivered-by` 关系指向一个在场 NPC，机器补上；都没有就不记 |
 | `interactions` | 本回合以他为 `target`/`actor` 的 `resolve` 收据 |
 | `promises` / `said` | `memory.submit` 落盘时，`kind: promise` 且 `subject` 是他 → `promises`；`kind: knowledge|belief` 且 `knowers` 含他 → `said`。只挂 id，接续与关闭仍由记忆层（§13.5）管 |
@@ -1034,7 +1035,8 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
  "believes": ["<claim 摘要>"]（≤ 3）, "would_lie_about": ["<asserts 摘要>"]（≤ 3）,
  "ties": [{"kind": "<关系种类>", "to": "<display_name>"}]（≤ 6，在场者与派系优先）,
  "toward_party": {"stance", "because": ["turn <n>: <approach> <level>", "turn <n>: keeper set <stance>: <why>"]}（≤ 3 条，最近的）,
- "history": {"met_turns": n, "last_turn", "disclosed": ["<线索句柄>"], "promises": [{"statement", "turn"}]（≤ 3）,
+ "history": {"met_turns": n, "last_turn", "disclosed": ["<线索句柄>"], "exchanged": ["turn <n>: <label 或名>"]（≤ 3）,
+             "promises": [{"statement", "turn"}]（≤ 3）,
              "tried": ["turn <n>: <路数或族> <成功等级>"]（≤ 3，最近的；账本 `interactions` 的投影）}}
 ```
 

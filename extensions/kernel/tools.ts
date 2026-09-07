@@ -58,7 +58,7 @@ const ItemEffect = Type.Object({
 	kind: StringEnum(["item"] as const, { description: "something changes hands: gained, handed over, used up, taken away" }),
 	name: Type.String({ description: "item name; weapons and rules-table entries use the name on the table" }),
 	to: Type.Optional(Type.String({ description: "who ends up with it; defaults to the current investigator" })),
-	from: Type.Optional(Type.String({ description: "who it came from: an NPC name" })),
+	from: Type.Optional(Type.String({ description: "who it came from: an NPC name. Name them whenever a person hands the thing over, sells it, or loses it — that is what puts the exchange on their account, and you are told it again the next time they are in the room" })),
 	weapon: Type.Optional(
 		Type.String({
 			description:
