@@ -84,8 +84,16 @@ one, deterministically, like the gates), and your section is part of that:
 ## What to extract
 
 - Scenes (`scene` / `event` / `ending`) and their connections; a scene's `summary` holds what the keeper needs to open it.
-- Actors (`npc` / `creature` / `faction` / `organization`): the stat block the book gives goes into `properties` as printed,
-  citing the spans those lines sit in; `present-in` into scenes.
+- Actors (`npc` / `creature` / `faction` / `organization`): the stat block the book gives goes into `properties`,
+  citing the spans those lines sit in; `present-in` into scenes (and only when the party can meet them, see above).
+  **Numbers go in as numbers.** Characteristics by their printed names (`STR`, `CON`, `SIZ`, `DEX`, `APP`, `INT`, `POW`,
+  `EDU`, `SAN`) and `HP`, `MP`, `Build`, `Move` as integers; every skill in one `skills` object, `{"<skill>": <percentage>}`
+  — `{"Fighting": 50, "Dodge": 17, "Listen": 60}`. The percentage alone: the hard and extreme columns are the rules', not
+  the book's, and the table works them out. Anything else about the number — what the attack does, what the armour is, a
+  condition on using it — is prose and belongs in `summary` or its own property. A stat line copied as printed
+  (`"Fighting": "50% (Hard 25%/Extreme 10%), damage 1D3"`, or a whole skill list as one sentence) carries **no number at
+  all**: the kernel does not read printed notation, so an actor written that way cannot roll, defend, or be rolled
+  against. One built book had eleven actors and not a usable skill among them.
   **A stat block alone is not a person.** When the book says what someone wants, fears, hides, sounds like, or is to the
   investigators, put it in `properties` as `agenda`, `fear`, `secret`, `voice`, `relationship_to_investigators`, with
   `visibility` `keeper-only`. Copy the book; do not invent a motive for someone the book only names.

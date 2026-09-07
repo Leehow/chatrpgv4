@@ -489,6 +489,15 @@ def test_the_books_numbers_read_out_of_either_shape():
     assert profile["skills"] == {"Medicine": 65}, "prose carries no number and is not guessed at"
     assert starter.actor_skill_value(flat, "Dodge") is None
 
+    # Producer and consumer, tied: the reader is asked for exactly the shape this reads, and
+    # told what a stat line copied as printed costs. One built book had eleven actors and not
+    # a usable skill among them because the ask said "as printed".
+    ask = (CONTENT / "setup" / "reader.md").read_text(encoding="utf-8")
+    assert "`skills`" in ask and '{"Fighting": 50' in ask
+    for key in ("STR", "CON", "DEX", "POW", "EDU"):
+        assert f"`{key}`" in ask, key
+    assert "does not read printed notation" in ask
+
 
 def test_an_npc_acts_for_the_party_and_the_roll_is_theirs(kernel):
     """§17.9 L2: `actor: <NPC>` was refused outside a live combat or chase, and the healing
