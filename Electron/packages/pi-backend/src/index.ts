@@ -1,3 +1,4 @@
+import { readCocBinding, readColdSheet, mechanicsEntry } from "./coc-view.js";
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { createExtensionHostWorkers, type ExtensionHostWorkers } from "./extension-host-workers.js";
 import { closeSync, constants as fsConstants, createReadStream, createWriteStream, existsSync, lstatSync, openSync, readFileSync, realpathSync, watch, writeSync, promises as fs, type Dirent } from "node:fs";
@@ -1428,7 +1429,9 @@ function redactHistoryEntry(entry: HistoryEntry | undefined, secrets: RevealedSe
     ...(entry.tools ? { tools: entry.tools.map((tool) => ({ ...tool, input: redactText(tool.input, secrets) })) } : {}),
   };
 }
-function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = []): HistoryEntry | undefined {
+function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], language?:string): HistoryEntry | undefined {
+  const mechanics = mechanicsEntry(entry, language);
+  if (mechanics) return mechanics;
   if (entry?.type === "message") return redactHistoryEntry(historyEntryFromMessage(entry), secrets);
   if (isVisibleCustomMessage(entry)) {
     const content = text(entry.content);
@@ -1516,7 +1519,7 @@ async function activeVisibleIds(path: string, byteEnd?: number): Promise<string[
       id: entry.id,
       parentId: typeof entry.parentId === "string" ? entry.parentId : null,
       type: String(entry.type ?? ""),
-      visible: entry.type === "message"
+      visible: Boolean(mechanicsEntry(entry)) || entry.type === "message"
         || isVisibleCustomMessage(entry)
         || entry.type === "compaction",
     });
@@ -1550,6 +1553,7 @@ async function readHistoryFallback(
   const pageIds = visibleIds.slice(Math.max(0, end - limit), end);
   const wanted = new Set(pageIds);
   const mappedById = new Map<string, HistoryEntry>();
+  const cocBinding = await readCocBinding(path);
   const lines = createInterface({
     input: jsonlSnapshotStream(path, byteEnd),
     crlfDelay: Infinity,
@@ -1563,7 +1567,7 @@ async function readHistoryFallback(
     }
     if (!wanted.has(entry?.id)) continue;
     const secrets = vaultDir && sessionId ? revealRedactionSecrets(vaultDir, sessionId) : [];
-    const mapped = visibleHistoryEntry(entry, secrets);
+    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language);
     if (!mapped) continue;
     mappedById.set(mapped.id, mapped);
   }
@@ -2126,6 +2130,8 @@ export class PiHostBackend implements HostBackend {
    * parked on an empty queue, and `awaiting` are requests a poller took and
    * still owes an answer for.
    */
+  private readonly cocChoiceClaims = new Map<string,string>();
+  private readonly cocSheetReads = new Map<string, Promise<any>>();
   private readonly extInvokeQueued = new Map<string, ExtInvokeRequestRecord[]>();
   private readonly extInvokeWaiting = new Map<string, Array<(requests: ExtInvokeRequestRecord[]) => void>>();
   private readonly extInvokeAwaiting = new Map<string, { sessionId: string; settle: (result: ExtInvokeResult) => void }>();
@@ -3041,6 +3047,7 @@ export class PiHostBackend implements HostBackend {
 
   /** Graceful connection teardown for hosts that allocate one backend per client. */
   async close(): Promise<void> {
+    await Promise.allSettled([...this.cocSheetReads.values()]);
     // 宿主 worker 的生命周期就是"项目开着"，宿主关掉它们就该结束。
     this.extensionHostWorkers.stopAll();
     if (this.closed) return;
@@ -5494,6 +5501,8 @@ export class PiHostBackend implements HostBackend {
       this.assertSessionGeneration(id, generation);
       const dotEnv = await this.readDotEnv();
       this.assertSessionGeneration(id, generation);
+      const cocBinding = await readCocBinding(found.path);
+      this.assertSessionGeneration(id, generation);
       const child = this.proc(this.piCommand.executable, [
         ...(this.piCommand.prefixArgs ?? []),
         "--mode",
@@ -5510,6 +5519,7 @@ export class PiHostBackend implements HostBackend {
             mergedSpawnEnvironment(this.env, dotEnv, {
               ...output.env,
               ...(this.piCommand.env ?? {}),
+              ...(cocBinding ? {PI_COC_CAMPAIGN:cocBinding.campaign,PI_COC_HOME:cocBinding.home} : {}),
             }),
             workerEnvFromVault(this.vaultDir, id),
           ),
@@ -5710,6 +5720,10 @@ export class PiHostBackend implements HostBackend {
     // the lifecycle identity it was born under; absence or mismatch rejects
     // every late event before it can touch queue, telemetry, or projections.
     if (!this.sessionRuntimeTokenIsCurrent(live.session.id, live.runtimeToken)) return;
+    if (e.type === "entry_appended") {
+      const entry = mechanicsEntry(e.entry);
+      if (entry) this.stream({type:"presentation",sessionId:live.session.id,entry});
+    }
     try {
       const model =
         this.sessionModelStates.get(live.session.id)?.model
@@ -8404,11 +8418,49 @@ export class PiHostBackend implements HostBackend {
     if (!this.extensions.hasCapability(id, "invoke.agent")) {
       return settingsDenied("capability_denied", "capability_denied");
     }
+    if (id === "coc-keeper" && ["sheet","choose"].includes(method) && !(isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim())) {
+      return {ok:true,data:{status:"unbound",view:null,campaign:null}};
+    }
     const sessionId =
       isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim()
         ? optsValue.sessionId.trim()
         : [...this.live.keys()].at(-1);
     if (!sessionId) return settingsDenied("no_session", "no active session");
+    if (id === "coc-keeper" && method === "choose") {
+      const sheet:any = await this.invokeExtension(id,"sheet",{}, {sessionId});
+      const choice = sheet?.data?.view?.pending_choice;
+      const selected = params as {choice?:string;option?:string};
+      if (!choice || choice.name !== selected?.choice || !choice.options?.includes(selected?.option)) {
+        return settingsDenied("stale_choice", "This choice is no longer pending.");
+      }
+      if (this.cocChoiceClaims.get(sessionId) === choice.name) return settingsDenied("stale_choice", "This choice was already submitted.");
+      this.cocChoiceClaims.set(sessionId,choice.name);
+      const input = choice.kind === "mechanics"
+        ? JSON.stringify({kind:"mechanics_choice",action:selected.option,play_language:sheet.data.view.play_language})
+        : selected.option!;
+      try {await this.handle("sendPrompt",[sessionId,input]);}
+      catch(error) {this.cocChoiceClaims.delete(sessionId);throw error;}
+      return {ok:true,data:{sent:true}};
+    }
+    if (id === "coc-keeper" && method === "sheet") {
+      const selected = await this.locate(sessionId);
+      const active = this.live.get(sessionId);
+      if (!active || !this.liveProcessUsable(active)) {
+        const pending = this.cocSheetReads.get(sessionId);
+        if (pending) return pending;
+        const read = (async () => {
+          const context = await readCocBinding(selected.path);
+          if (!context) return {ok:true,data:{status:"unbound",view:null,campaign:null}};
+          try {
+            if (!this.managedNodeModulesRoot) throw new Error("Canonical runtime is unavailable");
+            const view=await readColdSheet(join(this.managedNodeModulesRoot ?? "", ".."),context);
+            return {ok:true,data:{status:"ready",view,campaign:context.campaign}};
+          } catch(error) {return {ok:true,data:{status:"error",view:null,campaign:context.campaign,reason:error instanceof Error?error.message:String(error)}};}
+        })().finally(()=>this.cocSheetReads.delete(sessionId));
+        this.cocSheetReads.set(sessionId,read);
+        return read;
+      }
+    }
     const live = this.live.get(sessionId);
     if (!live || !this.liveProcessUsable(live)) return settingsDenied("no_session", "no active session");
     if (!this.extensions.isMounted(sessionId, id)) {

@@ -131,9 +131,6 @@ interface TableState {
 const PKG_ROOT = packageRoot();
 const CLOSED_STATES: ReadonlySet<TurnState> = new Set<TurnState>(["awaiting_player", "committed", "asked"]);
 const TURN_CLOSED_REASON = "the turn is closed, waiting for the player";
-/** Used when the kernel refuses a delivery for missing numbers but gives no `fix` of its own. */
-const MECHANICS_MISSING_STEER =
-	"The kernel refused this turn's delivery: mechanics_missing. State this turn's public rolls and changes in your prose, with the numbers copied exactly from the tool results, then deliver it again.";
 /** Used when the kernel refuses a delivery that carries none of the campaign's play_language script. */
 const PLAY_LANGUAGE_MISMATCH_STEER =
 	"The kernel refused this turn's delivery: play_language_mismatch. Rewrite every player-facing word in the campaign's play_language, then deliver it again.";
@@ -286,22 +283,22 @@ function errorText(error: unknown): string {
  * `code_detail: "mechanics_missing"` or `"play_language_mismatch"`. The detail is read from
  * all the places it can travel, because it is one contract field and not a semantic judgement.
  */
-function floorDetail(error: unknown): "mechanics_missing" | "play_language_mismatch" | undefined {
+function floorDetail(error: unknown): "play_language_mismatch" | undefined {
 	if (!(error instanceof KernelError)) return undefined;
 	const detail =
-		error.code === "mechanics_missing" || error.code === "play_language_mismatch"
+		error.code === "play_language_mismatch"
 			? error.code
 			: (error.codeDetail ?? (error.details as { code_detail?: unknown } | undefined)?.code_detail);
-	if (detail === "mechanics_missing" || detail === "play_language_mismatch") return detail;
+	if (detail === "play_language_mismatch") return detail;
 	return undefined;
 }
 
 function floorSteer(
-	detail: "mechanics_missing" | "play_language_mismatch",
+	detail: "play_language_mismatch",
 	error: unknown,
 ): { kind: string; text: string } {
-	const base = detail === "mechanics_missing" ? MECHANICS_MISSING_STEER : PLAY_LANGUAGE_MISMATCH_STEER;
-	const kind = detail === "mechanics_missing" ? "mechanics-missing" : "play-language-mismatch";
+	const base = PLAY_LANGUAGE_MISMATCH_STEER;
+	const kind = "play-language-mismatch";
 	const fix =
 		error instanceof KernelError && error.fix ? `${base} The kernel says: ${error.fix}` : base;
 	return { kind, text: fix };
@@ -567,7 +564,7 @@ export default function (pi: ExtensionAPI) {
 	function noteMechanics(state: TableState, turn: number, mechanics: Array<Record<string, unknown>>): void {
 		if (mechanics.length === 0) return;
 		try {
-			pi.appendEntry("coc-mechanics", { turn, mechanics });
+			pi.appendEntry("coc-mechanics", { turn, mechanics, play_language: state.playLanguage });
 		} catch {
 			/* the projection must never break a turn */
 		}
@@ -612,8 +609,9 @@ export default function (pi: ExtensionAPI) {
 				// The pending choice has been handed back to the player, so the turn no longer owes an ask.
 				state.pendingChoice = null;
 				state.closedThisRun = true;
-				state.renderedText = asString(result.rendered_text);
+				state.renderedText = typeof result.rendered_text === "string" ? result.rendered_text : undefined;
 				state.deliveryToolCallId = toolCallId;
+                if (result.interaction) pi.appendEntry("coc-choice", result.interaction);
 				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn, withHandouts(state, readMechanics(result)));
 				break;
 			}
@@ -856,6 +854,7 @@ export default function (pi: ExtensionAPI) {
 			const open = await kernel.call<OpenResult>("table.open", { campaign });
 			applyOpen(open);
 			table.playLanguage = asString(open.campaign?.play_language);
+			pi.appendEntry("coc-session", {campaign, home: cocHome(ctx.cwd), play_language: table.playLanguage});
 			// The tool surface is fixed: these seven and no reshaping afterwards.
 			pi.setActiveTools([...COC_TOOL_NAMES]);
 			// One Pi session, one kernel subprocess (contract §1), so there is only this one kernel RPC.
@@ -1078,7 +1077,7 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 		let rendered = state.renderedText;
-		if (!rendered) {
+		if (rendered === undefined) {
 			// The Keeper wrote his lines but never called narrate: that prose is the narration. The host closes
 			// the turn for him, sending the prose verbatim — the kernel's number check runs on it as usual, and
 			// a refusal for missing numbers goes back to the Keeper instead of being delivered.
@@ -1187,7 +1186,7 @@ export default function (pi: ExtensionAPI) {
 		if (pending?.for === "player") {
 			sendHost(
 				`The kernel is waiting for the player to choose: ${pending.prompt ?? pending.name ?? "the pending choice from the last adjudication"}. ` +
-					`Use one ask to hand it back to him; his answer comes back as the next turn's input.`,
+					`Use ask kind=mechanics with the available option identifiers and no prompt. The frontend renders the controls.`,
 				"steer",
 			);
 			return;

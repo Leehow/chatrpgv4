@@ -64,7 +64,8 @@ def test_ask_closes_turn_and_pending_choice_carries_over(kernel):
     asked = kernel.table("ask", call_id="t1-c1", prompt="你想先去哪里？",
                          options=["报社档案", "中央图书馆"], binds="first-stop")
     assert asked["state"] == "asked" and asked["turn"] == 1
-    assert asked["rendered_text"] == "你想先去哪里？\n1. 报社档案\n2. 中央图书馆" and asked["mechanics"] == []
+    assert asked["rendered_text"] == "" and asked["mechanics"] == []
+    assert asked["interaction"]["prompt"] == "你想先去哪里？"
     pending = asked["pending_choice"]
     assert pending["name"] == "ask-first-stop-t1"
     assert pending["options"] == ["报社档案", "中央图书馆"]
@@ -181,21 +182,22 @@ def test_commit_failure_keeps_the_turn_open(kernel):
                                       "pending_choice": None}
 
 
-def test_ask_delivers_this_turns_mechanics_before_the_question(kernel):
+def test_ask_keeps_story_mechanics_and_interaction_separate(kernel):
     open_turn(kernel)
-    kernel.table("resolve", call_id="t1-c1", action={"intent": "investigate", "goal": "x", "method": "y",
-                                                    "skill": "Spot Hidden"})
-    roll = kernel.table("status")["receipts"][0]
-    # No text states nothing: the player must see the roll before choosing (§16.3).
-    bad = kernel.table_err("ask", call_id="t1-c2", prompt="？", options=["甲", "乙"])
-    assert bad["code"] == "invalid_params" and bad["code_detail"] == "mechanics_missing"
-    assert bad["details"]["missing"] == [{"receipt": "roll:spot-hidden-t1-c1", "expected": [str(roll["roll"]), "55"]}]
-    unstated = kernel.table_err("ask", call_id="t1-c2", text="你举起灯。", prompt="你要怎么做？", options=["退后", "上前"])
-    assert unstated["code_detail"] == "mechanics_missing"
-    asked = kernel.table("ask", call_id="t1-c3", text=f"你举起灯，掷出 {roll['roll']}（侦查 55）。\n\n墙上有影子在动。",
-                         prompt="你要怎么做？", options=["退后", "上前"])
-    rendered = asked["rendered_text"]
-    assert rendered == f"你举起灯，掷出 {roll['roll']}（侦查 55）。\n\n墙上有影子在动。\n\n你要怎么做？\n1. 退后\n2. 上前"
-    assert [m["kind"] for m in asked["mechanics"]] == ["roll"] and asked["mechanics"][0]["roll"] == roll["roll"]
-    record = read_json(campaign_dir(kernel.workspace) / "turns" / "0001.json")
-    assert record["mechanics"] == asked["mechanics"]
+    kernel.table("resolve", call_id="t1-c1", action={"intent": "investigate", "goal": "x", "method": "y", "skill": "Spot Hidden"})
+    asked = kernel.table("ask", call_id="t1-c2", text="你举起灯，墙上有影子在动。", prompt="你要怎么做？", options=["退后", "上前"])
+    assert asked["rendered_text"] == "你举起灯，墙上有影子在动。"
+    assert asked["interaction"]["options"] == ["退后", "上前"]
+    assert asked["interaction"]["prompt"] == "你要怎么做？"
+    assert [row["kind"] for row in asked["mechanics"]] == ["roll"]
+
+
+def test_mechanics_choice_has_no_question_or_numbered_prose(kernel):
+    open_turn(kernel)
+    bad = kernel.table_err("ask", call_id="t1-c1", kind="mechanics", prompt="怎么处理失败？", options=["push", "accept"])
+    assert bad["code"] == "invalid_params"
+    asked = kernel.table("ask", call_id="t1-c1", kind="mechanics", options=["push", "spend_luck", "accept"])
+    assert asked["rendered_text"] == ""
+    assert asked["interaction"]["kind"] == "mechanics"
+    assert asked["interaction"]["options"] == ["push", "spend_luck", "accept"]
+    assert not asked["interaction"]["prompt"]

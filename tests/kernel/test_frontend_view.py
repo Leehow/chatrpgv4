@@ -15,3 +15,15 @@ def test_sheet_is_read_only_and_hides_undiscovered_clues(kernel):
     assert first['investigators']
     assert 'here' not in first['clues']
     assert first['state'] == client.table('status')['state']
+
+
+def test_sheet_does_not_persist_legacy_trail_migration(kernel):
+    import json
+    create_campaign(kernel)
+    path = campaign_dir(kernel.workspace) / 'world.json'
+    world = json.loads(path.read_text())
+    world.pop('scene_trail', None)
+    path.write_text(json.dumps(world))
+    before = path.read_bytes()
+    kernel.ok('table.view', {'campaign': CAMPAIGN})
+    assert path.read_bytes() == before

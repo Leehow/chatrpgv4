@@ -957,12 +957,20 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 **手卡**：Pi 没有出站附件通道（`docs/pi-host-contract.md` §3.3），所以路径不进正文。内核给 `name`/`available`，扩展把 `apply` 结果里的 `attachment` 合进这一行（`path`、`media_type`），前端按它取图；坐在终端前的人由 table 扩展通知一次（`handout <名>: <路径>`，每张卡一次，不进正文）。契约里任何「渲染【明骰】【变化】【第 n 轮】【手卡】行」的旧说法一律以本节为准，包括 §5、§11.6、§11.9、§12.5，以及 §11 的会话渲染、§14.8 的手卡、§14 的实现小节、§15 的世界线收据——那些段落描述的行不再存在，对应的信息以 `mechanics` 的一行投影出去。
 
-### 16.3 确定性底线
+### 16.3 Story text and system JSON (2026-09-07 user correction)
 
-数值只出自内核，这条不变；守的方式从「内核插行」改为「内核核对」。确定性地板有两层，都是字节、不做语义判断（§5 第 2 步）：
+Narration contains fiction and observable consequences only. Roll/target values,
+success grades, resource bookkeeping and mechanical option lists belong exclusively
+to structured projections and frontend controls. The old public-number presence
+check is retired. The play-language check remains. No regex removes semantic
+sentences from text: the Keeper is instructed to keep these fields separate.
 
-1. **数字。** `narrate`/`ask` 时每条公开收据的关键数字必须出现在正文里，否则退回守秘人补（`mechanics_missing`）。守秘人提示里写明：公开的检定与变化要在正文里用玩家语言交代，数字照收据抄，内核会核对。
-2. **玩家语言脚本。** `play_language` 是闭合枚举。`zh-Hans` 的义务是 `narrate.text`、`ask.prompt`、每一条 `ask.options[i]`、以及给出的 `ask.text`，都必须至少含一个 CJK 字符（与系统语言守卫同一套字节范围）。缺了报 `play_language_mismatch`。`en` 与系统语言相同，脚本核对此处不分玩家英文与守秘人英文，不做。夹杂了汉字的英文字段此条放过——那不是语言检测；内核铸造的英文（Director 节拍、胶囊标题、§11.9 待决提示）不得原样当作玩家可见正文。
+A failed check does not automatically require an ask about push/Luck/accept.
+The Keeper narrates its fictional consequence and leaves the player's agency open.
+When a system decision is actually required, ask uses kind=mechanics with closed
+option identifiers and no prompt. Story decisions use kind=story. Both return an
+interaction JSON object; neither appends a question or numbered list to rendered_text.
+Existing recorded prose is historical evidence and is not rewritten.
 
 ### 16.4 验收
 
@@ -1497,3 +1505,36 @@ server filesystem `file://` URL.
 The local frontend recognizes credentials from `auth.json` when resolving the
 configured default provider. A same-named relay model must not win merely because
 its key is inline in `models.json`; explicit per-session model selections remain.
+
+### Complete player projections (2026-09-07)
+
+`coc-mechanics` becomes a standalone Host API presentation entry with renderer
+`coc-mechanics`, preserving its session entry id. Live `entry_appended` and history
+use one projector; keeper-only rows are removed before reaching the frontend.
+The renderer shows public mechanics only, never another copy of narration. Its
+language is the campaign's `play_language`, carried on new entries and obtained
+from the session binding for older entries. Delivery tool renderers are retired
+from the player surface so one receipt appears once.
+
+A `coc-session` entry persists `{campaign, home, play_language}` when the table
+opens. The host uses that binding for exactly the selected UI session; it never
+falls back to the most recently live session. For legacy sessions an explicit
+host-owned `<session>.coc.json` binding can be installed from known launch evidence;
+missing bindings remain a distinct error and are never guessed from narrative.
+
+The sheet is read through the live bridge when available. Otherwise the host
+runs only `table.view` in a short-lived canonical Python process, without Pi,
+`table.open`, model calls or game writes. Per-session reads are coalesced and timed
+out. Mount, session change and table-open/commit notifications trigger refresh.
+The panel distinguishes loading, connection failure, no binding and an empty party;
+a stale response from an earlier session cannot replace the selected session.
+
+### Structured choices
+
+ask accepts kind=story|mechanics (default story). Story uses prompt and authored
+options in play_language. Mechanics accepts only push, spend_luck, accept, dodge,
+fight_back, flee and forbids a prompt. The result includes interaction with its
+pending-choice name, kind, options and play_language. The host emits coc-choice
+entries rendered as controls outside narration. Clicking is checked against the
+selected session's current pending choice before submitting a semantic player
+action; old controls cannot affect a newer choice.

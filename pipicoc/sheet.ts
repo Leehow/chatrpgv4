@@ -31,6 +31,7 @@ interface KernelBridgeEvent {
 }
 
 export interface SheetAnswer {
+	status?: "ready" | "error";
 	/** The `table.view` result (§22.7) verbatim, or null when there is no table yet. */
 	view: Record<string, unknown> | null;
 	/** Which campaign it came from, so a panel left open across tables can tell. */
@@ -59,20 +60,31 @@ export function registerSheetPanel(pi: ExtensionAPI): void {
 	pi.events.on("coc:table-open", (data) => {
 		const opened = (data ?? {}) as { campaign?: string };
 		if (opened.campaign) campaign = opened.campaign;
+		void emitToPanel(PACK_ID, "sheet-changed");
 	});
+
+  pi.events.on("coc:session-bound", (data) => {
+    const linked = data as {campaign?:string};
+    if (linked?.campaign) campaign = linked.campaign;
+    void emitToPanel(PACK_ID, "sheet-changed");
+  });
+  pi.on("tool_result", (event) => {
+    if (event.toolName === "setup") void emitToPanel(PACK_ID, "sheet-changed");
+  });
 
 	async function read(): Promise<SheetAnswer> {
 		if (!bridge) return { view: null, campaign: campaign ?? null, reason: "the table is not open" };
 		if (!campaign) return { view: null, campaign: null, reason: "no campaign is open" };
 		try {
 			const result = await bridge("table.view", { campaign });
-			return { view: result && typeof result === "object" ? (result as Record<string, unknown>) : null, campaign };
+			return { status: "ready", view: result && typeof result === "object" ? (result as Record<string, unknown>) : null, campaign };
 		} catch (error) {
 			// A kernel refusal is an answer, not a crash: a campaign with no party yet, a turn
 			// record that is still being rebuilt, a kernel that just went away.
 			return {
 				view: null,
 				campaign: campaign ?? null,
+				status: "error",
 				reason: error instanceof Error ? error.message : String(error),
 			};
 		}

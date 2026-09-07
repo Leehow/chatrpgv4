@@ -86,7 +86,7 @@ Grok 系模型屡次把「交付」当目标、把意图当配菜，也屡次静
 - **代码、提示、工具描述、宿主消息、内核写给守秘人的一切文字（胶囊、压力、义务、Director 理由、检查点、事实句、车道指令、读者简报）只用英文。** 代码里不许有中文，注释也不许；`tests/kernel/test_system_language.py` 与 `tests/extension/system-language.test.mjs` 扫 CJK 守着这条。
 - **玩家看到的文字由守秘人模型按战役的 `play_language` 写**（闭合集 `zh-Hans`、`en`）。守秘人是 agent，自己会语义理解，不需要翻译层；**不做 i18n 字符串表**，不按语言分支渲染。
 - **机制不渲染成文字，投影成 JSON。** 收据 → `mechanics` 列表（契约 §16.2），随 `narrate`/`ask` 结果回来，扩展落成会话条目 `coc-mechanics` 与总线 `coc:mechanics`，给未来的 Electron/web 前端渲染骰子卡与变化条；TUI 只显示守秘人正文。
-- **确定性底线换成核对数字**：守秘人必须在正文里用玩家语言说出每条公开收据的关键数字（掷值/目标、伤害前后、分钟数……），内核逐字核对，缺了拒绝 `narrate`（`mechanics_missing`）并在 `fix` 里说缺什么。
+- **系统内容只走 JSON**（2026-09-07 用户更正）：检定数值、成败、资源变化与规则选项由前端专用 UI 展示；正文只写故事与行动后果。取消正文复述数字的要求。失败后不自动询问推骰/花幸运；必要的系统选择走结构化交互，不能拼进正文。
 - 内容数据（模组图、starter、玩测证据）是它本来的语言，不受此条约束；`content/setup/steps.json`、`content/craft/beat-directives.json` 是系统内容，英文。
 
 ## 语义问题不许硬编码

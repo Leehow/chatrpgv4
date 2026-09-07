@@ -464,6 +464,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   const [projects, setProjects] = useState<Project[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
   const [selectedProject, setSelectedProject] = useState('')
+  const [defaultProductPanel, setDefaultProductPanel] = useState<PanelTab>(DEFAULT_PANEL_TAB)
   // One extension list drives both the contributions and the shell: the enabled
   // extension that declares `app.ui.layout` is this project's form, and every
   // enabled id is what may show its contributions. Applying REPLACES the whole
@@ -473,6 +474,8 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     const enabled = extensions.filter(item => item.state === 'enabled')
     const pack = enabled.find(item => item.ui?.layout)
     const enabledIds = enabled.map(item => item.id)
+    const sidebar = pack?.ui?.layout?.auxiliarySidebar
+    setDefaultProductPanel(sidebar && pack?.ui?.panels?.some(panel => panel.id === sidebar) ? sidebar : DEFAULT_PANEL_TAB)
     if (pack) productWorkbench.activateProductPack({ id: pack.id, layout: pack.ui?.layout }, enabledIds)
     else productWorkbench.activateBaseWorkbench(enabledIds)
   }, [productWorkbench])
@@ -618,7 +621,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   const selectedHasPlans = selectedSession ? hasPlansBySession[selectedSession] === true : false
   useEffect(() => {
     if (!selectedSession) return
-    const remembered = activeTabBySessionRef.current[selectedSession] ?? DEFAULT_PANEL_TAB
+    const remembered = activeTabBySessionRef.current[selectedSession] ?? defaultProductPanel
     // When the last live plan settles, drop the Plan tab and leave the page so
     // the user is not stranded on a hidden/blank Plan surface.
     if ((remembered === 'Plan' || activeTabRef.current === 'Plan') && !selectedHasPlans) {
@@ -627,7 +630,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
       return
     }
     setActiveTab(remembered)
-  }, [applyActiveTab, selectedSession, selectedHasPlans])
+  }, [applyActiveTab, selectedSession, selectedHasPlans, defaultProductPanel])
   const [observedSessionStatuses, setObservedSessionStatuses] = useState<Record<string, SessionStatus>>({})
   const [loadedSidebarPreferencesKey, setLoadedSidebarPreferencesKey] = useState('')
   const [canRevealInFinder, setCanRevealInFinder] = useState(false)
@@ -1827,7 +1830,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
         // Apply them to the live transcript only. Reloading JSONL on every
         // thinking/text delta stacked overlapping full-file scans on large
         // sessions and froze the main process.
-        const isLiveContent = event.type === 'text' || event.type === 'thinking' || event.type === 'tool_call' || event.type === 'tool_result' || event.type === 'hosted_search' || event.type === 'hosted_code_interpreter' || event.type === 'citations' || event.type === 'input_file_sources' || event.type === 'error'
+        const isLiveContent = event.type === 'presentation' || event.type === 'text' || event.type === 'thinking' || event.type === 'tool_call' || event.type === 'tool_result' || event.type === 'hosted_search' || event.type === 'hosted_code_interpreter' || event.type === 'citations' || event.type === 'input_file_sources' || event.type === 'error'
         if (isLiveContent) {
           const lateNext = applyStreamEvent(messagesRef.current, event)
           if (lateNext !== messagesRef.current) {
@@ -2697,6 +2700,10 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
             <div key={selectedSession} className="session-transcript-slot" data-session-transcript={selectedSession}>
               <Transcript
                 stateKey={selectedSession}
+                onChoose={async (entry,option)=>{
+                  const result=await host.invokeExtension!("coc-keeper","choose",{choice:(entry.details as any).name,option},{sessionId:selectedSession});
+                  if(!result.ok)throw new Error(result.error?.message || "Choice failed");
+                }}
                 messages={messages}
                 onLoadOlder={loadOlderHistory}
                 documentBasePath={selectedProjectPath}

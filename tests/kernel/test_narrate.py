@@ -1,6 +1,5 @@
 """§5 narrate under §16: the text is delivered verbatim, the receipts ride beside it as
-the language-neutral `mechanics` projection, and the kernel refuses a text that does not
-state every public receipt's numbers (`mechanics_missing`)."""
+the language-neutral `mechanics` projection without requiring numbers in story prose."""
 
 from conftest import campaign_dir, git_log, narrate, open_turn, read_json, read_jsonl
 
@@ -64,23 +63,14 @@ def test_every_receipt_is_projected_and_the_turn_closes(kernel):
     assert finalized[-1]["data"] == {"receipts": [r["id"] for r in record["receipts"]]}
 
 
-def test_text_missing_a_public_number_is_refused_naming_the_receipt(kernel):
+def test_system_numbers_are_only_required_in_json(kernel):
     open_turn(kernel)
     roll = stage_receipts(kernel)[0]
-    error = kernel.table_err("narrate", call_id="t1-c3", text="只有一段。")
-    assert error["code"] == "invalid_params" and error["code_detail"] == "mechanics_missing"
-    assert error["details"]["missing"] == [
-        {"receipt": "roll:spot-hidden-t1-c1", "expected": [str(roll["roll"]), "55"]},
-        {"receipt": "time:t1-c2", "expected": ["10"]},
-    ]
-    assert str(roll["roll"]) in error["fix"] and "55" in error["fix"] and "roll:spot-hidden-t1-c1" in error["fix"]
-    # only the roll's numbers stated: the time receipt is still owed
-    partial = kernel.table_err("narrate", call_id="t1-c3", text=f"掷出 {roll['roll']}，基础 55。")
-    assert partial["code_detail"] == "mechanics_missing"
-    assert [m["receipt"] for m in partial["details"]["missing"]] == ["time:t1-c2"]
-    assert kernel.table("status")["state"] == "acting"
-    # names are the keeper's to word: no name is checked, only digits
-    done = kernel.table("narrate", call_id="t1-c3", text=f"{roll['roll']}／55，十分钟（10）。")
+    prose = "你没有发现其他痕迹，收起了手里的材料。"
+    done = kernel.table("narrate", call_id="t1-c3", text=prose)
+    assert done["rendered_text"] == prose
+    assert done["mechanics"][0]["roll"] == roll["roll"]
+    assert done["mechanics"][0]["target"] == 55
     assert done["commit"] and kernel.table("status")["turn"] == 2
 
 

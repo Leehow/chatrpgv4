@@ -1,12 +1,7 @@
-"""The mechanics projection and the number check (contract §5 narrate/ask, §16).
+"""Language-neutral mechanics projections and the play-language script guard.
 
-The kernel writes no mechanics prose. Every receipt of a turn is projected into one
-language-neutral object (`mechanics`, §16.2) that rides with the delivery for the front
-end and the evidence; the keeper states the results itself, in the player's language,
-and the kernel keeps the deterministic floor by checking that every public receipt's
-numbers appear in that text (§16.3) and that player-facing fields carry the campaign's
-play-language script. Pure string containment and a closed character class; nothing here
-reads prose for meaning."""
+System facts stay in JSON. Story text is never required to repeat receipt numbers.
+"""
 
 from __future__ import annotations
 
@@ -15,7 +10,6 @@ from typing import Any
 
 from .errors import RpcError, invalid_params
 
-MECHANICS_MISSING = "mechanics_missing"
 PLAY_LANGUAGE_MISMATCH = "play_language_mismatch"
 
 # Same ranges as tests/kernel/test_system_language.py: bytes, not semantics.
@@ -167,35 +161,6 @@ def expected_numbers(receipt: dict[str, Any]) -> list[str]:
     if kind == "time":
         return [_number(int(receipt.get("minutes") or 0))]
     return []
-
-
-def missing_numbers(text: str, receipts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """`[{"receipt", "expected": [...]}]` for every public receipt whose numbers the text
-    does not contain as digits. Pure containment: no words, no semantics."""
-    missing: list[dict[str, Any]] = []
-    for receipt in receipts:
-        expected = expected_numbers(receipt)
-        if expected and not all(number in text for number in expected):
-            missing.append({"receipt": receipt.get("id"), "expected": expected})
-    return missing
-
-
-def mechanics_missing(missing: list[dict[str, Any]]) -> RpcError:
-    """`invalid_params` / `mechanics_missing` (§16.3): the keeper states the numbers and
-    calls again with the same call_id."""
-    wanted = "; ".join(f"{row['receipt']}: {', '.join(row['expected'])}" for row in missing)
-    return invalid_params(
-        "text does not state the numbers of every public receipt of this turn",
-        code_detail=MECHANICS_MISSING,
-        fix=f"state these numbers, as digits, in the player's language in text and call again: {wanted}",
-        details={"missing": missing},
-    )
-
-
-def check_numbers(text: str, receipts: list[dict[str, Any]]) -> None:
-    missing = missing_numbers(text, receipts)
-    if missing:
-        raise mechanics_missing(missing)
 
 
 def check_play_language(language: str, fields: dict[str, str | None]) -> None:

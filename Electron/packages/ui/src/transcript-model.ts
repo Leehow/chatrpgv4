@@ -32,6 +32,7 @@ export type TranscriptSegment =
   | { type: 'text'; id: string; content: string }
 
 export type ChatMessage = {
+  presentation?: HistoryEntry["presentation"];
   id: string
   role: 'user' | 'assistant' | 'tool' | 'compaction'
   content: string
@@ -200,6 +201,7 @@ export function historyMessages(entries: HistoryEntry[]): ChatMessage[] {
   const cards = new Map<string, TranscriptTool>()
   const messages: ChatMessage[] = []
   for (const entry of entries.map(displayHistoryEntry)) {
+    if (entry.presentation) { messages.push({id:entry.id,role:"assistant",content:"",timestamp:entry.timestamp,presentation:entry.presentation}); continue; }
     if (entry.role === 'compaction') {
       messages.push({ id: entry.id, role: 'compaction', content: entry.content ?? '', timestamp: entry.timestamp })
       continue
@@ -262,6 +264,7 @@ export function transcriptFingerprint(messages: readonly ChatMessage[]): string 
     content: message.content,
     error: message.error,
     thinking: message.thinking,
+    presentation: message.presentation,
     tools: message.tools?.map(tool => ({ id: tool.id, name: tool.name, input: tool.input, result: tool.result, error: tool.error, details: tool.details })),
     activities: message.activities?.map(activity => activity.type === 'tool'
       ? { type: activity.type, contentIndex: activity.contentIndex, toolId: activity.tool.id, result: activity.tool.result, error: activity.tool.error }
@@ -525,6 +528,11 @@ function mergeHostedCodeInterpreterInput(previousInput: string | undefined, even
 }
 
 export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamEvent, { type: 'status' }>): ChatMessage[] {
+  if (event.type === 'presentation') {
+    const message:ChatMessage={id:event.entry.id,role:'assistant',content:'',timestamp:event.entry.timestamp,presentation:event.entry.presentation};
+    const at=previous.findIndex(item=>item.id===message.id);
+    return at<0?[...previous,message]:previous.map((item,i)=>i===at?message:item);
+  }
   if (event.type === 'secret_redact') return applySecretRedact(previous, event.messages)
   if (event.type === 'error') return applyTurnError(previous, displaySecretPlaceholders(event.content))
   if (event.type === 'text' || event.type === 'thinking' || event.type === 'tool_call') {

@@ -43,13 +43,13 @@
       ],
       "toolRenderers": [
         {
-          "tool": "narrate",
+          "tool": "coc-mechanics",
           "entry": "pipicoc/mechanics.js",
           "placement": "content"
         },
         {
-          "tool": "ask",
-          "entry": "pipicoc/mechanics.js",
+          "tool": "coc-choice",
+          "entry": "pipicoc/choices.js",
           "placement": "content"
         }
       ],

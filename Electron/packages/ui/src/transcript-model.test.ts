@@ -725,3 +725,12 @@ it('replaces a rewritten final segment and retracts discarded drafts', () => {
   rows=applyStreamEvent(rows,{type:'text',sessionId:'table',contentIndex:0,segment:1,delta:'',replace:true})
   expect(rows[0].content).toBe('Previous. ')
 })
+
+it('restores standalone presentations and deduplicates replayed live entries',()=>{
+  const entry={id:'receipt-row',role:'assistant' as const,content:'',timestamp:1,presentation:{renderer:'coc-mechanics',details:{mechanics:[{kind:'time',minutes:5}]}}};
+  const restored=historyMessages([entry]);
+  expect(restored[0].presentation).toEqual(entry.presentation);
+  const live=applyStreamEvent(restored,{type:'presentation',sessionId:'s',entry});
+  expect(live).toHaveLength(1);
+  expect(live[0].presentation).toEqual(entry.presentation);
+});

@@ -488,7 +488,7 @@ def test_mechanics_projection_is_language_neutral_and_the_check_skips_keeper_rol
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "kernel"))
-    from coc.render import mechanics, missing_numbers
+    from coc.render import mechanics
 
     def roll(skill, round_no, roll_value=40, target=50, actor_label=None, visibility="public"):
         receipt = {"id": f"roll:{skill.lower()}-t1-c{round_no}", "kind": "roll", "actor": "x", "skill": skill,
@@ -522,12 +522,6 @@ def test_mechanics_projection_is_language_neutral_and_the_check_skips_keeper_rol
          "rounds": 3, "outcome": "Faint"},
         {"kind": "session", "receipt": "session:chase-end-t1-c4", "family": "chase", "transition": "end", "outcome": "escaped"},
     ]
-    # the keeper roll and the sessions oblige nothing; the two public rolls and the delta do
-    assert missing_numbers("", receipts) == [{"receipt": "roll:handgun-t1-c1", "expected": ["40", "50"]},
-                                             {"receipt": "roll:dodge-t1-c1", "expected": ["40", "50"]},
-                                             {"receipt": "delta:hp-t1-c1", "expected": ["16", "15"]}]
-    assert missing_numbers("40 vs 50; 16 -> 15", receipts) == []
-    assert missing_numbers("40 vs 50; 16 left", receipts) == [{"receipt": "delta:hp-t1-c1", "expected": ["16", "15"]}]
 
 
 def test_chase_end_reads_the_schema_vocabulary_from_the_quarry_side():

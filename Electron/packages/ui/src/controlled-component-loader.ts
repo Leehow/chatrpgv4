@@ -227,13 +227,21 @@ function createApi(
   descriptor: LoadableExtensionDescriptor,
   host: PipiHostAPI,
   projectId?: string,
+  sessionId?: string,
 ): ExtensionHostAPI {
   return createExtensionHostAPI({
     extensionId: descriptor.id,
+    sessionId,
     capabilities: descriptor.capabilities ?? [],
     host,
     ...(projectId !== undefined ? { projectId } : {}),
   })
+}
+
+function SessionPanel({descriptor, host, projectId, ctx, Component, panel, title}: any) {
+  const api=ReactRuntime.useMemo(()=>createApi(descriptor,host,projectId,ctx.sessionId),[descriptor,host,projectId,ctx.sessionId]);
+  return createElement('div',{className:'tool-page',hidden:!ctx.active},
+    createElement(Component,{api,sessionId:ctx.sessionId,id:panel.id,title,openDocument:ctx.onOpenDocument,resolveDroppedPaths:ctx.resolveDroppedPaths}));
 }
 
 /**
@@ -353,9 +361,7 @@ export async function loadControlledContributions(
       disposers.push(registerPanel(descriptor.id, {
         id: panel.id,
         icon: railIcon,
-        render: ctx => createElement('div', { className: 'tool-page', hidden: !ctx.active },
-          createElement(Component, { api, id: panel.id, title, openDocument: ctx.onOpenDocument, resolveDroppedPaths: ctx.resolveDroppedPaths }),
-        ),
+        render: ctx => createElement(SessionPanel,{key:ctx.sessionId??'none',descriptor,host,projectId,ctx,Component,panel,title}),
       }))
     } catch (error) {
       disposers.push(registerPanelError(descriptor.id, panel, errorMessage(error), railIcon))
@@ -370,7 +376,7 @@ export async function loadControlledContributions(
       const Component = await loadComponent(entry, loadFileEntryModule)
       disposers.push(registerToolRenderer(descriptor.id, {
         toolName: renderer.tool,
-        render: ({ content, details, images }) => createElement(Component, { content, details, images }),
+        render: ({ content, details, images, onSelectOption }) => createElement(Component, { content, details, images, onSelectOption }),
       }))
     } catch {
       // No panel slot: leave the default tool card. Do not crash the host.

@@ -194,47 +194,6 @@ test("守秘人写了台词却没调 narrate：宿主替它 narrate，正文原�
 	assert.ok(implicitRows.length >= 1, "遥测记录了隐式 narrate");
 });
 
-test("隐式 narrate 缺数字：内核退回 mechanics_missing，宿主拿它的 fix 催一次，下一轮才关回合", async (t) => {
-	const missing = "门框上有一道深深的抓痕。";
-	const complete = "门框上有一道深深的抓痕：侦查掷出 42，对着 55 的目标值，通过。";
-	const table = await openTable({
-		// 契约 §5 第 2 步的机制核对：本回合公开收据的数字必须出现在正文里。
-		env: { FAKE_KERNEL_REQUIRE_NUMBERS: "1" },
-		responses: [
-			fauxAssistantMessage(
-				[fauxToolCall("resolve", { action: { intent: "investigate", goal: "看门框", method: "侦查", skill: "Spot Hidden" } })],
-				{ stopReason: "toolUse" },
-			),
-			fauxAssistantMessage(missing),
-			fauxAssistantMessage(complete),
-		],
-	});
-	t.after(() => table.dispose());
-
-	await table.session.prompt("我看门框");
-	await waitForIdle(table.session);
-
-	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
-	assert.deepEqual(narrates.map((entry) => entry.params.text), [missing, complete], "第一次被退回，第二次才过");
-
-	const steers = customMessages(table.session, "coc-host").filter(
-		(message) => message.details?.kind === "mechanics-missing",
-	);
-	assert.equal(steers.length, 1, "缺数字只催一次");
-	assert.match(String(steers[0].content), /mechanics_missing/);
-	assert.match(String(steers[0].content), /42, 55/, "催的话里带着内核自己的 fix，点名缺哪些数");
-
-	const refused = table.telemetry().filter((row) => row.tool === "narrate" && row.ok === false);
-	assert.equal(refused.length, 1);
-	assert.equal(refused[0].code_detail, "mechanics_missing");
-
-	const texts = assistantTexts(table.session).filter((text) => text.length > 0);
-	assert.equal(texts.at(-1), complete, "交付的是补齐数字之后那一版");
-	assert.ok(!texts.includes(missing), "被内核退回的那一版不算交付，不留在记录里");
-	const projected = table.entries("coc-mechanics");
-	assert.equal(projected.length, 1, "被退回的那次不发投影：回合还没关");
-	assert.deepEqual(projected[0].mechanics.map((row) => row.kind), ["roll"]);
-});
 
 test("隐式 narrate 不是玩家语言：内核退回 play_language_mismatch，宿主不交付、催一次", async (t) => {
 	const leaked = "What does the Investigator do in the Scene?";

@@ -24,7 +24,7 @@ from .fileio import append_jsonl, file_size, read_json, read_jsonl, truncate_fil
 from .module_graph import NPC_KIND, ModuleGraph, module_declaration, record_of
 from .ontology import Ontology, ontology_not_ready
 from . import npc as npc_lane
-from .render import check_numbers, check_play_language, mechanics, render_choice
+from .render import check_play_language, mechanics
 from .resolve import ResolvePipeline
 from .rules import RuleTables
 from .rules.combat import resolve_module_weapons
@@ -301,7 +301,7 @@ class Table:
             raise ontology_not_ready(bad)
         self._ontology_checked = True
 
-    def _load(self, params: dict[str, Any], *, require_turn: bool = True,
+    def _load(self, params: dict[str, Any], *, require_turn: bool = True, read_only: bool = False,
               statuses: frozenset[str] = frozenset({STATUS_ACTIVE})) -> tuple[Campaign, dict[str, Any], ModuleGraph, dict[str, Any]]:
         campaign = self.store.open(params.get("campaign"), require_turn=require_turn)
         meta = campaign.read_campaign()
@@ -316,7 +316,8 @@ class Table:
         if "scene_trail" not in world:
             # Worlds written before the trail existed rebuild it from the event log, once.
             world["scene_trail"] = self._replay_trail(campaign)
-            campaign.write_world(world)
+            if not read_only:
+                campaign.write_world(world)
         return campaign, meta, graph, world
 
     def _context(self, params: dict[str, Any]) -> tuple[Campaign, ModuleGraph, dict[str, Any], dict[str, Any]]:
@@ -562,11 +563,19 @@ class Table:
 
     def view(self, params: dict[str, Any]) -> dict[str, Any]:
         """Project the public sheet without acting or changing the turn (§23)."""
-        campaign, graph, world, turn = self._context(params)
+        campaign = self.store.open(params.get("campaign"), require_turn=False, require_world=False)
+        meta = campaign.read_campaign()
+        if meta.get("status") == STATUS_SETTING_UP:
+            return {"play_language": language_of(meta), "state": STATUS_SETTING_UP,
+                    "investigators": [investigator_view(sheet) for sheet in campaign.party()],
+                    "clues": {"discovered": []}, "labels": {}}
+        campaign, _, graph, world = self._load(params, read_only=True, statuses=frozenset({STATUS_ACTIVE, STATUS_READY}))
+        turn = campaign.read_turn()
         party = campaign.party()
         snapshot = self._snapshot(campaign, graph, world, party)
         return {
             **snapshot,
+            "pending_choice": turn.get("pending_choice") or snapshot.get("pending_choice"),
             "play_language": language_of(campaign.read_campaign()),
             "turn": turn["turn"],
             "state": turn["state"],
@@ -1844,11 +1853,18 @@ class Table:
         call_id, replay = self._begin_write(campaign, turn, "table.ask", params)
         if replay is not None:
             return replay
-        prompt = _str(params, "prompt")
+        kind = params.get("kind", "story")
+        if kind not in {"story", "mechanics"}:
+            raise invalid_params("kind must be story or mechanics")
+        prompt = _str(params, "prompt", required=kind == "story")
+        if kind == "mechanics" and prompt:
+            raise invalid_params("mechanics choices use identifiers, not a question")
         options = params.get("options")
         if (not isinstance(options, list) or not options
                 or not all(isinstance(o, str) and o.strip() for o in options)):
             raise invalid_params("params.options must be a non-empty list of strings")
+        if kind == "mechanics" and any(o not in {"push", "spend_luck", "accept", "dodge", "fight_back", "flee"} for o in options):
+            raise invalid_params("unknown mechanics choice option")
         binds = _str(params, "binds", required=False)
         text = _str(params, "text", required=False)
         if turn.get("worldline"):
@@ -1860,22 +1876,20 @@ class Table:
         # §16.3: player-facing fields first owe the campaign's play_language script, then
         # the public numbers. Script is a closed character class, not language detection.
         check_play_language(language_of(campaign.read_campaign()), {
-            "prompt": prompt,
-            **{f"options[{i}]": option for i, option in enumerate(options)},
+            **({"prompt": prompt, **{f"options[{i}]": option for i, option in enumerate(options)}} if kind == "story" else {}),
             **({"text": text} if text else {}),
         })
         receipts = list(turn.get("receipts", []))
         # §16.3: the question closes the turn, so the player must see this turn's rolls
         # before choosing. The keeper states them in `text`; no text states nothing, so a
         # turn with public numbers refuses an ask without one.
-        check_numbers(text or "", receipts)
         turn_number = int(turn["turn"])
-        pending = {"name": f"ask-{slugify(binds or prompt)}-t{turn_number}", "prompt": prompt,
-                   "options": list(options), "binds": binds}
-        choice = render_choice(prompt, options)
-        rendered = f"{text.strip()}\n\n{choice}" if text else choice
+        pending = {"name": f"ask-{slugify(binds or prompt or kind)}-t{turn_number}", "prompt": prompt,
+                   "options": list(options), "binds": binds, "kind": kind}
+        rendered = text.strip() if text else ""
+        interaction = {**pending, "play_language": language_of(campaign.read_campaign())}
         projected = mechanics(receipts)
-        result = {"pending_choice": pending, "rendered_text": rendered, "mechanics": projected,
+        result = {"pending_choice": pending, "interaction": interaction, "rendered_text": rendered, "mechanics": projected,
                   "turn": turn_number, "state": "asked"}
         turn["pending_choice"] = pending
         turn["state"] = "asked"
@@ -1883,7 +1897,7 @@ class Table:
         snapshot = self._snapshot(campaign, graph, world, campaign.party())
         record = {
             "turn": turn_number, "player_text": turn.get("player_text"), "receipts": receipts,
-            "text": text or prompt, "rendered_text": rendered, "mechanics": projected, "calls": turn.get("calls", {}),
+            "text": text or "", "rendered_text": rendered, "mechanics": projected, "calls": turn.get("calls", {}),
             "commit": None,
             "closed_by": "ask", "opened_at": turn.get("opened_at"), "closed_at": now_iso(),
             "pending_choice": pending, "world": snapshot,
@@ -1914,7 +1928,6 @@ class Table:
         # the public numbers. The kernel renders no mechanics; it delivers the text verbatim
         # and the receipts ride beside it as the language-neutral projection (§16.2).
         check_play_language(language_of(campaign.read_campaign()), {"text": text})
-        check_numbers(text, receipts)
         rendered = text
         projected = mechanics(receipts)
         receipt_id = f"turn:{turn_number}"

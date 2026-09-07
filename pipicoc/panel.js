@@ -265,7 +265,7 @@ function clueLine(clue) {
 }
 
 export function createComponent(React) {
-  const { useCallback, useEffect, useState } = React;
+  const { useCallback, useEffect, useState, useRef } = React;
   const h = React.createElement;
 
   function Section(props) {
@@ -446,10 +446,13 @@ export function createComponent(React) {
   return function InvestigatorPanel(props) {
     const api = props.api || {};
     const [answer, setAnswer] = useState(undefined);
+    const generation = useRef(0);
+    useEffect(() => () => { generation.current++; }, []);
     const [busy, setBusy] = useState(false);
     const [who, setWho] = useState(0);
 
     const load = useCallback(async () => {
+      const request = ++generation.current;
       if (!api.invoke) {
         setAnswer({ view: null, campaign: null, reason: "this host cannot reach the pack" });
         return;
@@ -457,15 +460,17 @@ export function createComponent(React) {
       setBusy(true);
       try {
         const result = await api.invoke("sheet", {});
+        if(request !== generation.current) return;
         if (result && result.ok === true && isRecord(result.data)) setAnswer(result.data);
         else {
           const error = result && result.error;
-          setAnswer({ view: null, campaign: null, reason: (error && error.message) || "the pack did not answer" });
+          setAnswer({ view: null, campaign: null, status: "error", reason: (error && error.message) || "the pack did not answer" });
         }
       } catch (error) {
-        setAnswer({ view: null, campaign: null, reason: error instanceof Error ? error.message : String(error) });
+        if(request !== generation.current) return;
+        setAnswer({ view: null, campaign: null, status: "error", reason: error instanceof Error ? error.message : String(error) });
       } finally {
-        setBusy(false);
+        if(request === generation.current) setBusy(false);
       }
     }, [api]);
 
@@ -498,8 +503,12 @@ export function createComponent(React) {
         busy ? t.refreshing : t.refresh));
 
     if (!view) {
+      const status = answer.status || (answer.reason ? 'error' : 'empty');
+      const title = status === 'unbound' ? '尚未关联战役' : status === 'error' ? '人物数据读取失败' : '尚未开桌';
+      const detail = status === 'unbound' ? '此会话没有战役关联，不能自动猜测其他战役。' : status === 'error' ? (answer.reason || '请重试。') : '建卡完成后显示调查员。';
       return h("div", { className: "coc-sheet", role: "region", "aria-label": props.title || "Investigator" },
-        head, h("p", { className: "coc-sheet-note", role: "status" }, t.noTable));
+        h("h2", null, title), h("p", { className: "coc-sheet-note", role: "status" }, detail),
+        h("button", {onClick:()=>void load(),disabled:busy},busy?"读取中…":"重试"));
     }
 
     // The header of a printed sheet: labelled rules, not a run-on line of values.

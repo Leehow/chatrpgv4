@@ -256,10 +256,7 @@ def test_cash_builds_the_finance_block_from_the_era_table_and_moves_it(kernel):
     assert kernel.table_err("apply", call_id="t1-c3", effects=[{"kind": "cash", "delta": 0}])["code"] == "invalid_params"
     assert kernel.table_err("apply", call_id="t1-c3", effects=[{"kind": "cash", "delta": 1.5}])["code"] == "invalid_params"
 
-    unstated = kernel.table_err("narrate", call_id="t1-c3", text="他数了钱。\n\n又付了车费。")
-    assert unstated["code_detail"] == "mechanics_missing"
-    assert [m["receipt"] for m in unstated["details"]["missing"]] == ["cash:t1-c1", "cash:t1-c2", "cash:t1-c2-2"]
-    text = f"他数了钱：{start} 变成 {start + 20}。\n\n又付了车费：{start + 20} 到 {start + 15}，再到 {start + 10}。"
+    text = "他数了钱，又付了车费。"
     narrated = kernel.table("narrate", call_id="t1-c3", text=text)
     assert narrated["rendered_text"] == text
     assert [m for m in narrated["mechanics"] if m["kind"] == "cash"] == [

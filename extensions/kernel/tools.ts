@@ -445,17 +445,18 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Ask",
 		method: "table.ask",
 		description:
-			"Hand one choice back to the player, and close the turn with it. Use it when the player's declaration is too vague to continue, or when the story wants him to decide on the spot: prompt is the question delivered to the player, options are what he can pick. Write prompt, options and text in the campaign's play_language — the kernel refuses with play_language_mismatch when a field carries none of that language's script. Once you call it the turn is closed: do not narrate, do not write any more prose. The player's answer comes back as the next turn's input, carrying the pending choice with it.",
+			"Close with a structured interaction only when a player decision is needed. kind story uses a fictional prompt and authored options. kind mechanics forbids a prompt and uses only closed action identifiers: push, spend_luck, accept, dodge, fight_back, flee. Never automatically ask how to handle a failed check; normally narrate its fictional consequence. Questions and options are JSON for frontend controls, never part of rendered prose. text contains fiction only. After the call write no more prose.",
 		promptSnippet: "Hand one choice back to the player, and close the turn with it",
 		parameters: Type.Object({
 			text: Type.Optional(
 				Type.String({
 					description:
-						"the narration before the question: what happened this turn, so the player reads it before choosing. State this turn's public rolls and changes here too, with the numbers copied exactly from the tool results",
+						"Fiction and observable consequences only. No roll results, numbers from receipts, or mechanical questions.",
 				}),
 			),
-			prompt: Type.String({ description: "the question for the player; the kernel delivers text, the question and the numbered options together" }),
-			options: Type.Array(Type.String(), { minItems: 2, description: "the options the player can pick" }),
+			kind: Type.Optional(Type.Union([Type.Literal("story"), Type.Literal("mechanics")])),
+            prompt: Type.Optional(Type.String({ description: "Only for story choices. Mechanics choices forbid a prompt." })),
+			options: Type.Array(Type.String(), { minItems: 2, description: "Story: authored options. Mechanics: only push, spend_luck, accept, dodge, fight_back, flee. Never automatically ask after a failed roll." }),
 			binds: Type.Optional(Type.String({ description: "the name of the pending choice this binds to" })),
 		}),
 	},
@@ -464,7 +465,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Narrate",
 		method: "table.narrate",
 		description:
-			"Deliver this turn's narration and close the turn. Every turn ends with one narrate (or with one ask): roll what needs resolving and land what needs applying before you call it. text is delivered to the player exactly as written, so it is the whole of what he sees — write it in the campaign's play_language, and state in it every public roll and every state change of this turn, with the numbers copied exactly from the tool results (the roll and the target value, a change's before and after, a dice total, the minutes that passed). The kernel checks those numbers against the receipts and refuses with mechanics_missing when one is absent, naming what to add; it refuses with play_language_mismatch when the text carries none of the play_language's script. The names are yours to say in the player's words. After the call, write no more prose and call no more tools.",
+			"Deliver story text and close the turn. Describe fiction and observable consequences only. Roll values, targets, grades, resource accounting and rule options are exclusively mechanics JSON rendered by the frontend. Do not repeat them in text or ask how to handle a failed check. Use the campaign play_language. After delivery write no more prose.",
 		promptSnippet: "Deliver this turn's narration and close the turn",
 		parameters: Type.Object({
 			text: Type.String({ description: "this turn's narration, delivered to the player verbatim" }),

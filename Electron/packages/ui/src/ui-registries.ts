@@ -18,6 +18,7 @@ export type { Disposer }
 // --- toolRenderers ---------------------------------------------------------
 
 export type ToolRenderProps = {
+  onSelectOption?: (option:string)=>Promise<void>;
   tool: TranscriptTool
   streaming?: boolean
   projection?: LiveSubagentProjection

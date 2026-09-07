@@ -107,22 +107,14 @@ def test_a_zh_hans_turn_is_delivered_verbatim_with_every_receipt_projected(kerne
         assert not CJK.search(line.replace("托马斯·海斯", "").replace("钥匙", "").replace("温彻斯特霰弹枪", "").replace("档案馆", "")), line
 
 
-def test_a_text_missing_a_rolls_number_is_refused_naming_that_receipt(kernel):
-    open_turn(kernel, "我仔细观察诺特。")
-    kernel.table("resolve", call_id="t1-c1", action={"intent": "investigate", "goal": "x", "method": "y",
-                                                    "skill": "Spot Hidden"})
+def test_story_is_separate_from_roll_and_clock_json(kernel):
+    open_turn(kernel)
+    kernel.table("resolve", call_id="t1-c1", action={"intent": "investigate", "goal": "x", "method": "y", "skill": "Spot Hidden"})
     kernel.table("apply", call_id="t1-c2", effects=[{"kind": "time", "minutes": 10}])
-    roll = kernel.table("status")["receipts"][0]
-    error = kernel.table_err("narrate", call_id="t1-c3", text="你看了半天，十分钟（10）过去了。")
-    assert error["code"] == "invalid_params" and error["code_detail"] == "mechanics_missing"
-    assert error["details"]["missing"] == [{"receipt": "roll:spot-hidden-t1-c1", "expected": [str(roll["roll"]), "55"]}]
-    assert "roll:spot-hidden-t1-c1" in error["fix"] and str(roll["roll"]) in error["fix"] and "55" in error["fix"]
-    assert not CJK.search(error["message"]) and not CJK.search(error["fix"])
-    assert kernel.table("status")["state"] == "acting"
-    # the same holds for ask: the player sees the roll before choosing
-    asked = kernel.table_err("ask", call_id="t1-c3", prompt="继续吗？", options=["是", "否"])
-    assert asked["code_detail"] == "mechanics_missing"
-    assert [m["receipt"] for m in asked["details"]["missing"]] == ["roll:spot-hidden-t1-c1", "time:t1-c2"]
+    done = kernel.table("narrate", call_id="t1-c3", text="你收起了笔记，走回门边。")
+    assert done["rendered_text"] == "你收起了笔记，走回门边。"
+    assert [row["kind"] for row in done["mechanics"]] == ["roll", "time"]
+    assert done["mechanics"][1]["minutes"] == 10
 
 
 def test_zh_hans_player_facing_english_is_refused(kernel):
@@ -152,7 +144,8 @@ def test_zh_hans_player_facing_english_is_refused(kernel):
 
     done = kernel.table("ask", call_id="t1-c1", prompt="你要怎么做？", options=["留下", "离开"])
     assert done["state"] == "asked"
-    assert done["rendered_text"] == "你要怎么做？\n1. 留下\n2. 离开"
+    assert done["rendered_text"] == ""
+    assert done["interaction"]["options"] == ["留下", "离开"]
 
 
 def test_en_delivery_is_not_script_checked(kernel):
@@ -162,4 +155,5 @@ def test_en_delivery_is_not_script_checked(kernel):
     asked = kernel.table("ask", call_id="t1-c1", prompt="What do you do?",
                          options=["Search the desk", "Leave"])
     assert asked["state"] == "asked"
-    assert asked["rendered_text"] == "What do you do?\n1. Search the desk\n2. Leave"
+    assert asked["rendered_text"] == ""
+    assert asked["interaction"]["options"] == ["Search the desk", "Leave"]

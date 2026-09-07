@@ -21,7 +21,7 @@ import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { cocMode } from "../lanes/host.ts";
+import { cocHome, cocMode } from "../lanes/host.ts";
 import {
 	allowedSteps,
 	gate,
@@ -207,6 +207,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/** Scalars from a result go into the context; from objects only the identity keys the contract names are taken, so a whole graph never lands in a parameter slot. */
+	let recordedBinding = "";
 	function noteResult(result: Record<string, unknown>): void {
 		for (const [key, value] of Object.entries(result)) {
 			if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
@@ -216,6 +217,16 @@ export default function (pi: ExtensionAPI) {
 		const campaign = asRecord(result.campaign);
 		const campaignId = asString(result.campaign_id) ?? asString(campaign.id) ?? asString(result.campaign);
 		if (campaignId) context.campaign = campaignId;
+    const language = asString(asRecord(result.campaign).play_language) ?? asString(context.play_language);
+    if (ctx && context.campaign && language) {
+      const data = {campaign: context.campaign, home: cocHome(ctx.cwd), play_language: language};
+      const identity = JSON.stringify(data);
+      if (identity !== recordedBinding) {
+        recordedBinding = identity;
+        pi.appendEntry("coc-session", data);
+        pi.events.emit("coc:session-bound", data);
+      }
+    }
 		const moduleId = asString(result.module_id) ?? asString(asRecord(result.module).id);
 		if (moduleId) context.module_id = moduleId;
 	}

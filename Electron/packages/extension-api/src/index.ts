@@ -437,7 +437,7 @@ export type ExtensionHostBacking = {
     patch: Record<string, unknown>,
   ): Promise<ExtInvokeResult<Record<string, unknown>>>;
   subscribeExt?(id: string, listener: (event: ExtEvent) => void): (() => void) | void;
-  invokeExtension?(id: string, method: string, params: unknown): Promise<ExtInvokeResult>;
+  invokeExtension?(id: string, method: string, params: unknown, options?: {sessionId:string}): Promise<ExtInvokeResult>;
   notify?(title: string, body: string): void | Promise<void>;
   getExtensionAuthStatus?(id: string): Promise<ExtensionAuthStatus>;
   listExtensionData?(id: string, dir: string, projectId?: string): Promise<ExtensionDataFile[]>;
@@ -456,6 +456,7 @@ export type ExtensionHostBacking = {
 };
 
 export type CreateExtensionHostAPIOptions = {
+  sessionId?: string;
   extensionId: string;
   capabilities?: readonly string[];
   host: ExtensionHostBacking;
@@ -549,7 +550,7 @@ export function createExtensionHostAPI(options: CreateExtensionHostAPIOptions): 
   if (caps.has("invoke.agent")) {
     api.invoke = (method, params) => {
       if (!host.invokeExtension) return Promise.resolve(denied("invoke.agent"));
-      return host.invokeExtension(id, method, params);
+      return host.invokeExtension(id, method, params, options.sessionId ? {sessionId:options.sessionId} : undefined);
     };
   }
 
