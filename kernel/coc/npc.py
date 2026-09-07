@@ -51,6 +51,9 @@ class StanceTable:
         value = row.get(str(level or ""))
         return int(value) if isinstance(value, int) else 0
 
+    def knows_approach(self, approach: Any) -> bool:
+        return isinstance(self.social, dict) and str(approach or "") in self.social
+
     def clamp(self, score: int) -> int:
         return max(self.low, min(self.high, int(score)))
 
@@ -150,7 +153,10 @@ def _fold_roll(ledger: dict[str, Any], receipt: dict[str, Any], *, turn: int, ta
             _set_stance(entry, table, table.combat_target_score, turn, receipt.get("id"),
                         because={"how": "combat"})
             continue
-        if family != "social":
+        # A roll that names an approach the stance table knows is a social one, whatever
+        # family settled it: a push and a luck spend continue the social check they came
+        # from, and it is the same person on the other side of it.
+        if family != "social" and not (isinstance(approach, str) and table.knows_approach(approach)):
             continue
         delta = table.delta(approach, receipt.get("level"))
         if receipt.get("pushed") and not receipt.get("passed"):

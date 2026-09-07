@@ -162,6 +162,14 @@ def kernel(tmp_path: Path):
 
 
 @pytest.fixture
+def seeded_one(tmp_path: Path):
+    """Seed 1: a Charm against Knott fails, and pushing it fails too (§17.3 tests)."""
+    client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "1"})
+    yield client
+    client.close()
+
+
+@pytest.fixture
 def seeded_four(tmp_path: Path):
     """Seed 4: the-haunting's pregen passes a regular Persuade against Knott (§17.3 tests)."""
     client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "4"})

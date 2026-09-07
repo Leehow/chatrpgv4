@@ -220,6 +220,36 @@ def test_a_social_level_the_table_gives_nothing_for_leaves_the_stance_alone(kern
         assert row["stance"] is None
 
 
+def test_a_pushed_social_failure_still_reaches_the_stance(seeded_one):
+    """§17.3: a push settles under its own family (`push-luck`) and its outcome names no
+    approach, but it continues the social check it came from and the same person is on the
+    other side of it. Found at a live table: a pushed Charm reached the ledger as an
+    approachless `push-luck` roll, so `pushed_failure_delta` moved nothing and the keeper
+    had to set the stance by hand."""
+    open_turn(seeded_one)
+    action = {"intent": "social", "goal": "get the keys and the story", "method": "charm him",
+              "target": "Steven Knott", "stakes": "he clams up"}
+    first = resolve(seeded_one, "t1-c1", **action)["outcome"]
+    assert first["passed"] is False and first["approach"] == "charm"
+    pushed = resolve(seeded_one, "t1-c2", **{**action, "push": True,
+                                             "stakes": "he throws me out"})["outcome"]
+    assert pushed["kind"] == "push" and pushed["passed"] is False
+    narrate(seeded_one, "t1-c3", "诺特把钥匙收了回去。")
+
+    receipts = {r["id"]: r for r in read_json(campaign_dir(seeded_one.workspace) / "turns" / "0001.json")["receipts"]}
+    push_receipt = next(r for r in receipts.values() if r.get("kind") == "roll" and r.get("pushed"))
+    # the receipt says what it is, which is what makes the ledger a fold over receipts alone
+    assert push_receipt["approach"] == "charm" and push_receipt["npc"] == "steven-knott"
+
+    table = StanceTable(RuleTables(CONTENT / "rulesets" / "coc7" / "rules-json"))
+    row = ledger(seeded_one)[KNOTT]
+    expected = table.delta("charm", first["level"]) + table.delta("charm", pushed["level"]) + table.pushed_failure_delta
+    assert table.pushed_failure_delta == -1  # the table's number, restated so a change fails here
+    assert row["stance"]["score"] == expected == -1
+    assert row["stance"]["value"] == "wary"
+    assert row["stance"]["because"][-1]["receipt"] == push_receipt["id"]
+
+
 def test_the_ledger_records_who_handed_a_clue_over(kernel):
     open_turn(kernel)
     kernel.table("apply", call_id="t1-c1",

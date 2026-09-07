@@ -1019,8 +1019,15 @@ class ResolvePipeline:
             receipt.setdefault("family", family)
             if against and receipt.get("actor") != against:
                 receipt.setdefault("npc", against)
-            if approach:
-                receipt.setdefault("approach", approach)
+            # A push or a luck spend settles under its own family and its outcome names no
+            # approach, but the roll it continues is still the social one it was: the skill
+            # says which, through the same closed table the adjudication used. Without this a
+            # pushed Charm reaches the ledger as an approachless `push-luck` roll and moves
+            # nothing -- observed at a live table, where a pushed failure left the stance
+            # untouched and the keeper had to set it by hand.
+            named = approach or APPROACH_BY_SKILL.get(str(receipt.get("skill") or ""))
+            if named:
+                receipt.setdefault("approach", named)
 
     def _director_grounding(self) -> tuple[str | None, set[str]]:
         """The decisions the capsule's `director.grounded_by` named this turn, as full refs.
