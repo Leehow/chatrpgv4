@@ -406,11 +406,42 @@ def opening_subgraph(graph: dict[str, Any]) -> tuple[dict[str, Any] | None, list
     return sub, missing, start
 
 
+def start_scene_candidates(graph: dict[str, Any]) -> list[dict[str, str]]:
+    """The scenes the book itself declares as an entrance, in id order. More than one is
+    not the kernel's to settle (§14.14): which scene opens the book is a question about the
+    book, so the candidates are named and the answer is asked for."""
+    nodes = _nodes(graph)
+    scenes = {nid for nid, n in nodes.items() if n.get("node_kind") in WALKABLE_KINDS}
+    out = []
+    for node_id in sorted(entrances(graph, scenes)):
+        node = nodes[node_id]
+        out.append({"node_id": node_id, "scene": handle_of(node),
+                    "name": str(node.get("name") or handle_of(node))})
+    return out
+
+
+def opening_choice(graph: dict[str, Any]) -> dict[str, Any] | None:
+    """The one thing a person can settle about an unready opening: which of the declared
+    entrances is the start scene. `None` when the opening is blocked by anything else —
+    a missing scene or a broken neighbourhood is a build problem, not a question."""
+    candidates = start_scene_candidates(graph)
+    if len(candidates) < 2:
+        return None
+    return {"field": "start_scene", "reason": "start_scene_ambiguous", "candidates": candidates,
+            "method": "module.opening.choose",
+            "ask": "The book declares more than one opening scene. Ask which one this table starts on, "
+                   "then call module.opening.choose with that scene."}
+
+
 def opening_check(graph: dict[str, Any]) -> dict[str, Any]:
     sub, missing, start = opening_subgraph(graph)
+    choice = opening_choice(graph)
     if sub is None:
-        return {"opening_ready": False, "start_scene": start, "missing": missing, "findings": [],
-                "finding_counts": {}}
+        report = {"opening_ready": False, "start_scene": start, "missing": missing, "findings": [],
+                  "finding_counts": {}}
+        if choice is not None:
+            report["choice"] = choice
+        return report
     report = check(sub)
     findings = list(report["findings"])
     ready = not missing and not findings

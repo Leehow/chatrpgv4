@@ -137,8 +137,36 @@ function acceptedCount() {
 	return SECTIONS.filter((row) => row.status === "accepted").length;
 }
 
+/**
+ * 开场候选（契约 §14.14）：书里抽出不止一个开场时，`module.status` 的 `opening.choice`
+ * 把候选交出来，`module.opening.choose` 才定得下来——内核不猜。
+ * `FAKE_KERNEL_MODULE.opening_candidates: [{node_id, scene, name}]`。
+ */
+const OPENING_CANDIDATES = MODULE.opening_candidates ?? [];
+let chosenStartScene = null;
+
 function openingReady() {
-	return SECTIONS.length > 0 && acceptedCount() >= OPENING_AFTER;
+	if (SECTIONS.length === 0 || acceptedCount() < OPENING_AFTER) return false;
+	return OPENING_CANDIDATES.length === 0 || chosenStartScene !== null;
+}
+
+/** 与内核 `opening_check` 同形的那一份（契约 §14.14）。 */
+function openingReport() {
+	if (openingReady()) {
+		return { opening_ready: true, start_scene: chosenStartScene, missing: [], findings: [], finding_counts: {} };
+	}
+	const report = { opening_ready: false, start_scene: null, missing: [], findings: [], finding_counts: {} };
+	if (OPENING_CANDIDATES.length > 1 && chosenStartScene === null) {
+		report.missing = [`start_scene_ambiguous:${OPENING_CANDIDATES.map((row) => row.node_id).join(",")}`];
+		report.choice = {
+			field: "start_scene",
+			reason: "start_scene_ambiguous",
+			candidates: OPENING_CANDIDATES,
+			method: "module.opening.choose",
+			ask: "The book declares more than one opening scene.",
+		};
+	}
+	return report;
 }
 
 /** 已经抽过或已经落 backlog 的回合：`memory.job` 不再自动派发（契约 §12.3）。 */
@@ -502,6 +530,19 @@ function handle(method, params) {
 				},
 			};
 		case "campaign.create": {
+			// 闭合词表的拒绝要带候选（契约 §1、§14.15）：内核给 fix 与 details.options，
+			// 建卡工具必须把它们原样交出来，模型才不用连猜 zh、zh-CN 再放弃（#33）。
+			if (params.play_language !== undefined && !["zh-Hans", "en"].includes(params.play_language)) {
+				return {
+					ok: false,
+					error: {
+						code: "invalid_params",
+						message: `unsupported play_language '${params.play_language}'`,
+						fix: "one of details.options",
+						details: { field: "play_language", options: ["zh-Hans", "en"] },
+					},
+				};
+			}
 			campaignSeq += 1;
 			const id = params.id ?? `camp-${campaignSeq}`;
 			return {
@@ -629,7 +670,39 @@ function handle(method, params) {
 					planned,
 					generation,
 					opening_ready: openingReady(),
+					opening: openingReport(),
+					playability: { status: "playable", finding_counts: {} },
 					sections: planned ? SECTIONS.map((row) => ({ ...row })) : [],
+				},
+			};
+		}
+		case "module.opening.choose": {
+			const wanted = String(params.scene ?? "").trim().toLowerCase();
+			const picked = OPENING_CANDIDATES.find((row) =>
+				[row.node_id, row.scene, row.name].some((value) => String(value ?? "").toLowerCase() === wanted),
+			);
+			if (!picked) {
+				return {
+					ok: false,
+					error: {
+						code: "needs_choice",
+						message: `${params.scene} 不是这本书的开场之一`,
+						fix: "name one of details.candidates",
+						details: { field: "start_scene", candidates: OPENING_CANDIDATES },
+					},
+				};
+			}
+			chosenStartScene = picked.node_id;
+			generation += 1;
+			return {
+				ok: true,
+				result: {
+					module_id: params.module_id ?? MODULE_ID,
+					start_scene: picked.node_id,
+					opening_ready: openingReady(),
+					opening: openingReport(),
+					generation,
+					candidates: OPENING_CANDIDATES,
 				},
 			};
 		}

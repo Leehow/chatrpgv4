@@ -8,6 +8,8 @@ import json
 from conftest import CONTENT_DIR, MODULE
 from module_helpers import KERNEL_DIR  # noqa: F401  (puts kernel/ on sys.path)
 
+from coc.module_graph import record_of
+from coc.modules.assemble import apply_opening_choice, resolve_start_scene
 from coc.modules.playability import check, opening_check
 
 
@@ -57,6 +59,34 @@ def test_silence_about_entrance_and_ending_is_refused_but_an_explicit_none_is_an
     accounted = check(graph)["finding_counts"]
     assert "no_entrance_declared" not in accounted and "no_ending_declared" not in accounted
     assert opening_check(graph)["missing"] == ["start_scene"]
+
+
+def test_two_declared_openings_come_back_as_a_choice_with_both_named():
+    """§14.14: which scene opens the book is a question about the book. The kernel refuses
+    to guess, but the refusal carries the candidates so someone can answer it."""
+    graph = starter_graph()
+    second = next(n for n in graph["nodes"]
+                  if n["node_kind"] == "scene" and n["node_id"] != "scene-commission-briefing")
+    second["properties"]["is_entrance"] = True
+    report = opening_check(graph)
+    assert report["opening_ready"] is False and report["start_scene"] is None
+    assert report["missing"] == [f"start_scene_ambiguous:{second['node_id']},scene-commission-briefing"]
+    choice = report["choice"]
+    assert choice["field"] == "start_scene" and choice["method"] == "module.opening.choose"
+    assert {row["node_id"] for row in choice["candidates"]} == {second["node_id"], "scene-commission-briefing"}
+    assert all(row["name"] for row in choice["candidates"]), "a candidate is named, not just identified"
+
+    # Only the book's own candidates can be named, by node id, handle or name.
+    assert resolve_start_scene(graph, "scene-ghost") is None
+    assert resolve_start_scene(graph, "commission-briefing") == "scene-commission-briefing"
+    assert apply_opening_choice(graph, "scene-commission-briefing") is True
+    settled = opening_check(graph)
+    assert settled["opening_ready"] is True and settled["start_scene"] == "scene-commission-briefing"
+    assert "choice" not in settled
+    assert graph["entry_scene_ids"] == ["scene-commission-briefing"]
+    starts = [n for n in graph["nodes"] if record_of(n).get("is_start") is True]
+    assert [n["node_id"] for n in starts] == ["scene-commission-briefing"], "the table walks the records"
+    assert second["properties"]["is_entrance"] is True, "what the book says about the scene is evidence, not a vote"
 
 
 def test_dangling_relation_and_unreachable_scene_are_found():

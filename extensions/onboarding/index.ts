@@ -372,23 +372,98 @@ export default function (pi: ExtensionAPI) {
 		return { ok: true, ...values };
 	}
 
+	/** The books whose opening candidates have already been handed to the assistant once (§14.14). */
+	const openingAsked = new Set<string>();
+
+	/**
+	 * What this step can say about a book that is not `opening_ready` (contract §14.14). Three
+	 * answers and one silence:
+	 *
+	 * - a settled opening finishes the step;
+	 * - an ambiguous one is a question, asked once, with the candidate scenes named — never a wait,
+	 *   because no build will ever resolve it;
+	 * - an installed, playable book whose opening is still undecided finishes the step anyway
+	 *   ("ready, opening undecided"): the flow must not die on it. Asking twice with no answer
+	 *   ends the same way, so this step can never loop.
+	 *
+	 * `undefined` means there is nothing to say yet: the book is still being read. Nothing here
+	 * fires before the book has been read (`afterBuild`, or a store that already says installed):
+	 * a question asked in place of the build would leave the rest of the book unread.
+	 */
+	function settleOpening(moduleId: string, status: Record<string, unknown>,
+		options: { afterBuild?: boolean } = {}): Record<string, unknown> | undefined {
+		if (status.opening_ready === true) return { ok: true, opening_ready: true, status };
+		const opening = asRecord(status.opening);
+		const choice = asRecord(opening.choice);
+		const candidates = Array.isArray(choice.candidates) ? choice.candidates : [];
+		const installed = status.status === "installed";
+		const playable = asRecord(status.playability).status === "playable";
+		const read = installed || options.afterBuild === true;
+		if (candidates.length > 0 && read && !openingAsked.has(moduleId)) {
+			openingAsked.add(moduleId);
+			return {
+				ok: false,
+				opening_ready: false,
+				needs: ["start_scene"],
+				candidates,
+				hint:
+					`This book declares ${candidates.length} opening scenes and the kernel will not guess between them. ` +
+					`Ask the player which one this table starts on, then call this same step again with start_scene set to that scene ` +
+					`(its scene handle or its name). Waiting will not settle it.`,
+			};
+		}
+		if (installed && playable) {
+			return {
+				ok: true,
+				opening_ready: false,
+				opening_pending: true,
+				...(candidates.length > 0 ? { candidates } : {}),
+				status,
+				note:
+					"The book is read in and playable; which scene opens it is still undecided. Setup goes on; " +
+					"the opening can be settled at any time with module.opening.choose.",
+			};
+		}
+		return undefined;
+	}
+
 	/**
 	 * The build step: the loop lives in the module extension (contract §14.5; `module.build` is not a kernel method).
 	 * This starts it and waits for `opening_ready`; at the deadline it answers "still reading" and the player can call again to keep waiting.
+	 * An opening the book leaves ambiguous is a question rather than a wait (contract §14.14).
 	 */
 	async function runModuleBuild(params: Record<string, unknown>): Promise<Record<string, unknown>> {
 		const moduleId = asString(params.module_id) ?? asString(context.module_id);
 		if (!moduleId) return { ok: false, needs: ["module_id"], hint: "Bind the bundle first, or the build does not know which book to read." };
 		const campaign = asString(context.campaign);
+		const wanted = asString(params.start_scene);
+		if (wanted) {
+			// The player answered: settle it in the module store, where every campaign on this book reads it.
+			try {
+				const chosen = asRecord(await bridge?.call("module.opening.choose", { module_id: moduleId, scene: wanted }));
+				return { ok: chosen.opening_ready === true, opening_ready: chosen.opening_ready === true, ...chosen };
+			} catch (error) {
+				const details = asRecord((error as { details?: unknown }).details);
+				return {
+					ok: false,
+					needs: ["start_scene"],
+					...(Array.isArray(details.candidates) ? { candidates: details.candidates } : {}),
+					code: errorCode(error) ?? "internal",
+					message: errorText(error),
+					...((error as { fix?: string }).fix ? { fix: (error as { fix?: string }).fix } : {}),
+				};
+			}
+		}
 		try {
 			const status = asRecord(await bridge?.call("module.status", { module_id: moduleId }));
-			if (status.opening_ready === true) return { ok: true, opening_ready: true, status };
+			const settled = settleOpening(moduleId, status);
+			if (settled) return settled;
 		} catch {
 			/* an unreadable status does not stop the build from starting */
 		}
 
 		// The bus's `on` returns an unsubscribe closure (Pi has no `off`): the three subscriptions and the timer are cleaned up together.
-		return await new Promise<Record<string, unknown>>((resolve) => {
+		const outcome = await new Promise<Record<string, unknown>>((resolve) => {
 			const disposers: Array<() => void> = [];
 			const done = (payload: Record<string, unknown>) => {
 				clearTimeout(timer);
@@ -420,6 +495,18 @@ export default function (pi: ExtensionAPI) {
 			);
 			pi.events.emit("coc:module-build", { module_id: moduleId, ...(campaign ? { campaign } : {}) });
 		});
+		if (outcome.ok === true || outcome.still_building === true) return outcome;
+		// The build ended and the opening is still not ready. Whether that is a question for the
+		// player or a book that is simply playable without a settled opening is the store's to say —
+		// answering "not ready" and nothing else is what put 216 identical retries in one turn (#33).
+		try {
+			const status = asRecord(await bridge?.call("module.status", { module_id: moduleId }));
+			const settled = settleOpening(moduleId, status, { afterBuild: true });
+			if (settled) return { ...outcome, ...settled };
+		} catch {
+			/* an unreadable status leaves the build's own answer standing */
+		}
+		return outcome;
 	}
 
 	// ---- One step ---------------------------------------------------------
@@ -458,12 +545,20 @@ export default function (pi: ExtensionAPI) {
 				opCache.set(cacheKey, result);
 				noteResult(result);
 			} catch (error) {
+				// The kernel's `fix` and `details` are the only actionable part of a refusal
+				// (contract §1) and they must survive this projection: dropping them is what made
+				// the setup model try play_language "zh", then "zh-CN", then give up on the
+				// parameter altogether while the kernel had been naming zh-Hans and en all along (#33).
+				const fix = (error as { fix?: unknown }).fix;
+				const details = (error as { details?: unknown }).details;
 				return {
 					ok: false,
 					step: step.id,
 					failed_on: op.method,
 					code: errorCode(error) ?? "internal",
 					message: errorText(error),
+					...(typeof fix === "string" && fix ? { fix } : {}),
+					...(details && typeof details === "object" ? { details } : {}),
 					results,
 				};
 			}

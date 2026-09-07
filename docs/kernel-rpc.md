@@ -777,6 +777,24 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 - **理由与备选都留痕。** `basis` 说清是哪条规则选的；`measured.heading_depth_cuts` 每一层多给 `smallest_chars`、`divides`、`within_target`、`within_budget`，被否掉的备选原样在 `plan.json` 里。旧的 `whole_book_fits_budget`、裸 `heading_depth_<d>` 两个 basis 值不再出现。
 - **对照。** 同一本《冰冷的收获》按新法走第 2 条：一级标题 11 段，最大 10,058 字。tiny 夹具（503 字）仍是一段（`whole_book_within_target`）；`budget: 200` 仍按二级标题切四段（`heading_depth_2_within_target`）。
 
+### 14.14 开场歧义是一次待裁的选择，不是死等（票 #33，已实现）
+
+真桌证据：《冰冷的收获》抽出两个开场场景，`opening_check` 不猜，`module.json` 停在 `{"opening_ready": false, "missing": ["start_scene_ambiguous:scene-nkvd-briefing-opening1,scene-nkvd-briefing-opening2"]}`，而模组已经 `installed`、可玩性 `playable`。建卡第五步只回了一句「还没就绪」，模型于是**连着调了 216 次 `build-opening`**（00:59:53–01:08:20），玩家的每一句都被 `Agent is already processing` 顶回，直到驾驭器杀进程。**哪个是开场是书的问题，内核不猜；但拒绝里必须有下一步。**
+
+- **内核给候选。** `opening_check` 在只差「哪个是开场」时多带一个 `choice`：`{"field": "start_scene", "reason": "start_scene_ambiguous", "candidates": [{"node_id", "scene", "name"}], "method": "module.opening.choose", "ask": "<一句英文指令>"}`；`missing` 里那条字符串照旧（它是证据）。别的原因（缺场景、邻域断裂）是构建问题，不是问题句，没有 `choice`。`module.status` 与 `module.assemble` 的 `opening` 都带它。
+- **`module.opening.choose {module_id, scene}`。** `scene` 只能是书自己声明的候选之一（按 node_id / 场景 handle / 名字归一化匹配）；不是候选就报 `needs_choice`，`details.candidates` 给全部候选。选中的写进 `module.json.opening_choice = {start_scene, at}`，然后重新装配一次。starter 的图是内容的逐字节副本，这个方法对它报 `invalid_params` 并说明去改内容图。
+- **选择应用在两个机器自己的位置上**：图级 `entry_scene_ids = [选中]`（可玩性检查读它）与每个场景 `runtime_projection.record.is_start`（`ModuleGraph.start_scene()` 走它）。书自己写的 `properties.is_entrance` 一个字不动——那是证据，不是选票。选择存在 `module.json` 里，**每次装配重放**，所以后来的深挖长了图也不会把它抹掉。
+- **`ModuleGraph.start_scene()` 的拒绝带路。** `campaign_not_ready`（声明了 N 个开场）现在带 `fix`（指向 `module.opening.choose`）与 `details.candidates`。
+- **建卡第五步 `build-opening` 三个答案、一次沉默**（`extensions/onboarding`）：开场已定 → 这一步过；书已读完而开场歧义 → **当轮返回** `ok:false`，带 `needs: ["start_scene"]` 与候选（含名字），并说明「等下去不会好」；模组已 `installed` 且可玩性 `playable` 而开场仍未定 → 以 `ok:true, opening_ready:false, opening_pending:true` 收尾（「已就绪，开场待定」），建卡照常往下走。候选**只交一次**：同一本书第二次不带 `start_scene` 再来，直接走「收尾」那一支——所以这一步最多问一轮，永远打不了转。书还没读完时才是沉默：起构建、等总线，超时那一支不变。步表 `build-opening` 因此多一个可选参数 `start_scene`。
+- **不要在读书之前就问。** 问句只在「书已读完」（构建结束，或存储已经说 `installed`）之后出；否则这一步会用一句问话顶掉整本书的构建。
+
+### 14.15 闭合词表的拒绝要带候选，且候选要活过投影（票 #33，已实现）
+
+真桌证据：模型连试 `play_language: "zh"`、`"zh-CN"`，然后放弃传参。内核那一侧**本来就带 `fix`**（`one of ['zh-Hans', 'en']`），是建卡工具把内核错误投影成工具结果时只抄了 `code` 与 `message`——可照做的那半截死在接缝上。
+
+- 每条闭合词表的拒绝同时给 `fix` 与 `details.options`（实体名用 `details.candidates`）。本票补齐：`campaign.create` 的 `play_language`/`register`、`table.look` 的 `scope`、`resolve` 的 `action.defense`/`action.mode`、`apply npc` 的 `to`、会话族的 `combat`/`chase`/`sanity` 命令词、`state.end_session` 的 ending kind、`setup.investigator` 的 `allocation`，以及 §14.14 的 `start_scene`。
+- **拒绝的可照做部分必须活过每一层投影**：`extensions/onboarding` 的工具结果现在带 `fix` 与 `details`。任何把内核错误压成 `{code, message}` 的地方都是同一个缺陷。
+
 ## 15. 世界线：if 线、时间回溯、跨线知晓与汇流（切片 6，票 #23）
 
 一条世界线就是战役 sidecar 仓库里的一条分支。玩家在一个战役里同一时刻只玩一条线；可以分叉、回溯、切换、汇流；所有线都留着（证据永不删除）。什么跨线留下、谁记得别的线、汇流时怎么合，由模组图声明、内核确定性地算；守秘人只在胶囊里看到这是第几圈、锚点在哪、留下了什么、谁记得、有哪些回声可投放。世界线操作是世界的改变，所以走 `apply`（法则二），并在那一回合提交之后由内核执行——守秘人仍然只有七个动词。旧树世界线系统的双时态断言、九种记忆状态、跨战役转移、自动合并策略都不回来。

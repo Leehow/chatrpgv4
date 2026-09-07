@@ -149,11 +149,15 @@
         "module_id": {
           "description": "the bound module",
           "required": true
+        },
+        "start_scene": {
+          "description": "only when this step came back needing one: the opening scene the player picked, from the candidates it listed",
+          "required": false
         }
       },
       "receipt": "opening_ready",
       "lines": {
-        "do": "Start the build (driven by the module extension) and wait for opening_ready.",
+        "do": "Start the build (driven by the module extension) and wait for opening_ready. A book that declares more than one opening scene comes back asking for start_scene; ask the player and call again with it.",
         "next": "Build the opening: module.build until module.status reports opening_ready."
       },
       "applies_to": [

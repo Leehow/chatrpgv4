@@ -16,13 +16,13 @@ from ..fileio import read_json, write_json_atomic
 from . import brief as brief_text
 from . import deepen as deepen_lane
 from . import plan as planner
-from .assemble import assemble as assemble_graph
+from .assemble import assemble as assemble_graph, resolve_start_scene
 from .assets import registry_from_bundle
 from .bundle import copy_into, load_pages, verify
 from .contract import REPO_ROOT, module_node_id
 from .gates import review as run_gates
 from .packet import build as build_packet, span_catalog
-from .playability import opening_check
+from .playability import opening_check, start_scene_candidates
 from .store import ModuleStore, now_iso
 
 MAX_READER_ROUNDS = 3
@@ -344,6 +344,40 @@ class ModuleMethods:
         module_id = _str(params, "module_id")
         return assemble_graph(self.store, module_id)
 
+    def opening_choose(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Settle which of the book's declared openings this table starts on (§14.14).
+
+        The kernel never picks: `scene` must be one of the candidates the book itself
+        declares, and the answer comes from the player through the setup assistant. It is
+        kept in `module.json` and replayed onto every later assembly, so a deepening pass
+        that grows the graph does not undo it."""
+        module_id = _str(params, "module_id")
+        meta = self.store.module(module_id)
+        wanted = _str(params, "scene")
+        graph = self.store.read_graph(module_id)
+        if graph is None:
+            raise RpcError("campaign_not_ready", f"module {module_id!r} has no graph yet",
+                           fix="module.assemble after at least one accepted section")
+        if meta.get("source") != "pdf":
+            raise invalid_params(
+                f"module {module_id!r} is a starter; its opening is declared by its content graph",
+                fix="edit the starter's module-graph.json entry_scene_ids instead")
+        candidates = start_scene_candidates(graph)
+        chosen = resolve_start_scene(graph, str(wanted))
+        if chosen is None:
+            raise RpcError("needs_choice", f"{wanted!r} is not one of this book's opening scenes",
+                           fix="name one of details.candidates by its scene handle or its name",
+                           details={"field": "start_scene", "candidates": candidates})
+        meta["opening_choice"] = {"start_scene": chosen, "at": now_iso()}
+        self.store.write_module(meta)
+        result = assemble_graph(self.store, module_id)
+        self.store.append_build_log(module_id, {"event": "opening-choice", "start_scene": chosen,
+                                                "candidates": [row["node_id"] for row in candidates]})
+        return {"module_id": module_id, "start_scene": chosen,
+                "opening_ready": result["opening_ready"], "opening": result["opening"],
+                "generation": result["generation"], "status": result["status"],
+                "candidates": candidates}
+
     def install(self, params: dict[str, Any]) -> dict[str, Any]:
         module_id = _str(params, "module_id")
         meta = self.store.module(module_id)
@@ -458,6 +492,7 @@ def methods(table_or_store: Any, content_dir: Path | str | None = None) -> dict[
         "module.accept": api.accept,
         "module.assemble": api.assemble,
         "module.install": api.install,
+        "module.opening.choose": api.opening_choose,
         "module.deepen.claim": api.deepen_claim,
         "module.deepen.complete": api.deepen_complete,
         "module.deepen.enqueue": api.deepen_enqueue,

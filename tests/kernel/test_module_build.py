@@ -82,6 +82,53 @@ def test_a_book_with_headings_is_cut_even_though_it_fits_the_budget(kernel: RpcC
     assert all(section["chars"] <= 9_000 for section in clamped["sections"])
 
 
+def test_an_ambiguous_opening_is_settled_by_a_choice_and_survives_the_next_assembly(
+        kernel: RpcClient, tmp_path: Path):
+    """§14.14: a book that declares two openings does not become unplayable and does not
+    hang the setup; the candidates come back named and `module.opening.choose` settles it."""
+    bind_tiny(kernel, tmp_path)
+    section_id = plan_whole_book(kernel)
+    packet, work_dir = packet_for(kernel, section_id)
+    shard = reader_shard(packet)
+    # The reader found a second scene the book also presents as an opening.
+    for row in shard["nodes"]:
+        if row["node_id"] == "scene-abandoned-warehouse":
+            row["properties"]["is_entrance"] = True
+    write_shard(work_dir, shard)
+    assert review(kernel, section_id)["accepted"]
+    kernel.ok("module.accept", {"module_id": TINY_ID, "section_id": section_id})
+    assembled = kernel.ok("module.assemble", {"module_id": TINY_ID})
+
+    opening = assembled["opening"]
+    assert opening["opening_ready"] is False and opening["start_scene"] is None
+    assert opening["missing"] == ["start_scene_ambiguous:scene-abandoned-warehouse,scene-dock-teahouse"]
+    assert [row["scene"] for row in opening["choice"]["candidates"]] == ["abandoned-warehouse", "dock-teahouse"]
+    assert opening["choice"]["method"] == "module.opening.choose"
+    # The module is still installable and still playable: the opening is undecided, not broken.
+    kernel.ok("module.install", {"module_id": TINY_ID})
+    status = kernel.ok("module.status", {"module_id": TINY_ID})
+    assert status["status"] == "installed" and status["playability"]["status"] == "playable"
+    assert status["opening_ready"] is False and "choice" in status["opening"]
+
+    refused = kernel.err("module.opening.choose", {"module_id": TINY_ID, "scene": "灯塔"})
+    assert refused["code"] == "needs_choice"
+    assert [row["scene"] for row in refused["details"]["candidates"]] == ["abandoned-warehouse", "dock-teahouse"]
+
+    chosen = kernel.ok("module.opening.choose", {"module_id": TINY_ID, "scene": "码头茶棚"})
+    assert chosen["start_scene"] == "scene-dock-teahouse" and chosen["opening_ready"] is True
+    graph = read_json(module_dir(kernel.workspace) / "module-graph.json")
+    assert graph["entry_scene_ids"] == ["scene-dock-teahouse"]
+    records = {n["node_id"]: ((n["properties"].get("runtime_projection") or {}).get("record") or {})
+               for n in graph["nodes"] if n["node_kind"] == "scene"}
+    assert records["scene-dock-teahouse"]["is_start"] is True
+    assert records["scene-abandoned-warehouse"]["is_start"] is False, "the table walks the records"
+
+    # A later assembly (what every deepening pass does) replays the choice rather than losing it.
+    again = kernel.ok("module.assemble", {"module_id": TINY_ID})
+    assert again["opening_ready"] is True and again["opening"]["start_scene"] == "scene-dock-teahouse"
+    assert kernel.ok("module.status", {"module_id": TINY_ID})["opening_ready"] is True
+
+
 def test_packet_carries_spans_window_skeleton_and_no_raw_pages(kernel: RpcClient, tmp_path: Path):
     bind_tiny(kernel, tmp_path)
     section_id = plan_whole_book(kernel)
