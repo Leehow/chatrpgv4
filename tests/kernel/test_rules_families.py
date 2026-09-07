@@ -121,8 +121,12 @@ def test_combined_check_one_roll_many_targets(seeded_kernel):
     assert [t["value"] for t in outcome["targets"]] == [55, 45]
     assert outcome["passed"] == any(t["success"] for t in outcome["targets"])
     assert result["receipts"] == ["roll:spot-hidden-listen-t1-c1"]
-    if not outcome["passed"]:
-        assert [c["decision"] for c in result["continuations"]] == ["push-luck:luck-spend"]
+    # A combined check is not continuable (`runtime.continuable_check`), so the result must
+    # not offer a Luck spend against it. This assertion used to require the opposite, which
+    # pinned a defect: at a live table the keeper read the offer, put it to the player, and
+    # the settlement refused — binding to an unrelated fumble two turns back and reporting
+    # that outcome. An offer the settlement will refuse is worse than no offer.
+    assert [c["decision"] for c in result["continuations"] if c["decision"].startswith("push-luck:")] == []
     error = resolve_err(seeded_kernel, "t1-c2", intent="investigate", goal="x", method="y",
                         decision="core-check:combined-check", skills=["Spot Hidden"])
     assert error["code"] == "needs" and error["details"]["needs"]["field"] == "skills"
