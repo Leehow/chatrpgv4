@@ -21,13 +21,13 @@ test("真表：starter 车道建完战役就能建调查员，pdf 车道要先�
 	assert.ok(investigator);
 
 	const starter = { completed: new Set(["choose-source", "create-campaign"]), sourceKind: "starter" };
-	assert.deepEqual(missingNeeds(investigator, starter, steps), [], "build-opening 在 starter 车道不出现，视为已满足");
+	assert.deepEqual(missingNeeds(investigator, starter, steps), [], "prepare-module 在 starter 车道不出现，视为已满足");
 	assert.ok(allowedSteps(steps, starter).some((s) => s.id === "create-investigator"));
-	assert.ok(!allowedSteps(steps, starter).some((s) => s.id === "build-opening"), "only_for: pdf 的步不进 starter 车道");
+	assert.ok(!allowedSteps(steps, starter).some((s) => s.id === "prepare-module"), "only_for: pdf 的步不进 starter 车道");
 
 	const pdf = { completed: new Set(["choose-source", "create-campaign"]), sourceKind: "pdf" };
-	assert.deepEqual(missingNeeds(investigator, pdf, steps), ["build-opening"]);
-	assert.ok(allowedSteps(steps, pdf).some((s) => s.id === "build-bundle"));
+	assert.deepEqual(missingNeeds(investigator, pdf, steps), ["prepare-module"]);
+	assert.ok(allowedSteps(steps, pdf).some((s) => s.id === "prepare-module"));
 });
 
 test("真表：来源词表取自表自己声明的 sources，不从步骤反推（#32）", () => {

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONPATH="$root/kernel${PYTHONPATH:+:$PYTHONPATH}"
+exec uv run --project "$root" --frozen python -m coc.modules.visual_check "$@"

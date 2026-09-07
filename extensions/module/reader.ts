@@ -23,6 +23,9 @@
  */
 
 import { spawn } from "node:child_process";
+import { createWriteStream } from "node:fs";
+import { mkdir, writeFile, chmod } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -41,6 +44,9 @@ export interface ReaderRequest {
 	model?: string;
 	signal?: AbortSignal;
 	timeoutMs?: number;
+	systemPrompt?: string;
+	eventLog?: string;
+	onEvent?: (event: Record<string, any>) => void;
 }
 
 export interface ReaderOutcome {
@@ -58,7 +64,7 @@ export interface ReaderOutcome {
 }
 
 /** The reader's command line, without the final `brief` argument. */
-export function readerCommand(model?: string): string[] {
+export function readerCommand(model?: string, systemPrompt?: string): string[] {
 	const override = process.env.PI_COC_READER_CMD?.trim();
 	if (override) {
 		const parsed: unknown = JSON.parse(override);
@@ -73,10 +79,11 @@ export function readerCommand(model?: string): string[] {
 		"--no-session",
 		"--no-context-files",
 		"--no-extensions",
+		"--no-skills",
 		"--tools",
 		"read,write,edit,bash",
 		"--system-prompt",
-		join(PKG_ROOT, "content", "setup", "reader.md"),
+		systemPrompt ?? join(PKG_ROOT, "content", "setup", "reader.md"),
 		...(model ? ["--model", model] : []),
 		// Everything after `--` is the prompt: a brief starting with `-` is not taken for an option.
 		"--",
@@ -88,7 +95,9 @@ export async function runReader(request: ReaderRequest): Promise<ReaderOutcome> 
 	const began = Date.now();
 	let command: string[];
 	try {
-		command = [...readerCommand(request.model), request.brief];
+		command = readerCommand(request.model, request.systemPrompt);
+		if (request.eventLog && !process.env.PI_COC_READER_CMD) command.splice(command.length - 1, 0, "--mode", "json");
+		command.push(request.brief);
 	} catch (error) {
 		return {
 			ok: false,
@@ -105,30 +114,53 @@ export async function runReader(request: ReaderRequest): Promise<ReaderOutcome> 
 	// The subprocess is not a table: it must not think it should open one.
 	delete env.PI_COC_CAMPAIGN;
 	delete env.PI_COC_MODE;
+	if (request.signal?.aborted) return { ok: false, code: null, timedOut: false, ms: 0, stderr: "", command, error: "cancelled" };
+	if (request.eventLog) await mkdir(dirname(request.eventLog), { recursive: true });
+	if (request.systemPrompt) {
+		const binDir = join(request.cwd, "host-bin");
+		await mkdir(binDir, { recursive: true });
+		const quotedRoot = "'" + PKG_ROOT.replaceAll("'", "'\\''") + "'";
+		for (const name of ["python", "python3"]) {
+			const path = join(binDir, name);
+			await writeFile(path, `#!/bin/sh\nexec uv run --project ${quotedRoot} --frozen python "$@"\n`);
+			await chmod(path, 0o755);
+		}
+		env.PATH = `${binDir}:${env.PATH ?? ""}`;
+	}
 
 	return await new Promise<ReaderOutcome>((resolve) => {
 		let settled = false;
 		let stderr = "";
 		let timedOut = false;
-		const child = spawn(bin, args, { cwd: request.cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+		let eventError: string | undefined;
+		let hardKill: ReturnType<typeof setTimeout> | undefined;
+		const log = request.eventLog ? createWriteStream(request.eventLog, { flags: "a" }) : undefined;
+		log?.on("error", error => { eventError = error.message; });
+		const grouped = process.platform !== "win32";
+		const child = spawn(bin, args, { cwd: request.cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: grouped });
 
 		const finish = (outcome: Omit<ReaderOutcome, "ms" | "command" | "stderr">) => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
+			if (hardKill) clearTimeout(hardKill);
 			request.signal?.removeEventListener("abort", onAbort);
-			resolve({ ...outcome, ms: Date.now() - began, stderr: stderr.slice(-STDERR_KEEP), command });
+			const done = () => resolve({ ...outcome, ...(eventError ? { ok: false, error: eventError } : {}), ms: Date.now() - began, stderr: stderr.slice(-STDERR_KEEP), command });
+			if (log && !log.destroyed) log.end(done);
+			else done();
 		};
 
 		const kill = () => {
 			try {
-				child.kill();
+				if (grouped && child.pid) process.kill(-child.pid, "SIGTERM");
+				else child.kill();
 			} catch {
 				/* already gone */
 			}
-			setTimeout(() => {
+			hardKill = setTimeout(() => {
 				try {
-					child.kill("SIGKILL");
+					if (grouped && child.pid) process.kill(-child.pid, "SIGKILL");
+					else child.kill("SIGKILL");
 				} catch {
 					/* same as above */
 				}
@@ -147,7 +179,25 @@ export async function runReader(request: ReaderRequest): Promise<ReaderOutcome> 
 		request.signal?.addEventListener("abort", onAbort, { once: true });
 
 		// stdout is the reader's last sentence and we do not read it: whether it wrote correctly is `module.review`'s call.
-		child.stdout?.resume();
+		if (!request.eventLog) child.stdout?.resume();
+		else {
+			let pending = "";
+			child.stdout?.setEncoding("utf8");
+			child.stdout?.on("data", (chunk: string) => {
+				pending += chunk;
+				let end: number;
+				while ((end = pending.indexOf("\n")) >= 0) {
+					const line = pending.slice(0, end); pending = pending.slice(end + 1);
+					try {
+						const event = JSON.parse(line);
+						request.onEvent?.(event);
+						log?.write(JSON.stringify(event, (_key, value) => value?.type === "image" && typeof value.data === "string"
+							? { type: "image", mimeType: value.mimeType, bytes: Buffer.byteLength(value.data, "base64"), sha256: createHash("sha256").update(Buffer.from(value.data, "base64")).digest("hex") }
+							: value) + "\n");
+					} catch (error) { eventError = `unreadable reader event: ${String(error)}`; }
+				}
+			});
+		}
 		child.stderr?.setEncoding("utf8");
 		child.stderr?.on("data", (chunk: string) => {
 			stderr += chunk;
@@ -156,7 +206,7 @@ export async function runReader(request: ReaderRequest): Promise<ReaderOutcome> 
 		child.on("error", (error: Error) => {
 			finish({ ok: false, code: null, timedOut, error: error.message });
 		});
-		child.on("exit", (code, signal) => {
+		child.on("close", (code, signal) => {
 			finish({
 				ok: !timedOut && code === 0,
 				code: code ?? null,

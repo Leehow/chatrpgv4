@@ -449,7 +449,7 @@ export function ingestProgressLine(row: Record<string, unknown>): string {
 	const stage = str(row.stage) ?? "?";
 	const page = num(row.page);
 	const of = num(row.of);
-	const where = of === undefined ? "" : page === undefined ? `  0/${of}` : `  ${page + 1}/${of}`;
+	const where = of === undefined ? "" : page === undefined ? `  ${of} pages` : `  page ${page}/${of}`;
 	return `parse   ${stage}${where}${str(row.detail) ? `  ${str(row.detail)}` : ""}`;
 }
 
@@ -457,15 +457,10 @@ export function ingestProgressLine(row: Record<string, unknown>): string {
 export function ingestDoneLine(row: Record<string, unknown>): string {
 	const id = str(row.module_id) ?? "?";
 	const pages = num(row.page_count);
-	const missing = arr(row.ocr_missing).length;
-	const reason = str(row.ocr_reason);
 	return [
 		`parse   done  ${id}`,
 		pages !== undefined ? `  pages ${pages}` : "",
-		`  sections ${num(row.sections_accepted) ?? 0} accepted`,
-		row.installed === true ? "  installed" : "  not installed",
 		row.opening_ready === true ? "  opening ready" : "  opening not ready",
-		missing > 0 ? `  ${missing} page(s) still need OCR (${reason ?? "unknown"})` : "",
 	].join("");
 }
 
@@ -516,29 +511,19 @@ async function moduleParse(pi: ExtensionAPI, ctx: ExtensionCommandContext, deps:
 	const { positional, flags } = parseArguments(argument);
 	const pdf = positional[0];
 	if (!pdf) return `module  give me a PDF to read.\n${MODULE_USAGE}`;
-	let language = (flags.language ?? flags.lang ?? "").trim();
-	if (!language) {
-		try {
-			language = (await ctx.ui.input("Which language is this book written in? (BCP 47, e.g. zh-Hans or en)", "zh-Hans"))?.trim() ?? "";
-		} catch {
-			language = "";
-		}
-	}
-	if (!language) {
-		return "module  the book's language has to be declared: /coc module parse <pdf> --language <BCP 47 tag>, e.g. zh-Hans or en.";
-	}
+	const language = (flags.language ?? flags.lang ?? "").trim();
 	const request = {
 		pdf,
 		...(flags.id?.trim() ? { module_id: flags.id.trim() } : {}),
 		...(flags.title?.trim() ? { title: flags.title.trim() } : {}),
-		language,
+		...(language ? { language } : {}),
 	};
 	deps.record({ lane: "command", command: "module parse", ok: true, pdf, language, ...(request.module_id ? { module_id: request.module_id } : {}) });
 	pi.events.emit("coc:module-ingest", request);
 	return [
 		`parse   ${pdf}`,
-		`  language ${language}${request.module_id ? `  id ${request.module_id}` : ""}`,
-		"  The job runs in the background: classify, extract, OCR the pages that need it, pack, bind, build.",
+		language ? `  language ${language}` : "  The reader will identify the book's language from its pages.",
+		"  The original pages are read to prepare the opening; further details are read when needed.",
 		"  Progress appears here; the table is not interrupted.",
 	].join("\n");
 }
@@ -675,7 +660,7 @@ export function registerCocCommand(pi: ExtensionAPI, deps: CommandDeps): void {
 		const stage = str(row.stage);
 		const page = num(row.page);
 		const of = num(row.of);
-		const worthShowing = stage !== lastStage || (page !== undefined && of !== undefined && of > 0 && (page % 10 === 0 || page + 1 === of));
+		const worthShowing = stage !== lastStage || (page !== undefined && of !== undefined && of > 0 && (page % 10 === 0 || page === of));
 		lastStage = stage;
 		if (worthShowing) deps.notify(ingestProgressLine(row), "info");
 	});

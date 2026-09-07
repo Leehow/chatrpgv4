@@ -340,6 +340,11 @@ function readMechanics(result: Record<string, unknown>): Array<Record<string, un
 }
 
 export default function (pi: ExtensionAPI) {
+	let reading: { ensure(moduleId: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> } | undefined;
+	let readingModule: string | undefined;
+	pi.events.on("coc:reading-bridge", (value) => {
+		reading = value && typeof (value as any).ensure === "function" ? value as any : undefined;
+	});
 	// The setup process needs the kernel too (`campaign.*`, `module.*` and `setup.*` all live there),
 	// but it has no table: it registers none of the seven verbs, does not `table.open`, and runs no
 	// verifier lane (contract §14.4). The mode is read in the factory rather than at module top level:
@@ -379,6 +384,7 @@ export default function (pi: ExtensionAPI) {
 
 	function applyOpen(open: OpenResult): void {
 		if (!table) return;
+		readingModule = asString(open.campaign?.module_id);
 		table.turn = typeof open.turn?.number === "number" ? open.turn.number : table.turn;
 		table.state = open.turn?.state ?? table.state;
 		table.openingPending = open.opening_needed === true;
@@ -639,6 +645,7 @@ export default function (pi: ExtensionAPI) {
 		spec: CocToolSpec,
 		toolCallId: string,
 		params: Record<string, unknown>,
+		signal?: AbortSignal,
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }> {
 		const state = table;
 		if (!state) {
@@ -651,7 +658,17 @@ export default function (pi: ExtensionAPI) {
 		const startedAt = new Date().toISOString();
 		const began = Date.now();
 		try {
-			const result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload)) ?? {};
+			if (spec.name === "lookup" && params.kind === "module" && params.question && reading && readingModule) {
+				await reading.ensure(readingModule, { purpose: "detail", focus: params.query,
+					question: params.question, retry: params.retry === true, foreground: true }, signal);
+			}
+			let result: Record<string, unknown>;
+			try { result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload)) ?? {}; }
+			catch (failure) {
+				if (!(failure instanceof KernelError) || failure.details?.reason !== "material_pending" || !reading || !readingModule) throw failure;
+				await reading.ensure(readingModule, { ...(failure.details.read as Record<string, unknown>), foreground: true }, signal);
+				result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload)) ?? {};
+			}
 			applyToolSuccess(state, spec.name, toolCallId, result);
 			await record({
 				tool: spec.name,
@@ -713,7 +730,7 @@ export default function (pi: ExtensionAPI) {
 			parameters: spec.parameters,
 			// The actions of a turn are ordered: run them serially, so the calls after narrate in the same batch can be stopped.
 			executionMode: "sequential",
-			execute: async (toolCallId, params) => runTool(spec, toolCallId, params as Record<string, unknown>),
+			execute: async (toolCallId, params, signal) => runTool(spec, toolCallId, params as Record<string, unknown>, signal),
 		});
 	}
 

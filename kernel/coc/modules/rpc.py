@@ -24,6 +24,7 @@ from .gates import review as run_gates
 from .packet import build as build_packet, span_catalog
 from .playability import opening_check, start_scene_candidates
 from .store import ModuleStore, now_iso
+from .reading import Reading
 
 MAX_READER_ROUNDS = 3
 
@@ -64,6 +65,16 @@ class ModuleMethods:
     def status(self, params: dict[str, Any]) -> dict[str, Any]:
         module_id = _str(params, "module_id")
         meta = self.store.module(module_id)
+        if meta.get("reading_version") == 1:
+            queue = self.store.read_queue(module_id)
+            reading = meta.get("reading", {})
+            return {"module_id": module_id, "title": meta.get("title"), "source": "pdf", "status": meta.get("status"),
+                    "generation": meta.get("generation", 0), "page_count": meta.get("page_count"),
+                    "languages": meta.get("languages", []), "opening_ready": bool(meta.get("opening_ready")),
+                    "opening": meta.get("opening", {}), "reading": {**reading,
+                        "opening_ready": bool(meta.get("opening_ready")),
+                        "queued": sum(j.get("state") == "queued" for j in queue),
+                        "active": next((j["job_id"] for j in queue if j.get("state") == "running"), None)}}
         sections = self.store.read_sections(module_id)
         counts: dict[str, int] = {}
         for row in sections:
@@ -480,7 +491,12 @@ def methods(table_or_store: Any, content_dir: Path | str | None = None) -> dict[
         raise TypeError("methods() needs a Table, a Store, or a ModuleStore")
     starters = Path(content_dir) / "starters" if content_dir else None
     api = ModuleMethods(store, starters)
+    reading = Reading(store)
     return {
+        "module.source.bind": reading.bind,
+        "module.read.request": reading.request,
+        "module.read.claim": reading.claim,
+        "module.read.finish": reading.finish,
         "module.list": api.list,
         "module.status": api.status,
         "module.register": api.register,
@@ -492,7 +508,8 @@ def methods(table_or_store: Any, content_dir: Path | str | None = None) -> dict[
         "module.accept": api.accept,
         "module.assemble": api.assemble,
         "module.install": api.install,
-        "module.opening.choose": api.opening_choose,
+        "module.opening.choose": lambda params: reading.choose_opening(params)
+            if store.module(params.get("module_id")).get("reading_version") else api.opening_choose(params),
         "module.deepen.claim": api.deepen_claim,
         "module.deepen.complete": api.deepen_complete,
         "module.deepen.enqueue": api.deepen_enqueue,

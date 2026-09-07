@@ -377,11 +377,9 @@ class SetupMethods:
         # `applies` is the same only_for/applies_to machinery `order` uses: for
         # `starter`/`module` these two steps are not part of the table at all (not
         # applicable), so they are never inserted as done, matching the pdf-only lane.
-        if self.steps.applies("build-bundle", kind):
-            completed.update({"build-bundle", "bind-source"})
-        if self.steps.applies("build-opening", kind) and module and \
+        if self.steps.applies("prepare-module", kind) and module and \
                 (module.get("status") == "installed" or module.get("opening_ready") is True):
-            completed.add("build-opening")
+            completed.add("prepare-module")
         # §21.5's second axis: which investigator source(s) this campaign's setup
         # receipts actually show, derived from campaign state the same way `kind` is --
         # never a stored "chosen lane". `setup.investigator`'s receipt never carries a
@@ -501,9 +499,11 @@ class SetupMethods:
                            details={"needs": {"field": "investigator", "step": "create-investigator"}})
         module_id = str(meta["module_id"])
         module = module_meta(self.table.module_store, module_id)
-        if not module or not (module.get("status") == "installed" or module.get("opening_ready") is True):
+        ready = bool(module and (module.get("opening_ready") is True if module.get("reading_version")
+                                else module.get("status") == "installed" or module.get("opening_ready") is True))
+        if not ready:
             raise RpcError("campaign_not_ready", f"module {module_id!r} is not installed and not opening_ready",
-                           fix="finish build-opening (module.build until opening_ready) first",
+                           fix="finish prepare-module so the authored opening is ready first",
                            details={"module": module})
         generation = self.table.module_store.generation(module_id)
         if self._start_world_if_ready(campaign, meta):

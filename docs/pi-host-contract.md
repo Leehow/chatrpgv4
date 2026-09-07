@@ -1,5 +1,7 @@
 # Pi 宿主契约
 
+2026-09-07 的 PDF 视觉阅读替换规格见 [visual-pdf-reader.md](specs/visual-pdf-reader.md)，目标接口见 [内核契约 §22](kernel-rpc.md#22-visual-pdf-reading-and-demand-driven-graph-building)。下文的 section 读者、OCR ingest 与旧 build 总线描述当前运行时；切换尚未实现。实施时沿用带工具子 Pi 与图片 `read`，更新对应宿主决定，不 fork Pi。
+
 我们不 fork Pi，也不打补丁。这份文件写清 pi-coc 依赖 Pi 的哪些接口与行为、我们在哪里绕过了它的限制、想请上游改什么，以及 Pi 升版时怎么核对。Pi 升级 = 改一个版本号，然后按第 7 节走一遍。
 
 当前依据版本：`@earendil-works/pi-coding-agent` 0.85.1。`package.json` 用 `devDependencies` 钉死版本供启动器执行，用 `peerDependencies: "*"` 声明扩展导入的 Pi 核心包，遵循 Pi 的包规范。

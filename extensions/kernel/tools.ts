@@ -316,6 +316,8 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 				description: "what to look up; rule and catalog are not implemented in this slice",
 			}),
 			query: Type.Optional(Type.String({ description: "a name or a question; omissible when kind is secret" })),
+			question: Type.Optional(Type.String({ description: "for module: an explicit source question requiring further reading, even for an already known entity" })),
+			retry: Type.Optional(Type.Boolean({ description: "explicitly retry a failed source reading" })),
 			scope: Type.Optional(
 				StringEnum(["scene", "module"] as const, { description: "the scope when kind is secret; defaults to scene" }),
 			),

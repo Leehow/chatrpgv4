@@ -74,9 +74,18 @@ class ModuleStore:
         return self.module_dir(module_id) / "module.json"
 
     def graph_path(self, module_id: str) -> Path:
+        if self.module_json(module_id).exists():
+            relative = self.module(module_id).get("graph_file")
+            if isinstance(relative, str):
+                path = (self.module_dir(module_id) / relative).resolve()
+                if not path.is_relative_to(self.module_dir(module_id).resolve()):
+                    raise ValueError("graph_file escapes the module store")
+                return path
         return self.module_dir(module_id) / GRAPH_NAME
 
     def manifest_path(self, module_id: str) -> Path:
+        if self.module_json(module_id).exists() and self.module(module_id).get("graph_file"):
+            return self.graph_path(module_id).parent / "module-graph-manifest.json"
         return self.module_dir(module_id) / MANIFEST_NAME
 
     def bundle_dir(self, module_id: str) -> Path:
@@ -96,6 +105,8 @@ class ModuleStore:
         return base / section_id if section_id else base
 
     def assets_path(self, module_id: str) -> Path:
+        if self.module_json(module_id).exists() and self.module(module_id).get("graph_file"):
+            return self.graph_path(module_id).parent / "assets.json"
         return self.module_dir(module_id) / "assets.json"
 
     def queue_path(self, module_id: str) -> Path:
@@ -159,6 +170,18 @@ class ModuleStore:
         module_id = str(meta["id"])
         generation = int(meta.get("generation") or 0) + 1
         ordered = sort_graph_lists(graph)
+        if meta.get("reading_version") == 1:
+            import uuid
+            directory = self.module_dir(module_id) / "generations" / f"generation-{generation}-{uuid.uuid4().hex}"
+            directory.mkdir(parents=True, exist_ok=False)
+            path = directory / GRAPH_NAME
+            write_json_atomic(path, ordered)
+            write_json_atomic(directory / "module-graph-manifest.json",
+                              graph_manifest(ordered, module_id=module_id, generation=generation))
+            meta.update(generation=generation, graph_file=str(path.relative_to(self.module_dir(module_id))),
+                        graph_digest=sha256_file(path))
+            self._graphs.pop(module_id, None)
+            return meta
         write_json_atomic(self.graph_path(module_id), ordered)
         write_json_atomic(self.manifest_path(module_id),
                           graph_manifest(ordered, module_id=module_id, generation=generation))

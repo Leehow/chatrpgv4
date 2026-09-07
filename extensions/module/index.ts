@@ -24,6 +24,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { appendJsonl, cocHome, cocMode } from "../lanes/host.ts";
 import { type BuildContext, type BuildReport, buildModule, type KernelCall, readSection, resetReviewProbe } from "./build.ts";
 import { ingest, IngestError, type IngestRequest } from "./ingest.ts";
+import { ReadingService } from "./reading-service.ts";
 
 /** The build concurrency cap (contract §14.5); 1 by default. */
 function buildParallel(): number {
@@ -62,6 +63,25 @@ export default function (pi: ExtensionAPI) {
 
 	let ctx: ExtensionContext | undefined;
 	let bridge: { campaign?: string; call: KernelCall } | undefined;
+	let reading: ReadingService | undefined;
+	let visualModule = false;
+	function shareReader(): void {
+		if (!ctx || !bridge) return;
+		reading?.dispose();
+		const current = bridge;
+		reading = new ReadingService({
+			call: current.call, home: cocHome(ctx.cwd),
+			model: () => {
+				const id = readerModel(ctx) ?? "";
+				const slash = id.indexOf("/");
+				const model = ctx?.modelRegistry.find(id.slice(0, slash), id.slice(slash + 1));
+				return { id, vision: model?.input?.includes("image") === true };
+			},
+			progress: row => pi.events.emit("coc:module-ingest-progress", row),
+			record: row => { void appendJsonl(join(cocHome(ctx!.cwd), ".coc", "reading-telemetry.jsonl"), row); },
+		});
+		pi.events.emit("coc:reading-bridge", reading);
+	}
 	let lanes = new AbortController();
 	let stopped = false;
 	/** Only one thing runs at a time: the build loop or one deepening. */
@@ -249,6 +269,7 @@ export default function (pi: ExtensionAPI) {
 		if (busy || stopped || turnInFlight) return;
 		const current = bridge;
 		if (!current) return;
+		if (moduleId && reading && visualModule) { await reading.prefetch(moduleId); return; }
 		const deepen = context(current.call);
 		if (!deepen) return;
 		busy = true;
@@ -311,12 +332,15 @@ export default function (pi: ExtensionAPI) {
 		const payload = asRecord(data) as { campaign?: string; call?: KernelCall };
 		bridge = typeof payload.call === "function" ? { ...(payload.campaign ? { campaign: payload.campaign } : {}), call: payload.call } : undefined;
 		if (bridge?.campaign) campaign = bridge.campaign;
+		if (!bridge) { reading?.dispose(); reading = undefined; pi.events.emit("coc:reading-bridge", null); }
+		else shareReader();
 	});
 
 	pi.events.on("coc:table-open", (data) => {
 		const payload = asRecord(data);
 		campaign = asString(payload.campaign) ?? campaign;
 		const open = asRecord(payload.open);
+		visualModule = open.module_reading === true;
 		moduleId = asString(asRecord(open.campaign).module_id) ?? moduleId;
 	});
 
@@ -346,17 +370,20 @@ export default function (pi: ExtensionAPI) {
 		const payload = asRecord(data);
 		const pdf = asString(payload.pdf);
 		if (!pdf || stopped) return;
-		void runIngest({
+		if (!reading) { pi.events.emit("coc:module-ingest-failed", { pdf, detail: "the reading service is unavailable" }); return; }
+		void reading.prepare({
 			pdf,
 			...(asString(payload.module_id) ? { module_id: asString(payload.module_id) as string } : {}),
 			...(asString(payload.title) ? { title: asString(payload.title) as string } : {}),
 			...(asString(payload.language) ? { language: asString(payload.language) as string } : {}),
-		}).catch(() => undefined);
+		}).then(result => pi.events.emit("coc:module-ingest-done", { pdf, ...result }))
+			.catch(error => pi.events.emit("coc:module-ingest-failed", { pdf, detail: errorText(error) }));
 	});
 
 	// No new deepening during a turn (contract §14.6: it never blocks a turn). The turn boundary comes from
 	// the host's own hooks, not the bus: `before_agent_start` is the moment the player input enters the kernel, and `agent_end` is this run really ending.
-	pi.on("before_agent_start", async () => {
+	pi.on("before_agent_start", async (_event, currentCtx) => {
+		ctx = currentCtx;
 		turnInFlight = true;
 	});
 
@@ -372,9 +399,12 @@ export default function (pi: ExtensionAPI) {
 		pendingClaim = false;
 		lanes = new AbortController();
 		resetReviewProbe();
+		shareReader();
 	});
 
 	pi.on("session_shutdown", async () => {
+		reading?.dispose();
+		pi.events.emit("coc:reading-bridge", null);
 		// Shutdown does not wait for the build: reader subprocesses in flight are cut off, and unread sections stay in `sections.json` for next time.
 		stopped = true;
 		lanes.abort();

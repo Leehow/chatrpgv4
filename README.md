@@ -3,7 +3,8 @@
 COC Keeper for Pi：一个 Pi 包加一个 Python 内核子进程。守秘人只见七个动词：`look`、`lookup`、`recall`、`resolve`、`apply`、`ask`、`narrate`。
 
 - 架构规格：GitHub issue #12。切片票：#13 到 #18。
-- 扩展与内核之间的契约：`docs/kernel-rpc.md`（§1–§16）。改契约先于改代码。系统语言英文、玩家语言由守秘人模型按 `play_language` 产出、机制走 JSON 投影：见 `Agents.md`。
+- 扩展与内核之间的契约：`docs/kernel-rpc.md`。改契约先于改代码。系统语言英文、玩家语言由守秘人模型按 `play_language` 产出、机制走 JSON 投影：见 `Agents.md`。
+- 下一步实施：[PDF 直接阅读与按需构图](docs/specs/visual-pdf-reader.md)，接口见契约 §22；规格已写，运行时尚未切换，Electron 接入留后。
 - 对 Pi 的依赖与升版流程：`docs/pi-host-contract.md`，不 fork、不打补丁。
 - 决策记录：`docs/adr/`。真桌验收方法：`docs/acceptance.md`。
 

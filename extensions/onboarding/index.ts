@@ -84,6 +84,8 @@ export default function (pi: ExtensionAPI) {
 	if (cocMode() !== "setup") return;
 
 	let ctx: ExtensionContext | undefined;
+	let reading: { prepare(params: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> } | undefined;
+	pi.events.on("coc:reading-bridge", value => { reading = value && typeof (value as any).prepare === "function" ? value as any : undefined; });
 	let bridge: { call: KernelCall; hello?: Record<string, unknown> } | undefined;
 	let steps: Step[] | undefined;
 	/** The `sources` the table declares; the source vocabulary comes from here, not from the steps (#32). */
@@ -271,6 +273,7 @@ export default function (pi: ExtensionAPI) {
 		const kinds = catalogue.kinds as string[];
 		const module = asString(args.module) ?? asString(args.module_id) ?? asString(args.starter);
 		const bundle = asString(args.bundle) ?? asString(args.bundle_path);
+		const pdf = asString(args.pdf);
 		const starterNames = catalogue.starters as string[];
 		const installedNames = catalogue.installed as string[];
 		let kind = asString(args.kind) ?? asString(args.source_kind);
@@ -280,7 +283,8 @@ export default function (pi: ExtensionAPI) {
 			// sent the player off to find a bundle he does not have). A book that has to be produced
 			// first is the bundle lane; a name already in the content catalogue is a starter; a name
 			// already installed in the store is that third source.
-			if (bundle) kind = kinds.find((row) => producedKinds().has(row)) ?? kinds[0];
+			if (pdf) kind = "pdf";
+			else if (bundle) kind = kinds.find((row) => producedKinds().has(row)) ?? kinds[0];
 			else if (module && starterNames.includes(module)) kind = kinds.includes("starter") ? "starter" : kinds[0];
 			else if (module && installedNames.includes(module)) kind = kinds.includes("module") ? "module" : kinds[0];
 		}
@@ -314,6 +318,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			return { ok: true, source: { kind, module_id: module }, ...catalogue };
 		}
+		if (pdf) return { ok: true, source: { kind, pdf }, ...catalogue };
 		if (bundle) return { ok: true, source: { kind, bundle }, ...catalogue };
 		return {
 			ok: false,
@@ -537,7 +542,9 @@ export default function (pi: ExtensionAPI) {
 			}
 			try {
 				const result =
-					op.method === "module.build"
+					op.method === "module.prepare"
+						? await (reading ? reading.prepare(filled.params) : Promise.reject(new Error("the reading service is unavailable")))
+						: op.method === "module.build"
 						? await runModuleBuild(filled.params)
 						: asRecord(await current.call(op.method, filled.params));
 				if (result.ok === false) return { ...result, step: step.id, results };
@@ -583,6 +590,7 @@ export default function (pi: ExtensionAPI) {
 			if (asString(source.module_id)) context.module = asString(source.module_id);
 			if (asString(source.module_id)) context.module_id = asString(source.module_id);
 			if (asString(source.bundle)) context.bundle = asString(source.bundle);
+			if (asString(source.pdf)) context.pdf = asString(source.pdf);
 		}
 		for (const [key, value] of Object.entries(outcome)) {
 			if (key === "ok" || key === "step") continue;

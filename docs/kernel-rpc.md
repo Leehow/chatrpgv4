@@ -2,6 +2,8 @@
 
 本文件是 Pi 扩展与 Python 内核之间的唯一契约。两侧的实现和两道接缝的测试都以它为准；改契约先改这里。范围标注为「切片 0」的是本轮必须实现的，标注为「保留」的只需要方法存在并返回 `not_implemented` 错误，形状不变。
 
+PDF 直接阅读与按需构图的目标契约见 §22（2026-09-07，待实现）。涉及 PDF/读者/模组车道的后续实现以 §22 为准；§14 与 §20 的旧流水线在切换验收前仅描述现有运行时。实施与退役顺序见 [规格](specs/visual-pdf-reader.md)。
+
 规格全文见 GitHub issue #12，切片 0 的验收见 #13。
 
 ## 1. 进程与传输
@@ -196,7 +198,8 @@ result：`{"rendered_text": "<即 text，正文原样>", "mechanics": [...], "tu
 {"turn": {"number", "state", "pending_choice": null | {...}, "player_text": "<本回合玩家原文或 null>"},
  "where": {"scene": "<name>", "display_name", "dramatic_question", "pressure_moves": [...], "exits": [{"to", "travel_minutes"?, "unlock_when"?}], "back": [{"to", "display_name"}]（来路，由近到远）,
            "affordances": [{"id", "cue", "clue"?, "npc"?}], "keeper_notes": [...], "assets": [{"name", "kind"}],
-           "places": [{"name", "line"?}]（≤ 8；本场景 `occurs-at` 的地点下面 `located-in` 的房间——书把一栋楼建成「地点 + 一串房间」，只看离场景一跳就永远看不见它们）},
+           "places": [{"name", "line"?}]（≤ 8；本场景 `occurs-at` 的地点下面 `located-in` 的房间——书把一栋楼建成「地点 + 一串房间」，只看离场景一跳就永远看不见它们）,
+           "rules": [{"name", "line"?}]（≤ 6；本场景 `uses-rule` 指向的 rule 节点：书为这一场固定的判定与数值。每次构建都接对了这条关系，此前没有任何消费者）},
  "present": [{"name", "role", "wants", "fears"?, "hides"?, "voice"?, "knows": [...], ...}]（§17.4 起是档案加账本，旧的 relationship/agenda/known_facts/attitude 已删）,
  "known": {"discovered_clues": [names], "clues_here": [{"name", "summary", "delivery_kind", "discovered": bool}],
            "investigator": {"name", "occupation", "hp", "san", "mp", "luck", "skills_of_note": [{"name", "value"}]}},
@@ -1317,3 +1320,108 @@ Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `sessio
 - **One card, two tables.** Allowed, last writer wins, no lock and no version: `play.last_campaign` and `updated_at` say who wrote last and `campaigns` says who has ever played it. The library is never read back into a campaign — nothing in the kernel copies a row's sheet over a campaign sheet except `investigator.load`, which is an explicit call that mints a new `id`. A row edited by hand between turns is simply overwritten by the campaign at the next commit.
 - **Four failure paths, none of which fails a turn.** `write_back` never raises. (1) The row on disk is not JSON, not schema 1, or names another id → `Conflict`, telemetry `{lane: "library", turn, investigator, library_id, ok: false, reason: "library_conflict"}`, the file left exactly as it was. (2) The row cannot be written (a read-only `.coc/investigators`, a full disk) → `Unwritable`, `reason: "library_unwritable"`, the mirror unchanged. (3) Anything else thrown while mirroring one card → the same row with `library_unwritable` and the exception's type in `error`, and the remaining cards are still mirrored. (4) The write-back could not start at all → one `lane: "library"` row for the turn; if even the telemetry write fails, `_after_commit`'s own guard records `{lane: "kernel", step: "library"}`. A successful mirror leaves `{lane: "library", ok: true}`, so the evidence shows the mirror moving turn by turn and not only when it breaks. The same two reason codes surface as `code_detail` on `investigator.save` / `get` / `load`, which do fail — a manual save says why instead of pretending.
 - **Left to the extension (§21.5, not in this slice).** The `create-investigator` source choice in `content/setup/steps.json`, and the `/coc investigator` and `/coc investigator save` subcommands of §19.1. The four RPC methods are the whole kernel side; nothing in `kernel/` calls them.
+
+## 22. Visual PDF reading and demand-driven graph building
+
+2026-09-07 用户确定的实施方向；本节是目标契约，尚未实现。实现顺序、删除范围和验收在 [visual-pdf-reader.md](specs/visual-pdf-reader.md)。本节替换 §14.2–§14.6、§14.11 中的文字构建协议，以及 §20 的分类/提取/OCR/打包协议；保留既有图谱消费、人物/规则/事务、资产可见性和七个 Keeper 动词。Electron 不在本次范围。
+
+### 22.1 来源、页与索引
+
+来源存于 `.coc/modules/<module_id>/source.pdf`。宿主 PDF.js 读取元数据并计算原文件摘要；内核绑定时重算文件字节摘要，校验元数据形状，不解析 PDF，也不声称独立核实 PDF 页数。页数的正确性由宿主渲染验收证明。
+
+`module.json` 增加 `reading_version: 1` 和 `source_document: {path, file_sha256, page_count}`。路径相对模组目录，必须落在该目录内。来源发布后不可原位替换。同文件重复导入返回已有模组；同 id 不同摘要报 `invalid_params` 并给出创建新模组的 `fix`。哈希和内部作业标识只在宿主与内核间传递。
+
+宿主翻页命令的两种操作：
+
+- `info`：返回真实页数、已有书签与页面标签。没有书签返回空数组，不由程序猜章节。
+- `page <page> [--box x0,y0,x1,y1]`：按需渲染并返回图片路径、物理页号、裁剪范围和实际尺寸；读者再用 Pi `read` 看图。`page` 是从 1 起的物理页序，印刷页码只是标签。`box` 是应用 PDF 旋转后的可视整页上、左为原点的归一化矩形；满足 `0 <= x0 < x1 <= 1` 与 `0 <= y0 < y1 <= 1`。内核持久化 `pdf_index = page - 1`，只在边界转换一次。
+
+书中“见第 N 页”的印刷引用由读者对照原页或可靠 PDF 页标签定位，不能用固定页差在全书或不同版本间推算。2026-09-07 样本已出现物理第 100 页对应印刷 97 的情况；这只是该页证据，不是全局偏移规则。首个交付仍是一份完整 PDF 一个来源；分卷正文与独立手卡册不自动拼接成同一来源。
+
+缓存位于模组内 `cache/pages/`，键包含原文件摘要、物理页、渲染参数与裁剪。只生成请求的页；裁剪从原 PDF 渲染，不能放大已经缩小的预览图冒充细节。宿主保存请求记录，读者会话保留实际图片 `read` 事件与失败，不能把“生成了图片”记成“模型已看过”。缓存不是真相，也不替代原 PDF。
+
+沿用 `sections.json` 作为阅读索引，新的记录形状为 `{name, pages: [[first,last], ...], topics: [string], entities: [string], references: [{name, pages?}], state: "indexed"|"unreadable"}`；页范围在此用从 0 起的物理页序、两端包含。不同主题可重叠，所有原页须被实际浏览的记录或不可读记录覆盖。`topics/entities/references` 由读者判断，程序只检查形状与范围；索引是定位信息，不是事实图，不授权规则结算。全局梗概中的事实要成为游戏依据，仍须走 22.3 的细读与复核。
+
+### 22.2 一个阅读任务协议
+
+保留 `module.list/status/register/opening.choose/asset`。新的模块读写入口如下，全部为宿主调用；内部校验与合并不再拆成要求调用者编排的公开 RPC。
+
+| 方法 | 参数 | 结果与作用 |
+| --- | --- | --- |
+| `module.source.bind` | `{module_id?, source: {path, file_sha256, page_count}, title?, language?}` | 原子登记并保留原 PDF；返回 `{module_id, replayed}`。`path` 是宿主准备的本地原文件路径；内核复制并核对摘要。已有原文件缺失的旧模组只接受与记录摘要匹配的来源。 |
+| `module.read.request` | `{module_id, purpose: "index"|"opening"|"detail", focus?, question?, foreground?: boolean, retry?: boolean}` | 确认材料已满足该确切请求，或入统一队列；返回 `{state: "ready"|"queued"|"reading"|"blocked", job_id?, generation, missing, fix?}`。`focus/question` 为名字/自然语言，允许索引中尚未进入图谱的实体；`retry: true` 才允许重新派发已经失败/取消的同一请求。 |
+| `module.read.claim` | `{module_id, owner}` | 原子认领下一任务；返回宿主生成的 `{job_id, purpose, focus?, question?, work_dir, base_generation, source, index, known_nodes, brief}` 或 `{job_id: null}`。 |
+| `module.read.finish` | `{module_id, job_id, outcome: "completed"|"failed"|"cancelled", draft_path?, review_path?, detail?}` | 成功时由内核重新运行结构/来源/就绪检查并发布；失败/取消保留证据、释放认领，返回状态与可执行原因。`draft_path/review_path` 必须属于该任务工作目录；模型不调用此方法。 |
+
+`module.status` 保留旧通用字段，并提供 `reading: {state, index_complete, opening_ready, queued, active, missing}`；`state` 为 `indexing|preparing|ready|blocked`。`ready` 只指开场或所请求范围就绪，不表示全书细读完毕。原来的 `installed` 标记可保留给列表兼容，但新的 PDF 就绪判断不以它为依据。
+
+队列沿用 `deepen-queue.json`，记录 `{job_id, purpose, focus?, question?, foreground, state, owner?, base_generation?, attempts}`。状态为 `queued -> running -> completed|failed|cancelled`。同模组跨 Pi 进程的认领和发布都要使用可恢复的文件锁；只靠扩展内 `busy` 不满足此约束。宿主退出时释放自身任务；恢复要确认原 owner 已不再持有锁，不能仅凭超时夺走仍活跃的写者。
+
+运行顺序：当前前台需求、开场、邻接预读；首次导入必须先完成定位。每模组一个活跃任务，允许读者结束当前有限页批后让位前台任务，已写草稿保留。可恢复错误至多自动重试一次；失败之后仅用户或 Keeper 明确重试才重派，不轮询失败请求刷模型调用。
+
+去重键由内核取来源摘要、purpose、归一化 focus 和原样 question 生成。只归并完全相同的待办或已经满足且未失效的请求；不做语义相似度去重。出现不同问题时，旧 section 已 accepted 不构成跳过理由。已满足请求在 `module.json.reading.materials` 保存 `{purpose, focus?, question?, node_ids, source_refs, generation}`；来源或被依赖事实改变时失效，单纯新增不相关事实不引发重读。
+
+### 22.3 读者输出与图谱发布
+
+读者仍为带 `read/write/edit/bash` 的子 Pi：`--no-extensions --no-context-files --no-session`；沿用 repo-local Pi home，删除游玩模式与 campaign 环境。模型须声明图片输入，并由步骤 1 的真实图片读取验证通道；不支持时返回 `vision_required`，不回落到 OCR。读者不能派生另一层读者或内核。
+
+任务简报只提供原 PDF 的翻页方法、全书索引、相关已有节点、当前需求与输出位置；不再塞全文 span。读者可以沿索引与原书引用查看任意必要页。宿主采集子 Pi 的结构化事件作为证据，不继续丢弃 stdout。进程成功退出不等于抽取成功。
+
+定位任务写索引草稿与身份判断。开场/细读写新的 `coc.module-graph-shard.v4` 草稿：模型负责 `nodes, claims, node_refs, coverage, dependencies`，沿用现有节点/关系/真假/可见性词表；模块、任务、版本等机器字段由宿主补齐。`dependencies` 是尚需查阅的 `{focus, question, pages?}`，被当前可玩内容依赖的项不能留 unresolved 后发布为 ready。`coverage` 的判断针对当前任务范围。
+
+节点和 claim 的 `evidence_span_ids` 改为 `source_refs: [{page, box?}]`，这里 `page` 是翻页工具给模型的从 1 起的物理页号。宿主转换为现有运行时 `source_refs: [{source_id, pdf_index, box?}]`，来源 id 与摘要由机器关联。模型不能自造文字 span 或把看图转写当作独立校验源。读者分片版本与已保存运行时图的版本分开，现有图与资产的读取无需批量升级。
+
+读者复用已登记实体标识；一个事实可引多页，一页可支持多条事实。重复同值合并来源，不同值必须保留双方来源并解决冲突；禁止按“最后写入”静默覆盖，禁止把已发布真相改成玩家在本局碰到的状态。
+
+原书的不同开场、可选章节与不同玩法版本属于带适用条件的作者材料，不得把互斥数值或分支并成无条件事实。沿用现有图谱字段与词表表达，当前验收只使用已支持的 CoC7 规则，不在阅读替换中增加 Pulp 等规则族。
+
+开场与细读产出中将进入可玩范围的数值、检定/线索条件、因果关系、身份及事实/谎言区别，必须经过同一种带工具读者的新会话复核。新会话独立打开原页，写 `{checked: [{path, verdict: "supported"|"contradicted"|"unclear", source_refs, reason}], missing}`；`path` 指向候选字段。机器能枚举的数值字段必须逐项有结果；其余关键内容由抽取与复核者声明，并由真桌原页核对评估漏项，不能声称已被程序穷尽。
+
+`supported` 是模型判断，不是确定性证明。`contradicted/unclear` 或缺少必要复核阻止受影响范围变为 ready，其他不受影响的已发布范围仍可玩。修正后重新检查受影响项，不把失败改写成警告后强行安装。
+
+`module.read.finish` 是唯一发布入口：核对来源引用、结构、复核报告与依赖，合并进当前模组图，更新素材就绪信息，最后原子切换 generation。图、就绪信息与 generation 属于同一次发布；写入中断保留上一有效代。重放同一已完成 job 返回原结果，不再发布或再次收费。`base_generation` 过时须重新合并检查，冲突返回 `needs_choice`，不能覆盖当前代。
+
+结构门继续检查语义 id、闭合词表、引用目标、作者/玩家可见性和玩法关系。局部就绪判定只要求本次可玩范围及其依赖成立；全书未细读页不导致全图失败，也不被标为 absent。跨向未准备区域的名字可以留在索引，但不能因为有一个名字就执行该处的作者规则。
+
+### 22.4 七动词与等待
+
+Keeper 工具总数仍是七个。`lookup {kind: "module", name, question?, retry?: boolean}` 在现有图已覆盖请求时返回资料；显式问题或材料缺口可触发上述阅读服务。等待编排在扩展侧，内核不等待模型、不阻塞 RPC 队列。索引定位结果与图谱事实必须在返回形状中明确区分。
+
+`table.resolve` 与 `table.apply` 在 RNG、状态、收据、幂等成功记录之前检查本次使用的图谱材料。目的地/实体已定位但尚未准备，或动作显式依赖未核实字段时返回 `needs`，带 `details.reason: "material_pending"`、`details.read: {purpose: "detail", focus, question}` 与英文 `fix`，该批写入和 RNG 均不变。完全没有任何索引或图谱匹配时返回 `unknown_entity`，不能按语义关键词编造一个读取目标。
+
+扩展对 `material_pending` 发一次前台读取请求并等待；前台读取允许在 `turnInFlight` 期间启动，不能等 `agent_settled`，否则形成死锁。等待期间不得占住内核 RPC 串行锁。发布后刷新图代际，用原始参数与原 `call_id` 重新校验并执行一次；失败的前置检查不能占用该 `call_id`。之前已经成功的调用照旧幂等重放。
+
+只重试缺资料的整批动作，不重跑该回合此前已落收据的动作。发布不改写旧收据、已交付正文或世界状态。可用新图补充资料，但冲突不能暗中改变已经裁定的事实。
+
+沿用有界读者超时；前台等待的总时限初值 120 秒，超时返回 `needs` 与 `details.reason: "reading_timeout"`，任务进度保留。超时不是一次新的阅读请求，也不是自动再次执行动作。原玩家输入与已完成收据保留；对同一目标再次 `lookup` 只加入已有任务继续等待，不重复起读者。Pi 的工具取消信号取消本调用拥有的前台阅读，宿主结束该读者及其工具子进程后用 `module.read.finish` 记 cancelled；共享任务只解除当前等待，不杀另一调用仍需要的任务。失败后 `lookup retry:true` 明确重试。取消不回滚此前成功的游戏动作，也不自动重发玩家输入或让 Keeper 补写未知情节。实际等待分布由验收记录决定是否调整此值。
+
+成功的读取结果通过原工具调用返回，不在桌外偷偷触发一个新的 Keeper 回合。背景预读仅在空闲时启动；素材就绪后进入后续胶囊，不自行叙事。
+
+### 22.5 开场、失败与旧数据
+
+setup 用 `prepare-module` 替换 `build-bundle/bind-source/build-opening` 的外部编排。输入真实 `pdf` 或既有 `module`，执行来源登记、定位、开场准备；调查员流程保持原职责。多开场选择沿用 `module.opening.choose`；候选来自已读原书，等待不能解决选择。源语言由读者判断，玩家语言继续使用 `play_language`。
+
+开场 ready 需要：有效且明确的入口；当前人物、互动、线索条件及必要规则数值有材料；影响开场的全局真相与跨页依赖已读；关键事实复核完成；未解决的问题不会改变这些内容。结构检查加读者依赖声明共同决定，不使用节点数量/读页比例作为替代。
+
+沿用 `coc:module-ingest` 及其 `-progress/-done/-failed` 频道接入宿主。进度统一为 `{module_id?, stage: "source"|"index"|"read"|"verify", page?, of?, focus?}`；`-done` 表示开场可用，不表示全书精读完成。新路径不再发旧 build 专属频道，命令与 setup 调用同一个宿主阅读服务。当前不新增任何 Electron IPC 或 UI。
+
+RPC 顶层错误枚举沿用 §1；具体原因放在 `details.reason`：`bad_pdf, vision_required, unreadable_pages, needs_source, material_pending, reading_timeout, reading_failed`。拒绝须有英文 `fix`；候选选择给 `details.candidates`。不可读的必要页面会阻断相关范围；不相关页面可保留为缺口，但不得声称全书可玩性已验证。
+
+旧图谱、资产、campaign 与回合证据继续可读。无原 PDF 的旧模块可玩已有内容，新细读返回 `needs_source`；摘要匹配后可建立新阅读索引，绝不把旧全书“已接受”标记冒充视觉验证。旧资料包不再接受新的生产导入，不保留 OCR fallback。退役执行清单和删除后的验证以规格为准。
+
+### 22.6 实施决定与证据
+
+- 实施中的内部形状：视觉模组把图和 manifest 写入不可变的代际目录，`module.json.graph_file` 指向完整的一代；ModuleStore 通过该指针读取，最后一次原子 metadata 写同时发布就绪信息与 generation。旧模组没有指针时继续读原位置。
+- 读者定位草稿的页范围与翻页工具一致从 1 起，发布到阅读索引时由内核转为从 0 起；定位按至多 12 页的任务批次推进，所有页都实际浏览后才 `index_complete`。同一队列与读者执行形状不变。
+- `module.read.claim` 内部返回本次 `lease`；`module.read.finish` 必须带同一 lease。认领锁由内核进程持有，崩溃后 OS 释放；重新认领使用新 attempt 目录与新 lease，旧读者即使迟到也不能发布。这两个字段不交模型填写。
+- 视觉分片补两个显式字段：`ready_nodes` 声明本次真正准备好的实体，避免把仅有名字的邻接节点也判 ready；`critical` 给本次关键事实的 JSON pointer。内核合并机器可枚举的数值字段与 claim 的复核义务。元数据内同次发布保存完成任务的结果，用于进程在发布后、队列更新前崩溃时幂等恢复。
+- 扩展之间用一条内部 `coc:reading-bridge` 共享 `{prepare, ensure}` 阅读服务闭包；终端命令与 setup 不再编排 build 的多条请求/回复频道。该闭包只在宿主进程内，不成为模型工具或 Electron 接口。
+- 运行时投影沿用既有形状：NPC 数值写 `properties.mechanics.profile`，其中 characteristics、derived、skills 与现有 starter 一致；不能把数值只放在未被计算层读取的 stats 字典里。`record_of` 对没有旧 record 的节点读取其直接 properties，旧 record 保持优先；生成场景 record 时保留作者字段。该变化连接既有消费路径，不扩展规则引擎。
+- 同一请求恢复时，新 attempt 可带入上次草稿；只有宿主记录的成功抽取检查点与草稿摘要相符时才跳过抽取、继续独立复核。新问题使用新请求，不继承旧草稿。复核前后核对草稿摘要，复核者改动草稿则拒绝；模型/传输故障重试复核，语义复核失败则带具体 findings 回到抽取修正。
+- 手卡/地图用 `properties.image_sources: [{page, box?}]` 显式声明可揭示区域；引用页不自动成为玩家图片。宿主在复核后渲染这些区域，并通过 finish 的内部 `assets` 载荷交付文件与摘要；内核核对并写入同代资产登记。多区域按顺序拼为一张图片，沿用已有 20 MiB 限制；图与资产登记随同一个 metadata 指针发布。坐标是来源定位，不按作者数值进行逐项复核。
+- 复核结果允许单条 `path` 或同来源同结论的 `paths: [pointer, ...]`。每个 required_review 字段仍须显式列出，程序逐一核对；仅合并重复的来源和理由，不用父对象自动覆盖未列出的数字。真实短本近 200 条复核义务暴露了重复输出成本，此形状减少文书量而不删核对项。
+- 同一请求的修正读取可以沿用成功抽取检查点中未改变节点/claim 的图片阅读证据；按语义 id 与规范 JSON 比较记录，新增或改变记录的引用页必须在修正会话重新看过。独立复核仍用本次复核会话自己的图片证据，不能用旧阅读代替复核。
+
+- 2026-09-07：目标契约与规格落地。运行时仍执行旧 §14/§20 流程；本节所有实现、真实 PDF、真桌及退役验收均未完成。
+- 2026-09-07：原书抽读补充物理页定位、作者版本区别与单文件长本的验收样本；父规格为 GitHub #34。抽读不计视觉构图或真桌通过。
+- 每个切片完成后在此记录实际提交、测试退出码、来源/玩测证据路径与未通过的门；不把未来行为改写成已实现。

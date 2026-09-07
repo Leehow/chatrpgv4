@@ -1,6 +1,6 @@
 {
   "contract": "coc.setup-steps.v1",
-  "note": "The seven-step setup table (kernel-rpc.md §14.4). Both the onboarding extension and the kernel read this file; order, available actions, rejection lines and next-step lines (English, kernel-rpc.md §16.1; the setup model says them in the player's language) are written here once and derived everywhere else. `needs` are step ids; a step whose `only_for` names a source kind counts as satisfied for the other kind. `kind` is ask (the model asks the player), external (the host does something outside the kernel) or op (a method named by `op`; `side` is kernel unless the op is the module extension's own driver loop, §14.5). `investigator_source` is the same idea on a second, independent axis (kernel-rpc.md §21.5): which of `investigator_sources` a step belongs to when getting an investigator onto the party, checked the same way `only_for` is (SetupSteps.applies), so a resumed setup's `completed` list correctly reports the lane not taken as not applicable rather than missing -- it is a separate field from `only_for` precisely so a live setup process (which tracks one source kind) is not made to also arbitrate this second choice.",
+  "note": "The setup step table is the single source of ordering and source/investigator applicability. PDF preparation uses the host visual reader; no OCR or text bundle is required. System instructions are English; the setup assistant speaks the player language.",
   "sources": [
     "starter",
     "pdf",
@@ -35,8 +35,8 @@
           "description": "an id from module.list with status: installed -- an already-built book, reused directly; this source skips build-bundle and bind-source",
           "required": false
         },
-        "bundle": {
-          "description": "a directory path holding a coc.pdf-bundle.v1 manifest",
+        "pdf": {
+          "description": "the original local PDF path; the host will read its pages visually",
           "required": false
         }
       },
@@ -47,61 +47,47 @@
       }
     },
     {
-      "id": "build-bundle",
+      "id": "prepare-module",
       "needs": [
         "choose-source"
       ],
       "only_for": "pdf",
-      "kind": "external",
-      "op": null,
-      "params": {
-        "bundle_path": {
-          "description": "the directory chosen in choose-source",
-          "required": true
-        }
-      },
-      "receipt": "bundle_path",
-      "lines": {
-        "do": "If the bundle does not exist, tell the player how to produce it with the host's PDF skill and wait; if it exists, pass.",
-        "next": "Confirm the bundle directory exists (the host's PDF skill writes manifest.json and pages/)."
-      },
       "applies_to": [
         "pdf"
-      ]
-    },
-    {
-      "id": "bind-source",
-      "needs": [
-        "build-bundle"
       ],
-      "only_for": "pdf",
       "kind": "op",
-      "op": "module.bind",
+      "op": "module.prepare",
+      "side": "extension",
       "params": {
-        "bundle": {
-          "description": "bundle directory",
-          "required": true,
-          "from": "bundle"
+        "pdf": {
+          "description": "the original local PDF path",
+          "from": "pdf",
+          "required": false
         },
         "module_id": {
-          "description": "optional override of the manifest slug",
+          "description": "a previously registered module, if available",
+          "required": false
+        },
+        "start_scene": {
+          "description": "an authored opening chosen after candidates were returned",
+          "required": false
+        },
+        "retry": {
+          "description": "explicitly retry a failed reading",
           "required": false
         }
       },
       "receipt": "module_id",
       "lines": {
-        "do": "module.bind validates and registers the bundle, then module.plan cuts sections.",
-        "next": "Bind the bundle: module.bind, then module.plan."
-      },
-      "applies_to": [
-        "pdf"
-      ]
+        "do": "Read the original PDF, prepare its opening, and return module_id. Ask about actual opening choices when candidates are returned.",
+        "next": "Prepare the chosen PDF with prepare-module; if reading is still in progress, wait for the existing job rather than starting another."
+      }
     },
     {
       "id": "create-campaign",
       "needs": [
         "choose-source",
-        "bind-source"
+        "prepare-module"
       ],
       "only_for": null,
       "kind": "op",
@@ -137,38 +123,10 @@
       }
     },
     {
-      "id": "build-opening",
-      "needs": [
-        "bind-source"
-      ],
-      "only_for": "pdf",
-      "kind": "op",
-      "op": "module.build",
-      "side": "extension",
-      "params": {
-        "module_id": {
-          "description": "the bound module",
-          "required": true
-        },
-        "start_scene": {
-          "description": "only when this step came back needing one: the opening scene the player picked, from the candidates it listed",
-          "required": false
-        }
-      },
-      "receipt": "opening_ready",
-      "lines": {
-        "do": "Start the build (driven by the module extension) and wait for opening_ready. A book that declares more than one opening scene comes back asking for start_scene; ask the player and call again with it.",
-        "next": "Build the opening: module.build until module.status reports opening_ready."
-      },
-      "applies_to": [
-        "pdf"
-      ]
-    },
-    {
       "id": "create-investigator",
       "needs": [
         "create-campaign",
-        "build-opening"
+        "prepare-module"
       ],
       "only_for": null,
       "investigator_source": "new",
@@ -255,7 +213,7 @@
       "id": "browse-library",
       "needs": [
         "create-campaign",
-        "build-opening"
+        "prepare-module"
       ],
       "only_for": null,
       "investigator_source": "library",

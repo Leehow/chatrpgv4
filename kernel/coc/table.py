@@ -141,6 +141,8 @@ class Table:
         #: §14.1: graphs are read from the module store once a module is registered;
         #: the cache is keyed by generation so a deepened graph is picked up.
         self.module_store = ModuleStore(self.store.workspace)
+        from .modules.reading import Reading
+        self.reading = Reading(self.module_store)
         self.setup = SetupMethods(self)
         self._graphs: dict[str, tuple[int, ModuleGraph]] = {}
         #: §12.2: the resume block `table.open` produced, carried into the first
@@ -206,12 +208,38 @@ class Table:
 
     def material_of(self, module_id: str) -> Callable[[str], str]:
         """§14.6: scene handle → ready | reading | missing from the store's section index."""
+        if self.module_store.exists(module_id) and self.module_store.module(module_id).get("reading_version"):
+            return lambda handle: "ready" if self.reading.material_ready(module_id, handle) else "missing"
         return lambda handle: material_status(self.module_store.section_for_scene(module_id, handle))
+
+    def _require_material(self, graph: ModuleGraph, names: list[Any]) -> None:
+        """Check authored material before a batch can draw dice or stage effects."""
+        if not self.module_store.exists(graph.module_id) or not self.module_store.module(graph.module_id).get("reading_version"):
+            return
+        from .module_graph import normalize
+        indexed = {normalize(v) for row in self.module_store.read_sections(graph.module_id)
+                   for v in [row.get("name", ""), *row.get("entities", [])] if isinstance(v, str)}
+        for name in names:
+            if not isinstance(name, str) or not name or self.reading.material_ready(graph.module_id, name):
+                continue
+            if graph.find(name) is None and normalize(name) not in indexed:
+                continue  # the ordinary action validator reports genuinely unknown entities
+            raise RpcError("needs", f"the source material for {name!r} is not prepared",
+                           fix="read the required material before retrying this unchanged action",
+                           details={"reason": "material_pending", "read": {"purpose": "detail", "focus": name}})
 
     def _enqueue_deepen(self, graph: ModuleGraph, scene: dict[str, Any], reason: str) -> list[str]:
         """§14.6: the scene's section and its route-to neighbours' sections that are not
         yet accepted go on the deepen queue. A starter has no sections; nothing is queued."""
         module_id = graph.module_id
+        if self.module_store.exists(module_id) and self.module_store.module(module_id).get("reading_version"):
+            queued = []
+            for exit_ in graph.scene_exits(scene):
+                if not self.reading.material_ready(module_id, exit_["to"]):
+                    reply = self.reading.request({"module_id": module_id, "purpose": "detail", "focus": exit_["to"]})
+                    if reply.get("job_id"):
+                        queued.append(reply["job_id"])
+            return queued
         wanted: list[tuple[str, str, int]] = [(graph.handle(scene), reason, DEEPEN_PRIORITY[reason])]
         wanted.extend((exit_["to"], "adjacent", DEEPEN_PRIORITY["adjacent"]) for exit_ in graph.scene_exits(scene))
         # Routes into scenes the graph has no node for: their section is unread.
@@ -543,6 +571,7 @@ class Table:
             "scene": {"name": graph.handle(scene), "display_name": scene_label(graph, world, scene)},
             "pending_turn": pending_turn,
             "opening_needed": opening_needed,
+            "module_reading": bool(self.module_store.module(graph.module_id).get("reading_version")),
             "resume": resume,
             # §15.6: which line the table just opened on, and how many circuits in.
             "worldline": {"name": worldline.active_name(meta),
@@ -884,6 +913,8 @@ class Table:
         if intent not in INTENTS:
             raise unsupported_value("intent", intent, sorted(INTENTS),
                                     message=f"unknown intent {intent!r}")
+        if intent not in NONE_INTENTS:
+            self._require_material(graph, [world.get("active_scene"), action.get("target")])
         turn_number = int(turn["turn"])
         _, ordinal = parse_call_id(call_id)
         modifiers = self._modifiers(action.get("modifiers"))
@@ -1026,6 +1057,9 @@ class Table:
         effects = params.get("effects")
         if not isinstance(effects, list) or not effects:
             raise invalid_params("params.effects must be a non-empty list")
+        authored_fields = {"move": "to", "clue": "clue", "npc": "name", "handout": "name"}
+        self._require_material(graph, [effect.get(authored_fields[effect["kind"]]) for effect in effects
+                                      if isinstance(effect, dict) and effect.get("kind") in authored_fields])
         turn_number = int(turn["turn"])
         _, ordinal = parse_call_id(call_id)
 

@@ -1,0 +1,293 @@
+/** A single host service for PDF preparation and foreground/background reading. */
+import { readFile, writeFile, mkdir, copyFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { KernelError } from "../kernel/client.ts";
+import { runReader } from "./reader.ts";
+import { sourceAsset, sourceInfo } from "./source.ts";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+type Row = Record<string, any>;
+type Call = (method: string, params: Row) => Promise<any>;
+export interface ReadingBridge {
+	prepare(params: Row, signal?: AbortSignal): Promise<Row>;
+	ensure(moduleId: string, params: Row, signal?: AbortSignal): Promise<Row>;
+}
+interface Dependencies {
+	call: Call;
+	home: string;
+	model(): { id: string; vision: boolean };
+	progress(row: Row): void;
+	record(row: Row): void;
+}
+const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+const sha = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
+function canonical(value: any): string {
+	if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
+	if (value && typeof value === "object") return "{" + Object.keys(value).sort().map(k => JSON.stringify(k) + ":" + canonical(value[k])).join(",") + "}";
+	return JSON.stringify(value);
+}
+function editedSourcePages(before: Row, after: Row): Set<number> {
+	const result = new Set<number>();
+	for (const collection of ["nodes", "claims"]) {
+		const id = (row: Row) => row.node_id ?? row.claim_id ?? canonical([row.subject_id, row.predicate, row.object]);
+		const previous = new Map((before[collection] ?? []).map((r: Row) => [id(r), canonical(r)]));
+		for (const row of after[collection] ?? []) {
+			if (previous.get(id(row)) === canonical(row)) continue;
+			for (const ref of [...(row.source_refs ?? []), ...(row.properties?.image_sources ?? [])]) result.add(ref.page);
+		}
+	}
+	return result;
+}
+function draftPages(draft: Row): number[] { return [...editedSourcePages({}, draft)]; }
+function validCheckpoint(checkpoint: Row, bytes: Buffer, job: Row): boolean {
+	if (checkpoint.draft_sha256 !== sha(bytes)) return false;
+	const observed = checkpoint.observations;
+	if (observed?.file_sha256 !== job.source.file_sha256) return false;
+	return job.purpose === "index"
+		? job.pages.every((page: number) => observed.full_pages?.includes(page))
+		: draftPages(JSON.parse(bytes.toString())).every(page => observed.read_pages?.includes(page));
+}
+const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+const error = (reason: string, message: string, fix: string, extra: Row = {}) =>
+	new KernelError({ code: "needs", message, fix, details: { reason, ...extra } });
+
+export class ReadingService implements ReadingBridge {
+	private stopped = false;
+	private requests = new Map<string, Promise<Row>>();
+	private pumps = new Map<string, Promise<void>>();
+	private controllers = new Map<string, AbortController>();
+	private waiters = new Map<string, number>();
+	private readonly deps: Dependencies;
+	constructor(deps: Dependencies) { this.deps = deps; }
+
+	dispose() {
+		this.stopped = true;
+		for (const controller of this.controllers.values()) controller.abort();
+	}
+
+	prefetch(moduleId: string): Promise<void> { return this.pump(moduleId); }
+
+	async prepare(params: Row, signal?: AbortSignal): Promise<Row> {
+		let mid = params.module_id;
+		if (params.pdf) {
+			const model = this.deps.model();
+			if (!model.vision) throw error("vision_required", "the configured reader cannot receive images", "select a reader model with image input");
+			const path = resolve(this.deps.home, params.pdf);
+			this.deps.progress({ stage: "source" });
+			const source = await sourceInfo(path);
+			const bound = await this.deps.call("module.source.bind", { source,
+				...(mid ? { module_id: mid } : {}), title: basename(path, ".pdf") });
+			mid = bound.module_id;
+		}
+		if (!mid) throw error("needs_source", "choose a PDF or an existing module", "pass pdf or module_id");
+		if (params.start_scene) await this.deps.call("module.opening.choose", { module_id: mid, scene: params.start_scene });
+		await this.ensure(mid, { purpose: "opening", foreground: true, retry: params.retry === true }, signal);
+		return { ok: true, module_id: mid, opening_ready: true };
+	}
+
+	async ensure(mid: string, params: Row, signal?: AbortSignal): Promise<Row> {
+		if (signal?.aborted || this.stopped) throw error("reading_failed", "reading was cancelled", "retry the reading when ready");
+		const key = JSON.stringify([mid, params.purpose, params.focus ?? "", params.question ?? ""]);
+		let task = this.requests.get(key);
+		if (!task) {
+			task = this.fulfil(mid, params).finally(() => this.requests.delete(key));
+			task.catch(() => undefined);
+			this.requests.set(key, task);
+		}
+		this.waiters.set(mid, (this.waiters.get(mid) ?? 0) + 1);
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let onAbort: (() => void) | undefined;
+		try {
+			const configured = Number(process.env.PI_COC_READ_WAIT_MS);
+			const wait = Number.isFinite(configured) && configured > 0 ? configured : 120_000;
+			const interrupted = new Promise<never>((_resolve, reject) => {
+				timer = setTimeout(() => reject(error("reading_timeout", "the source is still being read", "continue waiting with lookup for the same target; the existing reading is retained")), wait);
+				onAbort = () => {
+					if ((this.waiters.get(mid) ?? 0) <= 1) this.controllers.get(mid)?.abort();
+					reject(error("reading_failed", "reading was cancelled", "retry explicitly when ready"));
+				};
+				signal?.addEventListener("abort", onAbort, { once: true });
+			});
+			return await Promise.race([task, interrupted]);
+		} finally {
+			if (timer) clearTimeout(timer);
+			if (onAbort) signal?.removeEventListener("abort", onAbort);
+			this.waiters.set(mid, Math.max(0, (this.waiters.get(mid) ?? 1) - 1));
+		}
+	}
+
+	private async fulfil(mid: string, params: Row): Promise<Row> {
+		let retry = params.retry === true;
+		while (!this.stopped) {
+			const response = await this.deps.call("module.read.request", { ...params, module_id: mid, retry });
+			retry = false;
+			if (response.state === "ready") return response;
+			if (response.state === "blocked") {
+				const choice = response.opening?.choice;
+				if (choice) throw new KernelError({ code: "needs_choice", message: "the book offers more than one opening",
+					fix: "choose one candidate using start_scene in prepare-module", details: choice });
+				throw error("reading_failed", (response.missing ?? []).join("; ") || "the reading could not prepare this material", response.fix ?? "retry explicitly");
+			}
+			await this.pump(mid);
+			await delay(150);
+		}
+		throw error("reading_failed", "the reader host shut down", "resume in a new session");
+	}
+
+	private pump(mid: string): Promise<void> {
+		const running = this.pumps.get(mid);
+		if (running) return running;
+		const controller = new AbortController();
+		this.controllers.set(mid, controller);
+		const task = (async () => {
+			while (!this.stopped && !controller.signal.aborted) {
+				const job = await this.deps.call("module.read.claim", { module_id: mid, owner: `host-${process.pid}` });
+				if (!job.job_id) return;
+				await this.runJob(job, controller.signal);
+			}
+		})().finally(() => { this.pumps.delete(mid); this.controllers.delete(mid); });
+		task.catch(() => undefined);
+		this.pumps.set(mid, task);
+		return task;
+	}
+
+	private async runJob(job: Row, signal: AbortSignal) {
+		const model = this.deps.model();
+		const cwd = job.work_dir;
+		const cache = join(this.deps.home, ".coc", "modules", job.module_id, "cache", "pages");
+		await mkdir(cache, { recursive: true });
+		const commands = { page: `${quote(join(ROOT, "bin/coc-source"))} --pdf ${quote(job.source.path)} --cache ${quote(cache)} page`,
+			check: `${quote(join(ROOT, "bin/coc-read-check"))} --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
+		const task = { purpose: job.purpose, module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
+			source: { page_count: job.source.page_count }, index: job.index, known_nodes: job.known_nodes,
+			vocabulary: job.vocabulary, coverage_domains: job.coverage_domains, commands };
+		await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
+		const observations: Row = { file_sha256: job.source.file_sha256, read_pages: [], full_pages: [], review_pages: [] };
+		let readComplete = false;
+		if (job.resume_from) {
+			try {
+				const previous = JSON.parse(await readFile(join(job.resume_from, "packet.json"), "utf8"));
+				if (previous.key === job.key && previous.source.file_sha256 === job.source.file_sha256) {
+					await copyFile(join(job.resume_from, "draft.json"), join(cwd, "draft.json"));
+					await copyFile(join(job.resume_from, "findings.json"), join(cwd, "findings.json")).catch(() => undefined);
+					const checkpoint = JSON.parse(await readFile(join(job.resume_from, "read-complete.json"), "utf8"));
+					if (validCheckpoint(checkpoint, await readFile(join(cwd, "draft.json")), job)) {
+						Object.assign(observations, checkpoint.observations, { review_pages: [] });
+						await writeFile(join(cwd, "read-complete.json"), JSON.stringify(checkpoint) + "\n");
+						readComplete = !checkpoint.requires_repair;
+					}
+				}
+			} catch { /* a partial draft remains useful input, but only a host checkpoint skips reading */ }
+		}
+		await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
+		let detail = "the reader did not produce a valid draft";
+		try {
+			if (!model.vision) throw error("vision_required", "the reader has no image input", "select a model that supports images");
+			for (let round = 1; round <= 2 && !signal.aborted; round++) {
+				let phaseCompleted = false;
+				try {
+					const phases = job.purpose === "index" ? (readComplete ? [] : ["index"]) : (readComplete ? ["verify"] : ["read", "verify"]);
+					for (const phase of phases) {
+						phaseCompleted = false;
+						let previousDraft: Row | undefined, previousPages: number[] = [];
+						if (phase === "read") {
+							try {
+								const bytes = await readFile(join(cwd, "draft.json"));
+								const checkpoint = JSON.parse(await readFile(join(cwd, "read-complete.json"), "utf8"));
+								if (validCheckpoint(checkpoint, bytes, job)) { previousDraft = JSON.parse(bytes.toString()); previousPages = checkpoint.observations.read_pages; }
+							} catch { /* no completed source reading to carry */ }
+							try {
+								const retained = JSON.parse(await readFile(join(cwd, "draft.json"), "utf8"));
+								task.must_view_pages = previousDraft ? [] : draftPages(retained);
+								await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
+							} catch { /* the first draft has not been written */ }
+						}
+						const guide = await readFile(join(ROOT, "content/setup/visual-reader.md"), "utf8");
+						const intro = guide.slice(0, guide.indexOf("## Index phase"));
+						const header = phase === "index" ? "## Index phase" : phase === "read" ? "## Read phase" : "## Verify phase";
+						const start = guide.indexOf(header), end = guide.indexOf("\n## ", start + header.length);
+						const instructions = join(cwd, `instructions-${phase}.md`);
+						await writeFile(instructions, intro + guide.slice(start, end < 0 ? undefined : end) + "\nComplete only this phase and then stop.\n");
+						this.deps.progress({ module_id: job.module_id, stage: phase, focus: job.focus, of: job.source.page_count });
+						const imagePaths = new Set<string>();
+						const beforeReview = phase === "verify" ? sha(await readFile(join(cwd, "draft.json"))) : undefined;
+						const reads = new Map<string, string>();
+						const configured = Number(process.env.PI_COC_READER_TIMEOUT_MS);
+						const run = await runReader({ cwd, model: model.id, signal,
+							systemPrompt: instructions,
+							eventLog: join(cwd, `${phase}-${round}.jsonl`),
+							...(configured > 0 ? { timeoutMs: configured } : {}),
+							brief: `Read task.json. Your phase is ${phase}. ${phase === "verify" ? "Independently view the original pages and review draft.json; write review.json. Do not modify the draft." : "Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style."} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,
+							onEvent(event) {
+								if (event.type === "tool_execution_start" && event.toolName === "read" && event.args?.path) reads.set(event.toolCallId, resolve(cwd, event.args.path));
+								if (event.type === "tool_execution_end" && !event.isError && event.result?.content?.some((c: Row) => c.type === "image")) {
+									const path = reads.get(event.toolCallId); if (path) imagePaths.add(path);
+								}
+								if (event.type === "message_end" && event.message?.errorMessage) throw new Error(event.message.errorMessage);
+							},
+						});
+						this.deps.record({ lane: "reading", module_id: job.module_id, phase, round, ms: run.ms, ok: run.ok, image_reads: imagePaths.size });
+						if (!run.ok) throw new Error(run.error || (run.timedOut ? "reader timed out" : run.stderr || "reader failed"));
+						if (beforeReview && beforeReview !== sha(await readFile(join(cwd, "draft.json")))) {
+							readComplete = false;
+							throw new Error("verification modified the draft; the review must be independent");
+						}
+						const lines = (await readFile(join(cache, "requests.jsonl"), "utf8")).trim().split("\n");
+						const rows = lines.map(line => JSON.parse(line)).filter(row => row.file_sha256 === job.source.file_sha256 && imagePaths.has(row.path));
+						const key = phase === "verify" ? "review_pages" : "read_pages";
+						observations[key] = [...new Set(rows.map(row => row.page))];
+						if (previousDraft) {
+							const changed = editedSourcePages(previousDraft, JSON.parse(await readFile(join(cwd, "draft.json"), "utf8")));
+							const absent = [...changed].filter(page => !observations.read_pages.includes(page));
+							if (absent.length) throw new Error(`changed source records require viewing physical pages ${absent.join(", ")}`);
+							observations.read_pages = [...new Set([...previousPages, ...observations.read_pages])];
+						}
+						if (phase === "index") observations.full_pages = [...new Set(rows.filter(row => JSON.stringify(row.box) === "[0,0,1,1]").map(row => row.page))];
+						await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
+						if (phase !== "verify") {
+							readComplete = true;
+							await writeFile(join(cwd, "read-complete.json"), JSON.stringify({ draft_sha256: sha(await readFile(join(cwd, "draft.json"))), observations }) + "\n");
+						}
+						phaseCompleted = true;
+					}
+					const assets = [];
+					if (job.purpose !== "index") {
+						const draft = JSON.parse(await readFile(join(cwd, "draft.json"), "utf8"));
+						for (const node of draft.nodes ?? []) {
+							if (!["handout", "asset"].includes(node.node_kind) || !["player-safe", "revealable"].includes(node.visibility) || !node.properties?.image_sources?.length) continue;
+							if (typeof node.node_id !== "string" || !/^[a-z][a-z0-9-]{0,159}$/.test(node.node_id)) throw new Error("asset identifiers must be semantic kebab names");
+							const asset = await sourceAsset(job.source.path, cache, node.properties.image_sources, join(cwd, "assets", `${node.node_id}.png`));
+							assets.push({ node_id: node.node_id, ...asset });
+						}
+					}
+					await this.deps.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
+						outcome: "completed", draft_path: join(cwd, "draft.json"), review_path: join(cwd, "review.json"), assets });
+					return;
+				} catch (failure) {
+					// Provider/transport failure during verification preserves the completed read.
+					// A completed but rejected semantic review requires a source-grounded repair.
+					if (phaseCompleted) {
+						readComplete = false;
+						try {
+							const checkpointPath = join(cwd, "read-complete.json");
+							const checkpoint = JSON.parse(await readFile(checkpointPath, "utf8"));
+							await writeFile(checkpointPath, JSON.stringify({ ...checkpoint, requires_repair: true }) + "\n");
+						} catch { /* no completed read to invalidate */ }
+					}
+					detail = failure instanceof KernelError ? failure.toToolText() : String(failure);
+					let review: Row | undefined;
+					try { review = JSON.parse(await readFile(join(cwd, "review.json"), "utf8")); } catch { /* no review yet */ }
+					await writeFile(join(cwd, "findings.json"), JSON.stringify({ error: detail,
+						...(failure instanceof KernelError ? { details: failure.details } : {}),
+						...(review ? { missing: review.missing, unsupported: review.checked?.filter((row: Row) => row.verdict !== "supported") } : {}) }) + "\n");
+				}
+			}
+		} finally {
+			// Completed jobs replay here; failed attempts release their claim and preserve all artifacts.
+			await this.deps.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
+				outcome: signal.aborted ? "cancelled" : "failed", detail }).catch(() => undefined);
+		}
+	}
+}

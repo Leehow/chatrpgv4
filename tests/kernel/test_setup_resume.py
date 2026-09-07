@@ -23,7 +23,7 @@ def test_bound_book_campaign_gets_its_world_when_the_graph_arrives(kernel, tmp_p
     assert not (campaign_dir(kernel.workspace) / "world.json").exists()
     # before the graph exists the resume view already knows the lane
     resume = kernel.ok("setup.steps", {"campaign": CAMPAIGN})
-    assert resume["completed"] == ["choose-source", "build-bundle", "bind-source", "create-campaign"]
+    assert resume["completed"] == ["choose-source", "create-campaign"]
     assert resume["state"]["module_id"] == TINY_ID and resume["state"]["source"]["kind"] == "pdf"
     occupation = kernel.ok("setup.occupations", {"campaign": CAMPAIGN})["occupations"][0]["id"]
     # no graph yet: the investigator can still be made, the world is not started
@@ -36,7 +36,7 @@ def test_bound_book_campaign_gets_its_world_when_the_graph_arrives(kernel, tmp_p
     kernel.ok("module.accept", {"module_id": TINY_ID, "section_id": "section-01"})
     kernel.ok("module.assemble", {"module_id": TINY_ID})
     resume = kernel.ok("setup.steps", {"campaign": CAMPAIGN})
-    assert "build-opening" in resume["completed"] and "create-investigator" in resume["completed"]
+    assert "prepare-module" in resume["completed"] and "create-investigator" in resume["completed"]
     done = kernel.ok("setup.complete", {"campaign": CAMPAIGN})
     assert done["status"] == "ready_for_table"
     world = read_json(campaign_dir(kernel.workspace) / "world.json")
