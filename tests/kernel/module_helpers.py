@@ -33,6 +33,62 @@ def module_dir(workspace: Path, module_id: str = TINY_ID) -> Path:
     return workspace / ".coc" / "modules" / module_id
 
 
+def write_bundle(target: Path, pages: list[str], *, title: str, slug: str,
+                 language: str = "en") -> Path:
+    """A bundle of the §14.2 shape from page texts: the manifest the binder byte-checks."""
+    import hashlib
+
+    (target / "pages").mkdir(parents=True, exist_ok=True)
+    rows = []
+    for index, text in enumerate(pages):
+        path = f"pages/{index:04d}.md"
+        (target / path).write_text(text, encoding="utf-8")
+        rows.append({"pdf_index": index, "path": path,
+                     "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                     "chars": len(text)})
+    manifest = {
+        "contract": "coc.pdf-bundle.v1",
+        "producer": "test-fixture",
+        "module_identity": {"title": title, "slug": slug, "language": language},
+        "source": {"file_sha256": hashlib.sha256(slug.encode("utf-8")).hexdigest(),
+                   "page_count": len(pages), "filename": f"{slug}.pdf"},
+        "pages": rows,
+    }
+    (target / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1),
+                                          encoding="utf-8")
+    return target
+
+
+CHAPTER_BOOK_ID = "eleven-chapter-book"
+
+
+def chapter_book_pages(*, chapters: int = 11, pages_per_chapter: int = 4,
+                       lines_per_page: int = 7) -> list[str]:
+    """A book with a clean `#` chapter structure and about 50,000 characters: every page
+    carries unique prose (so no page reads as a table of contents) and every chapter
+    starts on a page of its own."""
+    pages: list[str] = []
+    for chapter in range(1, chapters + 1):
+        for page in range(pages_per_chapter):
+            lines = []
+            if page == 0:
+                lines.append(f"# Chapter {chapter}: The Long Winter Of Station {chapter}")
+            for line in range(lines_per_page):
+                lines.append(
+                    f"Chapter {chapter}, page {page}, line {line}: the surveyors counted "
+                    f"{chapter * 100 + page * 10 + line} crates on the frozen siding and wrote "
+                    f"the tally into the station ledger before the light failed entirely."
+                )
+            pages.append("\n\n".join(lines) + "\n")
+    return pages
+
+
+def bind_chapter_book(client: RpcClient, tmp_path: Path, **kwargs: Any) -> dict[str, Any]:
+    bundle = write_bundle(tmp_path / "chapter-bundle", chapter_book_pages(**kwargs),
+                          title="The Long Winter", slug=CHAPTER_BOOK_ID)
+    return client.ok("module.bind", {"bundle": str(bundle)})
+
+
 def bind_tiny(client: RpcClient, tmp_path: Path) -> dict[str, Any]:
     return client.ok("module.bind", {"bundle": str(copy_bundle(tmp_path))})
 

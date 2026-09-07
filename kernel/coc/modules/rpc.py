@@ -156,17 +156,19 @@ class ModuleMethods:
         module_id = _str(params, "module_id")
         meta = self._pdf_module(module_id)
         budget = _int(params, "budget", planner.DEFAULT_SECTION_BUDGET)
+        # The ceiling and the aim are separate numbers (§14.13); the aim never exceeds the ceiling.
+        target = planner.resolve_target(budget, _int(params, "target", planner.DEFAULT_SECTION_TARGET))
         if any(row.get("status") == "accepted" for row in self.store.read_sections(module_id)):
             raise invalid_params("module already has accepted sections; the plan is fixed",
                                  fix="bind the bundle under another module_id to re-plan")
         pages = load_pages(self.store.bundle_dir(module_id))
-        result = planner.candidates(pages, budget=budget)
+        result = planner.candidates(pages, budget=budget, target=target)
         heads = planner.page_heads(pages)
-        plan = {"module_id": module_id, "budget": budget, "basis": result["basis"],
+        plan = {"module_id": module_id, "budget": budget, "target": target, "basis": result["basis"],
                 "measured": result["measured"], "sections": result["sections"], "pages": heads,
                 "planned_at": now_iso()}
         write_json_atomic(self.store.work_dir(module_id) / "plan.json", plan)
-        out = {"module_id": module_id, "budget": budget, "basis": result["basis"],
+        out = {"module_id": module_id, "budget": budget, "target": target, "basis": result["basis"],
                "measured": result["measured"], "sections": result["sections"], "pages": heads,
                "next": "module.plan.accept {module_id, sections: [{id, kind, priority}]}",
                "kinds": list(planner.SECTION_KINDS)}

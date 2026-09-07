@@ -6,15 +6,15 @@ import json
 from pathlib import Path
 
 from conftest import RpcClient, read_json
-from module_helpers import (TINY_ID, bind_tiny, build_whole_book, claim, codes, module_dir, node,
-                            packet_for, plan_four_sections, plan_whole_book, reader_shard, review,
-                            span_with, write_shard)
+from module_helpers import (CHAPTER_BOOK_ID, TINY_ID, bind_chapter_book, bind_tiny, build_whole_book,
+                            claim, codes, module_dir, node, packet_for, plan_four_sections,
+                            plan_whole_book, reader_shard, review, span_with, write_shard)
 
 
 def test_plan_cuts_by_budget_and_leaves_classification_to_the_agent(kernel: RpcClient, tmp_path: Path):
     bind_tiny(kernel, tmp_path)
     whole = kernel.ok("module.plan", {"module_id": TINY_ID})
-    assert whole["basis"] == "whole_book_fits_budget"
+    assert whole["basis"] == "whole_book_within_target"
     assert [s["pages"] for s in whole["sections"]] == [[0, 3]]
     assert whole["sections"][0]["kind"] is None and whole["sections"][0]["priority"] is None
     assert whole["measured"]["pages"] == 4 and whole["measured"]["chars"] == 503
@@ -22,7 +22,7 @@ def test_plan_cuts_by_budget_and_leaves_classification_to_the_agent(kernel: RpcC
     assert all(len(p["head"]) <= 2 for p in whole["pages"]), "the classifier sees two lines per page, not the book"
 
     cut = kernel.ok("module.plan", {"module_id": TINY_ID, "budget": 200})
-    assert cut["basis"] == "heading_depth_2"
+    assert cut["basis"] == "heading_depth_2_within_target"
     assert [s["pages"] for s in cut["sections"]] == [[0, 0], [1, 1], [2, 2], [3, 3]]
     assert [s["title"] for s in cut["sections"]][1:3] == ["场景：码头茶棚", "场景：废弃货栈"]
     assert all(s["chars"] <= 200 for s in cut["sections"])
@@ -44,6 +44,42 @@ def test_plan_cuts_by_budget_and_leaves_classification_to_the_agent(kernel: RpcC
     assert [row["status"] for row in table] == ["planned"] * 4
     assert table[1] == {"id": cut["sections"][1]["id"], "title": "场景：码头茶棚", "pages": [1, 1], "chars": 188,
                         "kind": "scene", "priority": 100, "status": "planned", "shard": None, "rounds": 0}
+
+
+def test_a_book_with_headings_is_cut_even_though_it_fits_the_budget(kernel: RpcClient, tmp_path: Path):
+    """§14.13: the budget is a ceiling, the target is the aim. A 50,000-character book fits
+    a 60,000 budget whole, and swallowing it whole is exactly what left the real 48-page
+    book with one section, a reader that failed both grounding gates and a deepening queue
+    with nothing to read (issue #33)."""
+    bind_chapter_book(kernel, tmp_path)
+    plan = kernel.ok("module.plan", {"module_id": CHAPTER_BOOK_ID})
+    measured = plan["measured"]
+    assert 45_000 <= measured["chars"] <= 60_000, measured["chars"]
+    assert measured["fits_whole_book"] is True, "the whole book is under the budget"
+    assert measured["fits_target"] is False, "and over the target, which is why it is cut"
+
+    assert len(plan["sections"]) == 11, [s["pages"] for s in plan["sections"]]
+    assert plan["basis"] == "heading_depth_1_within_target", "the basis says which rule chose this cut"
+    assert all(section["chars"] <= measured["target"] for section in plan["sections"])
+    assert [section["title"] for section in plan["sections"]][:2] == [
+        "Chapter 1: The Long Winter Of Station 1", "Chapter 2: The Long Winter Of Station 2"]
+    # The alternatives it beat are on the record beside it.
+    depth_one = next(row for row in measured["heading_depth_cuts"] if row["depth"] == 1)
+    assert depth_one["sections"] == 11 and depth_one["within_target"] is True
+    assert plan["measured"]["target"] < plan["measured"]["budget"]
+
+    written = read_json(module_dir(kernel.workspace, CHAPTER_BOOK_ID) / "work" / "plan.json")
+    assert written["basis"] == plan["basis"] and written["target"] == measured["target"]
+    # Several sections means a classification pass, and a deepening queue with something in it.
+    assert plan["section_count"] == 11 and "brief" in plan
+
+    # The target is a number a caller may name; raised above the book it keeps it whole.
+    whole = kernel.ok("module.plan", {"module_id": CHAPTER_BOOK_ID, "target": 90_000})
+    assert whole["basis"] == "whole_book_within_target" and len(whole["sections"]) == 1
+    # ...but never above the ceiling: a budget below the target is the smaller of the two.
+    clamped = kernel.ok("module.plan", {"module_id": CHAPTER_BOOK_ID, "budget": 9_000, "target": 90_000})
+    assert clamped["measured"]["target"] == 9_000
+    assert all(section["chars"] <= 9_000 for section in clamped["sections"])
 
 
 def test_packet_carries_spans_window_skeleton_and_no_raw_pages(kernel: RpcClient, tmp_path: Path):

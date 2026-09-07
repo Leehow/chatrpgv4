@@ -763,6 +763,20 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 - **`apply item` / `apply cash`（#19，已实现）。** 两种效果都在批内的暂存表副本上算，整批校验通过后才写；写回只覆盖 `equipment`/`weapons`/`finance`/`cash` 四个字段（同批的 `damage` 直接把 HP 镜像到表上，不能被暂存副本盖掉）。`item`：`to` 缺省为唯一调查员（多人报 `needs_choice`）；`from` 先按图上 NPC 精确名解析、再按 12.4 的整词规则（`Knott` → Steven Knott），解析不到原样保留（来源是叙事，不是世界写入）；`quantity` 缺省 1、必须非零整数；`weapon` 对合并表解析（`weapons.json` 全表加模组自己的行，与战斗会话读的是同一张——契约写的 `equipment.json` 是 Table XVII 价目表，没有伤害/射程/弹容，profile 一直住在 `weapons.json`），按 id 或 display_name 归一化匹配，取不到报 `needs`（`options` 为该时代可用的 id，`close` 为 difflib 最近的至多 6 个，`source` 指向表）。得到时 `equipment[]` 追加 `{name, quantity, turn, from?, label?, weapon?}`（同名字典条目合并数量），给了 `weapon` 就同时追加 `weapons[]` 一行（pregen 同形：`weapon_id, name, label?, profile, skill, damage, range, attacks, ammo, malfunction, turn`，数值全出自 profile）；`resolve_investigator_weapon` 从此也认 `label`。失去时按 `name`/`label`/`weapon_id` 归一化匹配，持有数 = 装备条目数量之和（裸字符串算 1），没有装备条目时数武器行（pregen 的手枪只有武器行）；持有不足报 `invalid_params`（`details.held`）；清零后同名武器行一并删除。收据 `item:<slugify(name)>-t<turn>-c<n>`（同批重复加 `-2`…），带 `before/after` 持有数；渲染 `【变化】物品：<人> 得到/失去 <label 或名>[ ×n]`；facts 句 `物品：<人> 得到 <名>`；事件 `item-transferred {name, to, from?, weapon?, quantity}`。`cash`：`subject` 缺省同上；`delta` 非零整数；表上没有 `finance` 块（pregen 的 `cash` 是散文，不解析）就按 `cash-assets.json` 的时代与信用评级建一个（chargen 同形，`source: cash-assets.periods.<era>`）；时代没有档（`ww1`）从 0 起、`source: null` 并在 `note` 写明余额是现金收据之和；余额不能为负（`invalid_params`，`details.before/delta`）；同时更新 `sheet.cash` 显示串。收据 `cash:t<turn>-c<n>`，`resource: cash`、`label: 现金`、`before/after/delta/currency`；渲染 `【变化】现金：<人> <前> → <后>`；facts 用 `delta` 句式；事件 `resource-changed`（`resource: cash`）。事件类型表加 `item-transferred`（十五类）。
 - **职业点分配策略（#21，已实现）。** `steps.json` 的 `create-investigator.allocation = {default: spread, options: [spread, fill], tiers: [50, 70]}`，`params.allocation` 可选覆盖；不认识的策略报 `invalid_params`（`details.stage: allocation`，`expected.options/default`）。`spread` 把职业技能表**每一项**当一个槽位，按书上顺序、按层（`tiers`，再到上限）走：能落到目录名的技能抬到该层；落不到的短语（`any one other skill`、`Firearms` 这类组名）**预留该层的值**——基础值未知，少于此不保证到层——记在 `occupation.reserved[{for, points}]`，仍算 `unspent`，留给桌上的 development 族；预算耗尽即停。`fill` 保留旧的一点轮转（只在能落到目录名的技能上，不预留）。`sheet.creation.allocation = {policy, tiers, source}`，`occupation.allocation` 与收据 `allocation` 给策略名，收据另给 `occupation_reserved`。真桌案例（Military Officer，快速数组，300 点）：`fill` 给 75/75/75/75 余 35；`spread` 给 50/50/50/50，预留 Firearms 50、两项交涉技能 50、任一其他 35——「四项到 75」与「其余为零」是同一个原因：三个短语从未参与分配，光换层不换槽位仍是 75×4。兴趣点仍按旧法轮转（本票未动）。
 
+### 14.13 切分有目标值，预算只是天花板（票 #33，已实现）
+
+真桌证据（2026-09-06，《冰冷的收获》48 页 53,118 字）：预算缺省 60,000，整本装得下，于是切成**一段**并自动接受；同一份 `measured` 里按一级标题能切 11 段、最大 10,058 字。后果全发生了——读者第 1、2 轮被 grounding 打回（`name_not_on_cited_pages`、`number_not_on_cited_pages`），span 消费率 0.395、34 段实质内容没被引用，按需深挖队列没有第二段可挖（§14.6 在这类书上等于不存在）。
+
+- **两个数。** `budget` 是天花板（任何 section 都不许超过），`target` 是**一段该多大**的目标值，`module.plan` 新增可选参数，缺省 20,000；`target` 永远取 `min(target, budget)`（把预算调到目标之下，是说段要更小，不是更大）。两个数都写进 `plan.json` 与 `module.plan` 的结果。
+- **选法**（全是机器量出来的，模型不参与；目录页在每一层都跳过）：
+  1. 全书 ≤ target → 一段，`basis: whole_book_within_target`。
+  2. 否则在 1–6 级标题里，取**最浅**的、能切出 ≥ 2 段且每段 ≤ target 的那一层 → `heading_depth_<d>_within_target`。最浅优先，是因为它给出最接近目标的大段，不会把书切碎。
+  3. 没有就取最浅的、能切出 ≥ 2 段且每段 ≤ budget 的那一层 → `heading_depth_<d>_within_budget`。
+  4. 还没有就取最浅的、能切出 ≥ 2 段的那一层，超预算的章按页边界再贪心切 → `heading_depth_<d>_split_by_budget`。
+  5. 一层都切不出 ≥ 2 段：全书 ≤ budget 就是一段（`whole_book_no_heading_structure`），否则整本按页边界切（`budget_only`）。
+- **理由与备选都留痕。** `basis` 说清是哪条规则选的；`measured.heading_depth_cuts` 每一层多给 `smallest_chars`、`divides`、`within_target`、`within_budget`，被否掉的备选原样在 `plan.json` 里。旧的 `whole_book_fits_budget`、裸 `heading_depth_<d>` 两个 basis 值不再出现。
+- **对照。** 同一本《冰冷的收获》按新法走第 2 条：一级标题 11 段，最大 10,058 字。tiny 夹具（503 字）仍是一段（`whole_book_within_target`）；`budget: 200` 仍按二级标题切四段（`heading_depth_2_within_target`）。
+
 ## 15. 世界线：if 线、时间回溯、跨线知晓与汇流（切片 6，票 #23）
 
 一条世界线就是战役 sidecar 仓库里的一条分支。玩家在一个战役里同一时刻只玩一条线；可以分叉、回溯、切换、汇流；所有线都留着（证据永不删除）。什么跨线留下、谁记得别的线、汇流时怎么合，由模组图声明、内核确定性地算；守秘人只在胶囊里看到这是第几圈、锚点在哪、留下了什么、谁记得、有哪些回声可投放。世界线操作是世界的改变，所以走 `apply`（法则二），并在那一回合提交之后由内核执行——守秘人仍然只有七个动词。旧树世界线系统的双时态断言、九种记忆状态、跨战役转移、自动合并策略都不回来。
