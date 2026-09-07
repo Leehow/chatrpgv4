@@ -104,6 +104,8 @@ def mechanics_of(receipt: dict[str, Any]) -> dict[str, Any] | None:
                "before": receipt.get("before"), "after": receipt.get("after")}
         _with_label(out, "subject_label", receipt.get("subject_label"))
         _with_label(out, "currency", receipt.get("currency"))
+        _with_label(out, "with", receipt.get("with"))
+        _with_label(out, "with_label", receipt.get("with_label"))
         return out
     if kind == "session":
         out = {"kind": "session", "receipt": receipt_id, "family": receipt.get("family"),

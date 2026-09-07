@@ -26,6 +26,7 @@ const MoveEffect = Type.Object({
 	kind: StringEnum(["move"] as const, { description: "walk to another scene" }),
 	to: Type.String({ description: "destination scene name; must be one of the exits reachable from the current scene" }),
 	travel_minutes: Type.Optional(Type.Integer({ description: "minutes spent on the way; omitted means the value on the graph edge" })),
+	via: Type.Optional(Type.String({ description: "how they got there when the way is not one of the exits you were given — through an unlatched upper window, down a coal chute, following someone in. Say it and the move lands; without it an unlisted destination is refused, and then the world stays where it was while your narration moves on" })),
 	label: Type.Optional(Type.String({ description: "short name of the destination in the player's language; omitted means the scene name" })),
 });
 
@@ -75,6 +76,7 @@ const CashEffect = Type.Object({
 	kind: StringEnum(["cash"] as const, { description: "the money in hand goes up or down" }),
 	subject: Type.Optional(Type.String({ description: "whose money; defaults to the current investigator" })),
 	delta: Type.Integer({ description: "signed change, in the currency of the era; spent is negative, received is positive" }),
+	with: Type.Optional(Type.String({ description: "the person on the other side of it: an NPC name. Name them whenever money is paid to or taken from someone — that is what puts it on their account, and you are told it again the next time they are in the room" })),
 	why: Type.Optional(Type.String({ description: "one sentence: where the money went, or where it came from" })),
 });
 
