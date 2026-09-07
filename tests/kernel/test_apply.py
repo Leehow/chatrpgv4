@@ -235,3 +235,104 @@ def test_move_label_names_the_scene_from_then_on(kernel):
                                          "to": "hall-of-records", "from_label": "Knott's Office", "to_label": "档案馆"}
     record = read_json(campaign_dir(kernel.workspace) / "turns" / "0001.json")
     assert record["world"]["scene"] == {"name": "hall-of-records", "display_name": "档案馆"}
+
+
+def test_a_night_of_rest_gives_back_the_hit_point_the_rulebook_promises(kernel):
+    """Time passing has to heal. The rule was on the rule graph from the start
+    (`rule:coc7:healing:regular-damage-recovery`: no major wound, 1 HP a day) and the
+    healing engine's downtime entry point was written and tested — but nothing in the
+    kernel ever called it. On the live table that meant 55 in-game hours, three nights'
+    sleep and two visits to a doctor with the investigator stuck at 5 of 11 all game."""
+    open_turn(kernel)
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "damage", "dice": "1D6", "why": "摔下楼梯"}])
+    hurt = kernel.table("look", focus="investigator")["hp"]
+
+    rested = kernel.table("apply", call_id="t1-c2", effects=[{"kind": "time", "minutes": 480, "why": "睡一夜"}])
+    assert any(r.startswith("delta:hp-t1") for r in rested["receipts"])
+    assert kernel.table("look", focus="investigator")["hp"] == hurt + 1
+    assert {"investigator": "thomas-hayes", "resource": "hp",
+            "before": hurt, "after": hurt + 1} in rested["recovered"]
+
+    # Two half-nights in one batch are one night: the batch's minutes are summed.
+    split = kernel.table("apply", call_id="t1-c3", effects=[{"kind": "time", "minutes": 240},
+                                                            {"kind": "time", "minutes": 240}])
+    assert kernel.table("look", focus="investigator")["hp"] == hurt + 2
+    assert split["recovered"][0]["after"] == hurt + 2
+
+    # Below the engine's six hours nothing is a rest — and `handle_time_trigger` also
+    # clears the day's first-aid attempts, so calling it for a walk down the hall would
+    # hand the party a fresh First Aid every ten minutes.
+    short = kernel.table("apply", call_id="t1-c4", effects=[{"kind": "time", "minutes": 45}])
+    assert "recovered" not in short
+    assert kernel.table("look", focus="investigator")["hp"] == hurt + 2
+
+
+def test_travel_time_is_a_trip_not_a_rest(kernel):
+    """A move's travel minutes move the clock, but nobody heals while they are driving:
+    only `apply time`, the keeper deliberately passing time, counts as rest."""
+    open_turn(kernel)
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "damage", "dice": "1D6", "why": "摔下楼梯"}])
+    hurt = kernel.table("look", focus="investigator")["hp"]
+    driven = kernel.table("apply", call_id="t1-c2",
+                          effects=[{"kind": "move", "to": "Hall of Records", "travel_minutes": 600}])
+    assert driven["world"]["clock"]["minutes"] >= 600
+    assert "recovered" not in driven
+    assert kernel.table("look", focus="investigator")["hp"] == hurt
+
+
+def test_magic_points_come_back_over_an_hour_of_rest(kernel):
+    """The MP engine had the same dead downtime entry point as the healing engine, so a
+    keeper who let the party rest an afternoon still found the pool where they left it."""
+    open_turn(kernel)
+    sheet_path = campaign_dir(kernel.workspace) / "party" / "thomas-hayes.json"
+    sheet = read_json(sheet_path)
+    sheet["current_mp"] = 1
+    sheet_path.write_text(json.dumps(sheet, ensure_ascii=False), encoding="utf-8")
+
+    rested = kernel.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 120, "why": "在旅馆歇一下"}])
+    regained = [row for row in rested.get("recovered") or [] if row["resource"] == "mp"]
+    assert regained and regained[0]["before"] == 1 and regained[0]["after"] > 1
+    assert read_json(sheet_path)["current_mp"] == regained[0]["after"]
+
+    # Under an hour is under the rulebook's unit, and the engine's floor would otherwise
+    # hand out a magic point for a ten-minute wait.
+    short = kernel.table("apply", call_id="t1-c2", effects=[{"kind": "time", "minutes": 30}])
+    assert "recovered" not in short
+
+
+def test_the_scene_underfoot_can_be_given_its_name(kernel):
+    """A move names its destination, and the scene the party opens in is nobody's
+    destination — so the opening scene wore the book's English name for the whole game
+    while every other place carried the keeper's. A move to where you already stand is
+    a naming: it registers the label and nothing else happens."""
+    open_turn(kernel)
+    named = kernel.table("apply", call_id="t1-c1",
+                         effects=[{"kind": "move", "to": OPENING_SCENE, "label": "委托人的书房"}])
+    assert named["receipts"] == [f"move:{OPENING_SCENE}-t1-c1"]
+    state = world(kernel)
+    assert state["scene_labels"][OPENING_SCENE] == "委托人的书房"
+    assert state["active_scene"] == OPENING_SCENE
+    assert not state.get("scene_trail")
+    assert "scene" not in named, "a naming is not an arrival; there is no destination to show"
+    events = read_jsonl(campaign_dir(kernel.workspace) / "events.jsonl")
+    assert not [e for e in events if e["type"] == "scene-moved" and e["data"]["from"] == e["data"]["to"]]
+
+    # The name is the scene's from then on, including as the place the next move left.
+    moved = kernel.table("apply", call_id="t1-c2", effects=[{"kind": "move", "to": "Hall of Records"}])
+    receipt = next(r for r in read_json(campaign_dir(kernel.workspace) / "turn.json")["receipts"]
+                   if r["id"] == moved["receipts"][0])
+    assert receipt["from_label"] == "委托人的书房"
+
+    # Standing still with nothing to say is a mistake, and the refusal says what was missing.
+    refused = kernel.table_err("apply", call_id="t1-c3", effects=[{"kind": "move", "to": "hall-of-records"}])
+    assert refused["code"] == "invalid_params" and "label" in refused["fix"]
+
+
+def test_a_naming_leaves_no_row_on_the_player_s_card(kernel):
+    """The mechanics projection would otherwise show the party walking from a place to
+    itself, which is the one thing that did not happen."""
+    open_turn(kernel)
+    kernel.table("apply", call_id="t1-c1",
+                 effects=[{"kind": "move", "to": OPENING_SCENE, "label": "委托人的书房"}])
+    narrated = narrate(kernel, "t1-c2", "你们还在那间书房里。")
+    assert not [m for m in narrated["mechanics"] if m["kind"] == "scene"]
