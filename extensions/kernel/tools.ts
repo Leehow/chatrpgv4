@@ -24,10 +24,10 @@ export interface CocToolSpec {
 
 const MoveEffect = Type.Object({
 	kind: StringEnum(["move"] as const, { description: "walk to another scene" }),
-	to: Type.String({ description: "destination scene name; must be one of the exits reachable from the current scene" }),
+	to: Type.String({ description: "destination scene name; must be one of the exits reachable from the current scene. Naming the scene they are already in is a rename, not a move: pass label with it and nothing else happens" }),
 	travel_minutes: Type.Optional(Type.Integer({ description: "minutes spent on the way; omitted means the value on the graph edge" })),
 	via: Type.Optional(Type.String({ description: "how they got there when the way is not one of the exits you were given — through an unlatched upper window, down a coal chute, following someone in. Say it and the move lands; without it an unlisted destination is refused, and then the world stays where it was while your narration moves on" })),
-	label: Type.Optional(Type.String({ description: "short name of the destination in the player's language; omitted means the scene name" })),
+	label: Type.Optional(Type.String({ description: "short name of the destination in the player's language; omitted means the scene name. It becomes that scene's name from then on, so pass to = the scene underfoot with a label once at the start to name the place the party opens in" })),
 });
 
 const ClueEffect = Type.Object({
@@ -50,7 +50,7 @@ const DamageEffect = Type.Object({
 
 const TimeEffect = Type.Object({
 	kind: StringEnum(["time"] as const, { description: "the world clock moves forward" }),
-	minutes: Type.Integer({ description: "minutes advanced" }),
+	minutes: Type.Integer({ description: "minutes advanced. Six hours or more is a day of rest and the party heals for it (1 HP a day with no major wound), an hour or more regenerates magic points; the result lists what came back in recovered, and your narration owes those numbers like any other change" }),
 	why: Type.Optional(Type.String({ description: "one sentence: where the time went" })),
 });
 

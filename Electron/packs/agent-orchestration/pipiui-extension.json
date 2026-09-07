@@ -1,0 +1,37 @@
+{
+  "id": "agent-orchestration",
+  "name": "PipiUI Agent Orchestration",
+  "version": "1.0.0",
+  "category": "workflow",
+  "description": "Semantic worker dispatch, nested delegation, progress, and Conversation-scoped worker lifecycle.",
+  "capabilities": [],
+  "dependencies": {
+    "required": [
+      {
+        "id": "git-capability",
+        "version": ">=1.0.0 <2.0.0"
+      }
+    ]
+  },
+  "agent": {
+    "extension": "agent/index.ts",
+    "tools": [
+      "subagent",
+      "subagent_manage",
+      "subagent_status",
+      "subagent_progress",
+      "subagent_resolve",
+      "subagent_watch",
+      "subagent_chain",
+      "subagent_abort",
+      "subagent_alarm_ack",
+      "ledger_note",
+      "context_doc",
+      "context_manage",
+      "session_recall",
+      "secretary_commit"
+    ],
+    "layers": "agent/layers",
+    "agentsDir": "agents"
+  }
+}

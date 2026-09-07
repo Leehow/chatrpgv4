@@ -1,6 +1,6 @@
 # PDF 直接阅读与按需构图
 
-状态：实施与真实验收进行中。2026-09-07，初始基线 `7e990cc6`；当前状态见实施记录。
+状态：实现与本分支验证完成；合回 `0.9.0a` 等待并行任务提交重叠改动。2026-09-07，初始基线 `7e990cc6`；证据与限制见实施记录。
 
 父规格票：[GitHub #34](https://github.com/Leehow/chatrpgv4/issues/34)，已标 `ready-for-agent`。本文件保留本地实施指引；后续拆票以本规格的用户故事、候选切片和验收为依据。
 
@@ -185,15 +185,15 @@
 
 ### 实施记录
 
-用户已授权实现，并于后续明确要求继续至完成。开发位于隔离 worktree `chatrpgv4-wt-visual-pdf-reader`、分支 `codex/visual-pdf-reader`。最新已提交检查点为 `d3016b50`，之前合并上游 `e71b86cb` 的集成点为 `8601d66b`；旧管线退役及末轮修复当前尚未提交。原工作区仍有其他任务的未提交改动，不覆盖、不回滚。最终须完成 worktree 生命周期审计。
+用户已授权实现，并于后续明确要求继续至完成。开发位于隔离 worktree `chatrpgv4-wt-visual-pdf-reader`、分支 `codex/visual-pdf-reader`。旧管线退役及手卡接缝修复已提交为 `cbdab504`；已吸收 `0.9.0a` 的已提交 `40dae53d` 并完成冲突解决和全量验证。原工作区仍有其他任务的未提交改动，不覆盖、不回滚。实施 worktree 保留代码、原文件与全部验收证据；生命周期状态另由本任务最终审计记录。
 
 | 切片 | 已有证据 | 尚未完成 |
 | --- | --- | --- |
-| A 原页访问 | 原 PDF 页图、旋转、裁剪、缓存校验与区域手卡；真实 Pi 图片读取 | 最终整体验证汇总 |
-| B 原 PDF 到开桌 | 20 页来源已建卡并完成一次真实使节任务；48 页 Cold Harvest 已复核并选对调查开场 | 退役后已实际交付两张手卡并记下调查计划后暂停 |
-| C 长本按需补读 | 338 页 A Time to Harvest 全书定位；开场仅准备部分材料；正常抵达行动触发未就绪场景细读与第 320 页地图读取；generation 2 发布后实际抵达 | 退役后的恢复、手卡与收尾验证 |
-| D 复用与恢复 | 马库斯跨 Pi 会话恢复；朱莉娅在同一模组上另开局，世界时间 30 分钟，与马库斯的 12021 分钟独立；原件恢复、争用与原子发布接缝通过 | 最终进程和证据审计 |
-| E 旧方法退役 | OCR/资料包命令、旧抽取器依赖、文字 span 管线、旧 build/deepen 编排与专属测试已删除；旧图谱/资产只读兼容保留 | 退役后内核 1027 passed / 1 skipped、扩展 104 passed；等待长本末轮与安全集成 |
+| A 原页访问 | 原 PDF 页图、旋转、裁剪、缓存校验与区域手卡；真实 Pi 图片读取 | 已验证 |
+| B 原 PDF 到开桌 | 20 页来源已建卡并完成一次真实使节任务；48 页 Cold Harvest 已复核并选对调查开场，退役后实际交付两张手卡并记下调查计划后暂停 | 已验证上述范围 |
+| C 长本按需补读 | 338 页 A Time to Harvest 全书定位；开场仅准备部分材料；正常抵达行动触发未就绪场景细读与第 320 页地图读取；generation 2 发布后实际抵达 | 退役后恢复到同一农舍与 510 分钟，正常暂停；未宣称完成整部长战役 |
+| D 复用与恢复 | 马库斯跨 Pi 会话恢复；朱莉娅在同一模组上另开局，世界时间 30 分钟，与马库斯的 12021 分钟独立；原件恢复、争用与原子发布接缝通过 | 本任务全部 driver 已正常停止，证据保留 |
+| E 旧方法退役 | OCR/资料包命令、旧抽取器依赖、文字 span 管线、旧 build/deepen 编排与专属测试已删除；旧图谱/资产只读兼容保留 | 退役后内核 1027 passed / 1 skipped、扩展 104 passed；长本末轮已正常暂停，等待安全集成 |
 
 真实来源与运行记录（均保留在 `.coc/`，未上传原书）：
 
@@ -203,7 +203,7 @@
 - `visual-source-play`、`visual-source-play-resume`、`visual-source-play-graph`：马库斯完成旅行、宴会、私人会谈、条约签署与返程复命，最后自然收束。含真实失败检定、玩家放弃推骰与跨会话恢复。源码迭代中出现的失败及被拒调用都保留，不能计作成功回合。
 - `visual-source-reuse-setup`、`visual-source-reuse-play`：朱莉娅新局 `julia-north-mission`，约 20.8 秒建卡，复用 book-1；已实际开场并通过正常玩家输入暂停。该记录验证复用与独立世界，不宣称第二局剧情完结。
 - `.coc/research/long-index/home/.coc/modules/book-1/`：338 页 A Time to Harvest，索引为 338/338。开场 read-32 于 10:45:15Z 完成独立复核后发布 generation 1；此前的 413、阶段超时与语义复核失败均保留。
-- `harvest-visual-setup`、`harvest-visual-play`、`harvest-visual-play-recovery`：真实战役 `a-time-to-harvest`，艾达。启动时一次 driver prompt 被 Pi 的自动开场拒绝，属传输记录，不计玩家回合。抵达动作先因材料未就绪被拒；read-34 发布 generation 2 后，canonical turn 4 只有一次 480 分钟车程和一次 30 分钟卸货，最终世界位置 day-one-arrival、时间 510。第 320 页地图的 23英尺6英寸尺寸误读曾被复核拦下。
+- `harvest-visual-setup`、`harvest-visual-play`、`harvest-visual-play-recovery`、`harvest-visual-retired-resume`：真实战役 `a-time-to-harvest`，艾达。启动时一次 driver prompt 被 Pi 的自动开场拒绝，属传输记录，不计玩家回合。抵达动作先因材料未就绪被拒；read-34 发布 generation 2 后，canonical turn 4 只有一次 480 分钟车程和一次 30 分钟卸货，最终世界位置 day-one-arrival、时间 510。第 320 页地图的 23英尺6英寸尺寸误读曾被复核拦下。退役后新进程恢复了 NPC 与同一场景，turn 8 正常暂停，canonical 下一回合为 9/awaiting_player、时间仍 510。下一处 Jim’s Grill 的 read-37 复核尚未发布，退出保留草稿；它不计作新的成功补读。
 - `.coc/research/cold-visual-home/.coc/modules/book-1/`：48 页《冰冷的收获》索引、原页、草稿、复核与图。read-5 的日期、指控内容等误读，以及最后的 50码/50米混淆被复核拦截；read-6 修正后发布。
 - `cold-harvest-ivan` 与 `cold-harvest-ivan-flax` 两个错误试局标记 **invalid-for-intent / invalid-for-acceptance**：图谱已正确区分任务，但建卡候选缺摘要，加上缓存直接复用了旧选择，导致实际开场与玩家意图不符。这两局不计通过，不删除记录。
 - `cold-visual-setup-confirmed` 创建的 `cold-harvest-ivan-correct` 已核对为开场2：查明亚麻产量骤降与电报失联并联系加庞。source kind=module 与 pdf 统一经过 prepare-module，多个候选必须在本次准备选定。
@@ -226,4 +226,8 @@
 
 观测到的首次开场图发布时间：20 页短本从登记到发布 43.6 分钟；48 页 Cold Harvest 为 114.7 分钟；338 页长本为 186.1 分钟。这些是包含开发修复、失败、人工间隔的真实墙钟时间，不是稳定性能基准，也不代表生成图后所有开场已选定。已有书的复用建卡约 20.8 秒。
 
-下一步：完成长本退役后恢复的末轮验证，提交精简实现；原工作区有并发改动时保持隔离，安全集成后审计 worktree。Electron 不在本轮。
+集成边界：原工作区 `chatrpgv4-wt-pi-coc-v2` 有另一任务正在修改 `Agents.md`、`docs/kernel-rpc.md`、`extensions/kernel/{index,tools}.ts`、`extensions/onboarding/index.ts`、`kernel/coc/table.py`、`prompts/keeper.md` 及前端文件。本分支仅吸收已提交历史，不覆盖、暂存或代交这些未提交改动。回合证据和未发布阅读工作随实施 worktree 保留；待该任务提交后再合并回 `0.9.0a`。Electron 自身的构建与 GUI 验收不计本轮交付。
+
+整合 `40dae53d` 后的最终验证：内核 **1035 passed / 1 skipped**（235.62 秒、exit 0），扩展 **106 passed**（exit 0）。日志为 `.coc/research/integrated-kernel.log` 与 `integrated-extension.log`。前端目录与该已提交基线逐字节相同，未在本任务重做前端构建或 GUI 验收。全部本任务玩测 daemon/Pi 已停止。
+
+按 index/read/verify 分组的模型回执用量与图片 read 返回次数在 `.coc/research/visual-pdf-metrics.json`；统计包含失败、恢复和开发期重复尝试，缓存 token 每次请求重复计入，不能当成一次稳定导入的成本。实际图片纳入模型上下文仍以各 attempt 的图片记录和校验结果为准，不能以返回次数替代。

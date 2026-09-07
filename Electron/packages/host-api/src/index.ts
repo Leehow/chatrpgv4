@@ -1,0 +1,1971 @@
+/** Versioned, transport-neutral contract used by every Pipi UI. */
+export * from "./plan.js";
+export * from "./native-search.js";
+export * from "./host-capability.js";
+export * from "./product-pack.js";
+import type { PlanEvent, PlanSnapshot } from "./plan.js";
+import type { ModelCapabilities } from "./native-search.js";
+import type { ProductPackArchiveResult, ProductPackInstallResult, ProductPackLayout } from "./product-pack.js";
+export const PIPI_HOST_PROTOCOL_VERSION = 2 as const;
+/** Stable Electron IPC channel for the Pipi host protocol. */
+export const PIPI_HOST_IPC_CHANNEL = "pipi-host:v1";
+
+export type Unsubscribe = () => void;
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+const STANDARD_THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high"];
+export type ThinkingLevelMap = Partial<Record<ThinkingLevel, string | null>>;
+export type Project = { id: string; name: string; path: string };
+/** Identity of the running product: `pipiui`, or a product built on it. */
+export type ProductInfo = { id: string; name: string };
+/** A session's isolated workspace (git-capability session worktree). Absent = ordinary session at the project root. */
+export type SessionWorkspace = {
+  /** Branch the session's tree is on (e.g. `pipiui/session-<slug>`). */
+  branch: string;
+  worktreePath: string;
+  /** Commits the session branch is ahead of the main checkout HEAD; null when not computable. */
+  aheadOfMain: number | null;
+};
+export type Session = {
+  id: string;
+  projectId: string;
+  name: string;
+  updatedAt: number;
+  /** The session's model (provider/modelId), when known. Absent/null means unknown (sidebar falls back to a neutral logo). */
+  model?: { provider: string; modelId: string } | null;
+  /**
+   * Immutable form snapshot used by the last Pi child for this Conversation:
+   * `id` is the active pack extension (or `base` when the project runs none)
+   * plus a fingerprint of the enabled extension set.
+   */
+  productProfile?: { id: string; fingerprint: string };
+  /** Bound isolated workspace (session worktree), when a capability has attached one. */
+  workspace?: SessionWorkspace;
+};
+/** Opaque-cursor page used by the Electron sidebar's 10-at-a-time lazy loader. */
+export type SessionPage = {
+  sessions: Session[];
+  nextCursor?: string;
+  hasMore: boolean;
+};
+export type SessionPreloadAgentLog = {
+  agentId: string;
+  sessionId: string;
+  runId: string;
+  entries: { itemType: "text" | "thinking" | "tool" | "toolResult"; text: string; name?: string; isError?: boolean; toolCallId?: string; contentIndex?: number; charCount?: number }[];
+};
+/** Render-ready data warmed after first paint so selecting a sidebar row is immediate. */
+export type SessionPreloadSnapshot = {
+  history: HistoryEntry[];
+  agents: AgentSummary[];
+  agentLogs: SessionPreloadAgentLog[];
+};
+export type SessionLease = { sessionId: string; writable: boolean; holder?: { protocolVersion: number; holder: string; pid: number; hostname: string; acquiredAt: string; heartbeatAt: string; expiresAt: string } };
+export type HistoryTool = { id: string; name: string; input: string };
+export type TranscriptCitation = {
+  url: string;
+  title?: string;
+  startIndex?: number;
+  endIndex?: number;
+  type?: string;
+};
+/** Live Chat-with-Files citation. Never includes provider file ids, paths, or tokens. */
+export type TranscriptFileSource = {
+  name: string;
+  url?: string;
+};
+export type HistoryActivity =
+  | { type: "thinking"; contentIndex: number; content: string }
+  | { type: "text"; contentIndex: number; content: string }
+  | { type: "tool"; contentIndex: number; tool: HistoryTool };
+/**
+ * Transcript entry. `content` is the plain text of the message; assistant
+ * entries additionally carry `thinking` and `tools` so resumed sessions render
+ * the same folded tool/turn structure as the live stream (Swift ChatItem parity).
+ * `tool` entries (toolResult) reference the tool call they belong to.
+ */
+export type HistoryEntry = {
+  id: string;
+  role: "user" | "assistant" | "tool" | "compaction";
+  content: string;
+  timestamp: number;
+  /** assistant only: reasoning text, rendered inside the folded turn card. */
+  thinking?: string;
+  /** assistant only: tool calls with their raw args JSON. */
+  tools?: HistoryTool[];
+  /** assistant only: ordered non-text content blocks for exact resume parity. */
+  activities?: HistoryActivity[];
+  /** assistant only: terminal failure (`stopReason: "error"`) with no text content. */
+  errorMessage?: string;
+  /** assistant only: preserved Responses url_citation / inline source URLs. */
+  citations?: TranscriptCitation[];
+  /** assistant only: Chat-with-Files sources. Never includes provider file ids. */
+  fileSources?: TranscriptFileSource[];
+  /** tool (toolResult) only: the tool call this result belongs to. */
+  toolCallId?: string;
+  toolName?: string;
+  isError?: boolean;
+  /** tool only: images extracted from the result (screenshots, generated images). */
+  images?: TranscriptImage[];
+  /** tool only: structured `details` from the pi ToolResultMessage, when present.
+   *  Metadata only (path/backend/model/…) — never typed image base64. */
+  details?: unknown;
+};
+/** Local files that a host makes available to the right-side document reader. */
+export type DocumentKind = "markdown" | "plain" | "pdf" | "word" | "spreadsheet" | "presentation";
+export const DOCUMENT_KIND_BY_EXTENSION = {
+  ".md": "markdown",
+  ".markdown": "markdown",
+  ".txt": "plain",
+  ".csv": "plain",
+  ".tex": "plain",
+  ".bib": "plain",
+  ".cls": "plain",
+  ".sty": "plain",
+  ".pdf": "pdf",
+  ".doc": "word",
+  ".docx": "word",
+  ".docm": "word",
+  ".rtf": "word",
+  ".odt": "word",
+  ".epub": "word",
+  ".xls": "spreadsheet",
+  ".xlsx": "spreadsheet",
+  ".xlsm": "spreadsheet",
+  ".xlsb": "spreadsheet",
+  ".ods": "spreadsheet",
+  ".ppt": "presentation",
+  ".pptx": "presentation",
+  ".pptm": "presentation",
+  ".pps": "presentation",
+  ".ppsx": "presentation",
+  ".ppsm": "presentation",
+  ".pot": "presentation",
+  ".odp": "presentation",
+} as const satisfies Record<string, DocumentKind>;
+export type SupportedDocumentExtension = keyof typeof DOCUMENT_KIND_BY_EXTENSION;
+export function documentKindForName(name: string): DocumentKind | null {
+  const normalized = name.toLowerCase();
+  let matched: SupportedDocumentExtension | undefined;
+  for (const extension of Object.keys(DOCUMENT_KIND_BY_EXTENSION) as SupportedDocumentExtension[]) {
+    if (!normalized.endsWith(extension)) continue;
+    if (!matched || extension.length > matched.length) matched = extension;
+  }
+  return matched ? DOCUMENT_KIND_BY_EXTENSION[matched] : null;
+}
+export function documentsDroppedAnnouncement(paths: readonly string[]): string {
+  const listed = paths.filter(path => path.trim() && documentKindForName(path)).join("、");
+  return `[文档面板] 用户拖拽打开了文档：${listed}。文件在磁盘上，可读取与编辑；面板会自动刷新。`;
+}
+export const DOCUMENT_INJECTION_EXCERPT_LIMIT = 24_000;
+export type DocumentInjectionSource = "panel" | "composer";
+export type DocumentInjectionEntry = {
+  path: string;
+  kind?: DocumentKind | null;
+  excerpt?: string;
+  size?: number;
+  binary?: boolean;
+};
+function formatDocumentSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+/**
+ * Binary documents (pdf/word/spreadsheet/presentation) are not readable as text.
+ * The core protocol only states the fact; whichever document extension is enabled
+ * for the project decides how (and whether) the file gets parsed, so no tool name
+ * is named here.
+ */
+function binaryParseHint(kind: DocumentKind | null | undefined, size: string, source: DocumentInjectionSource): string {
+  const hint = "这是二进制文档，无法直接用 read 读取；能否解析取决于当前项目启用的文档扩展，请优先使用其提供的解析工具，没有时如实说明。";
+  return source === "composer"
+    ? `。${hint}`
+    : `。文件已在右侧面板打开（${kind ?? "binary"}${size}）；${hint}打开预览本身不会解析。`;
+}
+/** Path + readable excerpt (or a local parse hint) so the model can see an opened document. */
+export function documentsOpenedInjection(
+  entries: readonly DocumentInjectionEntry[],
+  options?: { source?: DocumentInjectionSource },
+): string {
+  const source = options?.source === "composer" ? "composer" : "panel";
+  const opened = source === "composer" ? "[输入框] 用户附上了文档：" : "[文档面板] 用户打开了文档：";
+  const blocks: string[] = [];
+  for (const entry of entries) {
+    const path = entry.path.trim();
+    if (!path || !documentKindForName(path)) continue;
+    const kind = entry.kind ?? documentKindForName(path);
+    const excerpt = entry.excerpt?.trim();
+    if (excerpt) {
+      blocks.push(`${opened}${path}\n--- 文档内容 ---\n${excerpt}`);
+      continue;
+    }
+    const size = typeof entry.size === "number" ? `，约 ${formatDocumentSize(entry.size)}` : "";
+    const hint = entry.binary
+      ? binaryParseHint(kind, size, source)
+      : source === "composer"
+        ? "。文件在磁盘上，可读取。"
+        : "。文件在磁盘上，可读取与编辑；面板会自动刷新。";
+    blocks.push(`${opened}${path}${hint}`);
+  }
+  return blocks.join("\n\n");
+}
+export type DocumentSummary = {
+  id: string;
+  name: string;
+  path: string;
+  kind: DocumentKind;
+  size?: number;
+  updatedAt?: number;
+  /** The document panel holds unsaved edits for this file (host-tracked, see `setDocumentDirty`). */
+  dirty?: boolean;
+  /** The document panel's front tab (the watched document). */
+  active?: boolean;
+};
+export type TextDocumentContent = DocumentSummary & { kind: "markdown" | "plain"; content: string; bytes?: never };
+export type BinaryDocumentContent = DocumentSummary & { kind: "pdf" | "word" | "spreadsheet" | "presentation"; bytes: Uint8Array; content?: never };
+export type DocumentContent = TextDocumentContent | BinaryDocumentContent;
+export type DocumentErrorCode = "document_invalid_path" | "document_unsupported_type" | "document_not_found" | "document_not_file" | "document_too_large" | "document_read_failed" | "document_external_open_failed" | "document_not_open" | "document_write_failed";
+export type Model = {
+  provider: string;
+  id: string;
+  name: string;
+  /** Pi streamer id, e.g. `openai-responses`. Absent = unknown (Structured Outputs stays capability-gated). */
+  api?: string;
+  /** Pi model metadata. Absent means the runtime did not report whether this is a reasoning model. */
+  reasoning?: boolean;
+  /** Pi's tri-state map: string = supported provider value, null = explicitly unsupported, absent key = provider default. */
+  thinkingLevelMap?: ThinkingLevelMap;
+  /** Semantic result of Pi API/compat metadata. Absent means configurability is unknown. */
+  thinkingConfigurable?: boolean;
+  /** Mirrors Swift ModelInfo.supportsImages (pi input array or heuristic). Absent = unknown (defaults to supported). */
+  supportsImages?: boolean;
+  /** Declared hosted-tool capabilities. Absent = none declared. */
+  capabilities?: ModelCapabilities;
+};
+export type ModelState = { model: Model; thinkingLevel: ThinkingLevel; availableThinkingLevels: ThinkingLevel[] };
+
+/** Catalog metadata that must not be overridden by provisional/session-reported lists. */
+export function modelHasExplicitThinkingCapability(model: Model): boolean {
+  return model.reasoning === false
+    || model.thinkingConfigurable === false
+    || model.thinkingLevelMap !== undefined;
+}
+
+/** One capability source for backend fallbacks, the composer, and subagent overrides. */
+export function thinkingLevelsForModel(model: Model, reported?: readonly ThinkingLevel[]): ThinkingLevel[] {
+  if (model.reasoning === false || model.thinkingConfigurable === false) return [];
+  const thinkingLevelMap = model.thinkingLevelMap;
+  if (thinkingLevelMap) {
+    // Full-map dialect: every THINKING_LEVELS key is either a provider value or null
+    // (= unsupported, hidden from the picker). Upstream pi also ships sparse maps
+    // (openai-codex GPT) whose absent keys mean pass-through, not unsupported — those
+    // must be expanded into full maps in the bundled capability snapshot before they
+    // reach here, or valid levels vanish from the picker. See
+    // resources/runtime/model-capabilities/models-dev-reasoning-options.json (openai-codex).
+    return THINKING_LEVELS.filter(level => {
+      if (Object.prototype.hasOwnProperty.call(thinkingLevelMap, level))
+        return typeof thinkingLevelMap[level] === "string";
+      return level === "off";
+    });
+  }
+  if (reported) {
+    const supported = new Set(reported);
+    return THINKING_LEVELS.filter(level => supported.has(level));
+  }
+  return [...STANDARD_THINKING_LEVELS];
+}
+
+/**
+ * After listModels hydration, explicit catalog capability wins. Reported/provisional
+ * lists are only a fallback when the catalog model itself is silent.
+ */
+export function thinkingLevelsForHydratedModel(model: Model, reported?: readonly ThinkingLevel[]): ThinkingLevel[] {
+  return thinkingLevelsForModel(model, modelHasExplicitThinkingCapability(model) ? undefined : reported);
+}
+
+/** Prefer current if allowed, else fallback if allowed, else the first allowed level. */
+export function resolveThinkingLevel(
+  current: ThinkingLevel | undefined,
+  available: readonly ThinkingLevel[],
+  fallback?: ThinkingLevel,
+): ThinkingLevel | undefined {
+  if (current && available.includes(current)) return current;
+  if (fallback && available.includes(fallback)) return fallback;
+  return available[0];
+}
+/** Ordered subagent fallback entry. New selections persist `model` as full `provider/modelId`; an empty chain means “follow main Agent”. */
+export type SubagentModelSetting = { model: string; thinking?: string };
+/** Cross-renderer semantic sidebar state. Device-only disclosure/layout stays local. */
+export type SidebarSessionPreferences = {
+  pinnedSessionIds: string[];
+  archivedSessionIds: string[];
+  /** Unix milliseconds when each session entered the archive. Missing legacy entries receive a fresh grace window in the UI. */
+  archivedSessionTimestamps?: Record<string, number>;
+  /** @deprecated Legacy manual drag order. Unused since sessionOrderVersion 3; keep for IPC compatibility and always persist as []. */
+  orderedSessionIds: string[];
+  /** Absent / 2 are pre-v3 prefs whose orderedSessionIds must be discarded. Current writers persist 3. */
+  sessionOrderVersion?: 2 | 3;
+};
+/** Effective catalog origin. Bundled roles are App-shipped; extension contributions keep their runtime origin. */
+export type AgentCatalogOrigin = "user" | "project" | "bundled";
+export type AgentCatalogSource = "user" | "project" | "bundled";
+export type AgentCatalogMode = "read-only" | "worker";
+/** Canonical privileged bundled roles identified by metadata, not a UI name list. */
+export type AgentCanonicalRole = "secretary";
+export type AgentCatalogAvailability = "available" | "degraded" | "unavailable";
+/** Catalog/merge diagnostic. Never carries prompt bodies. */
+export type AgentCatalogDiagnostic = {
+  severity: "error" | "warning";
+  code: string;
+  message: string;
+  extensionId?: string;
+  agentName?: string;
+  filePath?: string;
+};
+/** Patch operations an extension applied; kinds only, never prompt text. */
+export type AgentPatchOperation = "appendPrompt" | "replacePrompt" | "addTools" | "removeTools";
+/** `requested` is a provisional custom addTools pending Pi's unique winner; omit/`accepted` is actually applied. */
+export type AgentPatchProvenanceStatus = "accepted" | "requested";
+/** Read-only provenance of one extension patch on a catalog agent. Never includes prompt bodies or filesystem paths. */
+export type AgentPatchProvenance = {
+  extensionId: string;
+  origin?: "builtin" | "app" | "project";
+  operations: AgentPatchOperation[];
+  addTools?: string[];
+  removeTools?: string[];
+  /** Absent on legacy hosts (treat as accepted). Static catalog uses `requested` for unverified custom addTools. */
+  status?: AgentPatchProvenanceStatus;
+};
+/** Permission summary for the settings UI. Tools/capabilities only — never prompt text. */
+export type AgentPermissionSummary = {
+  filesystem: "none" | "read-only" | "workspace-write";
+  shell: boolean;
+  web: boolean;
+  desktop: "none" | "requestable";
+  delegation: boolean;
+  mcpTools: string[];
+};
+/**
+ * Subagent catalog row. `{name, description}` remains the compatibility core;
+ * extra fields are optional so older hosts and mock catalogs keep working.
+ * Prompt bodies are never part of this contract.
+ */
+export type AgentDefinition = {
+  name: string;
+  description: string;
+  origin?: AgentCatalogOrigin;
+  source?: AgentCatalogSource;
+  extensionId?: string;
+  mode?: AgentCatalogMode;
+  worktree?: "none" | "isolated";
+  capabilities?: AgentPermissionSummary;
+  permissionSummary?: string;
+  available?: boolean;
+  availability?: AgentCatalogAvailability;
+  diagnostics?: AgentCatalogDiagnostic[];
+  /** Catalog-wide issues (missing patch targets, snapshot failures) repeated so JSON array transports cannot drop them. */
+  catalogDiagnostics?: AgentCatalogDiagnostic[];
+  /** Successful extension patches on this agent. Absent on legacy hosts and unpatched rows. */
+  patches?: AgentPatchProvenance[];
+  canonical?: boolean;
+  canonicalRole?: AgentCanonicalRole;
+};
+/** Safe runtime tool metadata for the Subagent Debug surface. Never includes schemas or filesystem paths. */
+export type AgentDebugTool = {
+  name: string;
+  description: string;
+  source?: string;
+  scope?: "user" | "project" | "temporary";
+};
+/** Enabled skill metadata shared by the Boss and on-demand Subagent skill loader. */
+export type AgentDebugSkill = {
+  name: string;
+  description: string;
+  userInvoked?: boolean;
+};
+export type AgentDebugSubagent = {
+  name: string;
+  toolPolicy: "allowlist" | "unrestricted";
+  tools: string[];
+  excludedTools?: string[];
+};
+export type SubagentDebugInfo = {
+  available: boolean;
+  source?: "live" | "demo";
+  reason?: "no-session" | "snapshot-not-ready" | "snapshot-invalid" | "snapshot-too-large";
+  sessionId?: string;
+  capturedAt?: number;
+  bossTools: AgentDebugTool[];
+  toolCatalog: AgentDebugTool[];
+  skills: AgentDebugSkill[];
+  subagents: AgentDebugSubagent[];
+};
+export type AgentState = "running" | "stalled" | "ok" | "failed" | "aborted" | "interrupted";
+/** `cost` remains USD for compatibility; these optional fields select its display unit and USD→CNY rate. */
+export type CostUnit = "USD" | "CNY";
+/** Metadata-only stall probe. Never carries prompt, tool args, or output text. */
+export type AgentCpuVerdict = "working" | "no-progress" | "gone" | "unknown";
+/** Closeout stage after the child summary. Missing means a legacy producer omitted it. */
+export type AgentFinalizationPhase =
+  | "generating"
+  | "tool-active"
+  | "final-received"
+  | "verifying"
+  | "reconciling"
+  | "merging"
+  | "cleaning"
+  | "post-verify"
+  | "done-await-host";
+export type AgentDiagnostics = {
+  agentId?: string;
+  runId?: string;
+  eventSeq?: number;
+  processGeneration?: string;
+  supervisorPid?: number;
+  childPid?: number;
+  lastActivityAt?: number;
+  lastOutputAt?: number;
+  lastToolAt?: number;
+  lastStdoutAt?: number;
+  lastStderrAt?: number;
+  stdoutBytes?: number;
+  stderrBytes?: number;
+  toolWaitName?: string;
+  lastCpuSampleAt?: number;
+  lastCpuDeltaMs?: number;
+  cpuVerdict?: AgentCpuVerdict;
+  watchdogDecision?: string;
+  watchdogReason?: string;
+  abortReason?: string;
+  exitReason?: string;
+  hostReceivedAt?: number;
+  hostEventSeq?: number;
+  lastHostEventSeq?: number;
+  seqGap?: number;
+  generationMatch?: boolean;
+  persistedRunning?: boolean;
+  reconciliation?: "interrupted" | "none";
+  hostGeneration?: string;
+  finalizationPhase?: AgentFinalizationPhase;
+  phaseSince?: number;
+  lastPhaseError?: string;
+  childExitedAt?: number;
+  verifyPid?: number;
+  verifyElapsedMs?: number;
+  reconcileElapsedMs?: number;
+  mergeElapsedMs?: number;
+  cleanupElapsedMs?: number;
+  doneEventSeq?: number;
+};
+/** Metadata is optional for v1 producers; v2 producers populate it on snapshots and updates. */
+export type AgentSummary = { agentId: string; runId: string; name: string; task: string; state: AgentState; stalled?: boolean; stalledIdleSec?: number; handled?: boolean; cost?: number; costUnit?: CostUnit; exchangeRate?: number; turns?: number; outputCount?: number; sessionId?: string; parentId?: string | null; /** The main-chat tool_call this agent was dispatched from (subagent tool), if any. Lets the transcript card link a tool_call to its live worker. */ toolCallId?: string; depth?: number; role?: string; createdAt?: number; updatedAt?: number; deadlineAt?: number; endedAt?: number; title?: string; model?: string; provider?: string; listSubtitle?: string; /** True only while a tool is in-flight. Missing means the field was not provided. */ activityActive?: boolean; /** In-flight tool id when the runtime supplied one. */ activityToolCallId?: string; /** Set when the last in-flight tool ended/failed/aborted. */ activityEndedAt?: number; closeout?: string; contextTokens?: number; contextWindowTokens?: number; inputTokens?: number; outputTokens?: number; cacheTokens?: number; finalResult?: string;
+  /** Explicit test-fixture marker: only synthetic test data sets this. Production hosts never do, and no prose heuristic may substitute for it. */
+  testFixture?: true;
+  /**
+   * Writable isolation failed on an existing git repo (worktree add / unborn HEAD).
+   * Non-git folders do not isolate and do not set this field — workers run in
+   * the project directory. Verbatim technical reason; the UI maps it to a Chinese hint.
+   */
+  worktreeError?: string;
+  /** Runtime/host stall probe. Metadata only. */
+  diagnostics?: AgentDiagnostics };
+export type WorktreeLifecycle = "none" | "active" | "pendingReview" | "merged" | "mergedCleanupPending" | "discarded";
+export type WorktreeStatus = {
+  agentId: string;
+  /** Owning episode session — required: every worktree row belongs to exactly one episode. */
+  sessionId: string;
+  /** Owning episode run — required: a badge/operation on this status binds to this run alone. */
+  runId: string;
+  branch?: string; path?: string; error?: string; lifecycle: WorktreeLifecycle; merge: "ready" | "merged" | "conflict" | "unavailable"; discard: "ready" | "discarded" | "unavailable" };
+export type HostCapabilities = { revealInFinder: boolean; terminal: boolean; plan: boolean; retainedWorktreeDisposition: boolean; [capability: string]: boolean };
+export type UpdateCenterItemStatus = "upToDate" | "updateAvailable" | "checkFailed" | "notCheckable";
+export type UpdateCenterItemCategory = "platform" | "runtime" | "toolchain" | "extension";
+export type UpdateCenterItem = {
+  id: string;
+  name: string;
+  packageName?: string;
+  /** Host-discovered ownership layer. Optional for older hosts and browser fixtures. */
+  category?: UpdateCenterItemCategory;
+  /** Owning bundled extension when the item is an extension-declared update component. */
+  ownerExtensionId?: string;
+  ownerExtensionName?: string;
+  /** Human-facing version source when `packageName` does not apply (e.g. GitHub `owner/repo`). */
+  sourceLabel?: string;
+  /** Host can run the one-click update transaction for this component (official githubReleases package artifact). */
+  transactional?: boolean;
+  currentVersion: string;
+  latestVersion?: string;
+  status: UpdateCenterItemStatus;
+  error?: string;
+};
+export type UpdateCenterSnapshot = { checkedAt: number; items: UpdateCenterItem[] };
+/** Result of a host-run extension component update transaction (store install; seed untouched). */
+export type ExtensionComponentUpdateResult = {
+  extensionId: string;
+  version: string;
+  contentHash: string;
+  objectDir: string;
+  receiptPath: string;
+  previousContentHash?: string;
+  /** True when discovery found the active version already current (no state change). */
+  skipped?: boolean;
+};
+/** Stable renderer-to-Pi seam. Policy expansion is owned by the bundled Pi extension. */
+export const PIPIUI_UPDATE_EVALUATION_INTENT_VERSION = 1 as const;
+export const PIPIUI_UPDATE_EVALUATION_INTENT_PREFIX = "[[PIPIUI_UPDATE_EVALUATION_INTENT]]";
+export type PipiuiUpdateEvaluationIntent = {
+  version: typeof PIPIUI_UPDATE_EVALUATION_INTENT_VERSION;
+  id: string;
+  name: string;
+  packageName?: string;
+  /** Owning bundled extension when the item is an extension-declared update component. */
+  ownerExtensionId?: string;
+  ownerExtensionName?: string;
+  currentVersion: string;
+  latestVersion: string;
+};
+export type PipiuiUpdateEvaluationIntentFields = Omit<PipiuiUpdateEvaluationIntent, "version">;
+export function encodePipiuiUpdateEvaluationIntent(fields: PipiuiUpdateEvaluationIntentFields): string {
+  return `${PIPIUI_UPDATE_EVALUATION_INTENT_PREFIX}${JSON.stringify({
+    version: PIPIUI_UPDATE_EVALUATION_INTENT_VERSION,
+    id: fields.id,
+    name: fields.name,
+    ...(fields.packageName === undefined ? {} : { packageName: fields.packageName }),
+    ...(fields.ownerExtensionId === undefined ? {} : { ownerExtensionId: fields.ownerExtensionId }),
+    ...(fields.ownerExtensionName === undefined ? {} : { ownerExtensionName: fields.ownerExtensionName }),
+    currentVersion: fields.currentVersion,
+    latestVersion: fields.latestVersion,
+  })}`;
+}
+
+/**
+ * Work-tree git state for the chat toolbar; mirrors Swift `GitRepoStatus`.
+ * A non-repository project reports `isRepo: false` and empty counts — the probe
+ * never guesses, so an unreadable work tree looks the same as a missing one.
+ */
+export type GitStatus = {
+  isRepo: boolean;
+  /** Absent while detached; read `shortSHA` then. */
+  currentBranch?: string;
+  isDetached: boolean;
+  shortSHA?: string;
+  localBranches: string[];
+  /** e.g. `origin/main`; absent when the branch has no upstream. */
+  upstream?: string;
+  /** Commits on HEAD not in upstream. */
+  ahead: number;
+  /** Commits on upstream not in HEAD. */
+  behind: number;
+  isDirty: boolean;
+  staged: number;
+  unstaged: number;
+  untracked: number;
+  /** Only github.com remotes resolve; other hosts stay undefined. */
+  githubURL?: string;
+};
+
+/** Cumulative per-session token accounting. All values are whole token counts. */
+export type SessionTokenUsage = { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+/** Context-window occupancy from pi's `get_session_stats`. `tokens`/`percent` are null when unknown (e.g. right after compaction). `percent` is 0–100. */
+export type SessionContextUsage = { tokens: number | null; contextWindow: number; percent: number | null };
+/**
+ * Host-observed performance samples (TTFT, tokens/second, sample count).
+ * Each field remains absent until its underlying turn has real evidence; a
+ * real TTFT does not require provider output-token evidence. `sampleCount` is
+ * the number of retained turns with any performance evidence, while each
+ * average uses only turns that supplied that field. Clients must never treat
+ * a missing value as zero.
+ */
+export type SessionPerformance = { ttftMs?: number; tokensPerSecond?: number; sampleCount?: number };
+/**
+ * Renderer-observed, privacy-safe timing for one user submission. The payload
+ * deliberately carries only a bounded opaque correlation id, timestamps, and
+ * byte/count measurements — never prompt, attachment, document, or tool data.
+ * Hosts validate every field and omit unavailable measurements.
+ */
+export type TurnTelemetryRendererSample = {
+  turnId: string;
+  submittedAt: number;
+  preflightStartedAt?: number;
+  preflightEndedAt?: number;
+  promptBytes?: number;
+  attachmentCount?: number;
+  attachmentBytes?: number;
+  documentCount?: number;
+};
+/** Image attachment carried by sendPrompt; mirrors Swift ImageAttachment.rpcPayload. */
+export type PromptAttachment = {
+  /** Base64-encoded image bytes (no `data:` prefix). */
+  dataBase64: string;
+  mimeType: string;
+  /** Original file name when available. */
+  name?: string;
+  /** Preserve transport-safe attachment metadata added by future clients. */
+  [extra: string]: unknown;
+};
+/** Provider-scoped chat file. Never includes credentials or a local absolute path. */
+export type InputFileStatus = "uploading" | "ready" | "failed" | "cancelled";
+export type InputFileAttachment = {
+  id: string;
+  name: string;
+  size: number;
+  mimeType: string;
+  status: InputFileStatus;
+  fileId?: string;
+  sent?: boolean;
+  error?: string;
+};
+export type InputFileStageRequest = {
+  name: string;
+  size: number;
+  mimeType?: string;
+  dataBase64: string;
+  id?: string;
+};
+/** One-shot Responses Structured Outputs request. Never persisted by the host. */
+export type StructuredOutputRequest = {
+  name: string;
+  schema: Record<string, unknown>;
+  strict?: boolean;
+  description?: string;
+};
+/** Host-owned product queue lifecycle (matches the MessageQueue UI states). */
+export type QueuedMessageState = "queued" | "sending" | "failed";
+/** Durable, actionable message payload. Completed messages leave the active queue. */
+export type QueuedMessage = {
+  id: string;
+  sessionId: string;
+  text: string;
+  attachments: PromptAttachment[];
+  createdAt: number;
+  state: QueuedMessageState;
+  error?: string;
+};
+/** Explicit outcome for the opt-in queue API; legacy `sendPrompt` remains void-compatible. */
+export type QueueEnqueueResult = { outcome: "direct" | "queued"; message: QueuedMessage };
+/** Authentication type pi supports for a provider. */
+export type AuthType = "oauth" | "api_key";
+/** Non-secret provider auth metadata (pi ModelRuntime.getProviders + stored credential type). */
+export type AuthProviderInfo = {
+  id: string;
+  name: string;
+  authTypes: AuthType[];
+  loginLabel?: string;
+  /** Provider has a stored credential (auth.json metadata only — never the key). */
+  authenticated: boolean;
+  authType?: AuthType;
+  /** Stored OAuth credential expiry (epoch ms); undefined for API keys or when unknown. */
+  expiresAtMs?: number;
+  /** Where the presented credential came from (stored auth.json entry vs process environment). */
+  credentialSource?: "stored" | "environment";
+};
+export type AuthPromptOption = { id: string; label: string };
+/** One step of an interactive login flow (pi AuthInteraction prompt/notify events). */
+export type AuthLoginEvent =
+  | { kind: "auth_url"; url: string; code?: string; instructions?: string }
+  | { kind: "prompt"; promptType: "text" | "secret" | "select"; message: string; placeholder?: string; options?: AuthPromptOption[] }
+  | { kind: "notice"; message: string }
+  | { kind: "completed"; providerId: string }
+  | { kind: "failed"; error: string }
+  | { kind: "cancelled" };
+/** Model-id candidate from an OpenAI-compatible endpoint's GET {baseUrl}/models. */
+export type OpenAICompatibleModelInfo = { id: string; contextWindow?: number };
+/** Result of a streaming connectivity probe against one OpenAI-compatible model. */
+export type OpenAICompatibleModelTestResult = {
+  ok: true;
+  /** Request start → first generated content token, in ms. */
+  firstTokenMs: number;
+  /** Request start → stream end, in ms. */
+  totalMs: number;
+  /** Content deltas received (approximate token count). */
+  tokens: number;
+  /** tokens / generation seconds, one decimal. */
+  tokensPerSecond: number;
+  /** First ~80 chars of generated content. */
+  preview: string;
+};
+/** Stable, transport-neutral snapshot of a session's cumulative usage. `cost`
+ * is always USD; unknown/missing fields are omitted by producers, never guessed.
+ */
+export type SessionStats = {
+  sessionId: string;
+  tokens: SessionTokenUsage;
+  /** Cumulative session cost in USD. */
+  cost: number;
+  contextUsage?: SessionContextUsage;
+  /** Current model/provider of the session, when known. */
+  model?: { provider?: string; id?: string; name?: string };
+  performance?: SessionPerformance;
+};
+/** Snapshot event pushed by hosts after a session settles (or a manual snapshot). */
+export type SessionStatsEvent = { type: "snapshot"; sessionId: string; stats: SessionStats };
+
+/**
+ * One usage window of an account-quota plan (mirrors Swift `QuotaWindow`):
+ * e.g. a 5-hour cap or a weekly cap. `usedPercent` is 0…100; `resetsAt` is
+ * epoch milliseconds when known. `label` is the compact capsule suffix
+ * (5h / 周 / 月 / 额度), `title` the popover row title (5小时额度 / 周额度 …).
+ */
+export type QuotaWindow = { id: string; usedPercent: number; resetsAt?: number; label: string; title: string };
+/**
+ * Remaining prepaid balance for a pay-per-token provider account (mirrors
+ * Swift `BalanceSnapshot`): the amount plus an ISO-ish currency code. The UI
+ * renders `¥110.00` for CNY / `$74.75` for USD with two decimals.
+ */
+export type AccountBalance = { amount: number; currency: string };
+/**
+ * Per-account snapshot for the provider backing the current model (mirrors
+ * Swift `QuotaSnapshot`). `null` means the provider has no quota or balance
+ * source, no credential, or the fetch failed — the UI simply hides the pill.
+ * `windows` is a subscription-quota plan (e.g. 5h/weekly windows); `balance` is a
+ * prepaid pay-per-token balance. Quota and balance are mutually
+ * exclusive per provider — quota wins, exactly like Swift — so at most one is
+ * populated. `balance` is optional so existing Codex-only producers and old
+ * clients keep working unchanged.
+ */
+export type QuotaSnapshot = { provider: string; accountLabel: string; windows: QuotaWindow[]; balance?: AccountBalance };
+
+/**
+ * Optional terminal extension. It remains optional so existing v2 hosts can
+ * continue serving chat-only clients while the Electron terminal rolls out.
+ */
+export type TerminalDimensions = { cols: number; rows: number };
+export type TerminalOpenOptions = { sessionId?: string; projectId?: string; cwd?: string; cols?: number; rows?: number };
+export type TerminalPrivateState = "none" | "pending" | "active";
+export type TerminalSession = { id: string; title: string; cwd?: string; sessionId?: string; snapshotId?: string; privateState?: TerminalPrivateState; initialOutput?: string };
+export type TerminalFramebuffer = { terminalId: string; initialOutput: string; revision: number; cols: number; rows: number; redacted?: boolean; resyncRequired?: boolean };
+export type TerminalEvent =
+  | { type: "output"; terminalId: string; data: string; revision?: number }
+  | { type: "title"; terminalId: string; title: string }
+  | { type: "cwd"; terminalId: string; cwd: string }
+  | { type: "exit"; terminalId: string; exitCode?: number }
+  | { type: "reveal"; sessionId: string; terminalId: string }
+  | { type: "opened"; sessionId: string; terminal: TerminalSession }
+  | { type: "private"; terminalId: string; state: TerminalPrivateState };
+export type TerminalKey = "ENTER" | "TAB" | "ESCAPE" | "BACKSPACE" | "DELETE" | "UP" | "DOWN" | "LEFT" | "RIGHT" | "HOME" | "END" | "PAGE_UP" | "PAGE_DOWN" | "CTRL_C" | "CTRL_D" | "CTRL_Z";
+export type TerminalToolRequest = { action: "list" | "open" | "observe" | "wait" | "send" | "key" | "resize" | "close" | "help" | "request_private_input" | "begin_private_input" | "finish_private_input" | "cancel_private_input"; terminal_id?: string; snapshot_id?: string; cwd?: string; cols?: number; rows?: number; text?: string; enter?: boolean; key?: TerminalKey; timeout?: number };
+export type TerminalToolResult = Record<string, unknown> & { ok: boolean; error?: string; terminalId?: string; snapshotId?: string; screen?: string; requiresSelection?: boolean; requiresUserInput?: boolean };
+export interface TerminalHostAPI {
+  open(options?: TerminalOpenOptions): Promise<TerminalSession>;
+  write(terminalId: string, data: string): Promise<void>;
+  resize?(terminalId: string, dimensions: TerminalDimensions): Promise<void>;
+  clear(terminalId: string): Promise<void>;
+  privateInput?(terminalId: string, action: "begin_private_input" | "finish_private_input" | "cancel_private_input"): Promise<TerminalToolResult>;
+  snapshot?(terminalId: string): Promise<TerminalFramebuffer>;
+  close(terminalId: string): Promise<void>;
+  subscribe(terminalId: string, listener: (event: TerminalEvent) => void): Unsubscribe;
+  subscribeAll?(listener: (event: TerminalEvent) => void): Unsubscribe;
+}
+
+/** Browser tab metadata mirrors the agent-browser tab surface without exposing Electron objects. */
+export type BrowserTab = { id: string; title: string; url: string; isLoading: boolean; canGoBack: boolean; canGoForward: boolean; /** Electron storage partition owned by this chat session. */ partition?: string };
+export type BrowserTabsSnapshot = { tabs: BrowserTab[]; activeTabId?: string };
+/** Lightweight MVP snapshot; agent-browser will later populate an accessibility/text payload. */
+export type BrowserSnapshot = { tabId: string; url: string; title: string; isLoading: boolean; text?: string };
+export type BrowserToolTarget = "active" | "desktop" | "mobile" | "both";
+export type BrowserViewMode = "desktop" | "mobile" | "compare";
+export type BrowserViewportKind = "desktop" | "mobile";
+export type BrowserMobileDeviceId = "responsive" | "iphone-se" | "iphone-14-pro" | "iphone-15-pro-max" | "pixel-7" | "galaxy-s23";
+export type BrowserMobileDevicePreset = {
+  id: BrowserMobileDeviceId;
+  label: string;
+  width: number;
+  height: number;
+  deviceScaleFactor: number;
+  userAgent: string;
+};
+export const BROWSER_DESKTOP_VIEWPORT = { width: 1280, height: 800 } as const;
+export const BROWSER_MOBILE_VIEWPORT = { width: 390, height: 844 } as const;
+const IPHONE_SAFARI_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
+const PIXEL_7_UA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36";
+const GALAXY_S23_UA = "Mozilla/5.0 (Linux; Android 13; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36";
+export const BROWSER_MOBILE_DEVICES: readonly BrowserMobileDevicePreset[] = [
+  { id: "responsive", label: "响应式 / 自定义", width: 390, height: 844, deviceScaleFactor: 2, userAgent: IPHONE_SAFARI_UA },
+  { id: "iphone-se", label: "iPhone SE", width: 375, height: 667, deviceScaleFactor: 2, userAgent: IPHONE_SAFARI_UA },
+  { id: "iphone-14-pro", label: "iPhone 14 Pro", width: 393, height: 852, deviceScaleFactor: 3, userAgent: IPHONE_SAFARI_UA },
+  { id: "iphone-15-pro-max", label: "iPhone 15 Pro Max", width: 430, height: 932, deviceScaleFactor: 3, userAgent: IPHONE_SAFARI_UA },
+  { id: "pixel-7", label: "Pixel 7", width: 412, height: 915, deviceScaleFactor: 2.625, userAgent: PIXEL_7_UA },
+  { id: "galaxy-s23", label: "Samsung Galaxy S23", width: 360, height: 780, deviceScaleFactor: 3, userAgent: GALAXY_S23_UA }
+];
+export function browserMobileDeviceById(id: string | undefined): BrowserMobileDevicePreset {
+  return BROWSER_MOBILE_DEVICES.find(item => item.id === id) ?? BROWSER_MOBILE_DEVICES[0]!;
+}
+export type BrowserToolRequest = { action: string; url?: string; scope?: "viewport" | "page"; snapshot_id?: string; element_index?: number; element_token?: string; selector?: string; text?: string; option?: string; direction?: "up" | "down" | "left" | "right"; amount?: number; mode?: string; js?: string; region?: string; role?: string; name?: string; cursor?: string | number; /** Defaults to the UI's active viewport. Omitted on old clients. */ target?: BrowserToolTarget };
+export type BrowserToolImage = { viewport: BrowserViewportKind; base64: string; mimeType: string; width?: number; height?: number };
+export type BrowserToolResult = Record<string, unknown> & { ok: boolean; error?: string; base64?: string; mimeType?: string; images?: BrowserToolImage[] };
+export type BrowserTabOptions = { url?: string };
+export type BrowserViewSlot = { x: number; y: number; width: number; height: number };
+/** Backward-compatible presentation envelope; Electron renders it in a separate framed child window. */
+export type BrowserMobileOverlay = {
+  visible: boolean;
+  applyDeviceEmulation?: boolean;
+  deviceId?: BrowserMobileDeviceId | string;
+  viewport?: { width: number; height: number };
+  deviceScaleFactor?: number;
+  userAgent?: string;
+};
+export type BrowserViewBounds = { x: number; y: number; width: number; height: number; visible?: boolean; mode?: BrowserViewMode; slots?: { desktop?: BrowserViewSlot; mobile?: BrowserViewSlot }; mobileOverlay?: BrowserMobileOverlay };
+/** One page console line surfaced to the panel; main filters to error/warn before emitting. */
+export type BrowserConsoleEntry = { timestamp: number; level: string; message: string; sourceId?: string; line?: number; url?: string; tabId?: string };
+/** Watch condition as shown in the panel; mirrors the main-side registry contract. */
+export type BrowserWatchCondition =
+  | { type: "selector"; selector: string; snapshotId?: string; elementIndex?: number; elementToken?: string }
+  | { type: "idle"; idleMs?: number }
+  | { type: "url_matches"; pattern: string }
+  | { type: "expression"; expression: string }
+  | { type: "timer" };
+/** Active one-shot page watch. `timeoutAt` null means no deadline (the registry's Infinity is not JSON-safe). */
+export type BrowserWatchInfo = { watchId: string; condition: BrowserWatchCondition; createdAt: number; timeoutAt: number | null; intervalMs: number; status: "active" | "checking" };
+/** Last fired watch, for the panel's trigger banner. */
+export type BrowserWatchTrigger = { watchId: string; reason: "matched" | "timeout" | "disposed" | "navigating-lost"; waitedMs: number; url: string; title: string; firedAt: number };
+export type BrowserEvent = (
+  | { type: "tabs"; snapshot: BrowserTabsSnapshot }
+  | { type: "reveal" }
+  | { type: "error"; message: string }
+  | { type: "mobile-window"; open: boolean; deviceId?: BrowserMobileDeviceId | string }
+  | { type: "console"; entry: BrowserConsoleEntry }
+  | { type: "certificate-error"; url: string; reason: string }
+  | { type: "js-dialog"; kind: "alert" | "confirm" | "prompt"; message: string; url?: string }
+  | { type: "watch"; watches: BrowserWatchInfo[]; trigger?: BrowserWatchTrigger }
+) & { sessionId: string };
+
+/**
+ * Optional desktop-browser extension. `loadURL` is the navigation command;
+ * `snapshot` deliberately keeps agent-browser-compatible semantics while this
+ * MVP only returns metadata.
+ */
+export interface BrowserHostAPI {
+  /** Announces which chat owns the visible Browser panel, even while another tool tab is open. */
+  selectSession(sessionId: string): Promise<void>;
+  listTabs(sessionId: string): Promise<BrowserTabsSnapshot>;
+  getActiveTab(sessionId: string): Promise<BrowserTab | undefined>;
+  newTab(sessionId: string, options?: BrowserTabOptions): Promise<BrowserTab>;
+  switchTab(sessionId: string, tabId: string): Promise<BrowserTab>;
+  closeTab(sessionId: string, tabId: string): Promise<BrowserTabsSnapshot>;
+  loadURL(sessionId: string, url: string, tabId?: string): Promise<BrowserTab>;
+  goBack(sessionId: string, tabId?: string): Promise<BrowserTab>;
+  goForward(sessionId: string, tabId?: string): Promise<BrowserTab>;
+  reload(sessionId: string, tabId?: string): Promise<BrowserTab>;
+  snapshot(sessionId: string, tabId?: string): Promise<BrowserSnapshot>;
+  /** Renderer-to-main placement bridge for the selected session's WebContentsView. */
+  setViewBounds(sessionId: string, bounds: BrowserViewBounds): Promise<void>;
+  /** Page zoom for the visible desktop WebContents (not the mobile device-frame scale). */
+  setZoomFactor(sessionId: string, factor: number, tabId?: string): Promise<number>;
+  /** Active one-shot page watches for the panel's watch strip. Optional: older hosts omit it. */
+  listActiveWatches?(sessionId: string): Promise<BrowserWatchInfo[]>;
+  subscribe(listener: (event: BrowserEvent) => void): Unsubscribe;
+}
+
+/** Base64-encoded image attached to a tool result (screenshots, generated images, etc.). */
+export type TranscriptImage = { data: string; mimeType: string };
+
+/** Settings → 扩展 → 你添加的. Never includes env or secrets. */
+export type UserMcpServer = {
+  name: string;
+  transport: string;
+  summary: string;
+};
+
+export type StreamEvent =
+  | { type: "user_message"; sessionId: string; content: string; id?: string }
+  | { type: "text"; sessionId: string; contentIndex: number; delta: string; segment?: number; replace?: boolean }
+  | { type: "thinking"; sessionId: string; contentIndex: number; delta: string; segment?: number }
+  | { type: "tool_call"; sessionId: string; contentIndex?: number; toolCallId: string; name: string; delta?: string; segment?: number; status?: "running" | "completed" | "failed" }
+  | {
+    type: "hosted_search";
+    sessionId: string;
+    callId: string;
+    kind: "web_search" | "x_search";
+    phase: "in_progress" | "searching" | "completed" | "failed";
+    query?: string;
+    sources?: Array<{ url: string; title?: string; snippet?: string }>;
+    error?: { code?: string; message: string };
+    outputIndex?: number;
+    segment?: number;
+  }
+  | {
+    type: "hosted_code_interpreter";
+    sessionId: string;
+    callId: string;
+    phase: "queued" | "in_progress" | "interpreting" | "completed" | "failed";
+    code?: string;
+    outputs?: Array<{ type: "logs"; text: string }>;
+    files?: Array<{ filename?: string; mimeType?: string; size?: number; url?: string }>;
+    error?: { code?: string; message: string };
+    outputIndex?: number;
+    segment?: number;
+  }
+  | { type: "citations"; sessionId: string; citations: TranscriptCitation[] }
+  | { type: "input_file_sources"; sessionId: string; sources: TranscriptFileSource[] }
+  | { type: "server_side_usage"; sessionId: string; usage: { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning: number; totalTokens: number; serverSideToolUsage?: Record<string, number> } }
+  | { type: "tool_result"; sessionId: string; toolCallId: string; content: string; isError?: boolean; images?: TranscriptImage[]; details?: unknown }
+  | { type: "session_title"; sessionId: string; title: string; source: "provisional" | "model" | "manual" }
+  | { type: "status"; sessionId: string; status: "started" | "streaming" | "settled" | "stopped"; pendingFollowUps?: string[]; turnEpoch?: number }
+  /**
+   * Turn-terminal model/provider failure: pi closed the assistant message with
+   * `stopReason: "error"` and an `errorMessage` instead of text. Forwarded so a
+   * failed turn never settles as a blank bubble. `content` is the raw provider
+   * error text. Old clients may safely ignore it.
+   */
+  | { type: "error"; sessionId: string; content: string }
+  /**
+   * pi is auto-retrying a failed provider call inside the running turn
+   * (`phase: "start"`), or that retry loop finished (`phase: "end"`). The turn
+   * is NOT over during a retry — queued messages correctly keep waiting for its
+   * settle — so surfacing this prevents a silent backoff window from reading as
+   * a wedged send. `attempt`/`maxAttempts`/`delayMs` are start-only; `success`
+   * is end-only; `error` is the redacted provider/retry error text. Old clients
+   * may safely ignore this new event type.
+   */
+  | { type: "auto_retry"; sessionId: string; phase: "start" | "end"; attempt?: number; maxAttempts?: number; delayMs?: number; success?: boolean; error?: string }
+  /** Snapshot after every queue mutation; old clients may safely ignore this new event type. */
+  | { type: "queue_update"; sessionId: string; queue: QueuedMessage[]; pendingFollowUps?: string[] }
+  /**
+   * Context-compaction lifecycle, mirroring pi's `compaction_start`/`compaction_end`.
+   * Emitted for every compaction the session runs — pi's own threshold/overflow
+   * path, the host's proactive one, and `/compact` alike. `reason` is pi's
+   * (`manual` | `threshold` | `overflow`); `aborted`/`error` are end-only and
+   * mutually exclusive with a clean finish. Old clients may safely ignore it.
+   *
+   * Classification fields (backward-compatible, all optional; older hosts omit
+   * them and renderers fall back to "自动压缩/未知触发"):
+   * - `operation`: what ran. `context_compaction` is a real summary compaction;
+   *   `context_fold` is a deterministic idle fold (message rewrite, not a
+   *   compaction). Absent ⇒ legacy real compaction.
+   * - `trigger`: why it started — `manual` (user `/compact`), `proactive_idle`
+   *   (host scheduler: ≥45% AND ≥4min quiet), `near_overflow` (pi's reserve
+   *   line `window − reserveTokens`), `overflow` (provider overflow recovery),
+   *   `mid_turn` (in-turn tool-loop guard), `idle_fold` (fold inside the idle
+   *   scheduler's nudge turn), `auto_fold` (`context_manage` fold whose trigger
+   *   could not be confirmed). Absent ⇒ unknown; derive nothing beyond `reason`.
+   * - `executed`: false marks notice-only events (compaction check / idle-fold
+   *   nudge / skip) that never ran a compaction. Real lifecycle events are
+   *   `true`; absent ⇒ legacy real lifecycle event.
+   * - `skipReason`: why a notice-only event did not execute.
+   */
+  | {
+    type: "compaction"; sessionId: string; phase: "start" | "end"; reason?: string; aborted?: boolean; error?: string;
+    operation?: "context_compaction" | "context_fold";
+    trigger?: "manual" | "proactive_idle" | "near_overflow" | "overflow" | "mid_turn" | "idle_fold" | "auto_fold";
+    executed?: boolean;
+    skipReason?: string;
+  }
+  /**
+   * After the session writer is quiet, the host rewrites JSONL and pushes the
+   * already-redacted texts so live bubbles replace plaintext. Old clients may
+   * safely ignore this new event type.
+   */
+  | { type: "secret_redact"; sessionId: string; messages: Array<{ id: string; role?: "user" | "assistant" | "tool" | "compaction"; content: string; thinking?: string; tools?: HistoryTool[] }> };
+export type AgentEvent = { type: "agent"; agent: AgentSummary } | { type: "agent_log"; /** Optional only so an older host event can be ignored safely; current hosts always emit both identity fields. */ sessionId?: string; agentId: string; runId?: string; itemType: "text" | "thinking" | "tool" | "toolResult"; text: string; name?: string; isError?: boolean; /** Stable call identity shared by a tool row and its toolResult row; absent on legacy logs, where pairing falls back to name/adjacency. */ toolCallId?: string; /** Runtime log_delta key: cumulative full text per streamed entry, so the panel can upsert one row per contentIndex instead of one per chunk. */ contentIndex?: number; /** Uncapped thinking length; preview `text` may still be sliced. */ charCount?: number; /** Turn boundary from runtime `kind:"log"`: forget contentIndex slots so the next message's index 0 opens a new row instead of rewriting the previous thinking/text. */ resetStreamSlots?: boolean } | { type: "worktree"; status: WorktreeStatus };
+export type DocumentEvent = { type: "documentChanged"; path: string };
+/** Renderer envelope for HostEvent `channel: "ext.<id>"` (spec D4). */
+export type ExtEvent = { type: string; payload?: unknown };
+/** Official pi UI hooks on HostEvent `channel: "extui"` (spec D12). Parallel to `ext.emit`. */
+export type ExtUiEvent =
+  | { type: "request"; sessionId: string; requestId: string; kind: string; payload?: unknown }
+  | { type: "cancel"; sessionId: string; requestId: string; reason?: "timeout" | "aborted" };
+export type ExtUiResponse = { value?: unknown; confirmed?: boolean; cancelled?: boolean };
+export type ExtInvokeErrorCode =
+  | "not_found"
+  | "disabled"
+  | "no_session"
+  | "capability_denied"
+  | "agent_error"
+  | "timeout";
+export type ExtInvokeResult<T = unknown> =
+  | { ok: true; data: T }
+  | { ok: false; error: { code: ExtInvokeErrorCode; message: string } };
+/** Spec D9 lifecycle. */
+export type ExtensionLifecycleState =
+  | "discovered"
+  | "loaded"
+  | "enabled"
+  | "disabled"
+  | "unloaded"
+  | "error";
+/** Spec D10 scan locations. */
+export type ExtensionSource = "builtin" | "app" | "project";
+export type ExtensionEnabledScope = "app" | "project";
+export type ExtensionCategory = "foundation" | "workflow" | "knowledge" | "automation" | "integration" | "developer";
+/** JSON Schema subset for D6/D8 settings forms (string/number/boolean/enum + format:secret). */
+export type ExtensionJsonSchema = {
+  type?: string;
+  title?: string;
+  description?: string;
+  default?: unknown;
+  enum?: readonly unknown[];
+  format?: string;
+  properties?: Record<string, ExtensionJsonSchema>;
+  required?: readonly string[];
+};
+/** Spec D2 `app.ui.settingsSections` — declarative; no `entry` code. */
+export type ExtensionSettingsSectionDecl = {
+  id: string;
+  title?: string;
+  description?: string;
+};
+/** Spec D2 `app.ui.slashCommands` — declarative; no custom action entry. */
+export type ExtensionSlashCommandDecl = {
+  name: string;
+  description?: string;
+  /** Optional send-prompt body. `{args}` is replaced by the invocation tail. */
+  prompt?: string;
+};
+/** Spec D2 `app.ui.statusBar` — declarative; first-shell render may be empty. */
+export type ExtensionStatusBarDecl = {
+  id: string;
+  text?: string;
+  tooltip?: string;
+  alignment?: "left" | "right";
+};
+export type ExtensionWorkbenchLocation = "primarySidebar" | "center" | "auxiliarySidebar" | "statusBar" | "overlay";
+export type ExtensionViewContainerDecl = {
+  id: string;
+  location: ExtensionWorkbenchLocation;
+  title: string;
+  icon?: string;
+  order?: number;
+};
+export type ExtensionViewDecl = {
+  id: string;
+  container: string;
+  entry: string;
+  activation: "visible";
+};
+/** Controlled chat-header action declared by `app.ui.headerActions`. */
+export type ExtensionHeaderActionDecl = {
+  id: string;
+  entry: string;
+  order?: number;
+};
+/** Pi provider `models[]` shape used as the single host-visible model source. */
+export type ExtensionProviderModelContribution = {
+  id: string;
+  name: string;
+  api?: string;
+  input?: readonly string[];
+  reasoning?: boolean;
+  capabilities?: ModelCapabilities;
+};
+export type ExtensionProviderContribution = {
+  id: string;
+  name: string;
+  api?: string;
+  oauth?: boolean;
+  models?: readonly ExtensionProviderModelContribution[];
+};
+export type ExtensionAuthContribution = {
+  provider: ExtensionProviderContribution;
+};
+/** Host-owned, secret-free extension login state. Never includes tokens or keys. */
+export type ExtensionAuthStatus = {
+  extensionId: string;
+  providerId: string;
+  loggedIn: boolean;
+  usable: boolean;
+  expiresAtMs?: number;
+  error?: string;
+};
+export type ModelCatalogEvent = {
+  type: "catalog_changed";
+  reason: "auth" | "extension" | "refresh";
+};
+/** Declarative contribution metadata on an extension (spec D2/D7). No entry modules. */
+export type ExtensionContributions = {
+  settings?: {
+    scope?: ExtensionEnabledScope;
+    schema?: ExtensionJsonSchema;
+  };
+  settingsSections?: readonly ExtensionSettingsSectionDecl[];
+  slashCommands?: readonly ExtensionSlashCommandDecl[];
+  statusBar?: readonly ExtensionStatusBarDecl[];
+  viewContainers?: readonly ExtensionViewContainerDecl[];
+  views?: readonly ExtensionViewDecl[];
+  headerActions?: readonly ExtensionHeaderActionDecl[];
+  auth?: ExtensionAuthContribution;
+};
+/** Theme pack entry from an extension manifest's `app.ui.themes`, passed through
+ *  validation verbatim. Content is validated fail-closed by the renderer theme
+ *  registry before it can reach the shell. */
+export type ExtensionThemeDecl = {
+  id: string;
+  name: string;
+  description: string;
+  scheme: "dark" | "light";
+  tokens: Record<string, string>;
+};
+
+export type ExtensionDescriptor = {
+  id: string;
+  state: ExtensionLifecycleState;
+  source: ExtensionSource;
+  enabledBy?: ExtensionEnabledScope;
+  name?: string;
+  version?: string;
+  /** One-line package summary from the manifest `description` field. */
+  description?: string;
+  /** Optional catalog grouping supplied by the extension manifest. */
+  category?: ExtensionCategory;
+  error?: string;
+  /** User-visible reason when `state === "error"` (spec D9). */
+  errorReason?: string;
+  /** Manifest-declared capabilities (spec D8). */
+  capabilities?: readonly string[];
+  /** Capabilities the user has confirmed for this package (spec D11 / M4). */
+  grantedCapabilities?: readonly string[];
+  /** Declarative app-half contributions (schema / slash / settings tabs / statusBar). */
+  contributions?: ExtensionContributions;
+  /** Controlled entries resolved against the extension package directory. */
+  ui?: {
+    headerActions?: readonly ExtensionHeaderActionDecl[];
+    themes?: readonly ExtensionThemeDecl[];
+    /** Present only on a product pack; declaring it is what makes this a form. */
+    layout?: ProductPackLayout;
+  };
+  /** Manifest enable-closure inputs. `required` is what a pack turns on with itself. */
+  dependencies?: {
+    required?: readonly { id: string; version: string }[];
+    optional?: readonly { id: string; version: string }[];
+    conflicts?: readonly string[];
+  };
+};
+/** Current capability grant snapshot (spec D11 / M4). */
+export type ExtensionCapabilityGrant = {
+  capabilities: readonly string[];
+};
+export type HostEvent =
+  | { protocolVersion: typeof PIPI_HOST_PROTOCOL_VERSION; channel: "stream"; event: StreamEvent }
+  | { protocolVersion: typeof PIPI_HOST_PROTOCOL_VERSION; channel: "agents"; event: AgentEvent }
+  | { protocolVersion: typeof PIPI_HOST_PROTOCOL_VERSION; channel: "terminal"; event: TerminalEvent }
+  | { protocolVersion: typeof PIPI_HOST_PROTOCOL_VERSION; channel: "browser"; event: BrowserEvent }
+  | { protocolVersion: typeof PIPI_HOST_PROTOCOL_VERSION; channel: "session_stats"; event: SessionStatsEvent }
+  | { protocolVersion: typeof PIPI_HOST_PROTOCOL_VERSION; channel: "document"; event: DocumentEvent }
+  | { protocolVersion: typeof PIPI_HOST_PROTOCOL_VERSION; channel: "plan"; event: PlanEvent }
+  | { protocolVersion: typeof PIPI_HOST_PROTOCOL_VERSION; channel: "models"; event: ModelCatalogEvent }
+  | { protocolVersion: typeof PIPI_HOST_PROTOCOL_VERSION; channel: `ext.${string}`; event: ExtEvent }
+  | { protocolVersion: typeof PIPI_HOST_PROTOCOL_VERSION; channel: "extui"; event: ExtUiEvent };
+
+const BACKGROUND_PROJECTED_STREAM_EVENTS = new Set([
+  "secret_redact",
+  "session_title",
+  "status",
+  "user_message",
+]);
+
+export function normalizeEventProjectionSession(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+/**
+ * Renderers keep full transcript/log state only for their selected session. Keep
+ * background lifecycle events for sidebar correctness, but drop large transcript
+ * and agent-log payloads before a transport clones or serializes them.
+ */
+export function shouldForwardProjectedHostEvent(frame: HostEvent, selectedSession?: string): boolean {
+  if (!selectedSession) return true;
+  if (frame.channel === "stream") {
+    return frame.event.sessionId === selectedSession || BACKGROUND_PROJECTED_STREAM_EVENTS.has(frame.event.type);
+  }
+  if (frame.channel === "agents" && frame.event.type === "agent_log") {
+    return !frame.event.sessionId || frame.event.sessionId === selectedSession;
+  }
+  return true;
+}
+
+export interface PipiHostAPI {
+  readonly protocolVersion: typeof PIPI_HOST_PROTOCOL_VERSION;
+  /**
+   * Export one product pack — its own extension plus the required closure —
+   * into a portable ZIP. A form is switched with `setExtensionEnabled` on the
+   * pack; there is no separate profile catalog or activation call.
+   */
+  exportProductPackArchive?(projectId: string, packId: string, destinationArchivePath: string): Promise<ProductPackArchiveResult>;
+  /** Validate, extract, transactionally install, and activate a Product Pack ZIP. */
+  installProductPackArchive?(projectId: string, sourceArchivePath: string): Promise<ProductPackInstallResult>;
+  /** Install ONE extension from a ZIP into the shared store (local receipt) and enable it for this project. */
+  installExtensionZip?(projectId: string, sourceArchivePath: string): Promise<ExtensionDescriptor>;
+  /** Electron-only native dialogs. Paths never come from free-form renderer text. */
+  pickProductPackArchive?(): Promise<string | null>;
+  saveProductPackArchive?(suggestedName: string): Promise<string | null>;
+  /** Install a local Product Pack transaction: shared code objects + enabling the pack. */
+  installLocalProductPack?(projectId: string, sourceDirectory: string): Promise<ProductPackInstallResult>;
+  /** Renderer hint: project full stream/log payloads only for this visible session. */
+  setEventProjectionSession?(sessionId?: string): Promise<void>;
+  listProjects(): Promise<Project[]>; listSessions(projectId: string): Promise<Session[]>;
+  /** Project-scoped lazy page. It must not build or await the global session index. */
+  listSessionPage?(projectId: string, cursor?: string, limit?: number): Promise<SessionPage>;
+  /** Direct remembered-session lookup inside one project; never falls back to a global scan. */
+  getSession?(projectId: string, sessionId: string): Promise<Session>;
+  /** Complete chat + Subagents projection for background page warming. */
+  preloadSession?(sessionId: string): Promise<SessionPreloadSnapshot>;
+  /**
+   * Durable explicit sidebar project list. On its first read the host migrates
+   * discovered JSONL cwd values once; afterwards even an explicit [] stays
+   * empty across restarts until callers add a path again.
+   */
+  getProjectPaths?(): Promise<string[]>; setProjectPaths?(paths: string[]): Promise<string[]>;
+  /** Electron-only native folder chooser. `null` means the user cancelled. */
+  pickProjectDirectory?(): Promise<string | null>;
+  addProject?(path: string): Promise<Project>; removeProject?(projectId: string): Promise<void>;
+  /** Display name only; the on-disk folder is never renamed. */
+  renameProject?(projectId: string, name: string): Promise<Project>;
+  /** Optional: absent or unsupported v2 hosts let the UI use its local preview fallback. */
+  listDocuments?(projectId?: string): Promise<DocumentSummary[]>; readDocument?(documentId: string): Promise<DocumentContent>;
+  /** Local conversion of a binary document to markdown when no renderer can display it. `null` = no conversion available. */
+  convertDocumentToMarkdown?(path: string): Promise<string | null>;
+  /**
+   * Overwrite one document that is currently open in the document panel with new bytes
+   * (an editing renderer's save). The host refuses paths it has not opened, unsupported
+   * kinds and oversized payloads; the write is atomic (temp file + rename).
+   */
+  writeDocument?(path: string, bytes: Uint8Array): Promise<DocumentSummary>;
+  /** Record whether the document panel holds unsaved edits for `path` (surfaced in document listings). */
+  setDocumentDirty?(path: string, dirty: boolean): Promise<void>;
+  /** Watch the displayed document; switch unwatches the previous path. Watch errors stay silent. */
+  watchDocument?(path: string): Promise<void>;
+  unwatchDocument?(): Promise<void>;
+  subscribeDocuments?(listener: (event: DocumentEvent) => void): Unsubscribe;
+  /** Open or drop: remember the documents and inject path+excerpt into the session. */
+  notifyDocumentsDropped?(sessionId: string, paths: string[]): Promise<void>;
+  /** Composer chips: inject path+excerpt into the next prompt without opening the document panel. */
+  notifyComposerDocumentsDropped?(sessionId: string, paths: string[]): Promise<void>;
+  /** Explicit Chat with Files: stage/upload a user-selected file. Gated by model `inputFiles`. */
+  stageInputFile?(sessionId: string, file: InputFileStageRequest): Promise<InputFileAttachment>;
+  listInputFiles?(sessionId: string): Promise<InputFileAttachment[]>;
+  removeInputFile?(sessionId: string, attachmentId: string): Promise<InputFileAttachment[]>;
+  retryInputFile?(sessionId: string, attachmentId: string, file?: InputFileStageRequest): Promise<InputFileAttachment>;
+  cancelInputFile?(sessionId: string, attachmentId: string): Promise<InputFileAttachment>;
+  /** Session-scoped one-shot Structured Outputs request for the next provider turn. `null` clears. */
+  setStructuredOutput?(sessionId: string, request: StructuredOutputRequest | null): Promise<void>;
+  newSession(projectId: string, name?: string): Promise<Session>; resumeSession(sessionId: string): Promise<Session>; renameSession(sessionId: string, name: string): Promise<Session>; deleteSession(sessionId: string): Promise<void>; moveSession(sessionId: string, targetProjectId: string): Promise<Session>;
+  /** Generic session-workspace extension point: bind/clear one session's isolated tool cwd (git-capability session worktree). */
+  setSessionWorkspace(sessionId: string, binding: { workspaceCwd: string; branch: string; worktreePath?: string }): Promise<unknown>;
+  clearSessionWorkspace(sessionId: string): Promise<unknown>;
+  sessionWorkspaceStatus(sessionId: string): Promise<unknown>;
+  /** Newest-first paging cursor: an entry id is stable/exclusive; numeric newest-relative offsets remain supported for compatibility. */
+  getSessionHistory(sessionId: string, before?: number | string, limit?: number): Promise<HistoryEntry[]>;
+  getSessionLease(sessionId: string): Promise<SessionLease>; forceTakeoverSessionLease(sessionId: string): Promise<SessionLease>;
+  /** Legacy-compatible send: direct sends and busy queueing are observed through `queue_update` stream events. */
+  sendPrompt(sessionId: string, prompt: string, attachments?: PromptAttachment[], telemetry?: TurnTelemetryRendererSample): Promise<void>;
+  listQueue(sessionId: string): Promise<QueuedMessage[]>; enqueueMessage(sessionId: string, text: string, attachments?: PromptAttachment[], telemetry?: TurnTelemetryRendererSample): Promise<QueueEnqueueResult>; updateQueuedMessage(sessionId: string, messageId: string, text: string, attachments?: PromptAttachment[], telemetry?: TurnTelemetryRendererSample): Promise<QueuedMessage>; removeQueuedMessage(sessionId: string, messageId: string): Promise<QueuedMessage>; promoteQueuedMessage(sessionId: string, messageId: string): Promise<QueuedMessage>; steerQueuedMessage(sessionId: string, messageId: string): Promise<QueuedMessage>; cutInQueuedMessage(sessionId: string, messageId: string): Promise<QueuedMessage>; retryQueuedMessage(sessionId: string, messageId: string): Promise<QueuedMessage>;
+  stop(sessionId: string): Promise<void>; queueFollowUp(sessionId: string, prompt: string): Promise<void>; subscribeStream(sessionId: string, listener: (event: StreamEvent) => void): Unsubscribe;
+  /** Optional compatibility extension: observe stream events from every session without changing the selected-session subscription. */
+  subscribeAllStreams?(listener: (event: StreamEvent) => void): Unsubscribe;
+  /**
+   * Compact the session's context now (pi's `compact` RPC — the same path
+   * `/compact` uses). Optional: older hosts omit it and the UI hides the
+   * command. Progress and outcome arrive as `compaction` stream events, so this
+   * resolves once pi accepted and finished the compaction and rejects when it
+   * refused (e.g. "Nothing to compact").
+   */
+  compact?(sessionId: string): Promise<void>;
+  listModels(): Promise<Model[]>; getModelState(sessionId?: string): Promise<ModelState>; setModel(sessionId: string, provider: string, modelId: string): Promise<ModelState>; setThinkingLevel(sessionId: string, level: ThinkingLevel): Promise<ModelState>;
+  /**
+   * Opt-out visibility for the quick model menu — mirrors Swift
+   * `ModelVisibility.hiddenModelIds` (sorted full `provider/modelId` refs).
+   * Persisted by the host (Electron: ~/.pi/agent/pipiui-settings.json), atomic.
+   */
+  getHiddenModelIds(): Promise<string[]>; setHiddenModelIds(ids: string[]): Promise<string[]>;
+  getSidebarSessionPreferences?(): Promise<SidebarSessionPreferences>;
+  setSidebarSessionPreferences?(preferences: SidebarSessionPreferences): Promise<SidebarSessionPreferences>;
+  /** Optional per-role model fallback chains. Empty chain follows the main Agent model. */
+  getSubagentModels?(): Promise<Record<string, SubagentModelSetting[]>>;
+  setSubagentModel?(agentName: string, chain: SubagentModelSetting[]): Promise<Record<string, SubagentModelSetting[]>>;
+  /** Safe live Boss tool/Skill snapshot used by the Subagent Debug surface. */
+  getSubagentDebugInfo?(sessionId?: string): Promise<SubagentDebugInfo>;
+  /** Missing/null means Hermes resolves the active main model at review time. */
+  /**
+   * Which product this host is. The shell brands itself from this instead of a literal:
+   * the same renderer ships in PipiUI and in every product built on it.
+   */
+  getProduct?(): Promise<ProductInfo>;
+  getMemoryReviewModel?(): Promise<string | null>;
+  setMemoryReviewModel?(modelRef: string | null): Promise<string | null>;
+  /** Global App-profile vault metadata. Values never cross this boundary. Mounts are the current session only. */
+  listSecretVault?(sessionId: string): Promise<{ secrets: Array<{ id: string; name: string; envName: string; createdAt: string }>; mounts: Array<{ secretId: string; envName: string; name: string }>; sessionId: string }>;
+  putSecretVault?(input: { name: string; envName: string; value: string; sessionId: string }): Promise<{ secret: { id: string; name: string; envName: string; createdAt: string }; mount: { secretId: string; envName: string }; sessionId: string }>;
+  mountSecretVault?(sessionId: string, secret: string, envName?: string): Promise<{ sessionId: string; mount: { secretId: string; envName: string } }>;
+  unmountSecretVault?(sessionId: string, secret: string): Promise<{ sessionId: string; removed: boolean }>;
+  deleteSecretVault?(secret: string): Promise<{ deleted: boolean }>;
+  /** Memory-vault availability. Always available; never returns secret values. */
+  diagnoseSecretVault?(): Promise<{
+    available: boolean;
+    kind: 'available' | 'missing-packages' | 'session-bus-unavailable' | 'secret-service-unreachable' | 'keyring-locked' | 'no-graphical-session' | 'encryption-unavailable';
+    message: string;
+    installHint?: string;
+    retryable: boolean;
+    platform: string;
+  }>;
+  /** Effective agent catalog for the active project. Optional `projectId` selects project/extension overlay; omit for bundled + app enablement. */
+  listAgentDefinitions?(projectId?: string): Promise<AgentDefinition[]>;
+  /**
+   * Provider credentials and login — backed by pi's ModelRuntime
+   * (getProviders / login / logout / AuthStorage) over IPC and WSS.
+   * Credential VALUES never cross this boundary except a single api-key
+   * prompt answer; metadata only otherwise.
+   */
+  authProviders(): Promise<AuthProviderInfo[]>;
+  beginProviderLogin(providerId: string, authType: AuthType): Promise<{ loginId: string }>;
+  continueProviderLogin(loginId: string, input?: string): Promise<AuthLoginEvent>;
+  cancelProviderLogin(loginId: string): Promise<void>;
+  /** Deletes the provider's pi credentials (pi logout) and refreshes models. */
+  removeProviderCredentials(providerId: string): Promise<ModelState>;
+  /**
+   * Persist an OpenAI-compatible custom provider into models.json
+   * (`api: openai-completions` + baseUrl + apiKey + models[]) and refresh the catalog.
+   */
+  addOpenAICompatibleProvider?(input: {
+    name: string;
+    baseUrl: string;
+    apiKey: string;
+    modelId: string;
+    contextWindow?: number;
+  }): Promise<{ providerId: string }>;
+  /** Model-id candidates for the add-model dropdown: GET {baseUrl}/models with the entered key. Optional: older hosts omit it and the panel falls back to manual input. */
+  listOpenAICompatibleModels?(input: { baseUrl: string; apiKey: string }): Promise<{ models: OpenAICompatibleModelInfo[] }>;
+  /** Streaming connectivity probe (first-token latency + generation throughput) for one OpenAI-compatible model. Optional: older hosts omit it and the panel hides the test button. */
+  testOpenAICompatibleModel?(input: { baseUrl: string; apiKey: string; modelId: string }): Promise<OpenAICompatibleModelTestResult>;
+  /** Electron-only: open an auth URL in the user's browser (safe http/https only). */
+  openExternal?(url: string): Promise<void>;
+  /** Electron-only: open one validated local supported document in the OS default app. */
+  openDocumentExternally?(absolutePath: string): Promise<void>;
+  /**
+   * Cumulative usage snapshot for a session. `sessionId` is optional: omit it
+   * to target the host's current active session. Backed by pi's real
+   * `get_session_stats` RPC; unknown/missing fields are omitted, never guessed.
+   */
+  getSessionStats(sessionId?: string): Promise<SessionStats>; subscribeSessionStats(listener: (event: SessionStatsEvent) => void): Unsubscribe;
+  /**
+   * Account-quota snapshot for the selected session's model provider
+   * (subscription usage windows or a prepaid balance). Optional:
+   * older hosts omit it and the UI hides the quota/balance capsules. Resolves
+   * `null` when the provider has no quota or balance source or no credential —
+   * never throws for a missing pill. Quota wins over balance: a snapshot that
+   * carries usage windows never also carries `balance`.
+   */
+  getQuotaSnapshot?(sessionId?: string): Promise<QuotaSnapshot | null>;
+  /** Current snapshot; omit sessionId only for hosts that intentionally aggregate all sessions. */
+  /** `"history"` returns every retained run of the session instead of one current summary per agentId. */
+  listAgents(sessionId?: string, scope?: "current" | "history"): Promise<AgentSummary[]>;
+  getAgentLogs(agentId: string, sessionId: string, runId: string, scope?: "run" | "agent"): Promise<{ itemType: "text" | "thinking" | "tool" | "toolResult"; text: string; name?: string; isError?: boolean; toolCallId?: string; contentIndex?: number; charCount?: number }[]>; subscribeAgents(listener: (event: AgentEvent) => void): Unsubscribe; subscribeAgentLog(agentId: string, listener: (event: Extract<AgentEvent, { type: "agent_log" }>) => void, sessionId: string, runId: string): Unsubscribe;
+  /**
+   * Exact episode identity for agent/worktree control: every operation binds
+   * the exact {sessionId, agentId, runId}. Hosts must resolve that composite key
+   * exactly — a stale run or another session's same-slug worker is rejected,
+   * never routed to the globally newest row carrying that agentId. There is
+   * deliberately no agentId-only overload: a shorter call would resolve to an
+   * undefined episode at runtime, which is exactly the misbinding this contract
+   * removed.
+   */
+  abortAgent(sessionId: string, agentId: string, runId: string): Promise<void>; resolveAgent(sessionId: string, agentId: string, runId: string): Promise<void>; checkAgent(sessionId: string, agentId: string, runId: string): Promise<AgentSummary>; getWorktreeStatus(sessionId: string, agentId: string, runId: string): Promise<WorktreeStatus>; mergeWorktree(sessionId: string, agentId: string, runId: string): Promise<WorktreeStatus>; discardWorktree(sessionId: string, agentId: string, runId: string): Promise<WorktreeStatus>;
+  /**
+   * Plans the session's runtime published through the plan tools, newest
+   * activity first. Optional: hosts that mount no plan runtime advertise
+   * `capabilities().plan === false` and the UI shows the tab as unavailable.
+   * Omitting `sessionId` targets the host's current active session.
+   */
+  getPlans?(sessionId?: string): Promise<PlanSnapshot[]>;
+  subscribePlans?(listener: (event: PlanEvent) => void): Unsubscribe;
+  capabilities(): Promise<HostCapabilities>;
+  /**
+   * Optional git extension for the toolbar branch control. Hosts advertise it
+   * with `capabilities().git`; `gitCheckout` runs a plain `git checkout` in the
+   * project work tree and returns the re-probed status.
+   */
+  gitStatus?(projectId: string): Promise<GitStatus>;
+  gitCheckout?(projectId: string, branch: string): Promise<GitStatus>;
+  /**
+   * Optional add-project-time probe of an arbitrary directory the user just
+   * picked in the native chooser. `probeDirectoryGit` only reports status.
+   * `gitInitDirectory` fills an unborn HEAD (`git init` with no commit) so
+   * local worktrees work; it does not create a repo from a plain folder and
+   * never talks to GitHub. Existing repos with HEAD are left unchanged.
+   */
+  probeDirectoryGit?(path: string): Promise<GitStatus>;
+  gitInitDirectory?(path: string): Promise<GitStatus>;
+  /** Electron-only read-only check used by onboarding; old hosts may omit it. */
+  probeGitBinary?(): Promise<boolean>;
+  /** Optional v2 UI convenience; older hosts simply render Finder reveal disabled. */
+  revealProject?(projectId: string): Promise<void>;
+  /** Read-only project `.pi/mcp.json` servers for Settings → 扩展. */
+  listUserMcpServers?(projectId: string): Promise<UserMcpServer[]>;
+  /**
+   * Merge one server entry into project `.pi/mcp.json` (the mainstream
+   * `mcpServers` shape pasted from Claude/Cursor-style configs). Returns the
+   * refreshed server list. Electron-only; old hosts omit it.
+   */
+  addUserMcpServer?(projectId: string, name: string, spec: Record<string, unknown>): Promise<UserMcpServer[]>;
+  /** Remove one named server from project `.pi/mcp.json`; returns the refreshed list. Electron-only; old hosts omit it. */
+  removeUserMcpServer?(projectId: string, name: string): Promise<UserMcpServer[]>;
+  /** Electron-only, read-only version discovery. It never installs or mutates packages. */
+  checkForUpdates?(): Promise<UpdateCenterSnapshot>;
+  /** 更新中心 one-click update for a transactional extension component. Electron-only; old hosts omit it. */
+  updateExtensionComponent?(extensionId: string, componentId?: string): Promise<ExtensionComponentUpdateResult>;
+  /**
+   * Extension architecture M1 (optional). Backends may omit these until wired.
+   * Event channel is `ext.<id>` (spec D4); settings keys `ext.<id>.*` (spec D6).
+   */
+  subscribeExt?(extensionId: string, listener: (event: ExtEvent) => void): Unsubscribe;
+  /** Official pi `extension_ui_*` channel (spec D12). Older hosts may omit it. */
+  subscribeExtUi?(listener: (event: ExtUiEvent) => void): Unsubscribe;
+  extensionUiResponse?(sessionId: string, requestId: string, response: ExtUiResponse): Promise<void>;
+  /** Project-scoped manifests resolve settings against the given project; omitted = app scope / current project default. */
+  getExtensionSettings?(id: string, projectId?: string): Promise<Record<string, unknown>>;
+  updateExtensionSettings?(id: string, patch: Record<string, unknown>, projectId?: string): Promise<ExtInvokeResult<Record<string, unknown>>>;
+  /** Reserved: M2 wires this to the session's pi RPC. */
+  invokeExtension?(id: string, method: string, params: unknown, opts?: { sessionId?: string }): Promise<ExtInvokeResult>;
+  listExtensions?(projectId?: string): Promise<ExtensionDescriptor[]>;
+  setExtensionEnabled?(id: string, enabled: boolean, scope: ExtensionEnabledScope, projectId?: string): Promise<ExtensionDescriptor>;
+  /** Remove a non-builtin package (spec D9). Builtins are not uninstallable. */
+  uninstallExtension?(id: string): Promise<void>;
+  /** Currently confirmed capabilities for this package (empty = none granted). */
+  getCapabilityGrant?(id: string): Promise<ExtensionCapabilityGrant>;
+  /** Persist a user-confirmed capability set before enable (spec D11). */
+  confirmCapabilityGrant?(id: string, capabilities: readonly string[]): Promise<ExtensionCapabilityGrant>;
+  /** Optional: declarative contributions when they are not inlined on the descriptor. */
+  getExtensionContributions?(id: string): Promise<ExtensionContributions | undefined>;
+  /** Read one manifest-declared controlled UI module without exposing its filesystem path to Chromium. */
+  getExtensionUiEntrySource?(id: string, entry: string, projectId?: string): Promise<string>;
+  /** `app.data.read`: session-independent, read-only, confined to the project. */
+  listExtensionData?(id: string, dir: string, projectId?: string): Promise<{ name: string; bytes: number; mtime: number }[]>;
+  readExtensionData?(
+    id: string,
+    path: string,
+    options?: { tailBytes?: number },
+    projectId?: string,
+  ): Promise<{ content: string; bytes: number; truncated: boolean }>;
+  /** Replace one file under the package's declared `app.data.write` roots. */
+  writeExtensionData?(
+    id: string,
+    path: string,
+    content: string,
+    projectId?: string,
+  ): Promise<{ bytes: number }>;
+  /** Host-owned secret-free status for an extension auth contribution. */
+  getExtensionAuthStatus?(id: string): Promise<ExtensionAuthStatus>;
+  /** Start login for the extension's contributed provider. Credentials stay in the host. */
+  beginExtensionLogin?(id: string, authType?: AuthType): Promise<{ loginId: string }>;
+  /** Remove credentials for the extension's contributed provider and refresh the catalog. */
+  logoutExtension?(id: string): Promise<ModelState>;
+  /** Catalog rebuilds after auth or extension enable/disable. */
+  subscribeModelCatalog?(listener: (event: ModelCatalogEvent) => void): Unsubscribe;
+  /** Optional extension; remote/non-Electron hosts advertise `capabilities().browser === false`. */
+  browser?: BrowserHostAPI;
+  /** Optional extension; clients show an unavailable state when an old host omits it. */
+  terminal?: TerminalHostAPI;
+}
+
+type BaseHostMethod = Exclude<keyof Omit<PipiHostAPI, "protocolVersion" | "subscribeStream" | "subscribeAllStreams" | "subscribeAgents" | "subscribeAgentLog" | "subscribeSessionStats" | "subscribeDocuments" | "subscribePlans" | "subscribeExt" | "subscribeExtUi" | "subscribeModelCatalog" | "browser" | "terminal">, "browser" | "terminal">;
+/** Runtime list of the terminal Host API methods; hosts without a terminal gate these by name. */
+export const TERMINAL_HOST_METHODS = ["terminalOpen", "terminalWrite", "terminalResize", "terminalClear", "terminalPrivate", "terminalSnapshot", "terminalClose"] as const;
+export type TerminalHostMethod = (typeof TERMINAL_HOST_METHODS)[number];
+/** Runtime list of the browser Host API methods; hosts without a browser gate these by name. */
+export const BROWSER_HOST_METHODS = ["browserSelectSession", "browserListTabs", "browserGetActiveTab", "browserNewTab", "browserSwitchTab", "browserCloseTab", "browserLoadURL", "browserGoBack", "browserGoForward", "browserReload", "browserSnapshot", "browserSetViewBounds", "browserSetZoomFactor", "browserListWatches"] as const;
+export type BrowserHostMethod = (typeof BROWSER_HOST_METHODS)[number];
+export type HostMethod = BaseHostMethod | TerminalHostMethod | BrowserHostMethod;
+export type HostRequest = { protocolVersion: typeof PIPI_HOST_PROTOCOL_VERSION; id: string; type: "request"; method: HostMethod; params: unknown[] };
+export type HostResponse = { protocolVersion: typeof PIPI_HOST_PROTOCOL_VERSION; id: string; type: "response"; ok: true; result: unknown } | { protocolVersion: typeof PIPI_HOST_PROTOCOL_VERSION; id: string; type: "response"; ok: false; error: string; errorCode?: string };
+export type HostWireFrame = HostRequest | HostResponse | ({ type: "event" } & HostEvent);
+export interface HostBackend {
+  handle(method: HostMethod, params: unknown[]): Promise<unknown>;
+  subscribe(listener: (event: HostEvent) => void): Unsubscribe;
+  /** Exclusive owners may implement this; shared backends must not be closed by a transport. */
+  close?(): Promise<void> | void;
+}
+export interface IpcRendererLike { invoke(channel: string, request: HostRequest): Promise<HostResponse>; on(channel: string, listener: (_event: unknown, frame: HostWireFrame) => void): void; removeListener(channel: string, listener: (_event: unknown, frame: HostWireFrame) => void): void; }
+
+function requestId(): string { return `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+
+function apiFrom(
+  call: (method: HostMethod, params: unknown[]) => Promise<unknown>,
+  subscribe: (channel: HostEvent["channel"], predicate: (event: HostEvent) => boolean, listener: (event: HostEvent) => void) => Unsubscribe,
+  options: { openExternal?: boolean; openDocumentExternally?: boolean; projectDirectoryPicker?: boolean; productPackFileDialogs?: boolean; updateCenter?: boolean } = {}
+): PipiHostAPI {
+  const invoke = <T>(method: HostMethod, ...params: unknown[]) => call(method, params) as Promise<T>;
+  const api: PipiHostAPI = {
+    protocolVersion: PIPI_HOST_PROTOCOL_VERSION,
+    exportProductPackArchive: (projectId, packId, destinationArchivePath) => invoke("exportProductPackArchive", projectId, packId, destinationArchivePath),
+    installProductPackArchive: (projectId, sourceArchivePath) => invoke("installProductPackArchive", projectId, sourceArchivePath),
+    installExtensionZip: (projectId, sourceArchivePath) => invoke("installExtensionZip", projectId, sourceArchivePath),
+    pickProductPackArchive: () => invoke("pickProductPackArchive"),
+    saveProductPackArchive: suggestedName => invoke("saveProductPackArchive", suggestedName),
+    installLocalProductPack: (projectId, sourceDirectory) => invoke("installLocalProductPack", projectId, sourceDirectory),
+    listProjects: () => invoke("listProjects"),
+    listSessions: projectId => invoke("listSessions", projectId),
+    listSessionPage: (projectId, cursor, limit) => cursor === undefined
+      ? invoke("listSessionPage", projectId, undefined, limit)
+      : invoke("listSessionPage", projectId, cursor, limit),
+    getSession: (projectId, sessionId) => invoke("getSession", projectId, sessionId),
+    preloadSession: sessionId => invoke("preloadSession", sessionId),
+    getProjectPaths: () => invoke("getProjectPaths"),
+    setProjectPaths: paths => invoke("setProjectPaths", paths),
+    pickProjectDirectory: () => invoke("pickProjectDirectory"),
+    addProject: path => invoke("addProject", path),
+    removeProject: projectId => invoke("removeProject", projectId),
+    renameProject: (projectId, name) => invoke("renameProject", projectId, name),
+    listDocuments: projectId => invoke("listDocuments", projectId),
+    readDocument: documentId => invoke("readDocument", documentId),
+    convertDocumentToMarkdown: path => invoke("convertDocumentToMarkdown", path),
+    writeDocument: (path, bytes) => invoke("writeDocument", path, bytes),
+    setDocumentDirty: (path, dirty) => invoke("setDocumentDirty", path, dirty),
+    watchDocument: path => invoke("watchDocument", path),
+    unwatchDocument: () => invoke("unwatchDocument"),
+    notifyDocumentsDropped: (sessionId, paths) => invoke("notifyDocumentsDropped", sessionId, paths),
+    notifyComposerDocumentsDropped: (sessionId, paths) => invoke("notifyComposerDocumentsDropped", sessionId, paths),
+    stageInputFile: (sessionId, file) => invoke("stageInputFile", sessionId, file),
+    listInputFiles: (sessionId) => invoke("listInputFiles", sessionId),
+    removeInputFile: (sessionId, attachmentId) => invoke("removeInputFile", sessionId, attachmentId),
+    retryInputFile: (sessionId, attachmentId, file) => file ? invoke("retryInputFile", sessionId, attachmentId, file) : invoke("retryInputFile", sessionId, attachmentId),
+    cancelInputFile: (sessionId, attachmentId) => invoke("cancelInputFile", sessionId, attachmentId),
+    setStructuredOutput: (sessionId, request) => invoke("setStructuredOutput", sessionId, request),
+    subscribeDocuments: listener => subscribe("document", event => event.channel === "document", event => listener((event as Extract<HostEvent, { channel: "document" }>).event)),
+    newSession: (projectId, name) => invoke("newSession", projectId, name),
+    resumeSession: sessionId => invoke("resumeSession", sessionId),
+    renameSession: (sessionId, name) => invoke("renameSession", sessionId, name),
+    deleteSession: sessionId => invoke("deleteSession", sessionId),
+    moveSession: (sessionId, targetProjectId) => invoke("moveSession", sessionId, targetProjectId),
+    setSessionWorkspace: (sessionId, binding) => invoke("setSessionWorkspace", sessionId, binding),
+    clearSessionWorkspace: (sessionId) => invoke("clearSessionWorkspace", sessionId),
+    sessionWorkspaceStatus: (sessionId) => invoke("sessionWorkspaceStatus", sessionId),
+    getSessionHistory: (sessionId, before, limit) => before === undefined
+      ? invoke("getSessionHistory", sessionId)
+      : invoke("getSessionHistory", sessionId, before, limit),
+    getSessionLease: sessionId => invoke("getSessionLease", sessionId),
+    forceTakeoverSessionLease: sessionId => invoke("forceTakeoverSessionLease", sessionId),
+    sendPrompt: (sessionId, prompt, attachments, telemetry) => telemetry
+      ? invoke("sendPrompt", sessionId, prompt, attachments, telemetry)
+      : attachments?.length ? invoke("sendPrompt", sessionId, prompt, attachments) : invoke("sendPrompt", sessionId, prompt),
+    listQueue: sessionId => invoke("listQueue", sessionId),
+    enqueueMessage: (sessionId, text, attachments, telemetry) => telemetry
+      ? invoke("enqueueMessage", sessionId, text, attachments, telemetry)
+      : attachments?.length ? invoke("enqueueMessage", sessionId, text, attachments) : invoke("enqueueMessage", sessionId, text),
+    updateQueuedMessage: (sessionId, messageId, text, attachments, telemetry) => telemetry
+      ? invoke("updateQueuedMessage", sessionId, messageId, text, attachments, telemetry)
+      : attachments === undefined ? invoke("updateQueuedMessage", sessionId, messageId, text) : invoke("updateQueuedMessage", sessionId, messageId, text, attachments),
+    removeQueuedMessage: (sessionId, messageId) => invoke("removeQueuedMessage", sessionId, messageId),
+    promoteQueuedMessage: (sessionId, messageId) => invoke("promoteQueuedMessage", sessionId, messageId),
+    steerQueuedMessage: (sessionId, messageId) => invoke("steerQueuedMessage", sessionId, messageId),
+    cutInQueuedMessage: (sessionId, messageId) => invoke("cutInQueuedMessage", sessionId, messageId),
+    retryQueuedMessage: (sessionId, messageId) => invoke("retryQueuedMessage", sessionId, messageId),
+    stop: sessionId => invoke("stop", sessionId),
+    queueFollowUp: (sessionId, prompt) => invoke("queueFollowUp", sessionId, prompt),
+    compact: sessionId => invoke("compact", sessionId),
+    subscribeStream: (sessionId, listener) => subscribe("stream", event => event.channel === "stream" && event.event.sessionId === sessionId, event => listener((event as Extract<HostEvent, { channel: "stream" }>).event)),
+    subscribeAllStreams: listener => subscribe("stream", event => event.channel === "stream", event => listener((event as Extract<HostEvent, { channel: "stream" }>).event)),
+    listModels: () => invoke("listModels"),
+    getModelState: sessionId => sessionId ? invoke("getModelState", sessionId) : invoke("getModelState"),
+    setModel: (sessionId, provider, modelId) => invoke("setModel", sessionId, provider, modelId),
+    setThinkingLevel: (sessionId, level) => invoke("setThinkingLevel", sessionId, level),
+    authProviders: () => invoke("authProviders"),
+    beginProviderLogin: (providerId, authType) => invoke("beginProviderLogin", providerId, authType),
+    continueProviderLogin: (loginId, input) => input === undefined ? invoke("continueProviderLogin", loginId) : invoke("continueProviderLogin", loginId, input),
+    cancelProviderLogin: loginId => invoke("cancelProviderLogin", loginId),
+    removeProviderCredentials: providerId => invoke("removeProviderCredentials", providerId),
+    addOpenAICompatibleProvider: input => invoke("addOpenAICompatibleProvider", input),
+    listOpenAICompatibleModels: input => invoke("listOpenAICompatibleModels", input),
+    testOpenAICompatibleModel: input => invoke("testOpenAICompatibleModel", input),
+    getHiddenModelIds: () => invoke("getHiddenModelIds"),
+    setHiddenModelIds: ids => invoke("setHiddenModelIds", ids),
+    getSidebarSessionPreferences: () => invoke("getSidebarSessionPreferences"),
+    setSidebarSessionPreferences: preferences => invoke("setSidebarSessionPreferences", preferences),
+    getSubagentModels: () => invoke("getSubagentModels"),
+    setSubagentModel: (agentName, chain) => invoke("setSubagentModel", agentName, chain),
+    getSubagentDebugInfo: sessionId => sessionId ? invoke("getSubagentDebugInfo", sessionId) : invoke("getSubagentDebugInfo"),
+    getProduct: () => invoke("getProduct"),
+    getMemoryReviewModel: () => invoke("getMemoryReviewModel"),
+    setMemoryReviewModel: (modelRef) => invoke("setMemoryReviewModel", modelRef),
+    listSecretVault: sessionId => invoke("listSecretVault", sessionId),
+    putSecretVault: input => invoke("putSecretVault", input),
+    mountSecretVault: (sessionId, secret, envName) => invoke("mountSecretVault", sessionId, secret, envName),
+    unmountSecretVault: (sessionId, secret) => invoke("unmountSecretVault", sessionId, secret),
+    deleteSecretVault: secret => invoke("deleteSecretVault", secret),
+    diagnoseSecretVault: () => invoke("diagnoseSecretVault"),
+    listAgentDefinitions: projectId => projectId === undefined ? invoke("listAgentDefinitions") : invoke("listAgentDefinitions", projectId),
+    getSessionStats: sessionId => invoke("getSessionStats", sessionId),
+    getQuotaSnapshot: sessionId => sessionId === undefined ? invoke("getQuotaSnapshot") : invoke("getQuotaSnapshot", sessionId),
+    subscribeSessionStats: listener => subscribe("session_stats", event => event.channel === "session_stats", event => listener((event as Extract<HostEvent, { channel: "session_stats" }>).event)),
+    listAgents: (sessionId, scope) => scope ? invoke("listAgents", sessionId, scope) : invoke("listAgents", sessionId),
+    getAgentLogs: (agentId, sessionId, runId, scope) => scope ? invoke("getAgentLogs", agentId, sessionId, runId, scope) : invoke("getAgentLogs", agentId, sessionId, runId),
+    subscribeAgents: listener => subscribe("agents", event => event.channel === "agents", event => listener((event as Extract<HostEvent, { channel: "agents" }>).event)),
+    subscribeAgentLog: (agentId, listener, sessionId, runId) => subscribe("agents", event => event.channel === "agents" && event.event.type === "agent_log" && event.event.agentId === agentId && event.event.sessionId === sessionId && event.event.runId === runId, event => listener((event as Extract<HostEvent, { channel: "agents" }>).event as Extract<AgentEvent, { type: "agent_log" }>)),
+    abortAgent: (sessionId, agentId, runId) => invoke("abortAgent", sessionId, agentId, runId),
+    resolveAgent: (sessionId, agentId, runId) => invoke("resolveAgent", sessionId, agentId, runId),
+    checkAgent: (sessionId, agentId, runId) => invoke("checkAgent", sessionId, agentId, runId),
+    getWorktreeStatus: (sessionId, agentId, runId) => invoke("getWorktreeStatus", sessionId, agentId, runId),
+    mergeWorktree: (sessionId, agentId, runId) => invoke("mergeWorktree", sessionId, agentId, runId),
+    discardWorktree: (sessionId, agentId, runId) => invoke("discardWorktree", sessionId, agentId, runId),
+    getPlans: sessionId => sessionId === undefined ? invoke("getPlans") : invoke("getPlans", sessionId),
+    subscribePlans: listener => subscribe("plan", event => event.channel === "plan", event => listener((event as Extract<HostEvent, { channel: "plan" }>).event)),
+    capabilities: () => invoke("capabilities"),
+    gitStatus: projectId => invoke("gitStatus", projectId),
+    gitCheckout: (projectId, branch) => invoke("gitCheckout", projectId, branch),
+    probeDirectoryGit: path => invoke("probeDirectoryGit", path),
+    gitInitDirectory: path => invoke("gitInitDirectory", path),
+    probeGitBinary: () => invoke("probeGitBinary"),
+    revealProject: projectId => invoke("revealProject", projectId),
+    listUserMcpServers: projectId => invoke("listUserMcpServers", projectId),
+    addUserMcpServer: (projectId, name, spec) => invoke("addUserMcpServer", projectId, name, spec),
+    removeUserMcpServer: (projectId, name) => invoke("removeUserMcpServer", projectId, name),
+    checkForUpdates: () => invoke("checkForUpdates"),
+    updateExtensionComponent: (extensionId, componentId) => componentId === undefined
+      ? invoke("updateExtensionComponent", extensionId)
+      : invoke("updateExtensionComponent", extensionId, componentId),
+    subscribeExt: (extensionId, listener) => {
+      const channel = `ext.${extensionId}` as const;
+      return subscribe(
+        channel,
+        event => event.channel === channel,
+        event => listener((event as Extract<HostEvent, { channel: `ext.${string}` }>).event)
+      );
+    },
+    subscribeExtUi: listener => subscribe(
+      "extui",
+      event => event.channel === "extui",
+      event => listener((event as Extract<HostEvent, { channel: "extui" }>).event),
+    ),
+    extensionUiResponse: (sessionId, requestId, response) => invoke("extensionUiResponse", sessionId, requestId, response),
+    getExtensionSettings: (id, projectId) => projectId === undefined ? invoke("getExtensionSettings", id) : invoke("getExtensionSettings", id, projectId),
+    updateExtensionSettings: (id, patch, projectId) => projectId === undefined ? invoke("updateExtensionSettings", id, patch) : invoke("updateExtensionSettings", id, patch, projectId),
+    invokeExtension: (id, method, params, opts) => opts === undefined
+      ? invoke("invokeExtension", id, method, params)
+      : invoke("invokeExtension", id, method, params, opts),
+    listExtensions: projectId => projectId === undefined ? invoke("listExtensions") : invoke("listExtensions", projectId),
+    setExtensionEnabled: (id, enabled, scope, projectId) => projectId === undefined
+      ? invoke("setExtensionEnabled", id, enabled, scope)
+      : invoke("setExtensionEnabled", id, enabled, scope, projectId),
+    uninstallExtension: id => invoke("uninstallExtension", id),
+    getCapabilityGrant: id => invoke("getCapabilityGrant", id),
+    confirmCapabilityGrant: (id, capabilities) => invoke("confirmCapabilityGrant", id, capabilities),
+    getExtensionContributions: id => invoke("getExtensionContributions", id),
+    getExtensionUiEntrySource: (id, entry, projectId) => projectId === undefined
+      ? invoke("getExtensionUiEntrySource", id, entry)
+      : invoke("getExtensionUiEntrySource", id, entry, projectId),
+    listExtensionData: (id, dir, projectId) => invoke("listExtensionData", id, dir, projectId),
+    readExtensionData: (id, path, options, projectId) => invoke("readExtensionData", id, path, options, projectId),
+    writeExtensionData: (id, path, content, projectId) => invoke("writeExtensionData", id, path, content, projectId),
+    getExtensionAuthStatus: id => invoke("getExtensionAuthStatus", id),
+    beginExtensionLogin: (id, authType) => authType === undefined
+      ? invoke("beginExtensionLogin", id)
+      : invoke("beginExtensionLogin", id, authType),
+    logoutExtension: id => invoke("logoutExtension", id),
+    subscribeModelCatalog: listener => subscribe(
+      "models",
+      event => event.channel === "models",
+      event => listener((event as Extract<HostEvent, { channel: "models" }>).event),
+    ),
+    browser: {
+      selectSession: sessionId => invoke("browserSelectSession", sessionId),
+      listTabs: sessionId => invoke("browserListTabs", sessionId),
+      getActiveTab: sessionId => invoke("browserGetActiveTab", sessionId),
+      newTab: (sessionId, options) => invoke("browserNewTab", sessionId, options),
+      switchTab: (sessionId, tabId) => invoke("browserSwitchTab", sessionId, tabId),
+      closeTab: (sessionId, tabId) => invoke("browserCloseTab", sessionId, tabId),
+      loadURL: (sessionId, url, tabId) => invoke("browserLoadURL", sessionId, url, tabId),
+      goBack: (sessionId, tabId) => invoke("browserGoBack", sessionId, tabId),
+      goForward: (sessionId, tabId) => invoke("browserGoForward", sessionId, tabId),
+      reload: (sessionId, tabId) => invoke("browserReload", sessionId, tabId),
+      snapshot: (sessionId, tabId) => invoke("browserSnapshot", sessionId, tabId),
+      setViewBounds: (sessionId, bounds) => invoke("browserSetViewBounds", sessionId, bounds),
+      setZoomFactor: (sessionId, factor, tabId) => invoke("browserSetZoomFactor", sessionId, factor, tabId),
+      listActiveWatches: sessionId => invoke("browserListWatches", sessionId),
+      subscribe: listener => subscribe("browser", event => event.channel === "browser", event => listener((event as Extract<HostEvent, { channel: "browser" }>).event))
+    },
+    terminal: {
+      open: options => invoke("terminalOpen", options),
+      write: (terminalId, data) => invoke("terminalWrite", terminalId, data),
+      resize: (terminalId, dimensions) => invoke("terminalResize", terminalId, dimensions),
+      clear: terminalId => invoke("terminalClear", terminalId),
+      privateInput: (terminalId, action) => invoke("terminalPrivate", terminalId, action),
+      snapshot: terminalId => invoke("terminalSnapshot", terminalId),
+      close: terminalId => invoke("terminalClose", terminalId),
+      subscribe: (terminalId, listener) => subscribe("terminal", event => event.channel === "terminal" && "terminalId" in event.event && event.event.terminalId === terminalId, event => listener((event as Extract<HostEvent, { channel: "terminal" }>).event))
+      ,subscribeAll: listener => subscribe("terminal", event => event.channel === "terminal", event => listener((event as Extract<HostEvent, { channel: "terminal" }>).event))
+    }
+  };
+  if (!options.projectDirectoryPicker) delete api.pickProjectDirectory;
+  if (!options.productPackFileDialogs) {
+    delete api.exportProductPackArchive;
+    delete api.installProductPackArchive;
+    delete api.pickProductPackArchive;
+    delete api.saveProductPackArchive;
+    delete api.installExtensionZip;
+  }
+  if (options.openExternal) api.openExternal = url => invoke("openExternal", url);
+  if (options.openDocumentExternally) api.openDocumentExternally = path => invoke("openDocumentExternally", path);
+  if (!options.updateCenter) {
+    delete api.checkForUpdates;
+    delete api.updateExtensionComponent;
+  }
+  return api;
+}
+
+function responseError(response: Extract<HostResponse, { ok: false }>): Error & { code?: string } {
+  const error = new Error(response.error) as Error & { code?: string };
+  if (response.errorCode) error.code = response.errorCode;
+  return error;
+}
+
+export function createIpcHost(ipc: IpcRendererLike, channel = PIPI_HOST_IPC_CHANNEL, options?: { openExternal?: boolean; openDocumentExternally?: boolean; projectDirectoryPicker?: boolean; productPackFileDialogs?: boolean; updateCenter?: boolean }): PipiHostAPI {
+  const call = async (method: HostMethod, params: unknown[]) => {
+    const response = await ipc.invoke(channel, { protocolVersion: PIPI_HOST_PROTOCOL_VERSION, id: requestId(), type: "request", method, params });
+    if (!response.ok) throw responseError(response);
+    return response.result;
+  };
+  const host = apiFrom(
+    call,
+    (wanted, predicate, listener) => {
+      const handler = (_event: unknown, frame: HostWireFrame) => {
+        if (frame.type === "event" && frame.channel === wanted && predicate(frame)) listener(frame);
+      };
+      ipc.on(channel, handler);
+      return () => ipc.removeListener(channel, handler);
+    },
+    options
+  );
+  host.setEventProjectionSession = sessionId => call("setEventProjectionSession", [sessionId]).then(() => undefined);
+  return host;
+}
+
+/** Stable client error when a socket drops with in-flight Host API requests. Never replay mutations. */
+export const TRANSPORT_DISCONNECTED = "transport_disconnected" as const;
+/** Stable client error when a WebSocket RPC never receives a matching response. */
+export const TRANSPORT_TIMEOUT = "transport_timeout" as const;
+/** Default wait for a matching WebSocket response. Tests override via `requestTimeoutMs`. */
+export const WS_HOST_REQUEST_TIMEOUT_MS = 30_000;
+
+export type HostWireParseResult =
+  | { ok: true; frame: HostWireFrame }
+  | { ok: false; error: string };
+
+export type BindHostBackendOptions = {
+  /** When set, connection close also calls `backend.close?.()`. Shared backends must omit this. */
+  ownsBackend?: boolean;
+};
+
+export type HostBackendSession = {
+  receive(raw: unknown): void;
+  close(): Promise<void>;
+};
+
+function isWireRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function decodeWirePayload(raw: unknown): unknown {
+  if (typeof raw === "string") return raw;
+  if (!isWireRecord(raw) || !("data" in raw)) return raw;
+  const data = raw.data;
+  if (typeof data === "string") return data;
+  if (data == null) return raw;
+  if (typeof (data as { toString?: unknown }).toString === "function") return String(data);
+  return data;
+}
+
+function transportDisconnectedError(): Error & { code: typeof TRANSPORT_DISCONNECTED } {
+  const error = new Error("transport disconnected") as Error & { code: typeof TRANSPORT_DISCONNECTED };
+  error.code = TRANSPORT_DISCONNECTED;
+  return error;
+}
+
+function transportTimeoutError(): Error & { code: typeof TRANSPORT_TIMEOUT } {
+  const error = new Error("transport request timed out") as Error & { code: typeof TRANSPORT_TIMEOUT };
+  error.code = TRANSPORT_TIMEOUT;
+  return error;
+}
+
+function protocolErrorResponse(id = ""): Extract<HostResponse, { ok: false }> {
+  return { protocolVersion: PIPI_HOST_PROTOCOL_VERSION, id, type: "response", ok: false, error: "unsupported protocol" };
+}
+
+function thrownHostError(error: unknown): Pick<Extract<HostResponse, { ok: false }>, "error" | "errorCode"> {
+  const message = error instanceof Error ? error.message : String(error);
+  const errorCode = error && typeof error === "object" && typeof (error as { code?: unknown }).code === "string"
+    ? (error as { code: string }).code
+    : undefined;
+  return errorCode ? { error: message, errorCode } : { error: message };
+}
+
+/**
+ * Host API v2 wire seam. Frames stay `{ protocolVersion: 2, type, ... }` — no room/secret.
+ * Clients send `request`; servers send `response` or `event`.
+ * Unknown response ids are ignored. The first response for an id wins; later duplicates are unknown.
+ * Malformed, wrong-version, and wrong-direction frames are `unsupported protocol`.
+ */
+export function parseHostWireFrame(raw: unknown): HostWireParseResult {
+  let value = raw;
+  if (typeof raw === "string") {
+    try { value = JSON.parse(raw); } catch { return { ok: false, error: "unsupported protocol" }; }
+  }
+  if (!isWireRecord(value) || value.protocolVersion !== PIPI_HOST_PROTOCOL_VERSION) {
+    return { ok: false, error: "unsupported protocol" };
+  }
+  if (value.type === "request") {
+    if (typeof value.id !== "string" || value.id.length === 0 || value.id.length > 256
+      || typeof value.method !== "string" || value.method.length === 0
+      || !Array.isArray(value.params)) {
+      return { ok: false, error: "unsupported protocol" };
+    }
+    return { ok: true, frame: value as unknown as HostRequest };
+  }
+  if (value.type === "response") {
+    if (typeof value.id !== "string" || value.id.length === 0 || value.id.length > 256 || typeof value.ok !== "boolean") {
+      return { ok: false, error: "unsupported protocol" };
+    }
+    if (value.ok === false && typeof value.error !== "string") return { ok: false, error: "unsupported protocol" };
+    if (value.ok === false && value.errorCode !== undefined && typeof value.errorCode !== "string") {
+      return { ok: false, error: "unsupported protocol" };
+    }
+    return { ok: true, frame: value as unknown as HostResponse };
+  }
+  if (value.type === "event") {
+    if (typeof value.channel !== "string" || value.channel.length === 0 || !isWireRecord(value.event)) {
+      return { ok: false, error: "unsupported protocol" };
+    }
+    return { ok: true, frame: value as unknown as HostWireFrame };
+  }
+  return { ok: false, error: "unsupported protocol" };
+}
+
+/** Transport-neutral HostBackend ↔ HostRequest/HostResponse/HostEvent pump. */
+export function createHostBackendSession(
+  backend: HostBackend,
+  send: (frame: HostWireFrame) => void,
+  options: BindHostBackendOptions = {}
+): HostBackendSession {
+  let closed = false;
+  let selectedEventProjectionSession: string | undefined;
+  const unsubscribe = backend.subscribe(event => {
+    if (!closed && shouldForwardProjectedHostEvent(event, selectedEventProjectionSession)) {
+      send({ type: "event", ...event });
+    }
+  });
+  return {
+    receive(raw) {
+      if (closed) return;
+      const parsed = parseHostWireFrame(raw);
+      if (!parsed.ok || parsed.frame.type !== "request") {
+        send(protocolErrorResponse());
+        return;
+      }
+      const request = parsed.frame;
+      if (request.method === "setEventProjectionSession") {
+        selectedEventProjectionSession = normalizeEventProjectionSession(request.params[0]);
+        send({ protocolVersion: PIPI_HOST_PROTOCOL_VERSION, id: request.id, type: "response", ok: true, result: undefined });
+        return;
+      }
+      void Promise.resolve(backend.handle(request.method, request.params)).then(
+        result => {
+          if (!closed) send({ protocolVersion: PIPI_HOST_PROTOCOL_VERSION, id: request.id, type: "response", ok: true, result });
+        },
+        error => {
+          if (closed) return;
+          send({ protocolVersion: PIPI_HOST_PROTOCOL_VERSION, id: request.id, type: "response", ok: false, ...thrownHostError(error) });
+        }
+      );
+    },
+    async close() {
+      if (closed) return;
+      closed = true;
+      unsubscribe();
+      if (options.ownsBackend) await Promise.resolve(backend.close?.()).catch(() => undefined);
+    }
+  };
+}
+
+/** Bind the v2 pump to any WebSocketLike. Close cancels this connection only unless `ownsBackend`. */
+export function bindHostBackend(backend: HostBackend, socket: WebSocketLike, options?: BindHostBackendOptions): Unsubscribe {
+  const session = createHostBackendSession(backend, frame => {
+    if (socket.readyState !== 1) return;
+    try { socket.send(JSON.stringify(frame)); } catch { /* close race */ }
+  }, options);
+  const onMessage = (raw: unknown) => session.receive(decodeWirePayload(raw));
+  const onStop = () => dispose();
+  let disposed = false;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    socket.removeEventListener("message", onMessage);
+    socket.removeEventListener("close", onStop);
+    socket.removeEventListener("error", onStop);
+    void session.close();
+  };
+  socket.addEventListener("message", onMessage);
+  socket.addEventListener("close", onStop);
+  socket.addEventListener("error", onStop);
+  if (socket.readyState === 2 || socket.readyState === 3) dispose();
+  return dispose;
+}
+
+export interface WebSocketLike { readyState: number; send(data: string): void; addEventListener(type: "message" | "close" | "error", listener: (event: any) => void): void; removeEventListener(type: "message" | "close" | "error", listener: (event: any) => void): void; }
+
+export type CreateWsHostOptions = {
+  /** Per-request wait for a matching response. Omit to use `WS_HOST_REQUEST_TIMEOUT_MS`. */
+  requestTimeoutMs?: number;
+};
+
+export function createWsHost(socket: WebSocketLike, options: CreateWsHostOptions = {}): PipiHostAPI {
+  const pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+  const events = new Set<(event: HostEvent) => void>();
+  let disconnected = socket.readyState === 2 || socket.readyState === 3;
+  const requestTimeoutMs = options.requestTimeoutMs ?? WS_HOST_REQUEST_TIMEOUT_MS;
+  const failPending = () => {
+    if (disconnected) return;
+    disconnected = true;
+    const error = transportDisconnectedError();
+    for (const item of pending.values()) {
+      clearTimeout(item.timer);
+      item.reject(error);
+    }
+    pending.clear();
+  };
+  const onMessage = (raw: unknown) => {
+    if (disconnected) return;
+    const parsed = parseHostWireFrame(decodeWirePayload(raw));
+    if (!parsed.ok || parsed.frame.type === "request") return;
+    const frame = parsed.frame;
+    if (frame.type === "response") {
+      const item = pending.get(frame.id);
+      if (!item) return;
+      pending.delete(frame.id);
+      clearTimeout(item.timer);
+      frame.ok ? item.resolve(frame.result) : item.reject(responseError(frame));
+    } else {
+      events.forEach(listener => listener(frame));
+    }
+  };
+  socket.addEventListener("message", onMessage);
+  socket.addEventListener("close", failPending);
+  socket.addEventListener("error", failPending);
+  const call = (method: HostMethod, params: unknown[]) => new Promise<unknown>((resolve, reject) => {
+    if (disconnected || socket.readyState === 2 || socket.readyState === 3) {
+      reject(transportDisconnectedError());
+      return;
+    }
+    const id = requestId();
+    const timer = setTimeout(() => {
+      const item = pending.get(id);
+      if (!item) return;
+      pending.delete(id);
+      item.reject(transportTimeoutError());
+    }, requestTimeoutMs);
+    pending.set(id, { resolve, reject, timer });
+    try {
+      socket.send(JSON.stringify({ protocolVersion: PIPI_HOST_PROTOCOL_VERSION, id, type: "request", method, params } satisfies HostRequest));
+    } catch {
+      pending.delete(id);
+      clearTimeout(timer);
+      reject(transportDisconnectedError());
+    }
+  });
+  const host = apiFrom(
+    call,
+    (channel, predicate, listener) => {
+      const relay = (event: HostEvent) => { if (event.channel === channel && predicate(event)) listener(event); };
+      events.add(relay);
+      return () => events.delete(relay);
+    }
+  );
+  host.setEventProjectionSession = sessionId => call("setEventProjectionSession", [sessionId]).then(() => undefined);
+  return host;
+}

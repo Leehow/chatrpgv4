@@ -1,0 +1,245 @@
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
+import type { PipiHostAPI, QuotaSnapshot, QuotaWindow } from '@pipi/host-api'
+import './quota-pill.css'
+
+export interface QuotaPillProps {
+  host: PipiHostAPI
+  /** Selected session so the host resolves that session's model provider. */
+  sessionId?: string
+  /** Current model provider; changing it refetches after an in-session model switch. */
+  provider?: string
+  /** Model id, used when a provider groups a plan under a distinct model id. */
+  modelId?: string
+  /** Extra dependency to force a refetch (e.g. after model/auth changes). */
+  refreshKey?: unknown
+}
+
+/** Windows safe to present as real account usage; incomplete host data stays hidden. */
+export function visibleQuotaWindows(snapshot: QuotaSnapshot): QuotaWindow[] {
+  return snapshot.windows.filter(window =>
+    Number.isFinite(window.usedPercent) &&
+    typeof window.label === 'string' &&
+    window.label.trim().length > 0
+  )
+}
+
+/**
+ * True when a host snapshot belongs to the composer's current model provider.
+ * Needed because the UI updates the chip immediately while `getQuotaSnapshot`
+ * still reads the session's pre-switch model until `setModel` lands.
+ * The host reports `QuotaSnapshot.provider` as a token that appears in the
+ * provider id or the model id it describes; no provider-specific ladder here.
+ */
+export function quotaSnapshotMatchesProvider(snapshot: QuotaSnapshot, modelProvider?: string, modelId?: string): boolean {
+  if (!modelProvider && !modelId) return true
+  const provider = (modelProvider ?? '').toLowerCase()
+  const id = (modelId ?? '').toLowerCase()
+  // A relay provider must never inherit a plan's similarly named model id.
+  if (provider.includes('relay')) return false
+  const token = snapshot.provider.toLowerCase()
+  return provider.includes(token) || id.includes(token)
+}
+
+/** Per-provider localStorage key, mirroring Swift `LayoutPersistence.quotaWindowKey`. */
+function quotaWindowKey(provider: string): string {
+  return `pipiui.quotaWindow.${provider}`
+}
+
+function persistedWindowId(provider: string): string | null {
+  try {
+    return localStorage.getItem(quotaWindowKey(provider))
+  } catch {
+    // Quota is best-effort; storage unavailability never errors the UI.
+    return null
+  }
+}
+
+function persistWindowId(provider: string, id: string): void {
+  try {
+    localStorage.setItem(quotaWindowKey(provider), id)
+  } catch {
+    // Quota is best-effort; storage unavailability never errors the UI.
+  }
+}
+
+/** Theme tokens live on `.pipiui-shell`. Body has none, so a body portal paints transparent. */
+export function quotaMenuPortalRoot(): Element {
+  return document.querySelector('.pipiui-shell') ?? document.body
+}
+
+/**
+ * CodexBar-style reset line for a popover row — `重置于 明天 09:00（11小时后）`.
+ * Missing or already-past timestamps (stale snapshot awaiting the next poll)
+ * render nothing instead of a wrong countdown.
+ */
+export function formatQuotaReset(resetsAt: number | undefined, now: number = Date.now()): string | undefined {
+  if (resetsAt === undefined || !Number.isFinite(resetsAt)) return undefined
+  const deltaMs = resetsAt - now
+  if (deltaMs <= 0) return undefined
+  const date = new Date(resetsAt)
+  const time = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+  const dayStart = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime()
+  // Math.round absorbs DST-shortened/lengthened days (23h/25h).
+  const dayDelta = Math.round((dayStart(date) - dayStart(new Date(now))) / 86_400_000)
+  const day = dayDelta === 0 ? '今天' : dayDelta === 1 ? '明天' : `${date.getMonth() + 1}/${date.getDate()}`
+  const relative = deltaMs < 3_600_000
+    ? `${Math.max(1, Math.round(deltaMs / 60_000))}分钟后`
+    : deltaMs < 86_400_000
+      ? `${Math.max(1, Math.round(deltaMs / 3_600_000))}小时后`
+      : `${Math.max(1, Math.round(deltaMs / 86_400_000))}天后`
+  return `重置于 ${day} ${time}（${relative}）`
+}
+
+/**
+ * Mirrors Swift `QuotaSnapshot.capsule`: the user's persisted window when it
+ * still exists in the snapshot, else the highest-usage window.
+ */
+function capsuleWindow(windows: QuotaWindow[], selectedId: string | null): QuotaWindow | undefined {
+  if (selectedId) {
+    const selected = windows.find(window => window.id === selectedId)
+    if (selected) return selected
+  }
+  return windows.reduce((best, window) => (window.usedPercent > best.usedPercent ? window : best))
+}
+
+/**
+ * Minimal Swift-style quota capsule rendered to the right of the context pill:
+ * `周 14%` / `5h xx%` / `月 xx%` for the selected session's own provider window.
+ * Clicking the pill opens a popover listing every window the provider reports
+ * (5h / 周 / 月 / 额 …); picking one updates the capsule immediately and is
+ * persisted per provider (localStorage equivalent of Swift LayoutPersistence).
+ * The popover stays open after a pick and closes on outside click or re-click
+ * (Swift popover parity).
+ */
+export function QuotaPill({ host, sessionId, provider, modelId, refreshKey }: QuotaPillProps) {
+  const [snapshot, setSnapshot] = useState<QuotaSnapshot | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+  const pillRef = useRef<HTMLButtonElement>(null)
+  const [menuStyle, setMenuStyle] = useState<CSSProperties | undefined>()
+  const scopeRef = useRef({ sessionId, provider, modelId })
+  // Same render-time reset as Composer drafts: a session / model switch must
+  // not paint the previous provider's capsule, popover, or in-session pick.
+  // refreshKey / poll ticks still reuse the last good snapshot.
+  if (scopeRef.current.sessionId !== sessionId || scopeRef.current.provider !== provider || scopeRef.current.modelId !== modelId) {
+    scopeRef.current = { sessionId, provider, modelId }
+    setSnapshot(null)
+    setSelectedId(null)
+    setOpen(false)
+  }
+
+  useEffect(() => {
+    if (typeof host.getQuotaSnapshot !== 'function') return
+    let cancelled = false
+    const load = async () => {
+      try {
+        const snap = await host.getQuotaSnapshot!(sessionId)
+        if (cancelled) return
+        // A snapshot for the previous model is not "last good" — drop it and
+        // wait for the post-setModel refetch instead of painting the wrong pill.
+        if (snap && !quotaSnapshotMatchesProvider(snap, provider, modelId)) return
+        setSnapshot(snap)
+      } catch {
+        // Quota is best-effort: keep the last good snapshot, never error UI.
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [host, sessionId, provider, modelId, refreshKey])
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuStyle(undefined)
+      return
+    }
+    const update = () => {
+      const el = pillRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      setMenuStyle({
+        position: 'fixed',
+        left: 'auto',
+        right: `${Math.max(8, window.innerWidth - rect.right)}px`,
+        bottom: `${Math.max(8, window.innerHeight - rect.top + 8)}px`,
+      })
+    }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [open])
+
+  const activeSnapshot = snapshot && quotaSnapshotMatchesProvider(snapshot, provider, modelId) ? snapshot : null
+
+  if (!activeSnapshot || visibleQuotaWindows(activeSnapshot).length === 0) return null
+  const windows = visibleQuotaWindows(activeSnapshot)
+  const providerName = activeSnapshot.provider
+
+  // In-session pick wins over the persisted one (which wins over highest-usage).
+  const effectiveSelectedId = selectedId ?? persistedWindowId(providerName)
+  const capsule = capsuleWindow(windows, effectiveSelectedId)
+  if (!capsule) return null
+  const currentId = effectiveSelectedId !== null && windows.some(window => window.id === effectiveSelectedId)
+    ? effectiveSelectedId
+    : capsule.id
+
+  const selectWindow = (id: string) => {
+    setSelectedId(id)
+    persistWindowId(providerName, id)
+    // Swift parity: the popover stays open so the user can compare windows.
+  }
+
+  return (
+    <div className="quick-menu-anchor" data-testid="quota-pill-anchor">
+      <button
+        ref={pillRef}
+        type="button"
+        className="quota-pill"
+        data-testid="quota-pill"
+        aria-label={`额度（当前：${capsule.label} ${Math.round(capsule.usedPercent)}%）`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(value => !value)}
+      >
+        {capsule.label} {Math.round(capsule.usedPercent)}%
+      </button>
+      {open && createPortal(
+        <>
+          <div className="quick-menu-backdrop" data-testid="quota-menu-backdrop" onMouseDown={() => setOpen(false)} />
+          <div className="quick-menu quota-menu" role="menu" aria-label="额度窗口" data-testid="quota-menu" style={menuStyle}>
+            {activeSnapshot.accountLabel && activeSnapshot.accountLabel.trim().length > 0 && (
+              <div className="quick-menu-provider">{activeSnapshot.accountLabel}</div>
+            )}
+            {windows.map(window => {
+              const current = window.id === currentId
+              const resetText = formatQuotaReset(window.resetsAt)
+              return (
+                <button
+                  key={window.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={current}
+                  className={`quick-menu-row ${current ? 'current' : ''}`}
+                  data-testid={`quota-row-${window.id}`}
+                  onClick={() => selectWindow(window.id)}
+                >
+                  <span className="quick-menu-name">
+                    {window.title || window.label}
+                    {resetText && (
+                      <span className="quota-menu-reset" data-testid={`quota-reset-${window.id}`}>
+                        {resetText}
+                      </span>
+                    )}
+                  </span>
+                  <span className="quota-menu-percent">{Math.round(window.usedPercent)}%</span>
+                  {current && <span className="quick-menu-check">✓</span>}
+                </button>
+              )
+            })}
+          </div>
+        </>,
+        quotaMenuPortalRoot()
+      )}
+    </div>
+  )
+}

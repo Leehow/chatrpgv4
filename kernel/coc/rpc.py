@@ -34,6 +34,7 @@ def build_methods(table: Table) -> dict[str, Callable[[dict[str, Any]], dict[str
         "table.capsule": table.capsule,
         "table.player_input": table.player_input,
         "table.look": table.look,
+        "table.view": table.view,
         "table.lookup": table.lookup,
         "table.recall": table.recall,
         "table.resolve": table.resolve,

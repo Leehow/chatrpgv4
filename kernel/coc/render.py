@@ -80,6 +80,10 @@ def mechanics_of(receipt: dict[str, Any]) -> dict[str, Any] | None:
         _with_label(out, "subject_label", receipt.get("subject_label"))
         return out
     if kind == "move":
+        if receipt.get("renamed"):
+            # A move to where the party already stands is a naming, not a movement: it has
+            # no row, or the card would say they walked from a place to itself.
+            return None
         out = {"kind": "scene", "receipt": receipt_id, "from": receipt.get("from"), "to": receipt.get("to"),
                "minutes": int(receipt.get("minutes") or 0)}
         _with_label(out, "from_label", receipt.get("from_label"))

@@ -1,0 +1,132 @@
+{
+  "name": "@pipiui/electron",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./out/main/index.js",
+  "description": "pipiui_e — cross-platform PipiUI client",
+  "author": {
+    "name": "PipiUI",
+    "email": "pipiui@leehow.com"
+  },
+  "homepage": "https://github.com/Leehow/pipiui",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "dev:watch": "electron-vite dev --watch",
+    "build": "electron-vite build && npm run verify:preload",
+    "verify:preload": "node verify-preload.mjs"
+  },
+  "dependencies": {
+    "@xterm/addon-serialize": "^0.13.0",
+    "@xterm/headless": "^5.5.0",
+    "node-pty": "^1.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@electron-toolkit/utils": "^3.0.0",
+    "@file-viewer/vite-plugin": "^2.2.8",
+    "@pipi/host-api": "file:../../packages/host-api",
+    "@pipi/pi-backend": "file:../../packages/pi-backend",
+    "@pipiui/server": "file:../server",
+    "@pipiui/ui": "file:../../packages/ui",
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "electron": "44.0.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "typescript": "^5.6.3",
+    "vite": "7.3.6"
+  },
+  "build": {
+    "appId": "com.leehow.pipiui-electron",
+    "productName": "PipiUI",
+    "forceCodeSigning": true,
+    "files": [
+      "out/**/*",
+      "package.json",
+      "!node_modules/**/*",
+      "node_modules/node-pty/**/*",
+      "node_modules/@xterm/headless/**/*",
+      "node_modules/@xterm/addon-serialize/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../../product.json",
+        "to": "product.json"
+      },
+      {
+        "from": "../../resources/runtime",
+        "to": "pipiui-runtime",
+        "filter": [
+          "**/*",
+          "!**/node_modules/**",
+          "!**/.git/**",
+          "!**/*.tsbuildinfo",
+          "!**/out/**",
+          "!**/dist/**",
+          "!**/release/**",
+          "!**/target/**"
+        ]
+      },
+      {
+        "from": "../../.embedded-runtimes/${env.PIPIUI_EMBEDDED_RUNTIME_TARGET}",
+        "to": "pipiui-embedded"
+      },
+      {
+        "from": "../../packages/ui/dist/browser",
+        "to": "browser-ui"
+      }
+    ],
+    "directories": {
+      "output": "../../../build"
+    },
+    "mac": {
+      "icon": "build/icon.icns",
+      "extendInfo": {
+        "CFBundleDisplayName": "PipiUI",
+        "CFBundleName": "PipiUI"
+      },
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "icon": "assets/icons/512x512.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "icon": "assets/icons",
+      "category": "Development",
+      "maintainer": "PipiUI <pipiui@leehow.com>",
+      "vendor": "PipiUI",
+      "executableName": "pipiui_e",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "deb": {
+      "artifactName": "pipiui_e_${version}_${arch}.${ext}"
+    }
+  }
+}

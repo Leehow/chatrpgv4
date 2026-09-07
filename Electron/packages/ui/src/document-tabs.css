@@ -1,0 +1,13 @@
+.document-tabs{display:flex;width:100%;height:100%;min-width:0;min-height:0;flex-direction:column;overflow:hidden}
+.document-tab-strip{display:flex;flex:none;gap:2px;overflow-x:auto;padding:4px 6px 0;border-bottom:1px solid var(--border);background:var(--surface-raised);scrollbar-width:thin}
+.document-tab{display:flex;flex:none;max-width:220px;align-items:center;border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;color:var(--muted);background:transparent}
+.document-tab.active{color:var(--text-strong);border-color:var(--border);background:var(--surface)}
+.document-tab:hover{color:var(--text)}
+.document-tab-main{display:flex;min-width:0;align-items:center;gap:6px;padding:5px 4px 5px 8px;color:inherit;background:none;border:none;font-size:12px;cursor:pointer}
+.document-tab-icon{flex:none;padding:1px 4px;border-radius:3px;color:var(--accent);background:var(--accent-soft);font:700 8px ui-monospace,SFMono-Regular,Menlo,monospace}
+.document-tab-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.document-tab-dirty{flex:none;color:var(--warning,#b7791f);font-size:9px}
+.document-tab-close{flex:none;width:18px;height:18px;margin-right:4px;border-radius:4px;color:var(--muted);background:none;border:none;font-size:14px;line-height:1;cursor:pointer}
+.document-tab-close:hover{color:var(--text);background:var(--surface-hover)}
+.document-tab-bodies{display:flex;flex:1;min-width:0;min-height:0}
+.document-tab-bodies>.document-panel[hidden]{display:none}

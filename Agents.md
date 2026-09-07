@@ -9,9 +9,11 @@
 | **`0.9.0a`** | 重构后的产品：一个 Pi 包 + 一个 Python 内核子进程，守秘人只见七个动词。从孤儿分支重建，**从来没有包含过旧树**。 | 只在这里开发。检出在 worktree `chatrpgv4-wt-pi-coc-v2`（或你自己的 worktree）。 |
 | `0.8.2a`、`main` 及所有 `claude/*`、`codex/*` 旧分支 | 重构前的旧树（`plugins/coc-keeper/`、MCP、typed tools、七文件 IR、steward……）。 | **只读参照，不清空，不在上面开发，不合并进来。** 还有东西没搬完（见下），要搬的时候用 `git show 0.8.2a:<路径>` 读，或者读主检出 `/Users/haoli/leehow/code/chatrpgv4`（它停在 `0.8.2a`）。搬的是想法和数据（规则表、图、测试断言），不是机器。 |
 
-明确**没搬、也不打算按旧样子搬**的：web/Electron 前端（未来在 PipiUI 基础版上用 pipi 插件做，现在只留了 Pi RPC 事件流与内核 `campaign.*`/`table.look` 两个接口）、steward 子代理车道（职责归图与深读队列）、世界线/时间线分叉与汇流、跨战役记忆、house rules 的提议/确认流程、Director 的 storylet、战报导出与地图供应技能、OCR worker（原 PDF 由宿主页面访问器与带工具 Pi 读者处理）。真桌暴露的 #19–#22 已做完并关票；世界线按契约 §15 在票 #23 重做（不是搬旧树）。
+明确**没搬、也不打算按旧样子搬**的：旧 web/Electron 前端、steward 子代理车道（职责归图与深读队列）、世界线/时间线分叉与汇流、跨战役记忆、house rules 的提议/确认流程、Director 的 storylet、战报导出与地图供应技能、OCR worker（原 PDF 由宿主页面访问器与带工具 Pi 读者处理）。真桌暴露的 #19–#22 已做完并关票；世界线按契约 §15 在票 #23 重做（不是搬旧树）。
 
 如果你发现自己在读 `plugins/coc-keeper/…` 或 `coc_toolbox.py`，你在旧树上——停下来，回到这张表。
+
+PipiCOC 界面现已复制到本分支 `Electron/`，经 `pipicoc/rpc` 启动当前 `bin/pi-coc`；源码运行入口见 README，接线契约见 §23。旧分支的 COC 实现仍只读。
 
 ## 路由
 

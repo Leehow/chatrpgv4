@@ -29,6 +29,8 @@ from .resolve import ResolvePipeline
 from .rules import RuleTables
 from .rules.combat import resolve_module_weapons
 from .rules.graph import REGISTERED_CONDITION_PATHS, semantic_name
+from .rules.healing import handle_time_trigger as healing_time_trigger
+from .rules.mp import handle_time_trigger as mp_time_trigger
 from .rules.percentile import roll_expression
 from .rules.skills import SkillResolver
 from .rules.runtime import RulesEngine, SettleContext
@@ -57,6 +59,14 @@ CLUE_SOURCE_RELATIONS = ("held-by", "delivered-by")
 SHEET_FIELDS_OWNED_BY_APPLY = ("equipment", "weapons", "finance", "cash")
 #: #19: how many close weapon ids a `needs` lists next to the era's full option list.
 WEAPON_CLOSE_MATCHES = 6
+#: What the healing engine counts as a day's rest (`handle_time_trigger`: six hours or
+#: more is a day, and a day without a major wound is 1 HP back, p.121). Advances shorter
+#: than this call it not at all — the same function clears the day's first-aid attempts,
+#: and ten minutes is not a new day.
+REST_MINUTES = 360
+#: The rulebook's unit for magic point regeneration is the hour, and the MP engine's floor
+#: hands out a point for any advance at all, so anything under an hour regenerates nothing.
+MP_REGEN_MINUTES = 60
 #: §15.4: how many echo ids an unknown-echo error offers back.
 ECHO_OPTIONS = 12
 #: §14.8: what may be handed to the player as a card.
@@ -547,6 +557,21 @@ class Table:
             "worldline": {"name": worldline.active_name(meta),
                           "kind": worldline.active_line(meta).get("kind"),
                           "loop": int(worldline.active_line(meta).get("loop") or 0)},
+        }
+
+    def view(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Project the public sheet without acting or changing the turn (§23)."""
+        campaign, graph, world, turn = self._context(params)
+        party = campaign.party()
+        snapshot = self._snapshot(campaign, graph, world, party)
+        return {
+            **snapshot,
+            "play_language": language_of(campaign.read_campaign()),
+            "turn": turn["turn"],
+            "state": turn["state"],
+            "investigators": [investigator_view(sheet) for sheet in party],
+            "clues": {"discovered": list(world.get("discovered_clues") or [])},
+            "labels": {},
         }
 
     def status(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -1056,6 +1081,9 @@ class Table:
         #: are back in the morning" before the line actually moves.
         staged_worldline: dict[str, Any] | None = None
         time_effects = 0
+        #: What `apply time` moved the clock by in this batch, summed so two four-hour
+        #: advances make one night. Travel minutes are not counted: a trip is not a rest.
+        rest_minutes = 0
         for index, effect in enumerate(effects):
             try:
                 if not isinstance(effect, dict) or not isinstance(effect.get("kind"), str):
@@ -1068,6 +1096,12 @@ class Table:
                                             message=f"unknown effect kind {kind!r}")
                 if kind == "move":
                     receipt, event = self._stage_move(campaign, graph, staged, effect, turn_number, ordinal, call_id)
+                    if event is None:
+                        # A naming, not a move: the label is registered and nothing else moved.
+                        receipts.append(receipt)
+                        receipt_ids.append(receipt["id"])
+                        taken_ids.add(str(receipt["id"]))
+                        continue
                 elif kind == "clue":
                     receipt, event = self._stage_clue(campaign, graph, staged, effect, turn_number, call_id)
                     if event is None:
@@ -1113,6 +1147,7 @@ class Table:
                 else:
                     time_effects += 1
                     receipt, event = self._stage_time(staged, effect, turn_number, ordinal, call_id, time_effects)
+                    rest_minutes += int(receipt["minutes"])
                 receipts.append(receipt)
                 receipt_ids.append(receipt["id"])
                 taken_ids.add(str(receipt["id"]))
@@ -1124,6 +1159,12 @@ class Table:
             except RpcError as exc:
                 exc.details = {"index": index, **(exc.details or {})}
                 raise
+
+        recovery, recovery_events, recovered = self._stage_recovery(campaign, graph, staged, turn, call_id,
+                                                                    ordinal, rest_minutes)
+        receipts.extend(recovery)
+        receipt_ids.extend(r["id"] for r in recovery)
+        events.extend(recovery_events)
 
         self._commit_sheets(campaign, staged_sheets)
         campaign.write_world(staged)
@@ -1140,12 +1181,17 @@ class Table:
         result: dict[str, Any] = {"receipts": receipt_ids,
                                   "world": {"active_scene": staged["active_scene"], "clock": staged["clock"]},
                                   "material_ready": material == "ready", "material": material}
-        if any(r.get("kind") == "move" for r in receipts):
+        if any(r.get("kind") == "move" and not r.get("renamed") for r in receipts):
             # The destination as `look focus=scene` would show it, so the keeper need not
-            # look again after moving.
+            # look again after moving. A rename is not an arrival: nothing to show, and
+            # the scene underfoot is already on the deepen queue.
             result.update(self._scene_view(campaign, graph, staged, turn, destination))
             # §14.6: the scene underfoot and its neighbours go on the deepen queue.
             result["deepen_queued"] = self._queue_adjacent_reading(graph, destination, "move")
+        if recovered:
+            # So the keeper learns the numbers here rather than from the number check's
+            # refusal after they have already written the night away.
+            result["recovered"] = recovered
         if attachments:
             # §14.8: the extension hands these to the player as message attachments.
             result["attachments"] = [a for a in attachments if a]
@@ -1167,13 +1213,32 @@ class Table:
         return result
 
     def _stage_move(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any], effect: dict[str, Any],
-                    turn_number: int, ordinal: int, call_id: str) -> tuple[dict[str, Any], tuple[str, dict[str, Any]]]:
+                    turn_number: int, ordinal: int,
+                    call_id: str) -> tuple[dict[str, Any], tuple[str, dict[str, Any]] | None]:
         to = _str(effect, "to")
         current = graph.scene(world["active_scene"])
         current_handle = graph.handle(current)
         exits = {e["to"]: e for e in graph.scene_exits(current)}
         destination = graph.scene(to)
         dest_handle = graph.handle(destination)
+        label = effect.get("label") if isinstance(effect.get("label"), str) and effect.get("label").strip() else None
+        if dest_handle == current_handle:
+            # A move names its *destination*, and the scene the party opens in is nobody's
+            # destination — so the one place they always start in kept the book's English
+            # name for the whole game. A move to where you already stand is therefore a
+            # naming: it registers the label and stops. The receipt is keeper-visible, so
+            # it projects no mechanics row and owes §16.3 no number, and it carries no
+            # event, so the trail replay never sees a scene leading to itself.
+            if not label:
+                raise invalid_params(f"{dest_handle!r} is where the party already stands",
+                                     fix="pass label to name this scene in the player's language, "
+                                         "or move somewhere else")
+            world.setdefault("scene_labels", {})[dest_handle] = label
+            receipt = {"id": f"move:{dest_handle}-t{turn_number}-c{ordinal}", "kind": "move",
+                       "call_id": call_id, "from": dest_handle, "to": dest_handle,
+                       "from_label": label, "to_label": label, "minutes": 0, "renamed": True,
+                       "visibility": "keeper", "at": now_iso()}
+            return receipt, None
         # The way you came in is always a way out: the trail of scenes the party walked through
         # to get here can be retraced in one move, even out of a lair with no authored exit.
         trail = [str(h) for h in world.get("scene_trail") or []]
@@ -1197,7 +1262,6 @@ class Table:
             minutes = edge.get("travel_minutes", 0)
         if not isinstance(minutes, int) or isinstance(minutes, bool) or minutes < 0:
             raise invalid_params("travel_minutes must be a non-negative integer")
-        label = effect.get("label") if isinstance(effect.get("label"), str) and effect.get("label").strip() else None
         receipt = {"id": f"move:{dest_handle}-t{turn_number}-c{ordinal}", "kind": "move",
                    "call_id": call_id, "from": graph.handle(current), "to": dest_handle,
                    "from_label": scene_label(graph, world, current),
@@ -1392,6 +1456,56 @@ class Table:
         return list(ctx.receipts), ("resource-changed", {"resource": "hp", "subject": subject_id,
                                                           "before": before, "after": after, "dice": dice,
                                                           "total": rolled["total"], "why": why})
+
+    def _stage_recovery(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any], turn: dict[str, Any],
+                        call_id: str, ordinal: int, minutes: int
+                        ) -> tuple[list[dict[str, Any]], list[tuple[str, dict[str, Any], str]], list[dict[str, Any]]]:
+        """Time passing heals. The rule was on the graph all along
+        (`rule:coc7:healing:regular-damage-recovery`, 1 HP a day with no major wound) and
+        both engines already had their downtime entry point written and tested — but
+        nothing in the kernel ever called either one, so 55 in-game hours and three nights'
+        sleep left a wounded investigator at 5 of 11 for a whole game. This is that call.
+
+        Only `apply time` counts: that is the keeper deliberately passing time. A move's
+        travel minutes are the trip itself, and the party is not resting while they drive."""
+        if minutes < MP_REGEN_MINUTES:
+            return [], [], []
+        party = campaign.party()
+        if not party:
+            return [], [], []
+        ctx = SettleContext(self.engine, campaign, graph, world, turn, call_id, ordinal, self.rng,
+                            party[0], party[0], {})
+        events: list[tuple[str, dict[str, Any], str]] = []
+        recovered: list[dict[str, Any]] = []
+        def restore(investigator_id: str, resource: str, before: int, gained: int, ceiling: int) -> None:
+            after = min(ceiling, before + gained) if ceiling > 0 else before + gained
+            if after == before:
+                return
+            receipt_id = ctx.add_delta(resource, investigator_id, before, after, why="rest")
+            ctx.mirror_investigator(investigator_id, **{f"current_{resource}": after})
+            events.append(("resource-changed", {"resource": resource, "subject": investigator_id,
+                                                "before": before, "after": after, "why": "rest"}, receipt_id))
+            recovered.append({"investigator": investigator_id, "resource": resource,
+                              "before": before, "after": after})
+
+        for sheet in party:
+            investigator_id = str(sheet.get("id") or "")
+            if not investigator_id:
+                continue
+            derived = sheet.get("derived") or {}
+            characteristics = sheet.get("characteristics") or {}
+            hp_max = int(derived.get("HP") or 10)
+            if minutes >= REST_MINUTES:
+                restore(investigator_id, "hp", int(sheet.get("current_hp") or 0),
+                        healing_time_trigger(self.tables, campaign.dir, investigator_id, hp_max,
+                                             int(characteristics.get("CON") or 50), minutes, rng=self.rng),
+                        hp_max)
+            restore(investigator_id, "mp", int(sheet.get("current_mp") or 0),
+                    mp_time_trigger(self.tables, campaign.dir, investigator_id,
+                                    int(characteristics.get("POW") or 50), minutes, rng=self.rng,
+                                    current_mp=sheet.get("current_mp")),
+                    int(derived.get("MP") or 0))
+        return list(ctx.receipts), events, recovered
 
     def _stage_time(self, world: dict[str, Any], effect: dict[str, Any], turn_number: int,
                     ordinal: int, call_id: str, nth: int) -> tuple[dict[str, Any], tuple[str, dict[str, Any]]]:

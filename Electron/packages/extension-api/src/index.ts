@@ -1,0 +1,570 @@
+/** Author-facing extension API (spec D8). Do not re-export `@pipi/host-api`. */
+
+export const EXTENSION_CAPABILITIES = [
+  "settings.read",
+  "settings.write",
+  "bridge.emit",
+  "invoke.agent",
+  "stream.render",
+  "terminal.read",
+  "notifications",
+] as const;
+
+export type ExtensionCapability = (typeof EXTENSION_CAPABILITIES)[number];
+export type ExtensionCategory = "foundation" | "workflow" | "knowledge" | "automation" | "integration" | "developer";
+
+export type ExtEvent = { type: string; payload?: unknown };
+
+export type ExtInvokeErrorCode =
+  | "not_found"
+  | "disabled"
+  | "no_session"
+  | "capability_denied"
+  | "agent_error"
+  | "timeout";
+
+export type ExtInvokeResult<T = unknown> =
+  | { ok: true; data: T }
+  | { ok: false; error: { code: ExtInvokeErrorCode; message: string } };
+
+export type ExtensionJsonSchema = {
+  type?: string;
+  title?: string;
+  description?: string;
+  default?: unknown;
+  enum?: readonly unknown[];
+  format?: string;
+  properties?: Record<string, ExtensionJsonSchema>;
+  required?: readonly string[];
+};
+
+export type ExtensionUiPanel = {
+  slot: "toolPanel";
+  id: string;
+  title: string;
+  entry?: string;
+  /**
+   * Package-relative SVG for the tool rail. The rail masks the shape, so the artwork
+   * must be a single-colour silhouette — the mask takes its geometry, never its colours.
+   * Absent, the panel gets the generic extension icon and is indistinguishable from
+   * every other extension panel in the rail.
+   */
+  icon?: string;
+};
+
+export type ExtensionUiToolRenderer = { tool: string; entry?: string };
+/** Controlled chat-header action. `id` is a semantic contribution slug. */
+export type ExtensionUiHeaderAction = { id: string; entry: string; order?: number };
+
+/**
+ * Manifest `app.ui.documentRenderers[]` item: a controlled renderer for the
+ * document surface. Declaring (and enabling) the contribution is the whole
+ * authorization — there is no `document.preview` capability.
+ */
+export type ExtensionUiDocumentRenderer = {
+  id: string;
+  /** App-half entry module exporting the renderer component. */
+  entry: string;
+  /** Host document kinds claimed by this renderer (opaque strings, e.g. "diagram"). */
+  kinds?: string[];
+  /** File extensions with a leading dot, normalized lowercase (e.g. ".svg"). */
+  extensions?: string[];
+  mimeTypes?: string[];
+  /** Higher wins; ties break on id, then extension id. */
+  priority?: number;
+};
+export type ExtensionUiSettingsSection = { id: string; title: string; entry?: string };
+export type ExtensionUiSlashCommand = { name: string; description?: string };
+
+/** The 17 color tokens every shell theme must define (see app.css `.pipiui-shell`). */
+export const THEME_TOKEN_KEYS = [
+  "--bg", "--surface", "--surface-raised", "--surface-hover", "--surface-input",
+  "--border", "--border-strong", "--text", "--text-strong", "--muted", "--subtle",
+  "--selection", "--accent", "--accent-soft", "--danger", "--warning", "--success",
+] as const;
+export type ThemeTokenKey = (typeof THEME_TOKEN_KEYS)[number];
+/** Declarative theme contribution (`app.ui.themes`). The manifest validator only
+ *  checks the array shape and passes entries through verbatim; per-theme content
+ *  validation is fail-closed in the renderer theme registry. */
+export type ThemeContribution = {
+  id: string;
+  name: string;
+  description: string;
+  scheme: "dark" | "light";
+  tokens: Record<ThemeTokenKey, string>;
+};
+export type ExtensionWorkbenchLocation = "primarySidebar" | "center" | "auxiliarySidebar" | "statusBar" | "overlay";
+export type ExtensionUiViewContainer = {
+  id: string;
+  location: ExtensionWorkbenchLocation;
+  title: string;
+  icon?: string;
+  order?: number;
+};
+export type ExtensionUiView = {
+  id: string;
+  container: string;
+  entry: string;
+  activation?: "visible";
+};
+export type ExtensionUiStatusBar = {
+  id: string;
+  text?: string;
+  tooltip?: string;
+  alignment?: "left" | "right";
+};
+
+/** Pi provider `models[]` shape. Host-visible conversation models use this contract. */
+export type ExtensionProviderModelContribution = {
+  id: string;
+  name: string;
+  api?: string;
+  input?: string[];
+  reasoning?: boolean;
+  capabilities?: Record<string, unknown>;
+};
+
+export type ExtensionProviderContribution = {
+  id: string;
+  name: string;
+  api?: string;
+  oauth?: boolean;
+  models?: ExtensionProviderModelContribution[];
+};
+
+export type ExtensionAuthContribution = {
+  provider: ExtensionProviderContribution;
+};
+
+/** Host-owned, secret-free login state. Never includes tokens or keys. */
+export type ExtensionAuthStatus = {
+  extensionId: string;
+  providerId: string;
+  loggedIn: boolean;
+  usable: boolean;
+  expiresAtMs?: number;
+  error?: string;
+};
+
+/**
+ * Workbench layout a **product pack** contributes (`app.ui.layout`).
+ *
+ * Declaring it is what makes an extension a form: the pack lists the capability
+ * set its form needs in `dependencies.required` and the shell that form shows
+ * here. Slots hold Workbench container ids; unknown ids are dropped rather than
+ * blanking the shell.
+ */
+export type ExtensionUiLayout = {
+  primarySidebar?: string;
+  center?: string;
+  auxiliarySidebar?: string;
+  activity?: string[];
+};
+
+/** One entry of `dependencies.required` / `dependencies.optional`. */
+export type ExtensionDependencyRequirement = {
+  id: string;
+  version: string;
+};
+
+export type ExtensionManifest = {
+  id: string;
+  name: string;
+  version: string;
+  category?: ExtensionCategory;
+  capabilities: ExtensionCapability[];
+  /**
+   * Whether this package is on before anyone toggles it. Omitted means `true`
+   * for bundled and project-installed packages. A form (a product pack, and the
+   * pieces only that form uses) declares `false`: enabling the pack pulls it in.
+   */
+  defaultEnabled?: boolean;
+  /**
+   * Enable closure inputs. `required` is turned on transitively when this
+   * package is enabled; `conflicts` refuses the enable when it names an already
+   * enabled package.
+   */
+  dependencies?: {
+    required?: ExtensionDependencyRequirement[];
+    optional?: ExtensionDependencyRequirement[];
+    conflicts?: string[];
+  };
+  /** Declarative auth/provider contribution. The host owns login and credentials. */
+  auth?: ExtensionAuthContribution;
+  agent?: {
+    extension?: string;
+    skills?: string[];
+    /** Tool names this package's agent half registers. Two enabled packages may not claim the same name. */
+    tools?: string[];
+    /** One package-relative prompt-layer directory contributed to every session that mounts this package. */
+    layers?: string;
+  };
+  app?: {
+    settings?: {
+      scope: "app" | "project";
+      schema: ExtensionJsonSchema;
+    };
+    ui?: {
+      panels?: ExtensionUiPanel[];
+      toolRenderers?: ExtensionUiToolRenderer[];
+      headerActions?: ExtensionUiHeaderAction[];
+      documentRenderers?: ExtensionUiDocumentRenderer[];
+      settingsSections?: ExtensionUiSettingsSection[];
+      slashCommands?: ExtensionUiSlashCommand[];
+      viewContainers?: ExtensionUiViewContainer[];
+      views?: ExtensionUiView[];
+      /** Product-pack Workbench layout. Its presence is what makes this package a form. */
+      layout?: ExtensionUiLayout;
+      themes?: ThemeContribution[];
+      statusBar?: ExtensionUiStatusBar[];
+    };
+  };
+  settingsVersion?: number;
+  migrations?: unknown[];
+};
+
+/** Tool card props delivered to a controlled `toolRenderer` (spec D5/D8). */
+/** Git state exposed to the Git header-action surface; no host API leaks through it. */
+export type ExtensionGitStatus = {
+  isRepo: boolean;
+  currentBranch?: string;
+  localBranches: string[];
+  isDetached: boolean;
+  shortSHA?: string;
+  isDirty: boolean;
+  staged: number;
+  unstaged: number;
+  untracked: number;
+  upstream?: string;
+  ahead: number;
+  behind: number;
+  githubURL?: string;
+};
+
+/** Restricted props injected into an `app.ui.headerActions` entry. */
+export type HeaderActionProps = {
+  workspaceId?: string;
+  git?: {
+    status: () => Promise<ExtensionGitStatus>;
+    checkout: (branch: string) => Promise<ExtensionGitStatus>;
+  };
+  openExternal?: (url: string) => void | Promise<void>;
+};
+
+export type ToolRenderProps = {
+  content: string;
+  details?: unknown;
+  /** Typed image blocks delivered with the tool result (b64 + mime), if any. */
+  images?: { data: string; mimeType: string }[];
+};
+
+/** Injected into a controlled panel `entry`. */
+export type PanelProps = {
+  api: ExtensionHostAPI;
+  id: string;
+  title?: string;
+  /** Host-mediated open of a local document in the Document tool panel. Same path as transcript cards. */
+  openDocument?: (path: string) => void;
+  /**
+   * Absolute paths for files dropped on this panel.
+   *
+   * A panel that collects files — a reading shelf, an attachment list — needs the
+   * path, and only the host can turn a dropped `File` into one. Handing over the
+   * resolver keeps that the host's job: the panel never reaches for a browser
+   * global, and a host that cannot resolve paths simply omits it. The panel must
+   * still stop the drop from bubbling, or the shell also opens what was dropped.
+   */
+  resolveDroppedPaths?: (files: ArrayLike<File>) => string[];
+};
+
+/** Injected into a controlled settings section `entry`. */
+export type SettingsSectionProps = {
+  api: ExtensionHostAPI;
+  id: string;
+  title?: string;
+};
+
+/**
+ * Document renderer contract version. Entries receive `DocumentRendererProps`
+ * of this version; incompatible changes bump the constant and add a v2 shape.
+ */
+export const DOCUMENT_RENDERER_CONTRACT_VERSION = 1 as const;
+
+/**
+ * Host-prepared, path-free summary of the document being rendered.
+ * The renderer never reads the disk; the host owns path validation and reads.
+ */
+export type DocumentRendererDescriptor = {
+  /** Stable opaque document id (session-scoped); never a filesystem path. */
+  documentId: string;
+  name: string;
+  /** File extension with a leading dot, lowercase (e.g. ".svg"). */
+  extension: string;
+  /** Host document classification; an opaque string to this contract. */
+  documentKind: string;
+  mimeType?: string;
+  /** Byte size of the host-loaded document. */
+  size: number;
+  /** Monotonic content revision; the host bumps it on every reload. */
+  revision: number;
+};
+
+/** Restricted, host-mediated actions. No paths, no host API, no IPC surface. */
+export type DocumentRendererActions = {
+  reload: () => Promise<void>;
+  openExternally: () => Promise<void>;
+  /** Ask the host shell to swap this document to the generic fallback view. */
+  useGenericFallback: () => Promise<void>;
+  /**
+   * Write new bytes back to the document the host loaded (an editing renderer's
+   * save). Present only when the host can write documents. The host keeps the
+   * path; the renderer only ever hands over bytes. After a successful save the
+   * host updates `bytes` in place without bumping `revision`, so a renderer that
+   * keys its editor on `revision` is not remounted by its own save.
+   */
+  save?: (bytes: Uint8Array) => Promise<{ size: number }>;
+  /**
+   * Tell the host whether the renderer holds unsaved edits. While dirty, the
+   * host stops auto-reloading on external file changes (it asks the user
+   * instead) and other actors — an agent editing the same file — can see the
+   * document is being edited.
+   */
+  reportDirty?: (dirty: boolean) => void;
+};
+
+/** Props injected into a controlled `documentRenderers` entry (v1). */
+export type DocumentRendererProps = {
+  document: DocumentRendererDescriptor;
+  /** Raw bytes as loaded by the host, when the kind is binary. */
+  bytes?: Uint8Array;
+  /** Host-derived text preview (e.g. converted markdown), when available. */
+  text?: string;
+  actions: DocumentRendererActions;
+};
+
+/**
+ * Registry key the kernel's `ext-invoke` mount publishes on `globalThis`, and the
+ * only way an agent half answers `api.invoke`.
+ *
+ * pi has no route for a host→extension call: its RPC dispatcher rejects unknown
+ * commands and a registered command's handler returns `void`. So the kernel mounts
+ * one agent-side surface that long-polls the host bridge, and a package publishes
+ * its handlers here when it loads. `Symbol.for` makes the key process-wide, so the
+ * package never needs to import the kernel module (it cannot: the runtime tree is
+ * outside every package).
+ */
+export const EXT_INVOKE_REGISTRY_SYMBOL = "pipiui.ext-invoke.registry";
+
+/** Shape published under {@link EXT_INVOKE_REGISTRY_SYMBOL}. */
+export type ExtInvokeRegistryContract = {
+  readonly version: 1;
+  register(extensionId: string, method: string, handler: (params: unknown) => unknown | Promise<unknown>): () => void;
+  resolve(extensionId: string, method: string): ((params: unknown) => unknown | Promise<unknown>) | undefined;
+};
+
+export type ExtensionSettingsAPI = {
+  get?: () => Promise<Record<string, unknown>>;
+  update?: (patch: Record<string, unknown>) => Promise<ExtInvokeResult<Record<string, unknown>>>;
+};
+
+/**
+ * Narrow host surface injected into controlled components.
+ * Undeclared capability services are omitted from the object (spec D8).
+ */
+export type ExtensionAuthAPI = {
+  /** Secret-free status. Login/logout stay on the host, not this object. */
+  status: () => Promise<ExtensionAuthStatus>;
+};
+
+export type ExtensionDataFile = { name: string; bytes: number; mtime: number };
+export type ExtensionDataRead = { content: string; bytes: number; truncated: boolean };
+
+/**
+ * Read-only access to the project-relative paths this package declares in `app.data.read`.
+ *
+ * This is the one channel that does not go through a session: `subscribeExt` and `invoke`
+ * both need a live agent, so a panel that only has those shows nothing until a
+ * conversation happens to be running. A dashboard needs to be readable the moment the app
+ * opens, so it reads its own data instead of waiting to be told.
+ */
+export type ExtensionDataAPI = {
+  list: (dir: string) => Promise<ExtensionDataFile[]>;
+  read: (path: string, options?: { tailBytes?: number }) => Promise<ExtensionDataRead>;
+  /**
+   * A URL for one declared file, to point an `<img>`/`<video>`/`fetch` at.
+   *
+   * `read` is a utf8 log-tail reader with a 512 KiB cap — right for JSONL shards, wrong for
+   * bytes. This returns a `pipiui-asset://` URL the renderer streams instead, so an image
+   * does not have to be base64-squeezed through the text channel. The extension id is
+   * filled in by the host, so a panel cannot address another extension's data.
+   *
+   * Returns undefined where the host serves no asset protocol (a non-Electron host), so a
+   * caller must fall back rather than render a broken image.
+   */
+  assetUrl: (path: string) => string | undefined;
+  /**
+   * Replace one declared writable file. Present only with the `data.write` capability.
+   *
+   * This is how a panel asks for something to happen without a live session: it leaves a
+   * request where a process that already had the power to act will find it. The panel does
+   * not gain that power -- it gains a way to be heard while nobody is having a conversation
+   * with the agent.
+   */
+  write?: (path: string, content: string) => Promise<{ bytes: number }>;
+};
+
+/**
+ * Scheme served by the Electron main process for `app.data.read` files. Kept as a constant
+ * here so panel code never spells it, and a host without the protocol can blank it out.
+ */
+export const EXTENSION_ASSET_SCHEME = "pipiui-asset";
+
+export type ExtensionHostAPI = {
+  subscribeExt: (listener: (event: ExtEvent) => void) => () => void;
+  settings?: ExtensionSettingsAPI;
+  invoke?: (method: string, params: unknown) => Promise<ExtInvokeResult>;
+  notify?: (title: string, body: string) => void | Promise<void>;
+  auth?: ExtensionAuthAPI;
+  /** Present only with the `data.read` capability and a declared `app.data.read`. */
+  data?: ExtensionDataAPI;
+};
+
+/** Structural backing host. Intentionally not `PipiHostAPI`. */
+export type ExtensionHostBacking = {
+  getExtensionSettings?(id: string): Promise<Record<string, unknown>>;
+  updateExtensionSettings?(
+    id: string,
+    patch: Record<string, unknown>,
+  ): Promise<ExtInvokeResult<Record<string, unknown>>>;
+  subscribeExt?(id: string, listener: (event: ExtEvent) => void): (() => void) | void;
+  invokeExtension?(id: string, method: string, params: unknown): Promise<ExtInvokeResult>;
+  notify?(title: string, body: string): void | Promise<void>;
+  getExtensionAuthStatus?(id: string): Promise<ExtensionAuthStatus>;
+  listExtensionData?(id: string, dir: string, projectId?: string): Promise<ExtensionDataFile[]>;
+  readExtensionData?(
+    id: string,
+    path: string,
+    options?: { tailBytes?: number },
+    projectId?: string,
+  ): Promise<ExtensionDataRead>;
+  writeExtensionData?(
+    id: string,
+    path: string,
+    content: string,
+    projectId?: string,
+  ): Promise<{ bytes: number }>;
+};
+
+export type CreateExtensionHostAPIOptions = {
+  extensionId: string;
+  capabilities?: readonly string[];
+  host: ExtensionHostBacking;
+  /** Which project's files the data API reads; the host resolves the root from it. */
+  projectId?: string;
+};
+
+function denied(capability: string): ExtInvokeResult<never> {
+  return {
+    ok: false,
+    error: {
+      code: "capability_denied",
+      message: `capability '${capability}' is not available`,
+    },
+  };
+}
+
+function fallbackNotify(title: string, body: string): void {
+  const ctor = (globalThis as { Notification?: new (title: string, init?: { body?: string }) => unknown }).Notification;
+  if (typeof ctor === "function") new ctor(title, { body });
+}
+
+/**
+ * Build the injected host object, keeping only services granted by `capabilities`.
+ * Empty capabilities → L0: `subscribeExt` only (no settings / invoke / notify).
+ */
+export function createExtensionHostAPI(options: CreateExtensionHostAPIOptions): ExtensionHostAPI {
+  const id = options.extensionId;
+  const host = options.host;
+  const caps = new Set(options.capabilities ?? []);
+  const api: ExtensionHostAPI = {
+    subscribeExt: listener => {
+      const unsubscribe = host.subscribeExt?.(id, listener);
+      return () => {
+        unsubscribe?.();
+      };
+    },
+  };
+
+  if (caps.has("data.read") || caps.has("data.write")) {
+    const projectId = options.projectId;
+    api.data = {
+      list: dir => {
+        if (!host.listExtensionData) return Promise.reject(new Error("capability 'data.read' is not available"));
+        return host.listExtensionData(id, dir, projectId);
+      },
+      read: (path, readOptions) => {
+        if (!host.readExtensionData) return Promise.reject(new Error("capability 'data.read' is not available"));
+        return host.readExtensionData(id, path, readOptions, projectId);
+      },
+      assetUrl: path => {
+        const rel = String(path ?? "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+        // `..` is refused by the protocol too; refusing here as well means a caller that
+        // builds a path from user input gets undefined instead of a silent 400.
+        if (!rel || rel.split("/").includes("..")) return undefined;
+        // The gate refuses a read with no project rather than guessing one, so a URL
+        // without it would always 404. Better to say "no url" than to hand back a broken
+        // one the caller renders as a broken image.
+        if (typeof projectId !== "string" || !projectId.trim()) return undefined;
+        const segments = [encodeURIComponent(projectId), ...rel.split("/").map(encodeURIComponent)];
+        return `${EXTENSION_ASSET_SCHEME}://${id}/${segments.join("/")}`;
+      },
+    };
+    if (caps.has("data.write")) {
+      api.data.write = (path, content) => {
+        if (!host.writeExtensionData) return Promise.reject(new Error("capability 'data.write' is not available"));
+        return host.writeExtensionData(id, path, content, projectId);
+      };
+    }
+  }
+
+  if (caps.has("settings.read") || caps.has("settings.write")) {
+    const settings: ExtensionSettingsAPI = {};
+    if (caps.has("settings.read")) {
+      settings.get = () => {
+        if (!host.getExtensionSettings) {
+          return Promise.reject(new Error("capability 'settings.read' is not available"));
+        }
+        return host.getExtensionSettings(id);
+      };
+    }
+    if (caps.has("settings.write")) {
+      settings.update = patch => {
+        if (!host.updateExtensionSettings) return Promise.resolve(denied("settings.write"));
+        return host.updateExtensionSettings(id, patch);
+      };
+    }
+    api.settings = settings;
+  }
+
+  if (caps.has("invoke.agent")) {
+    api.invoke = (method, params) => {
+      if (!host.invokeExtension) return Promise.resolve(denied("invoke.agent"));
+      return host.invokeExtension(id, method, params);
+    };
+  }
+
+  if (caps.has("notifications")) {
+    api.notify = (title, body) => {
+      if (host.notify) return host.notify(title, body);
+      fallbackNotify(title, body);
+    };
+  }
+
+  if (host.getExtensionAuthStatus) {
+    api.auth = {
+      status: () => host.getExtensionAuthStatus!(id),
+    };
+  }
+
+  return api;
+}

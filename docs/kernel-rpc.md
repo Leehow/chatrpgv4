@@ -161,13 +161,13 @@ result：
 ### table.apply（切片 0：move、clue、time；切片 1 damage；切片 4 handout；#19 item、cash；保留：npc、flag、note、ruling）
 params：`{"call_id": "...", "effects": [{"kind": "move", "to": "<场景名>", "travel_minutes"?: int, "label"?: "<玩家语言的短名>"}, {"kind": "clue", "clue": "<线索名>", "how"?: "<一句话>", "label"?: "<玩家语言的短名>"}, {"kind": "time", "minutes": int, "why"?: "..."}, {"kind": "damage", "dice": "1D6", "subject"?: "<调查员>", "why"?: "..."}]}`。`damage` 是没有攻击者的伤（摔落、火烧、坠物）：守秘人给规则书的骰子，内核掷骰、写一条 `roll` 收据与一条 `delta` 收据、更新 HP 与伤口记录；有攻击者的伤走 `resolve`。`move` 的结果带目的地的 `where` 与 `present`，守秘人不必再 `look`。`label` 是守秘人用 play_language 给玩家看的短名，只用于机制块；省略时机制块用图上的 display_name 或 id。
 - 整批先校验后写，任一条失败整批不写：`{"code": "...", "details": {"index": i, ...}}`。
-- `move`：目的地必须是图上从当前场景可达的场景（`route-to`，或可玩性模板的入口关系 `play-precedes`/`may-lead-to`/`alternative-to`/`hands-off-to`——构建出的书多按演出顺序连场景，运行时与可玩性检查用同一套词，出口条目带 `via`），或 `scene_edges` 声明的目的地，或来路上的任何场景（`world.scene_trail`：到达当前场景所经过的场景栈，来路总是可退：没有作者出口的巢穴也能一步退回地窖或一楼）；否则 `not_reachable`，`fix` 里直接写出两份名字，`details.exits` 给出口，`details.back` 给来路（由近到远）。**守秘人可以给一条图上没有的路**：`via` 写清怎么过去的（翻没钉死的二楼窗、下运煤道、跟着人进去），这一步就落地，收据记 `via` 与 `improvised: true`；`via` 写在图上本来就有的边上只是修辞，收据不记。没有这条口子时，书自己的虚构（「二楼的窗没钉」）会被拒，守秘人照样叙述，于是**世界停在街上而故事在楼上**，那一层的线索接着被判 `not_here`，而且没有任何信号说两者已经分叉——静默的分叉比走错出口更坏。`travel_minutes` 缺省取图上边的值（退一步取反向边），没有则 0。`label` 给过一次就是这个场景从此的名字：写进 `world.scene_labels[<场景>]`，之后的 `【变化】场景` 行、胶囊 `where`、检查点、任务包都用它，记忆解析把它当场景的别名。写 `world.active_scene`、`scene_trail`（前进则压入当前场景，退回则截断到目的地之前）、`visited_scenes`、`scene-moved` 事件。旧世界没有 `scene_trail` 时在 `_context` 里按同一规则重放 `scene-moved` 事件一次性补上。
+- `move`：目的地必须是图上从当前场景可达的场景（`route-to`，或可玩性模板的入口关系 `play-precedes`/`may-lead-to`/`alternative-to`/`hands-off-to`——构建出的书多按演出顺序连场景，运行时与可玩性检查用同一套词，出口条目带 `via`），或 `scene_edges` 声明的目的地，或来路上的任何场景（`world.scene_trail`：到达当前场景所经过的场景栈，来路总是可退：没有作者出口的巢穴也能一步退回地窖或一楼）；否则 `not_reachable`，`fix` 里直接写出两份名字，`details.exits` 给出口，`details.back` 给来路（由近到远）。**守秘人可以给一条图上没有的路**：`via` 写清怎么过去的（翻没钉死的二楼窗、下运煤道、跟着人进去），这一步就落地，收据记 `via` 与 `improvised: true`；`via` 写在图上本来就有的边上只是修辞，收据不记。没有这条口子时，书自己的虚构（「二楼的窗没钉」）会被拒，守秘人照样叙述，于是**世界停在街上而故事在楼上**，那一层的线索接着被判 `not_here`，而且没有任何信号说两者已经分叉——静默的分叉比走错出口更坏。`travel_minutes` 缺省取图上边的值（退一步取反向边），没有则 0。`label` 给过一次就是这个场景从此的名字：写进 `world.scene_labels[<场景>]`，之后的 `【变化】场景` 行、胶囊 `where`、检查点、任务包都用它，记忆解析把它当场景的别名。写 `world.active_scene`、`scene_trail`（前进则压入当前场景，退回则截断到目的地之前）、`visited_scenes`、`scene-moved` 事件。旧世界没有 `scene_trail` 时在 `_context` 里按同一规则重放 `scene-moved` 事件一次性补上。**`to` 就是当前场景时，这一步是命名而不是移动**：`label` 必填（缺了报 `invalid_params`，`fix` 指名 `label`），写进 `world.scene_labels` 就结束——不动时钟、不动 `scene_trail`、不发 `scene-moved`、收据 `visibility: "keeper"` 且带 `renamed: true`，机制投影不给它行（否则卡面上会出现「从某处走到某处本身」）。没有这条口子时，开场那个场景永远不是任何一次移动的目的地，于是全桌只有它一直挂着书上的英文名。
 - `clue`：必须是图上存在的 clue 节点，且 `discoverable-at` 当前场景或在当前场景 record 的 `available_clues` 里；否则 `not_here`。已发现的重复写入返回 `replayed: true`，不报错。写 `discovered_clues`、`clue-discovered` 事件。
-- `time`：推进世界时钟，写 `time-advanced` 事件。
+- `time`：推进世界时钟，写 `time-advanced` 事件。**时间过去了，伤就该好。**本批 `time` 效果的分钟数相加（同一批两个四小时就是一夜；`move` 的行程分钟不算——赶路不是休息）：≥360 分钟走治疗引擎的休整入口（`handle_time_trigger`：六小时以上算一天，没有重伤则每天回 1 点生命，规则书 p.121；不到这个数一次都不调，因为同一个函数还会清掉当天的急救次数，十分钟不是新的一天），≥60 分钟走魔法点的每小时回复（规则书的单位是小时，引擎的下限会给任何一次推进至少 1 点）。每个真正变动的资源写一条 `delta` 收据与一条 `resource-changed` 事件，result 另给 `recovered: [{investigator, resource, before, after}]`，好让守秘人在写这一夜之前就知道数字，而不是被 §16.3 的数字核对退回来才知道。**这条规则一直在规则图上**（`rule:coc7:healing:regular-damage-recovery`），两个引擎的入口也一直写着、测着，只是内核从来没有调用过：真桌上 55 个游戏内小时、三夜睡眠、两次看医生，生命值一整局卡在 5/11。
 - `item`（#19）：`{"kind": "item", "name": "<物品名>", "to"?: "<调查员>", "from"?: "<NPC 名>", "weapon"?: "<规则表武器 id 或 profile 名>", "quantity"?: int, "label"?: "<玩家语言短名>", "why"?}`。叙述里到手的东西由此进调查员表：写 `party/<id>.json` 的 `equipment[]`（名字、数量、来源回合），`weapon` 给了就同时写 `weapons[]`（从 `rules-json/weapons.json` 的武器 profile 取伤害、射程、弹容、技能（`equipment.json` 只是价目表），取不到报 `needs`，`details.needs.options` 列可用 id），之后 `resolve` 的 `weapon` 能解析它、战斗开局按它排弹药。收据 `item:<slug>-t<turn>-c<n>`，渲染 `【变化】物品：<人> 得到 <label 或名>`，事件 `item-transferred`（`{name, to, from?, weapon?, quantity}`）。`quantity` 为负是失去（消耗、交出、被夺），表上没有就报 `invalid_params`。
 - `cash`（#19）：`{"kind": "cash", "subject"?: "<调查员>", "delta": <整数，货币单位随时代>, "with"?: "<NPC 名>", "why"?}`；`with` 是钱的另一头（付给谁、从谁那儿来），落进那个人的账本 `exchanged`（§17.3）与机制投影；不写就只是钱数变了，没有对方。写表上 `finance.cash`（没有 finance 块的时代按 `rules-json/cash-assets.json` 建一个），收据 `cash:t<turn>-c<n>`，渲染 `【变化】现金：<人> <前> → <后>`（没有 `label`，标签固定为 play_language 的「现金」），事件 `resource-changed`（`resource: cash`）。
 - 其余种类报 `not_implemented`。
-result：`{"receipts": ["move:hall-of-records-t3-c2", ...], "world": {"active_scene", "clock"}, "material_ready": true}`。切片 0 `material_ready` 恒为 true。
+result：`{"receipts": ["move:hall-of-records-t3-c2", ...], "world": {"active_scene", "clock"}, "material_ready": true, "recovered"?: [{"investigator", "resource", "before", "after"}]}`。切片 0 `material_ready` 恒为 true；`recovered` 只在这一批的休整真的还了资源时出现。
 
 ### table.ask（切片 0）
 params：`{"call_id", "prompt": "<给玩家的问题>", "options": ["...", "..."], "binds"?: "<待决名>", "text"?: "<问题之前的叙述>"}`。
@@ -1193,6 +1193,21 @@ canonical 事件枚举（§12.1，代码里实为十五类：`kernel/coc/events.
 
 `ctx.mode !== "tui"` 时（RPC 模式、print 模式）命令只回一行「interactive only」，不做别的：驾驭器不靠它。
 
+#### Host decision: explicit reasoning effort (2026-09-07)
+
+For local xAI Grok 4.5/4.6 registrations, declare `reasoning: true` and
+disable unsupported `off` and `minimal` levels with `thinkingLevelMap` values
+of `null`. Grok 4.6 additionally supports `xhigh`. The local table default is
+`low`; explicit supported user selections remain available through Pi.
+These models cannot disable reasoning and default to `high` when effort is
+omitted. Registering them as non-reasoning makes Pi omit effort even when its
+UI reports `off`. Configure the existing repository-local Pi home; do not
+patch Pi or hardcode provider behavior into the kernel. Verify the emitted
+Responses payload and real table quality before claiming a latency benefit.
+
+References: https://docs.x.ai/developers/model-capabilities/text/reasoning
+and Pi 0.85.1 `docs/models.md` (`thinkingLevelMap`).
+
 ### 19.2 COC 自己的上下文折叠
 
 Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `session_before_compact`。**这个钩子表达不了「按条目挑着丢」**：它的返回是一个切点加一段摘要，Pi 用摘要替换切点之前的一切。所以「整段丢那些、原样留这些」只能实现成「选好切点，把要留的原样抄进摘要」。COC 口径如下：
@@ -1460,3 +1475,61 @@ RPC 顶层错误枚举沿用 §1；具体原因放在 `details.reason`：`bad_pd
 - 2026-09-07：目标契约与规格落地。运行时仍执行旧 §14/§20 流程；本节所有实现、真实 PDF、真桌及退役验收均未完成。
 - 2026-09-07：原书抽读补充物理页定位、作者版本区别与单文件长本的验收样本；父规格为 GitHub #34。抽读不计视觉构图或真桌通过。
 - 每个切片完成后在此记录实际提交、测试退出码、来源/玩测证据路径与未通过的门；不把未来行为改写成已实现。
+
+- 2026-09-07（实现与本分支验收）：旧生产入口已在 `cbdab504` 退役。20 页来源跑完一次真实任务；Cold Harvest 多开场选择、原图手卡交付与正常暂停已核对；338 页长本的冷场景读取后行动只结算一次，退役后恢复保持同一场景与 510 分钟。吸收 `40dae53d` 后内核 1035 passed / 1 skipped、扩展 106 passed，退出码均为 0。实际路径、失败记录、未发布的下一场景与合回主工作区的并行冲突见 §22 规格实施记录；前端验收不计入本次。
+
+## 23. PipiCOC local frontend (2026-09-07)
+
+The copied `Electron/` workspace is a frontend owned by this branch. Its only
+Keeper process is `bin/pi-coc` in RPC mode, reached through `pipicoc/rpc`.
+It does not launch an embedded Pi or carry another Python kernel. The five
+canonical extensions are explicitly mounted once; the UI pack adds only the
+investigator sheet. Host coding prompts and tool mounts do not reach the Keeper.
+`pipicoc/dev [setup] [--campaign <name>]` selects the canonical launcher mode.
+The UI owns its transport session file; `PI_COC_HOME` owns campaign/module data,
+and the repository-local `.pi/coc-agent` remains the model/auth home.
+Setup and play run in separate application launches; completing setup exits its
+agent as in the terminal launcher. The next play launch selects the ready table.
+This change does not implement the visual PDF target in §22.
+
+### Kernel decision: read-only sheet
+
+`table.view {campaign}` returns the current turn/state, scene, clock, present
+NPC display names, investigator projections, discovered clues, active subsystem
+and pending choice. It reuses existing projections without touching the turn,
+rolling dice or committing. It exposes no undiscovered clues or Keeper notes.
+The panel must never call `table.look`, which is a Keeper action.
+
+### Host decision: RPC adapter
+
+The adapter preserves transport/session/model options, removes host persona and
+tool-selection arguments, and permits only the UI invoke bridge and sheet mount.
+It then explicitly loads the canonical five extensions with discovery disabled.
+No `~/.pi` or shared credential profile is linked. The frontend reads the same
+local model catalog as the canonical launcher. Copied upstream build artifacts,
+embedded runtimes and user state are excluded.
+
+The copied host uses a first-message session label only. Model-based title
+refinement is removed: it would otherwise start a second Keeper through the same
+launcher. Shutdown signals the owned process group, including reader children.
+
+### Web and local App delivery (2026-09-07)
+
+The Web server uses the same repository launcher, model/auth home, UI pack and
+separate setup/play session roots as Electron. Browser acceptance uses a real
+Keeper with the main session as player, as explicitly requested for this slice.
+The local App embeds only the frontend. A packaged `pi-coc-runtime.json` points
+to the canonical checkout and installed Node executable; the checkout and its
+Python/Pi dependencies must remain available. No credentials enter the bundle.
+The local canonical artifact is `build/PipiCOC.app` in this checkout.
+
+The frontend's `text` stream event accepts `replace: true` for an authoritative
+final message that differs from its streamed draft. Replacement is scoped to the
+message segment and may be empty (a rejected draft); earlier segments remain.
+This honors Pi's `message_end` extension rewrite rather than retaining discarded
+Keeper instructions on screen. Panel and mechanics modules use the same confined
+`getExtensionUiEntrySource` path as header modules; Web clients never import a
+server filesystem `file://` URL.
+The local frontend recognizes credentials from `auth.json` when resolving the
+configured default provider. A same-named relay model must not win merely because
+its key is inline in `models.json`; explicit per-session model selections remain.

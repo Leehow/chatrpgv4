@@ -54,8 +54,14 @@ fi
 
 campaign="${PI_COC_CAMPAIGN:-}"
 args=()
+host_session=0
 while [ $# -gt 0 ]; do
 	case "$1" in
+		--session|--session=*)
+			host_session=1
+			args+=("$1")
+			shift
+			;;
 		--campaign)
 			if [ $# -lt 2 ]; then
 				echo "--campaign must be followed by a campaign id." >&2
@@ -111,7 +117,7 @@ export PI_COC_MODE="$mode"
 
 cd "$REPO"
 session_args=()
-if [ -n "$campaign" ]; then
+if [ -n "$campaign" ] && [ "$host_session" = "0" ]; then
 	# Setup and play are two processes with two records: the session ids stay apart, so setup's questions never mix into the table's session.
 	if [ "$mode" = "setup" ]; then
 		session_args=(--session-id "coc-setup-$campaign")
