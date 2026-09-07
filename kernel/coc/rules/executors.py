@@ -214,9 +214,30 @@ def execute_luck_spend(ctx: Any, args: dict[str, Any], plan: Mapping[str, Any]) 
     # The delta names the check it altered, so a later push finds the spend and refuses.
     ctx.add_delta("luck", ctx.actor_id, current_luck, after, source_receipt=source_id or None)
     ctx.mark_receipt_continued(source_id, "luck")
+    # The bought result is a result: a push mints a receipt for its new roll and a Luck spend
+    # did not, so the check it turned stayed `failure` in the record for ever, the success
+    # lived only in this call's return, and `mechanics` showed the player a Luck spend with
+    # nothing bought. Seen at the table: a search failed at 74, twenty-four Luck bought it to
+    # 50, and the turn's receipts held no roll at all. `luck_bought` is not a continuable kind,
+    # so nothing can be pushed off the back of it.
+    bought_id = ctx.add_roll(
+        actor=ctx.actor_id,
+        skill=str(original.get("skill") or "check"),
+        target=int(recomputed.get("target", original.get("target", 0))),
+        difficulty=str(recomputed.get("difficulty", original.get("difficulty", "regular"))),
+        threshold=int(recomputed.get("threshold", recomputed.get("target", original.get("target", 0)))),
+        roll=int(recomputed["roll"]),
+        level=str(recomputed.get("outcome") or recomputed.get("level") or ""),
+        passed=bool(recomputed.get("passed")),
+        visibility=str(original.get("visibility") or "public"),
+        kind="luck_bought",
+        source_receipt=source_id or None,
+        skill_label=original.get("skill_label"),
+        luck_spent=points,
+    )
     data = {**recomputed, "investigator_id": ctx.actor_id, "points": points, "luck_before": current_luck,
             "luck_after": after, "source_roll_id": args.get("source_roll_id"), "original_check_decision_id": source_id,
-            "kind": "luck_spend"}
+            "bought_roll_id": bought_id, "kind": "luck_spend"}
     return data, [], ["Luck spent: no improvement tick for this check; the roll now reads {}".format(recomputed["roll"])]
 
 

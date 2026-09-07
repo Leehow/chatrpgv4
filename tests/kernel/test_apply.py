@@ -18,6 +18,7 @@ def test_move_reachable_and_unreachable(kernel):
 
     unknown = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "atlantis"}])
     assert unknown["code"] == "unknown_entity" and unknown["details"]["index"] == 0
+    assert "via" in error["fix"], "the refusal has to name the way out of itself"
 
     moved = kernel.table("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "Hall of Records",
                                                               "travel_minutes": 30}])
@@ -36,6 +37,33 @@ def test_move_reachable_and_unreachable(kernel):
     back = kernel.table("apply", call_id="t1-c2", effects=[{"kind": "move", "to": "scene-newspaper-morgue"}])
     assert back["world"]["clock"] == {"minutes": 30}
     assert kernel.table("status")["receipts"][-1]["minutes"] == 0
+
+
+def test_a_route_the_keeper_made_lands_and_says_it_was_off_the_graph(kernel):
+    """A book's fiction offers ways in that its exits never list — the upper windows of a
+    boarded house are not nailed, and the party goes through one. Refusing that left the world
+    standing in the street while the narration was upstairs, and every clue up there was then
+    refused as `not_here`: the divergence was silent, which is worse than any wrong exit. Said
+    in `via`, the move lands, and the receipt records that it was not a way the graph knew."""
+    open_turn(kernel)
+    refused = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "basement-rites"}])
+    assert refused["code"] == "not_reachable"
+
+    moved = kernel.table("apply", call_id="t1-c2",
+                         effects=[{"kind": "move", "to": "basement-rites", "via": "从没钉死的二楼窗翻进去",
+                                   "travel_minutes": 5}])
+    assert moved["receipts"] == ["move:basement-rites-t1-c2"]
+    assert world(kernel)["active_scene"] == "basement-rites"
+    receipt = next(r for r in read_json(campaign_dir(kernel.workspace) / "turn.json")["receipts"]
+                   if r["id"] == "move:basement-rites-t1-c2")
+    assert receipt["improvised"] is True and receipt["via"] == "从没钉死的二楼窗翻进去"
+
+    # A `via` on a way the graph does know is just colour: the receipt does not claim otherwise.
+    back = kernel.table("apply", call_id="t1-c3",
+                        effects=[{"kind": "move", "to": OPENING_SCENE, "via": "原路退出去"}])
+    plain = next(r for r in read_json(campaign_dir(kernel.workspace) / "turn.json")["receipts"]
+                 if r["id"] == back["receipts"][0])
+    assert "improvised" not in plain and "via" not in plain
 
 
 def test_move_retraces_the_trail(kernel):

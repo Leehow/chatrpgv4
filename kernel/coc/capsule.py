@@ -183,6 +183,8 @@ def where_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, An
         "keeper_notes": keeper_notes,
         "assets": graph.scene_assets(scene),
         "places": graph.scene_places(scene),
+        "rules": graph.scene_rules(scene),
+        "endings": graph.scene_endings(scene),
         "material": material(graph.handle(scene)),
     }
 
@@ -299,6 +301,17 @@ def _toward_party(row: dict[str, Any]) -> dict[str, Any] | None:
     return {"stance": stance["value"], "because": because}
 
 
+def _exchange_line(item: dict[str, Any]) -> str | None:
+    """One exchange as the keeper reads it: a thing by the name the keeper gave it, or money
+    by its amount and direction. Both are `apply`'s own words, never a judgement of them."""
+    if item.get("item"):
+        return f"turn {item.get('turn')}: {item['item']}"
+    if item.get("cash") is not None:
+        currency = f" {item['currency']}" if item.get("currency") else ""
+        return f"turn {item.get('turn')}: {item.get('direction', 'paid')} {item['cash']}{currency}"
+    return None
+
+
 def _attempt_line(item: dict[str, Any]) -> str:
     """One interaction as the keeper reads it: `turn 3: charm failure`. The words are the
     receipt's own -- the approach and the success level -- never a judgement of them."""
@@ -325,8 +338,8 @@ def _npc_history(row: dict[str, Any], memories: dict[str, dict[str, Any]]) -> di
         history["last_turn"] = seen.get("last")
     if disclosed:
         history["disclosed"] = disclosed
-    exchanged = [f"turn {item.get('turn')}: {item.get('item')}"
-                 for item in (row.get("exchanged") or [])[-PRESENT_ATTEMPTS:] if item.get("item")]
+    exchanged = [_exchange_line(item) for item in (row.get("exchanged") or [])[-PRESENT_ATTEMPTS:]]
+    exchanged = [line for line in exchanged if line]
     if exchanged:
         history["exchanged"] = exchanged
     if promises:

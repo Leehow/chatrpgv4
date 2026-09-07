@@ -140,6 +140,8 @@ def apply_receipts(ledger: dict[str, Any], receipts: Iterable[dict[str, Any]], *
             _fold_delta(ledger, receipt, turn=turn, npc_id_of=npc_id_of)
         elif kind == "item":
             _fold_item(ledger, receipt, turn=turn, npc_id_of=npc_id_of)
+        elif kind == "cash":
+            _fold_cash(ledger, receipt, turn=turn, npc_id_of=npc_id_of)
 
 
 
@@ -204,6 +206,20 @@ def _fold_item(ledger: dict[str, Any], receipt: dict[str, Any], *, turn: int, np
          "receipt": receipt.get("id")})
 
 
+def _fold_cash(ledger: dict[str, Any], receipt: dict[str, Any], *, turn: int, npc_id_of: Any) -> None:
+    """§17.3: money paid to or taken from someone, on their account. Same law as goods — only
+    when the keeper named them (`apply cash`'s `with`)."""
+    npc_id = npc_id_of(receipt.get("with"))
+    if not npc_id:
+        return
+    delta = receipt.get("delta")
+    entry = entry_of(ledger, npc_id)
+    entry["exchanged"].append(
+        {"cash": abs(int(delta)) if isinstance(delta, int) else delta,
+         "direction": "paid" if isinstance(delta, int) and delta < 0 else "received",
+         "currency": receipt.get("currency"), "turn": turn, "receipt": receipt.get("id")})
+
+
 def _fold_npc_effect(ledger: dict[str, Any], receipt: dict[str, Any], *, turn: int,
                      table: StanceTable, npc_id_of: Any) -> None:
     """`apply npc` (§17.3): the keeper's own judgement, recorded with its reason."""
@@ -215,6 +231,12 @@ def _fold_npc_effect(ledger: dict[str, Any], receipt: dict[str, Any], *, turn: i
     if isinstance(stance, str) and stance in table.words:
         _set_stance(entry, table, table.floor_of(stance), turn, receipt.get("id"),
                     because={"how": KEEPER_SET, "stance": stance, "why": receipt.get("why")})
+    # A death the keeper states, for the many ways someone dies that settle no HP.
+    if receipt.get("dead") is True:
+        entry["dead"] = {"turn": turn, "receipt": receipt.get("id"),
+                         **({"why": receipt["why"]} if isinstance(receipt.get("why"), str) else {})}
+    elif receipt.get("dead") is False:
+        entry["dead"] = None
 
 
 def _fold_delta(ledger: dict[str, Any], receipt: dict[str, Any], *, turn: int, npc_id_of: Any) -> None:

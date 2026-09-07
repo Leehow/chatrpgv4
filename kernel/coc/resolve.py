@@ -20,7 +20,8 @@ from .rules.development import record_skill_tick
 from .rules.executors import EXECUTORS, run as run_executor
 from .rules.graph import semantic_name, thaw
 from .rules.resolver import SOCIAL_APPROACH_SKILLS, validate_san_loss_expression
-from .rules.runtime import (RulesEngine, SettleContext, development_binding, latest_check_receipt,
+from .rules.runtime import (RulesEngine, SettleContext, continuable_check, development_binding,
+                            latest_check_receipt,
                             magic_binding, psychology_binding, psychology_realize_binding, social_binding)
 from .rules.sanity import INVOLUNTARY_KINDS
 from .sessions import (SessionView, bout_active, chase_active, chase_location_chain, chase_participant_from_combat_spec,
@@ -1203,6 +1204,15 @@ class ResolvePipeline:
             entry = continuation_entry(runtime, str(card["decision_ref"]))
             if entry["decision"] not in {c["decision"] for c in continuations}:
                 continuations.append(entry)
+        # §11.6: a continuation the settlement will refuse is worse than none. The rule graph
+        # says a failed check may be pushed or bought with Luck; whether *this* receipt can be
+        # is the settlement's own test, and a combined or opposed check fails it. Offering it
+        # anyway sends the keeper to the player with a choice the kernel then refuses, binding
+        # instead to an older check and reporting that one's outcome — seen at a live table on
+        # a combined DEX/Climb, where the refusal named a fumble from two turns back.
+        if not any(continuable_check(r, ctx.actor_id) for r in ctx.receipts):
+            continuations = [c for c in continuations
+                             if not str(c.get("decision", "")).startswith("push-luck:")]
         if ref == PSYCHOLOGY_OBSERVE_REF:
             continuations.append({"decision": "psychology:realize-player-safe", "action": ["decision", "target", "method"],
                                   "when": "the player is told what they can see; the die stays concealed"})

@@ -459,19 +459,27 @@ def facts_provider(ctx: SettleContext, engine: RulesEngine, intent: str | None) 
 _CONTINUABLE_ROLL_KINDS = frozenset({"skill_check", "characteristic_check"})
 
 
+def continuable_check(receipt: dict[str, Any], actor_id: Any) -> bool:
+    """Whether a push or a Luck spend may bind to this receipt. Opposed, combined, concealed
+    and dice rolls are never continuable — and a result must not offer a continuation this
+    says no to, or the keeper reads the offer, the player takes it, and the settlement binds
+    to some older check instead."""
+    if receipt.get("kind") != "roll" or receipt.get("form") == "dice":
+        return False
+    if receipt.get("actor") != actor_id or receipt.get("visibility") == "keeper":
+        return False
+    if receipt.get("roll_kind") not in _CONTINUABLE_ROLL_KINDS:
+        return False
+    return isinstance(receipt.get("check"), dict)
+
+
 def latest_check_receipt(ctx: SettleContext) -> tuple[str, dict[str, Any]] | None:
-    """The actor's most recent D100 check receipt: the source a push or a Luck spend binds
-    to. Opposed, combined, concealed and dice rolls are never continuable."""
+    """The actor's most recent continuable D100 check receipt: the source a push or a Luck
+    spend binds to."""
     for receipt in reversed(ctx.all_receipts()):
-        if receipt.get("kind") != "roll" or receipt.get("form") == "dice":
-            continue
-        if receipt.get("actor") != ctx.actor_id or receipt.get("visibility") == "keeper":
-            continue
-        if receipt.get("roll_kind") not in _CONTINUABLE_ROLL_KINDS:
+        if not continuable_check(receipt, ctx.actor_id):
             continue
         check = receipt.get("check")
-        if not isinstance(check, dict):
-            continue
         return str(receipt["id"]), {**check, "roll_id": receipt["id"], "pushed": bool(receipt.get("pushed")),
                                     "continued_by": receipt.get("continued_by")}
     return None

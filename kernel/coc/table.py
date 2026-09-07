@@ -1204,9 +1204,17 @@ class Table:
         # to get here can be retraced in one move, even out of a lair with no authored exit.
         trail = [str(h) for h in world.get("scene_trail") or []]
         back = list(reversed(trail))
-        if dest_handle not in exits and dest_handle not in trail:
+        # A route the keeper made: the book's own fiction offers ways in that its exits never
+        # list — the upper windows of a boarded house are not nailed, and the party goes
+        # through one. Refusing that left the world standing in the street while the narration
+        # was upstairs, and every clue there then refused as `not_here`: the world lied
+        # quietly, which is worse than any wrong exit. So an unlisted destination is allowed
+        # when the keeper says how, in `via`, and the receipt carries it.
+        improvised = effect.get("via") if isinstance(effect.get("via"), str) and effect["via"].strip() else None
+        if dest_handle not in exits and dest_handle not in trail and not improvised:
             raise RpcError("not_reachable", f"{dest_handle!r} is not reachable from {current_handle!r}",
-                           fix=f"move to one of {sorted(exits)} or retrace to one of {back}",
+                           fix=f"move to one of {sorted(exits)}, retrace to one of {back}, "
+                               "or say how they got there in via",
                            details={"from": current_handle, "to": dest_handle,
                                     "exits": sorted(exits), "back": back})
         minutes = effect.get("travel_minutes")
@@ -1221,6 +1229,10 @@ class Table:
                    "from_label": scene_label(graph, world, current),
                    "to_label": label or scene_label(graph, world, destination),
                    "minutes": minutes, "at": now_iso()}
+        if improvised and dest_handle not in exits and dest_handle not in trail:
+            # Only when it really was off the graph: a `via` on a listed exit is just colour.
+            receipt["via"] = improvised
+            receipt["improvised"] = True
         if label:
             # A name given once is the scene's name from then on: the mechanics projection,
             # the capsule and the checkpoint all carry that label, never the handle.
@@ -1330,10 +1342,19 @@ class Table:
         to = effect.get("to")
         stance = effect.get("stance")
         why = effect.get("why") if isinstance(effect.get("why"), str) and effect["why"].strip() else None
-        if to is None and stance is None:
-            raise invalid_params("an npc effect needs `to`, `stance`, or both",
+        # §17.3: `dead` reached the ledger only from a session settlement's HP delta, so a
+        # person killed by narration and a ruling — the sorcerer crumbling to ash under his
+        # own dagger, no combat rolled — stayed unmarked for ever. Whether someone died is
+        # the keeper's to state, the same way their standing is.
+        dead = effect.get("dead")
+        if dead is not None and not isinstance(dead, bool):
+            raise invalid_params("npc.dead must be true or false",
+                                 fix="say true on the turn they died",
+                                 details={"field": "npc.dead"})
+        if to is None and stance is None and dead is None:
+            raise invalid_params("an npc effect needs `to`, `stance`, `dead`, or a combination",
                                  fix=f"move them with to: {NPC_HERE}/{NPC_AWAY}/<scene>, "
-                                     f"or set stance to one of {self.stance_table.words}")
+                                     f"set stance to one of {self.stance_table.words}, or say dead: true")
         presence = world.setdefault("npc_presence", {})
         moved_to: str | None = None
         if to is not None:
@@ -1353,8 +1374,8 @@ class Table:
                                     message=f"npc.stance {stance!r} is not one of the ledger's words")
         receipt = {"id": _receipt_id_for_npc(handle, turn_number, ordinal, mint), "kind": "npc", "call_id": call_id,
                    "npc": node["node_id"], "handle": handle, "name": graph.display_name(node),
-                   "to": moved_to, "stance": stance, "why": why, "at": now_iso()}
-        return receipt, ("npc-changed", {"npc": handle, "to": moved_to, "stance": stance, "why": why})
+                   "to": moved_to, "stance": stance, "dead": dead, "why": why, "at": now_iso()}
+        return receipt, ("npc-changed", {"npc": handle, "to": moved_to, "stance": stance, "dead": dead, "why": why})
 
     def _stage_damage(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any], turn: dict[str, Any],
                       effect: dict[str, Any], call_id: str, ordinal: int) -> tuple[list[dict[str, Any]], tuple[str, dict[str, Any]]]:
@@ -1688,6 +1709,11 @@ class Table:
         sheet = self._staged_sheet(campaign, sheets, effect.get("subject"))
         subject_id, subject_label = str(sheet["id"]), str(sheet.get("name") or sheet["id"])
         why = effect.get("why") if isinstance(effect.get("why"), str) else None
+        # §17.3: money moves between people, and the effect had only a subject and a signed
+        # delta — "I paid Dooley two dollars" could not be said, so nothing about money ever
+        # reached the other party's account. `with` names them, the way `item.from` does.
+        other = effect.get("with")
+        other_node = graph.npc(other) if isinstance(other, str) and other.strip() else None
         finance = sheet.get("finance")
         if not isinstance(finance, dict) or not isinstance(finance.get("cash"), dict):
             finance = self._finance_block(graph, sheet)
@@ -1705,9 +1731,12 @@ class Table:
         receipt = {"id": _mint_id(f"cash:t{turn_number}-c{ordinal}", taken), "kind": "cash", "call_id": call_id,
                    "resource": "cash", "subject": subject_id, "subject_label": subject_label,
                    "before": before, "after": after, "delta": delta,
+                   "with": graph.handle(other_node) if other_node else None,
+                   "with_label": graph.display_name(other_node) if other_node else None,
                    "currency": currency, "why": why, "at": now_iso()}
         return receipt, ("resource-changed", {"resource": "cash", "subject": subject_id, "before": before,
-                                              "after": after, "delta": delta, "why": why})
+                                              "after": after, "delta": delta, "why": why,
+                                              **({"with": graph.handle(other_node)} if other_node else {})})
 
     # ---- ask ----------------------------------------------------------------
 

@@ -276,6 +276,24 @@ def test_the_stance_table_must_say_it_is_the_stance_table():
     assert "npc-stance" in caught.value.message
 
 
+def test_a_death_the_dice_did_not_settle(kernel):
+    """§17.3: `dead` reached the ledger only from a session settlement's HP delta, so a person
+    killed any other way stayed unmarked for ever and the table went on treating them as
+    someone the party could still meet. At the table the sorcerer crumbled to ash under his
+    own dagger with no combat rolled, and his ledger row said nothing."""
+    open_turn(kernel)
+    kernel.table("apply", call_id="t1-c1", effects=[
+        {"kind": "npc", "name": "Steven Knott", "dead": True, "why": "用他自己的匕首，没有掷骰"},
+    ])
+    narrate(kernel, "t1-c2", "他散了。灰落在铺板上。")
+
+    row = ledger(kernel)[KNOTT]
+    assert row["dead"]["turn"] == 1 and row["dead"]["why"] == "用他自己的匕首，没有掷骰"
+    assert row["dead"]["receipt"].startswith("npc:")
+    entry = next(p for p in kernel.table("capsule")["present"] if p["name"] == "Steven Knott")
+    assert entry["history"]["dead_since_turn"] == 1
+
+
 def test_a_thing_bought_from_someone_goes_on_their_account(kernel):
     """§17.3: goods changing hands are part of what this table has been through with a
     person. Found at a live table: the investigator bought a paper and a box of cigars from
@@ -285,13 +303,18 @@ def test_a_thing_bought_from_someone_goes_on_their_account(kernel):
     kernel.table("apply", call_id="t1-c1", effects=[
         {"kind": "item", "name": "Boston Globe", "from": "Steven Knott", "label": "今日《环球报》"},
         {"kind": "item", "name": "lucky pen"},  # nobody named: nothing to put on an account
+        # Money moves between people too, and the effect had only a subject and a signed
+        # delta: "I paid Dooley two dollars" could not be said at all.
+        {"kind": "cash", "delta": -2, "with": "Steven Knott", "why": "买下那份报纸"},
     ])
-    narrate(kernel, "t1-c2", "诺特把报纸推过桌面。")
+    narrate(kernel, "t1-c2", "诺特把报纸推过桌面，收了两块钱。")
 
     row = ledger(kernel)[KNOTT]
-    assert [e["item"] for e in row["exchanged"]] == ["今日《环球报》"], "the keeper's label, not the id"
+    assert [e.get("item") for e in row["exchanged"]] == ["今日《环球报》", None], "the keeper's label, not the id"
+    paid = row["exchanged"][1]
+    assert (paid["cash"], paid["direction"], paid["currency"]) == (2, "paid", "USD")
     entry = next(p for p in kernel.table("capsule")["present"] if p["name"] == "Steven Knott")
-    assert entry["history"]["exchanged"] == ["turn 1: 今日《环球报》"]
+    assert entry["history"]["exchanged"] == ["turn 1: 今日《环球报》", "turn 1: paid 2 USD"]
 
 
 def test_the_ledger_records_who_handed_a_clue_over(kernel):
@@ -388,10 +411,14 @@ def test_a_reader_s_dossier_claims_reach_the_graph_and_the_table(kernel, tmp_pat
     shard["nodes"] += [
         node("location", "dock-teahouse-building", "码头茶棚", [heading], "雾锁码头的茶棚。"),
         node("location", "jetty", "栈桥", [jetty], "从茶棚向北通往废弃货栈。"),
+        node("rule", "teahouse-questioning", "茶棚问话", [seen], "向老周打听要一次说服检定。"),
+        node("ending", "sailor-recovered", "船工获救", [jetty], "船工被找回，货栈的门重新锁上。"),
     ]
     shard["claims"] += [
         claim("scene-dock-teahouse", "occurs-at", "location-dock-teahouse-building", [heading]),
         claim("location-jetty", "located-in", "location-dock-teahouse-building", [jetty]),
+        claim("scene-dock-teahouse", "uses-rule", "rule-teahouse-questioning", [seen]),
+        claim("scene-dock-teahouse", "may-lead-to", "ending-sailor-recovered", [jetty]),
         claim("npc-lao-zhou", "hides", "secret-sailor-entered-at-night", [seen]),
         claim("npc-lao-zhou", "knows", "clue-brass-whistle", [span_with(packet, "一枚铜哨")]),
         claim("npc-lao-zhou", "believes", "secret-sailor-entered-at-night", [timid]),
@@ -420,6 +447,15 @@ def test_a_reader_s_dossier_claims_reach_the_graph_and_the_table(kernel, tmp_pat
                                   "scene_trail": [], "npc_presence": {}},
                           graph.scene("dock-teahouse"), material_of=lambda _h: "ready")
     assert where["places"] == [{"name": "栈桥", "line": "从茶棚向北通往废弃货栈。"}]
+    # §13.1: and what the book fixes for this scene. `uses-rule` was wired by every build and
+    # read by nothing, so the roll the book prescribes — here, and for the reaction to a
+    # newsvendor, and for the hazard on a staircase — never reached the Keeper standing in it.
+    assert where["rules"] == [{"name": "茶棚问话", "line": "向老周打听要一次说服检定。"}]
+    # §13.1: and the closes this scene can lead to. An ending is not somewhere the party
+    # walks — it is a settlement — and nothing told the Keeper one was in reach, so a
+    # scenario played to its end simply stopped with the campaign still `active`.
+    assert where["endings"] == [{"name": "船工获救", "via": "may-lead-to",
+                                 "line": "船工被找回，货栈的门重新锁上。"}]
 
     # §17.4: and it is the projection the keeper reads, not just the graph
     from coc.capsule import npc_entry
