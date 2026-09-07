@@ -1512,6 +1512,35 @@ and pending choice. It reuses existing projections without touching the turn,
 rolling dice or committing. It exposes no undiscovered clues or Keeper notes.
 The panel must never call `table.look`, which is a Keeper action.
 
+### Kernel decision: no machine handle reaches the player (2026-09-07)
+
+A projection the player reads carries the name that player would use, in the
+campaign's `play_language`. Canonical English rules names and kebab handles are
+the machine's vocabulary and stop at the projection boundary. Three player
+surfaces were showing handles because the projection had nothing else to give.
+
+`table.view.labels` maps canonical characteristic abbreviations and skill names
+to the rules data's own `localized_labels` for this campaign's `play_language`.
+It is empty for `en`, whose canonical names already are the player's, and it
+carries only terms that language actually renames. The glossary is read from the
+rules tables; §16.1 forbids one written in code, and a name the data does not
+localize stays canonical rather than being invented here.
+
+`table.view.clues.discovered` carries `{clue, label}` rather than a bare handle.
+The label is the name the Keeper gave the clue when `apply clue` discovered it,
+kept in `world.clue_labels` exactly as a scene's name is kept in
+`world.scene_labels`, and it falls back to the graph's display name for a clue
+discovered before that field existed. The handle stays as `clue`, so a consumer
+can still key on identity. Undiscovered clues remain absent.
+
+A `roll` or `dice` receipt carries `actor_label` for an investigator as it
+already did for an NPC: the sheet's own name. The §16.2 projection copies it, so
+a mechanics card names whoever rolled instead of printing `inv-1`. Fact
+sentences already preferred `actor_label`, and now get it for the whole table.
+
+Both label maps survive a worldline merge (§15.6) by the same union the scene
+labels always used: a name is not a claim two lines can disagree about.
+
 ### Host decision: RPC adapter
 
 The adapter preserves transport/session/model options, removes host persona and

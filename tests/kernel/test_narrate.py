@@ -39,6 +39,7 @@ def test_every_receipt_is_projected_and_the_turn_closes(kernel):
     assert result["rendered_text"] == text
     assert [m["kind"] for m in result["mechanics"]] == ["roll", "clue", "time", "scene"]
     assert result["mechanics"][0] == {"kind": "roll", "receipt": "roll:spot-hidden-t1-c1", "actor": "thomas-hayes",
+                                      "actor_label": "托马斯·海斯",
                                       "skill": "Spot Hidden", "roll": roll["roll"], "target": 55, "threshold": 55,
                                       "difficulty": "regular", "level": roll["level"], "passed": roll["passed"],
                                       "pushed": False, "visibility": "public"}

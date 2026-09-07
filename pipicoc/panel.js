@@ -128,6 +128,12 @@ const LABELS = {
     refresh: "Refresh",
     refreshing: "…",
     noTable: "Open a table to see the sheet.",
+    noTableTitle: "No table yet",
+    unboundTitle: "No campaign on this session",
+    unboundDetail: "This session is bound to no campaign, and another one is never guessed for it.",
+    errorTitle: "The sheet could not be read",
+    errorDetail: "Try again.",
+    retry: "Try again",
     noInvestigator: "No investigator",
     time: "Time",
     elapsed: (d, hh, mm) => (d > 0 ? `${d}d ${hh}h ${mm}m elapsed` : `${hh}h ${mm}m elapsed`),
@@ -166,6 +172,12 @@ const LABELS = {
     refresh: "刷新",
     refreshing: "……",
     noTable: "开一张桌子才有卡可看。",
+    noTableTitle: "尚未开桌",
+    unboundTitle: "尚未关联战役",
+    unboundDetail: "此会话没有战役关联，不会自动猜测其他战役。",
+    errorTitle: "人物数据读取失败",
+    errorDetail: "请重试。",
+    retry: "重试",
     noInvestigator: "还没有调查员",
     time: "时间",
     elapsed: (d, hh, mm) => (d > 0 ? `已过 ${d} 天 ${hh} 小时 ${mm} 分` : `已过 ${hh} 小时 ${mm} 分`),
@@ -450,6 +462,9 @@ export function createComponent(React) {
     useEffect(() => () => { generation.current++; }, []);
     const [busy, setBusy] = useState(false);
     const [who, setWho] = useState(0);
+    // The language of the last sheet that actually arrived, kept so the chrome of a failed read
+    // stays in the language the player was just reading rather than snapping back to English.
+    const [lastLanguage, setLastLanguage] = useState("");
 
     const load = useCallback(async () => {
       const request = ++generation.current;
@@ -461,7 +476,11 @@ export function createComponent(React) {
       try {
         const result = await api.invoke("sheet", {});
         if(request !== generation.current) return;
-        if (result && result.ok === true && isRecord(result.data)) setAnswer(result.data);
+        if (result && result.ok === true && isRecord(result.data)) {
+          setAnswer(result.data);
+          const language = isRecord(result.data.view) ? text(result.data.view.play_language) : "";
+          if (language) setLastLanguage(language);
+        }
         else {
           const error = result && result.error;
           setAnswer({ view: null, campaign: null, status: "error", reason: (error && error.message) || "the pack did not answer" });
@@ -490,7 +509,10 @@ export function createComponent(React) {
     }
 
     const view = isRecord(answer.view) ? answer.view : null;
-    const t = labelsFor(view ? text(view.play_language) : "");
+    // A failed read carries no language of its own. The last one this panel actually saw is the
+    // table the player is sitting at, so the chrome of an error stays in the language the sheet
+    // was in a moment ago instead of snapping back to English mid-session.
+    const t = labelsFor(view ? text(view.play_language) : lastLanguage);
     const party = view && Array.isArray(view.investigators) ? view.investigators.filter(isRecord) : [];
     const sheet = party[Math.min(who, Math.max(0, party.length - 1))] || null;
     // The play language's word for a rules term, straight from the rules data (§16.5). No table here.
@@ -503,12 +525,18 @@ export function createComponent(React) {
         busy ? t.refreshing : t.refresh));
 
     if (!view) {
-      const status = answer.status || (answer.reason ? 'error' : 'empty');
-      const title = status === 'unbound' ? '尚未关联战役' : status === 'error' ? '人物数据读取失败' : '尚未开桌';
-      const detail = status === 'unbound' ? '此会话没有战役关联，不能自动猜测其他战役。' : status === 'error' ? (answer.reason || '请重试。') : '建卡完成后显示调查员。';
+      // Three different "no sheet" states, and the player is owed which one it is: a session that
+      // was never bound to a table, a read that failed, or a table that has no party yet. The
+      // words come from the same `play_language` table as everything else on this panel (§16.1's
+      // one exception) -- a literal here would be a fourth language rule nobody could see.
+      const status = answer.status || (answer.reason ? "error" : "empty");
+      const title = status === "unbound" ? t.unboundTitle : status === "error" ? t.errorTitle : t.noTableTitle;
+      const detail = status === "unbound" ? t.unboundDetail
+        : status === "error" ? (text(answer.reason) || t.errorDetail)
+        : t.noTable;
       return h("div", { className: "coc-sheet", role: "region", "aria-label": props.title || "Investigator" },
         h("h2", null, title), h("p", { className: "coc-sheet-note", role: "status" }, detail),
-        h("button", {onClick:()=>void load(),disabled:busy},busy?"读取中…":"重试"));
+        h("button", { type: "button", onClick: () => { void load(); }, disabled: busy }, busy ? t.loading : t.retry));
     }
 
     // The header of a printed sheet: labelled rules, not a run-on line of values.

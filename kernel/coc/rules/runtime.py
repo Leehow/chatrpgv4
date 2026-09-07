@@ -374,6 +374,17 @@ class SettleContext:
             if receipt.get("id") == receipt_id:
                 receipt["continued_by"] = kind
 
+    def _actor_label(self, actor: str, is_investigator: bool) -> str:
+        """Who rolled, by name (contract §23). The §16.2 projection copies this onto the
+        mechanics card and the fact sentences prefer it, so an investigator needs one exactly
+        as much as an NPC does: `inv-1` is the kernel's filing, not anybody's name. Falls back
+        to the id, which is still better than an empty cell."""
+        if is_investigator:
+            sheet = self.sheet_by_id(actor) or {}
+            name = sheet.get("name")
+            return str(name) if isinstance(name, str) and name.strip() else actor
+        return self.graph.display_name(node) if (node := self.npc_node(actor)) else actor
+
     def _mint(self, base: str) -> str:
         candidate = base
         n = 2
@@ -396,8 +407,7 @@ class SettleContext:
                    "threshold": int(threshold), "roll": int(roll), "level": level, "passed": bool(passed),
                    "bonus": int(bonus), "penalty": int(penalty), "visibility": visibility, "roll_kind": kind,
                    "pushed": bool(pushed), "rule_refs": rule_refs, "at": now_iso(), **extra}
-        if not actor_is_investigator:
-            receipt["actor_label"] = self.graph.display_name(node) if (node := self.npc_node(actor)) else actor
+        receipt["actor_label"] = self._actor_label(actor, actor_is_investigator)
         if source_receipt:
             receipt["source_receipt"] = source_receipt
         if check is not None:
@@ -414,8 +424,7 @@ class SettleContext:
         receipt = {"id": receipt_id, "kind": "roll", "form": "dice", "call_id": self.call_id, "actor": actor,
                    "skill": label, "skill_label": skill_label or label, "expression": expression, "faces": list(faces),
                    "total": total, "visibility": "public", "at": now_iso(), **extra}
-        if self.sheet_by_id(actor) is None:
-            receipt["actor_label"] = self.graph.display_name(node) if (node := self.npc_node(actor)) else actor
+        receipt["actor_label"] = self._actor_label(actor, self.sheet_by_id(actor) is not None)
         self.receipts.append(receipt)
         return receipt_id
 

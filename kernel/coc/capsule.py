@@ -14,6 +14,7 @@ from . import (bookkeeping, director as director_mod, npc as npc_lane, pressures
                worldline as worldline_mod)
 from .craft import TextGraph
 from .director import DirectorGraph
+from .errors import RpcError
 from .library import era_note
 from .module_graph import (ASSERTS, BELIEVES, HIDES, NPC_KIND, ModuleGraph,  # noqa: F401 - condition helpers re-exported
                            condition_met, condition_status, describe_condition, module_declaration,
@@ -98,6 +99,20 @@ def scene_label(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any]
     (kept in `world.scene_labels`, player language) or else the graph's display name."""
     labels = world.get("scene_labels") or {}
     return str(labels.get(graph.handle(scene)) or graph.display_name(scene))
+
+
+def clue_label(graph: ModuleGraph, world: dict[str, Any], handle: str) -> str:
+    """The name the table calls a discovered clue: the label the keeper gave it on
+    `apply clue` (kept in `world.clue_labels`, player language) or else the graph's display
+    name. A handle the graph does not know -- an echo from another worldline, a clue whose
+    module moved -- is its own name; a projection never leaves the player with nothing."""
+    label = (world.get("clue_labels") or {}).get(handle)
+    if isinstance(label, str) and label.strip():
+        return label
+    try:
+        return str(graph.display_name(graph.clue(handle)))
+    except RpcError:
+        return handle
 
 
 def clock_section(graph: ModuleGraph, world: dict[str, Any]) -> dict[str, Any]:

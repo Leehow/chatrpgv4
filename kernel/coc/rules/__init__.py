@@ -11,13 +11,14 @@ whole from the old repo — `combat` (CombatSession, weapon catalog), `chase` (C
 `table.lookup kind=catalog`."""
 
 from .percentile import percentile_check, resolve_percentile_roll
-from .skills import CHARACTERISTICS, SkillResolver
+from .skills import CHARACTERISTICS, SkillResolver, player_glossary
 from .tables import RuleTables
 
 __all__ = [
     "CHARACTERISTICS",
     "RuleTables",
     "SkillResolver",
+    "player_glossary",
     "percentile_check",
     "resolve_percentile_roll",
 ]

@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 from . import (KERNEL_VERSION, bookkeeping, continuation, echoes, history, library, memory,
                recall as recall_roads, warn as warn_lane, worldline)
-from .capsule import (scene_label, build_capsule, clues_here, investigator_view, npc_view, npcs_present,
+from .capsule import (clue_label, scene_label, build_capsule, clues_here, investigator_view, npc_view, npcs_present,
                       present_section, where_section)
 from .craft import DEFAULT_REGISTER, TextGraph
 from .director import DirectorGraph, director_adoption
@@ -32,7 +32,7 @@ from .rules.graph import REGISTERED_CONDITION_PATHS, semantic_name
 from .rules.healing import handle_time_trigger as healing_time_trigger
 from .rules.mp import handle_time_trigger as mp_time_trigger
 from .rules.percentile import roll_expression
-from .rules.skills import SkillResolver
+from .rules.skills import SkillResolver, player_glossary
 from .rules.runtime import RulesEngine, SettleContext
 from .sessions import SessionView, module_weapons
 from .setup import (ModuleStore, STATUS_ACTIVE, STATUS_READY, STATUS_SETTING_UP, SetupMethods, module_registered)
@@ -565,22 +565,27 @@ class Table:
         campaign = self.store.open(params.get("campaign"), require_turn=False, require_world=False)
         meta = campaign.read_campaign()
         if meta.get("status") == STATUS_SETTING_UP:
-            return {"play_language": language_of(meta), "state": STATUS_SETTING_UP,
+            language = language_of(meta)
+            return {"play_language": language, "state": STATUS_SETTING_UP,
                     "investigators": [investigator_view(sheet) for sheet in campaign.party()],
-                    "clues": {"discovered": []}, "labels": {}}
+                    "clues": {"discovered": []}, "labels": player_glossary(self.tables, language)}
         campaign, _, graph, world = self._load(params, read_only=True, statuses=frozenset({STATUS_ACTIVE, STATUS_READY}))
         turn = campaign.read_turn()
         party = campaign.party()
         snapshot = self._snapshot(campaign, graph, world, party)
+        language = language_of(campaign.read_campaign())
         return {
             **snapshot,
             "pending_choice": turn.get("pending_choice") or snapshot.get("pending_choice"),
-            "play_language": language_of(campaign.read_campaign()),
+            "play_language": language,
             "turn": turn["turn"],
             "state": turn["state"],
             "investigators": [investigator_view(sheet) for sheet in party],
-            "clues": {"discovered": list(world.get("discovered_clues") or [])},
-            "labels": {},
+            # §23: the player reads this list, so each row carries the name the table used for
+            # that clue, not only the handle the kernel files it under.
+            "clues": {"discovered": [{"clue": handle, "label": clue_label(graph, world, handle)}
+                                     for handle in (world.get("discovered_clues") or [])]},
+            "labels": player_glossary(self.tables, language),
         }
 
     def status(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -1329,6 +1334,11 @@ class Table:
         receipt = {"id": f"clue:{handle}-t{turn_number}", "kind": "clue", "call_id": call_id,
                    "clue": handle, "label": label or handle, "summary": node.get("summary") or node.get("name"),
                    "scene": graph.handle(scene), "how": how, "from": source, "at": now_iso()}
+        # §23: the keeper's name for the clue outlives the receipt, the way a scene's does, so the
+        # sheet can list what the player found instead of what the kernel filed it under. Written
+        # before the already-discovered return: naming a clue again is a rename, not a no-op.
+        if label:
+            world.setdefault("clue_labels", {})[handle] = label
         if handle in world.setdefault("discovered_clues", []):
             return receipt, None
         world["discovered_clues"].append(handle)

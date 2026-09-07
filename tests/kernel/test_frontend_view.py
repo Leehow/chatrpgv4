@@ -1,5 +1,5 @@
 """The UI must not forge an action when it polls the investigator sheet."""
-from conftest import CAMPAIGN, campaign_dir, create_campaign
+from conftest import CAMPAIGN, MODULE, PREGEN, campaign_dir, create_campaign, open_turn  # noqa: F401
 
 
 def test_sheet_is_read_only_and_hides_undiscovered_clues(kernel):
@@ -27,3 +27,39 @@ def test_sheet_does_not_persist_legacy_trail_migration(kernel):
     before = path.read_bytes()
     kernel.ok('table.view', {'campaign': CAMPAIGN})
     assert path.read_bytes() == before
+
+
+def test_the_glossary_is_the_rules_data_in_the_campaigns_play_language(kernel):
+    """The panel renders whatever `labels` says, so an empty map is an English sheet on a
+    Chinese table -- which is what shipped. The words come from the rules tables, never
+    from a table in code (§16.1)."""
+    create_campaign(kernel)
+    labels = kernel.ok('table.view', {'campaign': CAMPAIGN})['labels']
+    assert labels['STR'] == '力量' and labels['POW'] == '意志'
+    assert labels['Library Use'] == '图书馆使用' and labels['Spot Hidden'] == '侦查'
+    # Only what the data renames: nothing is minted here for a term the rulebook leaves alone.
+    assert 'MOV' not in labels
+    assert all(isinstance(value, str) and value for value in labels.values())
+
+
+def test_an_english_table_gets_no_glossary_because_it_needs_none(kernel):
+    kernel.ok('campaign.create', {'id': 'en1', 'module': MODULE, 'pregen': PREGEN, 'play_language': 'en'})
+    assert kernel.ok('table.view', {'campaign': 'en1'})['labels'] == {}
+
+
+def test_a_discovered_clue_is_listed_by_the_name_the_table_gave_it(kernel):
+    """`discovered_clues` is handles because that is what the world files. The player reads
+    this list, so the projection carries the keeper's own name for the clue (§23)."""
+    open_turn(kernel)
+    kernel.table('apply', call_id='t1-c1',
+                 effects=[{'kind': 'clue', 'clue': 'knott-commission', 'label': '诺特的委托合同'}])
+    assert kernel.ok('table.view', {'campaign': CAMPAIGN})['clues']['discovered'] == [
+        {'clue': 'knott-commission', 'label': '诺特的委托合同'}]
+
+
+def test_an_unnamed_clue_falls_back_to_the_graph_rather_than_to_its_handle(kernel):
+    open_turn(kernel)
+    kernel.table('apply', call_id='t1-c1', effects=[{'kind': 'clue', 'clue': 'knott-commission'}])
+    row = kernel.ok('table.view', {'campaign': CAMPAIGN})['clues']['discovered'][0]
+    assert row['clue'] == 'knott-commission'
+    assert row['label'] and row['label'] != 'knott-commission'

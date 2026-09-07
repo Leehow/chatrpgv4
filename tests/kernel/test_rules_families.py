@@ -88,7 +88,9 @@ def test_opposed_check_rolls_both_parties(seeded_kernel, tmp_path):
 
     rolls = [m for m in narrate(seeded_kernel, f"t1-c{n + 1}", "他的手像石头。")["mechanics"] if m["kind"] == "roll"]
     assert len(rolls) == 2
-    assert rolls[0]["skill"] == "STR" and rolls[0]["actor"] == "thomas-hayes" and "actor_label" not in rolls[0]
+    # §23: the investigator is named on the card too, not left as the kernel's `inv`-style id.
+    assert rolls[0]["skill"] == "STR" and rolls[0]["actor"] == "thomas-hayes"
+    assert rolls[0]["actor_label"] == "托马斯·海斯"
     assert rolls[1]["skill"] == "STR" and rolls[1]["actor"] == "walter-corbitt" and rolls[1]["actor_label"] == "Walter Corbitt"
 
     # Same seed, fresh process, same two rolls.

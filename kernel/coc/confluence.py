@@ -51,6 +51,9 @@ RESOURCES = (("hp", "current_hp"), ("san", "current_san"), ("mp", "current_mp"),
 DEAD_CONDITION = "dead"
 #: The world keys a merge unions outright; none of them can disagree.
 UNION_LISTS = ("visited_scenes", "discovered_clues", "discovered_echoes", "handouts_shown")
+#: The world keys that map a handle to the name the table gave it: merged by union, because a
+#: name is not a claim two lines can disagree about (§23).
+MERGED_LABEL_MAPS = ("scene_labels", "clue_labels")
 #: A presence conflict where one line moved someone and another left them where the book
 #: put them names that third option here; it is not a worldline and cannot be switched to.
 BOOK = "*book*"
@@ -149,10 +152,11 @@ def _merge_world(graph: ModuleGraph, states: list[dict[str, Any]], scene: str,
     world["active_scene"] = scene
     # The trail is where this party stands now, not two pasts stitched together.
     world["scene_trail"] = []
-    labels: dict[str, Any] = {}
-    for state in states:
-        labels.update(state["world"].get("scene_labels") or {})
-    world["scene_labels"] = labels
+    for key in MERGED_LABEL_MAPS:
+        labels: dict[str, Any] = {}
+        for state in states:
+            labels.update(state["world"].get(key) or {})
+        world[key] = labels
     # The clock runs to the furthest either line reached: time does not un-pass.
     world["clock"] = {"minutes": max(int((state["world"].get("clock") or {}).get("minutes") or 0)
                                      for state in states)}

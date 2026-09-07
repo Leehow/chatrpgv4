@@ -37,7 +37,7 @@ def turn_state(message: str, *, fix: str | None = None, **details: Any) -> RpcEr
 # ---- receipts from engine records ------------------------------------------------------------
 
 def record_percentile(ctx: Any, record: Mapping[str, Any], *, kind: str, **extra: Any) -> str:
-    """One engine percentile record -> one `roll` receipt (NPC rolls public, `actor_label`)."""
+    """One engine percentile record -> one `roll` receipt (public, with the actor's `actor_label`)."""
     target = int(record.get("target") if record.get("target") is not None else record.get("base_target") or 0)
     difficulty = str(record.get("required_level") or record.get("difficulty") or "regular")
     threshold = record.get("required_target")

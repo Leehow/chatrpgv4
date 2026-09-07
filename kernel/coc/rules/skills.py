@@ -48,6 +48,44 @@ def characteristic_labels(tables: RuleTables) -> dict[str, list[str]]:
     return out
 
 
+def _label_for(entry: Any, language: str) -> str | None:
+    labels = entry.get("localized_labels") if isinstance(entry, dict) else None
+    value = labels.get(language) if isinstance(labels, dict) else None
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def player_glossary(tables: RuleTables, language: str) -> dict[str, str]:
+    """Canonical rules name -> the word a player of `language` uses for it (contract §23).
+
+    Characteristic abbreviations and skill names, straight from the rules data's own
+    `localized_labels`. Empty for the system language, whose canonical names already are the
+    player's, and empty of any term the data does not rename: a name this project does not
+    have in the rulebook is left canonical rather than invented in code (§16.1).
+
+    Read on demand rather than cached: the same process serves several campaigns and they do
+    not share a play language.
+    """
+    if not language or language == "en":
+        return {}
+    out: dict[str, str] = {}
+    try:
+        characteristics = tables.load("characteristic-dice").get("characteristics") or {}
+    except (OSError, ValueError, AttributeError):
+        characteristics = {}
+    for key, entry in characteristics.items():
+        abbr = str(key).upper()
+        if abbr in CHARACTERISTICS and (label := _label_for(entry, language)):
+            out[abbr] = label
+    try:
+        skills = tables.skills_table()
+    except (OSError, ValueError, AttributeError, KeyError):
+        skills = {}
+    for name, entry in skills.items():
+        if (label := _label_for(entry, language)):
+            out[str(name)] = label
+    return out
+
+
 class SkillResolver:
     def __init__(self, tables: RuleTables, sheet: dict[str, Any]) -> None:
         self.tables = tables
