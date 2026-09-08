@@ -13,8 +13,9 @@ from typing import Any, Callable
 
 from . import (KERNEL_VERSION, bookkeeping, continuation, echoes, history, library, memory,
                recall as recall_roads, warn as warn_lane, worldline)
-from .capsule import (clock_section, clue_label, clue_summary, scene_label, build_capsule, clues_here, investigator_view,
-                      npc_view, npcs_present, present_section, where_section)
+from .capsule import (MINUTES_PER_DAY, MINUTES_PER_HOUR, clock_section, clue_label, clue_summary, scene_label,
+                      build_capsule, clues_here, investigator_view, npc_view, npcs_present, present_section,
+                      start_of_story, where_section)
 from .craft import DEFAULT_REGISTER, TextGraph
 from .director import DirectorGraph, director_adoption
 from .errors import RpcError, invalid_params, not_implemented, unsupported_value
@@ -36,7 +37,7 @@ from .rules.mp import handle_time_trigger as mp_time_trigger
 from .rules.percentile import roll_expression
 from .rules.skills import SkillResolver, player_glossary
 from .rules.runtime import RulesEngine, SettleContext
-from .sessions import SessionView, module_weapons
+from .sessions import SessionView, load_sanity, module_weapons, sanity_snapshot
 from .setup import (ModuleStore, STATUS_ACTIVE, STATUS_READY, STATUS_SETTING_UP, SetupMethods, module_registered)
 from .store import Campaign, Store, fresh_turn, now_iso, parse_call_id
 from .text import ascii_slug, normalize
@@ -90,6 +91,21 @@ SUPPORTED_LANGUAGES = ("zh-Hans", "en")
 #: never make a situation.
 SITUATION_FACT_PREFIXES = ("actor.", "time.", "sanity.", "chase.", "development.", "clock.", "subsystem.")
 COMMIT_SUBJECT_CHARS = 60
+
+
+def game_day_of(graph: ModuleGraph, minutes: int) -> int:
+    """Which day of the story the clock stands in, counted from the day it opened (#77).
+
+    A day ends at the fiction's midnight. When the module says what time its story opens
+    (`start_of_story`: a full `start_clock.local_datetime`, or a bare `start_time` hour) the
+    minute of that first day is known, and midnight is exactly where `where.clock.at` turns
+    its date over. A module that declares neither has no midnight to name, so its days are
+    whole days of elapsed time -- the one truth the table has about it -- with the opening
+    minute read as 0."""
+    opened, minute_of_day = start_of_story(graph)
+    if opened is not None:
+        minute_of_day = opened.hour * MINUTES_PER_HOUR + opened.minute
+    return (int(minute_of_day or 0) + int(minutes)) // MINUTES_PER_DAY
 
 
 def _receipt_id_for_npc(handle: str, turn_number: int, ordinal: int, mint: Any) -> str:
@@ -1335,6 +1351,10 @@ class Table:
         receipts.extend(recovery)
         receipt_ids.extend(r["id"] for r in recovery)
         events.extend(recovery_events)
+        # #77: every midnight the batch's clock crossed -- rest or travel alike -- closes the
+        # sanity day. `world` is the clock as the batch found it; `staged` is where it left it.
+        day_ended = self._stage_day_boundary(campaign, graph, staged,
+                                             int((world.get("clock") or {}).get("minutes") or 0))
 
         self._commit_sheets(campaign, staged_sheets)
         campaign.write_world(staged)
@@ -1365,6 +1385,9 @@ class Table:
         if recovered:
             # Recovery is projected with the other public mechanics.
             result["recovered"] = recovered
+        if day_ended:
+            # #77: the fiction's midnight passed; the sanity day closed for everyone who had one.
+            result["day_ended"] = day_ended
         if attachments:
             # §14.8: the extension hands these to the player as message attachments.
             result["attachments"] = [a for a in attachments if a]
@@ -1695,6 +1718,49 @@ class Table:
                                     current_mp=sheet.get("current_mp")),
                     int(derived.get("MP") or 0))
         return list(ctx.receipts), events, recovered
+
+    def _stage_day_boundary(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any],
+                            clock_before: int) -> dict[str, Any] | None:
+        """Midnight closes the sanity day (#77).
+
+        p.168's one-fifth rule is *one game day*, and `SanitySession.end_day()` -- which
+        judges it, zeroes `daily_san_lost` and re-anchors `day_start_san` to current SAN --
+        had no caller on the product path. The counter therefore ran from the campaign's
+        first minute against the opening SAN: an investigator at 55 went indefinitely insane
+        on the fifteenth point lost, whether that took one night or twenty scenes, and a
+        campaign's worth of SAN loss is routinely more than a fifth.
+
+        The boundary is the fiction's midnight (`game_day_of`), and any advance of the clock
+        can cross it: a night's rest and a ten-hour drive both end the day, so travel minutes
+        count here even though `_stage_recovery` rightly refuses to call them rest. An advance
+        that crosses several midnights closes each day in turn. Nothing can move SAN inside
+        one advance, so every close after the first meets a zero counter and re-anchors to
+        the same SAN: the judgement is only ever of the last day the party actually lived
+        through, never of a sum across days -- three days losing a point each are three
+        judgements of one point, three points in one day is one judgement of three. An
+        investigator with no sanity snapshot yet has lost nothing; the first load seeds
+        `day_start_san` from the sheet's current SAN, which is exactly what a close would
+        set, so they are left alone rather than given a file for it.
+
+        Returns `{days, sanity: [{investigator, day_start_san, went_indefinitely_insane}]}`
+        for the apply result, or None when no midnight passed."""
+        clock_after = int((world.get("clock") or {}).get("minutes") or 0)
+        days = game_day_of(graph, clock_after) - game_day_of(graph, clock_before)
+        if days <= 0:
+            return None
+        rows: list[dict[str, Any]] = []
+        for sheet in campaign.party():
+            investigator_id = str(sheet.get("id") or "")
+            if not investigator_id or sanity_snapshot(campaign.dir, investigator_id) is None:
+                continue
+            session = load_sanity(campaign.dir, self.tables, self.rng, sheet, clock_after)
+            was_indefinite = bool(session.indefinite_insane)
+            for _ in range(days):
+                session.end_day()
+            session.save(campaign.dir)
+            rows.append({"investigator": investigator_id, "day_start_san": int(session.day_start_san),
+                         "went_indefinitely_insane": bool(session.indefinite_insane) and not was_indefinite})
+        return {"days": days, "sanity": rows}
 
     def _stage_time(self, world: dict[str, Any], effect: dict[str, Any], turn_number: int,
                     ordinal: int, call_id: str, nth: int) -> tuple[dict[str, Any], tuple[str, dict[str, Any]]]:
