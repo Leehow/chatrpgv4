@@ -131,11 +131,14 @@ def _minutes_since_injury(state: Mapping[str, Any], elapsed_minutes: int | None)
     ledger = state.get("wound_ledger")
     if not isinstance(ledger, list):
         return None
+    # A stamp may be negative (#78): a time loop that keeps its investigators and rewinds the
+    # clock moves every filed minute back with it, and a wound taken before the anchor lands
+    # before the origin. It is still a wound and still older than now -- the arithmetic below
+    # says so on its own. Only the clock itself may not be negative (guarded above).
     occurred = [row["occurred_elapsed_minutes"] for row in ledger
                 if isinstance(row, Mapping) and row.get("status") == "active"
                 and isinstance(row.get("occurred_elapsed_minutes"), int)
-                and not isinstance(row.get("occurred_elapsed_minutes"), bool)
-                and row["occurred_elapsed_minutes"] >= 0]
+                and not isinstance(row.get("occurred_elapsed_minutes"), bool)]
     if not occurred:
         return None
     return max(0, elapsed_minutes - max(occurred))
@@ -153,7 +156,8 @@ def _major_wound_recovery_due(state: Mapping[str, Any], elapsed_minutes: int | N
         if not isinstance(row, Mapping) or row.get("status") != "active":
             continue
         stamp, wound_id = row.get("occurred_elapsed_minutes"), row.get("wound_id")
-        if isinstance(stamp, bool) or not isinstance(stamp, int) or stamp < 0 or not isinstance(wound_id, str) or not wound_id:
+        # Negative is a rewound clock, not corruption (#78); the type guards still stand.
+        if isinstance(stamp, bool) or not isinstance(stamp, int) or not isinstance(wound_id, str) or not wound_id:
             return None
         active.append((stamp, wound_id))
     if not active:
@@ -163,7 +167,7 @@ def _major_wound_recovery_due(state: Mapping[str, Any], elapsed_minutes: int | N
         if not isinstance(row, Mapping):
             return None
         stamp, wound_id = row.get("attempt_elapsed_minutes"), row.get("wound_id")
-        if isinstance(stamp, bool) or not isinstance(stamp, int) or stamp < 0 or not isinstance(wound_id, str) or not wound_id:
+        if isinstance(stamp, bool) or not isinstance(stamp, int) or not isinstance(wound_id, str) or not wound_id:
             return None
         if wound_id == active_wound_id:
             baseline = max(baseline, stamp)

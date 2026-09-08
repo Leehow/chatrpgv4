@@ -79,11 +79,6 @@ def write_healing_state(campaign_dir: Path, investigator_id: str, data: dict[str
     return path
 
 
-class ClockRebaseRefused(ValueError):
-    """`rebase_clock` cannot express this state on the new clock; the message names the wound
-    and the shortfall. The worldline turns it into an explicit refusal of the rewind."""
-
-
 #: The instants this engine files, by ledger and field (#78). Both lie in the past.
 _INSTANTS = (("wound_ledger", "occurred_elapsed_minutes"),
              ("major_wound_recovery_ledger", "attempt_elapsed_minutes"))
@@ -106,14 +101,13 @@ def rebase_clock(state: dict[str, Any], delta: int) -> dict[str, Any]:
     from 540 to 0, a wound happened 60 minutes *before* the new loop began. That is the
     truthful minute and this engine would file it, but the ledger's readers
     (`rules/graph.py::_minutes_since_injury`, `_major_wound_recovery_due`) accept no stamp
-    below zero -- one would drop the wound from the first-aid hour, the other silence the
-    weekly-recovery fact for the investigator altogether. Losing a wound quietly is the
-    stranding #78 is about, met from another side, so this engine refuses instead:
-    `ClockRebaseRefused`, naming the wound and the shortfall, which the worldline turns into
-    an explicit refusal of the rewind. Clamping the stamp to zero is not an option -- it
-    would re-open the first-aid hour on an old wound and postpone its weekly roll by the
-    overhang. When those readers accept a minute before the origin, the refusal below is
-    the one condition to delete. Returns a new dict; `state` is not touched."""
+    below zero, which used to be refused here because `rules/graph.py`'s readers dropped a
+    negative stamp as corruption -- silently losing the wound from the first-aid hour and the
+    weekly-recovery fact with it. Those readers now accept a minute before the origin (the
+    clock itself still may not be negative), because after a rewind that is what an older
+    wound honestly is: the arithmetic `now - occurred` keeps saying how old it is, and
+    clamping to zero would have re-opened the first-aid hour on an old wound. So nothing is
+    refused here any more. Returns a new dict; `state` is not touched."""
     moved = copy.deepcopy(state)
     who = str(moved.get("investigator_id") or "the investigator")
     for ledger, field in _INSTANTS:
@@ -124,11 +118,6 @@ def rebase_clock(state: dict[str, Any], delta: int) -> dict[str, Any]:
             stamp = row.get(field)
             if isinstance(stamp, bool) or not isinstance(stamp, int):
                 continue
-            if stamp + delta < 0:
-                raise ClockRebaseRefused(
-                    f"{who}'s wound {row.get('wound_id')} is filed at minute {stamp} ({field}); moved by "
-                    f"{delta} it would fall {-(stamp + delta)} minutes before the clock's origin, and the "
-                    "healing ledger's readers accept no minute below zero")
             row[field] = stamp + delta
     return moved
 

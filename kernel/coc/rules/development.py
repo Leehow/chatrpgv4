@@ -14,6 +14,7 @@ settlement that applies it. Ported from coc_development.py, re-cut for the kerne
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import random
@@ -25,6 +26,27 @@ from typing import Any
 from ..fileio import canonical_json, read_json, write_json_atomic
 from . import percentile
 from .tables import RuleTables
+
+
+#: #78: what this engine writes under `save/`, as paths relative to the campaign directory.
+#: The worldline reads this to know whose file it is looking at when a time loop rewinds the
+#: clock under a kept investigator; a file no engine claims refuses the rewind by name rather
+#: than being presumed harmless.
+SAVE_PATHS = ("save/development-state", "save/development-settlements",)
+
+
+def rebase_clock(state: dict[str, Any], delta: int) -> dict[str, Any]:
+    """#78: this engine's saved state with every absolute clock minute moved by `delta` --
+    and this engine keeps none, which is what this function exists to say.
+
+    Development records which skills were ticked and which endings were settled. A tick is
+    an event that happened, not a deadline that falls due, and the ending capsules are
+    frozen plans keyed by ending id rather than by minute.
+
+    `delta` (the new clock minus the old) is accepted and unused. Returns a copy; `state` is
+    not touched."""
+    del delta
+    return copy.deepcopy(state)
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _SUCCESS_OUTCOMES = frozenset({"regular", "hard", "extreme", "critical"})

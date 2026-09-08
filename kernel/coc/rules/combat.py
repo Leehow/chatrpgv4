@@ -21,6 +21,7 @@ Rulebook basis: Chapter 6 (Combat), 7e 40th Anniversary.
 """
 from __future__ import annotations
 
+import copy
 import json
 import hashlib
 import random
@@ -31,6 +32,27 @@ from typing import Any
 from ..fileio import write_json_atomic
 from .percentile import RollApi
 from .tables import RuleTables
+
+
+#: #78: what this engine writes under `save/`, as paths relative to the campaign directory.
+#: The worldline reads this to know whose file it is looking at when a time loop rewinds the
+#: clock under a kept investigator; a file no engine claims refuses the rewind by name rather
+#: than being presumed harmless.
+SAVE_PATHS = ("save/combat.json",)
+
+
+def rebase_clock(state: dict[str, Any], delta: int) -> dict[str, Any]:
+    """#78: this engine's saved state with every absolute clock minute moved by `delta` --
+    and this engine keeps none, which is what this function exists to say.
+
+    A combat session is a sequence of rounds inside one moment of the clock: `round`,
+    `turn_counter` and the initiative order are positions in that sequence, not readings of
+    the world clock, and a session that outlives a rewind is counting the same rounds.
+
+    `delta` (the new clock minus the old) is accepted and unused. Returns a copy; `state` is
+    not touched."""
+    del delta
+    return copy.deepcopy(state)
 
 
 def apply_wound_conditions(p: dict[str, Any], worst_single: int, roll_con: Any) -> None:

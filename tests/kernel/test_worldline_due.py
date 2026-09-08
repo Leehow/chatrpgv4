@@ -292,16 +292,18 @@ def test_a_kept_rewind_is_refused_by_name_while_state_no_engine_can_move_is_on_t
         client.close()
 
 
-def test_a_kept_rewind_is_refused_while_a_wound_predates_the_rewound_clock(tmp_path):
-    """The healing engine's own limit, stated instead of hidden.
+def test_a_kept_wound_older_than_the_rewound_clock_keeps_its_age(tmp_path):
+    """`investigators: keep` is a module saying the loop wears people down. A wound has to
+    survive the rewind for that to mean anything.
 
-    A wound is filed as the minute it happened, and the first-aid hour and the weekly
-    recovery baseline are measured from it. Rewound to the anchor's minute 0, a wound taken at
-    minute 480 and rewound at minute 540 happened 60 minutes *before* the new loop began -- a
-    minute the ledger's readers (`rules/graph.py`) do not accept, so the engine refuses rather
-    than let the wound drop out of the first-aid hour or silence the weekly roll; clamping it
-    to zero would re-open the first-aid hour on an old wound. The refusal names the wound and
-    the shortfall, and nothing moves."""
+    A wound is filed as the minute it happened, and the first-aid hour and the weekly recovery
+    baseline are measured from it. Rewound to the anchor's minute 0, a wound taken at minute
+    480 with the clock at 540 lands 60 minutes *before* the new loop begins. That is not
+    corruption, it is an old wound: `now - occurred` goes on saying how old, which is the only
+    question `rules/graph.py` asks of it. The engine used to refuse this rewind outright,
+    because those readers dropped a negative stamp and the wound would have vanished from the
+    first-aid hour without a word -- so the readers were taught the minute instead, and an
+    investigator who is already hurt can now go round again still hurt."""
     content = loop_content(tmp_path, reset={"clock": "anchor", "investigators": "keep"})
     client = RpcClient(tmp_path / "ws", content=content, env={"COC_KERNEL_SEED": "1"})
     try:
@@ -313,18 +315,19 @@ def test_a_kept_rewind_is_refused_while_a_wound_predates_the_rewound_clock(tmp_p
         assert wound["occurred_elapsed_minutes"] == ELAPSED
 
         client.table("player_input", text="我撑了一个小时，然后想回到今天早上。")
-        error = client.table_err("apply", call_id="t3-c1", effects=[{"kind": "time", "minutes": 60},
-                                                                  {"kind": "fork", "name": "loop-2", "mode": "loop"}])
-        assert error["code"] == "not_implemented"
-        assert error["details"]["unclaimed"] == []
-        path = f"save/healing-state/{INVESTIGATOR}.json"
-        assert list(error["details"]["refused"]) == [path]
-        reason = error["details"]["refused"][path]
-        assert wound["wound_id"] in reason and "60 minutes before the clock's origin" in reason
-        assert error["details"]["clock_delta"] == -(ELAPSED + 60)
-        assert meta_of(client)["active_worldline"] == "main" and clock_of(client) == ELAPSED
+        client.table("apply", call_id="t3-c1", effects=[{"kind": "time", "minutes": 60},
+                                                       {"kind": "fork", "name": "loop-2", "mode": "loop"}])
+        narrate(client, "t3-c2", "你眼前一黑，又回到了诺特的办公室。")
+
+        assert meta_of(client)["active_worldline"] == "loop-2" and clock_of(client) == 0
+        moved = healing_state(client)["wound_ledger"][0]
+        assert moved["wound_id"] == wound["wound_id"], "the wound came round with the investigator"
+        # It happened an hour before this loop began, and it is exactly as old as it was.
+        assert moved["occurred_elapsed_minutes"] == -60
+        assert clock_of(client) - moved["occurred_elapsed_minutes"] == 60
     finally:
         client.close()
+
 
 
 def test_a_kept_wound_younger_than_the_anchor_stays_exactly_as_old(tmp_path):

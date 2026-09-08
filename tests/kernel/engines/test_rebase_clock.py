@@ -149,21 +149,24 @@ def test_healing_moves_the_wound_and_the_attempt_by_the_delta():
     assert moved["healing_usage"] == before["healing_usage"] and moved["conditions"] == ["major_wound"]
 
 
-def test_healing_refuses_a_stamp_that_would_precede_the_clocks_origin():
+def test_healing_carries_a_wound_older_than_the_clocks_origin():
+    """A wound taken before the anchor lands before minute zero, and that is honest.
+
+    This engine used to refuse such a rewind, because `rules/graph.py` dropped a negative
+    stamp as corruption and the wound would have vanished from the first-aid hour and the
+    weekly-recovery fact without a word. Those readers now accept a minute before the origin
+    (the clock itself still may not go negative), so the stamp simply moves: `now - occurred`
+    goes on saying how old the wound is, which is the whole question those readers ask.
+    Clamping to zero was never an option -- it would re-open the first-aid hour on an old
+    wound and postpone its weekly roll by the overhang."""
     state = {"investigator_id": INVESTIGATOR,
              "wound_ledger": [{"wound_id": "wound-t2-c1", "occurred_elapsed_minutes": 480, "status": "active"}]}
-    with pytest.raises(ValueError) as caught:
-        healing.rebase_clock(state, -540)
-    assert isinstance(caught.value, healing.ClockRebaseRefused)
-    message = str(caught.value)
-    assert "wound-t2-c1" in message and "60 minutes before the clock's origin" in message
-    # Landing exactly on the origin is a minute the readers accept.
+    assert healing.rebase_clock(state, -540)["wound_ledger"][0]["occurred_elapsed_minutes"] == -60
+    # Landing exactly on the origin is unremarkable, and so is landing before it.
     assert healing.rebase_clock(state, -480)["wound_ledger"][0]["occurred_elapsed_minutes"] == 0
-    # The attempt ledger is held to the same line.
     attempts = {"investigator_id": INVESTIGATOR,
                 "major_wound_recovery_ledger": [{"wound_id": "wound-a", "attempt_elapsed_minutes": 100}]}
-    with pytest.raises(healing.ClockRebaseRefused):
-        healing.rebase_clock(attempts, -101)
+    assert healing.rebase_clock(attempts, -101)["major_wound_recovery_ledger"][0]["attempt_elapsed_minutes"] == -1
 
 
 # ---- mp -------------------------------------------------------------------------------------

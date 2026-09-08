@@ -680,10 +680,6 @@ def clock_engines() -> list[ModuleType]:
     return found
 
 
-def _under(path: str, prefixes: tuple[str, ...]) -> bool:
-    return any(path == prefix or path.startswith(prefix.rstrip("/") + "/") for prefix in prefixes)
-
-
 def engine_saves(campaign: Campaign) -> list[str]:
     """Every file under `save/` that is the state of the people at the table rather than the
     loop's own bookkeeping (`SAVE_KEEP`), as paths relative to the campaign directory."""
@@ -691,7 +687,7 @@ def engine_saves(campaign: Campaign) -> list[str]:
     if not root.is_dir():
         return []
     relative = (path.relative_to(campaign.dir).as_posix() for path in sorted(root.rglob("*")) if path.is_file())
-    return [path for path in relative if not _under(path, SAVE_KEEP)]
+    return [path for path in relative if not history.within(path, SAVE_KEEP)]
 
 
 def _cannot_follow_the_clock(unclaimed: list[str], refused: dict[str, str], delta: int) -> RpcError:
@@ -729,7 +725,7 @@ def rebase_saves(campaign: Campaign, delta: int, *, write: bool) -> dict[str, li
     rebased: list[str] = []
     unchanged: list[str] = []
     for relative in engine_saves(campaign):
-        engine = next((engine for engine in engines if _under(relative, engine.SAVE_PATHS)), None)
+        engine = next((engine for engine in engines if history.within(relative, engine.SAVE_PATHS)), None)
         if engine is None:
             unclaimed.append(relative)
             continue

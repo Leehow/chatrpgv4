@@ -18,6 +18,7 @@ Rulebook basis: Keeper Rulebook Chapter 7 (Chases), 7e 40th Anniversary.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import random
@@ -29,6 +30,27 @@ from ..fileio import write_json_atomic
 from .combat import VALID_CONDITIONS, CombatSession
 from .percentile import RollApi
 from .tables import RuleTables
+
+
+#: #78: what this engine writes under `save/`, as paths relative to the campaign directory.
+#: The worldline reads this to know whose file it is looking at when a time loop rewinds the
+#: clock under a kept investigator; a file no engine claims refuses the rewind by name rather
+#: than being presumed harmless.
+SAVE_PATHS = ("save/chase.json",)
+
+
+def rebase_clock(state: dict[str, Any], delta: int) -> dict[str, Any]:
+    """#78: this engine's saved state with every absolute clock minute moved by `delta` --
+    and this engine keeps none, which is what this function exists to say.
+
+    A chase is measured in rounds and movement rates, not in clock minutes: `turn_counter`
+    and the location boxes are positions within the chase, and they mean the same thing
+    whatever minute the clock now shows.
+
+    `delta` (the new clock minus the old) is accepted and unused. Returns a copy; `state` is
+    not touched."""
+    del delta
+    return copy.deepcopy(state)
 
 LVL = {"fumble": 0, "failure": 1, "regular": 2, "hard": 3, "extreme": 4, "critical": 5}
 _DICE_RE = re.compile(r"^(\d+)D(\d+)(?:([+-])(\d+))?$", re.IGNORECASE)
