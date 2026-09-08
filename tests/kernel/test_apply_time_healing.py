@@ -128,3 +128,37 @@ def test_three_weeks_with_a_major_wound_roll_three_times(same_dice):
     assert hp(one_week) > 1, "seed 4: the first week's recovery roll succeeds"
     assert hp(three_weeks) > hp(one_week)
     assert hp_rows(rested) == [{"investigator": INVESTIGATOR, "resource": "hp", "before": 1, "after": hp(three_weeks)}]
+
+
+def test_healing_clears_the_sheet_and_a_healed_wound_does_not_come_back(seeded_four):
+    """#80: recovery mirrors the engine's conditions back, and the next blow starts from those.
+
+    `mirror_investigator` exists to write an engine's view of a person onto their sheet, and
+    damage has always used it that way. Recovery mirrored only the number, so an investigator
+    healed out of a major wound kept `major_wound` on the sheet for the rest of the campaign --
+    and worse, `_stage_damage` reads the sheet's conditions as the prior for the next blow and
+    writes them back into the healing state, so one scratch after a long convalescence
+    resurrected the wound that had healed.
+
+    Seed 4's first weekly recovery roll succeeds, so the box unticks on the first week.
+    """
+    kernel = seeded_four
+    open_turn(kernel)
+    hurt(kernel, "t1-c1", 8)  # 8 of 12 is over half: a major wound
+    assert hp(kernel) == 4 and "major_wound" in sheet(kernel)["conditions"]
+
+    rest(kernel, "t1-c2", 8 * WEEK)
+    assert hp(kernel) == 12, "eight weeks is long enough to come back to full"
+    # The sheet says exactly what the healing engine says -- no more, no less. The engine
+    # unticks the major wound; `prone` is a combat condition it has no opinion about, so it
+    # survives, and an investigator who spent eight weeks in bed is still marked as having
+    # fallen over. That is the engine's blind spot, not the mirror's, and mirroring is the
+    # wrong layer to paper over it: see #82.
+    assert "major_wound" not in sheet(kernel)["conditions"]
+    assert sheet(kernel)["conditions"] == ["prone"]
+
+    # The wound is healed, so a small blow is a small blow -- not a major wound rebuilt from
+    # the sheet's stale conditions.
+    hurt(kernel, "t1-c3", 2)
+    assert hp(kernel) == 10
+    assert "major_wound" not in sheet(kernel)["conditions"]

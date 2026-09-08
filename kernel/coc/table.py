@@ -32,7 +32,7 @@ from .resolve import ResolvePipeline, full_decision_ref
 from .rules import RuleTables, development
 from .rules.combat import resolve_module_weapons
 from .rules.graph import REGISTERED_CONDITION_PATHS, semantic_name
-from .rules.healing import handle_time_trigger as healing_time_trigger
+from .rules.healing import handle_time_trigger as healing_time_trigger, read_healing_state
 from .rules.mp import handle_time_trigger as mp_time_trigger
 from .rules.percentile import roll_expression
 from .rules.skills import SkillResolver, player_glossary
@@ -1712,6 +1712,18 @@ class Table:
                         healing_time_trigger(self.tables, campaign.dir, investigator_id, hp_max,
                                              int(characteristics.get("CON") or 50), minutes, rng=self.rng),
                         hp_max)
+                # #80: healing clears conditions -- the major wound heals, the unconscious wake --
+                # and `mirror_investigator` exists to put the engine's view of a person back on
+                # their sheet. Damage has always done that (`_stage_damage` mirrors
+                # `damage_conditions`); recovery mirrored only the number, so a sheet came out of
+                # a week's rest at full HP still reading `major_wound, prone, unconscious`. The
+                # next `apply damage` then read those stale conditions as its prior and wrote them
+                # back into the healing state, reviving a wound that had healed. Mirrored here
+                # rather than inside `restore()` because a condition can clear on a turn that
+                # restores no hit points at all -- an Extreme recovery roll unticks the box.
+                healed = read_healing_state(campaign.dir, investigator_id).get("conditions")
+                if isinstance(healed, list) and healed != (sheet.get("conditions") or []):
+                    ctx.mirror_investigator(investigator_id, conditions=[str(c) for c in healed])
             restore(investigator_id, "mp", int(sheet.get("current_mp") or 0),
                     mp_time_trigger(self.tables, campaign.dir, investigator_id,
                                     int(characteristics.get("POW") or 50), minutes, rng=self.rng,
