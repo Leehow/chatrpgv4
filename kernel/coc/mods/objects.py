@@ -233,11 +233,32 @@ def public_items(world: dict[str, Any], owner_id: str) -> list[dict[str, Any]]:
             continue
         definition = data["definitions"][item["definition"]]
         public = definition["player_view"]
+        state = {"condition":item["state"]["condition"]}
+        if "magazine" in public["fields"] or "initial_ammo" in public["fields"]:
+            state["ammo"] = item["state"].get("ammo")
+        if "charges" in public["fields"]:
+            state["charges"] = item["state"].get("charges")
         rows.append({"name": item["name"], "quantity": item["quantity"], "category": definition["category"],
-                     "description": public["description"], "state": copy.deepcopy(item["state"]),
+                     "description": public["description"], "state": state,
                      "traits": [copy.deepcopy(t) for t in definition.get("traits", []) if t["name"] in public.get("traits", [])],
                      "parameters": {k: definition["parameters"][k] for k in public["fields"]}})
     return rows
+
+
+def public_sheet(world: dict[str, Any], view: dict[str, Any]) -> dict[str, Any]:
+    result = copy.deepcopy(view)
+    result["objects"] = public_items(world, view["id"])
+    by_name = {item["name"]:item for item in result["objects"]}
+    weapons = []
+    for row in view.get("weapons", []):
+        if isinstance(row, dict) and row.get("object_id") and row.get("name") in by_name:
+            known = by_name[row["name"]]
+            row = {k:row[k] for k in ("name", "label", "weapon_id", "object_id") if k in row} | known["parameters"]
+            if "ammo" in known["state"]:
+                row["ammo"] = known["state"]["ammo"]
+        weapons.append(row)
+    result["weapons"] = weapons
+    return result
 
 
 def sync_ammo(world: dict[str, Any], participants: list[dict[str, Any]], jammed: set[str] | None = None) -> None:

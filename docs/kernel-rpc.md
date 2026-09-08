@@ -2194,6 +2194,9 @@ campaign. Changes during open/acting turns or live subsystem sessions remain pen
 until a safe boundary. The whole resolved set is checked for dependencies/conflicts
 before activation. Unknown settings are rejected. A save pins version, digest,
 settings and state version in `world.mods`; no automatic latest-version selection.
+During background opening preparation, before world.json exists, that same lock is
+staged in campaign.mods_pending. table.open promotes it after the world is ready;
+later default changes do not alter the already-created campaign's choices.
 
 Upgrades run an explicit package migration chain before the version lock changes.
 First-version migrations are deterministic namespace-local JSON field renames and

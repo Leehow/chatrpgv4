@@ -23,11 +23,19 @@ class ModAdapter:
         self.runtime = ModRuntime(table.content.parent / "mods", table.store.workspace)
 
     def initialize(self, campaign: Any, world: dict[str, Any], *, pending: bool = False) -> None:
-        changed = self.runtime.initialize(world)
+        meta = campaign.read_campaign()
+        staged = meta.get("mods_pending")
+        changed = "mods" not in world and isinstance(staged, dict)
+        if changed:
+            world["mods"] = copy.deepcopy(staged)
+        changed = self.runtime.initialize(world) or changed
         if pending and not self.busy(campaign, world):
             changed = self.runtime.apply_pending(world) or changed
         if changed:
             campaign.write_world(world)
+        if staged is not None:
+            meta.pop("mods_pending", None)
+            campaign.write_campaign(meta)
         if "objects" in world:
             self.project_inventory(campaign, world)
 
@@ -377,13 +385,22 @@ def methods(table: Any) -> dict[str, Any]:
     def listing(params):
         if not params.get("campaign"):
             return adapter.runtime.view()
-        campaign = table.store.open(params["campaign"])
-        return {**adapter.runtime.view(campaign.read_world()), "campaign": campaign.id,
+        campaign = table.store.open(params["campaign"], require_world=False)
+        config = campaign.read_world() if campaign.world_json.exists() else {"mods":campaign.read_campaign().get("mods_pending", {})}
+        return {**adapter.runtime.view(config), "campaign": campaign.id,
                 "play_language": campaign.read_campaign().get("play_language", "en")}
 
     def configure(params):
-        campaign = table.store.open(params.get("campaign"))
+        campaign = table.store.open(params.get("campaign"), require_world=False)
+        if not campaign.world_json.exists():
+            meta = campaign.read_campaign()
+            config = {"mods":copy.deepcopy(meta["mods_pending"])} if meta.get("mods_pending") else {}
+            adapter.runtime.configure(config, params, busy=False)
+            meta["mods_pending"] = config["mods"]
+            campaign.write_campaign(meta)
+            return listing(params)
         world = campaign.read_world()
+        adapter.initialize(campaign, world)
         adapter.runtime.configure(world, params, busy=adapter.busy(campaign, world))
         campaign.write_world(world)
         return listing(params)

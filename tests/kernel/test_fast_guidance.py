@@ -45,6 +45,9 @@ def test_guidance_opens_setup_but_not_world_or_play_and_preserves_confirmation(k
     kernel.ok("campaign.create", {"id": "early", "module": mid, "guidance_key": KEY, "play_language": "en"})
     directory = kernel.workspace / ".coc/campaigns/early"
     assert not (directory / "world.json").exists()
+    mods = kernel.ok("mods.list", {"campaign":"early"})
+    assert any(r["id"] == "natural-npc" for r in mods["mods"])
+    kernel.ok("mods.configure", {"campaign":"early", "id":"natural-npc", "enabled":False})
     kernel.ok("setup.prologue", {"campaign": "early", "scene": "Dock", "text": "Who are you?"})
     confirmed = confirmed_investigator(kernel, "early")
     error = kernel.err("setup.complete", {"campaign": "early"})
@@ -59,6 +62,9 @@ def test_guidance_opens_setup_but_not_world_or_play_and_preserves_confirmation(k
     meta = json.loads((directory / "campaign.json").read_text())
     assert meta["setup"]["confirmed_revision"] == confirmed["revision"]
     assert kernel.ok("setup.complete", {"campaign": "early"})["replayed"]
+    kernel.ok("table.open", {"campaign":"early"})
+    mods = kernel.ok("mods.list", {"campaign":"early"})
+    assert next(r for r in mods["mods"] if r["id"] == "natural-npc")["active"]["enabled"] is False
     reused = request(kernel, mid, "guidance", guidance_key=KEY, play_language="en", occupations=[])
     assert reused["setup_ready"] and reused["generation"] == 2
 

@@ -59,3 +59,10 @@ Latest milestone:
 - Screenshot: `/Users/haoli/leehow/code/chatrpgv4-wt-pi-coc-v2/output/playwright/mods-20260908/mods-manager.png`.
 - Isolated UI server: port 5177, source worktree, `PI_COC_UI_ROOT=.pi/mods-ui`; Playwright session `pipicoc-mods`. Close only these owned processes at final cleanup.
 - Next: commit/integrate this implementation, install UI assets in the main 0.9 checkout, then run genuine Grok setup/play through tests/play/driver.py. No real campaign has been created yet. Keep all future play evidence in the main checkout, not this disposable worktree.
+
+Integration checkpoint:
+- Implementation commit `e53dfa4c`; latest-main integration commit `72c2d46f` includes main through `d62ea743`.
+- Seven conflict files resolved with both intents retained: background setup/prologue, preview acknowledgements, new read-only inventory styling, and Mod management/definitions.
+- Merge build passed; combined Mod/setup kernel checks 35 passed. Follow-up preparation/public-projection checks 24 passed.
+- Mod locks now survive the no-world-yet preparation phase; public weapon rows obey the same known-parameter projection as object cards.
+- UI management screenshot inspected; both installed versions and default-toggle persistence verified. Genuine gameplay remains the next required gate, followed by bound-panel controls, final checks and lifecycle audit.

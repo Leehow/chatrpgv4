@@ -452,8 +452,8 @@ class Table:
                 raise invalid_params("start_scene must name an authored opening")
         playable = graph and (not module_meta.get("reading_version") or self.reading.opening_ready(module_id, chosen or ""))
         world, start_handle = self.initial_world(graph, chosen) if playable else (None, graph.handle(graph.scene(chosen)) if chosen else None)
-        if world is not None:
-            self.mods.runtime.initialize(world)
+        mod_configuration = world if world is not None else {}
+        self.mods.runtime.initialize(mod_configuration)
         meta = {
             "id": campaign_id,
             "title": title,
@@ -466,6 +466,7 @@ class Table:
             "created_at": now_iso(),
             "opening_scene": start_handle,
             **({"guidance_key": guidance_key} if guidance_key else {}),
+            **({"mods_pending": mod_configuration["mods"]} if world is None else {}),
             "investigators": [sheet["id"]] if sheet is not None else [],
             # §15.1: every campaign starts on one worldline, `main`, and the sidecar repo's
             # HEAD is that line's branch from the first commit on.
@@ -630,7 +631,7 @@ class Table:
             "play_language": language,
             "turn": turn["turn"],
             "state": turn["state"],
-            "investigators": [{**investigator_view(sheet), "objects": mod_objects.public_items(world, sheet["id"])} for sheet in party],
+            "investigators": [mod_objects.public_sheet(world, investigator_view(sheet)) for sheet in party],
             # §23: the player reads this list, so each row carries the name the table used for
             # that clue, not only the handle the kernel files it under; `summary` is what the
             # clue actually says, so the panel can unfold a row into it.

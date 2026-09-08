@@ -74,6 +74,8 @@ def test_generated_instance_transfer_preserves_identity_and_state(kernel):
     view = kernel.table("view")
     assert view["investigators"][0]["objects"][0]["name"] == "Knott's launcher"
     assert view["investigators"][0]["objects"][0]["parameters"] == {"damage":"1D6", "magazine":1}
+    projected_weapon = next(w for w in view["investigators"][0]["weapons"] if w.get("object_id"))
+    assert "malfunction" not in projected_weapon
     narrate(kernel, "t1-c3", "诺特把发射器交到了我手里。")
     kernel.table("open")
     assert read_json(world_path)["objects"]["instances"] == after
