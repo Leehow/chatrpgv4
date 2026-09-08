@@ -17,6 +17,18 @@ def test_sheet_is_read_only_and_hides_undiscovered_clues(kernel):
     assert first['state'] == client.table('status')['state']
 
 
+def test_the_view_carries_the_clock_in_the_fiction_not_only_elapsed(kernel):
+    """The panel prints when it is at the table, so `table.view` hands it the same clock the
+    capsule gets (§23) -- The Haunting declares `start_clock.local_datetime`, so `at` moves with
+    the world minutes while `elapsed` keeps counting from the campaign's own start."""
+    open_turn(kernel, '我在门厅里等了一会儿。')
+    assert kernel.ok('table.view', {'campaign': CAMPAIGN})['clock'] == {
+        'minutes': 0, 'elapsed': '0 h 0 min', 'at': '1920-10-12T10:00', 'day_part': 'morning'}
+    kernel.table('apply', call_id='t1-c1', effects=[{'kind': 'time', 'minutes': 250}])
+    assert kernel.ok('table.view', {'campaign': CAMPAIGN})['clock'] == {
+        'minutes': 250, 'elapsed': '4 h 10 min', 'at': '1920-10-12T14:10', 'day_part': 'afternoon'}
+
+
 def test_sheet_does_not_persist_legacy_trail_migration(kernel):
     import json
     create_campaign(kernel)

@@ -1141,7 +1141,7 @@ class SanitySession:
             return True
         return False
 
-    def end_day(self) -> None:
+    def end_day(self) -> dict[str, Any]:
         """Close the sanity "day": evaluate the 1/5 rule, reset the counter.
 
         p.168: losing a fifth or more of day-start SAN in one game day means
@@ -1150,16 +1150,34 @@ class SanitySession:
         backstop so a day that ends at or over the threshold can never slip
         through untriggered.  The daily counter is then reset and the
         one-fifth threshold re-anchored to current SAN (p.156).
+
+        The caller is the table, once for every midnight the campaign clock
+        crosses (`table.apply`, #77).  Until that wiring existed nothing on the
+        product path called this, so the "day" ran from the campaign's first
+        minute and fifteen points lost over twenty scenes read as fifteen lost
+        in one night.  The close is recorded as a ``day_ended`` event -- which
+        day was judged against what -- and that event is returned.
         """
         threshold = max(1, self.day_start_san // 5)
-        if (
+        lost, anchored = self.daily_san_lost, self.day_start_san
+        triggered = (
             self.daily_san_lost >= threshold
             and not self.indefinite_insane
             and not self.permanently_insane
-        ):
+        )
+        if triggered:
             self._trigger_indefinite_insanity()
         self.daily_san_lost = 0
         self.day_start_san = self.san_current  # re-anchor threshold (p.156)
+        return self._event("day_ended", {
+            "daily_san_lost": lost,
+            "threshold": threshold,
+            "day_start_san": anchored,
+            "next_day_start_san": self.day_start_san,
+            "indefinite_insanity_triggered": triggered,
+            "summary": (f"{self.investigator_id} day closed: lost {lost} of {anchored} "
+                        f"(threshold {threshold}); next day anchors at {self.day_start_san}."),
+        })
 
     def gain_san(self, amount: int, source: str = "reward") -> None:
         """Increase current SAN (e.g. module conclusion reward). Cannot exceed san_max."""

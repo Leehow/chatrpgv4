@@ -12,3 +12,12 @@ for asset in preparation.js panel.js mods-panel.js mods.ts mechanics.js choices.
   cp "$HERE/$asset" "$DEST/pipicoc/"
 done
 printf 'Installed PipiCOC UI assets at %s\n' "$DEST"
+
+# DeepSeek Extended provider: the whole tree (manifest + plain-JS agent half)
+# feeds the app's model picker, settings section and generic auth-provider
+# registration. Idempotent: replace the copy wholesale.
+DS_DEST="$REPO/.pi/coc-agent/extensions/deepseek"
+rm -rf "$DS_DEST"
+mkdir -p "$DS_DEST"
+cp -R "$REPO/extensions/deepseek/." "$DS_DEST/"
+printf 'Installed DeepSeek Extended provider at %s\n' "$DS_DEST"

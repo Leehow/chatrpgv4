@@ -167,6 +167,47 @@ def list_tree(repo: Path, work_tree: Path, rev: str, prefix: str) -> list[str]:
     return sorted(result.stdout.split()) if result.returncode == 0 else []
 
 
+def restore_tree(repo: Path, work_tree: Path, rev: str, prefix: str, *,
+                 keep: tuple[str, ...] = ()) -> dict[str, list[str]]:
+    """Put everything under `prefix` back exactly as `rev` had it.
+
+    Writes what that commit carries and deletes what it does not — the deletion half matters,
+    because a commit made before a file existed is a commit that says the file should not
+    exist. `keep` names paths (relative to the work tree) left untouched on both sides.
+
+    The whole tree is committed on every turn (`commit` stages `-A`), so the commit is the
+    only place the whole campaign survives, this time read as a whole rather than file by
+    file: a caller that had to name each state file it wanted back would be keeping a
+    registry, and the file it forgot to register is exactly the one that silently survives a
+    rewind it should not have."""
+    kept = tuple(keep)
+    def is_kept(path: str) -> bool:
+        return any(path == k or path.startswith(k.rstrip("/") + "/") for k in kept)
+
+    result = _git(repo, work_tree, "ls-tree", "-r", "--name-only", rev, "--", prefix)
+    wanted = sorted(p for p in result.stdout.split() if p and not is_kept(p)) if result.returncode == 0 else []
+    written, removed = [], []
+    for path in wanted:
+        blob = read_blob(repo, work_tree, rev, path)
+        if blob is None:
+            continue
+        target = work_tree / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(blob, encoding="utf-8")
+        written.append(path)
+    root = work_tree / prefix
+    if root.is_dir():
+        for existing in sorted(root.rglob("*")):
+            if not existing.is_file():
+                continue
+            path = str(existing.relative_to(work_tree))
+            if path in wanted or is_kept(path):
+                continue
+            existing.unlink()
+            removed.append(path)
+    return {"written": written, "removed": removed}
+
+
 def line_blob(repo: Path, work_tree: Path, line: str, path: str) -> str | None:
     """A file as another worldline has it (§15.4/§15.5 read every line this way, without
     ever checking one out)."""

@@ -212,6 +212,27 @@ def test_end_day_resets_daily_counter(tables):
     assert s.daily_san_lost == 0
 
 
+def test_end_day_records_what_it_judged_and_is_the_backstop(tables):
+    """The close leaves a `day_ended` event -- which day was judged against what -- so the
+    snapshot shows the days passing (#77: the method had no caller on the product path for a
+    long time and no trace that would have shown it). It is also the backstop: a counter the
+    loss paths never judged (a failed reality check adds its point without checking the
+    fifth) is judged at the close. The product-path wiring is `tests/kernel/test_sanity_day_boundary.py`."""
+    s = _make_session(tables, san=50, seed=1)
+    s.sanity_check("horror", 3, "3", involuntary_kind="freeze")
+    closed = s.end_day()
+    assert closed["type"] == "day_ended"
+    assert closed["payload"] == {**closed["payload"], "daily_san_lost": 3, "threshold": 10, "day_start_san": 50,
+                                 "next_day_start_san": 47, "indefinite_insanity_triggered": False}
+    assert (s.daily_san_lost, s.day_start_san) == (0, 47)
+    assert s.events[-1] is closed
+
+    s.daily_san_lost = 10  # what ten unjudged points would leave: a fifth of 47 is 9
+    backstop = s.end_day()
+    assert backstop["payload"]["indefinite_insanity_triggered"] is True and s.indefinite_insane is True
+    assert (s.daily_san_lost, s.day_start_san) == (0, 47)
+
+
 def test_snapshot_has_full_schema(tables):
     """Snapshot includes all fields needed for save/sanity-state/<inv>.json."""
     s = _make_session(tables)

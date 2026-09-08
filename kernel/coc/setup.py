@@ -286,8 +286,8 @@ class SetupMethods:
         module_era = None
         if self.table.module_store.graph_path(module_id).exists() or module_id in self.table.modules():
             # A module node carries `runtime_projection.documents`, never `.record`, so reading
-            # the record silently returned None and every card fell back to 1920s -- the-white-war
-            # included. One reader for both callers (contract §21.3).
+            # the record silently returned None and every card fell back to 1920s, whatever
+            # the book declared. One reader for both callers (contract §21.3).
             module_era = era_of_module(self.table.graph(module_id))
         # A bound book whose graph has not landed yet has no era to read: the rulebook default.
         era = params.get("era") or module_era or "1920s"

@@ -426,10 +426,28 @@ class HealingSession:
         return ev
 
 
+#: The rulebook's units for downtime recovery (Keeper Rulebook, Wounds and Healing, p.121):
+#: regular recovery is "1 hit point per day", and the Major Wound CON roll is made "at the
+#: end of each week of game time that the Major Wound box is ticked". A day is twenty-four
+#: hours of the clock and a week seven of them -- not a shift, not a night's sleep. (#76: a
+#: day was 480 minutes here, so one night healed three days, and the rest was cut to a week.)
+DAY_MINUTES = 24 * 60
+WEEK_MINUTES = 7 * DAY_MINUTES
+
+
 def handle_time_trigger(tables: RuleTables, campaign_dir: Path, investigator_id: str, hp_max: int, con_value: int,
                         delta_minutes: int, *, rng: random.Random | None = None,
                         had_major_wound: bool = False) -> int:
-    """Natural healing for a downtime/sleep advance: >=6h counts as a day of rest."""
+    """Natural healing for a downtime/sleep advance; returns the HP gained.
+
+    Six hours or more is a rest: a night's sleep is the first day of it, and under six hours
+    nothing heals (the table's `REST_MINUTES` gate is the same line). Without a major wound
+    the advance heals 1 HP per full day of its own length -- thirty days heal thirty days,
+    not a week. With one, the CON recovery roll is made once at the end of each full week
+    the box stays ticked, the days in between heal nothing, and once the box clears (an
+    Extreme success, or HP back to half) the remainder of the advance heals at the regular
+    rate again. Rolling the box's weekly CON after it has cleared would be a roll the book
+    never asks for -- and a fumble on it would hand out a lasting injury."""
     if delta_minutes <= 0:
         return 0
     sess = HealingSession.load(tables, campaign_dir, investigator_id, hp_max, con_value, rng)
@@ -437,11 +455,14 @@ def handle_time_trigger(tables: RuleTables, campaign_dir: Path, investigator_id:
     if had_major_wound and "major_wound" not in sess.conditions:
         sess.conditions.append("major_wound")
     if delta_minutes >= 360:
-        days = min(max(1, delta_minutes // 480), 7)
-        if sess.has_major_wound:
-            for _ in range(days // 7):
-                sess.major_wound_recovery_roll(complete_rest=True)
-        else:
+        remaining = delta_minutes
+        while sess.has_major_wound and remaining >= WEEK_MINUTES:
+            sess.major_wound_recovery_roll(complete_rest=True)
+            remaining -= WEEK_MINUTES
+        if not sess.has_major_wound:
+            days = remaining // DAY_MINUTES
+            if days == 0 and remaining >= 360:
+                days = 1  # a night's sleep (six hours or more) is a day of rest
             sess.weekly_recovery(days)
     sess.reset_daily_treatments()
     sess.save(campaign_dir)

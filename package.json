@@ -16,7 +16,8 @@
       "./extensions/onboarding",
       "./extensions/module",
       "./extensions/memory",
-      "./extensions/table"
+      "./extensions/table",
+      "./extensions/deepseek"
     ]
   },
   "peerDependencies": {

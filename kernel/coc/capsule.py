@@ -8,6 +8,7 @@ by item when it overflows, the section name landing in `truncated`."""
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
 from . import (bookkeeping, director as director_mod, npc as npc_lane, pressures as pressures_mod,
@@ -84,9 +85,11 @@ HEAD_MODULE = (" This turn also carries a module section (the table briefing, th
                "the factions, places and people (absent ones included, keeper-only), the ending and conclusion names and "
                "the structure type; do not lookup the book before opening.")
 ELAPSED = "{hours} h {minutes} min"
-#: Day parts by hour of day, only when the module declares a start time (§13.1); the
-#: closed words are the capsule's own vocabulary (§16.1).
-DAY_PARTS = ((5, "dawn"), (8, "morning"), (12, "midday"), (14, "afternoon"), (18, "evening"), (22, "night"), (24, "small_hours"))
+#: Day parts by the hour each one starts at, only when the module declares when its story
+#: opens (§13.1); the closed words are the capsule's own vocabulary (§16.1). Anything before
+#: the first boundary is still the previous night's small hours.
+DAY_PARTS = ((5, "dawn"), (8, "morning"), (12, "midday"), (14, "afternoon"), (18, "evening"), (22, "night"))
+SMALL_HOURS = "small_hours"
 
 
 def json_size(payload: Any) -> int:
@@ -130,21 +133,60 @@ def clue_summary(graph: ModuleGraph, handle: str) -> str | None:
     return summary.strip()
 
 
+def start_of_story(graph: ModuleGraph) -> tuple[datetime | None, int | None]:
+    """When the module says its story opens, as the book declares it and nothing more.
+
+    Two shapes, because two generations of extraction wrote them: `start_clock.local_datetime`
+    (a full local date and time, `module-meta.json`'s own field, which The Haunting carries) and
+    the bare `start_time` (`HH:MM`, no date). The first answer is a datetime, the second is only
+    a minute of the day — a module that named an hour but no date must not be given a date here.
+    A module that declares neither gets `(None, None)`: the table then knows only elapsed time,
+    which is the truth about it.
+    """
+    declaration = module_declaration(graph.module_node) if graph.module_node else {}
+    start = declaration.get("start_clock")
+    stamp = start.get("local_datetime") if isinstance(start, dict) else None
+    if isinstance(stamp, str) and stamp.strip():
+        try:
+            opened = datetime.fromisoformat(stamp.strip())
+        except ValueError:
+            opened = None
+        if opened is not None:
+            # The timezone is a separate declared field and the clock is read as local time.
+            return opened.replace(tzinfo=None), None
+    hhmm = declaration.get("start_time")
+    if isinstance(hhmm, str) and ":" in hhmm:
+        try:
+            hour, minute = (int(part) for part in hhmm.split(":", 1))
+        except ValueError:
+            return None, None
+        if 0 <= hour < 24 and 0 <= minute < MINUTES_PER_HOUR:
+            return None, hour * MINUTES_PER_HOUR + minute
+    return None, None
+
+
+def day_part(minute_of_day: int) -> str:
+    """Which part of the day that minute falls in, by the hour each part starts at."""
+    started = [name for start, name in DAY_PARTS if minute_of_day >= start * MINUTES_PER_HOUR]
+    return started[-1] if started else SMALL_HOURS
+
+
 def clock_section(graph: ModuleGraph, world: dict[str, Any]) -> dict[str, Any]:
-    """`where.clock`: the world minutes, `elapsed` generated from them, and `day_part`
-    only when the module node declares a start time (nothing is guessed otherwise)."""
+    """`where.clock`: the world minutes, `elapsed` generated from them, and — only when the
+    module node declares when its story opens — `at`, the date and time it is now in the
+    fiction, and `day_part`. Nothing is guessed for a module that declares neither."""
     minutes = int((world.get("clock") or {}).get("minutes") or 0)
     clock: dict[str, Any] = {"minutes": minutes,
                              "elapsed": ELAPSED.format(hours=minutes // MINUTES_PER_HOUR, minutes=minutes % MINUTES_PER_HOUR)}
-    start = module_declaration(graph.module_node).get("start_time") if graph.module_node else None
-    if isinstance(start, str) and ":" in start:
-        try:
-            hour, minute = (int(part) for part in start.split(":", 1))
-        except ValueError:
-            return clock
-        at = (hour * MINUTES_PER_HOUR + minute + minutes) % MINUTES_PER_DAY
-        part = next(name for bound, name in DAY_PARTS if at < bound * MINUTES_PER_HOUR)
-        clock["day_part"] = part
+    opened, minute_of_day = start_of_story(graph)
+    if opened is not None:
+        now = opened + timedelta(minutes=minutes)
+        clock["at"] = now.isoformat(timespec="minutes")
+        minute_of_day = now.hour * MINUTES_PER_HOUR + now.minute
+    elif minute_of_day is not None:
+        minute_of_day = (minute_of_day + minutes) % MINUTES_PER_DAY
+    if minute_of_day is not None:
+        clock["day_part"] = day_part(minute_of_day)
     return clock
 
 

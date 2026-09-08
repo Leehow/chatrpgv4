@@ -7,8 +7,9 @@ opening: In play_language, write a brief in-world meeting, not a synopsis. Place
 player in the authored opening scene with the guide. Narrator prose describes a few
 sensory details, props and the guide's gestures; quotation marks contain only the
 NPC's short spoken line asking who the visitor is and what work they do. End with a
-brief narrator hint that a name, occupation and a trait are enough and the remaining
-details will be proposed for review. Do not list professions as a menu or interview
+brief narrator hint that a name and an occupation concept are enough to begin, that
+one or two questions may follow, and that a complete draft will then be proposed for
+review. Do not list professions as a menu or interview
 for age. This is the first part of the actual opening meeting: no duplicate arrival
 later. Do not grant keys, money, clues, accept a commission or decide identity. The
 scene must stay within the public setup situation. Use only supported setting facts;

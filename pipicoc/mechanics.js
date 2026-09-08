@@ -34,23 +34,29 @@ const STYLE_ID = "pipicoc-mechanics-style";
 const CSS = `
 .coc-mech{--coc-serif:ui-serif,"Songti SC","Noto Serif CJK SC","SimSun",Georgia,serif}
 
-/* The prose is the hero and it is fiction, so it gets the reading face and reading measure.
-   Everything below it is machinery and stays in the interface face. */
-.coc-mech-prose{font-family:var(--coc-serif);font-size:14.5px;line-height:1.75;max-width:64ch;
-  white-space:pre-wrap;color:var(--text)}
+/* This is not a card's text, it is the turn's prose: the host folds its own plain copy away and
+   this component draws the delivery, because only whoever holds both the text and the rows can put
+   a receipt at a sentence (§16.6). So it reads the host's prose tokens rather than setting a face
+   of its own — one definition, or the two drift, which is how it came to sit at 14.5px serif on a
+   64ch measure under a 15.5px sans column and end half a column short. Everything below the prose
+   is machinery and keeps the interface face. */
+.coc-mech-prose,.coc-mech-para{
+  font-family:var(--md-font,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB",sans-serif);
+  font-size:var(--md-fs,15.5px);
+  line-height:var(--md-lh,1.78);color:var(--text);
+  overflow-wrap:break-word;line-break:strict;text-wrap:pretty;text-spacing-trim:trim-start}
+.coc-mech-prose{white-space:pre-wrap}
 
 /* A marked delivery (§16.6): the narration reads straight down and a receipt sits at the point
    the keeper put it, inset just enough to read as an aside rather than as a paragraph. */
-.coc-mech-inline{max-width:64ch}
-.coc-mech-para{font-family:var(--coc-serif);font-size:14.5px;line-height:1.75;color:var(--text);
-  margin:0 0 0.9em}
+.coc-mech-para{margin:0 0 var(--md-block,1.05em)}
 .coc-mech-here{margin:0.35em 0 1em;padding-left:10px;border-left:2px solid var(--border-strong)}
 .coc-mech-here .coc-mech-row{border-top:0;padding:5px 0}
 .coc-mech-inline .coc-mech-list{margin-top:18px}
 
 /* The settlement slip. One turn's mechanics are one event, so they sit inside one bordered
    sheet with a small caption — not a ruled ledger fading into the prose. */
-.coc-mech-list{margin-top:14px;max-width:64ch;border:1px solid var(--border);border-radius:10px;
+.coc-mech-list{margin-top:14px;border:1px solid var(--border);border-radius:10px;
   padding:9px 12px 6px;background:color-mix(in oklab, var(--border) 12%, transparent)}
 .coc-mech-cap{margin:0;padding:0 2px 6px;color:var(--subtle);font-size:10.5px;font-weight:650;
   letter-spacing:.09em;text-transform:uppercase}
@@ -298,6 +304,18 @@ function playerVisible(row) {
 }
 
 /**
+ * The clock belongs to the panel, not to the reading surface.
+ *
+ * A `time` receipt carries nothing but the minutes an action cost, and the panel already prints
+ * where the table stands in time. Dropped into the prose it is a bare number with no sentence to
+ * belong to, so this card never draws one. Its marker (§16.6) is then a marker whose row is not
+ * here, which `splitDelivery` already handles by joining the text runs around it.
+ */
+function playerReads(row) {
+  return playerVisible(row) && row.kind !== "time";
+}
+
+/**
  * One settlement, one group.
  *
  * The seam is the kernel's, not ours: a row says which call minted it (`call`) and what rule
@@ -442,19 +460,17 @@ export function createComponent(React) {
           num(row.minutes) ? h("span", { className: "coc-mech-faces" }, t.minutes(row.minutes)) : null);
       case "clue": {
         const name = text(row.label || row.clue);
-        const body = text(row.summary);
-        if (!body || body === name) {
+        const rawSummary = text(row.summary);
+        if (!rawSummary || rawSummary === name) {
           // Nothing more to open into than the name itself: the row stays a line.
           return h(Row, { key, kindKey: "clue", kindLabel, family },
             h("span", { className: "coc-mech-body" }, name));
         }
-        return h(FoldRow, { key, kindKey: "clue", kindLabel, body },
+        // The summary is the module's own text; the glossary may carry its play-language
+        // projection, and falls back to the original when it does not.
+        return h(FoldRow, { key, kindKey: "clue", kindLabel, body: term(rawSummary) },
           h("span", { className: "coc-mech-body" }, name));
       }
-      case "time":
-        return h(Row, { key, kindKey: "time", kindLabel, family },
-          h("span", { className: "coc-mech-body" }),
-          h("span", { className: "coc-mech-figure" }, h(N, null, t.minutes(text(row.minutes)))));
       case "item": {
         const quantity = num(row.quantity);
         const amount = quantity === undefined ? undefined : Math.abs(quantity);
@@ -566,7 +582,7 @@ export function createComponent(React) {
     const term = (name) => (typeof glossary[name] === "string" && glossary[name]) || name;
 
     const prose = text(details.rendered_text);
-    const all = (Array.isArray(details.mechanics) ? details.mechanics : []).filter(playerVisible);
+    const all = (Array.isArray(details.mechanics) ? details.mechanics : []).filter(playerReads);
     const marked = text(details.marked_text);
     // §16.6: with a marked delivery this card draws the narration itself, because a row can only be
     // put where the sentence is by whoever holds both. The host folds away the plain copy.

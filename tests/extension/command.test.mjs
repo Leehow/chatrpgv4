@@ -49,7 +49,8 @@ test("/coc：桌况面板走 ctx.ui，不占回合、不动回合状态机、不
 	// 面板取的是 table.open、本回合胶囊与一次 table.status，全部只读。
 	assert.match(notice.message, /^table {3}test-camp {2}闹鬼的房子$/m, "战役 id 与标题");
 	assert.match(notice.message, /^turn {4}1 \(awaiting_player\) {3}scene 科比特宅$/m, "回合号、状态与场景");
-	assert.match(notice.message, /^clock {3}9 小时 15 分钟/m, "时钟");
+	// 局内日期钟点在前，已玩时长在后：两个量说的不是同一件事。
+	assert.match(notice.message, /^clock {3}1925-06-01 09:15 {3}9 小时 15 分钟/m, "时钟");
 	assert.match(notice.message, /^party {3}托马斯·海耶斯 {2}HP 12 {2}SAN 55 {2}MP 11 {2}LUCK 60$/m, "队伍数值");
 	assert.match(notice.message, /^session none$/m, "活跃会话");
 	assert.match(notice.message, /^beat {4}REVEAL {2}这一场还有没被翻出来的东西$/m, "Director 上一个节拍与理由");

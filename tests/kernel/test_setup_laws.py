@@ -12,8 +12,8 @@ is not already a directory under `content/starters/` with a `module-graph.json`
 (`kernel/coc/table.py` `self.modules()`), so a campaign against a bound PDF module
 (no starter entry) cannot be created before `module.bind`/`module.plan` run --
 this blocks the pdf lane's own `create-campaign` step (which the seven-step table
-says happens *before* `bind-source`). `mystery-house` and `the-white-war` are not
-yet projected to v3 graphs (`content/starters/<id>/module-graph.json` absent;
+says happens *before* `bind-source`). `mystery-house` is not
+yet projected to a v3 graph (`content/starters/<id>/module-graph.json` absent;
 `scripts/starter_graph.py` from §14.9 has not run) so campaigns against them fail
 today for the same "unknown module" reason -- see the parametrized test below.
 
@@ -51,9 +51,6 @@ NON_KERNEL_OP_EXCEPTIONS = frozenset({"module.prepare"})
 #: introduced. Keep in sync if that file's set changes.
 KNOWN_STARTER_IR_FINDINGS = {
     "mystery-house": {("actor_in_no_scene", "npc-rat-swarm")},
-    "the-white-war": {("clue_nowhere_to_find", "clue-entity-retreats-low-hp"),
-                      ("clue_nowhere_to_find", "clue-ice-seal-blasted-away"),
-                      ("clue_nowhere_to_find", "clue-survivor-folklore-of-seal")},
     # #29: built from the Rulebook by the §14.5 lane rather than projected from IR, so it
     # carries no inherited IR facts and every node cites the page it came from.
     "the-haunting-rulebook": set(),
@@ -339,13 +336,13 @@ def test_setup_complete_module_not_ready_is_unreachable_for_a_starter(kernel):
     assert module_meta["status"] == "installed"
 
 
-# ---- the two new starters ---------------------------------------------------------
+# ---- the other starters -----------------------------------------------------------
 
 
-@pytest.mark.parametrize("starter_id", ["mystery-house", "the-white-war", "the-haunting-rulebook"])
+@pytest.mark.parametrize("starter_id", ["mystery-house", "the-haunting-rulebook"])
 def test_new_starter_creates_a_campaign_opens_and_passes_the_ten_invariants(starter_id, kernel):
-    """§14.9: `mystery-house` and `the-white-war` are projected to v3 graphs by
-    `scripts/starter_graph.py` and register through the same starter lane as any
+    """§14.9: `mystery-house` is projected to a v3 graph by
+    `scripts/starter_graph.py` and registers through the same starter lane as any
     other module. Neither ships a pregen, so this drives the full setting_up ->
     setup.investigator -> setup.complete -> table.open chain (same as the
     handoff test above) rather than the `pregen` shortcut.
@@ -360,24 +357,18 @@ def test_new_starter_creates_a_campaign_opens_and_passes_the_ten_invariants(star
     report".
 
     The pass bar mirrors `tests/kernel/test_starters.py::test_playability_findings_are_accounted_for`
-    (K5b's own test for these same two graphs) rather than a bare "zero findings":
+    (K5b's own test for the same graph) rather than a bare "zero findings":
     `node_without_page` fires on every node for a starter with no source document
     (the checker has no "no pages to cite" concept yet, and the reference starter
-    the-haunting gets it too), and mystery-house/the-white-war each carry a small,
-    named set of pre-existing IR facts (`npc-rat-swarm` genuinely present in no
-    scene; three white-war clues genuinely undiscoverable) that K5b's test already
-    pins by name. What must never appear is one of the seven *hard* invariants --
+    the-haunting gets it too), and mystery-house carries a small, named set of
+    pre-existing IR facts (`npc-rat-swarm` genuinely present in no scene) that
+    K5b's test already pins by name. What must never appear is one of the seven *hard* invariants --
     dangling relations, no declared entrance/ending, a fragmented or unreachable
     scene graph, or a conclusion/clue with no support between them."""
     graph_path = REPO_ROOT / "content" / "starters" / starter_id / "module-graph.json"
     assert graph_path.exists(), f"{starter_id} has no module-graph.json yet (scripts/starter_graph.py §14.9)"
 
     setting_up_campaign(kernel, module=starter_id)
-    if starter_id == "the-white-war":
-        from test_setup_drafts import profile
-        error = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": profile()})
-        assert "finance" in str(error)
-        return
     created = confirmed_investigator(kernel)
     assert created["investigator"]["id"]
     handoff = kernel.ok("setup.complete", {"campaign": CAMPAIGN})

@@ -27,7 +27,10 @@ def test_the_capsule_has_nine_sections_a_head_and_the_clock(kernel):
     for name in SECTIONS:
         assert name in capsule, name
     assert "look/lookup" in capsule["head"] and "director" in capsule["head"]
-    assert capsule["where"]["clock"] == {"minutes": 0, "elapsed": "0 h 0 min"}  # no start time authored: no day_part
+    # §23: The Haunting's module-meta declares `start_clock.local_datetime`, so the table knows
+    # the date and hour it is in the fiction, not only how long it has been playing.
+    assert capsule["where"]["clock"] == {"minutes": 0, "elapsed": "0 h 0 min",
+                                         "at": "1920-10-12T10:00", "day_part": "morning"}
     assert capsule["where"]["session"] is None
     knott = capsule["present"][0]
     # §17.4 renamed these: keeper-only material, same law as `wants`
@@ -46,7 +49,10 @@ def test_the_capsule_has_nine_sections_a_head_and_the_clock(kernel):
 def test_the_clock_and_elapsed_follow_the_world_minutes(kernel):
     open_turn(kernel, "等一会儿。")
     kernel.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 95}])
-    assert kernel.table("capsule")["where"]["clock"] == {"minutes": 95, "elapsed": "1 h 35 min"}
+    # Elapsed counts from the campaign's own start; `at` counts from the module's declared one,
+    # so the same 95 minutes read as an hour and a half played and as 11:35 in 1920 Boston.
+    assert kernel.table("capsule")["where"]["clock"] == {"minutes": 95, "elapsed": "1 h 35 min",
+                                                        "at": "1920-10-12T11:35", "day_part": "morning"}
 
 
 def test_situations_ride_in_the_capsule_and_stay_in_look(kernel):

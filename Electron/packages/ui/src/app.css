@@ -368,12 +368,14 @@ body{overscroll-behavior:none}
    列表/表格/引用此前一律落到浏览器 UA 默认样式（h2 1.5em + .83em 边距、
    ol padding-left:40px）。这里给出 .markdown 的完整块级节奏，所有块间距
    统一走 --md-block，改一处即可整体调松紧。 */
-.pipiui-shell { --md-fs:15.5px; --md-lh:1.78; --md-block:1.05em; }
+/* 正文排版是契约，不是 .markdown 的私产：带位置的收据只能由持有文本的一方画
+   （契约 §16.6），所以扩展包画的也是正文，得读到同一套取值，否则两处定义必然漂。 */
+.pipiui-shell { --md-fs:15.5px; --md-lh:1.78; --md-block:1.05em; --md-font:-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif; }
 
 .markdown {
   font-size: var(--md-fs);
   line-height: var(--md-lh);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  font-family: var(--md-font);
   /* 旧值是 anywhere，对整段正文放开任意断点，中英混排右缘会碎成锯齿。
      break-word 只在单词真的塞不下时才断；anywhere 收缩到行内 code 上。 */
   overflow-wrap: break-word;

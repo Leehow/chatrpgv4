@@ -163,7 +163,7 @@ const LABELS = {
     noInvestigator: "No investigator",
     time: "Time",
     elapsed: (d, hh, mm) => (d > 0 ? `${d}d ${hh}h ${mm}m elapsed` : `${hh}h ${mm}m elapsed`),
-    at: (y, mo, d, hh, mm) => `${y}-${mo}-${d} ${hh}:${mm}`,
+    at: (y, mo, d, hh, mm) => `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")} ${hh}:${mm}`,
     turn: (n) => `turn ${n}`,
     scene: "scene",
     present: "present",
@@ -290,10 +290,15 @@ function elapsed(minutes) {
   return { days: Math.floor(total / 1440), hours: Math.floor((total % 1440) / 60), minutes: total % 60 };
 }
 
-/** `clock.at` split for a label, or null when it is absent or not a local ISO stamp. */
+/**
+ * `clock.at` split for a label, or null when it is absent or is not a local ISO stamp. The year,
+ * month and day drop their padding because a date is read as a date; the hour and minute keep
+ * theirs, because a clock reading 10:05 is not 10:5.
+ */
 function storyTime(at) {
-  const match = /^(-?\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(text(at));
-  return match ? match.slice(1) : null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(text(at));
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2]), Number(match[3]), match[4], match[5]];
 }
 
 /**
@@ -603,7 +608,7 @@ export function createComponent(React) {
     return rows.length ? h(Section, { title: t.finance }, h(Lines, { kind: "finance", rows })) : null;
   }
 
-  /** Where and when the table stands: the old panel's 时间 tab, minus the invented wall clock. */
+  /** The investigator's own history: what the sheet's backstory carries, in the play language. */
   function Background(props) {
     const {sheet,term,t}=props;
     const rows=Object.entries(isRecord(sheet.backstory)?sheet.backstory:{})
@@ -615,6 +620,7 @@ export function createComponent(React) {
       h("div",{key,"data-field":key},h("dt",null,term(key)),h("dd",null,term(value))))));
   }
 
+  /** Where and when the table stands: the old panel's 时间 tab, now with the module's own clock. */
   function Standing(props) {
     const { view, t } = props;
     const names = isRecord(view.standing_labels) ? view.standing_labels : {};
@@ -632,7 +638,7 @@ export function createComponent(React) {
     const at = storyTime(clock.at);
     if (at === null && minutes === undefined && !lines.length) return null;
     const span = minutes === undefined ? null : elapsed(minutes);
-    const reading = at ? t.at(...at.map(part => Number(part))) : span ? t.elapsed(span.days, span.hours, span.minutes) : null;
+    const reading = at ? t.at(...at) : span ? t.elapsed(span.days, span.hours, span.minutes) : null;
     return h(Section, { title: t.time },
       reading ? h("div", { className: "coc-clock" }, reading) : null,
       lines.length
@@ -645,7 +651,7 @@ export function createComponent(React) {
 
   /** Found clues, plus what this scene still has on offer — the old panel's 线索 section. */
   function Clues(props) {
-    const { view, t } = props;
+    const { view, t, term = value => value } = props;
     const clues = isRecord(view.clues) ? view.clues : {};
     const discovered = Array.isArray(clues.discovered) ? clues.discovered : [];
     const here = Array.isArray(clues.here) ? clues.here : [];
@@ -669,7 +675,7 @@ export function createComponent(React) {
         // The name stays on the line; what the clue says is one tap away.
         ? h("details", { className: "coc-clue coc-clue-fold", key: `${row.name}:${index}` },
             h("summary", null, h("span", { className: "coc-clue-name" }, row.name)),
-            h("div", { className: "coc-clue-body" }, row.summary))
+            h("div", { className: "coc-clue-body" }, term(row.summary)))
         : h("div", { className: "coc-clue", key: `${row.name}:${index}` },
             h("span", { className: "coc-clue-name" }, row.name))));
   }
@@ -811,6 +817,6 @@ export function createComponent(React) {
       sheet ? h(Finance, { sheet, t, term }) : null,
       sheet ? h(Background, { sheet, term, t }) : null,
 
-      h(Clues, { view, t }));
+      h(Clues, { view, t, term }));
   };
 }

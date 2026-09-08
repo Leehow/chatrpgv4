@@ -170,8 +170,7 @@ Web 当前每连接一个 backend，关闭 backend 会 dispose 解析。仅做�
 `content/starters/` 是构建目录，不是货架。除了策展好的剧本，它同时装着规则靶场
 （`mystery-house`，自己的 `setting_tags` 里就写着 `rule-gym`）和构建车道产出的对照本
 （`the-haunting-rulebook`，与 `the-haunting` 同名，两条并列时玩家分不出差别）。目录扫描
-把这些一并推到了玩家面前，并且只能拿开发用的文件夹 slug 当副标题。上架与否是产品决定，
-不是目录里有什么：`the-white-war` 内容完好，只是当前不上架（2026-09-08）。
+把这些一并推到了玩家面前，并且只能拿开发用的文件夹 slug 当副标题。上架与否是产品决定，不是目录里有什么。
 
 - 每个想上架的 starter 自带 `starter-listing.json`：`listed`、`order`，以及按游玩语言授权的
   `title` / `blurb`。没有这个文件、或 `listed` 不为 `true`，就不进玩家目录——默认关闭，

@@ -145,6 +145,11 @@ export function parseCodexWindows(body: unknown): UsageWindow[] {
   return out.map((item, index) => out.length > 1 ? { ...item, id: `window${index}` } : item);
 }
 
+export function parseDeepSeekBalance(body: unknown): AccountBalance | undefined {
+  const root = record(body); if (!root || root.is_available === false || !Array.isArray(root.balance_infos)) return;
+  const first = record(root.balance_infos[0]); const amount = number(first?.total_balance); if (amount === undefined) return;
+  return { amount, currency: clean(first?.currency)?.toUpperCase() ?? "CNY" };
+}
 export function parseMoonshotBalance(body: unknown): AccountBalance | undefined {
   const root = record(body); const code = root?.code; if (code !== undefined && String(code) !== "0") return;
   const amount = number(record(root?.data)?.available_balance); return amount === undefined ? undefined : { amount, currency: "CNY" };
@@ -357,6 +362,7 @@ export const builtinAccountUsageAdapters: AccountUsageAdapter[] = [
       return { provider: "opencodeGo", accountLabel: "OpenCode Go 本机用量", windows: openCodeGoWindows(rows, ctx.now()), source: "local" };
     },
   },
+  { id: "deepseek", kind: "prepaid", matches: includes("deepseek"), load: ctx => prepaid(ctx, "deepseek", "账户余额", "https://api.deepseek.com/user/balance", ["deepseek", "deepseek-extended"], ["DEEPSEEK_API_KEY"], parseDeepSeekBalance) },
   { id: "moonshot", kind: "prepaid", matches: includes("moonshot", "moonshotai"), load: ctx => prepaid(ctx, "moonshot", "账户余额", "https://api.moonshot.cn/v1/users/me/balance", ["moonshot", "moonshotai"], ["MOONSHOT_API_KEY", "KIMI_API_KEY"], parseMoonshotBalance) },
   { id: "siliconflow", kind: "prepaid", matches: includes("siliconflow"), load: ctx => prepaid(ctx, "siliconflow", "账户余额", "https://api.siliconflow.cn/v1/user/info", ["siliconflow"], ["SILICONFLOW_API_KEY"], parseSiliconFlowBalance) },
   { id: "openrouter", kind: "prepaid", matches: includes("openrouter"), load: ctx => prepaid(ctx, "openrouter", "账户余额", "https://openrouter.ai/api/v1/credits", ["openrouter"], ["OPENROUTER_API_KEY"], parseOpenRouterBalance) },
