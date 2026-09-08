@@ -171,7 +171,7 @@
       },
       "receipt": "draft",
       "lines": {
-        "do": "Immediately compute a complete draft from the player concept with setup.draft. Complete ordinary missing semantic choices yourself. The tool returns actual values for the host to show. Do not ask the player for numbers. Do not claim a card is committed yet.",
+        "do": "Compute a complete draft from the player concept with setup.draft after the one-at-a-time follow-up exchange (or immediately when the player delegated the remaining choices). Complete ordinary missing semantic choices yourself at draft time. The tool returns actual values for the host to show. Do not ask the player for numbers. Do not claim a card is committed yet.",
         "next": "Prepare or revise the full investigator draft using profile. On missing catalog names fix them using returned options in the same turn."
       }
     },
