@@ -21,6 +21,7 @@ Rulebook basis: Chapter 6 (Combat), 7e 40th Anniversary.
 """
 from __future__ import annotations
 
+import copy
 import json
 import hashlib
 import random
@@ -31,6 +32,27 @@ from typing import Any
 from ..fileio import write_json_atomic
 from .percentile import RollApi
 from .tables import RuleTables
+
+
+#: #78: what this engine writes under `save/`, as paths relative to the campaign directory.
+#: The worldline reads this to know whose file it is looking at when a time loop rewinds the
+#: clock under a kept investigator; a file no engine claims refuses the rewind by name rather
+#: than being presumed harmless.
+SAVE_PATHS = ("save/combat.json",)
+
+
+def rebase_clock(state: dict[str, Any], delta: int) -> dict[str, Any]:
+    """#78: this engine's saved state with every absolute clock minute moved by `delta` --
+    and this engine keeps none, which is what this function exists to say.
+
+    A combat session is a sequence of rounds inside one moment of the clock: `round`,
+    `turn_counter` and the initiative order are positions in that sequence, not readings of
+    the world clock, and a session that outlives a rewind is counting the same rounds.
+
+    `delta` (the new clock minus the old) is accepted and unused. Returns a copy; `state` is
+    not touched."""
+    del delta
+    return copy.deepcopy(state)
 
 
 def apply_wound_conditions(p: dict[str, Any], worst_single: int, roll_con: Any) -> None:
@@ -239,6 +261,13 @@ VALID_DEFENSE = {"fight_back", "dodge", "dive_for_cover", "maneuver", "none", No
 VALID_CONDITIONS = {"major_wound", "dying", "stabilized", "dead",
                      "unconscious", "prone", "grappled", "surprised",
                      "outnumbered", "fled"}
+#: The postures among them: true only relative to a fight in progress, and meaningless once
+#: one is not. The rest of `VALID_CONDITIONS` describes the body instead of the moment, and
+#: is cleared by the healing engine on its own terms -- `unconscious` when hit points rise
+#: above zero (p.121: "On zero hit points the character is unconscious"), `dying` likewise,
+#: `major_wound` at half maximum. A posture has no such rule because the rulebook never
+#: imagines one outlasting the scene it was struck in.
+TRANSIENT_COMBAT_CONDITIONS = frozenset({"prone", "grappled", "surprised", "outnumbered", "fled"})
 VALID_OUTCOMES = {"investigators_win", "monsters_win", "fled", "stalemate", None}
 VALID_ARMOR_RULES = {"fixed", "degrades_1_per_damage", None}
 

@@ -365,7 +365,8 @@ def test_a_parameterised_summon_bind_name_reaches_its_family_entry(catalog):
     }
     assert "not a separate catalogue entry" in parameterisation["note"]
     assert row["params"]["cost_sanity"] == "1D4"
-    assert row["params"]["source_page"] == 255
+    # #83: was 255, a drifted page. "Summoning Spells" is printed on p.263.
+    assert row["params"]["source_page"] == 263
 
 
 def test_the_creature_is_validated_against_catalogue_rows_not_a_written_list(catalog):

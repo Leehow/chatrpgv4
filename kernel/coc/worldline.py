@@ -25,8 +25,11 @@ effect to; echoes -- what another line left standing in a scene -- are `echoes.p
 from __future__ import annotations
 
 import copy
+import importlib
 import json
+import pkgutil
 import re
+from types import ModuleType
 from typing import Any, Callable
 
 from . import history
@@ -513,6 +516,11 @@ def _fork_plan(campaign: Campaign, meta: dict[str, Any], graph: ModuleGraph, wor
     plan["loop"] = int(parent.get("loop") or 0) + 1
     plan["anchor"] = {"scene": handle, **at}
     plan["reset"] = reset_policy(relation)
+    if rewinds_under_kept_investigators(plan["reset"]):
+        # #78: the engines' deadlines go back with the clock, and whether every one of them
+        # can is decided here, inside the batch -- a transition that fails after the commit
+        # is telemetry, never an error the keeper sees (see `rebase_saves`).
+        rebase_saves(campaign, anchor_minutes(campaign, at) - clock_minutes(world), write=False)
     return plan
 
 
@@ -622,8 +630,128 @@ def transition(campaign: Campaign, graph: ModuleGraph, plan: dict[str, Any],
 #: directory to restore -- is a registry, and this repository has been bitten repeatedly by
 #: the entry nobody remembered to add. An engine added tomorrow is rewound by default here;
 #: the only way to be wrong is to add another piece of table bookkeeping under `save/` and
-#: not list it, which is a much rarer act than adding a rule engine.
+#: not list it, which is a much rarer act than adding a rule engine. Under `investigators:
+#: keep` with a rewound clock nothing under `save/` is restored at all: the engine files
+#: stand, and their clock minutes are moved instead (`rebase_saves`).
 SAVE_KEEP = ("save/worldlines", "save/continuation", "save/house-rules.json")
+
+
+# ---- #78: engine state under a rewound clock ----------------------------------------------
+
+def rewinds_under_kept_investigators(policy: dict[str, str]) -> bool:
+    """§15.2 `investigators: keep` with `clock: anchor`: the people stay as the loop left
+    them and the clock goes back without them -- the one combination under which the engine
+    files are rewritten rather than restored or left alone, because every engine keeps its
+    deadlines as absolute minutes of the clock."""
+    return policy.get("investigators") == RESET_KEEP and policy.get("clock") != RESET_KEEP
+
+
+def clock_minutes(world: dict[str, Any]) -> int:
+    return int((world.get("clock") or {}).get("minutes") or 0)
+
+
+def anchor_minutes(campaign: Campaign, at: dict[str, Any]) -> int:
+    """The clock as the anchor commit had it: the minute `reset.clock: anchor` rewinds to."""
+    raw = history.read_blob(campaign.repo_dir, campaign.dir, str(at["commit"]), "world.json")
+    if raw is None:
+        raise RpcError("commit_failed", f"the anchor commit {at['commit']} has no world.json",
+                       details={"anchor": dict(at)})
+    return clock_minutes(json.loads(raw))
+
+
+def clock_engines() -> list[ModuleType]:
+    """The rule engines that can follow a moving clock: every module of the `coc.rules`
+    package that declares `SAVE_PATHS` (what it writes under `save/`, as paths relative to
+    the campaign directory) and `rebase_clock(state, delta)` (that state with every absolute
+    clock minute moved by `delta`, or `ValueError` when the state cannot be expressed on the
+    new clock).
+
+    Found by looking at the package, not by being listed here. A list of engines would be
+    the registry this repository keeps paying for (#79): its missing entry strands a deadline
+    silently and nothing reports it. The convention fails the other way -- an engine that
+    writes under `save/` without declaring itself is not presumed harmless; `rebase_saves`
+    refuses the rewind for its files by name, and the fix is in that engine's own module."""
+    from . import rules  # local: `rules` is the package of engines; none of them imports this module
+    found: list[ModuleType] = []
+    for info in sorted(pkgutil.iter_modules(rules.__path__), key=lambda row: row.name):
+        module = importlib.import_module(f"{rules.__name__}.{info.name}")
+        if isinstance(getattr(module, "SAVE_PATHS", None), tuple) and callable(getattr(module, "rebase_clock", None)):
+            found.append(module)
+    return found
+
+
+def engine_saves(campaign: Campaign) -> list[str]:
+    """Every file under `save/` that is the state of the people at the table rather than the
+    loop's own bookkeeping (`SAVE_KEEP`), as paths relative to the campaign directory."""
+    root = campaign.dir / "save"
+    if not root.is_dir():
+        return []
+    relative = (path.relative_to(campaign.dir).as_posix() for path in sorted(root.rglob("*")) if path.is_file())
+    return [path for path in relative if not history.within(path, SAVE_KEEP)]
+
+
+def _cannot_follow_the_clock(unclaimed: list[str], refused: dict[str, str], delta: int) -> RpcError:
+    reasons = [f"{path}: no engine declares how its clock moves" for path in unclaimed]
+    reasons += [f"{path}: {why}" for path, why in refused.items()]
+    return RpcError(
+        "not_implemented",
+        "this module's loop keeps the investigators and rewinds the clock, and state under save/ "
+        "cannot follow the clock back -- " + "; ".join(reasons),
+        fix="settle or heal that state before the loop rewinds, or have the module declare "
+            "reset.investigators: anchor (or reset.clock: keep); details.engine_contract is the "
+            "engine's side of it (#78)",
+        details={"clock_delta": delta, "unclaimed": unclaimed, "refused": refused,
+                 "engine_contract": "the module under coc.rules that writes the file declares SAVE_PATHS "
+                                    "and rebase_clock(state, delta)"})
+
+
+def rebase_saves(campaign: Campaign, delta: int, *, write: bool) -> dict[str, list[str]]:
+    """#78: the engine files under `save/` with their clock minutes moved by `delta`, each by
+    the engine that wrote it. `delta` is the clock the state will live under minus the clock
+    it was written against -- on a rewind the anchor's minute minus the one the loop reached,
+    so it is negative, and a deadline keeps its distance from now.
+
+    Two things stop it, and both are refused by name rather than skipped: a file no engine
+    claims (the engine that writes it has not said how its clock moves, so nobody knows
+    whether it holds a deadline, and presuming it does not is the silent stranding this is
+    here to end), and a file whose engine says the state cannot be expressed on the new
+    clock (`rebase_clock` raised `ValueError`). With `write=False` nothing is rewritten and
+    the same refusals are raised: `stage` runs it that way inside the batch, because a
+    transition that fails after the commit is telemetry, never an error the keeper sees.
+    Returns what was rewritten and what already fit."""
+    engines = clock_engines()
+    unclaimed: list[str] = []
+    refused: dict[str, str] = {}
+    rebased: list[str] = []
+    unchanged: list[str] = []
+    for relative in engine_saves(campaign):
+        engine = next((engine for engine in engines if history.within(relative, engine.SAVE_PATHS)), None)
+        if engine is None:
+            unclaimed.append(relative)
+            continue
+        path = campaign.dir / relative
+        try:
+            state = read_json(path)
+        except (OSError, ValueError) as exc:
+            refused[relative] = f"unreadable: {exc}"
+            continue
+        if not isinstance(state, dict):
+            refused[relative] = "not a JSON object"
+            continue
+        try:
+            moved = engine.rebase_clock(state, delta)
+        except ValueError as exc:
+            refused[relative] = str(exc)
+            continue
+        if moved == state:
+            unchanged.append(relative)
+            continue
+        if write:
+            write_json_atomic(path, moved)
+        rebased.append(relative)
+    if unclaimed or refused:
+        raise _cannot_follow_the_clock(unclaimed, refused, delta)
+    return {"rebased": rebased, "unchanged": unchanged}
 
 
 def _write_reset(campaign: Campaign, graph: ModuleGraph, plan: dict[str, Any]) -> None:
@@ -645,8 +773,19 @@ def _write_reset(campaign: Campaign, graph: ModuleGraph, plan: dict[str, Any]) -
     # state follows the same `investigators` policy as the sheet, because it *is* the
     # investigator; `keep` leaves the whole table standing, exactly as §15.2 says.
     commit = anchor.get("commit")
-    if policy.get("investigators") != RESET_KEEP and isinstance(commit, str) and commit:
-        history.restore_tree(campaign.repo_dir, campaign.dir, commit, "save", keep=SAVE_KEEP)
+    if policy.get("investigators") != RESET_KEEP:
+        if isinstance(commit, str) and commit:
+            history.restore_tree(campaign.repo_dir, campaign.dir, commit, "save", keep=SAVE_KEEP)
+    elif rewinds_under_kept_investigators(policy):
+        # #78, the other half: `keep` is the module saying the loop wears people down -- the
+        # madness and the wounds ride through on purpose -- so the engine state stands, and
+        # the clock goes back out from under it. Every deadline in that state is an absolute
+        # minute of the old clock; left alone it would be owed the whole abandoned loop on
+        # top of its own hours. Each engine moves its own minutes (`rebase_clock`), by the
+        # anchor's clock minus the one this loop reached. `stage` already established that
+        # every file here can, so a refusal now means a file was written since; it fails the
+        # transition, which rolls the line back.
+        rebase_saves(campaign, clock_minutes(anchor["world"]) - clock_minutes(world), write=True)
 
 
 def event_of(plan: dict[str, Any]) -> tuple[str, dict[str, Any]]:

@@ -7,6 +7,7 @@ mirrored anywhere else (see `regen_mp` below)."""
 
 from __future__ import annotations
 
+import copy
 import random
 from pathlib import Path
 from typing import Any
@@ -22,9 +23,16 @@ _DEFAULT_ECONOMY = {
     "max_cannot_exceed_pow_divided_5": True,
 }
 
+#: #78: what this engine writes under `save/`, as paths relative to the campaign directory.
+#: The worldline reads this to know whose file it is looking at when a time loop rewinds
+#: the clock under a kept investigator (`rebase_clock` below); `mp_state_path` builds on it
+#: so the declaration and the writer cannot drift apart.
+SAVE_DIR = "save/mp-state"
+SAVE_PATHS = (SAVE_DIR,)
+
 
 def mp_state_path(campaign_dir: Path, investigator_id: str) -> Path:
-    return Path(campaign_dir) / "save" / "mp-state" / f"{investigator_id}.json"
+    return Path(campaign_dir) / SAVE_DIR / f"{investigator_id}.json"
 
 
 def read_mp_state(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
@@ -33,6 +41,23 @@ def read_mp_state(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
         return {}
     data = read_json(path)
     return data if isinstance(data, dict) else {}
+
+
+def rebase_clock(state: dict[str, Any], delta: int) -> dict[str, Any]:
+    """#78: this engine's saved state with every absolute clock minute moved by `delta` --
+    and this engine keeps none, which is what this function exists to say.
+
+    A time loop that keeps the investigators but rewinds the clock (§15.2
+    `reset.investigators: keep` with `reset.clock: anchor`) asks every engine with a file
+    under `save/` how that file follows the clock, and refuses the rewind for a file whose
+    engine has not answered. The honest answer here is "nothing moves".
+    `regen_remainder_minutes` looks like a clock reading and is not one: it is how many
+    minutes of the current hour have been banked toward the next regenerated point -- a
+    length in [0, 59], the same length whatever minute the clock now shows -- and `mp`,
+    `mp_max` and `current_hp` are amounts. `delta` (the new clock minus the old) is accepted
+    and unused. Returns a copy; `state` is not touched."""
+    del delta
+    return copy.deepcopy(state)
 
 
 class MPool:

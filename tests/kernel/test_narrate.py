@@ -1,7 +1,12 @@
-"""§5 narrate under §16: the text is delivered verbatim, the receipts ride beside it as
-the language-neutral `mechanics` projection without requiring numbers in story prose."""
+"""§5 narrate under §16: the text is delivered verbatim and the receipts ride beside it as
+the language-neutral `mechanics` projection.
 
-from conftest import campaign_dir, git_log, narrate, open_turn, read_json, read_jsonl
+The kernel inserts no number into the prose -- but the keeper must still state each public
+receipt's figures there in their own words, and §16.3 checks it. That check was deleted with
+the mechanics lines in `ffb6361a` and this docstring said so ("without requiring numbers in
+story prose"); the real table disagreed, at the price of defect #64, and it is back (#84)."""
+
+from conftest import campaign_dir, git_log, narrate, open_turn, read_json, read_jsonl, stating
 
 
 def stage_receipts(client):
@@ -66,12 +71,21 @@ def test_every_receipt_is_projected_and_the_turn_closes(kernel):
     assert finalized[-1]["data"] == {"receipts": [r["id"] for r in record["receipts"]]}
 
 
-def test_system_numbers_are_only_required_in_json(kernel):
+def test_the_kernel_never_renders_a_mechanics_line_into_the_prose(kernel):
+    """§16: the kernel stopped rendering mechanics lines; the numbers travel as a projection.
+
+    That is not the same as the prose being free of numbers -- §16.3 obliges the keeper to
+    state each public receipt's figures in their own words, and the kernel checks it (#84).
+    The two live together: the keeper writes the number, the kernel never inserts one. This
+    test's subject is the second half, so the delivery below states its figures and the
+    assertion is that what came back is exactly what was written, with nothing added.
+    """
     open_turn(kernel)
     roll = stage_receipts(kernel)[0]
-    prose = "你没有发现其他痕迹，收起了手里的材料。"
+    prose = stating(kernel, "你没有发现其他痕迹，收起了手里的材料。")
     done = kernel.table("narrate", call_id="t1-c3", text=prose)
     assert done["rendered_text"] == prose
+    assert "【" not in done["rendered_text"], "no mechanics line was rendered into the prose"
     assert done["mechanics"][0]["roll"] == roll["roll"]
     assert done["mechanics"][0]["target"] == 55
     assert done["commit"] and kernel.table("status")["turn"] == 2
@@ -135,5 +149,5 @@ def test_ending_commits_campaign_status_and_remains_readable(kernel):
 def test_narration_mechanics_include_existing_skill_glossary(kernel):
     open_turn(kernel)
     stage_receipts(kernel)
-    result = kernel.table("narrate", call_id="t1-c3", text="你检查了房间。")
+    result = narrate(kernel, "t1-c3", "你检查了房间。")
     assert result["labels"]["Spot Hidden"] == "侦查"

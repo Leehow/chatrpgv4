@@ -7,6 +7,7 @@ appended to a log — the kernel's events.jsonl is a closed enum."""
 
 from __future__ import annotations
 
+import copy
 import random
 import re
 from pathlib import Path
@@ -52,8 +53,16 @@ def establish_damage_wound(state: dict[str, Any], *, decision_id: str, occurred_
     return expected
 
 
+#: #78: what this engine writes under `save/`, as paths relative to the campaign directory.
+#: The worldline reads this to know whose file it is looking at when a time loop rewinds
+#: the clock under a kept investigator (`rebase_clock` below); `healing_state_path` builds
+#: on it so the declaration and the writer cannot drift apart.
+SAVE_DIR = "save/healing-state"
+SAVE_PATHS = (SAVE_DIR,)
+
+
 def healing_state_path(campaign_dir: Path, investigator_id: str) -> Path:
-    return Path(campaign_dir) / "save" / "healing-state" / f"{investigator_id}.json"
+    return Path(campaign_dir) / SAVE_DIR / f"{investigator_id}.json"
 
 
 def read_healing_state(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
@@ -68,6 +77,49 @@ def write_healing_state(campaign_dir: Path, investigator_id: str, data: dict[str
     path = healing_state_path(campaign_dir, investigator_id)
     write_json_atomic(path, data)
     return path
+
+
+#: The instants this engine files, by ledger and field (#78). Both lie in the past.
+_INSTANTS = (("wound_ledger", "occurred_elapsed_minutes"),
+             ("major_wound_recovery_ledger", "attempt_elapsed_minutes"))
+
+
+def rebase_clock(state: dict[str, Any], delta: int) -> dict[str, Any]:
+    """#78: this engine's saved state with every absolute clock minute moved by `delta`.
+
+    A time loop that keeps the investigators but rewinds the clock (§15.2
+    `reset.investigators: keep` with `reset.clock: anchor`) leaves the wounds standing and
+    moves the clock out from under them. Two ledgers here file instants: when each wound
+    happened (`wound_ledger[].occurred_elapsed_minutes`, which the first-aid hour and the
+    weekly recovery baseline are measured from) and when each weekly CON roll was attempted
+    (`major_wound_recovery_ledger[].attempt_elapsed_minutes`). Both move by `delta` -- the
+    new clock minus the old, negative on a rewind -- so a wound stays exactly as old as it
+    was. `healing_usage`, `conditions` and `current_hp` hold no instant (`day-0` is a label).
+
+    Both instants lie in the past, so a rewind moves them toward the clock's origin and, for
+    a wound older than the anchor's own minute, past it: taken at minute 480 and rewound
+    from 540 to 0, a wound happened 60 minutes *before* the new loop began. That is the
+    truthful minute and this engine would file it, but the ledger's readers
+    (`rules/graph.py::_minutes_since_injury`, `_major_wound_recovery_due`) accept no stamp
+    below zero, which used to be refused here because `rules/graph.py`'s readers dropped a
+    negative stamp as corruption -- silently losing the wound from the first-aid hour and the
+    weekly-recovery fact with it. Those readers now accept a minute before the origin (the
+    clock itself still may not be negative), because after a rewind that is what an older
+    wound honestly is: the arithmetic `now - occurred` keeps saying how old it is, and
+    clamping to zero would have re-opened the first-aid hour on an old wound. So nothing is
+    refused here any more. Returns a new dict; `state` is not touched."""
+    moved = copy.deepcopy(state)
+    who = str(moved.get("investigator_id") or "the investigator")
+    for ledger, field in _INSTANTS:
+        rows = moved.get(ledger)
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            stamp = row.get(field)
+            if isinstance(stamp, bool) or not isinstance(stamp, int):
+                continue
+            row[field] = stamp + delta
+    return moved
 
 
 class HealingSession:

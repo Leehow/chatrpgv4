@@ -21,6 +21,7 @@ from .combat import apply_wound_conditions
 from .adapter import Coc7RuleGraphAdapter
 from .catalog import Catalog, module_spell_records
 from .graph import GraphLoadError, RulesRuntime, facts_from_state, load_ruleset_graph
+from .combat import TRANSIENT_COMBAT_CONDITIONS
 from .healing import establish_damage_wound, read_healing_state, write_healing_state
 from .resolver import Resolver
 from .tables import RuleTables
@@ -268,7 +269,7 @@ class SettleContext:
                                     conditions=list(participant.get("conditions") or []))
                 continue
             conditions = [c for c in participant.get("conditions") or []
-                          if not (concluded and c in {"prone", "grappled", "surprised", "outnumbered", "fled"})]
+                          if not (concluded and c in TRANSIENT_COMBAT_CONDITIONS)]
             known = {r.get("source_damage_roll_id") for r in read_healing_state(self.campaign_dir, actor_id).get("wound_ledger") or []
                      if isinstance(r, dict)}
             wounds = []

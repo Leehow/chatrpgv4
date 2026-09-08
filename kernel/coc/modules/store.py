@@ -7,6 +7,7 @@ is atomic (`fileio.write_json_atomic`)."""
 from __future__ import annotations
 
 import datetime as _dt
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -188,6 +189,7 @@ class ModuleStore:
                                  fix=f"no {GRAPH_NAME} under {Path(starters_dir) / module_id}")
         existing = self.module(module_id) if self.exists(module_id) else None
         if existing is not None and existing.get("graph_digest") == sha256_file(source):
+            self._install_starter_guidance(existing, source.parent)
             return existing
         graph = read_json(source)
         title = module_id
@@ -227,7 +229,47 @@ class ModuleStore:
         meta["installed_at"] = now_iso()
         meta["status"] = "installed"
         self.write_module(meta)
+        self._install_starter_guidance(meta, source.parent)
         return meta
+
+    def _install_starter_guidance(self, meta: dict[str, Any], source: Path) -> None:
+        """Install reviewed release content without running a reader on selection."""
+        listing = source / "starter-listing.json"
+        changed = False
+        required = listing.exists() and read_json(listing).get("listed") is True
+        if meta.get("bundled_guidance_required", False) != required:
+            meta["bundled_guidance_required"] = required
+            changed = True
+        graph = self.graph(meta["id"])
+        for language in ("zh-Hans", "en"):
+            path = source / "character-guidance" / f"{language}.json"
+            if not path.exists():
+                continue
+            saved = read_json(path)
+            if saved.get("graph_sha256") != meta["graph_digest"]:
+                continue  # Outdated release data cannot authorize this graph.
+            key, guidance = saved.get("fingerprint"), saved.get("guidance")
+            if (saved.get("module_id") != meta["id"] or saved.get("play_language") != language
+                    or saved.get("approved") is not True
+                    or not isinstance(key, str) or not re.fullmatch(r"[a-f0-9]{64}", key)
+                    or not isinstance(guidance, dict)):
+                raise invalid_params(f"invalid bundled guidance: {path}")
+            for field in ("opening", "advice", "scene", "guide", "handoff"):
+                value = guidance.get(field)
+                if (not isinstance(value, str) or len(value) > 4000
+                        or (field != "guide" and not value.strip())):
+                    raise invalid_params(f"invalid bundled guidance field: {field}")
+            graph.scene(guidance["scene"])  # Resolve through the campaign's identity rules.
+            target = self.module_dir(meta["id"]) / "character-guidance" / key / "accepted.json"
+            if not target.exists() or read_json(target) != saved:
+                write_json_atomic(target, saved)
+            reference = {"scene": guidance["scene"], "play_language": language}
+            index = meta.setdefault("character_guidance", {})
+            if index.get(key) != reference:
+                index[key] = reference
+                changed = True
+        if changed:
+            self.write_module(meta)
 
     # ---- sections -------------------------------------------------------------------
 

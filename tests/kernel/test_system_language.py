@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from conftest import CAMPAIGN, MODULE, PREGEN, WORKTREE, open_turn
+from conftest import CAMPAIGN, MODULE, PREGEN, WORKTREE, open_turn, stating
 
 GUARDED_DIRS = ("kernel", "content/setup")
 GUARDED_FILES = ("content/craft/beat-directives.json",)
@@ -118,8 +118,12 @@ def test_story_is_separate_from_roll_and_clock_json(kernel):
     open_turn(kernel)
     kernel.table("resolve", call_id="t1-c1", action={"intent": "investigate", "goal": "x", "method": "y", "skill": "Spot Hidden"})
     kernel.table("apply", call_id="t1-c2", effects=[{"kind": "time", "minutes": 10}])
-    done = kernel.table("narrate", call_id="t1-c3", text="你收起了笔记，走回门边。")
-    assert done["rendered_text"] == "你收起了笔记，走回门边。"
+    # §16.3 has two floors and this test is about neither: the delivery must state the
+    # figures its public receipts settled (#84), so `stating` supplies them the way a keeper
+    # would, and the point being made is that whatever the keeper wrote arrives verbatim.
+    text = stating(kernel, "你收起了笔记，走回门边。")
+    done = kernel.table("narrate", call_id="t1-c3", text=text)
+    assert done["rendered_text"] == text
     assert [row["kind"] for row in done["mechanics"]] == ["roll", "time"]
     assert done["mechanics"][1]["minutes"] == 10
 

@@ -27,10 +27,10 @@ from .ontology import Ontology, ontology_not_ready
 from .mods.adapter import ModAdapter
 from .mods import objects as mod_objects
 from . import npc as npc_lane
-from .render import bind_markers, check_play_language, markers_for, mechanics, strip_markers
+from .render import bind_markers, check_numbers, check_play_language, markers_for, mechanics, strip_markers
 from .resolve import ResolvePipeline, full_decision_ref
 from .rules import RuleTables, development
-from .rules.combat import resolve_module_weapons
+from .rules.combat import TRANSIENT_COMBAT_CONDITIONS, resolve_module_weapons
 from .rules.graph import REGISTERED_CONDITION_PATHS, semantic_name
 from .rules.healing import handle_time_trigger as healing_time_trigger, read_healing_state
 from .rules.mp import handle_time_trigger as mp_time_trigger
@@ -1722,8 +1722,17 @@ class Table:
                 # rather than inside `restore()` because a condition can clear on a turn that
                 # restores no hit points at all -- an Extreme recovery roll unticks the box.
                 healed = read_healing_state(campaign.dir, investigator_id).get("conditions")
+                if isinstance(healed, list):
+                    # #82: a posture does not survive the rest either. A combat session already
+                    # drops these when it concludes (`sync_combatants`), but a bare `apply
+                    # damage` opens no session, so the `prone` a major wound knocked someone
+                    # into had nothing to clear it and rode out the campaign. Six hours of rest
+                    # ends a posture for the same reason concluding a fight does: it was only
+                    # ever true of a moment that is over. The body's own conditions are not
+                    # touched here -- the healing engine clears those on its own terms.
+                    healed = [str(c) for c in healed if c not in TRANSIENT_COMBAT_CONDITIONS]
                 if isinstance(healed, list) and healed != (sheet.get("conditions") or []):
-                    ctx.mirror_investigator(investigator_id, conditions=[str(c) for c in healed])
+                    ctx.mirror_investigator(investigator_id, conditions=healed)
             restore(investigator_id, "mp", int(sheet.get("current_mp") or 0),
                     mp_time_trigger(self.tables, campaign.dir, investigator_id,
                                     int(characteristics.get("POW") or 50), minutes, rng=self.rng,
@@ -2205,7 +2214,11 @@ class Table:
         placed = bind_markers(text, receipts)
         rendered = strip_markers(text) if placed else text
         # §16.3: deliver story text verbatim; receipts travel as the separate mechanics projection.
+        # Script check first, then figures — #84: the figure check was specified, its materials
+        # (`expected_numbers`) and its error code (`mechanics_missing`) were both written, and
+        # nothing ever called them, so a delivery could say "HP 3" over a receipt that took 7.
         check_play_language(language_of(campaign.read_campaign()), {"text": rendered})
+        check_numbers(rendered, receipts)
         projected = mechanics(receipts, placed)
         receipt_id = f"turn:{turn_number}"
         subject = " ".join(text.split())[:COMMIT_SUBJECT_CHARS]

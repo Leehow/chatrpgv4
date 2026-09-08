@@ -410,19 +410,35 @@ def test_a_confluence_names_at_least_two_lines_and_must_include_the_one_at_the_t
     assert branches(kernel.workspace) == ["refs/heads/wl/main", "refs/heads/wl/side"]
 
 
-def test_two_lines_that_disagree_about_a_number_stop_the_merge_until_the_keeper_settles_it(kernel):
+def hp_by_line(conflict: dict) -> dict[str, int]:
+    """The HP each line's engines mirror onto the sheet, out of the one `engine_state` row.
+    HP is not a `numeric` conflict of its own (#81): the healing engine owns it and the sheet
+    only mirrors it, so it travels with the snapshot rather than being picked field by field."""
+    return {line: view["sheet"]["thomas-hayes"]["current_hp"] for line, view in conflict["values"].items()}
+
+
+def test_two_lines_that_disagree_about_a_wound_stop_the_merge_until_the_keeper_settles_it(kernel):
+    """The disagreement `two_lines_that_disagree` makes is a fall: one line's investigator is
+    hurt. That is not a number on a sheet -- it is the healing engine's wound ledger, and the
+    sheet's HP is its mirror (#81) -- so it is reported once, as an `engine_state` conflict."""
     two_lines_that_disagree(kernel)
     turn = turn_json(kernel)["turn"]
     kernel.table("player_input", text="把两条线并起来。")
     error = merge_err(kernel, f"t{turn}-c1")
     assert error["code"] == "needs"
     conflicts = error["details"]["conflicts"]
-    assert [c["id"] for c in conflicts] == ["conflict:numeric:thomas-hayes:hp"]
+    assert [c["id"] for c in conflicts] == ["conflict:engine_state:engines:snapshot"]
     only = conflicts[0]
-    assert only["class"] == "numeric" and only["field"] == "hp"
-    assert sorted(only["values"]) == ["main", "side"] and only["values"]["main"] != only["values"]["side"]
-    # `numeric` may be taken from a line or bounded; it may never be summed.
-    assert only["modes"] == ["from", "min", "max"]
+    assert only["class"] == "engine_state" and only["field"] == "snapshot"
+    assert sorted(only["values"]) == ["main", "side"]
+    # Both halves of the divergence are inside the one row: the engine `side` wrote and never
+    # started on `main`, and the sheet number that mirrors it.
+    assert only["values"]["main"]["save"] == {}
+    assert list(only["values"]["side"]["save"]) == ["save/healing-state/thomas-hayes.json"]
+    hp = hp_by_line(only)
+    assert hp["main"] != hp["side"]
+    # An engine snapshot is taken from a line or not at all: there is no value between two.
+    assert only["modes"] == ["from"]
     # Nothing was written: no branch, no line in the registry, and the flags stand apart.
     assert "joined" not in meta_of(kernel)["worldlines"]
     assert "refs/heads/wl/joined" not in branches(kernel.workspace)
@@ -436,11 +452,12 @@ def test_a_disposition_the_class_does_not_allow_is_refused_and_a_drop_must_say_w
     turn = turn_json(kernel)["turn"]
     kernel.table("player_input", text="把两条线并起来。")
     conflict = merge_err(kernel, f"t{turn}-c1")["details"]["conflicts"][0]["id"]
-    summed = merge_err(kernel, f"t{turn}-c2", dispositions={conflict: {"mode": "sum"}})
-    assert summed["code"] == "invalid_params" and summed["details"]["modes"] == ["from", "min", "max"]
-    elsewhere = merge_err(kernel, f"t{turn}-c3", dispositions={conflict: {"mode": "from", "line": "ghost"}})
+    for offset, mode in enumerate(("sum", "max"), start=2):
+        refused = merge_err(kernel, f"t{turn}-c{offset}", dispositions={conflict: {"mode": mode}})
+        assert refused["code"] == "invalid_params" and refused["details"]["modes"] == ["from"]
+    elsewhere = merge_err(kernel, f"t{turn}-c4", dispositions={conflict: {"mode": "from", "line": "ghost"}})
     assert elsewhere["code"] == "invalid_params" and elsewhere["details"]["lines"] == ["main", "side"]
-    unknown = merge_err(kernel, f"t{turn}-c4", dispositions={"conflict:numeric:nobody:hp": {"mode": "max"}})
+    unknown = merge_err(kernel, f"t{turn}-c5", dispositions={"conflict:numeric:nobody:hp": {"mode": "max"}})
     assert unknown["code"] == "invalid_params" and unknown["details"]["unknown"] == ["conflict:numeric:nobody:hp"]
 
 
@@ -449,10 +466,10 @@ def test_a_settled_confluence_lands_a_line_whose_commit_keeps_both_histories(ker
     turn = turn_json(kernel)["turn"]
     kernel.table("player_input", text="把两条线并起来。")
     conflicts = merge_err(kernel, f"t{turn}-c1")["details"]["conflicts"]
-    hp = dict(conflicts[0]["values"])
+    hp = hp_by_line(conflicts[0])
     kernel.table("apply", call_id=f"t{turn}-c2",
                  effects=[{"kind": "merge", "name": "joined", "lines": ["main", "side"],
-                           "dispositions": {conflicts[0]["id"]: {"mode": "min"}}}])
+                           "dispositions": {conflicts[0]["id"]: {"mode": "from", "line": "side"}}}])
     narrate(kernel, f"t{turn}-c3", "两条线合到了一起。")
 
     meta = meta_of(kernel)
@@ -468,7 +485,11 @@ def test_a_settled_confluence_lands_a_line_whose_commit_keeps_both_histories(ker
     # The flags are the union and the number is the one the keeper chose.
     world = world_of(kernel)
     assert world["flags"]["main-was-here"] is True and world["flags"]["side-was-here"] is True
-    assert kernel.table("look", focus="investigator")["hp"] == min(hp.values())
+    assert hp["main"] != hp["side"]
+    assert kernel.table("look", focus="investigator")["hp"] == hp["side"]
+    # And the engine behind that number came with it, rather than staying `main`'s (#81).
+    healing = read_json(campaign_dir(kernel.workspace) / "save" / "healing-state" / "thomas-hayes.json")
+    assert healing["current_hp"] == hp["side"] and len(healing["wound_ledger"]) == 1
 
 
 def test_a_merged_line_cannot_be_played_again(kernel):
@@ -478,7 +499,7 @@ def test_a_merged_line_cannot_be_played_again(kernel):
     conflict = merge_err(kernel, f"t{turn}-c1")["details"]["conflicts"][0]["id"]
     kernel.table("apply", call_id=f"t{turn}-c2",
                  effects=[{"kind": "merge", "name": "joined", "lines": ["main", "side"],
-                           "dispositions": {conflict: {"mode": "max"}}}])
+                           "dispositions": {conflict: {"mode": "from", "line": "main"}}}])
     narrate(kernel, f"t{turn}-c3", "两条线合到了一起。")
     turn = turn_json(kernel)["turn"]
     kernel.table("player_input", text="我想回到原来那条线。")

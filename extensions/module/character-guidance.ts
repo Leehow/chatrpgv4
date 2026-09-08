@@ -11,19 +11,35 @@ const reviewPath = join(root, 'content/setup/character-guidance-review.md');
 type Row = Record<string, any>;
 export type Guidance = {opening:string; advice:string; scene:string; guide:string; handoff:string};
 type Options = {home:string; module_id:string; play_language:string; opening?:string;
+  buildBundle?:boolean;
   occupations:Array<{id:string; name:string}>; model?:string; thinking?:string; signal?:AbortSignal;
   runner?:(request:ReaderRequest)=>Promise<ReaderOutcome>};
 const digest = (value:string) => createHash('sha256').update(value).digest('hex');
+// Graph identity aliases are closed authored identifiers, not semantic guesses.
+function openingNode(graph:Row, meta:Row, selected?:string):Row|undefined {
+  const value=selected || meta.opening_choice?.start_scene || meta.opening?.start_scene || '';
+  const normalize=(s:string)=>s.normalize('NFKC').toLowerCase().replace(/[_\s-]+/g,' ').trim();
+  return (graph.nodes||[]).find((node:Row)=>{
+    if(node.node_kind!=='scene')return false;
+    const record=node.properties?.runtime_projection?.record || node.properties || {};
+    const handle=record.scene_id || node.node_id?.replace(/^scene-/, '');
+    return [node.node_id,node.name,handle,...(node.aliases||[]),record.display_name,record.name,record.title]
+      .some(alias=>typeof alias==='string' && normalize(alias)===normalize(value));
+  });
+}
 export async function guidanceFingerprint(options:Options):Promise<string> {
   const folder=resolve(options.home,'.coc/modules',options.module_id);
   const meta=JSON.parse(await readFile(join(folder,'module.json'),'utf8'));
-  const prompts=await Promise.all([promptPath,reviewPath,join(root,'content/setup/visual-guidance.md')].map(path=>readFile(path,'utf8')));
+  const prompts=await Promise.all([promptPath,reviewPath,...(meta.file_sha256?[join(root,'content/setup/visual-guidance.md')]:[])].map(path=>readFile(path,'utf8')));
   let source=meta.file_sha256;
+  let opening=options.opening || '';
   if(!source) {
-    const graph=JSON.parse(await readFile(join(folder,meta.graph_file||'module-graph.json'),'utf8'));
-    source=JSON.stringify(graph.nodes.filter((n:Row)=>n.node_kind==='module'||n.node_id===options.opening));
+    const bytes=await readFile(join(folder,meta.graph_file||'module-graph.json'),'utf8');
+    const graph=JSON.parse(bytes);
+    source=digest(bytes);
+    opening=openingNode(graph,meta,options.opening)?.node_id || opening;
   }
-  return digest(JSON.stringify([source,options.opening||'',options.play_language,options.occupations,prompts]));
+  return digest(JSON.stringify([source,opening,options.play_language,options.occupations,prompts]));
 }
 export async function acceptedGuidance(home:string,moduleId:string,key:string):Promise<Guidance> {
   if(!/^[a-f0-9]{64}$/.test(key))throw new Error('Invalid guidance reference');
@@ -66,6 +82,8 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
     const saved=await json(join(cache,'accepted.json'));
     if(saved.fingerprint===key && saved.approved===true && !saved.draft_sha256)return validateGuidance(saved.guidance,options.occupations);
   } catch { /* A missing or invalid cache is rebuilt; attempts remain on disk. */ }
+  if(meta.bundled_guidance_required && !options.buildBundle)
+    throw new Error('Bundled starter guidance is missing or stale. Rebuild the starter guidance bundle.');
   if(options.signal?.aborted)throw new Error('Character guidance cancelled');
   const attempt=join(cache,'attempts',randomUUID());
   await mkdir(attempt,{recursive:true});
@@ -73,7 +91,7 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
   // Only semantic names and prose enter the model packet; opaque graph keys stay host-side.
   const nodes=(graph.nodes||[]).map((node:Row)=>({name:node.name,kind:node.node_kind,
     visibility:node.visibility,summary:node.summary}));
-  const opening=(graph.nodes||[]).find((node:Row)=>node.node_id===selectedOpening||node.name===selectedOpening)?.name;
+  const opening=openingNode(graph,meta,selectedOpening)?.name;
   const publicFields=['era','place','player_safe_summary','investigator_hook','investigator_constraints'];
   const publicSetup=(graph.nodes||[]).filter((node:Row)=>node.node_kind==='module').flatMap((node:Row)=>{
     const authored=[node.properties||{},...(node.properties?.runtime_projection?.documents||[])

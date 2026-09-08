@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sys
 
-from conftest import CAMPAIGN, CONTENT_DIR, KERNEL_DIR, RpcClient, campaign_dir, narrate_opening, open_turn, read_json, read_jsonl
+from conftest import CAMPAIGN, CONTENT_DIR, KERNEL_DIR, RpcClient, campaign_dir, narrate_opening, open_turn, read_json, read_jsonl, stating
 from test_rules_families import CONFRONTATION_PATH, resolve, resolve_err
 
 sys.path.insert(0, str(KERNEL_DIR))
@@ -256,7 +256,8 @@ def test_cash_builds_the_finance_block_from_the_era_table_and_moves_it(kernel):
     assert kernel.table_err("apply", call_id="t1-c3", effects=[{"kind": "cash", "delta": 0}])["code"] == "invalid_params"
     assert kernel.table_err("apply", call_id="t1-c3", effects=[{"kind": "cash", "delta": 1.5}])["code"] == "invalid_params"
 
-    text = "他数了钱，又付了车费。"
+    # §16.3: cash receipts are public, so the delivery states their before/after (#84).
+    text = stating(kernel, "他数了钱，又付了车费。")
     narrated = kernel.table("narrate", call_id="t1-c3", text=text)
     assert narrated["rendered_text"] == text
     assert [m for m in narrated["mechanics"] if m["kind"] == "cash"] == [

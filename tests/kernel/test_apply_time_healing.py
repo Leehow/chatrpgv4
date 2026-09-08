@@ -149,13 +149,10 @@ def test_healing_clears_the_sheet_and_a_healed_wound_does_not_come_back(seeded_f
 
     rest(kernel, "t1-c2", 8 * WEEK)
     assert hp(kernel) == 12, "eight weeks is long enough to come back to full"
-    # The sheet says exactly what the healing engine says -- no more, no less. The engine
-    # unticks the major wound; `prone` is a combat condition it has no opinion about, so it
-    # survives, and an investigator who spent eight weeks in bed is still marked as having
-    # fallen over. That is the engine's blind spot, not the mirror's, and mirroring is the
-    # wrong layer to paper over it: see #82.
-    assert "major_wound" not in sheet(kernel)["conditions"]
-    assert sheet(kernel)["conditions"] == ["prone"]
+    # The sheet says what the engine says, minus the postures (#82). The healing engine
+    # unticks the major wound on its own terms; `prone` is true of a moment in a fight, and
+    # `apply damage` opens no session to conclude, so the rest is what ends it.
+    assert sheet(kernel)["conditions"] == []
 
     # The wound is healed, so a small blow is a small blow -- not a major wound rebuilt from
     # the sheet's stale conditions.

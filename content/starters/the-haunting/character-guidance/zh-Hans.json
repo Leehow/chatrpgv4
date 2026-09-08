@@ -1,0 +1,14 @@
+{
+  "module_id": "the-haunting",
+  "play_language": "zh-Hans",
+  "graph_sha256": "59fa9d87f54a2350198b1ccf68968cabcf6e75e1308c8c517967c3ddb3411ff8",
+  "fingerprint": "64fb5f52a33800a5eb690892a7ff7778e9c233fcf0a5ee4441b282a5663af287",
+  "approved": true,
+  "guidance": {
+    "opening": "秋日波士顿，诺特先生的办公室里纸张堆得发黄，窗缝漏进潮湿的街声。他推开一份租约，指节敲了敲桌面，抬眼打量来客。\n“先说说，您是哪位，平日做什么营生？”\n报个姓名、一个职业概念便够开场；或许再问一两句，随后会拟一份完整草稿供你过目。",
+    "advice": "1920s Boston hire setup: landlord Steven Knott may later engage someone by the day over a vacant house neighbors nickname the Corbitt House after the Macarios fled and some family members ended in an asylum—public rumor only; do not treat hire, keys, cash, or a written brief as already done. Occupations that fit paper trails, interviews, or a daylight look at a rental: Journalist, Librarian, Lawyer, Private Investigator, Police Detective, Police Officer, Professor, Antiquarian, Author, Parapsychologist, Doctor of Medicine, Engineer, Clergy, Dilettante. Useful training without inventing numbers: Library Use, History, Law, Fast Talk or Persuade, Spot Hidden, Listen, Psychology; Latin or Italian can help records or former tenants later. Era kit: notebook, press card or professional card, modest 1920 clothing, streetcar fare—not scenario keys or advance pay. Public involvement: Globe morgue, Hall of Records/Central Library, neighbors, former tenants, or the house itself are all listed as possible starts after identity exists. Optional ties (not facts): Boston local, acquaintance of a tenant, curiosity about haunted rentals, need of day work. Optional motivation questions only if conversation wants color. Preserve uncertainty; do not force a profession. Use the existing setup tool for the card.",
+    "scene": "Knott's Office",
+    "guide": "Steven Knott",
+    "handoff": "The visitor is in Steven Knott's Boston office being asked who they are and what work they do. Identity is not yet settled; no commission has been accepted and no keys, cash, or other items have been received. Continue the character-creation meeting there until a draft investigator is ready for review."
+  }
+}

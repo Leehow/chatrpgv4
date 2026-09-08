@@ -634,7 +634,9 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 - **`promise` 的接续。** 与 `relationship` 同一条确定性规则：同 `subject` 同 `entities` 的新 `promise` 给旧的加 `valid_until_turn` / `superseded_by`；抽取指令多一句。
 - **`style` 的行。** 九条轴与十七条 directive 的 play_language 短句住在 `content/craft/beat-directives.json`（`axis_lines`、`directive_lines`），没有对应语言的行时退到 `en`，再退到图上的 `name` / `rationale`；轴按 `language_applicability` 过滤（`translationese` 只给 zh-Hans）。「重开进程后的第一回合」= 本进程第一次 `player_input` 打开的那一回合：那一回合的所有胶囊（含 `table.capsule`）都给全部 directive，2KB；之后的回合按节拍表，1KB。zh-Hans 全量 2019 字节刚好装下；`en` 全量超预算，按 `truncated` 裁尾。
 - **采纳落两处。** `narrate` 与 `ask` 关回合时都算 `director_adoption`，写进回合记录，并在 `telemetry.jsonl` 写一行 `{lane: "director", turn, closed_by, beat, adopted, evidence}`；turn 0 没有胶囊，记录里为 `null`。`CHARACTER` 的 social 族与 `RECOVER` 的 healing/development 族从本回合 `calls` 结果的 `family` 反查收据；`MONTAGE` 看本回合 `time` 收据的总分钟数 ≥ 60；`CHOICE` 以 `ask` 关闭时 `evidence` 为空数组。
-- **`where.clock.at` 与 `day_part`** 只在模组节点声明了故事何时开场时给：`start_clock.local_datetime`（`module-meta.json` 的本地日期时间，The Haunting 是 `1920-10-12T10:00:00`）或退而求其次的 `start_time`（`HH:MM`，只有钟点没有日期，因此只有 `day_part` 没有 `at`）。`at` = 声明的开场时刻 + `world.clock.minutes`，以 `YYYY-MM-DDTHH:MM` 给出；`elapsed` 仍然是从战役开局算起的已过时间，两者不是一回事。`day_part` 的边界是**起始钟点**（5 dawn / 8 morning / 12 midday / 14 afternoon / 18 evening / 22 night，之前是 `small_hours`）。两者都不声明的模组一个都不给——不猜。`table.view` 的 `clock` 与胶囊同一份投影（§23），面板据此显示局内时间。`structure_type` 读模组节点记录的 `structure_type`，没有就 `branching_investigation`；`structure_type` 读模组节点记录的 `structure_type`，没有就 `branching_investigation`。`campaign.create` 接受 `register`（文本图 `play-register` 的 legacy key，缺省 `purist`），写进 `campaign.json`。
+- **`where.clock.at` 与 `day_part`** 只在模组节点声明了故事何时开场时给：`start_clock.local_datetime`（`module-meta.json` 的本地日期时间，The Haunting 是 `1920-10-12T10:00:00`）或退而求其次的 `start_time`（`HH:MM`，只有钟点没有日期，因此只有 `day_part` 没有 `at`）。`at` = 声明的开场时刻 + `world.clock.minutes`，以 `YYYY-MM-DDTHH:MM` 给出；`elapsed` 仍然是从战役开局算起的已过时间，两者不是一回事。`day_part` 的边界是**起始钟点**（5 dawn / 8 morning / 12 midday / 14 afternoon / 18 evening / 22 night，之前是 `small_hours`）。两者都不声明的模组一个都不给——不猜。`table.view` 的 `clock` 与胶囊同一份投影（§23），面板据此显示局内时间。`structure_type` 读模组节点记录的 `structure_type`，没有就 `branching_investigation`。`campaign.create` 接受 `register`（文本图 `play-register` 的 legacy key，缺省 `purist`），写进 `campaign.json`。
+- **游戏日 = 局内午夜。** 声明了开场时刻的模组，日序号是 `(开场时刻的当日分钟 + world.clock.minutes) // 1440`，与 `where.clock.at` 换日期的那一刻严格一致；两者都不声明的模组退回 `minutes // 1440`。任何推进时钟的效果都可能跨过它——`time` 是守秘人有意让时间过去，`move` 的行程同样在走——所以夜里开车跨过 0 点也算过了一天，而 `_stage_recovery` 仍然正确地不把行程当休息。
+- **`apply` 跨过午夜时结果多一个 `day_ended`**：`{days, sanity: [{investigator, day_start_san, went_indefinitely_insane}]}`，没跨就没有这个键。理智引擎同时在**自己的存档**里留下一条 `day_ended` 事件（`daily_san_lost / threshold / day_start_san / next_day_start_san / indefinite_insanity_triggered`）——注意它不是 `events.jsonl` 的规范事件，那张表是闭合的 24 类，跨日没有进去；它记的是**判了哪一天、对着什么阈值**——p.168 的「一天损失五分之一」以前没有任何产品路径调用者，计数于是从战役第一分钟起只增不减，这条事件让下一次它再失灵时看得出来。一次推进跨 N 个午夜就按序关 N 次日；推进内部没有路径能动 SAN，所以只有第一次有东西可判，**判定永远只针对队伍真正经历的最后一天，绝不跨天求和**。
 - **本体校验的池。** `graph:rule:coc7` 对规则图节点 id；`graph:director:production` 对 Director 图节点 id；`graph:text:production` 对文本图节点 id；`graph:live-state:campaign` 的 `locator` 对 RuleGraph 的 `REGISTERED_CONDITION_PATHS`；`graph:execution:coc7-resolver` 的 `locator` 对 resolver 的 `public_api_index` 加内核执行器名；`graph:module:<id>` 对该模组图的节点 id（当前注册表没有模组引用）。关系两端必须是已登记的 `ref_id`。每进程校验一次，结果缓存。
 - **`may-emit-effect` 的效果清单**以 `Ontology.effect_ids()` 暴露（决策 → 效果 id）。本树的 `narrate` 没有「每个状态效果恰交代一次」的确定性检查——12.5 的 `committed` 句子直接由收据生成——所以这份清单目前没有消费者；接那条检查的切片直接读它，不另抄一份。
 - **`module` 节（#22，已实现）的装法。** 条件与 `style_full` 同一个：本进程为该战役第一次 `player_input` 打开的那一回合，及其前的任何 `table.capsule`；`resume` 的条件是它的子集（新书的 turn 0/1 没有 resume，但有简报）。内容全部来自模组图：`title`（模组节点名）、`era`（模组记录声明了才有）、`synopsis`（模组节点 summary）、`factions`（`faction` 与 `organization` 节点）、`places`（`location`）、`people`（全部 `npc`，含未登场者）、`endings`（`ending`）与 `conclusions`（`conclusion`）的名字、`structure_type`（与 Director 同一读法，缺省 `branching_investigation`）。名册的 `line` 取节点 summary（与名字相同时跳过），人物取 `relationship_to_investigators；agenda`，再退到记录的 prose；只复制不改写。装进 2KB 的顺序：先把行长从 120 字逐级降到 80/40/20/0（名册宁可全员短句，也不丢人——尾裁会先丢掉排在最后的 Walter Corbitt），仍超才按项裁尾；任一步发生都记入 `truncated`（the-haunting 在 40 字时装下，`truncated: ["module"]`；the-white-war 全长装下，不记）。有这一节时 `head` 追加一句说明。
@@ -844,8 +846,8 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 ### 15.4 汇流报告与回声
 
-- 合并口径：在场者取并集（按图重算 `npc_presence` 后叠加各线的移动）；已发现线索取并集；`flags` 取并集（冲突则报）；物品按名字取并集，但一条线消耗掉（`quantity` 为负的 `item` 收据）而另一条线还在的报 `consumed`；调查员的 HP/SAN/MP/幸运各线不同报 `numeric`；一条线死了（HP < 0 或 `dead` 条件）另一条活着报 `dead_alive`；一次性效果与已掷的骰**不合并**（它们是各线历史里的收据，合并提交把两段历史都留着，不重复计入状态）。
-- 冲突类别与允许的处置（闭合表）：`numeric` → from|min|max；`dead_alive` → from；`consumed` → from|drop；`flag` → from；`npc_presence` → from|sum（并集）；`clue` 永不冲突（并集）。`drop` 必须带 `note`。旧树的清单 `NON_DUPLICABLE_CONFLICT_CLASSES`（死亡、一次性效果、消耗、已掷骰）在这里体现为：这些类别没有 `sum`/`duplicate` 模式。
+- 合并口径：在场者取并集（按图重算 `npc_presence` 后叠加各线的移动）；已发现线索取并集；`flags` 取并集（冲突则报）；物品按名字取并集，但一条线消耗掉（`quantity` 为负的 `item` 收据）而另一条线还在的报 `consumed`；调查员的幸运各线不同报 `numeric`；**HP/SAN/MP 不再单独比**——它们是引擎存档的镜像（`mirror_investigator`「把引擎的看法写回卡片」），逐字段挑会拼出一个从未存在过的状态（HP 取 A 线、重伤盒取 B 线），所以连同 `save/` 下各引擎的快照一起作为**一条** `engine_state` 冲突整体择一；一条线死了（HP < 0 或 `dead` 条件）另一条活着报 `dead_alive`；一次性效果与已掷的骰**不合并**（它们是各线历史里的收据，合并提交把两段历史都留着，不重复计入状态）。
+- 冲突类别与允许的处置（闭合表）：`numeric` → from|min|max（只剩幸运；见上）；`dead_alive` → from；`consumed` → from|drop；`flag` → from；`npc_presence` → from|sum（并集）；`mod_state` → from；`engine_state` → from（**只能整条线地取**：一条线说疯了、另一条说没疯，没有中间值，而且快照里的到期时刻是绝对 clock 分钟）；`clue` 永不冲突（并集）。`drop` 必须带 `note`。旧树的清单 `NON_DUPLICABLE_CONFLICT_CLASSES`（死亡、一次性效果、消耗、已掷骰）在这里体现为：这些类别没有 `sum`/`duplicate` 模式。
 - 冲突 id 是语义的：`conflict:<class>:<subject>:<field>`，同一报告重算两次逐字节相同。
 - 回声：分叉（loop）与汇流时，内核从其他父线（回溯时是上一圈）的回合记录生成 `save/worldlines/echoes.json`：每条 `{"id": "echo:<line>-t<n>-<k>", "line", "loop", "turn", "scene", "kind": presence|clue_taken|fight|death|move|handout, "summary": "<从收据确定性生成的一句 play_language>", "receipts": [...], "entities": [名]}`。回声是守秘人专属的可投放证据：`apply {"kind": "clue", "clue": "echo:<id>"}` 把它揭示给玩家（渲染 `【变化】线索：<label 或 summary>`，进 `world.discovered_echoes`），之后 `known` 里能看到；回声不是叙述，是收据的投影，守秘人不能改它的内容，只能决定揭不揭示、怎么讲。
 
@@ -900,7 +902,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 **§15.4 汇流：**
 
 - **算什么与 git 合什么是两件事。** git 只被要求把两条历史都留在可达处：新分支起点取 `lines[0]` 的末提交，其余父线用 `git merge -s ours --no-commit` 记成父，然后提交——**一个字节都不从对方的树里取**。合并后的世界、表、记忆并集与回声全部由内核按报告算好之后写进工作树，随那个合并提交落地。
-- **冲突 id 的三段。** `conflict:<class>:<subject>:<field>`：`numeric` 与 `dead_alive` 与 `consumed` 的 subject 是调查员 id（field 分别是 `hp|san|mp|luck`、`alive`、归一化后的物品名），`flag` 的 subject 是 flag 名、field 是 `value`，`npc_presence` 的 subject 是 NPC 句柄、field 是 `scene`。报告按 id 排序，两次算出的字节相同。
+- **冲突 id 的三段。** `conflict:<class>:<subject>:<field>`：`numeric` 与 `dead_alive` 与 `consumed` 的 subject 是调查员 id（field 分别是 `hp|san|mp|luck`、`alive`、归一化后的物品名），`flag` 的 subject 是 flag 名、field 是 `value`，`npc_presence` 的 subject 是 NPC 句柄、field 是 `scene`，`mod_state` 是 `game-mods`/`snapshot`，`engine_state` 是 `engines`/`snapshot`（**整桌一条**，`values[线]` 里 `save` 给各引擎存档的 sha256 前缀而不是字节——一份理智快照就有 4.7KB，而这一行要进 `needs` 错误、`turn.json` 与回合记录三处；胜出线的字节在落地时从 git 读）。报告按 id 排序，两次算出的字节相同。
 - **`sum` 对单值字段的收口（契约只写了「并集」）。** `npc_presence` 是 `npc → 场景` 的单值映射，两条线把同一个人放在两处时并不出「并集」这种值。定下的口径：`sum` 把这个人放在汇流落地的那个场景（`into`，缺省 `lines[0]` 的所在），若那个场景不在候选里就取候选里字典序第一个；报告的 `values` 里两处都在，所以守秘人看得见自己放弃了什么。一条线动过、另一条线没动过（还在书上的位置）也算冲突，`values` 里那一项记作 `*book*`。
 - **不能复制的类别没有 `sum`。** 闭表写死在 `confluence.DISPOSITIONS`：`numeric` → from|min|max，`dead_alive` → from，`consumed` → from|drop，`flag` → from，`npc_presence` → from|sum。`clue` 根本不在表里——线索、回声、手卡、走过的场景一律并集，不产生冲突。旧树的 `NON_DUPLICABLE_CONFLICT_CLASSES` 就体现为这张表里没有的那些模式。
 - **未处置就整批不写。** `needs` 在 `apply` 的批处理里抛出，`details.conflicts` 是完整的冲突列表（每条带 `values` 与 `modes`）。处置里出现报告没有的 id、类别不允许的 mode、`from` 指向不在本次汇流里的线、`drop` 没有 `note`，都是 `invalid_params`。同一回合可以反复试，`apply` 不关回合。
@@ -1632,6 +1634,24 @@ The accepted public opening is delivered once, directly, and recorded through
 that opening. Confirmed characters waiting for source readiness retain their
 confirmation. An internal readiness notification retries the existing completion
 gate after the active setup turn ends; no synthetic player message is added.
+
+Listed starters ship independently reviewed `character-guidance/<play_language>.json`
+artifacts with their graph. Each artifact binds module ID, graph SHA-256, language
+and guidance fingerprint. Registration installs and indexes these artifacts even
+when the graph generation is already current. Selection returns that fingerprint
+as `guidance_key`; campaign creation pins it and setup loads the accepted opening
+directly. A listed starter with missing or stale guidance fails preparation instead
+of silently starting an author/reviewer job. Only the offline bundle builder may
+generate its replacement. Existing campaign evidence and reader attempts remain.
+Graph guidance keys canonicalize default, scene name, node ID and scene handle to
+one node ID, and bind the full graph plus the two guidance prompts and occupations.
+PDF guidance retains its source-file binding and existing publication pipeline.
+Release preparation uses `node scripts/build-starter-guidance.ts <module-id>
+<evidence-home>` from the repository root, with the repository-local Pi home.
+The builder runs the existing tool-enabled author and independent reviewer for
+each supported language and retains their inputs, drafts and reviews in the
+evidence home. It writes only accepted player openings and private setup advice
+into the starter bundle; selection never invokes this builder.
 
 Implementation decisions: reuse the current queue, graph, guidance cache, setup
 receipts and RPC setup-to-play switch. No OCR, global page scan, second graph,

@@ -100,11 +100,16 @@ const CSS = `
 .coc-more{margin-top:10px;width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:7px;
   background:var(--surface-raised,var(--surface));color:var(--accent);font:inherit;font-size:12px;cursor:pointer}
 .coc-more:hover{border-color:var(--accent)}
-.coc-clock{color:var(--text-strong);font:600 21px/1.35 var(--coc-serif);font-variant-numeric:tabular-nums}
-.coc-standing{margin-top:10px;display:flex;flex-direction:column;gap:5px}
-.coc-standing-line{display:flex;gap:12px;align-items:baseline}
-.coc-standing-key{flex:none;width:3.2em;color:var(--muted);font-size:11px}
+/* Where and when: the reading leads at a measured size — it is context, not a headline —
+   and the table's bookkeeping follows as one quiet meta line. */
+.coc-clock{color:var(--text-strong);font:500 16px/1.4 var(--coc-serif);font-variant-numeric:tabular-nums;letter-spacing:.012em}
+.coc-standing-meta{margin-top:8px;display:flex;flex-wrap:wrap;gap:3px 10px;align-items:baseline}
+.coc-standing-item{display:inline-flex;gap:5px;align-items:baseline;min-width:0}
+.coc-standing-sep{color:var(--subtle);font-size:11px}
+.coc-standing-key{color:var(--muted);font-size:11px}
 .coc-standing-val{min-width:0;font-size:12px;overflow-wrap:anywhere}
+.coc-standing{margin-top:7px;display:flex;flex-direction:column;gap:4px}
+.coc-standing-line{display:flex;gap:8px;align-items:baseline}
 .coc-standing-line[data-live="1"] .coc-standing-val{color:var(--accent);font-weight:600}
 .coc-background{margin:0;display:grid;gap:15px}
 .coc-background>div{padding:0 0 0 11px;border-left:2px solid var(--border)}
@@ -162,7 +167,7 @@ const LABELS = {
     retry: "Try again",
     noInvestigator: "No investigator",
     time: "Time",
-    elapsed: (d, hh, mm) => (d > 0 ? `${d}d ${hh}h ${mm}m elapsed` : `${hh}h ${mm}m elapsed`),
+    elapsed: (d, hh, mm) => (d > 0 ? `${d}d ${hh}h ${mm}m elapsed` : hh > 0 ? `${hh}h ${mm}m elapsed` : `${mm}m elapsed`),
     at: (y, mo, d, hh, mm) => `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")} ${hh}:${mm}`,
     turn: (n) => `turn ${n}`,
     scene: "scene",
@@ -213,7 +218,7 @@ const LABELS = {
     retry: "重试",
     noInvestigator: "还没有调查员",
     time: "时间",
-    elapsed: (d, hh, mm) => (d > 0 ? `已过 ${d} 天 ${hh} 小时 ${mm} 分` : `已过 ${hh} 小时 ${mm} 分`),
+    elapsed: (d, hh, mm) => (d > 0 ? `已过 ${d} 天 ${hh} 小时 ${mm} 分` : hh > 0 ? `已过 ${hh} 小时 ${mm} 分` : `已过 ${mm} 分`),
     at: (y, mo, d, hh, mm) => `${y}年${mo}月${d}日 ${hh}:${mm}`,
     turn: (n) => `第 ${n} 回合`,
     scene: "场景",
@@ -637,16 +642,26 @@ export function createComponent(React) {
     // Canonical NPC names may reveal a concealed identity; introductions belong to the Keeper.
     if (session) lines.push({ key: t.sessionKey, value: t.session(display(session.kind), session.round), live: true });
     if (view.pending_choice) lines.push({ key: "", value: t.awaitingChoice, live: true });
+    const meta = lines.filter(line => !line.live);
+    const live = lines.filter(line => line.live);
     const at = storyTime(clock.at);
     if (at === null && minutes === undefined && !lines.length) return null;
     const span = minutes === undefined ? null : elapsed(minutes);
     const reading = at ? t.at(...at) : span ? t.elapsed(span.days, span.hours, span.minutes) : null;
     return h(Section, { title: t.time },
       reading ? h("div", { className: "coc-clock" }, reading) : null,
-      lines.length
-        ? h("div", { className: "coc-standing" }, lines.map((line, index) =>
-            h("div", { className: "coc-standing-line", "data-live": line.live ? "1" : "0", key: index },
-              h("span", { className: "coc-standing-key" }, line.key),
+      meta.length
+        ? h("div", { className: "coc-standing-meta" }, meta.flatMap((line, index) => [
+            index ? h("span", { className: "coc-standing-sep", "aria-hidden": "true", key: `sep${index}` }, "·") : null,
+            h("span", { className: "coc-standing-item", key: `meta${index}` },
+              line.key ? h("span", { className: "coc-standing-key" }, line.key) : null,
+              h("span", { className: "coc-standing-val" }, line.value)),
+          ].filter(Boolean)))
+        : null,
+      live.length
+        ? h("div", { className: "coc-standing" }, live.map((line, index) =>
+            h("div", { className: "coc-standing-line", "data-live": "1", key: index },
+              line.key ? h("span", { className: "coc-standing-key" }, line.key) : null,
               h("span", { className: "coc-standing-val" }, line.value))))
         : null);
   }
