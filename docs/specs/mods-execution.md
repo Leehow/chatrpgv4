@@ -154,7 +154,8 @@ Both owned drivers are stopped. Original and test campaign evidence are retained
 Evidence: `.coc/playtests/mods-initial-setup-sep08/` and
 `.coc/playtests/mods-initial-live-sep08/initial-equipment-acceptance.json`, with logs
 under that run's `checks/`, all in the main checkout. The repair is isolated on
-`codex/mods-initial-equipment` pending safe integration with concurrent main changes.
+`codex/mods-initial-equipment` and was subsequently integrated into `0.9.1a` with
+the paper/editor update. Concurrent setup work was preserved.
 Existing saves retain explicit version locks; upgrading to 1.0.3 activates
 reconciliation on their next normal Keeper turn, without manufacturing player input.
 
@@ -173,8 +174,9 @@ materialization and editor selection; manager ordering is persistent and visible
 Use the existing warm clay UI, a generated quiet paper texture and native dialog
 focus behavior. Verify real browser interaction and genuine Keeper generation.
 
-Implementation and validation are complete; final integration/lifecycle audit are
-tracked by the owned branch. Enhanced Items is now 1.1.1. The first implementation
+Implementation, validation and source integration into `0.9.1a` are complete;
+the lifecycle manifest tracks final directory cleanup. Enhanced Items is 1.1.1.
+The first implementation
 commit is `d3ec1e98`; `ec792356` preserves the 0.9.1a integration. No marketplace,
 arbitrary executable payloads or unrequested scenario edits were added.
 
@@ -230,3 +232,12 @@ packages remain valid. The browser-tested renderer and document behavior are
 unchanged. Latest integration checks: **38 Mod kernel tests**, **33 UI tests** and
 **149 extension tests** passed; the final compatibility cases are additionally
 recorded in `output/mods-paper-20260908/checks/`.
+
+Integration tip: `701efcbe`. Final compatibility checks: **20 passed**. The preview
+server and its Chrome test tab were closed after screenshot capture; actual game
+evidence and images remain in the main checkout. The server's HTTP listener closed
+normally, then its remaining idle Node process was terminated. No other App/tab or
+campaign was closed or removed. UI assets were installed in the main checkout;
+the native App was not repackaged or replaced in this task. Existing saves select
+the new Mod version explicitly, and legacy inventory enrichment occurs on their
+next normal Keeper turn rather than through fabricated player input.
