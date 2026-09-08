@@ -1617,7 +1617,10 @@ The label is the name the Keeper gave the clue when `apply clue` discovered it,
 kept in `world.clue_labels` exactly as a scene's name is kept in
 `world.scene_labels`, and it falls back to the graph's display name for a clue
 discovered before that field existed. The handle stays as `clue`, so a consumer
-can still key on identity. Undiscovered clues remain absent.
+can still key on identity. A row also carries `summary` when the clue's module
+node authors one -- the player panel unfolds the clue into exactly that text,
+so what a clue says is one tap away instead of nowhere. Undiscovered clues
+remain absent.
 
 A `roll` or `dice` receipt carries `actor_label` for an investigator as it
 already did for an NPC: the sheet's own name. The §16.2 projection copies it, so

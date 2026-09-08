@@ -116,6 +116,20 @@ def clue_label(graph: ModuleGraph, world: dict[str, Any], handle: str) -> str:
         return handle
 
 
+def clue_summary(graph: ModuleGraph, handle: str) -> str | None:
+    """The clue node's authored summary, or None when the graph does not know the handle or the
+    node has none. Whether it says more than the row's label is the caller's comparison -- the
+    label lives in the world, not here."""
+    try:
+        node = graph.clue(handle)
+    except RpcError:
+        return None
+    summary = node.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        return None
+    return summary.strip()
+
+
 def clock_section(graph: ModuleGraph, world: dict[str, Any]) -> dict[str, Any]:
     """`where.clock`: the world minutes, `elapsed` generated from them, and `day_part`
     only when the module node declares a start time (nothing is guessed otherwise)."""
