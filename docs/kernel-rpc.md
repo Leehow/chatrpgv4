@@ -2245,7 +2245,10 @@ same safe boundary as version changes. Saves/worldlines retain order and version
 Contributions resolve by stable slots: each named check, the materializer, and the
 document editor. Later providers replace earlier providers of the same slot,
 including a named check whose namespace belongs to another Mod. A package may
-provide `document_editor:{renderer:paper|plain}`. A policy package's instructions
+provide `ui.document_editor:{renderer:paper|plain}` (the earlier
+`contributes.document_editor` form remains accepted). The shipped 1.1.1 manifest
+uses the additive top-level form so an older running kernel can list it as
+incompatible without failing its whole catalog. A policy package's instructions
 and auditor run only while it still owns one of its check/materializer slots;
 observer-only auditors default to separate additive slots, but may declare the
 same `audit_slot` to replace an earlier auditor. The resolved provider and displaced

@@ -1,3 +1,9 @@
+# 1.1.1
+
+The shipped editor contribution uses the additive top-level ui field. Older live
+kernel processes can enumerate the package as incompatible without rejecting the
+entire catalog during a source update. Version 1.1.0 packages remain supported.
+
 # 1.1.0
 
 Readable/writable carriers have persistent document text and an acquisition

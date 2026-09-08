@@ -78,6 +78,19 @@ def manifest_from(files: dict[str, bytes]) -> dict[str, Any]:
     for field in ("dependencies", "settings", "contributes"):
         if not isinstance(manifest.get(field), dict):
             raise invalid_params(f"{field} must be an object")
+    if type(manifest.get("default_enabled")) is not bool:
+        raise invalid_params("default_enabled must be boolean")
+    if manifest["game_api"] != GAME_API or not set(manifest["requires"]) <= CAPABILITIES:
+        # Unknown required interfaces are catalog metadata, never executable contributions.
+        return manifest
+    ui = manifest.get("ui", {})
+    if not isinstance(ui, dict) or set(ui) - {"document_editor"}:
+        raise invalid_params("Unknown Mod UI contribution")
+    if "document_editor" in ui:
+        previous = manifest["contributes"].get("document_editor")
+        if previous is not None and previous != ui["document_editor"]:
+            raise invalid_params("A package declares conflicting document editors")
+        manifest["contributes"]["document_editor"] = ui["document_editor"]
     if any(type(v) not in (str, bool, int, float) for v in manifest["settings"].values()):
         raise invalid_params("Game interface v1 settings are scalar values")
     if not isinstance(manifest.get("settings_schema", {}), dict):
@@ -421,10 +434,11 @@ class ModRuntime:
         defaults = self.defaults()
         rows = []
         for row in sorted(self.catalog().values(), key=lambda r: (r["id"], version_key(r["version"]))):
-            rows.append({k: row[k] for k in ("id", "version", "name", "description", "author", "compatible", "requires", "dependencies", "conflicts", "settings")} | {
+            rows.append({k: row[k] for k in ("id", "version", "name", "description", "author", "compatible", "requires", "dependencies", "conflicts")} | {
+                "settings": row["settings"] if row["compatible"] else {},
                 "default_enabled": defaults.get(row["id"], row["default_enabled"]),
                 "active": locks.get("active", {}).get(row["id"]), "pending": locks.get("pending", {}).get(row["id"]),
-                "settings_schema": row.get("settings_schema", {}),
+                "settings_schema": row.get("settings_schema", {}) if row["compatible"] else {},
                 "changelog": row["files"].get("CHANGELOG.md", b"").decode("utf-8")})
         return {"game_api": GAME_API, "capabilities": sorted(CAPABILITIES), "mods": rows,
                 "order": self.order(world), "pending_order": locks.get("pending_order"),

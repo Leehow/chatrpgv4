@@ -70,6 +70,21 @@ def test_incompatible_mod_is_listed_but_not_activated(kernel, tmp_path):
     assert kernel.err("mods.configure", {"campaign":CAMPAIGN,"id":"natural-npc","version":"1.1.0"})["code"] == "invalid_params"
 
 
+def test_future_contributions_do_not_break_the_current_catalog(kernel,tmp_path):
+    open_turn(kernel)
+    root=package(tmp_path)
+    manifest=read_json(root/"mod.json")
+    manifest["requires"].append("future.renderer.v2")
+    manifest["contributes"]={"future_renderer":{"entry":"unknown-to-this-kernel"}}
+    manifest["settings"]={"future_setting":{"complex":True}}
+    (root/"mod.json").write_text(json.dumps(manifest))
+    kernel.ok("mods.install",{"path":str(root)})
+    view=kernel.ok("mods.list",{"campaign":CAMPAIGN})
+    future=next(r for r in view["mods"] if r["id"]=="natural-npc" and r["version"]=="1.1.0")
+    assert not future["compatible"] and future["settings"]=={}
+    assert kernel.ok("mods.context",{"campaign":CAMPAIGN})["active"]
+
+
 def test_declared_setting_is_editable_and_invalid_option_is_atomic(kernel, tmp_path):
     open_turn(kernel)
     narrate(kernel,"t1-c1","我们停下来。")

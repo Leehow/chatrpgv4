@@ -11,6 +11,7 @@ def alternate(kernel, tmp_path, source, name, **changes):
     root=tmp_path/name
     shutil.copytree(WORKTREE/"mods"/source,root)
     manifest=read_json(root/"mod.json")
+    manifest.pop("ui",None)
     manifest.update(id=name,name=name,default_enabled=False,**changes)
     if source=="natural-npc":
         manifest["contributes"]["checks"][0]["difficulty"]="extreme"
@@ -85,6 +86,7 @@ def test_an_observer_can_explicitly_replace_an_existing_audit_slot(kernel,tmp_pa
     root=tmp_path/"audit-overhaul"
     shutil.copytree(WORKTREE/"mods"/"enhanced-items",root)
     manifest=read_json(root/"mod.json")
+    manifest.pop("ui",None)
     manifest.update(id="audit-overhaul",name="Audit overhaul",default_enabled=False,
                     contributes={"auditor":"auditor.md","audit_slot":"enhanced-items"})
     (root/"mod.json").write_text(json.dumps(manifest))

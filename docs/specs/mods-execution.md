@@ -174,7 +174,7 @@ Use the existing warm clay UI, a generated quiet paper texture and native dialog
 focus behavior. Verify real browser interaction and genuine Keeper generation.
 
 Implementation and validation are complete; final integration/lifecycle audit are
-tracked by the owned branch. Enhanced Items is now 1.1.0. The first implementation
+tracked by the owned branch. Enhanced Items is now 1.1.1. The first implementation
 commit is `d3ec1e98`; `ec792356` preserves the 0.9.1a integration. No marketplace,
 arbitrary executable payloads or unrequested scenario edits were added.
 
@@ -220,3 +220,13 @@ error and an initial favicon 401. No source or turn progress changed in UI editi
 Design references: [Factorio lifecycle](https://lua-api.factorio.com/latest/auxiliary/data-lifecycle.html),
 [OpenMW resource precedence](https://openmw.readthedocs.io/en/latest/reference/modding/paths.html),
 and [MDN dialog](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dialog).
+
+Final compatibility correction: 1.1.1 puts the shipped editor descriptor under
+top-level `ui`, which the previous kernel can enumerate as incompatible without
+failing its catalog. This was checked against the actual main-checkout old parser.
+The new parser keeps unsupported future interfaces as catalog metadata and does
+not execute their contributions or render unknown setting schemas. Older 1.1.0
+packages remain valid. The browser-tested renderer and document behavior are
+unchanged. Latest integration checks: **38 Mod kernel tests**, **33 UI tests** and
+**149 extension tests** passed; the final compatibility cases are additionally
+recorded in `output/mods-paper-20260908/checks/`.
