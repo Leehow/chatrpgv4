@@ -1922,6 +1922,9 @@ describe('PipiUI main layout', () => {
     const { container } = render(<App host={createMockHost()} />)
     await screen.findAllByText('Electron 三栏界面')
     expect(screen.queryByTestId('quota-pill')).toBeNull()
+    // The project folder starts collapsed and only peeks working sessions, so
+    // the selected session's title is on screen a tick before idle rows are.
+    await waitFor(() => expect(container.querySelector('[data-session-id="layout"]')).toBeTruthy())
     fireEvent.click(container.querySelector('[data-session-id="layout"]')!)
     expect((await screen.findByTestId('quota-pill')).textContent).toBe('周 12%')
     fireEvent.click(container.querySelector('[data-session-id="welcome"]')!)
@@ -2019,6 +2022,9 @@ describe('PipiUI main layout', () => {
     expect(container.querySelector('.status-dot')).toBeNull()
     expect(container.querySelector('.side-scroll')).toBeNull()
 
+    // The project folder starts collapsed and only peeks working sessions, so
+    // the idle rows asserted below land a tick after the selected session's title.
+    await waitFor(() => expect(container.querySelector('[data-session-id="layout"]')).toBeTruthy())
     const welcome = container.querySelector('[data-session-id="welcome"]')!
     // welcome carries the running explore fixture, so its row reflects that status.
     expect(welcome.getAttribute('data-status')).toBe('subagents-running')

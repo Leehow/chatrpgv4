@@ -911,4 +911,64 @@ describe('settled turn stays idle after a late streaming status', () => {
       fireEvent.compositionEnd(input)
     },
   )
+  it('clears every step spinner once the turn settles after a mid-turn follow-up row', async () => {
+    let listener: ((event: StreamEvent) => void) | undefined
+    const base = createMockHost()
+    const host: PipiHostAPI = { ...base, subscribeStream: (_sessionId, callback) => { listener = callback; return () => { listener = undefined } } }
+    const { container } = render(<App host={host} />)
+    await screen.findAllByText('Electron 三栏界面')
+    fireEvent.click(container.querySelector('[data-session-id="layout"]')!)
+    await waitFor(() => expect(listener).toBeDefined())
+
+    act(() => { listener?.({ type: 'status', sessionId: 'layout', status: 'started' }) })
+    act(() => { listener?.({ type: 'thinking', sessionId: 'layout', contentIndex: 0, delta: '这是同一个 done 事件的第二次重投' }) })
+    act(() => { listener?.({ type: 'text', sessionId: 'layout', contentIndex: 0, delta: '警报已确认，无事可做。' }) })
+    // The re-delivery lands while the turn is still open: a hard chronology
+    // boundary, so the next hop opens a second assistant row and the first one
+    // can never receive another delta.
+    act(() => { listener?.({ type: 'user_message', sessionId: 'layout', id: 'redeliver-2', content: '[subagent-done] agentId=a1 name=mech-test-fix ok=true\nTitle: 机制测试\nResult:\n第二次重投' }) })
+    act(() => { listener?.({ type: 'thinking', sessionId: 'layout', contentIndex: 0, delta: '仍然只需要一行回复' }) })
+    act(() => { listener?.({ type: 'text', sessionId: 'layout', contentIndex: 0, delta: '目标已关闭并提交。' }) })
+    expect(container.querySelectorAll('.activity-spinner').length).toBeGreaterThan(0)
+
+    act(() => { listener?.({ type: 'status', sessionId: 'layout', status: 'settled' }) })
+    await waitFor(() => expect(screen.queryByLabelText('停止生成')).toBeNull())
+    expect(container.querySelectorAll('.activity-spinner')).toHaveLength(0)
+    expect(container.querySelectorAll('[data-activity-status="running"]')).toHaveLength(0)
+    expect(screen.getAllByRole('button', { name: /个步骤/ }).map(button => button.textContent?.includes('运行中'))).toEqual([false, false])
+    expect(screen.getByText('警报已确认，无事可做。')).toBeTruthy()
+    expect(screen.getByText('目标已关闭并提交。')).toBeTruthy()
+  })
+
+  it('settles the transcript of a backgrounded session so switching back shows no spinner', async () => {
+    const listeners: Array<(event: StreamEvent) => void> = []
+    const base = createMockHost()
+    const host: PipiHostAPI = {
+      ...base,
+      subscribeStream: (_sessionId, callback) => { listeners.push(callback); return () => undefined },
+      subscribeAllStreams: callback => { listeners.push(callback); return () => undefined },
+    }
+    const emit = (event: StreamEvent) => act(() => { for (const listener of [...listeners]) listener(event) })
+    const { container } = render(<App host={host} />)
+    await screen.findAllByText('Electron 三栏界面')
+    fireEvent.click(container.querySelector('[data-session-id="layout"]')!)
+    await waitFor(() => expect(listeners.length).toBeGreaterThan(0))
+
+    emit({ type: 'status', sessionId: 'layout', status: 'started' })
+    emit({ type: 'thinking', sessionId: 'layout', contentIndex: 0, delta: '正在盘点这轮的账目' })
+    emit({ type: 'text', sessionId: 'layout', contentIndex: 0, delta: '账目已经对齐。' })
+    expect(container.querySelectorAll('.activity-spinner').length).toBeGreaterThan(0)
+
+    // The settle lands while another session is selected: only the background
+    // side channel sees it, and it owns the cached transcript.
+    fireEvent.click(container.querySelector('[data-session-id="welcome"]')!)
+    await screen.findByText(/我会先检查现有结构/)
+    emit({ type: 'status', sessionId: 'layout', status: 'settled' })
+
+    fireEvent.click(container.querySelector('[data-session-id="layout"]')!)
+    await screen.findByText('账目已经对齐。')
+    await waitFor(() => expect(screen.queryByLabelText('停止生成')).toBeNull())
+    expect(container.querySelectorAll('.activity-spinner')).toHaveLength(0)
+    expect(container.querySelectorAll('[data-activity-status="running"]')).toHaveLength(0)
+  })
 })
