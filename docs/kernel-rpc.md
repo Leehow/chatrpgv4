@@ -1629,6 +1629,24 @@ that opening. Confirmed characters waiting for source readiness retain their
 confirmation. An internal readiness notification retries the existing completion
 gate after the active setup turn ends; no synthetic player message is added.
 
+Listed starters ship independently reviewed `character-guidance/<play_language>.json`
+artifacts with their graph. Each artifact binds module ID, graph SHA-256, language
+and guidance fingerprint. Registration installs and indexes these artifacts even
+when the graph generation is already current. Selection returns that fingerprint
+as `guidance_key`; campaign creation pins it and setup loads the accepted opening
+directly. A listed starter with missing or stale guidance fails preparation instead
+of silently starting an author/reviewer job. Only the offline bundle builder may
+generate its replacement. Existing campaign evidence and reader attempts remain.
+Graph guidance keys canonicalize default, scene name, node ID and scene handle to
+one node ID, and bind the full graph plus the two guidance prompts and occupations.
+PDF guidance retains its source-file binding and existing publication pipeline.
+Release preparation uses `node scripts/build-starter-guidance.ts <module-id>
+<evidence-home>` from the repository root, with the repository-local Pi home.
+The builder runs the existing tool-enabled author and independent reviewer for
+each supported language and retains their inputs, drafts and reviews in the
+evidence home. It writes only accepted player openings and private setup advice
+into the starter bundle; selection never invokes this builder.
+
 Implementation decisions: reuse the current queue, graph, guidance cache, setup
 receipts and RPC setup-to-play switch. No OCR, global page scan, second graph,
 global scheduler, detached daemon or new rules arithmetic. Full design and

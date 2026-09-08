@@ -15,10 +15,31 @@ from conftest import CONTENT_DIR, KERNEL_DIR, WORKTREE, campaign_dir, read_json
 sys.path.insert(0, str(KERNEL_DIR))
 
 from coc.module_graph import ModuleGraph  # noqa: E402
+from coc.modules.store import ModuleStore  # noqa: E402
 from coc.rules.graph_digest import compute_graph_content_digest  # noqa: E402
 
 SCRIPT = WORKTREE / "scripts" / "starter_graph.py"
 OLD_HAUNTING = Path("/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/references/starter-scenarios/the-haunting")
+
+
+def test_starter_installs_both_reviewed_languages_without_generation(tmp_path):
+    store = ModuleStore(tmp_path)
+    first = store.register_starter("the-haunting", CONTENT_DIR / "starters")
+    assert first["bundled_guidance_required"] is True
+    assert len(first["character_guidance"]) == 2
+    for key, reference in first["character_guidance"].items():
+        folder = store.module_dir("the-haunting") / "character-guidance" / key
+        saved = read_json(folder / "accepted.json")
+        assert saved["play_language"] == reference["play_language"]
+        assert saved["graph_sha256"] == first["graph_digest"]
+        assert not (folder / "attempts").exists()
+    # An older installed module needs its index upgraded even with unchanged graph.
+    first.pop("character_guidance")
+    store.write_module(first)
+    upgraded = store.register_starter("the-haunting", CONTENT_DIR / "starters")
+    assert len(upgraded["character_guidance"]) == 2
+    assert upgraded["generation"] == first["generation"]
+    assert store.register_starter("the-haunting", CONTENT_DIR / "starters") == upgraded
 STARTERS = {
     "mystery-house": {"start": "crane-office", "languages": ["en"], "absent": []},
 }
