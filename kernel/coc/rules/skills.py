@@ -57,8 +57,8 @@ def _label_for(entry: Any, language: str) -> str | None:
 def player_glossary(tables: RuleTables, language: str) -> dict[str, str]:
     """Canonical rules name -> the word a player of `language` uses for it (contract §23).
 
-    Characteristic abbreviations and skill names, straight from the rules data's own
-    `localized_labels`. Empty for the system language, whose canonical names already are the
+    Characteristic abbreviations, their full canonical names, and skill names, straight from
+    the rules data's own `localized_labels`. Empty for the system language, whose canonical names already are the
     player's, and empty of any term the data does not rename: a name this project does not
     have in the rulebook is left canonical rather than invented in code (§16.1).
 
@@ -76,6 +76,11 @@ def player_glossary(tables: RuleTables, language: str) -> dict[str, str]:
         abbr = str(key).upper()
         if abbr in CHARACTERISTICS and (label := _label_for(entry, language)):
             out[abbr] = label
+            # A characteristic check is filed under its full canonical word ("Appearance"),
+            # not the abbreviation, so the glossary carries that form too -- same table row.
+            name = entry.get("name") if isinstance(entry, dict) else None
+            if isinstance(name, str) and name.strip() and name.strip() != abbr:
+                out[name.strip()] = label
     try:
         skills = tables.skills_table()
     except (OSError, ValueError, AttributeError, KeyError):

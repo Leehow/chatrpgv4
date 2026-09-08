@@ -37,6 +37,9 @@ def test_the_glossary_is_the_rules_data_in_the_campaigns_play_language(kernel):
     labels = kernel.ok('table.view', {'campaign': CAMPAIGN})['labels']
     assert labels['STR'] == '力量' and labels['POW'] == '意志'
     assert labels['Library Use'] == '图书馆使用' and labels['Spot Hidden'] == '侦查'
+    # A characteristic check is filed under its full canonical word, so the glossary must
+    # answer that form as well as the abbreviation (§23).
+    assert labels['Appearance'] == '外貌'
     # Only what the data renames: nothing is minted here for a term the rulebook leaves alone.
     assert 'MOV' not in labels
     assert all(isinstance(value, str) and value for value in labels.values())
