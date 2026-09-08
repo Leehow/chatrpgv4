@@ -113,6 +113,7 @@ class ModAdapter:
             definition = objects.named((world.get("objects") or {}).get("definitions", {}), str(action.get("spell") or ""))
             owner = self.owner(campaign, graph, world, action["actor"])
             if owner["kind"] == "npc" and definition and definition["category"] == "spell":
+                self.require_choice_settled(campaign, graph, world, turn)
                 actor = self.table._actor(campaign, None)
                 ctx = SettleContext(self.table.engine, campaign, graph, world, turn, call_id, parse_call_id(call_id)[1],
                                     self.table.rng, actor, actor, action)
@@ -120,6 +121,7 @@ class ModAdapter:
                 return {"outcome":outcome, "decision":"magic:cast-spell", "effects":ctx.effects, "continuations":[],
                         "rule_refs":[], "family":"magic", "receipts":[r["id"] for r in ctx.receipts]}, ctx.receipts
         if action.get("decision") in {"objects:use", "objects:repair"}:
+            self.require_choice_settled(campaign, graph, world, turn)
             from ..rules.runtime import SettleContext
             from ..store import parse_call_id
             from .effects import use_item, repair_item
@@ -136,6 +138,7 @@ class ModAdapter:
         found = self.runtime.decisions(world).get(action.get("decision"))
         if not found:
             return None
+        self.require_choice_settled(campaign, graph, world, turn)
         mod_id, recipe = found
         actor = self.table._actor(campaign, action.get("actor"))
         target = graph.npc(action.get("target"))
@@ -179,6 +182,13 @@ class ModAdapter:
                        "receipt": receipt, "result": result}
         campaign.write_world(world)
         return result, [receipt]
+
+    @staticmethod
+    def require_choice_settled(campaign: Any, graph: Any, world: dict[str, Any], turn: dict[str, Any]) -> None:
+        pending = SessionView(campaign.dir, graph, campaign.party(), world).pending_choice() or turn.get("pending_choice")
+        if pending:
+            raise RpcError("turn_state", "Settle the existing choice before a Mod action",
+                           fix="use the pending choice's ordinary rule action first", details={"pending_choice":pending})
 
     def legacy_impression(self, campaign: Any, graph: Any, actor: dict[str, Any], target: dict[str, Any],
                           recipe: dict[str, Any]) -> dict[str, Any] | None:

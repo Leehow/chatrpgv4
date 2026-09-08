@@ -268,3 +268,16 @@ def test_container_transfer_and_condition_are_preserved(kernel):
     n = walk_to_confrontation(kernel,start=3)
     error = kernel.table_err("resolve",call_id=f"t1-c{n}",action={"intent":"combat","target":"Walter Corbitt","weapon":"Jammed launcher","defense":"none"})
     assert error["code"] == "needs" and "condition" in error["message"]
+
+
+def test_mod_resolution_obeys_pending_defense_and_preserves_session_projection(kernel):
+    open_turn(kernel)
+    n = walk_to_confrontation(kernel)
+    kernel.table("resolve",call_id=f"t1-c{n}",action={"intent":"combat","target":"Walter Corbitt","weapon":"unarmed"})
+    action={"intent":"social","decision":"natural-npc:first-impression","target":"Walter Corbitt"}
+    error=kernel.table_err("resolve",call_id=f"t1-c{n+1}",action=action)
+    assert error["code"] == "turn_state"
+    kernel.table("resolve",call_id=f"t1-c{n+1}",action={"intent":"combat","actor":"Walter Corbitt","defense":"none"})
+    result=kernel.table("resolve",call_id=f"t1-c{n+2}",action=action)
+    assert result["session"]["kind"] == "combat"
+    assert result["session"]["status"] == "active"

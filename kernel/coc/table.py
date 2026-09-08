@@ -1021,16 +1021,30 @@ class Table:
 
         choice_receipt = self._bind_choice(turn, action, call_id)
         new_receipts = [choice_receipt] if choice_receipt else []
+        turn.setdefault("intents", []).append(intent)
         mod_check = self.mods.check(campaign, graph, world, turn, action, call_id)
         if mod_check is not None:
             result, mod_receipts = mod_check
+            view = SessionView(campaign.dir, graph, campaign.party(), campaign.read_world())
+            result["session"] = view.active_session()
+            result["pending_choice"] = view.pending_choice() or turn.get("pending_choice")
             result["markers"] = _markers_of(turn, mod_receipts)
+            events = []
+            for receipt in mod_receipts:
+                receipt.setdefault("family", result["family"])
+                if receipt["kind"] == "roll":
+                    data = {k:v for k,v in receipt.items() if k not in ("check", "id", "kind", "call_id", "at")}
+                    events.append(("roll-resolved", {**data, "goal":action.get("goal", ""), "method":action.get("method", "")}, receipt["id"]))
+                elif receipt["kind"] == "delta":
+                    events.append(("resource-changed", {"resource":receipt["resource"], "subject":receipt["subject"],
+                                                        "before":receipt["before"], "after":receipt["after"]}, receipt["id"]))
+            if not result.get("reused"):
+                events.append(("decision-settled", {"decision":result["decision"], "family":result["family"],
+                                                    "outcome_kind":result["outcome"]["kind"]}, None))
             self._commit_resolve(campaign, turn, call_id, params, result, new_receipts + mod_receipts,
-                                 [("roll-resolved" if r["kind"] == "roll" else "resource-changed",
-                                   {"decision": result["decision"], "mod": r.get("mod"), "receipt":r}, r["id"]) for r in mod_receipts])
+                                 events)
             return result
         # §13.3: the Director's `intent` signal reads the previous turn's declared intents.
-        turn.setdefault("intents", []).append(intent)
 
         def session_state(settled: dict[str, Any] | None = None) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
             """11.9: the live session and its pending choice are echoed on every resolve; a
