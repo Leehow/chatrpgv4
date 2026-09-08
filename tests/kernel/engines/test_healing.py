@@ -449,6 +449,75 @@ def test_reset_daily_treatments(tables):
 
 
 # --------------------------------------------------------------------------- #
+# downtime integration: the rulebook's units (#76)
+# --------------------------------------------------------------------------- #
+def _downtime(tables, campaign, minutes, *, hp, hp_max=12, conditions=()):
+    """One `handle_time_trigger` over a fresh snapshot; returns (hp gained, snapshot after)."""
+    write_healing_state(campaign, "inv1", {"investigator_id": "inv1", "current_hp": hp,
+                                           "conditions": list(conditions)})
+    gained = handle_time_trigger(tables, campaign, "inv1", hp_max=hp_max, con_value=60, delta_minutes=minutes)
+    return gained, read_healing_state(campaign, "inv1")
+
+
+@pytest.mark.parametrize("minutes,expected", [
+    (360, 1), (480, 1), (1439, 1),      # six hours or more: the one night's rest is the first day
+    (1440, 1), (2879, 1), (2880, 2),    # the day turns at 24 hours, not at eight (#76: 1440 healed 3)
+    (10080, 7), (43200, 30),            # a week is seven; thirty days are thirty (#76: capped at 7)
+])
+def test_handle_time_trigger_heals_one_hp_per_day_of_the_clock(tables, campaign, minutes, expected):
+    """p.121 Regular Damage Recovery: "the character recovers 1 hit point per day"."""
+    gained, state = _downtime(tables, campaign, minutes, hp=5, hp_max=40)
+    assert gained == expected
+    assert state["current_hp"] == 5 + expected
+
+
+def test_handle_time_trigger_major_wound_rolls_con_once_per_full_week(tables, campaign, monkeypatch):
+    """p.121 Major Wound Recovery: "a CON roll should be made at the end of each week of game
+    time that the Major Wound box is ticked". Counted directly — the roll is stubbed, so the
+    box never clears: two days and a third make no roll (#76: 3360 minutes rolled one), a week
+    one, three weeks three (#76: one), thirty days four. The days between heal nothing."""
+    calls: list[dict] = []
+    monkeypatch.setattr(HealingSession, "major_wound_recovery_roll",
+                        lambda self, **kwargs: calls.append(kwargs) or {})
+    for minutes, rolls in [(480, 0), (3360, 0), (10079, 0), (10080, 1), (30240, 3), (43200, 4)]:
+        calls.clear()
+        gained, state = _downtime(tables, campaign, minutes, hp=4, conditions=["major_wound"])
+        assert len(calls) == rolls, f"{minutes} minutes"
+        assert all(kwargs == {"complete_rest": True} for kwargs in calls)
+        assert gained == 0 and state["current_hp"] == 4, "no per-day recovery while the box is ticked"
+        assert "major_wound" in state["conditions"]
+
+
+def test_handle_time_trigger_regular_recovery_resumes_once_the_box_clears(tables, campaign, monkeypatch):
+    """Three weeks, and the first week's roll is an Extreme success (stubbed: +4 and the box
+    erased). The fortnight after it is fourteen days without a major wound: 1 HP each, and no
+    further CON roll — the book asks for one only while the box is ticked, and a fumble on a
+    roll it never asked for would hand out a lasting injury."""
+    calls: list[dict] = []
+
+    def extreme(self, **kwargs):
+        calls.append(kwargs)
+        self.conditions.remove("major_wound")
+        self._heal(4)
+        return {}
+
+    monkeypatch.setattr(HealingSession, "major_wound_recovery_roll", extreme)
+    gained, state = _downtime(tables, campaign, 30240, hp=4, hp_max=40, conditions=["major_wound"])
+    assert len(calls) == 1
+    assert gained == 4 + 14
+    assert state["current_hp"] == 4 + 4 + 14
+    assert "major_wound" not in state["conditions"]
+
+
+def test_handle_time_trigger_major_wound_rolls_real_dice(tables, campaign):
+    """Unstubbed: over a month the loop rolls the engine's own CON check with its bonus die
+    for complete rest, and every hit point it hands back is a whole number under the ceiling."""
+    gained, state = _downtime(tables, campaign, 43200, hp=2, conditions=["major_wound"])
+    assert 0 <= gained <= 10
+    assert state["current_hp"] == 2 + gained
+
+
+# --------------------------------------------------------------------------- #
 # monthly treatment / asylum tiers / indefinite cure / self-help (p.164-168)
 # --------------------------------------------------------------------------- #
 def test_treatment_json_monthly_roll_and_quality_tiers():
