@@ -25,91 +25,90 @@
 
 const STYLE_ID = "pipicoc-sheet-style";
 const CSS = `
-.coc-sheet{--coc-serif:ui-serif,"Songti SC","Noto Serif CJK SC","SimSun",Georgia,serif;
-  display:flex;flex-direction:column;height:100%;min-height:0;overflow:auto;
-  padding:14px 14px 24px;color:var(--text);font-size:12px;line-height:1.5}
-
-/* Identity reads like the top of a printed sheet: a name, then filled-in rules. */
-.coc-sheet-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
-.coc-sheet-name{font-family:var(--coc-serif);font-size:19px;line-height:1.2;font-weight:600;
-  color:var(--text-strong);overflow-wrap:anywhere}
-/* Every control here is text-only, so the focus ring is the only thing that says "you are on it".
-   :focus-visible keeps it off mouse clicks and on for keyboard, which is the point. */
-.coc-sheet :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
-.coc-sheet-refresh{flex:none;margin-top:2px;border:0;background:none;color:var(--subtle);
-  padding:2px 0;font-size:11px;cursor:pointer;border-bottom:1px solid transparent}
-.coc-sheet-refresh:hover{color:var(--accent);border-bottom-color:var(--accent)}
+/* The sidebar shares the chat card's dossier typography and host theme tokens. */
+.coc-sheet{--coc-serif:ui-serif,"Songti SC","Noto Serif CJK SC",Georgia,serif;
+  box-sizing:border-box;container-type:inline-size;display:flex;flex-direction:column;
+  height:100%;min-height:0;min-width:0;overflow:auto;padding:16px 16px 28px;
+  color:var(--text);font-size:13px;line-height:1.6;scrollbar-width:thin}
+.coc-sheet>*{flex-shrink:0}
+.coc-sheet-identity{padding:16px;border:1px solid var(--border);border-top:3px solid var(--accent);
+  border-radius:12px;background:var(--surface-raised,var(--surface));
+  box-shadow:0 3px 14px color-mix(in srgb,var(--text) 4%,transparent)}
+.coc-sheet-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.coc-sheet-name{min-width:0;color:var(--text-strong);font:600 24px/1.3 var(--coc-serif);
+  letter-spacing:-.025em;overflow-wrap:anywhere}
+.coc-sheet :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.coc-sheet-refresh{flex:none;border:1px solid var(--border);border-radius:7px;background:var(--surface);
+  color:var(--accent);padding:5px 9px;font:inherit;font-size:11px;cursor:pointer;min-height:30px}
+.coc-sheet-refresh:hover{border-color:var(--accent)}
 .coc-sheet-refresh:disabled{opacity:.5;cursor:default}
-.coc-sheet-fields{margin:7px 0 0;display:grid;grid-template-columns:auto 1fr;gap:2px 8px;align-items:baseline}
-.coc-sheet-field-key{color:var(--subtle);font-size:11px}
-/* The ink sits on a short rule, the way a filled form looks — not a full-width underline. */
-.coc-sheet-field-val{color:var(--text);overflow-wrap:anywhere}
-.coc-sheet-field-val span{border-bottom:1px solid var(--border);padding-bottom:1px}
-.coc-sheet-concept{margin:8px 0 0;color:var(--muted);line-height:1.6;font-family:var(--coc-serif);font-size:13px}
-.coc-background{margin:0;display:grid;gap:12px}.coc-background dt{font-size:11px;color:var(--muted);margin-bottom:3px}.coc-background dd{margin:0;line-height:1.7;overflow-wrap:anywhere}
-.coc-sheet-note{margin:12px 0;color:var(--muted);line-height:1.6}
-
-.coc-sheet-section{margin:20px 0 0}
-.coc-sheet-heading{display:flex;align-items:center;gap:8px;margin:0 0 8px;color:var(--muted);
-  font-size:11px;font-weight:600}
+.coc-sheet-fields{margin:12px 0 0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:baseline}
+.coc-sheet-field-key{color:var(--muted);font-size:11px}
+.coc-sheet-field-val{color:var(--text);font-size:12px;overflow-wrap:anywhere}
+.coc-sheet-field-val span{padding-bottom:1px}
+.coc-sheet-concept{margin:12px 0 0;padding-top:12px;border-top:1px solid var(--border);
+  color:var(--muted);font-size:12px;line-height:1.75}
+.coc-sheet-note{margin:10px 0;color:var(--muted);line-height:1.65;font-size:12px}
+.coc-sheet-section{margin:24px 0 0;min-width:0}
+.coc-sheet-heading{display:flex;align-items:center;gap:10px;margin:0 0 12px;color:var(--muted);
+  font-size:12px;font-weight:650;line-height:1.4;letter-spacing:.025em}
 .coc-sheet-heading::after{content:"";flex:1;height:1px;background:var(--border)}
-
-/* Vitals sit together as one block, the way they do in the corner of a printed sheet — not as
-   three full-width rules stacked down the column. Each keeps its own tone, so which one moved is
-   legible before the label is read. */
-.coc-vitals{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
-.coc-vital{--tone:var(--muted);min-width:0}
-.coc-vital-key{display:block;color:var(--subtle);font-size:10px;line-height:1.2;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.coc-vital-num{font-family:var(--coc-serif);font-variant-numeric:tabular-nums;font-size:18px;
-  line-height:1.15;font-weight:600;color:var(--text-strong)}
-.coc-vital-max{color:var(--subtle);font-size:11px;font-variant-numeric:tabular-nums}
-.coc-vital-track{margin-top:3px;height:3px;background:color-mix(in oklab, var(--border) 60%, transparent)}
-.coc-vital-fill{height:100%;background:var(--tone)}
-
-/* A printed sheet boxes the characteristics; nothing else on the page is boxed. */
-/* Three across, always: the grouping is the printed sheet's, not a responsive convenience.
-   minmax(0,1fr) plus the cell's own ellipsis is what keeps a long label from blowing the track.
-   No backticks in here: this whole block is a JS template literal. */
-.coc-chars{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}
-.coc-char{border:1px solid var(--border);padding:4px 6px 3px}
-.coc-char-key{display:block;color:var(--subtle);font-size:10px;line-height:1.2;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.coc-char-val{display:block;margin-top:1px;font-family:var(--coc-serif);font-variant-numeric:tabular-nums;
-  font-size:15px;line-height:1.1;font-weight:600;color:var(--text-strong)}
-
-/* Ruled rows with a dot leader: how a sheet aligns a long name to a short number. */
-.coc-list{display:flex;flex-direction:column;gap:2px}
-.coc-line{display:flex;align-items:baseline;gap:5px}
-.coc-line-key{flex:none;min-width:0;overflow-wrap:anywhere}
-.coc-line-lead{flex:1;min-width:10px;height:0;border-bottom:1px dotted var(--border-strong);
-  transform:translateY(-3px)}
-.coc-line-gap{flex:1;min-width:10px}
-.coc-line-val{flex:none;font-family:var(--coc-serif);font-variant-numeric:tabular-nums;
-  font-weight:600;color:var(--text-strong)}
-.coc-line-note{flex:none;color:var(--muted);font-size:11px}
-.coc-more{margin-top:8px;border:0;background:none;color:var(--accent);font-size:11px;cursor:pointer;
-  padding:0;border-bottom:1px solid transparent}
-.coc-more:hover{border-bottom-color:var(--accent)}
-
-/* Where and when: the clock is the one number on this page that gets to be large. */
-.coc-clock{font-family:var(--coc-serif);font-variant-numeric:tabular-nums;font-size:16px;
-  line-height:1.2;color:var(--text-strong)}
-.coc-standing{margin-top:6px;display:flex;flex-direction:column;gap:2px}
-.coc-standing-line{display:flex;gap:6px;align-items:baseline}
-.coc-standing-key{flex:none;width:3.2em;color:var(--subtle);font-size:11px;white-space:nowrap}
-.coc-standing-val{min-width:0;overflow-wrap:anywhere}
+.coc-vitals{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.coc-vital{--tone:var(--muted);min-width:0;padding:11px 12px;border:1px solid var(--border);
+  border-radius:9px;background:color-mix(in srgb,var(--tone) 5%,var(--surface-raised,var(--surface)))}
+.coc-vital-key{display:block;color:var(--muted);font-size:11px;line-height:1.4;margin-bottom:5px}
+.coc-vital-num{color:var(--text-strong);font:600 26px/1.2 var(--coc-serif);font-variant-numeric:tabular-nums}
+.coc-vital-max{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.coc-vital-track{margin-top:7px;height:4px;border-radius:4px;overflow:hidden;background:var(--border)}
+.coc-vital-fill{height:100%;background:var(--tone);border-radius:inherit}
+/* Three columns preserve the characteristic grouping at every sidebar width. */
+.coc-chars{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.coc-char{min-width:0;border:1px solid var(--border);border-radius:8px;padding:10px;
+  background:var(--surface-raised,var(--surface))}
+.coc-char-key{display:block;color:var(--muted);font-size:11px;line-height:1.4;overflow-wrap:anywhere}
+.coc-char-val{display:block;margin-top:5px;color:var(--text-strong);font:600 21px/1.1 var(--coc-serif);
+  font-variant-numeric:tabular-nums}
+.coc-list{display:flex;flex-direction:column;gap:0}
+.coc-line{display:flex;align-items:baseline;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)}
+.coc-line:last-child{border-bottom:0}
+.coc-line-key{min-width:0;overflow-wrap:anywhere;font-size:12px}
+.coc-line-lead,.coc-line-gap{flex:1;min-width:6px}
+.coc-line-val{flex:none;color:var(--text-strong);font:600 15px/1.3 var(--coc-serif);font-variant-numeric:tabular-nums}
+.coc-line-note{color:var(--muted);font-size:11px;overflow-wrap:anywhere}
+.coc-items{flex-direction:row;flex-wrap:wrap;gap:7px}
+.coc-items .coc-line{max-width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface-raised,var(--surface))}
+.coc-items .coc-line-gap{display:none}
+.coc-finance{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px}
+.coc-finance .coc-line{display:block;min-width:0;padding:0 0 10px}
+.coc-finance .coc-line-key{display:block;margin-bottom:4px;color:var(--muted);font-size:11px}
+.coc-finance .coc-line-gap{display:none}
+.coc-finance .coc-line-val{font-size:17px;overflow-wrap:anywhere}
+.coc-finance .coc-line:last-child:nth-child(odd){grid-column:1/-1}
+.coc-more{margin-top:10px;width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:7px;
+  background:var(--surface-raised,var(--surface));color:var(--accent);font:inherit;font-size:12px;cursor:pointer}
+.coc-more:hover{border-color:var(--accent)}
+.coc-clock{color:var(--text-strong);font:600 21px/1.35 var(--coc-serif);font-variant-numeric:tabular-nums}
+.coc-standing{margin-top:10px;display:flex;flex-direction:column;gap:5px}
+.coc-standing-line{display:flex;gap:12px;align-items:baseline}
+.coc-standing-key{flex:none;width:3.2em;color:var(--muted);font-size:11px}
+.coc-standing-val{min-width:0;font-size:12px;overflow-wrap:anywhere}
 .coc-standing-line[data-live="1"] .coc-standing-val{color:var(--accent);font-weight:600}
-
-.coc-clue{padding:6px 0;border-top:1px solid var(--border);line-height:1.6}
-.coc-clue:first-child{border-top:0}
+.coc-background{margin:0;display:grid;gap:15px}
+.coc-background>div{padding:0 0 0 11px;border-left:2px solid var(--border)}
+.coc-background dt{font-size:11px;color:var(--muted);margin-bottom:5px;font-weight:600}
+.coc-background dd{margin:0;font-size:13px;line-height:1.75;overflow-wrap:anywhere}
+.coc-background [data-field="personal_description"]{padding:12px;border:1px solid var(--border);
+  border-radius:9px;background:var(--surface-raised,var(--surface))}
+.coc-background [data-field="Key connection"]{border-left-color:var(--accent)}
+.coc-clue{padding:10px 0;border-top:1px solid var(--border);line-height:1.7}
+.coc-clue:first-child{border-top:0;padding-top:0}
 .coc-clue-name{color:var(--text-strong);font-weight:600}
-.coc-clue-sum{color:var(--muted)}
-
-.coc-who{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0 0}
-.coc-who button{border:0;background:none;color:var(--muted);padding:0 0 2px;font-size:12px;
-  cursor:pointer;border-bottom:1px solid transparent}
-.coc-who button[data-on="1"]{color:var(--text-strong);border-bottom-color:var(--accent)}
+.coc-clue-sum{margin-top:3px;color:var(--muted);font-size:12px}
+.coc-who{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0}
+.coc-who button{padding:6px 10px;border:1px solid var(--border);border-radius:7px;
+  background:var(--surface);color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
+.coc-who button[data-on="1"]{border-color:var(--accent);color:var(--accent)}
+@container (min-width:420px){.coc-vitals{grid-template-columns:repeat(4,minmax(0,1fr))}}
 `;
 
 if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
@@ -290,11 +289,11 @@ export function createComponent(React) {
   }
 
   /**
-   * A name and its value. The dot leader is only for lists long enough that the eye loses the
-   * line — the skills. On five rows of finance it would be decoration, so it is off by default.
+   * A name and its value, with layout variants for inventory tags and finance totals.
+   * The spacer keeps skill names and values aligned without changing their contents.
    */
   function Lines(props) {
-    return h("div", { className: "coc-list" }, props.rows.map((row, index) =>
+    return h("div", { className: `coc-list${props.kind ? " coc-" + props.kind : ""}` }, props.rows.map((row, index) =>
       h("div", { className: "coc-line", key: `${row.name}:${index}` },
         h("span", { className: "coc-line-key" }, row.name),
         h("span", { className: props.leader ? "coc-line-lead" : "coc-line-gap", "aria-hidden": "true" }),
@@ -394,7 +393,7 @@ export function createComponent(React) {
       return props.empty ? h(Section, { title: props.title }, h("p", { className: "coc-sheet-note" }, props.empty)) : null;
     }
     return h(Section, { title: props.title },
-      h(Lines, { rows: list.map(item => { const line = itemLine(item, props.term); return { name: line.title, value: line.note }; }) }));
+      h(Lines, { kind: "items", rows: list.map(item => { const line = itemLine(item, props.term); return { name: line.title, value: line.note }; }) }));
   }
 
   function Finance(props) {
@@ -411,7 +410,7 @@ export function createComponent(React) {
     const creditRating = sheet.credit_rating !== undefined ? sheet.credit_rating : finance.credit_rating;
     if (creditRating !== undefined) rows.push({ name: t.creditRating, value: text(creditRating), numeric: true });
     if (finance.living_standard !== undefined) rows.push({ name: t.livingStandard, value: term(text(finance.living_standard)) });
-    return rows.length ? h(Section, { title: t.finance }, h(Lines, { rows })) : null;
+    return rows.length ? h(Section, { title: t.finance }, h(Lines, { kind: "finance", rows })) : null;
   }
 
   /** Where and when the table stands: the old panel's 时间 tab, minus the invented wall clock. */
@@ -423,7 +422,7 @@ export function createComponent(React) {
     if(isRecord(sheet.key_connection)&&sheet.key_connection.summary)rows.push(["Key connection",text(sheet.key_connection.summary)]);
     if(!rows.length)return null;
     return h(Section,{title:term("Background")},h("dl",{className:"coc-background"},rows.map(([key,value])=>
-      h("div",{key},h("dt",null,term(key)),h("dd",null,term(value))))));
+      h("div",{key,"data-field":key},h("dt",null,term(key)),h("dd",null,term(value))))));
   }
 
   function Standing(props) {
@@ -574,14 +573,14 @@ export function createComponent(React) {
     const concept = sheet && isRecord(sheet.backstory) ? term(text(sheet.backstory.concept)) : "";
 
     return h("div", { className: "coc-sheet", role: "region", "aria-label": props.title || "Investigator" },
-      head,
+      h("div", {className:"coc-sheet-identity"}, head,
       fields.length
         ? h("div", { className: "coc-sheet-fields" }, fields.flatMap(([key, value], index) => [
             h("span", { className: "coc-sheet-field-key", key: `k${index}` }, key),
             h("span", { className: "coc-sheet-field-val", key: `v${index}` }, h("span", null, value)),
           ]))
         : null,
-      concept ? h("p", { className: "coc-sheet-concept" }, concept) : null,
+      concept ? h("p", { className: "coc-sheet-concept" }, concept) : null),
       // More than one investigator at the table is legal (§5 `needs_choice`), so the panel picks.
       party.length > 1
         ? h("div", { className: "coc-who" }, party.map((member, index) =>
