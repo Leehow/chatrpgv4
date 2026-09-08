@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile, readdir } from 'node:fs/promises';
 import { KernelClient, isKernelError } from '../extensions/kernel/client.ts';
 import { ReadingService } from '../extensions/module/reading-service.ts';
-import { prepareCharacterGuidance } from '../extensions/module/character-guidance.ts';
+import { prepareCharacterGuidance, guidanceFingerprint, acceptedGuidance } from '../extensions/module/character-guidance.ts';
 import { prepareCharacterPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
 import { labelsFor } from './panel.js';
 import { sourceInfo } from '../extensions/module/source.ts';
@@ -51,14 +51,14 @@ async function main() {
     }
     const library = await call('module.list');
     const occupations = await call('setup.occupations');
-    return {presets, modules: library.modules.filter((row: any) => row.source !== 'starter' && row.status === 'installed'), occupations: occupations.occupations};
+    return {presets, modules: library.modules.filter((row: any) => row.source !== 'starter' && (row.status === 'installed'||row.setup_ready)), occupations: occupations.occupations};
   }
   if (action === 'inspect') {
     const source = await sourceInfo(input.pdf);
     const bound = await call('module.source.bind', {source, title: input.name.replace(/\.pdf$/i, '')});
     return {...bound, page_count: source.page_count};
   }
-  if (action === 'prepare') {
+  if (['prepare','guidance','opening'].includes(action)) {
     if (input.source === 'starter') {
       await call('module.register', {module_id: input.module_id});
       return await withGuidance({module_id: input.module_id, opening_ready: true});
@@ -66,8 +66,18 @@ async function main() {
     reader = new ReadingService({call, home: input.home, model: () => ({id: input.model, vision: true, thinking: input.thinking}),
       progress: data => emit('progress', data), record: data => emit('telemetry', data)});
     let retry = input.retry === true;
+    const occupations = await call('setup.occupations');
+    const guidanceOptions = {home:input.home,module_id:input.module_id,play_language:input.play_language||'zh-Hans',
+      opening:input.start_scene,occupations:occupations.occupations};
+    const guidance_key = action==='guidance' ? await guidanceFingerprint(guidanceOptions) : undefined;
     while (!stopping) {
-      try { return await withGuidance(await reader.prepare({module_id: input.module_id, start_scene: input.start_scene, retry})); }
+      try {
+        const prepared = await reader.prepare({module_id: input.module_id, start_scene: input.start_scene, retry,
+          ...(action==='guidance'?{purpose:'guidance',guidance_key,play_language:guidanceOptions.play_language,occupations:occupations.occupations}:{}),
+          ...(action==='opening'?{targeted:true}:{})},guidanceAbort.signal);
+        if(action==='guidance')return {...prepared,guidance_key,guidance:await acceptedGuidance(input.home,input.module_id,guidance_key!)};
+        return action==='opening'?prepared:await withGuidance(prepared);
+      }
       catch (error) {
         retry = false;
         if (isKernelError(error) && error.details?.reason === 'reading_timeout') continue;
@@ -79,13 +89,14 @@ async function main() {
   if (action === 'converse') {
     const campaign=input.campaign;
     const existing=(await call('campaign.list')).campaigns?.some((row:any)=>row.id===campaign);
-    if(!existing)await call('campaign.create',{id:campaign,module:input.module_id,title:input.title,play_language:input.play_language});
+    if(!existing)await call('campaign.create',{id:campaign,module:input.module_id,title:input.title,play_language:input.play_language,
+      start_scene:input.start_scene,guidance_key:input.guidance_key});
     return {campaign,play_language:input.play_language};
   }
   throw new Error('Unknown onboarding operation');
 }
 main().then(data => emit('result', data)).catch(error => {
   emit('error', {message: error.message, code: error.code, reason: error.details?.reason, fix: error.fix,
-    candidates: error.details?.candidates?.map((row: any) => ({scene: row.scene, name: row.name}))});
+    candidates: error.details?.candidates?.map((row: any) => ({scene: row.scene, name: row.name, summary:row.summary}))});
   process.exitCode = 1;
 }).finally(async () => { await reader?.close(); await kernel.close(); });

@@ -19,7 +19,7 @@ from .playability import opening_check
 from .store import ModuleStore, now_iso
 from .visual import assemble_visual, check_draft, check_review, reject
 
-PURPOSES = ("index", "skeleton", "opening", "detail")
+PURPOSES = ("index", "skeleton", "guidance", "opening", "detail")
 
 
 def digest(path: Path) -> str:
@@ -166,7 +166,7 @@ class Reading:
             meta = self.store.module(mid)
             reading = meta.setdefault("reading", self.initial_state())
             focus, question = params.get("focus") or "", params.get("question") or ""
-            if purpose == "opening" and meta.get("opening_choice"):
+            if purpose == "opening" and not focus and meta.get("opening_choice"):
                 focus = meta["opening_choice"]["start_scene"]
             if not isinstance(focus, str) or not isinstance(question, str):
                 raise invalid_params("focus and question must be strings")
@@ -174,9 +174,19 @@ class Reading:
                 raise invalid_params("a detail reading needs a named focus",
                                      fix="pass the entity or place as focus, and the unresolved question when known")
             result = {"generation": meta.get("generation", 0), "missing": []}
+            guidance_key = params.get("guidance_key")
+            if purpose == "guidance":
+                if (not isinstance(guidance_key, str) or len(guidance_key) != 64 or
+                    any(c not in "0123456789abcdef" for c in guidance_key) or
+                    params.get("play_language") not in ("zh-Hans", "en") or
+                    not isinstance(params.get("occupations"), list)):
+                    raise invalid_params("guidance needs a host fingerprint, play_language and occupation catalog")
+                accepted = meta.get("character_guidance", {}).get(guidance_key)
+                if accepted:
+                    return {**result, "state": "ready", "setup_ready": True, "guidance_key": guidance_key, **accepted}
             if purpose == "skeleton" and self.store.read_graph(mid):
                 return {**result, "state": "ready"}
-            if purpose == "opening" and meta.get("opening_ready"):
+            if purpose == "opening" and self.opening_ready(mid, focus):
                 return {**result, "state": "ready"}
             if purpose == "detail" and not question and self.material_ready(mid, focus):
                 return {**result, "state": "ready"}
@@ -184,7 +194,10 @@ class Reading:
                 return {**result, "state": "ready"}
             source = self.source(meta)
             pages = []
-            key = hashlib.sha256(canonical_json([source["file_sha256"], purpose, normalize(focus), question, pages]).encode()).hexdigest()
+            identity = [source["file_sha256"], purpose, normalize(focus), question, pages]
+            if purpose == "guidance":
+                identity.append(guidance_key)
+            key = hashlib.sha256(canonical_json(identity).encode()).hexdigest()
             for material in reading["materials"] if purpose == "detail" else []:
                 if material.get("key") == key:
                     return {**result, "state": "ready"}
@@ -205,6 +218,8 @@ class Reading:
             job = {"job_id": f"read-{len(queue) + 1}", "key": key, "purpose": purpose, "focus": focus,
                    "question": question, "pages": pages, "foreground": bool(params.get("foreground")),
                    "state": "queued", "attempts": 0, "at": now_iso()}
+            if purpose == "guidance":
+                job.update({k: params[k] for k in ("guidance_key", "play_language", "occupations")})
             if existing and existing.get("work_dir"):
                 job["resume_from"] = existing["work_dir"]
             queue.append(job)
@@ -247,7 +262,7 @@ class Reading:
                     stale["state"] = "queued"
                 if stale.get("state") == "queued" and (
                     (stale["purpose"] == "index" and meta["reading"]["index_complete"]) or
-                    (stale["purpose"] == "opening" and meta.get("opening_ready")) or
+                    (stale["purpose"] == "opening" and self.opening_ready(mid, stale.get("focus", ""))) or
                     (stale["purpose"] == "detail" and not stale.get("question") and self.material_ready(mid, stale["focus"]))
                 ):
                     stale.update(state="completed", finished_at=now_iso(), reused_generation=meta.get("generation", 0),
@@ -349,6 +364,9 @@ class Reading:
                 review_seen = set(observations.get("review_pages", []))
                 check_review(draft, filled, read_json(review_path), meta["page_count"], review_seen)
                 graph = assemble_visual(self.store.read_graph(mid), filled, meta)
+                guidance = None
+                if job["purpose"] == "guidance":
+                    guidance = self.check_guidance(work, draft, graph, read_json(review_path))
                 assets = params.get("assets") or []
                 if not isinstance(assets, list) or any(not isinstance(a, dict) for a in assets):
                     reject("assets must be an array of host-rendered asset records")
@@ -362,7 +380,15 @@ class Reading:
                         not path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")):
                         reject("the rendered asset does not match its reviewed source declaration")
                     node["properties"].update(asset_ref=str(path.relative_to(self.store.module_dir(mid).resolve())), media_type="image/png")
-                opening = opening_check(graph)
+                checked_graph = graph
+                if job["purpose"] == "opening" and job.get("focus"):
+                    from .assemble import resolve_start_scene, apply_opening_choice
+                    chosen = resolve_start_scene(graph, job["focus"])
+                    if chosen is None:
+                        reject("the requested opening is not an authored entrance")
+                    checked_graph = copy.deepcopy(graph)
+                    apply_opening_choice(checked_graph, chosen)
+                opening = opening_check(checked_graph)
                 prepared = {nid for material in meta["reading"]["materials"] for nid in material.get("node_ids", [])}
                 prepared.update(filled["ready_nodes"])
                 if opening["opening_ready"] and opening.get("start_scene") not in prepared:
@@ -370,25 +396,85 @@ class Reading:
                     opening["missing"].append("start_scene_material")
                 if job["purpose"] == "opening" and not opening["opening_ready"] and not opening.get("choice"):
                     reject(f"the opening is not playable: {opening.get('missing')} {opening.get('findings')}")
-                if job["purpose"] == "skeleton":
+                if job["purpose"] in ("skeleton", "guidance"):
                     opening["opening_ready"] = False
-                meta["opening"] = opening
-                meta["opening_ready"] = bool(opening["opening_ready"])
-                meta["reading"]["state"] = "ready" if meta["opening_ready"] else "preparing" if job["purpose"] == "skeleton" else "blocked"
+                if job["purpose"] == "opening" and opening["opening_ready"]:
+                    meta.setdefault("prepared_openings", {})[opening["start_scene"]] = opening
+                default_opening = opening_check(graph)
+                default_opening["opening_ready"] = bool(default_opening["opening_ready"] and default_opening.get("start_scene") in prepared)
+                meta["opening"] = default_opening
+                meta["opening_ready"] = default_opening["opening_ready"]
+                meta["reading"]["state"] = "ready" if meta["opening_ready"] else "preparing" if job["purpose"] in ("skeleton", "guidance") else "blocked"
                 meta["reading"]["viewed_pages"] = sorted(set(meta["reading"]["viewed_pages"]) | {p - 1 for p in seen})
                 meta["reading"]["materials"].append({"key": job["key"], "purpose": job["purpose"],
                     "focus": job["focus"], "question": job["question"], "node_ids": filled["ready_nodes"],
                     "generation": meta.get("generation", 0) + 1})
                 meta["status"] = "installed" if meta["opening_ready"] else "assembled"
                 self.store.write_graph(meta, graph)
+                if guidance:
+                    key = job["guidance_key"]
+                    accepted = self.store.module_dir(mid) / "character-guidance" / key / "accepted.json"
+                    write_json_atomic(accepted, {"fingerprint": key, "approved": True, "guidance": guidance,
+                        "draft_sha256": digest(work / "draft.json"), "source_sha256": meta["file_sha256"],
+                        "review": str(review_path.relative_to(self.store.module_dir(mid))), "at": now_iso()})
+                    meta.setdefault("character_guidance", {})[key] = {"scene": guidance["scene"], "play_language": job["play_language"]}
             result = {"state": "ready" if meta.get("opening_ready") else meta["reading"]["state"],
                       "generation": meta.get("generation", 0), "opening_ready": meta.get("opening_ready", False)}
+            if job["purpose"] == "guidance":
+                if guidance:
+                    result.update(state="ready", setup_ready=True, guidance_key=job["guidance_key"], scene=guidance["scene"])
+                else:
+                    result.update(state="blocked", setup_ready=False, opening=meta["opening"])
+            elif job["purpose"] == "opening" and opening["opening_ready"]:
+                result.update(state="ready", opening_ready=True, scene=job["focus"])
             job.update(state="completed", result=result, finished_at=now_iso())
             meta["reading"].setdefault("completed", {})[job["job_id"]] = result
             self.store.write_module(meta)
             self.store.write_queue(mid, queue)
             self.release(mid, job["job_id"])
             return result
+
+    @staticmethod
+    def check_guidance(work, draft, graph, review):
+        path = contained(work, str(work / "guidance.json"))
+        if path.stat().st_size > 64 * 1024:
+            reject("guidance exceeds its file limit")
+        guidance = read_json(path)
+        approval = review.get("guidance", {})
+        if (approval.get("approved") is not True or approval.get("issues") != [] or
+            approval.get("draft_sha256") != digest(work / "draft.json") or approval.get("guidance_sha256") != digest(path)):
+            reject("guidance review must approve the exact source shard and guidance pair")
+        if guidance == {"needs_choice": True}:
+            from .playability import start_scene_candidates
+            if len(start_scene_candidates(graph)) < 2:
+                reject("a guidance choice requires multiple authored entrances")
+            return None
+        fields = ("opening", "advice", "scene", "guide", "handoff")
+        if not isinstance(guidance, dict) or set(guidance) != set(fields) or any(
+            not isinstance(guidance[k], str) or len(guidance[k]) > 4000 or
+            (k != "guide" and not guidance[k].strip()) for k in fields):
+            reject("guidance needs five bounded strings")
+        from .assemble import resolve_start_scene
+        chosen = resolve_start_scene(graph, guidance["scene"])
+        if chosen is None:
+            reject("guidance must name an authored entrance")
+        if guidance["guide"]:
+            actors = {n["node_id"] for n in graph["nodes"] if n["node_kind"] == "npc" and normalize(n["name"]) == normalize(guidance["guide"])}
+            if not any(c["subject_id"] in actors and c["predicate"] == "present-in" and c["object"].get("node_id") == chosen for c in graph["claims"]):
+                reject("the guidance person must be present at the selected opening")
+        return guidance
+
+    def opening_ready(self, mid: str, focus: str = "") -> bool:
+        meta = self.store.module(mid)
+        if not focus:
+            return bool(meta.get("opening_ready"))
+        from .assemble import resolve_start_scene, apply_opening_choice
+        graph = self.store.read_graph(mid) or {}
+        chosen = resolve_start_scene(graph, focus)
+        if chosen is None or not self.material_ready(mid, chosen):
+            return False
+        apply_opening_choice(graph, chosen)
+        return bool(opening_check(graph)["opening_ready"])
 
     def finish_index(self, mid: str, meta: dict[str, Any], job: dict[str, Any], draft: Any, seen: set[int]) -> None:
         if not isinstance(draft, dict) or not isinstance(draft.get("sections"), list):

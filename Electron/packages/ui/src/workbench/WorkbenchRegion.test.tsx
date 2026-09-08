@@ -12,6 +12,18 @@ afterEach(() => {
 })
 
 describe('WorkbenchRegion', () => {
+  it('stacks every declared overlay and binds each to the current session',()=>{
+    const store=createWorkbenchStore();
+    const containers=['first','second'].map(id=>({id,location:'overlay' as const,title:id}));
+    const views=containers.map(row=>({id:row.id+'.view',container:row.id}));
+    for(const container of containers)registerWorkbenchContainer('campaign-fixture',container);
+    for(const view of views)registerWorkbenchView('campaign-fixture',{...view,render:ctx=><div>{view.id}:{ctx.sessionId}</div>});
+    store.apply({packId:'campaign-fixture',containers,views,layout:{}});
+    const view=render(<WorkbenchRegion store={store} location="overlay" sessionId="one"/>);
+    expect(view.getByText('first.view:one')).toBeTruthy();expect(view.getByText('second.view:one')).toBeTruthy();
+    view.rerender(<WorkbenchRegion store={store} location="overlay" sessionId="two"/>);
+    expect(view.getByText('first.view:two')).toBeTruthy();
+  });
   it('renders the active form container without knowing its product domain', () => {
     registerWorkbenchContainer('campaign-fixture', {
       id: 'campaign.navigator',

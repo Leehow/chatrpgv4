@@ -726,6 +726,12 @@ it('replaces a rewritten final segment and retracts discarded drafts', () => {
   expect(rows[0].content).toBe('Previous. ')
 })
 
+it('renders a prepared opening as assistant text without adding a player turn',()=>{
+  const entry={id:'opening-question',role:'assistant' as const,content:'Who are you at this meeting?',timestamp:1};
+  const first=applyStreamEvent([],{type:'presentation',sessionId:'one',entry});
+  expect(first).toHaveLength(1);expect(first[0].content).toBe(entry.content);expect(first[0].role).toBe('assistant');
+  expect(applyStreamEvent(first,{type:'presentation',sessionId:'one',entry})).toHaveLength(1);
+});
 it('restores standalone presentations and deduplicates replayed live entries',()=>{
   const entry={id:'receipt-row',role:'assistant' as const,content:'',timestamp:1,presentation:{renderer:'coc-mechanics',details:{mechanics:[{kind:'time',minutes:5}]}}};
   const restored=historyMessages([entry]);

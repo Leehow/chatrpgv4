@@ -1,4 +1,4 @@
-import {afterEach, expect, it} from 'vitest';
+import {afterEach, expect, it, vi} from 'vitest';
 import {mkdtemp, readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
@@ -13,6 +13,30 @@ async function service(){
 }
 afterEach(()=>{for(const host of services.splice(0))host.dispose()});
 const model={id:'test/no-provider',thinking:'low',vision:true};
+it('patches only the owning phase and retains conversation binding across delayed completion',async()=>{
+  // Controlled promises exercise coordinator races only; this is not gameplay.
+  const {host,home}=await service();
+  const pending:Array<{action:string;resolve:(value:any)=>void}>=[];
+  vi.spyOn(host as any,'run').mockImplementation((action:any)=>action==='converse'?Promise.resolve({}):
+    new Promise(resolve=>pending.push({action,resolve})));
+  let job=await host.invoke({action:'select',source:'module',module_id:'book-1',name:'Book'},'one',model);
+  pending.shift()!.resolve({module_id:'book-1',guidance:{scene:'Dock'},guidance_key:'a'.repeat(64)});
+  await new Promise(resolve=>setTimeout(resolve,0));
+  expect(pending[0].action).toBe('opening');
+  job=await host.invoke({action:'converse',id:job.id},'one',model);
+  const campaign=job.campaign;
+  await host.invoke({action:'pause',id:job.id},'one',model);
+  await host.invoke({action:'resume',id:job.id},'one',model);
+  pending[0].resolve({opening_ready:true});
+  await new Promise(resolve=>setTimeout(resolve,0));
+  let saved=JSON.parse(await readFile(join(home,'.coc/imports',job.id,'job.json'),'utf8'));
+  expect(saved.preparation.opening.state).toBe('running');expect(saved.campaign).toBe(campaign);
+  pending[1].resolve({opening_ready:true});
+  await new Promise(resolve=>setTimeout(resolve,0));
+  saved=JSON.parse(await readFile(join(home,'.coc/imports',job.id,'job.json'),'utf8'));
+  expect(saved.state).toBe('conversing');expect(saved.campaign).toBe(campaign);
+  expect(saved.preparation.guidance.state).toBe('ready');expect(saved.preparation.opening.state).toBe('ready');
+});
 it('bounds upload bytes, acknowledges offsets and rejects another session',async()=>{
   const {host,home}=await service();
   await expect(host.invoke({action:'begin',name:'book.pdf',size:129*1024*1024},'one',model)).rejects.toThrow();
@@ -40,7 +64,8 @@ it('conversation binding is idempotent and never creates an investigator',async(
   let reused=await host.invoke({action:'select',source:'starter',module_id:'the-haunting',name:'The Haunting',play_language:'en'},'two',model);
   const reuseDeadline=Date.now()+10000;
   while(reused.state==='preparing'&&Date.now()<reuseDeadline){await new Promise(r=>setTimeout(r,50));reused=await host.invoke({action:'status',id:reused.id},'two',model)}
-  expect(reused.state).toBe('ready');expect(reused.guidance).toEqual(job.guidance);
+  expect(reused.state).toBe('ready');expect(reused.preparation.guidance.state).toBe('ready');
+  expect(job).not.toHaveProperty('guidance');expect(reused).not.toHaveProperty('guidance');
   const {readdir}=await import('node:fs/promises');
   const cache=join(home,'.coc/modules/the-haunting/character-guidance');
   const keys=await readdir(cache);expect(keys).toHaveLength(1);

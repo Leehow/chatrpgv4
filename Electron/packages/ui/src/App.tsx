@@ -2696,6 +2696,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     <section className="chat-column">
       <ChatHeader session={headerSession} project={projects.find(item => item.id === selectedProject)} lease={lease} host={host} gitAvailable={gitAvailable} sidebarCollapsed={productSidebarCollapsed} toolsCollapsed={productToolsCollapsed} onToggleSidebar={toggleSidebar} onToggleTools={toggleTools} onRename={renameSidebarSession} onTakeover={async () => { if (selectedSession) setLease(await host.forceTakeoverSessionLease(selectedSession)) }} />
       <div className="chat-viewport" data-testid="chat-viewport">
+        <WorkbenchRegion store={productWorkbench.store} location="overlay" sessionId={selectedSession || undefined} />
         {productPanels.length > 0 && !onboardingActive && productToolsCollapsed && <ToolQuickRail variant="float" collapsible={narrowViewport} activeTab={activeTab} toolsCollapsed={productToolsCollapsed} onSelect={selectTool} host={host} browserAvailable={browserAvailable} terminalAvailable={terminalAvailable} planTabVisible={planTabVisible} planProgress={planProgressBadge} subagentsRunningCount={subagentsRunningCount} />}
         {projectsLoaded && lazyStartupReady && !selectedSession ? (
           <div className="empty-setup-viewport">

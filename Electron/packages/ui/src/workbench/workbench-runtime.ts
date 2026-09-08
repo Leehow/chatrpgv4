@@ -66,7 +66,8 @@ export function createProductWorkbenchRuntime(): ProductWorkbenchRuntime {
       ...(layout.activity ?? []),
     ].filter((id): id is string => Boolean(id)))
     const containers = listWorkbenchContainers()
-      .filter(container => requested.has(container.id))
+      .filter(container => requested.has(container.id) ||
+        (container.location === 'overlay' && enabledExtensionIds.includes(container.extensionId)))
       .map(({ extensionId: _extensionId, ...container }) => container)
     const known = new Set(containers.map(container => container.id))
     const views = listWorkbenchViews()

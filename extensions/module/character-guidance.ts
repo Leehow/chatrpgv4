@@ -14,6 +14,26 @@ type Options = {home:string; module_id:string; play_language:string; opening?:st
   occupations:Array<{id:string; name:string}>; model?:string; thinking?:string; signal?:AbortSignal;
   runner?:(request:ReaderRequest)=>Promise<ReaderOutcome>};
 const digest = (value:string) => createHash('sha256').update(value).digest('hex');
+export async function guidanceFingerprint(options:Options):Promise<string> {
+  const folder=resolve(options.home,'.coc/modules',options.module_id);
+  const meta=JSON.parse(await readFile(join(folder,'module.json'),'utf8'));
+  const prompts=await Promise.all([promptPath,reviewPath,join(root,'content/setup/visual-guidance.md')].map(path=>readFile(path,'utf8')));
+  let source=meta.file_sha256;
+  if(!source) {
+    const graph=JSON.parse(await readFile(join(folder,meta.graph_file||'module-graph.json'),'utf8'));
+    source=JSON.stringify(graph.nodes.filter((n:Row)=>n.node_kind==='module'||n.node_id===options.opening));
+  }
+  return digest(JSON.stringify([source,options.opening||'',options.play_language,options.occupations,prompts]));
+}
+export async function acceptedGuidance(home:string,moduleId:string,key:string):Promise<Guidance> {
+  if(!/^[a-f0-9]{64}$/.test(key))throw new Error('Invalid guidance reference');
+  const folder=resolve(home,'.coc/modules',moduleId);
+  const meta=JSON.parse(await readFile(join(folder,'module.json'),'utf8'));
+  const saved=await json(join(folder,'character-guidance',key,'accepted.json'));
+  if(saved.fingerprint!==key||saved.approved!==true||
+    (meta.reading_version && !meta.character_guidance?.[key]))throw new Error('Guidance has not been accepted');
+  return validateGuidance(saved.guidance);
+}
 function text(value:unknown, empty=false):string {
   if(typeof value !== 'string' || (!empty && !value.trim()) || value.length>4000) throw new Error('Invalid character guidance text');
   return value;
@@ -39,11 +59,12 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
   const graphBytes=await readFile(graphPath,'utf8');
   const [prompt,reviewPrompt]=await Promise.all([readFile(promptPath,'utf8'),readFile(reviewPath,'utf8')]);
   const selectedOpening=options.opening || meta.opening_choice?.start_scene || meta.opening?.start_scene || '';
-  const key=digest(JSON.stringify([graphBytes,selectedOpening,options.play_language,options.occupations,prompt,reviewPrompt]));
+  const key=await guidanceFingerprint(options);
   const cache=join(folder,'character-guidance',key);
+  if(meta.character_guidance?.[key])return acceptedGuidance(options.home,options.module_id,key);
   try {
     const saved=await json(join(cache,'accepted.json'));
-    if(saved.fingerprint===key && saved.approved===true)return validateGuidance(saved.guidance,options.occupations);
+    if(saved.fingerprint===key && saved.approved===true && !saved.draft_sha256)return validateGuidance(saved.guidance,options.occupations);
   } catch { /* A missing or invalid cache is rebuilt; attempts remain on disk. */ }
   if(options.signal?.aborted)throw new Error('Character guidance cancelled');
   const attempt=join(cache,'attempts',randomUUID());

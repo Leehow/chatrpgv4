@@ -29,7 +29,8 @@ class ModuleMethods:
         for module_id in self.store.module_ids():
             meta = self.store.module(module_id)
             rows.append({"module_id": module_id, "title": meta.get("title"), "source": meta.get("source"),
-                         "status": meta.get("status"), "generation": meta.get("generation")})
+                         "status": meta.get("status"), "generation": meta.get("generation"),
+                         "setup_ready": bool(meta.get("character_guidance"))})
         return {"modules": rows}
 
     def status(self, params: dict[str, Any]) -> dict[str, Any]:

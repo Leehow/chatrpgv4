@@ -1,11 +1,12 @@
-import {useEffect, useRef, useState} from 'react'
+import {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react'
+import {createExtensionHostAPI} from '@pipiui/extension-api'
 import type {PipiHostAPI} from '@pipi/host-api'
 import './coc-onboarding.css'
 
 type Row = Record<string, any>
 type Props = {host: PipiHostAPI; sessionId: string}
 const MB = 1024 * 1024
-const stageNames: Record<string, string> = {source:'检查文件', skeleton:'识别剧本结构', index:'定位剧本结构', read:'准备开场', verify:'核对关键资料', ready:'开场已准备好'}
+const stageNames: Record<string, string> = {source:'检查文件', skeleton:'识别剧本结构', index:'定位剧本结构', read:'准备建卡背景', verify:'核对关键资料', ready:'开场已准备好'}
 function fileChunk(file: Blob): Promise<string> {
   return new Promise((resolve,reject) => {
     const reader = new FileReader()
@@ -15,6 +16,9 @@ function fileChunk(file: Blob): Promise<string> {
   })
 }
 export function CocOnboarding({host, sessionId}: Props) {
+  const api=useMemo(()=>createExtensionHostAPI({host,sessionId,extensionId:'coc-keeper',capabilities:['invoke.agent']}),[host,sessionId])
+  const query=useMemo(()=>api.observe!('onboarding',{action:'current'}),[api])
+  const current=useSyncExternalStore(query.subscribe,query.snapshot,query.snapshot)
   const [section,setSection] = useState<'home'|'starter'|'module'|'pdf'>('home')
   const [catalog,setCatalog] = useState<Row | null>(null)
   const [job,setJob] = useState<Row | null>(null)
@@ -32,6 +36,7 @@ export function CocOnboarding({host, sessionId}: Props) {
   function remember(next: Row) {
     if(next.play_language)setLanguage(next.play_language)
     setJob(next)
+    void query.refresh()
     try {localStorage.setItem(storageKey,next.id)} catch { /* storage may be disabled */ }
   }
   useEffect(() => {
@@ -43,17 +48,7 @@ export function CocOnboarding({host, sessionId}: Props) {
     } catch { /* no browser storage */ }
     return () => {active=false}
   },[host,sessionId])
-  useEffect(() => {
-    if(!job || !(['preparing','inspecting'].includes(job.state)||(job.state==='paused'&&job.stopping)))return
-    let active=true, timer:ReturnType<typeof setTimeout>
-    const poll=async()=>{
-      try {const next=await call({action:'status',id:job.id});if(active)remember(next)}
-      catch(e){if(active)setError(e instanceof Error?e.message:String(e))}
-      if(active)timer=setTimeout(poll,2000)
-    }
-    timer=setTimeout(poll,1000)
-    return()=>{active=false;clearTimeout(timer)}
-  },[job?.id,job?.state,job?.stopping])
+  useEffect(()=>{if(current?.ok){const next=(current.data as Row).current_import;if(next)setJob(next)}},[current])
   async function act(params:Row) {
     setError('');setBusy(true)
     try {remember(await call({...params,id:job?.id,...(params.action==='select'?{play_language:language}:{})}))} catch(e){setError(e instanceof Error?e.message:String(e))} finally {setBusy(false)}
@@ -104,12 +99,12 @@ export function CocOnboarding({host, sessionId}: Props) {
       {preparing && <div role="status" aria-live="polite">
         <h2>{job.state==='uploading'?'正在上传':job.state==='inspecting'?'正在检查 PDF':(job.stage==='guidance'?'Preparing character guidance':stageNames[job.stage])||'正在准备剧本'}</h2>
         {job.stage==='guidance'?<p role="status">Preparing and reviewing your scenario background and character suggestions.</p>:job.state==='uploading'?<><progress aria-label="上传进度" max={job.size} value={job.received}/><p>已上传 {(job.received/MB).toFixed(1)} / {(job.size/MB).toFixed(1)} MB</p></>:
-          <><progress aria-label="阅读进度" {...(job.stage==='verify'&&job.reviewTotal?{max:job.reviewTotal,value:job.reviewed||0}:{})}/><p>{job.stage==='verify'&&job.reviewTotal?`已核对 ${job.reviewed||0} / ${job.reviewTotal} 组资料 · ${job.activeReaders||0} 组正在复核`:'正在定位并阅读开场需要的原页。'}</p><p className="coc-muted">Character guidance follows opening preparation.</p></>}
+          <><progress aria-label="阅读进度" {...(job.stage==='verify'&&job.reviewTotal?{max:job.reviewTotal,value:job.reviewed||0}:{})}/><p>{job.stage==='verify'&&job.reviewTotal?`已核对 ${job.reviewed||0} / ${job.reviewTotal} 组资料 · ${job.activeReaders||0} 组正在复核`:'正在定位并阅读开场需要的原页。'}</p><p className="coc-muted">建卡背景就绪后即可开始对话，开场资料会在后台继续准备。</p></>}
         <button className="coc-secondary" onClick={()=>{if(job.state==='uploading'&&uploadRunning.current)cancelled.current=true;else void act({action:'pause'})}}>{job.state==='uploading'?'取消上传':'暂停准备'}</button>
       </div>}
-      {job.state==='choice' && <div><h2>选择开场</h2><p>这份剧本提供了不同的开始方式。</p><div className="coc-source-list">{job.candidates?.map((item:Row)=><button key={item.scene} disabled={busy} onClick={()=>void act({action:'opening',scene:item.scene})}>{item.name}<b>选择 →</b></button>)}</div></div>}
+      {job.state==='choice' && <div><h2>选择开场</h2><p>这份剧本提供了不同的开始方式。</p><div className="coc-source-list">{job.candidates?.map((item:Row)=><button key={item.scene} disabled={busy} onClick={()=>void act({action:'opening',scene:item.scene})}><strong>{item.name}</strong>{item.summary&&<span>{item.summary}</span>}<b>选择 →</b></button>)}</div></div>}
       {['failed','paused'].includes(job.state)&&<div><h2>{job.state==='paused'?'准备已暂停':'暂时无法完成准备'}</h2><p>已经保存的文件和阅读进度都还在。</p>{job.error&&<details><summary>查看原因</summary><p>{job.error}</p></details>}<div className="coc-actions"><button disabled={busy||job.stopping} onClick={()=>void act({action:'resume'})}>{job.stopping?'正在暂停…':'继续准备'}</button><button className="coc-secondary" onClick={()=>chooser.current?.click()}>重新选择 PDF</button></div></div>}
-      {['ready','conversing'].includes(job.state)&&<p role="status">The guide is opening your character-creation conversation.</p>}
+      {['ready','conversing'].includes(job.state)&&<p role="status">正在进入建卡对话，开场资料将在后台继续准备。</p>}
       {!preparing&&!busy&&job.state!=='created'&&<button className="coc-back" onClick={back}>← 返回选择剧本</button>}
     </section>}
     {error&&<div className="coc-error" role="alert"><strong>这一步没有完成</strong><p>{error}</p><button onClick={()=>{setError('');void call({action:'catalog'}).then(setCatalog).catch(e=>setError(e.message))}}>重试连接</button></div>}

@@ -1,4 +1,5 @@
-import { CocOnboardingHost } from './coc-onboarding.js';
+import { CocOnboardingHost, CocOnboardingRegistry } from './coc-onboarding.js';
+export { CocOnboardingRegistry } from './coc-onboarding.js';
 import { readCocBinding, readColdSheet, mechanicsEntry } from "./coc-view.js";
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { createExtensionHostWorkers, type ExtensionHostWorkers } from "./extension-host-workers.js";
@@ -706,6 +707,7 @@ async function writeCanonicalModelsFile(path: string, contents: string): Promise
 }
 
 export type PiBackendOptions = {
+  cocOnboardingRegistry?: CocOnboardingRegistry;
   /** Explicit Pi process invocation. Packaged Electron supplies bundled Node + unpacked Pi CLI. */
   piCommand?: PiCommand;
   /** Legacy/development shorthand for a directly executable external `pi`. */
@@ -1437,7 +1439,7 @@ function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], languag
   if (isVisibleCustomMessage(entry)) {
     const content = text(entry.content);
     if (!content) return undefined;
-    return { id: entry.id, role: "user", content: redactText(content, secrets), timestamp: asTime(entry.timestamp) };
+    return { id: entry.id, role: entry.customType === "coc-setup-opening" ? "assistant" : "user", content: redactText(content, secrets), timestamp: asTime(entry.timestamp) };
   }
   if (entry?.type === "compaction") {
     return {
@@ -2134,6 +2136,8 @@ export class PiHostBackend implements HostBackend {
   private readonly cocChoiceClaims = new Map<string,string>();
   private readonly cocSheetReads = new Map<string, Promise<any>>();
   private cocOnboarding?: CocOnboardingHost;
+  private cocOnboardingRegistry: CocOnboardingRegistry;
+  private ownsCocOnboardingRegistry: boolean;
   private readonly extInvokeQueued = new Map<string, ExtInvokeRequestRecord[]>();
   private readonly extInvokeWaiting = new Map<string, Array<(requests: ExtInvokeRequestRecord[]) => void>>();
   private readonly extInvokeAwaiting = new Map<string, { sessionId: string; settle: (result: ExtInvokeResult) => void }>();
@@ -2365,6 +2369,8 @@ export class PiHostBackend implements HostBackend {
   private structuredOutputNormalize?: StructuredOutputNormalize;
   private structuredOutputsEnabledFn?: StructuredOutputsEnabled;
   constructor(options: PiBackendOptions = {}) {
+    this.cocOnboardingRegistry=options.cocOnboardingRegistry ?? new CocOnboardingRegistry();
+    this.ownsCocOnboardingRegistry=!options.cocOnboardingRegistry;
     this.terminalSessionDeleted = options.terminalSessionDeleted;
     this.compactionConfiguration = options.compaction;
     this.proactiveSummaryCompaction = options.proactiveSummaryCompaction ?? false;
@@ -3049,7 +3055,7 @@ export class PiHostBackend implements HostBackend {
 
   /** Graceful connection teardown for hosts that allocate one backend per client. */
   async close(): Promise<void> {
-    this.cocOnboarding?.dispose();
+    if(this.ownsCocOnboardingRegistry)await this.cocOnboardingRegistry.close();
     await Promise.allSettled([...this.cocSheetReads.values()]);
     // 宿主 worker 的生命周期就是"项目开着"，宿主关掉它们就该结束。
     this.extensionHostWorkers.stopAll();
@@ -5724,7 +5730,7 @@ export class PiHostBackend implements HostBackend {
     // every late event before it can touch queue, telemetry, or projections.
     if (!this.sessionRuntimeTokenIsCurrent(live.session.id, live.runtimeToken)) return;
     if (e.type === "entry_appended") {
-      const entry = mechanicsEntry(e.entry);
+      const entry = e.entry?.customType === "coc-setup-opening" ? visibleHistoryEntry(e.entry,this.sessionSecrets(live.session.id)) : mechanicsEntry(e.entry);
       if (entry) this.stream({type:"presentation",sessionId:live.session.id,entry});
     }
     try {
@@ -8438,16 +8444,19 @@ export class PiHostBackend implements HostBackend {
         if (!this.managedNodeModulesRoot) throw new Error("Canonical runtime is unavailable");
         const repo = resolve(this.managedNodeModulesRoot, "..");
         const home = resolve(this.env.PI_COC_HOME || repo);
-        this.cocOnboarding ??= new CocOnboardingHost({repo, home, agentDir: this.sharedProfileDir, env: this.env});
-        const state = await this.getModelState(sid || undefined);
+        this.cocOnboarding = this.cocOnboardingRegistry.get({repo, home, agentDir: this.sharedProfileDir, env: this.env});
         if (request.action === "start") {
           const selected = await this.locate(sid);
-          if (!await readCocBinding(selected.path)) throw new Error("Create an investigator before starting");
+          const binding=await readCocBinding(selected.path);
+          if (!binding) throw new Error("Create an investigator before starting");
           // The COC extension owns the opening turn on session_start.
           // A synthetic player prompt here races that turn and becomes a follow-up.
           await this.ensure(sid);
-          return {ok: true, data: {started: true}};
+          // Pi drains an idle extension's shutdown request at the next RPC boundary.
+          await this.command(sid,{type:'get_state'});
+          return {ok: true, data: {started: true, mode:binding.mode}};
         }
+        const state = await this.getModelState(sid || undefined);
         if (sid && ["begin", "select"].includes(String(request.action))) {
           const selected = await this.locate(sid);
           if (await readCocBinding(selected.path)) throw new Error("This session already has a campaign; create a new session");
@@ -8470,6 +8479,10 @@ export class PiHostBackend implements HostBackend {
           await fs.rename(selected.path + ".coc.json.tmp", selected.path + ".coc.json");
           await this.renameSession(sid, data.name || "New campaign");
           await this.ensure(sid);
+          // The process exists before its session_start hooks have delivered the prologue.
+          await this.command(sid,{type:'get_state'});
+          const opening=(await this.readHistoryCached(selected.path,0,30,sid)).find(entry=>entry.role==='assistant'&&entry.content);
+          if(opening)this.stream({type:'presentation',sessionId:sid,entry:opening});
         }
         return {ok: true, data};
       } catch (error) { return settingsDenied("onboarding_failed", error instanceof Error ? error.message : String(error)); }
@@ -8483,7 +8496,7 @@ export class PiHostBackend implements HostBackend {
       if(!binding||!this.managedNodeModulesRoot)return settingsDenied('unbound','No campaign is bound');
       if(method==='draft-presentation') {
         const repo=resolve(this.managedNodeModulesRoot,'..');
-        this.cocOnboarding ??= new CocOnboardingHost({repo,home:binding.home,agentDir:this.sharedProfileDir,env:this.env});
+        this.cocOnboarding = this.cocOnboardingRegistry.get({repo,home:binding.home,agentDir:this.sharedProfileDir,env:this.env});
         const state=await this.getModelState(sid);
         try {return {ok:true,data:await this.cocOnboarding.presentation({campaign:binding.campaign,revision:Number(revision),play_language:binding.play_language,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})};}
         catch(error){return settingsDenied('presentation_failed',error instanceof Error?error.message:String(error));}
@@ -8543,7 +8556,7 @@ export class PiHostBackend implements HostBackend {
             if(visibleNames.some(name=>typeof names[name]!=='string'||!names[name].trim())) {
               try {
                 const repo=resolve(this.managedNodeModulesRoot,'..');
-                this.cocOnboarding ??= new CocOnboardingHost({repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
+                this.cocOnboarding = this.cocOnboardingRegistry.get({repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
                 const state=await this.getModelState(sessionId);
                 const projection=await this.cocOnboarding.presentation({campaign:context.campaign,play_language:context.play_language,standing:true,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel});
                 names=projection.texts;

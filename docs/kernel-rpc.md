@@ -1576,6 +1576,63 @@ RPC 顶层错误枚举沿用 §1；具体原因放在 `details.reason`：`bad_pd
 
 - 2026-09-07（整合到 0.9.0a）：用户授权先提交并行前端工作 `ffb6361a` 再合并视觉分支。保留 §16.3 的系统 JSON 约定；阅读等待交互与普通故事分离。内核 1038、扩展 106、前端相关测试 107 项通过；源码构建通过。原件与真桌证据保留，详细记录见 §22 规格。
 
+### 22.9. Early character guidance and background opening (2026-09-08)
+
+`module.read.request` additionally accepts purpose `guidance`, `play_language`
+(`zh-Hans` or `en`) and host-owned `guidance_key`. The key binds source bytes,
+selected opening, language, occupation catalog and reader/reviewer versions;
+it does not depend on the complete graph generation. The reader receives the
+catalog as `occupations`. Guidance is a small source shard with empty
+`ready_nodes`, plus `guidance.json` containing `opening`, `advice`, `scene`,
+`guide`, `handoff`. All five are bounded strings, guide may be empty. One fresh
+tool-enabled reviewer checks all shard records and player-safe guidance together.
+The host binds its approval to the exact SHA-256 of both files in `review.json`.
+The kernel checks both digests, graph references and review acceptance before
+publishing the graph and an accepted guidance pointer under the module metadata
+lock. Interrupted publication leaves evidence, never an accepted partial pair.
+
+`module.read.request` for opening respects an explicit focus. Readiness is checked
+against that scene, including independently prepared material, rather than another
+session's default opening. `campaign.create` accepts optional `start_scene` and
+`guidance_key`, pins both, and allows setup from accepted guidance. Draft, preview,
+confirmation and prologue remain valid while opening preparation runs. Only
+`setup.complete` gates play; it initializes the latest accepted opening world once
+both the confirmed card and the campaign's selected scene are ready.
+
+The onboarding host retains guidance and opening phases on the same durable import.
+Long children are keyed by phase and attempt; callbacks patch the current job only
+when their attempt still owns the phase. Converse is a short independent operation.
+Browser connections borrow an application-owned onboarding host; disconnecting
+unsubscribes without cancelling work. Application shutdown persists paused work.
+Frontend status omits internal guidance prose and paths. A session-bound Workbench
+overlay shares status polling with onboarding and stays visible during setup.
+
+The accepted public opening is delivered once, directly, and recorded through
+`setup.prologue`. The setup agent handles the player's answer without rewriting
+that opening. Confirmed characters waiting for source readiness retain their
+confirmation. An internal readiness notification retries the existing completion
+gate after the active setup turn ends; no synthetic player message is added.
+
+Implementation decisions: reuse the current queue, graph, guidance cache, setup
+receipts and RPC setup-to-play switch. No OCR, global page scan, second graph,
+global scheduler, detached daemon or new rules arithmetic. Full design and
+acceptance milestones: `docs/specs/fast-guided-pdf-onboarding.md`.
+
+Browser finding: authored `era` may be prose spanning several years. It must not
+be interpreted with string matching or overwritten to satisfy a finance table.
+`setup.draft.profile.era` therefore accepts an existing `cash-assets.periods` key.
+When omitted and the authored value is not already a supported key, the kernel
+returns the source description and closed supported options; the setup agent
+chooses semantically and retries. Chargen arithmetic is unchanged. Entrance-specific
+`investigator_setup.era` takes precedence over book-wide era for that campaign.
+
+Pi 0.85.1's idle `ctx.shutdown()` only sets a pending flag. After the idle handoff
+handler returns, the frontend uses the existing onboarding start operation to
+send a read-only `get_state` RPC, allowing Pi to drain that flag and exit normally.
+The existing wrapper then switches setup to play. A committed handoff in
+`ready_for_table` remains resumable until table.open makes it active; it is not
+projected as already playing. No Pi fork, signal protocol or synthetic turn is used.
+
 ## 23. PipiCOC local frontend (2026-09-07)
 
 The copied `Electron/` workspace is a frontend owned by this branch. Its only

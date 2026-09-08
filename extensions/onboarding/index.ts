@@ -3,7 +3,8 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { prepareCharacterGuidance, type Guidance } from '../module/character-guidance.ts';
+import { prepareCharacterGuidance, acceptedGuidance, type Guidance } from '../module/character-guidance.ts';
+import { registerInvokeHandlers } from '../../pipicoc/host-bridge.ts';
 import { Type } from "typebox";
 import { cocHome, cocMode } from "../lanes/host.ts";
 import {
@@ -91,6 +92,8 @@ export default function (pi: ExtensionAPI) {
   let guidanceBlocked = false;
   let guidancePending: Promise<Guidance | undefined> | undefined;
   const guidanceAbort = new AbortController();
+  let invokeDisposers:Array<()=>void>=[];
+  let completing=false;
   async function ensureGuidance(): Promise<Guidance | undefined> {
     if(characterGuidance)return characterGuidance;
     if(guidancePending)return guidancePending;
@@ -99,6 +102,10 @@ export default function (pi: ExtensionAPI) {
     const home=cocHome(ctx.cwd);
     if(!existsSync(join(home,'.coc/modules',moduleId,'module.json')))return;
     guidancePending=(async()=>{
+      if(typeof context.guidance_key==='string') {
+        characterGuidance=await acceptedGuidance(home,moduleId,context.guidance_key);
+        return characterGuidance;
+      }
       const occupations=asRecord(await bridge!.call('setup.occupations',{})).occupations as any[];
       characterGuidance=await prepareCharacterGuidance({home,module_id:moduleId,
         play_language:asString(context.play_language)||'zh-Hans',occupations,
@@ -538,8 +545,9 @@ export default function (pi: ExtensionAPI) {
     try {guidance=await ensureGuidance();}
     catch(error) {guidanceBlocked=true;ctx?.ui.notify(errorText(error),'error');return {systemPrompt:event.systemPrompt+'\nModule guidance is unavailable. Do not invent a prologue, create an investigator or continue setup.'};}
     if(!guidance)return;
-    return {systemPrompt:event.systemPrompt+'\n\nPrepared module prologue (use this opening on the first setup reply only):\n'+guidance.opening+
+    return {systemPrompt:event.systemPrompt+'\n\nPrepared module prologue ('+(prologueRecorded?'already delivered; continue from the player answer without repeating it':'use on the first setup reply only')+'):\n'+guidance.opening+
       '\n\nModule-specific setup advice:\n'+guidance.advice+
+      '\nChoose profile.era from these rulebook periods only when it matches the authored setting: '+JSON.stringify(context.rulebook_eras||[])+'. The source era can be descriptive prose; do not copy it as a table key. If no period applies, retain the finance blocker rather than choosing a nearby era.'+
       '\nAfter name and occupation are supplied, use setup create-investigator with a complete structured profile NOW. Do not merely describe a character: the computed draft must appear before approval. Use confirm-investigator only after approval or explicit write-now delegation.'+
       (process.env.PI_COC_SETUP_AUTOSTART==='1'?'\nThis is the frontend. After complete, close the prologue without a launch command; the host hands off to play.':'')};
   });
@@ -566,11 +574,26 @@ export default function (pi: ExtensionAPI) {
 		// When the kernel extension loaded first the bridge is already here and the table is fetched now; when it comes later, the first tool call fetches it.
 		if (bridge) await ensureSteps();
 		paint();
-    const hasDialogue=ctx.sessionManager.getBranch().some((entry:any)=>entry.type==='message' && ['user','assistant'].includes(entry.message?.role));
+    invokeDisposers=registerInvokeHandlers('coc-keeper',{'setup-handoff':async()=>{
+      if(completing||!ctx?.isIdle()||!bridge)return {waiting:true};
+      completing=true;
+      try {
+        const snapshot=asRecord(await bridge.call('setup.steps',{campaign:context.campaign}));
+        if(!asRecord(snapshot.state).waiting_for_opening)return {waiting:false};
+        await bridge.call('setup.complete',{campaign:context.campaign});
+        completed.add('complete');finish();
+        ctx.shutdown();
+        return {completed:true};
+      }catch(error){return {waiting:true,code:errorCode(error)};}
+      finally{completing=false;}
+    }});
+    const hasDialogue=ctx.sessionManager.getBranch().some((entry:any)=>(entry.type==='message' && ['user','assistant'].includes(entry.message?.role)) || (entry.type==='custom_message'&&entry.customType==='coc-setup-opening'));
     if(process.env.PI_COC_SETUP_AUTOSTART==='1' && campaign && !hasDialogue && !completed.has('complete')) {
       const guidance=await ensureGuidance();
       if(!guidance)throw new Error('The prepared module guidance is unavailable');
-      pi.sendMessage({customType:'coc-host',content:'The module has already been selected and prepared. This is the frontend setup prologue, not gameplay. Speak in play_language='+context.play_language+'. Present the prepared opening below, then wait for the player. No tools or investigator creation are needed for this first reply. Follow the advice in later conversation; preserve all player choices and obtain draft confirmation.\n'+JSON.stringify(guidance),display:false,details:{coc_host:true,kind:'setup-opening'}},{triggerTurn:true});
+      await bridge!.call('setup.prologue',{campaign,scene:guidance.scene,guide:guidance.guide,handoff:guidance.handoff,text:guidance.opening});
+      prologueRecorded=true;
+      pi.sendMessage({customType:'coc-setup-opening',content:guidance.opening,display:true,details:{kind:'setup-opening'}});
     }
     if (ctx.hasUI && steps) {
 			ctx.ui.notify(`Setup: ${steps.length} steps in all. ${instructionFor(nextStep(steps, state()))}`, "info");
@@ -597,6 +620,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async () => {
+		for(const dispose of invokeDisposers)dispose();invokeDisposers=[];
 		guidanceAbort.abort();
     ctx = undefined;
 		bridge = undefined;

@@ -1,0 +1,229 @@
+# PDF 上传后优先建卡、后台准备开场
+
+状态：实施中。2026-09-08。独立分支 `codex/fast-pdf-onboarding` 已整合建卡提交 `6fca4d32`；保留主检出及其他任务的未提交改动。
+范围：原 PDF → 模组感知建卡 → 同一会话开局；复用现有 Pi、ModuleGraph、setup 草稿与确认、宿主导入任务。
+
+## 1. 目标与当前依据
+
+上传完成后的短等待只用于取得建卡必需信息。玩家随后进行沉浸式建卡，开场图谱在后台准备；只有角色已确认、开场仍未就绪时才需要等待。
+
+成功是玩家尽早回答第一个与模组有关的建卡问题，看到真实角色草稿，确认后直接衔接游戏。只把解析换成子进程、仍等完整开场后才允许建卡，不算完成。
+
+设计依据的源码快照：
+
+| 来源 | 已确认事实 |
+| --- | --- |
+| 主分支 `0.9.0a`，`91afbbeb` | `CocOnboardingHost` 已有持久导入任务和解析子进程；当前 UI 的建卡提交仍等待整个准备状态 ready |
+| `codex/guidance-integration`，`a31b7167` | 已有沉浸式引导、真实草稿、预览、确认和本地化；worker 仍是 `reader.prepare → withGuidance` 串行，`converse` 要求 ready |
+| 同一引导分支 | guidance 缓存键包含整份 `graphBytes`；后台图谱换代会使原引导缓存失效 |
+| 宿主 | `children` 以导入 id 为键；后台 prepare 和前台 converse 并行后会争用同一槽位，旧回调还会保存过期的整个 job |
+| Web 基座 | 每个 WSS 连接创建一个 backend；backend.close 会 dispose 解析任务，刷新页面可能停掉后台工作 |
+| Workbench | 已声明/注册 overlay、statusBar，但 App 未挂载这些区域；普通 view 的受控接口没有像 SessionPanel 一样绑定当前 session |
+| `0.8.2a` 只读参照 | `source_fast_facts` 提前区分有来源和未解决的信息；建卡简报只按公开输入计算摘要与缓存 |
+
+实现前先整合并核对已有建卡成果。该分支文档写有“已整合”，但上述主分支快照没有相应实现；以实际源码和整合提交为准。本设计不重做建卡计算、角色确认或语言投影。
+
+## 2. 选定流程
+
+```mermaid
+flowchart TD
+  A[上传完成：保留原文件并绑定来源] --> B[快速 Pi 读者：最小建卡材料]
+  B --> C[小范围独立复核与原子发布]
+  C --> D[立即呈现已生成的会面开场]
+  D --> E[现有 setup 对话、实际草稿、预览与确认]
+  C --> F[后台 Pi 深化选定开场并复核]
+  E --> G{角色已确认且开场已就绪}
+  F --> G
+  G --> H[沿现有 setup.complete 与 RPC 交接开局]
+```
+
+上传后立即登记后台准备任务；它等待快速材料的同一份起点，再开始语义图谱写入。无需让两个冷启动读者同时建立不同的场景/NPC 名册。并行重点是**玩家建卡与开场深化**。
+
+快速材料未发布时，后台可复用文件校验、原生目录和页图缓存，不另做一次全书扫描。快速材料发布后，后台直接请求选定 opening，跳过已有材料覆盖的全局 skeleton 步骤。长本其他章节继续按需读取。
+
+### 2.1 快速读者的职责
+
+扩展现有 `module.read.*` 的 purpose，增加 `guidance`，沿用带 read/write/edit/bash 和私有 pdf 页图工具的 Pi 读者。它直接选原页，不经过 OCR、全文 Markdown 或完整开场图谱。
+
+本次只读取足以确定以下内容的原页：
+
+- 时代、地点、公开前提和玩家为何参与。
+- 会影响建卡的必要限制；来源未说明与尚未查清必须区分。
+- 选定的开场场景，以及会面人物的公开身份和可说的话。
+- 模组相关的职业、训练、语言、普通装备和动机建议；建议不能冒充作者的强制要求。
+
+读者自行使用原生目录、概述、调查员准备和开场页定位，不固定前 N 页、不按页切片扫全书。存在多个实质不同的入口且用户未选择、原文也未明确默认入口时，只提出一次有依据的开场选择；不能混用两个入口的时代或约束。
+
+输出复用两种现有产物：
+
+1. `draft.json`：现有图谱词表中的最小 module/scene/必要人物及关系、公开建卡事实和真实来源引用。`ready_nodes` 必须为空。
+2. `guidance.json`：沿用 `{opening, advice, scene, guide, handoff}`。opening 是玩家语言中的短会面和第一个身份问题；advice/handoff 是英文内部材料。场景和人物须与最小图谱对应。
+
+一位独立、带工具的 Pi 复核这份小材料，同时核对来源、关键建卡约束和泄密风险。复用已有 draft review 与 guidance review 的格式/检查，不再串行调用一次完整图谱作者、一次引导作者和两轮完整复核。复核覆盖绑定两份产物的摘要；任一文件被改动，旧复核不能授权发布。确有问题时保留原尝试并进行有界修正，不能用无来源简介赶时限。
+
+`guidance` 的发布允许创建和确认调查员，**不产生任何可玩节点或 opening_ready**。图谱和引导先写入不可变文件；仅在两者检查通过后，更新现有 module 元数据的接受指针。半写入不可被读取为就绪。
+
+### 2.2 不再重写已生成的第一个问题
+
+accepted guidance 中的 opening 已经由模型生成并复核。准备好后直接沿现有主会话消息通道呈现它，同时启动/恢复 setup agent；无需再等 setup agent 把相同的会面改写一次。
+
+复用 `setup.prologue` 记录这次会面，并以宿主生成的会话/序幕交付标识去重。首次展示、刷新和重连使用同一份文本；setup agent 接到玩家回答时已知道会面发生过。重放只能恢复缺失的交付，不能重新介绍、产生新角色或重复授予物品。
+
+完整对话、真实数值草稿、修改、预览确认、卡片本地化沿用现有引导实现。所有数值仍由内核产生。
+
+## 3. 各层的最小改动
+
+### 3.1 来源与缓存：一份稳定的建卡材料
+
+保留 `.coc/modules/<module>/character-guidance/<fingerprint>/accepted.json`，不增加另一套简报数据库。
+
+- 查找键包含原 PDF 指纹、选定开场、语言、规则/职业目录版本和引导/复核版本。
+- accepted 包含其公开事实及来源依据的摘要，指向对应的已接受最小图谱。
+- **不再把整张图谱或全局 generation 放入引导缓存键。** 后台新增怪物、线索、结局不会让建卡重来。
+- 同一模组/开场/语言的相同请求合并，预设与已解析模组直接使用可用的公开材料或接受缓存。
+- 开始建卡时，campaign 固定本次接受指针与开场。后台只补充图谱，不替换进行中的引导；更换开场需显式选择，不能静默沿用另一时代的角色约束。
+- 新来源证据若与已接受的关键事实矛盾，沿用来源冲突闸门并显示阻断，不能静默改角色或把错误开场标成 ready。
+
+### 3.2 setup：只将“开局闸门”留在最后
+
+内部区分 `setup_ready` 与 `opening_ready`。前者必须有已接受的公开材料、选定开场和引导；后者仍是该开场的现有可玩性/来源闸门。
+
+- `prepare-module` 的建卡前置阶段以 `setup_ready` 为目标；同步修改 `steps.json`、恢复判断和 setup 扩展，不能只改 UI 按钮。
+- `campaign.create` 可以根据已接受最小材料创建 setting_up 战役。新增可选 `start_scene`，由宿主传入本次选择，保存在已有 `opening_scene` 字段。
+- 世界初始化使用该 campaign 的开场；仅有薄图谱时不初始化为可玩世界。`setup.draft/previewed/confirm/prologue` 不依赖完整开场就绪。
+- `setup.prologue` 可验证薄图谱中的场景、人物和公开会面；它不等于开始剧情，不授予金钱、物品或线索。
+- 确认角色仍提交已展示的同一版本，不重新生成。开场未好时，确认完成也必须被保留。
+- `setup.complete` 保留完整角色、确认版本和**本 campaign 选定开场**的就绪检查。不能用共享 module 的另一个入口已就绪代替本入口。
+- 只在进入游戏时，从当前已接受开场材料初始化完整世界；新增的开场 NPC 和事实不能因早期薄图谱而缺席。
+
+现有模块默认开场可保留给旧调用者，但新前台将选择绑定在导入任务和 campaign 上。两个会话选择同一 PDF 的不同入口，不能通过修改全局 opening_choice 相互影响。
+
+### 3.3 宿主：两个准备状态，共用一个导入任务
+
+不新增通用任务调度平台。继续由 `CocOnboardingHost` 持有现有导入任务；将原先串行的 `prepare` 拆为内部 guidance 和 opening 两个目标。
+
+建议的宿主状态投影：
+
+```ts
+type PreparationState = "queued" | "running" | "needs_choice" | "ready" | "paused" | "failed";
+type ImportView = {
+  id: string;
+  name: string;
+  source: { state: "uploading" | "bound" | "failed"; received: number; total: number };
+  guidance: { state: PreparationState; stage?: string; candidates?: unknown[]; error?: string };
+  opening: { state: PreparationState; stage?: string; done?: number; total?: number; activeReaders?: number; error?: string };
+  character: { state: "not_started" | "conversing" | "draft" | "confirmed" };
+  canConverse: boolean;
+  canHandoff: boolean;
+};
+```
+
+这是前台投影，不是四套存档：character 从现有 campaign.setup/draft/confirmation 读取；布尔值由宿主/内核推导。五段完整 guidance、内部路径、指纹和审阅材料不通过进度接口发给 UI。
+
+现有 onboarding invoke 保持单入口：
+
+- `begin/chunk/finish/select`：绑定来源并排程；finish 不等待模型完成。
+- `status`：返回上述快照；原有 current_import 恢复该任务。
+- `opening`：绑定入口并继续相应准备；已进入对话的入口不能被后台替换。
+- `converse`：只要求 guidance ready；幂等创建/绑定 campaign 并进入既有 setup。
+- `pause/resume`：增加 target `opening | all`，默认只控制长解析；不会撤销已生成的引导或角色。关闭/收起浮窗不调用 pause。
+- `handoff`：复用完整性检查和原 RPC 交接；不是 UI 直接设置 ready。
+
+修复并行必需的内部行为：
+
+1. 长任务 child 按 `(import, purpose, attempt)` 管理；converse 等短操作和卡片展示不覆盖后台 child。
+2. 所有完成/进度回调只更新自己负责的字段，在串行写入口合并最新 job；不用启动时捕获的旧对象覆盖整份 job。
+3. 重试、暂停、入口变更增加宿主 attempt 标识；旧进程的迟到消息不能改新状态。取消一个目标不终止另一条已独立推进的路径。
+4. 现有 busy 只保护短事务，不因长解析运行而拒绝 converse/确认。
+5. 开场复核保留现有最多 40 并发的能力；快速来源阶段先完成共享起点，建卡对话和卡片展示随后独立于解析 worker 的排队。不得以解析 busy 阻止交互。当前信号量属于读者进程，不能宣称是跨进程的全应用限额；本次不新增通用调度器。实验比较背景并发 40/38 对前台响应的影响，再确定默认参数。无递归派生子读者。
+
+### 3.4 真后台：解析的拥有者是应用进程
+
+Web 当前每连接一个 backend，关闭 backend 会 dispose 解析。仅做浮窗无法改变这个生命周期。
+
+将现有 `CocOnboardingHost` 放到 Web server/Electron main 的应用级拥有者中，按 repo/home/profile 隔离；通过依赖注入提供给连接级 backend。**只共享导入准备这一块**，其余会话 backend、事件流和租约维持原状。
+
+- 连接断开只退订进度，不停止任务；切换会话、收起窗口和页面刷新亦如此。
+- 应用退出才统一排空自有子进程并持久化 paused；本次不引入应用退出后仍运行的守护进程。
+- 重启后读取现有 job/reader claim，按已证实的拥有者状态恢复；不能仅因超时就另起一份读取。
+- 状态查询与控制仍验证原扩展权限和 session/campaign 绑定。共享拥有者不等于把所有会话任务信息公开给任意调用者。
+
+与 [Asynchronous Request-Reply](https://learn.microsoft.com/en-us/azure/architecture/patterns/asynchronous-request-reply)
+对照，任务接受、后台执行和状态查询分离适合这里；沿用当前 invoke/status 传输和本地文件，不引入其云队列或新 HTTP 接口。
+
+### 3.5 开局合流只有一个拥有者
+
+放行条件是：当前真实草稿已确认、同一选定开场已就绪、现有确认/开始意图有效。
+
+角色先完成：保留确认结果，结束当前模型回合，显示“角色已准备好，开场仍在准备”；不让模型反复调用 complete 或重新建卡。
+
+开场先完成：后台标记 ready，建卡继续；不提前触发守秘人开场。
+
+两者完成：由宿主协调一次 `setup.complete`，在当前 setup 回合收束后，沿 `pipicoc/rpc.mjs` 的既有 setup → play 切换继续会面。需要补充一个内部的“就绪后重试交接”通知，不能依靠玩家再发一句话来唤醒，也不能增加一条合成玩家消息。
+
+前台当前会话正在等待、且已有确认/开局意图时可自动接续。用户已经离开该会话时只记录就绪；返回后沿原意图恢复或提供开始入口。来源任务单独完成不能在后台推进剧情。
+
+交接序幕、确认版本和首次开场都以已有持久标识去重。图谱 ready 回调、角色确认、重连同时到达，只允许一次交接。
+
+## 4. 进度浮窗的扩展方式
+
+本次只补通现有 `overlay` 位置，不顺带建设 statusBar 或新的任务中心。
+
+- App 挂载通用 `WorkbenchRegion location="overlay"`；该位置展示启用扩展的 overlay views，并支持有序堆叠。
+- 通用 view context 增加当前 sessionId；controlled loader 按 SessionPanel 的现有做法创建 session-bound api，不能用未绑定的 api 控制任务。
+- PipiCOC 通过现有 manifest 的 viewContainers/views 注册 `coc.preparation`，其 entry 由扩展提供。
+- 宿主提供受验证的进度快照。首版由扩展统一每 1–2 秒查询一次；CocOnboarding 与浮窗共享这一份前台状态，避免两套轮询。保留之后复用 subscribeExt 推送的空间，本次不同时增加第二套协议。
+- 共享状态沿用当前 registry 的外部 store 订阅方式；相同状态返回稳定快照，按 [React 的订阅约定](https://react.dev/reference/react/useSyncExternalStore) 通知变化，不在每次渲染重新启动轮询。
+- 浮窗在会话进入建卡对话后仍在；收起为小进度条，点开可看阶段、文件、暂停/继续或重试。
+- 窄窗口用紧凑的顶部/底部条并可展开，避开输入框与角色确认控件；不抢焦点，不弹模态对话框。
+- 上传显示实际字节；阅读显示正在进行的阶段；复核有真实分母才显示计数。未知工作量不伪造全书百分比或预计时间。
+- 解析失败保留引导、草稿与确认；只重试失败目标。切走再回来重新查询当前状态，不恢复旧的“正在解析”截图。
+
+与 [VS Code 后台进度](https://code.visualstudio.com/api/ux-guidelines/status-bar)
+和 [Fluent 进度指示](https://fluent2.microsoft.design/components/web/react/core/progressbar/usage)
+对照后，采用低打扰、可展开、阶段/真实计数的进度展示。通用区域负责容纳扩展，PipiCOC 负责任务内容和操作。
+
+## 5. 分步实现与验证
+
+| 切片 | 主要文件范围 | 独立退出条件 |
+| --- | --- | --- |
+| 1. 快速建卡材料 | `extensions/module/reading-service.ts`、`reader-review.ts`、`character-guidance.ts`；`kernel/coc/modules/*`；现有 setup/source 提示 | 原 PDF 的小材料经工具型 Pi 与独立复核发布；guide ready 而 opening 仍 false；后台换代不重建同一引导 |
+| 2. 并行建卡与交接 | `pipicoc/onboarding-worker.ts`、`extensions/onboarding/*`、`content/setup/steps.json`；`kernel/coc/setup*.py` 与 campaign 初始化；`CocOnboardingHost`/backend | 慢开场期间完成真实草稿/预览/确认；opening ready 后一次交接，无二次建卡、无重复开场 |
+| 3. 应用持有任务与浮窗 | Web server/Electron main 的拥有者接线、backend options；Workbench/controlled loader；PipiCOC manifest、进度 entry、安装脚本和 UI 状态 | 刷新/切会话/建卡对话期间任务继续；浮窗恢复真实状态、控制正确任务；应用退出可恢复 |
+| 4. 真浏览器速度与体验 | 现有源码测试及浏览器验收目录 | 完整上传→第一建卡问题→真实草稿→确认→开局；两种完成顺序及暂停/重试都通过 |
+
+每个切片先在 `docs/kernel-rpc.md` 写入对应接口形状和“内核的决定”，再实现。代码所有权应按上表明确分配；本设计阶段不发票、不合并分支、不改运行代码。
+
+确定性回归至少覆盖：
+
+- 源材料尚未满足关键建卡约束、复核未通过时不放行；guidance 不能授权游玩。
+- 人物确认早于 opening ready，以及 opening ready 早于人物确认。
+- 后台回调不丢失 campaign/confirmed revision；迟到回调不能恢复已取消 attempt。
+- 刷新、切会话不取消准备；应用退出暂停；重连无重复读者、序幕或交接。
+- 两个会话同一 PDF、不同入口的引导和最终 readiness 不串用。
+- background graph generation 变化不使进行中的 guidance 或角色失效。
+- 背景 worker 达到其并发预算时，建卡对话和卡片展示仍可独立启动，不被同一个 busy/child 槽位阻塞；另行记录真实模型并发下的前台响应。
+- 开局前始终没有世界推进、奖励、钥匙或剧情线索的伪造收据；最新开场 NPC/材料在真正开始时齐全。
+
+真实验收仍用用户提供的 Masks 长本、内置浏览器、Grok 4.6 low，主会话作唯一玩家。先做快速材料的真实小实验，再迁移生产流程；不以 mocked UI 或合成建卡替代实际体验。
+
+记录四个独立时间点：上传确认完成、第一条可回答的建卡问题实际呈现、角色确认、首次游玩开场。主要指标是前两点的间隔，以及确认到开局的间隔；开场选择和人工思考时间单列。
+
+性能目标先用于实验：Masks 至少三次新的语义缓存冷启动，争取每次在 60 秒内呈现建卡问题；已有接受缓存争取 2 秒内呈现已生成的问题。报告每次、中位数和最慢值，不从三个样本推断 p95。不能为了达标省掉关键事实核对或造一个通用开场。未达到目标时，在快读内容范围、重复模型调用和排队等待上优化后再定生产参数。
+
+真实测试还要有一遍开场较慢时先确认角色、一遍缓存开场已好但玩家继续修改角色，验证真正的两边合流；并保留全部来源、模型请求、状态变化和截图证据。
+
+## 6. 实施记录（2026-09-08，进行中）
+
+- 在独立生命周期检出 `chatrpgv4-wt-fast-onboarding`、分支 `codex/fast-pdf-onboarding` 开发；整合提交 `af7a6f89` 引入已提交的建卡成果 `6fca4d32`，未吸收另一任务的脏文件。
+- 已接通 guidance source shard、成对摘要复核、稳定接受缓存、campaign 开场绑定、薄图谱不初始化世界与最终 setup.complete 闸门。
+- 已接通导入 guidance/opening 两阶段、应用级 Web 拥有者、短操作独立 child、最新字段合并、暂停恢复、Workbench overlay 与会话绑定。
+- 浮窗和 onboarding 通过受能力控制的 `api.observe` 共享只读状态轮询（同 host/extension/session/query 一份）；没有新增网络协议或任务平台。当前会话的浮窗通过既有 extension invoke `setup-handoff` 通知空闲 setup 重试原完成闸门；不发送合成玩家消息。
+- 初次直接首问使用持久 `coc-setup-opening` 条目和既有 presentation 流投影，记录 `setup.prologue`，不再启动一次模型改写。
+- 内核完整测试：1116 passed、1 skipped，250.50 s。扩展首次全跑发现两项新增 review 测试回归（无 guidance 时多读了不需要的候选文件）和一次已有清理竞态；修正后相关 15 项已过。仍需最终扩展和 Electron 检查。
+- 真来源实验 1：669 页 Masks，新语义缓存，478.226 s（read 428.154 s、review 49.601 s），15 张阅读图，6 页复核；格式修正往返与过多图像输入为已观察到的浪费。
+- 优化职业目录为名称、薄材料 coverage 空对象、检查错误直接列合法词表、4 张历史页图窗口与每批少量选页后，实验 2：108.646 s（read 70.354 s、review 37.668 s），5 页阅读、3 页复核。尚未达到 60 s 实验目标。
+- 浏览器第三份新缓存：read 73.793 s、review 32.146 s；发现上传检查后的 module_id 异步合并丢失，已修复，并支持原上传文件重试。其后发现首问已落盘却未投影、overlay 未进入 active plan，已修复，等待修复后的实际 UI 复验。该次不能作为完整上传到首问 UX 验收通过。
+- 隔离浏览器服务为 5188；home `.coc/playtests/fast-onboarding-browser`。导入 `63f847ee-bff3-42e4-92ae-53ef825aae72`，会话 `4ae0443c-4a5c-451f-9c46-5815280838ae`，campaign `game-08d9be22-ed25-477d-be29-6c7972003327`。
+- 浏览器刷新期间快读进程 PID 49567 和 attempt 保持不变；应用 SIGTERM 后 guidance ready、opening paused，已验证持久暂停。所有语义尝试、页图、逐字日志与原 PDF 均保留，不能删除。
+- 待完成：真实草稿/确认/自动开场、缓存开场先好顺序、最终完整新上传回归、歧义入口 guidance choice 分支、补充并行/共享状态回归、最终审查/集成与工作树生命周期审计。

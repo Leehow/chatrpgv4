@@ -44,3 +44,13 @@ test('a reviewer cannot change the draft before publication',async()=>{
  options.runner=async req=>{const result=await runner(req);if(req.systemPrompt.endsWith('character-guidance-review.md'))await writeFile(join(req.cwd,'guidance.json'),JSON.stringify({...guide,opening:'Tampered'}));return result;};
  await assert.rejects(prepareCharacterGuidance(options),/changed during review/);
 });
+test('background graph enrichment does not invalidate guidance for the same source and opening',async()=>{
+ const {folder,options,calls}=await fixture();
+ await writeFile(join(folder,'module.json'),JSON.stringify({id:'story',file_sha256:'a'.repeat(64),generation:1}));
+ await prepareCharacterGuidance(options);assert.equal(calls(),2);
+ const graph=JSON.parse(await readFile(join(folder,'module-graph.json'),'utf8'));
+ graph.nodes.push({node_id:'npc-later',node_kind:'npc',name:'Later antagonist',visibility:'keeper-only',summary:'Later chapter details.'});
+ await writeFile(join(folder,'module-graph.json'),JSON.stringify(graph));
+ await writeFile(join(folder,'module.json'),JSON.stringify({id:'story',file_sha256:'a'.repeat(64),generation:2}));
+ await prepareCharacterGuidance(options);assert.equal(calls(),2);
+});

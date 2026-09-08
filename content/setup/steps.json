@@ -81,7 +81,7 @@
       },
       "receipt": "module_id",
       "lines": {
-        "do": "Prepare the chosen PDF or reuse the selected module. For multiple authored openings, match the player intent to the candidate summaries and select one before creating the campaign.",
+        "do": "Prepare source guidance or reuse accepted guidance. In frontend setup the host completes this step as soon as reviewed guidance is accepted, while the opening prepares in the background. For multiple authored openings, match the player intent to the candidate summaries and select one before creating the campaign.",
         "next": "Prepare the chosen PDF with prepare-module; if reading is still in progress, wait for the existing job rather than starting another."
       }
     },
@@ -137,7 +137,7 @@
       "params": {
         "profile": {
           "required": true,
-          "description": "Semantic object: name, occupation (catalog id), age, sex, concept, occupation_skills (8 distinct concrete catalog names), interest_skills (selected concrete names), own_language (actual language), backstory (3-6 of personal_description/ideology_beliefs/significant_people/meaningful_locations/treasured_possessions/traits plus scenario_bound), key_connection {backstory_field,summary}, equipment [ordinary item names], weapons [optional rulebook profile names]. On edits send only changed fields. No numeric skills/cash."
+          "description": "Semantic object: name, occupation (catalog id), age, sex, concept, occupation_skills (8 distinct concrete catalog names), interest_skills (selected concrete names), own_language (actual language), era (optional rulebook period from returned options; the agent chooses it from source context), backstory (3-6 of personal_description/ideology_beliefs/significant_people/meaningful_locations/treasured_possessions/traits plus scenario_bound), key_connection {backstory_field,summary}, equipment [ordinary item names], weapons [optional rulebook profile names]. On edits send only changed fields. No numeric skills/cash."
         }
       },
       "defaults": {
@@ -258,7 +258,7 @@
       "params": {},
       "receipt": "handoff",
       "lines": {
-        "do": "setup.complete: write the setup_handoff receipt, move the campaign to ready_for_table, exit and print the launch line.",
+        "do": "setup.complete: require the confirmed card and the selected opening. If opening_preparing is returned, end the reply and retain confirmation; the frontend will retry when ready. Otherwise write the handoff receipt and enter ready_for_table.",
         "next": "Finish: confirm and complete setup."
       }
     }

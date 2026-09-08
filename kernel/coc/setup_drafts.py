@@ -13,7 +13,7 @@ from .fileio import canonical_json, read_json, sha256_text, write_json_atomic
 BACKSTORY = ("personal_description", "ideology_beliefs", "significant_people",
              "meaningful_locations", "treasured_possessions", "traits")
 FIELDS = {"name", "occupation", "age", "sex", "concept", "occupation_skills", "interest_skills",
-          "own_language", "backstory", "key_connection", "equipment", "weapons"}
+          "own_language", "backstory", "key_connection", "equipment", "weapons", "era"}
 
 @contextmanager
 def locked(campaign):
@@ -139,7 +139,15 @@ class SetupDrafts:
                 state["draft_seed"] = seed
                 campaign.write_campaign(meta)
             from .library import module_era
-            era = module_era(self.table.graph(meta["module_id"])) or "1920s"
+            graph = self.table.graph(meta["module_id"])
+            selected = graph.scene(meta["opening_scene"]) if meta.get("opening_scene") else graph.start_scene()
+            source_era = (selected.get("properties", {}).get("investigator_setup") or {}).get("era") or module_era(graph)
+            periods = list(self.table.tables.load("cash-assets")["periods"])
+            era = profile.get("era") or source_era or "1920s"
+            if era not in periods:
+                raise RpcError("needs", "No applicable rulebook finance period has been selected for the authored era",
+                    fix="Choose profile.era from the returned options only when it matches the source setting, then retry in this turn. If no period applies, keep setup blocked; do not approximate or invent finance tables. Do not ask the player to fix a system parameter.",
+                    details={"field": "era", "source_era": source_era, "options": periods})
             try:
                 sheet, receipt = self.setup.chargen.build(investigator_id="investigator", name=profile["name"],
                     occupation_id=profile["occupation"], concept=profile["concept"], age=profile.get("age", 27),
@@ -235,7 +243,8 @@ class SetupDrafts:
                 raise invalid_params("prologue recording belongs to setup")
             graph = self.table.graph(meta["module_id"])
             scene = graph.scene(params.get("scene"))
-            if graph.handle(scene) != graph.handle(graph.start_scene()):
+            selected = graph.scene(meta["opening_scene"]) if meta.get("opening_scene") else graph.start_scene()
+            if graph.handle(scene) != graph.handle(selected):
                 raise invalid_params("the prologue must use the authored opening scene")
             guide = params.get("guide")
             if guide:
