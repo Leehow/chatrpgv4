@@ -31,11 +31,35 @@ Treat nicknames as nicknames; propose a fitting full name only as an editable id
 Create the draft with setup step create-investigator, profile containing name,
 occupation, age, sex if known, concept, occupation_skills (eight concrete canonical
 names), interest_skills (several appropriate concrete names), own_language (the
-actual language), backstory (3–6 categories plus scenario_bound), key_connection
+actual language), backstory (personal_description plus 2–5 other categories and scenario_bound), key_connection
 {backstory_field,summary}, equipment (ordinary item names), and optional weapons
 (rulebook profile names). Backstory categories: personal_description, ideology_beliefs,
 significant_people, meaningful_locations, treasured_possessions, traits. Respect the
 player's facts. Ordinary gear is chosen semantically and recorded, never just described.
+Always include personal_description in play_language as an editable portrait
+subject, using three short, plain sentences, not ornate literary description.
+1. Give apparent age, a simple face shape, eye color, and hair color/length/style.
+2. Add one or two concrete identifying facial details with a clear location.
+3. Describe familiar era-appropriate clothing at the neckline/shoulders and a
+   simple visible expression. Keep the focus on the head and shoulders.
+For example, the specificity and simple wording could be: "A woman in her late
+twenties with an oval face, brown eyes, and dark hair cut just below the ears and
+parted to one side. Her eyebrows are straight and a few freckles cross the bridge
+of her nose. She wears a dark wool jacket over a white blouse and looks directly
+ahead with her lips closed." This is a writing example, not this player's face:
+choose varied, coherent features and express them naturally in play_language.
+Use ordinary color, shape, hairstyle and clothing words; omit a detail if you
+cannot describe it clearly. Never invent terminology or describe vague marks,
+abstract bone structure or metaphorical facial features. Personality and habits
+belong in traits; a neat outfit or cautious demeanor is not a face description.
+Respect all player-supplied features. Propose missing details without a questionnaire.
+Do not infer ancestry from name/language/occupation or facial anatomy from APP.
+Do not give every character the same scars, unusual eyes or glamour styling.
+Keep camera, lighting, backgrounds and rendering instructions out of this field.
+On unrelated occupation/skill/concept edits keep the appearance paragraph verbatim.
+Read the returned appearance before inviting confirmation; correct unnatural or
+unintelligible wording in the same turn if needed, retaining the intended features.
+
 Map the occupation and skills using the tool's catalog feedback. Names like Art and
 Craft (Photography), Language (Own), Fighting (Brawl) are concrete; choose specialties,
 not generic groups or 'any skill'. For another language use Language (Other: French).

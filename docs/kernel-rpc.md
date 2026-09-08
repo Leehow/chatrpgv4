@@ -2025,3 +2025,22 @@ again. New revisions start compact. This is local presentation state only: toggl
 never rerolls, writes the draft, re-acknowledges a preview or calls a model. The
 frontend guide also keeps unsolicited calculation prose short and points to this
 control; detailed explanation remains available on explicit request or in the TUI.
+
+#### Appearance as a reusable portrait subject (2026-09-08)
+
+Every newly computed/revised profile includes backstory.personal_description, a
+compact player-language paragraph of visible appearance. Describe apparent age,
+face shape and salient facial features, eyes/brows, skin, hair, and one or two
+ordinary distinguishing details, plus era-appropriate visible clothing/accessories.
+Personality, speech and habits belong in traits, not as substitutes for appearance.
+Missing visual choices are editable proposals in the normal draft, never a new
+questionnaire. Preserve player-supplied features and keep this paragraph unchanged
+during unrelated occupation/skill/background edits unless explicitly asked to
+change appearance. Do not derive ancestry or facial anatomy from language, job,
+name or APP, or give every character the same scars/beauty marks.
+
+Keep image composition, lighting, art style and generation controls out of this
+biographical field. It will be reusable as the subject text of a future portrait
+request, but this change adds no image-generation feature or separate schema.
+The kernel checks presence only; visual quality remains the setup agent's semantic
+responsibility. Existing confirmed cards are not rewritten by this requirement.
