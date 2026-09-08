@@ -1,68 +1,124 @@
-# PipiCOC mods execution
+# PipiCOC mods implementation and acceptance
 
-## Intent and acceptance
+## Intent and status
 
-The user approved the Mod system design on 2026-09-08. Preserve gameplay as independently versioned mods behind a stable game interface, expose a right-sidebar Mods tab, and ship Natural NPC and Enhanced Items. A manifest or parameter card without observable NPC behavior, executable mechanics, ownership transfer and save continuity is not acceptance.
+Approved on 2026-09-08: preserve gameplay improvements as independently versioned
+Mods behind a stable game interface, add the right-sidebar Mods tab, and deliver
+Natural NPC and Enhanced Items with working mechanics and persistent ownership.
+A manifest or parameter card without observable behavior and executable use is
+not acceptance.
 
-Success requires: install/list/configure/upgrade and saved version locks; old max(APP, Credit Rating) first-impression behavior with pair reuse and Keeper realization; tool-enabled Pi generation from context and presets; definition/instance separation with NPC use, transfer and player use; public inventory projections; migration/restart/worldline behavior; kernel/extension/UI checks and a real Grok table driven one natural player utterance at a time by this main session.
+Implementation, source integration, required checks, browser management and one
+genuine Grok campaign are complete. Native App packaging/replacement was not run.
+The task-owned worktree is terminal; its exact final cleanup classification is
+recorded by the `pipicoc-mods` worktree lifecycle manifest, not inferred here.
 
-## Ownership
+## Delivered boundary
 
-- Source base: `0.9.0a` at `8e3b87d1cc5f55fe10544c45745e3b3f1bf0fc1e`.
-- Owned integration branch: `codex/pipicoc-mods`, worktree `/Users/haoli/leehow/code/chatrpgv4-wt-mods`.
-- Lifecycle task: `pipicoc-mods`; final audit/classification required.
-- Original checkout has concurrent onboarding and transcript changes. Do not edit/stage them. No push, branch deletion outside lifecycle authority, existing-campaign changes, or evidence deletion.
-- Scope: contract, mods packages/runtime/adapters, minimum core definition/instance/mechanics support, panel, tests and acceptance evidence. No marketplace service, core rewrite, PDF pipeline changes, or copying the old runtime.
+- `docs/kernel-rpc.md` section 26 defines `pipicoc.game.v1`. Packages contribute
+  decisions, prompts, presets, settings and namespace migrations as JSON/Markdown.
+  They never import the current kernel, Pi or Electron implementation objects.
+- The adapter retains the seven Keeper verbs. The kernel owns arithmetic,
+  identities, transactions, receipts, definitions, instances and supported effects.
+  New active mechanics require an explicit capability implementation.
+- Folder/ZIP install, immutable package digests, compatibility/dependency/conflict
+  checks, per-campaign version locks, new-campaign defaults, safe-boundary pending
+  changes and explicit upgrades all use the same loader for built-ins/local Mods.
+- Natural NPC 1.0.0 preserves public max(APP, Credit Rating) first impressions,
+  pair reuse, old reaction tiers and legacy hidden receipts. The Keeper realizes
+  the result while retaining each NPC's motives and boundaries.
+- Enhanced Items 1.0.2 uses a tool-enabled Pi creator and pre-delivery semantic
+  audit. Accepted definitions are captured before commit and reused. Instances
+  preserve identity, owner, ammunition, charges and condition across transfers,
+  restarts and generator upgrades/disablement. Public inventory projections expose
+  only declared known properties. Weapons, typed spell/consumable effects and
+  repair execute through existing rules; passive traits inform ordinary actions.
+- Management works before a Keeper or campaign exists and throughout onboarding.
+  Bound campaign mutations use the selected UI session's actual binding.
 
-## Steps
+The external design check compared Factorio's package/lifecycle conventions and
+VS Code contribution points. Explicit versions and contribution interfaces fit;
+model outputs additionally need captured results and deterministic acceptance.
 
-- [x] Contract and package/runtime: version/capability checks, install, per-save activation, pending safe-boundary changes, migrations.
-- [x] Natural NPC: import behavior/data/assertions from old first-impression implementation, use current resolve/receipts and current NPC context.
-- [x] Enhanced Items implementation: tool-enabled generation and pre-delivery semantic check, deterministic definition acceptance, instance ownership, executable weapon/spell/item effects, inventory. Real Agent acceptance remains below.
-- [x] Host and UI: canonical launcher loads Mods extension, panel uses host bridge, no extra Keeper tools.
-- [ ] Verify: focused checks then required suites; real table; UI exercise; integrated diff review.
-- [ ] Integrate without absorbing concurrent work; lifecycle closeout/audit.
+## Integrated source
 
-## Decisions
+Base: `8e3b87d1`. Owned branch/worktree: `codex/pipicoc-mods` at
+`/Users/haoli/leehow/code/chatrpgv4-wt-mods`; lifecycle task `pipicoc-mods`.
+Source was fast-forward integrated into `0.9.0a` without altering the old tree or
+discarding concurrent onboarding, transcript and inventory work.
 
-- Follow `docs/kernel-rpc.md` section 26. The public game contract uses JSON values and semantic names; the adapter owns current paths, Pi hooks and kernel objects.
-- Self-authored first-version packages contribute declarative rule definitions, content and Agent tasks. Mod-specific rule values belong to the package; arithmetic, world writes and identities belong to the kernel.
-- Reuse the existing tool-enabled Pi reader process runner through an adapter. No bare provider completion or zero-tool content generation.
-- Accepted generation outputs and first-impression outcomes are stored, not regenerated on replay.
-- External precedents verified during design: Factorio mod structure/data lifecycle and VS Code contribution points. Adopt explicit lifecycle/versioning and contributions; unlike deterministic game scripts, model outputs must be captured before commit.
+Implementation commits: `e53dfa4c`, `c2bce6d6`, `71edc2f7`, `c68938c8`, `5d3b1f9e`.
+Integration commits: `72c2d46f`, `7f562f0d`. Final checks also include the independent
+source-guidance change `cd45f6d0`. No remote push was performed.
 
-## Validation and remaining work
+## Verification
 
-Implemented package loader/install/version locks, safe-boundary configuration and namespace migrations;
-declarative initial NPC checks; object definitions/instances/ownership; tool-enabled host creator and
-combined pre-delivery audits; dynamic weapon combat, consumable effects and NPC spell effects;
-right-sidebar panel and inventory detail. Remaining: legacy first-impression import, richer lifecycle/
-worldline/learning tests, source review, integration and actual Agent/UI/play acceptance.
+- Kernel/play suite at `5d3b1f9e`: **1140 passed, 1 skipped**, 241.68 seconds.
+  The subsequent integrated change does not change Python source.
+- Extension suite at `cd45f6d0`: **137 passed**.
+- Focused Mod panel/cold host/UI checks: **28 passed**.
+- Copied Electron suite: baseline matches **197 known failures**, no new failures
+  and no flaky exemptions. This is not an all-green upstream suite.
+- Browser build at `cd45f6d0` passed. Installed current UI assets in the main
+  checkout with `bash pipicoc/install`.
+- Deterministic interface tests cover NPC firing then transfer of remaining ammo,
+  player/NPC generated spell use, learning, consumables, repair, migrations,
+  invalid archives, atomic rejection, disabled-generator usability and explicit
+  worldline conflicts. These do not stand in for actual play evidence.
 
-Validation so far:
-- Mod kernel interface: 12 passed (before the most recent restart and worldline additions).
-- Existing extension suite: 119 passed; new adapter/launcher checks: 5 passed.
-- Panel/investigator UI: 14 passed. Browser build passed.
-- Full kernel/play run: 1114 passed, 1 skipped, 1 failed in 257.38 seconds. The sole failure pinned the
-  old 22-event enumeration; updated its explicit closed set to the 24 contracted events. Recheck due.
-- Logs: `/tmp/pipicoc-mods-kernel-tests.log`, `/tmp/pipicoc-mods-web-build.log`.
-- No live model run or real UI interaction yet. All fixture tests remain non-acceptance evidence.
+Test logs are retained under
+`.coc/playtests/mods-correction-sep08/checks/` in the main checkout.
 
-Latest milestone:
-- Fast-forwarded the owned checkout to concurrent UI commits through `7c098746`; their changes are preserved.
-- Full kernel/play checks: **1120 passed, 1 skipped**, 275.39 seconds; no failures.
-- Extension suite: **122 passed**. Latest focused kernel checks after optional physical traits: **23 passed**.
-- App/Mods/investigator UI checks: **236 passed**. Cold management/Mod UI checks: **8 passed**.
-- Electron baseline gate: **matches 197 known failures, no new failures** (not an all-green upstream suite).
-- Browser build passed. Actual browser found and repaired onboarding hiding the right pane and Mod management requiring a live Keeper.
-- Actual browser now lists both mods before a campaign exists. New-campaign default was toggled off, refreshed and verified, then restored. A local 1.0.1 verification package was installed in the isolated UI home; both versions appeared and 1.0.0 was selected again.
-- Screenshot: `/Users/haoli/leehow/code/chatrpgv4-wt-pi-coc-v2/output/playwright/mods-20260908/mods-manager.png`.
-- Isolated UI server: port 5177, source worktree, `PI_COC_UI_ROOT=.pi/mods-ui`; Playwright session `pipicoc-mods`. Close only these owned processes at final cleanup.
-- Next: commit/integrate this implementation, install UI assets in the main 0.9 checkout, then run genuine Grok setup/play through tests/play/driver.py. No real campaign has been created yet. Keep all future play evidence in the main checkout, not this disposable worktree.
+## Real browser and campaign evidence
 
-Integration checkpoint:
-- Implementation commit `e53dfa4c`; latest-main integration commit `72c2d46f` includes main through `d62ea743`.
-- Seven conflict files resolved with both intents retained: background setup/prologue, preview acknowledgements, new read-only inventory styling, and Mod management/definitions.
-- Merge build passed; combined Mod/setup kernel checks 35 passed. Follow-up preparation/public-projection checks 24 passed.
-- Mod locks now survive the no-world-yet preparation phase; public weapon rows obey the same known-parameter projection as object cards.
-- UI management screenshot inspected; both installed versions and default-toggle persistence verified. Genuine gameplay remains the next required gate, followed by bound-panel controls, final checks and lifecycle audit.
+Browser management was exercised on an isolated UI home/server. Both Mods listed
+without starting Pi; a default toggle survived refresh; folder installation exposed
+two versions. An observer was then bound with the real setup `coc-session` event.
+GUI upgrade to Enhanced Items 1.0.1, disablement and reenabling preserved definitions,
+instances and first impressions byte-for-byte. Screenshots and comparison input:
+`output/playwright/mods-20260908/`. The owned browser and server were stopped.
+
+Fresh campaign `mods-acceptance-sep08` used canonical RPC launchers, Grok 4.6 low,
+and this main session as the sole player, one natural reply at a time. No seeded
+rolls, scripted player, synthetic settlement or replacement Keeper was used.
+
+| Run | Player replies | Driver wall seconds |
+| --- | ---: | ---: |
+| `mods-setup-sep08` | 2 | 106.999 |
+| `mods-live-sep08` | 3 | 185.842 |
+| `mods-resume-sep08` | 8 | 265.001 |
+| `mods-correction-sep08` | 22 | 1027.567 |
+
+Driver wall time totals 1585.409 seconds, excluding automatic opening and operator
+waits. The 33 gameplay replies have a median of 33.197 seconds. Tool time is part
+of wall time; the remainder is not a pure model/reasoning measurement.
+
+The campaign is `completed`, with `development:end-session` and an explicit
+campaign-ending receipt. The investigator obtained the generated ritual dagger,
+successfully fought back with its 1D6 profile, and the Keeper applied the authored
+own-dagger ending after the hit. The dagger remains owned by the investigator;
+returning the keys moved their existing instance to Steven Knott. Eight definitions
+and eight instances remain. Knott's opening 57 vs APP 45 guarded impression and
+Corbitt's later 13 vs 45 favorable impression each retain one pair record.
+
+The live run exposed and repaired two Mod gaps:
+
+- Enhanced Items 1.0.1 / `weapons.profile.v2`: new melee definitions explicitly
+  retain damage bonus and permit null non-applicable range/malfunction fields;
+  player descriptions follow the campaign language. Old accepted definitions stay.
+- Enhanced Items 1.0.2 / `objects.state.v2`: same-owner state changes record damage
+  without fabricating a transfer. The semantic audit checks narration against that
+  state. The original rejected turn remains; the Keeper corrected the broken hammer
+  and damaged flashlight through normal `apply` in the next real turn.
+
+KPI counted 34 campaign turns including opening, all finalized, 29 reaching rules,
+and 19 recoverable kernel rejections. Errors were retained, not removed from the
+record. Unsupported spontaneous NPC creation and ambiguous calls were recovered
+within the normal Keeper loop; no claim of zero-error play is made.
+
+Actual NPC firing of a generated weapon, generated spells and consumables were
+not encountered in this campaign; their coverage is deterministic. Real play did
+verify generation, use, transfer, combat, damage persistence, upgrade/restart and
+an ending. All four owned drivers are stopped. Campaign, job, transcript, telemetry
+and playtest evidence remain in the main checkout. The derived evidence index is
+`.coc/playtests/mods-correction-sep08/mods-acceptance-summary.json`.
