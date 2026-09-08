@@ -222,7 +222,7 @@ def test_the_fork_receipt_projects_as_a_worldline_mechanics_row(kernel):
     delivered = narrate(kernel, "t2-c2", "你眨了眨眼。")
     row = [m for m in delivered["mechanics"] if m["kind"] == "worldline"]
     assert row == [{"kind": "worldline", "receipt": "fork:side-t2", "operation": "fork", "line": "side",
-                    "mode": "if", "loop": 0, "from_line": "main", "from_turn": 2, "label": "另一种可能"}]
+                    "mode": "if", "loop": 0, "from_line": "main", "from_turn": 2, "label": "另一种可能", "call": "t2-c1"}]
     # §16: the kernel renders nothing; the keeper's text is delivered verbatim.
     assert delivered["rendered_text"] == "你眨了眨眼。"
 

@@ -31,3 +31,18 @@ def test_public_identity_is_explicit_and_projection_preserves_canonical_receipt(
     else:
         assert key not in row and f"{key}_label" not in row
     assert receipt == original
+
+
+def test_call_and_family_ride_on_the_projection_and_the_receipt_is_not_mutated():
+    stamped = {"id": "delta:hp-t1-c1", "kind": "delta", "resource": "hp", "before": 12, "after": 8,
+               "call_id": "t1-c1", "family": "core-check"}
+    original = deepcopy(stamped)
+    row = mechanics([stamped], {"check:spot-hidden": stamped["id"]})[0]
+    assert row["call"] == "t1-c1" and row["family"] == "core-check"
+    assert stamped == original
+
+    bare = {"id": "delta:hp-t1-c1", "kind": "delta", "resource": "hp", "before": 12, "after": 8}
+    original = deepcopy(bare)
+    row = mechanics([bare], {"check:spot-hidden": bare["id"]})[0]
+    assert "call" not in row and "family" not in row
+    assert bare == original

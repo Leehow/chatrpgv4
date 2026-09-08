@@ -262,6 +262,14 @@ def mechanics(receipts: list[dict[str, Any]], placed: dict[str, str] | None = No
         row = mechanics_of(receipt)
         if row is None:
             continue
+        # §16.2's grouping fields ride verbatim: which call minted the receipt, and which rule
+        # family settled it (resolve-minted only; apply's bookkeeping rows carry no family).
+        call_id = receipt.get("call_id")
+        if isinstance(call_id, str) and call_id:
+            row["call"] = call_id
+        family = receipt.get("family")
+        if isinstance(family, str) and family:
+            row["family"] = family
         if (marker := by_receipt.get(receipt.get("id"))):
             row["marker"] = marker
         rows.append(row)

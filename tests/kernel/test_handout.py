@@ -41,7 +41,8 @@ def test_handout_with_authored_text_is_materialized_and_rendered(kernel):
     narrated = kernel.table("narrate", call_id="t1-c2", text="他把一张剪报推过来。\n\n你读了起来。")
     assert narrated["rendered_text"] == "他把一张剪报推过来。\n\n你读了起来。"
     assert narrated["mechanics"] == [{"kind": "handout", "receipt": f"handout:{TEXT_HANDOUT}-t1", "name": receipt["name"],
-                                      "available": True, "label": "1918 年环球报未刊稿", "path": attachment["path"]}]
+                                      "available": True, "label": "1918 年环球报未刊稿", "path": attachment["path"],
+                                      "call": "t1-c1"}]
 
 
 def test_handout_without_shipped_bytes_is_declared_unavailable_not_invented(kernel):
@@ -54,7 +55,7 @@ def test_handout_without_shipped_bytes_is_declared_unavailable_not_invented(kern
     narrated = kernel.table("narrate", call_id="t1-c2", text="诺特把委托书递过来。")
     assert narrated["mechanics"] == [{"kind": "handout", "receipt": f"handout:{REFERENCE_ONLY}-t1",
                                       "name": "Handout 1: Mr. Knott's Commission", "available": False,
-                                      "label": "Handout 1: Mr. Knott's Commission"}]
+                                      "label": "Handout 1: Mr. Knott's Commission", "call": "t1-c1"}]
 
 
 def test_keeper_only_assets_and_unknown_names_do_not_write(kernel):

@@ -300,7 +300,8 @@ def test_luck_spend_and_insufficient_luck(seeded_kernel):
 
     changes = [m for m in narrate(seeded_kernel, f"t1-c{n + 3}", "你眯起眼。")["mechanics"] if m["kind"] == "change"]
     assert {"kind": "change", "receipt": changes[-1]["receipt"], "resource": "luck", "subject": "thomas-hayes",
-            "subject_label": "托马斯·海斯", "subject_is_investigator": True, "before": 50, "after": 47} in changes
+            "subject_label": "托马斯·海斯", "subject_is_investigator": True, "before": 50, "after": 47,
+            "call": f"t1-c{n + 1}", "family": "push-luck"} in changes
     events = read_jsonl(campaign_dir(seeded_kernel.workspace) / "events.jsonl")
     changed = [e for e in events if e["type"] == "resource-changed"]
     assert changed[-1]["data"] == {"resource": "luck", "subject": "thomas-hayes", "before": 50, "after": 47}
