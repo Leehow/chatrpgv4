@@ -52,17 +52,6 @@ export type ChatMessage = {
   serverSideToolUsage?: Record<string, number>
 }
 
-/** Player surfaces show delivered story and mechanics, never Keeper work or source dossiers. */
-export function playerTranscript(messages: readonly ChatMessage[]): ChatMessage[] {
-  return messages.flatMap(message => {
-    if (message.role === 'user') return [message];
-    if (message.role !== 'assistant') return [];
-    if (message.presentation) return [message];
-    if (message.streaming || (!message.content.trim() && !message.error)) return [];
-    return [{...message, thinking: undefined, tools: [], activities: message.activities?.filter(a => a.type === 'text')}];
-  });
-}
-
 function isBackgroundSubagentAck(content: string): boolean {
   return /\bStarted background agent(?:\(s\)|s)?\b/i.test(content)
 }

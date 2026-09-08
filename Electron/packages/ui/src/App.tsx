@@ -2731,7 +2731,6 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
               {onboardingActive
                 ? <CocOnboarding host={host} sessionId={selectedSession} />
                 : <Transcript
-                playerView={productId === 'pipicoc'}
                 stateKey={selectedSession}
                 onChoose={async (entry,option)=>{
                   if(entry.renderer==='coc-character-draft'){const ack=await host.invokeExtension!("coc-keeper",option==='presentation'?"draft-presentation":"draft-previewed",{revision:(entry.details as any).revision},{sessionId:selectedSession});if(!ack.ok)throw new Error(ack.error?.message||"Preview acknowledgment failed");return ack.data;}
@@ -2747,11 +2746,11 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
                 onResend={handleResend}
                 resendDisabled={resendDisabled}
                 copiedId={copiedId}
-                waiting={productId === 'pipicoc' && firstResponseWaiting ? {...firstResponseWaiting, phase:'thinking', detail:undefined} : firstResponseWaiting ?? subagentWaiting}
+                waiting={firstResponseWaiting ?? subagentWaiting}
               />}
             </div>
           ) : (
-            <Transcript messages={messages} documentBasePath={selectedProjectPath} onOpenDocument={openDocument} onOpenSubagents={openSubagents} onCopy={handleCopy} onResend={handleResend} resendDisabled={resendDisabled} copiedId={copiedId} waiting={productId === 'pipicoc' && firstResponseWaiting ? {...firstResponseWaiting, phase:'thinking', detail:undefined} : firstResponseWaiting ?? subagentWaiting} />
+            <Transcript messages={messages} documentBasePath={selectedProjectPath} onOpenDocument={openDocument} onOpenSubagents={openSubagents} onCopy={handleCopy} onResend={handleResend} resendDisabled={resendDisabled} copiedId={copiedId} waiting={firstResponseWaiting ?? subagentWaiting} />
           )}
         </LiveSubagentBindingProvider>
         )}
