@@ -49,12 +49,14 @@ def test_an_english_table_gets_no_glossary_because_it_needs_none(kernel):
 
 def test_a_discovered_clue_is_listed_by_the_name_the_table_gave_it(kernel):
     """`discovered_clues` is handles because that is what the world files. The player reads
-    this list, so the projection carries the keeper's own name for the clue (§23)."""
+    this list, so the projection carries the keeper's own name for the clue (§23) plus the
+    module's summary when it says more than that name -- what the panel unfolds into."""
     open_turn(kernel)
     kernel.table('apply', call_id='t1-c1',
                  effects=[{'kind': 'clue', 'clue': 'knott-commission', 'label': '诺特的委托合同'}])
-    assert kernel.ok('table.view', {'campaign': CAMPAIGN})['clues']['discovered'] == [
-        {'clue': 'knott-commission', 'label': '诺特的委托合同'}]
+    row = kernel.ok('table.view', {'campaign': CAMPAIGN})['clues']['discovered'][0]
+    assert row['clue'] == 'knott-commission' and row['label'] == '诺特的委托合同'
+    assert row['summary'].startswith('Landlord Steven Knott pays $20/day')
 
 
 def test_an_unnamed_clue_falls_back_to_the_graph_rather_than_to_its_handle(kernel):
@@ -63,3 +65,5 @@ def test_an_unnamed_clue_falls_back_to_the_graph_rather_than_to_its_handle(kerne
     row = kernel.ok('table.view', {'campaign': CAMPAIGN})['clues']['discovered'][0]
     assert row['clue'] == 'knott-commission'
     assert row['label'] and row['label'] != 'knott-commission'
+    # The label IS the graph's own words here, so the summary repeats it and stays off the row.
+    assert 'summary' not in row

@@ -26,7 +26,8 @@ def test_labels_ride_on_the_projection_and_the_text_is_verbatim(kernel):
     assert result["rendered_text"] == "你出了门。"
     assert result["mechanics"] == [
         {"kind": "clue", "receipt": "clue:knott-research-leads-t1", "clue": "knott-research-leads", "label": "诺特给的查证方向",
-         "call": "t1-c1"},
+         "summary": "Knott points them toward the Boston Globe, the Central Library / Hall of Records, "
+                    "and other paper trails before they rush the house.", "call": "t1-c1"},
         {"kind": "scene", "receipt": "move:hall-of-records-t1-c1", "from": "commission-briefing", "to": "hall-of-records",
          "minutes": 0, "from_label": "Knott's Office", "to_label": "市政厅档案室", "call": "t1-c1"},
     ]

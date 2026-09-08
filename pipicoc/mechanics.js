@@ -440,9 +440,17 @@ export function createComponent(React) {
           h("span", { className: "coc-mech-body" },
             text(row.from_label || row.from), ` ${t.arrow} `, text(row.to_label || row.to)),
           num(row.minutes) ? h("span", { className: "coc-mech-faces" }, t.minutes(row.minutes)) : null);
-      case "clue":
-        return h(Row, { key, kindKey: "clue", kindLabel, family },
-          h("span", { className: "coc-mech-body" }, text(row.label || row.clue)));
+      case "clue": {
+        const name = text(row.label || row.clue);
+        const body = text(row.summary);
+        if (!body || body === name) {
+          // Nothing more to open into than the name itself: the row stays a line.
+          return h(Row, { key, kindKey: "clue", kindLabel, family },
+            h("span", { className: "coc-mech-body" }, name));
+        }
+        return h(FoldRow, { key, kindKey: "clue", kindLabel, body },
+          h("span", { className: "coc-mech-body" }, name));
+      }
       case "time":
         return h(Row, { key, kindKey: "time", kindLabel, family },
           h("span", { className: "coc-mech-body" }),

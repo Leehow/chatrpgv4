@@ -938,7 +938,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 ### 16.2 机制投影（`mechanics`）
 
-内核不再把收据拼成句子。`narrate`/`ask` 的结果与 `table.status` 带 `mechanics: [...]`，每条一个语言中立的对象，直接对应收据，按收据顺序。每条都带公共字段 `kind` 与 `receipt`（收据 id，`mechanics_missing` 的 `details.missing` 按它指认）；收据上已有的名字作为数据顺带过去（`actor_label`、`subject_label`、`from_label`/`to_label`、`label`、`currency`、`rounds`、`available`、`path`）：
+内核不再把收据拼成句子。`narrate`/`ask` 的结果与 `table.status` 带 `mechanics: [...]`，每条一个语言中立的对象，直接对应收据，按收据顺序。每条都带公共字段 `kind` 与 `receipt`（收据 id，`mechanics_missing` 的 `details.missing` 按它指认）；收据上已有的名字作为数据顺带过去（`actor_label`、`subject_label`、`from_label`/`to_label`、`label`、`currency`、`rounds`、`available`、`path`）；`clue` 行的 `summary` 同理：收据铸成时就带着模组写的这条线索说了什么（`apply clue` 的收据，`table.py` `_stage_clue`），与 `label` 不同时投影，让前端能把这一行展开成线索的具体内容，而不必另查模组图。
 
 | kind | 字段 |
 | --- | --- |
@@ -946,7 +946,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 | `dice` | `actor`, `label`, `expression`, `faces`, `total` |
 | `change` | `resource`, `subject`, `before`, `after` |
 | `scene` | `from`, `to`, `minutes`, `via`? |
-| `clue` | `clue`, `label`? |
+| `clue` | `clue`, `label`?, `summary`? |
 | `time` | `minutes` |
 | `item` | `name`, `quantity`, `to`, `weapon`? |
 | `cash` | `subject`, `before`, `after` |
@@ -1674,7 +1674,10 @@ The label is the name the Keeper gave the clue when `apply clue` discovered it,
 kept in `world.clue_labels` exactly as a scene's name is kept in
 `world.scene_labels`, and it falls back to the graph's display name for a clue
 discovered before that field existed. The handle stays as `clue`, so a consumer
-can still key on identity. Undiscovered clues remain absent.
+can still key on identity. A row also carries `summary` when the clue's module
+node authors one -- the player panel unfolds the clue into exactly that text,
+so what a clue says is one tap away instead of nowhere. Undiscovered clues
+remain absent.
 
 A `roll` or `dice` receipt carries `actor_label` for an investigator as it
 already did for an NPC: the sheet's own name. The §16.2 projection copies it, so

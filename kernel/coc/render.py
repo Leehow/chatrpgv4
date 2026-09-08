@@ -97,6 +97,12 @@ def mechanics_of(receipt: dict[str, Any]) -> dict[str, Any] | None:
     if kind == "clue":
         out = {"kind": "clue", "receipt": receipt_id, "clue": receipt.get("clue")}
         _with_label(out, "label", receipt.get("label"))
+        # §16.2: the receipt was minted with the module's word for what this clue says
+        # (table.py `_stage_clue`); it rides along when it adds to the label, so the frontend
+        # can unfold the row into the clue itself instead of sending anyone to the module graph.
+        summary = receipt.get("summary")
+        if isinstance(summary, str) and summary.strip() and summary.strip() != out.get("label"):
+            out["summary"] = summary.strip()
         return out
     if kind == "time":
         return {"kind": "time", "receipt": receipt_id, "minutes": int(receipt.get("minutes") or 0)}
