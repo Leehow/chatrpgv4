@@ -454,7 +454,7 @@ def opening_check(graph: dict[str, Any]) -> dict[str, Any]:
             report["choice"] = choice
         return report
     report = check(sub)
-    findings = list(report["findings"])
+    findings = [f for f in report["findings"] if f["code"] != "no_ending_declared"]
     ready = not missing and not findings
     return {"opening_ready": ready, "start_scene": start, "missing": missing, "findings": findings,
-            "finding_counts": report["finding_counts"], "nodes": len(sub["nodes"])}
+            "finding_counts": dict(Counter(f["code"] for f in findings)), "nodes": len(sub["nodes"])}

@@ -980,6 +980,8 @@ Existing recorded prose is historical evidence and is not rewritten.
 
 ### 16.5 The kernel's decisions (implemented, ticket #26)
 
+- **Public mechanics names.** Roll/dice receipts carry `actor_is_investigator`; resource deltas carry `subject_is_investigator`. Public mechanics names are included and rendered only when the corresponding flag is exactly `true`. NPC and unknown identities, including legacy untagged cards, render anonymously while retaining their numeric mechanics. Canonical names and ids remain in Keeper-side receipts; familiar names belong in Keeper-authored prose. This is a visible mechanics projection boundary, not a redesign of JSON access control.
+
 - **Projection.** `kernel/coc/render.py` is now the receipts' projection and the number check; the mechanics-line templates, `place` and the marker check are gone. `mechanics(receipts)` yields one object per receipt in receipt order. Beyond the §16.2 columns every object carries `kind` and `receipt` (the receipt id), and the names the receipt already holds ride as data when present: `actor_label` (roll, dice), `subject_label` (change, cash), `from_label`/`to_label` (scene), `label` (clue, item, handout), `to_label`/`from`/`weapon` (item), `currency` (cash), `rounds` (a bout's session start), `available`/`path` (handout). A `delta` receipt projects as `change`, a `move` as `scene`, a dice-form roll as `dice` (`label` = the engine's die name, `expression`, `faces`, `total`). Keeper-visibility rolls are projected too, with `visibility: "keeper"`: a consumer that renders for the player must hide them.
 - **Results and records.** `table.narrate` returns `rendered_text` equal to `text` verbatim plus `mechanics`; `table.ask` returns `text.strip()` + blank line + prompt + `1.`/`2.` options (or the question alone) plus `mechanics`; `table.status` carries `mechanics` for the open turn. The turn record stores `mechanics` beside `rendered_text`; `placement` is accepted, ignored, and no longer recorded; the `turn-finalized` event data is `{receipts}` only.
 - **Number check (§5 step 2, §16.3).** Public = `visibility != "keeper"`. Obliged digits: a roll's `roll` and `target`; a dice roll's `total`; a delta's and a cash receipt's `before` and `after`; a time receipt's `minutes`. Values are compared as `str()` (an integral float prints as an int) by plain substring containment in `text`; nothing else is read. Failure is `invalid_params` with `code_detail: "mechanics_missing"`, `details.missing: [{receipt, expected: [...]}]` in receipt order, and a `fix` listing receipt: numbers. `ask` runs the same check on `text or ""`, so a turn holding public numbers refuses an `ask` without `text`. The error envelope (§1) gains the optional `code_detail`, a closed refinement of `code`.
@@ -1187,6 +1189,10 @@ contract one.
 - **书没写就问一次，不自己编（L3）。** 取不到值时报 `needs`（`details.needs.field = "npc.skill"`），`fix` 直接给出 `apply npc {name, skill: {name, value}, why}` 的写法。内核不替谁编数字，不是因为编造有罪——桌上的编造就是玩法——而是**内核编的数它下次会编成别的**，同一个医生两次不一样，逻辑就不圆了。守秘人钉一次，收据落进账本 `skills`，此后永远是那个数。
 
 不在图上的人（临时的车夫、旅馆老板）仍不建节点：属性无关紧要的 NPC 由守秘人直接裁定结果，这是规则书自己的答案。
+
+Ordinary helper checks bind the executor once. The resolver passes its resolved acting identity to the adapter; the adapter supplies both the numeric skill/characteristic target and the actor identity through host-owned bindings. Numeric targets never enter semantic inputs. The ordinary executor uses that identity for its receipt and check record, while the helped investigator remains the settlement subject. First Aid and Medicine keep their separate rescuer/patient binding. A missing NPC value returns the existing `npc.skill` needs response and never falls back to the beneficiary's skill or an investigator base chance. The Keeper must name the NPC in `action.actor` when that NPC performs the uncertain action, even outside combat; `target` identifies the helped investigator or patient where applicable. A different executor or method is not an implicit choice to push. Push requires the player's explicit choice of the failed check and announced risk.
+
+An `apply npc` skill pin fills missing source material; it cannot contradict an existing authored numeric skill or characteristic. A conflicting pin is rejected before any receipt, ledger or other effect is written, with the authored value and a source explanation. An identical-value pin remains accepted, as does a genuinely absent skill. Existing campaign history and prior pins are not rewritten by this guard. Compact capsule omission does not prove source absence: the Keeper should try `resolve` first, or inspect the NPC's full view, and pin missing material only after the existing `npc.skill` refusal identifies it.
 
 ## 18. `apply` 补齐：flag、note、ruling，与 `look focus=session`（切片 8，票 #27）
 
@@ -1434,7 +1440,13 @@ Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `sessio
 
 ## 22. Visual PDF reading and demand-driven graph building
 
-2026-09-07 用户确定的实施方向；本节已实现并替换旧路径；最终验收与集成状态见规格实施记录。实现顺序、删除范围和验收在 [visual-pdf-reader.md](specs/visual-pdf-reader.md)。本节替换 §14.2–§14.6、§14.11 中的文字构建协议，以及 §20 的分类/提取/OCR/打包协议；保留既有图谱消费、人物/规则/事务、资产可见性和七个 Keeper 动词。Electron 不在本次范围。
+2026-09-07 用户确定的实施方向；本节已实现并替换旧路径；最终验收与集成状态见规格实施记录。实现顺序、删除范围和验收在 [visual-pdf-reader.md](specs/visual-pdf-reader.md)。本节替换 §14.2–§14.6、§14.11 中的文字构建协议，以及 §20 的分类/提取/OCR/打包协议；保留既有图谱消费、人物/规则/事务、资产可见性和七个 Keeper 动词。Electron onboarding and browser acceptance are covered by §24.
+
+### 22.0 Selective reading after sandbox validation
+
+Opening/detail now queue directly without all-page navigation. One tool-enabled Pi selects native navigation and original pages, constructs the existing graph with prepared current material and sourced thin destinations, then up to 40 fresh tool-enabled Pi sessions independently review node/claim groups. No fixed page cuts or whole-chapter prerequisite. Sandbox owner-dispatch and incremental-draft frameworks were not selected. High-level preparation publishes a reviewed, unready skeleton first, offers authored opening choices, then prepares the selected opening. Cold browser timing for this early milestone remains pending.
+
+Source image cache entries and readable view paths publish by atomic rename; the private pdf tool verifies image bytes before delivery. Every new image reaches the provider before history eviction. Each reviewer cites only images it received. Failed transport/output units retry once in isolated attempts; semantic findings return to source-based repair. Existing leases, cancellation, additive conflicts and source gates remain binding.
 
 ### 22.1 来源、页与索引
 
@@ -1451,7 +1463,7 @@ Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `sessio
 
 缓存位于模组内 `cache/pages/`，键包含原文件摘要、物理页、渲染参数与裁剪。只生成请求的页；裁剪从原 PDF 渲染，不能放大已经缩小的预览图冒充细节。宿主保存请求记录，读者会话保留实际图片 `read` 事件与失败，不能把“生成了图片”记成“模型已看过”。缓存不是真相，也不替代原 PDF。
 
-沿用 `sections.json` 作为阅读索引，新的记录形状为 `{name, pages: [[first,last], ...], topics: [string], entities: [string], references: [{name, pages?}], state: "indexed"|"unreadable"}`；页范围在此用从 0 起的物理页序、两端包含。不同主题可重叠，所有原页须被实际浏览的记录或不可读记录覆盖。`topics/entities/references` 由读者判断，程序只检查形状与范围；索引是定位信息，不是事实图，不授权规则结算。全局梗概中的事实要成为游戏依据，仍须走 22.3 的细读与复核。
+沿用 `sections.json` 作为阅读索引，新的记录形状为 `{name, pages: [[first,last], ...], topics: [string], entities: [string], references: [{name, pages?}], state: "indexed"|"unreadable"}`；页范围在此用从 0 起的物理页序、两端包含。不同主题可重叠，未读范围必须引用实际查看过的目录或标题页，不要求全页覆盖。`topics/entities/references` 由读者判断，程序只检查形状与范围；索引是定位信息，不是事实图，不授权规则结算。全局梗概中的事实要成为游戏依据，仍须走 22.3 的细读与复核。
 
 ### 22.2 一个阅读任务协议
 
@@ -1460,7 +1472,7 @@ Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `sessio
 | 方法 | 参数 | 结果与作用 |
 | --- | --- | --- |
 | `module.source.bind` | `{module_id?, source: {path, file_sha256, page_count}, title?, language?}` | 原子登记并保留原 PDF；返回 `{module_id, replayed}`。`path` 是宿主准备的本地原文件路径；内核复制并核对摘要。已有原文件缺失的旧模组只接受与记录摘要匹配的来源。 |
-| `module.read.request` | `{module_id, purpose: "index"|"opening"|"detail", focus?, question?, foreground?: boolean, retry?: boolean}` | 确认材料已满足该确切请求，或入统一队列；返回 `{state: "ready"|"queued"|"reading"|"blocked", job_id?, generation, missing, fix?}`。`focus/question` 为名字/自然语言，允许索引中尚未进入图谱的实体；`retry: true` 才允许重新派发已经失败/取消的同一请求。 |
+| `module.read.request` | `{module_id, purpose: "index"|"skeleton"|"opening"|"detail", focus?, question?, foreground?: boolean, retry?: boolean}` | 确认材料已满足该确切请求，或入统一队列；返回 `{state: "ready"|"queued"|"reading"|"blocked", job_id?, generation, missing, fix?}`。`focus/question` 为名字/自然语言，允许索引中尚未进入图谱的实体；`retry: true` 才允许重新派发已经失败/取消的同一请求。 |
 | `module.read.claim` | `{module_id, owner}` | 原子认领下一任务；返回宿主生成的 `{job_id, purpose, focus?, question?, work_dir, base_generation, source, index, known_nodes, brief}` 或 `{job_id: null}`。 |
 | `module.read.finish` | `{module_id, job_id, outcome: "completed"|"failed"|"cancelled", draft_path?, review_path?, detail?}` | 成功时由内核重新运行结构/来源/就绪检查并发布；失败/取消保留证据、释放认领，返回状态与可执行原因。`draft_path/review_path` 必须属于该任务工作目录；模型不调用此方法。 |
 
@@ -1468,7 +1480,7 @@ Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `sessio
 
 队列沿用 `deepen-queue.json`，记录 `{job_id, purpose, focus?, question?, foreground, state, owner?, base_generation?, attempts}`。状态为 `queued -> running -> completed|failed|cancelled`。同模组跨 Pi 进程的认领和发布都要使用可恢复的文件锁；只靠扩展内 `busy` 不满足此约束。宿主退出时释放自身任务；恢复要确认原 owner 已不再持有锁，不能仅凭超时夺走仍活跃的写者。
 
-运行顺序：当前前台需求、开场、邻接预读；首次导入必须先完成定位。每模组一个活跃任务，允许读者结束当前有限页批后让位前台任务，已写草稿保留。可恢复错误至多自动重试一次；失败之后仅用户或 Keeper 明确重试才重派，不轮询失败请求刷模型调用。
+运行顺序：当前前台需求、开场、邻接预读；首次导入由读者自主定位，不等待索引完成。每模组一个活跃任务，读者只处理当前问题所需原页，已写草稿保留。可恢复错误至多自动重试一次；失败之后仅用户或 Keeper 明确重试才重派，不轮询失败请求刷模型调用。
 
 去重键由内核取来源摘要、purpose、归一化 focus 和原样 question 生成。只归并完全相同的待办或已经满足且未失效的请求；不做语义相似度去重。出现不同问题时，旧 section 已 accepted 不构成跳过理由。已满足请求在 `module.json.reading.materials` 保存 `{purpose, focus?, question?, node_ids, source_refs, generation}`；来源或被依赖事实改变时失效，单纯新增不相关事实不引发重读。
 
@@ -1476,7 +1488,7 @@ Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `sessio
 
 读者仍为带 `read/write/edit/bash` 的子 Pi：`--no-extensions --no-context-files --no-session`；沿用 repo-local Pi home，删除游玩模式与 campaign 环境。模型须声明图片输入，并由步骤 1 的真实图片读取验证通道；不支持时返回 `vision_required`，不回落到 OCR。读者不能派生另一层读者或内核。
 
-任务简报只提供原 PDF 的翻页方法、全书索引、相关已有节点、当前需求与输出位置；不再塞全文 span。读者可以沿索引与原书引用查看任意必要页。宿主采集子 Pi 的结构化事件作为证据，不继续丢弃 stdout。进程成功退出不等于抽取成功。
+任务简报只提供原 PDF 的翻页方法、可用导航、相关已有节点、当前需求与输出位置；不再塞全文 span。读者可以沿索引与原书引用查看任意必要页。宿主采集子 Pi 的结构化事件作为证据，不继续丢弃 stdout。进程成功退出不等于抽取成功。
 
 定位任务写索引草稿与身份判断。开场/细读写新的 `coc.module-graph-shard.v4` 草稿：模型负责 `nodes, claims, node_refs, coverage, dependencies`，沿用现有节点/关系/真假/可见性词表；模块、任务、版本等机器字段由宿主补齐。`dependencies` 是尚需查阅的 `{focus, question, pages?}`，被当前可玩内容依赖的项不能留 unresolved 后发布为 ready。`coverage` 的判断针对当前任务范围。
 
@@ -1680,6 +1692,56 @@ entries rendered as controls outside narration. Clicking is checked against the
 selected session's current pending choice before submitting a semantic player
 action; old controls cannot affect a newer choice.
 
+## 24. Empty-conversation scenario onboarding
+
+The PipiCOC empty conversation offers preset, original PDF and prepared-module sources. A product-scoped `invokeExtension("coc-keeper", "onboarding", {action, ...}, {sessionId})` adapter owns upload/preparation state; it does not add a Keeper tool. An explicit selected session is required for mutations. The host validates file size/type, acknowledges bounded sequential chunks, mints file/job identities, and retains bytes beneath PI_COC_HOME/.coc/imports. Clients never choose a destination path.
+
+Preparation runs the existing ReadingService and module.source/read protocol in a host-owned child with repository-local Pi credentials and the selected session's explicit model/thinking. Polling reads persisted progress; it must not start duplicate work. Failed/interrupted jobs retain their artifacts and can be explicitly resumed. Opening candidates expose names and an optional reader-authored player-safe introduction, never Keeper-only summaries. Progress distinguishes uploaded bytes, indexed pages, detailed reading, independent verification and opening readiness.
+
+Character forms invoke existing campaign.create/setup.investigator/setup.complete methods and display table.view projections. Identifiers and all derived numbers belong to host/kernel. Before the first Keeper start, the host persists this UI session's campaign/home/language binding. Bound play sessions override a setup launcher mode, allowing one uninterrupted UI journey without changing other sessions. No automatic fictional turn is generated by a background source job.
+
+The user explicitly authorizes in-app-browser acceptance for this frontend path on 2026-09-07, replacing the terminal driver only as transport. Grok 4.6 low is Keeper and visual reader; the main assistant is the sole live player. The exact Masks PDF and at least one complete authored chapter are required. Backend/fixture tests and uploaded files alone are not end-to-end evidence. See docs/specs/pipicoc-pdf-onboarding.md.
+
+### 24.1 Superseded whole-book indexing experiment
+
+This section records the existing experiment, rejected as an opening strategy on 2026-09-07. It must not be resumed as fast-opening acceptance. Target scheduling is defined in §22.0 and awaits sandbox validation.
+
+The experimental whole-book navigation uses fixed physical-page batches of at most 12 pages and permits up to 40 simultaneously claimed index jobs per module across all hosts. Missing batches are queued together; repeated requests reuse the same jobs. Failed batches require explicit retry, while other independent batches may finish. Opening and detail jobs retain a single exclusive reader because their facts may overlap.
+
+Each job has its own OS-held lease lock. Index jobs additionally hold the module reader lock shared; opening/detail hold it exclusively, preserving exclusion against older hosts. Stale ownership is reclaimed only after the relevant lock can be acquired. Releasing or replaying one job must not release a sibling's lease. The metadata lock still serializes publication. Index rows stay inside the assigned batch and the accumulated index is sorted by physical page; all 669 pages must be actually observed before index_complete. Index requests carry their own range rather than accumulated book context.
+
+The host fills the concurrency advertised by a claim, drains owned jobs on shutdown, and reports actual active jobs to the progress UI. This changes scheduling, not image-reading, source-reference or review obligations. The initial target is 40; rate-limit and failure evidence determines any later adjustment.
+
+### §22 implementation decision — selective source reading (2026-09-07)
+
+Opening and question-bearing detail requests queue directly. Neither page coverage nor a navigation index is a prerequisite. The tool-enabled Pi reader first inspects native bookmarks/page labels, follows source references, and builds a small real graph containing the opening and sourced thin destinations. Explicit `index` is one selective navigation job, not a page-batch dispatcher. `index_complete` means that navigation task completed, never that every page was read; `viewed_pages` records only images actually supplied to the model.
+
+The private host `pdf` tool returns native navigation or selected physical page images (JPEG at 2000 pixels, optional crop); it does not extract text. Every new image reaches at least one model request before history eviction. Public handout rendering remains reviewed PNG. Source and image hashes remain host metadata.
+
+Fresh tool-enabled Pi reviewers independently inspect bounded node/claim groups with the complete candidate context, up to 40 concurrently. Each reviewer owns its numeric and critical pointers, and its source citations must have been supplied to that reviewer. The host combines reviews without dropping negative findings. A failed review returns to the reader for source-based repair. Atomic graph publication still uses the existing deterministic draft/review gates. No ready flag or review score implies all-book completeness.
+
+Opening validation does not require an unread ending. Whole-graph validation is unchanged. NPC authored knowledge/beliefs/lies and other properties reach the existing Keeper view, with legacy claim views preserved. Facts about a person's beliefs belong in properties unless a meaningful graph assertion connects appropriate nodes; Keeper directions belong in keeper_note/keeper_notes. Published values remain protected by additive conflict checks.
+
+Browser acceptance must start from a new source home, retain the earlier paused scan, measure actual wall time, and use Grok 4.6 low through upload, character creation and the Peru chapter. Sandbox phase sums are not upload-to-play timing.
+
+§24 opening handoff correction: Start starts the bound Pi runtime without a synthetic player prompt. The extension's existing session_start hook owns the opening/recovery turn. Enqueuing a second "start game" prompt during that hook bypasses a fresh player-input boundary and can hit a closed turn. Browser evidence: the first Masks campaign's valid opening was followed by that rejected duplicate. It remains retained; the corrected start is tested in a fresh campaign from the prepared module.
+
+Foreground source priority: one foreground and one background reading job may hold independent shared reader leases; publication remains serialized under the metadata lock and rechecks additive conflicts against the latest graph. A second background job cannot occupy the foreground slot. Host pumps wake when a new foreground request arrives. All source/review Pi children in one host share a 40-process permit pool; cancellation removes pending permits and drains owned children. This replaces a background read blocking the player's exact question.
+
+Already-ready entity questions produce additive node deltas: identity, new source references and newly sourced properties, not a copy of every accepted field. Known context carries physical source citations. Independent review checks the delta and its actual question; it does not demand that unchanged accepted context be copied into the delta. This prevents old facts being mis-cited to a new question's pages and repeatedly re-extracted. Existing merge/conflict checks preserve all prior values.
+
+NPC assertions about another NPC project the assertion's source-authored reason/statement, never the target's canonical biography or secret. Existing source claims remain intact. Self-impersonation is rejected in new drafts (aliases belong on the person) and self-ties are omitted from the Keeper's relationship view. This fixes a source-grounded human-cult belief being projected as knowledge of the target's actual supernatural identity.
+
+Player-view correction: PipiCOC renders delivered story, user input and structured mechanics/choices. Keeper thinking, tool traces and source dossiers remain retained evidence but are not rendered in the player transcript. Streaming provisional assistant text is withheld until delivery; the ordinary waiting indicator remains. The investigator panel no longer lists canonical NPC names, which can disclose an identity before the Keeper introduces it. Other products retain their existing transcript rendering.
+
+A detail/source lookup must contain a nonempty named focus/query. A question adds scope but does not replace the target; this keeps retries from changing their identity by filling in a missing target later. Empty requests are rejected before dispatch; they must never create a generic, reusable detail job that hides which player need was answered.
+
+Concurrent reading additionally excludes the same normalized focus: a foreground question about a scene being prepared in the background waits for that scene's publication, then claims a fresh context. Independent targets keep the foreground slot. This avoids two readers independently rewriting the same previously-thin scene. Existing failed attempts retain all artifacts and explicit retry claims a fresh published context.
+
+Early structure milestone: the high-level prepare service first requests `purpose: skeleton` for a new source. One tool-enabled Pi reads only navigation, overview and entry evidence, publishing the existing graph vocabulary with empty ready_nodes after independent review. This exposes authored opening choices before detailed preparation. A skeleton never sets opening_ready or material readiness. The chosen opening then uses the normal scoped read/review path. Low-level opening/detail requests still have no full-index prerequisite; existing reviewed graphs reuse their structure.
+
+Review corrections: skeleton drafts must have exactly empty ready_nodes; no skeleton can create material readiness. Every publication derives opening_ready from both the structural opening check and a prepared start scene in accepted/current materials. NPC knowledge, beliefs and lies are append-only textual collections (a string is a singleton); additions retain old statements, while other scalar facts remain protected and semantic contradictions still fail source review. Foreground cancellation aborts only its owned job; service shutdown cancels all owned jobs. Reader and reviewer subprocesses honor the same configured timeout. Startup activity recovery must not mark unrelated idle compaction as a player turn.
+
 ## 25. Real-table defect repairs (2026-09-07)
 
 Implementation decisions for the two-session report, items 7–21:
@@ -1716,6 +1778,10 @@ Implementation decisions for the two-session report, items 7–21:
 - Entity resolution prefers an exact canonical semantic handle before shared display
   names/aliases. Ambiguous display names return distinct handles that are resolvable.
 
+Spatial source fidelity: compact place/rule previews must explicitly indicate truncation, never imply complete connectivity from a clipped sentence. Full scene look exposes complete authored sublocation descriptions through the existing scene view; it must not invent routes from prose. Scene asset discovery includes maps depicting the scene's occurs-at location. Source readers and independent reviewers preserve explicit no-roll permissions, obstacle-specific check conditions, and spatial branches; checks attached to one obstacle must not migrate to another through summarization. Repairs of missing material use the same tool-enabled reader/review/publication path, without rewriting campaign outcomes.
+
+NPC executor binding correction (§17.9): an ordinary NPC helper check uses the same resolved actor for host-locked skill/characteristic target and receipt actor identity; it must not fall back to the helped investigator after resolving the NPC. Missing NPC values retain the existing npc.skill needs/pinning contract. Tool guidance explicitly distinguishes the executor from a beneficiary/patient and does not turn changing actor or method into an unchosen pushed roll. This repairs the existing actor-binding path; dice arithmetic and family rules are unchanged.
+
 - When a handout and its underlying asset share a display name, `apply handout`
   selects the handout delivery record; explicit asset handles remain usable.
 - Starter clue projection preserves an explicit authored `name` separately from its
@@ -1723,3 +1789,42 @@ Implementation decisions for the two-session report, items 7–21:
   generated graph and manifest are regenerated. Existing campaign evidence is untouched.
 - The opening host message explicitly restricts state changes to its closing `ask`
   or `narrate`; inventory, renaming and other `apply` effects wait for player turn one.
+
+### Postgame accounting through existing development settlement
+
+A completed campaign stays completed. Later player input may open an accounting turn;
+new writes are restricted to `resolve` with explicit `development:end-session` or
+`development:settle-ending` and `intent: montage`, plus `ask`/`narrate` for source waits
+and delivery. Other resolve actions and all new apply effects remain refused. The
+original ending, prior turns and receipts are never rewritten or replayed as adventure.
+
+`resolve.action.scenario_san_reward_expr` optionally supplies the source-authored SAN
+reward expression for `development:end-session`. The Keeper first obtains the applicable
+reward conditions through normal module/source reading; it does not calculate the
+amount. The existing development capsule freezes the expression and its existing dice
+plan, applies its existing SAN cap, and records the scenario reward alongside growth.
+No new reward calculator or generic resource-write surface is introduced.
+
+Late end-session accounting binds to the original campaign ending turn. It reuses a
+development capsule created in that turn, or creates one host-owned capsule anchored
+to that ending. New call IDs or later accounting turns cannot reroll that capsule,
+repeat gains, or replace its frozen reward expression. `settle-ending` remains only
+the recovery of pending investigator settlements; end-session normally settles them
+all itself. Replayed accounting produces no new resource/skill effects.
+
+Before a new `apply ending`, the current turn must contain successful development
+end-session accounting (or completion of its pending settlement), with no pending
+development settlement left. Otherwise the kernel returns an actionable `needs` asking
+the Keeper to read the chapter's conclusion/rewards and resolve development first.
+This gate establishes mechanical accounting, not proof that the model found every
+authored reward; independent source review retains that responsibility.
+
+The original-ending binding follows the same principle as [Stripe's idempotent
+requests](https://docs.stripe.com/api/idempotent_requests?lang=curl): one logical
+operation retains its original result and rejects conflicting parameters. The
+[SQLite atomic-commit explanation](https://www.sqlite.org/atomiccommit.html) also
+highlights why recovery must follow durable commit boundaries. This change reuses
+existing capsules and turn commits; it does not establish crash-atomic growth.
+The pre-existing development executor persists a settlement receipt before writing
+the party sheet, leaving a process-crash window between those writes. Ordinary
+replay/parameter-conflict safety is verified separately from that unresolved limit.

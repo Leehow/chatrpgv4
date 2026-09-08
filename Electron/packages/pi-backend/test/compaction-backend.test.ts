@@ -227,12 +227,17 @@ describe("context compaction", () => {
     const events: any[] = [];
     const off = backend.subscribe((e) => events.push(e));
 
-    await backend.handle("sendPrompt", ["session-1", "__threshold_preprompt__"]);
-    await waitFor(() => compactionEvents(events).length >= 2);
-    off();
-
-    expect(compactionEvents(events).map((e: any) => e.trigger)).toEqual(["near_overflow", "near_overflow"]);
-    await backend.close();
+    try {
+      // Cover both the first prompt and a prompt after a completed turn: an old
+      // epoch must not make an acknowledged new delivery look like streaming.
+      for (let turn = 0; turn < 2; turn++) {
+        events.length = 0;
+        await backend.handle("sendPrompt", ["session-1", "__threshold_preprompt__"]);
+        await waitFor(() => compactionEvents(events).length >= 2
+          && events.some(e => e.channel === "stream" && e.event.type === "status" && e.event.status === "settled"));
+        expect(compactionEvents(events).map((e: any) => e.trigger)).toEqual(["near_overflow", "near_overflow"]);
+      }
+    } finally { off(); await backend.close(); }
   });
 
   it("surfaces a deterministic context_manage fold as context_fold, never as a compaction lifecycle", async () => {

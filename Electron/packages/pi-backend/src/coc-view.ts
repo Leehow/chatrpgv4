@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { HistoryEntry } from '@pipi/host-api';
 import { KernelClient } from '../../../../extensions/kernel/client.js';
 
-export type CocBinding = {campaign:string; home:string; play_language:string};
+export type CocBinding = {campaign:string; home:string; play_language:string; mode?:string};
 function binding(value:any): CocBinding | undefined {
   return value && typeof value.campaign === 'string' && typeof value.home === 'string'
     && ['zh-Hans','en'].includes(value.play_language) ? value : undefined;

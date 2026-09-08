@@ -658,6 +658,9 @@ export default function (pi: ExtensionAPI) {
 		const began = Date.now();
 		try {
 			if (spec.name === "lookup" && params.kind === "source") {
+				if (!asString(params.query)?.trim()) throw new KernelError({
+					code: "invalid_params", message: "Source lookup needs a named query; question supplies additional scope",
+					fix: "pass the place or entity as query and describe the unresolved source question" });
 				if (!reading || !readingModule) throw new KernelError({ code: "needs", message: "the source reading service is unavailable",
 					fix: "reopen the table with its module reading extension available", details: { reason: "reading_failed" } });
 				await reading.ensure(readingModule, { purpose: "detail", focus: params.query,
@@ -879,7 +882,7 @@ export default function (pi: ExtensionAPI) {
 			const open = await kernel.call<OpenResult>("table.open", { campaign });
 			applyOpen(open);
 			table.playLanguage = asString(open.campaign?.play_language);
-			pi.appendEntry("coc-session", {campaign, home: cocHome(ctx.cwd), play_language: table.playLanguage});
+			pi.appendEntry("coc-session", {campaign, home: cocHome(ctx.cwd), play_language: table.playLanguage, mode: "play"});
 			// The tool surface is fixed: these seven and no reshaping afterwards.
 			pi.setActiveTools([...COC_TOOL_NAMES]);
 			// One Pi session, one kernel subprocess (contract §1), so there is only this one kernel RPC.
@@ -1205,6 +1208,12 @@ export default function (pi: ExtensionAPI) {
 		// a zero-millisecond timer only runs after that.
 		settleVerifier(state);
 		return { message: { ...event.message, content: next } };
+	});
+
+	pi.on("before_provider_request", async (event, ctx) => {
+		const payload = event.payload as {model?: string; reasoning?: {effort?: string}; reasoning_effort?: string};
+		await record({lane: "provider-request", model: payload?.model, provider: ctx.model?.provider,
+			reasoning_effort: payload?.reasoning?.effort ?? payload?.reasoning_effort ?? null});
 	});
 
 	pi.on("agent_end", async () => {

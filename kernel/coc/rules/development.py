@@ -219,6 +219,15 @@ def pending_settlements(campaign_dir: Path) -> list[tuple[str, str]]:
     return pending
 
 
+def capsule_for_campaign_ending(campaign_dir: Path, ending_turn: int) -> dict[str, Any] | None:
+    """Reuse final-turn or later accounting for the same completed campaign ending."""
+    for capsule in reversed(list_endings(campaign_dir)):
+        if (capsule.get("campaign_ending_turn") == ending_turn
+            or str(capsule.get("decision_id") or "").startswith(f"t{ending_turn}-c")):
+            return capsule
+    return None
+
+
 def _rulebook_skill_base(tables: RuleTables, skill: str) -> int | None:
     spec = tables.skills_table().get(skill)
     base = spec.get("base_chance") if isinstance(spec, dict) else None
@@ -335,6 +344,8 @@ def build_ending_capsule(tables: RuleTables, campaign_dir: Path, record: dict[st
         "investigator_ids": investigator_ids, "scenario_san_reward_expr": event.get("scenario_san_reward_expr"),
         "development_inputs": inputs, "rng_identity": rng_identity, "captured_at": captured_at,
     }
+    if "campaign_ending_turn" in event:
+        capsule["campaign_ending_turn"] = event["campaign_ending_turn"]
     capsule["capsule_sha256"] = _sha256(capsule)
     return capsule
 

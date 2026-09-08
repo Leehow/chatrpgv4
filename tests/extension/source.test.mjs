@@ -87,3 +87,23 @@ test("a handout preserves its explicitly declared source regions in order", asyn
 	assert.deepEqual(Array.from(ctx.getImageData(100, 100, 1, 1).data), [255, 0, 0, 255]);
 	assert.deepEqual(Array.from(ctx.getImageData(100, image.height - 100, 1, 1).data), [0, 0, 255, 255]);
 });
+
+test("reader JPEGs and revealable PNGs have separate verified caches", async t => {
+  const {file, cache} = await fixture(t);
+  const jpeg = await sourcePage(file, cache, 1, {pixels:512,format:'jpeg'});
+  const png = await sourcePage(file, cache, 1, {pixels:512});
+  assert.notEqual(jpeg.path,png.path);
+  assert.deepEqual([...(await readFile(jpeg.path)).subarray(0,2)],[255,216]);
+  assert.deepEqual([...(await readFile(png.path)).subarray(0,4)],[137,80,78,71]);
+  assert.equal((await sourcePage(file,cache,1,{pixels:512,format:'jpeg'})).reused,true);
+});
+
+test('concurrent page-cache publication never exposes partial image bytes', async t => {
+ const {file,cache}=await fixture(t);
+ const {createHash}=await import('node:crypto');
+ await Promise.all(Array.from({length:40},async()=>{
+   const page=await sourcePage(file,cache,1,{pixels:512,format:'jpeg'});
+   const bytes=await readFile(page.path);
+   assert.equal(createHash('sha256').update(bytes).digest('hex'),page.image_sha256);
+ }));
+});

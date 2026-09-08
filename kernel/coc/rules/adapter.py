@@ -118,8 +118,9 @@ class Coc7RuleGraphAdapter:
     """Package adapter: `augment_facts`, `host_locked_provider`, `executor_args` and the
     composed settlements. `ctx` is the kernel's settlement context (runtime.py)."""
 
-    def __init__(self, ctx: Any) -> None:
+    def __init__(self, ctx: Any, *, acting_id: str | None = None) -> None:
         self.ctx = ctx
+        self.acting_id = acting_id or ctx.actor_id
 
     # ---- facts ----------------------------------------------------------------
 
@@ -200,6 +201,14 @@ class Coc7RuleGraphAdapter:
                 if "investigator_id" in declared:
                     locked["investigator_id"] = investigator_id
                 if decision_ref == ORDINARY_CHECK_REF:
+                    if self.acting_id != ctx.actor_id:
+                        label = str(semantic.get("skill") or semantic.get("characteristic") or "")
+                        value = ctx.actor_of_id_skill_value(self.acting_id, label)
+                        if value is None:
+                            raise self._no_skill_for(self.acting_id, label)
+                        locked["investigator_id"] = self.acting_id
+                        locked["target"] = value
+                        return locked
                     ref = (f"skill:{semantic['skill']}" if semantic.get("skill")
                            else f"characteristic:{semantic['characteristic']}" if semantic.get("characteristic") else "")
                     resolved = sheet_check(sheet, ref)
@@ -336,6 +345,7 @@ class Coc7RuleGraphAdapter:
                 if payload.get(key) is not None:
                     out[key] = payload[key]
         elif capability == "check":
+            out["investigator"] = str(payload.get("investigator_id") or investigator_id)
             for key in ("skill", "characteristic", "target", "combined_targets", "combined_mode", "difficulty", "goal",
                         "stakes", "difficulty_basis", "bonus", "penalty", "npc_id", "social_adjudication_ref", "pushed",
                         "method_changed", "failure_consequence", "original_check_decision_id"):
@@ -430,6 +440,8 @@ class Coc7RuleGraphAdapter:
                 out["source_ref"] = payload.get("source_ref")
         elif capability == "state.end_session":
             out.update({"summary": payload.get("summary"), "kind": payload.get("kind")})
+            if payload.get("scenario_san_reward_expr") is not None:
+                out["scenario_san_reward_expr"] = payload["scenario_san_reward_expr"]
         elif capability == "development.settle":
             if payload.get("ending_id") is not None:
                 out["ending_id"] = payload.get("ending_id")

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -213,6 +213,83 @@ describe("external Pi model runtime", () => {
     await runtime.getAvailable();
     expect((runtime as any).worker?.child?.pid).toBe(pid);
     runtime.stop();
+  });
+
+  it("keeps a ready worker alive after its former startup deadline", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-external-ready-deadline-"));
+    const agentDir = join(root, "agent"), helperPath = join(root, "helper.mjs");
+    await mkdir(agentDir); await writeFile(helperPath, fixture);
+    const runtime = new ExternalAuthRuntime({ helperPath, agentDir, piPath: "/unused/pi", nodePath: process.execPath, env: { HOME: root } });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await runtime.getAvailable();
+      const worker = (runtime as any).worker;
+      await vi.advanceTimersByTimeAsync(10_001);
+      expect(worker.disposed).toBe(false);
+      await runtime.getAvailable();
+      expect((runtime as any).worker).toBe(worker);
+    } finally { runtime.stop(); vi.useRealTimers(); }
+  });
+
+  it("settles active and queued requests on stop before ending stdin, then falls back", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-external-queued-stop-"));
+    const agentDir = join(root, "agent"), helperPath = join(root, "helper.mjs");
+    await mkdir(agentDir); await writeFile(helperPath, hangFixture);
+    const runtime = new ExternalAuthRuntime({ helperPath, agentDir, piPath: "/unused/pi", nodePath: process.execPath, env: { HOME: root } });
+    try {
+      await runtime.getAvailable();
+      const worker = (runtime as any).worker;
+      const results = Promise.all([(runtime as any).query("hang"), (runtime as any).query("list-models")]);
+      await vi.waitFor(() => expect(worker.pending.size).toBe(2));
+      const writes = vi.spyOn(worker.child.stdin, "write");
+      runtime.stop();
+      expect(worker.pending.size).toBe(0);
+      expect((await results).map(result => result.models.length)).toEqual([1, 1]);
+      expect(writes).not.toHaveBeenCalled();
+      await worker.tail;
+    } finally { runtime.stop(); }
+  });
+
+  it("contains asynchronous stdin errors and rejects queued work into the fallback", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-external-pipe-error-"));
+    const agentDir = join(root, "agent"), helperPath = join(root, "helper.mjs");
+    await mkdir(agentDir); await writeFile(helperPath, hangFixture);
+    const runtime = new ExternalAuthRuntime({ helperPath, agentDir, piPath: "/unused/pi", nodePath: process.execPath, env: { HOME: root } });
+    try {
+      await runtime.getAvailable();
+      const worker = (runtime as any).worker;
+      const results = Promise.all([(runtime as any).query("hang"), (runtime as any).query("list-models")]);
+      await vi.waitFor(() => expect(worker.pending.size).toBe(2));
+      worker.child.stdin.destroy(new Error("fixture pipe closed"));
+      expect((await results).map(result => result.models.length)).toEqual([1, 1]);
+      expect(worker.disposed).toBe(true);
+      expect(worker.pending.size).toBe(0);
+      await worker.tail;
+      await runtime.getAvailable();
+      expect((runtime as any).worker).not.toBe(worker);
+    } finally { runtime.stop(); }
+  });
+
+  it("never writes a queued command after stdin ended but before worker exit", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-external-ended-pipe-"));
+    const agentDir = join(root, "agent"), helperPath = join(root, "helper.mjs");
+    await mkdir(agentDir); await writeFile(helperPath, fixture);
+    const runtime = new ExternalAuthRuntime({ helperPath, agentDir, piPath: "/unused/pi", nodePath: process.execPath, env: { HOME: root } });
+    try {
+      await runtime.getAvailable();
+      const worker = (runtime as any).worker;
+      let release: () => void = () => {};
+      worker.tail = new Promise<void>(resolve => { release = resolve; });
+      const result = (runtime as any).query("list-models");
+      await vi.waitFor(() => expect(worker.pending.size).toBe(1));
+      const writes = vi.spyOn(worker.child.stdin, "write");
+      worker.child.stdin.end();
+      release();
+      expect((await result).models).toHaveLength(1);
+      expect(writes).not.toHaveBeenCalled();
+      expect(worker.pending.size).toBe(0);
+      await worker.tail;
+    } finally { runtime.stop(); }
   });
 
   it("reloads the same worker's cache after an auth change instead of re-spawning", async () => {

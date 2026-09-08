@@ -25,8 +25,8 @@ from .module_graph import NPC_KIND, ModuleGraph, module_declaration, record_of
 from .ontology import Ontology, ontology_not_ready
 from . import npc as npc_lane
 from .render import bind_markers, check_play_language, markers_for, mechanics, strip_markers
-from .resolve import ResolvePipeline
-from .rules import RuleTables
+from .resolve import ResolvePipeline, full_decision_ref
+from .rules import RuleTables, development
 from .rules.combat import resolve_module_weapons
 from .rules.graph import REGISTERED_CONDITION_PATHS, semantic_name
 from .rules.healing import handle_time_trigger as healing_time_trigger
@@ -42,6 +42,8 @@ from .text import ascii_slug, normalize
 INTENTS = frozenset({"investigate", "social", "move", "combat", "flee", "cast", "idle", "meta",
                      "stuck", "ambiguous", "montage"})
 NONE_INTENTS = frozenset({"idle", "meta", "stuck", "ambiguous"})
+POSTGAME_DECISIONS = frozenset({"decision:coc7:development:end-session", "decision:coc7:development:settle-ending"})
+POSTGAME_ACTION_FIELDS = frozenset({"intent", "goal", "method", "decision", "ending", "actor", "scenario_san_reward_expr"})
 APPLY_KINDS = frozenset({"ending", "move", "clue", "time", "damage", "handout", "item", "cash", "flag", "note", "ruling",
                          "npc",
                          # §15.3 (#23): the world changing lines. Performed after the turn commits.
@@ -856,7 +858,7 @@ class Table:
     # ---- player input -------------------------------------------------------
 
     def player_input(self, params: dict[str, Any]) -> dict[str, Any]:
-        campaign, meta, graph, world = self._load(params)
+        campaign, meta, graph, world = self._load(params, statuses=frozenset({STATUS_ACTIVE, "completed"}))
         turn = campaign.read_turn()
         text = _str(params, "text")
         if turn["state"] not in PLAYER_INPUT_STATES:
@@ -888,6 +890,12 @@ class Table:
         append_event(campaign, number, "player-declared", {"text": text})
         resume = self._resume_pending.pop(campaign.id, None)
         capsule = self._capsule(campaign, graph, world, new_turn, resume=resume, consume_style=True)
+        if meta.get("status") == "completed":
+            capsule["head"] = ("This campaign remains completed. Only late development accounting is writable: "
+                               "read the source conclusion/rewards, then resolve explicit development:end-session "
+                               "or a pending development:settle-ending with intent montage; ask/narrate may return "
+                               "control or deliver accounting. Do not reopen the adventure or apply new world effects. "
+                               + capsule["head"])
         # What the keeper was told this turn is evidence (spec §13): it rides in turn.json
         # and lands in the closed record with the receipts.
         new_turn["capsule"] = capsule
@@ -907,7 +915,13 @@ class Table:
         if replay is not None:
             return call_id, replay
         if campaign.read_campaign().get("status") == "completed":
-            raise RpcError("campaign_not_ready", "this campaign is completed")
+            action = params.get("action")
+            accounting = (method == "table.resolve" and isinstance(action, dict)
+                          and action.get("intent") == "montage" and not set(action) - POSTGAME_ACTION_FIELDS
+                          and full_decision_ref(str(action.get("decision") or "")) in POSTGAME_DECISIONS)
+            if method not in ("table.ask", "table.narrate") and not accounting:
+                raise RpcError("campaign_not_ready", "this campaign is completed; only late development accounting is writable",
+                               fix="keep the ending intact; use explicit development:end-session or pending development:settle-ending with intent montage, then narrate")
         opening = allow_opening and int(turn["turn"]) == 0 and turn["state"] == "awaiting_player"
         if turn["state"] not in WRITABLE_STATES and not opening:
             raise _turn_state_error(turn, method, "wait for player_input to open a turn")
@@ -1142,6 +1156,13 @@ class Table:
                         receipt_ids.append(receipt["id"])
                         continue
                 elif kind == "ending":
+                    settled = any((row.get("result") or {}).get("decision") in ("development:end-session", "development:settle-ending")
+                                  and (row.get("result") or {}).get("outcome", {}).get("kind") == "development"
+                                  for row in turn.get("calls", {}).values())
+                    if not settled or development.pending_settlements(campaign.dir):
+                        raise RpcError("needs", "settle the chapter's rewards and investigator development before ending the campaign",
+                                       fix="read the source conclusion/rewards; resolve development:end-session with the applicable scenario_san_reward_expr, or development:settle-ending if a settlement is pending; then retry apply ending",
+                                       details={"reason": "ending_settlement_required"})
                     summary = _str(effect, "summary")
                     staged["ending"] = {"summary": summary, "turn": turn_number}
                     receipt = {"id": mint(f"session:campaign-end-t{turn_number}-c{ordinal}"),
@@ -1454,6 +1475,14 @@ class Table:
                 raise invalid_params(f"npc.skill.value {pinned['value']} is not a percentage",
                                      fix="a whole number from 0 to 100", details={"field": "npc.skill.value"})
             pinned = {"name": pinned["name"].strip(), "value": int(pinned["value"])}
+            authored = graph.actor_skill_value(node, pinned["name"])
+            if authored is not None and authored != pinned["value"]:
+                raise invalid_params(
+                    f"the source already gives {graph.display_name(node)} {pinned['name']} {authored}; "
+                    "a missing-field pin cannot replace it",
+                    fix=f"use the source-authored {pinned['name']} value {authored}; resolve does not need a pin",
+                    details={"field": "npc.skill", "actor": handle, "skill": pinned["name"],
+                             "authored_value": authored})
         if to is None and stance is None and dead is None and pinned is None:
             raise invalid_params("an npc effect needs `to`, `stance`, `dead`, `skill`, or a combination",
                                  fix=f"move them with to: {NPC_HERE}/{NPC_AWAY}/<scene>, "
@@ -1916,7 +1945,7 @@ class Table:
             raise invalid_params("unknown mechanics choice option")
         binds = _str(params, "binds", required=False)
         text = _str(params, "text", required=False)
-        if world.get("ending"):
+        if world.get("ending") and campaign.read_campaign().get("status") != "completed":
             raise invalid_params("a campaign ending must be delivered with narrate, not ask")
         if turn.get("worldline"):
             # §15.3: a turn that changes the worldline cannot end on a question -- the

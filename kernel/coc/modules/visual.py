@@ -91,6 +91,8 @@ def check_draft(draft: Any, packet: dict[str, Any], seen: set[int] | None = None
     for key in ("nodes", "claims", "node_refs", "critical", "ready_nodes"):
         if not isinstance(draft.get(key), list):
             reject(f"{key} must be an array", f"/{key}")
+    if packet.get("purpose") == "skeleton" and not draft["nodes"]:
+        reject("a skeleton needs source-authored nodes before it can be published", "/nodes")
     coverage = draft.get("coverage")
     if not isinstance(coverage, dict) or set(coverage) - set(COVERAGE_DOMAINS) or any(v not in COVERAGE_STATUSES for v in coverage.values()):
         reject("coverage must use the supplied coverage vocabulary")
@@ -131,7 +133,9 @@ def check_draft(draft: Any, packet: dict[str, Any], seen: set[int] | None = None
     for nid in filled["node_refs"] + filled["ready_nodes"]:
         if not isinstance(nid, str) or nid not in ids:
             reject("a node reference must name a defined node")
-    if not filled["ready_nodes"]:
+    if packet.get("purpose") == "skeleton" and filled["ready_nodes"]:
+        reject("a skeleton cannot grant material readiness; ready_nodes must be empty", "/ready_nodes")
+    if not filled["ready_nodes"] and packet.get("purpose") != "skeleton":
         reject("declare the nodes whose material this task has prepared", "/ready_nodes")
     if not set(filled["ready_nodes"]) <= defined:
         reject("ready_nodes must be present in the draft so their material can be independently reviewed", "/ready_nodes")
@@ -159,6 +163,8 @@ def check_draft(draft: Any, packet: dict[str, Any], seen: set[int] | None = None
         target = claim.get("object", {}).get("node_id") if isinstance(claim.get("object"), dict) else None
         if claim.get("subject_id") not in ids or target not in ids or claim.get("predicate") not in RELATION_KINDS:
             reject("a claim must connect defined nodes with a supplied predicate", f"/claims/{i}")
+        if claim["predicate"] == "impersonates" and claim["subject_id"] == target:
+            reject("an alias is not a second person; put it in aliases rather than a self-impersonation claim", f"/claims/{i}")
         if set(claim["object"]) != {"node_id"}:
             reject("claim objects contain only node_id")
         matches = [old for old in packet.get("known_claims", []) if
@@ -214,6 +220,14 @@ def check_review(draft: dict[str, Any], filled: dict[str, Any], review: Any, cou
 def merge_value(old: Any, new: Any, path: str = "") -> Any:
     if old == new:
         return copy.deepcopy(old)
+    parts = path.split("/")
+    if (len(parts) == 5 and parts[1] == "nodes" and parts[2].startswith("npc-")
+        and parts[3] == "properties" and parts[4] in ("knowledge", "beliefs", "lies")):
+        before = [old] if isinstance(old, str) else old
+        added = [new] if isinstance(new, str) else new
+        if (isinstance(before, list) and isinstance(added, list)
+            and all(isinstance(value, str) for value in before + added)):
+            return copy.deepcopy(before + [value for value in added if value not in before])
     if isinstance(old, dict) and isinstance(new, dict):
         out = copy.deepcopy(old)
         for key, value in new.items():

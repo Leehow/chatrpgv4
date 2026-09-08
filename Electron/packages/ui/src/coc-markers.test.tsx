@@ -19,7 +19,7 @@ const Delivery = createComponent(React)
 afterEach(cleanup)
 
 const ROLL = {
-  kind: 'roll', receipt: 'roll:library-use-t5-c1', actor: 'thomas-hayes', actor_label: '托马斯·海斯',
+  kind: 'roll', receipt: 'roll:library-use-t5-c1', actor: 'thomas-hayes', actor_label: '托马斯·海斯', actor_is_investigator: true,
   skill: 'Library Use', roll: 84, target: 50, threshold: 50, difficulty: 'regular', level: 'failure',
   passed: false, pushed: false, visibility: 'public', marker: 'check:library-use',
 }
@@ -29,6 +29,49 @@ const CLUE = { kind: 'clue', receipt: 'clue:knott-keys-t5', clue: 'knott-keys', 
 const MARKED = '你翻遍了匣子{{check:library-use}}\n\n十分钟很快耗尽。{{time}}架子深处还有未开的匣。'
 
 describe('the card draws a marked delivery', () => {
+  it.each([
+    ['zh-Hans', -1, '从林远的物品中移除'],
+    ['zh-Hans', -2, '从林远的物品中移除'],
+    ['en', -2, "removed from 林远's inventory"],
+    ['zh-Hans', 1, '给 林远'],
+    ['en', 2, 'to 林远'],
+  ])('shows signed inventory direction (%s, quantity=%s)', (play_language, quantity, direction) => {
+    const {container} = render(<Delivery details={{play_language, turn:57, mechanics:[{
+      kind:'item', receipt:'item:gold-fragment-t57-c1', name:'Gold fragment', label:'金嵌板',
+      quantity, to:'lin-yuan', to_label:'林远',
+    }]}} />);
+    expect(container.textContent).toContain(`金嵌板${Math.abs(Number(quantity)) > 1 ? ' ×2' : ''} ${direction}`);
+    if (Number(quantity) < 0) expect(container.textContent).not.toContain('给 林远');
+  });
+
+  it.each([false, undefined])('keeps NPC and legacy names off visible mechanics (identity=%s)', identity => {
+    const rows = [
+      {...ROLL, actor:'jackson-elias', actor_label:'Jackson Elias', actor_is_investigator:identity},
+      {kind:'dice', receipt:'roll:damage-t5-c2', actor:'jackson-elias', actor_label:'Jackson Elias', actor_is_investigator:identity,
+        expression:'1D6', faces:[4], total:4, marker:'dice:damage'},
+      {kind:'change', receipt:'delta:hp-t5-c2', subject:'jackson-elias', subject_label:'Jackson Elias', subject_is_investigator:identity,
+        resource:'hp', before:12, after:8, marker:'change:hp'},
+    ];
+    const {container} = render(<Delivery details={{play_language:'en', turn:5,
+      marked_text:'Hughes studies the shelves.{{check:library-use}}He catches his hand.{{dice:damage}}{{change:hp}}', mechanics:rows}} />);
+    expect(container.textContent).toContain('Hughes studies the shelves.');
+    expect(container.textContent).not.toMatch(/Jackson Elias|jackson-elias/);
+    expect(container.querySelectorAll('.coc-mech-here')).toHaveLength(3);
+    expect(container.textContent).toContain('84/50');
+    expect(container.textContent).toContain('12');
+    expect(container.textContent).toContain('8');
+  });
+
+  it('keeps confirmed investigator names on roll, dice and change cards', () => {
+    const {container} = render(<Delivery details={{play_language:'en', turn:5, mechanics:[
+      ROLL,
+      {kind:'dice', receipt:'d', actor:'inv', actor_label:'Mira', actor_is_investigator:true, expression:'1D6', faces:[4], total:4},
+      {kind:'change', receipt:'c', subject:'inv', subject_label:'Mira', subject_is_investigator:true, resource:'hp', before:12, after:8},
+    ]}} />);
+    expect(container.textContent).toContain('托马斯·海斯');
+    expect(screen.getAllByText(/Mira/)).toHaveLength(2);
+  });
+
   it('keeps the prose in order and puts each placed receipt at its point', () => {
     const { container } = render(
       <Delivery details={{ play_language: 'zh-Hans', turn: 5, marked_text: MARKED, mechanics: [ROLL, TIME] }} />,

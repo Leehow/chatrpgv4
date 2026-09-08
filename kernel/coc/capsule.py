@@ -70,7 +70,8 @@ MINUTES_PER_DAY = 24 * 60
 HEAD = ("Everything at the start of this turn: the clock, the undiscovered clues here and their gates, the secrets "
         "and agendas of those present, the way back and the exits, pressures and obligations, the rule-layer "
         "situations, the Director's suggested beat, related memory and the style contract. Do not look/lookup "
-        "for what is already here; director is advice, not lines. where.material and each exit's material say how "
+        "for what is already here; director is advice, not lines. Truncated place/rule previews are incomplete; "
+        "look focus=scene returns their full descriptions. where.material and each exit's material say how "
         "far the book has been read: ready, reading, or missing. An exit's unlock_when.met is true, false, or null "
         "when the kernel cannot tell; a gate never blocks a move. known.flags lists the flags set so far; "
         "obligations of kind note are your own open continuity notes; rulings are your earlier rulings that "
@@ -134,7 +135,7 @@ def clock_section(graph: ModuleGraph, world: dict[str, Any]) -> dict[str, Any]:
 
 
 def where_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any],
-                  material_of: Callable[[str], str] | None = None) -> dict[str, Any]:
+                  material_of: Callable[[str], str] | None = None, *, compact: bool = False) -> dict[str, Any]:
     """`material_of(scene_handle)` is the module store's answer for that scene's section
     (§14.6: ready | reading | missing); a starter has no sections, so everything is ready."""
     record = record_of(scene)
@@ -187,7 +188,7 @@ def where_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, An
         except Exception:  # noqa: BLE001 - a stale handle in an old world is not a reason to lose the section
             back.append({"to": handle})
 
-    return {
+    where = {
         "scene": graph.handle(scene),
         "display_name": scene_label(graph, world, scene),
         "summary": scene.get("summary") or graph.prose(scene),
@@ -203,6 +204,18 @@ def where_section(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, An
         "endings": graph.scene_endings(scene),
         "material": material(graph.handle(scene)),
     }
+    if compact:
+        for key, limit, chars in (("places", graph.SCENE_PLACES, graph.SCENE_PLACE_CHARS),
+                                  ("rules", graph.SCENE_RULES, graph.SCENE_RULE_CHARS)):
+            if len(where[key]) > limit:
+                where["truncated"] = True
+                where[key] = where[key][:limit]
+            for entry in where[key]:
+                if len(entry.get("line", "")) > chars:
+                    entry["line"] = entry["line"][:chars]
+                    entry["truncated"] = True
+                    where["truncated"] = True
+    return where
 
 
 def npcs_present(graph: ModuleGraph, world: dict[str, Any], scene: dict[str, Any]) -> list[dict[str, Any]]:
@@ -254,6 +267,12 @@ def npc_entry(graph: ModuleGraph, world: dict[str, Any], node: dict[str, Any],
             entry[field] = profile[key]
     if knows:
         entry["knows"] = knows[:PRESENT_KNOWS]
+    knowledge = graph.authored_lines(node, "knowledge")[:PRESENT_CLAIM_LINES]
+    if knowledge:
+        entry["knowledge"] = knowledge
+    keeper_note = record_of(node).get("keeper_note")
+    if keeper_note:
+        entry["keeper_note"] = keeper_note
     believes = graph.npc_beliefs(node)[:PRESENT_CLAIM_LINES]
     if believes:
         entry["believes"] = believes
@@ -638,7 +657,7 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
     ledger = read_ledger(campaign.npc_ledger_path)
     candidates = read_candidates(campaign)
 
-    where = where_section(graph, world, scene, material_of)
+    where = where_section(graph, world, scene, material_of, compact=True)
     where["clock"] = clock_section(graph, world)
     where["session"] = session
 
@@ -702,7 +721,8 @@ def build_capsule(graph: ModuleGraph, campaign: Campaign, world: dict[str, Any],
     if fit_budget(sections["known"]["flags"], KNOWN_FLAGS_BUDGET, drop="last"):
         truncated.append("known.flags")
     for name, budget in BUDGETS.items():
-        if fit_budget(sections[name], budget):
+        cut = fit_budget(sections[name], budget)
+        if cut or (isinstance(sections[name], dict) and sections[name].get("truncated")):
             truncated.append(name)
             if isinstance(sections[name], dict):
                 sections[name]["truncated"] = True
@@ -768,6 +788,9 @@ def npc_view(graph: ModuleGraph, world: dict[str, Any], node: dict[str, Any],
               "discovered": entry["handle"] in discovered} for entry in graph.npc_knows(node)]
     if knows:
         view["knows"] = knows
+    knowledge = graph.authored_lines(node, "knowledge")
+    if knowledge:
+        view["knowledge"] = knowledge
     beliefs = graph.npc_beliefs(node)
     if beliefs:
         view["believes"] = beliefs
@@ -791,8 +814,9 @@ def npc_view(graph: ModuleGraph, world: dict[str, Any], node: dict[str, Any],
             "availability": record.get("availability"),
             "mechanics": record.get("mechanics"),
         })
-    else:
-        view["properties"] = node.get("properties") or {}
+    authored = graph.entity_view(node).get("properties") or {}
+    if authored:
+        view["properties"] = authored
     return view
 
 

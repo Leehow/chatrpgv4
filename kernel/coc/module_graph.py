@@ -419,7 +419,12 @@ class ModuleGraph:
     def scene_assets(self, scene: dict[str, Any]) -> list[dict[str, Any]]:
         assets: list[dict[str, Any]] = []
         seen: set[str] = set()
-        for rel in self.in_rel.get(scene["node_id"], []):
+        links = list(self.in_rel.get(scene["node_id"], []))
+        for location in self.out_rel.get(scene["node_id"], []):
+            if location["relation_kind"] == "occurs-at":
+                links.extend(rel for rel in self.in_rel.get(location["to_node_id"], [])
+                             if rel["relation_kind"] == "depicts")
+        for rel in links:
             if rel["relation_kind"] not in ("depicts", "discoverable-at", "located-in"):
                 continue
             node = self.nodes.get(rel["from_node_id"])
@@ -448,10 +453,10 @@ class ModuleGraph:
                 if inner["relation_kind"] != "located-in":
                     continue
                 node = self.nodes.get(inner["from_node_id"])
-                if not node or node["node_id"] in seen or len(places) >= self.SCENE_PLACES:
+                if not node or node["node_id"] in seen:
                     continue
                 seen.add(node["node_id"])
-                line = " ".join(str(node.get("summary") or "").split())[:self.SCENE_PLACE_CHARS]
+                line = " ".join(str(node.get("summary") or "").split())
                 entry = {"name": self.display_name(node)}
                 if line and line != entry["name"]:
                     entry["line"] = line
@@ -474,10 +479,10 @@ class ModuleGraph:
             if rel["relation_kind"] != "uses-rule":
                 continue
             node = self.nodes.get(rel["to_node_id"])
-            if not node or node["node_id"] in seen or len(rules) >= self.SCENE_RULES:
+            if not node or node["node_id"] in seen:
                 continue
             seen.add(node["node_id"])
-            line = " ".join(str(node.get("summary") or "").split())[:self.SCENE_RULE_CHARS]
+            line = " ".join(str(node.get("summary") or "").split())
             entry = {"name": self.display_name(node)}
             if line and line != entry["name"]:
                 entry["line"] = line
@@ -619,7 +624,10 @@ class ModuleGraph:
             obj = claim.get("object") if isinstance(claim.get("object"), dict) else {}
             target = self.nodes.get(obj.get("node_id")) if isinstance(obj.get("node_id"), str) else None
             line = None
-            if target:
+            if target and target.get("node_kind") == NPC_KIND:
+                # An assertion about a person is not that person's canonical dossier.
+                line = claim.get("reason") or claim.get("statement")
+            elif target:
                 line = target.get("summary") or target.get("name")
             for key in ("statement", "text", "value"):
                 if not (isinstance(line, str) and line.strip()) and isinstance(obj.get(key), str):
@@ -641,10 +649,19 @@ class ModuleGraph:
         wanted = [c for c in self.npc_claims(node, ASSERTS) if c.get("truth_status") in statuses]
         return self._claim_lines(wanted)
 
+    @staticmethod
+    def authored_lines(node: dict[str, Any], key: str) -> list[str]:
+        value = (node.get("properties") or {}).get(key)
+        values = [value] if isinstance(value, str) else value if isinstance(value, list) else []
+        return [line.strip() for line in values if isinstance(line, str) and line.strip()]
+
     def npc_beliefs(self, node: dict[str, Any]) -> list[str]:
         """§17.4 `believes`: what they hold that may be wrong — the `believes` claims, plus
         the things they assert and hold true."""
         lines = self.npc_claim_lines(node, BELIEVES)
+        for line in self.authored_lines(node, "beliefs"):
+            if line not in lines:
+                lines.append(line)
         for line in self._asserts_by_status(node, (self.BELIEF_STATUS,)):
             if line not in lines:
                 lines.append(line)
@@ -655,8 +672,11 @@ class ModuleGraph:
         or a rumor they would tell, plus the deflection lines the book wrote for them. What
         they assert and believe is not here; it is in `npc_beliefs`. Copied, never composed."""
         lines = self._asserts_by_status(node, self.LIE_STATUSES)
+        for line in self.authored_lines(node, "lies"):
+            if line not in lines:
+                lines.append(line)
         for deflect in (node.get("properties") or {}).get("deflect_lines") or []:
-            line = deflect.get("line") if isinstance(deflect, dict) else None
+            line = deflect.get("line") if isinstance(deflect, dict) else deflect if isinstance(deflect, str) else None
             if isinstance(line, str) and line.strip() and line.strip() not in lines:
                 lines.append(line.strip())
         return lines
@@ -675,7 +695,8 @@ class ModuleGraph:
     def _add_tie(self, ties: list[dict[str, Any]], seen: set[tuple[str, str]],
                  rel: dict[str, Any], other_id: Any) -> None:
         kind = rel.get("relation_kind")
-        if kind not in TIE_RELATION_KINDS or not isinstance(other_id, str):
+        if (kind not in TIE_RELATION_KINDS or not isinstance(other_id, str)
+            or rel.get("from_node_id") == rel.get("to_node_id")):
             return
         other = self.nodes.get(other_id)
         if not other or (kind, other_id) in seen:

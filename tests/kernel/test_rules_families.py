@@ -84,6 +84,7 @@ def test_opposed_check_rolls_both_parties(seeded_kernel, tmp_path):
     receipts = {r["id"]: r for r in seeded_kernel.table("status")["receipts"] if r["kind"] == "roll"}
     npc_roll = receipts[f"roll:str-walter-corbitt-t1-c{n}"]
     assert npc_roll["actor"] == "walter-corbitt" and npc_roll["visibility"] == "public"
+    assert npc_roll["actor_is_investigator"] is False and npc_roll["actor_label"] == "Walter Corbitt"
     assert result["continuations"] == []  # opposed checks are never pushed
 
     rolls = [m for m in narrate(seeded_kernel, f"t1-c{n + 1}", "他的手像石头。")["mechanics"] if m["kind"] == "roll"]
@@ -91,7 +92,9 @@ def test_opposed_check_rolls_both_parties(seeded_kernel, tmp_path):
     # §23: the investigator is named on the card too, not left as the kernel's `inv`-style id.
     assert rolls[0]["skill"] == "STR" and rolls[0]["actor"] == "thomas-hayes"
     assert rolls[0]["actor_label"] == "托马斯·海斯"
-    assert rolls[1]["skill"] == "STR" and rolls[1]["actor"] == "walter-corbitt" and rolls[1]["actor_label"] == "Walter Corbitt"
+    assert rolls[0]["actor_is_investigator"] is True
+    assert rolls[1]["skill"] == "STR" and rolls[1]["actor_is_investigator"] is False
+    assert "actor" not in rolls[1] and "actor_label" not in rolls[1]
 
     # Same seed, fresh process, same two rolls.
     other = RpcClient(tmp_path / "ws-2", env={"COC_KERNEL_SEED": "7"})
@@ -297,7 +300,7 @@ def test_luck_spend_and_insufficient_luck(seeded_kernel):
 
     changes = [m for m in narrate(seeded_kernel, f"t1-c{n + 3}", "你眯起眼。")["mechanics"] if m["kind"] == "change"]
     assert {"kind": "change", "receipt": changes[-1]["receipt"], "resource": "luck", "subject": "thomas-hayes",
-            "subject_label": "托马斯·海斯", "before": 50, "after": 47} in changes
+            "subject_label": "托马斯·海斯", "subject_is_investigator": True, "before": 50, "after": 47} in changes
     events = read_jsonl(campaign_dir(seeded_kernel.workspace) / "events.jsonl")
     changed = [e for e in events if e["type"] == "resource-changed"]
     assert changed[-1]["data"] == {"resource": "luck", "subject": "thomas-hayes", "before": 50, "after": 47}
@@ -331,7 +334,7 @@ def test_first_aid_on_a_wounded_investigator(seeded_kernel):
         assert read_json(campaign_dir(seeded_kernel.workspace) / "save" / "healing-state" / "thomas-hayes.json")["current_hp"] == 9
         mechanics = narrate(seeded_kernel, "t1-c2", "你缠好绷带。")["mechanics"]
         assert {"kind": "change", "receipt": "delta:hp-t1-c1", "resource": "hp", "subject": "thomas-hayes",
-                "subject_label": "托马斯·海斯", "before": 8, "after": 9} in mechanics
+                "subject_label": "托马斯·海斯", "subject_is_investigator": True, "before": 8, "after": 9} in mechanics
     else:
         assert outcome["hp_after"] == 8 and result["effects"] == []
         assert events_after(seeded_kernel.workspace, before) == ["roll-resolved", "decision-settled"]

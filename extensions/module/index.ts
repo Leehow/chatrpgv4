@@ -28,7 +28,7 @@ export default function (pi: ExtensionAPI) {
                 const id = process.env.PI_COC_BUILD_MODEL?.trim() || (ctx?.model ? `${ctx.model.provider}/${ctx.model.id}` : "");
                 const slash = id.indexOf("/");
                 const model = ctx?.modelRegistry.find(id.slice(0, slash), id.slice(slash + 1));
-                return { id, vision: model?.input?.includes("image") === true };
+                return { id, vision: model?.input?.includes("image") === true, thinking: pi.getThinkingLevel() };
             },
             progress: row => pi.events.emit("coc:module-ingest-progress", row),
             record: row => {

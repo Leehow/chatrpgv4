@@ -89,7 +89,7 @@ def test_a_zh_hans_turn_is_delivered_verbatim_with_every_receipt_projected(kerne
     mechanics = result["mechanics"]
     assert [m["receipt"] for m in mechanics] == [r["id"] for r in status["receipts"]]
     assert mechanics[0] == {"kind": "roll", "receipt": roll["id"], "actor": "thomas-hayes", "skill": "Spot Hidden",
-                            "actor_label": "托马斯·海斯",
+                            "actor_label": "托马斯·海斯", "actor_is_investigator": True,
                             "roll": roll["roll"], "target": roll["target"], "threshold": roll["threshold"],
                             "difficulty": "regular", "level": roll["level"], "passed": roll["passed"], "pushed": False,
                             "visibility": "public"}
@@ -98,10 +98,11 @@ def test_a_zh_hans_turn_is_delivered_verbatim_with_every_receipt_projected(kerne
     assert mechanics[3] == {"kind": "item", "receipt": "item:t1-c2", "name": "温彻斯特霰弹枪", "quantity": 1,
                             "to": "thomas-hayes", "label": "温彻斯特霰弹枪", "to_label": "托马斯·海斯"}
     assert mechanics[4] == {"kind": "dice", "receipt": dice["id"], "actor": "thomas-hayes", "label": "damage",
-                            "actor_label": "托马斯·海斯",
+                            "actor_label": "托马斯·海斯", "actor_is_investigator": True,
                             "expression": "1D3", "faces": dice["faces"], "total": dice["total"], "visibility": "public"}
     assert mechanics[5] == {"kind": "change", "receipt": delta["id"], "resource": "hp", "subject": "thomas-hayes",
-                            "before": delta["before"], "after": delta["after"], "subject_label": "托马斯·海斯"}
+                            "before": delta["before"], "after": delta["after"], "subject_label": "托马斯·海斯",
+                            "subject_is_investigator": True}
     assert mechanics[6] == {"kind": "scene", "receipt": "move:hall-of-records-t1-c2", "from": "commission-briefing",
                             "to": "hall-of-records", "minutes": 20, "from_label": "Knott's Office", "to_label": "档案馆"}
     # nothing the kernel wrote for the keeper is Chinese

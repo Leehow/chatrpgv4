@@ -47,6 +47,15 @@ def _with_label(out: dict[str, Any], key: str, value: Any) -> None:
         out[key] = value
 
 
+def _with_investigator(out: dict[str, Any], receipt: dict[str, Any], key: str) -> None:
+    """Only an explicitly identified investigator has a public mechanics name."""
+    flag = f"{key}_is_investigator"
+    out[flag] = receipt.get(flag) is True
+    if out[flag]:
+        out[key] = receipt.get(key)
+        _with_label(out, f"{key}_label", receipt.get(f"{key}_label"))
+
+
 def mechanics_of(receipt: dict[str, Any]) -> dict[str, Any] | None:
     """One §16.2 object for one receipt; None for a receipt kind that has no projection.
     Names (skills, resources, families, outcomes) are the rulebook's English as the
@@ -56,23 +65,23 @@ def mechanics_of(receipt: dict[str, Any]) -> dict[str, Any] | None:
     receipt_id = receipt.get("id")
     if kind == "roll":
         if receipt.get("form") == "dice":
-            out: dict[str, Any] = {"kind": "dice", "receipt": receipt_id, "actor": receipt.get("actor"),
+            out: dict[str, Any] = {"kind": "dice", "receipt": receipt_id,
                                    "label": receipt.get("skill"), "expression": receipt.get("expression"),
                                    "faces": list(receipt.get("faces") or []), "total": receipt.get("total"),
                                    "visibility": receipt.get("visibility") or "public"}
-            _with_label(out, "actor_label", receipt.get("actor_label"))
+            _with_investigator(out, receipt, "actor")
             return out
-        out = {"kind": "roll", "receipt": receipt_id, "actor": receipt.get("actor"), "skill": receipt.get("skill"),
+        out = {"kind": "roll", "receipt": receipt_id, "skill": receipt.get("skill"),
                "roll": receipt.get("roll"), "target": receipt.get("target"), "threshold": receipt.get("threshold"),
                "difficulty": receipt.get("difficulty"), "level": receipt.get("level"),
                "passed": bool(receipt.get("passed")), "pushed": bool(receipt.get("pushed")),
                "visibility": receipt.get("visibility") or "public"}
-        _with_label(out, "actor_label", receipt.get("actor_label"))
+        _with_investigator(out, receipt, "actor")
         return out
     if kind == "delta":
         out = {"kind": "change", "receipt": receipt_id, "resource": receipt.get("resource"),
-               "subject": receipt.get("subject"), "before": receipt.get("before"), "after": receipt.get("after")}
-        _with_label(out, "subject_label", receipt.get("subject_label"))
+               "before": receipt.get("before"), "after": receipt.get("after")}
+        _with_investigator(out, receipt, "subject")
         return out
     if kind == "move":
         if receipt.get("renamed"):

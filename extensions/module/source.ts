@@ -1,5 +1,5 @@
 /** Local PDF page access. Source bytes and physical pages are the evidence; no OCR path. */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { appendFile, copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -58,17 +58,19 @@ export async function sourceInfo(pdf: string) {
 	} finally { await close(); }
 }
 
-export async function sourcePage(pdf: string, cache: string, page: number, options: { box?: number[]; pixels?: number } = {}) {
+export async function sourcePage(pdf: string, cache: string, page: number, options: { box?: number[]; pixels?: number; format?: "png" | "jpeg" } = {}) {
 	if (!Number.isInteger(page) || page < 1) throw new Error("page must be a positive physical page number");
 	const box = validateBox(options.box);
 	const pixels = options.pixels ?? 2000;
+	const format = options.format ?? "png", suffix = format === "jpeg" ? "jpg" : "png";
+	if (!["png", "jpeg"].includes(format)) throw new Error("unsupported image format");
 	if (!Number.isInteger(pixels) || pixels < 256 || pixels > 3000) throw new Error("pixels must be an integer from 256 to 3000");
 	const { document, sha256, close } = await openPdf(pdf);
 	try {
 		if (page > document.numPages) throw new Error(`page ${page} is outside this PDF (1-${document.numPages})`);
-		const key = createHash("sha256").update(JSON.stringify({ sha256, page, box, pixels, version })).digest("hex");
+		const key = createHash("sha256").update(JSON.stringify({ sha256, page, box, pixels, format, quality: format === "jpeg" ? 92 : undefined, version })).digest("hex");
 		await mkdir(cache, { recursive: true });
-		const path = join(resolve(cache), `${key}.png`);
+		const path = join(resolve(cache), `${key}.${suffix}`);
 		const metaPath = join(resolve(cache), `${key}.json`);
 		let result: Record<string, unknown> | undefined;
 		try {
@@ -87,17 +89,21 @@ export async function sourcePage(pdf: string, cache: string, page: number, optio
 			try {
 				await pdfPage.render({ canvasContext: canvas.context, viewport,
 					transform: [1, 0, 0, 1, -base.width * box[0] * scale, -base.height * box[1] * scale] }).promise;
-				const bytes = canvas.canvas.toBuffer("image/png");
+				const bytes = format === "jpeg" ? canvas.canvas.toBuffer("image/jpeg", 92) : canvas.canvas.toBuffer("image/png");
 				result = { path, page, box, width: canvas.canvas.width, height: canvas.canvas.height,
 					file_sha256: sha256, image_sha256: createHash("sha256").update(bytes).digest("hex"), reused: false };
-				const temporary = `${path}.${process.pid}.tmp`;
+				const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
 				await writeFile(temporary, bytes);
 				await rename(temporary, path);
-				await writeFile(metaPath, JSON.stringify(result) + "\n");
+				const metaTemporary = `${metaPath}.${randomUUID()}.tmp`;
+				await writeFile(metaTemporary, JSON.stringify(result) + "\n");
+				await rename(metaTemporary, metaPath);
 			} finally { document.canvasFactory.destroy(canvas); pdfPage.cleanup(); }
 		}
-		const viewPath = join(resolve(cache), `page-${page}-region-${box.join("-")}-${pixels}.png`);
-		await copyFile(path, viewPath);
+		const viewPath = join(resolve(cache), `page-${page}-region-${box.join("-")}-${pixels}.${suffix}`);
+		const viewTemporary = `${viewPath}.${randomUUID()}.tmp`;
+		await copyFile(path, viewTemporary);
+		await rename(viewTemporary, viewPath);
 		result = { ...result, path: viewPath };
 		await appendFile(join(resolve(cache), "requests.jsonl"), JSON.stringify({ at: new Date().toISOString(), ...result }) + "\n");
 		return result;

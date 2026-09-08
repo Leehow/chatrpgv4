@@ -35,7 +35,7 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
   if (command.type === "prompt") {
     respond(command);
     isStreaming = true;
-    send({ type: "agent_start" });
+    if (command.message !== "opening-start-before-subscription") send({ type: "agent_start" });
     if (command.message === "delayed-durable-terminal-agent-replay" || command.message === "terminal-rows-with-orphan-previews") {
       send({ type: "agent_event", event: {
         kind: "start", agentId: "root", runId: "root-run", parentId: null,
@@ -96,6 +96,7 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
         : Date.now(),
       responseId: `response-${command.message}`,
     };
+    if (command.message === "opening-start-before-subscription") send({type:"message_start",message:finalMessage});
     const persistFinal = () => {
       if (!process.env.PIPIUI_TEST_SESSION_PATH) return;
       const durableMessage = command.message === "persisted-final-identity-mismatch"
@@ -120,7 +121,10 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
       type: "message_end",
       message: finalMessage,
     });
-    if (command.message === "final-before-agent-terminal") {
+    if (command.message === "opening-start-before-subscription") {
+      isStreaming = false;
+      send({type:"agent_settled"});
+    } else if (command.message === "final-before-agent-terminal") {
       setTimeout(() => send({ type: "agent_event", event: {
         kind: "end", agentId: "active", runId: "active-run", ok: true,
         output: JSON.stringify({ outcome: "completed", summary: "done" }),

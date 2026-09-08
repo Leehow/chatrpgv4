@@ -1,3 +1,4 @@
+import { CocOnboardingHost } from './coc-onboarding.js';
 import { readCocBinding, readColdSheet, mechanicsEntry } from "./coc-view.js";
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { createExtensionHostWorkers, type ExtensionHostWorkers } from "./extension-host-workers.js";
@@ -2132,6 +2133,7 @@ export class PiHostBackend implements HostBackend {
    */
   private readonly cocChoiceClaims = new Map<string,string>();
   private readonly cocSheetReads = new Map<string, Promise<any>>();
+  private cocOnboarding?: CocOnboardingHost;
   private readonly extInvokeQueued = new Map<string, ExtInvokeRequestRecord[]>();
   private readonly extInvokeWaiting = new Map<string, Array<(requests: ExtInvokeRequestRecord[]) => void>>();
   private readonly extInvokeAwaiting = new Map<string, { sessionId: string; settle: (result: ExtInvokeResult) => void }>();
@@ -3047,6 +3049,7 @@ export class PiHostBackend implements HostBackend {
 
   /** Graceful connection teardown for hosts that allocate one backend per client. */
   async close(): Promise<void> {
+    this.cocOnboarding?.dispose();
     await Promise.allSettled([...this.cocSheetReads.values()]);
     // 宿主 worker 的生命周期就是"项目开着"，宿主关掉它们就该结束。
     this.extensionHostWorkers.stopAll();
@@ -5519,7 +5522,7 @@ export class PiHostBackend implements HostBackend {
             mergedSpawnEnvironment(this.env, dotEnv, {
               ...output.env,
               ...(this.piCommand.env ?? {}),
-              ...(cocBinding ? {PI_COC_CAMPAIGN:cocBinding.campaign,PI_COC_HOME:cocBinding.home} : {}),
+              ...(cocBinding ? {PI_COC_CAMPAIGN:cocBinding.campaign,PI_COC_HOME:cocBinding.home, ...(cocBinding.mode === "play" ? {PI_COC_MODE:"play"} : {})} : {}),
             }),
             workerEnvFromVault(this.vaultDir, id),
           ),
@@ -5758,6 +5761,14 @@ export class PiHostBackend implements HostBackend {
       return;
     }
     const id = live.session.id;
+    // Pi binds session_start extensions before subscribing its RPC event stream.
+    // An extension-owned opening can therefore precede the first agent_start
+    // observable by this host. Its first assistant message is real activity;
+    // establish the usual epoch so agent_settled can release the composer.
+    if (live.turnEpoch === undefined && !live.activeCompaction
+      && e.type === "message_start" && e.message?.role === "assistant") {
+      this.rpcEvent(live, {type: "agent_start"});
+    }
     if (e.type === "agent_start") {
       live.hostAbortedTurn = false;
       live.compaction.cancel();
@@ -5835,10 +5846,10 @@ export class PiHostBackend implements HostBackend {
       const trigger = classifyCompactionTrigger({
         reason: typeof e.reason === "string" ? e.reason : undefined,
         intent: live.compactionIntent,
-        // A streaming turn (not a pending prompt delivery, not the compaction
-        // gate this handler just armed) is what marks a threshold compaction as
-        // the mid-turn tool-loop guard's work.
-        busy: this.queue.isTurnActive(id),
+        // Prompt acknowledgement can hold the queue before Pi emits agent_start.
+        // Only an observed, nonterminal turn makes this a mid-turn compaction.
+        busy: live.turnEpoch !== undefined && live.terminalEpoch !== live.turnEpoch
+          && this.queue.isTurnActive(id),
       });
       live.activeCompaction = { operation: "context_compaction", trigger };
       live.compactionIntent = undefined;
@@ -5886,7 +5897,8 @@ export class PiHostBackend implements HostBackend {
           ? active.trigger
           : classifyCompactionTrigger({
               reason: typeof e.reason === "string" ? e.reason : undefined,
-              busy: this.queue.isTurnActive(id),
+              busy: live.turnEpoch !== undefined && live.terminalEpoch !== live.turnEpoch
+                && this.queue.isTurnActive(id),
             });
       live.activeCompaction = undefined;
       const diagnostics = live.activeCompactionDiagnostics;
@@ -8417,6 +8429,49 @@ export class PiHostBackend implements HostBackend {
     if (!overlayEnabled) return settingsDenied("disabled", `extension ${id} is disabled`);
     if (!this.extensions.hasCapability(id, "invoke.agent")) {
       return settingsDenied("capability_denied", "capability_denied");
+    }
+    if (id === "coc-keeper" && method === "onboarding") {
+      try {
+        const request = isRecord(params) ? params : {};
+        const sid = isRecord(optsValue) && typeof optsValue.sessionId === "string" ? optsValue.sessionId : "";
+        if (!sid && request.action !== "catalog") throw new Error("Select a new session first");
+        if (!this.managedNodeModulesRoot) throw new Error("Canonical runtime is unavailable");
+        const repo = resolve(this.managedNodeModulesRoot, "..");
+        const home = resolve(this.env.PI_COC_HOME || repo);
+        this.cocOnboarding ??= new CocOnboardingHost({repo, home, agentDir: this.sharedProfileDir, env: this.env});
+        const state = await this.getModelState(sid || undefined);
+        if (request.action === "start") {
+          const selected = await this.locate(sid);
+          if (!await readCocBinding(selected.path)) throw new Error("Create an investigator before starting");
+          // The COC extension owns the opening turn on session_start.
+          // A synthetic player prompt here races that turn and becomes a follow-up.
+          await this.ensure(sid);
+          return {ok: true, data: {started: true}};
+        }
+        if (sid && ["begin", "select"].includes(String(request.action))) {
+          const selected = await this.locate(sid);
+          if (await readCocBinding(selected.path)) throw new Error("This session already has a campaign; create a new session");
+        }
+        const data = await this.cocOnboarding.invoke(request, sid, {
+          id: `${state.model.provider}/${state.model.id}`, thinking: state.thinkingLevel, vision: state.model.supportsImages === true,
+        });
+        if (sid && ["begin", "select", "create"].includes(String(request.action)) && state.model.provider !== "unknown") {
+          await this.setModel(sid, state.model.provider, state.model.id);
+          await this.setThinking(sid, state.thinkingLevel);
+        }
+        if (sid && data.name && ["begin", "select", "resume"].includes(String(request.action))) {
+          const selected = await this.locate(sid);
+          if (!selected.name || ["Session", "New session"].includes(selected.name)) await this.renameSession(sid, data.name.replace(/\.pdf$/i, ""));
+        }
+        if (request.action === "create" && data.campaign) {
+          const selected = await this.locate(sid);
+          const binding = {campaign: data.campaign, home, play_language: data.view.play_language, mode: "play"};
+          await fs.writeFile(selected.path + ".coc.json.tmp", JSON.stringify(binding) + "\n");
+          await fs.rename(selected.path + ".coc.json.tmp", selected.path + ".coc.json");
+          await this.renameSession(sid, data.name || "New campaign");
+        }
+        return {ok: true, data};
+      } catch (error) { return settingsDenied("onboarding_failed", error instanceof Error ? error.message : String(error)); }
     }
     if (id === "coc-keeper" && ["sheet","choose"].includes(method) && !(isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim())) {
       return {ok:true,data:{status:"unbound",view:null,campaign:null}};

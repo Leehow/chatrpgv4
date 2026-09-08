@@ -24,7 +24,7 @@ export interface CocToolSpec {
 
 const EndingEffect = Type.Object({
     kind: StringEnum(["ending"] as const),
-    summary: Type.String({ description: "the ending reached by this campaign; deliver it with narrate after this effect" }),
+    summary: Type.String({ description: "the ending reached; read source conclusion/rewards and resolve development:end-session first, then apply this effect and narrate" }),
 });
 
 const MoveEffect = Type.Object({
@@ -208,7 +208,7 @@ const ResolveAction = Type.Object({
 	actor: Type.Optional(
 		Type.String({
 			description:
-				"who acts: an investigator name or id; when acting for an NPC (an NPC's turn in combat, an NPC's defence) write the NPC name; omit when there is one investigator and it is his action",
+				"the person performing the uncertain action, not its beneficiary or patient: name the NPC when they help, haul, treat, guide, attack or defend, including outside combat; target names the helped investigator or patient when applicable; omit only when the sole investigator performs the action",
 		}),
 	),
 	intent: StringEnum(
@@ -253,7 +253,7 @@ const ResolveAction = Type.Object({
 		}),
 	),
 	push: Type.Optional(
-		Type.Boolean({ description: "push the previous failed roll; when true, stakes is required and must say what failing the push costs" }),
+		Type.Boolean({ description: "push the previous failed roll only after the player's explicit choice and an announced risk; changing the executor or method does not itself choose a push; when true, stakes states the announced consequence" }),
 	),
 	san_loss: Type.Optional(
 		Type.String({
@@ -291,6 +291,7 @@ const ResolveAction = Type.Object({
 		}, { description: "the convalescence conditions for weekly major-wound recovery" }),
 	),
 	ending: Type.Optional(Type.String({ description: "the ending kind when closing a session; omitted counts as conclusion" })),
+	scenario_san_reward_expr: Type.Optional(Type.String({ description: "source-authored SAN reward dice expression for development:end-session, after checking which conclusion rewards apply; the kernel rolls and caps it, never supply a calculated amount" })),
 	luck: Type.Optional(Type.Integer({ description: "luck points spent to turn a near-miss check into a pass" })),
 	choice: Type.Optional(
 		Type.Object({

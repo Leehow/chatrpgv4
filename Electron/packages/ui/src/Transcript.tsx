@@ -12,7 +12,7 @@ import { buildRailPrompts, isNavigationEligibleUserPrompt } from './prompt-rail'
 import { parseSubagentNotice } from './subagent-notice'
 import { parseInternalUserSignal } from './subagent-signal'
 import { TruncatedText } from './TruncatedText'
-import { foldMarkedDeliveries, type ChatMessage } from './transcript-model'
+import { foldMarkedDeliveries, playerTranscript, type ChatMessage } from './transcript-model'
 import { nextTranscriptFirstItemIndex, TRANSCRIPT_FIRST_ITEM_BASE, TRANSCRIPT_PIN_MAX_ATTEMPTS, transcriptDataIndex, transcriptMessageIdentity } from './transcript-scroll'
 
 export type MessageActionHandlers = { onCopy: (message: ChatMessage) => Promise<void>; onResend: (message: ChatMessage) => void; resendDisabled: boolean; copiedId: string | null }
@@ -70,9 +70,10 @@ function assignVirtuosoRef(ref: React.RefObject<VirtuosoHandle> | undefined, val
   if (ref) (ref as React.MutableRefObject<VirtuosoHandle | null>).current = value
 }
 
-export function Transcript({ stateKey, messages: rawMessages, transcriptRef, waiting, active = true, onLoadOlder, documentBasePath, onOpenDocument, onOpenSubagents, onChoose, onCopy, onResend, resendDisabled, copiedId }: {
+export function Transcript({ stateKey, playerView = false, messages: rawMessages, transcriptRef, waiting, active = true, onLoadOlder, documentBasePath, onOpenDocument, onOpenSubagents, onChoose, onCopy, onResend, resendDisabled, copiedId }: {
   /** Stable session identity used to restore Virtuoso measurements after remounting. */
   stateKey?: string
+  playerView?: boolean
   messages: ChatMessage[]
   /** Optional bridge used by the active transcript to expose its handle. */
   transcriptRef?: React.RefObject<VirtuosoHandle>
@@ -146,7 +147,7 @@ export function Transcript({ stateKey, messages: rawMessages, transcriptRef, wai
   // §16.6: a delivery the mechanics card draws with its markers in place must not also appear as
   // the plain assistant copy that the terminal reads. Folded here, so both the live reducer and a
   // history page get the same answer without either of them knowing about the other.
-  const messages = useMemo(() => foldMarkedDeliveries(rawMessages), [rawMessages])
+  const messages = useMemo(() => {const folded = foldMarkedDeliveries(rawMessages); return playerView ? playerTranscript(folded) : folded}, [rawMessages, playerView])
   const prompts = useMemo(() => buildRailPrompts(messages), [messages])
   const { activeId: viewportActiveId, containerRef } = useActivePromptId(prompts, atBottom)
   const activeId = seekingId ?? viewportActiveId

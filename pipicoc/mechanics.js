@@ -103,6 +103,7 @@ const LABELS = {
     minutes: (n) => `${n} min`,
     arrow: "→",
     to: "to",
+    removedFrom: (name) => `removed from ${name}'s inventory`,
     available: "available",
     pending: "not delivered",
     round: (n) => `round ${n}`,
@@ -129,6 +130,7 @@ const LABELS = {
     minutes: (n) => `${n} 分钟`,
     arrow: "→",
     to: "给",
+    removedFrom: (name) => `从${name}的物品中移除`,
     available: "可取",
     pending: "尚未交付",
     round: (n) => `第 ${n} 轮`,
@@ -245,7 +247,7 @@ export function createComponent(React) {
     const key = `${text(row.receipt)}:${index}`;
     switch (row.kind) {
       case "roll": {
-        const who = text(row.actor_label || row.actor);
+        const who = row.actor_is_investigator === true ? text(row.actor_label || row.actor) : "";
         const skill = term(text(row.skill));
         const level = text(row.level);
         // The grade the kernel already assigned. Emphasis follows it — an extreme success and a
@@ -259,7 +261,7 @@ export function createComponent(React) {
           row.pushed ? h("span", { className: "coc-mech-faces" }, ` ${t.pushed}`) : null);
       }
       case "dice": {
-        const who = text(row.actor_label || row.actor);
+        const who = row.actor_is_investigator === true ? text(row.actor_label || row.actor) : "";
         // 骰面只在它比总数多说了一句时才画：1D6 掷出 5，写成「5 [5]」是把同一个数说两遍。
         const rolled = Array.isArray(row.faces) ? row.faces : [];
         const faces = rolled.length && !(rolled.length === 1 && rolled[0] === row.total)
@@ -275,7 +277,7 @@ export function createComponent(React) {
         // The only arithmetic here, and it is subtraction of two numbers the kernel handed over.
         const delta = before !== undefined && after !== undefined ? after - before : undefined;
         return h(Row, { key, kind: kindLabel, down: delta === undefined ? undefined : delta < 0 },
-          text(row.subject_label || row.subject), " ", text(row.resource).toUpperCase(), " ",
+          row.subject_is_investigator === true ? `${text(row.subject_label || row.subject)} ` : "", text(row.resource).toUpperCase(), " ",
           h(N, null, `${text(row.before)} ${t.arrow} ${text(row.after)}`),
           delta === undefined ? "" : ` (${delta > 0 ? "+" : ""}${delta})`);
       }
@@ -289,9 +291,11 @@ export function createComponent(React) {
         return h(Row, { key, kind: kindLabel }, h(N, null, t.minutes(text(row.minutes))));
       case "item": {
         const quantity = num(row.quantity);
+        const amount = quantity === undefined ? undefined : Math.abs(quantity);
+        const owner = text(row.to_label || row.to);
         return h(Row, { key, kind: kindLabel },
-          text(row.label || row.name), quantity && quantity > 1 ? ` ×${quantity}` : "",
-          row.to || row.to_label ? ` ${t.to} ${text(row.to_label || row.to)}` : "");
+          text(row.label || row.name), amount && amount > 1 ? ` ×${amount}` : "",
+          owner ? quantity < 0 ? ` ${t.removedFrom(owner)}` : ` ${t.to} ${owner}` : "");
       }
       case "cash":
         return h(Row, { key, kind: kindLabel, down: num(row.after) !== undefined && num(row.before) !== undefined

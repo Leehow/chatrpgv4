@@ -39,7 +39,7 @@ def test_every_receipt_is_projected_and_the_turn_closes(kernel):
     assert result["rendered_text"] == text
     assert [m["kind"] for m in result["mechanics"]] == ["roll", "clue", "time", "scene"]
     assert result["mechanics"][0] == {"kind": "roll", "receipt": "roll:spot-hidden-t1-c1", "actor": "thomas-hayes",
-                                      "actor_label": "托马斯·海斯",
+                                      "actor_label": "托马斯·海斯", "actor_is_investigator": True,
                                       "skill": "Spot Hidden", "roll": roll["roll"], "target": 55, "threshold": 55,
                                       "difficulty": "regular", "level": roll["level"], "passed": roll["passed"],
                                       "pushed": False, "visibility": "public"}
@@ -115,15 +115,19 @@ def test_opening_choice_has_ascii_identity_and_player_labels(kernel):
 def test_ending_commits_campaign_status_and_remains_readable(kernel):
     from conftest import campaign_dir, read_json
     open_turn(kernel)
-    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "ending", "summary": "The investigators escaped."}])
+    kernel.table("resolve", call_id="t1-c1", action={"intent": "montage", "goal": "Settle this conclusion.",
+                 "method": "", "decision": "development:end-session"})
+    kernel.table("apply", call_id="t1-c2", effects=[{"kind": "ending", "summary": "The investigators escaped."}])
     assert read_json(campaign_dir(kernel.workspace) / "campaign.json")["status"] == "active"
-    done = kernel.table("narrate", call_id="t1-c2", text="你们离开了这座房子，故事到此结束。")
+    done = kernel.table("narrate", call_id="t1-c3", text="你们离开了这座房子，故事到此结束。")
     assert done["commit"]
     assert read_json(campaign_dir(kernel.workspace) / "campaign.json")["status"] == "completed"
     assert kernel.table("view")["labels"]
     assert kernel.table("open")["campaign"]["status"] == "completed"
-    assert kernel.table("narrate", call_id="t1-c2", text="你们离开了这座房子，故事到此结束。")["replayed"]
-    assert kernel.table_err("player_input", text="继续")["code"] == "campaign_not_ready"
+    assert kernel.table("narrate", call_id="t1-c3", text="你们离开了这座房子，故事到此结束。")["replayed"]
+    accounting = kernel.table("player_input", text="核对结算。")
+    assert accounting["state"] == "open" and "remains completed" in accounting["capsule"]["head"]
+    assert read_json(campaign_dir(kernel.workspace) / "campaign.json")["status"] == "completed"
 
 
 def test_narration_mechanics_include_existing_skill_glossary(kernel):

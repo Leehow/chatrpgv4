@@ -5,6 +5,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KernelError , isKernelError } from "../kernel/client.ts";
 import { runReader } from "./reader.ts";
+import { reviewCandidate } from "./reader-review.ts";
 import { sourceAsset, sourceInfo } from "./source.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -17,9 +18,14 @@ export interface ReadingBridge {
 interface Dependencies {
 	call: Call;
 	home: string;
-	model(): { id: string; vision: boolean };
+	model(): { id: string; vision: boolean; thinking?: string };
 	progress(row: Row): void;
 	record(row: Row): void;
+}
+interface PendingReading {
+	waiters: number;
+	cancelled: boolean;
+	jobId?: string;
 }
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 const sha = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
@@ -46,7 +52,7 @@ function validCheckpoint(checkpoint: Row, bytes: Buffer, job: Row): boolean {
 	const observed = checkpoint.observations;
 	if (observed?.file_sha256 !== job.source.file_sha256) return false;
 	return job.purpose === "index"
-		? job.pages.every((page: number) => observed.full_pages?.includes(page))
+		? observed.full_pages?.length > 0
 		: draftPages(JSON.parse(bytes.toString())).every(page => observed.read_pages?.includes(page));
 }
 const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
@@ -55,10 +61,11 @@ const error = (reason: string, message: string, fix: string, extra: Row = {}) =>
 
 export class ReadingService implements ReadingBridge {
 	private stopped = false;
-	private requests = new Map<string, Promise<Row>>();
+	private requests = new Map<string, PendingReading & { task: Promise<Row> }>();
 	private pumps = new Map<string, Promise<void>>();
+	private pumpWakes = new Map<string, () => void>();
 	private controllers = new Map<string, AbortController>();
-	private waiters = new Map<string, number>();
+	private cancelledJobs = new Set<string>();
 	private readonly deps: Dependencies;
 	constructor(deps: Dependencies) { this.deps = deps; }
 
@@ -66,6 +73,8 @@ export class ReadingService implements ReadingBridge {
 		this.stopped = true;
 		for (const controller of this.controllers.values()) controller.abort();
 	}
+
+	async close() { this.dispose(); await Promise.allSettled([...this.pumps.values()]); }
 
 	prefetch(moduleId: string): Promise<void> { return this.pump(moduleId); }
 
@@ -87,6 +96,7 @@ export class ReadingService implements ReadingBridge {
 			mid = bound.module_id;
         }
 		if (!mid) throw error("needs_source", "choose a PDF or an existing module", "pass pdf or module_id");
+		await this.ensure(mid, { purpose: "skeleton", foreground: true, retry: params.retry === true }, signal);
 		const status = await this.deps.call("module.status", { module_id: mid });
 		if (!params.start_scene && status.opening_candidates?.length > 1) {
 			throw new KernelError({ code: "needs_choice", message: "choose the opening for this new campaign",
@@ -101,13 +111,17 @@ export class ReadingService implements ReadingBridge {
 	async ensure(mid: string, params: Row, signal?: AbortSignal): Promise<Row> {
 		if (signal?.aborted || this.stopped) throw error("reading_failed", "reading was cancelled", "retry the reading when ready");
 		const key = JSON.stringify([mid, params.purpose, params.focus ?? "", params.question ?? ""]);
-		let task = this.requests.get(key);
-		if (!task) {
-			task = this.fulfil(mid, params).finally(() => this.requests.delete(key));
+		let request = this.requests.get(key);
+		if (!request) {
+			const pending: PendingReading = { waiters: 0, cancelled: false };
+			const task = this.fulfil(mid, params, pending).finally(() => this.requests.delete(key));
 			task.catch(() => undefined);
-			this.requests.set(key, task);
+			request = Object.assign(pending, { task });
+			this.requests.set(key, request);
 		}
-		this.waiters.set(mid, (this.waiters.get(mid) ?? 0) + 1);
+		request.waiters++;
+		let waiting = true;
+		const releaseWaiter = () => { if (waiting) { waiting = false; request.waiters--; } };
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		let onAbort: (() => void) | undefined;
 		try {
@@ -119,23 +133,39 @@ export class ReadingService implements ReadingBridge {
 						: "use ask to return control; on a later player turn, retry the original action or lookup kind=source with the exact focus and question in details.read; do not invent another question",
 					{ read: { purpose: params.purpose, focus: params.focus ?? "", question: params.question ?? "" } })), wait);
 				onAbort = () => {
-					if ((this.waiters.get(mid) ?? 0) <= 1) this.controllers.get(mid)?.abort();
+					releaseWaiter();
+					if (request.waiters === 0) {
+						request.cancelled = true;
+						if (request.jobId) this.cancelJob(mid, request.jobId);
+					}
 					reject(error("reading_failed", "reading was cancelled", "retry explicitly when ready"));
 				};
 				signal?.addEventListener("abort", onAbort, { once: true });
 			});
-			return await Promise.race([task, interrupted]);
+			return await Promise.race([request.task, interrupted]);
 		} finally {
 			if (timer) clearTimeout(timer);
 			if (onAbort) signal?.removeEventListener("abort", onAbort);
-			this.waiters.set(mid, Math.max(0, (this.waiters.get(mid) ?? 1) - 1));
+			releaseWaiter();
 		}
 	}
 
-	private async fulfil(mid: string, params: Row): Promise<Row> {
+	private cancelJob(mid: string, jobId: string) {
+		const key = JSON.stringify([mid, jobId]);
+		this.cancelledJobs.add(key);
+		this.controllers.get(key)?.abort();
+		void this.pump(mid);
+	}
+
+	private async fulfil(mid: string, params: Row, request: PendingReading): Promise<Row> {
 		let retry = params.retry === true;
-		while (!this.stopped) {
+		while (!this.stopped && !request.cancelled) {
 			const response = await this.deps.call("module.read.request", { ...params, module_id: mid, retry });
+			request.jobId = response.job_id;
+			if (request.cancelled) {
+				if (request.jobId) this.cancelJob(mid, request.jobId);
+				break;
+			}
 			retry = false;
 			if (response.state === "ready") return response;
 			if (response.state === "blocked") {
@@ -147,26 +177,49 @@ export class ReadingService implements ReadingBridge {
 			await Promise.race([this.pump(mid), delay(150)]);
 			await delay(150);
 		}
-		throw error("reading_failed", "the reader host shut down", "resume in a new session");
+		throw error("reading_failed", request.cancelled ? "reading was cancelled" : "the reader host shut down",
+			request.cancelled ? "retry explicitly when ready" : "resume in a new session");
 	}
 
 	private pump(mid: string): Promise<void> {
 		const running = this.pumps.get(mid);
-		if (running) return running;
-		const controller = new AbortController();
-		this.controllers.set(mid, controller);
+		if (running) { this.pumpWakes.get(mid)?.(); return running; }
+		const active = new Set<Promise<void>>();
 		const task = (async () => {
-			while (!this.stopped && !controller.signal.aborted) {
-				const job = await this.deps.call("module.read.claim", { module_id: mid, owner: `host-${process.pid}` });
-				if (!job.job_id) return;
-				try { await this.runJob(job, controller.signal); }
-				catch (failure) {
-					// Setup I/O can fail before runJob enters its phase loop; release that claim too.
-					await this.deps.call("module.read.finish", { module_id: mid, job_id: job.job_id, lease: job.lease,
-						outcome: controller.signal.aborted ? "cancelled" : "failed", detail: String(failure) });
+			let capacity = 1;
+			try {
+				while (!this.stopped) {
+					const wake = new Promise<void>(resolve => this.pumpWakes.set(mid, resolve));
+					while (active.size < capacity && !this.stopped) {
+						const job = await this.deps.call("module.read.claim", { module_id: mid, owner: `host-${process.pid}` });
+						if (!job.job_id) break;
+						capacity = Math.max(1, Number(job.concurrency) || 1);
+						const key = JSON.stringify([mid, job.job_id]);
+						const controller = new AbortController();
+						this.controllers.set(key, controller);
+						if (this.stopped || this.cancelledJobs.has(key)) controller.abort();
+						const work = (async () => {
+							try {
+								if (controller.signal.aborted) throw new Error("reading was cancelled");
+								await this.runJob(job, controller.signal);
+							}
+							catch (failure) {
+								try {
+									await this.deps.call("module.read.finish", { module_id: mid, job_id: job.job_id, lease: job.lease,
+										outcome: controller.signal.aborted ? "cancelled" : "failed", detail: String(failure) });
+								} catch { /* a closed kernel releases its leases; retained attempts remain reclaimable */ }
+							}
+							finally { this.controllers.delete(key); this.cancelledJobs.delete(key); }
+						})();
+						const tracked = work.finally(() => active.delete(tracked));
+						active.add(tracked);
+						this.deps.record({lane: "reading", event: "concurrency", module_id: mid, active: active.size, capacity});
+					}
+					if (!active.size) return;
+					await Promise.race([...active, wake]);
 				}
-			}
-		})().finally(() => { this.pumps.delete(mid); this.controllers.delete(mid); });
+			} finally { await Promise.allSettled([...active]); }
+		})().finally(() => { this.pumps.delete(mid); this.pumpWakes.delete(mid); });
 		task.catch(() => undefined);
 		this.pumps.set(mid, task);
 		return task;
@@ -179,12 +232,13 @@ export class ReadingService implements ReadingBridge {
 		await mkdir(cache, { recursive: true });
 		const commands = { page: `${quote(join(ROOT, "bin/coc-source"))} --pdf ${quote(job.source.path)} --cache ${quote(cache)} page`,
 			check: `${quote(join(ROOT, "bin/coc-read-check"))} --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
-		const task = { purpose: job.purpose, module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
+		const task: Row = { purpose: job.purpose, module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
 			source: { page_count: job.source.page_count }, index: job.index, known_nodes: job.known_nodes,
 			known_claims: (job.known_claims ?? []).map((claim: Row) => Object.fromEntries(
 				["subject_id", "predicate", "object", "truth_status", "visibility", "reason", "known_by_ids", "asserted_by_ids", "validity"]
 					.filter(key => key in claim).map(key => [key, claim[key]]))),
 			vocabulary: job.vocabulary, coverage_domains: job.coverage_domains, commands };
+		if (job.purpose === "index") { delete task.index; delete task.known_nodes; delete task.known_claims; delete task.vocabulary; delete task.coverage_domains; delete task.commands.check; }
 		await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
 		const observations: Row = { file_sha256: job.source.file_sha256, read_pages: [], full_pages: [], review_pages: [] };
 		let readComplete = false;
@@ -224,6 +278,7 @@ export class ReadingService implements ReadingBridge {
 							try {
 								const retained = JSON.parse(await readFile(join(cwd, "draft.json"), "utf8"));
 								task.must_view_pages = previousDraft ? [] : draftPages(retained);
+								task.repair = { draft: "draft.json", baseline: "baseline.json", findings: JSON.parse(await readFile(join(cwd, "findings.json"), "utf8").catch(() => "{}")) };
 								await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
 							} catch { /* the first draft has not been written */ }
 						}
@@ -233,38 +288,45 @@ export class ReadingService implements ReadingBridge {
 						const start = guide.indexOf(header), end = guide.indexOf("\n## ", start + header.length);
 						const instructions = join(cwd, `instructions-${phase}.md`);
 						await writeFile(instructions, intro + guide.slice(start, end < 0 ? undefined : end) + "\nComplete only this phase and then stop.\n");
-						this.deps.progress({ module_id: job.module_id, stage: phase, focus: job.focus, of: job.source.page_count });
+						this.deps.progress({ module_id: job.module_id, stage: phase === "read" && job.purpose === "skeleton" ? "skeleton" : phase, focus: job.focus, of: job.source.page_count });
+						if (phase === "verify") {
+							observations.review_pages = await reviewCandidate({ cwd, task,
+								draft: JSON.parse(await readFile(join(cwd, "draft.json"), "utf8")), instructions, round,
+								model, source: { pdf: job.source.path, cache }, signal,
+								record: row => this.deps.record({ module_id: job.module_id, ...row }),
+								progress: row => this.deps.progress({ module_id: job.module_id, ...row }) });
+							await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
+							phaseCompleted = true;
+							continue;
+						}
 						const imagePaths = new Set<string>();
-						const imageCalls = new Map<string, string>();
-						const beforeReview = phase === "verify" ? sha(await readFile(join(cwd, "draft.json"))) : undefined;
+						const imageCalls = new Map<string, string[]>();
+
 						const reads = new Map<string, string>();
 						const configured = Number(process.env.PI_COC_READER_TIMEOUT_MS);
-						const run = await runReader({ cwd, model: model.id, signal,
-							systemPrompt: instructions,
+						const run = await runReader({ cwd, model: model.id, thinking: model.thinking, signal,
+							systemPrompt: instructions, source: { pdf: job.source.path, cache },
 							eventLog: join(cwd, `${phase}-${round}.jsonl`),
 							...(configured > 0 ? { timeoutMs: configured } : {}),
 							brief: `Read task.json. Your phase is ${phase}. ${phase === "verify" ? "Independently view the original pages and review draft.json; write review.json. Do not modify the draft." : "Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style."} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,
 							onEvent(event) {
 								if (event.type === "tool_execution_start" && event.toolName === "read" && event.args?.path) reads.set(event.toolCallId, resolve(cwd, event.args.path));
 								if (event.type === "tool_execution_end" && !event.isError && event.result?.content?.some((c: Row) => c.type === "image")) {
-									const path = reads.get(event.toolCallId); if (path) imageCalls.set(event.toolCallId, path);
+									const path = reads.get(event.toolCallId); if (path) imageCalls.set(event.toolCallId, [path]);
+									if (event.result?.details?.kind === "source_pages") imageCalls.set(event.toolCallId, event.result.details.observations.map((row: Row) => row.path));
 								}
 								if (event.type === "message_end" && event.message?.errorMessage) throw new Error(event.message.errorMessage);
 							},
 						});
 						if (imageCalls.size) {
 							const visibility = (await readFile(join(cwd, `${phase}-${round}.jsonl.images.jsonl`), "utf8")).trim().split("\n").filter(Boolean).flatMap(line => JSON.parse(line).included ?? []);
-							for (const id of visibility) { const path = imageCalls.get(id); if (path) imagePaths.add(path); }
+							for (const id of visibility) for (const path of imageCalls.get(id) ?? []) imagePaths.add(path);
 						}
-						this.deps.record({ lane: "reading", module_id: job.module_id, model: model.id, phase, round, ms: run.ms, ok: run.ok, image_reads: imagePaths.size });
+						this.deps.record({ lane: "reading", module_id: job.module_id, model: model.id, thinking: model.thinking, phase, round, ms: run.ms, ok: run.ok, image_reads: imagePaths.size });
 						if (!run.ok) throw new Error(run.error || (run.timedOut ? "reader timed out" : run.stderr || "reader failed"));
-						if (beforeReview && beforeReview !== sha(await readFile(join(cwd, "draft.json")))) {
-							readComplete = false;
-							throw new Error("verification modified the draft; the review must be independent");
-						}
 						const lines = (await readFile(join(cache, "requests.jsonl"), "utf8")).trim().split("\n");
 						const rows = lines.map(line => JSON.parse(line)).filter(row => row.file_sha256 === job.source.file_sha256 && imagePaths.has(row.path));
-						const key = phase === "verify" ? "review_pages" : "read_pages";
+						const key = "read_pages";
 						observations[key] = [...new Set(rows.map(row => row.page))];
 						if (previousDraft) {
 							const changed = editedSourcePages(previousDraft, JSON.parse(await readFile(join(cwd, "draft.json"), "utf8")));
@@ -274,7 +336,7 @@ export class ReadingService implements ReadingBridge {
 						}
 						if (phase === "index") observations.full_pages = [...new Set(rows.filter(row => JSON.stringify(row.box) === "[0,0,1,1]").map(row => row.page))];
 						await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
-						if (phase !== "verify") {
+						if (phase === "read" || phase === "index") {
 							readComplete = true;
 							await writeFile(join(cwd, "read-complete.json"), JSON.stringify({ draft_sha256: sha(await readFile(join(cwd, "draft.json"))), observations }) + "\n");
 						}

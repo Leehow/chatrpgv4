@@ -1,12 +1,12 @@
 # PDF 直接阅读与按需构图
 
-状态：已整合到 `0.9.0a`，集成回归通过。2026-09-07，初始基线 `7e990cc6`；证据与限制见实施记录。
+状态：选择性读页、独立复核、早期骨架及 PipiCOC 接入已实现；同一本 Masks 的秘鲁章节与结算已通过实际内置浏览器流程完成。第二次全新导入约 114 秒、读取 16 页后发布有效骨架；开场经失败保留与重试后才通过复核。真实游玩在第 64 回合结束章节，第 66 回合经原文补读完成遗漏的奖励与成长，当前第 67 回合等待玩家、未开始下一章。以下失败、修复与旧集成记录全部保留；不宣称无中断的速度基准。
 
-父规格票：[GitHub #34](https://github.com/Leehow/chatrpgv4/issues/34)，已标 `ready-for-agent`。本文件保留本地实施指引；后续拆票以本规格的用户故事、候选切片和验收为依据。
+父规格票：[GitHub #34](https://github.com/Leehow/chatrpgv4/issues/34)。本文件保留本地实施指引；后续拆票以本规格的用户故事、候选切片和验收为依据。
 
 ## Problem Statement
 
-用户要一个简洁的 Pi-Coc 基础框架：输入真实 PDF，由多模态 Pi 读者读成能主持游戏的细粒度图谱；长本按需细读；验证后拆掉旧解析流水线。Electron 接入在本规格完成之后另做。
+用户要一个简洁的 Pi-Coc 基础框架：输入真实 PDF，由多模态 Pi 读者读成能主持游戏的细粒度图谱；长本按需细读；验证后拆掉旧解析流水线。后续授权的 PipiCOC 界面接入与浏览器验收由 [onboarding 规格](pipicoc-pdf-onboarding.md) 衔接。
 
 成功是从产品入口导入、建卡、开桌，遇到未细读内容能补读后继续，重启和另开一局能复用成果；旧入口与依赖已退役。只有页图、JSON、绿色单测或“解析完成”的报告，尚不能证明成功。
 
@@ -14,7 +14,7 @@
 
 ## Solution
 
-用户选择原 PDF 后，Pi-Coc 自行定位全书、细读开场并构建可玩的图谱。长本的其他部分在游玩需要时补读，必要材料就绪后才结算；已有模组与战役可续行复用。对用户而言只有选书、必要的开场选择、建卡与游戏，不需要操作 OCR 或资料包。
+用户选择原 PDF 后，Pi-Coc 自行定位作者结构与当前所需原页、细读开场并构建可玩的图谱。长本的其他部分在游玩需要时补读，必要材料就绪后才结算；已有模组与战役可续行复用。对用户而言只有选书、必要的开场选择、建卡与游戏，不需要操作 OCR 或资料包。
 
 ## User Stories
 
@@ -27,7 +27,7 @@
 7. As a Keeper, I want small print and numerical tables to be inspected at a useful scale, so that difficult details are not guessed.
 8. As a Keeper, I want fine-grained authored facts and relationships, so that an NPC or scene has usable material rather than only a summary.
 9. As a Keeper, I want facts, beliefs, rumors and lies to remain distinct, so that the graph does not turn character testimony into truth.
-10. As a Keeper, I want book-wide navigation before opening preparation, so that relevant later chapters and appendices can be found.
+10. As a Keeper, I want source-grounded navigation from the book structure and selected pages, so that I can find global dependencies without first reading every page.
 11. As a Keeper, I want the opening to include its global and cross-page dependencies, so that local preparation does not contradict the campaign.
 12. As a player, I want a long book to become playable before every branch is finely extracted, so that unused detail can wait.
 13. As a Keeper, I want the same reader to handle initial and later reading, so that there is one route from source evidence to the graph.
@@ -54,17 +54,46 @@
 ## Implementation Decisions
 
 1. 保留一个 ModuleStore、一个 ModuleGraph 和静态七动词面；规则计算、世界事务、逐回合收据与历史的权威不变。读者产出的作者事实与战役中实际发生的事件分开。
-2. 来源保留为不可原位替换的原 PDF；宿主用一个 PDF.js 实现提供页元数据、按需渲染和裁剪。Python 内核只校验来源描述与字节身份，不解析 PDF。原生文字仅是可选辅助。
+2. 来源保留为不可原位替换的原 PDF；宿主用一个 PDF.js 实现提供页元数据、按需渲染和裁剪。Python 内核只校验来源描述与字节身份，不解析 PDF。当前路径不以文字提取、OCR 或 Markdown 资料包为前置条件。
 3. 沿用带工具的 Pi 读者；定位、开场、细读共用一种执行形状与一条队列。关键事实复核使用该读者的新会话，不另建 OCR、协调者或审核平台。
-4. 阅读索引覆盖书的全部物理页，用于定位章节、人物和引用；索引本身不授权结算。开场依赖的全局真相和后置材料需要细读，其他分支保持未细读。
+4. Pi 先用原生书签、目录、作者概览和少量必要原页建立骨架，自主选择后续阅读。导航中区分「原书声明的范围」与「实际已读的页」，不能因目录列出章节就声称读过正文。首次可玩不以全页覆盖或固定页批完成为前提。开场依赖的全局真相和后置材料必须核实，其他分支保留未读与明确的补读入口。
 5. 抽取颗粒度由游戏事实决定；固定大小的文字切片不再限制阅读范围。人物可横跨正文与附录取材，实体标识和别名复用。
 6. 来源引用使用机器关联的原文件身份、物理页和可选裁剪；读者分片版本与现有运行时图版本分开。既有图谱不需要为退役 OCR 而整体重建。
 7. 阅读请求按来源、范围和确切问题去重；读取过一个章节不等于满足该实体后续的所有问题。当前需求优先于开场和邻接预读。
 8. 材料前置检查发生在 RNG、收据和效果批写入之前。扩展在当前回合中驱动前台阅读，等待期间释放内核执行队列；成功后重新校验原动作，失败不推进该批世界状态。
 9. 结构校验与语义复核职责分离；重要数值、条件、因果和身份真假关系对照原页复核。没有出处、读不清或存在冲突的必要内容不能强行发布为 ready。
-10. 一个模组跨会话串行认领并原子发布；代际冲突重新检查，恢复和幂等以持久任务与已发布结果为依据，不依赖进程内 busy 标记。
+10. 当前采用一个带工具 Pi 自主选页并产出本次草稿，再由最多 40 个独立 Pi 复核有界节点／关系组；所有源读者与复核者共享宿主的 40 进程容量。前台问题和后台补读各可占一个任务位，同一标准化目标等待前一份材料发布。禁止为填满并发自动切全书；实验性的多作者分派框架没有进入产品。统一路径核对来源、身份、依赖与冲突并原子发布，恢复和幂等沿用持久任务、锁与代际。
 11. 建卡调用统一的模组准备接口；现有模组和 starter 保持原职责，多开场选择沿用已有选择机制。来源处理进度不成为玩家叙事。
 12. 旧路径删除有明确终点：替换可验收后移除 OCR、Markdown 资料包及旧编排入口，保留原文件、旧图谱、存档、资产和全部玩测证据。接口细节以目标内核契约为准。
+
+## 2026-09-07 correction and selected design
+
+The earlier all-page navigation requirement is superseded. Its 432/669-page Masks run is retained as historical evidence, marked `invalid-for-intent` and `invalid-for-fast-opening-acceptance`. Its semantic index must not seed a new cold experiment. The experiment history below records the decision process. Production now queues selective opening/detail work directly; current integration and browser evidence are recorded at the end.
+
+### Implemented source-reading design
+
+One tool-enabled Pi reader owns source discovery and the reading plan. The host provides original-page access, bounded parallel execution, deterministic checks and atomic publication. Native bookmarks and page labels are navigation hints, not authored facts. With missing or broken navigation the same reader inspects the beginning and follows source evidence; the host does not guess headings or schedule a full scan.
+
+The high-level preparation service first publishes an independently reviewed, sourced skeleton containing structure and authored entrances in the existing ModuleGraph vocabulary. A named future scene remains unprepared. The production checker requires skeleton `ready_nodes` to be exactly empty; opening readiness also requires the start scene to occur in accepted/current prepared material. An unrelated detail publication cannot make a thin opening playable.
+
+For the selected opening, Pi follows current actors, motives, knowledge/lie distinctions, clue conditions, source-edition numbers, handouts and global/cross-page dependencies until the immediate interaction is supported. A fresh pool independently checks bounded node/claim groups with the complete candidate context, up to 40 concurrent sessions. All use read/write/edit/bash and private original-page access. Only the host dispatches children; leaves cannot recursively delegate. No fixed page cuts, whole-chapter quotas, second graph or OCR path.
+
+Unresolved questions affecting the prepared scope block readiness. Unused chapters remain explicitly unread. Later source requests use the same reader and facts already published; a new question about an old NPC is not skipped. Character creation may overlap preparation once source/entrance selection is stable. UI progress names actual milestones, not an all-book percentage.
+
+### Historical sandbox decision protocol
+
+The following records the experiment protocol used before selecting the implementation. Its two-minute skeleton and five-minute reviewed-opening budgets were provisional hypotheses. Production integration has since proceeded under the user's instruction to continue; neither the protocol nor a fast skeleton proves stable five-minute opening performance or completed browser gameplay.
+
+Run under isolated local directories and repository-local Pi homes, with production state and previous semantic results unavailable. Use xai/grok-4.6, low thinking, and retain actual provider-request metadata, source-image events, prompts, drafts, reviews and wall-clock milestones. Source bytes are identical; each cold trial starts without a prior semantic index. Page cache reuse and provider cache tokens are reported separately.
+
+1. Start with a single autonomous reader on the exact 669-page Masks source, preparing the Peru opening. Compare selective parallel work only when the reader has identified independent questions. Do not dispatch 40 empty or artificial tasks.
+2. A separate source-only Pi reviewer establishes a checklist before seeing candidate output. Check current opening facts, global dependencies, mechanical conditions, identity/lie distinctions and dangerous handout crops. The main assistant checks disputed/high-impact items against original pages. Model agreement is not a proof of exhaustive completeness.
+3. Repeat cold preparation after correcting failures. Require no unsupported or missing current-play-critical item in the reviewed checklist; unresolved required source material must stop readiness. Count critical omissions, contradictions and correction rounds, not just node totals.
+4. Exercise cold next-scene reading, an already-known NPC with a new question, and a later-source dependency. Reuse identities, preserve accepted facts and find the new material without rescanning the book. Add Cold Harvest alternate openings as a targeted ambiguity regression after the Masks experiment.
+5. Record first skeleton, first accepted opening material and each on-demand wait separately. Working performance budgets are 2 minutes for a useful skeleton and 5 minutes for reviewed opening material; they are hypotheses to test, not product promises or permission to omit facts. A miss triggers measured optimization and remains a failed performance gate. Repeat at least two fresh semantic trials for the selected approach before production migration.
+6. Only after quality and performance evidence supports the approach, implement the smallest production change, run existing kernel/extension/UI gates, and resume the original in-app-browser upload/character/full-chapter acceptance. Sandbox extraction is not a substitute for gameplay.
+
+External cross-check: PDF.js exposes native outline/page-label navigation, and Anthropic's context-engineering guidance describes agent-led just-in-time retrieval. These support selective source access, but neither proves this game's dependency coverage or speed. The old 0.8.2a planner/skeleton/opening-only implementation supports author-led structure and demand reading; its earlier text extraction and unfinished host dispatch are not being restored.
 
 ## Testing Decisions
 
@@ -83,21 +112,21 @@
 
 ### 真实产品路径
 
-按 [acceptance.md](../acceptance.md) 使用 `tests/play/driver.py` 启动 `bin/pi-coc-setup` / `bin/pi-coc`，Grok 当守秘人，主会话为唯一玩家，一次一句自然输入，持续到自然结局或真实阻断。没有脚本玩家、手填图谱、假 Keeper 或直接内核造景替代。
+按 [acceptance.md](../acceptance.md) 使用 `tests/play/driver.py` 启动 `bin/pi-coc-setup` / `bin/pi-coc`；当前 PipiCOC 任务由用户明确授权以内置浏览器替代驾驭器作为传输。两者都要求 Grok 当守秘人、主会话为唯一玩家，一次一句自然输入，持续到自然结局或真实阻断。没有脚本玩家、手填图谱、假 Keeper 或直接内核造景替代。
 
 | 样本 | 必须观察到的事实 |
 | --- | --- |
 | 含扫描页、图或小字表格的真实短本 | 从原 PDF 产品入口完成建卡、开场和游玩；场景、线索条件和实际用到的数值能定位到原页；至少一处确实通过看图取得的内容进入游戏 |
-| 多章节且有跨章引用/后置附录的真实长本 | 全书定位完成，开局仍有未细读部分；玩家的正常选择触发冷内容细读；必要附录先读取后结算；已有 NPC 的新问题触发针对性补读 |
+| 多章节且有跨章引用/后置附录的真实长本 | 仅用作者结构与必要原页建立骨架，开局仍有未读页；玩家的正常选择触发冷内容细读；必要附录先读取后结算；已有 NPC 的新问题触发针对性补读 |
 | 同来源复用与恢复 | 正常退出再续行，已发布内容复用且未发布工作可恢复；另开新战役复用同一本书，世界状态相互独立 |
 
 至少人工逐页对照开场与真正使用的关键事实；报告漏读、误读和复核漏检。记录首次可玩时间、定位/抽取/复核分别用时、前台等待、图片阅读次数和实际可取得的 token 用量。没有预设速度承诺；这些数据用于判断质量和等待是否值得接受。
 
-结果标记必须分清：接缝通过、真实 PDF 阅读通过、真桌通过、旧路径已删除。真实阻断意味着对应验收尚未通过；不能用绿色测试补记通过。此次所有门完成后才讨论 Electron 接入。
+结果标记必须分清：接缝通过、真实 PDF 阅读通过、真桌通过、旧路径已删除。真实阻断意味着对应验收尚未通过；不能用绿色测试补记通过。Electron 接入与真浏览器验收已由用户另行授权，见配套 onboarding 规格；不能用页面上线替代源材料质量验收。
 
 ## Out of Scope
 
-不包含：Electron/UI 改动、通用文档平台、规则引擎重构、向量数据库、额外知识图谱、供应商原生 PDF API 适配、OCR 备用链路、模组导入导出产品。
+本规格不扩展为通用文档平台、规则引擎重构、向量数据库、额外知识图谱、供应商原生 PDF API 适配、OCR 备用链路或模组导入导出产品。用户后续授权的 Electron/UI 改动归配套 onboarding 规格管理。
 
 当前交付仍以单个完整 PDF 为一个来源；同一模组的多卷合并和外部附件关联列为后续范围。扫描衍生件、规则书、重复副本和附件不会因为与正文同目录就被自动并成一本书。
 
@@ -127,7 +156,7 @@
 - 印刷引用必须经原页或可靠页标签定位到物理页；不能把样本的偏移量套在整本或另一版本上。
 - 地图和剪报可以沿用现有 asset/handout 与来源裁剪，不为每一种视觉版式新造节点种类。图上可见性仍需区分 Keeper 材料和可揭示部分。
 - 同一书的不同开场、可选章节和 classic/pulp 材料不能混成一组无条件事实。验收使用当前支持的 CoC7 规则路径，不增加 Pulp 规则引擎。
-- 669 页全书定位自身有成本，必须测量定位、开场细读和复核分别用时；“按需”省掉的是未使用范围的精细构图，不意味着开局零预读。
+- 已否决把 669 页全部浏览作为开场前置条件。必须分别测量首次骨架、首次经复核开场材料和真正可玩时间；允许必要预读，不允许把全书扫描藏进定位阶段。
 - 文本辅助只用于此次调查导航。新产品的视觉路径必须用实际图片工具事件、原页对照和游戏结果另行验收。
 
 ### 后续分票草案
@@ -175,6 +204,76 @@
 
 **删除的是方法，不是证据。** `.coc/campaigns/`、`playtests/`、`modules/`、旧 bundle、分片和构建日志全部保留。已有图谱和资产可以继续游玩；需要新增细读而缺原 PDF 时返回 `needs_source`。只能绑定摘要匹配的原文件；无法证明匹配时建新模组，不替换旧战役来源。
 
+### Historical sandbox observations, 2026-09-07
+
+This and the following sandbox subsections are retained chronological snapshots. Statements about pending production migration describe their original phase, not today's execution status. See the current production/browser checkpoint below; no rejected run has been relabeled as accepted.
+
+Evidence is retained under `.pi/reader-lab-20260907/runs/`; no production reader change has been applied in this phase. Filesystem canaries verify writable experiment directories and denied production/other-run semantic data. An initial parent-metadata denial broke Node source access; those attempts were stopped and excluded from timing comparisons. Preflight now executes the actual source-info command.
+
+- `masks-single-02`: autonomous selective baseline. Its first skeleton was empty prose/vocabulary with citations before image viewing, so its file timestamp is not a valid skeleton milestone. The reader repeatedly revisited pages and finished in 763.2 seconds; no reviewed readiness is established.
+- `masks-reference-02`: source-only review finished in 284.6 seconds but failed independent original-page spot checks (opening cast, arrival order, displayed artifacts, Psychology condition). It is rejected as a reference, not used to pass or fail candidates.
+- Image instrumentation found new PNG reads omitted before they ever reached the model because the 8 MiB/4-image history cap could not fit the current batch. This is a confirmed delivery gap; it does not by itself prove the cause of every semantic error. Source generation, tool read, and actual provider-context inclusion remain separate events.
+- `masks-page-probe-01`: the same Pi/model/low route accurately returned the requested facts from physical page 64 in 24.6 seconds; source fidelity is possible in a small context. This is an image-fidelity diagnostic, not graph or game acceptance.
+- `masks-parallel-01`: stopped and excluded from concurrency comparison because the explicit CLI allowlist omitted the dispatch tool. `masks-parallel-02` includes the tool and has four actual independent readers chosen by Pi.
+- `masks-parallel-03` and `masks-reference-03`: fresh trials retain every newly read image in context, use 2000-pixel JPEG quality 92 in the sandbox, and require incremental source notes. Image legibility, actual included pages and candidate quality must still be checked before adopting this change.
+
+### Historical additional sandbox findings (not production acceptance)
+
+The initial compact-image trial still lost earlier page context in long reviews. `masks-reference-03` retained wrong farmer/artifact/logistics facts and is not a reference standard. `masks-reference-04` retained up to 24 images / 32 MiB in a bounded scope, finished in 174.8 seconds, and corrected those original-page discrepancies. Its 17-item source-only checklist is a test aid, subject to original-page correction; it is not runtime truth or an exhaustive book oracle.
+
+| Trial | Raw reader time | Independent findings |
+| --- | ---: | --- |
+| selective parallel + original PNG (`masks-parallel-02`) | 493.9 s | No acceptance established |
+| selective parallel + compact images (`masks-parallel-03`) | 313.3 s | Parent redundantly reread worker pages; incomplete interaction material |
+| selective parallel, shared reading evidence (`masks-parallel-04`) | 328.1 s | Review 169.7 s; wrong dinner-to-Puno exit, misattached prior invitation; required conversation details missing |
+| corrected single reader, render then read (`masks-single-compact-01`) | 537.1 s | Review 327.0 s; opening facts improved but some perceivable Larkin tells omitted |
+| direct PDF image tool (`masks-single-direct-01`) | 365.7 s | First draft 187.6 s, then avoidable array-pointer repairs; review 185.9 s rejected an identity relation and incomplete tells |
+| direct PDF, no manual pointer counting (`masks-single-direct-02`) | 214.8 s | First skeleton file 31.6 s; 32 concurrent bounded source reviews pending; no readiness accepted |
+
+These are different experimental revisions, not repeated samples of one settled design; do not infer a causal speedup from all simultaneous changes. Source scope, semantics and image inclusion are audited separately. Working speed gates have not yet passed with independent quality acceptance.
+
+The current candidate keeps source access as one private reader tool: native navigation or directly returned page images. It removes the render-then-read round trip, but keeps read/write/edit/bash available. New page images must reach the next model context before history eviction; source rendering, tool delivery and provider-context inclusion are separate receipts. Source checkpoints are written while images are visible. The host generates mechanical review pointers; readers should not spend turns counting JSON array positions.
+
+A retained sandbox copy under `.pi/reader-lab-20260907/target/` explores two gate changes: empty-ready sourced skeletons, and opening validation without a whole-book ending declaration. Whole-graph ending checks remain. Production files are unchanged. An unread ending must never be represented as an authored empty ending list to satisfy the old gate.
+
+The parallel review trial groups existing nodes and claims (including all numeric child fields) into bounded original-source questions, with a capacity of 40 and actual 32 independent jobs. It is not another page sweep. Overall omission findings must block readiness even when per-field review reports are structurally complete. No candidate has yet passed the complete cold-repeat/on-demand/browser gates.
+
+### Historical sandbox conclusion before production migration
+
+The robust small surface is a tool-enabled Pi that selects source pages, with private direct-PDF access and the existing graph format. Structural scene/entity links remain a real graph; NPC biography, knowledge, beliefs, lies and author guidance do not need to be forced into ambiguous relation endpoints. A sandbox-only authoring vocabulary restriction tests this distinction. Production must preserve existing graph compatibility and actual NPC/clue consumers, not merely save new fields.
+
+Two concrete runtime gaps are reproduced in the sandbox copy: whole-page index gating prevents opening/detail dispatch, and npc_view drops extra authored properties because record_of returns those properties but the view only projects a legacy subset. The prototype now exposes the complete authored NPC fields, retains legacy claims, and projects property-based knowledge/beliefs/lies distinctly. A real Pi-produced candidate instantiates as 12 runtime nodes and 9 relations; the NPC-view probe confirms the added facts reach the Keeper view. No campaign is created by these probes.
+
+Measured additional experiments:
+
+- Cold Harvest discovery: 53.6 seconds. It found the two authored introductions on physical pages 9–10; the main assistant visually confirmed arrest versus production investigation. The rank translation needs correction before player-facing use; the source says captain. GRU involvement is an optional role overlay rather than a third opening.
+- Existing Elias, new source question: about 86 seconds, with existing identity retained. The first broad-claim version exposes an important semantic failure: a believes edge to the actual vampire entity projects the vampire truth as Elias's belief. The simpler property-based version separates biography/knowledge/beliefs and is under runtime/semantic validation.
+- Simple authoring: raw cold runs 270.1 and 285.9 seconds. Independent parallel checks took 73.7 and 99.2 seconds. The first needed a small correction relocating author keep-alive guidance out of NPC desire/secret; the two corrected field groups were independently source-checked. The second still needs adjudication of review omissions and the same author-versus-NPC boundary.
+- Incremental draft-tool trials took 352.8 and 372.3 seconds; the tool prevents malformed JSON and its serialized update probe preserves simultaneous writes, but it has not demonstrated a latency advantage. Do not add this tool to production merely because the prototype exists.
+- Owned-draft parallel writing took 508.0 then 309.4 seconds, but source semantics and handoff representation produced more review findings. This is not an accepted replacement. The first attempt's claim/dependency dropping is invalid-for-acceptance.
+- Parallel original-source review was measured with 19–62 jobs and capacity 40; observed review wall times are roughly 74–134 seconds. A supported verdict with nonempty error/missing lists is not readiness. Reviewers sometimes misreport material found on other pages or in other graph nodes; original-page adjudication must preserve valid facts.
+
+The original 2-minute skeleton / 5-minute fully reviewed opening budgets were experiment hypotheses. Skeleton latency is promising; the 5-minute full opening target is not consistently met and remains explicitly unpassed. The user has been asked which first-use latency/overlap tradeoff matters most. Independent source-quality, cold-scene reading, source-reference audits, and exact NPC-view delivery continue meanwhile. Do not mark the production migration or the original browser chapter acceptance complete.
+
+### Historical sandbox phase closeout
+
+The sandbox result is **not a production or gameplay acceptance**. The production reading path remains unchanged during this phase. The original browser upload/character/full-Peru-chapter task is still outstanding.
+
+Confirmed evidence:
+
+- `.pi/reader-lab-20260907/queue-probe.json`: the copied kernel queues an opening without a page sweep; an exact repeated question reuses work; a new question about a ready NPC creates new reading. No campaign was created.
+- `runs/masks-simple-corrected-01/runtime-graph.json` and `npc-view.json`: a real Pi-produced 12-node/9-relation opening graph is instantiated by the copied runtime. NPC biography is visible and knowledge, beliefs and lies are distinct. The author-guidance correction was independently checked in `masks-simple-patch-review-1/2`.
+- `detail-probe-corrected.json`: new material for the existing Elias identity merges without duplicating him or changing prior mechanics. The prior probe based on a rejected calibration graph is explicitly not accepted; its bad belief edge was preserved rather than silently overwritten.
+- `museum-probe.json`: the cold museum scene merges into the prior graph, preserves existing NPC profiles and identity, and its 8 independent source review groups report supported with no current omissions. Raw reading was 93.6 seconds and independent review 118.8 seconds, measured separately.
+- Cold Harvest's two opening alternatives were found in 53.6 seconds and checked against original physical pages 9–10. Correct the rank translation (source: captain) before using that public copy.
+- Actual request logs for these source experiments identify `xai/grok-4.6` and `reasoning_effort: low`.
+
+Timing must remain honest: reader and reviewer runs were orchestrated separately during research. Adding their durations is an estimate for an automated pipeline, not measured upload-to-play wall time. First-skeleton file checkpoints also need source/shape validation before being called a usable skeleton. The provisional five-minute fully reviewed opening target has not been consistently demonstrated, and no end-to-end browser chapter is complete.
+
+Remaining work before production migration: settle the first-use latency/character-creation overlap decision; turn the selected small authoring surface into an exact compatible contract (including NPC/clue consumers); complete stable cold-run quality and provenance gates; verify missing-source/ambiguous-source behavior. Then replace the whole-page prerequisite, reuse the single source/read/setup route, run the required regression suites, and resume the original in-app-browser full-chapter acceptance. Do not import the experimental runners, incomplete authoring restrictions, or every prototype helper into the product merely because they exist.
+
+All experiment artifacts are retained. The selected code ideas are private direct PDF image access, inclusion of every newly read image before history eviction, source-aware incremental records, bounded independent review, actionable source findings, and complete authored NPC views. Whole-page sweeps, raw-reader timing advertised as game readiness, unreviewed drafts, erroneous review checklists and silent claim/dependency deletion remain invalid acceptance evidence.
+
 ### 外部依据与限制
 
 - [Gemini PDF 理解](https://ai.google.dev/gemini-api/docs/document-processing)：支持视觉内容和结构化输出；原生 PDF 仍有页面/上下文限制。确认视觉阅读可行，不证明我们的模型、图谱或长本正确率。
@@ -183,7 +282,9 @@
 - [PDF.js Node 渲染示例](https://github.com/mozilla/pdf.js/blob/master/examples/node/pdf2png/pdf2png.mjs)：提供本地按页渲染的成熟实现参照；包版本、字体资源和本机 Node 运行仍须按步骤 1 验证。
 - [A Time to Harvest 官方介绍](https://www.chaosium.com/a-time-to-harvest-pdf/)与 [Masks 官方介绍](https://www.chaosium.com/masks-of-nyarlathotep-pdf-1/)支持其多章节长战役定位；验收使用的具体页数和版本仍以本地原文件为准。
 
-### 实施记录
+### 历史实施记录：选择性调度改造之前
+
+本小节保留最初视觉读取整合与旧管线退役的事实、失败和验证数字。其全页定位、图片历史上限、工作区与「尚未接前端」等状态只适用于当时版本，不覆盖文末的当前实现与浏览器验收记录。
 
 用户已授权实现，并于后续明确要求继续至完成。开发位于隔离 worktree `chatrpgv4-wt-visual-pdf-reader`、分支 `codex/visual-pdf-reader`。旧管线退役及手卡接缝修复已提交为 `cbdab504`；已吸收 `0.9.0a` 的已提交 `40dae53d` 并完成冲突解决和全量验证。后续用户明确授权提交并行任务的工作；该批改动独立提交为 `ffb6361a`，随后整合 PDF 分支。实施 worktree 保留代码、原文件与全部验收证据；生命周期状态另由本任务最终审计记录。
 
@@ -236,3 +337,38 @@
 本次整合 `ffb6361a` 的验证：内核 **1038 passed**（240.45 秒、exit 0），Pi 扩展 **106 passed**（exit 0），前端相关 5 个测试文件 **107 passed**（exit 0），Web/宿主源码构建通过。证据在当前主工作区 `.coc/research/visual-pdf-merge/`。这次是源码与集成回归，不新增真实模型游玩或打包 App 的声明。
 
 整合修正：阅读等待状态通过 ask.prompt/options 作为交互 JSON 交付；裸等待散文走已有单次修正机制，不再合成空选项 ask，也不进入正文。新增接真内核回归验证这一交付边界。扩展 API 仅在有选定会话时传第四个参数，无会话调用保持原三参数形状。
+
+## Production integration and browser acceptance completed
+
+This is the current checkpoint, superseding historical phase-status statements above. The selected implementation uses direct selected-page access, one tool-enabled source reader per task, the existing graph, authored NPC properties and a 40-capacity independent review pool. The experimental draft/owner-dispatch framework was not shipped. Opening/detail queue without an index; explicit navigation is selective. Every new source image is included before history eviction. Page cache/view paths publish atomically and the private PDF tool checks image hashes before delivery. Public handout rendering stays reviewed PNG.
+
+High-level preparation publishes a reviewed skeleton with exactly empty `ready_nodes`, offers authored opening choices, then prepares the chosen opening. Character drafting is available during preparation; Start depends on reviewed opening material. Opening readiness additionally requires a prepared start scene. New questions revisit accepted entities, while additive NPC knowledge/beliefs/lies preserve prior statements. Full scene look exposes complete authored sublocation/rule descriptions; compact capsule previews explicitly mark truncation. Maps depicting the scene's authored location are discoverable from that scene. These projections do not infer routes from prose or create a second spatial graph.
+
+### Measured cold and warm browser evidence
+
+| Evidence | Observed result | Limit |
+| --- | --- | --- |
+| `.coc/playtests/masks-final-cold/run.json` | First early-skeleton browser trial published a noninteractive Hotel Room 410 teaser as a selectable opening | Retained; invalid for opening-choice acceptance |
+| `.coc/playtests/masks-final-cold-2/run.json` | Fresh module store and page cache; upload began 23:43:33.670Z and reviewed skeleton completed 23:45:28Z on 2026-09-07: about 114 seconds, 16 original pages, two genuine starts, no teaser option, empty ready material | Valid early-structure milestone; OS/provider caches uncontrolled; not opening or chapter completion |
+| Cold2 opening jobs `read-2` / `read-3` | First attempt failed at 23:55:54Z after a reviewer incorrectly replaced printed NPC MOV with a character-creation calculation; corrected instructions and retained retry ran 00:02:03Z–00:05:52Z on 2026-09-08 and published opening material | Failed attempt and human delay remain part of the record; not an uninterrupted clean opening-speed result |
+| In-app browser `localhost:5181`, later new session in cold2 home | Empty session shows all three entries; selecting the parsed Masks book reuses its opening. Investigator draft name and concept survived reload, then Start: Lima reached the Create character step | Warm reuse and reload recovery only; this check created no new campaign |
+
+Cold2 module metadata confirms the skeleton material has no ready nodes. Actual `work/**/*.requests.jsonl` metadata identifies provider `xai`, model `grok-4.6`, and `reasoning_effort: low`. The two-minute skeleton hypothesis has one valid browser observation; repeatable reviewed-opening performance is not established. Do not sum separately orchestrated sandbox phases or exclude retries to claim a five-minute cold opening.
+
+### Current real chapter and source-quality follow-up
+
+The main assistant was the only player in `game-3642e5f2-8acb-4d17-9394-9f173764caf2`, browser session `4352d376-9e7b-4103-a802-b399e3317d35`, using `.coc/research/masks-agentic-browser-home`. Actual UI upload, character creation, opening and travel through Lima/Puno to the ruins occurred with Grok 4.6 low. The earlier Charnel Pit pause at UI turn 43 (HP 2, SAN 36, Luck 43) remains a historical checkpoint. Play continued: turn 63 formally set `golden-ward-restored=true`, and turn 64 recorded the restored-ward conclusion and return to Lima. The evidence manifest is `.coc/playtests/masks-agentic-browser/run.json`; the closeout is `REPORT.md` beside it.
+
+Original physical pages 81–84 were visually compared with generation 16. The published text omitted the explicit no-roll condition for entering the tunnels through the Charnel Pit; a 90-character place preview also lost existing connectivity, and the location-linked map was absent from the scene's asset list. General projection fixes and source-reader guidance address these classes of loss. Canonical Pi source repair published generation 17 after all 43 review units completed; `.coc/playtests/masks-agentic-browser/source-repair/events.jsonl` records readiness at 2026-09-08T00:57:32.349Z. The subsequent real play reached the ward and repaired it; these facts do not retroactively erase earlier failures or prove that every earlier climbing ruling was wrong.
+
+Turn 64 initially closed the campaign without chapter rewards or investigator development. That exposed a separate terminal-state gap, now repaired through the existing development settlement path. The Keeper then requested `Ward restored` with the precise source reward/development question through normal source lookup. Real job `read-14` read physical page 86, independent reviewers viewed pages 86/89, and the accepted delta published generation 18 at 2026-09-08T02:50:54Z with no review omissions. Source/model request logs confirm xai/grok-4.6 low. No audit values were written directly into the campaign.
+
+Canonical turn 66 resolved `development:end-session` with the source-derived `scenario_san_reward_expr: 1D8`, then narrated the chapter settlement and stopped before the next chapter. Commit `7cf49f0` retains SAN 31→32 (source reward roll 1), Luck 0→5 through the existing optional normal Luck recovery rule, and Spot Hidden 45→51; Library Use remained unchanged. The frozen capsule and PASS receipt are under `save/development-settlements/endings/ending-campaign-turn-64/`. Campaign metadata stays completed with its original ending turn 64 and the ward flag remains true. Final UI/canonical state: turn 67 awaiting_player, HP 8, SAN 32, Luck 5. This completes the requested Peru chapter plus accounting after observed repairs; it is not an uninterrupted first-attempt run.
+
+### Verification boundary and remaining work
+
+Historical checkpoints passed 1061 kernel/play and 113 extension tests, followed by 35 focused readiness/dossier tests and 37 spatial projection tests. The final postgame implementation passed the complete kernel/play suite: **1097 passed, exit 0, 258.96 seconds**, plus **119 extension tests, exit 0**. Final Electron baseline comparison retained **197 known failures with none new**; targeted UI mechanics passed 16 tests, external-auth lifecycle passed 15 tests, and the final web build exited 0. Evidence is under `.coc/playtests/masks-agentic-browser/final-checks/`, including `postgame-full.log/.exit`, `postgame-extension.log/.exit`, `postgame-testlist.txt`, `electron-complete.log`, `ui-mechanics-final.log`, and `external-auth-lifecycle-final.log`.
+
+The requested original-PDF → investigator → Peru chapter → source-based settlement browser acceptance is complete. Cold repeatability and consistently fast fully reviewed openings remain unproven; the 114-second skeleton is one valid cold local observation. The run includes retries, service recovery, warm reuse, development fixes and manual playing time. All original PDFs, graphs, failed attempts, reviews, browser evidence and campaign records are retained. No packaged-app acceptance is claimed, and the pre-existing development receipt-before-sheet process-crash window documented in the kernel contract remains outside this repair.
+
+Cache implementation cross-check: [Node.js copyFile](https://nodejs.org/api/fs.html#fspromisescopyfilesrc-dest-mode) explicitly does not promise an atomic copy. [Apple rename(2)](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/rename.2.html) documents atomic replacement within a filesystem. This confirms using a unique temporary sibling followed by rename for both cache artifacts and readable page paths. Source-image hash validation and the 40-way local delivery regression test the actual implementation; these guarantees concern visible publication, not a claim of power-loss durability.

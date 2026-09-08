@@ -196,7 +196,7 @@ def test_damage_effect_rolls_the_dice_and_moves_hp(kernel):
     dice = next(m for m in narrated["mechanics"] if m["kind"] == "dice")
     assert dice["label"] == "damage" and dice["expression"] == "1D6" and dice["total"] == before - after
     assert {"kind": "change", "receipt": "delta:hp-t1-c1", "resource": "hp", "subject": "thomas-hayes",
-            "subject_label": "托马斯·海斯", "before": before, "after": after} in narrated["mechanics"]
+            "subject_label": "托马斯·海斯", "subject_is_investigator": True, "before": before, "after": after} in narrated["mechanics"]
     bad = kernel.table_err("apply", call_id="t2-c1", effects=[{"kind": "damage", "dice": "lots"}])
     assert bad["code"] in ("invalid_params", "turn_state")
 

@@ -396,10 +396,8 @@ class SettleContext:
                 receipt["continued_by"] = kind
 
     def _actor_label(self, actor: str, is_investigator: bool) -> str:
-        """Who rolled, by name (contract §23). The §16.2 projection copies this onto the
-        mechanics card and the fact sentences prefer it, so an investigator needs one exactly
-        as much as an NPC does: `inv-1` is the kernel's filing, not anybody's name. Falls back
-        to the id, which is still better than an empty cell."""
+        """Canonical identity for Keeper receipts and facts. Public cards expose this name
+        only for a known investigator; an NPC's authored name may still be a secret."""
         if is_investigator:
             sheet = self.sheet_by_id(actor) or {}
             name = sheet.get("name")
@@ -429,6 +427,7 @@ class SettleContext:
                    "bonus": int(bonus), "penalty": int(penalty), "visibility": visibility, "roll_kind": kind,
                    "pushed": bool(pushed), "rule_refs": rule_refs, "at": now_iso(), **extra}
         receipt["actor_label"] = self._actor_label(actor, actor_is_investigator)
+        receipt["actor_is_investigator"] = actor_is_investigator
         if source_receipt:
             receipt["source_receipt"] = source_receipt
         if check is not None:
@@ -445,7 +444,9 @@ class SettleContext:
         receipt = {"id": receipt_id, "kind": "roll", "form": "dice", "call_id": self.call_id, "actor": actor,
                    "skill": label, "skill_label": skill_label or label, "expression": expression, "faces": list(faces),
                    "total": total, "visibility": "public", "at": now_iso(), **extra}
-        receipt["actor_label"] = self._actor_label(actor, self.sheet_by_id(actor) is not None)
+        actor_is_investigator = self.sheet_by_id(actor) is not None
+        receipt["actor_label"] = self._actor_label(actor, actor_is_investigator)
+        receipt["actor_is_investigator"] = actor_is_investigator
         self.receipts.append(receipt)
         return receipt_id
 
@@ -474,6 +475,7 @@ class SettleContext:
         receipt = {"id": receipt_id, "kind": "delta", "call_id": self.call_id, "resource": resource,
                    "subject": subject, "subject_label": subject_label, "before": before,
                    "after": after, **extra, "at": now_iso()}
+        receipt["subject_is_investigator"] = self.sheet_by_id(subject) is not None
         if source_receipt:
             receipt["source_receipt"] = source_receipt
         self.receipts.append(receipt)

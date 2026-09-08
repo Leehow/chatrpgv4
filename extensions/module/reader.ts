@@ -19,10 +19,12 @@ export interface ReaderRequest {
 	brief: string;
 	/** `provider/model`; without one, pi's own default model is used. */
 	model?: string;
+	thinking?: string;
 	signal?: AbortSignal;
 	timeoutMs?: number;
 	systemPrompt?: string;
 	eventLog?: string;
+	source?: { pdf: string; cache: string };
 	onEvent?: (event: Record<string, any>) => void;
 }
 
@@ -41,7 +43,7 @@ export interface ReaderOutcome {
 }
 
 /** The reader's command line, without the final `brief` argument. */
-export function readerCommand(model?: string, systemPrompt?: string): string[] {
+export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false): string[] {
 	const override = process.env.PI_COC_READER_CMD?.trim();
 	if (override) {
 		const parsed: unknown = JSON.parse(override);
@@ -59,21 +61,55 @@ export function readerCommand(model?: string, systemPrompt?: string): string[] {
 		"--no-skills",
 		...(systemPrompt ? ["--extension", join(PKG_ROOT, "extensions/module/reader-context.ts")] : []),
 		"--tools",
-		"read,write,edit,bash",
+		pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash",
+		...(pdf ? ["--extension", join(PKG_ROOT, "extensions/module/reader-pdf.ts")] : []),
 		"--system-prompt",
 		systemPrompt ?? join(PKG_ROOT, "content", "setup", "visual-reader.md"),
 		...(model ? ["--model", model] : []),
+		...(thinking ? ["--thinking", thinking] : []),
 		// Everything after `--` is the prompt: a brief starting with `-` is not taken for an option.
 		"--",
 	];
 }
 
-/** Run one reader round. Any failure is only a failed round, never a throw. */
+/** One host-wide budget shared by source reading and all review pools. */
+let activeReaders = 0;
+const waitingReaders: Array<() => void> = [];
+export async function acquireReaderSlot(signal?: AbortSignal): Promise<(() => void) | null> {
+	if (signal?.aborted) return null;
+	return new Promise(resolve => {
+		const cancel = () => {
+			const index = waitingReaders.indexOf(grant);
+			if (index >= 0) waitingReaders.splice(index, 1);
+			resolve(null);
+		};
+		const grant = () => {
+			signal?.removeEventListener("abort", cancel);
+			activeReaders++;
+			let released = false;
+			resolve(() => {
+				if (released) return;
+				released = true; activeReaders--;
+				waitingReaders.shift()?.();
+			});
+		};
+		if (activeReaders < 40) grant();
+		else { waitingReaders.push(grant); signal?.addEventListener("abort", cancel, {once:true}); }
+	});
+}
+
+/** Run one reader round. Failed or cancelled runs retain their evidence. */
 export async function runReader(request: ReaderRequest): Promise<ReaderOutcome> {
+	const release = await acquireReaderSlot(request.signal);
+	if (!release) return {ok:false,code:null,timedOut:false,ms:0,stderr:"",command:[],error:"cancelled"};
+	try { return await runOwnedReader(request); } finally { release(); }
+}
+
+async function runOwnedReader(request: ReaderRequest): Promise<ReaderOutcome> {
 	const began = Date.now();
 	let command: string[];
 	try {
-		command = readerCommand(request.model, request.systemPrompt);
+		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source);
 		if (request.eventLog && !process.env.PI_COC_READER_CMD) command.splice(command.length - 1, 0, "--mode", "json");
 		command.push(request.brief);
 	} catch (error) {
@@ -89,12 +125,17 @@ export async function runReader(request: ReaderRequest): Promise<ReaderOutcome> 
 	}
 	const [bin, ...args] = command;
 	const env = { ...process.env };
+	if (request.source) env.PI_COC_READER_SOURCE = JSON.stringify(request.source);
+	else delete env.PI_COC_READER_SOURCE;
 	// The subprocess is not a table: it must not think it should open one.
 	delete env.PI_COC_CAMPAIGN;
 	delete env.PI_COC_MODE;
 	if (request.signal?.aborted) return { ok: false, code: null, timedOut: false, ms: 0, stderr: "", command, error: "cancelled" };
 	if (request.eventLog) await mkdir(dirname(request.eventLog), { recursive: true });
-	if (request.eventLog) env.PI_COC_READER_IMAGES_LOG = request.eventLog + ".images.jsonl";
+	if (request.eventLog) {
+		env.PI_COC_READER_IMAGES_LOG = request.eventLog + ".images.jsonl";
+		env.PI_COC_READER_REQUESTS_LOG = request.eventLog + ".requests.jsonl";
+	}
 	if (request.systemPrompt) {
 		const binDir = join(request.cwd, "host-bin");
 		await mkdir(binDir, { recursive: true });

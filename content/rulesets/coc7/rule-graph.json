@@ -6358,6 +6358,11 @@
           "payload_constants": {},
           "payload_slots": [
             {
+              "name": "scenario_san_reward_expr",
+              "optional": true,
+              "ownership": "optional-semantic"
+            },
+            {
               "name": "summary",
               "optional": true,
               "ownership": "optional-semantic"

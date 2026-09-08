@@ -340,6 +340,7 @@ export function createComponent(React) {
     const derived = isRecord(sheet.derived) ? sheet.derived : {};
     const entries = [];
     for (const key of CHARACTERISTIC_ORDER) {
+      if (key === "LUCK") continue; // The current Luck resource is already shown above.
       if (characteristics[key] !== undefined) entries.push([key, characteristics[key]]);
     }
     // Anything the kernel added that this list does not know about still shows, after the known ones.
@@ -407,12 +408,11 @@ export function createComponent(React) {
     const clock = isRecord(view.clock) ? view.clock : {};
     const minutes = numberOr(clock.minutes, undefined);
     const scene = isRecord(view.scene) ? view.scene : {};
-    const present = Array.isArray(view.present) ? view.present : [];
     const session = isRecord(view.session) ? view.session : null;
     const lines = [];
     if (view.turn !== undefined && view.turn !== null) lines.push({ key: t.turnKey, value: text(view.turn) });
     if (scene.display_name || scene.name) lines.push({ key: t.sceneKey, value: text(scene.display_name || scene.name) });
-    if (present.length) lines.push({ key: t.presentKey, value: present.map(text).join("、") });
+    // Canonical NPC names may reveal a concealed identity; introductions belong to the Keeper.
     if (session) lines.push({ key: t.sessionKey, value: t.session(text(session.kind), session.round), live: true });
     if (view.pending_choice) lines.push({ key: "", value: t.awaitingChoice, live: true });
     if (minutes === undefined && !lines.length) return null;

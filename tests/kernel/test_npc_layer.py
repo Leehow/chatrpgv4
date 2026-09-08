@@ -533,3 +533,103 @@ def test_an_npc_acts_for_the_party_and_the_roll_is_theirs(kernel):
     row = ledger(kernel)[KNOTT]
     assert row["skills"]["Medicine"]["value"] == 65 and row["skills"]["Medicine"]["turn"] == 1
     assert row["skills"]["Medicine"]["why"] == "书上没写，桌上定为称职的医生"
+
+
+@pytest.mark.parametrize(("skill", "value"), [("Climb", 60), ("STR", 70)])
+def test_an_ordinary_npc_helper_uses_their_target_and_receipt_identity(kernel, skill, value):
+    open_turn(kernel, "Ask Knott to haul the investigator up with a rope.")
+    kernel.table("apply", call_id="t1-c1", effects=[
+        {"kind": "npc", "name": "Steven Knott", "skill": {"name": skill, "value": value},
+         "why": "A stable ability for the helper in this isolated test."}])
+    result = resolve(kernel, "t1-c2", actor="Steven Knott", target="Thomas Hayes", intent="move",
+                     goal="Haul the investigator to safety", method="Knott works the rope", skill=skill,
+                     stakes="The helper cannot raise the investigator")
+    assert result["outcome"]["target"] == value
+    receipt = next(r for r in kernel.table("status")["receipts"] if r["id"] == result["receipt"])
+    assert receipt["actor"] == "steven-knott" and receipt["target"] == value
+    assert receipt["check"]["investigator_id"] == "steven-knott"
+    assert not result["continuations"], "an NPC check does not offer the player's Push or Luck"
+    assert not any("investigator sheet" in hint for hint in result.get("hints", []))
+
+
+def test_an_ordinary_npc_helper_needs_their_missing_skill_without_using_player_base(kernel):
+    open_turn(kernel)
+    error = resolve_err(kernel, "t1-c1", actor="Steven Knott", intent="move",
+                        goal="Lead the pack animal", method="Knott takes its reins", skill="Animal Handling")
+    assert error["code"] == "needs" and error["details"]["needs"]["field"] == "npc.skill"
+    assert error["details"]["actor"] == "steven-knott"
+    assert kernel.table("status")["receipts"] == []
+
+
+def test_an_ordinary_npc_check_uses_the_authored_characteristic_without_a_pin(kernel):
+    from test_rules_families import walk_to_confrontation
+
+    open_turn(kernel)
+    call = walk_to_confrontation(kernel)
+    result = resolve(kernel, f"t1-c{call}", actor="Walter Corbitt", intent="move", skill="STR",
+                     goal="Lift the obstruction", method="He lifts it with both arms")
+    receipt = next(r for r in kernel.table("status")["receipts"] if r["id"] == result["receipt"])
+    assert result["outcome"]["target"] == 90
+    assert receipt["actor"] == "walter-corbitt" and receipt["target"] == 90
+
+
+def test_an_npc_pin_cannot_replace_an_authored_value_but_can_fill_a_missing_skill(kernel, tmp_path):
+    from module_helpers import indexed, opening, finish, write
+
+    mid, _ = indexed(kernel, tmp_path)
+    job, draft, _ = opening(kernel, mid)
+    draft["nodes"][2]["properties"]["mechanics"]["profile"]["characteristics"]["STR"] = 70
+    write(Path(job["work_dir"]) / "draft.json", draft)
+    finish(kernel, job)
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": mid, "play_language": "en"})
+    kernel.ok("setup.investigator", {"campaign": CAMPAIGN, "name": "Ada", "occupation": "Journalist"})
+    kernel.ok("setup.complete", {"campaign": CAMPAIGN})
+    kernel.table("open")
+    kernel.table("narrate", call_id="t0-c1", text="Lena waits at the dock.")
+    kernel.table("player_input", text="Ask Lena to help.")
+    ledger_path = campaign_dir(kernel.workspace) / "npc-ledger.json"
+    before = ledger_path.read_bytes() if ledger_path.exists() else None
+    error = kernel.table_err("apply", call_id="t1-c1", effects=[
+        {"kind": "npc", "name": "Lena", "skill": {"name": "STR", "value": 55},
+         "why": "The compact view did not list her strength."}])
+    assert error["code"] == "invalid_params"
+    assert error["details"]["field"] == "npc.skill" and error["details"]["authored_value"] == 70
+    assert "source" in error["message"] and "70" in error["fix"]
+    assert (ledger_path.read_bytes() if ledger_path.exists() else None) == before
+    assert kernel.table("status")["receipts"] == []
+    kernel.table("apply", call_id="t1-c1", effects=[
+        {"kind": "npc", "name": "Lena", "skill": {"name": "First Aid", "value": 40},
+         "why": "The source has no First Aid value."},
+        {"kind": "npc", "name": "Lena", "skill": {"name": "STR", "value": 70},
+         "why": "Keep the source's existing strength."}])
+    kernel.table("narrate", call_id="t1-c2", text="Lena prepares to help.")
+    skills = ledger(kernel)["npc-lena"]["skills"]
+    assert skills["First Aid"]["value"] == 40 and skills["STR"]["value"] == 70
+
+
+def test_visual_npc_properties_reach_the_keeper_without_turning_belief_into_truth():
+    from coc.capsule import npc_view
+    graph = ModuleGraph('the-haunting', CONTENT / 'starters/the-haunting/module-graph.json')
+    node = graph.npc('Steven Knott')
+    node['properties'].update(biography='A source-authored upbringing.',
+        knowledge=['The expedition leaves on Monday.'], beliefs=['He suspects a human conspiracy.'],
+        lies=['He claims to be a merchant.'])
+    view = npc_view(graph, {}, node)
+    assert view['properties']['biography'] == 'A source-authored upbringing.'
+    assert view['knowledge'] == ['The expedition leaves on Monday.']
+    assert 'He suspects a human conspiracy.' in view['believes']
+    assert 'He claims to be a merchant.' in graph.npc_would_say(node)
+
+
+def test_a_belief_about_a_person_does_not_import_their_secret_biography():
+    graph = ModuleGraph('the-haunting', CONTENT / 'starters/the-haunting/module-graph.json')
+    believer = graph.npc('Steven Knott')
+    target = graph.npc('Walter Corbitt')
+    reason = 'He believes the owner is an ordinary recluse.'
+    graph.claims_by_subject[believer['node_id']] = [{
+        'subject_id': believer['node_id'], 'predicate': 'believes', 'object': {'node_id': target['node_id']},
+        'truth_status': 'authored-belief', 'reason': reason}]
+    assert graph.npc_beliefs(believer) == [reason]
+    graph.out_rel[believer['node_id']].append({'relation_kind': 'impersonates',
+        'from_node_id': believer['node_id'], 'to_node_id': believer['node_id']})
+    assert all(tie['node']['node_id'] != believer['node_id'] for tie in graph.npc_ties(believer))

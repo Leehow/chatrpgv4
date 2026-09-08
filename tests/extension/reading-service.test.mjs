@@ -54,7 +54,7 @@ test("a reused book with several openings requires a choice for this preparation
 		} });
 	t.after(() => service.dispose());
 	await assert.rejects(service.prepare({ module_id: "book-1" }), e => e.code === "needs_choice" && e.details.candidates[1].summary === candidates[1].summary);
-	assert.deepEqual(calls.map(c => c.method), ["module.status"]);
+	assert.deepEqual(calls.map(c => c.method), ["module.read.request", "module.status"]);
 	assert.equal((await service.prepare({ module_id: "book-1", start_scene: "two" })).opening_ready, true);
 	assert.equal(calls.find(c => c.method === "module.opening.choose").params.scene, "two");
 });
@@ -89,4 +89,129 @@ test("a work-directory failure releases its claimed job instead of leaving it ru
 	assert.equal(finishes.length, 1);
 	assert.equal(finishes[0].outcome, "failed");
 	assert.match(finishes[0].detail, /ENOTDIR/);
+});
+
+
+test('a foreground arrival wakes the pump while its background child is still running', async()=>{
+ let initial=true,foreground=false;const started=[];
+ const service=new ReadingService({home:'/unused',model:()=>({id:'fixture/vision',vision:true}),progress(){},record(){},
+ async call(method){if(method!=='module.read.claim')throw Error('unexpected');
+ if(initial){initial=false;return {job_id:'background',concurrency:2,purpose:'detail'}}
+ if(foreground){foreground=false;return {job_id:'foreground',concurrency:2,purpose:'detail'}}return {job_id:null};}});
+ service.runJob=async(job,signal)=>{started.push(job.job_id);await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}))};
+ const pending=service.prefetch('book');await new Promise(resolve=>setTimeout(resolve,10));
+ foreground=true;void service.prefetch('book');
+ const deadline=Date.now()+1000;while(started.length<2&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,5));
+ assert.deepEqual(started,['background','foreground']);await service.close();await pending;
+});
+
+async function until(check) {
+	const deadline = Date.now() + 1500;
+	while (!check() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 5));
+	assert.ok(check(), "reader state did not settle");
+}
+
+test("cancelling the foreground request leaves an unrelated background reader alive and close drains it", async t => {
+	const queued = ["background"], signals = new Map(), finished = new Map(), drained = [];
+	let foregroundRequested = false;
+	const service = new ReadingService({ home: "/unused", model: () => ({ id: "fixture/vision", vision: true }), progress() {}, record() {},
+		async call(method, params) {
+			if (method === "module.read.request") {
+				if (!foregroundRequested) { foregroundRequested = true; queued.push("foreground"); }
+				return { state: "reading", job_id: "foreground" };
+			}
+			if (method === "module.read.claim") return { job_id: queued.shift() ?? null, concurrency: 2, purpose: "detail" };
+			if (method === "module.read.finish") { finished.set(params.job_id, params.outcome); return {}; }
+			throw new Error("unexpected operation");
+		} });
+	t.after(() => service.close());
+	service.runJob = async (job, signal) => {
+		signals.set(job.job_id, signal);
+		await new Promise(resolve => signal.addEventListener("abort", resolve, { once: true }));
+		await new Promise(resolve => setTimeout(resolve, 20));
+		drained.push(job.job_id);
+		throw new Error("reader cancelled after draining its children");
+	};
+	const background = service.prefetch("book");
+	await until(() => signals.has("background"));
+	const abort = new AbortController();
+	const foreground = service.ensure("book", { purpose: "detail", focus: "Tower", foreground: true }, abort.signal);
+	const cancelled = assert.rejects(foreground, /cancelled/);
+	await until(() => signals.has("foreground"));
+	abort.abort();
+	await cancelled;
+	await until(() => finished.has("foreground"));
+	assert.equal(finished.get("foreground"), "cancelled");
+	assert.equal(signals.get("background").aborted, false);
+	assert.deepEqual(drained, ["foreground"]);
+	await service.close();
+	await background;
+	assert.equal(finished.get("background"), "cancelled");
+	assert.deepEqual(drained, ["foreground", "background"]);
+});
+
+test("one cancelled waiter cannot cancel a shared reader still awaited by another caller", async t => {
+	let claimed = false, signal;
+	const service = new ReadingService({ home: "/unused", model: () => ({ id: "fixture/vision", vision: true }), progress() {}, record() {},
+		async call(method) {
+			if (method === "module.read.request") return { state: "reading", job_id: "shared" };
+			if (method === "module.read.claim") { if (claimed) return { job_id: null }; claimed = true; return { job_id: "shared" }; }
+			if (method === "module.read.finish") return {};
+			throw new Error("unexpected operation");
+		} });
+	t.after(() => service.close());
+	service.runJob = async (_job, ownedSignal) => { signal = ownedSignal; await new Promise(resolve => signal.addEventListener("abort", resolve, { once: true })); };
+	const first = new AbortController(), second = new AbortController();
+	const params = { purpose: "detail", focus: "Tower", foreground: true };
+	const a = assert.rejects(service.ensure("book", params, first.signal), /cancelled/);
+	const b = assert.rejects(service.ensure("book", params, second.signal), /cancelled/);
+	await until(() => signal);
+	first.abort();
+	await a;
+	assert.equal(signal.aborted, false);
+	second.abort();
+	await b;
+	assert.equal(signal.aborted, true);
+	await service.close();
+});
+
+test("simultaneous cancellation of all shared waiters aborts the reader", async t => {
+	let claimed = false, signal;
+	const service = new ReadingService({ home: "/unused", model: () => ({ id: "fixture/vision", vision: true }), progress() {}, record() {},
+		async call(method) {
+			if (method === "module.read.request") return { state: "reading", job_id: "shared" };
+			if (method === "module.read.claim") { if (claimed) return { job_id: null }; claimed = true; return { job_id: "shared" }; }
+			throw new Error("unexpected operation");
+		} });
+	t.after(() => service.close());
+	service.runJob = async (_job, ownedSignal) => { signal = ownedSignal; await new Promise(resolve => signal.addEventListener("abort", resolve, { once: true })); };
+	const abort = new AbortController(), params = { purpose: "detail", focus: "Tower" };
+	const pending = [1, 2].map(() => assert.rejects(service.ensure("book", params, abort.signal), /cancelled/));
+	await until(() => signal);
+	abort.abort();
+	await Promise.all(pending);
+	assert.equal(signal.aborted, true);
+	await service.close();
+});
+
+test("cancellation before the request returns retires only that queued job without starting its reader", async t => {
+	let resolveRequest, queued = false;
+	const finished = [];
+	const service = new ReadingService({ home: "/unused", model: () => { throw new Error("cancelled job must not launch a reader"); }, progress() {}, record() {},
+		async call(method, params) {
+			if (method === "module.read.request") return new Promise(resolve => { resolveRequest = resolve; });
+			if (method === "module.read.claim") { if (!queued) return { job_id: null }; queued = false; return { job_id: "pending" }; }
+			if (method === "module.read.finish") { finished.push(params); return {}; }
+			throw new Error("unexpected operation");
+		} });
+	t.after(() => service.close());
+	const abort = new AbortController();
+	const pending = assert.rejects(service.ensure("book", { purpose: "detail", focus: "Tower" }, abort.signal), /cancelled/);
+	abort.abort();
+	await pending;
+	queued = true;
+	resolveRequest({ state: "queued", job_id: "pending" });
+	await until(() => finished.length === 1);
+	assert.equal(finished[0].job_id, "pending");
+	assert.equal(finished[0].outcome, "cancelled");
 });

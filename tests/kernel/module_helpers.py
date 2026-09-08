@@ -37,7 +37,7 @@ def observed(job, **kwargs):
 
 def indexed(client, tmp_path):
     mid, source = bind(client, tmp_path)
-    request(client, mid, "opening")
+    request(client, mid, "index")
     job = claim(client, mid)
     assert job["purpose"] == "index"
     observed(job)

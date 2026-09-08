@@ -47,6 +47,19 @@ async function fixture() {
 }
 
 describe("PiHostBackend terminal projection", () => {
+  it("settles an extension opening whose agent_start preceded RPC subscription", async () => {
+    const backend = await fixture();
+    const statuses: string[] = [];
+    const off = backend.subscribe(event => {
+      if (event.channel === "stream" && event.event.type === "status") statuses.push(event.event.status);
+    });
+    try {
+      await backend.handle("sendPrompt", ["s1", "opening-start-before-subscription"]);
+      await eventually(() => statuses.includes("settled"));
+      expect(statuses).toEqual(["started", "settled"]);
+    } finally {off(); await backend.close();}
+  });
+
   it("reconciles a final idle assistant turn when agent_settled is missed", async () => {
     const backend = await fixture();
     const statuses: string[] = [];

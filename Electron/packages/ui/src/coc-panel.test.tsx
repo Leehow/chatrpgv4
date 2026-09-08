@@ -92,3 +92,13 @@ describe('the three states with no sheet', () => {
     expect(screen.getByRole('button', { name: '重试' })).toBeTruthy();
   });
 });
+
+it('shows current Luck once and does not disclose canonical NPC identities', async () => {
+  const privateView = view({present:['Concealed identity'], investigators:[{
+    ...investigator, luck:43, characteristics:{STR:70,POW:40,LUCK:45},
+  }]});
+  render(<Panel api={host({ok:true,data:{status:'ready',view:privateView,campaign:'c1'}})} />);
+  await screen.findByText('43');
+  expect(screen.queryByText('45')).toBeNull();
+  expect(screen.queryByText('Concealed identity')).toBeNull();
+});

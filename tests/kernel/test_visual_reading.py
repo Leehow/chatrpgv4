@@ -68,7 +68,7 @@ def test_indexing_requires_actual_full_page_observation(kernel, tmp_path):
     write(Path(job["work_dir"]) / "draft.json", {"sections": [{"name": "Book", "pages": [[1, 2]]}]})
     error = kernel.err("module.read.finish", {"module_id": mid, "job_id": job["job_id"], "lease": job["lease"],
         "outcome": "completed", "draft_path": str(Path(job["work_dir"]) / "draft.json")})
-    assert "not viewed" in error["message"]
+    assert "observed source reference" in error["message"]
     assert not kernel.ok("module.status", {"module_id": mid})["reading"]["index_complete"]
 
 
@@ -448,3 +448,185 @@ def test_rebinding_the_matching_original_preserves_corrupted_bytes_and_the_publi
     assert len(copies) == 1 and copies[0].read_bytes() == b"corrupted source retained for diagnosis"
     status = kernel.ok("module.status", {"module_id": mid})
     assert status["generation"] == 1 and status["opening_ready"] is True
+
+
+def test_ready_npc_question_publishes_new_fields_without_recopying_the_dossier(kernel, tmp_path):
+    mid, _ = indexed(kernel, tmp_path)
+    job, _, _ = opening(kernel, mid)
+    finish(kernel, job)
+    request(kernel, mid, 'detail', focus='Lena', question='What does she remember about the tower?')
+    job = claim(kernel, mid)
+    known = next(n for n in job['known_nodes'] if n['node_id'] == 'npc-lena')
+    assert known['source_refs'] == [{'page': 1}]
+    refs = [{'page': 2}]
+    draft = {'nodes': [{'node_id': 'npc-lena', 'node_kind': 'npc', 'name': 'Lena',
+        'properties': {'knowledge': ['She remembers the tower keeper.']}, 'source_refs': refs}],
+        'claims': [], 'node_refs': [], 'coverage': {}, 'dependencies': [], 'critical': [], 'ready_nodes': ['npc-lena']}
+    write(Path(job['work_dir']) / 'draft.json', draft)
+    write(Path(job['work_dir']) / 'review.json', {'checked': [{'path': '/nodes/0', 'verdict': 'supported',
+        'source_refs': refs, 'reason': 'New fact fixture.'}], 'missing': []})
+    observed(job, read_pages=[2], review_pages=[2])
+    finish(kernel, job)
+    graph = ModuleStore(kernel.workspace).read_graph(mid)
+    node = next(n for n in graph['nodes'] if n['node_id'] == 'npc-lena')
+    assert node['properties']['mechanics']['profile']['characteristics']['STR'] == 50
+    assert node['properties']['knowledge'] == ['She remembers the tower keeper.']
+
+
+def test_reviewed_skeleton_exposes_choices_without_authorizing_play(kernel, tmp_path):
+    mid, _ = bind(kernel, tmp_path)
+    request(kernel, mid, 'skeleton', foreground=True)
+    job = claim(kernel, mid)
+    refs = [{'page': 1}]
+    draft = {'nodes': [
+        {'node_id': f'module-{mid}', 'node_kind': 'module', 'name': 'Two entrances', 'source_refs': refs,
+         'properties': {'entry_scene_ids': ['scene-first', 'scene-second']}},
+        {'node_id': 'scene-first', 'node_kind': 'scene', 'name': 'First', 'source_refs': refs,
+         'properties': {'is_entrance': True}},
+        {'node_id': 'scene-second', 'node_kind': 'scene', 'name': 'Second', 'source_refs': refs,
+         'properties': {'is_entrance': True}},
+    ], 'claims': [], 'node_refs': [], 'coverage': {}, 'dependencies': [],
+        'critical': ['/nodes/0', '/nodes/1', '/nodes/2'], 'ready_nodes': []}
+    write(Path(job['work_dir']) / 'draft.json', draft)
+    write(Path(job['work_dir']) / 'review.json', {'checked': [{'paths': draft['critical'],
+        'verdict': 'supported', 'source_refs': refs, 'reason': 'Structure fixture.'}], 'missing': []})
+    observed(job, read_pages=[1], review_pages=[1])
+    assert not finish(kernel, job)['opening_ready']
+    status = kernel.ok('module.status', {'module_id': mid})
+    assert len(status['opening_candidates']) == 2 and not status['opening_ready']
+    chosen = kernel.ok('module.opening.choose', {'module_id': mid, 'scene': 'First'})
+    assert not chosen['opening_ready']
+    assert len(ModuleStore(kernel.workspace).read_graph(mid)['nodes']) == 3
+    request(kernel, mid, 'opening', foreground=True)
+    opening_job = claim(kernel, mid)
+    assert opening_job['purpose'] == 'opening' and opening_job['focus'] == 'scene-first'
+
+
+def test_skeleton_cannot_publish_material_readiness(kernel, tmp_path):
+    mid, _ = bind(kernel, tmp_path)
+    request(kernel, mid, 'skeleton', foreground=True)
+    job = claim(kernel, mid)
+    refs = [{'page': 1}]
+    draft = {'nodes': [{'node_id': 'scene-dock', 'node_kind': 'scene', 'name': 'Dock',
+        'properties': {'is_entrance': True}, 'source_refs': refs}],
+        'claims': [], 'node_refs': [], 'coverage': {}, 'dependencies': [],
+        'critical': ['/nodes/0'], 'ready_nodes': ['scene-dock']}
+    write(Path(job['work_dir']) / 'draft.json', draft)
+    write(Path(job['work_dir']) / 'review.json', {'checked': [{'path': '/nodes/0',
+        'verdict': 'supported', 'source_refs': refs}], 'missing': []})
+    observed(job, read_pages=[1], review_pages=[1])
+    error = kernel.err('module.read.finish', {'module_id': mid, 'job_id': job['job_id'],
+        'lease': job['lease'], 'outcome': 'completed',
+        'draft_path': str(Path(job['work_dir']) / 'draft.json'),
+        'review_path': str(Path(job['work_dir']) / 'review.json')})
+    assert error['code'] == 'invalid_params' and error['details']['path'] == '/ready_nodes'
+    store = ModuleStore(kernel.workspace)
+    assert store.read_graph(mid) is None and store.module(mid)['reading']['materials'] == []
+    draft['ready_nodes'] = []
+    write(Path(job['work_dir']) / 'draft.json', draft)
+    assert not finish(kernel, job)['opening_ready']
+    assert not Reading(store).material_ready(mid, 'Dock')
+
+
+def test_empty_skeleton_cannot_publish_a_generated_module_as_authored_structure(kernel, tmp_path):
+    mid, _ = bind(kernel, tmp_path)
+    request(kernel, mid, 'skeleton', foreground=True)
+    job = claim(kernel, mid)
+    write(Path(job['work_dir']) / 'draft.json', {'nodes': [], 'claims': [], 'node_refs': [],
+        'coverage': {}, 'dependencies': [], 'critical': [], 'ready_nodes': []})
+    write(Path(job['work_dir']) / 'review.json', {'checked': [], 'missing': []})
+    observed(job, read_pages=[1], review_pages=[])
+    error = kernel.err('module.read.finish', {'module_id': mid, 'job_id': job['job_id'],
+        'lease': job['lease'], 'outcome': 'completed',
+        'draft_path': str(Path(job['work_dir']) / 'draft.json'),
+        'review_path': str(Path(job['work_dir']) / 'review.json')})
+    assert error['code'] == 'invalid_params' and error['details']['path'] == '/nodes'
+    store = ModuleStore(kernel.workspace)
+    assert store.read_graph(mid) is None
+    assert store.module(mid)['generation'] == 0 and store.module(mid)['reading']['materials'] == []
+
+
+def test_unrelated_detail_cannot_unlock_an_unprepared_skeleton_opening(kernel, tmp_path):
+    mid, _ = bind(kernel, tmp_path)
+    request(kernel, mid, 'skeleton', foreground=True)
+    job = claim(kernel, mid)
+    refs = [{'page': 1}]
+    draft = {'nodes': [{'node_id': 'scene-dock', 'node_kind': 'scene', 'name': 'Dock',
+        'properties': {'is_entrance': True}, 'source_refs': refs}],
+        'claims': [], 'node_refs': [], 'coverage': {}, 'dependencies': [],
+        'critical': ['/nodes/0'], 'ready_nodes': []}
+    write(Path(job['work_dir']) / 'draft.json', draft)
+    write(Path(job['work_dir']) / 'review.json', {'checked': [{'path': '/nodes/0',
+        'verdict': 'supported', 'source_refs': refs}], 'missing': []})
+    observed(job, read_pages=[1], review_pages=[1])
+    assert not finish(kernel, job)['opening_ready']
+
+    request(kernel, mid, 'detail', focus='Lena', question='Who is this historian?')
+    job = claim(kernel, mid)
+    delta = {**draft, 'nodes': [{'node_id': 'npc-lena', 'node_kind': 'npc', 'name': 'Lena',
+        'properties': {'biography': 'A historian from the town.'}, 'source_refs': refs}],
+        'ready_nodes': ['npc-lena']}
+    write(Path(job['work_dir']) / 'draft.json', delta)
+    write(Path(job['work_dir']) / 'review.json', {'checked': [{'path': '/nodes/0',
+        'verdict': 'supported', 'source_refs': refs}], 'missing': []})
+    observed(job, read_pages=[1], review_pages=[1])
+    assert not finish(kernel, job)['opening_ready']
+    status = kernel.ok('module.status', {'module_id': mid})
+    assert not status['opening_ready']
+    assert request(kernel, mid, 'opening', foreground=True)['state'] == 'queued'
+
+    job = claim(kernel, mid)
+    draft['ready_nodes'] = ['scene-dock']
+    draft['nodes'][0]['summary'] = 'The harbor keeper welcomes the investigators at the dock.'
+    write(Path(job['work_dir']) / 'draft.json', draft)
+    write(Path(job['work_dir']) / 'review.json', {'checked': [{'path': '/nodes/0',
+        'verdict': 'supported', 'source_refs': refs}], 'missing': []})
+    observed(job, read_pages=[1], review_pages=[1])
+    assert finish(kernel, job)['opening_ready']
+
+
+@pytest.mark.parametrize('field,initial,addition', [
+    ('knowledge', 'She knows the harbor keeper.', ['She knows the harbor keeper.', 'She knows the tower route.']),
+    ('beliefs', ['She believes the harbor is safe.'], 'She believes the tower is abandoned.'),
+    ('lies', ['She says she has never visited the tower.'], ['She says she owns no boat.']),
+])
+def test_later_npc_reading_adds_textual_dossier_facts_without_replacing_old_ones(
+        kernel, tmp_path, field, initial, addition):
+    mid, _ = bind(kernel, tmp_path)
+    job, draft, _ = opening(kernel, mid)
+    draft['nodes'][2]['properties'][field] = initial
+    draft['nodes'][2]['properties']['agenda'] = 'Recover the ledger.'
+    write(Path(job['work_dir']) / 'draft.json', draft)
+    finish(kernel, job)
+
+    request(kernel, mid, 'detail', focus='Lena', question=f'What else belongs in her {field}?')
+    job = claim(kernel, mid)
+    refs = [{'page': 2}]
+    delta = {'nodes': [{'node_id': 'npc-lena', 'node_kind': 'npc', 'name': 'Lena',
+        'properties': {field: addition}, 'source_refs': refs}], 'claims': [], 'node_refs': [],
+        'coverage': {}, 'dependencies': [], 'critical': [], 'ready_nodes': ['npc-lena']}
+    write(Path(job['work_dir']) / 'draft.json', delta)
+    write(Path(job['work_dir']) / 'review.json', {'checked': [{'path': '/nodes/0',
+        'verdict': 'supported', 'source_refs': refs}], 'missing': []})
+    observed(job, read_pages=[2], review_pages=[2])
+    finish(kernel, job)
+    node = next(n for n in ModuleStore(kernel.workspace).read_graph(mid)['nodes'] if n['node_id'] == 'npc-lena')
+    before = [initial] if isinstance(initial, str) else initial
+    added = [addition] if isinstance(addition, str) else addition
+    assert node['properties'][field] == list(dict.fromkeys(before + added))
+    assert node['properties']['agenda'] == 'Recover the ledger.'
+    assert node['properties']['mechanics']['profile']['characteristics']['STR'] == 50
+
+    request(kernel, mid, 'detail', focus='Lena', question='Does she now want to destroy the ledger?')
+    job = claim(kernel, mid)
+    delta['nodes'][0]['properties'] = {'agenda': 'Destroy the ledger.'}
+    write(Path(job['work_dir']) / 'draft.json', delta)
+    write(Path(job['work_dir']) / 'review.json', {'checked': [{'path': '/nodes/0',
+        'verdict': 'supported', 'source_refs': refs}], 'missing': []})
+    observed(job, read_pages=[2], review_pages=[2])
+    error = kernel.err('module.read.finish', {'module_id': mid, 'job_id': job['job_id'],
+        'lease': job['lease'], 'outcome': 'completed',
+        'draft_path': str(Path(job['work_dir']) / 'draft.json'),
+        'review_path': str(Path(job['work_dir']) / 'review.json')})
+    assert error['code'] == 'needs_choice' and error['details']['path'].endswith('/properties/agenda')
+    assert kernel.ok('module.status', {'module_id': mid})['generation'] == 2

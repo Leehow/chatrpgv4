@@ -135,7 +135,7 @@ class ResolvePipeline:
             raise invalid_params("action.luck must be a positive integer")
         if action.get("push") and luck is not None:
             raise invalid_params("push or spend Luck, but not both", fix="send either push: true or luck: <points>")
-        for key in ("spell", "weapon", "target", "decision", "actor", "ending", "interrupted", "outcome", "san_loss",
+        for key in ("spell", "weapon", "target", "decision", "actor", "ending", "interrupted", "outcome", "san_loss", "scenario_san_reward_expr",
                     "trigger"):
             value = action.get(key)
             if value is not None and key != "interrupted" and (not isinstance(value, str) or not value.strip()):
@@ -391,28 +391,7 @@ class ResolvePipeline:
             sem["bonus"] = bonus
         if penalty:
             sem["penalty"] = penalty
-        if self.npc_actor:
-            sem["target"] = self._npc_target_value(skill, ctx)
         return sem
-
-    def _npc_target_value(self, skill: str, ctx: SettleContext) -> int:
-        """What this person has for the skill they are using on the party's behalf.
-
-        The book first. Books rarely print a skill list for a minor NPC, so when it says
-        nothing the keeper says instead — and the kernel asks for it rather than inventing
-        one, because a number it invents is a number it would have to invent again, and the
-        second doctor would not be as good as the first. Once pinned with `apply npc`, it is
-        that person's number for the rest of the campaign, and the ledger says who set it."""
-        value = ctx.actor_of_id_skill_value(self.npc_actor, skill)
-        if value is not None:
-            return value
-        node = self.graph.find(self.npc_actor, (NPC_KIND,))
-        who = self.graph.display_name(node) if node else self.npc_actor
-        raise RpcError("needs", f"the book gives {who} no {skill}",
-                       fix=f"pin it once with apply npc {{name: \"{who}\", skill: {{name: \"{skill}\", "
-                           "value: <0-100>}}, why: ...}} — it is theirs from then on",
-                       details={"needs": {"field": "npc.skill", "options": []},
-                                "actor": self.npc_actor, "skill": skill})
 
     def _stakes(self) -> dict[str, str]:
         goal = self.goal or self.method or self.intent
@@ -592,6 +571,8 @@ class ResolvePipeline:
             if self.goal:
                 sem["summary"] = self.goal
             sem["kind"] = str(action.get("ending") or "conclusion")
+            if action.get("scenario_san_reward_expr") is not None:
+                sem["scenario_san_reward_expr"] = action["scenario_san_reward_expr"]
             extras["_host_family_binding"] = development_binding(ctx, ref)
             return sem, extras
         if ref == SETTLE_ENDING_REF:
@@ -953,7 +934,7 @@ class ResolvePipeline:
             subject = target_investigator
         ctx = SettleContext(self.engine, self.campaign, self.graph, self.world, self.turn, self.call_id, self.ordinal,
                             self.rng, actor, subject, self.action)
-        adapter = Coc7RuleGraphAdapter(ctx)
+        adapter = Coc7RuleGraphAdapter(ctx, acting_id=self.acting_id(ctx))
         # A defense answers an attack and an NPC acts in the fight: both are combat, whatever
         # the keeper wrote as intent.
         effective_intent = "combat" if (self.action.get("defense") is not None or self.npc_in_session) else self.intent
@@ -1352,7 +1333,9 @@ class ResolvePipeline:
                         {"skill": r.get("skill"), "before": r.get("current_value_before_apply"), "after": r.get("value_after")}
                         for r in (receipt or {}).get("skills_improved") or []],
                     "luck_recovery": (receipt or {}).get("luck_recovery"), "san_before": (receipt or {}).get("san_before"),
-                    "san_after": (receipt or {}).get("san_after")}
+                    "san_after": (receipt or {}).get("san_after"),
+                    "scenario_san_reward_roll": (receipt or {}).get("scenario_san_reward_roll"),
+                    "scenario_san_reward_planned_delta": (receipt or {}).get("scenario_san_reward_planned_delta")}
         if family == "combat":
             turn = result.get("turn") if isinstance(result.get("turn"), dict) else {}
             pending = result.get("pending_attack") if isinstance(result.get("pending_attack"), dict) else None

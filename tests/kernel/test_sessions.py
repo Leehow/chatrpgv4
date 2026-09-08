@@ -137,6 +137,7 @@ def test_combat_against_corbitt_with_the_revolver(tmp_path):
         assert rolled["choice:" + asked["pending_choice"]["name"] + "-t2"]["option"] == "dodge"
         npc_roll = rolled["roll:pow-walter-corbitt-t2-c1"]
         assert npc_roll["actor"] == CORBITT and npc_roll["actor_label"] == "Walter Corbitt" and npc_roll["visibility"] == "public"
+        assert npc_roll["actor_is_investigator"] is False
         assert npc_roll["round"] == 1 and npc_roll["session_kind"] == "combat"
         assert rolled["roll:dodge-t2-c1"]["actor"] == INVESTIGATOR and rolled["roll:dodge-t2-c1"]["target"] == 30
         assert dodge["session"]["status"] == "active" and dodge["session"]["round"] == 2
@@ -148,7 +149,7 @@ def test_combat_against_corbitt_with_the_revolver(tmp_path):
         assert len([r for r in client.table("status")["receipts"] if r["kind"] == "roll"]) == 2
 
         rolls = [m for m in narrate(client, "t2-c2", "刀锋擦着你的脸过去。")["mechanics"] if m["kind"] == "roll"]
-        assert any(m["actor_label"] == "Walter Corbitt" for m in rolls if "actor_label" in m)
+        assert any(m["actor_is_investigator"] is False and "actor_label" not in m and "actor" not in m for m in rolls)
         assert any(m["skill"] == "Dodge" and m["actor"] == INVESTIGATOR for m in rolls)
         first_turn = read_json(campaign_dir(client.workspace) / "turns" / "0001.json")
         assert first_turn["closed_by"] == "ask"
@@ -490,33 +491,32 @@ def test_mechanics_projection_is_language_neutral_and_the_check_skips_keeper_rol
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "kernel"))
     from coc.render import mechanics
 
-    def roll(skill, round_no, roll_value=40, target=50, actor_label=None, visibility="public"):
+    def roll(skill, round_no, roll_value=40, target=50, actor_label=None, visibility="public", investigator=True):
         receipt = {"id": f"roll:{skill.lower()}-t1-c{round_no}", "kind": "roll", "actor": "x", "skill": skill,
                    "skill_label": skill, "target": target, "difficulty": "regular", "threshold": target,
                    "roll": roll_value, "passed": roll_value <= target, "round": round_no, "session_kind": "combat",
-                   "visibility": visibility}
+                   "visibility": visibility, "actor_is_investigator": investigator}
         if actor_label:
             receipt["actor_label"] = actor_label
         return receipt
 
     receipts = [{"id": "session:combat-start-t1-c1", "kind": "session", "family": "combat", "transition": "start"},
-                roll("Handgun", 1), roll("Dodge", 1, actor_label="Walter Corbitt"),
+                roll("Handgun", 1), roll("Dodge", 1, actor_label="Walter Corbitt", investigator=False),
                 {"id": "delta:hp-t1-c1", "kind": "delta", "resource": "hp", "subject": "walter-corbitt",
-                 "subject_label": "Walter Corbitt", "before": 16, "after": 15},
+                 "subject_label": "Walter Corbitt", "subject_is_investigator": False, "before": 16, "after": 15},
                 roll("Psychology", 2, visibility="keeper"),
                 {"id": "session:sanity_bout-start-t1-c3", "kind": "session", "family": "sanity_bout", "transition": "start",
                  "outcome": "Faint", "rounds": 3, "summary": "Faint (3 rounds)"},
                 {"id": "session:chase-end-t1-c4", "kind": "session", "family": "chase", "transition": "end", "outcome": "escaped"}]
     assert mechanics(receipts) == [
         {"kind": "session", "receipt": "session:combat-start-t1-c1", "family": "combat", "transition": "start"},
-        {"kind": "roll", "receipt": "roll:handgun-t1-c1", "actor": "x", "skill": "Handgun", "roll": 40, "target": 50,
+        {"kind": "roll", "receipt": "roll:handgun-t1-c1", "actor": "x", "actor_is_investigator": True, "skill": "Handgun", "roll": 40, "target": 50,
          "threshold": 50, "difficulty": "regular", "level": None, "passed": True, "pushed": False, "visibility": "public"},
-        {"kind": "roll", "receipt": "roll:dodge-t1-c1", "actor": "x", "skill": "Dodge", "roll": 40, "target": 50,
-         "threshold": 50, "difficulty": "regular", "level": None, "passed": True, "pushed": False, "visibility": "public",
-         "actor_label": "Walter Corbitt"},
-        {"kind": "change", "receipt": "delta:hp-t1-c1", "resource": "hp", "subject": "walter-corbitt", "before": 16,
-         "after": 15, "subject_label": "Walter Corbitt"},
-        {"kind": "roll", "receipt": "roll:psychology-t1-c2", "actor": "x", "skill": "Psychology", "roll": 40, "target": 50,
+        {"kind": "roll", "receipt": "roll:dodge-t1-c1", "actor_is_investigator": False, "skill": "Dodge", "roll": 40, "target": 50,
+         "threshold": 50, "difficulty": "regular", "level": None, "passed": True, "pushed": False, "visibility": "public"},
+        {"kind": "change", "receipt": "delta:hp-t1-c1", "resource": "hp", "subject_is_investigator": False, "before": 16,
+         "after": 15},
+        {"kind": "roll", "receipt": "roll:psychology-t1-c2", "actor": "x", "actor_is_investigator": True, "skill": "Psychology", "roll": 40, "target": 50,
          "threshold": 50, "difficulty": "regular", "level": None, "passed": True, "pushed": False, "visibility": "keeper"},
         {"kind": "session", "receipt": "session:sanity_bout-start-t1-c3", "family": "sanity_bout", "transition": "start",
          "rounds": 3, "outcome": "Faint"},

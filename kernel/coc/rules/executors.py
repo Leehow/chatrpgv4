@@ -45,7 +45,9 @@ def run(ctx: Any, capability: str | None, args: dict[str, Any], plan: Mapping[st
 def _resolve_target(ctx: Any, args: dict[str, Any]) -> tuple[str, int, str, str]:
     """(label, target, target_source, kind) for a check. Host-locked `target` wins; a
     skill missing from the sheet falls back to the rulebook base (slice-0 rule)."""
-    sheet = ctx.actor
+    actor_id = str(args.get("investigator") or ctx.actor_id)
+    sheet = ctx.sheet_by_id(actor_id) or {}
+    npc = ctx.npc_node(actor_id)
     characteristic = args.get("characteristic")
     skill = args.get("skill")
     if characteristic:
@@ -54,13 +56,13 @@ def _resolve_target(ctx: Any, args: dict[str, Any]) -> tuple[str, int, str, str]
             raise RpcError("needs", f"unknown characteristic {characteristic!r}",
                            details={"needs": {"field": "skill", "options": list(CHARACTERISTICS)}})
         if args.get("target") is not None:
-            return label, int(args["target"]), "explicit", "characteristic_check"
+            return label, int(args["target"]), "npc" if npc else "explicit", "characteristic_check"
         return label, SkillResolver(ctx.tables, sheet).characteristic_value(label), "sheet", "characteristic_check"
     label = str(skill or "").strip()
     if not label:
         raise RpcError("needs", "the check names no skill", details={"needs": {"field": "skill", "options": []}})
     if args.get("target") is not None:
-        source = "sheet" if label in (sheet.get("skills") or {}) else "rulebook_base"
+        source = "npc" if npc else "sheet" if label in (sheet.get("skills") or {}) else "rulebook_base"
         return label, int(args["target"]), source, "skill_check"
     resolver = SkillResolver(ctx.tables, sheet)
     canonical = resolver.resolve_explicit(label) or label
@@ -77,6 +79,7 @@ def _resolve_target(ctx: Any, args: dict[str, Any]) -> tuple[str, int, str, str]
 
 @register("check")
 def execute_check(ctx: Any, args: dict[str, Any], plan: Mapping[str, Any]) -> tuple[Any, list[str], list[str]]:
+    actor_id = str(args.get("investigator") or ctx.actor_id)
     difficulty = str(args.get("difficulty") or "regular")
     bonus = int(args.get("bonus") or 0)
     penalty = int(args.get("penalty") or 0)
@@ -90,7 +93,7 @@ def execute_check(ctx: Any, args: dict[str, Any], plan: Mapping[str, Any]) -> tu
         label, target, target_source, kind = _resolve_target(ctx, args)
     check = ctx.resolver.check(target, difficulty, bonus, penalty, rng=ctx.rng)
     data: dict[str, Any] = {
-        **check, "investigator_id": ctx.actor_id, "skill": label, "target_source": target_source, "pushed": pushed,
+        **check, "investigator_id": actor_id, "skill": label, "target_source": target_source, "pushed": pushed,
         "goal": str(args.get("goal") or ""), "stakes": args.get("stakes") or {},
         "difficulty_basis": str(args.get("difficulty_basis") or "keeper"), "kind": kind,
         "decision": plan.get("decision_ref"),
@@ -119,7 +122,7 @@ def execute_check(ctx: Any, args: dict[str, Any], plan: Mapping[str, Any]) -> tu
                      "original_check": {"decision_id": args.get("original_check_decision_id"),
                                         "roll_id": args.get("original_check_decision_id")}})
     receipt_id = ctx.add_roll(
-        actor=ctx.actor_id, skill=label, target=data["target"], difficulty=difficulty, threshold=data["threshold"],
+        actor=actor_id, skill=label, target=data["target"], difficulty=difficulty, threshold=data["threshold"],
         roll=data["roll"], level=data["level"], passed=data["passed"], bonus=data["bonus"], penalty=data["penalty"],
         visibility=str(args.get("visibility") or "public"), pushed=pushed, kind=kind,
         source_receipt=args.get("original_check_decision_id") if pushed else None,
@@ -574,24 +577,46 @@ def execute_end_session(ctx: Any, args: dict[str, Any], plan: Mapping[str, Any])
                                 message=f"unknown session ending kind {kind!r}")
     sheets = {str(s["id"]): s for s in ctx.party()}
     record = {"event_type": "session_ending", "scene_id": ctx.active_scene, "kind": kind, "decision_id": ctx.call_id,
-              "investigator_ids": sorted(sheets), "summary": args.get("summary") or None}
+              "investigator_ids": sorted(sheets), "summary": args.get("summary") or None,
+              "scenario_san_reward_expr": args.get("scenario_san_reward_expr")}
+    capsule = None
+    if ctx.campaign.read_campaign().get("status") == "completed":
+        ending_turn = (ctx.world.get("ending") or {}).get("turn")
+        if type(ending_turn) is not int:
+            raise RpcError("campaign_not_ready", "the completed campaign has no original ending turn to bind accounting")
+        capsule = development.capsule_for_campaign_ending(ctx.campaign_dir, ending_turn)
+        record.update(ending_id=f"ending-campaign-turn-{ending_turn}", campaign_ending_turn=ending_turn)
+        if capsule is None and development.pending_settlements(ctx.campaign_dir):
+            raise RpcError("needs", "an earlier development settlement is still pending",
+                           fix="resolve development:settle-ending before creating final accounting")
     ending_id = development.ending_id_for_event(record)
-    capsule = development.load_ending_capsule(ctx.campaign_dir, ending_id)
+    capsule = capsule or development.load_ending_capsule(ctx.campaign_dir, ending_id)
+    if (capsule is not None and args.get("scenario_san_reward_expr") is not None
+        and args["scenario_san_reward_expr"] != capsule.get("scenario_san_reward_expr")):
+        raise RpcError("idempotency_conflict", "this ending's source reward expression is already frozen",
+                       fix="reuse the original accounting without replacing its reward expression")
     if capsule is None:
-        capsule = development.build_ending_capsule(ctx.tables, ctx.campaign_dir, record, sheets,
-                                                   luck_recovery_gate=ctx.luck_recovery_gate(), captured_at=now_iso())
+        try:
+            capsule = development.build_ending_capsule(ctx.tables, ctx.campaign_dir, record, sheets,
+                                                       luck_recovery_gate=ctx.luck_recovery_gate(), captured_at=now_iso())
+        except ValueError as exc:
+            raise RpcError("invalid_params", str(exc),
+                           fix="use the exact source-authored reward expression supported by the existing dice engine") from exc
         development.persist_ending_capsule(ctx.campaign_dir, capsule)
+    ending_id = capsule["ending_id"]
     settlements = []
     for investigator_id in capsule["investigator_ids"]:
         sheet = sheets[investigator_id]
         before = {"current_luck": sheet.get("current_luck"), "current_san": sheet.get("current_san")}
         receipt = development.run_development_phase(ctx.tables, ctx.campaign_dir, investigator_id, sheet, capsule)
         ctx.write_sheet(sheet)
-        _apply_settlement_effects(ctx, investigator_id, before, sheet, receipt)
+        if not receipt.get("replayed"):
+            _apply_settlement_effects(ctx, investigator_id, before, sheet, receipt)
         settlements.append({"investigator_id": investigator_id, "status": "PASS", "receipt": receipt})
-    data = {"session_ending": True, "scene_id": ctx.active_scene, "kind": kind, "summary": record["summary"],
+    data = {"session_ending": True, "scene_id": capsule["scene_id"], "kind": capsule["kind"], "summary": capsule["summary"],
             "investigator_ids": capsule["investigator_ids"], "ending_id": ending_id,
-            "development": {"status": "PASS", "ending_id": ending_id, "settlements": settlements}, "outcome": "settled"}
+            "development": {"status": "PASS", "ending_id": ending_id, "settlements": settlements},
+            "outcome": "replayed" if all(row["receipt"].get("replayed") for row in settlements) else "settled"}
     return data, [], ["the session ending is durable; development has been settled for every investigator"]
 
 
