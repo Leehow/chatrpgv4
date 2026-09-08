@@ -32,16 +32,17 @@
 
 const STYLE_ID = "pipicoc-mechanics-style";
 const CSS = `
-.coc-mech{--coc-serif:ui-serif,"Songti SC","Noto Serif CJK SC","SimSun",Georgia,serif;
-  --coc-prose:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB",sans-serif}
+.coc-mech{--coc-serif:ui-serif,"Songti SC","Noto Serif CJK SC","SimSun",Georgia,serif}
 
-/* The narration is the keeper's own prose arriving through a card, so it is set exactly like the
-   assistant paragraph directly above it: the host's face, size and rhythm (the --md-* tokens the
-   shell defines), and the host's column for its measure. A second face at a second size inside one
-   turn reads as a broken card, not as a voice — and a 64ch measure inside a 780px column left the
-   narration ending half a column short. Everything below the prose is machinery and keeps the
-   interface face. */
-.coc-mech-prose,.coc-mech-para{font-family:var(--coc-prose);font-size:var(--md-fs,15.5px);
+/* This is not a card's text, it is the turn's prose: the host folds its own plain copy away and
+   this component draws the delivery, because only whoever holds both the text and the rows can put
+   a receipt at a sentence (§16.6). So it reads the host's prose tokens rather than setting a face
+   of its own — one definition, or the two drift, which is how it came to sit at 14.5px serif on a
+   64ch measure under a 15.5px sans column and end half a column short. Everything below the prose
+   is machinery and keeps the interface face. */
+.coc-mech-prose,.coc-mech-para{
+  font-family:var(--md-font,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB",sans-serif);
+  font-size:var(--md-fs,15.5px);
   line-height:var(--md-lh,1.78);color:var(--text);
   overflow-wrap:break-word;line-break:strict;text-wrap:pretty;text-spacing-trim:trim-start}
 .coc-mech-prose{white-space:pre-wrap}

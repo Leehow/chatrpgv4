@@ -1230,8 +1230,11 @@ describe('PipiUI main layout', () => {
     for (const selector of ['.markdown h2', '.markdown ul, .markdown ol', '.markdown li', '.markdown blockquote', '.markdown table', '.markdown hr']) {
       expect(css).toContain(selector)
     }
-    // One shared block rhythm, driven by a single knob.
-    expect(css).toMatch(/\.pipiui-shell \{ --md-fs:[^;]+; --md-lh:[^;]+; --md-block:[^;]+; \}/)
+    // One shared block rhythm, driven by a single knob — face included: a tool renderer that
+    // draws the turn's prose (contract §16.6) reads these same tokens, so a face left inline
+    // here would be a second definition of the body text, which is how it drifted before.
+    expect(css).toMatch(/\.pipiui-shell \{ --md-fs:[^;]+; --md-lh:[^;]+; --md-block:[^;]+; --md-font:[^;]+; \}/)
+    expect(css).toMatch(/\.markdown \{[^}]*font-family: var\(--md-font\);/)
     expect(css).toMatch(/\.markdown > \* \{ margin: 0 0 var\(--md-block\); \}/)
     // `anywhere` belongs on inline code only — on the whole body it shreds mixed CJK/Latin wrapping.
     expect(css).toMatch(/\.markdown \{[^}]*overflow-wrap: break-word;[^}]*line-break: strict;/)
