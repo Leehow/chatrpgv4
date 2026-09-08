@@ -405,7 +405,10 @@ def test_spell_by_name_success_and_missing_key(tables, catalog):
     -- the accessor moved from `coc_rules.py` into `magic.py` and now needs a `Catalog`."""
     row = spell_by_name(tables, catalog, "Flesh Ward")
     assert row["cost_sanity"] == "1D4"
-    assert row["source_page"] == 253
+    # #83: was 253, which is where nothing named Flesh Ward is printed. The entry's
+    # heading and Cost block are on p.259; the old number came from an extraction
+    # whose page counter drifted once the Gate sidebar interrupted the alphabet.
+    assert row["source_page"] == 259
 
     row2 = spell_by_name(tables, catalog, "Dominate")
     assert row2["cost_mp"] == "1"

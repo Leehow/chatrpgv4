@@ -1,5 +1,5 @@
 {
-  "source_note": "Keeper Rulebook Chapter 9: Magic (pp.176-179 mechanics) + Chapter 12: Grimoire (pp.242-265 spell descriptions). First casting uses Hard POW; book/person learning uses Hard INT, entity teaching uses INT; failed pushed casting still works with multiplied costs and source consequences.",
+  "source_note": "Keeper Rulebook Chapter 9: Magic (pp.176-179 mechanics) + Chapter 12: Grimoire. The Grimoire's prose runs pp.242-265, but its spell entries start at \"The Grimoire\" on p.246 and end on p.265; pp.242-245 are the chapter's advice on altering spells (the Create Zombie variants Grey Binding, Graveyard Kiss and Create Zombi printed there are worked examples, not Grimoire entries) and are not extracted. `source_page` is the printed page carrying an entry's heading and Cost block; `casting_conditions` and `effect_timing` carry their own printed page, because an entry that continues across a page break has clauses on a later one. Umbrella entries (Call Deity, Contact Spells, Contact Deity Spells, Summon/Bind Spells, Separate Binding) print one Cost block and vary by parameter; their per-variant requirements are the `applies_to` conditions. First casting uses Hard POW; book/person learning uses Hard INT, entity teaching uses INT; failed pushed casting still works with multiplied costs and source consequences.",
   "casting": {
     "first_cast_roll": "Hard POW",
     "pushable": true,
@@ -106,52 +106,141 @@
       "cost_mp": "10",
       "cost_pow": "5",
       "cost_sanity": "2D10",
-      "description": "Transfer life essence into a vital organ for safekeeping, granting invulnerability.",
+      "casting_time": "1 day per organ",
+      "casting_conditions": [
+        {
+          "text": "The brain is the seat of the spell's power and cannot be removed; if the brain is destroyed the other organs lose their magical properties and the caster dies.",
+          "source_page": 246
+        }
+      ],
+      "description": "Transfers a portion of the caster's life essence into a vital organ, which is then removed and hidden; while it stays hidden the caster cannot be killed except through the brain.",
       "source_page": 246
     },
     {
       "name": "Banishment of Yde Etad",
-      "alternative_names": [],
+      "alternative_names": [
+        "Banish Spawn of the Seven Hells",
+        "Cast Out Demon",
+        "Curse of Awful Fire"
+      ],
       "cost_mp": "1D4+3",
       "cost_sanity": "1D4",
-      "description": "Sends trans-dimensional human-like intelligences home.",
-      "source_page": 247
+      "casting_time": "variable (minimum 1 hour)",
+      "casting_conditions": [
+        {
+          "text": "At least three people must participate and all participants must know the spell; the total number of participants must be divisible by three.",
+          "source_page": 246
+        },
+        {
+          "text": "The spell must be performed in the open air in the middle of the night, ideally in a place of power associated with the target.",
+          "source_page": 246
+        },
+        {
+          "text": "The spell works by destroying with ritual flames a sigil representing the target; the target's personal sigil is best, but a substitute can be prepared to a formula in the spell.",
+          "source_page": 246
+        },
+        {
+          "text": "The spell casters must divide their numbers: one-third remain outside a protective circle and the rest stand within.",
+          "source_page": 246
+        }
+      ],
+      "description": "Sends home, permanently and irrevocably, a single trans-dimensional human or human-like intelligence acting under its own volition; useless against a creature another intelligence commands.",
+      "source_page": 246
     },
     {
       "name": "Bless Blade",
-      "alternative_names": [],
+      "alternative_names": [
+        "Imbue Might of the Elder Ones",
+        "Ritual of the Seven Cuts",
+        "Spirit's Bane"
+      ],
       "cost_mp": "0",
       "cost_pow": "5",
       "cost_sanity": "1D4",
-      "description": "Enchants a blade to deal magical damage.",
-      "source_page": 247
+      "casting_time": "1 hour",
+      "casting_conditions": [
+        {
+          "text": "Requires the blood sacrifice of an animal of at least SIZ 50.",
+          "source_page": 246
+        },
+        {
+          "text": "The blade must be of an elemental metal such as iron or silver.",
+          "source_page": 246
+        }
+      ],
+      "description": "Creates a blade able to damage or kill entities that mundane weapons cannot harm; the ability is lost permanently if the blade is broken, melted, or otherwise damaged.",
+      "source_page": 246
     },
     {
       "name": "Body Warping of Gorgoroth",
-      "alternative_names": [],
+      "alternative_names": [
+        "Mastery of the Flesh",
+        "Skin Walking",
+        "The Black Pharaoh's Touch"
+      ],
       "cost_mp": "6+",
       "cost_pow": "5",
       "cost_sanity": "2D6",
-      "description": "Reshapes the body of a victim into a grotesque form.",
-      "source_page": 247,
-      "pow_cost": "5"
+      "casting_time": "1D6+4 minutes",
+      "casting_conditions": [
+        {
+          "text": "The caster invokes Nyarlathotep and repeats the phrases of the spell, expending an additional magic point for each 5 points of SIZ to be gained or lost.",
+          "source_page": 247
+        },
+        {
+          "text": "The caster can take on only a known form.",
+          "source_page": 247
+        },
+        {
+          "text": "This spell cannot be cast on another being.",
+          "source_page": 247
+        }
+      ],
+      "description": "Lets the caster change his or her own physical form and appearance, keeping STR, CON, INT, POW and DEX; the change is permanent until the spell is recast to change back.",
+      "source_page": 246
     },
     {
       "name": "Breath of the Deep",
-      "alternative_names": [],
+      "alternative_names": [
+        "Currency of the Blue Sea",
+        "The Sailor's Curse",
+        "Kiss of Brine"
+      ],
       "cost_mp": "8",
       "cost_sanity": "1D6",
-      "description": "Causes the victim to grow gills and breathe water.",
+      "casting_time": "1 round",
+      "casting_conditions": [
+        {
+          "text": "The caster must be able to see the target, and must win an opposed POW roll after mentally intoning the spell for a round.",
+          "source_page": 247
+        }
+      ],
+      "description": "Fills the target's lungs with seawater; the target falls choking and takes 1D8 damage a round until an Extreme CON roll expels the water.",
       "source_page": 247
     },
     {
-      "name": "Brew Space Mead",
+      "name": "Brew Space-Mead",
       "alternative_names": [
-        "Brew Golden Mead"
+        "Brew Space Mead",
+        "Brew Golden Mead",
+        "Breath of the Void",
+        "The Traveler's Portion",
+        "The Quicksilver Draft of Blackest Night"
       ],
       "cost_mp": "20",
       "cost_sanity": "variable",
-      "description": "Creates space-mead for interstellar travel.",
+      "casting_time": "Many days",
+      "casting_conditions": [
+        {
+          "text": "Brewing requires five special ingredients chosen by the Keeper and at least a week of brewing time; the caster sacrifices 20 magic points per dose into the foaming brew.",
+          "source_page": 247
+        },
+        {
+          "text": "The traveler must find a means of transportation—usually a mount, such as one provided by Summon Byakhee—and drinks a dose before the journey begins.",
+          "source_page": 248
+        }
+      ],
+      "description": "Brews a magical drink that lets a human survive a journey through space; the traveler spends equal magic and Sanity points for the distance in light years (Table XII).",
       "source_page": 247
     },
     {
@@ -159,69 +248,276 @@
       "alternative_names": [],
       "cost_mp": "1+ per person",
       "cost_sanity": "1D10",
-      "description": "Calls a Great Old One or Outer God.",
-      "source_page": 248,
-      "pow_cost": "variable"
+      "casting_time": "1-100 minutes",
+      "casting_conditions": [
+        {
+          "text": "Each deity requires certain conditions to be in place for the Call spell to work; keepers should use these as inspiration but need not be constrained by them.",
+          "source_page": 248
+        },
+        {
+          "text": "Everyone present expends 1 magic point; those who know the spell may sacrifice any number. The group must chant for a minute per magic point spent, but never more than 100 minutes.",
+          "source_page": 248
+        },
+        {
+          "applies_to": "Call Azathoth",
+          "text": "The spell can be cast only outside at night; no other special preparations are needed.",
+          "source_page": 248
+        },
+        {
+          "applies_to": "Call Cthugha",
+          "text": "The spell can be successfully cast only on clear nights when Fomalhaut (the brightest star in the Piscis Austrinus constellation) clears the horizon. September to November are the best nights for Fomalhaut in the Northern Hemisphere.",
+          "source_page": 248
+        },
+        {
+          "applies_to": "Call Hastur",
+          "text": "Calls the deity to nine large blocks of stone arranged in a V-pattern, each of nine or more cubic yards. The spell can be cast only on clear nights when Aldebaran (in the constellation of Taurus) is above the horizon (roughly October to March).",
+          "source_page": 248
+        },
+        {
+          "applies_to": "Call Ithaqua",
+          "text": "The spell must be cast on an enormous mound of snow (minimum 10 feet high). Legend states that the spell may only be performed in the far north of the world, when temperatures are below freezing.",
+          "source_page": 248
+        },
+        {
+          "applies_to": "Call Nyogtha",
+          "text": "The caster must perform the spell ritual at the entrance to any cavern.",
+          "source_page": 248
+        },
+        {
+          "applies_to": "Call Shub-Niggurath",
+          "text": "Calls Shub-Niggurath to a consecrated stone altar positioned in dank wilderness under the sky. The spell must be cast from the altar at the dark of the moon, and each Call requires fresh blood to consecrate the altar.",
+          "source_page": 248
+        },
+        {
+          "applies_to": "Call Yog-Sothoth",
+          "text": "Calls Yog-Sothoth to a specially constructed stone tower at least ten yards high. The tower must be in an open area and the sky must be cloudless. Each casting the cultists must designate a human sacrifice for the god's taking.",
+          "source_page": 249
+        }
+      ],
+      "description": "Brings the avatar, god, or Great Old One physically before the caster; the total magic points spent is the percentage chance the spell works, and everyone present loses Sanity if it arrives.",
+      "source_page": 248
     },
     {
       "name": "Dismiss Deity",
       "alternative_names": [],
       "cost_mp": "1+ per person",
-      "cost_sanity": "variable",
-      "description": "Dismisses a called deity.",
-      "source_page": 249,
-      "pow_cost": "variable"
+      "cost_sanity": "0",
+      "casting_time": "1 minute plus 1 extra round per participant who donates magic points",
+      "casting_conditions": [
+        {
+          "text": "The caster must know the specific Dismiss spell for the particular deity; every Dismiss spell differs.",
+          "source_page": 249
+        },
+        {
+          "text": "Call Deity spells always require special conditions and rituals; however, the Dismiss portion of the spell can be cast anytime, anywhere.",
+          "source_page": 249
+        },
+        {
+          "text": "First allot 1 magic point per 25 POW (round down) possessed by the deity to open the way; each further magic point sacrificed adds 5 percentiles to the chance the deity leaves.",
+          "source_page": 249
+        }
+      ],
+      "description": "Tempts a deity that does not want to leave Earth into departing. Costs no Sanity points.",
+      "source_page": 249
     },
     {
       "name": "Cause/Cure Blindness",
-      "alternative_names": [],
+      "alternative_names": [
+        "Grant Sight",
+        "Shade of Darkness",
+        "The Pharaoh's Curse"
+      ],
       "cost_mp": "8",
       "cost_sanity": "2D6",
-      "description": "Causes or cures blindness in the target.",
+      "casting_time": "1 day",
+      "casting_conditions": [
+        {
+          "text": "A day of ritual is required, and the caster must succeed in an opposed POW roll with the target (automatic success if the target is consenting).",
+          "source_page": 249
+        },
+        {
+          "text": "The spell can reverse blindness only if the eyes and optic nerves are essentially intact.",
+          "source_page": 249
+        }
+      ],
+      "description": "Strikes the target with complete and permanent blindness, as if by a stroke; the same spell reverses blindness. The 2D6 Sanity cost applies only to Cause Blindness.",
       "source_page": 249
     },
     {
       "name": "Chant of Thoth",
-      "alternative_names": [],
+      "alternative_names": [
+        "The Rite of Cerebral Acuity",
+        "The Song of Erudite Addition",
+        "The Scholars Chorus"
+      ],
       "cost_mp": "10",
       "cost_sanity": "1D4",
-      "description": "Allows the caster to read any text.",
+      "casting_time": "30 minutes",
+      "description": "Grants the caster a bonus die on one roll to gain knowledge, learn a spell, translate a passage, deduce the meaning of a symbol, and the like.",
       "source_page": 249
     },
     {
       "name": "Cloud Memory",
-      "alternative_names": [],
+      "alternative_names": [
+        "Befuddle",
+        "Dumbfound",
+        "Mystify"
+      ],
       "cost_mp": "1D6",
       "cost_sanity": "1D2",
-      "description": "Erases a specific memory from the target.",
-      "source_page": 249
+      "casting_time": "Instantaneous",
+      "casting_conditions": [
+        {
+          "text": "The caster must be able to see the target and the target must be able to receive the caster's instructions.",
+          "source_page": 250
+        },
+        {
+          "text": "The caster must know and cite the specific event to be blocked; a vague command such as \"Forget what you did yesterday\" will not work.",
+          "source_page": 250
+        },
+        {
+          "text": "The spell cannot block knowledge of spells or of the Cthulhu Mythos unless that knowledge is firmly tied to a specific event, nor undo a Sanity loss or insanity.",
+          "source_page": 250
+        }
+      ],
+      "description": "Blocks the target's conscious memory of one specified incident on a won opposed POW roll; on a failure the event instead becomes vivid in the target's mind.",
+      "source_page": 250
     },
     {
       "name": "Clutch of Nyogtha",
-      "alternative_names": [],
+      "alternative_names": [
+        "The Vile Wrench",
+        "The Insidious Wrath of the Dark Wizard",
+        "Ye Loathsome Tickle"
+      ],
       "cost_mp": "1+",
       "cost_sanity": "1D20",
-      "description": "Conjures a tentacle to crush the target.",
-      "source_page": 249
+      "casting_time": "Instantaneous",
+      "casting_conditions": [
+        {
+          "text": "The target must be within conversational distance, and the caster must win an opposed POW roll each round or the spell ends.",
+          "source_page": 250
+        },
+        {
+          "text": "The caster must concentrate on the spell each round it is to remain in effect; if the caster is distracted the spell ends.",
+          "source_page": 250
+        }
+      ],
+      "description": "Crushes the target's heart, costing 1D3 hit points a round and paralysing the target; at zero hit points the chest bursts and the smoking heart appears in the caster's hand.",
+      "source_page": 250
     },
     {
       "name": "Consume Likeness",
-      "alternative_names": [],
+      "alternative_names": [
+        "The Snake Skin Cloak",
+        "The Valusian Mantle",
+        "The Gift of Yig"
+      ],
       "cost_mp": "10 per 6 hours",
       "cost_pow": "5",
       "cost_sanity": "1D20",
-      "description": "Steals the appearance of another being.",
-      "source_page": 250,
-      "pow_cost": "5"
+      "casting_time": "several days",
+      "casting_conditions": [
+        {
+          "text": "The victim must be freshly dead and no more than 15 SIZ points different from the caster.",
+          "source_page": 250
+        },
+        {
+          "text": "The caster consumes the victim over the next few days, expending 10 magic points every six hours and permanently sacrificing 5 POW.",
+          "source_page": 250
+        }
+      ],
+      "description": "Lets the caster take on the living likeness of a freshly dead person at will; the caster's own shadow, skills and memories remain, and losing a hit point resumes the original form.",
+      "source_page": 250
     },
     {
       "name": "Contact Spells",
       "alternative_names": [],
       "cost_mp": "variable",
       "cost_sanity": "1D3",
-      "description": "Contact a specific Mythos entity via telepathy.",
-      "source_page": 250,
-      "pow_cost": "variable"
+      "casting_time": "1D6 + 4 rounds",
+      "casting_conditions": [
+        {
+          "text": "Each version of the spell requires certain conditions to be in place for it to work; knowing one Contact spell is of no help in casting another.",
+          "source_page": 250
+        },
+        {
+          "text": "Cast properly the spell always works, unless no such things live within a convenient distance; if the trip is too long, the thing never shows up.",
+          "source_page": 251
+        },
+        {
+          "applies_to": "Contact Chthonian",
+          "text": "The spell must be cast at a location that has known recent earthquakes, or where hot spots and volcanoes offer quick transport from the deep interior of the planet.",
+          "source_page": 251
+        },
+        {
+          "applies_to": "Contact Deep One",
+          "text": "Should be cast at the edge of a saltwater ocean or sea, best near a deep one city; part of the ritual consists of throwing specially inscribed stones into the water.",
+          "source_page": 251
+        },
+        {
+          "applies_to": "Contact Elder Thing",
+          "text": "The most likely locations are along the southern part of the Mid-Atlantic Ridge or over the geological trenches nearest Antarctica.",
+          "source_page": 251
+        },
+        {
+          "applies_to": "Contact Flying Polyp",
+          "text": "Flying polyps occur only in their rare underground cities; the caster should first construct or open a communication shaft for their egress.",
+          "source_page": 251
+        },
+        {
+          "applies_to": "Contact Formless Spawn",
+          "text": "The best place to cast this spell is at a temple of Tsathoggua whose altar statue is still present, or near an opening into the black abyss of N'Kai.",
+          "source_page": 251
+        },
+        {
+          "applies_to": "Contact Ghoul",
+          "text": "Places of burial more than a century old are propitious locations for this spell. Moonlit nights are best.",
+          "source_page": 251
+        },
+        {
+          "applies_to": "Contact Gnoph-Keh",
+          "text": "Gnoph-keh are usually found in Greenland or other frozen wastes near the North Pole. The spell must be augmented with a successful Sing (Art & Craft specialism) roll, and before doing so the caster must build a small effigy of the beast from ice and snow.",
+          "source_page": 251
+        },
+        {
+          "applies_to": "Contact Mi-Go",
+          "text": "The spell must be cast at the base or the top of a high mountain, in a range known to be mined or visited by the mi-go.",
+          "source_page": 251
+        },
+        {
+          "applies_to": "Contact Rat-Thing",
+          "text": "It must be cast at or near a site infested by rat-things.",
+          "source_page": 251
+        },
+        {
+          "applies_to": "Contact Sand-Dweller",
+          "text": "The spell must be cast in a suitable desert, such as the Sahara, the southwestern United States, Saudi Arabia, or central Australia.",
+          "source_page": 252
+        },
+        {
+          "applies_to": "Contact Servitor of the Outer Gods",
+          "text": "A successful Luck roll establishes that a servitor is within the Milky Way galaxy when the spell is cast; if none is within range the magic points are lost. Stars must be visible to the caster.",
+          "source_page": 252
+        },
+        {
+          "applies_to": "Contact Spirits of the Dead",
+          "text": "One version requires a tent of white sheets erected near a river, with jugs full of the stream's water placed inside; songs are sung and dances danced.",
+          "source_page": 252
+        },
+        {
+          "applies_to": "Contact Star-Spawn of Cthulhu",
+          "text": "Should be cast at the ocean shore, perhaps near a deep one outpost or a spot where star-spawn may sleep.",
+          "source_page": 252
+        },
+        {
+          "applies_to": "Contact Yithian",
+          "text": "The spell does not reach forward or backward in time; a Yithian mind must occupy a subject within one hundred miles of the caster at the time of casting.",
+          "source_page": 252
+        }
+      ],
+      "description": "Requests communication with a Mythos creature or race, drawing one or more to the caster of their own volition and not under the caster's control. Costs vary by version.",
+      "source_page": 250
     },
     {
       "name": "Contact Deity Spells",
@@ -229,77 +525,225 @@
       "cost_mp": "variable",
       "cost_pow": "5",
       "cost_sanity": "1D6",
-      "description": "Contact a specific deity telepathically.",
-      "source_page": 250,
-      "pow_cost": "5"
+      "casting_time": "five to ten (1D6 + 4) rounds",
+      "casting_conditions": [
+        {
+          "text": "For each such spell the caster must sacrifice 5 POW; the chance of contacting the deity is equal to half the caster's reduced POW.",
+          "source_page": 252
+        },
+        {
+          "applies_to": "Contact Deity: Nodens",
+          "text": "The spell can be cast only from a remote, unpeopled place such as the edge of a sea-cliff.",
+          "source_page": 253
+        },
+        {
+          "applies_to": "Contact Deity: Nyarlathotep",
+          "text": "This spell can be cast from anywhere, as befits this omnipresent god; however, Nyarlathotep appears only at meetings of worshipers or when new priests of the Gods are anointed.",
+          "source_page": 253
+        },
+        {
+          "applies_to": "Contact Deity: Eihort",
+          "text": "The caster sacrifices 1 magic point in casting it, and Eihort extracts 5 POW in compensation for imparting the spell.",
+          "source_page": 253
+        }
+      ],
+      "description": "Opens communication with a God or Great Old One, which may answer semi-friendly after a few game hours or days—or squash the caster, or drive him or her insane.",
+      "source_page": 252
     },
     {
       "name": "Create Barrier of Naach-Tith",
-      "alternative_names": [],
+      "alternative_names": [
+        "Great Ward of Naach-Tith",
+        "The Unseen Sphere that Entraps the Demon"
+      ],
       "cost_mp": "variable",
       "cost_sanity": "1D10",
-      "description": "Creates an impenetrable barrier.",
-      "source_page": 250,
-      "pow_cost": "variable"
+      "casting_time": "1 minute",
+      "casting_conditions": [
+        {
+          "text": "All magic points to be used must be expended during the minute of casting; anyone who knows the spell may participate and contribute magic points.",
+          "source_page": 253
+        }
+      ],
+      "description": "Raises a spherical physical and magical barrier about 100 yards across with 3D10 STR per magic point spent, lasting 1D4+4 hours.",
+      "source_page": 253
+    },
+    {
+      "name": "Create Mist of R'lyeh",
+      "alternative_names": [
+        "Ye Terrible Cloud",
+        "Breath of the Dark Sea",
+        "The Dank Fog of Sailors Lost"
+      ],
+      "cost_mp": "2",
+      "cost_sanity": "0",
+      "casting_time": "Instantaneous",
+      "casting_conditions": [
+        {
+          "text": "The mist appears directly in front of the caster, its long axis always at right angles to the direction the caster faces.",
+          "source_page": 253
+        }
+      ],
+      "description": "Causes a dense egg-shaped mist (10 x 10 x 15 feet) to appear before the caster, obscuring vision for 1D6+4 rounds before evaporating without trace.",
+      "source_page": 253
     },
     {
       "name": "Create Zombie",
-      "alternative_names": [],
+      "alternative_names": [
+        "Ritual of the Undying",
+        "Black Binding",
+        "The Ashen Cowl",
+        "Raising of the Dead"
+      ],
       "cost_mp": "16",
       "cost_sanity": "1D6",
-      "description": "Animates a corpse as a zombie servant.",
-      "source_page": 250
+      "casting_time": "a week",
+      "casting_conditions": [
+        {
+          "text": "A ritual liquid must be poured over a corpse or into its grave; the Keeper determines the ingredients, at least one part of which should be difficult to obtain legally.",
+          "source_page": 253
+        },
+        {
+          "text": "The corpse is left to mature for a week, after which the caster returns to the grave and intones a half-hour binding chant.",
+          "source_page": 253
+        }
+      ],
+      "description": "Raises a corpse as a zombie that performs mundane, simple commands; it keeps rotting after it rises, so a lasting servant must be periodically replaced.",
+      "source_page": 253
     },
     {
       "name": "Curse of the Putrid Husk",
-      "alternative_names": [],
+      "alternative_names": [
+        "The Insidious Nightmare",
+        "Summon Seven Devils to Afflick Thine Enemy",
+        "Wither the Mind of the Weak"
+      ],
       "cost_mp": "5",
       "cost_sanity": "10",
-      "description": "Withers the target's body over time.",
-      "source_page": 250
+      "casting_time": "1 hour",
+      "casting_conditions": [
+        {
+          "text": "The target must be known to the caster, and the caster must have as a focus some personal object belonging to the target.",
+          "source_page": 254
+        },
+        {
+          "text": "An opposed INT roll must be made between caster and target; impose one penalty die on the target if the spell is cast at night, while the target is sleeping.",
+          "source_page": 254
+        }
+      ],
+      "description": "Brings sanity-wracking illusions of the victim's own skin rotting and organs tumbling out, costing 1D10 Sanity; the victim faints and wakes whole a few minutes later.",
+      "source_page": 254
     },
     {
       "name": "Death Spell",
-      "alternative_names": [],
+      "alternative_names": [
+        "Ye Dreadful Pricking",
+        "The Curse of Fiery Doom",
+        "Cthugha's Embrace"
+      ],
       "cost_mp": "24",
       "cost_sanity": "3D10",
-      "description": "Kills a living target outright.",
-      "source_page": 250
+      "casting_time": "1D3 rounds",
+      "casting_conditions": [
+        {
+          "text": "The target must be within ten yards of the caster, and the caster must win an opposed POW roll with the target during each round of concentration.",
+          "source_page": 254
+        }
+      ],
+      "description": "Causes the victim to blister, then burn from the inside out for 1D10 hit points a round; aid is impossible and witnesses roll SAN or lose 1/1D6.",
+      "source_page": 254
     },
     {
       "name": "Dominate",
-      "alternative_names": [],
+      "alternative_names": [
+        "Command of the Wizard",
+        "The Chant of Possession",
+        "Baleful Influence"
+      ],
       "cost_mp": "1",
       "cost_sanity": "1",
-      "description": "Takes control of a target's mind. Opposed POW roll.",
-      "source_page": 250,
-      "pow_cost": "variable"
+      "casting_time": "Instantaneous",
+      "casting_conditions": [
+        {
+          "text": "Maximum range 10 yards, one individual at a time, and the caster must win an opposed POW roll with the target.",
+          "source_page": 254
+        },
+        {
+          "text": "The command must be intelligible to the target, and the spell may be broken if a command contradicts the target's basic nature.",
+          "source_page": 254
+        }
+      ],
+      "description": "Bends the target's will to the caster's until the next combat round concludes; it can be recast instantaneously to hold a target for several minutes.",
+      "source_page": 254
     },
     {
       "name": "Dread Curse of Azathoth",
-      "alternative_names": [],
+      "alternative_names": [
+        "Utterance of the Last Syllable",
+        "Ye Doleful Leeching",
+        "By the True Name Thy Power is Sapped"
+      ],
       "cost_mp": "4",
       "cost_sanity": "1D6",
-      "description": "Channels destructive energy from Azathoth.",
-      "source_page": 251
+      "casting_time": "1 round",
+      "casting_conditions": [
+        {
+          "text": "The caster must succeed in an opposed POW roll with the target.",
+          "source_page": 254
+        }
+      ],
+      "description": "Directs the secret Last Syllable of Azathoth's name at a foe, draining 3D6 POW from the target.",
+      "source_page": 254
     },
     {
       "name": "Dust of Suleiman",
-      "alternative_names": [],
+      "alternative_names": [
+        "The Egyptian Powder",
+        "Protection of the Dead"
+      ],
       "cost_mp": "10 per 3 doses",
       "cost_sanity": "0",
-      "description": "Creates magical dust that reveals invisible entities.",
-      "source_page": 251
+      "casting_time": "1 round to apply 1 dose",
+      "casting_conditions": [
+        {
+          "text": "The powder requires dust from an Egyptian mummy at least 2,000 years old—each mummy suffices for three doses—plus frankincense, sulfur, and saltpeter.",
+          "source_page": 255
+        },
+        {
+          "text": "An incantation must be said over the dust while it is being sprinkled.",
+          "source_page": 255
+        },
+        {
+          "text": "The powder works only on extraterrestrial and other planar beings; it is useless against a shoggoth or a deep one.",
+          "source_page": 255
+        }
+      ],
+      "description": "Creates a grey-green powder that costs an unnatural being from another plane 1D20 hit points per dose sprinkled over it.",
+      "source_page": 255
     },
     {
       "name": "Elder Sign",
-      "alternative_names": [],
+      "alternative_names": [
+        "The Elder Seal",
+        "The Omen Branch",
+        "The Five Points of Wisdom"
+      ],
       "cost_mp": "0",
       "cost_pow": "10",
       "cost_sanity": "0",
-      "description": "Creates a protective ward against Mythos entities.",
-      "source_page": 251,
-      "pow_cost": "10"
+      "casting_time": "1 hour",
+      "casting_conditions": [
+        {
+          "text": "Each active Elder Sign takes a sacrifice of 10 POW to create, but costs no Sanity points.",
+          "source_page": 255
+        },
+        {
+          "text": "The Sign must be made active beside an opening or Gate to close that path; without the spell the symbol itself means nothing and has no effect.",
+          "source_page": 255
+        }
+      ],
+      "description": "Activates an Elder Sign, making the opening or Gate it guards unusable to the minions of the Great Old Ones and to those beings themselves; worthless in personal defence.",
+      "source_page": 255
     },
     {
       "name": "Enchant Book",
@@ -307,9 +751,19 @@
       "cost_mp": "0",
       "cost_pow": "variable",
       "cost_sanity": "1D4",
-      "description": "Enchants a book to be indestructible.",
-      "source_page": 251,
-      "pow_cost": "variable"
+      "casting_time": "3 days",
+      "casting_conditions": [
+        {
+          "text": "The book must have the words of the spell Summon/Bind Star Vampire inscribed in it, and its ink must contain the ichor of a star vampire.",
+          "source_page": 255
+        },
+        {
+          "text": "The caster sacrifices a varying amount of POW and meditates for three days.",
+          "source_page": 255
+        }
+      ],
+      "description": "Enchants a book so that each point of POW channelled into it adds 2 percentiles to the caster's chance of success with Summon/Bind Star Vampire.",
+      "source_page": 255
     },
     {
       "name": "Enchant Knife",
@@ -317,18 +771,156 @@
       "cost_mp": "0",
       "cost_pow": "variable",
       "cost_sanity": "1D4",
-      "description": "Enchants a knife for ritual use.",
-      "source_page": 251,
-      "pow_cost": "variable"
+      "casting_time": "2 hours",
+      "casting_conditions": [
+        {
+          "text": "The knife or dagger must be made of a pure metal, such as gold or iron.",
+          "source_page": 255
+        },
+        {
+          "text": "An intricate diagram is drawn with the blade on a flat surface, the blade is then used to kill an animal of at least SIZ 20, and the creature's blood is traced along the diagram.",
+          "source_page": 255
+        }
+      ],
+      "description": "Enchants a knife so that each point of POW placed into it adds 1 percentile to the chance of casting Summon Dimensional Shambler.",
+      "source_page": 255
     },
     {
       "name": "Enchant Pipes",
       "alternative_names": [],
       "cost_mp": "variable",
+      "cost_pow": "variable",
       "cost_sanity": "1D6",
-      "description": "Enchants pan pipes to summon or control.",
-      "source_page": 252,
-      "pow_cost": "variable"
+      "casting_time": "3+ hours",
+      "casting_conditions": [
+        {
+          "text": "The instrument must be a set of panpipes or a flute and at least 90% metal.",
+          "source_page": 258
+        },
+        {
+          "text": "An hour-long ritual of concentration and incantation must be performed over the instrument, during which the caster sacrifices Sanity points and POW into it.",
+          "source_page": 258
+        },
+        {
+          "text": "For each lot of 5 POW sacrificed, the instrument must steep in fresh, warm blood for two hours; a new animal of at least cat or rabbit size must be slaughtered for each 5 POW.",
+          "source_page": 258
+        }
+      ],
+      "description": "Enchants pipes or a flute so that each point of POW within adds 2 percentiles to Summon/Bind Servitor of the Outer Gods and other spells needing pipes or flutes.",
+      "source_page": 255
+    },
+    {
+      "name": "Gate Boxes",
+      "alternative_names": [],
+      "cost_mp": "variable",
+      "cost_pow": "1",
+      "cost_sanity": "variable",
+      "casting_time": "5 hours",
+      "casting_conditions": [
+        {
+          "text": "Two identical wooden boxes must be made to any desired SIZ, open only at one end.",
+          "source_page": 256
+        },
+        {
+          "text": "The ritual consists of placing one's hands on the boxes and conceiving certain hyper-dimensional lines and angles in one's mind for about five hours.",
+          "source_page": 256
+        },
+        {
+          "text": "The boxes then drain half the creator's magic points each day until they have absorbed magic points equal to their total SIZ x 20, and only then become operative.",
+          "source_page": 256
+        }
+      ],
+      "effect_timing": [
+        {
+          "text": "1 Sanity point is lost for every full week of magic point drain.",
+          "source_page": 256
+        }
+      ],
+      "description": "Creates twin magical boxes forming the two ends of a Gate; passing through costs exactly the same magic and Sanity points as a normal Gate.",
+      "source_page": 256
+    },
+    {
+      "name": "Create Gate",
+      "alternative_names": [
+        "Rite of Seeing",
+        "(Behold) Doorway to Other Places",
+        "Ye Portal of Many Journeys",
+        "Arch of Time",
+        "Gateway to Things Long Past and Sights Unseen",
+        "The Wizard's Trap"
+      ],
+      "cost_mp": "0",
+      "cost_pow": "variable",
+      "cost_sanity": "0",
+      "casting_time": "one hour per POW spent",
+      "casting_conditions": [
+        {
+          "text": "Creation requires the permanent expenditure of POW equal to the log to base 10 of the distance the Gate connects in miles, times five (Table XIII).",
+          "source_page": 256
+        },
+        {
+          "text": "Using the Gate costs magic points equal to one-fifth of the POW originally used to make it, plus 1 Sanity point per trip; a traveler short of magic points burns hit points instead.",
+          "source_page": 256
+        },
+        {
+          "text": "Some Gates have been built so that a certain key—a word or gesture—is needed to activate the portal.",
+          "source_page": 256
+        }
+      ],
+      "description": "Creates a doorway between lands, times, dimensions or worlds. Printed under the heading \"Gate Spells\" (p.256) and named the Create Gate spell on p.257; the alternative names are the ones the book lists for the Gate spells as a group.",
+      "source_page": 256
+    },
+    {
+      "name": "Find Gate",
+      "alternative_names": [],
+      "cost_mp": "1",
+      "cost_sanity": "1D3",
+      "casting_time": "20-60 minutes",
+      "casting_conditions": [
+        {
+          "text": "The Gate must be within the caster's direct vision.",
+          "source_page": 256
+        }
+      ],
+      "description": "Reveals to the caster any Gate within direct vision. It does not empower anyone to open, close, create or pass through it, nor tell whether the Gate traverses time or distance.",
+      "source_page": 256
+    },
+    {
+      "name": "Time Gate",
+      "alternative_names": [],
+      "cost_mp": "0",
+      "cost_pow": "variable",
+      "cost_sanity": "0",
+      "casting_time": "one hour per POW spent",
+      "casting_conditions": [
+        {
+          "text": "Costs POW for the number of years travelled rather than the number of miles journeyed; use the Gate Creation and Travel Costs Table, substituting years for miles.",
+          "source_page": 257
+        }
+      ],
+      "description": "Creates a Gate to the future or the past. The spell only yields a time approximate to that desired, though once created the interval between now and then stays fixed.",
+      "source_page": 256
+    },
+    {
+      "name": "View Gate",
+      "alternative_names": [],
+      "cost_mp": "variable",
+      "cost_sanity": "variable",
+      "casting_time": "3 rounds",
+      "casting_conditions": [
+        {
+          "text": "Must be cast at a suspected Gate; it always costs 1 magic point and 1 Sanity point, plus a viewing cost of one-tenth of the Gate's own cost (round up).",
+          "source_page": 257
+        }
+      ],
+      "effect_timing": [
+        {
+          "text": "The view lasts 1D6+1 rounds; the spell may be cast as often as the caster's magic points and Sanity points allow.",
+          "source_page": 257
+        }
+      ],
+      "description": "Lets the caster and companions see what lies on the other side of a Gate without going through it. Something horrific to see should cost each viewer additional Sanity.",
+      "source_page": 257
     },
     {
       "name": "Enchant Sacrificial Dagger",
@@ -336,8 +928,19 @@
       "cost_mp": "0",
       "cost_pow": "30",
       "cost_sanity": "0",
-      "description": "Enchants a dagger to bypass magical protections.",
-      "source_page": 252
+      "casting_time": "1 week",
+      "casting_conditions": [
+        {
+          "text": "The caster creates a flame-shaped dagger, which must then be used to kill a living being of at least 100 POW while 30 points of the enchanter's own POW are sacrificed.",
+          "source_page": 258
+        },
+        {
+          "text": "Thereafter the dagger drains the victim's POW only when used to sacrifice chosen victims in the presence of Nyarlathotep.",
+          "source_page": 258
+        }
+      ],
+      "description": "Creates a dagger that, used to sacrifice chosen victims before Nyarlathotep, channels the victim's POW into the dagger and onward to any convenient storage site.",
+      "source_page": 258
     },
     {
       "name": "Enchant Whistle",
@@ -345,158 +948,469 @@
       "cost_mp": "0",
       "cost_pow": "variable",
       "cost_sanity": "1D4",
-      "description": "Enchants a whistle to summon specific creatures.",
-      "source_page": 252,
-      "pow_cost": "variable"
+      "casting_time": "1 day",
+      "casting_conditions": [
+        {
+          "text": "The whistle must be an alloy of silver and iron meteorite.",
+          "source_page": 258
+        }
+      ],
+      "description": "Enchants a whistle so that each point of POW sacrificed into it adds 2 percentiles to the chance of successfully casting Summon/Bind Byakhee.",
+      "source_page": 258
     },
     {
       "name": "Enthrall Victim",
-      "alternative_names": [],
+      "alternative_names": [
+        "Strike Dumb",
+        "The Silver Beguiling Tongue"
+      ],
       "cost_mp": "2",
       "cost_sanity": "1D6",
-      "description": "Mesmerizes a target into a trance.",
-      "source_page": 252
+      "casting_time": "1 round",
+      "casting_conditions": [
+        {
+          "text": "The caster must be able to speak calmly with the target for a round or so before the spell can take effect, then win an opposed POW roll.",
+          "source_page": 258
+        }
+      ],
+      "effect_timing": [
+        {
+          "text": "The victim stands numb and dumb until relieved from the trance by physical assault or some similarly shocking event.",
+          "source_page": 258
+        }
+      ],
+      "description": "Strikes a target numb and dumb in a standing trance; a caster who fails to overcome the target may try again the following round.",
+      "source_page": 258
     },
     {
       "name": "Evil Eye",
-      "alternative_names": [],
+      "alternative_names": [
+        "Ye Rite of Ill Fortune",
+        "Dark Curse",
+        "Witches' Hex"
+      ],
       "cost_mp": "10",
       "cost_sanity": "1D4",
-      "description": "Inflicts a curse through eye contact.",
-      "source_page": 252
+      "casting_time": "1 round",
+      "casting_conditions": [
+        {
+          "text": "The target must be within sight of the caster.",
+          "source_page": 259
+        }
+      ],
+      "effect_timing": [
+        {
+          "text": "The effects continue until the next sunrise, until the caster removes the spell, until the caster is found and blooded (hit hard enough to bleed), or until the victim dies.",
+          "source_page": 259
+        }
+      ],
+      "description": "Curses a victim with bad luck: the Luck roll chance is halved, all characteristic rolls take a penalty die, guns jam on 75% or higher, and Summon/Bind chances are halved.",
+      "source_page": 259
     },
     {
       "name": "Fist of Yog-Sothoth",
-      "alternative_names": [],
+      "alternative_names": [
+        "Channel the Strength of the Opener of the Way",
+        "Smite Down Thine Enemy",
+        "The Hideous Blast of the Foul One"
+      ],
       "cost_mp": "variable",
       "cost_sanity": "1D6",
-      "description": "Conjures a massive invisible fist to strike.",
-      "source_page": 252,
-      "pow_cost": "variable"
+      "casting_time": "Instantaneous",
+      "casting_conditions": [
+        {
+          "text": "The caster must be able to see the target, and must spend an additional magic point for every 30 feet of distance beyond the first thirty.",
+          "source_page": 259
+        }
+      ],
+      "description": "Strikes a single target with an invisible force of 2D10 STR per magic point invested; an opposed STR-versus-CON roll decides unconsciousness, and the target is always knocked back.",
+      "source_page": 259
     },
     {
       "name": "Flesh Ward",
-      "alternative_names": [],
+      "alternative_names": [
+        "Protect Thee from Mighty Blows",
+        "Armour of the Will",
+        "Blood Shield"
+      ],
       "cost_mp": "variable",
       "cost_sanity": "1D4",
-      "description": "Creates magical armor absorbing physical damage.",
-      "source_page": 253,
-      "pow_cost": "variable"
+      "casting_time": "5 rounds",
+      "casting_conditions": [
+        {
+          "text": "Once cast, the spell may not be reinforced with further magic points, nor recast until the old spell's protection has been used up.",
+          "source_page": 259
+        }
+      ],
+      "effect_timing": [
+        {
+          "text": "The spell lasts 24 hours or until the protection is used up.",
+          "source_page": 259
+        }
+      ],
+      "description": "Grants the caster or a chosen target 1D6 points of armour per magic point spent against non-magical attacks; the protection wears off as it blocks damage.",
+      "source_page": 259
     },
     {
       "name": "Green Decay",
-      "alternative_names": [],
+      "alternative_names": [
+        "The Creeping Mold",
+        "Ye Rotting Awfulness"
+      ],
       "cost_mp": "15",
       "cost_pow": "10",
       "cost_sanity": "2D8",
-      "description": "Causes the target's flesh to rot and decay.",
-      "source_page": 253,
-      "pow_cost": "10"
+      "casting_time": "1 day",
+      "casting_conditions": [
+        {
+          "text": "A day must be spent focusing energy upon the intended target and reciting an incantation to Gla'aki.",
+          "source_page": 259
+        },
+        {
+          "text": "In the next 24 hours the caster must personally give a green leaf to the target.",
+          "source_page": 259
+        }
+      ],
+      "effect_timing": [
+        {
+          "text": "At dawn on the following day, for the spell to take effect, an opposed POW roll must be made between the caster and target.",
+          "source_page": 259
+        },
+        {
+          "text": "Over the next seven days the target effectively turns into a green mold; by the sixth day movement becomes impossible.",
+          "source_page": 259
+        }
+      ],
+      "description": "Curses a target to turn into a green pile of mold over seven days; the only known cure is to find and kill the caster, which reverses the effects.",
+      "source_page": 259
     },
     {
       "name": "Implant Fear",
-      "alternative_names": [],
+      "alternative_names": [
+        "Finger of Doom",
+        "Eibon's Jinx",
+        "The Evil Eye"
+      ],
       "cost_mp": "12",
       "cost_sanity": "1D6",
-      "description": "Plants a deep terror in the target's mind.",
-      "source_page": 253
+      "casting_time": "Instantaneous",
+      "casting_conditions": [
+        {
+          "text": "The caster must be able to see and point a finger at the target while invoking a curse.",
+          "source_page": 259
+        }
+      ],
+      "description": "Breaks the target's concentration with soul-chilling dread, costing 0/1D6 Sanity and driving the target to retreat to somewhere he or she would normally feel safe.",
+      "source_page": 259
     },
     {
       "name": "Melt Flesh",
-      "alternative_names": [],
+      "alternative_names": [
+        "Rite of the Dissolution",
+        "Liquefy Skin"
+      ],
       "cost_mp": "variable",
       "cost_sanity": "1D4",
-      "description": "Causes the target's flesh to melt from bone.",
-      "source_page": 253,
-      "pow_cost": "variable"
+      "casting_time": "5 rounds",
+      "casting_conditions": [
+        {
+          "text": "Cost (dead flesh): 1 magic point per 15 SIZ of dead flesh; 1D4 Sanity points. Cost (living flesh): 5 magic points per 15 SIZ of living flesh; 1D6 Sanity points.",
+          "source_page": 259
+        }
+      ],
+      "description": "Heats flesh, dead or living, to melting point in one round for 1D4 damage per 15 SIZ affected; a melted face may blind, deafen, or suffocate the victim.",
+      "source_page": 259
     },
     {
       "name": "Mental Suggestion",
-      "alternative_names": [],
+      "alternative_names": [
+        "Domination of the Will",
+        "Master and Servant",
+        "Bend Quarry to Thy Power",
+        "Mesmerise",
+        "Bend Will",
+        "Shake Resolve",
+        "Govern Mind",
+        "Implant Suggestion"
+      ],
       "cost_mp": "variable",
       "cost_sanity": "variable",
-      "description": "Plants a suggestion in the target's mind.",
-      "source_page": 253,
-      "pow_cost": "variable"
+      "casting_time": "3 rounds",
+      "casting_conditions": [
+        {
+          "text": "The target must have human blood in its veins and be visible to the unaided eye of the sorcerer; it does not work on nonhuman entities such as shantaks or dimensional shamblers.",
+          "source_page": 260
+        },
+        {
+          "text": "The caster intones the spell and relates the suggestion to the target, then must win an opposed POW roll; extreme suggestions require a second opposed POW roll just before the suggestion is implemented.",
+          "source_page": 260
+        },
+        {
+          "text": "Cost varies with the suggestion: 5 magic points and 1D3 Sanity for ordinary suggestions, 10 and 2D3 for risky ones, 15 and 3D3 for dangerous or suicidal ones.",
+          "source_page": 260
+        }
+      ],
+      "effect_timing": [
+        {
+          "text": "Used on an investigator the effect lasts 1 round per point of the caster's INT; if the investigator's INT is higher, the caster must win another POW roll every 10 rounds.",
+          "source_page": 260
+        }
+      ],
+      "description": "Commands a being with human blood to carry out a spoken suggestion, even to self-destruction.",
+      "source_page": 260
     },
     {
       "name": "Mindblast",
-      "alternative_names": [],
+      "alternative_names": [
+        "Curse of Enfeeblement",
+        "Wave of Doom",
+        "Abyss of the Mind's Eye"
+      ],
       "cost_mp": "10",
       "cost_sanity": "1D3",
-      "description": "Psychic assault causing stun and damage.",
-      "source_page": 253
+      "casting_time": "Instantaneous",
+      "casting_conditions": [
+        {
+          "text": "The caster must succeed in an opposed POW roll with the target.",
+          "source_page": 260
+        }
+      ],
+      "description": "Assaults the victim's mind for 5 Sanity points and temporary insanity, beginning with a bout of madness and possibly flashbacks or nightmares for days after.",
+      "source_page": 260
     },
     {
       "name": "Mind Exchange",
-      "alternative_names": [],
+      "alternative_names": [
+        "Vice Versa Incantation",
+        "Rite of Exchange",
+        "The Cloak of Another's Flesh"
+      ],
       "cost_mp": "10+1D6",
       "cost_sanity": "1D3",
-      "description": "Swaps the caster's mind with the target's.",
-      "source_page": 254
+      "casting_time": "1 hour",
+      "casting_conditions": [
+        {
+          "text": "The target must know the caster and love or strongly favor him or her; if that affection is lost the exchange can no longer occur, and fresh affection renews the chance.",
+          "source_page": 260
+        },
+        {
+          "text": "The caster must win an opposed POW roll until the magic point cost has been reduced to 1, after which no roll is required and the caster may transfer at will.",
+          "source_page": 260
+        },
+        {
+          "text": "This spell can be cast at any range.",
+          "source_page": 260
+        }
+      ],
+      "effect_timing": [
+        {
+          "text": "The caster cannot initially stay more than a few minutes inside the target's body, but progressively longer; once transfer costs 1 magic point, indefinitely.",
+          "source_page": 260
+        }
+      ],
+      "description": "Trades minds with another individual; the first casting costs magic points equal to one-fifth of the target's POW, falling by 1 per casting to a floor of 1.",
+      "source_page": 260
     },
     {
       "name": "Mind Transfer",
       "alternative_names": [],
       "cost_mp": "10",
       "cost_sanity": "1D10",
-      "description": "Permanently transfers mind to a new body.",
-      "source_page": 254
+      "casting_time": "5 rounds or more",
+      "casting_conditions": [
+        {
+          "text": "The caster must succeed in an opposed POW roll with the target; if the exchange fails the caster must immediately recast, losing 10 more magic points, or his or her soul dissipates.",
+          "source_page": 260
+        },
+        {
+          "text": "Once the transfer is begun, it cannot be broken off.",
+          "source_page": 260
+        }
+      ],
+      "description": "Permanently trades minds with a target; the caster's previous body becomes a hollow dead thing, and the victim loses 1D20 Sanity points.",
+      "source_page": 260
     },
     {
       "name": "Mirror of Tarkhun Atep",
       "alternative_names": [
-        "Crux Ansata"
+        "The Silvery Warning",
+        "Reflection of Hate",
+        "The All-Seeing Eye"
       ],
       "cost_mp": "5",
-      "cost_pow": null,
       "cost_sanity": "1",
-      "description": "Reflects spells and magical effects back at caster.",
+      "casting_time": "half a day",
+      "casting_conditions": [
+        {
+          "text": "The caster needs a mirror large enough to reflect his or her head and neck, and must gaze into it holding an image of the target in mind while uttering the incantation and waiting.",
+          "source_page": 261
+        },
+        {
+          "text": "If the caster tires before the target looks into a mirror, that loss of attention breaks the spell.",
+          "source_page": 261
+        }
+      ],
+      "effect_timing": [
+        {
+          "text": "The image forms when the target next looks into a darkened window, a mirror, or any other reflective surface; the victim can be anywhere on Earth.",
+          "source_page": 261
+        }
+      ],
+      "description": "Projects the caster's image, and short spoken phrases, into any reflective surface the intended victim gazes into; the caster sees the target's surroundings in return.",
       "source_page": 261
     },
     {
       "name": "Powder of Ibn-Ghazi",
-      "alternative_names": [],
+      "alternative_names": [
+        "Dust of Seeing",
+        "Witness of the Unseen",
+        "Compound of Perception"
+      ],
       "cost_mp": "1 per dose",
       "cost_sanity": "0",
-      "description": "Creates powder that reveals invisible creatures.",
-      "source_page": 254,
-      "pow_cost": "variable"
+      "casting_time": "2 days' preparation, 1 round to apply",
+      "casting_conditions": [
+        {
+          "text": "The powder must be compounded carefully to exacting instructions, involving three special ingredients determined by the Keeper and the sacrifice of 1 magic point per dose.",
+          "source_page": 261
+        },
+        {
+          "text": "The powder is either blown from a tube or thrown over the target.",
+          "source_page": 261
+        }
+      ],
+      "effect_timing": [
+        {
+          "text": "The thing that is dusted stays visible for no more than ten heartbeats.",
+          "source_page": 261
+        }
+      ],
+      "description": "Makes magically invisible things visible: the lines extending from a place enchanted for a Calling, the aura around a Gate, or a creature such as a star vampire. Using it costs no Sanity, but seeing what it exposes may.",
+      "source_page": 261
     },
     {
       "name": "Prinn's Crux Ansata",
-      "alternative_names": [],
+      "alternative_names": [
+        "Sigil of Banishment",
+        "The Icon of Expulsion"
+      ],
       "cost_mp": "0",
       "cost_pow": "25",
       "cost_sanity": "1D6",
-      "description": "Creates an ankh (looped cross) that can temporarily or permanently banish individual Mythos creatures.",
-      "source_page": 261,
-      "pow_cost": "25"
+      "casting_time": "variable days",
+      "casting_conditions": [
+        {
+          "text": "The object must be an ankh made of an unalloyed metal—pure copper, iron, silver, gold, or lead.",
+          "source_page": 261
+        },
+        {
+          "text": "For 20 days minus one-fifth of the caster's INT, the caster performs episodic rites and sacrifices, then sacrifices the POW and Sanity points to enchant the ankh.",
+          "source_page": 261
+        },
+        {
+          "text": "To use it the caster intones a chant for three rounds and expends any number of magic points, then must win an opposed POW roll with the target.",
+          "source_page": 261
+        }
+      ],
+      "description": "Creates an ankh that temporarily or permanently banishes individual Mythos creatures to their home plane; any person who knows the chant may wield it, without the caster's 5 free magic points.",
+      "source_page": 261
+    },
+    {
+      "name": "Red Sign of Shudde M'ell",
+      "alternative_names": [
+        "The Red Sign",
+        "The Mark of Fiery Pain"
+      ],
+      "cost_mp": "3",
+      "cost_sanity": "1D8",
+      "casting_time": "1 round",
+      "casting_conditions": [
+        {
+          "text": "The caster inscribes the sign in the air while speaking words of power, then must stand next to the sign and concentrate, losing 1 hit point each round from proximity to it.",
+          "source_page": 262
+        },
+        {
+          "text": "Once formed, the sign must be maintained by concentration and the expenditure of 3 more magic points each additional round.",
+          "source_page": 262
+        }
+      ],
+      "effect_timing": [
+        {
+          "text": "The sign's malevolent effects manifest the round after its creation.",
+          "source_page": 262
+        }
+      ],
+      "description": "Glows a dull red sign in the air that costs everyone within 10 yards 1D3 hit points a round and those within 30 yards 1 hit point; a stout wall or opaque barrier blocks it.",
+      "source_page": 261
     },
     {
       "name": "Resurrection",
-      "alternative_names": [],
+      "alternative_names": [
+        "The Rite of Knowledge Long Lost",
+        "Recrudescence",
+        "Rite of Salts"
+      ],
       "cost_mp": "3",
       "cost_sanity": "1D10",
-      "description": "Returns a recently dead person to life.",
-      "source_page": 255
+      "casting_time": "1 or 2 rounds",
+      "casting_conditions": [
+        {
+          "text": "A complete corpse is necessary; if only part of the ashy powder is available the sorcerer gets \"onlie the liveliest awfullness\" from what is made flesh.",
+          "source_page": 262
+        },
+        {
+          "text": "Reciting the spell backward returns the resurrected entity to dust, costs the same 3 magic points and 1D10 Sanity, takes two rounds, and needs a won opposed POW roll.",
+          "source_page": 262
+        }
+      ],
+      "description": "Reduces a corpse to its essential salts, or reverses the process to yield the form and soul of the deceased; being resurrected costs the victim 1D20 Sanity points.",
+      "source_page": 262
     },
     {
       "name": "Shrivelling",
-      "alternative_names": [],
+      "alternative_names": [
+        "Shriving",
+        "The Withering Blast of Death",
+        "The Black Words"
+      ],
       "cost_mp": "variable",
       "cost_sanity": "variable",
-      "description": "Withers and weakens the target's body.",
-      "source_page": 255,
-      "pow_cost": "variable"
+      "casting_time": "Instantaneous",
+      "casting_conditions": [
+        {
+          "text": "The caster invests as many magic points as desired and half that number in Sanity points, then must succeed in an opposed POW roll with the target.",
+          "source_page": 262
+        }
+      ],
+      "description": "Blasts the target with energy that blackens and withers flesh, costing 1 hit point per magic point invested.",
+      "source_page": 262
     },
     {
       "name": "Song of Hastur",
-      "alternative_names": [],
+      "alternative_names": [
+        "The King's Cry",
+        "Music of the Court in Yellow",
+        "Bring Forth the Festering Boil of Great Agony and Torment"
+      ],
       "cost_mp": "1D4 per round",
       "cost_sanity": "1D4 per round",
-      "description": "Sustained song that drives listeners insane.",
-      "source_page": 255
+      "casting_time": "3 rounds before it begins to take effect",
+      "casting_conditions": [
+        {
+          "text": "The target must be visible to the caster.",
+          "source_page": 263
+        },
+        {
+          "text": "This spell will not work except at night and only if the star Aldebaran is visible.",
+          "source_page": 263
+        },
+        {
+          "text": "A roll equal to or under the caster's POW must be made to sing the correct alien melody.",
+          "source_page": 263
+        }
+      ],
+      "description": "A wailing ululation that festers the victim's flesh for 1D6 hit points a round, reducing APP by 3D10 every two rounds and CON by 3D10 every four until the body bursts.",
+      "source_page": 263
     },
     {
       "name": "Summon/Bind Spells",
@@ -505,96 +1419,265 @@
       ],
       "cost_mp": "variable",
       "cost_sanity": "1D4",
-      "description": "Summons and binds a Mythos creature.",
-      "source_page": 255,
-      "pow_cost": "variable"
+      "casting_time": "5 minutes per magic point spent, binding takes 1 round",
+      "casting_conditions": [
+        {
+          "text": "The general procedures are the same for each, but conditions may vary from spell to spell; knowing one such spell is of no use in casting another.",
+          "source_page": 263
+        },
+        {
+          "text": "Except for Summon/Bind Servitor of the Outer Gods, these spells require the sacrifice of 1 magic point per 10 percentiles chance of success, with five minutes of chanting per point. A result of 96-100 is always a failure.",
+          "source_page": 263
+        },
+        {
+          "applies_to": "Summon Byakhee",
+          "text": "A whistle must be blown during the chant. This spell is active only on nights when Aldebaran is above the horizon (October through March are the best months).",
+          "source_page": 263
+        },
+        {
+          "applies_to": "Summon Dark Young",
+          "text": "A beast of at least SIZ 40 must be sacrificed with a knife making certain ritual cuts. Cast this spell outdoors, in a wood, during the dark of the moon.",
+          "source_page": 263
+        },
+        {
+          "applies_to": "Summon Dimensional Shambler",
+          "text": "The spell requires a dagger made from any pure metal such as copper or iron; alloys such as brass will not work. This spell may be cast day or night.",
+          "source_page": 263
+        },
+        {
+          "applies_to": "Summon Fire Vampire",
+          "text": "A bonfire or other source of flame is required. The spell may be cast only at night when the star Fomalhaut is above the horizon (September through November are the best times in moderately northern latitudes).",
+          "source_page": 264
+        },
+        {
+          "applies_to": "Summon Hunting Horror",
+          "text": "This spell may be cast only at night in the open air. If no alternate sacrifice has been prepared for the binding, the horror takes the caster and vanishes.",
+          "source_page": 264
+        },
+        {
+          "applies_to": "Summon Nightgaunt",
+          "text": "A stone emblazoned with the cryptic Elder Sign must be present, though the stone itself need not be star-shaped. The spell can be cast only at night when there is no moon.",
+          "source_page": 264
+        },
+        {
+          "applies_to": "Summon Servitor of the Outer Gods",
+          "text": "A flute is needed to cast this spell, and the magic point cost is triple the standard summoning cost. Cultists cast this spell anywhere and at any time that is especially unhallowed—typical nights would be Midsummer's Eve, Samhain, and Walpurgis Night.",
+          "source_page": 264
+        },
+        {
+          "applies_to": "Summon Star Vampire",
+          "text": "The caster needs a book in which the words of the spell are written or inscribed. This spell can be cast only at night under a cloudless sky.",
+          "source_page": 264
+        }
+      ],
+      "effect_timing": [
+        {
+          "text": "On a success one being appears per spell, 2D10 game minutes after the chant concludes.",
+          "source_page": 263
+        }
+      ],
+      "description": "Compels one alien servitor creature to appear and, bound, to obey a single specific and limited command before it is freed and returns whence it came.",
+      "source_page": 263
     },
     {
       "name": "Separate Binding",
       "alternative_names": [],
-      "cost_mp": "0",
+      "cost_mp": "variable",
       "cost_sanity": "1",
-      "description": "Separates a bound creature from the caster.",
-      "source_page": 256
+      "casting_time": "1 round",
+      "casting_conditions": [
+        {
+          "text": "The caster must know the Summon/Bind spell for that type of thing and must spend a round chanting before the thing can be bound, then win an opposed POW roll.",
+          "source_page": 264
+        },
+        {
+          "text": "A creature to be bound must be visible to the caster and within 100 yards; a binding works on only one creature at a time.",
+          "source_page": 264
+        },
+        {
+          "text": "An attacking creature cannot be bound by the person it is fighting, and a creature presently bound cannot be re-bound until its present command is completed.",
+          "source_page": 264
+        },
+        {
+          "text": "Binding requires an opposed roll, and opposed rolls cannot be pushed.",
+          "source_page": 264
+        },
+        {
+          "applies_to": "Bind Byakhee",
+          "text": "If an enchanted whistle is used, the caster gains a bonus die on the opposed POW roll.",
+          "source_page": 264
+        },
+        {
+          "applies_to": "Bind Dark Young",
+          "text": "If the caster uses an enchanted knife to kill their victim with certain ritual cuts they gain a bonus die to the opposed POW roll.",
+          "source_page": 264
+        },
+        {
+          "applies_to": "Bind Dimensional Shambler",
+          "text": "An enchanted dagger of pure metal grants one bonus die; a second bonus die may be gained if the shambler is exposed to bright sunlight.",
+          "source_page": 264
+        },
+        {
+          "applies_to": "Bind Fire Vampire",
+          "text": "If the caster stands within a bonfire they gain one bonus die to the opposed POW roll.",
+          "source_page": 264
+        },
+        {
+          "applies_to": "Bind Hunting Horror",
+          "text": "The blood sacrifice of a sentient being is needed; the caster does not perform the sacrifice—the hunting horror seizes it.",
+          "source_page": 264
+        },
+        {
+          "applies_to": "Bind Nightgaunt",
+          "text": "A stone emblazoned with the cryptic Elder Sign grants one bonus die on the opposed POW roll.",
+          "source_page": 264
+        },
+        {
+          "applies_to": "Bind Servitor of the Outer Gods",
+          "text": "An enchanted flute grants one bonus die to bind the Servitor.",
+          "source_page": 265
+        },
+        {
+          "applies_to": "Bind Star Vampire",
+          "text": "An enchanted book containing the spell grants one bonus die on the opposed POW roll.",
+          "source_page": 265
+        }
+      ],
+      "description": "Binds a monster that arrived unbound or was come upon unexpectedly, on the spot, for one command at a time.",
+      "source_page": 264
     },
     {
       "name": "Voorish Sign",
-      "alternative_names": [],
+      "alternative_names": [
+        "Sign of Power",
+        "Cunninge Pass"
+      ],
       "cost_mp": "1",
       "cost_sanity": "1",
-      "description": "Enhances the caster's magical sensing ability.",
-      "source_page": 256
+      "casting_time": "1 round",
+      "description": "An ancient hand gesture that benefits the casting of another spell—lessening its cost, casting time, or effect a little—and is rumored to make Mythos monsters wary.",
+      "source_page": 265
     },
     {
       "name": "Warding",
-      "alternative_names": [],
+      "alternative_names": [
+        "Stones of Safekeeping",
+        "Leave Thy Burden to the Rock",
+        "Circle of Protection"
+      ],
       "cost_mp": "1 per stone",
       "cost_sanity": "0",
-      "description": "Creates a protective ward on a stone or object.",
-      "source_page": 256,
-      "pow_cost": "variable"
+      "casting_time": "5 rounds",
+      "casting_conditions": [
+        {
+          "text": "A number of ordinary white stones are placed on the ground as the caster pleases, except that each must be within a yard of each of the others.",
+          "source_page": 265
+        }
+      ],
+      "effect_timing": [
+        {
+          "text": "Thereafter, if any stone is moved the caster becomes aware of the fact, even if asleep until then; once this has occurred the spell is broken.",
+          "source_page": 265
+        }
+      ],
+      "description": "Lays an alarm over a ring of white stones: a shimmering heat haze marks them, and moving any one of them wakes the caster to the fact and ends the spell.",
+      "source_page": 265
     },
     {
       "name": "Wave of Oblivion",
-      "alternative_names": [],
+      "alternative_names": [
+        "Song of the Ocean's Fist",
+        "The Salt Gift",
+        "Ye Watery Doom"
+      ],
       "cost_mp": "30",
       "cost_sanity": "1D8",
-      "description": "Erases all memory of a target from the world.",
-      "source_page": 256
+      "casting_time": "1 hour",
+      "casting_conditions": [
+        {
+          "text": "The caster must be able to see the intended target, sufficient quantities of salt water must be present to create the wave, and the caster stands in the water to cast the spell.",
+          "source_page": 265
+        },
+        {
+          "text": "Others can contribute magic points: those who know the spell as many as desired for 1D8 Sanity points each, those who do not know it 1 magic point each.",
+          "source_page": 265
+        }
+      ],
+      "description": "Smashes a powerful ocean wave down where the caster directs; 30 magic points gives a wave ten feet long, ten wide and thirty high, each further point adding a foot of length and width.",
+      "source_page": 265
     },
     {
       "name": "Wither Limb",
-      "alternative_names": [],
+      "alternative_names": [
+        "The Song of Pain",
+        "Shrivel Thy Enemy",
+        "The Wasting Burn"
+      ],
       "cost_mp": "8",
       "cost_sanity": "1D6",
-      "description": "Permanently withers one of the target's limbs.",
-      "source_page": 256
+      "casting_time": "Instantaneous",
+      "casting_conditions": [
+        {
+          "text": "The caster must be within 10 yards of the target and must win an opposed POW roll.",
+          "source_page": 265
+        }
+      ],
+      "description": "Withers a nominated arm or leg for 1D8 hit points of damage and a permanent loss of 2D10 CON; the victim loses 1D4/1D8 Sanity points.",
+      "source_page": 265
     },
     {
       "name": "Words of Power",
-      "alternative_names": [],
+      "alternative_names": [
+        "Sekhmenkenhep's Words",
+        "Beguile the Unrighteous",
+        "Mastery of the Mob"
+      ],
       "cost_mp": "3+",
       "cost_sanity": "1D6",
-      "description": "Channels raw cosmic energy through speech.",
-      "source_page": 256
+      "casting_time": "10+ minutes",
+      "casting_conditions": [
+        {
+          "text": "The caster must speak extemporaneously and seemingly from the heart, holding the audience's attention.",
+          "source_page": 265
+        },
+        {
+          "text": "For each ten minutes of speech the caster must expend 3 magic points and make a successful communication roll (Charm or Persuade), or the speech ends indecisively and in confusion.",
+          "source_page": 265
+        }
+      ],
+      "effect_timing": [
+        {
+          "text": "At the end of a successful speech, the audience thoroughly believes what has been said for 1D3 days.",
+          "source_page": 265
+        }
+      ],
+      "description": "Creates an intense bond with a large group of listeners so that they believe what the caster has said.",
+      "source_page": 265
     },
     {
       "name": "Wrack",
-      "alternative_names": [],
+      "alternative_names": [
+        "Woeful Agony of the Wretched",
+        "The Festering Blindness of the Seven Hells",
+        "Rend Enemy"
+      ],
       "cost_mp": "3",
       "cost_sanity": "1",
-      "description": "Inflicts intense pain on the target.",
-      "source_page": 256
-    },
-    {
-      "name": "Find Gate",
-      "alternative_names": [],
-      "cost_mp": "1",
-      "pow_cost": null,
-      "cost_sanity": "1D3",
-      "casting_time": "20-60 minutes\nThrough a series of gestures and a specific ch",
-      "description": "Cost: 1 magic point; 1D3 Sanity points Casting time: 20-60 minutes Through a series of gestures and a specific chant, th",
-      "source_page": 256
-    },
-    {
-      "name": "Time Gate",
-      "alternative_names": [],
-      "cost_mp": "0",
-      "pow_cost": "variable",
-      "cost_sanity": "0",
-      "casting_time": "one hour per POW spent\nThe caster may elect to prepare a Gat",
-      "description": "Cost: variable POW Casting time: one hour per POW spent The caster may elect to prepare a Gate for travel by  expending ",
-      "source_page": 256
-    },
-    {
-      "name": "View Gate",
-      "alternative_names": [],
-      "cost_mp": "variable",
-      "pow_cost": null,
-      "cost_sanity": "0",
-      "casting_time": "3 rounds\nWhen cast at a suspected Gate, this \nspell allows t",
-      "description": "Cost: variable magic and Sanity points Casting time: 3 rounds When cast at a suspected Gate, this  spell allows the cast",
-      "source_page": 257
+      "casting_time": "1 round",
+      "casting_conditions": [
+        {
+          "text": "The target must be within 10 yards of the caster, and the caster must win an opposed POW roll.",
+          "source_page": 265
+        }
+      ],
+      "effect_timing": [
+        {
+          "text": "The effect lasts 1D6 rounds, after which sight returns; in 3D10 minutes the target fully recovers, and in 24 hours only faint blemishes remain.",
+          "source_page": 265
+        }
+      ],
+      "description": "Seizes a single target with wracking pain and temporary blindness, rendering them completely helpless; each such experience costs the target 1/1D6+1 Sanity points.",
+      "source_page": 265
     }
   ]
 }

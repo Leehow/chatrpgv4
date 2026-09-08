@@ -95,7 +95,7 @@
       "node_ids": [
         "data-table:coc7:magic:table-1"
       ],
-      "sha256": "sha256:0d83987e0a518fb82796a5f508564794e2b468374c2727b3917ef4c5d957995e"
+      "sha256": "sha256:d779a771d2f8af4feceed5f520be6a1a4df382ce3563be563b744cdee2bcc79e"
     },
     {
       "table_name": "success-levels.json",
