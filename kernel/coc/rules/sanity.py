@@ -18,6 +18,7 @@ Rulebook basis: Chapter 8 (Sanity), 7e 40th Anniversary.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import random
@@ -81,12 +82,22 @@ class SanityStateIdentityError(ValueError):
     """Persisted sanity state belongs to a different or unknown actor."""
 
 
+#: #78: what this engine writes under `save/`, as paths relative to the campaign directory
+#: -- the per-investigator snapshot and the host's pending SAN-gain receipt. The worldline
+#: reads this to know whose file it is looking at when a time loop rewinds the clock under a
+#: kept investigator (`rebase_clock` below); the two path functions build on these so the
+#: declaration and the writers cannot drift apart.
+SNAPSHOT_DIR = "save/sanity-state"
+GAIN_PENDING_DIR = "save/sanity-gain-pending"
+SAVE_PATHS = (SNAPSHOT_DIR, GAIN_PENDING_DIR)
+
+
 def sanity_snapshot_path(campaign_dir: Path, investigator_id: str) -> Path:
     """Return the canonical per-investigator SAN snapshot path."""
     investigator_id = str(investigator_id or "")
     if _STABLE_ID.fullmatch(investigator_id) is None:
         raise SanityStateIdentityError("investigator_id is not a stable safe id")
-    return Path(campaign_dir) / "save" / "sanity-state" / f"{investigator_id}.json"
+    return Path(campaign_dir) / SNAPSHOT_DIR / f"{investigator_id}.json"
 
 
 def sanity_gain_pending_path(campaign_dir: Path, investigator_id: str) -> Path:
@@ -94,7 +105,7 @@ def sanity_gain_pending_path(campaign_dir: Path, investigator_id: str) -> Path:
     investigator_id = str(investigator_id or "")
     if _STABLE_ID.fullmatch(investigator_id) is None:
         raise SanityStateIdentityError("investigator_id is not a stable safe id")
-    return Path(campaign_dir) / "save" / "sanity-gain-pending" / f"{investigator_id}.json"
+    return Path(campaign_dir) / GAIN_PENDING_DIR / f"{investigator_id}.json"
 
 
 def write_sanity_gain_pending(
@@ -161,6 +172,59 @@ def record_psychoanalysis_gain_pending(
 def sanity_snapshot_exists(campaign_dir: Path, investigator_id: str) -> bool:
     """Whether an identity-safe snapshot exists for this investigator."""
     return sanity_snapshot_path(campaign_dir, investigator_id).is_file()
+
+
+def recovery_trigger_id(investigator_id: str, due: int) -> str:
+    """`recover-temporary:<inv>:<due>` -- the minute is part of the id, so a trigger whose
+    minute moves (a clock rebase, #78) is re-minted here rather than left naming two
+    different minutes."""
+    return f"recover-temporary:{investigator_id}:{due}"
+
+
+def treatment_trigger_id(investigator_id: str, due: int) -> str:
+    """`apply-treatment:<inv>:<due>`; see `recovery_trigger_id`."""
+    return f"apply-treatment:{investigator_id}:{due}"
+
+
+#: The snapshot's two deadlines (#78): the key each lives under and how its id is minted
+#: from its minute. `SanitySession` schedules them below; `rebase_clock` moves them.
+_DEADLINES = (("recovery_trigger", recovery_trigger_id), ("treatment_trigger", treatment_trigger_id))
+
+
+def rebase_clock(state: dict[str, Any], delta: int) -> dict[str, Any]:
+    """#78: this engine's saved state with every absolute clock minute moved by `delta`.
+
+    A time loop that keeps the investigators but rewinds the clock (§15.2
+    `reset.investigators: keep` with `reset.clock: anchor`) leaves the madness standing and
+    moves the clock out from under it. The two deadlines the snapshot files -- when
+    temporary insanity may lift (`recovery_trigger`) and when the next monthly treatment
+    falls due (`treatment_trigger`) -- are minutes of the clock they were scheduled on, so
+    they move with it: `delta` is the new clock minus the old, negative on a rewind, and a
+    deadline keeps exactly the distance from "now" it had. Their ids carry the minute
+    (`recover-temporary:<inv>:600`) and are re-minted from the moved minute so the id and
+    the deadline never disagree; an id minted some other way is left as it is. A deadline
+    that had already passed comes out negative -- due before the new clock began -- and
+    every reader (`sessions.facts`, `execute_recover_temporary`) compares `clock >= due`
+    and still finds it due.
+
+    Nothing else in the snapshot is an instant: `temporary_insane_remaining_hours` is a
+    length, `daily_san_lost` a count, a bout runs in rounds, and the events are the log of
+    what was scheduled at the time and stay as written. The pending SAN-gain receipt under
+    `sanity-gain-pending/` is this engine's file too and arrives here; it carries no clock
+    at all. Returns a new dict; `state` is not touched."""
+    moved = copy.deepcopy(state)
+    investigator_id = str(moved.get("investigator_id") or "")
+    for key, mint in _DEADLINES:
+        trigger = moved.get(key)
+        if not isinstance(trigger, dict):
+            continue
+        due = trigger.get("due_elapsed_minutes")
+        if isinstance(due, bool) or not isinstance(due, int):
+            continue
+        trigger["due_elapsed_minutes"] = due + delta
+        if trigger.get("trigger_id") == mint(investigator_id, due):
+            trigger["trigger_id"] = mint(investigator_id, due + delta)
+    return moved
 
 
 def validate_san_loss_expression(expression: str) -> dict[str, int | str]:
@@ -869,7 +933,7 @@ class SanitySession:
             return None
         now = int(self.clock_minutes or 0)
         due = now + 30 * 24 * 60  # one treatment month
-        trig_id = f"apply-treatment:{self.investigator_id}:{due}"
+        trig_id = treatment_trigger_id(self.investigator_id, due)
         self.treatment_trigger = {
             "trigger_id": trig_id,
             "handler": "apply_psychoanalysis_treatment",
@@ -1106,7 +1170,7 @@ class SanitySession:
             return None
         now = int(self.clock_minutes or 0)
         due = now + max(0, int(remaining_hours)) * 60
-        trig_id = f"recover-temporary:{self.investigator_id}:{due}"
+        trig_id = recovery_trigger_id(self.investigator_id, due)
         self.recovery_trigger = {
             "trigger_id": trig_id,
             "handler": "recover_temporary_insanity",

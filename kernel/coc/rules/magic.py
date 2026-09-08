@@ -8,6 +8,7 @@ A studying spell whose due minute has passed counts as learned (see `known_spell
 
 from __future__ import annotations
 
+import copy
 import random
 import re
 from pathlib import Path
@@ -347,8 +348,16 @@ def learn_spell(tables: RuleTables, catalog: Catalog, spell_name: str, learner_s
 
 # ---- per-investigator magic state ---------------------------------------------------
 
+#: #78: what this engine writes under `save/`, as paths relative to the campaign directory.
+#: The worldline reads this to know whose file it is looking at when a time loop rewinds
+#: the clock under a kept investigator (`rebase_clock` below); `magic_state_path` builds on
+#: it so the declaration and the writer cannot drift apart.
+SAVE_DIR = "save/magic-state"
+SAVE_PATHS = (SAVE_DIR,)
+
+
 def magic_state_path(campaign_dir: Path, investigator_id: str) -> Path:
-    return Path(campaign_dir) / "save" / "magic-state" / f"{investigator_id}.json"
+    return Path(campaign_dir) / SAVE_DIR / f"{investigator_id}.json"
 
 
 def read_magic_state(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
@@ -381,3 +390,27 @@ def known_spells(state: dict[str, Any], clock_minutes: int) -> list[str]:
             if name and name not in known:
                 known.append(name)
     return known
+
+
+def rebase_clock(state: dict[str, Any], delta: int) -> dict[str, Any]:
+    """#78: this engine's saved state with every absolute clock minute moved by `delta`.
+
+    A time loop that keeps the investigators but rewinds the clock (§15.2
+    `reset.investigators: keep` with `reset.clock: anchor`) leaves a study in progress and
+    moves the clock out from under it. One field here is an instant:
+    `studying_spells[].due_elapsed_minutes`, the minute a study from a tome or a person
+    completes, which `known_spells` compares against the clock. It moves by `delta` -- the
+    new clock minus the old, negative on a rewind -- so a study keeps the days it had left,
+    and one that had already completed on the abandoned loop stays complete: its due lands
+    at or below the new clock, possibly below zero, and `due <= clock` still reads it as
+    known. `study_weeks` and `study_days` are lengths, `learned_spells` and `cast_spells`
+    are names; none of them move. Returns a new dict; `state` is not touched."""
+    moved = copy.deepcopy(state)
+    rows = moved.get("studying_spells")
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        due = row.get("due_elapsed_minutes")
+        if isinstance(due, int) and not isinstance(due, bool):
+            row["due_elapsed_minutes"] = due + delta
+    return moved
