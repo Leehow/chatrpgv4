@@ -1,3 +1,4 @@
+import {CocCharacterDraft} from './CocCharacterDraft'
 import {getToolRenderer,useToolRenderers} from './ui-registries'
 import { forwardRef, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Virtuoso, type StateSnapshot, type VirtuosoHandle } from 'react-virtuoso'
@@ -322,6 +323,7 @@ export const MessageView = memo(function MessageView({ message, showFooter, docu
 function PresentationEntry({message,onChoose}:{message:ChatMessage}&PresentationActionProps) {
   useToolRenderers()
   const data=message.presentation!
+  if(data.renderer==='coc-character-draft')return <article className="message assistant-message"><CocCharacterDraft data={data.details as any} onRendered={onChoose?()=>onChoose(data,'previewed'):undefined}/></article>
   const render=getToolRenderer(data.renderer)?.render
   return <article className="message assistant-message" data-presentation={data.renderer}>
     {render ? render({tool:{id:message.id,name:data.renderer,input:'',startedAt:0,finished:true},content:'',details:data.details,onSelectOption:onChoose?(option)=>onChoose(data,option):undefined,elapsed:()=>''}) : <p role="status">正在加载机制面板…</p>}

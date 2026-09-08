@@ -3,7 +3,7 @@ import type {PipiHostAPI} from '@pipi/host-api'
 import './coc-onboarding.css'
 
 type Row = Record<string, any>
-type Props = {host: PipiHostAPI; sessionId: string; onStart: () => Promise<unknown>}
+type Props = {host: PipiHostAPI; sessionId: string}
 const MB = 1024 * 1024
 const stageNames: Record<string, string> = {source:'检查文件', skeleton:'识别剧本结构', index:'定位剧本结构', read:'准备开场', verify:'核对关键资料', ready:'开场已准备好'}
 function fileChunk(file: Blob): Promise<string> {
@@ -14,19 +14,13 @@ function fileChunk(file: Blob): Promise<string> {
     reader.readAsDataURL(file)
   })
 }
-export function CocOnboarding({host, sessionId, onStart}: Props) {
+export function CocOnboarding({host, sessionId}: Props) {
   const [section,setSection] = useState<'home'|'starter'|'module'|'pdf'>('home')
   const [catalog,setCatalog] = useState<Row | null>(null)
   const [job,setJob] = useState<Row | null>(null)
   const [busy,setBusy] = useState(false), [error,setError] = useState('')
-  const [draft] = useState<Row>(() => {
-    try {return JSON.parse(localStorage.getItem('pipicoc-character:' + sessionId) || '{}') || {}} catch {return {}}
-  })
-  const [name,setName] = useState(String(draft.name || '')), [occupation,setOccupation] = useState(String(draft.occupation || '')), [concept,setConcept] = useState(String(draft.concept || '')), [age,setAge] = useState(Number(draft.age) || 27)
-  const [language,setLanguage] = useState(draft.language === 'en' ? 'en' : 'zh-Hans')
-  useEffect(() => {
-    try {localStorage.setItem('pipicoc-character:' + sessionId, JSON.stringify({name,occupation,concept,age,language}))} catch { /* storage may be unavailable */ }
-  },[sessionId,name,occupation,concept,age,language])
+  const [language,setLanguage] = useState('zh-Hans')
+  const starting=useRef(false)
   const chooser = useRef<HTMLInputElement>(null), cancelled = useRef(false), uploadRunning = useRef(false)
   const storageKey = 'pipicoc-import:' + sessionId
   async function call(params: Row): Promise<Row> {
@@ -36,6 +30,7 @@ export function CocOnboarding({host, sessionId, onStart}: Props) {
     return reply.data as Row
   }
   function remember(next: Row) {
+    if(next.play_language)setLanguage(next.play_language)
     setJob(next)
     try {localStorage.setItem(storageKey,next.id)} catch { /* storage may be disabled */ }
   }
@@ -61,7 +56,7 @@ export function CocOnboarding({host, sessionId, onStart}: Props) {
   },[job?.id,job?.state,job?.stopping])
   async function act(params:Row) {
     setError('');setBusy(true)
-    try {remember(await call({...params,id:job?.id}))} catch(e){setError(e instanceof Error?e.message:String(e))} finally {setBusy(false)}
+    try {remember(await call({...params,id:job?.id,...(params.action==='select'?{play_language:language}:{})}))} catch(e){setError(e instanceof Error?e.message:String(e))} finally {setBusy(false)}
   }
   async function upload(file?:File) {
     if(!file)return
@@ -70,7 +65,7 @@ export function CocOnboarding({host, sessionId, onStart}: Props) {
     uploadRunning.current=true
     setBusy(true)
     try {
-      let current=await call({action:'begin',name:file.name,size:file.size})
+      let current=await call({action:'begin',name:file.name,size:file.size,play_language:language})
       remember(current)
       for(let offset=0;offset<file.size;offset+=MB){
         if(cancelled.current)break
@@ -83,11 +78,16 @@ export function CocOnboarding({host, sessionId, onStart}: Props) {
   }
   async function back(){setBusy(true);try{if(job)await call({action:'dismiss',id:job.id});setJob(null);setSection('home');setError('');try{localStorage.removeItem(storageKey)}catch{}}catch(e){setError(e instanceof Error?e.message:String(e))}finally{setBusy(false)}}
   const preparing=job && ['preparing','inspecting','uploading'].includes(job.state)
-  const investigator=job?.view?.investigators?.[0]
+  useEffect(()=>{
+    if(!job || !['ready','conversing'].includes(job.state) || starting.current)return
+    starting.current=true
+    void act({action:'converse'}).finally(()=>{starting.current=false})
+  },[job?.id,job?.state])
   return <div className="coc-onboarding"><div className="coc-onboarding-inner">
     <input ref={chooser} type="file" accept=".pdf,application/pdf" aria-label="选择 PDF 剧本" className="coc-file-input" onChange={event=>{void upload(event.target.files?.[0]);event.target.value=''}}/>
     <header className="coc-welcome"><span className="coc-eyebrow">CALL OF CTHULHU</span><h1>{job?.state==='created'?'调查员已就绪':job?.state==='ready'?'创建你的调查员':'从一份剧本开始'}</h1><p>{job?'准备进度会保留，离开这个页面后也可以回来继续。':'选择剧本，创建调查员，让守秘人带你进入故事。'}</p></header>
     {!job && <>
+        <label>游玩语言<select value={language} onChange={e=>setLanguage(e.target.value)}><option value="zh-Hans">简体中文</option><option value="en">English</option></select></label>
       <div className="coc-source-cards">
         <button className={section==='starter'?'selected':''} onClick={()=>setSection('starter')}><span className="coc-source-symbol">⌘</span><strong>选择预设剧本</strong><span>内置故事，直接开始准备</span><b>浏览预设 →</b></button>
         <button className={section==='pdf'?'selected':''} onClick={()=>{setSection('pdf');chooser.current?.click()}}><span className="coc-source-symbol">↑</span><strong>上传 PDF</strong><span>带上自己的模组，按需阅读</span><b>选择文件 →</b></button>
@@ -102,21 +102,14 @@ export function CocOnboarding({host, sessionId, onStart}: Props) {
     {job && <section className="coc-preparation" aria-label="剧本准备">
       <div className="coc-file-heading"><span className="coc-source-symbol">▤</span><div><strong>{job.name}</strong><small>{job.size?`${(job.size/MB).toFixed(1)} MB · `:''}{job.pages?`${job.pages} 页`:job.source==='starter'?'预设剧本':'PDF 剧本'}</small></div></div>
       {preparing && <div role="status" aria-live="polite">
-        <h2>{job.state==='uploading'?'正在上传':job.state==='inspecting'?'正在检查 PDF':stageNames[job.stage]||'正在准备剧本'}</h2>
-        {job.state==='uploading'?<><progress aria-label="上传进度" max={job.size} value={job.received}/><p>已上传 {(job.received/MB).toFixed(1)} / {(job.size/MB).toFixed(1)} MB</p></>:
-          <><progress aria-label="阅读进度" {...(job.stage==='verify'&&job.reviewTotal?{max:job.reviewTotal,value:job.reviewed||0}:{})}/><p>{job.stage==='verify'&&job.reviewTotal?`已核对 ${job.reviewed||0} / ${job.reviewTotal} 组资料 · ${job.activeReaders||0} 组正在复核`:'正在定位并阅读开场需要的原页。'}</p><p className="coc-muted">先准备开场，后续内容随调查按需补读。你可以先填写下方的调查员资料。</p></>}
+        <h2>{job.state==='uploading'?'正在上传':job.state==='inspecting'?'正在检查 PDF':(job.stage==='guidance'?'Preparing character guidance':stageNames[job.stage])||'正在准备剧本'}</h2>
+        {job.stage==='guidance'?<p role="status">Preparing and reviewing your scenario background and character suggestions.</p>:job.state==='uploading'?<><progress aria-label="上传进度" max={job.size} value={job.received}/><p>已上传 {(job.received/MB).toFixed(1)} / {(job.size/MB).toFixed(1)} MB</p></>:
+          <><progress aria-label="阅读进度" {...(job.stage==='verify'&&job.reviewTotal?{max:job.reviewTotal,value:job.reviewed||0}:{})}/><p>{job.stage==='verify'&&job.reviewTotal?`已核对 ${job.reviewed||0} / ${job.reviewTotal} 组资料 · ${job.activeReaders||0} 组正在复核`:'正在定位并阅读开场需要的原页。'}</p><p className="coc-muted">Character guidance follows opening preparation.</p></>}
         <button className="coc-secondary" onClick={()=>{if(job.state==='uploading'&&uploadRunning.current)cancelled.current=true;else void act({action:'pause'})}}>{job.state==='uploading'?'取消上传':'暂停准备'}</button>
       </div>}
       {job.state==='choice' && <div><h2>选择开场</h2><p>这份剧本提供了不同的开始方式。</p><div className="coc-source-list">{job.candidates?.map((item:Row)=><button key={item.scene} disabled={busy} onClick={()=>void act({action:'opening',scene:item.scene})}>{item.name}<b>选择 →</b></button>)}</div></div>}
       {['failed','paused'].includes(job.state)&&<div><h2>{job.state==='paused'?'准备已暂停':'暂时无法完成准备'}</h2><p>已经保存的文件和阅读进度都还在。</p>{job.error&&<details><summary>查看原因</summary><p>{job.error}</p></details>}<div className="coc-actions"><button disabled={busy||job.stopping} onClick={()=>void act({action:'resume'})}>{job.stopping?'正在暂停…':'继续准备'}</button><button className="coc-secondary" onClick={()=>chooser.current?.click()}>重新选择 PDF</button></div></div>}
-      {['ready','preparing','inspecting','choice','paused'].includes(job.state)&&<form className="coc-character-form" onSubmit={e=>{e.preventDefault();if(job.state!=='ready')return;void act({action:'create',play_language:language,character:{name,occupation,concept,age}})}}>
-        <p className="coc-ready">{job.state==='ready'?'✓ 开场已准备好':'先构想你的调查员'}</p><div className="coc-field-pair"><label>调查员姓名<input required maxLength={80} value={name} onChange={e=>setName(e.target.value)} placeholder="你想如何称呼自己？"/></label><label>年龄<input type="number" required value={age} onChange={e=>setAge(Number(e.target.value))}/></label></div>
-        <label>职业<select required value={occupation} onChange={e=>setOccupation(e.target.value)}><option value="">选择职业</option>{catalog?.occupations.map((item:Row)=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-        <label>人物构想 <span className="coc-muted">可选</span><textarea value={concept} onChange={e=>setConcept(e.target.value)} placeholder="是什么让你踏上这次调查？" rows={3}/></label>
-        <label>游玩语言<select value={language} onChange={e=>setLanguage(e.target.value)}><option value="zh-Hans">简体中文</option><option value="en">English</option></select></label>
-        <p className="coc-muted">采用快速建卡。属性与技能由规则系统生成，开始前可以查看角色。</p><button disabled={busy||job.state!=='ready'||!name.trim()||!occupation} type="submit">{busy?'正在创建…':job.state==='ready'?'创建角色':'等待开场准备好'}</button>
-      </form>}
-      {job.state==='created'&&investigator&&<div className="coc-character-preview"><h2>{investigator.name}</h2><p>{investigator.occupation?.name||investigator.occupation?.id||occupation}</p><div className="coc-stat-grid">{[['生命',investigator.hp],['理智',investigator.san],['魔法值',investigator.mp],['幸运',investigator.luck]].map(([label,value])=><div key={label}><span>{label}</span><strong>{value??'—'}</strong></div>)}</div><p className="coc-muted">角色已保存。点击后，守秘人将为你展开开场。</p><button disabled={busy} onClick={async()=>{setBusy(true);setError('');try{if(await onStart()===false)throw new Error('无法开始游戏，请重试。')}catch(e){setError(e instanceof Error?e.message:String(e));setBusy(false)}}}>{busy?'守秘人正在入席…':'开始游戏'}</button></div>}
+      {['ready','conversing'].includes(job.state)&&<p role="status">The guide is opening your character-creation conversation.</p>}
       {!preparing&&!busy&&job.state!=='created'&&<button className="coc-back" onClick={back}>← 返回选择剧本</button>}
     </section>}
     {error&&<div className="coc-error" role="alert"><strong>这一步没有完成</strong><p>{error}</p><button onClick={()=>{setError('');void call({action:'catalog'}).then(setCatalog).catch(e=>setError(e.message))}}>重试连接</button></div>}

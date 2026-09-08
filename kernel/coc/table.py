@@ -568,6 +568,7 @@ class Table:
             "scene": {"name": graph.handle(scene), "display_name": scene_label(graph, world, scene)},
             "pending_turn": pending_turn,
             "opening_needed": opening_needed,
+            "setup_prologue": (meta.get("setup") or {}).get("handoff", {}).get("prologue") if opening_needed else None,
             "module_reading": bool(self.module_store.module(graph.module_id).get("reading_version")),
             "resume": resume,
             # §15.6: which line the table just opened on, and how many circuits in.

@@ -520,6 +520,12 @@ function handle(method, params) {
 					],
 				},
 			};
+        case "setup.draft":
+            return {ok:true,result:{revision:1,sheet:{name:params.profile.name,occupation:params.profile.occupation},profile:params.profile,completeness:{valid:true,issues:[]}}};
+        case "setup.previewed":
+            return {ok:true,result:{previewed:true}};
+        case "setup.confirm":
+            return {ok:true,result:{committed:true,investigator_id:"inv-1"}};
 		case "setup.investigator": {
 			if (!params.name || !params.occupation) {
 				return { ok: false, error: { code: "invalid_params", message: "建卡要名字与职业 id" } };
@@ -819,8 +825,7 @@ function handle(method, params) {
 		}
 		case "table.ask": {
 			const refusedAskLanguage = checkPlayLanguage({
-				prompt: params.prompt,
-				...Object.fromEntries((params.options ?? []).map((option, i) => [`options[${i}]`, option])),
+				...(params.kind==='mechanics'?{}:{prompt:params.prompt,...Object.fromEntries((params.options??[]).map((option,i)=>[`options[${i}]`,option]))}),
 				...(params.text ? { text: params.text } : {}),
 			});
 			if (refusedAskLanguage) return refusedAskLanguage;
@@ -829,7 +834,7 @@ function handle(method, params) {
 			if (refusedAsk) return refusedAsk;
 			state = "asked";
 			// Delivery = text (optional) plus the prompt plus language-neutral numbered options; mechanics travel only in `mechanics`.
-			const askBody = [
+			const askBody = params.kind==='mechanics' ? (params.text||'') : [
 				...(params.text ? [params.text] : []),
 				params.prompt,
 				(params.options ?? []).map((o, i) => `${i + 1}. ${o}`).join("\n"),
@@ -846,7 +851,8 @@ function handle(method, params) {
 						options: params.options,
 						binds: params.binds ?? null,
 					},
-					rendered_text: askBody,
+					interaction:{name:`ask-choice-t${turn}`,kind:params.kind||'story',prompt:params.prompt||'',options:params.options,play_language:playLanguage},
+                    rendered_text: askBody,
 					mechanics: askMechanics,
 					turn,
 					state,

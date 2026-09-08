@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile, readdir } from 'node:fs/promises';
 import { KernelClient, isKernelError } from '../extensions/kernel/client.ts';
 import { ReadingService } from '../extensions/module/reading-service.ts';
+import { prepareCharacterGuidance } from '../extensions/module/character-guidance.ts';
 import { sourceInfo } from '../extensions/module/source.ts';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -14,8 +15,17 @@ const kernel = new KernelClient({command: ['uv', 'run', '--frozen', 'python', '-
   cwd: repo, env: {...process.env, PYTHONPATH: join(repo, 'kernel'), PYTHONDONTWRITEBYTECODE: '1'} as Record<string,string>});
 let reader: ReadingService | undefined;
 let stopping = false;
-for (const signal of ['SIGTERM','SIGINT'] as const) process.on(signal, () => {stopping = true; reader?.dispose();});
+const guidanceAbort = new AbortController();
+for (const signal of ['SIGTERM','SIGINT'] as const) process.on(signal, () => {stopping = true; guidanceAbort.abort(); reader?.dispose();});
 const call = (method: string, params: Record<string, unknown> = {}) => kernel.call<any>(method, params);
+async function withGuidance(prepared: any) {
+  emit('progress', {stage: 'guidance'});
+  const occupations = await call('setup.occupations');
+  const guidance = await prepareCharacterGuidance({home: input.home, module_id: input.module_id,
+    play_language: input.play_language || 'zh-Hans', opening: input.start_scene,
+    occupations: occupations.occupations, model: input.model, thinking: input.thinking, signal: guidanceAbort.signal});
+  return {...prepared, guidance};
+}
 async function main() {
   if (action === 'catalog') {
     const presets = [];
@@ -37,13 +47,13 @@ async function main() {
   if (action === 'prepare') {
     if (input.source === 'starter') {
       await call('module.register', {module_id: input.module_id});
-      return {module_id: input.module_id, opening_ready: true};
+      return await withGuidance({module_id: input.module_id, opening_ready: true});
     }
     reader = new ReadingService({call, home: input.home, model: () => ({id: input.model, vision: true, thinking: input.thinking}),
       progress: data => emit('progress', data), record: data => emit('telemetry', data)});
     let retry = input.retry === true;
     while (!stopping) {
-      try { return await reader.prepare({module_id: input.module_id, start_scene: input.start_scene, retry}); }
+      try { return await withGuidance(await reader.prepare({module_id: input.module_id, start_scene: input.start_scene, retry})); }
       catch (error) {
         retry = false;
         if (isKernelError(error) && error.details?.reason === 'reading_timeout') continue;
@@ -52,20 +62,11 @@ async function main() {
     }
     throw new Error('Preparation paused');
   }
-  if (action === 'create') {
-    const campaign = input.campaign;
-    const existing = (await call('campaign.list')).campaigns?.some((row: any) => row.id === campaign);
-    if (!existing) {
-      if (input.start_scene) await call('module.opening.choose', {module_id: input.module_id, scene: input.start_scene});
-      await call('campaign.create', {id: campaign, module: input.module_id, title: input.title, play_language: input.play_language});
-    }
-    let view = await call('table.view', {campaign});
-    if (!view.investigators?.length) await call('setup.investigator', {campaign, id: 'investigator',
-      name: input.character.name, occupation: input.character.occupation, concept: input.character.concept,
-      age: input.character.age, method: 'quick_fire'});
-    await call('setup.complete', {campaign});
-    view = await call('table.view', {campaign});
-    return {campaign, view};
+  if (action === 'converse') {
+    const campaign=input.campaign;
+    const existing=(await call('campaign.list')).campaigns?.some((row:any)=>row.id===campaign);
+    if(!existing)await call('campaign.create',{id:campaign,module:input.module_id,title:input.title,play_language:input.play_language});
+    return {campaign,play_language:input.play_language};
   }
   throw new Error('Unknown onboarding operation');
 }

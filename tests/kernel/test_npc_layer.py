@@ -582,7 +582,8 @@ def test_an_npc_pin_cannot_replace_an_authored_value_but_can_fill_a_missing_skil
     write(Path(job["work_dir"]) / "draft.json", draft)
     finish(kernel, job)
     kernel.ok("campaign.create", {"id": CAMPAIGN, "module": mid, "play_language": "en"})
-    kernel.ok("setup.investigator", {"campaign": CAMPAIGN, "name": "Ada", "occupation": "Journalist"})
+    from setup_helpers import confirmed_investigator
+    confirmed_investigator(kernel, campaign=CAMPAIGN, name="Ada")
     kernel.ok("setup.complete", {"campaign": CAMPAIGN})
     kernel.table("open")
     kernel.table("narrate", call_id="t0-c1", text="Lena waits at the dock.")

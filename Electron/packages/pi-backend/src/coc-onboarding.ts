@@ -39,7 +39,7 @@ export class CocOnboardingHost {
     const state = job.state === 'preparing' && !this.children.has(job.id) ? 'paused' : job.state;
     return {id: job.id, name: job.name, source: job.source, size: job.size, received: job.received,
       state, stopping: state === "paused" && this.children.has(job.id), stage: job.stage, pages, indexed, activeReaders: job.progress?.activeReaders ?? activeReaders, reviewed: job.progress?.reviewed, reviewTotal: job.progress?.review_total, candidates: job.candidates, error: job.error,
-      model: job.model, thinking: job.thinking, campaign: job.campaign, view: job.view};
+      model: job.model, thinking: job.thinking, campaign: job.campaign, view: job.view, guidance: job.guidance, play_language: job.play_language};
   }
   private run(action: string, data: Row, job?: Row): Promise<any> {
     const child = spawn(process.execPath, ['--experimental-strip-types', join(this.options.repo, 'pipicoc/onboarding-worker.ts'), action,
@@ -75,10 +75,11 @@ export class CocOnboardingHost {
   private prepare(job: Row, retry = false) {
     if (this.children.has(job.id)) return;
     this.stopping.delete(job.id);
+    job.play_language ||= 'zh-Hans';
     job.state = 'preparing'; job.stage = 'preparing'; job.progress = undefined; job.error = undefined; this.save(job);
     void this.run('prepare', {...job, retry}, job).then(result => {
       if (this.stopping.has(job.id)) return;
-      job.state = 'ready'; job.module_id = result.module_id; job.stage = 'ready'; this.save(job);
+      job.guidance = result.guidance; job.state = 'ready'; job.module_id = result.module_id; job.stage = 'ready'; this.save(job);
     }).catch(error => {
       if (this.load(job.id, job.session).state === 'paused') return;
       job.state = error.code === 'needs_choice' ? 'choice' : 'failed';
@@ -103,7 +104,8 @@ export class CocOnboardingHost {
       if (params.action === 'begin' && (!Number.isSafeInteger(params.size) || params.size < 5 || params.size > MAX_FILE ||
         typeof params.name !== 'string' || !params.name.toLowerCase().endsWith('.pdf'))) throw new Error('Choose a PDF of up to 128 MiB');
       if (!model.vision && params.source !== 'starter') throw new Error('Choose a model with image input');
-      const job: Row = {id: randomUUID(), session, name: params.name, size: params.size || 0, received: 0,
+      if (params.play_language && !['zh-Hans','en'].includes(params.play_language)) throw new Error('Invalid play language');
+      const job: Row = {play_language: params.play_language || 'zh-Hans', id: randomUUID(), session, name: params.name, size: params.size || 0, received: 0,
         source: params.action === 'begin' ? 'pdf' : params.source, module_id: params.module_id,
         model: model.id, thinking: model.thinking, state: params.action === 'begin' ? 'uploading' : 'preparing'};
       mkdirSync(this.folder(job.id)); this.save(job);
@@ -145,14 +147,12 @@ export class CocOnboardingHost {
       } else if (params.action === 'dismiss') {
         if (this.children.has(job.id) || ['uploading','inspecting'].includes(job.state)) throw new Error('Pause preparation before choosing another scenario');
         job.dismissed = true; this.save(job);
-      } else if (params.action === 'create') {
-        if (!['ready','created'].includes(job.state)) throw new Error('Wait for the scenario to be ready');
-        if (job.state !== 'created') {
-          if (!params.character?.name?.trim() || !params.character?.occupation) throw new Error('Enter a name and choose an occupation');
-          job.campaign ||= 'game-' + randomUUID(); this.save(job);
-          const result = await this.run('create', {...job, title: params.title || job.name, play_language: params.play_language || 'zh-Hans', character: params.character}, job);
-          job.view = result.view; job.state = 'created'; job.play_language = params.play_language || 'zh-Hans'; this.save(job);
-        }
+      } else if (params.action === 'converse') {
+        if (!['ready','conversing'].includes(job.state)) throw new Error('Wait for the scenario guidance to be ready');
+        if(!job.guidance) {this.prepare(job,true);return this.snapshot(job);}
+        job.campaign ||= 'game-' + randomUUID(); this.save(job);
+        await this.run('converse', {...job,title:job.name,play_language:job.play_language||'zh-Hans'},job);
+        job.state='conversing'; this.save(job);
       } else throw new Error('Unknown onboarding action');
       return this.snapshot(job);
     } finally {this.busy.delete(job.id);}

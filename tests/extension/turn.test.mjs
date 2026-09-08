@@ -28,8 +28,7 @@ test("a source timeout yields the turn instead of allowing another source query"
 	const table = await openTable({ responses: [
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Lena", question: "Her testimony" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Tower", question: "Her testimony" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "Already read." })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("ask", { prompt: "The source is still being read. Continue waiting?", options: ["Continue waiting", "Pause"] })], { stopReason: "toolUse" }),
+				fauxAssistantMessage([fauxToolCall("narrate", {text:"The source is still being read."})], { stopReason: "toolUse" }),
 		fauxAssistantMessage("The source is still being read. Continue waiting?"),
 	] });
 	t.after(() => table.dispose());
@@ -40,8 +39,8 @@ test("a source timeout yields the turn instead of allowing another source query"
 	} });
 	await table.session.prompt("Please verify this in the original book.");
 	assert.equal(reads, 1);
-	assert.equal(table.kernelRequests().filter(r => r.method === "table.narrate").length, 0);
-	assert.equal(table.kernelRequests().filter(r => r.method === "table.ask").length, 1);
+	assert.equal(table.kernelRequests().filter(r => r.method === "table.narrate").length, 1);
+	assert.equal(table.kernelRequests().filter(r => r.method === "table.ask").length, 0);
 });
 
 test("一个玩家回合：七个工具、胶囊、call_id、rendered_text 交付", async (t) => {
@@ -178,28 +177,16 @@ test("一个玩家回合：七个工具、胶囊、call_id、rendered_text 交�
 	assert.ok(telemetry.every((row) => typeof row.turn === "number"));
 });
 
-test("ask 也关闭回合：交付的是内核渲染的问题加选项", async (t) => {
-	const table = await openTable({
-		responses: [
-			fauxAssistantMessage(
-				[
-					fauxToolCall("ask", {
-						prompt: "你先看哪边？",
-						options: ["地窖门", "楼梯"],
-					}),
-				],
-				{ stopReason: "toolUse" },
-			),
-			fauxAssistantMessage("ask 之后守秘人不该再写的正文"),
-		],
-	});
-	t.after(() => table.dispose());
-
-	await table.session.prompt("我站在门厅里犹豫");
-
-	const ask = table.kernelRequests().find((entry) => entry.method === "table.ask");
-	assert.equal(ask.params.call_id, "t1-c1");
-	assert.equal(assistantTexts(table.session).at(-1), "你先看哪边？\n1. 地窖门\n2. 楼梯");
+test("ordinary questions use free prose and never create story action controls", async t=>{
+ const table=await openTable({responses:[
+  fauxAssistantMessage([fauxToolCall("ask",{kind:"story",prompt:"Choose?",options:["A","B"]})],{stopReason:"toolUse"}),
+  fauxAssistantMessage([fauxToolCall("narrate",{text:"门厅很安静，你准备怎么做？"})],{stopReason:"toolUse"}),
+  fauxAssistantMessage("")
+ ]});t.after(()=>table.dispose());
+ await table.session.prompt("我看看门厅。");
+ assert.equal(table.kernelRequests().filter(x=>x.method==="table.ask").length,0);
+ assert.equal(table.entries("coc-choice").length,0);
+ assert.equal(assistantTexts(table.session).at(-1),"门厅很安静，你准备怎么做？");
 });
 
 test("守秘人写了台词却没调 narrate：宿主替它 narrate，正文原样送进内核", async (t) => {

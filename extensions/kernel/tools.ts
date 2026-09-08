@@ -452,7 +452,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Ask",
 		method: "table.ask",
 		description:
-			"Close with a structured interaction only when a player decision is needed. kind story uses a fictional prompt and authored options. kind mechanics forbids a prompt and uses only closed action identifiers: push, spend_luck, accept, dodge, fight_back, flee. Never automatically ask how to handle a failed check; normally narrate its fictional consequence. Questions and options are JSON for frontend controls, never part of rendered prose. text contains fiction only, and takes the same {{marker}} placement narrate does. After the call write no more prose.",
+			"Close with a structured interaction only for a required mechanical decision. Ordinary story questions belong in narrate prose and await free input. kind mechanics forbids a prompt and uses only closed action identifiers: push, spend_luck, accept, dodge, fight_back, flee. Never automatically ask how to handle a failed check; normally narrate its fictional consequence. Questions and options are JSON for frontend controls, never part of rendered prose. text contains fiction only, and takes the same {{marker}} placement narrate does. After the call write no more prose.",
 		promptSnippet: "Hand one choice back to the player, and close the turn with it",
 		parameters: Type.Object({
 			text: Type.Optional(
@@ -461,9 +461,9 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 						"Fiction and observable consequences only. No roll results, numbers from receipts, or mechanical questions.",
 				}),
 			),
-			kind: Type.Optional(Type.Union([Type.Literal("story"), Type.Literal("mechanics")])),
-            prompt: Type.Optional(Type.String({ description: "Only for story choices. Mechanics choices forbid a prompt." })),
-			options: Type.Array(Type.String(), { minItems: 2, description: "Story: authored options. Mechanics: only push, spend_luck, accept, dodge, fight_back, flee. Never automatically ask after a failed roll." }),
+			kind: Type.Literal("mechanics"),
+
+			options: Type.Array(Type.String(), { minItems: 2, description: "Mechanics: only push, spend_luck, accept, dodge, fight_back, flee. Never automatically ask after a failed roll." }),
 			binds: Type.Optional(Type.String({ description: "the name of the pending choice this binds to" })),
 		}),
 	},

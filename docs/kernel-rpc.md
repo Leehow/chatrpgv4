@@ -1863,3 +1863,88 @@ External check: [ink's linked knots and explicit END](https://www.inklestudios.c
 and [Yarn Spinner's node jumps](https://yarnspinner.dev/docs/faq/) separate narrative
 transitions from termination. They support this distinction, while our existing
 receipts and development capsules remain responsible for game-state persistence.
+
+### 23.4 Immersive setup: one calculated draft, one confirmation
+
+This section replaces the earlier prose-only confirmation implementation. Acceptance
+is docs/specs/immersive-character-creation.md. The existing setup tool and campaign
+store own the lifecycle; no second creation agent or rules engine is introduced.
+
+**Creation method.** New conversational drafts use standard rolled characteristics,
+rulebook age adjustments, occupational formula points and INT*2 personal-interest
+points. Separate deterministic random streams for characteristics, age and Luck
+preserve unrelated outcomes when editing. Existing quick_fire legacy imports are
+not relabeled as rulebook Quick Fire. No invented point method or outstanding skill
+choice may pass completeness. Skill directions, concrete specialties, languages,
+backstory and ordinary kit are semantic choices supplied by the setup model.
+
+**RPC.** All calls include campaign. setup.draft accepts profile, a partial update
+of the current semantic profile: name, occupation, age, sex, concept, occupation_skills
+(eight concrete skills, including required catalog skills), interest_skills (concrete
+skills), own_language, backstory (3–6 populated first-six categories plus scenario_bound),
+key_connection (backstory_field and summary), equipment (named ordinary items), and
+weapons (optional catalog names). Unknown skills return the relevant catalog; no
+semantic regex picks skills or fills an open choice. The kernel reuses Chargen's
+arithmetic and validates complete budgets, provenance, gear and background.
+
+The immutable candidate lives under campaign setup/drafts; campaign.setup points to
+its current host-generated revision and digest. Invalid input returns findings and
+never replaces a valid draft. setup.draft returns revision, sheet, completeness and
+player-language labels. A repeated identical profile reuses the same revision.
+setup.previewed {revision} is a host-only acknowledgment after actual render; it
+rejects stale versions. setup.confirm {revision, consent: approved|delegated} commits
+that exact sheet, without random generation. approved requires the current preview
+ack and a later player-input token than the draft creation input; delegated is only for explicit write-now requests and does not pretend the
+player saw a prior version. The extension injects revision and the per-input token, never the model.
+
+Draft revisions, previews and confirmation are serialized by a campaign-local file
+lock across kernel processes. Immutable draft file publication precedes its pointer;
+confirmation can recover after the sheet write by proving equality before recording
+the confirmation. Repeated confirmation returns the existing receipt; a different
+sheet at the destination is a conflict. setup.complete checks all card completeness
+and the setup confirmation, then performs its existing handoff. Imported/library
+cards remain a distinct source and must satisfy their own validated intake contract.
+
+**Pi/GUI.** draft-investigator is repeatable until confirm-investigator commits;
+steps carry current draft state across session recovery. The extension appends a
+coc-character-draft entry with actual calculated values. Electron renders it inside
+the existing transcript and acknowledges its revision through the authenticated
+session binding; the acknowledgment may not target another campaign. Terminal setup
+renders the same data as structured JSON and acknowledges only after emitting it.
+The model sees semantic profile/actual values but no opaque revision or hashes.
+A model-supplied confirmed flag is not a substitute for these checks.
+
+**Prologue.** The module-owned cache holds opening/advice plus scene, guide and
+handoff text, all source-grounded and independently reviewed. Review may request
+one bounded author revision; both rounds and findings remain on disk. Failed review
+blocks setup and suppresses invented fallback prose. A brief narrator identity hint
+is permitted; internal implementation instructions are not. Opening is an in-world
+meeting with one identity question and a brief narrator hint, never a synopsis/menu.
+setup.prologue is host-only and binds scene/guide/text/handoff to the authored
+opening, validating that the guide is present. Only the first delivered meeting is
+recorded; it does not award any resource. The setup
+context records the actual opening delivery; confirmation records the introduction
+and last setup exchange. It cannot award keys, money, clues or accept commissions.
+Play opening receives that committed context and continues the meeting, without
+repeating arrival or introductions. Subsequent recovery uses the normal turn receipts.
+
+**Free action.** Ordinary scene questions belong in fiction and await free player
+input. New ordinary questions close through narrate with no pending choice or options.
+The model-facing ask only admits kind=mechanics; its runtime also rejects story
+requests. Raw table.ask retains the old story format for existing RPC clients and
+receipt/recovery compatibility, but that path is not exposed to the new Keeper.
+Legacy story records are displayed as text. Reading/preparation waits likewise
+return prose through normal turn closure, without creating fake story choices.
+Mechanics controls retain the existing closed action vocabulary and rule arithmetic.
+
+**Precedent.** Expected-version checks follow optimistic-concurrency practice
+(https://learn.microsoft.com/en-us/aspnet/core/data/ef-rp/concurrency); the local
+store adds its existing atomic files and a shared lock rather than a database.
+Creation choices are checked against the supplied Keeper Rulebook Chapter 3 and
+Chaosium skill/equipment guidance. No new provider or dependency is needed.
+
+Setup confirmation may carry pending_action only as an exact substring of a
+host-provided player_requests entry. It is retained in the prologue handoff for the
+Keeper to address through normal receipts, not executed by setup. Confirmed drafts
+cannot be edited before handoff; completion verifies the confirmed/current revision
+match. Draft files are digest-checked before replay or commit.

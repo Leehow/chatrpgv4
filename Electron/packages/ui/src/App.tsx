@@ -2714,15 +2714,12 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
           {selectedSession ? (
             <div key={selectedSession} className="session-transcript-slot" data-session-transcript={selectedSession}>
               {onboardingActive
-                ? <CocOnboarding host={host} sessionId={selectedSession} onStart={async () => {
-                    const result = await host.invokeExtension?.('coc-keeper', 'onboarding', {action:'start'}, {sessionId:selectedSession});
-                    if (!result?.ok) throw new Error(result?.error?.message || '无法启动守秘人，请重试。');
-                    return true;
-                  }} />
+                ? <CocOnboarding host={host} sessionId={selectedSession} />
                 : <Transcript
                 playerView={productId === 'pipicoc'}
                 stateKey={selectedSession}
                 onChoose={async (entry,option)=>{
+                  if(entry.renderer==='coc-character-draft'){const ack=await host.invokeExtension!("coc-keeper","draft-previewed",{revision:(entry.details as any).revision},{sessionId:selectedSession});if(!ack.ok)throw new Error(ack.error?.message||"Preview acknowledgment failed");return;}
                   const result=await host.invokeExtension!("coc-keeper","choose",{choice:(entry.details as any).name,option},{sessionId:selectedSession});
                   if(!result.ok)throw new Error(result.error?.message || "Choice failed");
                 }}

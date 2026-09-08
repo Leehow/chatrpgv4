@@ -1,4 +1,5 @@
 """Published legacy material stays usable without the retired source builder."""
+from setup_helpers import confirmed_investigator
 import shutil
 import json
 from pathlib import Path
@@ -20,7 +21,7 @@ def test_legacy_graph_and_assets_open_without_text_bundles_or_an_original_pdf(ke
         assert asset["player_visible"] is True
         assert Path(asset["asset"]["path"]).read_bytes() == (source / "bundle/assets/map-dock.png").read_bytes()
     kernel.ok("campaign.create", {"id": "c1", "module": "grey-heron-dock", "play_language": "en"})
-    kernel.ok("setup.investigator", {"campaign": "c1", "name": "Ada", "occupation": "Journalist"})
+    confirmed_investigator(kernel)
     kernel.ok("setup.complete", {"campaign": "c1"})
     assert kernel.table("open")["scene"]["name"] == "dock-teahouse"
     error = kernel.err("module.read.request", {"module_id": "grey-heron-dock", "purpose": "detail",

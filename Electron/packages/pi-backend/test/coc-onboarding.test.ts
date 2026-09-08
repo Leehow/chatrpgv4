@@ -8,7 +8,7 @@ const services:CocOnboardingHost[]=[];
 async function service(){
   const home=await mkdtemp(join(tmpdir(),'coc-onboarding-'));
   const repo=resolve(import.meta.dirname,'../../../..');
-  const host=new CocOnboardingHost({repo,home,agentDir:join(home,'agent'),env:{...process.env,UV_CACHE_DIR:'/tmp/pi-coc-uv-cache'}});
+  const host=new CocOnboardingHost({repo,home,agentDir:join(home,'agent'),env:{...process.env,PI_COC_READER_CMD:JSON.stringify([process.execPath,join(repo,'tests/extension/fixtures/guidance-reader.mjs')]),UV_CACHE_DIR:'/tmp/pi-coc-uv-cache'}});
   services.push(host);return {host,home};
 }
 afterEach(()=>{for(const host of services.splice(0))host.dispose()});
@@ -29,18 +29,29 @@ it('bounds upload bytes, acknowledges offsets and rejects another session',async
   expect(invalid.state).toBe('failed');
   expect(invalid.error).toBeTruthy();
 });
-it('preset setup uses the canonical kernel and creating twice keeps one investigator',async()=>{
-  const {host}=await service();
+it('conversation binding is idempotent and never creates an investigator',async()=>{
+  const {host,home}=await service();
   const catalog=await host.invoke({action:'catalog'},'one',model);
   expect(catalog.presets.some((p:any)=>p.id==='the-haunting')).toBe(true);
-  let job=await host.invoke({action:'select',source:'starter',module_id:'the-haunting',name:'The Haunting'},'one',model);
+  let job=await host.invoke({action:'select',source:'starter',module_id:'the-haunting',name:'The Haunting',play_language:'en'},'one',model);
   const deadline=Date.now()+10000;
   while(job.state==='preparing'&&Date.now()<deadline){await new Promise(r=>setTimeout(r,50));job=await host.invoke({action:'status',id:job.id},'one',model)}
   expect(job.state).toBe('ready');
-  const params={action:'create',id:job.id,character:{name:'Ada',occupation:'Journalist',age:27},play_language:'en'};
-  const created=await host.invoke(params,'one',model);
+  let reused=await host.invoke({action:'select',source:'starter',module_id:'the-haunting',name:'The Haunting',play_language:'en'},'two',model);
+  const reuseDeadline=Date.now()+10000;
+  while(reused.state==='preparing'&&Date.now()<reuseDeadline){await new Promise(r=>setTimeout(r,50));reused=await host.invoke({action:'status',id:reused.id},'two',model)}
+  expect(reused.state).toBe('ready');expect(reused.guidance).toEqual(job.guidance);
+  const {readdir}=await import('node:fs/promises');
+  const cache=join(home,'.coc/modules/the-haunting/character-guidance');
+  const keys=await readdir(cache);expect(keys).toHaveLength(1);
+  expect(await readdir(join(cache,keys[0],'attempts'))).toHaveLength(1);
+  const params={action:'converse',id:job.id};
+  const first=await host.invoke(params,'one',model);
   const replay=await host.invoke(params,'one',model);
-  expect(created.state).toBe('created');expect(replay.campaign).toBe(created.campaign);
-  expect(replay.view.investigators).toHaveLength(1);expect(replay.view.investigators[0].name).toBe('Ada');
-  expect(replay.view.investigators[0].hp).toBeGreaterThan(0);
+  expect(first.state).toBe('conversing');expect(replay.campaign).toBe(first.campaign);
+  const campaign=JSON.parse(await readFile(join(home,'.coc/campaigns',first.campaign,'campaign.json'),'utf8'));
+  expect(campaign.status).toBe('setting_up');
+  const {readdir:files}=await import('node:fs/promises');
+  expect((await files(join(home,'.coc/campaigns',first.campaign,'party'))).filter(x=>x.endsWith('.json'))).toHaveLength(0);
+  await expect(host.invoke({action:'create',id:job.id,character:{name:'Forbidden',occupation:'Journalist'}},'one',model)).rejects.toThrow('Unknown onboarding action');
 });
