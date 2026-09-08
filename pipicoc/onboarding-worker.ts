@@ -23,10 +23,13 @@ const call = (method: string, params: Record<string, unknown> = {}) => kernel.ca
 async function withGuidance(prepared: any) {
   emit('progress', {stage: 'guidance'});
   const occupations = await call('setup.occupations');
-  const guidance = await prepareCharacterGuidance({home: input.home, module_id: input.module_id,
+  const options = {home: input.home, module_id: input.module_id,
     play_language: input.play_language || 'zh-Hans', opening: input.start_scene,
-    occupations: occupations.occupations, model: input.model, thinking: input.thinking, signal: guidanceAbort.signal});
-  return {...prepared, guidance};
+    occupations: occupations.occupations, model: input.model, thinking: input.thinking, signal: guidanceAbort.signal};
+  const guidance = await prepareCharacterGuidance(options);
+  const guidance_key = await guidanceFingerprint(options);
+  const meta = JSON.parse(await readFile(join(input.home,'.coc/modules',input.module_id,'module.json'),'utf8'));
+  return {...prepared, guidance, ...(meta.character_guidance?.[guidance_key] ? {guidance_key} : {})};
 }
 /** The play languages the picker is authored in; the same closed set the host validates
  *  on `select` and the onboarding `<select>` offers. */

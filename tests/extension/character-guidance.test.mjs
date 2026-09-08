@@ -3,9 +3,27 @@ import {test} from 'node:test';
 import {mkdtemp,mkdir,readFile,writeFile,readdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {prepareCharacterGuidance,validateGuidance} from '../../extensions/module/character-guidance.ts';
+import {prepareCharacterGuidance,validateGuidance,guidanceFingerprint} from '../../extensions/module/character-guidance.ts';
 const occupations=[{id:'Journalist',name:'Journalist'}];
 const guide={scene:'Story',guide:'',handoff:'Continue the meeting.',opening:'Boston, 1920. What is your name, and what kind of person are you?',advice:'Suggest source-fitting occupations and respect the player choices.'};
+test('default, name, node ID and runtime handle reuse one reviewed opening',async()=>{
+ const {folder,options,calls}=await fixture();
+ await writeFile(join(folder,'module.json'),JSON.stringify({id:'story',opening:{start_scene:'scene-office'}}));
+ await writeFile(join(folder,'module-graph.json'),JSON.stringify({nodes:[{node_id:'scene-office',node_kind:'scene',name:'The Office',aliases:['Office entrance'],properties:{runtime_projection:{record:{scene_id:'office'}}}}]}));
+ const keys=await Promise.all([undefined,'scene-office','The Office','office','Office entrance'].map(opening=>guidanceFingerprint({...options,opening})));
+ assert.equal(new Set(keys).size,1);
+ for(const opening of [undefined,'The Office','office'])await prepareCharacterGuidance({...options,opening});
+ assert.equal(calls(),2);
+ const [attempt]=await readdir(join(folder,'character-guidance',keys[0],'attempts'));
+ const packet=JSON.parse(await readFile(join(folder,'character-guidance',keys[0],'attempts',attempt,'packet.json'),'utf8'));
+ assert.equal(packet.opening,'The Office');
+});
+test('a listed starter cache miss never runs a reader during selection',async()=>{
+ const {folder,options,calls}=await fixture();
+ await writeFile(join(folder,'module.json'),JSON.stringify({id:'story',bundled_guidance_required:true}));
+ await assert.rejects(prepareCharacterGuidance(options),/Bundled starter guidance/);
+ assert.equal(calls(),0);
+});
 async function fixture(approved=true){
  const home=await mkdtemp(join(tmpdir(),'guidance-'));const folder=join(home,'.coc/modules/story');await mkdir(folder,{recursive:true});
  await writeFile(join(folder,'module.json'),JSON.stringify({id:'story'}));
