@@ -28,7 +28,7 @@ it('displays canonical zero damage bonus numerically even with an old text proje
  const before=JSON.stringify(data);
  render(<CocCharacterDraft data={data}/>);
  const label=await screen.findByText('伤害加值');
- expect(label.closest('tr')?.querySelector('td:last-child')?.textContent).toBe('0');
+ expect(label.closest('.coc-draft-stat')?.querySelector('dd')?.textContent).toBe('0');
  expect(screen.queryByText('无')).toBeNull();
  expect(JSON.stringify(data)).toBe(before);
 })
