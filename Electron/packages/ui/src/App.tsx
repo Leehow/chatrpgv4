@@ -1973,6 +1973,18 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     }
   }, [applyObservedStatus, host, markSessionTitleMutation, selectedSession, sessionQueue.acceptStreamEvent])
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(widths)) }, [widths])
+  // A pack that names an `auxiliarySidebar` is saying that panel is where the right pane
+  // lives in this product -- PipiCOC's investigator sheet is part of the table, not a tool
+  // the player has to go find. So the pane opens on it every time the pack becomes active,
+  // even when a collapse persisted from another product or an earlier run. It is a starting
+  // position, not a lock: collapsing it during the run still sticks.
+  const openedAuxiliaryPanelRef = useRef('')
+  useEffect(() => {
+    if (defaultProductPanel === DEFAULT_PANEL_TAB) return
+    if (openedAuxiliaryPanelRef.current === defaultProductPanel) return
+    openedAuxiliaryPanelRef.current = defaultProductPanel
+    setWidths(current => current.toolsCollapsed ? { ...current, toolsCollapsed: false } : current)
+  }, [defaultProductPanel])
   // Auto-collapse is the narrow-width default on every entry (Swift sidebarCollapseWidth).
   useEffect(() => { if (narrowViewport) setNarrowPanes({ sidebar: false, tools: false }) }, [narrowViewport])
 
