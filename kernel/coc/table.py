@@ -13,8 +13,8 @@ from typing import Any, Callable
 
 from . import (KERNEL_VERSION, bookkeeping, continuation, echoes, history, library, memory,
                recall as recall_roads, warn as warn_lane, worldline)
-from .capsule import (clue_label, clue_summary, scene_label, build_capsule, clues_here, investigator_view, npc_view, npcs_present,
-                      present_section, where_section)
+from .capsule import (clock_section, clue_label, clue_summary, scene_label, build_capsule, clues_here, investigator_view,
+                      npc_view, npcs_present, present_section, where_section)
 from .craft import DEFAULT_REGISTER, TextGraph
 from .director import DirectorGraph, director_adoption
 from .errors import RpcError, invalid_params, not_implemented, unsupported_value
@@ -627,6 +627,9 @@ class Table:
         language = language_of(campaign.read_campaign())
         return {
             **snapshot,
+            # The panel prints when it is in the fiction, so the view carries the full clock
+            # (§23) — the snapshot's bare minutes are the turn record's business, not the card's.
+            "clock": clock_section(graph, world),
             "pending_choice": turn.get("pending_choice") or snapshot.get("pending_choice"),
             "play_language": language,
             "turn": turn["turn"],

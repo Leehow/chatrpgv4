@@ -630,7 +630,7 @@ RuleGraph 的每个决策声明输入槽位与归属。宿主锁定槽位由内�
 - **`promise` 的接续。** 与 `relationship` 同一条确定性规则：同 `subject` 同 `entities` 的新 `promise` 给旧的加 `valid_until_turn` / `superseded_by`；抽取指令多一句。
 - **`style` 的行。** 九条轴与十七条 directive 的 play_language 短句住在 `content/craft/beat-directives.json`（`axis_lines`、`directive_lines`），没有对应语言的行时退到 `en`，再退到图上的 `name` / `rationale`；轴按 `language_applicability` 过滤（`translationese` 只给 zh-Hans）。「重开进程后的第一回合」= 本进程第一次 `player_input` 打开的那一回合：那一回合的所有胶囊（含 `table.capsule`）都给全部 directive，2KB；之后的回合按节拍表，1KB。zh-Hans 全量 2019 字节刚好装下；`en` 全量超预算，按 `truncated` 裁尾。
 - **采纳落两处。** `narrate` 与 `ask` 关回合时都算 `director_adoption`，写进回合记录，并在 `telemetry.jsonl` 写一行 `{lane: "director", turn, closed_by, beat, adopted, evidence}`；turn 0 没有胶囊，记录里为 `null`。`CHARACTER` 的 social 族与 `RECOVER` 的 healing/development 族从本回合 `calls` 结果的 `family` 反查收据；`MONTAGE` 看本回合 `time` 收据的总分钟数 ≥ 60；`CHOICE` 以 `ask` 关闭时 `evidence` 为空数组。
-- **`where.clock.day_part`** 只在模组节点记录声明 `start_time`（`HH:MM`）时给（The Haunting 没有）；`structure_type` 读模组节点记录的 `structure_type`，没有就 `branching_investigation`。`campaign.create` 接受 `register`（文本图 `play-register` 的 legacy key，缺省 `purist`），写进 `campaign.json`。
+- **`where.clock.at` 与 `day_part`** 只在模组节点声明了故事何时开场时给：`start_clock.local_datetime`（`module-meta.json` 的本地日期时间，The Haunting 是 `1920-10-12T10:00:00`）或退而求其次的 `start_time`（`HH:MM`，只有钟点没有日期，因此只有 `day_part` 没有 `at`）。`at` = 声明的开场时刻 + `world.clock.minutes`，以 `YYYY-MM-DDTHH:MM` 给出；`elapsed` 仍然是从战役开局算起的已过时间，两者不是一回事。`day_part` 的边界是**起始钟点**（5 dawn / 8 morning / 12 midday / 14 afternoon / 18 evening / 22 night，之前是 `small_hours`）。两者都不声明的模组一个都不给——不猜。`table.view` 的 `clock` 与胶囊同一份投影（§23），面板据此显示局内时间。`structure_type` 读模组节点记录的 `structure_type`，没有就 `branching_investigation`；`structure_type` 读模组节点记录的 `structure_type`，没有就 `branching_investigation`。`campaign.create` 接受 `register`（文本图 `play-register` 的 legacy key，缺省 `purist`），写进 `campaign.json`。
 - **本体校验的池。** `graph:rule:coc7` 对规则图节点 id；`graph:director:production` 对 Director 图节点 id；`graph:text:production` 对文本图节点 id；`graph:live-state:campaign` 的 `locator` 对 RuleGraph 的 `REGISTERED_CONDITION_PATHS`；`graph:execution:coc7-resolver` 的 `locator` 对 resolver 的 `public_api_index` 加内核执行器名；`graph:module:<id>` 对该模组图的节点 id（当前注册表没有模组引用）。关系两端必须是已登记的 `ref_id`。每进程校验一次，结果缓存。
 - **`may-emit-effect` 的效果清单**以 `Ontology.effect_ids()` 暴露（决策 → 效果 id）。本树的 `narrate` 没有「每个状态效果恰交代一次」的确定性检查——12.5 的 `committed` 句子直接由收据生成——所以这份清单目前没有消费者；接那条检查的切片直接读它，不另抄一份。
 - **`module` 节（#22，已实现）的装法。** 条件与 `style_full` 同一个：本进程为该战役第一次 `player_input` 打开的那一回合，及其前的任何 `table.capsule`；`resume` 的条件是它的子集（新书的 turn 0/1 没有 resume，但有简报）。内容全部来自模组图：`title`（模组节点名）、`era`（模组记录声明了才有）、`synopsis`（模组节点 summary）、`factions`（`faction` 与 `organization` 节点）、`places`（`location`）、`people`（全部 `npc`，含未登场者）、`endings`（`ending`）与 `conclusions`（`conclusion`）的名字、`structure_type`（与 Director 同一读法，缺省 `branching_investigation`）。名册的 `line` 取节点 summary（与名字相同时跳过），人物取 `relationship_to_investigators；agenda`，再退到记录的 prose；只复制不改写。装进 2KB 的顺序：先把行长从 120 字逐级降到 80/40/20/0（名册宁可全员短句，也不丢人——尾裁会先丢掉排在最后的 Walter Corbitt），仍超才按项裁尾；任一步发生都记入 `truncated`（the-haunting 在 40 字时装下，`truncated: ["module"]`；the-white-war 全长装下，不记）。有这一节时 `head` 追加一句说明。
@@ -1669,8 +1669,9 @@ normal turn epoch even though the wrapper already hosted a completed setup turn.
 The copied `Electron/` workspace is a frontend owned by this branch. Its only
 Keeper process is `bin/pi-coc` in RPC mode, reached through `pipicoc/rpc`.
 It does not launch an embedded Pi or carry another Python kernel. The six
-canonical extensions are explicitly mounted once; the UI pack adds only the
-investigator sheet. Host coding prompts and tool mounts do not reach the Keeper.
+canonical COC extensions plus the DeepSeek Extended provider
+(`extensions/deepseek/agent/index.js`) are explicitly mounted once; the UI
+pack adds only the investigator sheet. Host coding prompts and tool mounts do not reach the Keeper.
 `pipicoc/dev [setup] [--campaign <name>]` selects the canonical launcher mode.
 The UI owns its transport session file; `PI_COC_HOME` owns campaign/module data,
 and the repository-local `.pi/coc-agent` remains the model/auth home.
@@ -1972,6 +1973,8 @@ preserve unrelated outcomes when editing. Existing quick_fire legacy imports are
 not relabeled as rulebook Quick Fire. No invented point method or outstanding skill
 choice may pass completeness. Skill directions, concrete specialties, languages,
 backstory and ordinary kit are semantic choices supplied by the setup model.
+
+**Pacing.** Conversational pacing is prompt-layer policy, not kernel gating: when the player supplies only a name and an occupation concept without delegating the rest, the setup guide asks one or two in-character follow-up questions, one at a time, and drafts only after the answers; explicit delegation or a write-now order drafts in the same reply. The kernel gates no player turn.
 
 **RPC.** All calls include campaign. setup.draft accepts profile, a partial update
 of the current semantic profile: name, occupation, age, sex, concept, occupation_skills

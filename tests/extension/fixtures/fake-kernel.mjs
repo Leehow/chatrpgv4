@@ -261,7 +261,7 @@ function capsule(playerText) {
 			affordances: [{ id: "cellar-door", cue: "地窖门虚掩着" }],
 			keeper_notes: ["科比特在地窖下面"],
 			assets: [],
-			clock: { minutes: 555, elapsed: "9 小时 15 分钟", day_part: "上午" },
+			clock: { minutes: 555, elapsed: "9 小时 15 分钟", at: "1925-06-01T09:15", day_part: "上午" },
 			session: null,
 		},
 		present: [

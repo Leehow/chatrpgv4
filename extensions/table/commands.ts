@@ -117,8 +117,11 @@ export function panelLines(input: {
 	const clock = rec(where.clock);
 	const elapsed = str(clock.elapsed);
 	const minutes = num(clock.minutes);
+	// `at` is when it is in the fiction and only exists for a module that declared when its story
+	// opens; `elapsed` is how long this campaign has been played. Both, when there are both.
+	const at = str(clock.at);
 	if (elapsed || minutes !== undefined) {
-		lines.push(`clock   ${elapsed ?? `${minutes} min`}${elapsed && minutes !== undefined ? `  (${minutes} min)` : ""}${str(clock.day_part) ? `  ${str(clock.day_part)}` : ""}`);
+		lines.push(`clock   ${at ? `${at.replace("T", " ")}   ` : ""}${elapsed ?? `${minutes} min`}${elapsed && minutes !== undefined ? `  (${minutes} min)` : ""}${str(clock.day_part) ? `  ${str(clock.day_part)}` : ""}`);
 	}
 
 	// The party: the capsule's own investigator block is the live one; `table.open`'s roster is the fallback.
