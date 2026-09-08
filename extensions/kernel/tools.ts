@@ -89,7 +89,7 @@ const ObjectEffect = Type.Object({
   name: Type.String({description:"Unique natural name of this physical instance; keep it when ownership changes"}),
   definition: Type.Optional(Type.String({description:"Accepted definition name when first placing the instance"})),
   to: Type.String({description:"New owner: investigator, NPC, scene or existing container instance; here means the current scene"}),
-  condition: Type.Optional(StringEnum(["intact","damaged","jammed","broken"] as const, {description:"Initial physical condition; transferring an existing instance never repairs it"})),
+  condition: Type.Optional(StringEnum(["intact","damaged","jammed","broken"] as const, {description:"Initial condition, or an explicit existing-object state change with the same from/to owner and a causal why; ownership transfers preserve state"})),
   from: Type.Optional(Type.String({description:"Required current owner when transferring an existing instance"})),
   quantity: Type.Optional(Type.Integer({minimum:1})),
   why: Type.Optional(Type.String()),

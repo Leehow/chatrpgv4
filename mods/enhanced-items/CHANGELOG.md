@@ -1,3 +1,9 @@
+# 1.0.2
+
+Existing-object state changes use explicit same-owner updates with a causal reason.
+The pre-delivery auditor now verifies described damage, ownership and spent uses
+against instance state. Requires objects.state.v2. Transfers still preserve state.
+
 # 1.0.1
 
 Weapon profiles can leave non-applicable range/malfunction fields null. The creator

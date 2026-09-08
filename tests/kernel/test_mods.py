@@ -292,3 +292,18 @@ def test_mod_resolution_obeys_pending_defense_and_preserves_session_projection(k
     result=kernel.table("resolve",call_id=f"t1-c{n+2}",action=action)
     assert result["session"]["kind"] == "combat"
     assert result["session"]["status"] == "active"
+
+
+def test_same_owner_damage_updates_instance_and_cannot_be_hidden_in_legacy_rows(kernel):
+    open_turn(kernel)
+    kernel.table("apply",call_id="t1-c1",effects=[prepared(kernel,weapon()),
+        {"kind":"object","name":"My launcher","definition":"Workshop launcher","to":"Thomas Hayes"}])
+    before=kernel.table("look",focus="object",name="My launcher")["definition"]
+    kernel.table("apply",call_id="t1-c2",effects=[{"kind":"object","name":"My launcher","from":"Thomas Hayes", "to":"Thomas Hayes",
+        "condition":"broken","why":"An established failed push snapped its frame"}])
+    value=kernel.table("look",focus="object",name="My launcher")
+    assert value["instance"]["state"]["condition"] == "broken"
+    assert value["definition"] == before
+    row=next(r for r in kernel.table("status")["mechanics"] if r.get("item")=="My launcher")
+    assert row["kind"]=="change" and row["before"]=="intact" and row["after"]=="broken"
+    assert kernel.table_err("apply",call_id="t1-c3",effects=[{"kind":"item","name":"My launcher","quantity":-1}])["code"]=="invalid_params"

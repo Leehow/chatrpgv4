@@ -1283,7 +1283,7 @@ class Table:
                     attachments.append(receipt["attachment"])
                 elif kind == "item":
                     receipt, event = self._stage_item(campaign, graph, staged_sheets, effect, turn_number, ordinal,
-                                                      call_id, taken_ids)
+                                                      call_id, taken_ids, world=staged)
                 elif kind == "cash":
                     receipt, event = self._stage_cash(campaign, graph, staged_sheets, effect, turn_number, ordinal,
                                                       call_id, taken_ids)
@@ -1924,10 +1924,13 @@ class Table:
 
     def _stage_item(self, campaign: Campaign, graph: ModuleGraph, sheets: dict[str, dict[str, Any]],
                     effect: dict[str, Any], turn_number: int, ordinal: int, call_id: str,
-                    taken: set[str]) -> tuple[dict[str, Any], tuple[str, dict[str, Any]]]:
+                    taken: set[str], *, world: dict[str, Any] | None = None) -> tuple[dict[str, Any], tuple[str, dict[str, Any]]]:
         """#19: something that reached (quantity > 0) or left (quantity < 0) an investigator's
         hands in the narration, written onto the sheet so `resolve` and combat see it."""
         name = _str(effect, "name")
+        if mod_objects.instance(world if world is not None else campaign.read_world(), name):
+            raise invalid_params("This is a managed object instance, not a legacy equipment row",
+                                 fix="use object with from/to to transfer it; keep from/to equal with condition and why to record damage")
         quantity = effect.get("quantity", 1)
         if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity == 0:
             raise invalid_params("quantity must be a non-zero integer (negative is a loss)")

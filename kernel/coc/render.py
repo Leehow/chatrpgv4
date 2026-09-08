@@ -83,6 +83,7 @@ def mechanics_of(receipt: dict[str, Any]) -> dict[str, Any] | None:
         out = {"kind": "change", "receipt": receipt_id, "resource": receipt.get("resource"),
                "before": receipt.get("before"), "after": receipt.get("after")}
         _with_investigator(out, receipt, "subject")
+        _with_label(out, "item", receipt.get("item"))
         return out
     if kind == "move":
         if receipt.get("renamed"):

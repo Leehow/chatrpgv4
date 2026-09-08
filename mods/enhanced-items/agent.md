@@ -17,6 +17,10 @@ parameters, owner, condition and container contents. Repair a jammed/broken owne
 instance with resolve decision objects:repair, object and the appropriate skill.
 Existing instances may own other instances as containers; take a weapon out before
 using it. Transfers preserve damage and jams as well as ammunition.
+Record an existing item's damage or breakage with apply object: keep from and to
+equal to its current owner, set condition, and state the causal why. A note is not
+an item-state change. Do not remove a managed item through legacy apply item; a
+broken object remains the same instance and can be repaired or transferred.
 Do not create a replacement or call plain item for the same object. Keep remaining
 ammunition/charges and damage. NPCs and investigators use the instance name in
 resolve.weapon. A held book/artifact and knowing its spell are distinct. Never grant

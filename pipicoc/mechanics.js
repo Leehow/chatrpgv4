@@ -426,7 +426,7 @@ export function createComponent(React) {
         const delta = before !== undefined && after !== undefined ? after - before : undefined;
         return h(Row, { key, kindKey: "change", kindLabel, family },
           h("span", { className: "coc-mech-body" },
-            row.subject_is_investigator === true
+            row.item ? h("span", { className: "coc-mech-who" }, `${text(row.item)} `) : row.subject_is_investigator === true
               ? h("span", { className: "coc-mech-who" }, `${text(row.subject_label || row.subject)} `) : "",
             h("span", { className: "coc-mech-res" }, text(row.resource).toUpperCase())),
           h("span", { className: "coc-mech-figure" },

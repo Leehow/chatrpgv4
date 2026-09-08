@@ -130,7 +130,7 @@ def committed_facts(receipts: list[dict[str, Any]], snapshot: dict[str, Any],
         elif kind in ("delta", "cash"):
             # #19: a cash receipt is a resource change too (resource cash, before -> after)
             facts.append(t("delta", label=receipt.get("resource"),
-                           subject=receipt.get("subject_label") or receipt.get("subject"),
+                           subject=receipt.get("item") or receipt.get("subject_label") or receipt.get("subject"),
                            before=receipt.get("before"), after=receipt.get("after")))
         elif kind == "item":
             quantity = int(receipt.get("quantity") or 1)

@@ -189,7 +189,9 @@ def move(world: dict[str, Any], name: str, definition: str | None, owner: dict[s
         if quantity != prior["quantity"]:
             raise invalid_params("Transfer preserves the complete instance quantity")
         if condition is not None and condition != prior["state"]["condition"]:
-            raise invalid_params("Transfer preserves condition; resolve a repair to fix the object")
+            if source != owner:
+                raise invalid_params("Transfer preserves condition; change physical state with the same from/to owner")
+            prior["state"]["condition"] = condition
         prior["owner"] = copy.deepcopy(owner)
         prior["changed_turn"] = turn
         return prior

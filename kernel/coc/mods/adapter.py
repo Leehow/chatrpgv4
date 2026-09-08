@@ -253,10 +253,19 @@ class ModAdapter:
             owner = self.owner(campaign, graph, world, effect.get("to"))
             source = self.owner(campaign, graph, world, effect["from"]) if effect.get("from") else None
             prior = objects.instance(world, name)
+            before_condition = prior["state"]["condition"] if prior else None
+            if prior and effect.get("condition") is not None and effect["condition"] != before_condition and not str(effect.get("why") or "").strip():
+                raise invalid_params("A physical state change needs its causal reason in why")
             quantity = effect.get("quantity", prior["quantity"] if prior else 1)
             item = objects.move(world, name, effect.get("definition"), owner, source=source, turn=turn, quantity=quantity,
                                 condition=effect.get("condition"))
             definition = objects.registry(world)["definitions"][item["definition"]]
+            if prior and source == owner and effect.get("condition") is not None:
+                receipt = {"id":mint(f"delta:item-condition-{call_id}"), "kind":"delta", "resource":"condition",
+                           "subject":owner["id"], "subject_label":owner["name"], "subject_is_investigator":owner["kind"] == "investigator",
+                           "item":item["name"], "instance":item["id"], "before":before_condition, "after":item["state"]["condition"],
+                           "why":effect.get("why"), "call_id":call_id}
+                return receipt, ("resource-changed", {k:receipt[k] for k in ("resource", "subject", "item", "before", "after")})
             receipt = {"id": mint(f"item:{call_id}"), "kind": "item", "name": name, "label": name,
                        "subject": owner["id"], "subject_label": owner["name"], "quantity": quantity,
                        "instance": item["id"], "from": source["name"] if source else None,

@@ -2227,6 +2227,13 @@ list classifies contact, motives or appearance.
 
 ### Enhanced items
 
+Enhanced Items 1.0.2 requires `objects.state.v2`. An object call with the same
+from/to owner, an explicit condition and causal why changes the existing instance's
+physical state; it produces an item-labeled condition delta, not an acquisition.
+Changing owners still preserves condition. Managed instances cannot be mutated
+through legacy equipment rows. The Mod auditor compares existing-object state
+with narrated damage/use as well as checking newly introduced objects.
+
 `apply` gains `define {name, category: weapon|spell|item, description, template?}`,
 `object {name, definition, to, from?, quantity?, why?}`, and
 `ability {name, to, source, why?}`. Define is intercepted by the host's Mods bridge:
