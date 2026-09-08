@@ -43,19 +43,6 @@ def test_create_without_pregen_is_setting_up_with_an_empty_party(kernel):
     assert (kernel.workspace / ".coc" / "modules" / MODULE / "module-graph.json").exists()
 
 
-def test_a_new_card_takes_the_era_the_book_declares(kernel):
-    """The module node carries `runtime_projection.documents`, never `.record`: reading the
-    record returned None and every card silently became 1920s, the-white-war included."""
-    kernel.ok("campaign.create", {"id": "ww1-era", "module": "the-white-war", "play_language": "en"})
-    made = kernel.ok("setup.investigator", {"campaign": "ww1-era", "name": "Bea", "occupation": "Journalist"})
-    sheet = read_json(kernel.workspace / ".coc" / "campaigns" / "ww1-era" / "party" / f"{made['investigator']['id']}.json")
-    assert sheet["era"] == "ww1", "the card takes the book's era, not the rulebook default"
-    kernel.ok("campaign.create", {"id": "twenties", "module": MODULE, "play_language": "en"})
-    other = kernel.ok("setup.investigator", {"campaign": "twenties", "name": "Cal", "occupation": "Journalist"})
-    assert read_json(kernel.workspace / ".coc" / "campaigns" / "twenties" / "party"
-                     / f"{other['investigator']['id']}.json")["era"] == "1920s"
-
-
 def test_create_with_pregen_stays_active_as_before(kernel):
     created = kernel.ok("campaign.create", {"id": CAMPAIGN, "module": MODULE, "pregen": PREGEN})["campaign"]
     assert created["status"] == "active" and created["investigators"] == [PREGEN]

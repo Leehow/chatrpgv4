@@ -272,14 +272,6 @@ def test_cash_builds_the_finance_block_from_the_era_table_and_moves_it(kernel):
     assert diff["resources"] == [{"subject": INVESTIGATOR, "resource": "cash", "from": start, "to": start + 10}]
 
 
-def test_missing_finance_period_blocks_new_character_setup(kernel):
-    from test_setup_drafts import profile
-    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-white-war", "play_language": "zh-Hans"})
-    error = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": profile()})
-    assert "finance" in str(error)
-    assert kernel.err("setup.complete", {"campaign": CAMPAIGN})["code"] == "needs"
-
-
 def json_weapons():
     return read_json(RULES / "weapons.json")["weapons"]
 

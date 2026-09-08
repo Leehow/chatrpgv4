@@ -86,6 +86,7 @@
 | 76 | 自然愈合的「一天」被算成 480 分钟，且封顶 7 天 | 睡一天恢复 3 点、住院一个月恢复 7 点 | `kernel/coc/rules/healing.py::handle_time_trigger` 的 `days = min(max(1, delta_minutes // 480), 7)` | 缺口 | 规则书「the character recovers 1 hit point per day」与「A CON roll should be made at the end of each week of game time」。`weekly_recovery(days)` 本身对（每天 1 点），错的是喂进去的天数；重伤的 `range(days // 7)` 因为 days 已封顶 7，一次推进最多滚 1 次周检定，而触发只需 3360 分钟（2 天 8 小时） |
 | 77 | 「一天内损失 1/5 SAN」实际是「整局累计 1/5」：`end_day()` 在产品路径上零调用者 | 累计掉满开局 SAN 的 1/5 就进不定期疯狂 | `kernel/coc/rules/sanity.py::end_day`（定义在 1144，调用者只有 `tests/kernel/engines/test_sanity.py`） | 缺口 | 规则书 p.168 的一天规则。`day_start_san` 只在 `end_day()` 里重新锚定、`daily_san_lost` 只在那里清零，两者都持久化，于是阈值停在开局值、计数从开局起只增。根因是**没有「一天」这个边界**：规则层只有 `time.day = clock_minutes // 1440`（开局第几天），没有人拿它判跨日。三条单元测试直接 new engine 调 `end_day`，所以「没人调用它」测试永远发现不了（同 [[tests-must-travel-the-real-path]] 的形状） |
 | 78 | 世界线回溯把时钟退回锚点，却不动各引擎存档里的绝对到期时刻 | 疑点，未实测 | `kernel/coc/worldline.py` 的 `RESET_FACETS = ("clock", "investigators")`，默认 `anchor` | 疑点 | sanity 的 `recovery_trigger.due_elapsed_minutes`、magic 的 `completion_elapsed_minutes`、healing 的 wound ledger 都存在各自 session 存档里，不在回溯范围内。时钟退回 200 而 due 停在 800，那条到期就悬空。只有 `structure_type: time_loop` 的模组会走到，没有跑过一局验证 |
+| 79 | 一批引擎方法在产品路径上零调用者：25 个候选，已定性 3 个是真规则没接线 | 规则写对了，玩家永远遇不到 | `kernel/coc/rules/sanity.py::penalty_die_for_exposure` / `plant_delusion`、`kernel/coc/rules/mp.py::can_spend` 等 | 缺口 | 与 #77 同一形状（`end_day()` 零调用者）。扫描方法：用 ast 取 `kernel/coc` 下所有非下划线开头的 def，统计它在**产品代码**里的标识符引用数与在 `tests/` 里的引用数，取「产品 0 次、测试 >0 次」；再对每个候选 `grep` 字符串形式（`"name"` / `'name'`）排除 registry 派发，10 个抽样全部无字符串引用，确认不是假阳性 |
 
 ## 缺口清单
 
@@ -110,4 +111,12 @@
 9. **（#77）SAN 的「一天」从来没有被关上。** 见对照表 #77。**最小修复**分两步：先定「一天的边界由谁宣布」——现在 `where.clock.at` 已经能给出局内日期（见 #23），跨日判定可以在 `table.py` 推进时钟时做（`at` 的日期变了就是新的一天；模组没声明起始时刻的退回 `clock_minutes // 1440` 的整数变化）；然后在那个边界上对每个调查员调一次 `SanitySession.end_day()`。**验收必须走产品路径**：`table.apply {kind:"time"}` 跨过一天之后 `daily_san_lost` 归零、`day_start_san` 重新锚定，而不是直接 new 一个 engine 调 `end_day`。
 
 10. **（#78）世界线回溯与悬空的到期时刻。** 见对照表 #78。这条**先验证再决定修不修**：构造一个 time_loop 模组（或直接在测试里 fork/loop 一次），排一个临时疯狂恢复 due，回溯时钟，看那条 due 是不是永远不到期。如果成立，修法有两种——把各引擎存档纳入 `RESET_FACETS`，或者把 due 从绝对 clock 值改成相对锚点的偏移；选哪种取决于"回溯后疯狂该不该跟着消失"这个裁定，属于设计问题不是纯 bug 修复，验证完先报告。
+
+11. **（#79）引擎方法在产品路径上零调用者——#77 不是孤例，是一类。** 扫出 25 个「产品代码零引用、只有测试引用」的公开方法（方法见对照表 #79）。已经定性的三个：
+
+    - **`sanity.py::penalty_die_for_exposure`** — 疯狂调查员遇上自己恐惧症/狂躁症对应的东西该吃惩罚骰（p.162-163）。实现得很讲究，注释明写遵守「语义匹配宪法」：只做结构化 `phobia_tags` / `mania_tags` 的集合交集，不做自由文本或子串匹配。然后没有任何人调用它。玩家抽到「怕黑」之后进地下室，现在什么都不会发生。
+    - **`sanity.py::plant_delusion`** — underlying-insanity 阶段 KP 把幻觉当真实叙述（p.162-163），配套还有 `reality_check()`。整套机制没有入口。
+    - **`mp.py::can_spend`** — MP 不足时按一比一扣 HP，扣到 0 或以下应当拦住。`magic.py` 的 `_spend_mp` 直接调 `spend_mp`，**从不先问 `can_spend`**；而 `spend_mp` 内部是 `self.current_hp = max(0, self.current_hp - hp_damage)`，HP 被夹在 0。**需要验证**：`_spend_mp` 的返回值会变成规则图里的 `effect:coc7:magic:cast-spell-hp-overspill`，如果那条效果走的是正常伤害路径，濒死可能是被正确触发的（那样 `mp.py` 里夹 0 的那步就成了双重扣减）；如果没有，角色会悄无声息停在 0 HP 而不进濒死。这条要跑一个产品路径用例才能定论，不要凭读代码下结论。
+
+    其余 22 个候选（`combat.py` 的 `is_dominated` / `tick_effects` / `is_forfeiting_attack` / `clear_forfeit`、`healing.py` 的 `cure_indefinite_check` / `resolve_asylum_release`、`sanity.py` 的 `suppress_insanity_symptoms` / `indulge_mania`、`chase.py` 的 `add_passenger`、`render.py` 的 `expected_numbers`、`tables.py` 的六个规则表访问器等）**尚未逐个定性**——里面一定有无害的（留给外部的公开 API、同义读法），必须一个个看，不许按名字批量判断。**最小修复**：先把这份清单逐条定性成「真缺口 / 无害」，真缺口的按 #77 的做法接线并补产品路径用例；同时把这个扫描做成一个可重跑的脚本（放 `scripts/`），因为这类缺陷会持续产生。
 

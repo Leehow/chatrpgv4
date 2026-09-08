@@ -89,8 +89,8 @@ FLAG_CONDITION_KEYS = ("flag_id", "flag", "name")
 
 def condition_flag(when: Any) -> str | None:
     """The flag slug an authored flag condition names, or None when the condition is not
-    about a flag (a bare string condition is read as a flag name: the-white-war's
-    `exit_conditions`)."""
+    about a flag (a bare string condition is read as a flag name: the shape the deleted
+    `the-white-war` starter's `exit_conditions` used, still accepted from any book)."""
     if isinstance(when, str):
         return kebab(when) or None
     if not isinstance(when, dict) or when.get("kind") not in FLAG_CONDITION_KINDS:
@@ -381,7 +381,7 @@ class ModuleGraph:
             entry["travel_minutes"] = minutes
         when = props.get("when") or props.get("unlock_when") or props.get("conditions")
         if not when and isinstance(props.get("flag"), str) and props["flag"].strip():
-            # A built book's `route-to` derived from an exit-entry flag (the-white-war):
+            # A built book's `route-to` derived from an exit-entry flag:
             # the gate is that flag, spelled as the starters spell it.
             when = {"kind": "flag_set", "flag_id": props["flag"]}
         if when:

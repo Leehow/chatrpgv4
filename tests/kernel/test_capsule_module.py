@@ -95,10 +95,11 @@ def test_lines_step_down_before_anyone_is_dropped_and_the_tail_goes_last():
     assert cut and json_size(fitted) <= MODULE_BUDGET
     assert [p["name"] for p in fitted["people"]] == [p["name"] for p in full["people"]]  # nobody dropped
     assert 0 < max(len(p["line"]) for p in fitted["people"]) < MODULE_LINE_STEPS[0]  # lines shortened instead
-    # a book that fits keeps its full lines and is not marked cut
-    white_war = graph("the-white-war")
-    untouched, cut = fitted_module_section(white_war)
-    assert not cut and untouched == module_section(white_war)
+    # a section that already fits keeps its full lines and is not marked cut. Pinned by
+    # widening the budget rather than by a small book: `the-white-war` was the only
+    # briefing that fit 2KB whole and it was deleted with the starter on 2026-09-08.
+    untouched, cut = fitted_module_section(haunting, budget=json_size(full))
+    assert not cut and untouched == full
     # only when names alone still overflow does the roster lose its tail
     squeezed, cut = fitted_module_section(haunting, budget=700)
     assert cut and json_size(squeezed) <= 700
@@ -107,7 +108,7 @@ def test_lines_step_down_before_anyone_is_dropped_and_the_tail_goes_last():
 
 
 def test_domains_the_graph_lacks_are_empty_arrays_never_guesses():
-    for module_id in ("mystery-house", "the-white-war"):
+    for module_id in ("mystery-house",):
         section = module_section(graph(module_id))
         raw = json.loads((CONTENT_DIR / "starters" / module_id / "module-graph.json").read_text(encoding="utf-8"))
         kinds = {n["node_kind"] for n in raw["nodes"]}
@@ -116,7 +117,10 @@ def test_domains_the_graph_lacks_are_empty_arrays_never_guesses():
         assert [p["name"] for p in section["people"]] == [n["name"] for n in raw["nodes"] if n["node_kind"] == "npc"]
         assert len(section["conclusions"]) == sum(1 for n in raw["nodes"] if n["node_kind"] == "conclusion")
         # §15.9: the module node declares itself in `module-meta.json`, so this is the
-        # book's own word, not the reader's default -- the-white-war says `linear_acts`.
+        # book's own word, not the reader's default. `the-white-war` (`linear_acts`) was
+        # the only book that declared something other than the default and it was deleted
+        # with the starter on 2026-09-08, so this now only pins that the declaration is
+        # read from the document rather than guessed.
         meta = next(d["root"] for n in raw["nodes"] if n["node_id"].startswith("module-")
                     for d in n["properties"]["runtime_projection"]["documents"]
                     if d["filename"] == "module-meta.json")

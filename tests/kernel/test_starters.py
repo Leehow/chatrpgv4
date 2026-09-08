@@ -1,5 +1,5 @@
-"""§14.9: the two projected starters load, open a campaign, reproduce byte for byte,
-and are accounted for by the kernel's playability check."""
+"""§14.9: the projected starter loads, opens a campaign, reproduces byte for byte,
+and is accounted for by the kernel's playability check."""
 
 from __future__ import annotations
 
@@ -21,17 +21,12 @@ SCRIPT = WORKTREE / "scripts" / "starter_graph.py"
 OLD_HAUNTING = Path("/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/references/starter-scenarios/the-haunting")
 STARTERS = {
     "mystery-house": {"start": "crane-office", "languages": ["en"], "absent": []},
-    "the-white-war": {"start": "mission-briefing", "languages": ["en", "zh-Hans"],
-                      "absent": ["quests.json", "handouts.json"]},
 }
-#: What K5a's check reports on the two starters beyond `node_without_page` (a starter
+#: What K5a's check reports on the projected starter beyond `node_without_page` (a starter
 #: without a source document has no page to cite; the reference starter the-haunting
 #: gets the same finding on 32 nodes). These are IR facts, listed so a fix is noticed.
 KNOWN_IR_FINDINGS = {
     "mystery-house": {("actor_in_no_scene", "npc-rat-swarm")},
-    "the-white-war": {("clue_nowhere_to_find", "clue-entity-retreats-low-hp"),
-                      ("clue_nowhere_to_find", "clue-ice-seal-blasted-away"),
-                      ("clue_nowhere_to_find", "clue-survivor-folklore-of-seal")},
 }
 
 
@@ -63,25 +58,15 @@ def test_manifest_matches_the_graph_and_accounts_for_the_projection(module_id):
     for filename in STARTERS[module_id]["absent"]:
         assert documents[filename]["absent"] is True
         assert all(c["node_ids"] == [] for c in documents[filename]["collections"])
-    if module_id == "the-white-war":
-        assert projection["derived"]["rule"] == "exit-entry-flag" and projection["derived"]["route_to"] == 11
-        assert projection["derived"]["entry_scene_ids"] == ["scene-mission-briefing"]
-        assert module_node["properties"]["entry_scene_ids"] == ["scene-mission-briefing"]
-        assert graph["coverage"]["assets"] == "absent" and graph["coverage"]["direction"] == "partial"
-        derived = [r for r in graph["relations"] if r["relation_kind"] == "route-to"]
-        assert all(r["properties"]["derived_from"] == "exit-entry-flag" for r in derived)
-    else:
-        assert projection["derived"] == {}
-        assert projection["cjk_outside_declared_languages"] == {"module-meta.json": 49, "story-graph.json": 229}
-        assert all(status == "accepted" for status in graph["coverage"].values())
+    assert projection["derived"] == {}
+    assert projection["cjk_outside_declared_languages"] == {"module-meta.json": 49, "story-graph.json": 229}
+    assert all(status == "accepted" for status in graph["coverage"].values())
 
 
 @pytest.mark.parametrize("module_id", sorted(STARTERS))
 def test_reprojection_reproduces_the_committed_graph(module_id):
     args = ["diff", "--starter-dir", str(CONTENT_DIR / "starters" / module_id),
             "--against", str(CONTENT_DIR / "starters" / module_id / "module-graph.json")]
-    if module_id == "the-white-war":
-        args += ["--source-languages", "en", "zh-Hans"]
     result = run_script(*args)
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(result.stdout)["identical"] is True
@@ -120,10 +105,6 @@ def test_starter_opens_a_campaign_and_plays_a_turn(kernel, module_id):
     created = kernel.ok("campaign.create", {"id": "c1", "module": module_id, "play_language": "zh-Hans"})["campaign"]
     assert created["opening_scene"] == STARTERS[module_id]["start"] and created["status"] == "setting_up"
     assert read_json(kernel.workspace / ".coc" / "modules" / module_id / "module.json")["status"] == "installed"
-    if module_id == "the-white-war":
-        from test_setup_drafts import profile
-        assert "finance" in str(kernel.err("setup.draft", {"campaign": "c1", "profile": profile()}))
-        return
     confirmed_investigator(kernel)
     kernel.ok("setup.complete", {"campaign": "c1"})
     opened = kernel.table("open")

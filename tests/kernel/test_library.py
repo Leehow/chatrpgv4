@@ -1,6 +1,11 @@
 """§21 (#31): the investigator library through the RPC seam -- save, load byte for byte,
-an era mismatch that changes nothing, the per-turn write-back that never fails a turn,
-and library ids the kernel mints."""
+the per-turn write-back that never fails a turn, and library ids the kernel mints.
+
+The era-mismatch law itself (a card of one era loaded onto a book of another) is
+unpinned here: `the-white-war` was the repository's only non-1920s book and was
+deleted with the starter on 2026-09-08, leaving no fixture that can produce a
+mismatch. `test_a_card_of_the_modules_own_era_carries_no_hint` still pins the
+matching-era side."""
 
 from __future__ import annotations
 
@@ -16,8 +21,6 @@ from conftest import (CAMPAIGN, PREGEN, campaign_dir, create_campaign, git_log, 
 from test_rules_families import resolve
 
 SECOND = "c2"
-#: the-white-war's module-meta declares `ww1`; the-haunting's pregen is a 1920s sheet.
-WW1_MODULE = "the-white-war"
 
 
 def library_dir(workspace: Path) -> Path:
@@ -44,7 +47,7 @@ def save_pregen(kernel) -> str:
     return saved["library_id"]
 
 
-def load_into_new_table(kernel, library_id: str, campaign_id: str = SECOND, module: str = WW1_MODULE,
+def load_into_new_table(kernel, library_id: str, campaign_id: str = SECOND, module: str = "the-haunting",
                         **params) -> dict:
     """A second campaign (setting up, no pregen), the card loaded, the table opened and
     the opening narrated: what the setup entry point of §21.5 will do."""
@@ -89,7 +92,7 @@ def test_save_mints_a_row_from_the_campaign_sheet_and_marks_the_sheet(kernel):
 def test_load_copies_the_sheet_byte_for_byte_except_id_and_origin(kernel):
     library_id = save_pregen(kernel)
     source = read_json(sheet_path(kernel.workspace, CAMPAIGN, PREGEN))
-    kernel.ok("campaign.create", {"id": SECOND, "module": WW1_MODULE, "play_language": "en"})
+    kernel.ok("campaign.create", {"id": SECOND, "module": "the-haunting", "play_language": "en"})
     loaded = kernel.ok("investigator.load", {"campaign": SECOND, "library_id": library_id})
     new_id = loaded["investigator"]["id"]
     assert new_id == "inv-1" and loaded["library_id"] == library_id and loaded["loaded_at_turn"] == 0
@@ -146,26 +149,6 @@ def test_load_waits_for_the_keeper_to_finish_acting(kernel):
 
 
 # ---- era mismatch: allowed, unchanged, hinted -----------------------------------------------
-
-def test_era_mismatch_is_recorded_and_hinted_and_changes_no_value(kernel):
-    library_id = save_pregen(kernel)
-    source = read_json(sheet_path(kernel.workspace, CAMPAIGN, PREGEN))
-    loaded = load_into_new_table(kernel, library_id)
-    assert loaded["era_mismatch"] == {"sheet": "1920s", "module": "ww1"}
-    meta = read_json(campaign_dir(kernel.workspace, SECOND) / "campaign.json")
-    assert meta["era_mismatch"] == {"sheet": "1920s", "module": "ww1"}
-    copied = read_json(sheet_path(kernel.workspace, SECOND, "inv-1"))
-    # nothing converted: the 1920s standard sheet, the 1920s cash table, every number
-    assert without(copied, "id", "origin") == without(source, "id", "origin")
-    assert copied["era"] == "1920s" and copied["finance"]["period"] == "1920s" if "period" in copied.get("finance", {}) else True
-    capsule = kernel.ok("table.player_input", {"campaign": SECOND, "text": "I look around."})["capsule"]
-    investigator = capsule["known"]["investigator"]
-    assert investigator["id"] == "inv-1" and investigator["hp"] == source["current_hp"]
-    note = investigator["era_note"]
-    assert "1920s" in note and "ww1" in note and "unchanged" in note
-    # the hint is one English line for the keeper, nothing the player sees
-    assert "\n" not in note and all(ord(ch) < 0x2e80 for ch in note)
-
 
 def test_a_card_of_the_modules_own_era_carries_no_hint(kernel):
     library_id = save_pregen(kernel)
@@ -279,7 +262,7 @@ def test_one_card_at_two_tables_last_writer_wins_and_provenance_says_who(kernel)
 
 def test_as_loads_a_double_as_a_second_person_with_its_own_row(kernel):
     library_id = save_pregen(kernel)
-    kernel.ok("campaign.create", {"id": SECOND, "module": WW1_MODULE, "play_language": "en"})
+    kernel.ok("campaign.create", {"id": SECOND, "module": "the-haunting", "play_language": "en"})
     loaded = kernel.ok("investigator.load", {"campaign": SECOND, "library_id": library_id, "as": "Tom Hayes"})
     assert loaded["library_id"] == "tom-hayes-1" and loaded["forked_from"] == library_id
     assert loaded["investigator"] == {**loaded["investigator"], "id": "tom-hayes", "name": "Tom Hayes"}

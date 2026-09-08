@@ -49,8 +49,6 @@ UNREAD_TABLES = {
                          "rules live on the director graph now.",
     "the-haunting": "V1 per-scenario rules for one module (Corbitt's magic points, the floating "
                     "knife). Superseded by the module graph the starter ships.",
-    "the-white-war": "The same V1 per-scenario table for the other starter, superseded the same "
-                     "way by that module's graph.",
     "time-costs": "Min/default/max minutes per kind of action, for clamping a proposed time "
                   "advance. The keeper names the minutes and the kernel takes them; nothing "
                   "validates the estimate.",
