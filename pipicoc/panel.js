@@ -163,6 +163,7 @@ const LABELS = {
     noInvestigator: "No investigator",
     time: "Time",
     elapsed: (d, hh, mm) => (d > 0 ? `${d}d ${hh}h ${mm}m elapsed` : `${hh}h ${mm}m elapsed`),
+    at: (y, mo, d, hh, mm) => `${y}-${mo}-${d} ${hh}:${mm}`,
     turn: (n) => `turn ${n}`,
     scene: "scene",
     present: "present",
@@ -213,6 +214,7 @@ const LABELS = {
     noInvestigator: "还没有调查员",
     time: "时间",
     elapsed: (d, hh, mm) => (d > 0 ? `已过 ${d} 天 ${hh} 小时 ${mm} 分` : `已过 ${hh} 小时 ${mm} 分`),
+    at: (y, mo, d, hh, mm) => `${y}年${mo}月${d}日 ${hh}:${mm}`,
     turn: (n) => `第 ${n} 回合`,
     scene: "场景",
     present: "在场",
@@ -276,13 +278,22 @@ function text(value) {
 }
 
 /**
- * The clock as elapsed time, never as a wall clock. The kernel counts minutes from the campaign's
- * start (§20.7's `clock.minutes`) and says nothing about what hour the module opens at; printing
- * "06:10" would be inventing that.
+ * The clock the player reads is the one in the fiction: the date and hour it is now at the table.
+ *
+ * The kernel derives it (§23's `clock.at`) from what the module declared about when its story
+ * opens plus the minutes the world has advanced, so it exists only for a book that said so. When
+ * it does not, elapsed time is the whole truth the table has and the panel prints that instead —
+ * inventing an hour for a module that never named one would be the panel writing fiction.
  */
 function elapsed(minutes) {
   const total = Math.max(0, Math.floor(minutes));
   return { days: Math.floor(total / 1440), hours: Math.floor((total % 1440) / 60), minutes: total % 60 };
+}
+
+/** `clock.at` split for a label, or null when it is absent or not a local ISO stamp. */
+function storyTime(at) {
+  const match = /^(-?\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(text(at));
+  return match ? match.slice(1) : null;
 }
 
 /**
@@ -434,7 +445,7 @@ export function createComponent(React) {
         const merged=object&&isRecord(item)?{...item,...object.parameters,...(object.state?.ammo!==null&&object.state?.ammo!==undefined?{ammo:object.state.ammo}:{})}:item;
         const line=itemLine(merged,term);
         if(object){
-          for(const trait of object.traits || []) line.details.push({key:`trait:${trait.name}`,label:trait.name,value:`${trait.value}${trait.unit?' '+trait.unit:''}`});
+          for(const trait of object.traits || []) line.details.push({key:`trait:${trait.name}`,label:term(trait.name),value:`${trait.value}${trait.unit?' '+trait.unit:''}`});
           for(const key of ['condition','charges']) if(object.state?.[key]!==null&&object.state?.[key]!==undefined) line.details.push({key,value:object.state[key]});
         }
         return h("li",{className:"coc-inventory-entry",key:index,"data-detailed":line.details.length>0?"true":"false"},
@@ -489,10 +500,12 @@ export function createComponent(React) {
     // Canonical NPC names may reveal a concealed identity; introductions belong to the Keeper.
     if (session) lines.push({ key: t.sessionKey, value: t.session(display(session.kind), session.round), live: true });
     if (view.pending_choice) lines.push({ key: "", value: t.awaitingChoice, live: true });
-    if (minutes === undefined && !lines.length) return null;
+    const at = storyTime(clock.at);
+    if (at === null && minutes === undefined && !lines.length) return null;
     const span = minutes === undefined ? null : elapsed(minutes);
+    const reading = at ? t.at(...at.map(part => Number(part))) : span ? t.elapsed(span.days, span.hours, span.minutes) : null;
     return h(Section, { title: t.time },
-      span ? h("div", { className: "coc-clock" }, t.elapsed(span.days, span.hours, span.minutes)) : null,
+      reading ? h("div", { className: "coc-clock" }, reading) : null,
       lines.length
         ? h("div", { className: "coc-standing" }, lines.map((line, index) =>
             h("div", { className: "coc-standing-line", "data-live": line.live ? "1" : "0", key: index },

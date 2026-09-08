@@ -83,6 +83,25 @@ describe('a discovered clue is named, not handled', () => {
 });
 
 describe('the background section speaks the play language', () => {
+  it('routes item trait names and values through the glossary (lane-ready)', async () => {
+    const withGear = {
+      ...investigator,
+      equipment: [{ name: '宅钥圈', quantity: 1 }],
+      objects: [{ name: '宅钥圈', category: 'gear',
+        traits: [{ name: 'length', value: 12, unit: 'cm' }, { name: 'material', value: 'iron' }],
+        state: { condition: 'intact' } }],
+    };
+    const localized = view({
+      investigators: [withGear],
+      labels: { ...view().labels, length: '长度', material: '材质', condition: '成色', intact: '完好' },
+    });
+    render(<Panel api={host({ ok: true, data: { status: 'ready', view: localized, campaign: 'c1' } })} />);
+    await screen.findByText('宅钥圈');
+    expect(screen.getByText('长度')).toBeTruthy();
+    expect(screen.getByText('材质')).toBeTruthy();
+    expect(screen.getByText('完好')).toBeTruthy();
+  });
+
   it('labels its chrome in zh-Hans instead of English literals', async () => {
     const withStory = {
       ...investigator,
