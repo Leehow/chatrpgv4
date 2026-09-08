@@ -18,6 +18,13 @@ it('does not acknowledge an untranslated card while its projection is pending',(
  const ack=vi.fn(async()=>{});const {container}=render(<CocCharacterDraft data={{revision:1,play_language:'zh-Hans',sheet}} onPresentation={()=>new Promise(()=>{})} onRendered={ack}/>);
  expect(container.textContent).toBe('…');expect(ack).not.toHaveBeenCalled();
 })
+it('polls the same pending projection and acknowledges only the displayed result',async()=>{
+ const ack=vi.fn(async()=>{}),load=vi.fn().mockResolvedValueOnce({pending:true}).mockResolvedValue({play_language:'zh-Hans',texts:zh});
+ render(<CocCharacterDraft data={{revision:2,play_language:'zh-Hans',sheet}} onPresentation={load} onRendered={ack}/>);
+ expect(ack).not.toHaveBeenCalled();
+ await screen.findByRole('region',{name:'角色草稿'},{timeout:4000});
+ expect(load).toHaveBeenCalledTimes(2);await waitFor(()=>expect(ack).toHaveBeenCalledOnce());
+})
 it('uses English model output for an English campaign without changing data',async()=>{
  const texts=Object.fromEntries(Object.keys(zh).map(t=>[t,t.replaceAll('_',' ')]));texts['谨慎的律师']='A cautious lawyer';texts['编辑朋友']='An editor friend';render(<CocCharacterDraft data={{revision:1,play_language:'en',sheet,presentation:{texts,play_language:'en'}}}/>);
  expect(await screen.findByRole('region',{name:'Character draft'})).toBeTruthy();expect(screen.getByText('60 USD')).toBeTruthy();expect(screen.getByText('A cautious lawyer')).toBeTruthy();

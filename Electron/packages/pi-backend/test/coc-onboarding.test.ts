@@ -1,5 +1,5 @@
 import {afterEach, expect, it, vi} from 'vitest';
-import {mkdtemp, readFile} from 'node:fs/promises';
+import {mkdtemp, readFile,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {CocOnboardingHost} from '../src/coc-onboarding.js';
@@ -13,6 +13,23 @@ async function service(){
 }
 afterEach(()=>{for(const host of services.splice(0))host.dispose()});
 const model={id:'test/no-provider',thinking:'low',vision:true};
+it('projects legacy ready imports without discarding guidance or rewriting them on status',async()=>{
+ const {host,home}=await service();const job=await host.invoke({action:'begin',name:'old.pdf',size:9},'one',model);
+ const path=join(home,'.coc/imports',job.id,'job.json');const saved=JSON.parse(await readFile(path,'utf8'));
+ delete saved.preparation;saved.state='ready';saved.guidance={scene:'Office',opening:'Who are you?'};
+ const before=JSON.stringify(saved);await writeFile(path,before);
+ const resumed=await host.invoke({action:'status',id:job.id},'one',model);
+ expect(resumed.canConverse).toBe(true);expect(resumed.preparation.opening.state).toBe('ready');
+ expect(await readFile(path,'utf8')).toBe(before);
+});
+it('joins one background presentation across status polls',async()=>{
+ const {host}=await service();let complete:(value:any)=>void=()=>{};
+ const run=vi.spyOn(host as any,'run').mockImplementation(()=>new Promise(resolve=>{complete=resolve}));
+ const data={campaign:'same-card',revision:2,play_language:'en'};
+ expect(host.presentationStatus(data)).toEqual({pending:true});expect(host.presentationStatus(data)).toEqual({pending:true});
+ complete({play_language:'en',texts:{Name:'Name'}});await host.presentation(data);
+ expect(host.presentationStatus(data)).toEqual({play_language:'en',texts:{Name:'Name'}});expect(run).toHaveBeenCalledTimes(1);
+});
 it('patches only the owning phase and retains conversation binding across delayed completion',async()=>{
   // Controlled promises exercise coordinator races only; this is not gameplay.
   const {host,home}=await service();

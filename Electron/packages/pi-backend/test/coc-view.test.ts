@@ -86,3 +86,23 @@ it('converse waits for startup and immediately projects the persisted first ques
     expect(frames.some(frame=>frame.channel==='stream'&&frame.event.type==='presentation'&&frame.event.entry.role==='assistant'&&frame.event.entry.content==='Who joins this expedition?')).toBe(true);
   }finally{unsubscribe();await backend.close();}
 });
+
+it('setup exit lets the play child establish a new turn when its agent_start was unobservable',async()=>{
+  const {createPiHostBackend}=await import('../src/index.js');
+  const root=await mkdtemp(join(tmpdir(),'coc-handoff-epoch-'));
+  const backend=createPiHostBackend({agentDir:root,sessionsRoot:join(root,'sessions')});
+  const internal=backend as any,frames:any[]=[];
+  const unsubscribe=backend.subscribe(frame=>frames.push(frame));
+  const token={};
+  vi.spyOn(internal,'sessionRuntimeTokenIsCurrent').mockReturnValue(true);
+  const mark=vi.spyOn(internal.queue,'markBusy').mockReturnValue(8);
+  internal.queueLoads.set('handoff',Promise.resolve());
+  const live={session:{id:'handoff'},runtimeToken:token,turnEpoch:7,terminalEpoch:7,messageEpoch:4,
+    compaction:{cancel:()=>{}},followUps:[],toolNames:new Map(),toolArgs:new Map()};
+  try {
+    internal.rpcEvent(live,{type:'entry_appended',entry:{type:'custom',customType:'coc-setup-exit'}});
+    internal.rpcEvent(live,{type:'message_start',message:{role:'assistant',content:[]}});
+    expect(mark).toHaveBeenCalledTimes(1);expect(live.turnEpoch).toBe(8);
+    expect(frames.some(frame=>frame.channel==='stream'&&frame.event.type==='status'&&frame.event.status==='started'&&frame.event.turnEpoch===8)).toBe(true);
+  }finally{unsubscribe();await backend.close();}
+});

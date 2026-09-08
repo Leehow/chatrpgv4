@@ -885,6 +885,8 @@ type Live = {
   hostAbortedTurn?: boolean;
   /** Queue turn id from the latest `markBusy`; stale settles must pass this to `queueIdle`. */
   turnEpoch?: number;
+  /** The same RPC wrapper is about to start its play child after setup exits. */
+  cocSetupHandoffPending?: boolean;
   /** Concatenated `text_delta` for the in-flight assistant message. */
   streamedAssistantText?: string;
   /** Concatenated redacted `thinking_delta` for the in-flight assistant message; diffed against the final blocks at message_end. */
@@ -5730,6 +5732,7 @@ export class PiHostBackend implements HostBackend {
     // every late event before it can touch queue, telemetry, or projections.
     if (!this.sessionRuntimeTokenIsCurrent(live.session.id, live.runtimeToken)) return;
     if (e.type === "entry_appended") {
+      if(e.entry?.customType==='coc-setup-exit')live.cocSetupHandoffPending=true;
       const entry = e.entry?.customType === "coc-setup-opening" ? visibleHistoryEntry(e.entry,this.sessionSecrets(live.session.id)) : mechanicsEntry(e.entry);
       if (entry) this.stream({type:"presentation",sessionId:live.session.id,entry});
     }
@@ -5771,11 +5774,12 @@ export class PiHostBackend implements HostBackend {
     // An extension-owned opening can therefore precede the first agent_start
     // observable by this host. Its first assistant message is real activity;
     // establish the usual epoch so agent_settled can release the composer.
-    if (live.turnEpoch === undefined && !live.activeCompaction
+    if ((live.turnEpoch === undefined || live.cocSetupHandoffPending) && !live.activeCompaction
       && e.type === "message_start" && e.message?.role === "assistant") {
       this.rpcEvent(live, {type: "agent_start"});
     }
     if (e.type === "agent_start") {
+      live.cocSetupHandoffPending=false;
       live.hostAbortedTurn = false;
       live.compaction.cancel();
       // Must be synchronous: fake-pi/real Pi emit agent_start and agent_settled
@@ -8454,7 +8458,7 @@ export class PiHostBackend implements HostBackend {
           await this.ensure(sid);
           // Pi drains an idle extension's shutdown request at the next RPC boundary.
           await this.command(sid,{type:'get_state'});
-          return {ok: true, data: {started: true, mode:binding.mode}};
+          return {ok: true, data: {started: true, mode:binding.mode||'play'}};
         }
         const state = await this.getModelState(sid || undefined);
         if (sid && ["begin", "select"].includes(String(request.action))) {
@@ -8498,7 +8502,7 @@ export class PiHostBackend implements HostBackend {
         const repo=resolve(this.managedNodeModulesRoot,'..');
         this.cocOnboarding = this.cocOnboardingRegistry.get({repo,home:binding.home,agentDir:this.sharedProfileDir,env:this.env});
         const state=await this.getModelState(sid);
-        try {return {ok:true,data:await this.cocOnboarding.presentation({campaign:binding.campaign,revision:Number(revision),play_language:binding.play_language,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})};}
+        try {return {ok:true,data:this.cocOnboarding.presentationStatus({campaign:binding.campaign,revision:Number(revision),play_language:binding.play_language,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})};}
         catch(error){return settingsDenied('presentation_failed',error instanceof Error?error.message:String(error));}
       }
       try {return {ok:true,data:await readColdSheet(join(this.managedNodeModulesRoot,'..'),binding,Number(revision))};}

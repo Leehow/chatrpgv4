@@ -1633,6 +1633,21 @@ The existing wrapper then switches setup to play. A committed handoff in
 `ready_for_table` remains resumable until table.open makes it active; it is not
 projected as already playing. No Pi fork, signal protocol or synthetic turn is used.
 
+The existing `draft-presentation` frontend invoke returns `{pending:true}` while
+its application-owned presentation job runs, then the existing `{play_language,
+texts}` projection. The renderer polls the same revision and acknowledges preview
+only after that projection is displayed. This keeps model work outside the Web
+transport's 30-second request window. Immutable draft results are shared in the
+existing presentation map; standing-sheet queries still refresh their visible
+context. The tool-enabled presentation agent runs the shared schema checker and
+gets one bounded repair for malformed output, retaining both original attempts.
+
+Both normal and idle setup completion emit the existing `coc-setup-exit` marker.
+The backend uses it to recognize the play child's startup within the same RPC
+wrapper. Pi may start its extension-owned opening before the RPC subscription
+exists; the first observed assistant message after that marker establishes a new
+normal turn epoch even though the wrapper already hosted a completed setup turn.
+
 ## 23. PipiCOC local frontend (2026-09-07)
 
 The copied `Electron/` workspace is a frontend owned by this branch. Its only

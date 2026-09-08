@@ -68,9 +68,18 @@ async function prepareTexts(options:TextOptions,texts:string[]):Promise<Record<s
   try {const cached=JSON.parse(await readFile(accepted,'utf8'));return {...validatePresentation(cached,texts),...known}}catch{/* Missing projections are generated without modifying the card. */}
   const attempt=join(directory,'attempts',randomUUID());await mkdir(attempt,{recursive:true});
   await writeFile(join(attempt,'texts.json'),JSON.stringify({play_language:options.play_language,texts,known_labels:known},null,2));
-  const outcome=await (options.runner||runReader)({cwd:attempt,systemPrompt:prompt,model:options.model,thinking:options.thinking,signal:options.signal,eventLog:join(attempt,'events.jsonl'),timeoutMs:120000,brief:'Read texts.json and write the complete player-facing text projection to presentation.json.'});
-  if(!outcome.ok||options.signal?.aborted)throw new Error('Card presentation could not be prepared');
-  const result={texts:validatePresentation(JSON.parse(await readFile(join(attempt,'presentation.json'),'utf8')),texts)};
+  await writeFile(join(attempt,'check.mjs'),`import {readFileSync} from 'node:fs';\nimport {validatePresentation} from ${JSON.stringify(import.meta.url)};\ntry {const packet=JSON.parse(readFileSync('texts.json','utf8'));validatePresentation(JSON.parse(readFileSync('presentation.json','utf8')),packet.texts);console.log('Presentation valid');}catch(error){console.error(error.message);process.exitCode=1;}\n`);
+  let result:Row|undefined;
+  for(let round=1;round<=2;round++) {
+    const outcome=await (options.runner||runReader)({cwd:attempt,systemPrompt:prompt,model:options.model,thinking:options.thinking,signal:options.signal,eventLog:join(attempt,`events-${round}.jsonl`),timeoutMs:120000,
+      brief:'Read texts.json and write the complete player-facing text projection to presentation.json. The file must contain exactly one JSON object, without Markdown or trailing text. Run node --experimental-strip-types check.mjs and correct any error before finishing.'+(round>1?' Read findings.json and repair the retained file; preserve every correct translation.':'')});
+    if(!outcome.ok||options.signal?.aborted)throw new Error('Card presentation could not be prepared');
+    const bytes=await readFile(join(attempt,'presentation.json'),'utf8');
+    await writeFile(join(attempt,`presentation-round-${round}.json`),bytes);
+    try {result={texts:validatePresentation(JSON.parse(bytes),texts)};break;}
+    catch(error){await writeFile(join(attempt,'findings.json'),JSON.stringify({error:String(error)}));if(round===2)throw error;}
+  }
+  if(!result)throw new Error('Card presentation could not be validated');
   const temporary=join(directory,randomUUID()+'.tmp');await writeFile(temporary,JSON.stringify(result,null,2));await rename(temporary,accepted);
   return {...result.texts,...known};
 }

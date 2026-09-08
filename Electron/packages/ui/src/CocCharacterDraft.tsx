@@ -7,11 +7,16 @@ export function CocCharacterDraft({data,onRendered,onPresentation}:Props) {
   const [error,setError]=useState(false),[retry,setRetry]=useState(0)
   useEffect(()=>{
     let active=true
+    let timer:ReturnType<typeof setTimeout>|undefined
     setError(false)
     if(data.presentation){setPresentation(data.presentation);return()=>{active=false}}
     setPresentation(null)
-    if(onPresentation)void onPresentation().then(value=>{if(active)setPresentation(value)}).catch(()=>{if(active)setError(true)})
-    return()=>{active=false}
+    const load=async()=>{
+      try {const value=await onPresentation!();if(!active)return;if(value.pending){timer=setTimeout(load,1500);return;}setPresentation(value)}
+      catch{if(active)setError(true)}
+    }
+    if(onPresentation)void load()
+    return()=>{active=false;if(timer)clearTimeout(timer)}
   },[data.revision,data.play_language,retry])
   useEffect(()=>{if(presentation&&onRendered)void onRendered().catch(()=>setError(true))},[presentation,data.revision])
   const sheet=data.sheet

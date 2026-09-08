@@ -108,6 +108,7 @@ export default function (pi: ExtensionAPI) {
       }
       const occupations=asRecord(await bridge!.call('setup.occupations',{})).occupations as any[];
       characterGuidance=await prepareCharacterGuidance({home,module_id:moduleId,
+        opening:asString(context.start_scene),
         play_language:asString(context.play_language)||'zh-Hans',occupations,
         model:ctx?.model ? ctx.model.provider+'/'+ctx.model.id : undefined,
         thinking:pi.getThinkingLevel(),signal:guidanceAbort.signal});
@@ -500,7 +501,7 @@ export default function (pi: ExtensionAPI) {
 		try {
 			if(campaign && ctx)pi.appendEntry('coc-session',{campaign,home:cocHome(ctx.cwd),play_language:context.play_language||'zh-Hans',mode:'play'});
       pi.appendEntry("coc-setup-handoff", { campaign: campaign ?? null, command: handoff });
-			if (ctx?.hasUI) ctx.ui.notify(line, "info");
+			if (ctx?.hasUI && process.env.PI_COC_SETUP_AUTOSTART!=='1') ctx.ui.notify(line, "info");
 		} catch {
 			/* failing to print the handoff must not block the exit */
 		}
@@ -549,6 +550,7 @@ export default function (pi: ExtensionAPI) {
       '\n\nModule-specific setup advice:\n'+guidance.advice+
       '\nChoose profile.era from these rulebook periods only when it matches the authored setting: '+JSON.stringify(context.rulebook_eras||[])+'. The source era can be descriptive prose; do not copy it as a table key. If no period applies, retain the finance blocker rather than choosing a nearby era.'+
       '\nAfter name and occupation are supplied, use setup create-investigator with a complete structured profile NOW. Do not merely describe a character: the computed draft must appear before approval. Use confirm-investigator only after approval or explicit write-now delegation.'+
+      '\nThe occupational skill list is priority ordered for the existing tier allocation. Put scenario prerequisites and the player\'s essential abilities first. Inspect the computed draft against those requirements before asking for confirmation. If an essential ability remains at its base value, revise the same profile order or legal interest choices; preserve the existing seed and required occupation skills. Do not claim an ability the actual card lacks.'+
       (process.env.PI_COC_SETUP_AUTOSTART==='1'?'\nThis is the frontend. After complete, close the prologue without a launch command; the host hands off to play.':'')};
   });
 
@@ -582,6 +584,7 @@ export default function (pi: ExtensionAPI) {
         if(!asRecord(snapshot.state).waiting_for_opening)return {waiting:false};
         await bridge.call('setup.complete',{campaign:context.campaign});
         completed.add('complete');finish();
+        pi.appendEntry('coc-setup-exit',{command:handoff});
         ctx.shutdown();
         return {completed:true};
       }catch(error){return {waiting:true,code:errorCode(error)};}
@@ -595,7 +598,7 @@ export default function (pi: ExtensionAPI) {
       prologueRecorded=true;
       pi.sendMessage({customType:'coc-setup-opening',content:guidance.opening,display:true,details:{kind:'setup-opening'}});
     }
-    if (ctx.hasUI && steps) {
+    if (ctx.hasUI && steps && process.env.PI_COC_SETUP_AUTOSTART!=='1') {
 			ctx.ui.notify(`Setup: ${steps.length} steps in all. ${instructionFor(nextStep(steps, state()))}`, "info");
 		}
 	});

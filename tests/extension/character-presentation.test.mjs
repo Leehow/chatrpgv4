@@ -22,6 +22,20 @@ test('incomplete text projection is refused',async()=>{
  const home=await mkdtemp(join(tmpdir(),'card-presentation-')),dir=join(home,'.coc/campaigns/c1/setup/drafts');await mkdir(dir,{recursive:true});await writeFile(join(dir,'1.json'),JSON.stringify({play_language:'zh-Hans',sheet}));
  await assert.rejects(prepareCharacterPresentation({home,campaign:'c1',revision:1,play_language:'zh-Hans',runner:async r=>{await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({texts:{Parameter:'Parameter'}}));return {ok:true}}}),/Incomplete/);
 });
+test('malformed presentation is repaired by the agent without changing the card',async()=>{
+ const home=await mkdtemp(join(tmpdir(),'card-repair-')),dir=join(home,'.coc/campaigns/c1/setup/drafts');await mkdir(dir,{recursive:true});
+ const original=JSON.stringify({play_language:'en',sheet});await writeFile(join(dir,'1.json'),original);
+ let calls=0;
+ const result=await prepareCharacterPresentation({home,campaign:'c1',revision:1,play_language:'en',runner:async r=>{
+  calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
+  const valid=JSON.stringify({texts:Object.fromEntries(input.texts.map(t=>[t,t]))});
+  if(calls===2)assert.ok(JSON.parse(await readFile(join(r.cwd,'findings.json'),'utf8')).error);
+  await writeFile(join(r.cwd,'presentation.json'),calls===1?valid+'\ntrailing prose':valid);
+  return {ok:true};
+ }});
+ assert.equal(calls,2);assert.equal(result.texts.Lawyer,'Lawyer');
+ assert.equal(await readFile(join(dir,'1.json'),'utf8'),original);
+});
 
 test('standing names are localized once, grow with visible people and never include hidden content',async()=>{
  const {prepareStandingPresentation,standingTexts}=await import('../../extensions/module/character-presentation.ts');

@@ -10,7 +10,7 @@ const CHUNK = 1024 * 1024;
 export type CocOnboardingOptions = {repo:string; home:string; agentDir:string; env:NodeJS.ProcessEnv};
 export class CocOnboardingHost {
   private stopping = new Set<string>();
-  private presentations = new Map<string,Promise<Row>>();
+  private presentations = new Map<string,{task:Promise<Row>;result?:Row;error?:unknown}>();
   private presentationChildren = new Set<ChildProcess>();
   private root: string;
   private children = new Map<string, ChildProcess>();
@@ -25,6 +25,12 @@ export class CocOnboardingHost {
   private load(id: string, session: string): Row {
     const job = JSON.parse(readFileSync(join(this.folder(id), 'job.json'), 'utf8'));
     if (job.session !== session) throw new Error('This import belongs to another session');
+    if(!job.preparation) {
+      const prepared=['ready','conversing','created'].includes(job.state);
+      job.preparation={guidance:{state:job.guidance?'ready':job.state==='choice'?'needs_choice':job.state==='failed'?'failed':'paused',candidates:job.candidates,error:job.error},
+        opening:{state:prepared?'ready':'queued'}};
+      job.start_scene ||= job.guidance?.scene;
+    }
     return job;
   }
   private save(job: Row) {
@@ -43,9 +49,9 @@ export class CocOnboardingHost {
     }catch{}
     if(job.campaign)try {
       const meta=JSON.parse(readFileSync(join(this.options.home,'.coc/campaigns',job.campaign,'campaign.json'),'utf8'));
-      character=meta.setup?.confirmed_revision?'confirmed':meta.setup?.draft_revision?'draft':'conversing';
+      character=meta.setup?.confirmed_revision||meta.setup?.handoff?'confirmed':meta.setup?.draft_revision?'draft':'conversing';
       waitingForOpening=meta.setup?.waiting_for_opening===true;
-      handoffCommitted=!!meta.setup?.handoff;playing=handoffCommitted&&meta.status!=='ready_for_table';
+      handoffCommitted=!!meta.setup?.handoff;playing=!['setting_up','ready_for_table'].includes(meta.status);
     }catch{}
     const phase=(name:string)=>{
       const saved=job.preparation?.[name]||{state:'queued'};
@@ -208,8 +214,25 @@ export class CocOnboardingHost {
     } finally {this.busy.delete(job.id);}
   }
   presentation(data:Row):Promise<Row> {
-    const key=JSON.stringify([data.campaign,data.revision,data.play_language,data.standing===true]);
-    if(!this.presentations.has(key))this.presentations.set(key,this.run('presentation',data).finally(()=>this.presentations.delete(key)));
+    return this.presentationJob(data).task;
+  }
+  presentationStatus(data:Row):Row {
+    const job=this.presentationJob(data);
+    if(job.error){this.presentations.delete(this.presentationKey(data));throw job.error;}
+    return job.result||{pending:true};
+  }
+  private presentationKey(data:Row) {
+    return JSON.stringify([data.campaign,data.revision,data.play_language,data.standing===true]);
+  }
+  private presentationJob(data:Row) {
+    const key=this.presentationKey(data);
+    if(!this.presentations.has(key)) {
+      const job:{task:Promise<Row>;result?:Row;error?:unknown}={task:Promise.resolve({})};
+      this.presentations.set(key,job);
+      job.task=this.run('presentation',data).then(result=>{job.result=result;return result;},error=>{job.error=error;throw error;})
+        .finally(()=>{if(data.standing)this.presentations.delete(key);});
+      void job.task.catch(()=>undefined);
+    }
     return this.presentations.get(key)!;
   }
   dispose() {
