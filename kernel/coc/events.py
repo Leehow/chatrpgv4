@@ -30,6 +30,8 @@ EVENT_TYPES = frozenset({
     "handout-shown",
     # #19: an item reaching (or leaving) an investigator's sheet; cash rides resource-changed
     "item-transferred",
+    "definition-created",
+    "ability-acquired",
     # §18 (#27): the keeper's bookkeeping -- a world flag, a continuity note, a table ruling
     "flag-set",
     "note-written",

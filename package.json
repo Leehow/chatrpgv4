@@ -12,6 +12,7 @@
   "pi": {
     "extensions": [
       "./extensions/kernel",
+      "./extensions/mods",
       "./extensions/onboarding",
       "./extensions/module",
       "./extensions/memory",

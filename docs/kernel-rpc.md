@@ -1,5 +1,7 @@
 # 内核 RPC 契约与回合事务
 
+The versioned gameplay Mod interface is specified in section 26. Mod packages do not import kernel internals or Pi objects.
+
 本文件是 Pi 扩展与 Python 内核之间的唯一契约。两侧的实现和两道接缝的测试都以它为准；改契约先改这里。范围标注为「切片 0」的是本轮必须实现的，标注为「保留」的只需要方法存在并返回 `not_implemented` 错误，形状不变。
 
 PDF 直接阅读与按需构图的目标契约见 §22（2026-09-07，待实现）。涉及 PDF/读者/模组车道的后续实现以 §22 为准；§14 与 §20 的旧流水线在切换验收前仅描述现有运行时。实施与退役顺序见 [规格](specs/visual-pdf-reader.md)。
@@ -1580,7 +1582,7 @@ RPC 顶层错误枚举沿用 §1；具体原因放在 `details.reason`：`bad_pd
 
 The copied `Electron/` workspace is a frontend owned by this branch. Its only
 Keeper process is `bin/pi-coc` in RPC mode, reached through `pipicoc/rpc`.
-It does not launch an embedded Pi or carry another Python kernel. The five
+It does not launch an embedded Pi or carry another Python kernel. The six
 canonical extensions are explicitly mounted once; the UI pack adds only the
 investigator sheet. Host coding prompts and tool mounts do not reach the Keeper.
 `pipicoc/dev [setup] [--campaign <name>]` selects the canonical launcher mode.
@@ -1634,7 +1636,7 @@ labels always used: a name is not a claim two lines can disagree about.
 
 The adapter preserves transport/session/model options, removes host persona and
 tool-selection arguments, and permits only the UI invoke bridge and sheet mount.
-It then explicitly loads the canonical five extensions with discovery disabled.
+It then explicitly loads the canonical six extensions with discovery disabled.
 No `~/.pi` or shared credential profile is linked. The frontend reads the same
 local model catalog as the canonical launcher. Copied upstream build artifacts,
 embedded runtimes and user state are excluded.
@@ -1866,3 +1868,133 @@ External check: [ink's linked knots and explicit END](https://www.inklestudios.c
 and [Yarn Spinner's node jumps](https://yarnspinner.dev/docs/faq/) separate narrative
 transitions from termination. They support this distinction, while our existing
 receipts and development capsules remain responsible for game-state persistence.
+
+## 26. Gameplay mods (2026-09-08)
+
+### Interface and authority
+
+Game interface `pipicoc.game.v1` accepts JSON values and semantic names. Packages
+contribute named decisions, Agent tasks, context instructions and migrations. They
+never import kernel or Pi implementation objects. The current adapter translates
+these contributions into the seven verbs, the existing transaction and host jobs.
+The kernel owns dice, identities, validation, world changes and persistence; a Mod
+owns its policy, prompts, presets and tests. No Mod may overwrite authored source.
+
+The first implementation supports declarative percentile decisions (a maximum of
+named actor values, target-scoped reuse and result mappings), generated weapon,
+spell and item definitions, and typed world effects. Unknown required capabilities
+are rejected; descriptive text never stands in for an executable mechanic.
+
+Current implementation decisions: `definition-created` and `ability-acquired` join
+the closed event set. Natural NPC checks may run during the opening after a real
+contact; define/object/ability may prepare opening objects. Other adventure actions
+still wait for player input. Host-private accepted draft fields are excluded from
+the public call fingerprint and never mutate the Keeper's original tool arguments.
+Multiple audit contributions are combined into one tool-enabled read of the draft;
+findings are returned before delivery. Previously accepted same-name definitions
+are reused, while a definition cannot shadow an existing rulebook spell.
+
+### Packages, activation and upgrade
+
+Packages contain `mod.json`, instructions, schemas and optional data/migrations.
+The manifest declares `id`, `version`, `game_api`, `state_version`, `name`,
+`description`, `author`, `default_enabled`, `requires`, `dependencies`, `conflicts`,
+`contributes`, and `settings`. Built-ins live in repository `mods/`; installed
+immutable versions in `<home>/.coc/mods/packages/<id>/<version>/`. A package digest
+covers all files. Local directory/ZIP installation rejects escaping paths,
+symlinks, executable payloads, oversized archives and replacement of existing
+versions with different bytes. Installation does not activate or upgrade a save.
+
+Host-only methods: `mods.list {campaign?}`, `mods.install {path}`,
+`mods.configure {campaign, id, enabled?, version?, settings?}`,
+`mods.defaults {id, enabled}`, and `mods.context {campaign}`. List returns every
+installed version, compatibility, active/pending versions and player-safe settings.
+Unbound panels manage installation and new-campaign defaults; they never guess a
+campaign. Changes during open/acting turns or live subsystem sessions remain pending
+until a safe boundary. The whole resolved set is checked for dependencies/conflicts
+before activation. Unknown settings are rejected. A save pins version, digest,
+settings and state version in `world.mods`; no automatic latest-version selection.
+
+Upgrades run an explicit package migration chain before the version lock changes.
+First-version migrations are deterministic namespace-local JSON field renames and
+defaults, never arbitrary world patches. No available migration means refusal with
+the old lock/state retained. Historical receipts and accepted definitions are not
+rewritten. Disabled mods retain state; generated objects using core capabilities
+remain usable. Worldline snapshots include mods, definitions and instances; merges
+must treat conflicting records explicitly rather than silently pick one.
+
+### Natural NPC
+
+The package contributes `natural-npc:first-impression` to `resolve.action.decision`.
+It performs one public regular D100 against max(APP, Credit Rating), ties selecting
+APP, and freezes the actor's values and result for that investigator/NPC pair.
+Ordinary retries, reloads and repeat encounters reuse the receipt without another
+roll. Existing same-pair receipts are imported when present; legacy hidden results
+remain hidden. Closed result mappings preserve the old reaction/disposition tiers.
+The Keeper decides when real contact occurs and realizes the result in observable
+manner, causal explanation, preserved character boundaries and opportunity/friction.
+This context remains separate from the existing party stance and interaction ledger.
+Disabling stops new checks and instructions, not historical facts. No regex or word
+list classifies contact, motives or appearance.
+
+### Enhanced items
+
+`apply` gains `define {name, category: weapon|spell|item, description, template?}`,
+`object {name, definition, to, from?, quantity?, why?}`, and
+`ability {name, to, source, why?}`. Define is intercepted by the host's Mods bridge:
+a tool-enabled Pi job reads scene/actor/source context and preset catalogs, writes a
+definition draft, checks it and repairs it. The kernel validates the accepted draft
+again before it enters the existing apply batch. Host identities and job paths never
+need to be copied by the Keeper. Plain items remain supported through `apply item`.
+
+Definitions are immutable, versioned and carry provenance, supported capabilities
+and a player-safe projection. Instances have their own identity, owner/location,
+quantity and mutable use state. An owner may be an investigator, NPC or scene.
+Transfer removes ownership from the giver and preserves the same instance and
+remaining ammunition/charges. Copying a name is never a transfer. NPC and player
+combat read the same definition/instance; character equipment is a projection.
+Spells are definitions; owning a book does not grant knowledge. Ability acquisition
+and spell learning/casting retain their explicit source and rule requirements.
+
+Before narration/ask commits, the host's tool-enabled semantic audit compares the
+unpublished draft with declared/registered objects. Unregistered mechanically
+meaningful entities cause a repair request before delivery. Any attempted use also
+requires an executable definition. A failed/cancelled job preserves evidence and
+does not commit partial definitions or pretend the item worked. Accepted jobs are
+reused by request identity; a changed request uses a new job. Replay reads accepted
+data and never invokes a model or rolls again.
+
+### Host and panel
+
+`extensions/mods` contributes no Keeper tool. It publishes a host-only bridge to
+the kernel extension for generation and pre-delivery checks, using the existing
+tool-enabled Pi subprocess runner through an adapter. `pipicoc/mods-panel.js`
+registers `coc.mods` beside the investigator panel. Panel reads do not open turns;
+mutations go through the explicit bound session's host bridge. Public projections
+exclude NPC secrets and undiscovered object properties. Core recipes render through
+existing mechanics JSON. Local packages and both built-ins use the same loader.
+
+### Acceptance
+
+Implementation details: passive tools may carry typed scalar `traits` (for example
+length, mass or material) independently from executable `parameters`. The Keeper
+uses those facts to choose ordinary checks/world actions; an empty effect list is
+not an automatic successful use. `look focus object` reads persistent definitions,
+instances and container contents. Ownership cycles are rejected. Initial condition,
+ammunition and jams follow an instance; `objects:repair` settles a declared repair
+skill through the existing percentile engine. Public views expose only declared
+known traits/parameters. Core-supported typed effects and spell costs execute in
+resolve; new unimplemented active powers still require a capability upgrade.
+
+The Mods panel remains available while onboarding. Host management uses the live
+session's bridge when one exists; otherwise a short-lived kernel handles the four
+management methods without starting Pi or a fictional turn. Cold campaign changes
+require that selected UI session's recorded binding; caller-supplied campaign ids
+are ignored. Install/default/list also work before a campaign exists.
+
+Check package/version conflicts, bad archives, safe-boundary changes, migrations,
+pair reuse, existing NPC behavior, rejected definition atomicity, NPC use/transfer,
+inventory and restart persistence, disabled-generator usability and worldline
+conflicts through public interfaces. Then run the required suites and real Grok
+play with this main session as the sole player. UI controls must be exercised in a
+real browser. A generated card or deterministic fixture is not real-table evidence.

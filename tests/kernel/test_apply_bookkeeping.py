@@ -16,10 +16,11 @@ if str(KERNEL_DIR) not in sys.path:
 from coc.events import EVENT_TYPES  # noqa: E402
 from coc.module_graph import condition_status  # noqa: E402
 
-TWENTY_TWO = {
+TWENTY_FOUR = {
     "turn-started", "player-declared", "roll-resolved", "scene-moved", "clue-discovered", "time-advanced",
     "turn-finalized", "resource-changed", "decision-settled", "session-changed", "choice-asked", "memory-written",
     "setup-completed", "handout-shown", "item-transferred",
+    "definition-created", "ability-acquired",  # section 26 gameplay Mods
     "flag-set", "note-written", "ruling-made",
     "npc-changed",  # §17.3 (#29)
     "worldline-forked", "worldline-switched", "worldline-merged",  # §15.3 (#23)
@@ -56,8 +57,8 @@ def ruling(name, statement="judge it so", **anchor):
 
 # ---- events (§18.5) -------------------------------------------------------------------------
 
-def test_the_event_enum_is_closed_at_twenty_two():
-    assert EVENT_TYPES == TWENTY_TWO
+def test_the_event_enum_is_closed_at_twenty_four():
+    assert EVENT_TYPES == TWENTY_FOUR
 
 
 # ---- flag (§18.1) ---------------------------------------------------------------------------

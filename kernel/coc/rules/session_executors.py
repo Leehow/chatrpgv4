@@ -212,7 +212,8 @@ def _start_combat(ctx: Any, args: Mapping[str, Any], sessions: SessionView) -> t
     # carry skill and damage; a bare `{"weapon_id": ...}` is a reference to one.
     extra_weapons = [w for w in list(profile.get("weapons") or []) + list(opponent_spec.get("weapons") or [])
                      if isinstance(w, dict) and (w.get("extends") or (w.get("skill") and (w.get("damage") or w.get("damage_die"))))]
-    catalog_rows = module_weapons(ctx.tables, ctx.graph, extra_weapons)
+    from ..mods.objects import weapon_rows
+    catalog_rows = module_weapons(ctx.tables, ctx.graph, extra_weapons + weapon_rows(ctx.world))
     combat_id = f"{operation.get('combat_id') or 'combat-' + ctx.active_scene}-t{ctx.turn_number}"
     session = CombatSession(combat_id, f"scene/{ctx.active_scene}", ctx.turn_number, ctx.rng, tables=ctx.tables,
                             module_weapons=catalog_rows)
@@ -228,6 +229,9 @@ def _start_combat(ctx: Any, args: Mapping[str, Any], sessions: SessionView) -> t
                                 damage_bonus=spec["damage_bonus"], magic_points=spec["magic_points"], armor=spec["armor"],
                                 armor_rule=spec["armor_rule"])
         session.participants[spec["actor_id"]]["hp_current"] = spec["hp_current"]
+        for owned in weapon_rows(ctx.world, spec["actor_id"]):
+            if owned["ammo"] is not None:
+                session.set_ammo(spec["actor_id"], owned["weapon_id"], owned["ammo"])
     preparations: list[dict[str, Any]] = []
     for preparation in operation.get("preparations") or []:
         if not isinstance(preparation, dict) or preparation.get("actor_id") not in session.participants:

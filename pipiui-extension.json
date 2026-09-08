@@ -33,6 +33,7 @@
         "auxiliarySidebar": "coc.investigator"
       },
       "panels": [
+        {"slot":"toolPanel", "id":"coc.mods", "title":"Mods", "entry":"pipicoc/mods-panel.js"},
         {
           "slot": "toolPanel",
           "id": "coc.investigator",

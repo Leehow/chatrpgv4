@@ -33,8 +33,8 @@ from .text import normalize
 
 # ---- the closed table (§15.4) ----------------------------------------------------------
 
-NUMERIC, DEAD_ALIVE, CONSUMED, FLAG, NPC_PRESENCE = (
-    "numeric", "dead_alive", "consumed", "flag", "npc_presence")
+NUMERIC, DEAD_ALIVE, CONSUMED, FLAG, NPC_PRESENCE, MOD_STATE = (
+    "numeric", "dead_alive", "consumed", "flag", "npc_presence", "mod_state")
 FROM, MIN, MAX, SUM, DROP = "from", "min", "max", "sum", "drop"
 #: Which dispositions each class allows. `clue` is absent on purpose: clues never conflict,
 #: they are a union. No class offers `sum` over something that cannot be duplicated.
@@ -44,6 +44,7 @@ DISPOSITIONS: dict[str, tuple[str, ...]] = {
     CONSUMED: (FROM, DROP),
     FLAG: (FROM,),
     NPC_PRESENCE: (FROM, SUM),
+    MOD_STATE: (FROM,),
 }
 #: The investigator numbers a merge compares, sheet field by capsule name.
 RESOURCES = (("hp", "current_hp"), ("san", "current_san"), ("mp", "current_mp"), ("luck", "current_luck"))
@@ -162,6 +163,12 @@ def _merge_world(graph: ModuleGraph, states: list[dict[str, Any]], scene: str,
                                      for state in states)}
     world["flags"] = _merge_flags(states, conflicts)
     world["npc_presence"] = _merge_presence(graph, states, scene, conflicts)
+    mod_values = {state["line"]: {key:copy.deepcopy(state["world"].get(key)) for key in ("mods", "objects", "npc_resources")}
+                  for state in states}
+    if len({json.dumps(v, sort_keys=True) for v in mod_values.values()}) > 1:
+        conflicts.append({"id":conflict_id(MOD_STATE, "game-mods", "snapshot"), "class":MOD_STATE,
+                          "subject":"game-mods", "field":"snapshot", "values":mod_values,
+                          "modes":list(DISPOSITIONS[MOD_STATE])})
     return world
 
 
@@ -313,6 +320,10 @@ def settle(result: dict[str, Any], dispositions: dict[str, Any]) -> dict[str, An
     for key, row in sorted(conflicts.items()):
         _resolve(result, row, _mode_of(row, dispositions[key]))
     result["dispositions"] = {key: dict(value) for key, value in sorted(dispositions.items())}
+    if "objects" in result["world"]:
+        from .mods.objects import project_sheet
+        for sheet in result["party"].values():
+            project_sheet(result["world"], sheet)
     return result
 
 
@@ -363,6 +374,12 @@ def _resolve(result: dict[str, Any], row: dict[str, Any], given: dict[str, Any])
         places = sorted({str(v) for v in values.values()})
         result["world"]["npc_presence"][subject] = str(values[given["line"]]) if mode == FROM else (
             result["world"]["active_scene"] if result["world"]["active_scene"] in places else places[0])
+    elif kind == MOD_STATE:
+        for key, value in values[given["line"]].items():
+            if value is None:
+                result["world"].pop(key, None)
+            else:
+                result["world"][key] = copy.deepcopy(value)
 
 
 # ---- staging a merge inside a batch (§15.3) ----------------------------------------------

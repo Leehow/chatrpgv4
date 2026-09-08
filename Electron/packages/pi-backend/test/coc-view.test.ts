@@ -38,7 +38,7 @@ it('cold host sheet reads are tied to the requested session and never start Pi',
   const profile=join(root,'profile'),pack=join(profile,'extensions/coc-keeper');await mkdir(pack,{recursive:true});
   await cp(join(repo,'pipiui-extension.json'),join(pack,'pipiui-extension.json'));await cp(join(repo,'pipicoc'),join(pack,'pipicoc'),{recursive:true});
   let spawns=0;
-  const backend=createPiHostBackend({agentDir:profile,sessionsRoot:join(root,'sessions'),runtimeRoot:join(root,'runtime'),defaultPack:'coc-keeper',managedNodeModulesRoot:join(repo,'node_modules'),spawn:()=>{spawns++;throw new Error('Pi must remain asleep');}});
+  const backend=createPiHostBackend({agentDir:profile,sessionsRoot:join(root,'sessions'),runtimeRoot:join(root,'runtime'),defaultPack:'coc-keeper',managedNodeModulesRoot:join(repo,'node_modules'),env:{PI_COC_HOME:root},spawn:()=>{spawns++;throw new Error('Pi must remain asleep');}});
   try {
     await backend.handle('addProject',[root]);const projects=await backend.handle('listProjects',[]) as any[];
     const first=await backend.handle('newSession',[projects[0].id]) as any;
@@ -47,6 +47,15 @@ it('cold host sheet reads are tied to the requested session and never start Pi',
     expect(spawns).toBe(0);
     const anonymous=await backend.handle('invokeExtension',['coc-keeper','sheet',{}]) as any;
     expect(anonymous).toMatchObject({ok:true,data:{status:'unbound'}});
+    const mods=await backend.handle('invokeExtension',['coc-keeper','mods.list',{campaign:'must-not-be-guessed'}, {sessionId:first.id}]) as any;
+    expect(mods.ok).toBe(true);
+    expect(mods.data.mods.map((row:any)=>row.id)).toEqual(['enhanced-items','natural-npc']);
+    expect(mods.data.campaign).toBeUndefined();
+    const defaults=await backend.handle('invokeExtension',['coc-keeper','mods.defaults',{id:'natural-npc',enabled:false}, {sessionId:first.id}]) as any;
+    expect(defaults).toMatchObject({ok:true,data:{'natural-npc':false}});
+    const refused=await backend.handle('invokeExtension',['coc-keeper','mods.configure',{id:'natural-npc',enabled:false,campaign:'another'}, {sessionId:first.id}]) as any;
+    expect(refused.ok).toBe(false);
+    expect(spawns).toBe(0);
   }finally{await backend.close();}
 });
 

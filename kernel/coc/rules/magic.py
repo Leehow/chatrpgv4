@@ -61,6 +61,12 @@ def resolve_spell_name(tables: RuleTables, catalog: Catalog, name: str, *,
             record = module_record_named(module_spells, name) if module_spells else None
             return {"canonical_name": str(spell["name"]), "entry": spell, "parameterisation": None,
                     "module_authored": demoted_module_block(record) if record else None}
+    for record in module_spells or []:
+        definition = record.get("generated_definition")
+        if isinstance(definition, dict) and definition["name"].casefold() == name.casefold():
+            return {"canonical_name": definition["name"], "entry": {**definition["parameters"],
+                    "name": definition["name"], "description": definition["description"],
+                    "generated_definition": definition}, "parameterisation": None, "module_authored": None}
     resolved = catalog.resolve_name("spell", name, module_spells=module_spells)
     parameterisation = (resolved or {}).get("parameterisation")
     if parameterisation:
@@ -121,7 +127,10 @@ def _roll_dice(expr: str, rng: random.Random) -> int:
     try:
         return int(expr)
     except (TypeError, ValueError):
-        return 0
+        try:
+            return int(percentile.roll_expression(str(expr), rng)["total"])
+        except ValueError:
+            return 0  # Preserve legacy variable-cost handling outside validated definitions.
 
 
 def _resolve_mp_cost(cost_expr: str | int | None, rng: random.Random) -> int:

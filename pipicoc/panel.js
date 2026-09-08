@@ -403,7 +403,13 @@ export function createComponent(React) {
       return props.empty ? h(Section, { title: props.title }, h("p", { className: "coc-sheet-note" }, props.empty)) : null;
     }
     return h(Section, { title: props.title },
-      h(Lines, { rows: list.map(item => { const line = itemLine(item); return { name: line.title, value: line.note }; }) }));
+      h(Lines, { rows: list.map(item => { const line = itemLine(item); return { name: line.title, value: line.note }; }) }),
+      ...(props.objects ?? []).map(item => h("details", {key:item.name, className:"coc-clue-fold", style:{marginTop:8}},
+        h("summary", null, item.name), h("div", {className:"coc-clue-body"},
+          h("p", null, item.description),
+          h(Lines, {rows:(item.traits ?? []).map(trait=>({name:trait.name, value:`${trait.value}${trait.unit ? ' ' + trait.unit : ''}`}))}),
+          h(Lines, {rows:Object.entries(item.parameters ?? {}).map(([name, value])=>({name, value:typeof value === "object" ? JSON.stringify(value) : String(value)}))}),
+          h(Lines, {rows:Object.entries(item.state ?? {}).filter(([,value])=>value !== null).map(([name,value])=>({name, value:String(value)}))})))));
   }
 
   function Finance(props) {
@@ -596,7 +602,7 @@ export function createComponent(React) {
       sheet ? h(Characteristics, { sheet, t, term }) : null,
       sheet ? h(Skills, { sheet, t, term }) : null,
       sheet ? h(ItemSection, { title: t.weapons, list: sheet.weapons }) : null,
-      sheet ? h(ItemSection, { title: t.equipment, list: sheet.equipment, empty: t.noEquipment }) : null,
+      sheet ? h(ItemSection, { title: t.equipment, list: sheet.equipment, objects:sheet.objects, empty: t.noEquipment }) : null,
       sheet ? h(Finance, { sheet, t }) : null,
       h(Clues, { view, t }));
   };

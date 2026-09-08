@@ -1,5 +1,12 @@
 # pi-coc v2
 
+Gameplay Mods are independent versioned packages under `mods/`. The right-sidebar
+Mods tab lists installed packages, campaign activation, new-campaign defaults and
+explicit upgrades. Natural NPC and Enhanced Items are included. Local directories
+and ZIP packages use the same loader; save locks preserve the package bytes and
+accepted game results across application updates. See kernel contract section 26
+and `docs/specs/mods-execution.md` for the interface and verification record.
+
 COC Keeper for Pi：一个 Pi 包加一个 Python 内核子进程。守秘人只见七个动词：`look`、`lookup`、`recall`、`resolve`、`apply`、`ask`、`narrate`。
 
 - 架构规格：GitHub issue #12。切片票：#13 到 #18。

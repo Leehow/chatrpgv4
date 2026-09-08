@@ -1,0 +1,27 @@
+{
+  "id": "natural-npc", "version": "1.0.0", "game_api": "pipicoc.game.v1",
+  "state_version": 1, "name": "Natural NPC", "author": "PipiCOC",
+  "description": "A lasting first impression from Appearance or Credit Rating, realized by the Keeper in character.",
+  "default_enabled": true, "requires": ["checks.percentile.v1", "context.npc.v1"],
+  "dependencies": {}, "conflicts": [], "settings": {},
+  "contributes": {
+    "instructions": "agent.md",
+    "auditor": "auditor.md",
+    "audit_on_decisions": ["natural-npc:first-impression"],
+    "checks": [{
+      "name": "natural-npc:first-impression", "trigger": "contact", "scope": "actor-target",
+      "values": [{"path": "characteristics.APP", "label": "Appearance"}, {"path": "skills.Credit Rating", "label": "Credit Rating"}],
+      "selection": "maximum", "difficulty": "regular", "reusable": true,
+      "legacy": {"format":"npc-first-impression", "file":"save/npc-first-impressions.json"},
+      "results": {
+        "critical": {"reaction": "breakthrough", "disposition": "helpful"},
+        "extreme": {"reaction": "strongly_favorable", "disposition": "helpful"},
+        "hard": {"reaction": "favorable", "disposition": "helpful"},
+        "regular": {"reaction": "open", "disposition": "neutral"},
+        "failure": {"reaction": "guarded", "disposition": "neutral"},
+        "fumble": {"reaction": "actively_adverse", "disposition": "hostile"}
+      },
+      "rule_refs": ["keeper-rulebook p.191", "percentile-check", "success-levels"]
+    }]
+  }
+}

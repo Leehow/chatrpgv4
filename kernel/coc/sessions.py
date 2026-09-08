@@ -209,7 +209,7 @@ def npc_combat_participant(tables: RuleTables, handle: str, profile: dict[str, A
         "firearms_skill": firearms, "has_ready_firearm": bool(profile.get("has_ready_firearm", False)),
         "build": int(derived.get("Build", damage["build"])), "damage_bonus": str(derived.get("DB", damage["damage_bonus"])),
         "hp_max": max(1, hp), "hp_current": max(1, int(profile.get("hp_current", hp))), "con": characteristics["CON"],
-        "magic_points": int(derived.get("MP", characteristics.get("POW", 0) // 5)),
+        "magic_points": int(profile.get("current_mp", derived.get("MP", characteristics.get("POW", 0) // 5))),
         "armor": int(profile.get("armor", 0) or 0), "armor_rule": profile.get("armor_rule"),
         "weapons": weapons, "conditions": [str(c) for c in (profile.get("conditions") or [])],
         "mov": int(derived.get("MOV", 8)),
@@ -670,7 +670,8 @@ class SessionView:
             node = self.graph.find(handle, (NPC_KIND,))
             if node is None:
                 continue
-            rows.append((handle, node, npc_profile(self.graph, node)))
+            from .mods.objects import with_profile
+            rows.append((handle, node, with_profile(self.world, handle, npc_profile(self.graph, node))))
         return rows
 
     def chase_start_ready(self) -> bool:

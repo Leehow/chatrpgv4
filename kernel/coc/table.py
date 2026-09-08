@@ -23,6 +23,8 @@ from .facts import committed_facts, keeper_only_facts, language_of
 from .fileio import append_jsonl, file_size, read_json, read_jsonl, truncate_file
 from .module_graph import NPC_KIND, ModuleGraph, module_declaration, record_of
 from .ontology import Ontology, ontology_not_ready
+from .mods.adapter import ModAdapter
+from .mods import objects as mod_objects
 from . import npc as npc_lane
 from .render import bind_markers, check_play_language, markers_for, mechanics, strip_markers
 from .resolve import ResolvePipeline, full_decision_ref
@@ -45,7 +47,7 @@ NONE_INTENTS = frozenset({"idle", "meta", "stuck", "ambiguous"})
 POSTGAME_DECISIONS = frozenset({"decision:coc7:development:end-session", "decision:coc7:development:settle-ending"})
 POSTGAME_ACTION_FIELDS = frozenset({"intent", "goal", "method", "decision", "ending", "actor", "scenario_san_reward_expr"})
 APPLY_KINDS = frozenset({"ending", "move", "clue", "time", "damage", "handout", "item", "cash", "flag", "note", "ruling",
-                         "npc",
+                         "npc", "define", "object", "ability",
                          # §15.3 (#23): the world changing lines. Performed after the turn commits.
                          "fork", "switch", "merge"})
 #: §17 (#29) made `npc` live; §18 (#27) made flag, note and ruling live; §15 (#23) made the
@@ -74,7 +76,7 @@ ECHO_OPTIONS = 12
 #: §14.8: what may be handed to the player as a card.
 HANDOUT_VISIBILITIES = frozenset({"player-safe", "revealable"})
 HANDOUT_KINDS = ("handout", "asset")
-LOOK_FOCUS = frozenset({"scene", "npc", "investigator", "clues", "time", "session"})
+LOOK_FOCUS = frozenset({"scene", "npc", "investigator", "clues", "time", "session", "object"})
 LOOKUP_KINDS = frozenset({"module", "secret", "rule", "catalog"})
 RECALL_KINDS = frozenset({"transcript", "memory", "history"})
 WRITABLE_STATES = frozenset({"open", "acting"})
@@ -172,6 +174,7 @@ class Table:
         self.seed_locked = bool(seed_locked)
         self.tables = RuleTables(self.content / "rulesets" / "coc7" / "rules-json")
         self.engine = RulesEngine(self.content, self.tables)
+        self.mods = ModAdapter(self)
         #: §14.1: graphs are read from the module store once a module is registered;
         #: the cache is keyed by generation so a deepened graph is picked up.
         self.module_store = ModuleStore(self.store.workspace)
@@ -435,6 +438,8 @@ class Table:
             sheet["current_luck"] = characteristics.get("LUCK")
 
         world, start_handle = (self.initial_world(graph) if graph else (None, None))
+        if world is not None:
+            self.mods.runtime.initialize(world)
         meta = {
             "id": campaign_id,
             "title": title,
@@ -533,6 +538,7 @@ class Table:
             self.module_store.register_starter(legacy_module, self.content / "starters")
         campaign, meta, graph, world = self._load(params, require_turn=False,
                                                   statuses=frozenset({STATUS_READY, STATUS_ACTIVE, "completed"}))
+        self.mods.initialize(campaign, world)
         self.validate_ontology()
         if meta.get("status") == STATUS_READY:
             meta["status"] = STATUS_ACTIVE
@@ -579,6 +585,7 @@ class Table:
             "scene": {"name": graph.handle(scene), "display_name": scene_label(graph, world, scene)},
             "pending_turn": pending_turn,
             "opening_needed": opening_needed,
+            "mod_context": self.mods.context(campaign, graph, world),
             "module_reading": bool(self.module_store.module(graph.module_id).get("reading_version")),
             "resume": resume,
             # §15.6: which line the table just opened on, and how many circuits in.
@@ -607,7 +614,7 @@ class Table:
             "play_language": language,
             "turn": turn["turn"],
             "state": turn["state"],
-            "investigators": [investigator_view(sheet) for sheet in party],
+            "investigators": [{**investigator_view(sheet), "objects": mod_objects.public_items(world, sheet["id"])} for sheet in party],
             # §23: the player reads this list, so each row carries the name the table used for
             # that clue, not only the handle the kernel files it under; `summary` is what the
             # clue actually says, so the panel can unfold a row into it.
@@ -631,11 +638,13 @@ class Table:
             self._style_first_turn[campaign.id] = int(turn["turn"])
         # #22: the module briefing rides under the same condition as the full style — the
         # first turn this process opened for the campaign (and any capsule before it).
-        return build_capsule(graph, campaign, world, turn, campaign.party(), language=language_of(meta), meta=meta,
+        result = build_capsule(graph, campaign, world, turn, campaign.party(), language=language_of(meta), meta=meta,
                              situations=self._situations(campaign, graph, world, turn), director_graph=self.director,
                              ontology=self.ontology, craft=self.craft,
                              register=str(meta.get("register") or DEFAULT_REGISTER), style_full=style_full, resume=resume,
                              material_of=self.material_of(graph.module_id), module_brief=style_full)
+        result["mods"] = self.mods.context(campaign, graph, world)
+        return result
 
     def capsule(self, params: dict[str, Any]) -> dict[str, Any]:
         campaign, graph, world, turn = self._context(params)
@@ -643,6 +652,9 @@ class Table:
 
     def look(self, params: dict[str, Any]) -> dict[str, Any]:
         campaign, graph, world, turn = self._context(params)
+        if params.get("focus") == "object":
+            self._touch_acting(campaign, turn)
+            return mod_objects.look(world, params.get("name"))
         focus = params.get("focus") or "scene"
         if focus not in LOOK_FOCUS:
             raise unsupported_value("focus", focus, sorted(LOOK_FOCUS),
@@ -690,7 +702,7 @@ class Table:
                 raise invalid_params("params.kinds must be a list of catalog kinds")
             limit = params.get("limit")
             found = self.engine.catalog.search(query, kinds=kinds, limit=limit,
-                                               module_spells=SettleContext.module_spells_for(graph))
+                                               module_spells=SettleContext.module_spells_for(graph, world))
             if not found.get("ok"):
                 error = found.get("error") or {}
                 raise invalid_params(str(error.get("detail") or error.get("code") or "bad catalog query"),
@@ -871,6 +883,7 @@ class Table:
 
     def player_input(self, params: dict[str, Any]) -> dict[str, Any]:
         campaign, meta, graph, world = self._load(params, statuses=frozenset({STATUS_ACTIVE, "completed"}))
+        self.mods.initialize(campaign, world, pending=True)
         turn = campaign.read_turn()
         text = _str(params, "text")
         if turn["state"] not in PLAYER_INPUT_STATES:
@@ -971,7 +984,9 @@ class Table:
 
     def resolve(self, params: dict[str, Any]) -> dict[str, Any]:
         campaign, graph, world, turn = self._context(params)
-        call_id, replay = self._begin_write(campaign, turn, "table.resolve", params)
+        action = params.get("action")
+        contributed = isinstance(action, dict) and action.get("decision") in self.mods.runtime.decisions(world)
+        call_id, replay = self._begin_write(campaign, turn, "table.resolve", params, allow_opening=contributed)
         if replay is not None:
             return replay
         action = params.get("action")
@@ -989,6 +1004,14 @@ class Table:
 
         choice_receipt = self._bind_choice(turn, action, call_id)
         new_receipts = [choice_receipt] if choice_receipt else []
+        mod_check = self.mods.check(campaign, graph, world, turn, action, call_id)
+        if mod_check is not None:
+            result, mod_receipts = mod_check
+            result["markers"] = _markers_of(turn, mod_receipts)
+            self._commit_resolve(campaign, turn, call_id, params, result, new_receipts + mod_receipts,
+                                 [("roll-resolved" if r["kind"] == "roll" else "resource-changed",
+                                   {"decision": result["decision"], "mod": r.get("mod"), "receipt":r}, r["id"]) for r in mod_receipts])
+            return result
         # §13.3: the Director's `intent` signal reads the previous turn's declared intents.
         turn.setdefault("intents", []).append(intent)
 
@@ -1127,7 +1150,11 @@ class Table:
     def apply(self, params: dict[str, Any]) -> dict[str, Any]:
         campaign, meta, graph, world = self._load(params, statuses=frozenset({STATUS_ACTIVE, "completed"}))
         turn = campaign.read_turn()
-        call_id, replay = self._begin_write(campaign, turn, "table.apply", params)
+        opening_objects = isinstance(params.get("effects"), list) and bool(params["effects"]) and all(
+            isinstance(e, dict) and e.get("kind") in {"define", "object", "ability"} for e in params["effects"])
+        call_params = {**params, "effects": [{k:v for k,v in e.items() if not k.startswith("_")} if isinstance(e, dict) else e
+                                              for e in params.get("effects", [])]} if isinstance(params.get("effects"), list) else params
+        call_id, replay = self._begin_write(campaign, turn, "table.apply", call_params, allow_opening=opening_objects)
         if replay is not None:
             return replay
         effects = params.get("effects")
@@ -1239,6 +1266,8 @@ class Table:
                                                         mint, staged_rulings)
                 elif kind == "npc":
                     receipt, event = self._stage_npc(graph, staged, effect, turn_number, ordinal, call_id, mint)
+                elif kind in {"define", "object", "ability"}:
+                    receipt, event = self.mods.stage(campaign, graph, staged, effect, turn_number, call_id, mint)
                 elif kind in worldline.OPERATIONS:
                     receipt, staged_worldline = worldline.stage(
                         campaign, meta, graph, staged, effect, turn, index=index, count=len(effects),
@@ -1275,6 +1304,8 @@ class Table:
 
         self._commit_sheets(campaign, staged_sheets)
         campaign.write_world(staged)
+        if any(e.get("kind") == "object" for e in effects):
+            self.mods.project_inventory(campaign, staged)
         for row in staged_notes:
             append_jsonl(campaign.notes_path, row)
         for row in staged_rulings:
@@ -1314,7 +1345,7 @@ class Table:
             result["already_discovered"] = already
             if not receipts:
                 result["replayed"] = True
-        Campaign.remember_call(turn, call_id, params, result)
+        Campaign.remember_call(turn, call_id, call_params, result)
         campaign.write_turn(turn)
         for event_type, data, receipt_id in events:
             append_event(campaign, turn_number, event_type, data, call_id=call_id, receipt=receipt_id)

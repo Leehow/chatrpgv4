@@ -1,5 +1,5 @@
 import { CocOnboardingHost } from './coc-onboarding.js';
-import { readCocBinding, readColdSheet, mechanicsEntry } from "./coc-view.js";
+import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry } from "./coc-view.js";
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { createExtensionHostWorkers, type ExtensionHostWorkers } from "./extension-host-workers.js";
 import { closeSync, constants as fsConstants, createReadStream, createWriteStream, existsSync, lstatSync, openSync, readFileSync, realpathSync, watch, writeSync, promises as fs, type Dirent } from "node:fs";
@@ -8472,6 +8472,24 @@ export class PiHostBackend implements HostBackend {
         }
         return {ok: true, data};
       } catch (error) { return settingsDenied("onboarding_failed", error instanceof Error ? error.message : String(error)); }
+    }
+    if (id === "coc-keeper" && ["mods.list","mods.install","mods.defaults","mods.configure"].includes(method)) {
+      try {
+        const sid = isRecord(optsValue) && typeof optsValue.sessionId === "string" ? optsValue.sessionId.trim() : "";
+        const active = sid ? this.live.get(sid) : undefined;
+        if (active && this.liveProcessUsable(active)) {
+          if (!this.extensions.isMounted(sid,id)) return settingsDenied("capability_denied","extension not mounted on session");
+          return this.enqueueExtInvoke(sid,id,method,params);
+        }
+        if (!this.managedNodeModulesRoot) throw new Error("Canonical runtime is unavailable");
+        const repo = resolve(this.managedNodeModulesRoot,"..");
+        const context = sid ? await readCocBinding((await this.locate(sid)).path) : undefined;
+        if (method === "mods.configure" && !context) throw new Error("Select a campaign before changing its Mods");
+        const request:Record<string,unknown> = isRecord(params) ? {...params} : {};
+        delete request.campaign;
+        if (context) request.campaign = context.campaign;
+        return {ok:true,data:await callColdKernel(repo,context?.home ?? resolve(this.env.PI_COC_HOME || repo),method,request)};
+      } catch(error) {return settingsDenied("mods_failed",error instanceof Error ? error.message : String(error));}
     }
     if (id === "coc-keeper" && ["sheet","choose"].includes(method) && !(isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim())) {
       return {ok:true,data:{status:"unbound",view:null,campaign:null}};

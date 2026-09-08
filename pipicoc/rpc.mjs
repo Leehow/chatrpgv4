@@ -19,7 +19,7 @@ export function keeperArguments(args, repo, mode = 'play') {
   }
   const mounts = [
     join(repo, 'Electron/resources/runtime/kernel/pipiui-ext-invoke.ts'),
-    ...['kernel', 'onboarding', 'module', 'memory', 'table'].map(name => join(repo, 'extensions', name, 'index.ts')),
+    ...['kernel', 'mods', 'onboarding', 'module', 'memory', 'table'].map(name => join(repo, 'extensions', name, 'index.ts')),
     join(repo, 'pipicoc/agent.ts'),
   ];
   return [...(mode === 'setup' ? ['setup'] : []), ...forwarded,

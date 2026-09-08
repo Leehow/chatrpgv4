@@ -1,0 +1,8 @@
+{
+  "id": "enhanced-items", "version": "1.0.0", "game_api": "pipicoc.game.v1",
+  "state_version": 1, "name": "Enhanced Items", "author": "PipiCOC",
+  "description": "Context-grounded generated equipment and spells, with persistent ownership and executable parameters.",
+  "default_enabled": true, "requires": ["definitions.v1", "objects.v1", "agents.tools.v1"],
+  "dependencies": {}, "conflicts": [], "settings": {},
+  "contributes": {"instructions": "agent.md", "materializer": "creator.md", "auditor": "auditor.md"}
+}

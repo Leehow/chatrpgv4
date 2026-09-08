@@ -627,6 +627,10 @@ class ResolvePipeline:
             return sem, binding
         if suffix in ("attack", "maneuver"):
             if self.npc_actor:
+                from .mods.objects import usable_weapon
+                owned = usable_weapon(self.world, str(action.get("weapon") or ""), self.npc_actor)
+                if owned:
+                    action = {**action, "weapon": owned["id"]}
                 target = action.get("target")
                 target_sheet = self._target_investigator(target) if target else None
                 target_id = str(target_sheet["id"]) if target_sheet else ctx.actor_id
@@ -663,6 +667,8 @@ class ResolvePipeline:
                 if weapon is None:
                     raise RpcError("needs", "the attack needs the weapon in hand", fix="set action.weapon (unarmed for fists)",
                                    details={"needs": {"field": "weapon", "options": weapon_options(ctx.actor)}})
+                from .mods.objects import usable_weapon
+                usable_weapon(self.world, str(weapon), ctx.actor_id)
                 resolved = resolve_investigator_weapon(ctx.tables, ctx.actor, str(weapon))
                 if resolved is None:
                     raise RpcError("needs", f"{weapon!r} is not a weapon the investigator carries",

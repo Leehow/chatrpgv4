@@ -120,14 +120,16 @@ class SettleContext:
         self.subject = subject
         self.subject_id = str(subject["id"])
         self.action = action
-        self.module_spells = module_spell_records(graph)
+        from ..mods.objects import spell_rows
+        self.module_spells = module_spell_records(graph) + spell_rows(world)
         self.receipts: list[dict[str, Any]] = []
         self.effects: list[dict[str, Any]] = []
         self._ids: set[str] = set()
 
     @staticmethod
-    def module_spells_for(graph: ModuleGraph) -> list[dict[str, Any]]:
-        return module_spell_records(graph)
+    def module_spells_for(graph: ModuleGraph, world: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        from ..mods.objects import spell_rows
+        return module_spell_records(graph) + spell_rows(world or {})
 
     # -- clock / scene ---------------------------------------------------------
 
@@ -256,8 +258,14 @@ class SettleContext:
     def sync_combatants(self, session: Any, *, concluded: bool) -> None:
         """Every investigator in a CombatSession: HP, MP and conditions (transient combat
         conditions drop once the fight is over); each new landed hit becomes a wound."""
+        from ..mods.objects import sync_ammo
+        sync_ammo(self.world, list(session.participants.values()), session.jammed_weapons)
         for actor_id, participant in session.participants.items():
             if self.sheet_by_id(actor_id) is None:
+                if "objects" in self.world or actor_id in self.world.get("npc_resources", {}):
+                    resource = self.world.setdefault("npc_resources", {}).setdefault(actor_id, {})
+                    resource.update(current_hp=int(participant["hp_current"]), current_mp=int(participant.get("magic_points") or 0),
+                                    conditions=list(participant.get("conditions") or []))
                 continue
             conditions = [c for c in participant.get("conditions") or []
                           if not (concluded and c in {"prone", "grappled", "surprised", "outnumbered", "fled"})]
@@ -272,6 +280,8 @@ class SettleContext:
                 wounds.append(source)
             self.mirror_investigator(actor_id, current_hp=int(participant["hp_current"]),
                                      current_mp=int(participant.get("magic_points") or 0), conditions=conditions, wounds=wounds)
+        if "objects" in self.world or "npc_resources" in self.world:
+            self.campaign.write_world(self.world)
 
     def damage_conditions(self, sheet: dict[str, Any], after: int, damage: int) -> list[str]:
         prior = list(sheet.get("conditions") or [])
@@ -313,7 +323,8 @@ class SettleContext:
             return None
         mechanics = record_of(node).get("mechanics")
         profile = mechanics.get("profile") if isinstance(mechanics, dict) else None
-        return profile if isinstance(profile, dict) else None
+        from ..mods.objects import with_profile
+        return with_profile(self.world, handle, profile if isinstance(profile, dict) else None)
 
     def npc_skill_labels(self, ref: str) -> list[str]:
         parts = str(ref).split(":")
@@ -339,11 +350,12 @@ class SettleContext:
         in its properties is a `tome`/`entity` source. Possession is not a source."""
         sources: dict[str, list[str]] = {}
         for node in self.graph.by_kind.get(NPC_KIND, []):
-            mechanics = record_of(node).get("mechanics")
-            profile = mechanics.get("profile") if isinstance(mechanics, dict) else None
+            profile = self.npc_profile(self.graph.handle(node))
             spells = profile.get("spells") if isinstance(profile, dict) else None
             if isinstance(spells, list) and spells:
                 sources[f"person:{self.graph.handle(node)}"] = [str(s) for s in spells if isinstance(s, str)]
+        for owner, entries in (self.world.get("objects") or {}).get("abilities", {}).items():
+            sources[f"person:{owner}"] = list(dict.fromkeys(sources.get(f"person:{owner}", []) + list(entries)))
         for kind, prefix in (("tome", "tome"), ("creature", "entity")):
             for node in self.graph.by_kind.get(kind, []):
                 spells = (node.get("properties") or {}).get("spells") or record_of(node).get("spells")

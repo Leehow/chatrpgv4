@@ -31,6 +31,7 @@ interface OpenResult {
 	/** The resume checkpoint (contract §12.2): after a restart the first capsule carries this section itself, so the extension sends no separate host message for it. */
 	resume?: { turn?: number; commit?: string; one_line?: string; rebuilt?: boolean } | null;
 	opening_needed?: boolean;
+  mod_context?: unknown;
 }
 
 /**
@@ -328,6 +329,8 @@ function readMechanics(result: Record<string, unknown>): Array<Record<string, un
 }
 
 export default function (pi: ExtensionAPI) {
+  let mods: {prepare(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>} | undefined;
+  pi.events.on("coc:mods-bridge", value => { mods = value as typeof mods; });
 	let reading: { ensure(moduleId: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> } | undefined;
 	let readingModule: string | undefined;
 	pi.events.on("coc:reading-bridge", (value) => {
@@ -668,6 +671,10 @@ export default function (pi: ExtensionAPI) {
 				payload.kind = "module";
 			}
 			let result: Record<string, unknown>;
+      if (mods) {
+        if (Array.isArray(payload.effects)) payload.effects = payload.effects.map(effect => ({...(effect as Record<string, unknown>)}));
+        await mods.prepare(spec.name, payload, signal);
+      }
 			try { result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload)) ?? {}; }
 			catch (failure) {
 				if (!(isKernelError(failure)) || failure.details?.reason !== "material_pending" || !reading || !readingModule) throw failure;
@@ -917,7 +924,8 @@ export default function (pi: ExtensionAPI) {
 				);
 			} else if (open.opening_needed) {
 				sendHost(
-					`Opening the table: this turn has no player input. Write all player-facing words in play_language=${table.playLanguage}. Use look to see the opening scene (lookup for background). Deliver with ask when a story choice is needed, otherwise narrate. Questions and options belong in ask interaction JSON, never in narration. Do not call apply or resolve before the first player turn; the only opening writes are ask and narrate.`,
+					`Opening the table: this turn has no player input. Write all player-facing words in play_language=${table.playLanguage}. Use look to see the opening scene (lookup for background). Deliver with ask when a story choice is needed, otherwise narrate. Questions and options belong in ask interaction JSON, never in narration. ` +
+            (open.mod_context && mods ? `The opening may settle registered Mod first-contact checks and define/place new objects when the fiction requires them; ordinary adventure actions wait for the player. Active Mod context: ${JSON.stringify(open.mod_context)}` : `Do not call apply or resolve before the first player turn; the only opening writes are ask and narrate.`),
 					"opening",
 				);
 			}
@@ -1057,7 +1065,10 @@ export default function (pi: ExtensionAPI) {
 		// A session (combat, chase, sanity bout) is not a turn state: it leaves the turn in acting, so the
 		// ask that hands a pending defence back to the player takes the ordinary road and is not blocked here.
 		const openingNarrate = (name === "narrate" || name === "ask") && state.openingPending && state.state === "awaiting_player";
-		if (!openingNarrate && CLOSED_STATES.has(state.state)) {
+    const openingMod = mods && state.openingPending && state.state === "awaiting_player" && (
+      (name === "resolve" && typeof (input.action as any)?.decision === "string") ||
+      (name === "apply" && Array.isArray(input.effects) && input.effects.length > 0 && input.effects.every((e:any) => ["define","object","ability"].includes(e?.kind))));
+		if (!openingNarrate && !openingMod && CLOSED_STATES.has(state.state)) {
 			const reason =
 				state.state === "asked"
 					? "the turn was already handed to the player with ask; wait for the answer"

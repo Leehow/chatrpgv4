@@ -34,7 +34,16 @@ Pi 家目录由 `PI_CODING_AGENT_DIR` 指定为仓库内 `.pi/coc-agent`；`sett
 
 ## 2. 包清单
 
-`package.json` 的 `pi` 字段只声明 `extensions`，五个：`kernel`（内核子进程与七个动词、校验车道）、`onboarding`（建卡的一个 `setup` 工具，只在 setup 模式注册）、`module`（无人值守构建与按需深读，两个模式都不注册工具）、`memory`（记忆抽取车道）、`table`（桌况显示、`/coc` 命令面、COC 自己的上下文折叠——契约 §19，见第 3.5 节；这三件都只在 play 模式注册）。加载顺序有意义：`kernel` 在最前，它在 `session_start` 里把内核 RPC 闭包发上总线，后面几个扩展的 `session_start` 才拿得到（扩展的 `session_start` 按加载顺序串行跑）；即便如此每个扩展都在**加载时**就订阅 `coc:kernel-bridge`，两种顺序都接得住。
+Section 26 adds a sixth canonical extension, `mods`, immediately after `kernel`.
+It registers no Keeper tools: its in-process `coc:mods-bridge` prepares definitions
+and audits unpublished narrations before the existing seven-verb calls. Agent work
+uses the existing tool-enabled Pi subprocess runner with package-owned prompts,
+retained request/result/event files, cancellation and bounded repair. The UI mount
+adds `coc.mods` and host-only `mods.list/install/defaults/configure` invoke handlers.
+These handlers always use the explicitly bound campaign. The Mods runtime and game
+effects remain usable without the UI mount.
+
+`package.json` 的 `pi` 字段只声明 `extensions`，六个：`mods`（Mod 任务与交付前检查）、`kernel`（内核子进程与七个动词、校验车道）、`onboarding`（建卡的一个 `setup` 工具，只在 setup 模式注册）、`module`（无人值守构建与按需深读，两个模式都不注册工具）、`memory`（记忆抽取车道）、`table`（桌况显示、`/coc` 命令面、COC 自己的上下文折叠——契约 §19，见第 3.5 节；这三件都只在 play 模式注册）。加载顺序有意义：`kernel` 在最前，它在 `session_start` 里把内核 RPC 闭包发上总线，后面几个扩展的 `session_start` 才拿得到（扩展的 `session_start` 按加载顺序串行跑）；即便如此每个扩展都在**加载时**就订阅 `coc:kernel-bridge`，两种顺序都接得住。
 
 `extensions/lanes/` 不是扩展，是几个扩展共用的模块，只被 import，不进 `pi.extensions`：`subsession.ts`（两条车道的零工具补全）与 `host.ts`（运行模式与 JSONL 追加）。手艺文档走回合胶囊的 `style` 节，不走 Pi skills；`prompts` 目录只被启动器读取，不交给 Pi 发现。
 

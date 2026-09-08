@@ -581,7 +581,7 @@ def _module_records(module_spells: Any, load_kinds: list[str]) -> list[dict[str,
         return []
     wanted = set(load_kinds)
     return [record for record in module_spells
-            if isinstance(record, dict) and isinstance(record.get(MODULE_AUTHORED_FIELD), dict)
+            if isinstance(record, dict) and (isinstance(record.get(MODULE_AUTHORED_FIELD), dict) or isinstance(record.get("generated_definition"), dict))
             and str(record.get("kind") or "") in wanted]
 
 

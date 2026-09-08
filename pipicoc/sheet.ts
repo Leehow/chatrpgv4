@@ -44,7 +44,7 @@ export interface SheetAnswer {
  * Register the sheet's two channels.
  *
  * Called from the pack entry, so it only exists where PipiUI is the host; `bin/pi-coc` in a
- * terminal loads the same five extensions without it and behaves exactly as before.
+ * terminal loads the same canonical gameplay extensions without it and behaves exactly as before.
  */
 export function registerSheetPanel(pi: ExtensionAPI): void {
 	let bridge: KernelCall | undefined;

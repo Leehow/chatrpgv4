@@ -20,6 +20,7 @@ from .library import methods as library_methods
 from .modules.rpc import methods as module_methods
 from .store import Store
 from .table import Table
+from .mods.adapter import methods as mod_methods
 
 SEED_ENV = "COC_KERNEL_SEED"
 
@@ -55,6 +56,7 @@ def build_methods(table: Table) -> dict[str, Callable[[dict[str, Any]], dict[str
         **module_methods(table),
         # slice 12 (contract §21.2): the investigator library
         **library_methods(table),
+        **mod_methods(table),
     }
 
 

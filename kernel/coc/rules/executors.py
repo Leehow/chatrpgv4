@@ -475,6 +475,10 @@ def _caster_state(sheet: dict[str, Any]) -> dict[str, Any]:
 def execute_magic_cast(ctx: Any, args: dict[str, Any], plan: Mapping[str, Any]) -> tuple[Any, list[str], list[str]]:
     sheet = ctx.actor
     spell = ctx.canonical_spell_name(str(args.get("spell") or ""))
+    from ..mods.effects import target as effect_target, apply_effects
+    definition = next((r.get("generated_definition") for r in ctx.module_spells
+                       if r.get("name") == spell and r.get("generated_definition")), None)
+    selected = effect_target(ctx) if definition and definition["parameters"].get("effects") else None
     state = magic.read_magic_state(ctx.campaign_dir, ctx.actor_id)
     caster = _caster_state(sheet)
     pool = MPool.load(ctx.tables, ctx.campaign_dir, ctx.actor_id, caster["pow"], ctx.rng,
@@ -511,6 +515,14 @@ def execute_magic_cast(ctx: Any, args: dict[str, Any], plan: Mapping[str, Any]) 
     ctx.write_sheet(sheet)
     if after["current_hp"] < before["current_hp"]:
         ctx.record_wound(ctx.actor_id, source=result.get("roll_id"))
+    if definition and caster["pow"] != sheet["characteristics"]["POW"]:
+        ctx.add_delta("pow", ctx.actor_id, sheet["characteristics"]["POW"], caster["pow"])
+        sheet["characteristics"]["POW"] = caster["pow"]
+        ctx.write_sheet(sheet)
+    if selected is not None and result.get("success"):
+        # Costs have already landed; reload a self-target before applying its effect.
+        selected = effect_target(ctx, selected["id"])
+        apply_effects(ctx, definition["parameters"]["effects"], selected)
     data = {"schema_version": 1, "authority": "coc7_magic_runtime", "investigator_id": ctx.actor_id,
             "spell": {"canonical_name": spell}, "result": result, "outcome": "success" if result.get("success") else "failure",
             "side_effect": result.get("side_effect")}

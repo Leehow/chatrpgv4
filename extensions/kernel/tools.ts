@@ -77,6 +77,29 @@ const ItemEffect = Type.Object({
 	why: Type.Optional(Type.String({ description: "one sentence: how it was gained, or how it was lost" })),
 });
 
+const DefineEffect = Type.Object({
+  kind: StringEnum(["define"] as const),
+  name: Type.String({description:"Stable natural name of the new definition"}),
+  category: StringEnum(["weapon", "spell", "item"] as const),
+  description: Type.String({description:"Established appearance, function, era and constraints; the Mod agent derives executable parameters from these and presets"}),
+  template: Type.Optional(Type.String({description:"Optional rulebook or existing definition to use as evidence"})),
+});
+const ObjectEffect = Type.Object({
+  kind: StringEnum(["object"] as const),
+  name: Type.String({description:"Unique natural name of this physical instance; keep it when ownership changes"}),
+  definition: Type.Optional(Type.String({description:"Accepted definition name when first placing the instance"})),
+  to: Type.String({description:"New owner: investigator, NPC, scene or existing container instance; here means the current scene"}),
+  condition: Type.Optional(StringEnum(["intact","damaged","jammed","broken"] as const, {description:"Initial physical condition; transferring an existing instance never repairs it"})),
+  from: Type.Optional(Type.String({description:"Required current owner when transferring an existing instance"})),
+  quantity: Type.Optional(Type.Integer({minimum:1})),
+  why: Type.Optional(Type.String()),
+});
+const AbilityEffect = Type.Object({
+  kind: StringEnum(["ability"] as const), name: Type.String(), to: Type.String(),
+  source: Type.String({description:"Established source of an NPC's spell knowledge; investigators learn through resolve"}),
+  why: Type.Optional(Type.String()),
+});
+
 /** Cash going up or down (contract §5 `cash`, #19): writes finance.cash on the investigator sheet. */
 const CashEffect = Type.Object({
 	kind: StringEnum(["cash"] as const, { description: "the money in hand goes up or down" }),
@@ -247,6 +270,7 @@ const ResolveAction = Type.Object({
 		}),
 	),
 	spell: Type.Optional(Type.String({ description: "spell name; give it when casting (intent cast) or when learning a spell from a tome" })),
+  object: Type.Optional(Type.String({description:"Owned consumable instance for decision objects:use; target names its recipient"})),
 	defense: Type.Optional(
 		StringEnum(["dodge", "fight_back", "none"] as const, {
 			description:
@@ -313,7 +337,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		promptSnippet: "See the side the capsule did not answer: scene, NPC, investigator, clues, the clock, or the session underway",
 		parameters: Type.Object({
 			focus: Type.Optional(
-				StringEnum(["scene", "npc", "investigator", "clues", "time", "session"] as const, {
+				StringEnum(["scene", "npc", "investigator", "clues", "time", "session", "object"] as const, {
 					description: "which side to look at; defaults to scene",
 				}),
 			),
@@ -442,7 +466,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		promptSnippet: "Land this turn's world changes: move, clue, time, handout, item, cash",
 		parameters: Type.Object({
 			effects: Type.Array(
-				Type.Union([EndingEffect, MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect]),
+				Type.Union([EndingEffect, MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
 		}),

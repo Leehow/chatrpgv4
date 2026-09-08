@@ -9,7 +9,7 @@ test('UI transport survives while coding persona and tools cannot replace the Ke
   assert.deepEqual(result.slice(0,6), ['--mode','rpc','--session','/tmp/ui.jsonl','--model','provider/model']);
   assert.ok(!result.includes('coding'));
   assert.ok(!result.includes('/host/coding.ts'));
-  for (const name of ['kernel','onboarding','module','memory','table'])
+  for (const name of ['kernel','mods','onboarding','module','memory','table'])
     assert.equal(result.filter(v => v === `/repo/extensions/${name}/index.ts`).length, 1);
   assert.equal(result.filter(v => v === '/repo/pipicoc/agent.ts').length, 1);
 });
