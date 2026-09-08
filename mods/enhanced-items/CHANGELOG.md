@@ -1,3 +1,11 @@
+# 1.0.3
+
+Initial and legacy inventory participate in opening/turn context and narration
+audits even when not mentioned in prose. Mechanically meaningful gear is adopted
+in place through the existing apply transaction, preserving ownership, quantity
+and recorded physical state. Existing weapon profiles are retained. Requires
+objects.adopt.v1. Older save locks must explicitly upgrade before using this policy.
+
 # 1.0.2
 
 Existing-object state changes use explicit same-owner updates with a causal reason.

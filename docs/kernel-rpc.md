@@ -2169,6 +2169,27 @@ These UI captions use the sidebar's existing closed-language chrome exception.
 
 ## 26. Gameplay mods (2026-09-08)
 
+### Initial and existing equipment reconciliation
+
+Enhanced Items 1.0.3 requires `objects.adopt.v1`. Active materializers receive
+`unregistered_equipment` in opening/turn context and unpublished-narration audit
+jobs. This is a structural inventory difference, not a weapon-name classifier.
+The Agent identifies mechanically meaningful equipment even when the narration
+does not mention it. Existing executable weapon rows are left unchanged.
+
+Use the normal `define` and `object` batch, with `object.adopt` naming the exact
+existing equipment row and `to` its current investigator. The kernel requires one
+unambiguous unmanaged row, preserves its quantity and recorded physical state,
+removes that row in the staged sheet and projects the same new instance back.
+Adoption is representation enrichment, not acquisition, transfer, money, time,
+characteristic changes or knowledge acquisition. A bad batch changes neither
+inventory nor definitions. Repeated reconciliation sees no pending row.
+
+This runs before opening delivery and in subsequent normal turn audits, including
+after enabling/upgrading the Mod on an existing campaign. It does not manufacture
+a player turn or retroactively edit a closed narration. Version locks remain
+explicit; old Mod packages and prior game evidence remain immutable.
+
 ### Interface and authority
 
 Game interface `pipicoc.game.v1` accepts JSON values and semantic names. Packages

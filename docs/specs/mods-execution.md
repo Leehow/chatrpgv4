@@ -122,3 +122,38 @@ verify generation, use, transfer, combat, damage persistence, upgrade/restart an
 an ending. All four owned drivers are stopped. Campaign, job, transcript, telemetry
 and playtest evidence remain in the main checkout. The derived evidence index is
 `.coc/playtests/mods-correction-sep08/mods-acceptance-summary.json`.
+
+## Initial-equipment repair (2026-09-08)
+
+The reported boning knife was an ordinary initial equipment string, with no weapon
+row or object instance despite Enhanced Items 1.0.2 being active. The original
+acceptance exercised newly introduced items and missed setup's inventory path.
+
+Enhanced Items 1.0.3 and `objects.adopt.v1` connect structurally unregistered gear
+to opening/turn context and the existing semantic audit. The normal apply batch
+adopts a uniquely matched owned row, preserving quantity and recorded physical
+state, with no acquisition, transfer, money or time. Existing executable weapon
+profiles remain unchanged. A same-name grant without adoption is rejected.
+
+Validation: 24 focused kernel tests passed; full kernel/play suite **1143 passed,
+1 skipped** in 366.27 seconds; extension suite **137 passed**. The independent
+glossary change `d9dc1017` is retained. No new Electron implementation was required.
+
+Genuine fresh Grok 4.6 acceptance uses campaign `mods-initial-sep08`. Two natural
+setup replies produced exactly the reported shape: a leather-sheathed boning knife
+among five equipment strings and an empty weapons list. Before any player gameplay
+reply or request to use the knife, the opening generated definitions and adopted
+all five existing items. The knife acquired Fighting (Brawl), 1D4+2 damage, damage
+bonus, one use per round and impale, grounded in the medium-knife preset by the
+tool-enabled creator. A pre-closure comparison found every character field outside
+equipment/weapons unchanged and inventory cardinality still five. No manual weapon
+parameters or fabricated game settlement were used. One subsequent natural reply
+declined the commission and ended the adventure; the Keeper finalized the campaign.
+Both owned drivers are stopped. Original and test campaign evidence are retained.
+
+Evidence: `.coc/playtests/mods-initial-setup-sep08/` and
+`.coc/playtests/mods-initial-live-sep08/initial-equipment-acceptance.json`, with logs
+under that run's `checks/`, all in the main checkout. The repair is isolated on
+`codex/mods-initial-equipment` pending safe integration with concurrent main changes.
+Existing saves retain explicit version locks; upgrading to 1.0.3 activates
+reconciliation on their next normal Keeper turn, without manufacturing player input.

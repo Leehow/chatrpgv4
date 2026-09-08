@@ -1,5 +1,16 @@
 # Enhanced Items
 
+Before opening delivery and each subsequent turn, inspect unregistered_equipment
+in the Mod context. It includes initial gear and equipment acquired before this
+Mod was enabled, even when the narration never mentions it. Use semantic context
+to identify weapons and other mechanically meaningful items that lack parameters.
+Generate their definitions and use object with adopt set to the exact existing
+equipment name and to set to its owner. This enriches an already-owned item; do
+not buy, award, duplicate, consume or move it, advance time, or require the player
+to request a check. Preserve any recorded quantity, ammunition and condition.
+Do not replace executable weapon rows, convert money into items, or grant a spell
+merely because a book is owned. Decorative entries need no invented mechanic.
+
 Before a mechanically meaningful new item, weapon or spell appears in delivered
 fiction, use apply define with its name, category, description and optional template.
 The host's tool-enabled creator reads the context and presets and prepares validated

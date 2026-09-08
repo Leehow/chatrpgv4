@@ -3,7 +3,7 @@ import json
 import hashlib
 from pathlib import Path
 
-from conftest import CAMPAIGN, RpcClient, campaign_dir, narrate, open_turn, read_json
+from conftest import CAMPAIGN, RpcClient, campaign_dir, create_campaign, narrate, open_turn, read_json
 from test_rules_families import walk_to_confrontation
 
 
@@ -21,6 +21,76 @@ def prepared(kernel, draft):
     Path(job["cwd"], "result.json").write_text(json.dumps(draft))
     accepted = kernel.ok("mods.accept", {"campaign":CAMPAIGN, "job":job["job"]})
     return {"kind":"define", **request, "_definition":accepted["definition"], "_provenance":accepted["provenance"]}
+
+
+def test_initial_inventory_is_audited_without_being_mentioned_and_adopted_once(kernel):
+    create_campaign(kernel)
+    folder = campaign_dir(kernel.workspace)
+    before = read_json(folder / "party" / "thomas-hayes.json")
+    context = kernel.ok("mods.context", {"campaign":CAMPAIGN})
+    assert any(r["name"] == "flashlight" for r in context["unregistered_equipment"])
+    job = kernel.ok("mods.job", {"campaign":CAMPAIGN, "role":"audit", "input":{"text":"The landlord welcomes you."}})
+    request = read_json(Path(job["cwd"]) / "request.json")
+    assert any(r["name"] == "flashlight" for r in request["unregistered_equipment"])
+    definition = prepared(kernel, weapon("flashlight"))
+    result = kernel.table("apply", call_id="t0-c1", effects=[definition,
+        {"kind":"object", "name":"flashlight", "to":"Thomas Hayes", "adopt":"flashlight"}])
+    after = read_json(folder / "party" / "thomas-hayes.json")
+    assert {k:v for k,v in before.items() if k not in {"equipment","weapons"}} == {k:v for k,v in after.items() if k not in {"equipment","weapons"}}
+    assert len(after["equipment"]) == len(before["equipment"])
+    assert "flashlight" not in after["equipment"]
+    assert len([r for r in after["equipment"] if isinstance(r,dict) and r.get("name") == "flashlight"]) == 1
+    assert next(r for r in after["weapons"] if r.get("object_id"))["damage"] == "1D6"
+    receipts = kernel.table("status")["receipts"]
+    assert any(r.get("adopted") == "flashlight" for r in receipts)
+    assert not any(r.get("kind") == "item" for r in receipts)
+    narrate(kernel, "t0-c2", "诺特坐在书桌后面。")
+    kernel.table("open")
+    assert not any(r["name"] == "flashlight" for r in kernel.ok("mods.context", {"campaign":CAMPAIGN})["unregistered_equipment"])
+    kernel.table("player_input", text="我把手电交给诺特。")
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind":"object", "name":"flashlight", "from":"Thomas Hayes", "to":"Steven Knott"}])
+    final = read_json(folder / "party" / "thomas-hayes.json")
+    assert not any((r if isinstance(r,str) else r.get("name")) == "flashlight" for r in final["equipment"])
+
+
+def test_adoption_cannot_duplicate_or_change_existing_inventory_and_bad_batch_is_atomic(kernel):
+    open_turn(kernel)
+    folder = campaign_dir(kernel.workspace)
+    before_sheet = (folder / "party" / "thomas-hayes.json").read_bytes()
+    before_world = (folder / "world.json").read_bytes()
+    definition = prepared(kernel, weapon("flashlight"))
+    for effect in (
+        {"kind":"object", "name":"flashlight", "to":"Thomas Hayes"},
+        {"kind":"object", "name":"flashlight", "to":"Thomas Hayes", "adopt":"flashlight", "condition":"broken"},
+        {"kind":"object", "name":"flashlight", "to":"Steven Knott", "adopt":"flashlight"},
+    ):
+        assert kernel.table_err("apply", call_id="t1-c1", effects=[definition,effect])["code"] == "invalid_params"
+        assert (folder / "party" / "thomas-hayes.json").read_bytes() == before_sheet
+        assert (folder / "world.json").read_bytes() == before_world
+    error = kernel.table_err("apply", call_id="t1-c1", effects=[definition,
+        {"kind":"object", "name":"flashlight", "to":"Thomas Hayes", "adopt":"flashlight"},
+        {"kind":"object", "name":"another", "definition":"flashlight", "to":"No such owner"}])
+    assert error["code"] == "unknown_entity"
+    assert (folder / "party" / "thomas-hayes.json").read_bytes() == before_sheet
+    assert (folder / "world.json").read_bytes() == before_world
+
+
+def test_existing_equipment_state_is_preserved_and_executable_weapons_are_not_candidates(kernel):
+    open_turn(kernel)
+    path = campaign_dir(kernel.workspace) / "party" / "thomas-hayes.json"
+    sheet = read_json(path)
+    sheet["equipment"] = [{"name":"medical kit", "quantity":2, "charges":3, "condition":"damaged"}, ".38 Revolver"]
+    path.write_text(json.dumps(sheet))
+    pending = kernel.ok("mods.context", {"campaign":CAMPAIGN})["unregistered_equipment"]
+    assert [r["name"] for r in pending] == ["medical kit"]
+    draft = {"name":"medical kit", "category":"item", "description":"A partially spent medical kit.",
+             "basis":"Fixture inventory state", "parameters":{"charges":8,"effects":[]},
+             "player_view":{"description":"A used kit.", "fields":["charges"]}}
+    kernel.table("apply", call_id="t1-c1", effects=[prepared(kernel,draft),
+        {"kind":"object", "name":"medical kit", "to":"Thomas Hayes", "adopt":"medical kit"}])
+    item = next(iter(read_json(campaign_dir(kernel.workspace) / "world.json")["objects"]["instances"].values()))
+    assert item["quantity"] == 2 and item["state"]["charges"] == 3 and item["state"]["condition"] == "damaged"
+    assert not kernel.ok("mods.context", {"campaign":CAMPAIGN})["unregistered_equipment"]
 
 
 def test_first_impression_uses_higher_value_and_reuses_pair(seeded_kernel):

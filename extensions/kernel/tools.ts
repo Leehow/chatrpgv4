@@ -86,6 +86,7 @@ const DefineEffect = Type.Object({
 });
 const ObjectEffect = Type.Object({
   kind: StringEnum(["object"] as const),
+  adopt: Type.Optional(Type.String({description:"Exact existing unmanaged equipment name to enrich in place for the investigator in to; no from, no new acquisition, preserve quantity and state"})),
   name: Type.String({description:"Unique natural name of this physical instance; keep it when ownership changes"}),
   definition: Type.Optional(Type.String({description:"Accepted definition name when first placing the instance"})),
   to: Type.String({description:"New owner: investigator, NPC, scene or existing container instance; here means the current scene"}),

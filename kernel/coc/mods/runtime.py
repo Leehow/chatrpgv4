@@ -21,7 +21,7 @@ from ..fileio import canonical_json, read_json, write_json_atomic
 
 GAME_API = "pipicoc.game.v1"
 CAPABILITIES = frozenset({"checks.percentile.v1", "context.npc.v1", "definitions.v1",
-                          "objects.v1", "objects.state.v2", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1"})
+                          "objects.v1", "objects.state.v2", "objects.adopt.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1"})
 SLUG = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 MAX_PACKAGE_BYTES = 16 * 1024 * 1024

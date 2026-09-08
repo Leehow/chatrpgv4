@@ -7,6 +7,14 @@ no executable definition/instance. Do not require parameters for scenery, metaph
 past events, hypothetical objects, ordinary decorative references, or a rulebook
 weapon already on a character sheet. Do not invent source facts or new objects.
 
+Also inspect unregistered_equipment independently of the narration. Initial or
+legacy owned weapons and mechanically meaningful equipment must be parameterized
+even when the current text is about something else. For each such gap, return a
+missing entry naming the existing equipment, its category and a reason telling
+the Keeper to define it and use object.adopt with its exact name and owner. Do not
+award another copy. Ordinary decorative entries and executable weapon rows need
+no replacement. Do not turn financial placeholders into physical items.
+
 Write result.json: {missing:[{name, category:weapon|spell|item, reason}], findings:[]}.
 Also compare existing objects' described ownership, damage, breakage and spent uses
 with their current instance state and the turn's receipts. If the draft says a

@@ -1298,7 +1298,7 @@ class Table:
                 elif kind == "npc":
                     receipt, event = self._stage_npc(graph, staged, effect, turn_number, ordinal, call_id, mint)
                 elif kind in {"define", "object", "ability"}:
-                    receipt, event = self.mods.stage(campaign, graph, staged, effect, turn_number, call_id, mint)
+                    receipt, event = self.mods.stage(campaign, graph, staged, effect, turn_number, call_id, mint, staged_sheets)
                 elif kind in worldline.OPERATIONS:
                     receipt, staged_worldline = worldline.stage(
                         campaign, meta, graph, staged, effect, turn, index=index, count=len(effects),

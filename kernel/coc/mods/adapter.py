@@ -89,7 +89,24 @@ class ModAdapter:
         return {"active": [{"id": r["id"], "version": r["version"]} for r in active],
                 "authority": "Only this active Mod set applies. Earlier instructions from disabled or replaced versions are inactive.",
                 "instructions": self.runtime.instructions(world), "pending_contacts": contact[:12],
-                "relationships": relations[:12], "objects": self.object_context(world)}
+                "relationships": relations[:12], "objects": self.object_context(world),
+                "unregistered_equipment": self.unregistered_equipment(campaign) if any(
+                    r["contributes"].get("materializer") for r in active) else []}
+
+    @staticmethod
+    def unregistered_equipment(campaign: Any) -> list[dict[str, Any]]:
+        """Expose structural gaps; the Mod agent, never a name list, classifies them."""
+        pending = []
+        for sheet in campaign.party():
+            executable = {normalize(str(w.get("name") or w.get("display_name") or ""))
+                          for w in sheet.get("weapons", []) if isinstance(w, dict)
+                          and (w.get("weapon_id") or w.get("damage") or w.get("damage_die"))}
+            for row in sheet.get("equipment", []):
+                name = row if isinstance(row, str) else row.get("name") if isinstance(row, dict) else None
+                if not name or isinstance(row, dict) and row.get("object_id") or normalize(name) in executable:
+                    continue
+                pending.append({"owner": sheet["name"], "name": name, "row": copy.deepcopy(row)})
+        return pending
 
     @staticmethod
     def object_context(world: dict[str, Any]) -> dict[str, Any]:
@@ -226,7 +243,8 @@ class ModAdapter:
         return None
 
     def stage(self, campaign: Any, graph: Any, world: dict[str, Any], effect: dict[str, Any],
-              turn: int, call_id: str, mint: Any) -> tuple[dict[str, Any], tuple[str, dict[str, Any]]]:
+              turn: int, call_id: str, mint: Any,
+              sheets: dict[str, dict[str, Any]] | None = None) -> tuple[dict[str, Any], tuple[str, dict[str, Any]]]:
         kind = effect["kind"]
         if kind == "define":
             draft = effect.get("_definition")
@@ -253,6 +271,32 @@ class ModAdapter:
             owner = self.owner(campaign, graph, world, effect.get("to"))
             source = self.owner(campaign, graph, world, effect["from"]) if effect.get("from") else None
             prior = objects.instance(world, name)
+            adopted = None
+            if not prior and "adopt" not in effect and owner["kind"] == "investigator":
+                sheet = self.table._staged_sheet(campaign, sheets, owner["name"]) if sheets is not None else self.table._actor(campaign, owner["name"])
+                if any((row == name if isinstance(row, str) else isinstance(row, dict) and row.get("name") == name)
+                       for row in sheet.get("equipment", [])):
+                    raise invalid_params("This equipment is already owned; use object.adopt to enrich it instead of awarding another copy")
+            if "adopt" in effect:
+                if (not isinstance(effect["adopt"], str) or not effect["adopt"].strip()
+                        or prior or source or owner["kind"] != "investigator" or sheets is None):
+                    raise invalid_params("Adopt needs an existing investigator equipment name, without from or an existing instance")
+                sheet = self.table._staged_sheet(campaign, sheets, owner["name"])
+                matches = [(i, row) for i, row in enumerate(sheet.get("equipment", []))
+                           if (isinstance(row, str) and row == effect["adopt"])
+                           or (isinstance(row, dict) and not row.get("object_id") and row.get("name") == effect["adopt"])]
+                if len(matches) != 1:
+                    raise invalid_params("Adoption must identify exactly one existing unmanaged equipment row")
+                index, adopted = matches[0]
+                if any(isinstance(w, dict) and normalize(str(w.get("name") or w.get("display_name") or "")) == normalize(effect["adopt"])
+                       and (w.get("weapon_id") or w.get("damage") or w.get("damage_die")) for w in sheet.get("weapons", [])):
+                    raise invalid_params("This equipment already has executable weapon parameters")
+                recorded = adopted if isinstance(adopted, dict) else {}
+                count = recorded.get("quantity", 1)
+                if effect.get("quantity", count) != count or effect.get("condition", recorded.get("condition", "intact")) != recorded.get("condition", "intact"):
+                    raise invalid_params("Adoption preserves recorded quantity and condition")
+                effect = {**effect, "quantity": count, "condition": recorded.get("condition", "intact")}
+                sheet["equipment"].pop(index)
             before_condition = prior["state"]["condition"] if prior else None
             if prior and effect.get("condition") is not None and effect["condition"] != before_condition and not str(effect.get("why") or "").strip():
                 raise invalid_params("A physical state change needs its causal reason in why")
@@ -260,6 +304,19 @@ class ModAdapter:
             item = objects.move(world, name, effect.get("definition"), owner, source=source, turn=turn, quantity=quantity,
                                 condition=effect.get("condition"))
             definition = objects.registry(world)["definitions"][item["definition"]]
+            if adopted is not None:
+                recorded = adopted if isinstance(adopted, dict) else {}
+                for key in ("ammo", "charges"):
+                    if key in recorded:
+                        value = recorded[key]
+                        if value is not None and (type(value) is not int or value < 0):
+                            raise invalid_params("Recorded ammunition and charges must be nonnegative integers or null")
+                        item["state"][key] = value
+                receipt = {"id":mint(f"definition:adopt-{call_id}"), "kind":"definition", "name":name,
+                           "category":definition["category"], "definition":definition["id"],
+                           "instance":item["id"], "adopted":effect["adopt"], "subject":owner["id"],
+                           "visibility":"keeper", "call_id":call_id}
+                return receipt, ("resource-changed", {"resource":"equipment_representation", "subject":owner["id"], "item":name})
             if prior and source == owner and effect.get("condition") is not None:
                 receipt = {"id":mint(f"delta:item-condition-{call_id}"), "kind":"delta", "resource":"condition",
                            "subject":owner["id"], "subject_label":owner["name"], "subject_is_investigator":owner["kind"] == "investigator",
@@ -314,7 +371,8 @@ class ModAdapter:
                    "play_language": campaign.read_campaign().get("play_language", "en"),
                    "mod_settings": {r["id"]:world["mods"]["active"][r["id"]]["settings"] for r in candidates},
                    "scene": where_section(graph, world, graph.scene(world["active_scene"])),
-                   "party": campaign.party(), "objects": self.object_context(world), "receipts": turn.get("receipts", [])}
+                   "party": campaign.party(), "objects": self.object_context(world), "receipts": turn.get("receipts", []),
+                   "unregistered_equipment": self.unregistered_equipment(campaign)}
         if role == "create":
             request["catalogs"] = {"weapons": self.table.tables.weapons_table(), "spells": self.table.tables.spells_table()}
         identity = {"campaign": campaign.id, "turn": turn["turn"], "worldline": campaign.read_campaign().get("active_worldline"),
