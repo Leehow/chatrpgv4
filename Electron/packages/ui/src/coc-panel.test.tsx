@@ -146,7 +146,9 @@ describe('derived values and visible identities use their text projections', () 
     });
     const original = JSON.stringify(snapshot);
     render(<Panel api={host({ ok: true, data: { status: 'ready', view: snapshot, campaign: 'c1' } })} />);
-    await screen.findByText('无');
+    await screen.findByText('伤害加值');
+    expect(screen.getByText('伤害加值').parentElement?.textContent).toBe('伤害加值0');
+    expect(screen.queryByText('无')).toBeNull();
     expect(screen.getByText('诺特的办公室')).toBeTruthy();
     expect(screen.queryByText('史蒂文·诺特')).toBeNull();
     expect(screen.getByText('20')).toBeTruthy();

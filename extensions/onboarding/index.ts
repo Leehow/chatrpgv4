@@ -476,7 +476,7 @@ export default function (pi: ExtensionAPI) {
 		const next = nextStep(steps, state());
 		if (!next) finish();
 		return {
-			...Object.fromEntries(Object.entries(outcome).map(([key,value])=>[key,key==='setup.draft'||key==='setup.confirm'?{...asRecord(value),revision:undefined,labels:undefined,sheet:{...asRecord(asRecord(value).sheet),id:undefined,creation:undefined}}:value])),
+			...Object.fromEntries(Object.entries(outcome).map(([key,value])=>[key,key==='setup.draft'||key==='setup.confirm'?{...asRecord(value),revision:undefined,labels:undefined,sheet:{...asRecord(asRecord(value).sheet),id:undefined,creation:{...asRecord(asRecord(asRecord(value).sheet).creation),seed:undefined,equipment:undefined}}}:value])),
 			step: id,
 			completed: [...completed],
 			progress: progressLine(steps, state()),

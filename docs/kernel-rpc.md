@@ -1973,3 +1973,25 @@ are never sent to the presenter. New visible names are projected by a tool-enabl
 Pi, while existing labels are reused. Canonical identities, damage formulas, numbers
 and turn state remain unchanged. A missing live-name projection is shown as a
 neutral placeholder and retried on the next sheet read, never as an English name.
+
+#### Explain the actual character creation (2026-09-08)
+
+The character preview and sidebar display the canonical DB `none` as numeric `0`
+(the Keeper Rulebook printed page 35). This is a field-specific presentation of
+zero damage adjustment, not a translation or a mutation of saved rules data.
+
+The setup guide accompanies each computed draft with a concise player-language
+explanation of the edition/method, actual characteristic generation, age reductions
+and education checks, Luck generation, occupation and interest budgets and additions,
+and derived-stat formulas including DB/Build. The explanation is grounded in the
+sheet's existing `creation` trace, exposed to the guide with the seed omitted. The
+host retains the complete trace in the draft. No reroll or reverse inference from
+final values is permitted. The guide distinguishes optional/default allocation
+policies (caps, skill distribution, chosen credit rating) from rulebook formulas,
+and must not invent scenario, occupation or background bonuses.
+
+This user-requested setup explanation may include the necessary numeric arithmetic
+in prose alongside the card; the in-play mechanics-only JSON rule remains intact.
+Keep it compact, do not repeat the whole card, and end with the existing single
+confirmation invitation. Revisions explain only changed calculations and preserve
+unchanged rolls. No extra question or character-generation choice menu is added.

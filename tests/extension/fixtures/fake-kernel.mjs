@@ -521,7 +521,7 @@ function handle(method, params) {
 				},
 			};
         case "setup.draft":
-            return {ok:true,result:{revision:1,sheet:{name:params.profile.name,occupation:params.profile.occupation},profile:params.profile,completeness:{valid:true,issues:[]}}};
+            return {ok:true,result:{revision:1,sheet:{name:params.profile.name,occupation:params.profile.occupation,creation:{seed:"private-seed",method:"rolled",characteristics:{multiplier:5,rolls:{STR:{dice:"3d6",faces:[1,1,2],total:4}}},age:{edu_improvement_checks:[{roll:30,edu:50}]},skills:{occupation:{budget:{formula:"EDU*4",total:200},allocations:{Law:25}},interest:{budget:{formula:"INT*2",total:130},allocations:{Law:10}}}}},profile:params.profile,completeness:{valid:true,issues:[]}}};
         case "setup.previewed":
             return {ok:true,result:{previewed:true}};
         case "setup.confirm":

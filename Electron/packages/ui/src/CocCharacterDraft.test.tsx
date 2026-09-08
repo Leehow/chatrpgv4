@@ -22,3 +22,13 @@ it('uses English model output for an English campaign without changing data',asy
  const texts=Object.fromEntries(Object.keys(zh).map(t=>[t,t.replaceAll('_',' ')]));texts['谨慎的律师']='A cautious lawyer';texts['编辑朋友']='An editor friend';render(<CocCharacterDraft data={{revision:1,play_language:'en',sheet,presentation:{texts,play_language:'en'}}}/>);
  expect(await screen.findByRole('region',{name:'Character draft'})).toBeTruthy();expect(screen.getByText('60 USD')).toBeTruthy();expect(screen.getByText('A cautious lawyer')).toBeTruthy();
 })
+
+it('displays canonical zero damage bonus numerically even with an old text projection',async()=>{
+ const data={revision:3,play_language:'zh-Hans',sheet:{...sheet,derived:{HP:14,DB:'none'}},presentation:{texts:{...zh,none:'无'}}};
+ const before=JSON.stringify(data);
+ render(<CocCharacterDraft data={data}/>);
+ const label=await screen.findByText('伤害加值');
+ expect(label.closest('tr')?.textContent).toBe('伤害加值0');
+ expect(screen.queryByText('无')).toBeNull();
+ expect(JSON.stringify(data)).toBe(before);
+})

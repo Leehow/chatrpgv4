@@ -357,7 +357,7 @@ export function createComponent(React) {
       h("div", { className: "coc-chars" }, entries.map(([key, value]) =>
         h("div", { className: "coc-char", key },
           h("span", { className: "coc-char-key", title: term(key) }, term(key)),
-          h("span", { className: "coc-char-val" }, typeof value === "string" ? term(value) : text(value))))));
+          h("span", { className: "coc-char-val" }, key === "DB" && value === "none" ? "0" : typeof value === "string" ? term(value) : text(value))))));
   }
 
   function Skills(props) {

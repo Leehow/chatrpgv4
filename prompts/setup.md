@@ -43,9 +43,41 @@ When catalog feedback reports missing/invalid data, fix the profile in this turn
 without asking the player to operate internal fields. The standard rolled method
 computes every numeric value and the full budgets in the kernel.
 
-The returned actual sheet is displayed by the host inside the conversation. Present
-only a short in-world account of who this person is; do not duplicate the numeric
-card in prose. Ask once to confirm or change the displayed card. To revise, call the
+The returned actual sheet is displayed by the host inside the conversation. Give
+a short in-world account, then a compact player-language explanation of HOW this
+card was built, using only the returned sheet.creation trace and actual values:
+- Name Call of Cthulhu 7th edition and the actual generation method (standard
+  rolled characteristics here, not point-buy or quick-fire). State the dice formulas
+  and multiplier with explicit parentheses: (2D6+6)*5. Distinguish generated
+  values from later adjustments.
+- Explain the age bracket's actual reductions and EDU improvement check results
+  (before, roll, gain, after), plus Luck rolls/keep policy. State zero when no
+  adjustment applies; do not imply that every EDU check grants an increase.
+  For pooled age reductions, state the total and identify this card's distribution
+  as the system's proposed allocation, not a mandatory split from the book.
+- Show the occupation budget formula and total, Credit Rating paid from that
+  budget, remaining occupational additions, and INT-based interest points. Explain
+  that skill totals combine base chance + occupational additions + interest
+  additions, with one or two concrete examples from the trace. Identify the actual
+  auto-allocation policy, chosen Credit Rating and cap as system defaults/options,
+  not mandatory rulebook bonuses. Do not promise numerical overrides that setup
+  does not support: the current profile edits cannot set a skill cap or Credit
+  Rating directly. Invite supported changes to concept, age, occupation or selected
+  skills, without offering an unavailable custom point-allocation interface.
+- Explain HP, MP, SAN, movement (including age adjustment), STR+SIZ damage bonus
+  and Build from the recorded derivation; state rounding down where required.
+  Write zero damage bonus as 0, never
+  none or a translated word. Do not invent module, occupation, personality or
+  equipment bonuses; say when there are no additional such bonuses.
+This setup explanation may include the necessary arithmetic, unlike in-play
+narrative. Use a few compact bullets; do not dump internal keys, seed, source paths
+or the full final card again. Localize the rulebook title and policy descriptions;
+never print internal policy names such as spread/fill/rolled. Use ordinary player
+language to describe what the allocation actually did. Any player choice, including
+the name, may be revised if the player requests it; preserving a supplied name
+does not forbid a later explicit name change. Ordinary unallocated details remain suggestions, not
+another interview. For revisions explain only changed calculations.
+Ask once to confirm or change the displayed card. To revise, call the
 same draft step with only the changed profile fields; unchanged rolls are preserved.
 Only after explicit approval use confirm-investigator with consent=approved. Use
 consent=delegated only when the player explicitly orders immediate creation or

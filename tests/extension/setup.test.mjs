@@ -173,6 +173,13 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
 	assert.deepEqual(needOccupation.needs, ["profile"], "缺的是表里点名的那个参数");
 
 	assert.equal(made.ok, true);
+    const basis=made['setup.draft'].sheet.creation;
+    assert.equal(basis.method,'rolled');
+    assert.deepEqual(basis.characteristics.rolls.STR.faces,[1,1,2]);
+    assert.deepEqual(basis.age.edu_improvement_checks,[{roll:30,edu:50}]);
+    assert.equal(basis.skills.occupation.budget.total,200);
+    assert.equal(basis.skills.interest.allocations.Law,10);
+    assert.equal(basis.seed,undefined);
 	const built = table.kernelRequests().find((entry) => entry.method === "setup.draft");
 	assert.equal(built.params.profile.name, "托马斯·海耶斯", "名字原样送进内核");
 	assert.equal(built.params.profile.occupation, "journalist", "职业 id 是模型挑的");
