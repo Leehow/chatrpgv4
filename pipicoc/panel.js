@@ -329,12 +329,12 @@ function clueLine(clue) {
 }
 
 const PAPER_WORDS = {
-  en: {title:"Carried papers", open:"Read and write", body:"Document text", close:"Close", save:"Save", saveClose:"Save and close",
+  en: {title:"Carried papers", open:"Read and write", inside:"Inside", body:"Document text", close:"Close", save:"Save", saveClose:"Save and close",
     reset:"Restore acquisition original", loading:"Opening the paper…", empty:"This page is blank. Write here…",
     clean:"Saved", dirty:"Unsaved changes", altered:"Edited since acquisition", original:"Acquisition original retained",
     failed:"The paper could not be saved. Your draft is still here.", conflict:"The paper changed elsewhere. Your draft is retained; reload before saving.",
     retry:"Reload paper", reloaded:"Latest version loaded; your draft is retained. Save to write this draft.", discard:"Close without saving", stay:"Keep editing", unsaved:"Keep your writing before closing.", saving:"Saving…"},
-  "zh-Hans": {title:"随身纸面", open:"翻阅与书写", body:"纸面内容", close:"关闭", save:"保存", saveClose:"保存并关闭",
+  "zh-Hans": {title:"随身纸面", open:"翻阅与书写", inside:"收在", body:"纸面内容", close:"关闭", save:"保存", saveClose:"保存并关闭",
     reset:"恢复获取时内容", loading:"正在展开纸页…", empty:"纸页还是空白的，在这里写下文字…",
     clean:"已保存", dirty:"有未保存的修改", altered:"内容已修改", original:"获取时的原文已保留",
     failed:"暂时没有保存成功，编辑中的文字仍保留在这里。", conflict:"纸面已在别处更新，当前草稿已保留，请重新载入后再保存。",
@@ -573,6 +573,7 @@ export function createComponent(React) {
     return h(Section, { title: props.title },
       h("ul",{className:"coc-inventory"},list.map((item,index)=>{
         const object=(props.objects || []).find(row=>row.name===(isRecord(item)?text(item.name):text(item)));
+        const writable=(props.documents || props.objects || []).find(row=>row.document&&row.name===(isRecord(item)?text(item.name):text(item)));
         const merged=object&&isRecord(item)?{...item,...object.parameters,...(object.state?.ammo!==null&&object.state?.ammo!==undefined?{ammo:object.state.ammo}:{})}:item;
         const line=itemLine(merged,term);
         if(object){
@@ -580,12 +581,13 @@ export function createComponent(React) {
           for(const key of ['condition','charges']) if(object.state?.[key]!==null&&object.state?.[key]!==undefined) line.details.push({key,value:object.state[key]});
         }
         return h("li",{className:"coc-inventory-entry",key:index,"data-detailed":line.details.length>0?"true":"false"},
-          h("div",{className:"coc-inventory-heading"},object?.document && props.onOpenDocument
-            ? h("button",{type:"button",className:"coc-inventory-document",onClick:()=>props.onOpenDocument(object.name)},
+          h("div",{className:"coc-inventory-heading"},writable && props.onOpenDocument
+            ? h("button",{type:"button",className:"coc-inventory-document",onClick:()=>props.onOpenDocument(writable.name)},
                 h("span",{className:"coc-inventory-name"},line.title),h("small",null,props.paperLabel))
             : h("span",{className:"coc-inventory-name"},line.title),
             line.quantity!==undefined?h("span",{className:"coc-inventory-quantity"},`x${line.quantity}`):null),
           object?.description?h("p",{className:"coc-sheet-note",style:{margin:"6px 0"}},object.description):null,
+          writable?.container?h("p",{className:"coc-sheet-note"},props.insideLabel," ",term(writable.container)):null,
           line.details.length?h("dl",{className:"coc-inventory-params"},line.details.map(({key,label,value,wide})=>
             h("div",{key,className:wide?"coc-inventory-wide":undefined},h("dt",null,label||t.itemFields[key]||term(key)),h("dd",null,valueText(value))))):null);
       })));
@@ -806,12 +808,14 @@ export function createComponent(React) {
       documentWindow,
       h("style",null,PAPER_STYLE),
       sheet ? h(ItemSection, { title: t.weapons, list: sheet.weapons, objects:(sheet.objects || []).filter(item=>item.category==="weapon"), t, term,
+        documents:sheet.objects, insideLabel:(PAPER_WORDS[view.play_language]||PAPER_WORDS.en).inside,
         paperLabel:(PAPER_WORDS[view.play_language]||PAPER_WORDS.en).open,
         onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign,language:view.play_language}) }) : null,
       sheet && view.presentation_status ? h(Section,{title:t.equipment},
         h("p",{className:"coc-sheet-note",role:"status"},view.presentation_status==="failed"?t.errorDetail:t.loading),
         view.presentation_status==="failed"?h("button",{type:"button",onClick:()=>{void load(true);}},t.retry):null) :
       sheet ? h(ItemSection, { title: t.equipment, list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)), objects:(sheet.objects || []).filter(item=>item.category!=="weapon"), empty: t.noEquipment, t, term,
+        documents:sheet.objects, insideLabel:(PAPER_WORDS[view.play_language]||PAPER_WORDS.en).inside,
         paperLabel:(PAPER_WORDS[view.play_language]||PAPER_WORDS.en).open,
         onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign,language:view.play_language}) }) : null,
       sheet ? h(Finance, { sheet, t, term }) : null,

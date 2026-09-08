@@ -113,7 +113,8 @@ class ModAdapter:
     @staticmethod
     def object_context(world: dict[str, Any]) -> dict[str, Any]:
         data = world.get("objects") or {}
-        return {"definitions": [{"name": r["name"], "category": r["category"], "parameters": r["parameters"], "traits":r.get("traits", [])}
+        return {"definitions": [{"name": r["name"], "category": r["category"], "parameters": r["parameters"], "traits":r.get("traits", []),
+                                  "document":({"presentation":r["document"]["presentation"],"has_text":bool(r["document"].get("text"))} if r.get("document") else None)}
                                  for r in list(data.get("definitions", {}).values())[-24:]],
                 "instances": [{"name": r["name"], "owner": r["owner"]["name"], "state": r["state"],
                                "document": ({"text":r["document"]["text"][:1600], "presentation":r["document"]["presentation"],
@@ -334,19 +335,26 @@ class ModAdapter:
             if prior and effect.get("condition") is not None and effect["condition"] != before_condition and not str(effect.get("why") or "").strip():
                 raise invalid_params("A physical state change needs its causal reason in why")
             quantity = effect.get("quantity", prior["quantity"] if prior else 1)
-            item = objects.move(world, name, effect.get("definition"), owner, source=source, turn=turn, quantity=quantity,
-                                condition=effect.get("condition"))
-            definition = objects.registry(world)["definitions"][item["definition"]]
+            seed = None
+            writing = False
             if "document" in effect:
                 if prior and source != owner:
                     raise invalid_params("Document initialization or writing uses the same current from/to owner")
                 value = effect["document"]
-                if isinstance(value, dict) and value.get("action") == "write":
+                writing = isinstance(value, dict) and value.get("action") == "write"
+                if writing:
                     if set(value) != {"action", "text"} or not prior or not str(effect.get("why") or "").strip():
                         raise invalid_params("Writing an existing document needs text and a causal why")
-                    documents.write(item, value["text"])
                 else:
-                    documents.initialize(item, self.document_seed(graph, world, value))
+                    seed = self.document_seed(graph, world, value)
+            item = objects.move(world, name, effect.get("definition"), owner, source=source, turn=turn, quantity=quantity,
+                                condition=effect.get("condition"), document_seed=seed if not prior else None)
+            definition = objects.registry(world)["definitions"][item["definition"]]
+            if prior and "document" in effect:
+                if writing:
+                    documents.write(item, effect["document"]["text"])
+                else:
+                    documents.initialize(item, seed)
                     documents.ownership_changed(world)
             if adopted is not None:
                 recorded = adopted if isinstance(adopted, dict) else {}
@@ -500,7 +508,7 @@ class ModAdapter:
         if (root / "accepted.json").exists():
             return read_json(root / "accepted.json")
         path = root / "result.json"
-        if not path.exists() or path.is_symlink() or path.stat().st_size > 128000:
+        if not path.exists() or path.is_symlink() or path.stat().st_size > 512000:
             raise invalid_params("Mod agent did not write a bounded result.json")
         raw = read_json(path)
         if request["role"] == "create":

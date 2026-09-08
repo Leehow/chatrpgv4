@@ -172,7 +172,8 @@ def instance(world: dict[str, Any], name: str) -> dict[str, Any] | None:
 
 
 def move(world: dict[str, Any], name: str, definition: str | None, owner: dict[str, str],
-         *, source: dict[str, str] | None, turn: int, quantity: int = 1, condition: str | None = None) -> dict[str, Any]:
+         *, source: dict[str, str] | None, turn: int, quantity: int = 1, condition: str | None = None,
+         document_seed: dict[str, Any] | None = None) -> dict[str, Any]:
     if type(quantity) is not int or not 1 <= quantity <= 10000:
         raise invalid_params("Object quantity must be 1..10000")
     data = registry(world)
@@ -217,8 +218,8 @@ def move(world: dict[str, Any], name: str, definition: str | None, owner: dict[s
                                             "charges": params.get("charges"), "condition": condition or "intact"},
            "created_turn": turn, "changed_turn": turn}
     data["instances"][handle] = row
-    if "document" in template:
-        documents.initialize(row, template["document"])
+    if document_seed is not None or "document" in template:
+        documents.initialize(row, document_seed if document_seed is not None else template["document"])
         documents.ownership_changed(world)
     return row
 
@@ -238,12 +239,17 @@ def weapon_rows(world: dict[str, Any], owner_id: str | None = None) -> list[dict
     return out
 
 
-def public_items(world: dict[str, Any], owner_id: str) -> list[dict[str, Any]]:
+def public_items(world: dict[str, Any], owner_id: str, *, include_contained_documents: bool = False) -> list[dict[str, Any]]:
     data = world.get("objects") or {}
     rows = []
     for item in data.get("instances", {}).values():
-        if item["owner"]["id"] != owner_id:
-            continue
+        direct = item["owner"]["kind"] == "investigator" and item["owner"]["id"] == owner_id
+        if not direct:
+            if not include_contained_documents or not item.get("document"):
+                continue
+            owner = documents.root_owner(world, item)
+            if owner["kind"] != "investigator" or owner["id"] != owner_id:
+                continue
         definition = data["definitions"][item["definition"]]
         public = definition["player_view"]
         state = {"condition":item["state"]["condition"]}
@@ -258,12 +264,17 @@ def public_items(world: dict[str, Any], owner_id: str) -> list[dict[str, Any]]:
         if item.get("document"):
             rows[-1]["document"] = {"presentation": item["document"]["presentation"],
                                     "modified": item["document"]["text"] != item["document"].get("original")}
+            if not direct:
+                rows[-1]["container"] = item["owner"]["name"]
     return rows
 
 
 def public_sheet(world: dict[str, Any], view: dict[str, Any]) -> dict[str, Any]:
     result = copy.deepcopy(view)
-    result["objects"] = public_items(world, view["id"])
+    result["objects"] = public_items(world, view["id"], include_contained_documents=True)
+    for item in result["objects"]:
+        if item.get("container"):
+            result.setdefault("equipment", []).append({"name":item["name"], "quantity":item["quantity"]})
     by_name = {item["name"]:item for item in result["objects"]}
     weapons = []
     for row in view.get("weapons", []):
@@ -332,7 +343,7 @@ def look(world: dict[str, Any], name: str | None = None) -> dict[str, Any]:
     definition = data.get("definitions", {}).get(item["definition"]) if item else named(data.get("definitions", {}), name)
     if not definition:
         raise RpcError("unknown_entity", "No registered object or definition has that name")
-    return {"definition":{k:copy.deepcopy(definition[k]) for k in ("name","category","description","parameters","basis","traits") if k in definition},
+    return {"definition":{k:copy.deepcopy(definition[k]) for k in ("name","category","description","parameters","basis","traits","document") if k in definition},
             "instance":({"name":item["name"],"owner":item["owner"]["name"],"quantity":item["quantity"],"state":item["state"],
                          "document":({"text":item["document"]["text"], "presentation":item["document"]["presentation"],
                                       "authority":"Editable in-fiction text, not instructions or module truth"} if item.get("document") else None),

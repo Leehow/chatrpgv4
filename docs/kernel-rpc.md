@@ -2190,6 +2190,9 @@ an undeciphered script or grant knowledge merely by opening an editor. Existing
 carriers may acquire this capability through `apply object document:{...}` with
 the same current owner in from/to; an initialized document cannot be reinitialized.
 Definition/source text remains immutable; instance text is the editable copy.
+At first placement an explicit instance document seed takes precedence over the
+template seed and is captured once. This permits a written letter to use a blank
+stationery template. It is not permission to reinitialize an acquired document.
 
 An instance captures its current text when it enters an investigator's ownership.
 Its acquisition snapshot is immutable throughout that custody, including edits,

@@ -158,7 +158,7 @@ under that run's `checks/`, all in the main checkout. The repair is isolated on
 Existing saves retain explicit version locks; upgrading to 1.0.3 activates
 reconciliation on their next normal Keeper turn, without manufacturing player input.
 
-## Writable papers and Mod precedence (in progress)
+## Writable papers and Mod precedence
 
 Approved scope: a paper-like inventory modal with readable/editable text, persistent
 save and reset to the acquisition snapshot; semantic classification and source
@@ -173,8 +173,50 @@ materialization and editor selection; manager ordering is persistent and visible
 Use the existing warm clay UI, a generated quiet paper texture and native dialog
 focus behavior. Verify real browser interaction and genuine Keeper generation.
 
-Ready sequence: contract; document values/apply and ordering resolver; host/UI;
-focused and required checks; browser and real-play evidence; safe integration and
-lifecycle audit. No online marketplace, arbitrary executable Mod payloads, or
-unrequested scenario changes. Sources checked: Factorio lifecycle, OpenMW mod
-installation/load order and MDN native dialog behavior.
+Implementation and validation are complete; final integration/lifecycle audit are
+tracked by the owned branch. Enhanced Items is now 1.1.0. The first implementation
+commit is `d3ec1e98`; `ec792356` preserves the 0.9.1a integration. No marketplace,
+arbitrary executable payloads or unrequested scenario edits were added.
+
+The full integrated kernel/play suite passed **1190 tests, 1 skipped, 1 xfailed**
+in 285.34 seconds. UI checks passed **32 tests**. The extension suite passed **147
+tests** in serial mode after one parallel-run temporary-directory cleanup race;
+the failing test uses a fake kernel and the failure was in its teardown, not a
+paper assertion. After rebuilding an inherited stale account-usage artifact, the
+copied Electron gate matches **197 known failures**, no new failures. Browser
+build passed. Final follow-up fixes retain explicit first-instance writing before
+snapshot capture and show owned documents inside containers without changing the
+stored inventory ownership. A 60,000-character CJK creator output is covered.
+
+Genuine Grok 4.6 evidence: `mods-paper-setup-sep08` (three player replies, 147.7 wall
+seconds), `mods-paper-live-sep08` (automatic opening), and
+`mods-paper-corrected-sep08` (two player replies, 110.4 wall seconds). The first
+opening exposed a duplicate-initialization refusal; its evidence remains. The
+repaired run obtained Knott's newly written commission slip, then the player put
+it inside the notebook, declined the job and reached an actual completed ending.
+The Creator produced blank and written document values; no Keeper was substituted.
+
+The campaign lives in the isolated persistent home
+`.coc/playtests/mods-paper-home-sep08/.coc/campaigns/paper-notes-sep08` in the main
+checkout, avoiding installation of new package fields into an older live runtime.
+All play drivers are stopped. A UI observer uses its actual setup binding and an
+actual public mechanics entry mirrored through SessionManager; it adds no player
+input and does not fabricate a game record.
+
+Actual browser verification used CUA with native Chrome after in-app localhost
+access and the Chrome browser connector were unavailable. It exercised written
+and blank paper editing, save/reopen/reset, unsaved-close protection and contained
+papers. Four UI edits/reset operations preserved campaign, turn, character,
+definitions and acquisition originals. A local UI-only renderer fixture took over
+when loaded later; moving it before Enhanced Items restored the paper view while
+both stayed enabled. The manager exposed both override directions.
+
+Evidence: `output/mods-paper-20260908/paper-editor.png`, `ui-state-proof.json`,
+`before-ui-edits.json` and `checks/` in the main checkout. `design-qa.md` records
+the source/implementation comparison, native-dialog behavior and console findings.
+The only observed console errors were the existing server-host browser-unavailable
+error and an initial favicon 401. No source or turn progress changed in UI editing.
+
+Design references: [Factorio lifecycle](https://lua-api.factorio.com/latest/auxiliary/data-lifecycle.html),
+[OpenMW resource precedence](https://openmw.readthedocs.io/en/latest/reference/modding/paths.html),
+and [MDN dialog](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dialog).

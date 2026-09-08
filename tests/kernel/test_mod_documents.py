@@ -101,6 +101,11 @@ def test_document_limits_and_container_custody(kernel):
         {"kind":"object","name":"Notebook","from":"Thomas Hayes","to":"Bag"}])
     snapshot=view(kernel)
     assert snapshot["original"]=="Meet at the station."
+    sheet=kernel.table("view")["investigators"][0]
+    assert next(row for row in sheet["objects"] if row["name"]=="Notebook")["container"]=="Bag"
+    assert any(row.get("name")=="Notebook" for row in sheet["equipment"] if isinstance(row,dict))
+    stored=read_json(campaign_dir(kernel.workspace)/"party/thomas-hayes.json")
+    assert not any(row.get("name")=="Notebook" for row in stored["equipment"] if isinstance(row,dict))
     assert kernel.err("mods.document.apply",{"campaign":CAMPAIGN,"actor":"Thomas Hayes","name":"Notebook","version":snapshot["version"],"action":"save","text":"x"*64001})["code"]=="invalid_params"
     kernel.table("apply",call_id="t1-c3",effects=[{"kind":"object","name":"Bag","from":"Thomas Hayes","to":"Steven Knott"}])
     assert kernel.err("mods.document.view",{"campaign":CAMPAIGN,"actor":"Thomas Hayes","name":"Notebook"})["code"]=="not_owned"
@@ -166,3 +171,24 @@ def test_revealed_handout_is_copied_exactly_and_hidden_source_is_refused(kernel)
     changed=edit(kernel,snapshot,text="A player rewrite")
     assert edit(kernel,changed,"reset")["text"]==snapshot["text"]
     assert source.read_bytes()==source_bytes
+
+
+def test_declared_document_limit_allows_multibyte_text_in_creator_output(kernel):
+    open_turn(kernel)
+    body="文字"*30000
+    definition=prepared(kernel,paper(text=body))
+    kernel.table("apply",call_id="t1-c1",effects=[definition,{"kind":"object","name":"Notebook","to":"Thomas Hayes"}])
+    assert view(kernel)["original"]==body
+
+
+def test_instance_writing_is_captured_once_ahead_of_a_blank_template(kernel):
+    open_turn(kernel)
+    draft=paper(text="")
+    kernel.table("apply",call_id="t1-c1",effects=[prepared(kernel,draft),
+        {"kind":"object","name":"Notebook","to":"Thomas Hayes","document":{"text":"The received task details","presentation":"paper"}}])
+    received=view(kernel)
+    assert received["original"]==received["text"]=="The received task details"
+    changed=edit(kernel,received,text="A temporary edit")
+    assert edit(kernel,changed,"reset")["text"]=="The received task details"
+    definition=next(iter(read_json(campaign_dir(kernel.workspace)/"world.json")["objects"]["definitions"].values()))
+    assert definition["document"]["text"]==""
