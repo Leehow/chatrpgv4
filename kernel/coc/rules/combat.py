@@ -239,6 +239,13 @@ VALID_DEFENSE = {"fight_back", "dodge", "dive_for_cover", "maneuver", "none", No
 VALID_CONDITIONS = {"major_wound", "dying", "stabilized", "dead",
                      "unconscious", "prone", "grappled", "surprised",
                      "outnumbered", "fled"}
+#: The postures among them: true only relative to a fight in progress, and meaningless once
+#: one is not. The rest of `VALID_CONDITIONS` describes the body instead of the moment, and
+#: is cleared by the healing engine on its own terms -- `unconscious` when hit points rise
+#: above zero (p.121: "On zero hit points the character is unconscious"), `dying` likewise,
+#: `major_wound` at half maximum. A posture has no such rule because the rulebook never
+#: imagines one outlasting the scene it was struck in.
+TRANSIENT_COMBAT_CONDITIONS = frozenset({"prone", "grappled", "surprised", "outnumbered", "fled"})
 VALID_OUTCOMES = {"investigators_win", "monsters_win", "fled", "stalemate", None}
 VALID_ARMOR_RULES = {"fixed", "degrades_1_per_damage", None}
 
