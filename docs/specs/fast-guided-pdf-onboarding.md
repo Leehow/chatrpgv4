@@ -256,7 +256,7 @@ Web 当前每连接一个 backend，关闭 backend 会 dispose 解析。仅做�
 
 **60 秒冷启动及 2 秒缓存目标尚未达到。** 保留 40 的复核容量；本书当前开场复核单元少于 38，未把相同实际并发的 40/38 配置称作有效对照实验。本次没有宣称重玩完整章节：验证范围是来源准备、真实建卡/修改/确认、两种完成顺序、自动开场和后续真实互动。之前的章节玩测证据完整保留。
 
-自动化检查：内核与 play 套件 1119 passed、1 skipped；扩展完整串行检查 128 passed；集成后的角色卡/侧栏/宿主重点检查 40 passed；Electron 套件保持 197 个原有已知失败，0 个新增。独立检出缺失的 electron-vite 依赖使用已有安装的只读链接补齐，未改锁文件或手写失败基线。
+自动化检查：内核与 play 套件 1119 passed、1 skipped；扩展完整串行检查 130 passed；集成后的角色卡/侧栏/宿主重点检查 40 passed；Electron 套件保持 197 个原有已知失败，0 个新增。独立检出缺失的 electron-vite 依赖使用已有安装的只读链接补齐，未改锁文件或手写失败基线。
 
 真实证据在工作检出的 `.coc/playtests/fast-onboarding-verified/`，其中 `acceptance-summary.json` 记录来源指纹、冷/热时间、导入任务与战役身份。`first-question.png`、`revised-card.png`、`warm-card.png`、`warm-automatic-opening.png` 保留前台证据。角色先确认的暂停/恢复证据在 `.coc/playtests/fast-onboarding-browser/`。其余试验目录与全部原 PDF、页图、读取/复核请求和会话逐字稿都保留，不删除或改写为新的验收。
 
