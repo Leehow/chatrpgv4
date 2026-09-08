@@ -17,3 +17,11 @@ Electron/packages/pi-backend/src/runtime-agents.bundle.mjs
 
 build/
 .build.noindex/
+
+# Playwright CLI scratch (console/page dumps) and its run output.
+.playwright-cli/
+/output/
+
+# tsc emit next to the TypeScript pi loads directly; the .ts is the source.
+extensions/kernel/client.js
+extensions/kernel/client.d.ts
