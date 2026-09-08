@@ -36,6 +36,10 @@ actual language), backstory (personal_description plus 2–5 other categories an
 (rulebook profile names). Backstory categories: personal_description, ideology_beliefs,
 significant_people, meaningful_locations, treasured_possessions, traits. Respect the
 player's facts. Ordinary gear is chosen semantically and recorded, never just described.
+Equipment lists physical belongings only. Do not include ordinary cash, a spending
+allowance or vague money placeholders: the kernel derives those from Credit Rating
+and the era in finance. A wallet or collectible coin can be an item; the ordinary
+money it contains is still accounted for by finance, not duplicated as equipment.
 Always include personal_description in play_language as an editable portrait
 subject, using three short, plain sentences, not ornate literary description.
 1. Give apparent age, a simple face shape, eye color, and hair color/length/style.

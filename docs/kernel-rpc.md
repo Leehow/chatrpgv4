@@ -2044,3 +2044,23 @@ biographical field. It will be reusable as the subject text of a future portrait
 request, but this change adds no image-generation feature or separate schema.
 The kernel checks presence only; visual quality remains the setup agent's semantic
 responsibility. Existing confirmed cards are not rewritten by this requirement.
+
+#### Background and monetary equipment in the sidebar
+
+The investigator sidebar displays all populated backstory text (concept remains
+in its existing header position), native language and key-connection summary using
+the player-language text projection. No background data is copied into a new store.
+Equipment contains physical belongings; ordinary cash, generic money allowances
+and wealth placeholders belong to finance. The existing tool-enabled presenter
+returns `finance_equipment`, an exact subset of supplied equipment strings, to
+exclude legacy financial duplicates from both draft and sidebar item displays.
+The host validates subset membership and uniqueness; open semantic classification
+is the model's job, never a keyword list. Keep wallets, purses and collectible
+coins, and keep uncertain entries. Financial balances and immutable evidence are
+unchanged. Old projections are upgraded on sheet reads; new setup profiles are
+instructed to omit monetary placeholders from equipment.
+
+Legacy equipment-presentation upgrades run in the background without making
+the sheet read await that model work. While pending, only the equipment section has a loading state; on
+completion a sheet_changed extension event refreshes the panel. Failed upgrades
+show a retry state instead of leaking monetary placeholders or retrying forever.

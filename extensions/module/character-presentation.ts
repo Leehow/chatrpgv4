@@ -29,6 +29,11 @@ export function validatePresentation(value:unknown,texts:string[]):Record<string
   if(!map||typeof map!=='object'||Array.isArray(map)||Object.keys(map).length!==texts.length||texts.some(t=>typeof map[t]!=='string'||!map[t].trim()))throw new Error('Incomplete card presentation');
   return Object.fromEntries(texts.map(t=>[t,map[t]]));
 }
+export function validateFinanceEquipment(value:unknown,equipment:string[]):string[] {
+  const excluded=(value as Row)?.finance_equipment;
+  if(!Array.isArray(excluded)||new Set(excluded).size!==excluded.length||excluded.some(name=>typeof name!=='string'||!equipment.includes(name)))throw new Error('Invalid financial equipment projection');
+  return excluded;
+}
 export async function creationRuleDetails(sheet:Row):Promise<Row> {
   const trace=sheet.creation?.derived||{}, details:Row={};
   if(typeof trace.MOV==='string') {
@@ -54,12 +59,12 @@ export async function prepareCharacterPresentation(options:{home:string;campaign
   if(draft.play_language!==options.play_language)throw new Error('Draft language does not match the session');
   const calculations=await creationRuleDetails(draft.sheet);
   const texts=[...new Set([...cardTexts(draft.sheet),...(calculations.movement?[calculations.movement.condition]:[])])].sort();
-  const map=await prepareTexts(options,texts);
-  const result={play_language:options.play_language,texts:map,calculations};
+  const projection=await prepareTexts({...options,equipment:draft.sheet.equipment},texts);
+  const result={play_language:options.play_language,...projection,calculations};
   await saveProjection(options,`${options.revision}-${options.play_language}.json`,result);
   return result;
 }
-type TextOptions={home:string;play_language:string;model?:string;thinking?:string;known_labels?:Record<string,string>;signal?:AbortSignal;runner?:(r:ReaderRequest)=>Promise<ReaderOutcome>};
+type TextOptions={equipment?:string[];home:string;play_language:string;model?:string;thinking?:string;known_labels?:Record<string,string>;signal?:AbortSignal;runner?:(r:ReaderRequest)=>Promise<ReaderOutcome>};
 async function saveProjection(options:{home:string;campaign:string},file:string,result:Row) {
   const folder=join(options.home,'.coc/campaigns',options.campaign,'setup/presentations');
   await mkdir(folder,{recursive:true});const temp=join(folder,randomUUID()+'.tmp');
@@ -77,21 +82,23 @@ export async function prepareStandingPresentation(options:TextOptions&{campaign:
   let previous:Record<string,string>={};
   try {const saved=JSON.parse(await readFile(join(options.home,'.coc/campaigns',options.campaign,'setup/presentations',file),'utf8'));if(saved.play_language===options.play_language)previous=saved.texts||{};}catch{}
   const missing=standingTexts(options.view).filter(text=>typeof previous[text]!=='string'||!previous[text].trim());
-  const added=missing.length?await prepareTexts(options,missing):{};
+  const added=missing.length?(await prepareTexts(options,missing)).texts:{};
   const result={play_language:options.play_language,texts:{...previous,...added}};
   await saveProjection(options,file,result);return result;
 }
-async function prepareTexts(options:TextOptions,texts:string[]):Promise<Record<string,string>> {
+async function prepareTexts(options:TextOptions,texts:string[]):Promise<{texts:Record<string,string>;finance_equipment:string[]}> {
+  const equipment=[...new Set((options.equipment||[]).filter(value=>typeof value==='string'))].sort();
   const instructions=await readFile(prompt,'utf8');
   const known=Object.fromEntries(Object.entries(options.known_labels||{}).filter(([key])=>texts.includes(key)));
-  const fingerprint=createHash('sha256').update(JSON.stringify([options.play_language,texts,known,instructions])).digest('hex');
+  const fingerprint=createHash('sha256').update(JSON.stringify([options.play_language,texts,known,instructions,equipment])).digest('hex');
   const directory=join(options.home,'.coc/character-presentations',fingerprint),accepted=join(directory,'accepted.json');
-  try {const cached=JSON.parse(await readFile(accepted,'utf8'));return {...validatePresentation(cached,texts),...known}}catch{/* Missing projections are generated without modifying the card. */}
+  try {const cached=JSON.parse(await readFile(accepted,'utf8'));return {texts:{...validatePresentation(cached,texts),...known},finance_equipment:validateFinanceEquipment(cached,equipment)}}catch{/* Missing projections are generated without modifying the card. */}
   const attempt=join(directory,'attempts',randomUUID());await mkdir(attempt,{recursive:true});
-  await writeFile(join(attempt,'texts.json'),JSON.stringify({play_language:options.play_language,texts,known_labels:known},null,2));
+  await writeFile(join(attempt,'texts.json'),JSON.stringify({play_language:options.play_language,texts,known_labels:known,equipment},null,2));
   const outcome=await (options.runner||runReader)({cwd:attempt,systemPrompt:prompt,model:options.model,thinking:options.thinking,signal:options.signal,eventLog:join(attempt,'events.jsonl'),timeoutMs:120000,brief:'Read texts.json and write the complete player-facing text projection to presentation.json.'});
   if(!outcome.ok||options.signal?.aborted)throw new Error('Card presentation could not be prepared');
-  const result={texts:validatePresentation(JSON.parse(await readFile(join(attempt,'presentation.json'),'utf8')),texts)};
+  const output=JSON.parse(await readFile(join(attempt,'presentation.json'),'utf8'));
+  const result={texts:validatePresentation(output,texts),finance_equipment:validateFinanceEquipment(output,equipment)};
   const temporary=join(directory,randomUUID()+'.tmp');await writeFile(temporary,JSON.stringify(result,null,2));await rename(temporary,accepted);
-  return {...result.texts,...known};
+  return {...result,texts:{...result.texts,...known}};
 }

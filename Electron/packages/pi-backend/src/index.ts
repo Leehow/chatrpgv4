@@ -2133,6 +2133,7 @@ export class PiHostBackend implements HostBackend {
    */
   private readonly cocChoiceClaims = new Map<string,string>();
   private readonly cocSheetReads = new Map<string, Promise<any>>();
+  private readonly cocSheetPresentationJobs = new Map<string, {status:"pending"|"failed"}>();
   private cocOnboarding?: CocOnboardingHost;
   private readonly extInvokeQueued = new Map<string, ExtInvokeRequestRecord[]>();
   private readonly extInvokeWaiting = new Map<string, Array<(requests: ExtInvokeRequestRecord[]) => void>>();
@@ -8529,8 +8530,28 @@ export class PiHostBackend implements HostBackend {
             try {
               const folder=join(context.home,'.coc/campaigns',context.campaign);
               const meta=JSON.parse(await fs.readFile(join(folder,'campaign.json'),'utf8'));
-              const projection=JSON.parse(await fs.readFile(join(folder,'setup/presentations',`${meta.setup?.draft_revision}-${context.play_language}.json`),'utf8'));
-              if(projection.play_language===context.play_language)(view as any).labels={...projection.texts,...(view as any).labels};
+              const revision=meta.setup?.draft_revision;
+              let projection:any;
+              try {projection=JSON.parse(await fs.readFile(join(folder,'setup/presentations',`${revision}-${context.play_language}.json`),'utf8'));} catch {}
+              if(Number.isSafeInteger(revision)&&(!projection||projection.play_language!==context.play_language||!Array.isArray(projection.finance_equipment))) {
+                const repo=resolve(this.managedNodeModulesRoot,'..');
+                this.cocOnboarding ??= new CocOnboardingHost({repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
+                const key=JSON.stringify([context.home,context.campaign,revision,context.play_language]);
+                if(isRecord(params)&&params.retry_projection===true&&this.cocSheetPresentationJobs.get(key)?.status==='failed')this.cocSheetPresentationJobs.delete(key);
+                if(!this.cocSheetPresentationJobs.has(key)) {
+                  this.cocSheetPresentationJobs.set(key,{status:'pending'});
+                  const refresh=()=>emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context.campaign}}});
+                  void this.getModelState(sessionId).then(state=>this.cocOnboarding!.presentation({campaign:context.campaign,revision,play_language:context.play_language,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})).then(()=>{
+                    this.cocSheetPresentationJobs.delete(key);refresh();
+                  },()=>{this.cocSheetPresentationJobs.set(key,{status:'failed'});refresh();});
+                }
+                (view as any).presentation_status=this.cocSheetPresentationJobs.get(key)?.status;
+
+              }
+              if(projection?.play_language===context.play_language) {
+                (view as any).labels={...projection.texts,...(view as any).labels};
+                (view as any).finance_equipment=projection.finance_equipment;
+              }
             } catch { /* A card can still be read before its text projection has been prepared. */ }
             // Project only names the kernel has already exposed to this player.
             const liveView=view as any;

@@ -80,7 +80,7 @@ export function CocCharacterDraft({data,onRendered,onPresentation}:Props) {
     <h3>{t('Finance')}</h3><dl className="coc-draft-finance">{[['cash',money(sheet.finance?.cash)],['assets',money(sheet.finance?.assets)],['spending',money(sheet.finance?.spending_level)],['credit_rating',sheet.credit_rating]].map(([key,value])=><div key={key}><dt>{t(key)}</dt><dd>{value}</dd></div>)}</dl>
     <h3>{t('Background')}</h3><dl className="coc-draft-background">{Object.entries(sheet.backstory||{}).map(([key,value])=><div key={key}><dt>{t(key)}</dt><dd>{cell(value)}</dd></div>)}</dl>
     <p className="coc-draft-note">{t('Language')}: {t(sheet.own_language)}</p><p className="coc-draft-note">{t('Key connection')}: {cell(sheet.key_connection?.summary)}</p>
-    <h3>{t('Equipment')}</h3><ul className="coc-draft-kit">{(sheet.equipment||[]).map((item:string,i:number)=><li key={i}>{t(item)}</li>)}</ul>
+    <h3>{t('Equipment')}</h3><ul className="coc-draft-kit">{(sheet.equipment||[]).filter((item:string)=>!presentation.finance_equipment?.includes(item)).map((item:string,i:number)=><li key={i}>{t(item)}</li>)}</ul>
     {!!sheet.weapons?.length&&<><h3>{t('Weapons')}</h3>{sheet.weapons.map((weapon:Row,i:number)=><div key={i}>{values(weapon)}</div>)}</>}
     {error&&<p role="alert">{t('Preview unavailable')} <button onClick={()=>{setError(false);if(onRendered)void onRendered().catch(()=>setError(true))}}>{t('Retry')}</button></p>}
   </section>

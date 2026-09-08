@@ -93,3 +93,9 @@ it('starts compact, toggles calculations locally, and resets on a new revision',
  expect(await screen.findByRole('button',{name:'查看计算详情'})).toBeTruthy();
  expect(row().querySelectorAll('td')).toHaveLength(1);
 })
+
+it('uses semantic financial exclusions without removing physical money-related objects or changing balances',()=>{
+ const data={revision:1,sheet:{...sheet,equipment:['Some cash','Wallet','Collectible coin']},presentation:{texts:{...zh,'Some cash':'适量现金',Wallet:'钱包','Collectible coin':'收藏硬币'},finance_equipment:['Some cash']}};
+ const before=JSON.stringify(data);render(<CocCharacterDraft data={data}/>);
+ expect(screen.queryByText('适量现金')).toBeNull();expect(screen.getByText('钱包')).toBeTruthy();expect(screen.getByText('收藏硬币')).toBeTruthy();expect(screen.getByText('60 美元')).toBeTruthy();expect(JSON.stringify(data)).toBe(before);
+});

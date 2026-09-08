@@ -46,6 +46,7 @@ const CSS = `
 .coc-sheet-field-val{color:var(--text);overflow-wrap:anywhere}
 .coc-sheet-field-val span{border-bottom:1px solid var(--border);padding-bottom:1px}
 .coc-sheet-concept{margin:8px 0 0;color:var(--muted);line-height:1.6;font-family:var(--coc-serif);font-size:13px}
+.coc-background{margin:0;display:grid;gap:12px}.coc-background dt{font-size:11px;color:var(--muted);margin-bottom:3px}.coc-background dd{margin:0;line-height:1.7;overflow-wrap:anywhere}
 .coc-sheet-note{margin:12px 0;color:var(--muted);line-height:1.6}
 
 .coc-sheet-section{margin:20px 0 0}
@@ -414,6 +415,17 @@ export function createComponent(React) {
   }
 
   /** Where and when the table stands: the old panel's 时间 tab, minus the invented wall clock. */
+  function Background(props) {
+    const {sheet,term}=props;
+    const rows=Object.entries(isRecord(sheet.backstory)?sheet.backstory:{})
+      .filter(([key,value])=>key!=="concept"&&typeof value==="string"&&value.trim());
+    if(sheet.own_language)rows.push(["Language",text(sheet.own_language)]);
+    if(isRecord(sheet.key_connection)&&sheet.key_connection.summary)rows.push(["Key connection",text(sheet.key_connection.summary)]);
+    if(!rows.length)return null;
+    return h(Section,{title:term("Background")},h("dl",{className:"coc-background"},rows.map(([key,value])=>
+      h("div",{key},h("dt",null,term(key)),h("dd",null,term(value))))));
+  }
+
   function Standing(props) {
     const { view, t } = props;
     const names = isRecord(view.standing_labels) ? view.standing_labels : {};
@@ -479,7 +491,7 @@ export function createComponent(React) {
     // stays in the language the player was just reading rather than snapping back to English.
     const [lastLanguage, setLastLanguage] = useState("");
 
-    const load = useCallback(async () => {
+    const load = useCallback(async (retryProjection = false) => {
       const request = ++generation.current;
       if (!api.invoke) {
         setAnswer({ view: null, campaign: null, reason: "this host cannot reach the pack" });
@@ -487,7 +499,7 @@ export function createComponent(React) {
       }
       setBusy(true);
       try {
-        const result = await api.invoke("sheet", {});
+        const result = await api.invoke("sheet", retryProjection ? {retry_projection:true} : {});
         if(request !== generation.current) return;
         if (result && result.ok === true && isRecord(result.data)) {
           setAnswer(result.data);
@@ -534,7 +546,7 @@ export function createComponent(React) {
 
     const head = h("div", { className: "coc-sheet-head" },
       h("span", { className: "coc-sheet-name" }, sheet ? text(sheet.name) || text(sheet.id) : t.noInvestigator),
-      h("button", { type: "button", className: "coc-sheet-refresh", onClick: () => { void load(); }, disabled: busy },
+      h("button", { type: "button", className: "coc-sheet-refresh", onClick: () => { void load(true); }, disabled: busy },
         busy ? t.refreshing : t.refresh));
 
     if (!view) {
@@ -549,7 +561,7 @@ export function createComponent(React) {
         : t.noTable;
       return h("div", { className: "coc-sheet", role: "region", "aria-label": props.title || "Investigator" },
         h("h2", null, title), h("p", { className: "coc-sheet-note", role: "status" }, detail),
-        h("button", { type: "button", onClick: () => { void load(); }, disabled: busy }, busy ? t.loading : t.retry));
+        h("button", { type: "button", onClick: () => { void load(true); }, disabled: busy }, busy ? t.loading : t.retry));
     }
 
     // The header of a printed sheet: labelled rules, not a run-on line of values.
@@ -584,8 +596,12 @@ export function createComponent(React) {
       sheet ? h(Characteristics, { sheet, t, term }) : null,
       sheet ? h(Skills, { sheet, t, term }) : null,
       sheet ? h(ItemSection, { title: t.weapons, list: sheet.weapons, term }) : null,
-      sheet ? h(ItemSection, { title: t.equipment, list: sheet.equipment, empty: t.noEquipment, term }) : null,
+      sheet && view.presentation_status ? h(Section,{title:t.equipment},
+        h("p",{className:"coc-sheet-note",role:"status"},view.presentation_status==="failed"?t.errorDetail:t.loading),
+        view.presentation_status==="failed"?h("button",{type:"button",onClick:()=>{void load(true);}},t.retry):null) :
+      sheet ? h(ItemSection, { title: t.equipment, list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)), empty: t.noEquipment, term }) : null,
       sheet ? h(Finance, { sheet, t, term }) : null,
+      sheet ? h(Background, { sheet, term }) : null,
 
       h(Clues, { view, t }));
   };
