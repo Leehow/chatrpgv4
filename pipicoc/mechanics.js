@@ -130,6 +130,19 @@ const CSS = `
 .coc-mech-settle .coc-mech-ico{color:var(--tone);
   background:color-mix(in oklab, var(--tone) 13%, transparent)}
 
+/* A row that opens: the summary is the row, the body is what it names. Today only a handout
+   with text opens (§14.8/§16.2); an image or an unavailable card has nothing to open into. */
+.coc-mech-fold{display:block;padding:0}
+.coc-mech-fold-head{display:flex;align-items:center;gap:10px;padding:6px 2px;cursor:pointer;
+  list-style:none;border-radius:6px}
+.coc-mech-fold-head::-webkit-details-marker{display:none}
+.coc-mech-fold-head::after{content:"▸";flex:none;color:var(--subtle);font-size:11px;
+  transition:transform .12s ease}
+.coc-mech-fold[open]>.coc-mech-fold-head::after{transform:rotate(90deg)}
+.coc-mech-fold-body{margin:2px 0 10px 34px;padding:10px 14px;border-left:2px solid var(--border-strong);
+  font-family:var(--coc-serif);font-size:13.5px;line-height:1.75;white-space:pre-wrap;color:var(--text);
+  max-height:340px;overflow:auto}
+
 /* The table changed history — the largest thing a row can say, so even standing alone it gets
    the accent rail a settlement group would. */
 .coc-mech-row[data-kind="worldline"]{margin:7px 0;padding:6px 10px;border-radius:9px;
@@ -359,6 +372,16 @@ export function createComponent(React) {
       `${delta > 0 ? "+" : ""}${delta}`);
   }
 
+  /** A row that opens into what it names — today only a handout carrying its text (§16.2). */
+  function FoldRow(props) {
+    const { children, kindKey, kindLabel, body } = props;
+    return h("details", { className: "coc-mech-row coc-mech-fold", "data-kind": kindKey, title: kindLabel },
+      h("summary", { className: "coc-mech-fold-head" },
+        h("span", { className: "coc-mech-ico", "aria-hidden": "true" }, icon(kindKey)),
+        ...(Array.isArray(children) ? children : [children])),
+      h("div", { className: "coc-mech-fold-body" }, body));
+  }
+
   function renderRow(row, t, term, index) {
     const kindLabel = t.kind[row.kind] || row.kind;
     const key = `${text(row.receipt)}:${index}`;
@@ -474,10 +497,18 @@ export function createComponent(React) {
             num(row.from_turn) ? ` · ${t.turn(row.from_turn)}` : "",
             num(row.loop) ? ` · ${t.loop(row.loop)}` : ""));
       }
-      case "handout":
-        return h(Row, { key, kindKey: "handout", kindLabel, family },
-          h("span", { className: "coc-mech-body" }, text(row.label || row.name)),
-          h(Stamp, { tone: row.available ? "pass" : "plain" }, row.available ? t.available : t.pending));
+      case "handout": {
+        const name = text(row.label || row.name);
+        const stamp = h(Stamp, { tone: row.available ? "pass" : "plain" }, row.available ? t.available : t.pending);
+        const body = text(row.text);
+        if (!body) {
+          // Nothing to open into — an image, or bytes that never shipped: the row stays a line.
+          return h(Row, { key, kindKey: "handout", kindLabel, family },
+            h("span", { className: "coc-mech-body" }, name), stamp);
+        }
+        return h(FoldRow, { key, kindKey: "handout", kindLabel, body },
+          h("span", { className: "coc-mech-body" }, name), stamp);
+      }
       default:
         // An unknown kind is a kernel that grew a receipt this file has not met. Show it rather
         // than swallow it: a blank row is how a projection silently stops arriving.
