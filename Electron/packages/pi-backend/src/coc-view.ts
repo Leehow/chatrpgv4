@@ -20,6 +20,8 @@ export async function readCocBinding(sessionPath:string): Promise<CocBinding | u
   try {return binding(JSON.parse(await readFile(sessionPath+'.coc.json','utf8')));} catch {return undefined;}
 }
 export function mechanicsEntry(row:any, language?:string): HistoryEntry | undefined {
+  if(row?.type==='custom'&&row.customType==='coc-character-draft'&&row.data?.sheet)return {id:row.id,role:'assistant',content:'',timestamp:Date.parse(row.timestamp)||0,presentation:{renderer:'coc-character-draft',details:row.data}};
+  if(row?.type==='custom'&&row.customType==='coc-choice'&&row.data?.kind==='story')return {id:row.id,role:'assistant',content:row.data.prompt||'',timestamp:Date.parse(row.timestamp)||0};
   if(row?.type==='custom' && row.customType==='coc-choice' && Array.isArray(row.data?.options)) {
     return {id:row.id,role:'assistant',content:'',timestamp:Date.parse(row.timestamp)||0,
       presentation:{renderer:'coc-choice',details:row.data}};
@@ -33,8 +35,8 @@ export function mechanicsEntry(row:any, language?:string): HistoryEntry | undefi
   return {id:row.id,role:'assistant',content:'',timestamp:Date.parse(row.timestamp)||0,
     presentation:{renderer:'coc-mechanics',details:{turn:row.data.turn,mechanics,labels:row.data.labels,...marked,play_language:row.data.play_language??language??'en'}}};
 }
-export async function readColdSheet(repo:string, context:CocBinding):Promise<unknown> {
-  return callColdKernel(repo, context.home, 'table.view', {campaign:context.campaign});
+export async function readColdSheet(repo:string, context:CocBinding, previewRevision?:number):Promise<unknown> {
+  return callColdKernel(repo, context.home, previewRevision===undefined?'table.view':'setup.previewed', {campaign:context.campaign,...(previewRevision===undefined?{}:{revision:previewRevision})});
 }
 /** Host management can work before a Keeper exists; this never opens a fictional turn. */
 export async function callColdKernel(repo:string, home:string, method:string, params:Record<string,unknown>):Promise<unknown> {

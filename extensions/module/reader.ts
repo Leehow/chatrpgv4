@@ -25,6 +25,7 @@ export interface ReaderRequest {
 	systemPrompt?: string;
 	eventLog?: string;
 	source?: { pdf: string; cache: string };
+	imageHistory?: number;
 	onEvent?: (event: Record<string, any>) => void;
 }
 
@@ -125,6 +126,7 @@ async function runOwnedReader(request: ReaderRequest): Promise<ReaderOutcome> {
 	}
 	const [bin, ...args] = command;
 	const env = { ...process.env };
+	if(request.imageHistory)env.PI_COC_READER_IMAGE_HISTORY=String(request.imageHistory);
 	if (request.source) env.PI_COC_READER_SOURCE = JSON.stringify(request.source);
 	else delete env.PI_COC_READER_SOURCE;
 	// The subprocess is not a table: it must not think it should open one.

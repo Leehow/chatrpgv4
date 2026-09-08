@@ -7,12 +7,15 @@ import { join } from 'node:path';
 type Row = Record<string, any>;
 const MAX_FILE = 128 * 1024 * 1024;
 const CHUNK = 1024 * 1024;
+export type CocOnboardingOptions = {repo:string; home:string; agentDir:string; env:NodeJS.ProcessEnv};
 export class CocOnboardingHost {
   private stopping = new Set<string>();
+  private presentations = new Map<string,{task:Promise<Row>;result?:Row;error?:unknown}>();
+  private presentationChildren = new Set<ChildProcess>();
   private root: string;
   private children = new Map<string, ChildProcess>();
   private busy = new Set<string>();
-  constructor(private options: {repo: string; home: string; agentDir: string; env: NodeJS.ProcessEnv}) {
+  constructor(private options: CocOnboardingOptions) {
     this.root = join(options.home, '.coc/imports');
   }
   private folder(id: string) {
@@ -22,31 +25,62 @@ export class CocOnboardingHost {
   private load(id: string, session: string): Row {
     const job = JSON.parse(readFileSync(join(this.folder(id), 'job.json'), 'utf8'));
     if (job.session !== session) throw new Error('This import belongs to another session');
+    if(!job.preparation) {
+      const prepared=['ready','conversing','created'].includes(job.state);
+      job.preparation={guidance:{state:job.guidance?'ready':job.state==='choice'?'needs_choice':job.state==='failed'?'failed':'paused',candidates:job.candidates,error:job.error},
+        opening:{state:prepared?'ready':'queued'}};
+      job.start_scene ||= job.guidance?.scene;
+    }
     return job;
   }
   private save(job: Row) {
     const path = join(this.folder(job.id), 'job.json');
     writeFileSync(path + '.tmp', JSON.stringify(job, null, 2) + '\n'); renameSync(path + '.tmp', path);
   }
-  private snapshot(job: Row): Row {
-    let indexed = 0, activeReaders = 0, pages = job.pages || 0;
-    if (job.module_id) try {
-      const meta = JSON.parse(readFileSync(join(this.options.home, '.coc/modules', job.module_id, 'module.json'), 'utf8'));
-      indexed = meta.reading?.viewed_pages?.length || 0; pages = meta.page_count || pages;
-      const queue = JSON.parse(readFileSync(join(this.options.home, ".coc/modules", job.module_id, "deepen-queue.json"), "utf8"));
-      activeReaders = queue.filter((row: Row) => row.state === "running").length;
-    } catch { /* preparation may not have bound a source yet */ }
-    const state = job.state === 'preparing' && !this.children.has(job.id) ? 'paused' : job.state;
-    return {id: job.id, name: job.name, source: job.source, size: job.size, received: job.received,
-      state, stopping: state === "paused" && this.children.has(job.id), stage: job.stage, pages, indexed, activeReaders: job.progress?.activeReaders ?? activeReaders, reviewed: job.progress?.reviewed, reviewTotal: job.progress?.review_total, candidates: job.candidates, error: job.error,
-      model: job.model, thinking: job.thinking, campaign: job.campaign, view: job.view};
+  private patch(job:Row, change:Row):Row {
+    const next={...this.load(job.id,job.session),...change};this.save(next);return next;
   }
-  private run(action: string, data: Row, job?: Row): Promise<any> {
+  private phaseKey(job:Row, phase:string) {return job.id+':'+phase;}
+  private snapshot(job: Row): Row {
+    let indexed=0, pages=job.pages||0, character='not_started',waitingForOpening=false,playing=false,handoffCommitted=false;
+    if(job.module_id)try {
+      const meta=JSON.parse(readFileSync(join(this.options.home,'.coc/modules',job.module_id,'module.json'),'utf8'));
+      indexed=meta.reading?.viewed_pages?.length||0;pages=meta.page_count||pages;
+    }catch{}
+    if(job.campaign)try {
+      const meta=JSON.parse(readFileSync(join(this.options.home,'.coc/campaigns',job.campaign,'campaign.json'),'utf8'));
+      character=meta.setup?.confirmed_revision||meta.setup?.handoff?'confirmed':meta.setup?.draft_revision?'draft':'conversing';
+      waitingForOpening=meta.setup?.waiting_for_opening===true;
+      handoffCommitted=!!meta.setup?.handoff;playing=!['setting_up','ready_for_table'].includes(meta.status);
+    }catch{}
+    const phase=(name:string)=>{
+      const saved=job.preparation?.[name]||{state:'queued'};
+      const alive=this.children.has(this.phaseKey(job,name));
+      return {stage:saved.stage,progress:saved.progress,candidates:saved.candidates,
+        error:saved.state==='failed'?'Source preparation could not finish. Your source and investigator are saved; retry this preparation.':undefined,
+        state:saved.state==='running'&&!alive?'paused':saved.state,stopping:saved.state==='paused'&&alive};
+    };
+    const guidance=phase('guidance'),opening=phase('opening');
+    const current=guidance.state==='ready'?opening:guidance;
+    const canConverse=guidance.state==='ready';
+    const state=job.state==='conversing'?'conversing':canConverse?'ready':current.state==='needs_choice'?'choice':
+      ['paused','failed'].includes(current.state)?current.state:job.state;
+    return {id:job.id,name:job.name,source:job.source,size:job.size,received:job.received,state,pages,indexed,
+      stage:current.stage,reviewed:current.progress?.reviewed,reviewTotal:current.progress?.review_total,
+      activeReaders:current.progress?.activeReaders||0,stopping:current.stopping,
+      candidates:current.candidates,error:current.error||job.error,
+      preparation:{guidance,opening},character:{state:character},canConverse,
+      canHandoff:character==='confirmed'&&(waitingForOpening||handoffCommitted)&&opening.state==='ready'&&!playing,playing,
+      model:job.model,thinking:job.thinking,campaign:job.campaign,play_language:job.play_language};
+  }
+  private run(action: string, data: Row, job?: Row, phase?:string, attempt?:string): Promise<any> {
     const child = spawn(process.execPath, ['--experimental-strip-types', join(this.options.repo, 'pipicoc/onboarding-worker.ts'), action,
       JSON.stringify({...data, home: this.options.home})], {
       cwd: this.options.repo, env: {...this.options.env, ELECTRON_RUN_AS_NODE: '1', PI_CODING_AGENT_DIR: this.options.agentDir}, stdio: ['ignore', 'pipe', 'pipe'],
     });
-    if (job) this.children.set(job.id, child);
+    const key=job?this.phaseKey(job,phase||action):undefined;
+    if(key)this.children.set(key,child);
+    if(action==='presentation'){this.presentationChildren.add(child);child.once('close',()=>this.presentationChildren.delete(child));}
     return new Promise((resolve, reject) => {
       let pending = '', tail = '', result: any, failure: any;
       child.stderr.on('data', chunk => {tail = (tail + chunk).slice(-2000);});
@@ -60,32 +94,49 @@ export class CocOnboardingHost {
           try {event = JSON.parse(line);} catch {continue;}
           if (event.type === 'result') result = event.data;
           if (event.type === 'error') failure = event.data;
-          if (job && event.type === 'progress' && !this.stopping.has(job.id)) {job.stage = event.data.stage; job.progress = event.data; this.save(job);}
+          if(job && phase && event.type==='progress') {const latest=this.load(job.id,job.session);const state=latest.preparation?.[phase];if(state?.attempt===attempt && state.state==='running')this.patch(latest,{preparation:{...latest.preparation,[phase]:{...state,stage:event.data.stage,progress:event.data}}});}
           if (job) appendFileSync(join(this.folder(job.id), 'events.jsonl'), JSON.stringify({at: new Date().toISOString(), ...event}) + '\n');
         }
       });
       child.on('error', reject);
       child.on('close', code => {
-        if (job) this.children.delete(job.id);
+        if(key && this.children.get(key)===child)this.children.delete(key);
         if (code !== 0 || failure || result === undefined) reject(Object.assign(new Error(failure?.message || tail || 'Preparation interrupted'), failure || {}));
         else resolve(result);
       });
     });
   }
-  private prepare(job: Row, retry = false) {
-    if (this.children.has(job.id)) return;
-    this.stopping.delete(job.id);
-    job.state = 'preparing'; job.stage = 'preparing'; job.progress = undefined; job.error = undefined; this.save(job);
-    void this.run('prepare', {...job, retry}, job).then(result => {
-      if (this.stopping.has(job.id)) return;
-      job.state = 'ready'; job.module_id = result.module_id; job.stage = 'ready'; this.save(job);
-    }).catch(error => {
-      if (this.load(job.id, job.session).state === 'paused') return;
-      job.state = error.code === 'needs_choice' ? 'choice' : 'failed';
-      job.candidates = error.candidates; job.error = error.message; this.save(job);
+  private prepare(job:Row,retry=false) {
+    const phase=job.preparation?.guidance?.state==='ready'?'opening':'guidance';
+    const key=this.phaseKey(job,phase);
+    if(this.children.has(key))return;
+    const attempt=randomUUID();
+    job=this.patch(job,{state:job.campaign?'conversing':'preparing',play_language:job.play_language||'zh-Hans',error:undefined,
+      preparation:{...job.preparation,[phase]:{state:'running',stage:phase,attempt}}});
+    void this.run(phase,{...job,retry},job,phase,attempt).then(result=>{
+      const latest=this.load(job.id,job.session);
+      if(latest.preparation?.[phase]?.attempt!==attempt||latest.preparation[phase].state!=='running')return;
+      const next=this.patch(latest,{module_id:result.module_id||latest.module_id,
+        ...(phase==='guidance'?{guidance:result.guidance,guidance_key:result.guidance_key,start_scene:result.guidance.scene,state:latest.campaign?'conversing':'ready'}:{}),
+        preparation:{...latest.preparation,[phase]:{state:'ready',stage:'ready',attempt},
+          ...(result.opening_ready?{opening:{state:'ready',stage:'ready'}}:{})}});
+      if(phase==='guidance'&&next.preparation.opening?.state!=='ready')this.prepare(next);
+    }).catch(error=>{
+      const latest=this.load(job.id,job.session);
+      if(latest.preparation?.[phase]?.attempt!==attempt||latest.preparation[phase].state!=='running')return;
+      this.patch(latest,{preparation:{...latest.preparation,[phase]:{state:error.code==='needs_choice'?'needs_choice':'failed',
+        attempt,error:error.message,candidates:error.candidates}}});
     });
   }
   async invoke(params: Row, session: string, model: {id: string; thinking: string; vision: boolean}): Promise<Row> {
+    if(params.action==='current') {
+      let latest:Row|undefined,modified=0;
+      if(session&&existsSync(this.root))for(const id of readdirSync(this.root))try {
+        const job=this.load(id,session),time=statSync(join(this.folder(id),'job.json')).mtimeMs;
+        if(!job.dismissed&&time>=modified){latest=job;modified=time;}
+      }catch{}
+      return {current_import:latest?this.snapshot(latest):null};
+    }
     if (params.action === 'catalog') {
       const catalog = await this.run('catalog', {});
       const imports: Array<{job: Row; modified: number}> = [];
@@ -103,9 +154,10 @@ export class CocOnboardingHost {
       if (params.action === 'begin' && (!Number.isSafeInteger(params.size) || params.size < 5 || params.size > MAX_FILE ||
         typeof params.name !== 'string' || !params.name.toLowerCase().endsWith('.pdf'))) throw new Error('Choose a PDF of up to 128 MiB');
       if (!model.vision && params.source !== 'starter') throw new Error('Choose a model with image input');
-      const job: Row = {id: randomUUID(), session, name: params.name, size: params.size || 0, received: 0,
+      if (params.play_language && !['zh-Hans','en'].includes(params.play_language)) throw new Error('Invalid play language');
+      const job: Row = {play_language: params.play_language || 'zh-Hans', id: randomUUID(), session, name: params.name, size: params.size || 0, received: 0,
         source: params.action === 'begin' ? 'pdf' : params.source, module_id: params.module_id,
-        model: model.id, thinking: model.thinking, state: params.action === 'begin' ? 'uploading' : 'preparing'};
+        preparation:{guidance:{state:'queued'},opening:{state:'queued'}}, model: model.id, thinking: model.thinking, state: params.action === 'begin' ? 'uploading' : 'preparing'};
       mkdirSync(this.folder(job.id)); this.save(job);
       if (params.action === 'begin') writeFileSync(join(this.folder(job.id), 'source.pdf'), '');
       else {
@@ -130,41 +182,84 @@ export class CocOnboardingHost {
         job.state = 'inspecting'; this.save(job);
         try {
           const inspected = await this.run('inspect', {pdf: path, name: job.name}, job);
-          job.module_id = inspected.module_id; job.pages = inspected.page_count; this.prepare(job);
+          const bound=this.patch(job,{module_id:inspected.module_id,pages:inspected.page_count});this.prepare(bound);
         } catch (error) {job.state = 'failed'; job.error = error instanceof Error ? error.message : String(error); this.save(job);}
       } else if (params.action === 'pause') {
-        this.stopping.add(job.id); job.state = 'paused'; this.save(job);
-        const child = this.children.get(job.id);
-        if (child) {
-          let timer: ReturnType<typeof setTimeout>;
-          await new Promise<void>(resolve => {timer=setTimeout(resolve,3000);child.once('close',()=>{clearTimeout(timer);resolve()});child.kill('SIGTERM')});
-        }
+        const targets=params.target==='all'||job.preparation?.guidance?.state!=='ready'?['guidance','opening']:['opening'];
+        const preparation={...job.preparation};
+        for(const target of targets)if(preparation[target]?.state!=='ready')preparation[target]={...preparation[target],state:'paused'};
+        this.patch(job,{state:job.campaign?'conversing':'paused',preparation});
+        for(const target of targets)this.children.get(this.phaseKey(job,target))?.kill('SIGTERM');
       } else if (params.action === 'resume' || params.action === 'opening') {
-        if (!job.module_id) throw new Error('Select the PDF again to retry its upload');
-        job.start_scene = params.scene || job.start_scene; this.prepare(job, true);
-      } else if (params.action === 'dismiss') {
-        if (this.children.has(job.id) || ['uploading','inspecting'].includes(job.state)) throw new Error('Pause preparation before choosing another scenario');
-        job.dismissed = true; this.save(job);
-      } else if (params.action === 'create') {
-        if (!['ready','created'].includes(job.state)) throw new Error('Wait for the scenario to be ready');
-        if (job.state !== 'created') {
-          if (!params.character?.name?.trim() || !params.character?.occupation) throw new Error('Enter a name and choose an occupation');
-          job.campaign ||= 'game-' + randomUUID(); this.save(job);
-          const result = await this.run('create', {...job, title: params.title || job.name, play_language: params.play_language || 'zh-Hans', character: params.character}, job);
-          job.view = result.view; job.state = 'created'; job.play_language = params.play_language || 'zh-Hans'; this.save(job);
+        if (!job.module_id) {
+          const path=join(this.folder(job.id),'source.pdf');
+          if(job.received!==job.size||!existsSync(path))throw new Error('Select the PDF again to retry its upload');
+          const inspected=await this.run('inspect',{pdf:path,name:job.name},job);
+          Object.assign(job,this.patch(job,{module_id:inspected.module_id,pages:inspected.page_count}));
         }
+        if(params.scene&&job.campaign)throw new Error('The opening is already bound to character creation');
+        const updated=this.patch(job,{start_scene:params.scene||job.start_scene});
+        this.prepare(updated,true);
+      } else if (params.action === 'dismiss') {
+        if ([...this.children.keys()].some(key=>key.startsWith(job.id+':')) || ['uploading','inspecting'].includes(job.state)) throw new Error('Pause preparation before choosing another scenario');
+        job.dismissed = true; this.save(job);
+      } else if (params.action === 'converse') {
+        if(job.preparation?.guidance?.state!=='ready') throw new Error('Wait for the scenario guidance to be ready');
+        if(!job.guidance)throw new Error('Accepted guidance is unavailable');
+        job.campaign ||= 'game-' + randomUUID(); this.save(job);
+        await this.run('converse', {...job,title:job.name,play_language:job.play_language||'zh-Hans'},job);
+        this.patch(job,{state:'conversing'});
       } else throw new Error('Unknown onboarding action');
-      return this.snapshot(job);
+      return this.snapshot(this.load(job.id,session));
     } finally {this.busy.delete(job.id);}
   }
+  presentation(data:Row):Promise<Row> {
+    return this.presentationJob(data).task;
+  }
+  presentationStatus(data:Row):Row {
+    const job=this.presentationJob(data);
+    if(job.error){this.presentations.delete(this.presentationKey(data));throw job.error;}
+    return job.result||{pending:true};
+  }
+  private presentationKey(data:Row) {
+    return JSON.stringify([data.campaign,data.revision,data.play_language,data.standing===true]);
+  }
+  private presentationJob(data:Row) {
+    const key=this.presentationKey(data);
+    if(!this.presentations.has(key)) {
+      const job:{task:Promise<Row>;result?:Row;error?:unknown}={task:Promise.resolve({})};
+      this.presentations.set(key,job);
+      job.task=this.run('presentation',data).then(result=>{job.result=result;return result;},error=>{job.error=error;throw error;})
+        .finally(()=>{if(data.standing)this.presentations.delete(key);});
+      void job.task.catch(()=>undefined);
+    }
+    return this.presentations.get(key)!;
+  }
   dispose() {
-    for (const [id, child] of this.children) {
-      this.stopping.add(id);
+    for(const child of this.presentationChildren)child.kill('SIGTERM');
+    for (const [key, child] of this.children) {
+      const [id,phase]=key.split(':');
       try {
         const job = JSON.parse(readFileSync(join(this.folder(id), 'job.json'), 'utf8'));
-        if (['preparing', 'inspecting'].includes(job.state)) {job.state = 'paused'; job.error = undefined; this.save(job);}
+        if(job.preparation?.[phase]?.state==='running'){job.preparation[phase].state='paused';this.save(job);}
       } catch { /* retain any available evidence if the job file is unavailable */ }
       child.kill('SIGTERM');
     }
   }
+  async close() {
+    const waiting=[...this.children.values(),...this.presentationChildren].map(child=>new Promise<void>(resolve=>child.once('close',()=>resolve())));
+    this.dispose();await Promise.allSettled(waiting);
+  }
+}
+
+/** An application owns only preparation; WebSocket session backends remain separate. */
+export class CocOnboardingRegistry {
+  private hosts=new Map<string,CocOnboardingHost>();
+  get(options:CocOnboardingOptions):CocOnboardingHost {
+    const key=JSON.stringify([options.repo,options.home,options.agentDir]);
+    if(!this.hosts.has(key))this.hosts.set(key,new CocOnboardingHost(options));
+    return this.hosts.get(key)!;
+  }
+  dispose(){for(const host of this.hosts.values())host.dispose();this.hosts.clear();}
+  async close(){await Promise.allSettled([...this.hosts.values()].map(host=>host.close()));this.hosts.clear();}
 }

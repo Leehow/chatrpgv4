@@ -1,4 +1,4 @@
-import {expect,it} from 'vitest';
+import {expect,it,vi} from 'vitest';
 import {mkdtemp,mkdir,writeFile,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
@@ -65,4 +65,53 @@ it('preserves the kernel glossary on mechanics renderer details', () => {
     turn:1, play_language:'zh-Hans', labels, mechanics:[{kind:'roll',skill:'Spot Hidden',roll:25,target:50}]
   }})!;
   expect(entry.presentation?.details).toMatchObject({labels});
+});
+
+it('converse waits for startup and immediately projects the persisted first question',async()=>{
+  // A transport seam fixture, not a simulated Keeper or gameplay acceptance.
+  const {cp,appendFile}=await import('node:fs/promises');
+  const {createPiHostBackend}=await import('../src/index.js');
+  const repo=resolve(import.meta.dirname,'../../../..'),root=await mkdtemp(join(tmpdir(),'coc-opening-delivery-'));
+  const profile=join(root,'profile'),pack=join(profile,'extensions/coc-keeper');await mkdir(pack,{recursive:true});
+  await cp(join(repo,'pipiui-extension.json'),join(pack,'pipiui-extension.json'));await cp(join(repo,'pipicoc'),join(pack,'pipicoc'),{recursive:true});
+  const preparation={invoke:async()=>({campaign:'delivery-fixture',name:'Source meeting',play_language:'en'}),close:async()=>{}};
+  const registry={get:()=>preparation,close:async()=>{}};
+  const backend=createPiHostBackend({agentDir:profile,sessionsRoot:join(root,'sessions'),runtimeRoot:join(root,'runtime'),defaultPack:'coc-keeper',managedNodeModulesRoot:join(repo,'node_modules'),cocOnboardingRegistry:registry as any,spawn:()=>{throw new Error('No model is needed to deliver a prepared question');}});
+  const frames:any[]=[];const unsubscribe=backend.subscribe(frame=>frames.push(frame));
+  try {
+    await backend.handle('addProject',[root]);const projects=await backend.handle('listProjects',[]) as any[];
+    const session=await backend.handle('newSession',[projects[0].id]) as any;
+    vi.spyOn(backend as any,'getModelState').mockResolvedValue({model:{provider:'unknown',id:'fixture'},thinkingLevel:'low'});
+    vi.spyOn(backend as any,'ensure').mockResolvedValue({});
+    const command=vi.spyOn(backend as any,'command').mockImplementation(async()=>{
+      const file=(await (backend as any).locate(session.id)).path;
+      const rows=(await readFile(file,'utf8')).trim().split('\n').map(JSON.parse);
+      await appendFile(file,JSON.stringify({type:'custom_message',id:'prepared-question',parentId:rows.at(-1)?.id||null,
+        customType:'coc-setup-opening',display:true,content:'Who joins this expedition?',timestamp:new Date().toISOString()})+'\n');
+      return {isStreaming:false};
+    });
+    const result=await backend.handle('invokeExtension',['coc-keeper','onboarding',{action:'converse',id:'import-fixture'},{sessionId:session.id}]) as any;
+    expect(result.ok).toBe(true);expect(command).toHaveBeenCalledWith(session.id,{type:'get_state'});
+    expect(frames.some(frame=>frame.channel==='stream'&&frame.event.type==='presentation'&&frame.event.entry.role==='assistant'&&frame.event.entry.content==='Who joins this expedition?')).toBe(true);
+  }finally{unsubscribe();await backend.close();}
+});
+
+it('setup exit lets the play child establish a new turn when its agent_start was unobservable',async()=>{
+  const {createPiHostBackend}=await import('../src/index.js');
+  const root=await mkdtemp(join(tmpdir(),'coc-handoff-epoch-'));
+  const backend=createPiHostBackend({agentDir:root,sessionsRoot:join(root,'sessions')});
+  const internal=backend as any,frames:any[]=[];
+  const unsubscribe=backend.subscribe(frame=>frames.push(frame));
+  const token={};
+  vi.spyOn(internal,'sessionRuntimeTokenIsCurrent').mockReturnValue(true);
+  const mark=vi.spyOn(internal.queue,'markBusy').mockReturnValue(8);
+  internal.queueLoads.set('handoff',Promise.resolve());
+  const live={session:{id:'handoff'},runtimeToken:token,turnEpoch:7,terminalEpoch:7,messageEpoch:4,
+    compaction:{cancel:()=>{}},followUps:[],toolNames:new Map(),toolArgs:new Map()};
+  try {
+    internal.rpcEvent(live,{type:'entry_appended',entry:{type:'custom',customType:'coc-setup-exit'}});
+    internal.rpcEvent(live,{type:'message_start',message:{role:'assistant',content:[]}});
+    expect(mark).toHaveBeenCalledTimes(1);expect(live.turnEpoch).toBe(8);
+    expect(frames.some(frame=>frame.channel==='stream'&&frame.event.type==='status'&&frame.event.status==='started'&&frame.event.turnEpoch===8)).toBe(true);
+  }finally{unsubscribe();await backend.close();}
 });

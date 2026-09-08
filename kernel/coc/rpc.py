@@ -52,6 +52,10 @@ def build_methods(table: Table) -> dict[str, Callable[[dict[str, Any]], dict[str
         "setup.occupations": table.setup.occupations,
         "setup.investigator": table.setup.investigator,
         "setup.complete": table.setup.complete,
+        "setup.prologue": table.setup.drafts.prologue,
+        "setup.draft": table.setup.drafts.draft,
+        "setup.previewed": table.setup.drafts.previewed,
+        "setup.confirm": table.setup.drafts.confirm,
         # slice 4 (contract §14.1–14.3, 14.6, 14.8): module store, bind, build, deepen, assets
         **module_methods(table),
         # slice 12 (contract §21.2): the investigator library

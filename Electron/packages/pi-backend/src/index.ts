@@ -1,4 +1,5 @@
-import { CocOnboardingHost } from './coc-onboarding.js';
+import { CocOnboardingHost, CocOnboardingRegistry } from './coc-onboarding.js';
+export { CocOnboardingRegistry } from './coc-onboarding.js';
 import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry } from "./coc-view.js";
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { createExtensionHostWorkers, type ExtensionHostWorkers } from "./extension-host-workers.js";
@@ -706,6 +707,7 @@ async function writeCanonicalModelsFile(path: string, contents: string): Promise
 }
 
 export type PiBackendOptions = {
+  cocOnboardingRegistry?: CocOnboardingRegistry;
   /** Explicit Pi process invocation. Packaged Electron supplies bundled Node + unpacked Pi CLI. */
   piCommand?: PiCommand;
   /** Legacy/development shorthand for a directly executable external `pi`. */
@@ -883,6 +885,8 @@ type Live = {
   hostAbortedTurn?: boolean;
   /** Queue turn id from the latest `markBusy`; stale settles must pass this to `queueIdle`. */
   turnEpoch?: number;
+  /** The same RPC wrapper is about to start its play child after setup exits. */
+  cocSetupHandoffPending?: boolean;
   /** Concatenated `text_delta` for the in-flight assistant message. */
   streamedAssistantText?: string;
   /** Concatenated redacted `thinking_delta` for the in-flight assistant message; diffed against the final blocks at message_end. */
@@ -1437,7 +1441,7 @@ function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], languag
   if (isVisibleCustomMessage(entry)) {
     const content = text(entry.content);
     if (!content) return undefined;
-    return { id: entry.id, role: "user", content: redactText(content, secrets), timestamp: asTime(entry.timestamp) };
+    return { id: entry.id, role: entry.customType === "coc-setup-opening" ? "assistant" : "user", content: redactText(content, secrets), timestamp: asTime(entry.timestamp) };
   }
   if (entry?.type === "compaction") {
     return {
@@ -2133,7 +2137,10 @@ export class PiHostBackend implements HostBackend {
    */
   private readonly cocChoiceClaims = new Map<string,string>();
   private readonly cocSheetReads = new Map<string, Promise<any>>();
+  private readonly cocSheetPresentationJobs = new Map<string, {status:"pending"|"failed"}>();
   private cocOnboarding?: CocOnboardingHost;
+  private cocOnboardingRegistry: CocOnboardingRegistry;
+  private ownsCocOnboardingRegistry: boolean;
   private readonly extInvokeQueued = new Map<string, ExtInvokeRequestRecord[]>();
   private readonly extInvokeWaiting = new Map<string, Array<(requests: ExtInvokeRequestRecord[]) => void>>();
   private readonly extInvokeAwaiting = new Map<string, { sessionId: string; settle: (result: ExtInvokeResult) => void }>();
@@ -2365,6 +2372,8 @@ export class PiHostBackend implements HostBackend {
   private structuredOutputNormalize?: StructuredOutputNormalize;
   private structuredOutputsEnabledFn?: StructuredOutputsEnabled;
   constructor(options: PiBackendOptions = {}) {
+    this.cocOnboardingRegistry=options.cocOnboardingRegistry ?? new CocOnboardingRegistry();
+    this.ownsCocOnboardingRegistry=!options.cocOnboardingRegistry;
     this.terminalSessionDeleted = options.terminalSessionDeleted;
     this.compactionConfiguration = options.compaction;
     this.proactiveSummaryCompaction = options.proactiveSummaryCompaction ?? false;
@@ -3049,7 +3058,7 @@ export class PiHostBackend implements HostBackend {
 
   /** Graceful connection teardown for hosts that allocate one backend per client. */
   async close(): Promise<void> {
-    this.cocOnboarding?.dispose();
+    if(this.ownsCocOnboardingRegistry)await this.cocOnboardingRegistry.close();
     await Promise.allSettled([...this.cocSheetReads.values()]);
     // 宿主 worker 的生命周期就是"项目开着"，宿主关掉它们就该结束。
     this.extensionHostWorkers.stopAll();
@@ -5522,7 +5531,7 @@ export class PiHostBackend implements HostBackend {
             mergedSpawnEnvironment(this.env, dotEnv, {
               ...output.env,
               ...(this.piCommand.env ?? {}),
-              ...(cocBinding ? {PI_COC_CAMPAIGN:cocBinding.campaign,PI_COC_HOME:cocBinding.home, ...(cocBinding.mode === "play" ? {PI_COC_MODE:"play"} : {})} : {}),
+              ...(cocBinding ? {PI_COC_CAMPAIGN:cocBinding.campaign,PI_COC_HOME:cocBinding.home, PI_COC_MODE:cocBinding.mode || "play",...(cocBinding.mode === "setup" ? {PI_COC_SETUP_AUTOSTART:"1"} : {})} : {}),
             }),
             workerEnvFromVault(this.vaultDir, id),
           ),
@@ -5724,7 +5733,8 @@ export class PiHostBackend implements HostBackend {
     // every late event before it can touch queue, telemetry, or projections.
     if (!this.sessionRuntimeTokenIsCurrent(live.session.id, live.runtimeToken)) return;
     if (e.type === "entry_appended") {
-      const entry = mechanicsEntry(e.entry);
+      if(e.entry?.customType==='coc-setup-exit')live.cocSetupHandoffPending=true;
+      const entry = e.entry?.customType === "coc-setup-opening" ? visibleHistoryEntry(e.entry,this.sessionSecrets(live.session.id)) : mechanicsEntry(e.entry);
       if (entry) this.stream({type:"presentation",sessionId:live.session.id,entry});
     }
     try {
@@ -5765,11 +5775,12 @@ export class PiHostBackend implements HostBackend {
     // An extension-owned opening can therefore precede the first agent_start
     // observable by this host. Its first assistant message is real activity;
     // establish the usual epoch so agent_settled can release the composer.
-    if (live.turnEpoch === undefined && !live.activeCompaction
+    if ((live.turnEpoch === undefined || live.cocSetupHandoffPending) && !live.activeCompaction
       && e.type === "message_start" && e.message?.role === "assistant") {
       this.rpcEvent(live, {type: "agent_start"});
     }
     if (e.type === "agent_start") {
+      live.cocSetupHandoffPending=false;
       live.hostAbortedTurn = false;
       live.compaction.cancel();
       // Must be synchronous: fake-pi/real Pi emit agent_start and agent_settled
@@ -8438,16 +8449,19 @@ export class PiHostBackend implements HostBackend {
         if (!this.managedNodeModulesRoot) throw new Error("Canonical runtime is unavailable");
         const repo = resolve(this.managedNodeModulesRoot, "..");
         const home = resolve(this.env.PI_COC_HOME || repo);
-        this.cocOnboarding ??= new CocOnboardingHost({repo, home, agentDir: this.sharedProfileDir, env: this.env});
-        const state = await this.getModelState(sid || undefined);
+        this.cocOnboarding = this.cocOnboardingRegistry.get({repo, home, agentDir: this.sharedProfileDir, env: this.env});
         if (request.action === "start") {
           const selected = await this.locate(sid);
-          if (!await readCocBinding(selected.path)) throw new Error("Create an investigator before starting");
+          const binding=await readCocBinding(selected.path);
+          if (!binding) throw new Error("Create an investigator before starting");
           // The COC extension owns the opening turn on session_start.
           // A synthetic player prompt here races that turn and becomes a follow-up.
           await this.ensure(sid);
-          return {ok: true, data: {started: true}};
+          // Pi drains an idle extension's shutdown request at the next RPC boundary.
+          await this.command(sid,{type:'get_state'});
+          return {ok: true, data: {started: true, mode:binding.mode||'play'}};
         }
+        const state = await this.getModelState(sid || undefined);
         if (sid && ["begin", "select"].includes(String(request.action))) {
           const selected = await this.locate(sid);
           if (await readCocBinding(selected.path)) throw new Error("This session already has a campaign; create a new session");
@@ -8455,7 +8469,7 @@ export class PiHostBackend implements HostBackend {
         const data = await this.cocOnboarding.invoke(request, sid, {
           id: `${state.model.provider}/${state.model.id}`, thinking: state.thinkingLevel, vision: state.model.supportsImages === true,
         });
-        if (sid && ["begin", "select", "create"].includes(String(request.action)) && state.model.provider !== "unknown") {
+        if (sid && ["begin", "select", "converse"].includes(String(request.action)) && state.model.provider !== "unknown") {
           await this.setModel(sid, state.model.provider, state.model.id);
           await this.setThinking(sid, state.thinkingLevel);
         }
@@ -8463,12 +8477,17 @@ export class PiHostBackend implements HostBackend {
           const selected = await this.locate(sid);
           if (!selected.name || ["Session", "New session"].includes(selected.name)) await this.renameSession(sid, data.name.replace(/\.pdf$/i, ""));
         }
-        if (request.action === "create" && data.campaign) {
+        if (request.action === "converse" && data.campaign) {
           const selected = await this.locate(sid);
-          const binding = {campaign: data.campaign, home, play_language: data.view.play_language, mode: "play"};
+          const binding = {campaign: data.campaign, home, play_language: data.play_language || "zh-Hans", mode: "setup"};
           await fs.writeFile(selected.path + ".coc.json.tmp", JSON.stringify(binding) + "\n");
           await fs.rename(selected.path + ".coc.json.tmp", selected.path + ".coc.json");
           await this.renameSession(sid, data.name || "New campaign");
+          await this.ensure(sid);
+          // The process exists before its session_start hooks have delivered the prologue.
+          await this.command(sid,{type:'get_state'});
+          const opening=(await this.readHistoryCached(selected.path,0,30,sid)).find(entry=>entry.role==='assistant'&&entry.content);
+          if(opening)this.stream({type:'presentation',sessionId:sid,entry:opening});
         }
         return {ok: true, data};
       } catch (error) { return settingsDenied("onboarding_failed", error instanceof Error ? error.message : String(error)); }
@@ -8490,6 +8509,23 @@ export class PiHostBackend implements HostBackend {
         if (context) request.campaign = context.campaign;
         return {ok:true,data:await callColdKernel(repo,context?.home ?? resolve(this.env.PI_COC_HOME || repo),method,request)};
       } catch(error) {return settingsDenied("mods_failed",error instanceof Error ? error.message : String(error));}
+    }
+    if(id==='coc-keeper' && (method==='draft-previewed'||method==='draft-presentation')) {
+      const sid=isRecord(optsValue)&&typeof optsValue.sessionId==='string'?optsValue.sessionId:'';
+      if(!sid)return settingsDenied('no_session','Select the draft session');
+      const revision=isRecord(params)?params.revision:undefined;
+      if(!Number.isSafeInteger(revision)||Number(revision)<1)return settingsDenied('invalid_preview','Invalid draft revision');
+      const selected=await this.locate(sid), binding=await readCocBinding(selected.path);
+      if(!binding||!this.managedNodeModulesRoot)return settingsDenied('unbound','No campaign is bound');
+      if(method==='draft-presentation') {
+        const repo=resolve(this.managedNodeModulesRoot,'..');
+        this.cocOnboarding = this.cocOnboardingRegistry.get({repo,home:binding.home,agentDir:this.sharedProfileDir,env:this.env});
+        const state=await this.getModelState(sid);
+        try {return {ok:true,data:this.cocOnboarding.presentationStatus({campaign:binding.campaign,revision:Number(revision),play_language:binding.play_language,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})};}
+        catch(error){return settingsDenied('presentation_failed',error instanceof Error?error.message:String(error));}
+      }
+      try {return {ok:true,data:await readColdSheet(join(this.managedNodeModulesRoot,'..'),binding,Number(revision))};}
+      catch(error){if((error as any)?.code==='idempotency_conflict')return {ok:true,data:{superseded:true}};return settingsDenied('preview_failed',error instanceof Error?error.message:String(error));}
     }
     if (id === "coc-keeper" && ["sheet","choose"].includes(method) && !(isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim())) {
       return {ok:true,data:{status:"unbound",view:null,campaign:null}};
@@ -8517,8 +8553,7 @@ export class PiHostBackend implements HostBackend {
     }
     if (id === "coc-keeper" && method === "sheet") {
       const selected = await this.locate(sessionId);
-      const active = this.live.get(sessionId);
-      if (!active || !this.liveProcessUsable(active)) {
+      {
         const pending = this.cocSheetReads.get(sessionId);
         if (pending) return pending;
         const read = (async () => {
@@ -8527,6 +8562,50 @@ export class PiHostBackend implements HostBackend {
           try {
             if (!this.managedNodeModulesRoot) throw new Error("Canonical runtime is unavailable");
             const view=await readColdSheet(join(this.managedNodeModulesRoot ?? "", ".."),context);
+            try {
+              const folder=join(context.home,'.coc/campaigns',context.campaign);
+              const meta=JSON.parse(await fs.readFile(join(folder,'campaign.json'),'utf8'));
+              const revision=meta.setup?.draft_revision;
+              let projection:any;
+              try {projection=JSON.parse(await fs.readFile(join(folder,'setup/presentations',`${revision}-${context.play_language}.json`),'utf8'));} catch {}
+              if(Number.isSafeInteger(revision)&&(!projection||projection.play_language!==context.play_language||!Array.isArray(projection.finance_equipment))) {
+                const repo=resolve(this.managedNodeModulesRoot,'..');
+                this.cocOnboarding ??= new CocOnboardingHost({repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
+                const key=JSON.stringify([context.home,context.campaign,revision,context.play_language]);
+                if(isRecord(params)&&params.retry_projection===true&&this.cocSheetPresentationJobs.get(key)?.status==='failed')this.cocSheetPresentationJobs.delete(key);
+                if(!this.cocSheetPresentationJobs.has(key)) {
+                  this.cocSheetPresentationJobs.set(key,{status:'pending'});
+                  const refresh=()=>emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context.campaign}}});
+                  void this.getModelState(sessionId).then(state=>this.cocOnboarding!.presentation({campaign:context.campaign,revision,play_language:context.play_language,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})).then(()=>{
+                    this.cocSheetPresentationJobs.delete(key);refresh();
+                  },()=>{this.cocSheetPresentationJobs.set(key,{status:'failed'});refresh();});
+                }
+                (view as any).presentation_status=this.cocSheetPresentationJobs.get(key)?.status;
+
+              }
+              if(projection?.play_language===context.play_language) {
+                (view as any).labels={...projection.texts,...(view as any).labels};
+                (view as any).finance_equipment=projection.finance_equipment;
+              }
+            } catch { /* A card can still be read before its text projection has been prepared. */ }
+            // Project only names the kernel has already exposed to this player.
+            const liveView=view as any;
+            const visibleNames=[liveView.scene?.display_name||liveView.scene?.name,liveView.session?.kind].filter((name):name is string=>typeof name==='string'&&!!name.trim());
+            let names:Record<string,string>={};
+            try {
+              const saved=JSON.parse(await fs.readFile(join(context.home,'.coc/campaigns',context.campaign,'setup/presentations',`standing-${context.play_language}.json`),'utf8'));
+              if(saved.play_language===context.play_language)names=saved.texts||{};
+            } catch {}
+            if(visibleNames.some(name=>typeof names[name]!=='string'||!names[name].trim())) {
+              try {
+                const repo=resolve(this.managedNodeModulesRoot,'..');
+                this.cocOnboarding = this.cocOnboardingRegistry.get({repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
+                const state=await this.getModelState(sessionId);
+                const projection=await this.cocOnboarding.presentation({campaign:context.campaign,play_language:context.play_language,standing:true,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel});
+                names=projection.texts;
+              } catch { /* Keep readable card data; the next sheet read retries missing names. */ }
+            }
+            liveView.standing_labels=names;
             return {ok:true,data:{status:"ready",view,campaign:context.campaign}};
           } catch(error) {return {ok:true,data:{status:"error",view:null,campaign:context.campaign,reason:error instanceof Error?error.message:String(error)}};}
         })().finally(()=>this.cocSheetReads.delete(sessionId));

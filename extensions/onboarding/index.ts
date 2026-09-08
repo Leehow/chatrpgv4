@@ -1,5 +1,10 @@
 /** Setup ordering comes from setup.steps; source preparation uses the shared visual reader. */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { prepareCharacterGuidance, acceptedGuidance, type Guidance } from '../module/character-guidance.ts';
+import { registerInvokeHandlers } from '../../pipicoc/host-bridge.ts';
 import { Type } from "typebox";
 import { cocHome, cocMode } from "../lanes/host.ts";
 import {
@@ -79,6 +84,38 @@ export default function (pi: ExtensionAPI) {
 	let investigatorSource: string | undefined;
 	/** The last step is done: wait for this run to finish speaking, then exit the process. */
 	let handoff: string | undefined;
+  let characterGuidance: Guidance | undefined;
+  let draftRevision: number | undefined;
+  let prologueRecorded = false;
+  let lastPlayerInput = "";
+  let inputKey = "";
+  let guidanceBlocked = false;
+  let guidancePending: Promise<Guidance | undefined> | undefined;
+  const guidanceAbort = new AbortController();
+  let invokeDisposers:Array<()=>void>=[];
+  let completing=false;
+  async function ensureGuidance(): Promise<Guidance | undefined> {
+    if(characterGuidance)return characterGuidance;
+    if(guidancePending)return guidancePending;
+    const moduleId=asString(context.module_id);
+    if(!ctx || !bridge || !moduleId || !/^[a-z0-9-]{1,64}$/.test(moduleId) || !context.campaign)return;
+    const home=cocHome(ctx.cwd);
+    if(!existsSync(join(home,'.coc/modules',moduleId,'module.json')))return;
+    guidancePending=(async()=>{
+      if(typeof context.guidance_key==='string') {
+        characterGuidance=await acceptedGuidance(home,moduleId,context.guidance_key);
+        return characterGuidance;
+      }
+      const occupations=asRecord(await bridge!.call('setup.occupations',{})).occupations as any[];
+      characterGuidance=await prepareCharacterGuidance({home,module_id:moduleId,
+        opening:asString(context.start_scene),
+        play_language:asString(context.play_language)||'zh-Hans',occupations,
+        model:ctx?.model ? ctx.model.provider+'/'+ctx.model.id : undefined,
+        thinking:pi.getThinkingLevel(),signal:guidanceAbort.signal});
+      return characterGuidance;
+    })().finally(()=>{guidancePending=undefined;});
+    return guidancePending;
+  }
 
 	function state(): GateState {
 		return {
@@ -134,7 +171,10 @@ export default function (pi: ExtensionAPI) {
 			for (const [key, value] of Object.entries(carried)) {
 				if (context[key] === undefined) context[key] = value;
 			}
-			const carriedSource = asRecord(carried.source);
+			const restoredDraft=asRecord(carried.draft);
+      if(typeof restoredDraft.revision==='number')draftRevision=restoredDraft.revision;
+      prologueRecorded=!!carried.prologue;
+      const carriedSource = asRecord(carried.source);
 			sourceKind = asString(carried.source_kind) ?? asString(carriedSource.kind) ?? sourceKind;
 		} catch (error) {
 			stepsError = `setup.steps did not come back: ${errorCode(error) ?? "internal"}: ${errorText(error)}`;
@@ -180,7 +220,8 @@ export default function (pi: ExtensionAPI) {
 			const moduleId = asString(context.module_id);
 			if (moduleId) params.module_id = moduleId;
 		}
-		const campaign = asString(context.campaign);
+		if(op.method==='campaign.create' && context.campaign)params.id=context.campaign;
+    const campaign = asString(context.campaign);
 		if (campaign && wantsCampaign(op.method) && params.campaign === undefined) params.campaign = campaign;
 		return { params, missing };
 	}
@@ -198,7 +239,7 @@ export default function (pi: ExtensionAPI) {
 		if (campaignId) context.campaign = campaignId;
     const language = asString(asRecord(result.campaign).play_language) ?? asString(context.play_language);
     if (ctx && context.campaign && language) {
-      const data = {campaign: context.campaign, home: cocHome(ctx.cwd), play_language: language};
+      const data = {campaign: context.campaign, home: cocHome(ctx.cwd), play_language: language, mode: "setup"};
       const identity = JSON.stringify(data);
       if (identity !== recordedBinding) {
         recordedBinding = identity;
@@ -317,6 +358,8 @@ export default function (pi: ExtensionAPI) {
 				continue;
 			}
 			const filled = fillParams(op, args, index === 0);
+      if(op.method==='setup.draft'||op.method==='setup.confirm')filled.params.input_key=inputKey;
+      if(op.method==='setup.confirm') {filled.params.revision=draftRevision;filled.params.last_exchange=lastPlayerInput;filled.params.player_requests=ctx?.sessionManager.getBranch().filter((e:any)=>e.type==='message'&&e.message?.role==='user').map((e:any)=>Array.isArray(e.message.content)?e.message.content.filter((x:any)=>x.type==='text').map((x:any)=>x.text).join('\n'):typeof e.message.content==='string'?e.message.content:'')||[];}
 			if (filled.missing.length > 0) {
 				return {
 					ok: false,
@@ -335,8 +378,18 @@ export default function (pi: ExtensionAPI) {
 						? await (reading ? reading.prepare(filled.params) : Promise.reject(new Error("the reading service is unavailable")))
 						: asRecord(await current.call(op.method, filled.params));
 				if (result.ok === false) return { ...result, step: step.id, results };
-				results[op.method] = result;
-				opCache.set(cacheKey, result);
+				if(op.method==='setup.draft') {
+          draftRevision=result.revision as number;
+          context.draft=result;
+          const payload={...result,play_language:context.play_language||'zh-Hans'};
+          pi.appendEntry('coc-character-draft',payload);
+          if(process.env.PI_COC_SETUP_AUTOSTART!=='1') {
+            pi.sendMessage({customType:'coc-character-preview',content:JSON.stringify(result.sheet),display:true});
+            await current.call('setup.previewed',{campaign:context.campaign,revision:draftRevision});
+          }
+        }
+        results[op.method] = result;
+        opCache.set(cacheKey, result);
 				noteResult(result);
 			} catch (error) {
 				// The kernel's `fix` and `details` are the only actionable part of a refusal
@@ -390,6 +443,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	async function execute(raw: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if(guidanceBlocked)return {ok:false,error:"Guidance review did not pass. Wait for a new player input to retry; do not invent a setup scene or create a card."};
 		await ensureSteps();
 		if (!steps) {
 			return { ok: false, error: stepsError ?? "The setup table is not in hand yet." };
@@ -404,7 +458,8 @@ export default function (pi: ExtensionAPI) {
 				allowed: allowedSteps(steps, state()).map((row) => row.id),
 			};
 		}
-		const verdict = gate(steps, state(), id);
+		if(id==='create-investigator' && !completed.has('confirm-investigator')) {completed.delete('create-investigator');opCache.clear();}
+    const verdict = gate(steps, state(), id);
 		if (!verdict.ok) {
 			return { ok: false, step: id, rejected: verdict.reason, allowed: allowedSteps(steps, state()).map((row) => row.id) };
 		}
@@ -420,10 +475,16 @@ export default function (pi: ExtensionAPI) {
 			return { ...outcome, step: id, progress: progressLine(steps, state()) };
 		}
 		settle(step, outcome);
+    if(id==='create-campaign') {
+      try {
+        const guidance=await ensureGuidance();
+        if(guidance)outcome.character_guidance=guidance;
+      } catch(error) {guidanceBlocked=true;return {ok:false,code:'guidance_failed',message:errorText(error)};}
+    }
 		const next = nextStep(steps, state());
 		if (!next) finish();
 		return {
-			...outcome,
+			...Object.fromEntries(Object.entries(outcome).map(([key,value])=>[key,key==='setup.draft'||key==='setup.confirm'?{...asRecord(value),revision:undefined,labels:undefined,sheet:{...asRecord(asRecord(value).sheet),id:undefined,creation:{...asRecord(asRecord(asRecord(value).sheet).creation),seed:undefined,equipment:undefined}}}:value])),
 			step: id,
 			completed: [...completed],
 			progress: progressLine(steps, state()),
@@ -438,8 +499,9 @@ export default function (pi: ExtensionAPI) {
 		handoff = campaign ? `bin/pi-coc --campaign ${campaign}` : "bin/pi-coc";
 		const line = `Setup complete. Open the table with: ${handoff}`;
 		try {
-			pi.appendEntry("coc-setup-handoff", { campaign: campaign ?? null, command: handoff });
-			if (ctx?.hasUI) ctx.ui.notify(line, "info");
+			if(campaign && ctx)pi.appendEntry('coc-session',{campaign,home:cocHome(ctx.cwd),play_language:context.play_language||'zh-Hans',mode:'play'});
+      pi.appendEntry("coc-setup-handoff", { campaign: campaign ?? null, command: handoff });
+			if (ctx?.hasUI && process.env.PI_COC_SETUP_AUTOSTART!=='1') ctx.ui.notify(line, "info");
 		} catch {
 			/* failing to print the handoff must not block the exit */
 		}
@@ -473,7 +535,24 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+  pi.on('message_end', event=>{
+    if(guidanceBlocked && event.message.role==='assistant')return {message:{...event.message,content:event.message.content.filter((part:any)=>part.type!=='text')}};
+  });
 	// ---- Lifecycle --------------------------------------------------------
+  pi.on('before_agent_start',async(event)=>{
+    lastPlayerInput=event.prompt;inputKey=randomUUID();guidanceBlocked=false;
+    await ensureSteps();
+    let guidance: Guidance | undefined;
+    try {guidance=await ensureGuidance();}
+    catch(error) {guidanceBlocked=true;ctx?.ui.notify(errorText(error),'error');return {systemPrompt:event.systemPrompt+'\nModule guidance is unavailable. Do not invent a prologue, create an investigator or continue setup.'};}
+    if(!guidance)return;
+    return {systemPrompt:event.systemPrompt+'\n\nPrepared module prologue ('+(prologueRecorded?'already delivered; continue from the player answer without repeating it':'use on the first setup reply only')+'):\n'+guidance.opening+
+      '\n\nModule-specific setup advice:\n'+guidance.advice+
+      '\nChoose profile.era from these rulebook periods only when it matches the authored setting: '+JSON.stringify(context.rulebook_eras||[])+'. The source era can be descriptive prose; do not copy it as a table key. If no period applies, retain the finance blocker rather than choosing a nearby era.'+
+      '\nAfter name and occupation are supplied, use setup create-investigator with a complete structured profile NOW. Do not merely describe a character: the computed draft must appear before approval. Use confirm-investigator only after approval or explicit write-now delegation.'+
+      '\nThe occupational skill list is priority ordered for the existing tier allocation. Put scenario prerequisites and the player\'s essential abilities first. Inspect the computed draft against those requirements before asking for confirmation. If an essential ability remains at its base value, revise the same profile order or legal interest choices; preserve the existing seed and required occupation skills. Do not claim an ability the actual card lacks.'+
+      (process.env.PI_COC_SETUP_AUTOSTART==='1'?'\nThis is the frontend. The card defaults to final values and has a calculation-details toggle for all dice, adjustments and allocation evidence. Keep the accompanying prose brief: identity, edition/method and one confirmation invitation. Do not automatically repeat calculations or budgets; point to the details control or explain them if the player explicitly asks. After complete, close the prologue without a launch command; the host hands off to play.':'')};
+  });
 
 	// The kernel extension emits the bridge in session_start; this subscribes at load time, so both load orders are caught.
 	pi.events.on("coc:kernel-bridge", (data) => {
@@ -497,13 +576,41 @@ export default function (pi: ExtensionAPI) {
 		// When the kernel extension loaded first the bridge is already here and the table is fetched now; when it comes later, the first tool call fetches it.
 		if (bridge) await ensureSteps();
 		paint();
-		if (ctx.hasUI && steps) {
+    invokeDisposers=registerInvokeHandlers('coc-keeper',{'setup-handoff':async()=>{
+      if(completing||!ctx?.isIdle()||!bridge)return {waiting:true};
+      completing=true;
+      try {
+        const snapshot=asRecord(await bridge.call('setup.steps',{campaign:context.campaign}));
+        if(!asRecord(snapshot.state).waiting_for_opening)return {waiting:false};
+        await bridge.call('setup.complete',{campaign:context.campaign});
+        completed.add('complete');finish();
+        pi.appendEntry('coc-setup-exit',{command:handoff});
+        ctx.shutdown();
+        return {completed:true};
+      }catch(error){return {waiting:true,code:errorCode(error)};}
+      finally{completing=false;}
+    }});
+    const hasDialogue=ctx.sessionManager.getBranch().some((entry:any)=>(entry.type==='message' && ['user','assistant'].includes(entry.message?.role)) || (entry.type==='custom_message'&&entry.customType==='coc-setup-opening'));
+    if(process.env.PI_COC_SETUP_AUTOSTART==='1' && campaign && !hasDialogue && !completed.has('complete')) {
+      const guidance=await ensureGuidance();
+      if(!guidance)throw new Error('The prepared module guidance is unavailable');
+      await bridge!.call('setup.prologue',{campaign,scene:guidance.scene,guide:guidance.guide,handoff:guidance.handoff,text:guidance.opening});
+      prologueRecorded=true;
+      pi.sendMessage({customType:'coc-setup-opening',content:guidance.opening,display:true,details:{kind:'setup-opening'}});
+    }
+    if (ctx.hasUI && steps && process.env.PI_COC_SETUP_AUTOSTART!=='1') {
 			ctx.ui.notify(`Setup: ${steps.length} steps in all. ${instructionFor(nextStep(steps, state()))}`, "info");
 		}
 	});
 
 	// After the last step, wait for this run to say the handoff out loud before exiting (contract §14.4: the process exits and prints the command that opens the table).
 	pi.on("agent_end", async () => {
+    if(guidanceBlocked){ctx?.ui.notify("Character guidance review failed; retry preparation before continuing.","error");return;}
+    if(characterGuidance && bridge && context.campaign && !prologueRecorded && !handoff) {
+      const messages=ctx?.sessionManager.getBranch().filter((e:any)=>e.type==='message'&&e.message?.role==='assistant') as any[] || [];
+      const last=messages.at(-1)?.message?.content?.filter((x:any)=>x.type==='text').map((x:any)=>x.text).join('\n');
+      if(last) {await bridge.call('setup.prologue',{campaign:context.campaign,scene:characterGuidance.scene,guide:characterGuidance.guide,handoff:characterGuidance.handoff,text:last});prologueRecorded=true;}
+    }
 		if (!handoff) return;
 		const command = handoff;
 		handoff = undefined;
@@ -516,7 +623,9 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async () => {
-		ctx = undefined;
+		for(const dispose of invokeDisposers)dispose();invokeDisposers=[];
+		guidanceAbort.abort();
+    ctx = undefined;
 		bridge = undefined;
 	});
 }

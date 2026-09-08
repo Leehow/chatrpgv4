@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,16 +34,33 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   // Host prompt contracts must not become a second persona in a reader or Keeper.
   for (const name of ['PIPIUI_CORE_PROMPT', 'PIPIUI_PROMPT_OBSERVER_EXT', 'PIPI_PHILOSOPHY_LAYER_DIRS']) delete env[name];
   env.PI_COC_HOME ||= repo;
-  const child = spawn(join(repo, 'bin/pi-coc'), keeperArguments(process.argv.slice(2), repo, env.PI_COC_MODE || 'play'), {
-    cwd: repo, env, stdio: 'inherit', detached: process.platform !== 'win32',
+  let stopping = false;
+  let child;
+  const launch = mode => {
+  child = spawn(join(repo, 'bin/pi-coc'), keeperArguments(process.argv.slice(2), repo, mode), {
+    cwd: repo, env: {...env,PI_COC_MODE:mode}, stdio: 'inherit', detached: process.platform !== 'win32',
   });
+  child.on('error', error => { console.error(error.message); process.exitCode = 1; });
+  child.on('exit', (code, signal) => {
+    if(!stopping && !signal && code===0 && mode==='setup' && env.PI_COC_SETUP_AUTOSTART==='1') {
+      try {
+        const id=env.PI_COC_CAMPAIGN;
+        if(typeof id==='string' && /^[a-z0-9-]{1,80}$/.test(id)) {
+          const campaign=JSON.parse(readFileSync(join(env.PI_COC_HOME,'.coc/campaigns',id,'campaign.json'),'utf8'));
+          if(campaign.status==='ready_for_table'){launch('play');return;}
+        }
+      } catch { /* A failed setup cannot open the table. */ }
+    }
+    process.exitCode=code ?? (signal?128:1);
+  });
+  };
   const stop = signal => {
+    stopping = true;
     try {
       if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, signal);
       else child.kill(signal);
     } catch (error) { if (error.code !== 'ESRCH') throw error; }
   };
   for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(signal, () => stop(signal));
-  child.on('error', error => { console.error(error.message); process.exitCode = 1; });
-  child.on('exit', (code, signal) => { stop('SIGTERM'); process.exitCode = code ?? (signal ? 128 + ({SIGINT: 2, SIGTERM: 15, SIGHUP: 1}[signal] || 1) : 1); });
+  launch(env.PI_COC_MODE || 'play');
 }

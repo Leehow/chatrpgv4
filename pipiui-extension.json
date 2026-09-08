@@ -105,6 +105,21 @@
             "--success": "#7cbe95"
           }
         }
+      ],
+      "viewContainers": [
+        {
+          "id": "coc.preparation",
+          "location": "overlay",
+          "title": "Scenario preparation",
+          "order": 10
+        }
+      ],
+      "views": [
+        {
+          "id": "coc.preparation.progress",
+          "container": "coc.preparation",
+          "entry": "pipicoc/preparation.js"
+        }
       ]
     }
   }

@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from setup_helpers import confirmed_investigator
 from conftest import CONTENT_DIR, KERNEL_DIR, WORKTREE, campaign_dir, read_json
 
 sys.path.insert(0, str(KERNEL_DIR))
@@ -119,7 +120,11 @@ def test_starter_opens_a_campaign_and_plays_a_turn(kernel, module_id):
     created = kernel.ok("campaign.create", {"id": "c1", "module": module_id, "play_language": "zh-Hans"})["campaign"]
     assert created["opening_scene"] == STARTERS[module_id]["start"] and created["status"] == "setting_up"
     assert read_json(kernel.workspace / ".coc" / "modules" / module_id / "module.json")["status"] == "installed"
-    kernel.ok("setup.investigator", {"campaign": "c1", "name": "Ada", "occupation": "Soldier"})
+    if module_id == "the-white-war":
+        from test_setup_drafts import profile
+        assert "finance" in str(kernel.err("setup.draft", {"campaign": "c1", "profile": profile()}))
+        return
+    confirmed_investigator(kernel)
     kernel.ok("setup.complete", {"campaign": "c1"})
     opened = kernel.table("open")
     assert opened["scene"]["name"] == STARTERS[module_id]["start"]

@@ -1578,6 +1578,78 @@ RPC 顶层错误枚举沿用 §1；具体原因放在 `details.reason`：`bad_pd
 
 - 2026-09-07（整合到 0.9.0a）：用户授权先提交并行前端工作 `ffb6361a` 再合并视觉分支。保留 §16.3 的系统 JSON 约定；阅读等待交互与普通故事分离。内核 1038、扩展 106、前端相关测试 107 项通过；源码构建通过。原件与真桌证据保留，详细记录见 §22 规格。
 
+### 22.9. Early character guidance and background opening (2026-09-08)
+
+`module.read.request` additionally accepts purpose `guidance`, `play_language`
+(`zh-Hans` or `en`) and host-owned `guidance_key`. The key binds source bytes,
+selected opening, language, occupation catalog and reader/reviewer versions;
+it does not depend on the complete graph generation. The reader receives the
+catalog as `occupations`. Guidance is a small source shard with empty
+`ready_nodes`, plus `guidance.json` containing `opening`, `advice`, `scene`,
+`guide`, `handoff`. All five are bounded strings, guide may be empty. One fresh
+tool-enabled reviewer checks all shard records and player-safe guidance together.
+The host binds its approval to the exact SHA-256 of both files in `review.json`.
+The kernel checks both digests, graph references and review acceptance before
+publishing the graph and an accepted guidance pointer under the module metadata
+lock. Interrupted publication leaves evidence, never an accepted partial pair.
+
+`module.read.request` for opening respects an explicit focus. Readiness is checked
+against that scene, including independently prepared material, rather than another
+session's default opening. `campaign.create` accepts optional `start_scene` and
+`guidance_key`, pins both, and allows setup from accepted guidance. Draft, preview,
+confirmation and prologue remain valid while opening preparation runs. Only
+`setup.complete` gates play; it initializes the latest accepted opening world once
+both the confirmed card and the campaign's selected scene are ready.
+
+The onboarding host retains guidance and opening phases on the same durable import.
+Long children are keyed by phase and attempt; callbacks patch the current job only
+when their attempt still owns the phase. Converse is a short independent operation.
+Browser connections borrow an application-owned onboarding host; disconnecting
+unsubscribes without cancelling work. Application shutdown persists paused work.
+Frontend status omits internal guidance prose and paths. A session-bound Workbench
+overlay shares status polling with onboarding and stays visible during setup.
+
+The accepted public opening is delivered once, directly, and recorded through
+`setup.prologue`. The setup agent handles the player's answer without rewriting
+that opening. Confirmed characters waiting for source readiness retain their
+confirmation. An internal readiness notification retries the existing completion
+gate after the active setup turn ends; no synthetic player message is added.
+
+Implementation decisions: reuse the current queue, graph, guidance cache, setup
+receipts and RPC setup-to-play switch. No OCR, global page scan, second graph,
+global scheduler, detached daemon or new rules arithmetic. Full design and
+acceptance milestones: `docs/specs/fast-guided-pdf-onboarding.md`.
+
+Browser finding: authored `era` may be prose spanning several years. It must not
+be interpreted with string matching or overwritten to satisfy a finance table.
+`setup.draft.profile.era` therefore accepts an existing `cash-assets.periods` key.
+When omitted and the authored value is not already a supported key, the kernel
+returns the source description and closed supported options; the setup agent
+chooses semantically and retries. Chargen arithmetic is unchanged. Entrance-specific
+`investigator_setup.era` takes precedence over book-wide era for that campaign.
+
+Pi 0.85.1's idle `ctx.shutdown()` only sets a pending flag. After the idle handoff
+handler returns, the frontend uses the existing onboarding start operation to
+send a read-only `get_state` RPC, allowing Pi to drain that flag and exit normally.
+The existing wrapper then switches setup to play. A committed handoff in
+`ready_for_table` remains resumable until table.open makes it active; it is not
+projected as already playing. No Pi fork, signal protocol or synthetic turn is used.
+
+The existing `draft-presentation` frontend invoke returns `{pending:true}` while
+its application-owned presentation job runs, then the existing `{play_language,
+texts}` projection. The renderer polls the same revision and acknowledges preview
+only after that projection is displayed. This keeps model work outside the Web
+transport's 30-second request window. Immutable draft results are shared in the
+existing presentation map; standing-sheet queries still refresh their visible
+context. The tool-enabled presentation agent runs the shared schema checker and
+gets one bounded repair for malformed output, retaining both original attempts.
+
+Both normal and idle setup completion emit the existing `coc-setup-exit` marker.
+The backend uses it to recognize the play child's startup within the same RPC
+wrapper. Pi may start its extension-owned opening before the RPC subscription
+exists; the first observed assistant message after that marker establishes a new
+normal turn epoch even though the wrapper already hosted a completed setup turn.
+
 ## 23. PipiCOC local frontend (2026-09-07)
 
 The copied `Electron/` workspace is a frontend owned by this branch. Its only
@@ -1868,6 +1940,214 @@ External check: [ink's linked knots and explicit END](https://www.inklestudios.c
 and [Yarn Spinner's node jumps](https://yarnspinner.dev/docs/faq/) separate narrative
 transitions from termination. They support this distinction, while our existing
 receipts and development capsules remain responsible for game-state persistence.
+
+### 23.4 Immersive setup: one calculated draft, one confirmation
+
+This section replaces the earlier prose-only confirmation implementation. Acceptance
+is docs/specs/immersive-character-creation.md. The existing setup tool and campaign
+store own the lifecycle; no second creation agent or rules engine is introduced.
+
+**Creation method.** New conversational drafts use standard rolled characteristics,
+rulebook age adjustments, occupational formula points and INT*2 personal-interest
+points. Separate deterministic random streams for characteristics, age and Luck
+preserve unrelated outcomes when editing. Existing quick_fire legacy imports are
+not relabeled as rulebook Quick Fire. No invented point method or outstanding skill
+choice may pass completeness. Skill directions, concrete specialties, languages,
+backstory and ordinary kit are semantic choices supplied by the setup model.
+
+**RPC.** All calls include campaign. setup.draft accepts profile, a partial update
+of the current semantic profile: name, occupation, age, sex, concept, occupation_skills
+(eight concrete skills, including required catalog skills), interest_skills (concrete
+skills), own_language, backstory (3–6 populated first-six categories plus scenario_bound),
+key_connection (backstory_field and summary), equipment (named ordinary items), and
+weapons (optional catalog names). Unknown skills return the relevant catalog; no
+semantic regex picks skills or fills an open choice. The kernel reuses Chargen's
+arithmetic and validates complete budgets, provenance, gear and background.
+
+The immutable candidate lives under campaign setup/drafts; campaign.setup points to
+its current host-generated revision and digest. Invalid input returns findings and
+never replaces a valid draft. setup.draft returns revision, sheet, completeness and
+player-language labels. A repeated identical profile reuses the same revision.
+setup.previewed {revision} is a host-only acknowledgment after actual render; it
+rejects stale versions. setup.confirm {revision, consent: approved|delegated} commits
+that exact sheet, without random generation. approved requires the current preview
+ack and a later player-input token than the draft creation input; delegated is only for explicit write-now requests and does not pretend the
+player saw a prior version. The extension injects revision and the per-input token, never the model.
+
+Draft revisions, previews and confirmation are serialized by a campaign-local file
+lock across kernel processes. Immutable draft file publication precedes its pointer;
+confirmation can recover after the sheet write by proving equality before recording
+the confirmation. Repeated confirmation returns the existing receipt; a different
+sheet at the destination is a conflict. setup.complete checks all card completeness
+and the setup confirmation, then performs its existing handoff. Imported/library
+cards remain a distinct source and must satisfy their own validated intake contract.
+
+**Pi/GUI.** draft-investigator is repeatable until confirm-investigator commits;
+steps carry current draft state across session recovery. The extension appends a
+coc-character-draft entry with actual calculated values. Electron renders it inside
+the existing transcript and acknowledges its revision through the authenticated
+session binding; the acknowledgment may not target another campaign. Terminal setup
+renders the same data as structured JSON and acknowledges only after emitting it.
+The model sees semantic profile/actual values but no opaque revision or hashes.
+A model-supplied confirmed flag is not a substitute for these checks.
+
+**Prologue.** The module-owned cache holds opening/advice plus scene, guide and
+handoff text, all source-grounded and independently reviewed. Review may request
+one bounded author revision; both rounds and findings remain on disk. Failed review
+blocks setup and suppresses invented fallback prose. A brief narrator identity hint
+is permitted; internal implementation instructions are not. Opening is an in-world
+meeting with one identity question and a brief narrator hint, never a synopsis/menu.
+setup.prologue is host-only and binds scene/guide/text/handoff to the authored
+opening, validating that the guide is present. Only the first delivered meeting is
+recorded; it does not award any resource. The setup
+context records the actual opening delivery; confirmation records the introduction
+and last setup exchange. It cannot award keys, money, clues or accept commissions.
+Play opening receives that committed context and continues the meeting, without
+repeating arrival or introductions. Subsequent recovery uses the normal turn receipts.
+
+**Free action.** Ordinary scene questions belong in fiction and await free player
+input. New ordinary questions close through narrate with no pending choice or options.
+The model-facing ask only admits kind=mechanics; its runtime also rejects story
+requests. Raw table.ask retains the old story format for existing RPC clients and
+receipt/recovery compatibility, but that path is not exposed to the new Keeper.
+Legacy story records are displayed as text. Reading/preparation waits likewise
+return prose through normal turn closure, without creating fake story choices.
+Mechanics controls retain the existing closed action vocabulary and rule arithmetic.
+
+**Precedent.** Expected-version checks follow optimistic-concurrency practice
+(https://learn.microsoft.com/en-us/aspnet/core/data/ef-rp/concurrency); the local
+store adds its existing atomic files and a shared lock rather than a database.
+Creation choices are checked against the supplied Keeper Rulebook Chapter 3 and
+Chaosium skill/equipment guidance. No new provider or dependency is needed.
+
+Setup confirmation may carry pending_action only as an exact substring of a
+host-provided player_requests entry. It is retained in the prologue handoff for the
+Keeper to address through normal receipts, not executed by setup. Confirmed drafts
+cannot be edited before handoff; completion verifies the confirmed/current revision
+match. Draft files are digest-checked before replay or commit.
+
+#### Complete player-language card projection
+
+All text in the character preview follows its stored play_language: UI headings,
+column names, draft/confirmation guidance, profession, era, native language, skill
+specialties, background labels, ordinary kit, weapon labels and currency names.
+Canonical fields and all numeric values remain unchanged. The renderer has no
+language branches or hand-written multilingual string tables. A tool-enabled Pi
+prepares the card's player-facing text projection; its input contains text only,
+never numeric cells to regenerate. Projections are cached by text content and
+language, so an age/point change alone reuses the text result. Existing immutable
+drafts use this same projection path, without rewriting their sheets or receipts.
+Until the full projection exists, the renderer shows a neutral loading indicator
+rather than exposing untranslated keys. It acknowledges a preview only after the
+localized card is rendered. The authenticated host resolves the session's campaign
+and reads the requested revision itself; clients cannot provide a replacement sheet.
+
+The live investigator sidebar uses this text projection for string-valued derived
+parameters as well as scene display names. The current sidebar continues to hide
+canonical present-person names, including their translated forms. A separate campaign
+and language cache grows from the visible table view only; hidden module names
+are never sent to the presenter. New visible names are projected by a tool-enabled
+Pi, while existing labels are reused. Canonical identities, damage formulas, numbers
+and turn state remain unchanged. A missing live-name projection is shown as a
+neutral placeholder and retried on the next sheet read, never as an English name.
+
+#### Explain the actual character creation (2026-09-08)
+
+The character preview and sidebar display the canonical DB `none` as numeric `0`
+(the Keeper Rulebook printed page 35). This is a field-specific presentation of
+zero damage adjustment, not a translation or a mutation of saved rules data.
+
+The setup guide accompanies each computed draft with a concise player-language
+explanation of the edition/method, actual characteristic generation, age reductions
+and education checks, Luck generation, occupation and interest budgets and additions,
+and derived-stat formulas including DB/Build. The explanation is grounded in the
+sheet's existing `creation` trace, exposed to the guide with the seed omitted. The
+host retains the complete trace in the draft. No reroll or reverse inference from
+final values is permitted. The guide distinguishes optional/default allocation
+policies (caps, skill distribution, chosen credit rating) from rulebook formulas,
+and must not invent scenario, occupation or background bonuses.
+
+This user-requested setup explanation may include the necessary numeric arithmetic
+in prose alongside the card; the in-play mechanics-only JSON rule remains intact.
+Keep it compact, do not repeat the whole card, and end with the existing single
+confirmation invitation. Revisions explain only changed calculations and preserve
+unchanged rolls. No extra question or character-generation choice menu is added.
+
+#### Allocation review in the digital draft (2026-09-08)
+
+Character and skill tables omit half/fifth thresholds; the game computes those
+when resolving checks. The draft's skill table shows base value, occupational
+addition, personal-interest addition and final value for every skill. Values come
+from the immutable sheet.creation.skills ledger, not model prose. Base is the
+recorded final value less the two recorded additions. Credit Rating's recorded
+value is an occupational expenditure separate from occupation.allocations; include
+it in that row and in occupational spent totals exactly once. Budget summaries
+show total, spent and remaining for each pool. Missing legacy allocation evidence
+is displayed as unavailable, never inferred as zero additions. The language
+presenter supplies column headings only and cannot change the ledger.
+
+The card also shows characteristic generation and derived-stat calculations inline.
+Use recorded dice expressions/faces/totals/multipliers, age reductions and EDU
+checks, and Luck attempts/keep policy. Show the final saved values alongside this
+evidence. HP/MP/SAN expressions come from recorded creation.derived formulas.
+Movement and DB/Build explanation rows resolve the recorded rule reference against
+the existing content tables and are exposed only when the table result agrees
+with the saved result. These are read-only explanations, never new rolls or a
+replacement for the kernel calculator. Missing evidence remains unavailable.
+
+The digital card defaults to a compact view: final characteristics, derived values
+and skills, with background/possessions retained. A player-language button toggles
+all calculation evidence and skill-allocation budgets inline and can collapse them
+again. New revisions start compact. This is local presentation state only: toggling
+never rerolls, writes the draft, re-acknowledges a preview or calls a model. The
+frontend guide also keeps unsolicited calculation prose short and points to this
+control; detailed explanation remains available on explicit request or in the TUI.
+
+#### Appearance as a reusable portrait subject (2026-09-08)
+
+Every newly computed/revised profile includes backstory.personal_description, a
+compact player-language paragraph of visible appearance. Describe apparent age,
+face shape and salient facial features, eyes/brows, skin, hair, and one or two
+ordinary distinguishing details, plus era-appropriate visible clothing/accessories.
+Personality, speech and habits belong in traits, not as substitutes for appearance.
+Missing visual choices are editable proposals in the normal draft, never a new
+questionnaire. Preserve player-supplied features and keep this paragraph unchanged
+during unrelated occupation/skill/background edits unless explicitly asked to
+change appearance. Do not derive ancestry or facial anatomy from language, job,
+name or APP, or give every character the same scars/beauty marks.
+
+Keep image composition, lighting, art style and generation controls out of this
+biographical field. It will be reusable as the subject text of a future portrait
+request, but this change adds no image-generation feature or separate schema.
+The kernel checks presence only; visual quality remains the setup agent's semantic
+responsibility. Existing confirmed cards are not rewritten by this requirement.
+
+#### Background and monetary equipment in the sidebar
+
+The investigator sidebar displays all populated backstory text (concept remains
+in its existing header position), native language and key-connection summary using
+the player-language text projection. No background data is copied into a new store.
+Equipment contains physical belongings; ordinary cash, generic money allowances
+and wealth placeholders belong to finance. The existing tool-enabled presenter
+returns `finance_equipment`, an exact subset of supplied equipment strings, to
+exclude legacy financial duplicates from both draft and sidebar item displays.
+The host validates subset membership and uniqueness; open semantic classification
+is the model's job, never a keyword list. Keep wallets, purses and collectible
+coins, and keep uncertain entries. Financial balances and immutable evidence are
+unchanged. Old projections are upgraded on sheet reads; new setup profiles are
+instructed to omit monetary placeholders from equipment.
+
+Legacy equipment-presentation upgrades run in the background without making
+the sheet read await that model work. While pending, only the equipment section has a loading state; on
+completion a sheet_changed extension event refreshes the panel. Failed upgrades
+show a retry state instead of leaking monetary placeholders or retrying forever.
+
+Sidebar inventory is a noninteractive list with item name and supplied quantity.
+Weapon rows place labeled parameters beneath the name, using canonical weapon
+fields (damage_die, base_range_yards, uses_per_round, magazine, ammo, malfunction,
+skill, adds_damage_bonus, special) and legacy aliases when needed. Magazine
+capacity and current ammunition remain distinct; missing values are not invented.
+These UI captions use the sidebar's existing closed-language chrome exception.
 
 ## 26. Gameplay mods (2026-09-08)
 

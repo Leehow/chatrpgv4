@@ -1,5 +1,10 @@
 # PipiCOC scenario selection and PDF onboarding
 
+Current implementation: [fast guided PDF onboarding](fast-guided-pdf-onboarding.md)
+provides early source-grounded character creation, app-owned background preparation,
+an extension-provided progress overlay and one readiness handoff. Its final acceptance
+and measured limits are recorded there; the records below describe the earlier flow.
+
 Status: selective PDF preparation, early skeleton and PipiCOC onboarding are implemented on 0.9.0a; the actual in-app-browser Masks Peru chapter and source-based settlement are complete after observed repairs. The main table is completed, with original ending turn 64 preserved and late accounting committed in turn 66; current UI turn 67 awaits input before the next chapter. Cold2 produced a valid 16-page skeleton in about 114 seconds, while reviewed opening preparation required a retained retry. Preserve all evidence and concurrent unrelated changes; this is not a pristine uninterrupted performance run.
 
 ## Intent and acceptance

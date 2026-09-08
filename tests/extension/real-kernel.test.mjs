@@ -13,14 +13,14 @@ import { assistantTexts, customMessages, openTable, waitForIdle } from "./harnes
 
 const CAMPAIGN = "haunting-seam";
 
-test("a source wait closes through interaction JSON without leaking preparation prose", async t => {
+test("a source wait closes without creating a story action menu", async t => {
 	const notice = "资料仍在准备，要继续等待还是暂停？";
 	const table = await openTable({ realKernel: true, campaign: "source-wait-seam", responses: [
 		fauxAssistantMessage([fauxToolCall("narrate", { text: "委托人把文件放在桌上，等你开口。" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage("开场后不应再交付的文字。"),
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Knott", question: "The original commission" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage(notice),
-		fauxAssistantMessage([fauxToolCall("ask", { prompt: notice, options: ["继续等待", "先暂停"] })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("narrate", { text: notice })], { stopReason: "toolUse" }),
 		fauxAssistantMessage("不应泄漏的系统说明。"),
 	] });
 	t.after(() => table.dispose());
@@ -31,11 +31,10 @@ test("a source wait closes through interaction JSON without leaking preparation 
 	await table.session.prompt("请核实原书里的委托内容。");
 	await waitForIdle(table.session, { timeoutMs: 60_000 });
 	const record = JSON.parse(readFileSync(join(table.workspace, ".coc/campaigns/source-wait-seam/turns/0001.json"), "utf8"));
-	assert.equal(record.closed_by, "ask");
-	assert.equal(record.rendered_text, "");
-	assert.deepEqual(table.entries("coc-choice").at(-1).options, ["继续等待", "先暂停"]);
-	assert.equal(table.entries("coc-choice").at(-1).prompt, notice);
-	assert.ok(!assistantTexts(table.session).some(text => text.includes(notice) || text.includes("不应泄漏")));
+	assert.equal(record.closed_by, "narrate");
+	assert.equal(record.rendered_text, notice);
+	assert.equal(table.entries("coc-choice").length, 0);
+	assert.ok(!assistantTexts(table.session).some(text => text.includes("不应泄漏")));
 	assert.ok(!table.telemetry().some(row => row.tool === "ask" && row.ok === false));
 });
 

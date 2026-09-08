@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import express, { type RequestHandler } from "express";
 import WebSocket, { WebSocketServer, type RawData } from "ws";
 
-import { createPiHostBackend, type PiBackendOptions } from "@pipi/pi-backend";
+import { CocOnboardingRegistry, createPiHostBackend, type PiBackendOptions } from "@pipi/pi-backend";
 import {
   BROWSER_HOST_METHODS,
   PIPI_HOST_PROTOCOL_VERSION,
@@ -430,9 +430,11 @@ export function createWsHostServer(
     ? createHttpsServer(options.tls, app)
     : createHttpServer(app);
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WIRE_PAYLOAD_BYTES });
+  const onboarding=options.backendOptions?.cocOnboardingRegistry ?? new CocOnboardingRegistry();
+  const ownsOnboarding=!options.backendOptions?.cocOnboardingRegistry;
   const createBackend = options.backend
     ? () => options.backend!
-    : options.createBackend ?? (() => createPiHostBackend(options.backendOptions));
+    : options.createBackend ?? (() => createPiHostBackend({...options.backendOptions,cocOnboardingRegistry:onboarding}));
 
   const closeConnection = (socket: WebSocket, connection: Connection): void => {
     if (connection.closed) return;
@@ -527,6 +529,7 @@ export function createWsHostServer(
       });
     },
     async close(): Promise<void> {
+      if(ownsOnboarding)await onboarding.close();
       for (const [socket, connection] of [...connections]) {
         closeConnection(socket, connection);
         socket.terminate();
@@ -600,6 +603,11 @@ export function serverOptionsFromEnvironment(env = process.env): WsHostServerOpt
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const instance = createWsHostServer(serverOptionsFromEnvironment());
+  let closing=false;
+  for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>{
+    if(closing)return;closing=true;
+    void instance.close().then(()=>{process.exitCode=0;}).catch(()=>{process.exitCode=1;});
+  });
   void instance.listen().then(port => {
     process.stdout.write(`PipiUI server listening on ${port}\n`);
     if (instance.pairingLink) process.stdout.write(`PipiUI pairing link (valid for 24h): ${instance.pairingLink}\n`);

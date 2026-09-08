@@ -243,6 +243,10 @@ function SessionPanel({descriptor, host, projectId, ctx, Component, panel, title
   return createElement('div',{className:'tool-page',hidden:!ctx.active},
     createElement(Component,{api,sessionId:ctx.sessionId,id:panel.id,title,openDocument:ctx.onOpenDocument,resolveDroppedPaths:ctx.resolveDroppedPaths}));
 }
+function SessionView({descriptor,host,projectId,context,Component,id}:any) {
+  const api=ReactRuntime.useMemo(()=>createApi(descriptor,host,projectId,context.sessionId),[descriptor,host,projectId,context.sessionId]);
+  return createElement(Component,{api,id,active:context.active,sessionId:context.sessionId});
+}
 
 /**
  * Load controlled React entries (panel / toolRenderer / settingsSection with `entry`)
@@ -339,7 +343,7 @@ export async function loadControlledContributions(
       disposers.push(registerWorkbenchView(descriptor.id, {
         id: view.id,
         container: view.container,
-        render: context => createElement(Component, { api, id: view.id, active: context.active }),
+        render: context => createElement(SessionView, {descriptor,host,projectId,context,Component,id:view.id}),
       }))
     } catch (error) {
       disposers.push(registerWorkbenchView(descriptor.id, {

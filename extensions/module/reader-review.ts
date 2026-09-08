@@ -1,6 +1,7 @@
 /** Independent source reviews share a candidate, never a mutable output or context. */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { runReader } from "./reader.ts";
 
 type Row = Record<string, any>;
@@ -33,7 +34,9 @@ export async function reviewCandidate(options: {
 	run?: typeof runReader;
 	record(row: Row): void; progress(row: Row): void;
 }): Promise<number[]> {
-	const units = reviewUnits(options.draft), results: Row[] = [], observed = new Set<number>();
+	const guidanceBytes = options.task.purpose === "guidance" ? await readFile(join(options.cwd, "guidance.json"), "utf8") : undefined;
+	const candidateBytes = guidanceBytes ? await readFile(join(options.cwd,"draft.json")) : Buffer.from(JSON.stringify(options.draft));
+	const units = guidanceBytes ? [reviewUnits(options.draft).flat()] : reviewUnits(options.draft), results: Row[] = [], observed = new Set<number>();
 	let next = 0, completed = 0, active = 0;
 	const configured = Number(process.env.PI_COC_READER_TIMEOUT_MS);
 	const failures: string[] = [];
@@ -45,6 +48,7 @@ export async function reviewCandidate(options: {
 			const cwd = join(options.cwd, `verify-${options.round}`, `unit-${index + 1}`, `attempt-${attempt}`);
 			await mkdir(cwd, { recursive: true });
 			await writeFile(join(cwd, "draft.json"), JSON.stringify(options.draft) + "\n");
+			if (guidanceBytes) await writeFile(join(cwd, "guidance.json"), guidanceBytes);
 			await writeFile(join(cwd, "task.json"), JSON.stringify({ ...options.task, required_review: paths }) + "\n");
 			const imageCalls = new Map<string, Row[]>(), pages = new Set<number>();
 			const eventLog = join(cwd, "events.jsonl");
@@ -52,9 +56,10 @@ export async function reviewCandidate(options: {
 			options.record({ lane: "reading", event: "review_concurrency", active, capacity });
 			try {
 				const run = await (options.run ?? runReader)({ cwd, model: options.model.id, thinking: options.model.thinking,
+					...(guidanceBytes?{imageHistory:4}:{}),
 					systemPrompt: options.instructions, source: options.source, signal: options.signal, eventLog,
 					...(configured > 0 ? { timeoutMs: configured } : {}),
-					brief: "Read task.json and draft.json. Independently review only task.required_review against original images using pdf. Keep the full graph as context. Write review.json with checked paths, verdict, source_refs and reason, plus missing (only necessary current material). Never edit the draft. Finish this unit and stop.",
+					brief: "Read task.json and draft.json. Independently review only task.required_review against original images using pdf. Keep the full graph as context. Write review.json with checked paths, verdict, source_refs and reason, plus missing (only necessary current material). Never edit the draft. " + (guidanceBytes ? "Also review guidance.json under the Independent review instructions and include guidance:{approved,issues} in the same review. Never modify guidance.json. " : "") + "Finish this unit and stop.",
 					onEvent(event) {
 						if (event.type === "message_end" && event.message?.errorMessage) throw new Error(event.message.errorMessage);
 						if (event.type === "tool_execution_end" && !event.isError && event.result?.details?.kind === "source_pages")
@@ -68,6 +73,7 @@ export async function reviewCandidate(options: {
 				if (JSON.stringify(JSON.parse(await readFile(join(cwd, "draft.json"), "utf8"))) !== JSON.stringify(options.draft))
 					throw new Error("reviewer modified its candidate copy");
 				const review = JSON.parse(await readFile(join(cwd, "review.json"), "utf8"));
+				if (guidanceBytes && await readFile(join(cwd, "guidance.json"), "utf8") !== guidanceBytes) throw new Error("reviewer modified guidance");
 				if (!Array.isArray(review.checked) || !Array.isArray(review.missing)) throw new Error("invalid source review");
 				const checked = new Set<string>();
 				for (const row of review.checked) {
@@ -101,8 +107,12 @@ export async function reviewCandidate(options: {
 		throw new Error(failures.join("; "));
 	}
 	if (results.filter(Boolean).length !== units.length) throw new Error("Source review did not complete every unit");
+	if(guidanceBytes && (!(await readFile(join(options.cwd,"draft.json"))).equals(candidateBytes)||await readFile(join(options.cwd,"guidance.json"),"utf8")!==guidanceBytes))throw new Error("Source pair changed during review");
 	await writeFile(join(options.cwd, "review.json"), JSON.stringify({
 		checked: results.flatMap(r => r.checked), missing: results.flatMap(r => r.missing),
+		...(guidanceBytes ? {guidance: {...results[0].guidance,
+			draft_sha256: createHash("sha256").update(candidateBytes).digest("hex"),
+			guidance_sha256: createHash("sha256").update(guidanceBytes).digest("hex")}} : {}),
 	}) + "\n");
 	return [...observed];
 }

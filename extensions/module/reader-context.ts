@@ -34,7 +34,8 @@ export default function readerContext(pi: any) {
 			model: event.payload?.model, reasoning_effort: event.payload?.reasoning?.effort ?? event.payload?.reasoning_effort ?? null}) + "\n");
 	});
 	pi.on("context", (event: any) => {
-		const result = boundImages(event.messages, sent);
+		const configured=Number(process.env.PI_COC_READER_IMAGE_HISTORY);
+		const result = boundImages(event.messages, sent, undefined, configured>0?configured:undefined);
 		for (const id of result.included) sent.add(id);
 		const log = process.env.PI_COC_READER_IMAGES_LOG;
 		if (log) appendFileSync(log, JSON.stringify({ included: result.included, bytes: result.bytes, count: result.count }) + "\n");

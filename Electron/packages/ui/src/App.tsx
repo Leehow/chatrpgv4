@@ -2710,6 +2710,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     <section className="chat-column">
       <ChatHeader session={headerSession} project={projects.find(item => item.id === selectedProject)} lease={lease} host={host} gitAvailable={gitAvailable} sidebarCollapsed={productSidebarCollapsed} toolsCollapsed={productToolsCollapsed} onToggleSidebar={toggleSidebar} onToggleTools={toggleTools} onRename={renameSidebarSession} onTakeover={async () => { if (selectedSession) setLease(await host.forceTakeoverSessionLease(selectedSession)) }} />
       <div className="chat-viewport" data-testid="chat-viewport">
+        <WorkbenchRegion store={productWorkbench.store} location="overlay" sessionId={selectedSession || undefined} />
         {productPanels.length > 0 && !onboardingActive && productToolsCollapsed && <ToolQuickRail variant="float" collapsible={narrowViewport} activeTab={activeTab} toolsCollapsed={productToolsCollapsed} onSelect={selectTool} host={host} browserAvailable={browserAvailable} terminalAvailable={terminalAvailable} planTabVisible={planTabVisible} planProgress={planProgressBadge} subagentsRunningCount={subagentsRunningCount} />}
         {projectsLoaded && lazyStartupReady && !selectedSession ? (
           <div className="empty-setup-viewport">
@@ -2728,15 +2729,12 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
           {selectedSession ? (
             <div key={selectedSession} className="session-transcript-slot" data-session-transcript={selectedSession}>
               {onboardingActive
-                ? <CocOnboarding host={host} sessionId={selectedSession} onStart={async () => {
-                    const result = await host.invokeExtension?.('coc-keeper', 'onboarding', {action:'start'}, {sessionId:selectedSession});
-                    if (!result?.ok) throw new Error(result?.error?.message || '无法启动守秘人，请重试。');
-                    return true;
-                  }} />
+                ? <CocOnboarding host={host} sessionId={selectedSession} />
                 : <Transcript
                 playerView={productId === 'pipicoc'}
                 stateKey={selectedSession}
                 onChoose={async (entry,option)=>{
+                  if(entry.renderer==='coc-character-draft'){const ack=await host.invokeExtension!("coc-keeper",option==='presentation'?"draft-presentation":"draft-previewed",{revision:(entry.details as any).revision},{sessionId:selectedSession});if(!ack.ok)throw new Error(ack.error?.message||"Preview acknowledgment failed");return ack.data;}
                   const result=await host.invokeExtension!("coc-keeper","choose",{choice:(entry.details as any).name,option},{sessionId:selectedSession});
                   if(!result.ok)throw new Error(result.error?.message || "Choice failed");
                 }}

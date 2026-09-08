@@ -16,7 +16,7 @@ export type WorkbenchViewContribution = {
   id: string
   container: string
   extensionId: string
-  render: (context: { active: boolean }) => ReactNode
+  render: (context: { active: boolean; sessionId?:string }) => ReactNode
 }
 
 const containerRegistry = createContributionRegistry<WorkbenchContainerContribution>()

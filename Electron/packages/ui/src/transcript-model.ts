@@ -575,7 +575,7 @@ function mergeHostedCodeInterpreterInput(previousInput: string | undefined, even
 
 export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamEvent, { type: 'status' }>): ChatMessage[] {
   if (event.type === 'presentation') {
-    const message:ChatMessage={id:event.entry.id,role:'assistant',content:'',timestamp:event.entry.timestamp,presentation:event.entry.presentation};
+    const message:ChatMessage={id:event.entry.id,role:'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation};
     const at=previous.findIndex(item=>item.id===message.id);
     return at<0?[...previous,message]:previous.map((item,i)=>i===at?message:item);
   }

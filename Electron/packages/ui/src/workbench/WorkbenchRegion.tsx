@@ -13,7 +13,7 @@ function selectedContainer(
   return undefined
 }
 
-export function WorkbenchRegion({ store, location }: { store: WorkbenchStore; location: WorkbenchLocation }) {
+export function WorkbenchRegion({ store, location, sessionId }: { store: WorkbenchStore; location: WorkbenchLocation; sessionId?:string }) {
   const plan = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot)
   const registeredContainers = useWorkbenchContainers()
   const registeredViews = useWorkbenchViews()
@@ -21,6 +21,11 @@ export function WorkbenchRegion({ store, location }: { store: WorkbenchStore; lo
     .filter(container => container.location === location)
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.id.localeCompare(b.id))
   const requested = selectedContainer(location, plan.layout)
+  if(location==='overlay')return <div data-workbench-location="overlay" className="workbench-overlays">
+    {plannedContainers.filter(container=>registeredContainers.some(row=>row.id===container.id)).flatMap(container=>
+      registeredViews.filter(view=>view.container===container.id&&plan.views.some(row=>row.id===view.id&&row.container===container.id))
+        .map(view=><Fragment key={view.id}>{view.render({active:true,sessionId})}</Fragment>))}
+  </div>
   const activeId = requested && plannedContainers.some(item => item.id === requested)
     ? requested
     : plannedContainers[0]?.id
@@ -29,7 +34,7 @@ export function WorkbenchRegion({ store, location }: { store: WorkbenchStore; lo
   const views = registeredViews.filter(view => view.container === activeId && plannedViewIds.has(view.id))
   return (
     <div data-workbench-location={location} data-workbench-container={activeId} style={{ display: 'contents' }}>
-      {views.map(view => <Fragment key={view.id}>{view.render({ active: true })}</Fragment>)}
+      {views.map(view => <Fragment key={view.id}>{view.render({ active: true, sessionId })}</Fragment>)}
     </div>
   )
 }

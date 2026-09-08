@@ -96,6 +96,14 @@ export class ReadingService implements ReadingBridge {
 			mid = bound.module_id;
         }
 		if (!mid) throw error("needs_source", "choose a PDF or an existing module", "pass pdf or module_id");
+		if (params.purpose === "guidance") {
+			const result = await this.ensure(mid, {...params, focus: params.start_scene || "", foreground:true}, signal);
+			return {...result, module_id:mid};
+		}
+		if (params.start_scene && params.targeted === true) {
+			await this.ensure(mid, {purpose:"opening", focus:params.start_scene, foreground:true, retry:params.retry===true}, signal);
+			return {ok:true, module_id:mid, opening_ready:true};
+		}
 		await this.ensure(mid, { purpose: "skeleton", foreground: true, retry: params.retry === true }, signal);
 		const status = await this.deps.call("module.status", { module_id: mid });
 		if (!params.start_scene && status.opening_candidates?.length > 1) {
@@ -110,7 +118,7 @@ export class ReadingService implements ReadingBridge {
 
 	async ensure(mid: string, params: Row, signal?: AbortSignal): Promise<Row> {
 		if (signal?.aborted || this.stopped) throw error("reading_failed", "reading was cancelled", "retry the reading when ready");
-		const key = JSON.stringify([mid, params.purpose, params.focus ?? "", params.question ?? ""]);
+		const key = JSON.stringify([mid, params.purpose, params.focus ?? "", params.question ?? "", params.guidance_key ?? ""]);
 		let request = this.requests.get(key);
 		if (!request) {
 			const pending: PendingReading = { waiters: 0, cancelled: false };
@@ -233,6 +241,7 @@ export class ReadingService implements ReadingBridge {
 		const commands = { page: `${quote(join(ROOT, "bin/coc-source"))} --pdf ${quote(job.source.path)} --cache ${quote(cache)} page`,
 			check: `${quote(join(ROOT, "bin/coc-read-check"))} --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
 		const task: Row = { purpose: job.purpose, module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
+			...(job.purpose === "guidance" ? {play_language:job.play_language, occupations:job.occupations.map((row:Row)=>({name:row.name}))} : {}),
 			source: { page_count: job.source.page_count }, index: job.index, known_nodes: job.known_nodes,
 			known_claims: (job.known_claims ?? []).map((claim: Row) => Object.fromEntries(
 				["subject_id", "predicate", "object", "truth_status", "visibility", "reason", "known_by_ids", "asserted_by_ids", "validity"]
@@ -247,9 +256,11 @@ export class ReadingService implements ReadingBridge {
 				const previous = JSON.parse(await readFile(join(job.resume_from, "packet.json"), "utf8"));
 				if (previous.key === job.key && previous.source.file_sha256 === job.source.file_sha256) {
 					await copyFile(join(job.resume_from, "draft.json"), join(cwd, "draft.json"));
+					if (job.purpose === "guidance") await copyFile(join(job.resume_from, "guidance.json"), join(cwd, "guidance.json"));
 					await copyFile(join(job.resume_from, "findings.json"), join(cwd, "findings.json")).catch(() => undefined);
 					const checkpoint = JSON.parse(await readFile(join(job.resume_from, "read-complete.json"), "utf8"));
 					if (validCheckpoint(checkpoint, await readFile(join(cwd, "draft.json")), job)) {
+						if (job.purpose === "guidance" && checkpoint.guidance_sha256 !== sha(await readFile(join(cwd,"guidance.json")))) throw new Error("guidance checkpoint mismatch");
 						Object.assign(observations, checkpoint.observations, { review_pages: [] });
 						await writeFile(join(cwd, "read-complete.json"), JSON.stringify(checkpoint) + "\n");
 						readComplete = !checkpoint.requires_repair;
@@ -287,7 +298,7 @@ export class ReadingService implements ReadingBridge {
 						const header = phase === "index" ? "## Index phase" : phase === "read" ? "## Read phase" : "## Verify phase";
 						const start = guide.indexOf(header), end = guide.indexOf("\n## ", start + header.length);
 						const instructions = join(cwd, `instructions-${phase}.md`);
-						await writeFile(instructions, intro + guide.slice(start, end < 0 ? undefined : end) + "\nComplete only this phase and then stop.\n");
+						await writeFile(instructions, job.purpose === "guidance" ? await readFile(join(ROOT,"content/setup/visual-guidance.md"),"utf8") : intro + guide.slice(start, end < 0 ? undefined : end) + "\nComplete only this phase and then stop.\n");
 						this.deps.progress({ module_id: job.module_id, stage: phase === "read" && job.purpose === "skeleton" ? "skeleton" : phase, focus: job.focus, of: job.source.page_count });
 						if (phase === "verify") {
 							observations.review_pages = await reviewCandidate({ cwd, task,
@@ -305,6 +316,7 @@ export class ReadingService implements ReadingBridge {
 						const reads = new Map<string, string>();
 						const configured = Number(process.env.PI_COC_READER_TIMEOUT_MS);
 						const run = await runReader({ cwd, model: model.id, thinking: model.thinking, signal,
+							...(job.purpose==="guidance"?{imageHistory:4}:{}),
 							systemPrompt: instructions, source: { pdf: job.source.path, cache },
 							eventLog: join(cwd, `${phase}-${round}.jsonl`),
 							...(configured > 0 ? { timeoutMs: configured } : {}),
@@ -338,7 +350,8 @@ export class ReadingService implements ReadingBridge {
 						await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
 						if (phase === "read" || phase === "index") {
 							readComplete = true;
-							await writeFile(join(cwd, "read-complete.json"), JSON.stringify({ draft_sha256: sha(await readFile(join(cwd, "draft.json"))), observations }) + "\n");
+							await writeFile(join(cwd, "read-complete.json"), JSON.stringify({ draft_sha256: sha(await readFile(join(cwd, "draft.json"))),
+								...(job.purpose === "guidance" ? {guidance_sha256:sha(await readFile(join(cwd,"guidance.json")))} : {}), observations }) + "\n");
 						}
 						phaseCompleted = true;
 					}

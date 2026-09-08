@@ -81,7 +81,7 @@
       },
       "receipt": "module_id",
       "lines": {
-        "do": "Prepare the chosen PDF or reuse the selected module. For multiple authored openings, match the player intent to the candidate summaries and select one before creating the campaign.",
+        "do": "Prepare source guidance or reuse accepted guidance. In frontend setup the host completes this step as soon as reviewed guidance is accepted, while the opening prepares in the background. For multiple authored openings, match the player intent to the candidate summaries and select one before creating the campaign.",
         "next": "Prepare the chosen PDF with prepare-module; if reading is still in progress, wait for the existing job rather than starting another."
       }
     },
@@ -133,53 +133,17 @@
       "only_for": null,
       "investigator_source": "new",
       "kind": "op",
-      "op": "setup.investigator",
+      "op": "setup.draft",
       "params": {
-        "name": {
-          "description": "as the player said it, stored verbatim",
-          "required": true
-        },
-        "occupation": {
-          "description": "an id from setup.occupations (the model maps the player's concept to it)",
-          "required": true
-        },
-        "concept": {
-          "description": "optional, the player's one line, stored verbatim",
-          "required": false
-        },
-        "age": {
-          "description": "optional integer",
-          "required": false
-        },
-        "sex": {
-          "description": "optional, stored verbatim",
-          "required": false
-        },
-        "method": {
-          "description": "quick_fire | rolled",
-          "required": false
-        },
-        "seed": {
-          "description": "optional; rolled characteristics are reproducible from it",
-          "required": false
-        },
-        "era": {
-          "description": "optional override of the module's era for the skill sheet and finance tables",
-          "required": false
-        },
-        "id": {
-          "description": "optional investigator id (slug)",
-          "required": false
-        },
-        "allocation": {
-          "description": "optional occupation-point policy: spread | fill (default from this step's allocation block)",
-          "required": false
+        "profile": {
+          "required": true,
+          "description": "Semantic object: name, occupation (catalog id), age, sex, concept, occupation_skills (8 distinct concrete catalog names), interest_skills (selected concrete names), own_language (actual language), era (optional rulebook period from returned options; the agent chooses it from source context), backstory (3-6 of personal_description/ideology_beliefs/significant_people/meaningful_locations/treasured_possessions/traits plus scenario_bound), key_connection {backstory_field,summary}, equipment [ordinary item names], weapons [optional rulebook profile names]. On edits send only changed fields. No numeric skills/cash."
         }
       },
       "defaults": {
         "method": "quick_fire",
         "age": 27,
-        "source_note": "Chargen defaults are setup policy, not rulebook numbers: 27 sits in the 20-39 bracket (one EDU improvement check, no reductions) and quick_fire needs no dice."
+        "source_note": "Legacy setup.investigator defaults only. Conversational setup.draft uses standard rolled characteristics and formula-based skill budgets."
       },
       "allocation": {
         "default": "spread",
@@ -205,11 +169,36 @@
         ],
         "source_note": "Keeper Rulebook Chapter 3: no points may be put into Cthulhu Mythos at creation; Credit Rating is set from the occupation's range."
       },
-      "receipt": "investigator_id",
+      "receipt": "draft",
       "lines": {
-        "do": "Ask only for a name and an occupation concept; map the concept to an occupation id with setup.occupations; the kernel derives every number.",
-        "next": "Create the investigator: tell me the name and the kind of person you want to play."
+        "do": "Immediately compute a complete draft from the player concept with setup.draft. Complete ordinary missing semantic choices yourself. The tool returns actual values for the host to show. Do not ask the player for numbers. Do not claim a card is committed yet.",
+        "next": "Prepare or revise the full investigator draft using profile. On missing catalog names fix them using returned options in the same turn."
       }
+    },
+    {
+      "id": "confirm-investigator",
+      "needs": [
+        "create-investigator"
+      ],
+      "kind": "op",
+      "op": "setup.confirm",
+      "investigator_source": "new",
+      "receipt": "investigator_id",
+      "params": {
+        "consent": {
+          "required": true,
+          "description": "approved after the player confirms the displayed card; delegated only for an explicit write-now or modify-and-write request"
+        },
+        "pending_action": {
+          "required": false,
+          "description": "Only when the player requested an adventure action before setup finished: quote the actual requested action verbatim, to preserve it for the Keeper. Do not invent an action or treat identity as commission acceptance."
+        }
+      },
+      "lines": {
+        "do": "Confirm the current draft only with explicit player approval or write-now delegation. The host injects its revision. Then complete setup.",
+        "next": "Wait for approval or modify the draft. Do not confirm on an ordinary character description."
+      },
+      "only_for": null
     },
     {
       "id": "browse-library",
@@ -253,14 +242,14 @@
       },
       "receipt": "investigator_id",
       "lines": {
-        "do": "investigator.load copies the chosen card's sheet into this campaign byte for byte -- no conversion, no re-roll, no era gate (contract §21.3); occupation and point allocation are skipped because the sheet already carries them.",
+        "do": "investigator.load copies the chosen card's sheet into this campaign byte for byte -- no conversion, no re-roll, no era gate (contract \u00a721.3); occupation and point allocation are skipped because the sheet already carries them.",
         "next": "Load the investigator: give the library_id to use (from browse-library's list)."
       }
     },
     {
       "id": "complete",
       "needs": [
-        "create-investigator",
+        "confirm-investigator",
         "load-investigator"
       ],
       "only_for": null,
@@ -269,7 +258,7 @@
       "params": {},
       "receipt": "handoff",
       "lines": {
-        "do": "setup.complete: write the setup_handoff receipt, move the campaign to ready_for_table, exit and print the launch line.",
+        "do": "setup.complete: require the confirmed card and the selected opening. If opening_preparing is returned, end the reply and retain confirmation; the frontend will retry when ready. Otherwise write the handoff receipt and enter ready_for_table.",
         "next": "Finish: confirm and complete setup."
       }
     }

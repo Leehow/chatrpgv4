@@ -222,10 +222,10 @@ class Table:
         self._graphs[module_id] = (generation, graph)
         return graph
 
-    def initial_world(self, graph: ModuleGraph) -> tuple[dict[str, Any], str]:
+    def initial_world(self, graph: ModuleGraph, start_scene: str | None = None) -> tuple[dict[str, Any], str]:
         """§3 world.json at the start scene; also what setup.complete writes for a book
         whose graph arrived after the campaign was created (§14.4)."""
-        start = graph.start_scene()
+        start = graph.scene(start_scene) if start_scene else graph.start_scene()
         start_handle = graph.handle(start)
         presence: dict[str, str] = {}
         for scene in graph.scenes():
@@ -437,7 +437,21 @@ class Table:
             sheet["current_mp"] = derived.get("MP")
             sheet["current_luck"] = characteristics.get("LUCK")
 
-        world, start_handle = (self.initial_world(graph) if graph else (None, None))
+        chosen = _str(params, "start_scene", required=False)
+        guidance_key = _str(params, "guidance_key", required=False)
+        if guidance_key:
+            accepted = module_meta.get("character_guidance", {}).get(guidance_key)
+            if not accepted or accepted.get("play_language") != language:
+                raise invalid_params("the requested character guidance has not been accepted")
+            if chosen and graph.handle(graph.scene(chosen)) != graph.handle(graph.scene(accepted["scene"])):
+                raise invalid_params("the selected scene does not match the accepted guidance")
+            chosen = accepted["scene"]
+        if chosen:
+            from .modules.assemble import resolve_start_scene
+            if not graph or resolve_start_scene(self.module_store.read_graph(module_id), chosen) is None:
+                raise invalid_params("start_scene must name an authored opening")
+        playable = graph and (not module_meta.get("reading_version") or self.reading.opening_ready(module_id, chosen or ""))
+        world, start_handle = self.initial_world(graph, chosen) if playable else (None, graph.handle(graph.scene(chosen)) if chosen else None)
         if world is not None:
             self.mods.runtime.initialize(world)
         meta = {
@@ -451,6 +465,7 @@ class Table:
             "status": STATUS_ACTIVE if sheet is not None else STATUS_SETTING_UP,
             "created_at": now_iso(),
             "opening_scene": start_handle,
+            **({"guidance_key": guidance_key} if guidance_key else {}),
             "investigators": [sheet["id"]] if sheet is not None else [],
             # §15.1: every campaign starts on one worldline, `main`, and the sidecar repo's
             # HEAD is that line's branch from the first commit on.
@@ -586,6 +601,7 @@ class Table:
             "pending_turn": pending_turn,
             "opening_needed": opening_needed,
             "mod_context": self.mods.context(campaign, graph, world),
+            "setup_prologue": (meta.get("setup") or {}).get("handoff", {}).get("prologue") if opening_needed else None,
             "module_reading": bool(self.module_store.module(graph.module_id).get("reading_version")),
             "resume": resume,
             # §15.6: which line the table just opened on, and how many circuits in.

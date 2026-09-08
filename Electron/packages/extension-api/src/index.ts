@@ -423,11 +423,46 @@ export type ExtensionHostAPI = {
   subscribeExt: (listener: (event: ExtEvent) => void) => () => void;
   settings?: ExtensionSettingsAPI;
   invoke?: (method: string, params: unknown) => Promise<ExtInvokeResult>;
+  /** Shared, session-bound polling for read-only extension status views. */
+  observe?: (method:string, params:unknown) => ExtensionQuery;
   notify?: (title: string, body: string) => void | Promise<void>;
   auth?: ExtensionAuthAPI;
   /** Present only with the `data.read` capability and a declared `app.data.read`. */
   data?: ExtensionDataAPI;
 };
+
+export type ExtensionQuery = {
+  subscribe(listener:()=>void):()=>void;
+  snapshot():ExtInvokeResult|null;
+  refresh():Promise<void>;
+};
+const queries=new WeakMap<ExtensionHostBacking,Map<string,ExtensionQuery>>();
+function sharedQuery(options:CreateExtensionHostAPIOptions,method:string,params:unknown):ExtensionQuery {
+  let cache=queries.get(options.host);
+  if(!cache){cache=new Map();queries.set(options.host,cache);}
+  const key=JSON.stringify([options.extensionId,options.sessionId,method,params]);
+  const found=cache.get(key);if(found)return found;
+  let value:ExtInvokeResult|null=null, serialized='',pending:Promise<void>|undefined;
+  let timer:ReturnType<typeof setTimeout>|undefined;
+  const listeners=new Set<()=>void>();
+  const query:ExtensionQuery={snapshot:()=>value,refresh:()=>{
+    if(pending)return pending;
+    if(timer)clearTimeout(timer);
+    pending=(async()=>{
+      try {
+        const next=await options.host.invokeExtension!(options.extensionId,method,params,options.sessionId?{sessionId:options.sessionId}:undefined);
+        const text=JSON.stringify(next);
+        if(text!==serialized){serialized=text;value=next;for(const listener of listeners)listener();}
+      }catch(error){value={ok:false,error:{code:'agent_error',message:String(error)}};for(const listener of listeners)listener();}
+      finally{pending=undefined;if(listeners.size)timer=setTimeout(()=>void query.refresh(),1500);}
+    })();
+    return pending;
+  },subscribe:listener=>{
+    listeners.add(listener);if(listeners.size===1)void query.refresh();
+    return()=>{listeners.delete(listener);if(!listeners.size&&timer)clearTimeout(timer);};
+  }};
+  cache.set(key,query);return query;
+}
 
 /** Structural backing host. Intentionally not `PipiHostAPI`. */
 export type ExtensionHostBacking = {
@@ -548,6 +583,7 @@ export function createExtensionHostAPI(options: CreateExtensionHostAPIOptions): 
   }
 
   if (caps.has("invoke.agent")) {
+    if(host.invokeExtension)api.observe=(method,params)=>sharedQuery(options,method,params);
     api.invoke = (method, params) => {
       if (!host.invokeExtension) return Promise.resolve(denied("invoke.agent"));
       return options.sessionId

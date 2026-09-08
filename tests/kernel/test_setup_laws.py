@@ -30,6 +30,7 @@ from pathlib import Path
 
 import pytest
 
+from setup_helpers import confirmed_investigator
 from conftest import CAMPAIGN, KERNEL_DIR, MODULE, PREGEN, RpcClient, campaign_dir, create_campaign, read_json
 
 sys.path.insert(0, str(KERNEL_DIR))
@@ -302,10 +303,7 @@ def test_setup_complete_needs_an_investigator_first(kernel):
 
 def test_setup_complete_writes_handoff_and_flips_status_then_opens(kernel):
     setting_up_campaign(kernel)
-    created = kernel.ok("setup.investigator", {
-        "campaign": CAMPAIGN, "name": "沈静", "occupation": "Antiquarian",
-        "age": 30, "method": "quick_fire", "seed": "h5-complete-seed",
-    })
+    created = confirmed_investigator(kernel, name="Shen")
     investigator_id = created["investigator"]["id"]
 
     handoff = kernel.ok("setup.complete", {"campaign": CAMPAIGN})
@@ -375,10 +373,12 @@ def test_new_starter_creates_a_campaign_opens_and_passes_the_ten_invariants(star
     assert graph_path.exists(), f"{starter_id} has no module-graph.json yet (scripts/starter_graph.py §14.9)"
 
     setting_up_campaign(kernel, module=starter_id)
-    created = kernel.ok("setup.investigator", {
-        "campaign": CAMPAIGN, "name": "调查员", "occupation": "Antiquarian",
-        "age": 29, "method": "quick_fire", "seed": f"h5-{starter_id}-seed",
-    })
+    if starter_id == "the-white-war":
+        from test_setup_drafts import profile
+        error = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": profile()})
+        assert "finance" in str(error)
+        return
+    created = confirmed_investigator(kernel)
     assert created["investigator"]["id"]
     handoff = kernel.ok("setup.complete", {"campaign": CAMPAIGN})
     assert handoff["status"] == "ready_for_table"

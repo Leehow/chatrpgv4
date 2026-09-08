@@ -145,8 +145,9 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
 		setupCall({ step: first.id, kind: "starter", module: "the-haunting" }),
 		setupCall({ step: "create-campaign", id: "setup-fixture", title: "闹鬼的房子", play_language: "zh-Hans" }),
 		// 第一次不给职业：工具把职业清单交给模型，模型自己挑（契约 §14.7，绝不做关键词表）。
-		setupCall({ step: investigator.id, name: "托马斯·海耶斯" }),
-		setupCall({ step: investigator.id, name: "托马斯·海耶斯", occupation: "journalist", concept: "从战场回来的记者" }),
+		setupCall({ step: investigator.id, confirmed: true, name: "托马斯·海耶斯" }),
+		setupCall({ step: investigator.id, profile: {name: "托马斯·海耶斯", occupation: "journalist", concept: "从战场回来的记者"} }),
+        setupCall({step:"confirm-investigator",consent:"approved"}),
 		setupCall({ step: last.id }),
 		fauxAssistantMessage("建好了。"),
 	]);
@@ -156,9 +157,9 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
 	await waitForIdle(table.session);
 
 	const results = setupResults(table.session);
-	assert.equal(results.length, 5, "五次调用（第三次是问职业）");
+	assert.equal(results.length, 6, "五次调用（第三次是问职业）");
 
-	const [source, campaign, needOccupation, made, finished] = results;
+	const [source, campaign, needOccupation, made, confirmed, finished] = results;
 	assert.equal(source.ok, true);
 	assert.equal(source.source.module_id, "the-haunting");
 	assert.ok(Array.isArray(source.starters) && source.starters.includes("the-haunting"), "starter 名单来自内容目录");
@@ -169,12 +170,19 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
 	assert.equal(created.params.play_language, "zh-Hans");
 
 	assert.equal(needOccupation.ok, false, "没给职业时这一步不算做完");
-	assert.deepEqual(needOccupation.needs, ["occupation"], "缺的是表里点名的那个参数");
+	assert.deepEqual(needOccupation.needs, ["profile"], "缺的是表里点名的那个参数");
 
 	assert.equal(made.ok, true);
-	const built = table.kernelRequests().find((entry) => entry.method === "setup.investigator");
-	assert.equal(built.params.name, "托马斯·海耶斯", "名字原样送进内核");
-	assert.equal(built.params.occupation, "journalist", "职业 id 是模型挑的");
+    const basis=made['setup.draft'].sheet.creation;
+    assert.equal(basis.method,'rolled');
+    assert.deepEqual(basis.characteristics.rolls.STR.faces,[1,1,2]);
+    assert.deepEqual(basis.age.edu_improvement_checks,[{roll:30,edu:50}]);
+    assert.equal(basis.skills.occupation.budget.total,200);
+    assert.equal(basis.skills.interest.allocations.Law,10);
+    assert.equal(basis.seed,undefined);
+	const built = table.kernelRequests().find((entry) => entry.method === "setup.draft");
+	assert.equal(built.params.profile.name, "托马斯·海耶斯", "名字原样送进内核");
+	assert.equal(built.params.profile.occupation, "journalist", "职业 id 是模型挑的");
 	assert.ok(built.params.campaign, "建卡的调用带战役 id");
 	const occupationCalls = table.kernelRequests().filter((entry) => entry.method === "setup.occupations");
 	assert.equal(occupationCalls.length, 0, "this step forwards the supplied occupation without another lookup");

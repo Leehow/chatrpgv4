@@ -91,11 +91,11 @@ def check_draft(draft: Any, packet: dict[str, Any], seen: set[int] | None = None
     for key in ("nodes", "claims", "node_refs", "critical", "ready_nodes"):
         if not isinstance(draft.get(key), list):
             reject(f"{key} must be an array", f"/{key}")
-    if packet.get("purpose") == "skeleton" and not draft["nodes"]:
+    if packet.get("purpose") in ("skeleton", "guidance") and not draft["nodes"]:
         reject("a skeleton needs source-authored nodes before it can be published", "/nodes")
     coverage = draft.get("coverage")
     if not isinstance(coverage, dict) or set(coverage) - set(COVERAGE_DOMAINS) or any(v not in COVERAGE_STATUSES for v in coverage.values()):
-        reject("coverage must use the supplied coverage vocabulary")
+        reject(f"coverage must be an object mapping domain to status; domains={list(COVERAGE_DOMAINS)}, statuses={sorted(COVERAGE_STATUSES)}; use {{}} when no domain is prepared", "/coverage")
     filled = copy.deepcopy(draft)
     nodes = filled["nodes"]
     existing = {n["node_id"] for n in packet.get("known_nodes", [])}
@@ -133,9 +133,9 @@ def check_draft(draft: Any, packet: dict[str, Any], seen: set[int] | None = None
     for nid in filled["node_refs"] + filled["ready_nodes"]:
         if not isinstance(nid, str) or nid not in ids:
             reject("a node reference must name a defined node")
-    if packet.get("purpose") == "skeleton" and filled["ready_nodes"]:
+    if packet.get("purpose") in ("skeleton", "guidance") and filled["ready_nodes"]:
         reject("a skeleton cannot grant material readiness; ready_nodes must be empty", "/ready_nodes")
-    if not filled["ready_nodes"] and packet.get("purpose") != "skeleton":
+    if not filled["ready_nodes"] and packet.get("purpose") not in ("skeleton", "guidance"):
         reject("declare the nodes whose material this task has prepared", "/ready_nodes")
     if not set(filled["ready_nodes"]) <= defined:
         reject("ready_nodes must be present in the draft so their material can be independently reviewed", "/ready_nodes")
@@ -155,7 +155,7 @@ def check_draft(draft: Any, packet: dict[str, Any], seen: set[int] | None = None
         pointer(draft, p)
     for i, node in enumerate(nodes):
         required.update(numeric_paths({k: v for k, v in node.get("properties", {}).items() if k != "image_sources"}, f"/nodes/{i}/properties"))
-        if node["node_id"] in filled["ready_nodes"]:
+        if node["node_id"] in filled["ready_nodes"] or packet.get("purpose") == "guidance":
             required.add(f"/nodes/{i}")
     for i, claim in enumerate(filled["claims"]):
         if not isinstance(claim, dict) or set(claim) - claim_keys:
