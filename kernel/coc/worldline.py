@@ -611,6 +611,21 @@ def transition(campaign: Campaign, graph: ModuleGraph, plan: dict[str, Any],
             "loop": int(plan["loop"]), "seal": base, "commit": lines[target].get("last_commit")}
 
 
+#: What a rewind must not rewind, because it does not belong to the fiction being replayed:
+#: the loop's own bookkeeping (the anchor it is reading from, and the checkpoint that follows
+#: HEAD) and the table's house rules, which are a decision about how this table plays rather
+#: than a thing that happened in it. Everything else under `save/` is the state of the people
+#: at the table -- the sanity, healing, magic and magic-point engines, combat and chase, the
+#: development ledgers -- and goes back with them (#78).
+#:
+#: This is an exclusion list on purpose. The alternative -- naming each engine's save
+#: directory to restore -- is a registry, and this repository has been bitten repeatedly by
+#: the entry nobody remembered to add. An engine added tomorrow is rewound by default here;
+#: the only way to be wrong is to add another piece of table bookkeeping under `save/` and
+#: not list it, which is a much rarer act than adding a rule engine.
+SAVE_KEEP = ("save/worldlines", "save/continuation", "save/house-rules.json")
+
+
 def _write_reset(campaign: Campaign, graph: ModuleGraph, plan: dict[str, Any]) -> None:
     anchor = read_anchor(campaign)
     if anchor is None:
@@ -622,6 +637,16 @@ def _write_reset(campaign: Campaign, graph: ModuleGraph, plan: dict[str, Any]) -
     campaign.write_world(reset_world(anchor, world, graph, policy))
     for sheet in reset_sheets(anchor, party, graph, policy):
         campaign.write_sheet(sheet)
+    # #78: the sheets are only the face of an investigator. Their sanity, wounds, spells and
+    # magic points live in `save/`, where each engine writes its own state and files its
+    # deadlines as absolute clock minutes. Restoring the sheet while leaving those behind put
+    # the two out of step -- the next roll read the engine's number and wrote it back over the
+    # sheet -- and stranded every deadline the rewound clock had already passed. The engine
+    # state follows the same `investigators` policy as the sheet, because it *is* the
+    # investigator; `keep` leaves the whole table standing, exactly as §15.2 says.
+    commit = anchor.get("commit")
+    if policy.get("investigators") != RESET_KEEP and isinstance(commit, str) and commit:
+        history.restore_tree(campaign.repo_dir, campaign.dir, commit, "save", keep=SAVE_KEEP)
 
 
 def event_of(plan: dict[str, Any]) -> tuple[str, dict[str, Any]]:
