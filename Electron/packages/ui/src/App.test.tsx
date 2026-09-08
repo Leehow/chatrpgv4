@@ -1065,15 +1065,21 @@ describe('PipiUI main layout', () => {
     // While another pane overlay owns the screen the bar hides entirely
     // instead of floating above an open drawer.
     expect(phone).toContain('.pipiui-shell.tools-collapsed:not(.sidebar-collapsed) .tool-quick-rail-float{display:none}')
-    // Touch-sized targets: 44px floating launcher buttons, ≥40px drawer tabs,
-    // both dropping the double-tap-zoom delay for direct manipulation.
+    // Taps drop the double-tap-zoom delay for direct manipulation, but the
+    // phone block must NOT resize the buttons: the rail shares the top strip
+    // with the header's own .pane-toggle controls, so both stay one size.
     expect(phone).toContain('touch-action:manipulation')
-    expect(phone).toMatch(/\.tool-quick-rail-float \.tool-rail-button\{width:44px;height:44px;min-height:44px;flex-basis:44px/)
-    expect(phone).toMatch(/\.tool-panel-header \.tool-rail-button\{width:40px;height:40px;min-height:40px;flex-basis:40px/)
+    expect(phone).not.toMatch(/\.tool-rail-button\{[^}]*(width|height|flex-basis|border-radius):/)
+    const railButtonRule = css.match(/\.tool-rail-button\{[^}]*\}/)?.[0] ?? ''
+    const paneToggleRule = css.match(/\.pane-toggle\{[^}]*\}/)?.[0] ?? ''
+    const box = (rule: string) => (rule.match(/width:(\d+)px/)?.[1] ?? '') + 'x' + (rule.match(/height:(\d+)px/)?.[1] ?? '')
+    expect(box(railButtonRule)).toBe('28x28')
+    expect(box(paneToggleRule)).toBe(box(railButtonRule))
+    expect(railButtonRule).toContain('border-radius:6px')
+    expect(paneToggleRule).toContain('border-radius:6px')
     // The desktop rule keeps its vertical column contract outside that block.
     const floatRule = [...css.matchAll(/\.tool-quick-rail-float\{[^}]*\}/g)].map(match => match[0]).find(rule => rule.includes('position:fixed')) ?? ''
     expect(floatRule).toContain('flex-direction:column')
-    expect(floatRule).not.toContain('44px')
   })
 
   it('keeps the compact phone rail usable over the chat while panes open as overlays', async () => {
