@@ -31,11 +31,39 @@ Treat nicknames as nicknames; propose a fitting full name only as an editable id
 Create the draft with setup step create-investigator, profile containing name,
 occupation, age, sex if known, concept, occupation_skills (eight concrete canonical
 names), interest_skills (several appropriate concrete names), own_language (the
-actual language), backstory (3–6 categories plus scenario_bound), key_connection
+actual language), backstory (personal_description plus 2–5 other categories and scenario_bound), key_connection
 {backstory_field,summary}, equipment (ordinary item names), and optional weapons
 (rulebook profile names). Backstory categories: personal_description, ideology_beliefs,
 significant_people, meaningful_locations, treasured_possessions, traits. Respect the
 player's facts. Ordinary gear is chosen semantically and recorded, never just described.
+Equipment lists physical belongings only. Do not include ordinary cash, a spending
+allowance or vague money placeholders: the kernel derives those from Credit Rating
+and the era in finance. A wallet or collectible coin can be an item; the ordinary
+money it contains is still accounted for by finance, not duplicated as equipment.
+Always include personal_description in play_language as an editable portrait
+subject, using three short, plain sentences, not ornate literary description.
+1. Give apparent age, a simple face shape, eye color, and hair color/length/style.
+2. Add one or two concrete identifying facial details with a clear location.
+3. Describe familiar era-appropriate clothing at the neckline/shoulders and a
+   simple visible expression. Keep the focus on the head and shoulders.
+For example, the specificity and simple wording could be: "A woman in her late
+twenties with an oval face, brown eyes, and dark hair cut just below the ears and
+parted to one side. Her eyebrows are straight and a few freckles cross the bridge
+of her nose. She wears a dark wool jacket over a white blouse and looks directly
+ahead with her lips closed." This is a writing example, not this player's face:
+choose varied, coherent features and express them naturally in play_language.
+Use ordinary color, shape, hairstyle and clothing words; omit a detail if you
+cannot describe it clearly. Never invent terminology or describe vague marks,
+abstract bone structure or metaphorical facial features. Personality and habits
+belong in traits; a neat outfit or cautious demeanor is not a face description.
+Respect all player-supplied features. Propose missing details without a questionnaire.
+Do not infer ancestry from name/language/occupation or facial anatomy from APP.
+Do not give every character the same scars, unusual eyes or glamour styling.
+Keep camera, lighting, backgrounds and rendering instructions out of this field.
+On unrelated occupation/skill/concept edits keep the appearance paragraph verbatim.
+Read the returned appearance before inviting confirmation; correct unnatural or
+unintelligible wording in the same turn if needed, retaining the intended features.
+
 Map the occupation and skills using the tool's catalog feedback. Names like Art and
 Craft (Photography), Language (Own), Fighting (Brawl) are concrete; choose specialties,
 not generic groups or 'any skill'. For another language use Language (Other: French).
@@ -44,7 +72,10 @@ without asking the player to operate internal fields. The standard rolled method
 computes every numeric value and the full budgets in the kernel.
 
 The returned actual sheet is displayed by the host inside the conversation. Give
-a short in-world account, then a compact player-language explanation of HOW this
+a short in-world account. When the frontend provides a calculation-details toggle,
+state the edition/method briefly and point to that control; do not automatically
+repeat calculations or budgets in the conversation. The detailed explanation below
+is for the terminal or an explicit player request to explain HOW this
 card was built, using only the returned sheet.creation trace and actual values:
 - Name Call of Cthulhu 7th edition and the actual generation method (standard
   rolled characteristics here, not point-buy or quick-fire). State the dice formulas

@@ -84,6 +84,8 @@ class SetupDrafts:
             errors.append("backstory must use the declared categories")
         elif sum(nonempty(backstory.get(k)) for k in BACKSTORY) < 3 or not nonempty(backstory.get("scenario_bound")):
             errors.append("supply 3-6 backstory categories and scenario_bound")
+        if not nonempty(backstory.get("personal_description")):
+            errors.append("personal_description is required; supply visible appearance in the player language")
         key = profile.get("key_connection") or {}
         if not isinstance(key, dict) or key.get("backstory_field") not in BACKSTORY or not nonempty(key.get("summary")) or not nonempty(backstory.get(key.get("backstory_field"))):
             errors.append("key_connection needs backstory_field and summary referring to a populated category")

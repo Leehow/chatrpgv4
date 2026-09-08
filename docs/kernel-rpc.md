@@ -2070,3 +2070,79 @@ in prose alongside the card; the in-play mechanics-only JSON rule remains intact
 Keep it compact, do not repeat the whole card, and end with the existing single
 confirmation invitation. Revisions explain only changed calculations and preserve
 unchanged rolls. No extra question or character-generation choice menu is added.
+
+#### Allocation review in the digital draft (2026-09-08)
+
+Character and skill tables omit half/fifth thresholds; the game computes those
+when resolving checks. The draft's skill table shows base value, occupational
+addition, personal-interest addition and final value for every skill. Values come
+from the immutable sheet.creation.skills ledger, not model prose. Base is the
+recorded final value less the two recorded additions. Credit Rating's recorded
+value is an occupational expenditure separate from occupation.allocations; include
+it in that row and in occupational spent totals exactly once. Budget summaries
+show total, spent and remaining for each pool. Missing legacy allocation evidence
+is displayed as unavailable, never inferred as zero additions. The language
+presenter supplies column headings only and cannot change the ledger.
+
+The card also shows characteristic generation and derived-stat calculations inline.
+Use recorded dice expressions/faces/totals/multipliers, age reductions and EDU
+checks, and Luck attempts/keep policy. Show the final saved values alongside this
+evidence. HP/MP/SAN expressions come from recorded creation.derived formulas.
+Movement and DB/Build explanation rows resolve the recorded rule reference against
+the existing content tables and are exposed only when the table result agrees
+with the saved result. These are read-only explanations, never new rolls or a
+replacement for the kernel calculator. Missing evidence remains unavailable.
+
+The digital card defaults to a compact view: final characteristics, derived values
+and skills, with background/possessions retained. A player-language button toggles
+all calculation evidence and skill-allocation budgets inline and can collapse them
+again. New revisions start compact. This is local presentation state only: toggling
+never rerolls, writes the draft, re-acknowledges a preview or calls a model. The
+frontend guide also keeps unsolicited calculation prose short and points to this
+control; detailed explanation remains available on explicit request or in the TUI.
+
+#### Appearance as a reusable portrait subject (2026-09-08)
+
+Every newly computed/revised profile includes backstory.personal_description, a
+compact player-language paragraph of visible appearance. Describe apparent age,
+face shape and salient facial features, eyes/brows, skin, hair, and one or two
+ordinary distinguishing details, plus era-appropriate visible clothing/accessories.
+Personality, speech and habits belong in traits, not as substitutes for appearance.
+Missing visual choices are editable proposals in the normal draft, never a new
+questionnaire. Preserve player-supplied features and keep this paragraph unchanged
+during unrelated occupation/skill/background edits unless explicitly asked to
+change appearance. Do not derive ancestry or facial anatomy from language, job,
+name or APP, or give every character the same scars/beauty marks.
+
+Keep image composition, lighting, art style and generation controls out of this
+biographical field. It will be reusable as the subject text of a future portrait
+request, but this change adds no image-generation feature or separate schema.
+The kernel checks presence only; visual quality remains the setup agent's semantic
+responsibility. Existing confirmed cards are not rewritten by this requirement.
+
+#### Background and monetary equipment in the sidebar
+
+The investigator sidebar displays all populated backstory text (concept remains
+in its existing header position), native language and key-connection summary using
+the player-language text projection. No background data is copied into a new store.
+Equipment contains physical belongings; ordinary cash, generic money allowances
+and wealth placeholders belong to finance. The existing tool-enabled presenter
+returns `finance_equipment`, an exact subset of supplied equipment strings, to
+exclude legacy financial duplicates from both draft and sidebar item displays.
+The host validates subset membership and uniqueness; open semantic classification
+is the model's job, never a keyword list. Keep wallets, purses and collectible
+coins, and keep uncertain entries. Financial balances and immutable evidence are
+unchanged. Old projections are upgraded on sheet reads; new setup profiles are
+instructed to omit monetary placeholders from equipment.
+
+Legacy equipment-presentation upgrades run in the background without making
+the sheet read await that model work. While pending, only the equipment section has a loading state; on
+completion a sheet_changed extension event refreshes the panel. Failed upgrades
+show a retry state instead of leaking monetary placeholders or retrying forever.
+
+Sidebar inventory is a noninteractive list with item name and supplied quantity.
+Weapon rows place labeled parameters beneath the name, using canonical weapon
+fields (damage_die, base_range_yards, uses_per_round, magazine, ammo, malfunction,
+skill, adds_damage_bonus, special) and legacy aliases when needed. Magazine
+capacity and current ammunition remain distinct; missing values are not invented.
+These UI captions use the sidebar's existing closed-language chrome exception.

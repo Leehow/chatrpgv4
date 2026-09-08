@@ -968,14 +968,21 @@ function applyTurnError(messages: ChatMessage[], content: string): ChatMessage[]
   return next
 }
 
+/** Close the turn: no assistant row in this transcript may still read as live.
+ *  A cut-in user row (queue drain, a re-delivered `[subagent-done]`/obligation
+ *  follow-up) is a hard chronology boundary — `applyStreamEvent` refuses to
+ *  update across it and opens a new assistant row, so every earlier row is
+ *  already finished while still carrying `streaming: true`. Closing only the
+ *  last one strands those spinners forever. */
 export function finishStreamingMessage(messages: ChatMessage[]): ChatMessage[] {
-  const index = messages.findLastIndex(message => message.role === 'assistant' && message.streaming)
-  if (index < 0) return messages
-  const next = [...messages]
-  const message = next[index]
-  const activities = message.activities ? stripPendingThinking(message.activities) : message.activities
-  next[index] = { ...message, streaming: false, ...(activities ? { activities } : {}) }
-  return next
+  let changed = false
+  const next = messages.map(message => {
+    if (message.role !== 'assistant' || !message.streaming) return message
+    changed = true
+    const activities = message.activities ? stripPendingThinking(message.activities) : message.activities
+    return { ...message, streaming: false, ...(activities ? { activities } : {}) }
+  })
+  return changed ? next : messages
 }
 
 /** Last durable activity is a finished tool (or the live pending-thinking

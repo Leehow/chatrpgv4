@@ -165,6 +165,25 @@ describe('transcript model', () => {
     } finally { vi.useRealTimers() }
   })
 
+  it('settles every assistant stranded behind a cut-in user row, not just the last', () => {
+    // Production: a re-delivered `[subagent-done]`/obligation follow-up lands as
+    // a user row while the turn is still open. The next thinking/text event
+    // cannot cross that boundary, so it opens a second assistant row and the
+    // first one used to keep its spinner forever.
+    let messages: ChatMessage[] = [{ id: 'u0', role: 'user', content: '开始', timestamp: 1 }]
+    messages = applyStreamEvent(messages, { type: 'thinking', sessionId: 's', contentIndex: 0, delta: '第一跳思考' })
+    messages = applyStreamEvent(messages, { type: 'text', sessionId: 's', contentIndex: 0, delta: '第一段回答' })
+    messages = appendLiveUserMessage(messages, { id: 'redeliver', content: '[subagent-done] agentId=a1 ok=true' })
+    messages = applyStreamEvent(messages, { type: 'thinking', sessionId: 's', contentIndex: 0, delta: '第二跳思考' })
+    messages = applyStreamEvent(messages, { type: 'text', sessionId: 's', contentIndex: 0, delta: '第二段回答' })
+    expect(messages.filter(message => message.role === 'assistant' && message.streaming)).toHaveLength(2)
+
+    const settled = finishStreamingMessage(messages)
+    expect(settled.filter(message => message.role === 'assistant' && message.streaming)).toEqual([])
+    expect(settled.map(message => message.content)).toEqual(['开始', '第一段回答', '[subagent-done] agentId=a1 ok=true', '第二段回答'])
+    expect(finishStreamingMessage(settled)).toBe(settled)
+  })
+
   it('opens a pending thinking block after the last tool so a silent next completion stays visible', () => {
     let messages: ChatMessage[] = []
     messages = applyStreamEvent(messages, { type: 'thinking', sessionId: 's', contentIndex: 0, segment: 0, delta: 'first look' })

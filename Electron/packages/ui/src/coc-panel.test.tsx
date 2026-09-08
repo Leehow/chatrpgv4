@@ -8,7 +8,8 @@
  * invisible in a test that renders the happy path only.
  */
 import React from 'react';
-import { render, screen, cleanup, waitFor } from '@testing-library/react';
+import weaponCatalog from '../../../../content/rulesets/coc7/rules-json/weapons.json';
+import { render, screen, cleanup, waitFor, fireEvent, act } from '@testing-library/react';
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { createComponent } from '../../../../pipicoc/panel.js';
 
@@ -178,4 +179,54 @@ describe('derived values and visible identities use their text projections', () 
     expect(screen.queryByText("Knott's Office")).toBeNull();
     expect(screen.queryByText('Steven Knott')).toBeNull();
   });
+});
+
+it('shows the whole character background and keeps cash only in finance',async()=>{
+ const snapshot=view({investigators:[{...investigator,backstory:{concept:'角色概念',personal_description:'长脸，深棕短发。',traits:'谨慎',significant_people:'编辑朋友',scenario_bound:'应邀调查房屋'},own_language:'English',key_connection:{summary:'编辑是她最信任的人'},equipment:['Some cash','Wallet','Collectible coin'],finance:{cash:{amount:60,currency:'USD'}}}],finance_equipment:['Some cash'],labels:{Background:'背景',personal_description:'外貌描述',traits:'特质',significant_people:'重要之人',scenario_bound:'模组关联',Language:'语言','Key connection':'关键联系',English:'英语',USD:'美元',Wallet:'钱包','Collectible coin':'收藏硬币','Some cash':'适量现金'}});
+ const before=JSON.stringify(snapshot);
+ render(<Panel api={host({ok:true,data:{status:'ready',view:snapshot,campaign:'c1'}})}/>);
+ await screen.findByRole('heading',{name:'背景'});
+ for(const text of ['长脸，深棕短发。','谨慎','编辑朋友','应邀调查房屋','英语','编辑是她最信任的人','钱包','收藏硬币','60 美元'])expect(screen.getByText(text)).toBeTruthy();
+ expect(screen.queryByText('适量现金')).toBeNull();expect(screen.queryByText('Some cash')).toBeNull();
+ expect(JSON.stringify(snapshot)).toBe(before);
+});
+
+it('keeps the sheet readable while equipment projection is pending and refreshes on completion',async()=>{
+ const base=view({investigators:[{...investigator,equipment:['Some cash','Wallet'],finance:{cash:{amount:60,currency:'USD'}}}],labels:{Wallet:'钱包'}});
+ let notify:(event:unknown)=>void=()=>{};
+ const api={...host({ok:true,data:{status:'ready',view:{...base,presentation_status:'pending'},campaign:'c1'}},{ok:true,data:{status:'ready',view:{...base,finance_equipment:['Some cash']},campaign:'c1'}}),subscribeExt:(listener:any)=>{notify=listener;return()=>{}}};
+ render(<Panel api={api}/>);
+ await screen.findByText('正在读桌上的状态……');
+ expect(screen.queryByText('Some cash')).toBeNull();expect(screen.getByText('60 USD')).toBeTruthy();
+ await act(async()=>notify({type:'sheet_changed'}));
+ await screen.findByText('钱包');expect(screen.queryByText('Some cash')).toBeNull();
+});
+it('retries a failed equipment projection only on an explicit retry',async()=>{
+ const api=host({ok:true,data:{status:'ready',view:view({presentation_status:'failed'}),campaign:'c1'}});
+ render(<Panel api={api}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'重试'}));
+ await waitFor(()=>expect(api.invoke).toHaveBeenLastCalledWith('sheet',{retry_projection:true}));
+});
+
+it('renders a canonical weapon as a read-only entry with separate labeled parameters',async()=>{
+ const weapon={name:'revolver_45',...weaponCatalog.weapons.revolver_45,ammo:0,quantity:1};
+ const snapshot=view({investigators:[{...investigator,weapons:[weapon],equipment:['Notebook']}],labels:{'.45 Revolver':'.45转轮手枪','Firearms (Handgun)':'火器（手枪）',Notebook:'笔记本'}});
+ const before=JSON.stringify(snapshot);
+ render(<Panel api={host({ok:true,data:{status:'ready',view:snapshot,campaign:'c1'}})}/>);
+ const row=(await screen.findByText('.45转轮手枪')).closest('li')!;
+ expect(row.querySelector('button')).toBeNull();
+ expect(row.querySelector('dl')).toBeTruthy();
+ const values=Object.fromEntries(Array.from(row.querySelectorAll('dl>div')).map(el=>[el.querySelector('dt')?.textContent,el.querySelector('dd')?.textContent]));
+ expect(values).toMatchObject({'基础伤害':weapon.damage_die,'基础射程（码）':'15','每轮攻击':'1 (3)','弹匣容量':'6','当前弹药':'0','故障值':'100','使用技能':'火器（手枪）','计入伤害加值':'否'});
+ expect(screen.queryByText('revolver_45')).toBeNull();
+ expect(screen.getByText('笔记本').closest('li')?.querySelector('dl')).toBeNull();
+ expect(JSON.stringify(snapshot)).toBe(before);
+});
+it('supports legacy weapon fields and preserves supplied quantities without inventing missing parameters',async()=>{
+ render(<Panel api={host({ok:true,data:{status:'ready',view:view({investigators:[{...investigator,weapons:[{name:'Old pistol',damage:'1D6',range:10,attacks:1,ammo:0,quantity:2}]}]}),campaign:'c1'}})}/>);
+ const row=(await screen.findByText('Old pistol')).closest('li')!;
+ expect(row.textContent).toContain('x2');
+ expect(row.textContent).toContain('伤害1D6');
+ expect(row.textContent).toContain('当前弹药0');
+ expect(row.textContent).not.toContain('弹匣容量');
 });
