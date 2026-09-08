@@ -2017,3 +2017,11 @@ Movement and DB/Build explanation rows resolve the recorded rule reference again
 the existing content tables and are exposed only when the table result agrees
 with the saved result. These are read-only explanations, never new rolls or a
 replacement for the kernel calculator. Missing evidence remains unavailable.
+
+The digital card defaults to a compact view: final characteristics, derived values
+and skills, with background/possessions retained. A player-language button toggles
+all calculation evidence and skill-allocation budgets inline and can collapse them
+again. New revisions start compact. This is local presentation state only: toggling
+never rerolls, writes the draft, re-acknowledges a preview or calls a model. The
+frontend guide also keeps unsolicited calculation prose short and points to this
+control; detailed explanation remains available on explicit request or in the TUI.

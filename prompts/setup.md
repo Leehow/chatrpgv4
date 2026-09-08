@@ -44,7 +44,10 @@ without asking the player to operate internal fields. The standard rolled method
 computes every numeric value and the full budgets in the kernel.
 
 The returned actual sheet is displayed by the host inside the conversation. Give
-a short in-world account, then a compact player-language explanation of HOW this
+a short in-world account. When the frontend provides a calculation-details toggle,
+state the edition/method briefly and point to that control; do not automatically
+repeat calculations or budgets in the conversation. The detailed explanation below
+is for the terminal or an explicit player request to explain HOW this
 card was built, using only the returned sheet.creation trace and actual values:
 - Name Call of Cthulhu 7th edition and the actual generation method (standard
   rolled characteristics here, not point-buy or quick-fire). State the dice formulas

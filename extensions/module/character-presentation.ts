@@ -8,7 +8,7 @@ const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 const prompt=join(root,'content/setup/character-presentation.md');
 export const CARD_TEXT = ['Character draft','Character draft — reply to confirm or describe changes.',
   'Parameter','Value','Skill','Base value','Occupation points','Interest points','Final value','Point allocation','Total points','Spent','Remaining','Skills','Finance','Background','Language','Key connection',
-  'Characteristics','Calculation','Rolled value','Dice results','Age adjustment','EDU improvement checks','Keep highest','Base movement','Age movement penalty','Round down','Standard rolled characteristics','Quick-fire array','Equipment','Weapons','Preview unavailable','Retry',
+  'Show calculation details','Hide calculation details','Characteristics','Calculation','Rolled value','Dice results','Age adjustment','EDU improvement checks','Keep highest','Base movement','Age movement penalty','Round down','Standard rolled characteristics','Quick-fire array','Equipment','Weapons','Preview unavailable','Retry',
   'cash','assets','spending','credit_rating','living_standard','damage','range','attacks','ammo','malfunction','skill','Yes','No'];
 type Row=Record<string,any>;
 export function cardTexts(sheet:Row):string[] {

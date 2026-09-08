@@ -4,6 +4,8 @@ type Row = Record<string, any>
 type Props={data:Row;onRendered?:()=>Promise<void>;onPresentation?:()=>Promise<Row>}
 export function CocCharacterDraft({data,onRendered,onPresentation}:Props) {
   const [presentation,setPresentation]=useState<Row|null>(data.presentation||null)
+  const [showDetails,setShowDetails]=useState(false)
+  useEffect(()=>setShowDetails(false),[data.revision])
   const [error,setError]=useState(false),[retry,setRetry]=useState(0)
   useEffect(()=>{
     let active=true
@@ -68,12 +70,12 @@ export function CocCharacterDraft({data,onRendered,onPresentation}:Props) {
   const budgets=[{key:'Occupation points',account:occupation,spent:typeof occupation?.spent==='number'&&typeof credit==='number'?occupation.spent+credit:undefined},{key:'Interest points',account:interest,spent:interest?.spent}]
   const money=(entry:Row)=>entry?`${entry.amount} ${t(entry.currency)}`:'—'
   return <section aria-label={t('Character draft')} data-draft-revision={data.revision} style={{padding:16,border:'1px solid var(--border)',borderRadius:12,background:'var(--surface)',display:'grid',gap:16}}>
-    <header><h2>{sheet.name}</h2><p>{t(sheet.occupation)} · {sheet.age} · {t(sheet.era)}</p><p>{t('Character draft — reply to confirm or describe changes.')}</p></header>
-    <h3>{t('Characteristics')}</h3><p>{generated.method==='rolled'?t('Standard rolled characteristics'):generated.method==='quick_fire'?t('Quick-fire array'):'—'} · {age.bracket||'—'}</p>
-    {calculationTable(sheet.characteristics,generation)}{calculationTable(sheet.derived,derivedCalculation)}
-    <h3>{t('Point allocation')}</h3>
-    <table style={tableStyle}><thead><tr>{['Point allocation','Total points','Spent','Remaining'].map(key=><th key={key}>{t(key)}</th>)}</tr></thead><tbody>{budgets.map(({key,account,spent})=><tr key={key}><th scope="row">{t(key)}</th><td>{amount(account?.budget?.total)}</td><td>{amount(spent)}</td><td>{amount(account?.unspent)}</td></tr>)}</tbody></table>
-    <h3>{t('Skills')}</h3>{skillTable}
+    <header><h2>{sheet.name}</h2><p>{t(sheet.occupation)} · {sheet.age} · {t(sheet.era)}</p><p>{t('Character draft — reply to confirm or describe changes.')}</p><button type="button" style={{border:'1px solid var(--border)',borderRadius:8,padding:'6px 12px',cursor:'pointer'}} aria-expanded={showDetails} onClick={()=>setShowDetails(value=>!value)}>{t(showDetails?'Hide calculation details':'Show calculation details')}</button></header>
+    <h3>{t('Characteristics')}</h3>{showDetails?<><p>{generated.method==='rolled'?t('Standard rolled characteristics'):generated.method==='quick_fire'?t('Quick-fire array'):'—'} · {age.bracket||'—'}</p>
+    {calculationTable(sheet.characteristics,generation)}{calculationTable(sheet.derived,derivedCalculation)}</>:<>{values(sheet.characteristics)}{values(sheet.derived)}</>}
+    {showDetails&&<><h3>{t('Point allocation')}</h3>
+    <table style={tableStyle}><thead><tr>{['Point allocation','Total points','Spent','Remaining'].map(key=><th key={key}>{t(key)}</th>)}</tr></thead><tbody>{budgets.map(({key,account,spent})=><tr key={key}><th scope="row">{t(key)}</th><td>{amount(account?.budget?.total)}</td><td>{amount(spent)}</td><td>{amount(account?.unspent)}</td></tr>)}</tbody></table></>}
+    <h3>{t('Skills')}</h3>{showDetails?skillTable:values(sheet.skills)}
     <h3>{t('Finance')}</h3><dl>{[['cash',money(sheet.finance?.cash)],['assets',money(sheet.finance?.assets)],['spending',money(sheet.finance?.spending_level)],['credit_rating',sheet.credit_rating]].map(([key,value])=><div key={key}><dt>{t(key)}</dt><dd>{value}</dd></div>)}</dl>
     <h3>{t('Background')}</h3><dl>{Object.entries(sheet.backstory||{}).map(([key,value])=><div key={key}><dt>{t(key)}</dt><dd>{cell(value)}</dd></div>)}</dl>
     <p>{t('Language')}: {t(sheet.own_language)}</p><p>{t('Key connection')}: {cell(sheet.key_connection?.summary)}</p>

@@ -541,7 +541,7 @@ export default function (pi: ExtensionAPI) {
     return {systemPrompt:event.systemPrompt+'\n\nPrepared module prologue (use this opening on the first setup reply only):\n'+guidance.opening+
       '\n\nModule-specific setup advice:\n'+guidance.advice+
       '\nAfter name and occupation are supplied, use setup create-investigator with a complete structured profile NOW. Do not merely describe a character: the computed draft must appear before approval. Use confirm-investigator only after approval or explicit write-now delegation.'+
-      (process.env.PI_COC_SETUP_AUTOSTART==='1'?'\nThis is the frontend. After complete, close the prologue without a launch command; the host hands off to play.':'')};
+      (process.env.PI_COC_SETUP_AUTOSTART==='1'?'\nThis is the frontend. The card defaults to final values and has a calculation-details toggle for all dice, adjustments and allocation evidence. Keep the accompanying prose brief: identity, edition/method and one confirmation invitation. Do not automatically repeat calculations or budgets; point to the details control or explain them if the player explicitly asks. After complete, close the prologue without a launch command; the host hands off to play.':'')};
   });
 
 	// The kernel extension emits the bridge in session_start; this subscribes at load time, so both load orders are caught.
