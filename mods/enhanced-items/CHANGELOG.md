@@ -1,3 +1,10 @@
+# 1.1.0
+
+Readable/writable carriers have persistent document text and an acquisition
+snapshot. The paper editor can save and reset without altering scenario truth.
+Existing carriers are enriched in place. Named rule, materializer and document
+editor contributions can be superseded by later Mods in the saved load order.
+
 # 1.0.3
 
 Initial and legacy inventory participate in opening/turn context and narration

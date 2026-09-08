@@ -88,6 +88,13 @@ const ObjectEffect = Type.Object({
   kind: StringEnum(["object"] as const),
   adopt: Type.Optional(Type.String({description:"Exact existing unmanaged equipment name to enrich in place for the investigator in to; no from, no new acquisition, preserve quantity and state"})),
   name: Type.String({description:"Unique natural name of this physical instance; keep it when ownership changes"}),
+  document: Type.Optional(Type.Union([
+    Type.Object({text:Type.String({maxLength:64000,description:"Established readable text, or empty for blank stationery; never undiscovered source truth"}),
+      presentation:StringEnum(["paper","notebook","book"] as const)}),
+    Type.Object({handout:Type.String({description:"Name of an already revealed textual handout; the kernel copies its exact authored text"}),
+      presentation:StringEnum(["paper","notebook","book"] as const)}),
+    Type.Object({action:StringEnum(["write"] as const),text:Type.String({maxLength:64000})}),
+  ],{description:"Initialize a writable carrier once, or write its current text with a causal why; same from/to for existing objects, acquisition original is retained"})),
   definition: Type.Optional(Type.String({description:"Accepted definition name when first placing the instance"})),
   to: Type.String({description:"New owner: investigator, NPC, scene or existing container instance; here means the current scene"}),
   condition: Type.Optional(StringEnum(["intact","damaged","jammed","broken"] as const, {description:"Initial condition, or an explicit existing-object state change with the same from/to owner and a causal why; ownership transfers preserve state"})),

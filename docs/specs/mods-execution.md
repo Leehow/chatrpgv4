@@ -157,3 +157,24 @@ under that run's `checks/`, all in the main checkout. The repair is isolated on
 `codex/mods-initial-equipment` pending safe integration with concurrent main changes.
 Existing saves retain explicit version locks; upgrading to 1.0.3 activates
 reconciliation on their next normal Keeper turn, without manufacturing player input.
+
+## Writable papers and Mod precedence (in progress)
+
+Approved scope: a paper-like inventory modal with readable/editable text, persistent
+save and reset to the acquisition snapshot; semantic classification and source
+protection; visible Mod ordering and actual later-provider overrides. Continue on
+the already-owned `codex/mods-initial-equipment` branch so the initial-gear fix stays
+included. Concurrent dirty main files remain outside this lane.
+
+Acceptance: blank and authored text, save/reopen/reset, identity/ownership/revision
+checks, no source or turn-progress changes, transfer and worldline continuity,
+disabled-generator retention; alternate providers demonstrably change rules,
+materialization and editor selection; manager ordering is persistent and visible.
+Use the existing warm clay UI, a generated quiet paper texture and native dialog
+focus behavior. Verify real browser interaction and genuine Keeper generation.
+
+Ready sequence: contract; document values/apply and ordering resolver; host/UI;
+focused and required checks; browser and real-play evidence; safe integration and
+lifecycle audit. No online marketplace, arbitrary executable Mod payloads, or
+unrequested scenario changes. Sources checked: Factorio lifecycle, OpenMW mod
+installation/load order and MDN native dialog behavior.

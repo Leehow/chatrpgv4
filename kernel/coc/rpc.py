@@ -18,7 +18,7 @@ from typing import Any, Callable
 from .errors import RpcError
 from .library import methods as library_methods
 from .modules.rpc import methods as module_methods
-from .store import Store
+from .store import Store, campaign_lock
 from .table import Table
 from .mods.adapter import methods as mod_methods
 
@@ -26,7 +26,7 @@ SEED_ENV = "COC_KERNEL_SEED"
 
 
 def build_methods(table: Table) -> dict[str, Callable[[dict[str, Any]], dict[str, Any]]]:
-    return {
+    handlers = {
         "kernel.hello": table.hello,
         "campaign.list": table.campaign_list,
         "campaign.create": table.campaign_create,
@@ -62,6 +62,12 @@ def build_methods(table: Table) -> dict[str, Callable[[dict[str, Any]], dict[str
         **library_methods(table),
         **mod_methods(table),
     }
+    def guarded(handler):
+        def invoke(params):
+            with campaign_lock(table.store, params):
+                return handler(params)
+        return invoke
+    return {name: guarded(handler) for name, handler in handlers.items()}
 
 
 def log(message: str) -> None:

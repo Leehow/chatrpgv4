@@ -21,6 +21,10 @@ PDF 直接阅读与按需构图的目标契约见 §22（2026-09-07，待实现�
 
 错误码闭合枚举：`invalid_params`、`unknown_method`、`not_implemented`、`campaign_not_found`、`campaign_not_ready`、`turn_state`（当前回合状态不允许该方法）、`idempotency_conflict`、`needs`（缺少可补的输入，`details.needs` 给字段与可选值）、`needs_choice`（多个互斥候选，`details.candidates`）、`unknown_entity`（名字在模组图与世界状态中都找不到，`details.candidates` 给相近名字）、`not_reachable`（移动目的地不可达）、`not_here`（线索不在当前场景可得）、`commit_failed`（git 提交失败，回合未关闭）、`internal`。
 
+Section 26 adds two closed host-document error codes: `not_owned` refuses access
+after ownership changes; `revision_conflict` refuses a stale document/worldline
+write while preserving the client draft. Hot and cold UI bridges retain these codes.
+
 ## 2. 标识法
 
 - 模型可见的一切标识都是名字或语义 id：场景用图上的 `scene_id` 去掉 `scene-` 前缀后的 kebab 名，也接受图上的 `display_name` 与 `name`；NPC、线索、物品同理接受 id 或名字，内核做归一化，歧义时报 `unknown_entity` 并给候选。
@@ -2168,6 +2172,69 @@ capacity and current ammunition remain distinct; missing values are not invented
 These UI captions use the sidebar's existing closed-language chrome exception.
 
 ## 26. Gameplay mods (2026-09-08)
+
+### Writable documents and ordered overrides (2026-09-08)
+
+Enhanced Items 1.1.0 adds `objects.documents.v1`. The semantic creator may attach
+`document: {text, presentation: paper|notebook|book}` to an item/weapon definition.
+For an already revealed textual handout, use `handout:<semantic name>` instead of
+`text`; the kernel copies its exact authored text, rather than asking the model to
+retype it. The creator receives only revealed handout names/previews. Hidden or
+nontextual sources are refused. The stored instance always contains captured text.
+Text is the established readable content, including an empty string for blank
+stationery. Never copy undiscovered source truth, invent diary entries, translate
+an undeciphered script or grant knowledge merely by opening an editor. Existing
+carriers may acquire this capability through `apply object document:{...}` with
+the same current owner in from/to; an initialized document cannot be reinitialized.
+Definition/source text remains immutable; instance text is the editable copy.
+
+An instance captures its current text when it enters an investigator's ownership.
+Its acquisition snapshot is immutable throughout that custody, including edits,
+reset, Mod upgrades and renderer changes. Moving it to another investigator
+captures a new acquisition baseline from the text actually transferred. Containers
+use the root owner's identity. Reset never replaces module graphs, clues, receipts
+or the acquisition baseline. Books are carriers, not learned spells.
+
+Host-only `mods.document.view {campaign, actor, name}` exposes only owned documents
+and a host revision token. `mods.document.apply {campaign, actor, name, version,
+action:save|reset, text?}` is the explicit player's document-edit apply path. It
+checks ownership and the revision/worldline token, writes one current world value
+atomically, and appends an audit receipt. It does not open a fictional turn, roll,
+advance time, or change resources. Reset obtains the baseline from storage, never
+from the client. Conflicts retain the user's unsaved draft. Text is bounded plain
+text, not HTML or instructions. All campaign RPC operations share a short process
+lock so a cold panel write cannot race a live Keeper's world transaction.
+
+The inventory opens a modal editor for structural document capabilities, not name
+keywords. Empty, loading, failure, unsaved, saved and reset states are explicit.
+The normal handout/source reader remains the immutable reference; this editor owns
+the writable inventory copy. Existing documents retain a plain core editor when
+their generator is disabled. Modal input never edits scenario truth.
+
+`mods.order {campaign?, order:[mod ids]}` stores an explicit top-to-bottom order;
+without a campaign it sets new-campaign defaults. Dependencies load first. Manual
+orders violating dependencies are rejected; busy campaign changes wait for the
+same safe boundary as version changes. Saves/worldlines retain order and versions.
+
+Contributions resolve by stable slots: each named check, the materializer, and the
+document editor. Later providers replace earlier providers of the same slot,
+including a named check whose namespace belongs to another Mod. A package may
+provide `document_editor:{renderer:paper|plain}`. A policy package's instructions
+and auditor run only while it still owns one of its check/materializer slots;
+observer-only auditors default to separate additive slots, but may declare the
+same `audit_slot` to replace an earlier auditor. The resolved provider and displaced
+providers are exposed to the Mod manager and Keeper. Jobs must still belong to
+the effective provider at acceptance. Changing order affects future behavior,
+never rerolls a committed pair check or regenerates accepted items.
+
+These are executable contribution overrides, not arbitrary source monkey-patches.
+New kinds of rule executors or UI renderers require new named capabilities while
+keeping dice and state transactions in the kernel. This permits larger overhauls
+without tying packages to kernel/Pi/Electron implementation objects.
+
+Design precedent: Factorio orders dependencies before dependents; OpenMW exposes
+user order with later resources replacing earlier ones. We use those explicit
+ordering principles and retain captured model outputs instead of replaying them.
 
 ### Initial and existing equipment reconciliation
 

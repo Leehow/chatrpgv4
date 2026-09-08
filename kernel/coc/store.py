@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import datetime as _dt
+import fcntl
 import re
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +15,25 @@ from .fileio import (append_jsonl, canonical_json, read_json, read_jsonl, sha256
 
 CAMPAIGN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 CALL_ID = re.compile(r"^t(?P<turn>\d+)-c(?P<n>\d+)$")
+
+
+@contextmanager
+def campaign_lock(store: "Store", params: dict[str, Any]):
+    """Serialize short campaign RPC transactions across live and cold processes."""
+    name = params.get("campaign")
+    folder = store.campaigns_dir / name if isinstance(name, str) and CAMPAIGN_ID.fullmatch(name) else None
+    if folder is None or not (folder / "campaign.json").is_file():
+        yield
+        return
+    lock_dir = store.root / "locks"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    # A worldline checkout must never replace the inode of the held process lock.
+    with (lock_dir / f"{name}.lock").open("a+b") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def now_iso() -> str:

@@ -21,7 +21,8 @@ from ..fileio import canonical_json, read_json, write_json_atomic
 
 GAME_API = "pipicoc.game.v1"
 CAPABILITIES = frozenset({"checks.percentile.v1", "context.npc.v1", "definitions.v1",
-                          "objects.v1", "objects.state.v2", "objects.adopt.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1"})
+                          "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1",
+                          "ui.documents.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1"})
 SLUG = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 MAX_PACKAGE_BYTES = 16 * 1024 * 1024
@@ -81,7 +82,7 @@ def manifest_from(files: dict[str, bytes]) -> dict[str, Any]:
         raise invalid_params("Game interface v1 settings are scalar values")
     if not isinstance(manifest.get("settings_schema", {}), dict):
         raise invalid_params("settings_schema must be an object")
-    if set(manifest["contributes"]) - {"instructions", "checks", "materializer", "auditor", "audit_on_decisions"}:
+    if set(manifest["contributes"]) - {"instructions", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "document_editor"}:
         raise invalid_params("Unknown Mod contribution in game interface v1")
     for dep, ver in manifest["dependencies"].items():
         if not SLUG.fullmatch(dep):
@@ -94,7 +95,7 @@ def manifest_from(files: dict[str, bytes]) -> dict[str, Any]:
         if path is not None and (not isinstance(path, str) or path not in files or not path.endswith(".md")):
             raise invalid_params(f"contributes.{field} must name a package Markdown file")
     for check in manifest["contributes"].get("checks", []):
-        if (not isinstance(check, dict) or not str(check.get("name", "")).startswith(manifest["id"] + ":")
+        if (not isinstance(check, dict) or not re.fullmatch(r"[a-z][a-z0-9-]*:[a-z][a-z0-9-]*", str(check.get("name", "")))
                 or check.get("selection") != "maximum" or check.get("scope") != "actor-target"
                 or check.get("difficulty") not in {"regular", "hard", "extreme"}
                 or not isinstance(check.get("values"), list) or not check["values"]
@@ -107,6 +108,17 @@ def manifest_from(files: dict[str, bytes]) -> dict[str, Any]:
                 raise invalid_params("Check values must reference actor characteristics or skills")
         if set(check["results"]) != {"critical", "extreme", "hard", "regular", "failure", "fumble"}:
             raise invalid_params("A percentile decision must define all six results")
+    names = [check["name"] for check in manifest["contributes"].get("checks", [])]
+    if len(names) != len(set(names)):
+        raise invalid_params("A package cannot define the same check twice")
+    editor = manifest["contributes"].get("document_editor")
+    if editor is not None and (not isinstance(editor, dict) or set(editor) != {"renderer"}
+                               or editor["renderer"] not in {"paper", "plain"}):
+        raise invalid_params("Document editor must select a supported paper or plain renderer")
+    slot = manifest["contributes"].get("audit_slot")
+    if slot is not None and (not isinstance(slot, str) or not re.fullmatch(r"[a-z][a-z0-9:-]{0,127}", slot)
+                             or not manifest["contributes"].get("auditor")):
+        raise invalid_params("An audit slot needs a semantic name and an auditor")
     return manifest
 
 
@@ -209,7 +221,10 @@ class ModRuntime:
 
     def initialize(self, world: dict[str, Any]) -> bool:
         if "mods" in world:
-            self.active(world)
+            rows = self.active(world)
+            if "order" not in world["mods"]:
+                world["mods"]["order"] = self.topological(self.order(world), rows)
+                return True
             return False
         catalog = self.catalog()
         defaults = self.defaults()
@@ -221,8 +236,57 @@ class ModRuntime:
         for mod_id, row in latest.items():
             self.freeze(row)
             world["mods"]["active"][mod_id] = self.lock(row, defaults.get(mod_id, row["default_enabled"]))
+        world["mods"]["order"] = self.topological(self.order(world), [r for r in latest.values()
+                                                   if world["mods"]["active"][r["id"]]["enabled"]])
         self.active(world)
         return True
+
+    def order(self, world: dict[str, Any] | None = None) -> list[str]:
+        ids = {key[0] for key in self.catalog()} | set((world or {}).get("mods", {}).get("active", {}))
+        path = self.root / "load-order.json"
+        preferred = (world or {}).get("mods", {}).get("order")
+        if preferred is None:
+            preferred = read_json(path) if path.exists() else []
+        return [name for name in preferred if name in ids] + sorted(ids - set(preferred))
+
+    @staticmethod
+    def topological(preferred: list[str], rows: list[dict[str, Any]]) -> list[str]:
+        dependencies = {r["id"]: set(r["dependencies"]) for r in rows}
+        done: list[str] = []
+        todo = list(preferred)
+        while todo:
+            ready = next((name for name in todo if not dependencies.get(name, set()) - set(done)), None)
+            if ready is None:
+                raise invalid_params("Mod dependency order is cyclic or incomplete")
+            done.append(ready)
+            todo.remove(ready)
+        return done
+
+    def reorder(self, world: dict[str, Any] | None, order: Any, *, busy: bool = False) -> None:
+        expected = self.order(world)
+        if (not isinstance(order, list) or any(not isinstance(name, str) for name in order)
+                or len(order) != len(set(order)) or set(order) != set(expected)):
+            raise invalid_params("Load order must contain every installed Mod id exactly once")
+        if world is None:
+            catalog = self.catalog()
+            defaults = self.defaults()
+            latest = {}
+            for row in sorted(catalog.values(), key=lambda r: version_key(r["version"])):
+                if row["compatible"]:
+                    latest[row["id"]] = row
+            enabled = [r for r in latest.values() if defaults.get(r["id"], r["default_enabled"])]
+            if self.topological(order, enabled) != order:
+                raise invalid_params("Dependencies must load before the Mods that require them")
+            write_json_atomic(self.root / "load-order.json", order)
+            return
+        staged = copy.deepcopy(world)
+        staged["mods"]["order"] = list(order)
+        self.active(staged)
+        if busy:
+            world["mods"]["pending_order"] = list(order)
+        else:
+            world["mods"]["order"] = list(order)
+            world["mods"].pop("pending_order", None)
 
     @staticmethod
     def lock(row: dict[str, Any], enabled: bool, settings: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -247,10 +311,46 @@ class ModRuntime:
                 if locks.get(conflict, {}).get("enabled"):
                     raise invalid_params(f"{mod_id} conflicts with {conflict}")
             out.append(row)
-        providers = [r["id"] for r in out if r["contributes"].get("materializer")]
-        if len(providers) > 1:
-            raise invalid_params("Only one definition materializer can own the same generation request")
-        return sorted(out, key=lambda r: r["id"])
+        preferred = self.order(world)
+        ordered = self.topological(preferred, out)
+        if "order" in world.get("mods", {}) and ordered != preferred:
+            raise invalid_params("Dependencies must load before the Mods that require them")
+        return sorted(out, key=lambda r: ordered.index(r["id"]))
+
+    def providers(self, world: dict[str, Any]) -> dict[str, list[str]]:
+        slots: dict[str, list[str]] = {"document_editor": ["core"]}
+        for row in self.active(world):
+            contributes = row["contributes"]
+            keys = [f"check:{check['name']}" for check in contributes.get("checks", [])]
+            keys.extend(key for key in ("materializer", "document_editor") if contributes.get(key))
+            if contributes.get("auditor"):
+                keys.append(f"audit:{contributes.get('audit_slot', row['id'])}")
+            for key in keys:
+                slots.setdefault(key, []).append(row["id"])
+        return slots
+
+    def effective(self, world: dict[str, Any]) -> list[dict[str, Any]]:
+        slots = self.providers(world)
+        out = []
+        for row in self.active(world):
+            contributes = row["contributes"]
+            policy = [f"check:{check['name']}" for check in contributes.get("checks", [])]
+            if contributes.get("materializer"):
+                policy.append("materializer")
+            if not policy and contributes.get("document_editor"):
+                policy.append("document_editor")
+            if not policy and contributes.get("auditor"):
+                policy.append(f"audit:{contributes.get('audit_slot', row['id'])}")
+            if not policy or any(slots[key][-1] == row["id"] for key in policy):
+                out.append(row)
+        return out
+
+    def editor(self, world: dict[str, Any]) -> dict[str, Any]:
+        provider = self.providers(world)["document_editor"][-1]
+        if provider == "core":
+            return {"provider": "core", "renderer": "plain"}
+        row = next(r for r in self.active(world) if r["id"] == provider)
+        return {"provider": provider, **row["contributes"]["document_editor"]}
 
     def configure(self, world: dict[str, Any], change: dict[str, Any], *, busy: bool) -> None:
         self.initialize(world)
@@ -277,6 +377,7 @@ class ModRuntime:
                 raise invalid_params(f"Setting {key} is outside its declared range")
         staged = copy.deepcopy(world)
         staged["mods"]["active"][mod_id] = self.lock(row, enabled, settings)
+        staged["mods"]["order"] = self.order(staged)
         self.active(staged)
         if busy:
             world["mods"]["pending"][mod_id] = {"id": mod_id, "version": version, "enabled": enabled, "settings": settings}
@@ -305,12 +406,15 @@ class ModRuntime:
 
     def apply_pending(self, world: dict[str, Any]) -> bool:
         changes = list((world.get("mods") or {}).get("pending", {}).values())
+        order = (world.get("mods") or {}).get("pending_order")
         staged = copy.deepcopy(world)
+        if order is not None:
+            self.reorder(staged, order)
         for change in changes:
             self.configure(staged, change, busy=False)
-        if changes:
+        if changes or order is not None:
             world["mods"] = staged["mods"]
-        return bool(changes)
+        return bool(changes) or order is not None
 
     def view(self, world: dict[str, Any] | None = None) -> dict[str, Any]:
         locks = (world or {}).get("mods", {})
@@ -322,12 +426,14 @@ class ModRuntime:
                 "active": locks.get("active", {}).get(row["id"]), "pending": locks.get("pending", {}).get(row["id"]),
                 "settings_schema": row.get("settings_schema", {}),
                 "changelog": row["files"].get("CHANGELOG.md", b"").decode("utf-8")})
-        return {"game_api": GAME_API, "capabilities": sorted(CAPABILITIES), "mods": rows}
+        return {"game_api": GAME_API, "capabilities": sorted(CAPABILITIES), "mods": rows,
+                "order": self.order(world), "pending_order": locks.get("pending_order"),
+                "providers": self.providers(world) if world and locks else {}}
 
     def instructions(self, world: dict[str, Any]) -> list[dict[str, Any]]:
         return [{"mod": r["id"], "version": r["version"], "settings":world["mods"]["active"][r["id"]]["settings"],
                  "instruction": r["files"][r["contributes"]["instructions"]].decode()}
-                for r in self.active(world) if r["contributes"].get("instructions")]
+                for r in self.effective(world) if r["contributes"].get("instructions")]
 
     def decisions(self, world: dict[str, Any]) -> dict[str, tuple[str, dict[str, Any]]]:
         return {check["name"]: (row["id"], check) for row in self.active(world)

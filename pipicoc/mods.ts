@@ -1,6 +1,11 @@
 /** Explicit-session panel adapter; it does not expose Keeper-only Mod context. */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { emitToPanel, registerInvokeHandlers } from "./host-bridge.ts";
+import { readFile } from "node:fs/promises";
+
+let texture: Promise<string | undefined> | undefined;
+const paperTexture = () => texture ??= readFile(new URL("./assets/paper-texture.jpg", import.meta.url))
+  .then(bytes => `data:image/jpeg;base64,${bytes.toString("base64")}`).catch(()=>undefined);
 
 export function registerModsPanel(pi: ExtensionAPI): void {
   let call: ((method:string, params:Record<string, unknown>) => Promise<unknown>) | undefined;
@@ -17,17 +22,25 @@ export function registerModsPanel(pi: ExtensionAPI): void {
   async function invoke(method:string, params:Record<string, unknown> = {}) {
     if (!call) throw new Error("The game runtime is not ready");
     if (method === "mods.configure" && !campaign) throw new Error("Select a campaign before changing its Mods");
+    if (method.startsWith("mods.document.") && !campaign) throw new Error("Select the document's campaign");
     const result = await call(method, {...params, ...(campaign ? {campaign} : {})});
-    if (method !== "mods.list") notify();
+    if (method === "mods.document.apply") void emitToPanel("coc-keeper", "sheet-changed");
+    else if (method !== "mods.list" && !method.startsWith("mods.document.")) notify();
+    if (method.startsWith("mods.document.") && (result as any)?.editor?.renderer === "paper") {
+      return {...result as any, texture:await paperTexture()};
+    }
     return result;
   }
   registerInvokeHandlers("coc-keeper", Object.fromEntries(
-    ["mods.list", "mods.install", "mods.defaults", "mods.configure"].map(method => [method,
+    ["mods.list", "mods.install", "mods.defaults", "mods.configure", "mods.order", "mods.document.view", "mods.document.apply"].map(method => [method,
       (raw:unknown) => {
         if (raw !== undefined && (raw === null || typeof raw !== "object" || Array.isArray(raw))) throw new Error("Expected Mod parameters");
         const params = {...(raw as Record<string, unknown> ?? {})};
         delete params.campaign;
-        return invoke(method, params);
+        const pending = invoke(method, params);
+        return method.startsWith("mods.document.") ? pending.catch(error=>({ok:false,error:{
+          code:typeof error?.code === "string" ? error.code : "mods_failed",
+          message:error instanceof Error ? error.message : String(error)}})) : pending;
       }]),
   ));
 }

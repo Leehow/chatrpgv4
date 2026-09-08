@@ -15,6 +15,14 @@ the Keeper to define it and use object.adopt with its exact name and owner. Do n
 award another copy. Ordinary decorative entries and executable weapon rows need
 no replacement. Do not turn financial placeholders into physical items.
 
+Inspect registered owned carriers too. A readable/writable carrier without a
+document needs a finding instructing the Keeper to initialize object.document
+with its established readable text and presentation, preserving the existing
+instance and ownership. Blank paper may have empty text; missing source writing
+must not be invented or silently treated as blank. Do not demand reinitialization
+of a document that already exists or undo player edits. Check described writing
+against the current text, which is not the immutable scenario source.
+
 Write result.json: {missing:[{name, category:weapon|spell|item, reason}], findings:[]}.
 Also compare existing objects' described ownership, damage, breakage and spent uses
 with their current instance state and the turn's receipts. If the draft says a

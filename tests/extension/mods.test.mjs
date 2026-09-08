@@ -47,6 +47,14 @@ test('the panel adapter binds mutations to its own campaign and ignores supplied
     pi.events.emit('coc:kernel-bridge',{campaign:'selected',call:async(method,params)=>{calls.push({method,params});return{};}});
     await handlers.get('mods.configure')({campaign:'another',id:'natural-npc',enabled:false});
     assert.equal(calls[0].params.campaign,'selected');
+    await handlers.get('mods.document.apply')({campaign:'another',actor:'Investigator',name:'Notebook',version:'host-version',action:'reset'});
+    assert.equal(calls[1].params.campaign,'selected');
+    assert.equal(calls[1].method,'mods.document.apply');
+    await handlers.get('mods.order')({order:['enhanced-items','natural-npc']});
+    assert.equal(calls[2].params.campaign,'selected');
+    pi.events.emit('coc:kernel-bridge',{campaign:'selected',call:async()=>{throw Object.assign(new Error('Paper changed'),{code:'revision_conflict'});}});
+    assert.deepEqual(await handlers.get('mods.document.apply')({name:'Notebook',action:'save',text:'draft'}),
+      {ok:false,error:{code:'revision_conflict',message:'Paper changed'}});
     pi.events.emit('coc:kernel-bridge',{call:async()=>({})});
     await assert.rejects(()=>handlers.get('mods.configure')({id:'natural-npc',enabled:true}),/Select a campaign/);
   } finally {globalThis[symbol]=prior;}

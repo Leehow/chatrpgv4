@@ -11,6 +11,18 @@ of this exact thing. A strange weapon explicitly established by the Keeper remai
 that weapon. Explain a source contradiction instead of quietly replacing it.
 
 Result shape: {name, category, description, basis, parameters, player_view}.
+Writable or readable physical carriers also need document:{text,presentation},
+where presentation is paper, notebook or book. Recognize these semantically from
+context, not only from a narrow set of names. A blank notebook/paper has text:"".
+Use the established readable writing, not a synopsis substituted for its words.
+Retrieve known source text when needed; never invent letters/diary entries, expose
+undiscovered source secrets, translate undeciphered writing or grant spell knowledge.
+Ordinary paper/book carriers can use charges:null and effects:[]; their document
+capability is meaningful even without combat parameters. Keep the acquisition
+original separate from future player edits; the kernel owns that snapshot.
+For a carrier of a source listed in known_handouts, use document:{handout:<its exact
+name>,presentation} instead of text. The kernel copies the authored text exactly.
+Never retype or summarize a known source into a replacement original.
 Optional traits contain measurable physical facts such as length, weight, capacity,
 material and strength: [{name, value, unit?, basis?}]. They inform the Keeper's
 feasibility decisions; they are not automatic effects. Do not hide an unsupported

@@ -5,6 +5,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 DEST="$REPO/.pi/coc-agent/extensions/coc-keeper"
 mkdir -p "$DEST/pipicoc"
+mkdir -p "$DEST/pipicoc/assets"
+cp "$HERE/assets/paper-texture.jpg" "$DEST/pipicoc/assets/"
 cp "$REPO/pipiui-extension.json" "$DEST/"
 for asset in preparation.js panel.js mods-panel.js mods.ts mechanics.js choices.js host-bridge.ts sheet.ts agent.ts sheet-icon.svg; do
   cp "$HERE/$asset" "$DEST/pipicoc/"

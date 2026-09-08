@@ -40,3 +40,13 @@ test('new versions are selectable without silently upgrading the campaign', asyn
   fireEvent.click(screen.getByText('Use this version'));
   await waitFor(()=>expect(invoke).toHaveBeenCalledWith('mods.configure',{id:'natural-npc',version:'1.1.0'}));
 });
+
+test('shows override ownership and sends the complete user load order',async()=>{
+  const rows=[row,{...row,id:'enhanced-items',name:'Enhanced Items'},{...row,id:'overhaul',name:'Overhaul'}];
+  const invoke=vi.fn(async()=>({ok:true,data:{campaign:'c1',play_language:'en',mods:rows,
+    order:['enhanced-items','natural-npc','overhaul'],providers:{materializer:['enhanced-items','overhaul']}}}));
+  render(<Panel api={{invoke}}/>);
+  await screen.findByText('Item generator · Overridden by: Overhaul');
+  fireEvent.click(screen.getByRole('button',{name:'Enhanced Items Move later'}));
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('mods.order',{order:['natural-npc','enhanced-items','overhaul']}));
+});

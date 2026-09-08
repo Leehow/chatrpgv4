@@ -8492,7 +8492,7 @@ export class PiHostBackend implements HostBackend {
         return {ok: true, data};
       } catch (error) { return settingsDenied("onboarding_failed", error instanceof Error ? error.message : String(error)); }
     }
-    if (id === "coc-keeper" && ["mods.list","mods.install","mods.defaults","mods.configure"].includes(method)) {
+    if (id === "coc-keeper" && ["mods.list","mods.install","mods.defaults","mods.configure","mods.order","mods.document.view","mods.document.apply"].includes(method)) {
       try {
         const sid = isRecord(optsValue) && typeof optsValue.sessionId === "string" ? optsValue.sessionId.trim() : "";
         const active = sid ? this.live.get(sid) : undefined;
@@ -8504,11 +8504,18 @@ export class PiHostBackend implements HostBackend {
         const repo = resolve(this.managedNodeModulesRoot,"..");
         const context = sid ? await readCocBinding((await this.locate(sid)).path) : undefined;
         if (method === "mods.configure" && !context) throw new Error("Select a campaign before changing its Mods");
+        if (method.startsWith("mods.document.") && !context) throw new Error("Select the document's campaign");
         const request:Record<string,unknown> = isRecord(params) ? {...params} : {};
         delete request.campaign;
         if (context) request.campaign = context.campaign;
-        return {ok:true,data:await callColdKernel(repo,context?.home ?? resolve(this.env.PI_COC_HOME || repo),method,request,this.env)};
-      } catch(error) {return settingsDenied("mods_failed",error instanceof Error ? error.message : String(error));}
+        const data:any = await callColdKernel(repo,context?.home ?? resolve(this.env.PI_COC_HOME || repo),method,request,this.env);
+        if (method.startsWith("mods.document.") && data?.editor?.renderer === "paper") {
+          try {data.texture = `data:image/jpeg;base64,${(await fs.readFile(join(repo,'pipicoc/assets/paper-texture.jpg'))).toString('base64')}`;}
+          catch { /* Text remains editable if the optional texture asset is unavailable. */ }
+        }
+        if (method === "mods.document.apply") emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context?.campaign}}});
+        return {ok:true,data};
+      } catch(error) {return settingsDenied(method.startsWith("mods.document.")&&typeof (error as any)?.code==='string'?(error as any).code:"mods_failed",error instanceof Error ? error.message : String(error));}
     }
     if(id==='coc-keeper' && (method==='draft-previewed'||method==='draft-presentation')) {
       const sid=isRecord(optsValue)&&typeof optsValue.sessionId==='string'?optsValue.sessionId:'';

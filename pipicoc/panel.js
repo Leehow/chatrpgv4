@@ -323,9 +323,135 @@ function clueLine(clue) {
   return { name: text(clue.label || clue.name || clue.clue || clue.id), summary: text(clue.summary) };
 }
 
+const PAPER_WORDS = {
+  en: {title:"Carried papers", open:"Read and write", body:"Document text", close:"Close", save:"Save", saveClose:"Save and close",
+    reset:"Restore acquisition original", loading:"Opening the paper…", empty:"This page is blank. Write here…",
+    clean:"Saved", dirty:"Unsaved changes", altered:"Edited since acquisition", original:"Acquisition original retained",
+    failed:"The paper could not be saved. Your draft is still here.", conflict:"The paper changed elsewhere. Your draft is retained; reload before saving.",
+    retry:"Reload paper", reloaded:"Latest version loaded; your draft is retained. Save to write this draft.", discard:"Close without saving", stay:"Keep editing", unsaved:"Keep your writing before closing.", saving:"Saving…"},
+  "zh-Hans": {title:"随身纸面", open:"翻阅与书写", body:"纸面内容", close:"关闭", save:"保存", saveClose:"保存并关闭",
+    reset:"恢复获取时内容", loading:"正在展开纸页…", empty:"纸页还是空白的，在这里写下文字…",
+    clean:"已保存", dirty:"有未保存的修改", altered:"内容已修改", original:"获取时的原文已保留",
+    failed:"暂时没有保存成功，编辑中的文字仍保留在这里。", conflict:"纸面已在别处更新，当前草稿已保留，请重新载入后再保存。",
+    retry:"重新载入纸面", reloaded:"已载入最新版本，当前草稿仍保留；点击保存会写入这份草稿。", discard:"不保存关闭", stay:"继续编辑", unsaved:"关闭前，别忘了保存写下的内容。", saving:"正在保存…"},
+};
+
+const PAPER_STYLE = `
+.coc-paper-dialog{padding:0;width:min(720px,calc(100vw - 40px));height:min(760px,calc(100dvh - 56px));max-width:none;max-height:none;
+ border:1px solid #c8b59b;border-radius:10px;background:#f5efdf;background-size:cover;color:#302720;box-shadow:0 24px 80px #160e0966;overflow:hidden}
+.coc-paper-dialog::backdrop{background:#21181188;backdrop-filter:blur(3px)}
+.coc-paper-shell{display:flex;flex-direction:column;height:100%;min-height:0}
+.coc-paper-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding:28px 34px 16px}
+.coc-paper-kicker{margin:0 0 8px;color:#796a58;font:11px/1.5 system-ui,sans-serif;letter-spacing:.13em}
+.coc-paper-head h2{margin:0;font:600 25px/1.5 "Songti SC",Georgia,serif;overflow-wrap:anywhere}
+.coc-paper-dialog button{font:13px/1.5 system-ui,sans-serif;cursor:pointer;border:1px solid #cdbb9f;border-radius:6px;padding:8px 12px;background:#f8f3e8;color:#5c4230}
+.coc-paper-dialog button:hover:not(:disabled){background:#eee2ce}
+.coc-paper-dialog button:focus-visible,.coc-paper-dialog textarea:focus-visible{outline:2px solid #a04b28;outline-offset:3px}
+.coc-paper-dialog button:disabled{opacity:.45;cursor:default}
+.coc-paper-close{flex:none}
+.coc-paper-dialog textarea{display:block;flex:1;min-height:160px;resize:none;margin:2px 34px 18px;padding:16px 2px;border:0;border-top:1px solid #baaa8e66;
+ background:transparent;color:inherit;font:17px/1.95 "Songti SC",Georgia,serif;letter-spacing:.015em;scrollbar-color:#bbaa8b transparent;box-sizing:border-box}
+.coc-paper-dialog textarea::placeholder{color:#9b8b75;font-size:15px}
+.coc-paper-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 28px 22px;border-top:1px solid #baaa8e66;flex-wrap:wrap}
+.coc-paper-foot>div{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.coc-paper-status{font:11px/1.6 system-ui,sans-serif;color:#796a58}
+.coc-paper-dialog .coc-paper-save{background:#8d482c;color:#fff7eb;border-color:#8d482c;padding-inline:22px}
+.coc-paper-dialog .coc-paper-save:hover:not(:disabled){background:#74391f}
+.coc-paper-message{padding:12px 34px;margin:0;font:13px/1.7 system-ui,sans-serif;color:#8d372a}
+.coc-paper-message button{margin-inline-start:12px}
+.coc-paper-dialog[data-renderer="plain"]{background:var(--surface-raised,#fff)!important;color:var(--text-strong,#222);border-color:var(--border,#ccc);background-image:none!important}
+.coc-paper-dialog[data-renderer="plain"] textarea{font-family:inherit}
+.coc-paper-dialog[data-renderer="plain"] .coc-paper-status,.coc-paper-dialog[data-renderer="plain"] .coc-paper-kicker{color:var(--muted,#666)}
+.coc-paper-dialog[data-renderer="plain"] button{background:var(--surface-hover,#eee);color:var(--text-strong,#222);border-color:var(--border,#ccc)}
+.coc-paper-dialog[data-renderer="plain"] .coc-paper-save{background:var(--accent,#8d482c);color:var(--bg,#fff)}
+.coc-inventory-document{display:block;text-align:left;color:inherit;font:inherit;background:none;border:0;padding:0;cursor:pointer}
+.coc-inventory-document:hover .coc-inventory-name{text-decoration:underline;text-underline-offset:4px}
+.coc-inventory-document:focus-visible{outline:2px solid var(--accent);outline-offset:5px;border-radius:2px}
+.coc-inventory-document small{display:block;margin-top:4px;font-size:11px;font-weight:400;color:var(--accent)}
+@media(max-width:520px){.coc-paper-dialog{width:calc(100vw - 20px);height:calc(100dvh - 24px)}.coc-paper-head{padding:22px 20px 14px}.coc-paper-dialog textarea{margin-inline:20px}.coc-paper-foot{padding:14px 18px}.coc-paper-message{padding-inline:20px}}
+@media(max-height:600px){.coc-paper-dialog textarea{min-height:64px}.coc-paper-head{padding-block:14px}.coc-paper-foot{padding-block:10px}}
+`;
+
+/** A native modal: the browser owns inertness, focus containment and focus restoration. */
+export function createDocumentEditor(React) {
+  const h = React.createElement;
+  const {useState, useEffect, useRef} = React;
+  return function DocumentEditor({api, name, actor, language, onClose, onSaved}) {
+    const t = PAPER_WORDS[language] || PAPER_WORDS.en;
+    const dialog = useRef(null), input = useRef(null), generation = useRef(0), focused = useRef(false);
+    const [value, setValue] = useState(null), [draft, setDraft] = useState("");
+    const [busy, setBusy] = useState(false), [loading, setLoading] = useState(true), [error, setError] = useState("");
+    const [closing, setClosing] = useState(false);
+    const [notice, setNotice] = useState("");
+    const dirty = value && draft !== value.text;
+    async function load(keepDraft = false) {
+      const current = ++generation.current;
+      setLoading(true); setError("");
+      try {
+        const response = await api.invoke("mods.document.view", {name, actor});
+        if (current !== generation.current) return;
+        if (!response?.ok) throw new Error(response?.error?.message || t.failed);
+        setValue(response.data); if(!keepDraft)setDraft(response.data.text); setClosing(false);
+        setNotice(keepDraft ? t.reloaded : "");
+      } catch (reason) { if (current === generation.current) setError(reason.message || t.failed); }
+      finally { if (current === generation.current) setLoading(false); }
+    }
+    async function persist(action) {
+      if (!value || busy) return;
+      const current = generation.current;
+      setBusy(true); setError(""); setNotice("");
+      try {
+        const response = await api.invoke("mods.document.apply", {name, actor, version:value.version, action,
+          ...(action === "save" ? {text:draft} : {})});
+        if (current !== generation.current) return;
+        if (!response?.ok) { setError(response?.error?.code === "revision_conflict" ? t.conflict : (response?.error?.message || t.failed)); return; }
+        setValue(response.data); setDraft(response.data.text); setClosing(false); onSaved?.();
+        if (closing && action === "save") onClose();
+      } catch { if (current === generation.current) setError(t.failed); }
+      finally { if (current === generation.current) setBusy(false); }
+    }
+    function close() {
+      if (busy) return;
+      if (dirty) setClosing(true); else onClose();
+    }
+    useEffect(() => {
+      const element = dialog.current;
+      if (element?.showModal) element.showModal(); else element?.setAttribute("open", "");
+      return () => { generation.current++; if (element?.open && element.close) element.close(); };
+    }, []);
+    useEffect(() => { focused.current=false; void load(); return () => {generation.current++;}; }, [api,name,actor]);
+    useEffect(() => { if (!loading && value && !focused.current) {input.current?.focus();focused.current=true;} }, [loading,value]);
+    return h(React.Fragment, null, h("style", null, PAPER_STYLE),
+      h("dialog", {ref:dialog, className:"coc-paper-dialog", "aria-label":name, "data-renderer":value?.editor?.renderer || "paper",
+        style:value?.texture ? {backgroundImage:`url(${value.texture})`} : undefined,
+        onCancel:event=>{event.preventDefault();close();},
+        onClick:event=>{if(event.target===event.currentTarget)close();},
+        onKeyDown:event=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="s"){event.preventDefault();if(dirty)void persist("save");}}},
+        h("div", {className:"coc-paper-shell"},
+          h("header", {className:"coc-paper-head"}, h("div", null,
+            h("p", {className:"coc-paper-kicker"}, t.title), h("h2", null, name)),
+            h("button", {type:"button",className:"coc-paper-close",disabled:busy,onClick:close}, t.close)),
+          loading && h("p", {className:"coc-paper-message",role:"status"}, t.loading),
+          error && h("p", {className:"coc-paper-message",role:"alert"}, error,
+            h("button", {type:"button",disabled:busy,onClick:()=>void load(!!dirty)}, t.retry)),
+          notice && h("p",{className:"coc-paper-message",role:"status"},notice),
+          h("textarea", {ref:input, "aria-label":t.body, value:draft, placeholder:t.empty, maxLength:64000,
+            readOnly:loading||busy||!value, spellCheck:false, onChange:event=>{setDraft(event.target.value);setClosing(false);}}),
+          closing && h("div", {className:"coc-paper-message",role:"status"}, t.unsaved, " ",
+            h("button", {type:"button",onClick:onClose}, t.discard), " ",
+            h("button", {type:"button",onClick:()=>setClosing(false)}, t.stay)),
+          h("footer", {className:"coc-paper-foot"},
+            h("div", null, h("button", {type:"button",disabled:loading||busy||!value||(draft===value.original&&value.text===value.original),
+              onClick:()=>void persist("reset")}, t.reset), h("span", {className:"coc-paper-status"}, t.original)),
+            h("div", null, h("span", {className:"coc-paper-status",role:"status"}, loading?t.loading:busy?t.saving:dirty?t.dirty:value?.text!==value?.original?t.altered:t.clean),
+              h("button", {type:"button",className:"coc-paper-save",disabled:loading||busy||!dirty,onClick:()=>void persist("save")}, closing?t.saveClose:t.save))))));
+  };
+}
+
 export function createComponent(React) {
   const { useCallback, useEffect, useState, useRef } = React;
   const h = React.createElement;
+  const DocumentEditor = createDocumentEditor(React);
 
   function Section(props) {
     return h("section", { className: "coc-sheet-section" },
@@ -449,7 +575,10 @@ export function createComponent(React) {
           for(const key of ['condition','charges']) if(object.state?.[key]!==null&&object.state?.[key]!==undefined) line.details.push({key,value:object.state[key]});
         }
         return h("li",{className:"coc-inventory-entry",key:index,"data-detailed":line.details.length>0?"true":"false"},
-          h("div",{className:"coc-inventory-heading"},h("span",{className:"coc-inventory-name"},line.title),
+          h("div",{className:"coc-inventory-heading"},object?.document && props.onOpenDocument
+            ? h("button",{type:"button",className:"coc-inventory-document",onClick:()=>props.onOpenDocument(object.name)},
+                h("span",{className:"coc-inventory-name"},line.title),h("small",null,props.paperLabel))
+            : h("span",{className:"coc-inventory-name"},line.title),
             line.quantity!==undefined?h("span",{className:"coc-inventory-quantity"},`x${line.quantity}`):null),
           object?.description?h("p",{className:"coc-sheet-note",style:{margin:"6px 0"}},object.description):null,
           line.details.length?h("dl",{className:"coc-inventory-params"},line.details.map(({key,label,value,wide})=>
@@ -553,6 +682,9 @@ export function createComponent(React) {
     useEffect(() => () => { generation.current++; }, []);
     const [busy, setBusy] = useState(false);
     const [who, setWho] = useState(0);
+    const [documentTarget, setDocumentTarget] = useState(null);
+    useEffect(()=>setDocumentTarget(null),[api]);
+    useEffect(()=>{if(answer?.campaign&&documentTarget&&answer.campaign!==documentTarget.campaign)setDocumentTarget(null);},[answer?.campaign]);
     // The language of the last sheet that actually arrived, kept so the chrome of a failed read
     // stays in the language the player was just reading rather than snapping back to English.
     const [lastLanguage, setLastLanguage] = useState("");
@@ -594,8 +726,11 @@ export function createComponent(React) {
       return typeof unsubscribe === "function" ? unsubscribe : undefined;
     }, [api, load]);
 
+    const documentWindow = documentTarget ? h(DocumentEditor,{key:"document-editor",...documentTarget,api,
+      onClose:()=>setDocumentTarget(null),onSaved:()=>{void load();}}) : null;
     if (answer === undefined) {
       return h("div", { className: "coc-sheet" },
+        documentWindow,
         h("p", { className: "coc-sheet-note", role: "status" }, LABELS.en.loading));
     }
 
@@ -626,6 +761,7 @@ export function createComponent(React) {
         : status === "error" ? (text(answer.reason) || t.errorDetail)
         : t.noTable;
       return h("div", { className: "coc-sheet", role: "region", "aria-label": props.title || "Investigator" },
+        documentWindow,
         h("h2", null, title), h("p", { className: "coc-sheet-note", role: "status" }, detail),
         h("button", { type: "button", onClick: () => { void load(true); }, disabled: busy }, busy ? t.loading : t.retry));
     }
@@ -661,11 +797,17 @@ export function createComponent(React) {
       sheet ? h(Vitals, { sheet, t, term }) : null,
       sheet ? h(Characteristics, { sheet, t, term }) : null,
       sheet ? h(Skills, { sheet, t, term }) : null,
-      sheet ? h(ItemSection, { title: t.weapons, list: sheet.weapons, objects:(sheet.objects || []).filter(item=>item.category==="weapon"), t, term }) : null,
+      documentWindow,
+      h("style",null,PAPER_STYLE),
+      sheet ? h(ItemSection, { title: t.weapons, list: sheet.weapons, objects:(sheet.objects || []).filter(item=>item.category==="weapon"), t, term,
+        paperLabel:(PAPER_WORDS[view.play_language]||PAPER_WORDS.en).open,
+        onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign,language:view.play_language}) }) : null,
       sheet && view.presentation_status ? h(Section,{title:t.equipment},
         h("p",{className:"coc-sheet-note",role:"status"},view.presentation_status==="failed"?t.errorDetail:t.loading),
         view.presentation_status==="failed"?h("button",{type:"button",onClick:()=>{void load(true);}},t.retry):null) :
-      sheet ? h(ItemSection, { title: t.equipment, list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)), objects:(sheet.objects || []).filter(item=>item.category!=="weapon"), empty: t.noEquipment, t, term }) : null,
+      sheet ? h(ItemSection, { title: t.equipment, list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)), objects:(sheet.objects || []).filter(item=>item.category!=="weapon"), empty: t.noEquipment, t, term,
+        paperLabel:(PAPER_WORDS[view.play_language]||PAPER_WORDS.en).open,
+        onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign,language:view.play_language}) }) : null,
       sheet ? h(Finance, { sheet, t, term }) : null,
       sheet ? h(Background, { sheet, term, t }) : null,
 

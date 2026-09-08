@@ -7,6 +7,8 @@ const WORDS = {
     loading:"Reading Mods…", empty:"No Mods installed", settings:"Details and changes", version:"Version", failed:"Mod request failed",
     natural:"Natural NPC", naturalDesc:"Appearance or Credit Rating shapes a lasting first impression and the NPC's behavior.",
     items:"Enhanced Items", itemsDesc:"Generate executable item parameters from the story; keep ownership and remaining uses.",
+    order:"Load order", orderHint:"Later Mods take precedence for the same feature.", earlier:"Move earlier", later:"Move later",
+    overridden:"Overridden by", generator:"Item generator", paper:"Paper editor", check:"Check", audit:"Narrative audit", core:"Core",
     unavailable:"The game runtime is not ready. Open a session, then refresh."},
   "zh-Hans": {title:"Mods", refresh:"刷新", install:"安装本地 Mod", path:"Mod 文件夹或 ZIP 路径", add:"安装",
     campaign:"本局启用", defaults:"新战役默认启用", unbound:"选择一个战役后，可管理本局的 Mods。",
@@ -14,6 +16,8 @@ const WORDS = {
     loading:"正在读取 Mods…", empty:"尚未安装 Mod", settings:"详情与更新记录", version:"版本", failed:"Mod 操作失败",
     natural:"自然 NPC 行为", naturalDesc:"以外貌或信用评级留下初见印象，持续影响 NPC 对待你的方式。",
     items:"物品增强", itemsDesc:"根据剧情生成可执行的物品参数，保留归属、弹药与使用状态。",
+    order:"加载顺序", orderHint:"后加载的 Mod 优先接管同名功能。", earlier:"上移", later:"下移",
+    overridden:"被覆盖", generator:"物品生成器", paper:"纸面编辑器", check:"检定", audit:"叙事审查", core:"内核",
     unavailable:"游戏运行时尚未就绪。打开会话后刷新。"},
 };
 
@@ -60,13 +64,25 @@ export function createComponent(React) {
     }
     useEffect(() => { void load(); return () => { generation.current++; }; }, [api]);
     useEffect(() => api.subscribeExt?.(() => { void load(); }), [api]);
-    const groups = groupMods(answer?.mods);
+    const unsorted = groupMods(answer?.mods);
+    const order = answer?.pending_order || answer?.order || unsorted.map(row=>row.id);
+    const groups = unsorted.sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id));
+    const displayName=id=>id==="natural-npc"?t.natural:id==="enhanced-items"?t.items:id==="core"?t.core:groups.find(row=>row.id===id)?.versions[0]?.name||id;
+    const slotName=key=>key==="materializer"?t.generator:key==="document_editor"?t.paper:key.startsWith("audit:")?`${t.audit}: ${key.slice(6)}`:`${t.check}: ${key.replace(/^check:/,"")}`;
+    function move(id, delta) {
+      const next=[...order],index=next.indexOf(id),other=index+delta;
+      if(index<0||other<0||other>=next.length)return;
+      [next[index],next[other]]=[next[other],next[index]];
+      void mutate("mods.order",{order:next});
+    }
     return h("div", {className:"coc-mods", role:"region", "aria-label":"Mods",
       style:{padding:16, overflow:"auto", height:"100%", color:"var(--text)", fontSize:13}},
       h("div", {style:{display:"flex", justifyContent:"space-between", alignItems:"center"}},
         h("strong", {style:{fontSize:18}}, t.title),
         h("button", {type:"button", onClick:()=>void load(), disabled:busy}, t.refresh)),
       !answer?.campaign && h("p", {style:{color:"var(--muted)"}}, t.unbound),
+      answer && h("p",{style:{color:"var(--muted)",fontSize:12,lineHeight:1.6}},t.orderHint),
+      answer?.pending_order && h("p",{role:"status",style:{color:"var(--accent)"}},t.pending),
       error && h("p", {role:"alert", style:{color:"var(--danger)", overflowWrap:"anywhere"}}, error),
       busy && !answer && h("p", {role:"status"}, t.loading),
       answer && !groups.length && h("p", null, t.empty),
@@ -75,8 +91,15 @@ export function createComponent(React) {
         const row = versions.find(v=>v.version === (selected[id] ?? active?.version)) ?? versions.at(-1);
         const name = id === "natural-npc" ? t.natural : id === "enhanced-items" ? t.items : row.name;
         const description = id === "natural-npc" ? t.naturalDesc : id === "enhanced-items" ? t.itemsDesc : row.description;
+        const displaced=Object.entries(answer?.providers||{}).filter(([,providers])=>providers.includes(id)&&providers.at(-1)!==id);
         return h("article", {key:id, style:{border:"1px solid var(--border)", borderRadius:8, padding:14, marginTop:14}},
-          h("strong", null, name),
+          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}},
+            h("div",{style:{display:"flex",alignItems:"baseline",gap:8}},
+              h("span",{"aria-label":t.order,style:{color:"var(--muted)",fontSize:11}},String(order.indexOf(id)+1).padStart(2,"0")),h("strong",null,name)),
+            h("div",{style:{display:"flex",gap:4}},
+              h("button",{type:"button","aria-label":`${name} ${t.earlier}`,disabled:busy||order.indexOf(id)<=0,onClick:()=>move(id,-1)},t.earlier),
+              h("button",{type:"button","aria-label":`${name} ${t.later}`,disabled:busy||order.indexOf(id)>=order.length-1,onClick:()=>move(id,1)},t.later))),
+          ...displaced.map(([key,providers])=>h("p",{key,style:{fontSize:11,color:"var(--accent)",margin:"6px 0"}},`${slotName(key)} · ${t.overridden}: ${displayName(providers.at(-1))}`)),
           h("p", {style:{color:"var(--muted)", lineHeight:1.6}}, description),
           h("div", {style:{display:"flex", gap:8, alignItems:"center", marginBottom:10}},
             h("label", null, t.version, " ", h("select", {"aria-label":`${name} ${t.version}`, disabled:busy,

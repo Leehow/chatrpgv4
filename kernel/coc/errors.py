@@ -17,6 +17,8 @@ ERROR_CODES = frozenset({
     "unknown_entity",
     "not_reachable",
     "not_here",
+    "not_owned",
+    "revision_conflict",
     "commit_failed",
     "internal",
 })
