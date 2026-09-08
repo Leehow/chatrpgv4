@@ -87,6 +87,8 @@
 | 77 | 「一天内损失 1/5 SAN」实际是「整局累计 1/5」：`end_day()` 在产品路径上零调用者 | 累计掉满开局 SAN 的 1/5 就进不定期疯狂 | `kernel/coc/rules/sanity.py::end_day`（定义在 1144，调用者只有 `tests/kernel/engines/test_sanity.py`） | 缺口 | 规则书 p.168 的一天规则。`day_start_san` 只在 `end_day()` 里重新锚定、`daily_san_lost` 只在那里清零，两者都持久化，于是阈值停在开局值、计数从开局起只增。根因是**没有「一天」这个边界**：规则层只有 `time.day = clock_minutes // 1440`（开局第几天），没有人拿它判跨日。三条单元测试直接 new engine 调 `end_day`，所以「没人调用它」测试永远发现不了（同 [[tests-must-travel-the-real-path]] 的形状） |
 | 78 | 世界线回溯把时钟退回锚点，却不动各引擎存档里的绝对到期时刻 | 疑点，未实测 | `kernel/coc/worldline.py` 的 `RESET_FACETS = ("clock", "investigators")`，默认 `anchor` | 疑点 | sanity 的 `recovery_trigger.due_elapsed_minutes`、magic 的 `completion_elapsed_minutes`、healing 的 wound ledger 都存在各自 session 存档里，不在回溯范围内。时钟退回 200 而 due 停在 800，那条到期就悬空。只有 `structure_type: time_loop` 的模组会走到，没有跑过一局验证 |
 | 79 | 一批引擎方法在产品路径上零调用者：25 个候选，已定性 3 个是真规则没接线 | 规则写对了，玩家永远遇不到 | `kernel/coc/rules/sanity.py::penalty_die_for_exposure` / `plant_delusion`、`kernel/coc/rules/mp.py::can_spend` 等 | 缺口 | 与 #77 同一形状（`end_day()` 零调用者）。扫描方法：用 ast 取 `kernel/coc` 下所有非下划线开头的 def，统计它在**产品代码**里的标识符引用数与在 `tests/` 里的引用数，取「产品 0 次、测试 >0 次」；再对每个候选 `grep` 字符串形式（`"name"` / `'name'`）排除 registry 派发，10 个抽样全部无字符串引用，确认不是假阳性 |
+| 80 | 休息治好了伤，人物卡上的状态没清；下一次伤害拿陈旧状态当 prior 回灌，已清的重伤又活了 | HP 回满了还挂着 `major_wound, prone, unconscious` | `kernel/coc/table.py::_stage_recovery` 的 `restore()` 只 `mirror_investigator(current_hp=…)` | 缺口 | #76 的 worker 实测：HP 从 1 恢复到 12 后卡片仍是 `major_wound, prone, unconscious`，而引擎的 healing-state 已经清了。**回灌是更重的那一半**：下一次 `apply damage` 拿卡片上的陈旧 conditions 当 prior，再整体写回 healing-state，把已经痊愈的重伤重新种回去。不需要任何特殊模组，休息完再受伤就会踩 |
+| 81 | 引擎存档永久压过人物卡，而且是静默的 | 锚点恢复的 SAN 撑到下一次检定为止 | `kernel/coc/sessions.py::load_sanity` 的 `if not existed:` — 只在快照*不存在*时才用卡面播种 | 缺口 | #78 的 worker 实测：回溯把卡面 SAN 恢复到 55，但 sanity 快照跨过了回溯仍是 47，于是回溯后那次检定 `target: 47`，然后把 47 写回卡片。`healing-state` 的 `current_hp`/`conditions`、`mp-state` 的 `mp` 同理。**`reset_sheets` 对数值的恢复在任何 policy 下都只是化妆**。镜像问题在 merge：`confluence.py:161-162` 把 clock 设成各线 `max()`，而 `history.merge_parents` 用 `-s ours` 从 `parents[0]` 出发，于是合流后引擎存档配着一个可能大跳的时钟，其余各线的引擎状态被整个丢掉且**不作为冲突出现**（`confluence.py:39-47` 的冲突表没有这一类） |
 
 ## 缺口清单
 
@@ -119,4 +121,14 @@
     - **`mp.py::can_spend`** — MP 不足时按一比一扣 HP，扣到 0 或以下应当拦住。`magic.py` 的 `_spend_mp` 直接调 `spend_mp`，**从不先问 `can_spend`**；而 `spend_mp` 内部是 `self.current_hp = max(0, self.current_hp - hp_damage)`，HP 被夹在 0。**需要验证**：`_spend_mp` 的返回值会变成规则图里的 `effect:coc7:magic:cast-spell-hp-overspill`，如果那条效果走的是正常伤害路径，濒死可能是被正确触发的（那样 `mp.py` 里夹 0 的那步就成了双重扣减）；如果没有，角色会悄无声息停在 0 HP 而不进濒死。这条要跑一个产品路径用例才能定论，不要凭读代码下结论。
 
     其余 22 个候选（`combat.py` 的 `is_dominated` / `tick_effects` / `is_forfeiting_attack` / `clear_forfeit`、`healing.py` 的 `cure_indefinite_check` / `resolve_asylum_release`、`sanity.py` 的 `suppress_insanity_symptoms` / `indulge_mania`、`chase.py` 的 `add_passenger`、`render.py` 的 `expected_numbers`、`tables.py` 的六个规则表访问器等）**尚未逐个定性**——里面一定有无害的（留给外部的公开 API、同义读法），必须一个个看，不许按名字批量判断。**最小修复**：先把这份清单逐条定性成「真缺口 / 无害」，真缺口的按 #77 的做法接线并补产品路径用例；同时把这个扫描做成一个可重跑的脚本（放 `scripts/`），因为这类缺陷会持续产生。
+
+12. **（#80）恢复路径只回写 HP，不回写状态。** 见对照表 #80。**最小修复**：`_stage_recovery.restore()` 把引擎清掉的 conditions 一并镜像回卡片；同时查一遍 `apply damage` 那条拿卡片 conditions 当 prior 的路径，确认权威方向（引擎是权威，卡片是投影，还是反过来）——**这一条要和 #81 一起定，它们是同一个权威问题的两面**。验收走产品路径：受重伤 → `apply time` 恢复 → 断言卡片上的 conditions 已清 → 再 `apply damage` → 断言重伤没有复活。
+
+13. **（#81）引擎存档与人物卡，谁是权威没有定。** 见对照表 #81。今天的实际答案是「引擎存档赢，而且没有任何报错」，但那不是被裁定出来的，是 `if not existed:` 这行的副作用。**这条必须先裁定再动手**：卡面是投影（引擎权威）还是卡面是状态（引擎缓存）？定了之后 #80、#78 的修法都跟着确定——#78 用 git 恢复整树的方案正好隐含「引擎存档也该跟着回溯」，与「引擎权威」自洽。
+
+14. **（#75 补充）MP 的 60 分钟门是 per-call 的，不累计。** `table.py::_stage_recovery` 顶部 `if minutes < MP_REGEN_MINUTES: return [], [], []`（这道门是 2026-09-07 加的，注释明写为了绕开 MP 地板）。地板已在 #75 修掉，门却还在：两次各 30 分钟的推进合计一小时，MP 回复仍是 0。#75 把它钉成了一条具名测试 `test_apply_time_two_separate_thirty_minute_advances_do_not_yet_accumulate`。**最小修复**：门改成跟踪累计已过分钟，或者对 MP 路径直接撤掉（地板没了，`regen_mp` 现在自己会攒余数）。
+
+15. **（#76 补充）downtime 的周检定在桌面上没有痕迹。** 三件事：检定不铸 `roll` 收据（违反 §16「每个检定一张收据」，KP 不知道滚了几次、失败没有）；不写 `major_wound_recovery_ledger` 的 `attempt_elapsed_minutes`，所以 `graph.py` 的「距上次尝试已满一周」事实不认它，KP 随后手动发起 `weekly_recovery` 可以紧接着再滚一次；濒死状态下 downtime 仍会滚周检定，而规则图上该决策的可用条件是 `major-wound-not-dying`，downtime 路径没有这道门（旧代码封顶最多滚 1 次，#76 去掉封顶后是 N 次，所以这条的暴露面变大了）。
+
+16. **（#77 补充）两处小的。** `sanity.py::reality_check` 失败路径 `daily_san_lost += 1` 之后不判 1/5，其他损失路径都判；#77 的午夜兜底会接住它，但即时触发仍缺。另：`apply` 结果新增的 `day_ended` 字段目前 `extensions/` 与 `pipicoc/` 零消费者（#79 的形状），`daily_san_lost` / `day_start_san` 也不在 `view` / `look` 任何读投影里；`docs/kernel-rpc.md` 欠三处（`day_ended` 字段、`day_ended` 引擎事件、「游戏日 = 局内午夜」的定义）。
 
