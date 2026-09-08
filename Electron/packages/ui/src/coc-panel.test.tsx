@@ -102,3 +102,36 @@ it('shows current Luck once and does not disclose canonical NPC identities', asy
   expect(screen.queryByText('45')).toBeNull();
   expect(screen.queryByText('Concealed identity')).toBeNull();
 });
+
+/**
+ * A generated investigator starts with `equipment: []` — the kernel refuses to invent a kit —
+ * and the panel used to drop the whole section on an empty list. The player then had no way to
+ * tell "I am carrying nothing" from "this sheet does not track what I carry".
+ */
+describe('the possessions box is on the sheet even when it is empty', () => {
+  it('names the box and says the investigator is carrying nothing', async () => {
+    const empty = view({ investigators: [{ ...investigator, equipment: [] }] });
+    render(<Panel api={host({ ok: true, data: { status: 'ready', view: empty, campaign: 'c1' } })} />);
+    await screen.findByText('物品');
+    expect(screen.getByText('身上还没有东西。')).toBeTruthy();
+  });
+
+  it('lists what the Keeper handed over, bare strings included', async () => {
+    const carried = view({ investigators: [{
+      ...investigator,
+      equipment: ['flashlight', { name: 'Corbitt House keys', label: '科比特宅的钥匙', quantity: 2 }],
+    }] });
+    render(<Panel api={host({ ok: true, data: { status: 'ready', view: carried, campaign: 'c1' } })} />);
+    await screen.findByText('科比特宅的钥匙');
+    expect(screen.getByText('flashlight')).toBeTruthy();
+    expect(screen.getByText('x2')).toBeTruthy();
+    expect(screen.queryByText('身上还没有东西。')).toBeNull();
+  });
+
+  it('keeps the weapons box off the page when there is none', async () => {
+    const empty = view({ investigators: [{ ...investigator, equipment: [], weapons: [] }] });
+    render(<Panel api={host({ ok: true, data: { status: 'ready', view: empty, campaign: 'c1' } })} />);
+    await screen.findByText('物品');
+    expect(screen.queryByText('武器')).toBeNull();
+  });
+});

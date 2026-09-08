@@ -150,6 +150,7 @@ const LABELS = {
     showFewer: "Show fewer",
     weapons: "Weapons",
     equipment: "Equipment",
+    noEquipment: "Carrying nothing yet.",
     finance: "Finance",
     cash: "Cash",
     assets: "Assets",
@@ -194,6 +195,7 @@ const LABELS = {
     showFewer: "收起",
     weapons: "武器",
     equipment: "物品",
+    noEquipment: "身上还没有东西。",
     finance: "财务",
     cash: "现金",
     assets: "资产",
@@ -378,9 +380,18 @@ export function createComponent(React) {
         : null);
   }
 
+  /**
+   * Weapons or equipment. A printed sheet keeps its possessions box on the page whether or not
+   * anything is written in it, and here the emptiness is the answer to a question the player is
+   * actually asking -- do I have a flashlight? So a caller that passes `empty` gets the box with
+   * that note instead of nothing at all, and the player can tell "carrying nothing" apart from
+   * "this app does not track what I carry". A box with no `empty` word still disappears.
+   */
   function ItemSection(props) {
     const list = Array.isArray(props.list) ? props.list : [];
-    if (!list.length) return null;
+    if (!list.length) {
+      return props.empty ? h(Section, { title: props.title }, h("p", { className: "coc-sheet-note" }, props.empty)) : null;
+    }
     return h(Section, { title: props.title },
       h(Lines, { rows: list.map(item => { const line = itemLine(item); return { name: line.title, value: line.note }; }) }));
   }
@@ -571,7 +582,7 @@ export function createComponent(React) {
       sheet ? h(Characteristics, { sheet, t, term }) : null,
       sheet ? h(Skills, { sheet, t, term }) : null,
       sheet ? h(ItemSection, { title: t.weapons, list: sheet.weapons }) : null,
-      sheet ? h(ItemSection, { title: t.equipment, list: sheet.equipment }) : null,
+      sheet ? h(ItemSection, { title: t.equipment, list: sheet.equipment, empty: t.noEquipment }) : null,
       sheet ? h(Finance, { sheet, t }) : null,
       h(Clues, { view, t }));
   };
