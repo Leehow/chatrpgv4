@@ -8474,13 +8474,20 @@ export class PiHostBackend implements HostBackend {
         return {ok: true, data};
       } catch (error) { return settingsDenied("onboarding_failed", error instanceof Error ? error.message : String(error)); }
     }
-    if(id==='coc-keeper' && method==='draft-previewed') {
+    if(id==='coc-keeper' && (method==='draft-previewed'||method==='draft-presentation')) {
       const sid=isRecord(optsValue)&&typeof optsValue.sessionId==='string'?optsValue.sessionId:'';
       if(!sid)return settingsDenied('no_session','Select the draft session');
       const revision=isRecord(params)?params.revision:undefined;
       if(!Number.isSafeInteger(revision)||Number(revision)<1)return settingsDenied('invalid_preview','Invalid draft revision');
       const selected=await this.locate(sid), binding=await readCocBinding(selected.path);
       if(!binding||!this.managedNodeModulesRoot)return settingsDenied('unbound','No campaign is bound');
+      if(method==='draft-presentation') {
+        const repo=resolve(this.managedNodeModulesRoot,'..');
+        this.cocOnboarding ??= new CocOnboardingHost({repo,home:binding.home,agentDir:this.sharedProfileDir,env:this.env});
+        const state=await this.getModelState(sid);
+        try {return {ok:true,data:await this.cocOnboarding.presentation({campaign:binding.campaign,revision:Number(revision),play_language:binding.play_language,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})};}
+        catch(error){return settingsDenied('presentation_failed',error instanceof Error?error.message:String(error));}
+      }
       try {return {ok:true,data:await readColdSheet(join(this.managedNodeModulesRoot,'..'),binding,Number(revision))};}
       catch(error){if((error as any)?.code==='idempotency_conflict')return {ok:true,data:{superseded:true}};return settingsDenied('preview_failed',error instanceof Error?error.message:String(error));}
     }
@@ -8519,6 +8526,12 @@ export class PiHostBackend implements HostBackend {
           try {
             if (!this.managedNodeModulesRoot) throw new Error("Canonical runtime is unavailable");
             const view=await readColdSheet(join(this.managedNodeModulesRoot ?? "", ".."),context);
+            try {
+              const folder=join(context.home,'.coc/campaigns',context.campaign);
+              const meta=JSON.parse(await fs.readFile(join(folder,'campaign.json'),'utf8'));
+              const projection=JSON.parse(await fs.readFile(join(folder,'setup/presentations',`${meta.setup?.draft_revision}-${context.play_language}.json`),'utf8'));
+              if(projection.play_language===context.play_language)(view as any).labels={...projection.texts,...(view as any).labels};
+            } catch { /* A card can still be read before its text projection has been prepared. */ }
             return {ok:true,data:{status:"ready",view,campaign:context.campaign}};
           } catch(error) {return {ok:true,data:{status:"error",view:null,campaign:context.campaign,reason:error instanceof Error?error.message:String(error)}};}
         })().finally(()=>this.cocSheetReads.delete(sessionId));

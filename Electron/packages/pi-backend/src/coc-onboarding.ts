@@ -9,6 +9,8 @@ const MAX_FILE = 128 * 1024 * 1024;
 const CHUNK = 1024 * 1024;
 export class CocOnboardingHost {
   private stopping = new Set<string>();
+  private presentations = new Map<string,Promise<Row>>();
+  private presentationChildren = new Set<ChildProcess>();
   private root: string;
   private children = new Map<string, ChildProcess>();
   private busy = new Set<string>();
@@ -47,6 +49,7 @@ export class CocOnboardingHost {
       cwd: this.options.repo, env: {...this.options.env, ELECTRON_RUN_AS_NODE: '1', PI_CODING_AGENT_DIR: this.options.agentDir}, stdio: ['ignore', 'pipe', 'pipe'],
     });
     if (job) this.children.set(job.id, child);
+    if(action==='presentation'){this.presentationChildren.add(child);child.once('close',()=>this.presentationChildren.delete(child));}
     return new Promise((resolve, reject) => {
       let pending = '', tail = '', result: any, failure: any;
       child.stderr.on('data', chunk => {tail = (tail + chunk).slice(-2000);});
@@ -157,7 +160,13 @@ export class CocOnboardingHost {
       return this.snapshot(job);
     } finally {this.busy.delete(job.id);}
   }
+  presentation(data:Row):Promise<Row> {
+    const key=JSON.stringify([data.campaign,data.revision,data.play_language]);
+    if(!this.presentations.has(key))this.presentations.set(key,this.run('presentation',data).finally(()=>this.presentations.delete(key)));
+    return this.presentations.get(key)!;
+  }
   dispose() {
+    for(const child of this.presentationChildren)child.kill('SIGTERM');
     for (const [id, child] of this.children) {
       this.stopping.add(id);
       try {

@@ -1948,3 +1948,19 @@ host-provided player_requests entry. It is retained in the prologue handoff for 
 Keeper to address through normal receipts, not executed by setup. Confirmed drafts
 cannot be edited before handoff; completion verifies the confirmed/current revision
 match. Draft files are digest-checked before replay or commit.
+
+#### Complete player-language card projection
+
+All text in the character preview follows its stored play_language: UI headings,
+column names, draft/confirmation guidance, profession, era, native language, skill
+specialties, background labels, ordinary kit, weapon labels and currency names.
+Canonical fields and all numeric values remain unchanged. The renderer has no
+language branches or hand-written multilingual string tables. A tool-enabled Pi
+prepares the card's player-facing text projection; its input contains text only,
+never numeric cells to regenerate. Projections are cached by text content and
+language, so an age/point change alone reuses the text result. Existing immutable
+drafts use this same projection path, without rewriting their sheets or receipts.
+Until the full projection exists, the renderer shows a neutral loading indicator
+rather than exposing untranslated keys. It acknowledges a preview only after the
+localized card is rendered. The authenticated host resolves the session's campaign
+and reads the requested revision itself; clients cannot provide a replacement sheet.

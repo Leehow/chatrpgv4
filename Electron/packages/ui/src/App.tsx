@@ -2719,7 +2719,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
                 playerView={productId === 'pipicoc'}
                 stateKey={selectedSession}
                 onChoose={async (entry,option)=>{
-                  if(entry.renderer==='coc-character-draft'){const ack=await host.invokeExtension!("coc-keeper","draft-previewed",{revision:(entry.details as any).revision},{sessionId:selectedSession});if(!ack.ok)throw new Error(ack.error?.message||"Preview acknowledgment failed");return;}
+                  if(entry.renderer==='coc-character-draft'){const ack=await host.invokeExtension!("coc-keeper",option==='presentation'?"draft-presentation":"draft-previewed",{revision:(entry.details as any).revision},{sessionId:selectedSession});if(!ack.ok)throw new Error(ack.error?.message||"Preview acknowledgment failed");return ack.data;}
                   const result=await host.invokeExtension!("coc-keeper","choose",{choice:(entry.details as any).name,option},{sessionId:selectedSession});
                   if(!result.ok)throw new Error(result.error?.message || "Choice failed");
                 }}

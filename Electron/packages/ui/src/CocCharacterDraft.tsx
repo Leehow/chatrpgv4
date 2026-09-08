@@ -1,24 +1,35 @@
 import {useEffect, useState} from 'react'
 
 type Row = Record<string, any>
-export function CocCharacterDraft({data,onRendered}:{data:Row;onRendered?:()=>Promise<void>}) {
-  const [error,setError]=useState('')
-  const acknowledge=()=>{if(onRendered)void onRendered().catch(e=>setError(e.message||String(e)))}
-  useEffect(()=>{acknowledge()},[data.revision])
-  const sheet=data.sheet, labels=data.labels||{}
-  if(!sheet)return <p role="alert">Character preview unavailable</p>
-  const values=(rows:Row,thresholds=false)=><div style={{maxHeight:360,overflow:'auto'}}><table style={{width:'100%',textAlign:'left'}}><thead><tr><th>Parameter</th><th>Value</th>{thresholds&&<><th>Half</th><th>Fifth</th></>}</tr></thead><tbody>{Object.entries(rows).map(([key,value])=><tr key={key}><th>{labels[key]||key}</th><td>{String(value)}</td>{thresholds&&<><td>{Math.floor(Number(value)/2)}</td><td>{Math.floor(Number(value)/5)}</td></>}</tr>)}</tbody></table></div>
-  return <section aria-label="Character draft" data-draft-revision={data.revision} style={{padding:16,border:'1px solid var(--border)',borderRadius:12,background:'var(--surface)',display:'grid',gap:16}}>
-    <header><h2>{sheet.name}</h2><p>{sheet.occupation} · {sheet.age} · {sheet.era}</p><p>Character draft — reply to confirm or describe changes.</p></header>
-    {values(sheet.characteristics,true)}
-    {values(sheet.derived)}
-    <h3>Skills</h3>{values(sheet.skills,true)}
-    <h3>Finance</h3>{values({cash:sheet.cash,assets:sheet.finance?.assets?.amount,spending:sheet.finance?.spending_level?.amount,credit_rating:sheet.credit_rating})}
-    <h3>Background</h3><dl>{Object.entries(sheet.backstory||{}).map(([key,value])=><div key={key}><dt>{key.replaceAll('_',' ')}</dt><dd>{String(value)}</dd></div>)}</dl>
-    <p>Language: {sheet.own_language}</p><p>Key connection: {sheet.key_connection?.summary}</p>
-    <h3>Equipment</h3><ul>{(sheet.equipment||[]).map((item:string,i:number)=><li key={i}>{item}</li>)}</ul>
-    {!!sheet.weapons?.length&&<><h3>Weapons</h3>{sheet.weapons.map((weapon:Row,i:number)=><div key={i}>{values(weapon)}</div>)}</>}
-    <p>Occupation unspent: {sheet.creation?.skills?.occupation?.unspent} · Interest unspent: {sheet.creation?.skills?.interest?.unspent}</p>
-    {error&&<p role="alert">{error} <button onClick={acknowledge}>Retry preview acknowledgment</button></p>}
+type Props={data:Row;onRendered?:()=>Promise<void>;onPresentation?:()=>Promise<Row>}
+export function CocCharacterDraft({data,onRendered,onPresentation}:Props) {
+  const [presentation,setPresentation]=useState<Row|null>(data.presentation||null)
+  const [error,setError]=useState(false),[retry,setRetry]=useState(0)
+  useEffect(()=>{
+    let active=true
+    setError(false)
+    if(data.presentation){setPresentation(data.presentation);return()=>{active=false}}
+    setPresentation(null)
+    if(onPresentation)void onPresentation().then(value=>{if(active)setPresentation(value)}).catch(()=>{if(active)setError(true)})
+    return()=>{active=false}
+  },[data.revision,data.play_language,retry])
+  useEffect(()=>{if(presentation&&onRendered)void onRendered().catch(()=>setError(true))},[presentation,data.revision])
+  const sheet=data.sheet
+  if(!sheet||!presentation)return <section aria-busy={!error} role="status">{error?<button onClick={()=>setRetry(x=>x+1)}>↻</button>:'…'}</section>
+  const t=(value:string)=>presentation.texts[value]||''
+  const cell=(value:unknown):string=>value===null||value===undefined?'—':typeof value==='number'?String(value):typeof value==='boolean'?t(value?'Yes':'No'):Array.isArray(value)?value.map(cell).join(' / '):/^(?=.*\d)[\d\s()+\-*/Dd×.,]+$/.test(String(value))?String(value):t(String(value))
+  const values=(rows:Row,thresholds=false)=><div style={{maxHeight:360,overflow:'auto'}}><table style={{width:'100%',textAlign:'left'}}><thead><tr><th>{t('Parameter')}</th><th>{t('Value')}</th>{thresholds&&<><th>{t('Half')}</th><th>{t('Fifth')}</th></>}</tr></thead><tbody>{Object.entries(rows).map(([key,value])=><tr key={key}><th>{t(key)}</th><td>{cell(value)}</td>{thresholds&&<><td>{Math.floor(Number(value)/2)}</td><td>{Math.floor(Number(value)/5)}</td></>}</tr>)}</tbody></table></div>
+  const money=(entry:Row)=>entry?`${entry.amount} ${t(entry.currency)}`:'—'
+  return <section aria-label={t('Character draft')} data-draft-revision={data.revision} style={{padding:16,border:'1px solid var(--border)',borderRadius:12,background:'var(--surface)',display:'grid',gap:16}}>
+    <header><h2>{sheet.name}</h2><p>{t(sheet.occupation)} · {sheet.age} · {t(sheet.era)}</p><p>{t('Character draft — reply to confirm or describe changes.')}</p></header>
+    {values(sheet.characteristics,true)}{values(sheet.derived)}
+    <h3>{t('Skills')}</h3>{values(sheet.skills,true)}
+    <h3>{t('Finance')}</h3><dl>{[['cash',money(sheet.finance?.cash)],['assets',money(sheet.finance?.assets)],['spending',money(sheet.finance?.spending_level)],['credit_rating',sheet.credit_rating]].map(([key,value])=><div key={key}><dt>{t(key)}</dt><dd>{value}</dd></div>)}</dl>
+    <h3>{t('Background')}</h3><dl>{Object.entries(sheet.backstory||{}).map(([key,value])=><div key={key}><dt>{t(key)}</dt><dd>{cell(value)}</dd></div>)}</dl>
+    <p>{t('Language')}: {t(sheet.own_language)}</p><p>{t('Key connection')}: {cell(sheet.key_connection?.summary)}</p>
+    <h3>{t('Equipment')}</h3><ul>{(sheet.equipment||[]).map((item:string,i:number)=><li key={i}>{t(item)}</li>)}</ul>
+    {!!sheet.weapons?.length&&<><h3>{t('Weapons')}</h3>{sheet.weapons.map((weapon:Row,i:number)=><div key={i}>{values(weapon)}</div>)}</>}
+    <p>{t('Occupation unspent')}: {sheet.creation?.skills?.occupation?.unspent} · {t('Interest unspent')}: {sheet.creation?.skills?.interest?.unspent}</p>
+    {error&&<p role="alert">{t('Preview unavailable')} <button onClick={()=>{setError(false);if(onRendered)void onRendered().catch(()=>setError(true))}}>{t('Retry')}</button></p>}
   </section>
 }

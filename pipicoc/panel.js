@@ -215,7 +215,7 @@ const LABELS = {
   },
 };
 
-function labelsFor(language) {
+export function labelsFor(language) {
   return LABELS[language] || LABELS.en;
 }
 
@@ -253,22 +253,22 @@ function elapsed(minutes) {
  * One equipment or weapon line. The kernel's own words; the panel only picks which key is the
  * title and which is the aside, and never invents a label for something that has none.
  */
-function itemLine(item) {
-  if (!isRecord(item)) return { title: text(item), note: "" };
-  const title = text(item.label || item.name || item.id);
+function itemLine(item, term = value => value) {
+  if (!isRecord(item)) return { title: term(text(item)), note: "" };
+  const title = term(text(item.label || item.name || item.id));
   const notes = [];
   const quantity = numberOr(item.quantity, 1);
   if (quantity > 1) notes.push(`x${quantity}`);
   for (const key of ["damage", "range", "attacks", "ammo", "malfunction", "skill"]) {
-    if (item[key] !== undefined && item[key] !== null && item[key] !== "") notes.push(`${key} ${text(item[key])}`);
+    if (item[key] !== undefined && item[key] !== null && item[key] !== "") notes.push(`${term(key)} ${term(text(item[key]))}`);
   }
   return { title, note: notes.join(" · ") };
 }
 
-function money(value) {
+function money(value, term = value => value) {
   if (!isRecord(value)) return text(value);
   const amount = value.amount;
-  const currency = text(value.currency);
+  const currency = term(text(value.currency));
   if (amount === undefined || amount === null) return currency;
   return currency ? `${text(amount)} ${currency}` : text(amount);
 }
@@ -321,14 +321,14 @@ export function createComponent(React) {
   }
 
   function Vitals(props) {
-    const { sheet, t } = props;
+    const { sheet, t, term = value => value } = props;
     const derived = isRecord(sheet.derived) ? sheet.derived : {};
     const items = [];
     for (const [label, currentKey, maxKey] of [["HP", "hp", "HP"], ["SAN", "san", "SAN"], ["MP", "mp", "MP"]]) {
       const current = numberOr(sheet[currentKey], undefined);
       if (current === undefined) continue;
       // A maximum the kernel did not give is not one the panel may invent: the bar just goes away.
-      items.push(h(Vital, { key: label, label, tone: VITAL_TONE[label], current, max: numberOr(derived[maxKey], undefined) }));
+      items.push(h(Vital, { key: label, label: term(label), tone: VITAL_TONE[label], current, max: numberOr(derived[maxKey], undefined) }));
     }
     // Luck has no maximum on the sheet (§17.4), so it never grows a bar.
     const luck = numberOr(sheet.luck, undefined);
@@ -393,23 +393,23 @@ export function createComponent(React) {
       return props.empty ? h(Section, { title: props.title }, h("p", { className: "coc-sheet-note" }, props.empty)) : null;
     }
     return h(Section, { title: props.title },
-      h(Lines, { rows: list.map(item => { const line = itemLine(item); return { name: line.title, value: line.note }; }) }));
+      h(Lines, { rows: list.map(item => { const line = itemLine(item, props.term); return { name: line.title, value: line.note }; }) }));
   }
 
   function Finance(props) {
-    const { sheet, t } = props;
+    const { sheet, t, term = value => value } = props;
     const finance = isRecord(sheet.finance) ? sheet.finance : {};
     const rows = [];
     if (sheet.cash !== undefined || finance.cash !== undefined) {
-      rows.push({ name: t.cash, value: text(sheet.cash) || money(finance.cash), numeric: true });
+      rows.push({ name: t.cash, value: finance.cash ? money(finance.cash, term) : text(sheet.cash), numeric: true });
     }
-    if (finance.assets !== undefined) rows.push({ name: t.assets, value: money(finance.assets), numeric: true });
+    if (finance.assets !== undefined) rows.push({ name: t.assets, value: money(finance.assets, term), numeric: true });
     if (finance.spending_level !== undefined) {
-      rows.push({ name: t.spending, value: money(finance.spending_level), numeric: true });
+      rows.push({ name: t.spending, value: money(finance.spending_level, term), numeric: true });
     }
     const creditRating = sheet.credit_rating !== undefined ? sheet.credit_rating : finance.credit_rating;
     if (creditRating !== undefined) rows.push({ name: t.creditRating, value: text(creditRating), numeric: true });
-    if (finance.living_standard !== undefined) rows.push({ name: t.livingStandard, value: text(finance.living_standard) });
+    if (finance.living_standard !== undefined) rows.push({ name: t.livingStandard, value: term(text(finance.living_standard)) });
     return rows.length ? h(Section, { title: t.finance }, h(Lines, { rows })) : null;
   }
 
@@ -553,11 +553,11 @@ export function createComponent(React) {
     // The header of a printed sheet: labelled rules, not a run-on line of values.
     const fields = [];
     if (sheet) {
-      if (sheet.occupation) fields.push([t.occupation, text(sheet.occupation)]);
-      if (sheet.era) fields.push([t.era, text(sheet.era)]);
+      if (sheet.occupation) fields.push([t.occupation, term(text(sheet.occupation))]);
+      if (sheet.era) fields.push([t.era, term(text(sheet.era))]);
       if (sheet.age !== undefined) fields.push([t.ageKey, text(sheet.age)]);
     }
-    const concept = sheet && isRecord(sheet.backstory) ? text(sheet.backstory.concept) : "";
+    const concept = sheet && isRecord(sheet.backstory) ? term(text(sheet.backstory.concept)) : "";
 
     return h("div", { className: "coc-sheet", role: "region", "aria-label": props.title || "Investigator" },
       head,
@@ -578,12 +578,13 @@ export function createComponent(React) {
             }, text(member.name) || text(member.id))))
         : null,
       h(Standing, { view, t }),
-      sheet ? h(Vitals, { sheet, t }) : null,
+      sheet ? h(Vitals, { sheet, t, term }) : null,
       sheet ? h(Characteristics, { sheet, t, term }) : null,
       sheet ? h(Skills, { sheet, t, term }) : null,
-      sheet ? h(ItemSection, { title: t.weapons, list: sheet.weapons }) : null,
-      sheet ? h(ItemSection, { title: t.equipment, list: sheet.equipment, empty: t.noEquipment }) : null,
-      sheet ? h(Finance, { sheet, t }) : null,
+      sheet ? h(ItemSection, { title: t.weapons, list: sheet.weapons, term }) : null,
+      sheet ? h(ItemSection, { title: t.equipment, list: sheet.equipment, empty: t.noEquipment, term }) : null,
+      sheet ? h(Finance, { sheet, t, term }) : null,
+
       h(Clues, { view, t }));
   };
 }

@@ -5,6 +5,8 @@ import { readFile, readdir } from 'node:fs/promises';
 import { KernelClient, isKernelError } from '../extensions/kernel/client.ts';
 import { ReadingService } from '../extensions/module/reading-service.ts';
 import { prepareCharacterGuidance } from '../extensions/module/character-guidance.ts';
+import { prepareCharacterPresentation } from '../extensions/module/character-presentation.ts';
+import { labelsFor } from './panel.js';
 import { sourceInfo } from '../extensions/module/source.ts';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -27,6 +29,12 @@ async function withGuidance(prepared: any) {
   return {...prepared, guidance};
 }
 async function main() {
+  if(action==='presentation') {
+    const state=await call('setup.steps',{campaign:input.campaign});
+    const ui=labelsFor(input.play_language);
+    const known_labels={...(state.state?.draft?.labels||{}),Finance:ui.finance,Equipment:ui.equipment,Weapons:ui.weapons,cash:ui.cash,assets:ui.assets,spending:ui.spending,credit_rating:ui.creditRating,living_standard:ui.livingStandard};
+    return prepareCharacterPresentation({...input,known_labels,signal:guidanceAbort.signal});
+  }
   if (action === 'catalog') {
     const presets = [];
     for (const id of await readdir(join(repo, 'content/starters'))) {
