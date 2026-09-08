@@ -22,6 +22,7 @@ export function keeperArguments(args, repo, mode = 'play') {
     join(repo, 'Electron/resources/runtime/kernel/pipiui-ext-invoke.ts'),
     ...['kernel', 'mods', 'onboarding', 'module', 'memory', 'table'].map(name => join(repo, 'extensions', name, 'index.ts')),
     join(repo, 'pipicoc/agent.ts'),
+    join(repo, 'extensions', 'deepseek', 'agent', 'index.js'),
   ];
   return [...(mode === 'setup' ? ['setup'] : []), ...forwarded,
     '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes',

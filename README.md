@@ -19,7 +19,8 @@ COC Keeper for Pi：一个 Pi 包加一个 Python 内核子进程。守秘人只
 
 ```
 extensions/   Pi 扩展：kernel（七个工具、回合事务、校验车道）、table（状态行）、memory（记忆抽取车道）、
-              module（无人值守构建与按需深读，读者是子 pi 进程）、onboarding（建卡进程的 setup 工具）、lanes（共用）
+              module（无人值守构建与按需深读，读者是子 pi 进程）、onboarding（建卡进程的 setup 工具）、lanes（共用）、
+              deepseek（DeepSeek Extended provider，`openai-responses` + hosted web_search，从 PipiUI 上游移植）
 kernel/coc/   Python 内核包，入口 `python -m coc.rpc`；rules/（十族规则引擎与 RuleGraph 运行时）、modules/（模组存储与车道）
 content/      只读内容：rulesets/coc7、starters/<module>、director/、craft/、ontology/、modules/（契约与可玩性模板）、setup/（七步表、读者提示）
 prompts/      守秘人与建卡助手的系统提示
@@ -36,6 +37,13 @@ uv sync --frozen --dev
 bin/pi-coc setup                      # 建卡：选 starter 或资料包，建调查员，交桌
 bin/pi-coc --campaign <id>            # 开桌
 ```
+
+要用 `deepseek-extended` provider：先做一次鉴权（`/login deepseek-extended` 写进 `.pi/coc-agent` 的 auth.json），
+或在设置里填 `ext.deepseek.apiKey`。它与 `.pi/coc-agent/models.json` 里保留的 `deepseek` provider 是两家，互不动。
+
+右下角的余额胶囊走 App 自己的账户用量能力（`account-usage-core` 的 DeepSeek 预付费适配器）：
+会话模型属于 `deepseek` 或 `deepseek-extended` 时拉 `https://api.deepseek.com/user/balance`，显示 `¥xx.xx`。
+它和模型调用用同一份凭据；凭据失效（HTTP 401）时胶囊不显示，不会报错。
 
 ## 测试
 

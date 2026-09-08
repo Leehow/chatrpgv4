@@ -9,6 +9,7 @@ import {
   parseClaudeWindows,
   parseCodexWindows,
   parseCursorWindows,
+  parseDeepSeekBalance,
   parseKimiWindows,
   parseMoonshotBalance,
   parseOpenCodeGoUsage,
@@ -35,6 +36,14 @@ describe("provider parsers", () => {
     expect(parseMoonshotBalance({ code: 0, data: { available_balance: "20" } })).toEqual({ amount: 20, currency: "CNY" });
     expect(parseSiliconFlowBalance({ data: { totalBalance: 30 } })).toEqual({ amount: 30, currency: "CNY" });
     expect(parseOpenRouterBalance({ data: { total_credits: 50, total_usage: 12.5 } })).toEqual({ amount: 37.5, currency: "USD" });
+  });
+
+  it("normalizes the DeepSeek prepaid balance and rejects unavailable payloads", () => {
+    expect(parseDeepSeekBalance({ is_available: true, balance_infos: [{ currency: "CNY", total_balance: "110.00" }] })).toEqual({ amount: 110, currency: "CNY" });
+    expect(parseDeepSeekBalance({ is_available: true, balance_infos: [{ currency: "usd", total_balance: 5 }] })).toEqual({ amount: 5, currency: "USD" });
+    expect(parseDeepSeekBalance({ is_available: false, balance_infos: [{ currency: "CNY", total_balance: "110.00" }] })).toBeUndefined();
+    expect(parseDeepSeekBalance({ is_available: true, balance_infos: [] })).toBeUndefined();
+    expect(parseDeepSeekBalance({ is_available: true, balance_infos: [{ currency: "CNY" }] })).toBeUndefined();
   });
 
   it("computes OpenCode Go local-only windows", () => {
@@ -91,7 +100,9 @@ describe("registry routing", () => {
     expect(registry.resolve("openrouter")?.id).toBe("openrouter");
     expect(registry.resolve("qwen-vl")).toBeUndefined();
     expect(registry.resolve("moonshot-relay")).toBeUndefined();
-    expect(registry.resolve("deepseek")).toBeUndefined();
+    expect(registry.resolve("deepseek")?.id).toBe("deepseek");
+    expect(registry.resolve("deepseek-extended")?.id).toBe("deepseek");
+    expect(registry.resolve("deepseek-relay")).toBeUndefined();
   });
 
   it("prioritizes subscription quota over prepaid balance", () => {
@@ -149,6 +160,24 @@ describe("built-in adapters", () => {
       if (result.status === "ready") expect(result.snapshot.balance?.amount).toBe(expected);
     });
   }
+  it("loads the DeepSeek prepaid balance with a bearer key against the official endpoint", async () => {
+    let request: { url?: string; init?: RequestInit } = {};
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      request = { url: String(input), init };
+      return response({ is_available: true, balance_infos: [{ currency: "CNY", total_balance: "110.00" }] });
+    }) as unknown as typeof fetch;
+    const monitor = new AccountUsageMonitor({
+      fetch: fetchSpy,
+      readAuth: async store => store === "pi" ? { deepseek: { type: "api_key", key: "ds-key" } } : undefined,
+    });
+    const result = await monitor.snapshot("deepseek", true);
+    expect(result.status).toBe("ready");
+    if (result.status === "ready") {
+      expect(result.snapshot).toMatchObject({ provider: "deepseek", balance: { amount: 110, currency: "CNY" }, source: "prepaid" });
+    }
+    expect(request.url).toBe("https://api.deepseek.com/user/balance");
+    expect((request.init?.headers as Record<string, string>).Authorization).toBe("Bearer ds-key");
+  });
   it("hides Cursor when no desktop token or cookie is available", async () => {
     const fetchSpy = vi.fn(async () => response({})) as unknown as typeof fetch;
     const empty = new AccountUsageMonitor({ fetch: fetchSpy, readCursorAuth: async () => undefined, readCookie: async () => undefined });

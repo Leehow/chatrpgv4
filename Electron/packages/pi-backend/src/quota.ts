@@ -15,7 +15,7 @@ import {
 import type { QuotaSnapshot, QuotaWindow } from "@pipi/host-api";
 
 export type QuotaProviderKind = "claude" | "codex" | "cursor" | "kimi" | "qwenTokenPlan" | "opencodeGo";
-export type BalanceProviderKind = "moonshot" | "siliconflow" | "openrouter";
+export type BalanceProviderKind = "deepseek" | "moonshot" | "siliconflow" | "openrouter";
 
 export const QUOTA_ACCOUNT_LABELS: Record<QuotaProviderKind, string> = {
   claude: "Claude 账号额度", codex: "Codex 账号额度",

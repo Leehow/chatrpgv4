@@ -53,6 +53,12 @@ describe('BalancePill', () => {
     expect(pill.getAttribute('aria-label')).toBe('账户余额 ¥88.00')
   })
 
+  it('renders when the extension provider id contains the snapshot token (deepseek-extended)', async () => {
+    const { host } = balanceHost(deepSeekSnapshot)
+    render(<BalancePill host={host} sessionId="s1" provider="deepseek-extended" />)
+    expect((await screen.findByTestId('balance-pill')).textContent).toBe('¥88.00')
+  })
+
   it('renders a USD balance with the dollar prefix', async () => {
     const { host } = balanceHost({ provider: 'deepseek', accountLabel: '账户余额', balance: { amount: 74.75, currency: 'USD' }, windows: [] })
     render(<BalancePill host={host} provider="deepseek" />)

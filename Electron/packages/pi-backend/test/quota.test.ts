@@ -37,7 +37,9 @@ describe("balanceProviderFor mirrors Swift balanceProvider(for:)", () => {
   it("maps prepaid providers and rejects relay/unknown", () => {
     expect(balanceProviderFor("moonshot")).toBe("moonshot");
     expect(balanceProviderFor("moonshot-relay")).toBeUndefined(); // relay gate wins
-    expect(balanceProviderFor("deepseek")).toBeUndefined(); // no bundled adapter
+    expect(balanceProviderFor("deepseek")).toBe("deepseek");
+    expect(balanceProviderFor("deepseek-extended")).toBe("deepseek"); // extension provider inherits the adapter
+    expect(balanceProviderFor("deepseek-relay")).toBeUndefined(); // relay gate wins
     expect(balanceProviderFor("openai-codex")).toBeUndefined(); // quota provider, not balance
     expect(balanceProviderFor("coding-relay")).toBeUndefined();
   });
