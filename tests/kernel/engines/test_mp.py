@@ -144,6 +144,87 @@ def test_regen_zero_hours_is_noop():
 
 
 # --------------------------------------------------------------------------- #
+# regen_mp: sub-hour advances bank a remainder instead of rounding up
+# (defect #75 — see kernel/coc/rules/mp.py's `regen_mp` docstring for the
+# rulebook citation). A hard `if gain < 1: gain = 1` floor used to hand out a
+# free Magic point for ANY nonzero advance, so a keeper passing 5 minutes at a
+# time gave the party free MP every turn. These assert the replacement: an
+# advance under an hour earns nothing yet, the minutes are banked
+# (`regen_remainder_minutes`), and a later advance that completes the hour
+# pays out exactly what the elapsed time earned — no more, no less.
+# --------------------------------------------------------------------------- #
+def test_regen_under_an_hour_gains_nothing_yet():
+    """Reverting the fix (`if gain < 1: gain = 1`) turns this red: a 5-minute
+    advance would hand back 1 MP instead of 0."""
+    pool = MPool("inv1", pow_value=60)  # mp_max=12, 1/hr
+    pool.current_mp = 5
+    gained = pool.regen_mp(5 / 60)
+    assert gained == 0
+    assert pool.current_mp == 5
+
+
+def test_regen_under_an_hour_banks_the_minutes():
+    pool = MPool("inv1", pow_value=60)
+    assert pool.regen_remainder_minutes == 0
+    pool.regen_mp(5 / 60)
+    assert pool.regen_remainder_minutes == 5
+
+
+def test_regen_banked_minutes_pay_out_once_an_hour_completes():
+    """Two 30-minute advances in the same in-memory pool (no reload) must sum
+    to exactly the one point a full hour earns — not two, not zero."""
+    pool = MPool("inv1", pow_value=60)  # mp_max=12, 1/hr
+    pool.current_mp = 0
+    first = pool.regen_mp(30 / 60)
+    assert first == 0
+    assert pool.regen_remainder_minutes == 30
+    second = pool.regen_mp(30 / 60)
+    assert second == 1
+    assert pool.current_mp == 1
+    assert pool.regen_remainder_minutes == 0
+
+
+def test_regen_banked_minutes_scale_with_high_pow_rate():
+    """POW>100 regenerates 2/hr, so the banked hour is worth 2 points, not 1."""
+    pool = MPool("inv1", pow_value=120)  # 2/hr
+    pool.current_mp = 0
+    pool.regen_mp(45 / 60)
+    assert pool.current_mp == 0
+    gained = pool.regen_mp(15 / 60)
+    assert gained == 2
+    assert pool.current_mp == 2
+
+
+def test_regen_remainder_survives_save_and_load(tables, campaign):
+    """The remainder must persist across a save/load cycle: `handle_time_trigger`
+    loads a fresh MPool from disk on every call, so banked minutes that only
+    lived on the in-memory instance would be lost between downtime triggers."""
+    pool = MPool("inv1", pow_value=60, current_hp=12)
+    pool.current_mp = 0
+    pool.regen_mp(40 / 60)
+    assert pool.regen_remainder_minutes == 40
+    pool.save(campaign)
+
+    reloaded = MPool.load(tables, campaign, "inv1", pow_value=60)
+    assert reloaded.regen_remainder_minutes == 40
+    gained = reloaded.regen_mp(20 / 60)  # 40 + 20 = 60 minutes -> exactly 1 hour
+    assert gained == 1
+    assert reloaded.current_mp == 1
+    assert reloaded.regen_remainder_minutes == 0
+
+
+def test_regen_remainder_does_not_let_the_cap_be_exceeded():
+    """Banking minutes must not create a backdoor around the POW/5 ceiling:
+    a huge advance still caps at mp_max regardless of how many whole hours
+    it represents."""
+    pool = MPool("inv1", pow_value=60)  # mp_max=12
+    pool.current_mp = 11
+    gained = pool.regen_mp(10)  # 10 hours * 1/hr = 10, would overshoot to 21
+    assert gained == 1
+    assert pool.current_mp == 12
+
+
+# --------------------------------------------------------------------------- #
 # Persistence (mp-state snapshot)
 # --------------------------------------------------------------------------- #
 @pytest.fixture

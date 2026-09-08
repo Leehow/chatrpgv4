@@ -1,7 +1,9 @@
 """Magic-point economy (Chapter 10). Ported from coc_mp.py.
 
-Snapshot: `<campaign>/save/mp-state/<investigator>.json` (`mp`, `mp_max`, `current_hp`).
-The settlement layer mirrors `mp` into the party sheet's `current_mp`."""
+Snapshot: `<campaign>/save/mp-state/<investigator>.json` (`mp`, `mp_max`, `current_hp`,
+`regen_remainder_minutes`). The settlement layer mirrors `mp` into the party sheet's
+`current_mp`; `regen_remainder_minutes` is internal regen bookkeeping and is never
+mirrored anywhere else (see `regen_mp` below)."""
 
 from __future__ import annotations
 
@@ -37,7 +39,8 @@ class MPool:
     """Structured MP pool for one investigator; overspill below 0 costs HP 1:1."""
 
     def __init__(self, investigator_id: str, pow_value: int, rng: random.Random | None = None, *,
-                 mp_economy: dict[str, Any] | None = None, current_hp: int | None = None) -> None:
+                 mp_economy: dict[str, Any] | None = None, current_hp: int | None = None,
+                 regen_remainder_minutes: int = 0) -> None:
         self.investigator_id = investigator_id
         self.pow_value = int(pow_value)
         self._rng = rng or random.Random()
@@ -45,6 +48,12 @@ class MPool:
         self.mp_max = self.pow_value // 5
         self.current_mp = self.mp_max
         self.current_hp = current_hp
+        #: Minutes advanced since the last full hour paid out (§10, Magic Points: the
+        #: regen rate is stated per whole hour, not as a continuous fraction). Banked
+        #: here instead of discarded so a keeper who advances the clock in ordinary
+        #: 5-20 minute steps still recovers the point once those steps add up to an
+        #: hour; see `regen_mp`. Always in [0, 59]; persisted by `snapshot`/`save`/`load`.
+        self.regen_remainder_minutes = int(regen_remainder_minutes)
         self.events: list[dict[str, Any]] = []
         self._event_counter = 0
 
@@ -85,11 +94,31 @@ class MPool:
         })
 
     def regen_mp(self, hours: float, *, source: str = "rest") -> int:
+        """Chapter 10: "Regeneration of Magic points is a natural function, returning at
+        one Magic point per hour ... The number of Magic points cannot regenerate to a
+        value above one-fifth of the character's POW." The rulebook states the rate as a
+        whole-hour step (one point PER HOUR), not a fraction that accrues continuously —
+        so an advance that has not yet reached a full hour has earned nothing YET, but the
+        minutes are not thrown away either: they bank in `regen_remainder_minutes` and
+        combine with the next call.
+
+        This replaced a hard `if gain < 1: gain = 1` floor (defect #75): with that floor,
+        any nonzero advance at all — a keeper passing 5 minutes — rounded `0.083h * 1/hr`
+        up to a free point, so a session of small time-advances handed out far more MP
+        than the hour had earned. Banking in minutes (not fractional hours) also means the
+        carry is exact — no float drift across many small advances — and round-trips
+        through the JSON snapshot as a plain integer.
+        """
         if hours <= 0:
             return 0
-        gain = int(round(self.regen_per_hour * hours))
-        if gain < 1:
-            gain = 1
+        minutes = int(round(hours * 60))
+        if minutes <= 0:
+            return 0
+        total_minutes = self.regen_remainder_minutes + minutes
+        whole_hours, self.regen_remainder_minutes = divmod(total_minutes, 60)
+        if whole_hours <= 0:
+            return 0  # under an hour banked so far: nothing paid out yet, nothing lost
+        gain = whole_hours * self.regen_per_hour
         mp_before = self.current_mp
         new_mp = self.current_mp + gain
         if self._mp_economy.get("max_cannot_exceed_pow_divided_5", True):
@@ -100,16 +129,19 @@ class MPool:
         self.current_mp = new_mp
         self._event("mp_regen", {"source": source, "hours": hours, "gain_per_hour": self.regen_per_hour,
                                  "gain": actual_gain, "mp_before": mp_before, "mp_after": self.current_mp,
+                                 "remainder_minutes": self.regen_remainder_minutes,
                                  "summary": f"{self.investigator_id} regenerated {actual_gain} MP over {hours}h rest ({source})."})
         return actual_gain
 
     def snapshot(self) -> dict[str, Any]:
         return {"investigator_id": self.investigator_id, "pow_value": self.pow_value, "mp_max": self.mp_max,
-                "mp": self.current_mp, "current_hp": self.current_hp, "events": list(self.events)}
+                "mp": self.current_mp, "current_hp": self.current_hp,
+                "regen_remainder_minutes": self.regen_remainder_minutes, "events": list(self.events)}
 
     def save(self, campaign_dir: Path) -> Path:
         data = read_mp_state(campaign_dir, self.investigator_id)
-        data.update({"investigator_id": self.investigator_id, "mp": self.current_mp, "mp_max": self.mp_max})
+        data.update({"investigator_id": self.investigator_id, "mp": self.current_mp, "mp_max": self.mp_max,
+                     "regen_remainder_minutes": self.regen_remainder_minutes})
         if self.current_hp is not None:
             data["current_hp"] = self.current_hp
         path = mp_state_path(campaign_dir, self.investigator_id)
@@ -129,6 +161,8 @@ class MPool:
             pool.mp_max = int(data["mp_max"])
         if "current_hp" in data:
             pool.current_hp = int(data["current_hp"])
+        if "regen_remainder_minutes" in data:
+            pool.regen_remainder_minutes = int(data["regen_remainder_minutes"])
         if current_mp is not None:
             pool.current_mp = int(current_mp)
         if current_hp is not None:
