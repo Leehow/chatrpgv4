@@ -17,6 +17,7 @@ from ..sessions import SessionView
 from ..store import Campaign, now_iso
 from ..text import kebab, normalize
 from . import development, magic, rule_options
+from .combat import apply_wound_conditions
 from .adapter import Coc7RuleGraphAdapter
 from .catalog import Catalog, module_spell_records
 from .graph import GraphLoadError, RulesRuntime, facts_from_state, load_ruleset_graph
@@ -272,11 +273,31 @@ class SettleContext:
             self.mirror_investigator(actor_id, current_hp=int(participant["hp_current"]),
                                      current_mp=int(participant.get("magic_points") or 0), conditions=conditions, wounds=wounds)
 
+    def damage_conditions(self, sheet: dict[str, Any], after: int, damage: int) -> list[str]:
+        prior = list(sheet.get("conditions") or [])
+        participant = {"hp_current": after, "hp_max": int(sheet["derived"]["HP"]), "conditions": list(prior)}
+        def roll_con():
+            value = int(sheet["characteristics"]["CON"])
+            check = self.resolver.check(value, rng=self.rng)
+            self.add_roll(actor=str(sheet["id"]), skill="CON", target=value, difficulty="regular",
+                          threshold=check["threshold"], roll=check["roll"], level=check["level"],
+                          passed=check["passed"], kind="characteristic_check")
+            return check["level"], check
+        apply_wound_conditions(participant, damage, roll_con)
+        conditions = participant["conditions"]
+        if conditions != prior:
+            self.add_effect("condition", str(sheet["id"]), prior, conditions)
+        return conditions
+
     def sync_chase_participants(self, session: Any) -> None:
         for actor_id, participant in session.participants.items():
             if self.sheet_by_id(actor_id) is None:
                 continue
-            self.mirror_investigator(actor_id, current_hp=int(participant.get("hp") or 0))
+            sheet = self.sheet_by_id(actor_id)
+            after = int(participant.get("hp") or 0)
+            loss = max(0, int(sheet.get("current_hp") or 0) - after)
+            conditions = self.damage_conditions(sheet, after, loss) if loss else None
+            self.mirror_investigator(actor_id, current_hp=after, conditions=conditions)
 
     def sync_sanity(self, session: Any) -> None:
         self.mirror_investigator(session.investigator_id, current_san=int(session.san_current))

@@ -33,6 +33,40 @@ from .percentile import RollApi
 from .tables import RuleTables
 
 
+def apply_wound_conditions(p: dict[str, Any], worst_single: int, roll_con: Any) -> None:
+    """Shared rulebook wound triage for combat and other HP damage."""
+    half_max = (p["hp_max"] + 1) // 2
+    # p.120: damage greater than max HP in one attack -> death is inevitable.
+    if worst_single > p["hp_max"]:
+        if "dead" not in p["conditions"]:
+            p["conditions"].append("dead")
+        return
+    newly_major = (worst_single >= half_max and worst_single > 0
+                   and "major_wound" not in p["conditions"])
+    if worst_single >= half_max and worst_single > 0:
+        if "major_wound" not in p["conditions"]:
+            p["conditions"].append("major_wound")
+    if newly_major:
+        # p.120: the character immediately falls prone and must make a
+        # CON roll to avoid falling unconscious.
+        if "prone" not in p["conditions"]:
+            p["conditions"].append("prone")
+        con_outcome, con_record = roll_con()
+        if not con_record["passed"]:
+            if "unconscious" not in p["conditions"]:
+                p["conditions"].append("unconscious")
+        # Keep complete stable roll evidence without polluting the damage
+        # chain; pending_rolls remains the canonical roll log sink.
+        p["major_wound_con"] = dict(con_record)
+    if p["hp_current"] == 0:
+        # p.120: on zero HP the character is unconscious; dying only when
+        # a major wound has also been taken.
+        if "unconscious" not in p["conditions"]:
+            p["conditions"].append("unconscious")
+        if "major_wound" in p["conditions"] and "dying" not in p["conditions"]:
+            p["conditions"].append("dying")
+
+
 class UnknownWeaponError(ValueError):
     """Selected weapon_id is not catalog, module, complete custom, or unarmed."""
 
@@ -2710,40 +2744,8 @@ class CombatSession:
             landed = int(d.get("raw_damage", 0)) - int(d.get("armor_absorbed", 0))
             if landed > worst_single:
                 worst_single = landed
-        # p.120: damage greater than max HP in one attack -> death is inevitable.
-        if worst_single > p["hp_max"]:
-            if "dead" not in p["conditions"]:
-                p["conditions"].append("dead")
-            return
-        newly_major = (worst_single >= half_max and worst_single > 0
-                       and "major_wound" not in p["conditions"])
-        if worst_single >= half_max and worst_single > 0:
-            if "major_wound" not in p["conditions"]:
-                p["conditions"].append("major_wound")
-        if newly_major:
-            # p.120: the character immediately falls prone and must make a
-            # CON roll to avoid falling unconscious.
-            if "prone" not in p["conditions"]:
-                p["conditions"].append("prone")
-            con_outcome, con_record = self._percentile(
-                target_id,
-                "CON",
-                int(p.get("con", 50)),
-                "remain conscious after a major wound",
-            )
-            if not con_record["passed"]:
-                if "unconscious" not in p["conditions"]:
-                    p["conditions"].append("unconscious")
-            # Keep complete stable roll evidence without polluting the damage
-            # chain; pending_rolls remains the canonical roll log sink.
-            p["major_wound_con"] = dict(con_record)
-        if p["hp_current"] == 0:
-            # p.120: on zero HP the character is unconscious; dying only when
-            # a major wound has also been taken.
-            if "unconscious" not in p["conditions"]:
-                p["conditions"].append("unconscious")
-            if "major_wound" in p["conditions"] and "dying" not in p["conditions"]:
-                p["conditions"].append("dying")
+        apply_wound_conditions(p, worst_single, lambda: self._percentile(
+            target_id, "CON", int(p.get("con", 50)), "remain conscious after a major wound"))
 
     # ------------------------------------------------------------------ #
     # Conclusion

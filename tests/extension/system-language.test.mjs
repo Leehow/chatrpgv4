@@ -25,7 +25,7 @@ const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CJK = /[ᄀ-ᇿ　-〿぀-ヿ㄰-㆏㐀-䶿一-鿿가-힯豈-﫿＀-￯]/u;
 
 /** 扫哪些地方：目录整棵扫，文件单个扫。 */
-const SCOPE = ["extensions", "bin", "prompts"];
+const SCOPE = ["extensions", "bin", "prompts", "pipicoc/agent.ts", "pipicoc/sheet.ts", "pipicoc/host-bridge.ts", "pipicoc/rpc.mjs"];
 
 function walk(path) {
 	const stats = statSync(path);

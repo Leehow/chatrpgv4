@@ -37,12 +37,12 @@ from .rules.runtime import RulesEngine, SettleContext
 from .sessions import SessionView, module_weapons
 from .setup import (ModuleStore, STATUS_ACTIVE, STATUS_READY, STATUS_SETTING_UP, SetupMethods, module_registered)
 from .store import Campaign, Store, fresh_turn, now_iso, parse_call_id
-from .text import ascii_slug, normalize, slugify
+from .text import ascii_slug, normalize
 
 INTENTS = frozenset({"investigate", "social", "move", "combat", "flee", "cast", "idle", "meta",
                      "stuck", "ambiguous", "montage"})
 NONE_INTENTS = frozenset({"idle", "meta", "stuck", "ambiguous"})
-APPLY_KINDS = frozenset({"move", "clue", "time", "damage", "handout", "item", "cash", "flag", "note", "ruling",
+APPLY_KINDS = frozenset({"ending", "move", "clue", "time", "damage", "handout", "item", "cash", "flag", "note", "ruling",
                          "npc",
                          # §15.3 (#23): the world changing lines. Performed after the turn commits.
                          "fork", "switch", "merge"})
@@ -318,7 +318,7 @@ class Table:
         campaign = self.store.open(params.get("campaign"), require_turn=require_turn)
         meta = campaign.read_campaign()
         status = str(meta.get("status"))
-        if status not in statuses:
+        if status not in statuses and not (read_only and status == "completed"):
             # §14.4: a campaign still setting up is sent back to the setup process.
             fix = self.setup.steps.table_open_fix(campaign.id) if status == STATUS_SETTING_UP else None
             raise RpcError("campaign_not_ready", f"campaign {campaign.id!r} is {status!r}", fix=fix,
@@ -333,7 +333,7 @@ class Table:
         return campaign, meta, graph, world
 
     def _context(self, params: dict[str, Any]) -> tuple[Campaign, ModuleGraph, dict[str, Any], dict[str, Any]]:
-        campaign, _, graph, world = self._load(params)
+        campaign, _, graph, world = self._load(params, statuses=frozenset({STATUS_ACTIVE, "completed"}))
         return campaign, graph, world, campaign.read_turn()
 
     def _snapshot(self, campaign: Campaign, graph: ModuleGraph, world: dict[str, Any],
@@ -519,7 +519,7 @@ class Table:
             # (§14.1: the first reference copies the graph in).
             self.module_store.register_starter(legacy_module, self.content / "starters")
         campaign, meta, graph, world = self._load(params, require_turn=False,
-                                                  statuses=frozenset({STATUS_READY, STATUS_ACTIVE}))
+                                                  statuses=frozenset({STATUS_READY, STATUS_ACTIVE, "completed"}))
         self.validate_ontology()
         if meta.get("status") == STATUS_READY:
             meta["status"] = STATUS_ACTIVE
@@ -906,6 +906,8 @@ class Table:
         replay = campaign.replay_or_conflict(turn, call_id, params)
         if replay is not None:
             return call_id, replay
+        if campaign.read_campaign().get("status") == "completed":
+            raise RpcError("campaign_not_ready", "this campaign is completed")
         opening = allow_opening and int(turn["turn"]) == 0 and turn["state"] == "awaiting_player"
         if turn["state"] not in WRITABLE_STATES and not opening:
             raise _turn_state_error(turn, method, "wait for player_input to open a turn")
@@ -1139,6 +1141,13 @@ class Table:
                         already.append(receipt["clue"])
                         receipt_ids.append(receipt["id"])
                         continue
+                elif kind == "ending":
+                    summary = _str(effect, "summary")
+                    staged["ending"] = {"summary": summary, "turn": turn_number}
+                    receipt = {"id": mint(f"session:campaign-end-t{turn_number}-c{ordinal}"),
+                               "kind": "session", "family": "campaign", "transition": "end",
+                               "outcome": "completed", "summary": summary, "call_id": call_id}
+                    event = ("session-changed", {"family": "campaign", "transition": "ending", **staged["ending"]})
                 elif kind == "damage":
                     damage_receipts, event = self._stage_damage(campaign, graph, staged, turn, effect,
                                                                 call_id, ordinal)
@@ -1191,6 +1200,8 @@ class Table:
                 exc.details = {"index": index, **(exc.details or {})}
                 raise
 
+        if staged.get("ending") and (staged_worldline or turn.get("worldline")):
+            raise invalid_params("a campaign ending cannot share a turn with a worldline transition")
         recovery, recovery_events, recovered = self._stage_recovery(campaign, graph, staged, turn, call_id,
                                                                     ordinal, rest_minutes)
         receipts.extend(recovery)
@@ -1489,7 +1500,8 @@ class Table:
         before = int(sheet.get("current_hp") or 0)
         after = max(0, before - int(rolled["total"]))
         ctx.add_delta("hp", subject_id, before, after, source_receipt=roll_id)
-        ctx.mirror_investigator(subject_id, current_hp=after, wounds=[roll_id])
+        ctx.mirror_investigator(subject_id, current_hp=after, wounds=[roll_id],
+                                conditions=ctx.damage_conditions(sheet, after, int(rolled["total"])))
         return list(ctx.receipts), ("resource-changed", {"resource": "hp", "subject": subject_id,
                                                           "before": before, "after": after, "dice": dice,
                                                           "total": rolled["total"], "why": why})
@@ -1565,7 +1577,7 @@ class Table:
         card, the registered bytes for an image, or an explicit `available: false` when
         the module only knows the reference (unavailable media is never invented)."""
         name = _str(effect, "name")
-        node = graph.resolve(name, HANDOUT_KINDS, what="handout")
+        node = graph.find(name, ("handout",)) or graph.resolve(name, HANDOUT_KINDS, what="handout")
         handle = graph.handle(node)
         visibility = node.get("visibility")
         if visibility not in HANDOUT_VISIBILITIES:
@@ -1681,7 +1693,8 @@ class Table:
                 close.append(by_name[name])
         raise RpcError("needs", f"{query!r} is not a weapon profile in the rules tables",
                        fix="set weapon to one of details.needs.options (a weapons.json id or its display name), "
-                           "or leave weapon out for an item that is not a weapon",
+                           "for an improvised weapon, keep the object name in name and choose the closest rulebook profile in weapon; "
+                           "later resolve.weapon uses that object name. Leave weapon out only for non-weapons",
                        details={"needs": {"field": "weapon", "options": options, "close": close[:WEAPON_CLOSE_MATCHES],
                                           "source": "content/rulesets/coc7/rules-json/weapons.json"}})
 
@@ -1886,7 +1899,7 @@ class Table:
 
     def ask(self, params: dict[str, Any]) -> dict[str, Any]:
         campaign, graph, world, turn = self._context(params)
-        call_id, replay = self._begin_write(campaign, turn, "table.ask", params)
+        call_id, replay = self._begin_write(campaign, turn, "table.ask", params, allow_opening=True)
         if replay is not None:
             return replay
         kind = params.get("kind", "story")
@@ -1903,6 +1916,8 @@ class Table:
             raise invalid_params("unknown mechanics choice option")
         binds = _str(params, "binds", required=False)
         text = _str(params, "text", required=False)
+        if world.get("ending"):
+            raise invalid_params("a campaign ending must be delivered with narrate, not ask")
         if turn.get("worldline"):
             # §15.3: a turn that changes the worldline cannot end on a question -- the
             # answer would land on a line the player has not been told about yet.
@@ -1920,12 +1935,12 @@ class Table:
         })
         # §16.3: story, receipts and choices travel as separate fields.
         turn_number = int(turn["turn"])
-        pending = {"name": f"ask-{slugify(binds or prompt or kind)}-t{turn_number}", "prompt": prompt,
+        pending = {"name": f"ask-{ascii_slug(binds or "") or kind}-t{turn_number}", "prompt": prompt,
                    "options": list(options), "binds": binds, "kind": kind}
         rendered = stripped.strip() if stripped else ""
         interaction = {**pending, "play_language": language_of(campaign.read_campaign())}
         projected = mechanics(receipts, placed)
-        result = {"pending_choice": pending, "interaction": interaction, "rendered_text": rendered, "mechanics": projected,
+        result = {"pending_choice": pending, "interaction": interaction, "rendered_text": rendered, "mechanics": projected, "labels": player_glossary(self.tables, language_of(campaign.read_campaign())),
                   **({"marked_text": text} if placed else {}),
                   "turn": turn_number, "state": "asked"}
         turn["pending_choice"] = pending
@@ -1934,7 +1949,7 @@ class Table:
         snapshot = self._snapshot(campaign, graph, world, campaign.party())
         record = {
             "turn": turn_number, "player_text": turn.get("player_text"), "receipts": receipts,
-            "text": text or "", "rendered_text": rendered, "mechanics": projected, "calls": turn.get("calls", {}),
+            "text": text or "", "rendered_text": rendered, "mechanics": projected, "labels": player_glossary(self.tables, language_of(campaign.read_campaign())), "calls": turn.get("calls", {}),
             "commit": None,
             "closed_by": "ask", "opened_at": turn.get("opened_at"), "closed_at": now_iso(),
             "pending_choice": pending, "world": snapshot,
@@ -1973,7 +1988,7 @@ class Table:
         party = campaign.party()
         snapshot = self._snapshot(campaign, graph, world, party)
         facts = self._facts(campaign, graph, world, party, receipts, snapshot, turn.get("player_text"))
-        result: dict[str, Any] = {"rendered_text": rendered, "mechanics": projected, "turn": turn_number,
+        result: dict[str, Any] = {"rendered_text": rendered, "mechanics": projected, "labels": player_glossary(self.tables, language_of(campaign.read_campaign())), "turn": turn_number,
                                   "receipt": receipt_id, "commit": None, "facts": facts,
                                   **({"marked_text": text} if placed else {}),
                                   "extraction": {"job_id": memory.job_id_for(campaign.id, turn_number)}}
@@ -1987,7 +2002,7 @@ class Table:
         Campaign.remember_call(turn, call_id, params, result)
         record = {
             "turn": turn_number, "player_text": turn.get("player_text"), "receipts": receipts,
-            "text": text, "rendered_text": rendered, "mechanics": projected, "calls": turn.get("calls", {}),
+            "text": text, "rendered_text": rendered, "mechanics": projected, "labels": player_glossary(self.tables, language_of(campaign.read_campaign())), "calls": turn.get("calls", {}),
             **({"marked_text": text} if placed else {}),
             "commit": None, "closed_by": "narrate", "opened_at": turn.get("opened_at"),
             "closed_at": now_iso(), "pending_choice": turn.get("pending_choice"), "capsule": turn.get("capsule"),
@@ -2004,9 +2019,13 @@ class Table:
                      {"receipts": [r["id"] for r in receipts]},
                      call_id=call_id, receipt=receipt_id)
         campaign.write_turn(fresh_turn(turn_number + 1))
+        prior_meta = campaign.read_campaign()
+        if world.get("ending"):
+            campaign.write_campaign({**prior_meta, "status": "completed", "ending": world["ending"]})
         try:
             sha = history.commit(campaign.repo_dir, campaign.dir, f"turn {turn_number}: {subject}")
         except history.CommitFailed as exc:
+            campaign.write_campaign(prior_meta)
             if before["state"] == "open":
                 before["state"] = "acting"
             campaign.write_turn(before)

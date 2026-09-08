@@ -244,7 +244,7 @@ def test_a_night_of_rest_gives_back_the_hit_point_the_rulebook_promises(kernel):
     kernel ever called it. On the live table that meant 55 in-game hours, three nights'
     sleep and two visits to a doctor with the investigator stuck at 5 of 11 all game."""
     open_turn(kernel)
-    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "damage", "dice": "1D6", "why": "摔下楼梯"}])
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "damage", "dice": "1D3", "why": "摔下楼梯"}])
     hurt = kernel.table("look", focus="investigator")["hp"]
 
     rested = kernel.table("apply", call_id="t1-c2", effects=[{"kind": "time", "minutes": 480, "why": "睡一夜"}])
@@ -336,3 +336,35 @@ def test_a_naming_leaves_no_row_on_the_player_s_card(kernel):
                  effects=[{"kind": "move", "to": OPENING_SCENE, "label": "委托人的书房"}])
     narrated = narrate(kernel, "t1-c2", "你们还在那间书房里。")
     assert not [m for m in narrated["mechanics"] if m["kind"] == "scene"]
+
+
+def test_environment_damage_records_zero_hp_conditions(kernel):
+    from conftest import campaign_dir, read_json
+    open_turn(kernel)
+    for n in range(1, 30):
+        kernel.table("apply", call_id=f"t1-c{n}", effects=[{"kind":"damage", "dice":"1D1"}])
+        sheet = read_json(campaign_dir(kernel.workspace) / "party" / "thomas-hayes.json")
+        if sheet["current_hp"] == 0:
+            assert "unconscious" in sheet["conditions"]
+            assert "dead" not in sheet["conditions"]
+            assert "dying" not in sheet["conditions"]
+            break
+    else:
+        assert False, "damage did not reach zero"
+
+
+def test_environment_major_wound_and_lethal_damage(kernel):
+    from conftest import campaign_dir, read_json
+    open_turn(kernel)
+    path = campaign_dir(kernel.workspace) / "party" / "thomas-hayes.json"
+    maximum = read_json(path)["derived"]["HP"]
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind":"damage", "dice":f"1D1+{maximum-1}"}])
+    assert {"major_wound", "unconscious", "dying"} <= set(read_json(path)["conditions"])
+    kernel.table("apply", call_id="t1-c2", effects=[{"kind":"damage", "dice":f"1D1+{maximum}"}])
+    assert "dead" in read_json(path)["conditions"]
+
+
+def test_handout_display_name_prefers_delivery_over_underlying_asset(kernel):
+    open_turn(kernel)
+    result = kernel.table("apply", call_id="t1-c1", effects=[{"kind":"handout", "name":"Corbitt House Investigator Map"}])
+    assert result["receipts"]

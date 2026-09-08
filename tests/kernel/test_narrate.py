@@ -100,3 +100,34 @@ def test_the_kernel_no_longer_polices_markers_only_numbers(kernel):
     assert result["rendered_text"] == "【明骰】这是守秘人自己写的。"
     kernel.table("player_input", text="继续。")
     assert kernel.table_err("narrate", call_id="t2-c1", text="   ")["code"] == "invalid_params"
+
+
+def test_opening_choice_has_ascii_identity_and_player_labels(kernel):
+    from conftest import create_campaign
+    create_campaign(kernel)
+    kernel.table("open")
+    choice = kernel.table("ask", call_id="t0-c1", prompt="你从哪里开始？", options=["前门", "后门"])
+    assert choice["pending_choice"]["name"] == "ask-story-t0"
+    assert choice["labels"]
+    assert choice["interaction"]["options"] == ["前门", "后门"]
+
+
+def test_ending_commits_campaign_status_and_remains_readable(kernel):
+    from conftest import campaign_dir, read_json
+    open_turn(kernel)
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "ending", "summary": "The investigators escaped."}])
+    assert read_json(campaign_dir(kernel.workspace) / "campaign.json")["status"] == "active"
+    done = kernel.table("narrate", call_id="t1-c2", text="你们离开了这座房子，故事到此结束。")
+    assert done["commit"]
+    assert read_json(campaign_dir(kernel.workspace) / "campaign.json")["status"] == "completed"
+    assert kernel.table("view")["labels"]
+    assert kernel.table("open")["campaign"]["status"] == "completed"
+    assert kernel.table("narrate", call_id="t1-c2", text="你们离开了这座房子，故事到此结束。")["replayed"]
+    assert kernel.table_err("player_input", text="继续")["code"] == "campaign_not_ready"
+
+
+def test_narration_mechanics_include_existing_skill_glossary(kernel):
+    open_turn(kernel)
+    stage_receipts(kernel)
+    result = kernel.table("narrate", call_id="t1-c3", text="你检查了房间。")
+    assert result["labels"]["Spot Hidden"] == "侦查"

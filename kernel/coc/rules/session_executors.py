@@ -324,6 +324,19 @@ def execute_combat_resolve(ctx: Any, args: dict[str, Any], plan: Mapping[str, An
                          pending_defense=defender)
     turn: dict[str, Any] | None = None
     rolls: list[dict[str, Any]] = []
+    if kind == "attack" and args.get("unopposed"):
+        holder = _cursor_actor(session)
+        if holder != actor_id:
+            raise turn_state(f"it is {holder}'s turn, not {actor_id}'s", turn_of=holder)
+        target_id = str(args.get("target_npc_id") or "")
+        if target_id not in session.participants:
+            raise RpcError("unknown_entity", f"{target_id} is not in this combat")
+        pending = _pending_attack(session, ctx, actor_id, target_id, args.get("weapon_id"), operation,
+                                  _intent_text(args, f"{actor_id} attacks {target_id}"))
+        session.pending_attack = pending
+        actor_id = target_id
+        kind = "defend"
+        args = {**args, "defense_kind": "none"}
     if kind == "defend":
         if not isinstance(pending, dict):
             raise turn_state("no attack awaits a defense", fix="declare an attack first")

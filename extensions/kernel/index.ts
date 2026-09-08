@@ -4,6 +4,7 @@
  * docs/kernel-rpc.md §8.
  */
 
+import type { ImageContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join, resolve as resolvePath } from "node:path";
@@ -558,12 +559,12 @@ export default function (pi: ExtensionAPI) {
 	 * it. It is never injected into the prose: the TUI shows only what the Keeper wrote.
 	 */
 	function noteMechanics(state: TableState, turn: number, mechanics: Array<Record<string, unknown>>,
-		markedText?: string): void {
+		markedText?: string, labels?: unknown): void {
 		if (mechanics.length === 0) return;
 		// §16.6: `marked_text` rides here rather than in the assistant message, because that message
 		// is also what a terminal reader sees and raw `{{...}}` is not prose. A frontend that has it
 		// draws each marked row where the Keeper put it; one that does not reads the message as before.
-		const entry = { turn, mechanics, play_language: state.playLanguage, ...(markedText ? { marked_text: markedText } : {}) };
+		const entry = { turn, mechanics, ...(labels ? { labels } : {}), play_language: state.playLanguage, ...(markedText ? { marked_text: markedText } : {}) };
 		try {
 			pi.appendEntry("coc-mechanics", entry);
 		} catch {
@@ -571,7 +572,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		// The bus event keeps its shape: `marked_text` is a rendering hint for the delivery channel,
 		// not a fact about the turn, and a bus subscriber that wanted it would want the entry.
-		pi.events.emit("coc:mechanics", { campaign: state.campaign, turn, mechanics });
+		pi.events.emit("coc:mechanics", { campaign: state.campaign, turn, mechanics, ...(labels ? { labels } : {}) });
 	}
 
 	function applyToolSuccess(state: TableState, tool: string, toolCallId: string, result: Record<string, unknown>): void {
@@ -609,6 +610,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			case "ask": {
 				state.state = "asked";
+				state.openingPending = false;
 				// The pending choice has been handed back to the player, so the turn no longer owes an ask.
 				state.pendingChoice = null;
 				state.closedThisRun = true;
@@ -616,7 +618,7 @@ export default function (pi: ExtensionAPI) {
 				state.deliveryToolCallId = toolCallId;
                 if (result.interaction) pi.appendEntry("coc-choice", result.interaction);
 				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn,
-					withHandouts(state, readMechanics(result)), asString(result.marked_text));
+					withHandouts(state, readMechanics(result)), asString(result.marked_text), result.labels);
 				break;
 			}
 			case "narrate": {
@@ -629,7 +631,7 @@ export default function (pi: ExtensionAPI) {
 				state.verifierOwed = { turn: typeof result.turn === "number" ? result.turn : state.turn };
 				const mechanics = withHandouts(state, readMechanics(result));
 				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn, mechanics,
-					asString(result.marked_text));
+					asString(result.marked_text), result.labels);
 				noteCommit(state, result, mechanics);
 				break;
 			}
@@ -912,7 +914,7 @@ export default function (pi: ExtensionAPI) {
 				);
 			} else if (open.opening_needed) {
 				sendHost(
-					"Opening the table: this turn has no player input. Use look to see the opening scene (lookup for background), then deliver the opening with one narrate.",
+					`Opening the table: this turn has no player input. Write all player-facing words in play_language=${table.playLanguage}. Use look to see the opening scene (lookup for background). Deliver with ask when a story choice is needed, otherwise narrate. Questions and options belong in ask interaction JSON, never in narration. Do not call apply or resolve before the first player turn; the only opening writes are ask and narrate.`,
 					"opening",
 				);
 			}
@@ -927,6 +929,20 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		await shutdownKernel();
 		sessionCtx = undefined;
+	});
+
+	// Keep player messages out of the host-driven opening/recovery loop. Pi's streaming
+	// queue bypasses before_agent_start, so replay only after the run fully settles.
+	const waitingInputs: Array<{ text: string; images?: ImageContent[] }> = [];
+	pi.on("input", (event, ctx) => {
+		if (setupMode || !table || ctx.isIdle()) return;
+		waitingInputs.push({ text: event.text, images: event.images });
+		return { action: "handled" };
+	});
+	pi.on("agent_settled", () => {
+		if (!table || !CLOSED_STATES.has(table.state)) return;
+		const next = waitingInputs.shift();
+		if (next) pi.sendUserMessage([{ type: "text", text: next.text }, ...(next.images ?? [])]);
 	});
 
 	// ---- Turns ------------------------------------------------------------
@@ -1037,7 +1053,7 @@ export default function (pi: ExtensionAPI) {
 
 		// A session (combat, chase, sanity bout) is not a turn state: it leaves the turn in acting, so the
 		// ask that hands a pending defence back to the player takes the ordinary road and is not blocked here.
-		const openingNarrate = name === "narrate" && state.openingPending && state.state === "awaiting_player";
+		const openingNarrate = (name === "narrate" || name === "ask") && state.openingPending && state.state === "awaiting_player";
 		if (!openingNarrate && CLOSED_STATES.has(state.state)) {
 			const reason =
 				state.state === "asked"

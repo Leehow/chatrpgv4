@@ -22,6 +22,11 @@ export interface CocToolSpec {
 	parameters: TSchema;
 }
 
+const EndingEffect = Type.Object({
+    kind: StringEnum(["ending"] as const),
+    summary: Type.String({ description: "the ending reached by this campaign; deliver it with narrate after this effect" }),
+});
+
 const MoveEffect = Type.Object({
 	kind: StringEnum(["move"] as const, { description: "walk to another scene" }),
 	to: Type.String({ description: "destination scene name; must be one of the exits reachable from the current scene. Naming the scene they are already in is a rename, not a move: pass label with it and nothing else happens" }),
@@ -244,7 +249,7 @@ const ResolveAction = Type.Object({
 	defense: Type.Optional(
 		StringEnum(["dodge", "fight_back", "none"] as const, {
 			description:
-				"answers the pending defence from the previous result: dodge, fight back, or give up the defence; ask the player for his own defence first, and decide an NPC's yourself together with actor",
+				"with an attack target and weapon, none resolves a non-resisting target in the same call; otherwise answers the pending defence from the previous result: dodge, fight back, or give up the defence; ask the player for his own defence first, and decide an NPC's yourself together with actor",
 		}),
 	),
 	push: Type.Optional(
@@ -435,7 +440,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		promptSnippet: "Land this turn's world changes: move, clue, time, handout, item, cash",
 		parameters: Type.Object({
 			effects: Type.Array(
-				Type.Union([MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect]),
+				Type.Union([EndingEffect, MoveEffect, ClueEffect, TimeEffect, DamageEffect, ItemEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
 		}),

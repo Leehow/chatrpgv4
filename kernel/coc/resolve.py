@@ -319,7 +319,7 @@ class ResolvePipeline:
         combat = sessions.combat if sessions else None
         if combat_active(combat) and isinstance(combat.get("pending_attack"), dict):
             return [COMBAT_DEFEND_REF]
-        if action.get("defense") is not None:
+        if action.get("defense") is not None and not (action.get("target") and action.get("weapon")):
             return [COMBAT_DEFEND_REF]
         if sessions and chase_active(sessions.chase):
             kind = sessions.chase_pending_kind(sessions.chase) or "move"
@@ -695,6 +695,7 @@ class ResolvePipeline:
                     if affordance_id:
                         binding["affordance_id"] = affordance_id
             if suffix == "maneuver":
+                sem.pop("weapon_ref", None)
                 sem["goal"] = self.goal or "ongoing_disadvantage"
             return sem, binding
         if suffix in ("aim", "reload"):
@@ -956,9 +957,10 @@ class ResolvePipeline:
         # A defense answers an attack and an NPC acts in the fight: both are combat, whatever
         # the keeper wrote as intent.
         effective_intent = "combat" if (self.action.get("defense") is not None or self.npc_in_session) else self.intent
-        runtime = self.engine.runtime(ctx, intent=effective_intent, adapter=adapter)
-
         candidates = self._route(resolver, npc, target_investigator)
+        if chase_active(self.sessions.chase) and self.intent == "flee":
+            effective_intent = "combat" if candidates == ["decision:coc7:chase:attack"] else "move"
+        runtime = self.engine.runtime(ctx, intent=effective_intent, adapter=adapter)
         allowed, message, details = self._session_restriction(self.sessions)
         if allowed is not None:
             # The keeper answers a session explicitly (`decision` / `defense`); a chase also

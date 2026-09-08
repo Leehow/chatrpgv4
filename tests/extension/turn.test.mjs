@@ -328,3 +328,18 @@ test("物品与现金：item、cash 原样进内核，收据只进机制投影�
 		{ kind: "cash", subject: "托马斯·海耶斯", before: 50, after: 20 },
 	], "item 与 cash 的前后账在投影里，语言中立");
 });
+
+test("player input during an automatic opening is opened exactly once after delivery", async t => {
+    const table = await openTable({ env: { FAKE_KERNEL_OPENING: "1" }, responses: [
+        fauxAssistantMessage([fauxToolCall("narrate", { text: "The door stands open." })], { stopReason: "toolUse" }),
+        fauxAssistantMessage("The door stands open."),
+        fauxAssistantMessage([fauxToolCall("narrate", { text: "You enter the house." })], { stopReason: "toolUse" }),
+        fauxAssistantMessage("You enter the house."),
+    ] });
+    t.after(() => table.dispose());
+    await table.session.prompt("I enter the house.", { streamingBehavior: "followUp" });
+    await waitForIdle(table.session);
+    const inputs = table.kernelRequests().filter(r => r.method === "table.player_input");
+    assert.equal(inputs.length, 1);
+    assert.equal(inputs[0].params.text, "I enter the house.");
+});

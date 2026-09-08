@@ -403,7 +403,7 @@ def build_starter_graph(starter_dir: Path | str, *, asset_catalog: Path | str | 
                 nodes[clue_id] = {
                     "node_id": clue_id,
                     "node_kind": "clue",
-                    "name": _summary(clue, clue_id),
+                    "name": clue.get("name") or _summary(clue, clue_id),
                     "visibility": "revealable",
                     "aliases": [],
                     "summary": _summary(clue, clue_id),

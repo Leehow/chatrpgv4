@@ -49,3 +49,11 @@ it('cold host sheet reads are tied to the requested session and never start Pi',
     expect(anonymous).toMatchObject({ok:true,data:{status:'unbound'}});
   }finally{await backend.close();}
 });
+
+it('preserves the kernel glossary on mechanics renderer details', () => {
+  const labels = {'Spot Hidden':'侦查'};
+  const entry = mechanicsEntry({type:'custom', id:'localized', customType:'coc-mechanics', data:{
+    turn:1, play_language:'zh-Hans', labels, mechanics:[{kind:'roll',skill:'Spot Hidden',roll:25,target:50}]
+  }})!;
+  expect(entry.presentation?.details).toMatchObject({labels});
+});

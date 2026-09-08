@@ -542,3 +542,22 @@ def test_chase_end_reads_the_schema_vocabulary_from_the_quarry_side():
         chase_end_word("victory", None, quarry_is_investigator=True)
     assert raised.value.code == "invalid_params"
     assert "fled" in raised.value.details["options"] and "escaped" in raised.value.details["options"]
+
+
+def test_maneuver_and_nonresisting_attack_have_receipts(kernel):
+    open_turn(kernel)
+    n = walk_to_confrontation(kernel)
+    result = resolve(kernel, f"t1-c{n}", intent="combat", decision="combat:maneuver",
+                     goal="disarm", method="grip the wrist", target="Walter Corbitt", weapon="unarmed")
+    assert result["decision"] == "combat:maneuver"
+    assert result["receipts"]
+
+
+def test_nonresisting_target_settles_in_one_attack(kernel):
+    open_turn(kernel)
+    n = walk_to_confrontation(kernel)
+    result = resolve(kernel, f"t1-c{n}", intent="combat", goal="strike the inert body", method="shoot",
+                     target="Walter Corbitt", weapon=".38 Revolver", defense="none")
+    assert result["decision"] == "combat:attack"
+    assert result.get("pending_choice") is None
+    assert any(r.startswith("roll:") for r in result["receipts"])

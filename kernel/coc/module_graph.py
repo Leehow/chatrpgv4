@@ -234,6 +234,11 @@ class ModuleGraph:
     def resolve(self, name: str, kinds: tuple[str, ...] | None = None,
                 *, what: str = "entity") -> dict[str, Any]:
         key = normalize(name)
+        exact = [node for node in self.nodes.values()
+                 if (not kinds or node["node_kind"] in kinds)
+                 and key == normalize(self.handle(node))]
+        if len(exact) == 1:
+            return exact[0]
         ids = set(self._names.get(key, ()))
         if kinds:
             ids = {i for i in ids if self.nodes[i]["node_kind"] in kinds}

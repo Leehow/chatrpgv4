@@ -460,6 +460,8 @@ class Coc7RuleGraphAdapter:
                     "defense_kind", "luck_spend_max", "goal", "outcome"):
             if payload.get(key) is not None:
                 out[key] = thaw(payload[key])
+        if action == "attack" and self.ctx.action.get("defense") == "none":
+            out["unopposed"] = True
         if action == "end" and not out.get("outcome"):
             raise RpcError("needs", "combat:end needs the outcome the fight reached",
                            fix="set action.outcome to one of details.needs.options",

@@ -302,3 +302,13 @@ def weapon_options(client):
     """What `resolve` offers for `action.weapon` (the same function the pipeline calls on
     the sheet as written): the sheet's rows plus the fist."""
     return options_of(sheet(client))
+
+
+def test_improvised_object_keeps_name_and_uses_selected_profile(kernel):
+    from test_rules_families import walk_to_confrontation, resolve
+    open_turn(kernel)
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "item", "name": "sledgehammer", "weapon": "club_large"}])
+    n = walk_to_confrontation(kernel, start=2)
+    result = resolve(kernel, f"t1-c{n}", intent="combat", target="Walter Corbitt", weapon="sledgehammer",
+                     defense="none", goal="strike", method="swing the hammer")
+    assert result["receipts"]

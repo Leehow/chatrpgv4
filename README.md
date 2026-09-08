@@ -69,5 +69,5 @@ pipicoc/dev --campaign <战役名>     # 关闭建卡窗口后，用同一界面
 
 本地打包：`node pipicoc/package.mjs`，生成 `build/PipiCOC.app`，以 `PipiUI Dev` 签名。
 这个本地包通过运行时描述文件指向当前仓库及 Node/uv；移动或删除仓库会使它无法启动。
-Web 端：`PI_COC_MODE=setup npm --prefix Electron run dev:browser`，打开 `http://localhost:5173`。
+Web 端：先运行 `pipicoc/install` 安装 `.pi/` 中的面板资产，再运行 `PI_COC_MODE=setup npm --prefix Electron run dev:browser`，打开 `http://localhost:5173`。
 Web 端的“添加项目”使用页面内路径输入；人物面板与骰子组件通过宿主受限接口读取，支持 Codex 内置浏览器。

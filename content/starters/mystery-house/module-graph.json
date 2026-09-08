@@ -473,7 +473,7 @@
     {
       "node_id": "clue-crane-macario-summary",
       "node_kind": "clue",
-      "name": "Crane says the Costas fled after a frightening breakdown and that the father now remains at Roxbury Sanitarium.",
+      "name": "Crane's Costa Sanitarium Lead",
       "visibility": "revealable",
       "aliases": [],
       "summary": "Crane says the Costas fled after a frightening breakdown and that the father now remains at Roxbury Sanitarium.",
@@ -1091,6 +1091,7 @@
             "clues": [
               {
                 "clue_id": "clue-crane-macario-summary",
+                "name": "Crane's Costa Sanitarium Lead",
                 "delivery": "opening briefing",
                 "delivery_kind": "npc_dialogue",
                 "source_npc_ids": [

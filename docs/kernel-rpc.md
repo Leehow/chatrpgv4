@@ -1679,3 +1679,47 @@ pending-choice name, kind, options and play_language. The host emits coc-choice
 entries rendered as controls outside narration. Clicking is checked against the
 selected session's current pending choice before submitting a semantic player
 action; old controls cannot affect a newer choice.
+
+## 25. Real-table defect repairs (2026-09-07)
+
+Implementation decisions for the two-session report, items 7–21:
+
+- Player input received while an automatic opening/recovery is streaming is held by the
+  extension input hook until the agent settles. It then enters through the normal user
+  prompt path, which calls `table.player_input` exactly once. Host messages never become
+  player inputs. Opening instructions explicitly carry `play_language`.
+- An opening may close with `ask` when it needs a story choice; the question and options
+  belong to interaction JSON. Opening `ask` has the same turn-zero permission as `narrate`.
+- `narrate` and `ask` return `labels` from the existing player glossary. The extension
+  carries them unchanged through `coc-mechanics` and `coc:mechanics`; the frontend puts
+  them in renderer details. No separate translation table is introduced.
+- Unbound story choices use an ASCII host ordinal, never the player's question, for
+  their machine identity. Bindings remain semantic references supplied by the kernel.
+- The system-language guard includes the agent-side `pipicoc/agent.ts`, `sheet.ts`, and
+  `host-bridge.ts` sources. Player renderer assets remain outside that agent-side scope.
+
+- Combat maneuver binds its weapon on the host side only; it does not fill an
+  undeclared semantic weapon slot. A live chase projects its pending decision's
+  intent (move/combat) while preserving the player's original intent in receipts.
+- `resolve.action.defense` with an explicit attack, target, and weapon describes a
+  non-resisting target when set to `none`. It must not be routed as a defense of a
+  nonexistent pending attack. The attack still creates and settles real combat receipts.
+- `apply` accepts `{kind:"ending", summary:string}`. It stages a campaign conclusion;
+  `narrate` commits it as campaign `status:"completed"` with an ending summary and turn.
+  `ask` cannot close a turn containing an ending. This is a story decision, independent
+  of HP and combat victory; zero HP alone never ends a campaign.
+
+- Improvised weapons use the existing item/profile seam: `apply item` keeps the object's
+  name and binds `weapon` to a rulebook profile chosen by the Keeper (e.g. a large club).
+  Later `resolve.weapon` uses that object's name. The kernel must not infer a weapon
+  class from an open-ended object name; refusal guidance explains this distinction.
+- Entity resolution prefers an exact canonical semantic handle before shared display
+  names/aliases. Ambiguous display names return distinct handles that are resolvable.
+
+- When a handout and its underlying asset share a display name, `apply handout`
+  selects the handout delivery record; explicit asset handles remain usable.
+- Starter clue projection preserves an explicit authored `name` separately from its
+  `player_safe_summary`. The Crane clue title is corrected in source data and both
+  generated graph and manifest are regenerated. Existing campaign evidence is untouched.
+- The opening host message explicitly restricts state changes to its closing `ask`
+  or `narrate`; inventory, renaming and other `apply` effects wait for player turn one.
