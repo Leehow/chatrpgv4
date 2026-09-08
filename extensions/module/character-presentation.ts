@@ -7,8 +7,8 @@ import {runReader,type ReaderRequest,type ReaderOutcome} from './reader.ts';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 const prompt=join(root,'content/setup/character-presentation.md');
 export const CARD_TEXT = ['Character draft','Character draft — reply to confirm or describe changes.',
-  'Parameter','Value','Half','Fifth','Skills','Finance','Background','Language','Key connection',
-  'Equipment','Weapons','Occupation unspent','Interest unspent','Preview unavailable','Retry',
+  'Parameter','Value','Skill','Base value','Occupation points','Interest points','Final value','Point allocation','Total points','Spent','Remaining','Skills','Finance','Background','Language','Key connection',
+  'Characteristics','Calculation','Rolled value','Dice results','Age adjustment','EDU improvement checks','Keep highest','Base movement','Age movement penalty','Round down','Standard rolled characteristics','Quick-fire array','Equipment','Weapons','Preview unavailable','Retry',
   'cash','assets','spending','credit_rating','living_standard','damage','range','attacks','ammo','malfunction','skill','Yes','No'];
 type Row=Record<string,any>;
 export function cardTexts(sheet:Row):string[] {
@@ -29,12 +29,33 @@ export function validatePresentation(value:unknown,texts:string[]):Record<string
   if(!map||typeof map!=='object'||Array.isArray(map)||Object.keys(map).length!==texts.length||texts.some(t=>typeof map[t]!=='string'||!map[t].trim()))throw new Error('Incomplete card presentation');
   return Object.fromEntries(texts.map(t=>[t,map[t]]));
 }
+export async function creationRuleDetails(sheet:Row):Promise<Row> {
+  const trace=sheet.creation?.derived||{}, details:Row={};
+  if(typeof trace.MOV==='string') {
+    const movement=JSON.parse(await readFile(join(root,'content/rulesets/coc7/rules-json/movement-rate.json'),'utf8'));
+    const rule=movement.rules.find((row:Row)=>trace.MOV.startsWith(`movement-rate.rules ${row.key} - age penalty `));
+    const penalty=sheet.creation?.age?.mov_penalty;
+    if(rule&&typeof penalty==='number'&&Math.max(movement.age_penalty.minimum_mov,rule.base_mov-penalty)===sheet.derived?.MOV)
+      details.movement={condition:rule.formula.split(' -> ')[0],base:rule.base_mov,penalty};
+  }
+  const total=typeof trace.DB==='string'?trace.DB.match(/^damage-bonus-build STR\+SIZ=(\d+)$/):null;
+  if(total) {
+    const rows=JSON.parse(await readFile(join(root,'content/rulesets/coc7/rules-json/damage-bonus-build.json'),'utf8'));
+    const value=Number(total[1]);
+    const row=rows.find((row:Row)=>value>=row.min&&value<=row.max);
+    if(row&&row.damage_bonus===sheet.derived?.DB&&row.build===sheet.derived?.BUILD)
+      details.damage_bonus={total:value,min:row.min,max:row.max};
+  }
+  return details;
+}
 export async function prepareCharacterPresentation(options:{home:string;campaign:string;revision:number;play_language:string;model?:string;thinking?:string;known_labels?:Record<string,string>;signal?:AbortSignal;runner?:(r:ReaderRequest)=>Promise<ReaderOutcome>}):Promise<Row> {
   if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(options.campaign)||!Number.isSafeInteger(options.revision)||options.revision<1||!['zh-Hans','en'].includes(options.play_language))throw new Error('Invalid presentation request');
   const draft=JSON.parse(await readFile(join(options.home,'.coc/campaigns',options.campaign,'setup/drafts',`${options.revision}.json`),'utf8'));
   if(draft.play_language!==options.play_language)throw new Error('Draft language does not match the session');
-  const map=await prepareTexts(options,cardTexts(draft.sheet));
-  const result={play_language:options.play_language,texts:map};
+  const calculations=await creationRuleDetails(draft.sheet);
+  const texts=[...new Set([...cardTexts(draft.sheet),...(calculations.movement?[calculations.movement.condition]:[])])].sort();
+  const map=await prepareTexts(options,texts);
+  const result={play_language:options.play_language,texts:map,calculations};
   await saveProjection(options,`${options.revision}-${options.play_language}.json`,result);
   return result;
 }

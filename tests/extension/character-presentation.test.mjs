@@ -37,3 +37,13 @@ test('standing names are localized once, grow with visible people and never incl
  assert.equal(JSON.stringify(view),original);
  assert.ok(cardTexts({...sheet,derived:{DB:'none'}}).includes('none'));
 });
+
+test('explanation rule rows match recorded movement and damage results without rebuilding the card',async()=>{
+ const {creationRuleDetails}=await import('../../extensions/module/character-presentation.ts');
+ const sheet={creation:{age:{mov_penalty:2},derived:{MOV:'movement-rate.rules both_str_and_dex_less_than_siz - age penalty 2',DB:'damage-bonus-build STR+SIZ=85'}},derived:{MOV:5,DB:'none',BUILD:0}};
+ const before=JSON.stringify(sheet),result=await creationRuleDetails(sheet);
+ assert.deepEqual(result.movement,{condition:'both STR and DEX lower than SIZ',base:7,penalty:2});
+ assert.deepEqual(result.damage_bonus,{total:85,min:85,max:124});
+ assert.deepEqual(await creationRuleDetails({...sheet,derived:{MOV:9,DB:'+1D4',BUILD:1}}),{});
+ assert.equal(JSON.stringify(sheet),before);
+});

@@ -1995,3 +1995,25 @@ in prose alongside the card; the in-play mechanics-only JSON rule remains intact
 Keep it compact, do not repeat the whole card, and end with the existing single
 confirmation invitation. Revisions explain only changed calculations and preserve
 unchanged rolls. No extra question or character-generation choice menu is added.
+
+#### Allocation review in the digital draft (2026-09-08)
+
+Character and skill tables omit half/fifth thresholds; the game computes those
+when resolving checks. The draft's skill table shows base value, occupational
+addition, personal-interest addition and final value for every skill. Values come
+from the immutable sheet.creation.skills ledger, not model prose. Base is the
+recorded final value less the two recorded additions. Credit Rating's recorded
+value is an occupational expenditure separate from occupation.allocations; include
+it in that row and in occupational spent totals exactly once. Budget summaries
+show total, spent and remaining for each pool. Missing legacy allocation evidence
+is displayed as unavailable, never inferred as zero additions. The language
+presenter supplies column headings only and cannot change the ledger.
+
+The card also shows characteristic generation and derived-stat calculations inline.
+Use recorded dice expressions/faces/totals/multipliers, age reductions and EDU
+checks, and Luck attempts/keep policy. Show the final saved values alongside this
+evidence. HP/MP/SAN expressions come from recorded creation.derived formulas.
+Movement and DB/Build explanation rows resolve the recorded rule reference against
+the existing content tables and are exposed only when the table result agrees
+with the saved result. These are read-only explanations, never new rolls or a
+replacement for the kernel calculator. Missing evidence remains unavailable.
