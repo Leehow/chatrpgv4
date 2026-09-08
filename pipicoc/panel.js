@@ -189,6 +189,9 @@ const LABELS = {
     cluesHere: "here",
     noClues: "Nothing found yet.",
     occupation: "Occupation",
+    background: "Background",
+    language: "Language",
+    keyConnection: "Key connection",
     era: "Era",
     ageKey: "Age",
     turnKey: "Turn",
@@ -236,6 +239,9 @@ const LABELS = {
     cluesHere: "此处",
     noClues: "还没有发现线索。",
     occupation: "职业",
+    background: "背景",
+    language: "语言",
+    keyConnection: "关键羁绊",
     era: "时代",
     ageKey: "年龄",
     turnKey: "回合",
@@ -459,13 +465,13 @@ export function createComponent(React) {
 
   /** Where and when the table stands: the old panel's 时间 tab, minus the invented wall clock. */
   function Background(props) {
-    const {sheet,term}=props;
+    const {sheet,term,t}=props;
     const rows=Object.entries(isRecord(sheet.backstory)?sheet.backstory:{})
       .filter(([key,value])=>key!=="concept"&&typeof value==="string"&&value.trim());
-    if(sheet.own_language)rows.push(["Language",text(sheet.own_language)]);
-    if(isRecord(sheet.key_connection)&&sheet.key_connection.summary)rows.push(["Key connection",text(sheet.key_connection.summary)]);
+    if(sheet.own_language)rows.push([t.language,text(sheet.own_language)]);
+    if(isRecord(sheet.key_connection)&&sheet.key_connection.summary)rows.push([t.keyConnection,text(sheet.key_connection.summary)]);
     if(!rows.length)return null;
-    return h(Section,{title:term("Background")},h("dl",{className:"coc-background"},rows.map(([key,value])=>
+    return h(Section,{title:t.background},h("dl",{className:"coc-background"},rows.map(([key,value])=>
       h("div",{key,"data-field":key},h("dt",null,term(key)),h("dd",null,term(value))))));
   }
 
@@ -648,7 +654,7 @@ export function createComponent(React) {
         view.presentation_status==="failed"?h("button",{type:"button",onClick:()=>{void load(true);}},t.retry):null) :
       sheet ? h(ItemSection, { title: t.equipment, list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)), objects:(sheet.objects || []).filter(item=>item.category!=="weapon"), empty: t.noEquipment, t, term }) : null,
       sheet ? h(Finance, { sheet, t, term }) : null,
-      sheet ? h(Background, { sheet, term }) : null,
+      sheet ? h(Background, { sheet, term, t }) : null,
 
       h(Clues, { view, t }));
   };

@@ -428,7 +428,7 @@ export function createComponent(React) {
           h("span", { className: "coc-mech-body" },
             row.item ? h("span", { className: "coc-mech-who" }, `${text(row.item)} `) : row.subject_is_investigator === true
               ? h("span", { className: "coc-mech-who" }, `${text(row.subject_label || row.subject)} `) : "",
-            h("span", { className: "coc-mech-res" }, text(row.resource).toUpperCase())),
+            h("span", { className: "coc-mech-res" }, term(text(row.resource).toUpperCase()))),
           h("span", { className: "coc-mech-figure" },
             h("span", { className: "coc-mech-from" }, text(row.before)),
             ` ${t.arrow} `,

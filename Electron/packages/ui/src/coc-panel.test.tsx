@@ -82,6 +82,24 @@ describe('a discovered clue is named, not handled', () => {
   });
 });
 
+describe('the background section speaks the play language', () => {
+  it('labels its chrome in zh-Hans instead of English literals', async () => {
+    const withStory = {
+      ...investigator,
+      backstory: { concept: '记者' },
+      own_language: '粤语',
+      key_connection: { summary: '妹妹的失踪' },
+    };
+    render(<Panel api={host({ ok: true, data: { status: 'ready', view: view({ investigators: [withStory] }), campaign: 'c1' } })} />);
+    await screen.findByText('背景');
+    expect(screen.getByText('语言')).toBeTruthy();
+    expect(screen.getByText('关键羁绊')).toBeTruthy();
+    expect(screen.queryByText('Language')).toBeNull();
+    expect(screen.queryByText('Key connection')).toBeNull();
+    expect(screen.queryByText('Background')).toBeNull();
+  });
+});
+
 describe('the three states with no sheet', () => {
   it('tells an English table it has no campaign, in English', async () => {
     render(<Panel api={host({ ok: true, data: { status: 'unbound', view: null, campaign: null } })} />);

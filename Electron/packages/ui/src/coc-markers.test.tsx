@@ -92,6 +92,18 @@ describe('the card draws a marked delivery', () => {
     expect(screen.getAllByText(/Mira/)).toHaveLength(2);
   });
 
+  it('localizes the resource name the glossary carries and leaves others canonical', () => {
+    const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:7,
+      labels: { LUCK: '幸运' },
+      mechanics:[
+        {kind:'change', receipt:'d1', resource:'luck', subject:'inv', subject_label:'林远', subject_is_investigator:true, before:45, after:38},
+        {kind:'change', receipt:'d2', resource:'hp', subject:'inv', subject_label:'林远', subject_is_investigator:true, before:12, after:8},
+      ]}} />);
+    expect(container.textContent).toContain('幸运');
+    expect(container.textContent).toContain('HP');
+    expect(container.textContent).not.toContain('LUCK');
+  })
+
   it('unfolds a clue with a summary and keeps a bare one a plain row', () => {
     const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:6, mechanics:[
       {kind:'clue', receipt:'clue:tide-t6', clue:'tide-marks', label:'潮痕',
