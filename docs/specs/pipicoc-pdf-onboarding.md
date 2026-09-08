@@ -51,7 +51,7 @@ The earlier implementation queued 12-page batches across the whole book and reac
 
 Before production migration, the sandbox demonstrated skeleton-first source access and question-specific requests at the seam. The retained experiment history, rejected variants and original outstanding gates remain in the visual-reader spec. Production migration and the browser chapter acceptance have since occurred. Raw source reading, independent review, source-material probes and real browser gameplay remain separate evidence levels. Summed phase durations are not measured UI upload-to-play latency.
 
-### Browser run after selective integration (completed after repairs)
+### Browser run after selective integration (historical chapter-only acceptance)
 
 Evidence: `.coc/playtests/masks-agentic-browser/run.json`; isolated home `.coc/research/masks-agentic-browser-home`. Cold upload bound the exact Masks source, then published reviewed opening material from 27 pages. The first pool used 38 concurrent reviewers. Retained failures led to atomic image cache publication, per-unit retry, explicit Start without a synthetic message, and recovery of the opening activity epoch lost before Pi RPC subscription. A fresh repeated upload reused the reviewed source; this is warm reuse, not another cold latency result.
 
@@ -72,3 +72,28 @@ Later on `localhost:5181`, a new empty session in the same cold2 home showed all
 ### Regression checkpoint
 
 Earlier implementation checkpoints passed 5 onboarding, 27 parallel kernel and 8 reader-service tests, then 1055 kernel/play and 112 extension tests; these counts remain historical. The next broad checkpoint passed 1061 kernel/play and 113 extension tests, followed by 35 focused readiness/dossier tests and 37 spatial projection tests. Final postgame checks passed **1097 kernel/play tests** (258.96 seconds, exit 0) and **119 extension tests** (exit 0). Final Electron comparison retained **197 known failures, none new**; targeted UI mechanics passed **16**, external-auth lifecycle passed **15**, and the web build exited **0**. Logs and exit files are under `.coc/playtests/masks-agentic-browser/final-checks/`. Tests support the implementation; separate actual browser/canonical records establish the Peru chapter and settlement. Packaged-app acceptance and stable uninterrupted cold-opening performance are not claimed.
+
+### Cross-chapter continuation correction
+
+The original acceptance missed continuation after accounting: the Peru ending had
+incorrectly completed the entire campaign. This is a product defect, not proof that
+the next chapter requires a new campaign or character. Acceptance now additionally
+requires the same browser campaign to reach the next authored chapter with prior
+rewards, investigator growth, flags and historical records preserved.
+
+The existing ending effect now requires chapter/campaign scope. Legacy unscoped
+chapter endings can be explicitly reclassified through a new audited turn after
+accounting; no save edits or repeated awards are needed. Normal chapter endings keep
+the campaign active. The existing source lookup and move/via path then prepares and
+enters the next scene. Evidence for the correction is retained separately under
+`.coc/playtests/masks-chapter-continuation/`; the earlier report remains a historical
+record, including the mistaken completion claim.
+
+The browser continuation succeeded on the same campaign. Turn 68 reclassified the
+legacy ending; all 71 pre-existing character, accounting and turn files matched
+their pre-correction hashes. The original ending turn 64 and its rewards remain.
+Source reading prepared the New York opening (generation 19); turns 70/71 moved
+through the old friend's message into `the-big-apple`, where Elias calls with the
+Chelsea Hotel meeting. Turn 72 awaits the player, with campaign status active.
+SAN 32, Luck 5 and Spot Hidden 51 remain; HP 8→12 is separately receipted recovery
+during the four-year time skip. No development or reward settlement was repeated.

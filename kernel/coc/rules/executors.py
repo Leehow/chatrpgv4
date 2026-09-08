@@ -580,7 +580,9 @@ def execute_end_session(ctx: Any, args: dict[str, Any], plan: Mapping[str, Any])
               "investigator_ids": sorted(sheets), "summary": args.get("summary") or None,
               "scenario_san_reward_expr": args.get("scenario_san_reward_expr")}
     capsule = None
-    if ctx.campaign.read_campaign().get("status") == "completed":
+    closure = ctx.world.get("ending") or {}
+    if (ctx.campaign.read_campaign().get("status") == "completed"
+        or (closure.get("scope") == "chapter" and not closure.get("continued"))):
         ending_turn = (ctx.world.get("ending") or {}).get("turn")
         if type(ending_turn) is not int:
             raise RpcError("campaign_not_ready", "the completed campaign has no original ending turn to bind accounting")

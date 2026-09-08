@@ -955,6 +955,8 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 | `handout` | `name`, `available`, `label`?, `path`? |
 | `worldline` | `operation`, `line`, `loop`, `from`?（§15.3；切片 8 加的，此前只在实现里，照契约读的前端不知道有这一类） |
 
+每条还可能带两个分组字段：`call` 是铸出该收据的 `call_id`，同一次 resolve/apply 铸出的收据同属一次结算；`family` 是 resolve 结算它的规则族（这次结算里的 `delta` 也带上），`apply` 的簿记行没有 `family`。前端按 `call` 把一次结算的行收进一组，按 `family` 决定这一组的气质；缺了任一个字段就退成单列的行，不许猜。
+
 扩展把它作为会话条目 `coc-mechanics`（`{turn, mechanics}`）追加到 Pi 会话并发到总线 `coc:mechanics`；Pi RPC 事件流因此带着它（`entry_appended`），驾驭器落进 `events.jsonl`；未来的 Electron/web 前端按它渲染骰子卡与变化条。投影为空时不发条目。TUI 只显示守秘人的正文。
 
 **手卡**：Pi 没有出站附件通道（`docs/pi-host-contract.md` §3.3），所以路径不进正文。内核给 `name`/`available`，扩展把 `apply` 结果里的 `attachment` 合进这一行（`path`、`media_type`），前端按它取图；坐在终端前的人由 table 扩展通知一次（`handout <名>: <路径>`，每张卡一次，不进正文）。契约里任何「渲染【明骰】【变化】【第 n 轮】【手卡】行」的旧说法一律以本节为准，包括 §5、§11.6、§11.9、§12.5，以及 §11 的会话渲染、§14.8 的手卡、§14 的实现小节、§15 的世界线收据——那些段落描述的行不再存在，对应的信息以 `mechanics` 的一行投影出去。
@@ -982,7 +984,7 @@ Existing recorded prose is historical evidence and is not rewritten.
 
 - **Public mechanics names.** Roll/dice receipts carry `actor_is_investigator`; resource deltas carry `subject_is_investigator`. Public mechanics names are included and rendered only when the corresponding flag is exactly `true`. NPC and unknown identities, including legacy untagged cards, render anonymously while retaining their numeric mechanics. Canonical names and ids remain in Keeper-side receipts; familiar names belong in Keeper-authored prose. This is a visible mechanics projection boundary, not a redesign of JSON access control.
 
-- **Projection.** `kernel/coc/render.py` is now the receipts' projection and the number check; the mechanics-line templates, `place` and the marker check are gone. `mechanics(receipts)` yields one object per receipt in receipt order. Beyond the §16.2 columns every object carries `kind` and `receipt` (the receipt id), and the names the receipt already holds ride as data when present: `actor_label` (roll, dice), `subject_label` (change, cash), `from_label`/`to_label` (scene), `label` (clue, item, handout), `to_label`/`from`/`weapon` (item), `currency` (cash), `rounds` (a bout's session start), `available`/`path` (handout). A `delta` receipt projects as `change`, a `move` as `scene`, a dice-form roll as `dice` (`label` = the engine's die name, `expression`, `faces`, `total`). Keeper-visibility rolls are projected too, with `visibility: "keeper"`: a consumer that renders for the player must hide them.
+- **Projection.** `kernel/coc/render.py` is now the receipts' projection and the number check; the mechanics-line templates, `place` and the marker check are gone. `mechanics(receipts)` yields one object per receipt in receipt order. Beyond the §16.2 columns every object carries `kind` and `receipt` (the receipt id), and the names the receipt already holds ride as data when present: `actor_label` (roll, dice), `subject_label` (change, cash), `from_label`/`to_label` (scene), `label` (clue, item, handout), `to_label`/`from`/`weapon` (item), `currency` (cash), `rounds` (a bout's session start), `available`/`path` (handout). A `delta` receipt projects as `change`, a `move` as `scene`, a dice-form roll as `dice` (`label` = the engine's die name, `expression`, `faces`, `total`). Keeper-visibility rolls are projected too, with `visibility: "keeper"`: a consumer that renders for the player must hide them. Every row also carries `call` (the `call_id` that minted its receipt) and, for resolve-minted receipts, `family`: at commit time resolve stamps the settled family onto every receipt of that call with `setdefault`, so a session receipt's own family word survives and `apply`'s bookkeeping rows carry none. One settlement is one group; a row without `family` settles nothing and stays loose.
 - **Results and records.** `table.narrate` returns `rendered_text` equal to `text` verbatim plus `mechanics`; `table.ask` returns `text.strip()` + blank line + prompt + `1.`/`2.` options (or the question alone) plus `mechanics`; `table.status` carries `mechanics` for the open turn. The turn record stores `mechanics` beside `rendered_text`; `placement` is accepted, ignored, and no longer recorded; the `turn-finalized` event data is `{receipts}` only.
 - **Number check (§5 step 2, §16.3).** Public = `visibility != "keeper"`. Obliged digits: a roll's `roll` and `target`; a dice roll's `total`; a delta's and a cash receipt's `before` and `after`; a time receipt's `minutes`. Values are compared as `str()` (an integral float prints as an int) by plain substring containment in `text`; nothing else is read. Failure is `invalid_params` with `code_detail: "mechanics_missing"`, `details.missing: [{receipt, expected: [...]}]` in receipt order, and a `fix` listing receipt: numbers. `ask` runs the same check on `text or ""`, so a turn holding public numbers refuses an `ask` without `text`. The error envelope (§1) gains the optional `code_detail`, a closed refinement of `code`.
 - **Play-language script check (§5 step 2, §16.3).** Closed tags only: `zh-Hans` obliges a CJK character (the same ranges as the system-language guard) in every player-facing field of the delivery — `narrate.text`, `ask.prompt`, each `ask.options[i]`, and `ask.text` when given. Failure is `invalid_params` with `code_detail: "play_language_mismatch"`, `details.fields` in field order, `details.play_language` the campaign tag, and a `fix` naming the fields. `en` is unchecked: it is the system language. Mixed CJK-plus-English is not this check's job. Script runs before numbers so a wholly English question is refused as a language leak, not as missing digits. `language_of(meta)` is now consumed here, not only by craft and the extractor.
@@ -1766,8 +1768,9 @@ Implementation decisions for the two-session report, items 7–21:
 - `resolve.action.defense` with an explicit attack, target, and weapon describes a
   non-resisting target when set to `none`. It must not be routed as a defense of a
   nonexistent pending attack. The attack still creates and settles real combat receipts.
-- `apply` accepts `{kind:"ending", summary:string}`. It stages a campaign conclusion;
-  `narrate` commits it as campaign `status:"completed"` with an ending summary and turn.
+- `apply` accepts `{kind:"ending", scope:"chapter"|"campaign", summary:string}`.
+  `narrate` commits the scoped conclusion: chapter keeps `status:"active"`, while
+  campaign alone sets `status:"completed"`. The ending retains its summary and turn.
   `ask` cannot close a turn containing an ending. This is a story decision, independent
   of HP and combat victory; zero HP alone never ends a campaign.
 
@@ -1792,7 +1795,8 @@ NPC executor binding correction (§17.9): an ordinary NPC helper check uses the 
 
 ### Postgame accounting through existing development settlement
 
-A completed campaign stays completed. Later player input may open an accounting turn;
+A completed campaign stays completed unless its legacy unscoped ending is explicitly
+reclassified as a chapter through the audited `apply ending` correction below. Later player input may open an accounting turn;
 new writes are restricted to `resolve` with explicit `development:end-session` or
 `development:settle-ending` and `intent: montage`, plus `ask`/`narrate` for source waits
 and delivery. Other resolve actions and all new apply effects remain refused. The
@@ -1828,3 +1832,34 @@ existing capsules and turn commits; it does not establish crash-atomic growth.
 The pre-existing development executor persists a settlement receipt before writing
 the party sheet, leaving a process-crash window between those writes. Ordinary
 replay/parameter-conflict safety is verified separately from that unresolved limit.
+
+### Chapter closure and campaign completion (continuation correction)
+
+`apply ending` requires `scope: "chapter" | "campaign"`; omission returns
+`needs` with both choices before effects are written. A chapter's accounting is
+not a terminal campaign event. A chapter closure records the existing ending
+summary/turn with `scope: "chapter"`, projects a chapter-end receipt, and leaves
+the campaign active. Only an explicitly campaign-scoped ending closes the campaign.
+The Keeper chooses scope from authored context, not a title or keyword classifier.
+Pausing after a chapter never implies completing the whole book.
+
+While a closed chapter has not been continued, repeated end-session requests reuse
+its frozen accounting. The next successful move marks this closure `continued`,
+so a later session can have its own accounting. A rename or refused/missing-material
+move does not start continuation. Earlier closure records, receipts and capsules
+remain in history; no new chapter manager or parallel save format is introduced.
+Cross-chapter travel uses existing `move`/`via` and material readiness gates.
+
+Legacy completed saves have an unscoped ending. If the Keeper confirms that this
+was only a chapter, a single `apply ending scope:chapter` may reclassify that
+ending after its existing accounting is complete. It preserves the original ending
+summary and turn, all character values, flags, frozen rewards and old records.
+The correction adds a new receipt/event and requires `narrate` to commit the
+campaign's active status; adventure writes stay blocked until that commit. This
+exception cannot reopen an explicitly campaign-scoped ending and never silently
+reclassifies a legacy save. No second development award is needed for correction.
+
+External check: [ink's linked knots and explicit END](https://www.inklestudios.com/ink/web-tutorial/)
+and [Yarn Spinner's node jumps](https://yarnspinner.dev/docs/faq/) separate narrative
+transitions from termination. They support this distinction, while our existing
+receipts and development capsules remain responsible for game-state persistence.

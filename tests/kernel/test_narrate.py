@@ -117,7 +117,7 @@ def test_ending_commits_campaign_status_and_remains_readable(kernel):
     open_turn(kernel)
     kernel.table("resolve", call_id="t1-c1", action={"intent": "montage", "goal": "Settle this conclusion.",
                  "method": "", "decision": "development:end-session"})
-    kernel.table("apply", call_id="t1-c2", effects=[{"kind": "ending", "summary": "The investigators escaped."}])
+    kernel.table("apply", call_id="t1-c2", effects=[{"kind": "ending", "scope": "campaign", "summary": "The investigators escaped."}])
     assert read_json(campaign_dir(kernel.workspace) / "campaign.json")["status"] == "active"
     done = kernel.table("narrate", call_id="t1-c3", text="你们离开了这座房子，故事到此结束。")
     assert done["commit"]

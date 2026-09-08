@@ -29,6 +29,12 @@ const CLUE = { kind: 'clue', receipt: 'clue:knott-keys-t5', clue: 'knott-keys', 
 const MARKED = '你翻遍了匣子{{check:library-use}}\n\n十分钟很快耗尽。{{time}}架子深处还有未开的匣。'
 
 describe('the card draws a marked delivery', () => {
+  it.each([['chapter', '章节'], ['campaign', '战役']])('distinguishes the %s ending scope', (family, label) => {
+    const {container} = render(<Delivery details={{play_language:'zh-Hans', mechanics:[{
+      kind:'session', receipt:'ending', family, transition:'end', outcome:'completed',
+    }]}} />);
+    expect(container.textContent).toContain(`${label} 结束`);
+  });
   it.each([
     ['zh-Hans', -1, '从林远的物品中移除'],
     ['zh-Hans', -2, '从林远的物品中移除'],

@@ -110,6 +110,7 @@ const LABELS = {
     family: {
       "core-check": "skill check", sanity: "sanity", combat: "combat", chase: "chase", social: "social",
       psychology: "read", magic: "magic", healing: "healing", development: "growth", "push-luck": "push",
+      chapter: "chapter", campaign: "campaign",
     },
     opposed: "opposed",
     session: { start: "begins", end: "ends" },
@@ -137,6 +138,7 @@ const LABELS = {
     family: {
       "core-check": "技能检定", sanity: "理智", combat: "战斗", chase: "追逐", social: "交涉",
       psychology: "察言", magic: "法术", healing: "医疗", development: "成长", "push-luck": "孤注",
+      chapter: "章节", campaign: "战役",
     },
     opposed: "对抗",
     session: { start: "开始", end: "结束" },

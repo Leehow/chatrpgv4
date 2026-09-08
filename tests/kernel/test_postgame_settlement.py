@@ -34,7 +34,7 @@ def test_ending_requires_accounting_and_source_expression_uses_existing_frozen_p
     directory = campaign_dir(kernel.workspace)
     before = (directory / 'world.json').read_bytes()
     error = kernel.table_err('apply', call_id='t1-c1', effects=[{'kind': 'time', 'minutes': 5},
-        {'kind': 'ending', 'summary': 'The investigation is over.'}])
+        {'kind': 'ending', 'scope': 'campaign', 'summary': 'The investigation is over.'}])
     assert error['code'] == 'needs' and error['details']['reason'] == 'ending_settlement_required'
     assert 'development:end-session' in error['fix']
     assert (directory / 'world.json').read_bytes() == before
@@ -46,7 +46,7 @@ def test_ending_requires_accounting_and_source_expression_uses_existing_frozen_p
     capsule = development.load_ending_capsule(directory, outcome['ending_id'])
     assert capsule['scenario_san_reward_expr'] == '100D1'
     assert capsule['development_inputs']['thomas-hayes']['deterministic_plan']['scenario_san_reward']['total'] == 100
-    kernel.table('apply', call_id='t1-c2', effects=[{'kind': 'ending', 'summary': 'The investigation is over.'}])
+    kernel.table('apply', call_id='t1-c2', effects=[{'kind': 'ending', 'scope': 'campaign', 'summary': 'The investigation is over.'}])
     kernel.table('narrate', call_id='t1-c3', text='调查结束。')
     kernel.table('player_input', text='核对结算。')
     replay = end_session(kernel, 't2-c1')

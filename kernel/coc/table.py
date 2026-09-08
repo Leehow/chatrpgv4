@@ -891,11 +891,19 @@ class Table:
         resume = self._resume_pending.pop(campaign.id, None)
         capsule = self._capsule(campaign, graph, world, new_turn, resume=resume, consume_style=True)
         if meta.get("status") == "completed":
-            capsule["head"] = ("This campaign remains completed. Only late development accounting is writable: "
+            capsule["head"] = ("This campaign remains completed until an allowed chapter correction commits. Only late accounting or an explicitly allowed legacy chapter correction is writable: "
                                "read the source conclusion/rewards, then resolve explicit development:end-session "
                                "or a pending development:settle-ending with intent montage; ask/narrate may return "
-                               "control or deliver accounting. Do not reopen the adventure or apply new world effects. "
+                               "control or deliver accounting. Adventure effects must wait for an allowed chapter correction to commit. "
                                + capsule["head"])
+            if "scope" not in (meta.get("ending") or {}):
+                capsule["head"] = ("This legacy ending has no scope. If it ended only a chapter, correct it with "
+                                   "a single apply ending scope:chapter and narrate after its accounting is complete. "
+                                   "This preserves the original ending and rewards, and then permits the same campaign to continue. "
+                                   + capsule["head"])
+        elif (world.get("ending") or {}).get("scope") == "chapter" and not world["ending"].get("continued"):
+            capsule["head"] = ("The previous chapter is already accounted for; the campaign is still active. "
+                               "Continue via the next authored scene without awarding that chapter again. " + capsule["head"])
         # What the keeper was told this turn is evidence (spec §13): it rides in turn.json
         # and lands in the closed record with the receipts.
         new_turn["capsule"] = capsule
@@ -919,7 +927,12 @@ class Table:
             accounting = (method == "table.resolve" and isinstance(action, dict)
                           and action.get("intent") == "montage" and not set(action) - POSTGAME_ACTION_FIELDS
                           and full_decision_ref(str(action.get("decision") or "")) in POSTGAME_DECISIONS)
-            if method not in ("table.ask", "table.narrate") and not accounting:
+            effects = params.get("effects")
+            correction = (method == "table.apply" and "scope" not in (campaign.read_campaign().get("ending") or {})
+                          and isinstance(effects, list) and len(effects) == 1 and isinstance(effects[0], dict)
+                          and effects[0].get("kind") == "ending" and effects[0].get("scope") == "chapter"
+                          and not set(effects[0]) - {"kind", "scope", "summary"})
+            if method not in ("table.ask", "table.narrate") and not accounting and not correction:
                 raise RpcError("campaign_not_ready", "this campaign is completed; only late development accounting is writable",
                                fix="keep the ending intact; use explicit development:end-session or pending development:settle-ending with intent montage, then narrate")
         opening = allow_opening and int(turn["turn"]) == 0 and turn["state"] == "awaiting_player"
@@ -995,6 +1008,11 @@ class Table:
             return result
 
         receipts = list(settled["receipts"])
+        # §16.2: one settlement is one family. Every receipt this call minted carries it, so the
+        # projection can group one settlement's rows and give the group its tone; a session
+        # receipt's own family word (set at mint) survives the stamp.
+        for receipt in receipts:
+            receipt.setdefault("family", settled["family"])
         roll_ids = [r["id"] for r in receipts if r["kind"] == "roll"]
         session, pending = session_state(settled)
         result: dict[str, Any] = {
@@ -1095,7 +1113,7 @@ class Table:
     # ---- apply --------------------------------------------------------------
 
     def apply(self, params: dict[str, Any]) -> dict[str, Any]:
-        campaign, meta, graph, world = self._load(params)
+        campaign, meta, graph, world = self._load(params, statuses=frozenset({STATUS_ACTIVE, "completed"}))
         turn = campaign.read_turn()
         call_id, replay = self._begin_write(campaign, turn, "table.apply", params)
         if replay is not None:
@@ -1156,19 +1174,33 @@ class Table:
                         receipt_ids.append(receipt["id"])
                         continue
                 elif kind == "ending":
+                    scope = effect.get("scope")
+                    if scope not in ("chapter", "campaign"):
+                        raise RpcError("needs", "choose whether this ends a chapter or the entire campaign",
+                                       fix="set ending.scope to chapter to keep playing, or campaign only for a final campaign conclusion",
+                                       details={"reason": "ending_scope_required", "options": ["chapter", "campaign"]})
+                    previous = staged.get("ending") or {}
+                    correcting = campaign.read_campaign().get("status") == "completed"
+                    preserve = scope == "chapter" and (correcting or (previous.get("scope") == "chapter" and not previous.get("continued")))
                     settled = any((row.get("result") or {}).get("decision") in ("development:end-session", "development:settle-ending")
                                   and (row.get("result") or {}).get("outcome", {}).get("kind") == "development"
                                   for row in turn.get("calls", {}).values())
+                    if preserve and type(previous.get("turn")) is int:
+                        capsule = development.capsule_for_campaign_ending(campaign.dir, previous["turn"])
+                        settled = capsule is not None
                     if not settled or development.pending_settlements(campaign.dir):
                         raise RpcError("needs", "settle the chapter's rewards and investigator development before ending the campaign",
                                        fix="read the source conclusion/rewards; resolve development:end-session with the applicable scenario_san_reward_expr, or development:settle-ending if a settlement is pending; then retry apply ending",
                                        details={"reason": "ending_settlement_required"})
                     summary = _str(effect, "summary")
-                    staged["ending"] = {"summary": summary, "turn": turn_number}
-                    receipt = {"id": mint(f"session:campaign-end-t{turn_number}-c{ordinal}"),
-                               "kind": "session", "family": "campaign", "transition": "end",
-                               "outcome": "completed", "summary": summary, "call_id": call_id}
-                    event = ("session-changed", {"family": "campaign", "transition": "ending", **staged["ending"]})
+                    staged["ending"] = {**previous, "scope": scope} if preserve else {"summary": summary, "turn": turn_number, "scope": scope}
+                    if correcting:
+                        staged["ending"]["reclassified_turn"] = turn_number
+                    receipt = {"id": mint(f"session:{scope}-end-t{turn_number}-c{ordinal}"),
+                               "kind": "session", "family": scope, "transition": "end",
+                               "outcome": "completed", "summary": staged["ending"]["summary"], "call_id": call_id,
+                               "reclassified": correcting, "ending_turn": staged["ending"]["turn"]}
+                    event = ("session-changed", {"family": scope, "transition": "ending", **staged["ending"]})
                 elif kind == "damage":
                     damage_receipts, event = self._stage_damage(campaign, graph, staged, turn, effect,
                                                                 call_id, ordinal)
@@ -1221,7 +1253,7 @@ class Table:
                 exc.details = {"index": index, **(exc.details or {})}
                 raise
 
-        if staged.get("ending") and (staged_worldline or turn.get("worldline")):
+        if staged.get("ending") and staged["ending"].get("scope", "campaign") == "campaign" and (staged_worldline or turn.get("worldline")):
             raise invalid_params("a campaign ending cannot share a turn with a worldline transition")
         recovery, recovery_events, recovered = self._stage_recovery(campaign, graph, staged, turn, call_id,
                                                                     ordinal, rest_minutes)
@@ -1341,6 +1373,8 @@ class Table:
             world.setdefault("scene_labels", {})[dest_handle] = label
         world["scene_trail"] = trail[:trail.index(dest_handle)] if dest_handle in trail else [*trail, current_handle]
         world["active_scene"] = dest_handle
+        if (world.get("ending") or {}).get("scope") == "chapter":
+            world["ending"]["continued"] = True
         if dest_handle not in world.setdefault("visited_scenes", []):
             world["visited_scenes"].append(dest_handle)
         world.setdefault("clock", {"minutes": 0})["minutes"] = int(world["clock"].get("minutes", 0)) + minutes
@@ -1945,7 +1979,10 @@ class Table:
             raise invalid_params("unknown mechanics choice option")
         binds = _str(params, "binds", required=False)
         text = _str(params, "text", required=False)
-        if world.get("ending") and campaign.read_campaign().get("status") != "completed":
+        if world.get("ending") and ((world["ending"].get("scope", "campaign") == "campaign"
+                                     and campaign.read_campaign().get("status") != "completed")
+                                    or (world["ending"].get("scope") == "chapter"
+                                        and campaign.read_campaign().get("status") == "completed")):
             raise invalid_params("a campaign ending must be delivered with narrate, not ask")
         if turn.get("worldline"):
             # §15.3: a turn that changes the worldline cannot end on a question -- the
@@ -2050,7 +2087,8 @@ class Table:
         campaign.write_turn(fresh_turn(turn_number + 1))
         prior_meta = campaign.read_campaign()
         if world.get("ending"):
-            campaign.write_campaign({**prior_meta, "status": "completed", "ending": world["ending"]})
+            status = STATUS_ACTIVE if world["ending"].get("scope") == "chapter" else "completed"
+            campaign.write_campaign({**prior_meta, "status": status, "ending": world["ending"]})
         try:
             sha = history.commit(campaign.repo_dir, campaign.dir, f"turn {turn_number}: {subject}")
         except history.CommitFailed as exc:

@@ -24,7 +24,8 @@ export interface CocToolSpec {
 
 const EndingEffect = Type.Object({
     kind: StringEnum(["ending"] as const),
-    summary: Type.String({ description: "the ending reached; read source conclusion/rewards and resolve development:end-session first, then apply this effect and narrate" }),
+    scope: StringEnum(["chapter", "campaign"] as const, { description: "chapter leaves the same campaign playable; campaign is only the final end of the entire adventure, never a pause or a chapter boundary. For an incorrectly completed legacy chapter, scope chapter reclassifies the existing ending without repeating its accounting; narrate commits the correction before continuing" }),
+    summary: Type.String({ description: "the ending reached; read source rewards and resolve development:end-session first. An already-accounted legacy correction retains the original summary, turn and rewards. Narrate commits this effect" }),
 });
 
 const MoveEffect = Type.Object({
