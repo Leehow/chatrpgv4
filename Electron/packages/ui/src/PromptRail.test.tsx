@@ -10,6 +10,9 @@ import { createMockHost } from './mock-host'
 import { PromptRail, useActivePromptId } from './PromptRail'
 import {
   buildRailPrompts,
+  dayLabel,
+  filterRailPrompts,
+  groupRailPrompts,
   isNavigationEligibleUserPrompt,
   isRuntimeOrSystemInjectedUserText,
   promptSummaryText,
@@ -135,17 +138,70 @@ describe('prompt-rail message classification', () => {
 // PromptRail view
 // ---------------------------------------------------------------------------
 
+/** Rail nodes without hand-writing every derived field. */
+function node(id: string, index: number, ordinal: number, text: string, timestamp = 0) {
+  return { id, index, ordinal, summary: text, haystack: text, timestamp }
+}
+
+describe('day grouping and search', () => {
+  // 2026-09-07 20:00 local and 2026-09-08 09:00 local.
+  const day1 = new Date(2026, 8, 7, 20, 0).getTime()
+  const day2 = new Date(2026, 8, 8, 9, 0).getTime()
+  const now = new Date(2026, 8, 9, 12, 0).getTime()
+
+  it('carries the ordinal, timestamp and full text a rail row needs', () => {
+    const prompts = buildRailPrompts([
+      { id: 'a', role: 'assistant', content: 'x', timestamp: day1 },
+      { id: 'u1', role: 'user', content: '**我先去**看看桑切斯的办公室', timestamp: day1 },
+      { id: 'hb', role: 'user', content: '[subagent-done] noise', timestamp: day1 },
+      { id: 'u2', role: 'user', content: '继续等待原文核对', timestamp: day2 }
+    ])
+    expect(prompts.map(p => p.ordinal)).toEqual([1, 2])
+    expect(prompts.map(p => p.timestamp)).toEqual([day1, day2])
+    expect(prompts[0].haystack).toBe('我先去看看桑切斯的办公室')
+  })
+
+  it('cuts the lines into calendar days, newest label last', () => {
+    const groups = groupRailPrompts([node('u1', 0, 1, 'a', day1), node('u2', 1, 2, 'b', day1), node('u3', 2, 3, 'c', day2)], now)
+    expect(groups.map(g => g.label)).toEqual(['9月7日', '昨天'])
+    expect(groups.map(g => g.prompts.length)).toEqual([2, 1])
+  })
+
+  it('labels today and yesterday, and dates anything older', () => {
+    expect(dayLabel(now, now)).toBe('今天')
+    expect(dayLabel(day2, now)).toBe('昨天')
+    expect(dayLabel(day1, now)).toBe('9月7日')
+    expect(dayLabel(new Date(2025, 11, 31, 12, 0).getTime(), now)).toBe('2025年12月31日')
+  })
+
+  it('leaves undated lines in one unlabelled group rather than inventing a date', () => {
+    const groups = groupRailPrompts([node('u1', 0, 1, 'a'), node('u2', 1, 2, 'b')], now)
+    expect(groups).toHaveLength(1)
+    expect(groups[0].label).toBe('')
+  })
+
+  it('matches a literal substring of the whole line, case-folded', () => {
+    const prompts = [node('u1', 0, 1, '我先去看看桑切斯的办公室'), node('u2', 1, 2, 'Ask Hughes about the plateau')]
+    expect(filterRailPrompts(prompts, '桑切斯').map(p => p.id)).toEqual(['u1'])
+    expect(filterRailPrompts(prompts, 'HUGHES').map(p => p.id)).toEqual(['u2'])
+    expect(filterRailPrompts(prompts, '   ').map(p => p.id)).toEqual(['u1', 'u2'])
+    expect(filterRailPrompts(prompts, '不存在')).toEqual([])
+  })
+})
+
 describe('PromptRail', () => {
+  // Two fixed past days, so the rendered headers are absolute dates whatever "today" is.
+  const day1 = new Date(2025, 2, 4, 20, 0).getTime()
+  const day2 = new Date(2025, 2, 5, 9, 0).getTime()
   const prompts: RailPrompt[] = [
-    { id: 'u1', index: 0, summary: '第一问：修导航' },
-    { id: 'u2', index: 5, summary: '第二问：修复提示词导航' },
-    { id: 'u3', index: 9, summary: '' } // empty summary → ordinal fallback
+    node('u1', 0, 1, '我先去看看桑切斯的办公室', day1),
+    node('u2', 5, 2, '继续等待原文核对', day1),
+    node('u3', 9, 3, '', day2) // image-only prompt → row fallback
   ]
 
   it('renders one small tick per prompt with ordinal labels', () => {
     render(<PromptRail prompts={prompts} activeId={null} onJump={vi.fn()} />)
-    const ticks = screen.getAllByRole('button')
-    expect(ticks).toHaveLength(3)
+    expect(screen.getAllByRole('button')).toHaveLength(3)
     expect(screen.getByRole('button', { name: '用户输入 1/3' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '用户输入 3/3' })).toBeTruthy()
   })
@@ -156,7 +212,7 @@ describe('PromptRail', () => {
   })
 
   it('stays navigable but low-interference with a single prompt', () => {
-    render(<PromptRail prompts={[{ id: 'u1', index: 2, summary: 'only' }]} activeId="u1" onJump={vi.fn()} />)
+    render(<PromptRail prompts={[node('u1', 2, 1, 'only')]} activeId="u1" onJump={vi.fn()} />)
     const tick = screen.getByRole('button', { name: '用户输入 1/1' })
     expect(tick.getAttribute('data-active')).toBe('true')
     fireEvent.click(tick)
@@ -168,77 +224,141 @@ describe('PromptRail', () => {
     expect(active.getAttribute('data-active')).toBe('true')
     expect(active.getAttribute('aria-current')).toBe('true')
     expect(screen.getByRole('button', { name: '用户输入 1/3' }).getAttribute('data-active')).toBeNull()
-    expect(screen.getByRole('button', { name: '用户输入 3/3' }).getAttribute('data-active')).toBeNull()
   })
 
-  it('shows a summary tooltip on hover and hides it on leave', () => {
+  it('separates days in the strip so a long session has landmarks', () => {
+    const { container } = render(<PromptRail prompts={prompts} activeId={null} onJump={vi.fn()} />)
+    const groups = container.querySelectorAll('.prompt-rail-strip-group')
+    expect(groups).toHaveLength(2)
+    expect(groups[0].querySelectorAll('.prompt-rail-tick')).toHaveLength(2)
+    expect(groups[1].querySelectorAll('.prompt-rail-tick')).toHaveLength(1)
+  })
+
+  it('stays a closed strip until it is pointed at', () => {
     render(<PromptRail prompts={prompts} activeId={null} onJump={vi.fn()} />)
-    const second = screen.getByRole('button', { name: '用户输入 2/3' })
-    fireEvent.mouseEnter(second)
-    expect(screen.getByTestId('prompt-rail-tooltip').textContent).toBe('第二问：修复提示词导航')
-    expect(second.getAttribute('aria-describedby')).toBe('prompt-rail-tooltip')
-    fireEvent.mouseLeave(second)
-    expect(screen.queryByTestId('prompt-rail-tooltip')).toBeNull()
+    expect(screen.queryByTestId('prompt-rail-panel')).toBeNull()
+    fireEvent.mouseEnter(screen.getByTestId('prompt-rail'))
+    expect(screen.getByTestId('prompt-rail-panel')).toBeTruthy()
+    fireEvent.mouseLeave(screen.getByTestId('prompt-rail'))
+    expect(screen.queryByTestId('prompt-rail-panel')).toBeNull()
   })
 
-  it('shows the tooltip on keyboard focus and falls back to an image label for empty summaries', () => {
+  it('opens the index as a readable list, grouped by day, with an image fallback', () => {
     render(<PromptRail prompts={prompts} activeId={null} onJump={vi.fn()} />)
-    const third = screen.getByRole('button', { name: '用户输入 3/3' })
-    fireEvent.focus(third)
-    expect(screen.getByTestId('prompt-rail-tooltip').textContent).toBe('图片消息')
-    expect(third.getAttribute('aria-describedby')).toBe('prompt-rail-tooltip')
-    fireEvent.blur(third)
-    expect(screen.queryByTestId('prompt-rail-tooltip')).toBeNull()
+    fireEvent.mouseEnter(screen.getByTestId('prompt-rail'))
+    const panel = screen.getByTestId('prompt-rail-panel')
+    expect(within(panel).getByText('2025年3月4日')).toBeTruthy()
+    expect(within(panel).getByText('2025年3月5日')).toBeTruthy()
+    expect(within(panel).getByText('我先去看看桑切斯的办公室')).toBeTruthy()
+    expect(within(panel).getByText('图片消息')).toBeTruthy()
+    expect([...panel.querySelectorAll('.prompt-rail-row-ordinal')].map(n => n.textContent)).toEqual(['1', '2', '3'])
   })
 
-  it('jumps to the transcript index of the clicked prompt', () => {
+  it('opens on keyboard focus too, so the index is reachable without a mouse', () => {
+    render(<PromptRail prompts={prompts} activeId={null} onJump={vi.fn()} />)
+    fireEvent.focus(screen.getByRole('button', { name: '用户输入 2/3' }))
+    expect(screen.getByTestId('prompt-rail-panel')).toBeTruthy()
+  })
+
+  it('filters the list to a literal substring and says so when nothing matches', () => {
+    render(<PromptRail prompts={prompts} activeId={null} onJump={vi.fn()} />)
+    fireEvent.mouseEnter(screen.getByTestId('prompt-rail'))
+    const search = screen.getByTestId('prompt-rail-search')
+    fireEvent.change(search, { target: { value: '桑切斯' } })
+    const panel = screen.getByTestId('prompt-rail-panel')
+    expect(within(panel).getByText('我先去看看桑切斯的办公室')).toBeTruthy()
+    expect(within(panel).queryByText('继续等待原文核对')).toBeNull()
+    // The ordinal keeps counting the whole session, not the filtered view.
+    expect([...panel.querySelectorAll('.prompt-rail-row-ordinal')].map(n => n.textContent)).toEqual(['1'])
+    fireEvent.change(search, { target: { value: '奥斯陆' } })
+    expect(within(panel).getByText('没有匹配的发言。')).toBeTruthy()
+  })
+
+  it('jumps from a tick and from a list row, and the strip keeps its ticks unfiltered', () => {
     const onJump = vi.fn()
     render(<PromptRail prompts={prompts} activeId={null} onJump={onJump} />)
     fireEvent.click(screen.getByRole('button', { name: '用户输入 2/3' }))
     expect(onJump).toHaveBeenCalledWith(5, 'u2')
+
+    fireEvent.mouseEnter(screen.getByTestId('prompt-rail'))
+    fireEvent.change(screen.getByTestId('prompt-rail-search'), { target: { value: '桑切斯' } })
+    expect(document.querySelectorAll('.prompt-rail-tick')).toHaveLength(3)
+    fireEvent.click(screen.getByText('我先去看看桑切斯的办公室'))
+    expect(onJump).toHaveBeenLastCalledWith(0, 'u1')
   })
 
-  it('lays out many prompts as a compact fixed-pitch list, not absolute message offsets', () => {
-    const many = Array.from({ length: 20 }, (_, i) => ({ id: `u${i}`, index: i, summary: `prompt ${i}` }))
+  it('closes after a jump unless the list is pinned', () => {
+    render(<PromptRail prompts={prompts} activeId={null} onJump={vi.fn()} />)
+    fireEvent.mouseEnter(screen.getByTestId('prompt-rail'))
+    fireEvent.click(screen.getByText('继续等待原文核对'))
+    expect(screen.queryByTestId('prompt-rail-panel')).toBeNull()
+
+    fireEvent.mouseEnter(screen.getByTestId('prompt-rail'))
+    fireEvent.click(screen.getByTestId('prompt-rail-pin'))
+    fireEvent.click(screen.getByText('继续等待原文核对'))
+    expect(screen.getByTestId('prompt-rail-panel')).toBeTruthy()
+    // Pinned means the mouse can leave the rail and read the list.
+    fireEvent.mouseLeave(screen.getByTestId('prompt-rail'))
+    expect(screen.getByTestId('prompt-rail-panel')).toBeTruthy()
+  })
+
+  it('lets Escape drop the pin and close the list', () => {
+    render(<PromptRail prompts={prompts} activeId={null} onJump={vi.fn()} />)
+    fireEvent.mouseEnter(screen.getByTestId('prompt-rail'))
+    fireEvent.click(screen.getByTestId('prompt-rail-pin'))
+    expect(screen.getByTestId('prompt-rail-pin').getAttribute('aria-pressed')).toBe('true')
+    fireEvent.keyDown(screen.getByTestId('prompt-rail'), { key: 'Escape' })
+    expect(screen.queryByTestId('prompt-rail-panel')).toBeNull()
+    fireEvent.mouseLeave(screen.getByTestId('prompt-rail'))
+    fireEvent.mouseEnter(screen.getByTestId('prompt-rail'))
+    expect(screen.getByTestId('prompt-rail-pin').getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('previews the pointed-at tick as the matching row in the open list', () => {
+    render(<PromptRail prompts={prompts} activeId={null} onJump={vi.fn()} />)
+    fireEvent.mouseEnter(screen.getByTestId('prompt-rail'))
+    fireEvent.mouseEnter(screen.getByRole('button', { name: '用户输入 2/3' }))
+    const row = screen.getByText('继续等待原文核对').closest('.prompt-rail-row')
+    expect(row?.getAttribute('data-hover')).toBe('true')
+  })
+
+  it('lays out many prompts as a compact measured-pitch list, not absolute message offsets', () => {
+    const many = Array.from({ length: 20 }, (_, i) => node(`u${i}`, i, i + 1, `prompt ${i}`))
     const { container } = render(<PromptRail prompts={many} activeId={null} onJump={vi.fn()} />)
     const rail = screen.getByTestId('prompt-rail')
-    const scroll = container.querySelector('.prompt-rail-scroll')
     const ticks = container.querySelectorAll('.prompt-rail-tick')
     expect(ticks).toHaveLength(20)
-    // Compact list: ticks are flow siblings inside the scroll container with no
-    // per-tick absolute top/left (no message-offset spreading).
+    // Compact list: ticks are flow siblings inside a group with no per-tick absolute
+    // top/left (no message-offset spreading).
     for (const tick of ticks) expect(tick.getAttribute('style')).toBeNull()
-    expect(scroll?.children).toHaveLength(20)
-    expect(ticks[0].parentElement?.className).toContain('prompt-rail-scroll')
-    // Swift-density pitch drives the layout without widening the rail.
+    expect(ticks[0].parentElement?.className).toContain('prompt-rail-strip-group')
+    // An unmeasured rail (jsdom, first paint) keeps the resting pitch rather than
+    // collapsing every tick onto the compressed floor.
     expect(rail.getAttribute('style')).toContain('--rail-pitch: 8px')
   })
 
-  it('renders a wide horizontal summary card with the full cleaned summary', () => {
-    const longSummary = '修复左侧导航 rail 与悬浮摘要卡。'.repeat(4)
-    render(<PromptRail prompts={[{ id: 'u1', index: 0, summary: longSummary }]} activeId={null} onJump={vi.fn()} />)
-    fireEvent.mouseEnter(screen.getByRole('button', { name: '用户输入 1/1' }))
-    const tip = screen.getByTestId('prompt-rail-tooltip')
-    expect(tip.className).toContain('prompt-rail-tooltip')
-    // Full summary is present in the DOM; wrapping/ellipsis is purely visual.
-    expect(tip.textContent).toBe(longSummary)
-    // Explicit width (not shrink-to-fit) so CJK never collapses into one-char lines.
+  it('sizes the index panel so CJK wraps instead of collapsing into a column', () => {
     const css = readFileSync(join(__dirname, 'prompt-rail.css'), 'utf8')
     expect(css).toContain('width:clamp(220px, 30vw, 320px)')
     expect(css).toContain('min-width:220px')
-    expect(css).toContain('-webkit-line-clamp:3')
     expect(css).toContain('max-height:min(70vh, calc(100dvh - 96px))')
     expect(css).not.toContain('max-height:240px')
     // A 900px desktop viewport exposes a 630px rail — not a short 240px block.
     expect(Math.min(900 * 0.7, 900 - 96)).toBeGreaterThan(500)
     expect(css).not.toContain('border-radius:50%')
+    // The bar can never outgrow its own slot once the pitch compresses.
+    expect(css).toContain('height:min(3px, calc(var(--rail-pitch, 8px) - 1px))')
   })
 
-  it('positions the tooltip beside its tick using compact-list offsets', () => {
-    render(<PromptRail prompts={prompts} activeId={null} onJump={vi.fn()} />)
-    fireEvent.mouseEnter(screen.getByRole('button', { name: '用户输入 2/3' }))
-    // RAIL_TICK_PADDING(1) + index(1)*pitch(8) + pitch/2(4) = 13px, no scroll.
-    expect(screen.getByTestId('prompt-rail-tooltip').getAttribute('style')).toContain('--tip-top: 13px')
+  it('draws its own buttons instead of borrowing the shell’s global reset', () => {
+    // A tick that leans on `button{border:0;background:transparent}` from app.css grows a system
+    // button's border and grey fill anywhere that rule is overridden — which is exactly what the
+    // ticks did inside a host that injects its own reset after ours.
+    const css = readFileSync(join(__dirname, 'prompt-rail.css'), 'utf8')
+    const tickRule = css.slice(css.indexOf('.prompt-rail-tick{'), css.indexOf('.prompt-rail-tick::before'))
+    for (const declaration of ['border:0', 'background:transparent', 'appearance:none', 'font:inherit']) {
+      expect(tickRule).toContain(declaration)
+    }
   })
 })
 
@@ -302,7 +422,7 @@ describe('PromptRail integration in App', () => {
 
   beforeEach(() => { vi.stubGlobal('IntersectionObserver', MockIntersectionObserver) })
 
-  it('marks only real user prompts, scrolls on click, tooltips on hover, and tracks active', async () => {
+  it('marks only real user prompts, opens a searchable index, scrolls on click, tracks active', async () => {
     const host = createMockHost()
     vi.spyOn(host, 'getSessionHistory').mockResolvedValue(mixedHistory)
     render(<App host={host} />)
@@ -319,10 +439,17 @@ describe('PromptRail integration in App', () => {
     // Live mode → latest user prompt is current.
     await waitFor(() => expect(tick2.getAttribute('data-active')).toBe('true'))
 
-    // Hover summary (markdown-stripped, whitespace-collapsed, truncated).
-    fireEvent.mouseEnter(tick2)
-    expect(screen.getByTestId('prompt-rail-tooltip').textContent).toBe('第二问：加个测试')
-    fireEvent.mouseLeave(tick2)
+    // Pointing at the rail opens the index over the player's own lines, and only those.
+    fireEvent.mouseEnter(rail)
+    const panel = screen.getByTestId('prompt-rail-panel')
+    expect(within(panel).getByText('第二问：加个测试')).toBeTruthy()
+    expect(within(panel).getByText('请实现导航 rail')).toBeTruthy()
+    expect(within(panel).queryByText(/subagent-/)).toBeNull()
+    // Searching it reaches one line out of the session.
+    fireEvent.change(screen.getByTestId('prompt-rail-search'), { target: { value: '加个测试' } })
+    expect(within(panel).queryByText('请实现导航 rail')).toBeNull()
+    fireEvent.change(screen.getByTestId('prompt-rail-search'), { target: { value: '' } })
+    fireEvent.mouseLeave(rail)
 
     // Click scrolls the existing transcript container to the message index and
     // keeps the sought prompt current (Swift "seeking" semantics).
@@ -360,5 +487,8 @@ describe('PromptRail integration in App', () => {
     expect(railCss).not.toContain('max-height:240px')
     expect(railCss).toContain('border-radius:1.5px')
     expect(railCss).toContain('width:clamp(220px, 30vw, 320px)')
+    // The hover card the panel replaced must not linger in either sheet.
+    expect(railCss).not.toContain('.prompt-rail-tooltip')
+    expect(appCss).not.toContain('.prompt-rail-tooltip')
   })
 })

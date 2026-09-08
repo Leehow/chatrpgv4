@@ -1,27 +1,32 @@
 /* User-prompt navigation rail (left edge of the transcript).
-   Mirrors Swift UserPromptNavigationRail: a compact vertical index fixed to
-   the transcript's left edge. Ticks form a dense list with a fixed pitch
-   (--rail-pitch, 8px) constrained by the transcript viewport with hidden internal scroll — they are
-   never spread across the transcript's real message height. Each tick is a
-   short horizontal bar (not a dot); the active one is wider and accent-
-   colored. The tooltip is a wide horizontal summary card on the rail's right,
-   explicitly sized so CJK text wraps normally instead of collapsing into a
-   one-character column. */
+
+   Resting state: a 14px column of short horizontal bars, one per prompt, at a pitch the component
+   measures (--rail-pitch) so a whole session fits the rail's height instead of running off into an
+   invisible internal scroll. Days are separated by a blank slot, which is what turns a few hundred
+   identical dashes back into something with landmarks.
+
+   Open state: the column keeps its place and an index panel appears to its right — a search box, a
+   pin, and the lines themselves grouped by day. The panel is explicitly sized so CJK wraps in
+   normal horizontal lines instead of collapsing into a one-character column. */
 
 .prompt-rail{
   position:absolute;
   z-index:3;
   top:10px;
   left:3px;
+  /* Height comes from the ticks, never from the transcript: the hover target that opens the
+     index must be the strip itself, not the whole left gutter a mouse crosses on its way out. */
   width:14px;
   min-width:14px;
-  pointer-events:none; /* hit-testing lives on the scroll list / ticks */
+  display:flex;
+  flex-direction:column;
 }
 
-/* Compact list: dense fixed-pitch column, internal scroll when it overflows. */
+/* Compact list: dense measured-pitch column, internal scroll only past the pitch floor. */
 .prompt-rail-scroll{
   display:flex;
   flex-direction:column;
+  gap:var(--rail-group-gap, 5px);
   /* Tall desktop transcripts expose hundreds of compact ticks; short windows
      remain bounded by their viewport rather than a fixed short rail block. */
   max-height:min(70vh, calc(100dvh - 96px));
@@ -30,15 +35,32 @@
   padding:1px 0; /* RAIL_TICK_PADDING */
   scrollbar-width:none;
   pointer-events:auto;
+  /* Soft ends: a compressed strip that still has to scroll should read as a window into a
+     longer session, not as a comb chopped off mid-tooth. */
+  -webkit-mask-image:linear-gradient(to bottom, transparent 0, #000 7px, #000 calc(100% - 7px), transparent 100%);
+  mask-image:linear-gradient(to bottom, transparent 0, #000 7px, #000 calc(100% - 7px), transparent 100%);
 }
 .prompt-rail-scroll::-webkit-scrollbar{display:none}
 
-/* Each tick: the whole pitch slot is the hit target; the short bar is visual. */
+/* One day of ticks. The gap between groups is the only landmark the strip has. */
+.prompt-rail-strip-group{display:flex;flex-direction:column}
+
+/* Each tick: the whole pitch slot is the hit target; the short bar is visual.
+   The reset is spelled out here rather than inherited from the shell's global `button{}` rule --
+   the row and the pin below already carry their own, and a tick that borrows one from another
+   stylesheet grows a system button's border and grey fill wherever that rule is overridden. */
 .prompt-rail-tick{
   position:relative;
   width:14px;
   height:var(--rail-pitch, 8px);
   padding:0;
+  border:0;
+  background:transparent;
+  color:inherit;
+  font:inherit;
+  cursor:pointer;
+  -webkit-appearance:none;
+  appearance:none;
   border-radius:2px;
   display:flex;
   align-items:center;
@@ -47,12 +69,17 @@
 .prompt-rail-tick::before{
   content:'';
   width:9px;
-  height:3px;
+  /* Never taller than its own slot: at the compressed floor the strip stays striped
+     rather than fusing into one solid bar. */
+  height:min(3px, calc(var(--rail-pitch, 8px) - 1px));
   border-radius:1.5px;
   background:var(--muted);
-  opacity:.5;
+  /* Quiet while reading, present while navigating: hundreds of ticks at full strength are the
+     loud ribbon this rail used to be. */
+  opacity:.34;
   transition:width .12s ease-in-out, opacity .12s ease-in-out, background-color .12s ease-in-out;
 }
+.prompt-rail[data-open] .prompt-rail-tick::before{opacity:.6}
 .prompt-rail-tick:hover,
 .prompt-rail-tick:focus-visible{
   background:var(--surface-hover);
@@ -73,32 +100,119 @@
   opacity:.95;
 }
 
-/* Wide horizontal summary card to the rail's right. Explicit width (not just
-   max-width) so CJK text wraps in normal horizontal lines; clamped vertically
-   so it never strays outside the rail's window; pointer-transparent so it
-   never blocks the transcript or the composer below. */
-.prompt-rail-tooltip{
+/* The index panel, to the rail's right. */
+.prompt-rail-panel{
   position:absolute;
   z-index:10;
   left:calc(100% + 5px);
-  top:max(34px, min(calc(100% - 34px), var(--tip-top, 34px)));
-  transform:translateY(-50%);
+  top:0;
+  display:flex;
+  flex-direction:column;
   width:clamp(220px, 30vw, 320px);
   min-width:220px;
   max-width:320px;
-  padding:6px 10px;
+  max-height:min(70vh, calc(100dvh - 96px));
   border:1px solid var(--border-strong);
-  border-radius:8px;
+  border-radius:10px;
   background:var(--surface-raised);
-  box-shadow:0 6px 18px rgb(0 0 0 / 20%);
+  box-shadow:0 8px 26px rgb(0 0 0 / 22%);
   color:var(--text);
   font-size:12px;
   line-height:1.5;
-  pointer-events:none;
-  white-space:normal;
+  overflow:hidden;
+}
+
+.prompt-rail-panel-head{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 6px 6px 8px;
+  border-bottom:1px solid var(--border);
+}
+.prompt-rail-search{
+  flex:1;
+  min-width:0;
+  padding:3px 6px;
+  border:1px solid var(--border);
+  border-radius:6px;
+  background:var(--surface-input);
+  color:var(--text);
+  font-size:12px;
+  line-height:1.5;
+}
+.prompt-rail-search:focus-visible{outline:none;border-color:var(--accent)}
+.prompt-rail-search::-webkit-search-cancel-button{cursor:pointer}
+.prompt-rail-pin{
+  flex:none;
+  display:grid;
+  width:22px;
+  height:22px;
+  place-items:center;
+  border:0;
+  border-radius:6px;
+  background:none;
+  color:var(--subtle);
+  cursor:pointer;
+}
+.prompt-rail-pin:hover{background:var(--surface-hover);color:var(--text)}
+.prompt-rail-pin[aria-pressed="true"]{color:var(--accent);background:color-mix(in srgb, var(--accent) 12%, transparent)}
+
+.prompt-rail-list{
+  flex:1;
+  min-height:0;
+  overflow-y:auto;
+  padding:4px 4px 6px;
+}
+.prompt-rail-day{display:flex;flex-direction:column}
+.prompt-rail-day-label{
+  position:sticky;
+  top:0;
+  z-index:1;
+  margin:4px 0 2px;
+  padding:2px 6px;
+  background:var(--surface-raised);
+  color:var(--subtle);
+  font-size:11px;
+  font-weight:600;
+}
+.prompt-rail-day:first-child .prompt-rail-day-label{margin-top:0}
+
+.prompt-rail-row{
+  display:flex;
+  align-items:baseline;
+  gap:7px;
+  width:100%;
+  padding:4px 6px;
+  border:0;
+  border-radius:6px;
+  background:none;
+  color:var(--text);
+  font-size:12px;
+  line-height:1.5;
+  text-align:left;
+  cursor:pointer;
+}
+.prompt-rail-row:hover,
+.prompt-rail-row[data-hover]{background:var(--surface-hover)}
+.prompt-rail-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.prompt-rail-row[data-active]{background:color-mix(in srgb, var(--accent) 12%, transparent)}
+.prompt-rail-row[data-active] .prompt-rail-row-text{color:var(--text-strong);font-weight:600}
+.prompt-rail-row-ordinal{
+  flex:none;
+  min-width:1.6em;
+  color:var(--subtle);
+  font-size:11px;
+  font-variant-numeric:tabular-nums;
+  text-align:right;
+}
+/* Two lines is enough to recognise a line without turning the list into a wall of text. */
+.prompt-rail-row-text{
+  min-width:0;
   overflow-wrap:break-word;
   display:-webkit-box;
-  -webkit-line-clamp:3;
+  -webkit-line-clamp:2;
   -webkit-box-orient:vertical;
   overflow:hidden;
 }
+
+.prompt-rail-empty{margin:10px 8px;color:var(--muted)}

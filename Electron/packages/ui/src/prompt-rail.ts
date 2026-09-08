@@ -21,6 +21,8 @@ export type RailPromptInput = {
   id: string
   role: string
   content: string
+  /** Epoch millis the message carries; 0/absent when the host did not stamp one. */
+  timestamp?: number
   /** Optional structured kind (e.g. 'subagent-done'); when set, drives classification. */
   kind?: string
   /** Optional source tag (e.g. 'host' | 'system'); when set, drives classification. */
@@ -32,8 +34,14 @@ export type RailPrompt = {
   id: string
   /** Index of the message inside the transcript (used for scroll-to). */
   index: number
-  /** Plain-text hover summary (markdown stripped, whitespace collapsed, truncated). */
+  /** 1-based position among the player's own lines — the number the index list prints. */
+  ordinal: number
+  /** Plain-text summary (markdown stripped, whitespace collapsed, truncated). */
   summary: string
+  /** Epoch millis, for day grouping; 0 when unknown. */
+  timestamp: number
+  /** The whole cleaned line, untruncated — what a search query is matched against. */
+  haystack: string
 }
 
 /** Max grapheme length for rail hover/focus summaries (Swift uses 72; 80–120 requested). */
@@ -80,11 +88,79 @@ export function isNavigationEligibleUserPrompt(message: RailPromptInput): boolea
 
 /** Project transcript messages → rail nodes (oldest → newest), eligible users only. */
 export function buildRailPrompts(messages: RailPromptInput[]): RailPrompt[] {
-  return messages.flatMap((message, index) =>
-    isNavigationEligibleUserPrompt(message)
-      ? [{ id: message.id, index, summary: promptSummaryText(message.content) }]
-      : []
-  )
+  let ordinal = 0
+  return messages.flatMap((message, index) => {
+    if (!isNavigationEligibleUserPrompt(message)) return []
+    const haystack = plainText(message.content)
+    ordinal += 1
+    return [{
+      id: message.id,
+      index,
+      ordinal,
+      summary: truncateText(haystack, RAIL_TOOLTIP_MAX_LENGTH),
+      timestamp: Number.isFinite(message.timestamp) ? Number(message.timestamp) : 0,
+      haystack,
+    }]
+  })
+}
+
+/** One day's worth of prompts in the index list. `label` is empty for undated messages. */
+export type RailGroup = { key: string; label: string; prompts: RailPrompt[] }
+
+const DAY = 86_400_000
+
+/**
+ * The player's own lines, cut into days.
+ *
+ * A play session runs for hours across several sittings, so the date is the one grouping the
+ * transcript already carries — no reading of what anyone wrote. Messages the host never stamped
+ * fall into one unlabelled group rather than inventing a date for them.
+ */
+export function groupRailPrompts(prompts: readonly RailPrompt[], now: number = Date.now()): RailGroup[] {
+  const groups: RailGroup[] = []
+  for (const prompt of prompts) {
+    const key = prompt.timestamp > 0 ? dayKey(prompt.timestamp) : ''
+    const last = groups[groups.length - 1]
+    if (last && last.key === key) last.prompts.push(prompt)
+    else groups.push({ key, label: key ? dayLabel(prompt.timestamp, now) : '', prompts: [prompt] })
+  }
+  return groups
+}
+
+/** Local calendar day, as `YYYY-M-D`. Local on purpose: a table sits in one timezone. */
+function dayKey(timestamp: number): string {
+  const date = new Date(timestamp)
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`
+}
+
+/** 今天 / 昨天 for the two days a player is most likely to scroll back through, else a date. */
+export function dayLabel(timestamp: number, now: number = Date.now()): string {
+  const date = new Date(timestamp)
+  const today = new Date(now)
+  if (dayKey(timestamp) === dayKey(now)) return '今天'
+  if (dayKey(timestamp) === dayKey(now - DAY)) return '昨天'
+  const month = date.getMonth() + 1
+  const day = date.getDate()
+  return date.getFullYear() === today.getFullYear()
+    ? `${month}月${day}日`
+    : `${date.getFullYear()}年${month}月${day}日`
+}
+
+/**
+ * Substring match over the whole cleaned line, case-folded. Deliberately literal: the rail
+ * finds text the player typed, it does not decide what a line is about.
+ */
+export function matchRailPrompt(prompt: RailPrompt, query: string): boolean {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return true
+  return prompt.haystack.toLowerCase().includes(needle)
+}
+
+/** The prompts a query keeps, in order. An empty query keeps everything. */
+export function filterRailPrompts(prompts: readonly RailPrompt[], query: string): RailPrompt[] {
+  const needle = query.trim()
+  if (!needle) return [...prompts]
+  return prompts.filter(prompt => matchRailPrompt(prompt, needle))
 }
 
 /**
@@ -92,9 +168,12 @@ export function buildRailPrompts(messages: RailPromptInput[]): RailPrompt[] {
  * lightly truncate. Never renders markup.
  */
 export function promptSummaryText(content: string, maxLength = RAIL_TOOLTIP_MAX_LENGTH): string {
-  const collapsed = stripMarkdown(content ?? '').replace(/\s+/g, ' ').trim()
-  if (!collapsed) return ''
-  return truncateText(collapsed, maxLength)
+  return truncateText(plainText(content), maxLength)
+}
+
+/** Markdown stripped and whitespace collapsed, at full length. */
+export function plainText(content: string): string {
+  return stripMarkdown(content ?? '').replace(/\s+/g, ' ').trim()
 }
 
 /**
