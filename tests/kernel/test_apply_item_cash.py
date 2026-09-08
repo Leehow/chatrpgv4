@@ -272,24 +272,13 @@ def test_cash_builds_the_finance_block_from_the_era_table_and_moves_it(kernel):
     assert diff["resources"] == [{"subject": INVESTIGATOR, "resource": "cash", "from": start, "to": start + 10}]
 
 
-def test_cash_in_an_era_without_a_finance_period_starts_at_zero_and_says_so(kernel):
+def test_missing_finance_period_blocks_new_character_setup(kernel):
+    from test_setup_drafts import profile
     kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-white-war", "play_language": "zh-Hans"})
-    kernel.ok("setup.investigator", {"campaign": CAMPAIGN, "name": "Ada", "occupation": "Soldier", "era": "ww1", "seed": "1"})
-    kernel.ok("setup.complete", {"campaign": CAMPAIGN})
-    kernel.table("open")
-    narrate_opening(kernel, "雪。")
-    kernel.table("player_input", text="我摸了摸口袋。")
-    assert read_json(campaign_dir(kernel.workspace) / "party" / "ada.json")["finance"] is None
-    assert kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "cash", "delta": -1}])["code"] == "invalid_params"
-    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "cash", "delta": 5, "why": "军饷"}])
-    finance = read_json(campaign_dir(kernel.workspace) / "party" / "ada.json")["finance"]
-    assert finance["cash"]["amount"] == 5 and finance["period"] == "ww1" and finance["source"] is None
-    assert "ww1" in finance["note"] and "cash receipts" in finance["note"]
-    receipt = receipts_of(kernel)["cash:t1-c1"]
-    assert (receipt["before"], receipt["after"]) == (0, 5)
+    error = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": profile()})
+    assert "finance" in str(error)
+    assert kernel.err("setup.complete", {"campaign": CAMPAIGN})["code"] == "needs"
 
-
-# ---- helpers -------------------------------------------------------------------------------------
 
 def json_weapons():
     return read_json(RULES / "weapons.json")["weapons"]

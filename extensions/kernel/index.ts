@@ -31,6 +31,7 @@ interface OpenResult {
 	/** The resume checkpoint (contract §12.2): after a restart the first capsule carries this section itself, so the extension sends no separate host message for it. */
 	resume?: { turn?: number; commit?: string; one_line?: string; rebuilt?: boolean } | null;
 	opening_needed?: boolean;
+  setup_prologue?: unknown;
 }
 
 /**
@@ -650,7 +651,8 @@ export default function (pi: ExtensionAPI) {
 		if (!state) {
 			throw new Error(startupError ?? "the kernel is not up, so this table cannot open");
 		}
-		const payload: Record<string, unknown> = { campaign: state.campaign, ...params };
+		if(spec.name==='ask' && params.kind!=='mechanics')throw new Error('Use narrate for ordinary story questions and await free input; ask only accepts mechanics');
+    const payload: Record<string, unknown> = { campaign: state.campaign, ...params };
 		if (WRITE_TOOLS.has(spec.name)) {
 			payload.call_id = takeCallId(state, toolCallId);
 		}
@@ -917,7 +919,7 @@ export default function (pi: ExtensionAPI) {
 				);
 			} else if (open.opening_needed) {
 				sendHost(
-					`Opening the table: this turn has no player input. Write all player-facing words in play_language=${table.playLanguage}. Use look to see the opening scene (lookup for background). Deliver with ask when a story choice is needed, otherwise narrate. Questions and options belong in ask interaction JSON, never in narration. Do not call apply or resolve before the first player turn; the only opening writes are ask and narrate.`,
+					`Opening the table: ${open.setup_prologue ? "The setup context records a prior meeting only when it contains an opening. In that case continue without repeating arrival, greeting or identity questions; otherwise begin the scene normally. No keys or money were granted. If pending_action exists, preserve that player request instead of asking for the same decision again; carry it forward through normal rules and state receipts, never claim unrecorded resources. Committed prologue: "+JSON.stringify(open.setup_prologue) : ""} this turn has no player input. Write all player-facing words in play_language=${table.playLanguage}. Use look to see the opening scene (lookup for background). Close with narrate and wait for free player input. NPC questions belong naturally in the prose. Do not generate story action menus or options. Do not call apply or resolve before the first player turn; the only opening writes are ask and narrate.`,
 					"opening",
 				);
 			}
@@ -1038,8 +1040,8 @@ export default function (pi: ExtensionAPI) {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: TURN_CLOSED_REASON });
 			return { block: true, reason: TURN_CLOSED_REASON };
 		}
-		if (state.readingWait && name !== "ask") {
-			return { block: true, reason: "Source reading is still pending. Use ask with the preparation notice in prompt and non-empty waiting options; leave text empty and return control; do not start another query, narrate a result, or imply that the refused action or elapsed game time happened. A new player input can continue the existing reading." };
+		if (state.readingWait && name !== "narrate") {
+			return { block: true, reason: "Source reading is still pending. Use narrate with an honest preparation notice and return control without a story menu; do not start another query, narrate a result, or imply that the refused action or elapsed game time happened. A new player input can continue the existing reading." };
 		}
 		// The same call with the same parameters, resent unchanged: the kernel's answer will not change.
 		// A Keeper once sent one set of parameters thirteen times and was refused every time; after two
@@ -1135,7 +1137,7 @@ export default function (pi: ExtensionAPI) {
 				|| (state.state === "awaiting_player" && state.openingPending);
 			if (!prose || !canClose || state.closedThisRun) return;
 			if (state.readingWait) {
-				state.deliveryFix = { kind: "reading-wait", text: "Source preparation is pending. Use ask with the preparation notice in prompt and at least two player-language options to wait or pause. Leave text empty; the notice belongs to interaction JSON, not narration." };
+				state.deliveryFix = { kind: "reading-wait", text: "Source preparation is pending. Use narrate to explain the preparation wait briefly and await free input; do not offer story options." };
 				return { message: { ...event.message, content: blocks.filter(block => block.type !== "text") } };
 			}
 			// The kernel left a pending choice for the player (a defence in combat) and the Keeper only wrote

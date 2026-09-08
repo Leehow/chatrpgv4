@@ -1,3 +1,4 @@
+import {CocCharacterDraft} from './CocCharacterDraft'
 import {getToolRenderer,useToolRenderers} from './ui-registries'
 import { forwardRef, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Virtuoso, type StateSnapshot, type VirtuosoHandle } from 'react-virtuoso'
@@ -17,7 +18,7 @@ import { nextTranscriptFirstItemIndex, TRANSCRIPT_FIRST_ITEM_BASE, TRANSCRIPT_PI
 
 export type MessageActionHandlers = { onCopy: (message: ChatMessage) => Promise<void>; onResend: (message: ChatMessage) => void; resendDisabled: boolean; copiedId: string | null }
 type DocumentOpenProps = { documentBasePath?: string; onOpenDocument?: (path: string) => void }
-type PresentationActionProps = {onChoose?: (entry:NonNullable<ChatMessage['presentation']>,option:string)=>Promise<void>}
+type PresentationActionProps = {onChoose?: (entry:NonNullable<ChatMessage['presentation']>,option:string)=>Promise<unknown>}
 type SubagentOpenProps = { onOpenSubagents?: (agentId?: string) => void }
 type TranscriptStateRecord = { messageIds: readonly string[]; firstItemIndex: number; snapshot: StateSnapshot }
 
@@ -322,9 +323,10 @@ export const MessageView = memo(function MessageView({ message, showFooter, docu
 function PresentationEntry({message,onChoose}:{message:ChatMessage}&PresentationActionProps) {
   useToolRenderers()
   const data=message.presentation!
+  if(data.renderer==='coc-character-draft')return <article className="message assistant-message"><CocCharacterDraft data={data.details as any} onPresentation={onChoose?async()=>await onChoose(data,'presentation') as any:undefined} onRendered={onChoose?async()=>{await onChoose(data,'previewed')}:undefined}/></article>
   const render=getToolRenderer(data.renderer)?.render
   return <article className="message assistant-message" data-presentation={data.renderer}>
-    {render ? render({tool:{id:message.id,name:data.renderer,input:'',startedAt:0,finished:true},content:'',details:data.details,onSelectOption:onChoose?(option)=>onChoose(data,option):undefined,elapsed:()=>''}) : <p role="status">正在加载机制面板…</p>}
+    {render ? render({tool:{id:message.id,name:data.renderer,input:'',startedAt:0,finished:true},content:'',details:data.details,onSelectOption:onChoose?async(option)=>{await onChoose(data,option)}:undefined,elapsed:()=>''}) : <p role="status">正在加载机制面板…</p>}
   </article>
 }
 

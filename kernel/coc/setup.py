@@ -149,6 +149,8 @@ class SetupMethods:
         self.table = table
         self.steps = SetupSteps(Path(table.content) / "setup" / "steps.json")
         self.chargen = Chargen(table.tables, self.steps.step("create-investigator"))
+        from .setup_drafts import SetupDrafts
+        self.drafts = SetupDrafts(self)
 
     def _campaign(self, params: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
         campaign = self.table.store.open(params.get("campaign"), require_turn=False, require_world=False)
@@ -223,6 +225,8 @@ class SetupMethods:
                 continue
             investigator_kinds.add("library" if receipt.get("source") == "library" else "new")
         if "new" in investigator_kinds:
+            completed.update({"create-investigator", "confirm-investigator"})
+        if (meta.get("setup") or {}).get("draft_revision"):
             completed.add("create-investigator")
         if "library" in investigator_kinds:
             # `browse-library` (investigator.list) changes nothing on its own, so there is
@@ -233,7 +237,11 @@ class SetupMethods:
         active_kinds = {kind, *investigator_kinds}
         ordered_completed = [step_id for step_id in self.steps.order(active_kinds) if step_id in completed]
         state: dict[str, Any] = {"campaign": campaign.id, "module_id": module_id, "module": module_id,
-                                 "source": {"kind": kind, "module_id": module_id}, "source_kind": kind}
+                                 "source": {"kind": kind, "module_id": module_id}, "source_kind": kind, "play_language": meta.get("play_language", "zh-Hans")}
+        draft = self.drafts.load(campaign, meta)
+        if draft:
+            state["draft"] = self.drafts.result(draft)
+        state["prologue"] = (meta.get("setup") or {}).get("prologue")
         return {**table, "completed": ordered_completed, "state": state}
 
     def occupations(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -328,6 +336,14 @@ class SetupMethods:
             raise RpcError("needs", "the party is empty; create an investigator first",
                            fix=self.steps.next_line("create-investigator"),
                            details={"needs": {"field": "investigator", "step": "create-investigator"}})
+        from .setup_drafts import completeness
+        receipts = (meta.get("setup") or {}).get("receipts") or []
+        imported = bool(receipts) and all(row.get("source") == "library" for row in receipts if row.get("kind") == "investigator")
+        issues = [] if imported else [issue for card in party for issue in completeness(card)]
+        if issues:
+            raise RpcError("campaign_not_ready", "Complete the actual card before opening play", code_detail="incomplete_investigator", details={"issues": issues})
+        if not imported and (not (meta.get("setup") or {}).get("confirmed_revision") or meta["setup"]["confirmed_revision"] != meta["setup"].get("draft_revision")):
+            raise RpcError("needs", "Confirm the displayed draft before completing setup", code_detail="preview_required")
         module_id = str(meta["module_id"])
         module = module_meta(self.table.module_store, module_id)
         ready = bool(module and (module.get("opening_ready") is True if module.get("reading_version")
@@ -343,6 +359,7 @@ class SetupMethods:
             "receipt": HANDOFF_RECEIPT,
             "module_id": module_id,
             "module_generation": generation,
+            "prologue": (meta.get("setup") or {}).get("prologue"),
             "investigators": [str(s.get("id")) for s in party],
             "at": now_iso(),
             "launch": self.steps.launch_line(campaign.id),

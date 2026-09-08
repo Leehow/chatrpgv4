@@ -58,7 +58,7 @@ test("真表：starter 车道能真的走到 create-campaign，闸门不自相�
 
 test("真表：建完卡就能收工，另一条取卡的路不再挡着 complete（#32、§21.5）", () => {
 	const steps = normalizeSteps(TABLE.steps);
-	const done = new Set(["choose-source", "create-campaign", "create-investigator"]);
+	const done = new Set(["choose-source", "create-campaign", "create-investigator", "confirm-investigator"]);
 
 	// 两条取卡的路都还没走时，两条都开着，模型可以挑。
 	const open = allowedSteps(steps, { completed: new Set(["choose-source", "create-campaign"]), sourceKind: "starter" });

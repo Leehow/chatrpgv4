@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from setup_helpers import confirmed_investigator
 from conftest import CONTENT_DIR, RpcClient
 from coc.errors import RpcError
 from coc.store import Store
@@ -69,6 +70,7 @@ def test_indexing_requires_actual_full_page_observation(kernel, tmp_path):
     error = kernel.err("module.read.finish", {"module_id": mid, "job_id": job["job_id"], "lease": job["lease"],
         "outcome": "completed", "draft_path": str(Path(job["work_dir"]) / "draft.json")})
     assert "observed source reference" in error["message"]
+
     assert not kernel.ok("module.status", {"module_id": mid})["reading"]["index_complete"]
 
 
@@ -207,7 +209,7 @@ def test_published_material_remains_usable_without_the_original_pdf(kernel, tmp_
     assert error["details"]["reason"] == "needs_source"
     assert kernel.ok("module.status", {"module_id": mid})["generation"] == 1
     kernel.ok("campaign.create", {"id": "c1", "module": mid, "play_language": "en"})
-    kernel.ok("setup.investigator", {"campaign": "c1", "name": "Ada", "occupation": "Journalist"})
+    confirmed_investigator(kernel)
     kernel.ok("setup.complete", {"campaign": "c1"})
     assert kernel.table("open")["scene"]["name"] == "dock"
     kernel.table("narrate", call_id="t0-c1", text="The harbor waits.")
@@ -281,7 +283,13 @@ def test_material_preflight_precedes_the_whole_effect_batch_and_rng(kernel, tmp_
     write(Path(job["work_dir"]) / "review.json", review)
     finish(kernel, job)
     kernel.ok("campaign.create", {"id": "c1", "module": mid, "play_language": "en"})
-    kernel.ok("setup.investigator", {"campaign": "c1", "name": "Ada", "occupation": "Journalist"})
+    # This test concerns source-era projection, not inventing unsupported ancient finance.
+    # Reuse a validated library card through the existing cross-era intake contract.
+    kernel.ok("campaign.create", {"id": "card-source", "module": "the-haunting", "play_language": "en"})
+    confirmed_investigator(kernel, campaign="card-source")
+    kernel.ok("setup.complete", {"campaign": "card-source"})
+    saved = kernel.ok("investigator.save", {"campaign": "card-source"})
+    kernel.ok("investigator.load", {"campaign": "c1", "library_id": saved["library_id"]})
     kernel.ok("setup.complete", {"campaign": "c1"})
     kernel.table("open")
     viewed = kernel.table("look")

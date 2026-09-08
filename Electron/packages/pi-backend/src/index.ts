@@ -5522,7 +5522,7 @@ export class PiHostBackend implements HostBackend {
             mergedSpawnEnvironment(this.env, dotEnv, {
               ...output.env,
               ...(this.piCommand.env ?? {}),
-              ...(cocBinding ? {PI_COC_CAMPAIGN:cocBinding.campaign,PI_COC_HOME:cocBinding.home, ...(cocBinding.mode === "play" ? {PI_COC_MODE:"play"} : {})} : {}),
+              ...(cocBinding ? {PI_COC_CAMPAIGN:cocBinding.campaign,PI_COC_HOME:cocBinding.home, PI_COC_MODE:cocBinding.mode || "play",...(cocBinding.mode === "setup" ? {PI_COC_SETUP_AUTOSTART:"1"} : {})} : {}),
             }),
             workerEnvFromVault(this.vaultDir, id),
           ),
@@ -8455,7 +8455,7 @@ export class PiHostBackend implements HostBackend {
         const data = await this.cocOnboarding.invoke(request, sid, {
           id: `${state.model.provider}/${state.model.id}`, thinking: state.thinkingLevel, vision: state.model.supportsImages === true,
         });
-        if (sid && ["begin", "select", "create"].includes(String(request.action)) && state.model.provider !== "unknown") {
+        if (sid && ["begin", "select", "converse"].includes(String(request.action)) && state.model.provider !== "unknown") {
           await this.setModel(sid, state.model.provider, state.model.id);
           await this.setThinking(sid, state.thinkingLevel);
         }
@@ -8463,15 +8463,33 @@ export class PiHostBackend implements HostBackend {
           const selected = await this.locate(sid);
           if (!selected.name || ["Session", "New session"].includes(selected.name)) await this.renameSession(sid, data.name.replace(/\.pdf$/i, ""));
         }
-        if (request.action === "create" && data.campaign) {
+        if (request.action === "converse" && data.campaign) {
           const selected = await this.locate(sid);
-          const binding = {campaign: data.campaign, home, play_language: data.view.play_language, mode: "play"};
+          const binding = {campaign: data.campaign, home, play_language: data.play_language || "zh-Hans", mode: "setup"};
           await fs.writeFile(selected.path + ".coc.json.tmp", JSON.stringify(binding) + "\n");
           await fs.rename(selected.path + ".coc.json.tmp", selected.path + ".coc.json");
           await this.renameSession(sid, data.name || "New campaign");
+          await this.ensure(sid);
         }
         return {ok: true, data};
       } catch (error) { return settingsDenied("onboarding_failed", error instanceof Error ? error.message : String(error)); }
+    }
+    if(id==='coc-keeper' && (method==='draft-previewed'||method==='draft-presentation')) {
+      const sid=isRecord(optsValue)&&typeof optsValue.sessionId==='string'?optsValue.sessionId:'';
+      if(!sid)return settingsDenied('no_session','Select the draft session');
+      const revision=isRecord(params)?params.revision:undefined;
+      if(!Number.isSafeInteger(revision)||Number(revision)<1)return settingsDenied('invalid_preview','Invalid draft revision');
+      const selected=await this.locate(sid), binding=await readCocBinding(selected.path);
+      if(!binding||!this.managedNodeModulesRoot)return settingsDenied('unbound','No campaign is bound');
+      if(method==='draft-presentation') {
+        const repo=resolve(this.managedNodeModulesRoot,'..');
+        this.cocOnboarding ??= new CocOnboardingHost({repo,home:binding.home,agentDir:this.sharedProfileDir,env:this.env});
+        const state=await this.getModelState(sid);
+        try {return {ok:true,data:await this.cocOnboarding.presentation({campaign:binding.campaign,revision:Number(revision),play_language:binding.play_language,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})};}
+        catch(error){return settingsDenied('presentation_failed',error instanceof Error?error.message:String(error));}
+      }
+      try {return {ok:true,data:await readColdSheet(join(this.managedNodeModulesRoot,'..'),binding,Number(revision))};}
+      catch(error){if((error as any)?.code==='idempotency_conflict')return {ok:true,data:{superseded:true}};return settingsDenied('preview_failed',error instanceof Error?error.message:String(error));}
     }
     if (id === "coc-keeper" && ["sheet","choose"].includes(method) && !(isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim())) {
       return {ok:true,data:{status:"unbound",view:null,campaign:null}};
@@ -8499,8 +8517,7 @@ export class PiHostBackend implements HostBackend {
     }
     if (id === "coc-keeper" && method === "sheet") {
       const selected = await this.locate(sessionId);
-      const active = this.live.get(sessionId);
-      if (!active || !this.liveProcessUsable(active)) {
+      {
         const pending = this.cocSheetReads.get(sessionId);
         if (pending) return pending;
         const read = (async () => {
@@ -8509,6 +8526,30 @@ export class PiHostBackend implements HostBackend {
           try {
             if (!this.managedNodeModulesRoot) throw new Error("Canonical runtime is unavailable");
             const view=await readColdSheet(join(this.managedNodeModulesRoot ?? "", ".."),context);
+            try {
+              const folder=join(context.home,'.coc/campaigns',context.campaign);
+              const meta=JSON.parse(await fs.readFile(join(folder,'campaign.json'),'utf8'));
+              const projection=JSON.parse(await fs.readFile(join(folder,'setup/presentations',`${meta.setup?.draft_revision}-${context.play_language}.json`),'utf8'));
+              if(projection.play_language===context.play_language)(view as any).labels={...projection.texts,...(view as any).labels};
+            } catch { /* A card can still be read before its text projection has been prepared. */ }
+            // Project only names the kernel has already exposed to this player.
+            const liveView=view as any;
+            const visibleNames=[liveView.scene?.display_name||liveView.scene?.name,liveView.session?.kind].filter((name):name is string=>typeof name==='string'&&!!name.trim());
+            let names:Record<string,string>={};
+            try {
+              const saved=JSON.parse(await fs.readFile(join(context.home,'.coc/campaigns',context.campaign,'setup/presentations',`standing-${context.play_language}.json`),'utf8'));
+              if(saved.play_language===context.play_language)names=saved.texts||{};
+            } catch {}
+            if(visibleNames.some(name=>typeof names[name]!=='string'||!names[name].trim())) {
+              try {
+                const repo=resolve(this.managedNodeModulesRoot,'..');
+                this.cocOnboarding ??= new CocOnboardingHost({repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
+                const state=await this.getModelState(sessionId);
+                const projection=await this.cocOnboarding.presentation({campaign:context.campaign,play_language:context.play_language,standing:true,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel});
+                names=projection.texts;
+              } catch { /* Keep readable card data; the next sheet read retries missing names. */ }
+            }
+            liveView.standing_labels=names;
             return {ok:true,data:{status:"ready",view,campaign:context.campaign}};
           } catch(error) {return {ok:true,data:{status:"error",view:null,campaign:context.campaign,reason:error instanceof Error?error.message:String(error)}};}
         })().finally(()=>this.cocSheetReads.delete(sessionId));

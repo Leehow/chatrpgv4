@@ -1,6 +1,7 @@
 """§14.4 for a bound book: the world starts at the first setup call that finds the graph,
 and setup.steps {campaign} tells a restarted setup process what is already done."""
 
+from setup_helpers import confirmed_investigator
 from conftest import CAMPAIGN, MODULE, campaign_dir, read_json
 from module_helpers import indexed, opening, finish
 
@@ -12,15 +13,17 @@ def test_bound_book_campaign_gets_its_world_when_the_graph_arrives(kernel, tmp_p
     assert not (campaign_dir(kernel.workspace) / "world.json").exists()
     # before the graph exists the resume view already knows the lane
     resume = kernel.ok("setup.steps", {"campaign": CAMPAIGN})
+    assert resume["state"]["play_language"] in {"zh-Hans", "en"}
     assert resume["completed"] == ["choose-source", "create-campaign"]
     assert resume["state"]["module_id"] == mid and resume["state"]["source"]["kind"] == "pdf"
     occupation = kernel.ok("setup.occupations", {"campaign": CAMPAIGN})["occupations"][0]["id"]
     # no graph yet: the investigator can still be made, the world is not started
-    kernel.ok("setup.investigator", {"campaign": CAMPAIGN, "name": "Marcus", "occupation": occupation, "seed": 3})
+    assert not list((campaign_dir(kernel.workspace) / "party").glob("*.json"))
     assert not (campaign_dir(kernel.workspace) / "world.json").exists()
     # the graph lands; the next setup call starts the world
     job, _, _ = opening(kernel, mid)
     finish(kernel, job)
+    confirmed_investigator(kernel, name="Marcus")
     resume = kernel.ok("setup.steps", {"campaign": CAMPAIGN})
     assert "prepare-module" in resume["completed"] and "create-investigator" in resume["completed"]
     done = kernel.ok("setup.complete", {"campaign": CAMPAIGN})
@@ -70,7 +73,7 @@ def test_module_source_reuses_an_installed_book_and_skips_the_build_lane(kernel,
     assert resume["state"]["source"] == {"kind": "module", "module_id": mid}
 
     occupation = kernel.ok("setup.occupations", {"campaign": second})["occupations"][0]["id"]
-    kernel.ok("setup.investigator", {"campaign": second, "name": "Reused", "occupation": occupation, "seed": 9})
+    confirmed_investigator(kernel, campaign=second, name="Reused")
     handoff = kernel.ok("setup.complete", {"campaign": second})
     assert handoff["status"] == "ready_for_table" and handoff["module_id"] == mid
 
@@ -90,7 +93,7 @@ def test_investigator_source_reuses_a_saved_card_and_skips_occupation_and_points
     skips_the_build_lane above, on the second, independent axis (contract §21.5)."""
     first = "first-camp"
     kernel.ok("campaign.create", {"id": first, "module": MODULE, "play_language": "en"})
-    made = kernel.ok("setup.investigator", {"campaign": first, "name": "Marlowe", "occupation": "Journalist", "seed": "lib-1"})
+    made = confirmed_investigator(kernel, campaign=first, name="Marlowe")
     kernel.ok("setup.complete", {"campaign": first})
     saved = kernel.ok("investigator.save", {"campaign": first})
     library_id = saved["library_id"]

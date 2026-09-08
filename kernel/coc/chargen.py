@@ -262,7 +262,10 @@ class Chargen:
         return None
 
     def skill_base(self, name: str, characteristics: dict[str, int]) -> int:
-        base = self.tables.skill_by_name(name)["base_chance"]
+        if name.startswith("Language (Other: ") and name.endswith(")"):
+            base = self.tables.skill_specialization_groups()["Language (Other)"]["base_chance"]
+        else:
+            base = self.tables.skill_by_name(name)["base_chance"]
         if isinstance(base, int):
             return base
         text = str(base)
@@ -344,7 +347,8 @@ class Chargen:
 
     def build(self, *, investigator_id: str, name: str, occupation_id: str, concept: str | None,
               age: int, sex: str | None, method: str, seed: str, era: str,
-              allocation: str | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+              allocation: str | None = None, occupation_skills: list[str] | None = None,
+              interest_skills: list[str] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
         if method not in METHODS:
             raise ChargenError("method", f"method must be one of {METHODS}", expected={"options": list(METHODS)})
         occupation_name, spec = self.occupation(occupation_id)
@@ -357,12 +361,12 @@ class Chargen:
         if method == "quick_fire":
             generated = self.quick_fire(formula_characteristics(formula))
         else:
-            generated = self.rolled(rng)
+            generated = self.rolled(random.Random(seed + ":characteristics") if occupation_skills is not None else rng)
         trace["characteristics"] = generated
-        aged = self.apply_age(generated["values"], age, rng)
+        aged = self.apply_age(generated["values"], age, random.Random(seed + ":age") if occupation_skills is not None else rng)
         characteristics = aged["values"]
         trace["age"] = aged["trace"]
-        luck = self.luck(rng, aged["trace"]["luck_rolls_keep_highest"])
+        luck = self.luck(random.Random(seed + ":luck") if occupation_skills is not None else rng, aged["trace"]["luck_rolls_keep_highest"])
         trace["luck"] = luck
         characteristics["LUCK"] = luck["value"]
 
@@ -385,6 +389,10 @@ class Chargen:
             elif found not in resolved:
                 resolved.append(found)
                 slots.append(found)
+        if occupation_skills is not None:
+            resolved = list(occupation_skills)
+            slots = list(occupation_skills)
+            pending = []
         credit_range = [int(v) for v in spec.get("credit_rating_range") or [0, 0]]
         credit_rating = credit_range[0]
         listed = list(sheet_ids or [])
@@ -411,10 +419,15 @@ class Chargen:
         interest_formula = parse_formula(str(self.policy["formulas"]["personal_interest_points"]))
         interest_budget = evaluate_formula(interest_formula, characteristics)
         exclude = set(self.policy["interest_pool"].get("exclude") or [])
-        interest_pool = [s for s in (sheet_ids or []) if s not in resolved and s not in exclude]
+        interest_pool = list(interest_skills) if interest_skills is not None else [s for s in (sheet_ids or []) if s not in resolved and s not in exclude]
+        for skill_id in interest_pool:
+            if skill_id not in values:
+                values[skill_id] = self.skill_base(skill_id, characteristics)
         interest_alloc = self.allocate(interest_pool, interest_budget["total"], values, self.cap)
         for skill_id, points in interest_alloc.items():
             values[skill_id] += points
+        if occupation_skills is not None and (sum(occupation_alloc.values()) != occupation_points or sum(interest_alloc.values()) != interest_budget["total"]):
+            raise ChargenError("skills", "Selected skills cannot hold the full budget; choose more interest skills or a wider legal occupational selection", expected={"occupation_unspent": occupation_points-sum(occupation_alloc.values()), "interest_unspent": interest_budget["total"]-sum(interest_alloc.values())})
         trace["skills"] = {
             "standard_sheet": f"skills.standard_sheet.{era}" if sheet_ids else None,
             "cap": {"value": self.cap, "source": "skills.guided_creation_policy.starting_skill_cap"},

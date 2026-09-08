@@ -136,8 +136,8 @@ test("战斗：待决防御用 ask 交回玩家，下一回合用 defense 作答
 			fauxAssistantMessage(
 				[
 					fauxToolCall("ask", {
-						prompt: "撬棍朝你的肩膀砸下来，你怎么办？",
-						options: ["闪开", "硬接一下再还手"],
+						kind: "mechanics", text: "撬棍朝你的肩膀砸下来。",
+						options: ["dodge", "fight_back"],
 					}),
 				],
 				{ stopReason: "toolUse" },
@@ -173,7 +173,7 @@ test("战斗：待决防御用 ask 交回玩家，下一回合用 defense 作答
 	assert.equal(ask.params.call_id, "t1-c2");
 	assert.equal(
 		assistantTexts(table.session).at(-1),
-		"撬棍朝你的肩膀砸下来，你怎么办？\n1. 闪开\n2. 硬接一下再还手",
+		"撬棍朝你的肩膀砸下来。",
 		"这一回合交付的是 ask 渲染出来的问题加选项",
 	);
 
@@ -286,8 +286,7 @@ test("待决防御没交回去就收工：宿主不替它问，丢掉草稿催�
 				[
 					fauxToolCall("ask", {
 						text: "撬棍带着风声砸下来，你只来得及看见它的影子。",
-						prompt: "你是躲，还是硬接一下反手砸回去？",
-						options: ["闪身", "反击"],
+						kind:"mechanics", options:["dodge","fight_back"],
 					}),
 				],
 				{ stopReason: "toolUse" },
@@ -304,16 +303,16 @@ test("待决防御没交回去就收工：宿主不替它问，丢掉草稿催�
 	// 所以这一轮不替它 ask，草稿正文也不留下当交付。
 	const asks = table.kernelRequests().filter((entry) => entry.method === "table.ask");
 	assert.equal(asks.length, 1, "只有守秘人自己那一次 ask 到了内核");
-	assert.equal(asks[0].params.prompt, "你是躲，还是硬接一下反手砸回去？", "问题是守秘人用玩家语言写的");
+	assert.equal(asks[0].params.kind,"mechanics");
 	assert.equal(asks[0].params.binds, "combat-defense-t1", "仍然绑内核那条待决");
-	assert.deepEqual(asks[0].params.options, ["闪身", "反击"]);
+	assert.deepEqual(asks[0].params.options, ["dodge", "fight_back"]);
 
 	const steers = customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "steer");
 	assert.equal(steers.length, 1, "催一次，且只有一次");
 
 	const delivered = assistantTexts(table.session).filter((text) => text.length > 0).at(-1);
 	assert.ok(delivered.startsWith("撬棍带着风声砸下来"), "交付是守秘人的正文");
-	assert.ok(delivered.endsWith("1. 闪身\n2. 反击"), "问题与编号选项跟在后面，全是玩家的语言");
+	assert.deepEqual(table.entries("coc-choice").at(-1).options,["dodge","fight_back"]);
 	assert.ok(!delivered.includes("dodge"), "内核的英文选项不出现在玩家看的字里");
 });
 
@@ -329,7 +328,7 @@ test("守秘人自己 ask 却漏填 binds：宿主用内核留下的待决名补
 				{ stopReason: "toolUse" },
 			),
 			fauxAssistantMessage(
-				[fauxToolCall("ask", { text: "撬棍砸下来。", prompt: "你怎么办？", options: ["闪避", "反击"] })],
+				[fauxToolCall("ask", { text: "撬棍砸下来。", kind:"mechanics", options:["dodge","fight_back"] })],
 				{ stopReason: "toolUse" },
 			),
 			fauxAssistantMessage("收尾"),
@@ -343,5 +342,5 @@ test("守秘人自己 ask 却漏填 binds：宿主用内核留下的待决名补
 	const ask = table.kernelRequests().find((entry) => entry.method === "table.ask");
 	assert.ok(ask, "守秘人的 ask 到了内核");
 	assert.equal(ask.params.binds, "combat-defense-t1", "漏填的 binds 由宿主补上");
-	assert.deepEqual(ask.params.options, ["闪避", "反击"], "守秘人自己的选项原样保留");
+	assert.deepEqual(ask.params.options, ["dodge", "fight_back"], "守秘人自己的选项原样保留");
 });

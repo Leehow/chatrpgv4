@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 
+from setup_helpers import confirmed_investigator
 from conftest import CAMPAIGN, CONTENT_DIR, KERNEL_DIR, MODULE, PREGEN, campaign_dir, git_log, read_json, read_jsonl
 
 sys.path.insert(0, str(KERNEL_DIR))
@@ -16,11 +17,11 @@ STEPS_PATH = CONTENT_DIR / "setup" / "steps.json"
 #: `load-investigator`), an alternative to `create-investigator` gated on the same
 #: `applies`/`order` machinery but on a second, independent axis (`investigator_source`).
 STEP_IDS = ["choose-source", "prepare-module", "create-campaign",
-            "create-investigator", "browse-library", "load-investigator", "complete"]
+            "create-investigator", "confirm-investigator", "browse-library", "load-investigator", "complete"]
 #: STEP_IDS as seen from one investigator lane at a time: the other lane's step(s) are
 #: not applicable, so they never appear in that lane's `order`.
 NEW_LANE_STEP_IDS = [step_id for step_id in STEP_IDS if step_id not in ("browse-library", "load-investigator")]
-LIBRARY_LANE_STEP_IDS = [step_id for step_id in STEP_IDS if step_id != "create-investigator"]
+LIBRARY_LANE_STEP_IDS = [step_id for step_id in STEP_IDS if step_id not in {"create-investigator", "confirm-investigator"}]
 
 
 def create_setting_up(kernel, campaign_id: str = CAMPAIGN, module: str = MODULE):
@@ -73,13 +74,13 @@ def test_open_refuses_a_campaign_that_is_setting_up_with_the_table_fix(kernel):
 
 def test_first_open_of_a_ready_campaign_makes_it_active(kernel):
     create_setting_up(kernel)
-    kernel.ok("setup.investigator", {"campaign": CAMPAIGN, "name": "Ada", "occupation": "Journalist"})
+    confirmed_investigator(kernel)
     done = kernel.ok("setup.complete", {"campaign": CAMPAIGN})
     assert done["status"] == "ready_for_table"
     assert read_json(campaign_dir(kernel.workspace) / "campaign.json")["status"] == "ready_for_table"
     opened = kernel.table("open")
     assert opened["campaign"]["status"] == "active"
-    assert opened["investigators"][0]["id"] == "ada"
+    assert opened["investigators"][0]["id"] == "investigator"
     assert opened["opening_needed"] is True
     assert read_json(campaign_dir(kernel.workspace) / "campaign.json")["status"] == "active"
     assert kernel.table("open")["campaign"]["status"] == "active"
@@ -112,7 +113,7 @@ def test_steps_table_is_the_seven_steps_in_order_and_a_dag(kernel):
     assert by_id["create-investigator"]["investigator_source"] == "new"
     assert by_id["browse-library"]["investigator_source"] == by_id["load-investigator"]["investigator_source"] == "library"
     assert by_id["load-investigator"]["needs"] == ["browse-library"]
-    assert by_id["complete"]["needs"] == ["create-investigator", "load-investigator"]
+    assert by_id["complete"]["needs"] == ["confirm-investigator", "load-investigator"]
     assert table["investigator_sources"] == ["new", "library"]
     assert set(table["templates"]) == {"unknown_step", "needs_unmet", "already_done", "all_done"}
 
@@ -215,7 +216,7 @@ def test_investigator_allocation_policy_is_the_tables_default_or_the_callers_cho
     create_setting_up(kernel)
     table = kernel.ok("setup.steps", {})
     block = next(s for s in table["steps"] if s["id"] == "create-investigator")["allocation"]
-    assert block["default"] == "spread" and block["tiers"] == [50, 70] and "allocation" in next(
+    assert block["default"] == "spread" and block["tiers"] == [50, 70] and "profile" in next(
         s for s in table["steps"] if s["id"] == "create-investigator")["params"]
     spread = kernel.ok("setup.investigator", {"campaign": CAMPAIGN, "name": "Ada", "occupation": "Military Officer", "seed": "7"})
     creation = spread["sheet"]["creation"]
@@ -249,16 +250,16 @@ def test_complete_needs_a_party_then_hands_off(kernel):
     create_setting_up(kernel)
     error = kernel.err("setup.complete", {"campaign": CAMPAIGN})
     assert error["code"] == "needs" and error["details"]["needs"]["step"] == "create-investigator"
-    kernel.ok("setup.investigator", {"campaign": CAMPAIGN, "name": "Ada", "occupation": "Journalist"})
+    confirmed_investigator(kernel)
     done = kernel.ok("setup.complete", {"campaign": CAMPAIGN})
     assert done["receipt"] == "setup:handoff"
     assert done["module_id"] == MODULE and done["module_generation"] == 1
-    assert done["investigators"] == ["ada"] and done["launch"] == f"bin/pi-coc --campaign {CAMPAIGN}"
+    assert done["investigators"] == ["investigator"] and done["launch"] == f"bin/pi-coc --campaign {CAMPAIGN}"
     meta = read_json(campaign_dir(kernel.workspace) / "campaign.json")
     assert meta["status"] == "ready_for_table" and meta["setup"]["handoff"]["receipt"] == "setup:handoff"
     events = read_jsonl(campaign_dir(kernel.workspace) / "events.jsonl")
     assert [e["type"] for e in events] == ["setup-completed"]
-    assert events[0]["receipt"] == "setup:handoff" and events[0]["data"]["investigators"] == ["ada"]
+    assert events[0]["receipt"] == "setup:handoff" and events[0]["data"]["investigators"] == ["investigator"]
     assert git_log(kernel.workspace)[0] == f"campaign {CAMPAIGN}: setup handoff"
     replay = kernel.ok("setup.complete", {"campaign": CAMPAIGN})
     assert replay["replayed"] is True and replay["receipt"] == "setup:handoff"
