@@ -11,6 +11,12 @@ raised where the two lines say different things about the same subject, and it i
 by name -- `conflict:<class>:<subject>:<field>` -- so the same report computed twice is
 byte for byte the same and the keeper's dispositions can be sent back against it.
 
+Not everything a line holds is on its sheets. The rule engines keep their own state under
+`save/` -- wounds, madness, spells, the fight still standing -- and the sheet's HP, SAN and
+magic points are a mirror the engines write (#81). A merge therefore compares `save/` too,
+and settles it as one thing: the engine state comes from one line whole, because half of one
+line's engines beside half of another's is a state neither line was ever in.
+
 Nothing here duplicates what cannot be duplicated. A dead investigator does not come back
 because the other line kept them alive; an object one line spent is not restocked by the
 line that never spent it; rolls and one-shot effects are not re-counted, because they are
@@ -22,6 +28,7 @@ classes simply have no `sum` mode.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from typing import Any
 
@@ -33,11 +40,16 @@ from .text import normalize
 
 # ---- the closed table (§15.4) ----------------------------------------------------------
 
-NUMERIC, DEAD_ALIVE, CONSUMED, FLAG, NPC_PRESENCE, MOD_STATE = (
-    "numeric", "dead_alive", "consumed", "flag", "npc_presence", "mod_state")
+NUMERIC, DEAD_ALIVE, CONSUMED, FLAG, NPC_PRESENCE, MOD_STATE, ENGINE_STATE = (
+    "numeric", "dead_alive", "consumed", "flag", "npc_presence", "mod_state", "engine_state")
 FROM, MIN, MAX, SUM, DROP = "from", "min", "max", "sum", "drop"
 #: Which dispositions each class allows. `clue` is absent on purpose: clues never conflict,
 #: they are a union. No class offers `sum` over something that cannot be duplicated.
+#:
+#: `engine_state` offers only `from`, and not because a snapshot is precious: there is no
+#: value between two of them. One line says the investigator went mad and the other says she
+#: did not; a `min` of those is not a smaller madness, and the deadlines inside a snapshot are
+#: absolute clock minutes that mean nothing taken apart from the state that filed them.
 DISPOSITIONS: dict[str, tuple[str, ...]] = {
     NUMERIC: (FROM, MIN, MAX),
     DEAD_ALIVE: (FROM,),
@@ -45,9 +57,22 @@ DISPOSITIONS: dict[str, tuple[str, ...]] = {
     FLAG: (FROM,),
     NPC_PRESENCE: (FROM, SUM),
     MOD_STATE: (FROM,),
+    ENGINE_STATE: (FROM,),
 }
-#: The investigator numbers a merge compares, sheet field by capsule name.
-RESOURCES = (("hp", "current_hp"), ("san", "current_san"), ("mp", "current_mp"), ("luck", "current_luck"))
+#: The investigator numbers a merge compares sheet against sheet: the ones no engine owns.
+#:
+#: HP, SAN and magic points used to be here. They are not numbers the sheet owns -- #81 settled
+#: that the engine is the authority and the sheet is its mirror (`rules.runtime.mirror_investigator`
+#: writes both) -- so a merge that picked them field by field would assemble a state neither
+#: line was ever in: this line's HP beside that line's wound ledger. They go with the snapshot
+#: they mirror, under `engine_state`. Luck stays, because no engine keeps it.
+RESOURCES = (("luck", "current_luck"),)
+#: The sheet fields `mirror_investigator` writes: on these three the sheet is the engines' mirror
+#: and `save/` is the original, so a confluence moves them together with `save/` (#81).
+MIRRORED = ("current_hp", "current_san", "current_mp")
+#: The subject of the one `engine_state` conflict: not an investigator and not a file, because
+#: the choice is over the whole engine view of the table at once.
+ENGINES = "engines"
 #: The condition that says an investigator did not survive that line.
 DEAD_CONDITION = "dead"
 #: The world keys a merge unions outright; none of them can disagree.
@@ -67,8 +92,9 @@ def conflict_id(kind: str, subject: str, field: str) -> str:
 # ---- reading a line without checking it out ---------------------------------------------
 
 def line_state(campaign: Campaign, line: str) -> dict[str, Any]:
-    """One worldline's committed state: its world, its sheets by id, and its memory
-    candidates. Read out of git, so the party keeps standing where it stands."""
+    """One worldline's committed state: its world, its sheets by id, its memory candidates
+    and what its rule engines saved. Read out of git, so the party keeps standing where it
+    stands."""
     repo, tree = campaign.repo_dir, campaign.dir
     raw = history.line_blob(repo, tree, line, "world.json")
     if raw is None:
@@ -98,7 +124,38 @@ def line_state(campaign: Campaign, line: str) -> dict[str, Any]:
         if isinstance(parsed, dict):
             candidates.append(parsed)
     return {"line": line, "world": json.loads(raw), "party": party, "candidates": candidates,
-            "spent": spent_items(campaign, line)}
+            "spent": spent_items(campaign, line), "engines": engine_saves(campaign, line)}
+
+
+def engine_saves(campaign: Campaign, line: str) -> dict[str, str]:
+    """What every rule engine committed on this line: `save/<engine>/<file>` to a digest of
+    its bytes.
+
+    `save/` is where the engines keep the state the sheets only mirror -- the wound ledger, the
+    bouts of madness and the hours they still owe, the spells being studied, the fight that is
+    still standing. Until #81 a merge never looked at any of it, so the line the branch did not
+    start from lost all of it without a word.
+
+    `worldline.SAVE_KEEP` is excluded, for the same reason a rewind leaves it alone: those are
+    the loop's own bookkeeping and the table's house rules rather than anything that happened
+    inside the fiction. The continuation checkpoint especially -- it follows each line's own
+    HEAD, so comparing it would make every confluence a conflict about nothing.
+
+    A digest and not the bytes. This row is echoed back to the keeper in the `needs` error and
+    rides on `turn.json`, and a single sanity snapshot is some five kilobytes of engine
+    internals about which the keeper is being asked nothing. What the keeper is asked is which
+    line's engines the merged campaign carries; the paths say which engines disagree, and the
+    merge reads the winner's bytes straight out of git when it lands."""
+    repo, tree = campaign.repo_dir, campaign.dir
+    saves: dict[str, str] = {}
+    for path in history.line_tree(repo, tree, line, "save/", recursive=True):
+        if history.within(path, worldline.SAVE_KEEP):
+            continue
+        raw = history.line_blob(repo, tree, line, path)
+        if raw is None:
+            continue
+        saves[path] = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+    return saves
 
 
 def spent_items(campaign: Campaign, line: str) -> set[tuple[str, str]]:
@@ -135,9 +192,10 @@ def report(graph: ModuleGraph, states: list[dict[str, Any]], into: str | None) -
     conflicts: list[dict[str, Any]] = []
     world = _merge_world(graph, states, scene, conflicts)
     party = _merge_party(states, conflicts)
+    engine_line = _merge_engines(states, conflicts)
     conflicts.sort(key=lambda row: str(row["id"]))
     return {"lines": [state["line"] for state in states], "into": scene,
-            "world": world, "party": party, "conflicts": conflicts}
+            "world": world, "party": party, "engine_line": engine_line, "conflicts": conflicts}
 
 
 def _merge_world(graph: ModuleGraph, states: list[dict[str, Any]], scene: str,
@@ -170,6 +228,39 @@ def _merge_world(graph: ModuleGraph, states: list[dict[str, Any]], scene: str,
                           "subject":"game-mods", "field":"snapshot", "values":mod_values,
                           "modes":list(DISPOSITIONS[MOD_STATE])})
     return world
+
+
+def _engine_view(state: dict[str, Any]) -> dict[str, Any]:
+    """One line's engine state as a merge compares it: what its engines saved, and the sheet
+    fields that are nothing but a mirror of that."""
+    sheet_view: dict[str, Any] = {}
+    for sheet_id in sorted(state["party"]):
+        sheet = state["party"][sheet_id]
+        mirrored = {key: sheet[key] for key in MIRRORED if key in sheet}
+        if mirrored:
+            sheet_view[sheet_id] = mirrored
+    return {"save": dict(sorted((state.get("engines") or {}).items())), "sheet": sheet_view}
+
+
+def _merge_engines(states: list[dict[str, Any]], conflicts: list[dict[str, Any]]) -> str:
+    """§15.4 (#81): the engine state is taken from one line, whole, or it is not taken at all.
+    Returns the line whose engines the merge carries -- the first, until a keeper says otherwise.
+
+    One conflict for all of it, and `from` its only disposition. A wound ledger without the HP
+    it explains, or a SAN score without the bout of madness it came out of, is a state neither
+    line was ever in; picking field by field would compose exactly that. Choosing a line is the
+    only answer that names a history that could have happened.
+
+    The sheet's HP, SAN and magic points are inside this conflict rather than beside it as
+    `numeric` rows: they are the engines' mirror, and a keeper asked to settle one divergence
+    twice -- once for the number on the sheet and once for the snapshot behind it -- is worse
+    served than one asked nothing at all."""
+    views = {state["line"]: _engine_view(state) for state in states}
+    if len({json.dumps(view, sort_keys=True) for view in views.values()}) > 1:
+        conflicts.append({"id": conflict_id(ENGINE_STATE, ENGINES, "snapshot"), "class": ENGINE_STATE,
+                          "subject": ENGINES, "field": "snapshot", "values": views,
+                          "modes": list(DISPOSITIONS[ENGINE_STATE])})
+    return str(states[0]["line"])
 
 
 def _merge_flags(states: list[dict[str, Any]], conflicts: list[dict[str, Any]]) -> dict[str, Any]:
@@ -305,7 +396,8 @@ def _belongings(sheet_id: str, sheets: dict[str, Any], base: dict[str, Any],
 def settle(result: dict[str, Any], dispositions: dict[str, Any]) -> dict[str, Any]:
     """Apply the keeper's rulings to the report, or refuse. Every conflict must be named
     and every mode must be one the class allows; a `drop` must say why. Returns the report
-    with the conflicts resolved into the world and the sheets."""
+    with the conflicts resolved into the world, the sheets, and `engine_line` -- the line
+    whose `save/` the merge will land."""
     conflicts = {str(row["id"]): row for row in result["conflicts"]}
     unknown = sorted(key for key in dispositions if key not in conflicts)
     if unknown:
@@ -374,6 +466,16 @@ def _resolve(result: dict[str, Any], row: dict[str, Any], given: dict[str, Any])
         places = sorted({str(v) for v in values.values()})
         result["world"]["npc_presence"][subject] = str(values[given["line"]]) if mode == FROM else (
             result["world"]["active_scene"] if result["world"]["active_scene"] in places else places[0])
+    elif kind == ENGINE_STATE:
+        # The snapshot itself is not carried in the report -- `perform` restores the chosen
+        # line's `save/` out of git. What is settled here is the sheet side of it, so the
+        # mirror agrees with the engines the merged campaign is about to be given.
+        line = str(given["line"])
+        result["engine_line"] = line
+        for sheet_id, mirrored in (values[line].get("sheet") or {}).items():
+            sheet = result["party"].get(sheet_id)
+            if isinstance(sheet, dict):
+                sheet.update(mirrored)
     elif kind == MOD_STATE:
         for key, value in values[given["line"]].items():
             if value is None:
@@ -498,6 +600,13 @@ def _write_state(campaign: Campaign, settled: dict[str, Any]) -> None:
     campaign.write_world(settled["world"])
     for sheet in settled["party"].values():
         campaign.write_sheet(sheet)
+    # #81: the merge commit is `-s ours` off the first parent, so the work tree it leaves
+    # behind is that parent's `save/` whatever the keeper settled. Put the chosen line's
+    # engines on disk instead -- whole, and with its deletions: a snapshot the losing line
+    # wrote and the winner never did is not part of the history the keeper chose. Everything
+    # else the sheets say is already the settled report's; this is the half behind them.
+    history.restore_line_tree(campaign.repo_dir, campaign.dir, str(settled["engine_line"]),
+                              "save", keep=worldline.SAVE_KEEP)
 
 
 def _write_memory(campaign: Campaign, plan_row: dict[str, Any]) -> None:

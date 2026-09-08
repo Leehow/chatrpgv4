@@ -162,8 +162,20 @@ def read_blob(repo: Path, work_tree: Path, rev: str, path: str) -> str | None:
     return result.stdout if result.returncode == 0 else None
 
 
-def list_tree(repo: Path, work_tree: Path, rev: str, prefix: str) -> list[str]:
-    result = _git(repo, work_tree, "ls-tree", "--name-only", rev, prefix)
+def within(path: str, prefixes: tuple[str, ...]) -> bool:
+    """Whether `path` is one of `prefixes` or lives under one of them."""
+    return any(path == prefix or path.startswith(prefix.rstrip("/") + "/") for prefix in prefixes)
+
+
+def list_tree(repo: Path, work_tree: Path, rev: str, prefix: str, *, recursive: bool = False) -> list[str]:
+    """The paths directly under `prefix` as `rev` has them; a subdirectory comes back as its
+    own name, not as the files inside it.
+
+    That is what a caller listing `party/` or `turns/` wants, because those are flat. `save/`
+    is not -- each engine keeps its own directory there -- so a caller reading it asks for
+    `recursive` and gets the files."""
+    args = ["ls-tree", "--name-only", *(["-r"] if recursive else []), rev, prefix]
+    result = _git(repo, work_tree, *args)
     return sorted(result.stdout.split()) if result.returncode == 0 else []
 
 
@@ -181,11 +193,8 @@ def restore_tree(repo: Path, work_tree: Path, rev: str, prefix: str, *,
     registry, and the file it forgot to register is exactly the one that silently survives a
     rewind it should not have."""
     kept = tuple(keep)
-    def is_kept(path: str) -> bool:
-        return any(path == k or path.startswith(k.rstrip("/") + "/") for k in kept)
-
     result = _git(repo, work_tree, "ls-tree", "-r", "--name-only", rev, "--", prefix)
-    wanted = sorted(p for p in result.stdout.split() if p and not is_kept(p)) if result.returncode == 0 else []
+    wanted = sorted(p for p in result.stdout.split() if p and not within(p, kept)) if result.returncode == 0 else []
     written, removed = [], []
     for path in wanted:
         blob = read_blob(repo, work_tree, rev, path)
@@ -201,7 +210,7 @@ def restore_tree(repo: Path, work_tree: Path, rev: str, prefix: str, *,
             if not existing.is_file():
                 continue
             path = str(existing.relative_to(work_tree))
-            if path in wanted or is_kept(path):
+            if path in wanted or within(path, kept):
                 continue
             existing.unlink()
             removed.append(path)
@@ -214,8 +223,17 @@ def line_blob(repo: Path, work_tree: Path, line: str, path: str) -> str | None:
     return read_blob(repo, work_tree, f"{BRANCH_PREFIX}{line}", path)
 
 
-def line_tree(repo: Path, work_tree: Path, line: str, prefix: str) -> list[str]:
-    return list_tree(repo, work_tree, f"{BRANCH_PREFIX}{line}", prefix)
+def line_tree(repo: Path, work_tree: Path, line: str, prefix: str, *, recursive: bool = False) -> list[str]:
+    return list_tree(repo, work_tree, f"{BRANCH_PREFIX}{line}", prefix, recursive=recursive)
+
+
+def restore_line_tree(repo: Path, work_tree: Path, line: str, prefix: str, *,
+                      keep: tuple[str, ...] = ()) -> dict[str, list[str]]:
+    """`restore_tree` against a worldline branch: put everything under `prefix` back as that
+    line has it, deletions included. §15.4 lands a confluence this way, because the merge
+    commit is `-s ours` off the first parent and the work tree it leaves behind is that
+    parent's whether or not the keeper chose it."""
+    return restore_tree(repo, work_tree, f"{BRANCH_PREFIX}{line}", prefix, keep=keep)
 
 
 def merge_parents(repo: Path, work_tree: Path, lines: list[str]) -> bool:
