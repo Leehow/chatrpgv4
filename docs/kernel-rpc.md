@@ -1448,6 +1448,20 @@ Pi 的缺省压缩不知道这张桌子哪些东西是可再生的。接 `sessio
 
 ### 22.0 Selective reading after sandbox validation
 
+Guidance latency refinement (2026-09-08): the host supplies the small task and native
+PDF navigation in the initial reader prompt; reviewers receive their immutable
+candidate pair and assigned paths up front. Navigation is not source evidence.
+Both remain tool-enabled Pi agents and must view the original required pages.
+A private `submit_reading` tool may write the bounded guidance pair or review,
+check it, and return Pi's documented `terminate: true` to finish the tool batch
+without a redundant final model response. Existing file-based write/edit/check
+remains available. A failed check continues the same agent. This tool does not
+publish a graph or bypass source review: the host still waits for child exit,
+checks image delivery and immutable candidates, and calls module.read.finish
+through the existing lease and publication gates. Only guidance and its reviewer
+use this fast completion path; opening/detail behavior and reader capacity stay
+unchanged. Host event timestamps distinguish provider, tool and exit intervals.
+
 Opening/detail now queue directly without all-page navigation. One tool-enabled Pi selects native navigation and original pages, constructs the existing graph with prepared current material and sourced thin destinations, then up to 40 fresh tool-enabled Pi sessions independently review node/claim groups. No fixed page cuts or whole-chapter prerequisite. Sandbox owner-dispatch and incremental-draft frameworks were not selected. High-level preparation publishes a reviewed, unready skeleton first, offers authored opening choices, then prepares the selected opening. Cold browser timing for this early milestone remains pending.
 
 Source image cache entries and readable view paths publish by atomic rename; the private pdf tool verifies image bytes before delivery. Every new image reaches the provider before history eviction. Each reviewer cites only images it received. Failed transport/output units retry once in isolated attempts; semantic findings return to source-based repair. Existing leases, cancellation, additive conflicts and source gates remain binding.

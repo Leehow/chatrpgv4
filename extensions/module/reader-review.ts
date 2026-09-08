@@ -2,7 +2,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { runReader } from "./reader.ts";
+import { runReader, readerInput } from "./reader.ts";
 
 type Row = Record<string, any>;
 function numeric(value: any, path: string): string[] {
@@ -26,6 +26,18 @@ export function reviewUnits(draft: Row): string[][] {
 		else groups.set(path, new Set([path]));
 	}
 	return [...groups.values()].map(paths => [...paths]);
+}
+
+/** Transport completeness; semantic rejection is preserved for the publication gate. */
+export function checkReviewEvidence(review: Row, paths: string[], pages: Set<number>) {
+	if (!Array.isArray(review?.checked) || !Array.isArray(review?.missing)) throw new Error("invalid source review");
+	const checked = new Set<string>();
+	for (const row of review.checked) {
+		if (!Array.isArray(row?.source_refs) || !row.source_refs.length || row.source_refs.some((ref: Row) => !pages.has(ref.page)))
+			throw new Error("review cites a page not supplied to this reviewer");
+		for (const path of row.paths ?? [row.path]) checked.add(path);
+	}
+	if (paths.some(path => !checked.has(path))) throw new Error("review omitted assigned fields");
 }
 
 export async function reviewCandidate(options: {
@@ -56,10 +68,10 @@ export async function reviewCandidate(options: {
 			options.record({ lane: "reading", event: "review_concurrency", active, capacity });
 			try {
 				const run = await (options.run ?? runReader)({ cwd, model: options.model.id, thinking: options.model.thinking,
-					...(guidanceBytes?{imageHistory:4}:{}),
+					...(guidanceBytes?{imageHistory:4,submission:true}:{}),
 					systemPrompt: options.instructions, source: options.source, signal: options.signal, eventLog,
 					...(configured > 0 ? { timeoutMs: configured } : {}),
-					brief: "Read task.json and draft.json. Independently review only task.required_review against original images using pdf. Keep the full graph as context. Write review.json with checked paths, verdict, source_refs and reason, plus missing (only necessary current material). Never edit the draft. " + (guidanceBytes ? "Also review guidance.json under the Independent review instructions and include guidance:{approved,issues} in the same review. Never modify guidance.json. " : "") + "Finish this unit and stop.",
+					brief: (guidanceBytes ? readerInput({task:{...options.task,required_review:paths}, draft:options.draft, guidance:JSON.parse(guidanceBytes)}) : "Read task.json and draft.json.") + " Independently review only task.required_review against original images using pdf. Keep the full graph as context. Produce checked paths, verdict, source_refs and reason, plus missing (only necessary current material). Never edit the draft. " + (guidanceBytes ? "Also review guidance.json under the Independent review instructions and include guidance:{approved,issues} in the same review. Never modify guidance.json. Pass this small review object directly to submit_reading as your sole final tool call; a separate write followed by submit would waste another model request. " : "Write review.json. ") + "Finish this unit and stop.",
 					onEvent(event) {
 						if (event.type === "message_end" && event.message?.errorMessage) throw new Error(event.message.errorMessage);
 						if (event.type === "tool_execution_end" && !event.isError && event.result?.details?.kind === "source_pages")
@@ -74,14 +86,7 @@ export async function reviewCandidate(options: {
 					throw new Error("reviewer modified its candidate copy");
 				const review = JSON.parse(await readFile(join(cwd, "review.json"), "utf8"));
 				if (guidanceBytes && await readFile(join(cwd, "guidance.json"), "utf8") !== guidanceBytes) throw new Error("reviewer modified guidance");
-				if (!Array.isArray(review.checked) || !Array.isArray(review.missing)) throw new Error("invalid source review");
-				const checked = new Set<string>();
-				for (const row of review.checked) {
-					if (!row.source_refs?.length || row.source_refs.some((ref: Row) => !pages.has(ref.page)))
-						throw new Error("review cites a page not supplied to this reviewer");
-					for (const path of row.paths ?? [row.path]) checked.add(path);
-				}
-				if (paths.some(path => !checked.has(path))) throw new Error("review omitted assigned fields");
+				checkReviewEvidence(review, paths, pages);
 				results[index] = review;
 				for (const page of pages) observed.add(page);
 				options.record({ lane: "reading", phase: "verify", unit: index + 1, ms: run.ms, ok: true, image_reads: pages.size });

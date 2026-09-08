@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { KernelError , isKernelError } from "../kernel/client.ts";
-import { runReader } from "./reader.ts";
+import { runReader, readerInput } from "./reader.ts";
 import { reviewCandidate } from "./reader-review.ts";
 import { sourceAsset, sourceInfo } from "./source.ts";
 
@@ -248,6 +248,10 @@ export class ReadingService implements ReadingBridge {
 					.filter(key => key in claim).map(key => [key, claim[key]]))),
 			vocabulary: job.vocabulary, coverage_domains: job.coverage_domains, commands };
 		if (job.purpose === "index") { delete task.index; delete task.known_nodes; delete task.known_claims; delete task.vocabulary; delete task.coverage_domains; delete task.commands.check; }
+		if (job.purpose === "guidance") {
+			const { labels, bookmarks } = await sourceInfo(job.source.path);
+			task.source = { ...task.source, labels, bookmarks };
+		}
 		await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
 		const observations: Row = { file_sha256: job.source.file_sha256, read_pages: [], full_pages: [], review_pages: [] };
 		let readComplete = false;
@@ -316,11 +320,11 @@ export class ReadingService implements ReadingBridge {
 						const reads = new Map<string, string>();
 						const configured = Number(process.env.PI_COC_READER_TIMEOUT_MS);
 						const run = await runReader({ cwd, model: model.id, thinking: model.thinking, signal,
-							...(job.purpose==="guidance"?{imageHistory:4}:{}),
+							...(job.purpose==="guidance"?{imageHistory:4, submission:true}:{}),
 							systemPrompt: instructions, source: { pdf: job.source.path, cache },
 							eventLog: join(cwd, `${phase}-${round}.jsonl`),
 							...(configured > 0 ? { timeoutMs: configured } : {}),
-							brief: `Read task.json. Your phase is ${phase}. ${phase === "verify" ? "Independently view the original pages and review draft.json; write review.json. Do not modify the draft." : "Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style."} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,
+							brief: `${job.purpose === "guidance" ? readerInput({task}) : "Read task.json."} Your phase is ${phase}. Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${job.purpose === "guidance" ? "Use submit_reading as your sole final tool call to save/check the pair and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,
 							onEvent(event) {
 								if (event.type === "tool_execution_start" && event.toolName === "read" && event.args?.path) reads.set(event.toolCallId, resolve(cwd, event.args.path));
 								if (event.type === "tool_execution_end" && !event.isError && event.result?.content?.some((c: Row) => c.type === "image")) {

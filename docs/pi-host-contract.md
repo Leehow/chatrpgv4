@@ -96,6 +96,14 @@ effects remain usable without the UI mount.
 
 ### 3.2 视觉读者：带工具的子 Pi
 
+Guidance-only latency refinement uses the documented AgentToolResult.terminate
+flag (Pi 0.85.1 structured-output example). Its private submit_reading tool checks
+the written artifacts and terminates the completed batch, avoiding a final prose
+request. It must be called alone after source viewing; mixed batches retain Pi's
+normal behavior. No shutdown no-op, forced process exit, dependency patch or
+aborted-run success conversion is used. Read/write/edit/bash/pdf remain available,
+and source acceptance remains the host/kernel's responsibility after child exit.
+
 来源定位、开场准备和补读均由同一种子进程执行：`pi -p --no-session --no-context-files --no-extensions --no-skills --tools read,write,edit,bash --mode json`。每阶段使用独立会话，工作目录为已认领任务的 attempt 目录。图谱草稿、复核、图片使用记录均留在该目录；最终一句话不算完成证明。
 
 - `--no-extensions` 禁止包自动加载，避免递归启动内核；显式加载的 `reader-context.ts` 只有 context hook，不注册工具或内核。
