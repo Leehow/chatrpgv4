@@ -75,9 +75,22 @@ const CSS = `
 .coc-line-lead,.coc-line-gap{flex:1;min-width:6px}
 .coc-line-val{flex:none;color:var(--text-strong);font:600 15px/1.3 var(--coc-serif);font-variant-numeric:tabular-nums}
 .coc-line-note{color:var(--muted);font-size:11px;overflow-wrap:anywhere}
-.coc-items{flex-direction:row;flex-wrap:wrap;gap:7px}
-.coc-items .coc-line{max-width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface-raised,var(--surface))}
-.coc-items .coc-line-gap{display:none}
+.coc-inventory{list-style:none;margin:0;padding:0}
+.coc-inventory-entry{padding:12px 0;border-bottom:1px solid var(--border)}
+.coc-inventory-entry:first-child{padding-top:0}
+.coc-inventory-entry:last-child{border-bottom:0;padding-bottom:0}
+.coc-inventory-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.coc-inventory-name{min-width:0;font-size:13px;font-weight:500;color:var(--text-strong);overflow-wrap:anywhere}
+.coc-inventory-entry[data-detailed="true"] .coc-inventory-name{font-weight:650}
+.coc-inventory-quantity{flex:none;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.coc-inventory-params{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 16px;
+  margin:10px 0 0;padding:10px 12px;border-left:2px solid var(--border-strong,var(--border));
+  background:color-mix(in srgb,var(--text) 3%,transparent)}
+.coc-inventory-params>div{min-width:0}
+.coc-inventory-params dt{margin-bottom:3px;color:var(--muted);font-size:11px}
+.coc-inventory-params dd{margin:0;color:var(--text-strong);font-size:13px;line-height:1.6;
+  overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.coc-inventory-wide{grid-column:1/-1}
 .coc-finance{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px}
 .coc-finance .coc-line{display:block;min-width:0;padding:0 0 10px}
 .coc-finance .coc-line-key{display:block;margin-bottom:4px;color:var(--muted);font-size:11px}
@@ -149,6 +162,8 @@ const LABELS = {
     showAll: (n) => `Show all ${n}`,
     showFewer: "Show fewer",
     weapons: "Weapons",
+    itemYes: "Yes", itemNo: "No",
+    itemFields: {damage_die:"Base damage",damage:"Damage",base_range_yards:"Base range (yards)",range:"Range",uses_per_round:"Attacks per round",attacks:"Attacks",magazine:"Capacity",ammo:"Ammunition",malfunction:"Malfunction",skill:"Skill",adds_damage_bonus:"Adds damage bonus",special:"Notes",description:"Description"},
     equipment: "Equipment",
     noEquipment: "Carrying nothing yet.",
     finance: "Finance",
@@ -194,6 +209,8 @@ const LABELS = {
     showAll: (n) => `展开全部 ${n} 项`,
     showFewer: "收起",
     weapons: "武器",
+    itemYes: "是", itemNo: "否",
+    itemFields: {damage_die:"基础伤害",damage:"伤害",base_range_yards:"基础射程（码）",range:"射程",uses_per_round:"每轮攻击",attacks:"攻击次数",magazine:"弹匣容量",ammo:"当前弹药",malfunction:"故障值",skill:"使用技能",adds_damage_bonus:"计入伤害加值",special:"说明",description:"描述"},
     equipment: "物品",
     noEquipment: "身上还没有东西。",
     finance: "财务",
@@ -250,19 +267,17 @@ function elapsed(minutes) {
 }
 
 /**
- * One equipment or weapon line. The kernel's own words; the panel only picks which key is the
- * title and which is the aside, and never invents a label for something that has none.
+ * Project supplied item and weapon fields into read-only name, quantity and detail rows.
  */
 function itemLine(item, term = value => value) {
-  if (!isRecord(item)) return { title: term(text(item)), note: "" };
-  const title = term(text(item.label || item.name || item.id));
-  const notes = [];
-  const quantity = numberOr(item.quantity, 1);
-  if (quantity > 1) notes.push(`x${quantity}`);
-  for (const key of ["damage", "range", "attacks", "ammo", "malfunction", "skill"]) {
-    if (item[key] !== undefined && item[key] !== null && item[key] !== "") notes.push(`${term(key)} ${term(text(item[key]))}`);
+  if (!isRecord(item)) return { title: term(text(item)), quantity: undefined, details: [] };
+  const title = term(text(item.label || item.display_name || item.name || item.id));
+  const details = [];
+  for (const aliases of [["damage_die","damage"],["base_range_yards","range"],["uses_per_round","attacks"],["magazine"],["ammo"],["malfunction"],["skill"],["adds_damage_bonus"],["special"],["description"]]) {
+    const key = aliases.find(key => item[key] !== undefined && item[key] !== null && item[key] !== "");
+    if (key) details.push({key,value:item[key],wide:["skill","special","description"].includes(key)});
   }
-  return { title, note: notes.join(" · ") };
+  return {title, quantity:numberOr(item.quantity,undefined), details};
 }
 
 function money(value, term = value => value) {
@@ -289,7 +304,7 @@ export function createComponent(React) {
   }
 
   /**
-   * A name and its value, with layout variants for inventory tags and finance totals.
+   * A name and its value, with a layout variant for finance totals.
    * The spacer keeps skill names and values aligned without changing their contents.
    */
   function Lines(props) {
@@ -392,8 +407,17 @@ export function createComponent(React) {
     if (!list.length) {
       return props.empty ? h(Section, { title: props.title }, h("p", { className: "coc-sheet-note" }, props.empty)) : null;
     }
+    const {t,term=value=>value}=props;
+    const valueText=value=>typeof value==="boolean"?(value?t.itemYes:t.itemNo):Array.isArray(value)?value.map(valueText).join(" / "):term(text(value));
     return h(Section, { title: props.title },
-      h(Lines, { kind: "items", rows: list.map(item => { const line = itemLine(item, props.term); return { name: line.title, value: line.note }; }) }));
+      h("ul",{className:"coc-inventory"},list.map((item,index)=>{
+        const line=itemLine(item,term);
+        return h("li",{className:"coc-inventory-entry",key:index,"data-detailed":line.details.length>0?"true":"false"},
+          h("div",{className:"coc-inventory-heading"},h("span",{className:"coc-inventory-name"},line.title),
+            line.quantity!==undefined?h("span",{className:"coc-inventory-quantity"},`x${line.quantity}`):null),
+          line.details.length?h("dl",{className:"coc-inventory-params"},line.details.map(({key,value,wide})=>
+            h("div",{key,className:wide?"coc-inventory-wide":undefined},h("dt",null,t.itemFields[key]||term(key)),h("dd",null,valueText(value))))):null);
+      })));
   }
 
   function Finance(props) {
@@ -594,11 +618,11 @@ export function createComponent(React) {
       sheet ? h(Vitals, { sheet, t, term }) : null,
       sheet ? h(Characteristics, { sheet, t, term }) : null,
       sheet ? h(Skills, { sheet, t, term }) : null,
-      sheet ? h(ItemSection, { title: t.weapons, list: sheet.weapons, term }) : null,
+      sheet ? h(ItemSection, { title: t.weapons, list: sheet.weapons, t, term }) : null,
       sheet && view.presentation_status ? h(Section,{title:t.equipment},
         h("p",{className:"coc-sheet-note",role:"status"},view.presentation_status==="failed"?t.errorDetail:t.loading),
         view.presentation_status==="failed"?h("button",{type:"button",onClick:()=>{void load(true);}},t.retry):null) :
-      sheet ? h(ItemSection, { title: t.equipment, list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)), empty: t.noEquipment, term }) : null,
+      sheet ? h(ItemSection, { title: t.equipment, list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)), empty: t.noEquipment, t, term }) : null,
       sheet ? h(Finance, { sheet, t, term }) : null,
       sheet ? h(Background, { sheet, term }) : null,
 

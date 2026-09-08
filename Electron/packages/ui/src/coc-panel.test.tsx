@@ -8,6 +8,7 @@
  * invisible in a test that renders the happy path only.
  */
 import React from 'react';
+import weaponCatalog from '../../../../content/rulesets/coc7/rules-json/weapons.json';
 import { render, screen, cleanup, waitFor, fireEvent, act } from '@testing-library/react';
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { createComponent } from '../../../../pipicoc/panel.js';
@@ -189,4 +190,27 @@ it('retries a failed equipment projection only on an explicit retry',async()=>{
  render(<Panel api={api}/>);
  fireEvent.click(await screen.findByRole('button',{name:'重试'}));
  await waitFor(()=>expect(api.invoke).toHaveBeenLastCalledWith('sheet',{retry_projection:true}));
+});
+
+it('renders a canonical weapon as a read-only entry with separate labeled parameters',async()=>{
+ const weapon={name:'revolver_45',...weaponCatalog.weapons.revolver_45,ammo:0,quantity:1};
+ const snapshot=view({investigators:[{...investigator,weapons:[weapon],equipment:['Notebook']}],labels:{'.45 Revolver':'.45转轮手枪','Firearms (Handgun)':'火器（手枪）',Notebook:'笔记本'}});
+ const before=JSON.stringify(snapshot);
+ render(<Panel api={host({ok:true,data:{status:'ready',view:snapshot,campaign:'c1'}})}/>);
+ const row=(await screen.findByText('.45转轮手枪')).closest('li')!;
+ expect(row.querySelector('button')).toBeNull();
+ expect(row.querySelector('dl')).toBeTruthy();
+ const values=Object.fromEntries(Array.from(row.querySelectorAll('dl>div')).map(el=>[el.querySelector('dt')?.textContent,el.querySelector('dd')?.textContent]));
+ expect(values).toMatchObject({'基础伤害':weapon.damage_die,'基础射程（码）':'15','每轮攻击':'1 (3)','弹匣容量':'6','当前弹药':'0','故障值':'100','使用技能':'火器（手枪）','计入伤害加值':'否'});
+ expect(screen.queryByText('revolver_45')).toBeNull();
+ expect(screen.getByText('笔记本').closest('li')?.querySelector('dl')).toBeNull();
+ expect(JSON.stringify(snapshot)).toBe(before);
+});
+it('supports legacy weapon fields and preserves supplied quantities without inventing missing parameters',async()=>{
+ render(<Panel api={host({ok:true,data:{status:'ready',view:view({investigators:[{...investigator,weapons:[{name:'Old pistol',damage:'1D6',range:10,attacks:1,ammo:0,quantity:2}]}]}),campaign:'c1'}})}/>);
+ const row=(await screen.findByText('Old pistol')).closest('li')!;
+ expect(row.textContent).toContain('x2');
+ expect(row.textContent).toContain('伤害1D6');
+ expect(row.textContent).toContain('当前弹药0');
+ expect(row.textContent).not.toContain('弹匣容量');
 });

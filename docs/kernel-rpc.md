@@ -2064,3 +2064,10 @@ Legacy equipment-presentation upgrades run in the background without making
 the sheet read await that model work. While pending, only the equipment section has a loading state; on
 completion a sheet_changed extension event refreshes the panel. Failed upgrades
 show a retry state instead of leaking monetary placeholders or retrying forever.
+
+Sidebar inventory is a noninteractive list with item name and supplied quantity.
+Weapon rows place labeled parameters beneath the name, using canonical weapon
+fields (damage_die, base_range_yards, uses_per_round, magazine, ammo, malfunction,
+skill, adds_damage_bonus, special) and legacy aliases when needed. Magazine
+capacity and current ammunition remain distinct; missing values are not invented.
+These UI captions use the sidebar's existing closed-language chrome exception.
