@@ -92,6 +92,19 @@ describe('the card draws a marked delivery', () => {
     expect(screen.getAllByText(/Mira/)).toHaveLength(2);
   });
 
+  it('unfolds a clue with a summary and keeps a bare one a plain row', () => {
+    const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:6, mechanics:[
+      {kind:'clue', receipt:'clue:tide-t6', clue:'tide-marks', label:'潮痕',
+        summary:'第三级台阶的绿苔水位线比涨潮线高出一掌。'},
+      CLUE,
+    ]}} />);
+    const folds = container.querySelectorAll('details.coc-mech-fold');
+    expect(folds).toHaveLength(1);
+    expect(folds[0].textContent).toContain('潮痕');
+    expect(folds[0].textContent).toContain('涨潮线');
+    expect(container.querySelectorAll('div.coc-mech-row[data-kind="clue"]')).toHaveLength(1);
+  })
+
   it('keeps the prose in order and puts each placed receipt at its point', () => {
     const { container } = render(
       <Delivery details={{ play_language: 'zh-Hans', turn: 5, marked_text: MARKED, mechanics: [ROLL, TIME] }} />,
