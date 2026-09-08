@@ -11,7 +11,7 @@ def weapon(name="Workshop launcher"):
     return {"name":name, "category":"weapon", "description":"An improvised single-shot launcher.",
             "basis":"Fixture: a single-shot firearm profile; numbers are test data.",
             "parameters":{"skill":"Firearms (Rifle/Shotgun)", "damage":"1D6", "base_range_yards":30,
-                          "uses_per_round":1, "magazine":1, "malfunction":95, "impale":False},
+                          "uses_per_round":1, "magazine":1, "malfunction":95, "impale":False, "adds_damage_bonus":False},
             "player_view":{"description":"An improvised launcher.", "fields":["damage", "magazine"]}}
 
 
@@ -97,6 +97,17 @@ def test_definition_rejects_unsupported_mechanics(kernel):
     job = kernel.ok("mods.job", {"campaign":CAMPAIGN, "role":"create", "input":draft})
     Path(job["cwd"], "result.json").write_text(json.dumps(draft))
     assert kernel.err("mods.accept", {"campaign":CAMPAIGN, "job":job["job"]})["code"] == "invalid_params"
+
+
+def test_melee_definition_preserves_damage_bonus_without_dummy_gun_fields(kernel):
+    open_turn(kernel)
+    draft=weapon("Solid club")
+    draft["parameters"].update(skill="Fighting (Brawl)",magazine=None,malfunction=None,base_range_yards=None,adds_damage_bonus=True)
+    kernel.table("apply",call_id="t1-c1",effects=[prepared(kernel,draft),
+        {"kind":"object","name":"My club","definition":draft["name"],"to":"Thomas Hayes"}])
+    definition=kernel.table("look",focus="object",name="My club")["definition"]
+    assert definition["parameters"]["adds_damage_bonus"] is True
+    assert definition["parameters"]["malfunction"] is None
 
 
 def test_npc_fires_generated_weapon_then_player_takes_remaining_ammo(seeded_kernel):

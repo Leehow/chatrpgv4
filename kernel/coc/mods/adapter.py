@@ -302,6 +302,7 @@ class ModAdapter:
             return {"enabled": False}
         package = candidates[0]
         request = {"role": role, "input": params.get("input"), "capabilities": sorted(CAPABILITIES),
+                   "play_language": campaign.read_campaign().get("play_language", "en"),
                    "mod_settings": {r["id"]:world["mods"]["active"][r["id"]]["settings"] for r in candidates},
                    "scene": where_section(graph, world, graph.scene(world["active_scene"])),
                    "party": campaign.party(), "objects": self.object_context(world), "receipts": turn.get("receipts", [])}
@@ -370,6 +371,8 @@ class ModAdapter:
         if request["role"] == "create":
             data = request["input"]
             value = objects.validate_definition(raw, name=data.get("name"), category=data.get("category"))
+            if value["category"] == "weapon" and "weapons.profile.v2" in active[identity["mod"]]["requires"] and "adds_damage_bonus" not in value["parameters"]:
+                raise invalid_params("Weapon profile v2 must explicitly declare adds_damage_bonus from its preset rule")
             result = {"definition": value, "provenance": {"mod": identity["mod"], "digest": identity["digest"], "job": key}}
         else:
             if not isinstance(raw, dict) or set(raw) - {"missing", "findings"} or not isinstance(raw.get("missing"), list) or len(raw["missing"]) > 16:

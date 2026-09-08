@@ -80,11 +80,13 @@ def validate_definition(raw: Any, *, name: str | None = None, category: str | No
         if not isinstance(params.get("skill"), str) or not params["skill"].strip():
             raise invalid_params("Weapon needs a rulebook skill")
         params["damage"] = expression(params.get("damage"), "damage")
-        for key in ("uses_per_round", "malfunction"):
+        for key in ("uses_per_round",):
             if type(params.get(key)) is not int or not 1 <= params[key] <= 100:
                 raise invalid_params(f"weapon.{key} must be 1..100")
-        if type(params.get("base_range_yards")) not in (int, float) or not 0 <= params["base_range_yards"] <= 100000:
-            raise invalid_params("Weapon range must be 0..100000 yards")
+        if params.get("malfunction") is not None and (type(params["malfunction"]) is not int or not 1 <= params["malfunction"] <= 100):
+            raise invalid_params("Weapon malfunction must be null or 1..100")
+        if params.get("base_range_yards") is not None and (type(params["base_range_yards"]) not in (int, float) or not 0 <= params["base_range_yards"] <= 100000):
+            raise invalid_params("Weapon range must be null or 0..100000 yards")
         magazine = params.get("magazine")
         if magazine is not None and (type(magazine) is not int or not 1 <= magazine <= 1000):
             raise invalid_params("Weapon magazine must be null or 1..1000")

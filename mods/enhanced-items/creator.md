@@ -17,16 +17,22 @@ feasibility decisions; they are not automatic effects. Do not hide an unsupporte
 activated power or timer in traits. player_view may also contain traits:[names]
 listing only facts the player knows. Passive tools may have charges:null/effects:[];
 their use is an ordinary skill/world action, not a fake automatic effect.
-Name and category must exactly match the request. basis is an explanation of the
+Name and category must exactly match the request. Write player_view.description
+in request.play_language. Structural keys and the system-facing basis stay English.
+basis is an explanation of the
 presets/source/context used and the newly generated choices. player_view is
 {description, fields:[parameter names the player knows]}; never disclose a hidden
 curse, NPC secret, unexplored mechanism or cost the player has not discovered.
 
 Weapon parameters: skill (a rulebook skill), damage (dice expression excluding
-damage bonus), base_range_yards (number), uses_per_round (positive integer),
-magazine (positive integer for ranged ammunition, null for no magazine), malfunction
-(1..100), impale (boolean), initial_ammo (optional, 0..magazine), reload_rounds
-(optional positive integer). These use the existing combat engine. Do not claim
+damage bonus), adds_damage_bonus (explicit boolean, taken from the preset rule),
+base_range_yards (number or null when no ranged-weapon rule applies), uses_per_round
+(positive integer), magazine (positive integer for ranged ammunition, null for no
+magazine), malfunction (null when no malfunction rule applies, otherwise 1..100),
+impale (boolean), initial_ammo (optional, 0..magazine), reload_rounds (optional positive
+integer). A handheld club normally adds damage bonus; preserve the preset's rule
+instead of silently omitting the flag. Never invent dummy never-fire thresholds or
+zero ranges just to fill a field. These use the existing combat engine. Do not claim
 area effects, guided projectiles or other mechanics not listed in request.capabilities.
 
 Spell parameters: cost_mp, cost_sanity (nonnegative integer or dice expression),

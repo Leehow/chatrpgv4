@@ -2176,6 +2176,11 @@ are reused, while a definition cannot shadow an existing rulebook spell.
 
 ### Packages, activation and upgrade
 
+Enhanced Items 1.0.1 requires `weapons.profile.v2`: non-applicable range and
+malfunction fields may be null, and new creator results must explicitly declare
+the preset's `adds_damage_bonus` rule. Existing accepted definitions remain valid
+and unchanged. Player descriptions are generated in the campaign language.
+
 Packages contain `mod.json`, instructions, schemas and optional data/migrations.
 The manifest declares `id`, `version`, `game_api`, `state_version`, `name`,
 `description`, `author`, `default_enabled`, `requires`, `dependencies`, `conflicts`,
