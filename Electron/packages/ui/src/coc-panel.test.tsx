@@ -135,3 +135,29 @@ describe('the possessions box is on the sheet even when it is empty', () => {
     expect(screen.queryByText('武器')).toBeNull();
   });
 });
+
+describe('derived values and visible identities use their text projections', () => {
+  it('renders no damage bonus, scene and present names without changing numeric mechanics', async () => {
+    const snapshot = view({
+      investigators: [{ ...investigator, characteristics: { STR: 20, SIZ: 65 }, derived: { DB: 'none', BUILD: 0 } }],
+      scene: { name: 'office-id', display_name: "Knott's Office" }, present: ['Steven Knott'],
+      labels: { STR: '力量', SIZ: '体型', DB: '伤害加值', BUILD: '体格', none: '无' },
+      standing_labels: { "Knott's Office": '诺特的办公室', 'Steven Knott': '史蒂文·诺特' },
+    });
+    const original = JSON.stringify(snapshot);
+    render(<Panel api={host({ ok: true, data: { status: 'ready', view: snapshot, campaign: 'c1' } })} />);
+    await screen.findByText('无');
+    expect(screen.getByText('诺特的办公室')).toBeTruthy();
+    expect(screen.queryByText('史蒂文·诺特')).toBeNull();
+    expect(screen.getByText('20')).toBeTruthy();
+    expect(screen.getByText('65')).toBeTruthy();
+    for (const leaked of ['none', "Knott's Office", 'Steven Knott']) expect(screen.queryByText(leaked)).toBeNull();
+    expect(JSON.stringify(snapshot)).toBe(original);
+  });
+  it('keeps untranslated live names behind placeholders while their projection is unavailable', async () => {
+    render(<Panel api={host({ ok: true, data: { status: 'ready', view: view({scene:{name:"Knott's Office"},present:['Steven Knott']}), campaign: 'c1' } })} />);
+    await screen.findByText('图书馆使用');
+    expect(screen.queryByText("Knott's Office")).toBeNull();
+    expect(screen.queryByText('Steven Knott')).toBeNull();
+  });
+});

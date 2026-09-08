@@ -1964,3 +1964,12 @@ Until the full projection exists, the renderer shows a neutral loading indicator
 rather than exposing untranslated keys. It acknowledges a preview only after the
 localized card is rendered. The authenticated host resolves the session's campaign
 and reads the requested revision itself; clients cannot provide a replacement sheet.
+
+The live investigator sidebar uses this text projection for string-valued derived
+parameters as well as scene display names. The current sidebar continues to hide
+canonical present-person names, including their translated forms. A separate campaign
+and language cache grows from the visible table view only; hidden module names
+are never sent to the presenter. New visible names are projected by a tool-enabled
+Pi, while existing labels are reused. Canonical identities, damage formulas, numbers
+and turn state remain unchanged. A missing live-name projection is shown as a
+neutral placeholder and retried on the next sheet read, never as an English name.

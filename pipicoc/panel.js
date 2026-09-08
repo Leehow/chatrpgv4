@@ -357,7 +357,7 @@ export function createComponent(React) {
       h("div", { className: "coc-chars" }, entries.map(([key, value]) =>
         h("div", { className: "coc-char", key },
           h("span", { className: "coc-char-key", title: term(key) }, term(key)),
-          h("span", { className: "coc-char-val" }, text(value))))));
+          h("span", { className: "coc-char-val" }, typeof value === "string" ? term(value) : text(value))))));
   }
 
   function Skills(props) {
@@ -416,15 +416,17 @@ export function createComponent(React) {
   /** Where and when the table stands: the old panel's 时间 tab, minus the invented wall clock. */
   function Standing(props) {
     const { view, t } = props;
+    const names = isRecord(view.standing_labels) ? view.standing_labels : {};
+    const display = value => text(names[value]) || "…";
     const clock = isRecord(view.clock) ? view.clock : {};
     const minutes = numberOr(clock.minutes, undefined);
     const scene = isRecord(view.scene) ? view.scene : {};
     const session = isRecord(view.session) ? view.session : null;
     const lines = [];
     if (view.turn !== undefined && view.turn !== null) lines.push({ key: t.turnKey, value: text(view.turn) });
-    if (scene.display_name || scene.name) lines.push({ key: t.sceneKey, value: text(scene.display_name || scene.name) });
+    if (scene.display_name || scene.name) lines.push({ key: t.sceneKey, value: display(scene.display_name || scene.name) });
     // Canonical NPC names may reveal a concealed identity; introductions belong to the Keeper.
-    if (session) lines.push({ key: t.sessionKey, value: t.session(text(session.kind), session.round), live: true });
+    if (session) lines.push({ key: t.sessionKey, value: t.session(display(session.kind), session.round), live: true });
     if (view.pending_choice) lines.push({ key: "", value: t.awaitingChoice, live: true });
     if (minutes === undefined && !lines.length) return null;
     const span = minutes === undefined ? null : elapsed(minutes);

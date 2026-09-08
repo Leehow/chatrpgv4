@@ -8532,6 +8532,24 @@ export class PiHostBackend implements HostBackend {
               const projection=JSON.parse(await fs.readFile(join(folder,'setup/presentations',`${meta.setup?.draft_revision}-${context.play_language}.json`),'utf8'));
               if(projection.play_language===context.play_language)(view as any).labels={...projection.texts,...(view as any).labels};
             } catch { /* A card can still be read before its text projection has been prepared. */ }
+            // Project only names the kernel has already exposed to this player.
+            const liveView=view as any;
+            const visibleNames=[liveView.scene?.display_name||liveView.scene?.name,liveView.session?.kind].filter((name):name is string=>typeof name==='string'&&!!name.trim());
+            let names:Record<string,string>={};
+            try {
+              const saved=JSON.parse(await fs.readFile(join(context.home,'.coc/campaigns',context.campaign,'setup/presentations',`standing-${context.play_language}.json`),'utf8'));
+              if(saved.play_language===context.play_language)names=saved.texts||{};
+            } catch {}
+            if(visibleNames.some(name=>typeof names[name]!=='string'||!names[name].trim())) {
+              try {
+                const repo=resolve(this.managedNodeModulesRoot,'..');
+                this.cocOnboarding ??= new CocOnboardingHost({repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
+                const state=await this.getModelState(sessionId);
+                const projection=await this.cocOnboarding.presentation({campaign:context.campaign,play_language:context.play_language,standing:true,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel});
+                names=projection.texts;
+              } catch { /* Keep readable card data; the next sheet read retries missing names. */ }
+            }
+            liveView.standing_labels=names;
             return {ok:true,data:{status:"ready",view,campaign:context.campaign}};
           } catch(error) {return {ok:true,data:{status:"error",view:null,campaign:context.campaign,reason:error instanceof Error?error.message:String(error)}};}
         })().finally(()=>this.cocSheetReads.delete(sessionId));

@@ -161,7 +161,7 @@ export class CocOnboardingHost {
     } finally {this.busy.delete(job.id);}
   }
   presentation(data:Row):Promise<Row> {
-    const key=JSON.stringify([data.campaign,data.revision,data.play_language]);
+    const key=JSON.stringify([data.campaign,data.revision,data.play_language,data.standing===true]);
     if(!this.presentations.has(key))this.presentations.set(key,this.run('presentation',data).finally(()=>this.presentations.delete(key)));
     return this.presentations.get(key)!;
   }

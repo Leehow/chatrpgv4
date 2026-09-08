@@ -22,3 +22,18 @@ test('incomplete text projection is refused',async()=>{
  const home=await mkdtemp(join(tmpdir(),'card-presentation-')),dir=join(home,'.coc/campaigns/c1/setup/drafts');await mkdir(dir,{recursive:true});await writeFile(join(dir,'1.json'),JSON.stringify({play_language:'zh-Hans',sheet}));
  await assert.rejects(prepareCharacterPresentation({home,campaign:'c1',revision:1,play_language:'zh-Hans',runner:async r=>{await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({texts:{Parameter:'Parameter'}}));return {ok:true}}}),/Incomplete/);
 });
+
+test('standing names are localized once, grow with visible people and never include hidden content',async()=>{
+ const {prepareStandingPresentation,standingTexts}=await import('../../extensions/module/character-presentation.ts');
+ const home=await mkdtemp(join(tmpdir(),'standing-presentation-'));
+ const view={play_language:'zh-Hans',scene:{name:'office-id',display_name:"Knott's Office"},present:['Steven Knott'],turn:2,investigators:[sheet],clues:{here:[{name:'Hidden villain'}]}};
+ const original=JSON.stringify(view);let calls=0;
+ const runner=async r=>{calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));assert.ok(!input.texts.includes('Hidden villain'));assert.ok(!input.texts.includes('office-id'));assert.ok(!input.texts.includes('2'));await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({texts:Object.fromEntries(input.texts.map(t=>[t,`${input.play_language}:${t}`]))}));return {ok:true}};
+ const options={home,campaign:'c1',play_language:'zh-Hans',view,runner};
+ const first=await prepareStandingPresentation(options);assert.deepEqual(standingTexts(view),["Knott's Office",'Steven Knott']);
+ assert.deepEqual(await prepareStandingPresentation({...options,view:{...view,turn:3}}),first);assert.equal(calls,1);
+ const next=await prepareStandingPresentation({...options,view:{...view,present:['Steven Knott','Another Visitor']}});assert.equal(calls,2);assert.equal(next.texts['Steven Knott'],first.texts['Steven Knott']);assert.ok(next.texts['Another Visitor']);
+ await prepareStandingPresentation({...options,play_language:'en',view:{...view,play_language:'en'}});assert.equal(calls,3);
+ assert.equal(JSON.stringify(view),original);
+ assert.ok(cardTexts({...sheet,derived:{DB:'none'}}).includes('none'));
+});

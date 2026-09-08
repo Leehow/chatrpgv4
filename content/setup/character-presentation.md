@@ -6,7 +6,9 @@ Include every source string exactly once as a key, with no extra keys. All value
 must be in play_language. Keep text that is already in the player's language as it
 is. Localize all UI terms, occupation and era names, languages, currency names,
 background categories, skill specializations, equipment and weapon labels. Preserve
-proper names in prose, meaning, claims and any numbers or dice notation in prose.
+meaning, claims and any numbers or dice notation in prose. For standalone scene
+and NPC names, use natural translations/transliterations in play_language,
+including proper names. Keep the same person/place identity and add no biography.
 Use natural established COC terminology. Do not add facts or explain the task.
 Numeric card values are not supplied and must not be invented. This is only the
 presentation of the existing card, never a new character or a change to the rules.

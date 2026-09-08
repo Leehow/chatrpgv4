@@ -5,7 +5,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { KernelClient, isKernelError } from '../extensions/kernel/client.ts';
 import { ReadingService } from '../extensions/module/reading-service.ts';
 import { prepareCharacterGuidance } from '../extensions/module/character-guidance.ts';
-import { prepareCharacterPresentation } from '../extensions/module/character-presentation.ts';
+import { prepareCharacterPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
 import { labelsFor } from './panel.js';
 import { sourceInfo } from '../extensions/module/source.ts';
 
@@ -30,6 +30,12 @@ async function withGuidance(prepared: any) {
 }
 async function main() {
   if(action==='presentation') {
+    if(input.standing) {
+      const view=await call('table.view',{campaign:input.campaign});
+      // The current sidebar hides canonical NPC identities, even if table.view carries them.
+      view.present=[];
+      return prepareStandingPresentation({...input,view,known_labels:view.labels||{},signal:guidanceAbort.signal});
+    }
     const state=await call('setup.steps',{campaign:input.campaign});
     const ui=labelsFor(input.play_language);
     const known_labels={...(state.state?.draft?.labels||{}),Finance:ui.finance,Equipment:ui.equipment,Weapons:ui.weapons,cash:ui.cash,assets:ui.assets,spending:ui.spending,credit_rating:ui.creditRating,living_standard:ui.livingStandard};
