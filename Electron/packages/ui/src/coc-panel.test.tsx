@@ -109,6 +109,20 @@ describe('the time section reads the clock in the fiction', () => {
     await screen.findByText('已过 1 小时 35 分');
   });
 
+  it('drops a zero hour and keeps turn and scene on one quiet meta line', async () => {
+    const v = view({
+      clock: { minutes: 55, elapsed: '0 h 55 min' }, turn: 5,
+      scene: { name: 'crowe-house-ground' },
+      standing_labels: { 'crowe-house-ground': '克罗屋一楼' },
+    });
+    const { container } = render(<Panel api={host({ ok: true, data: { status: 'ready', view: v, campaign: 'c1' } })} />);
+    await screen.findByText('已过 55 分');
+    const meta = container.querySelector('.coc-standing-meta');
+    expect(meta?.textContent).toBe('回合5·场景克罗屋一楼');
+    // Nothing live at this table, so no accent rows under the meta line.
+    expect(container.querySelectorAll('.coc-standing-line')).toHaveLength(0);
+  });
+
   it('reads an en table in en', async () => {
     const dated = view({ play_language: 'en', clock: { minutes: 15, at: '1920-10-12T10:05' } });
     render(<Panel api={host({ ok: true, data: { status: 'ready', view: dated, campaign: 'c1' } })} />);
