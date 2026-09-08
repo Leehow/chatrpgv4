@@ -842,8 +842,8 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 ### 15.4 汇流报告与回声
 
-- 合并口径：在场者取并集（按图重算 `npc_presence` 后叠加各线的移动）；已发现线索取并集；`flags` 取并集（冲突则报）；物品按名字取并集，但一条线消耗掉（`quantity` 为负的 `item` 收据）而另一条线还在的报 `consumed`；调查员的 HP/SAN/MP/幸运各线不同报 `numeric`；一条线死了（HP < 0 或 `dead` 条件）另一条活着报 `dead_alive`；一次性效果与已掷的骰**不合并**（它们是各线历史里的收据，合并提交把两段历史都留着，不重复计入状态）。
-- 冲突类别与允许的处置（闭合表）：`numeric` → from|min|max；`dead_alive` → from；`consumed` → from|drop；`flag` → from；`npc_presence` → from|sum（并集）；`clue` 永不冲突（并集）。`drop` 必须带 `note`。旧树的清单 `NON_DUPLICABLE_CONFLICT_CLASSES`（死亡、一次性效果、消耗、已掷骰）在这里体现为：这些类别没有 `sum`/`duplicate` 模式。
+- 合并口径：在场者取并集（按图重算 `npc_presence` 后叠加各线的移动）；已发现线索取并集；`flags` 取并集（冲突则报）；物品按名字取并集，但一条线消耗掉（`quantity` 为负的 `item` 收据）而另一条线还在的报 `consumed`；调查员的幸运各线不同报 `numeric`；**HP/SAN/MP 不再单独比**——它们是引擎存档的镜像（`mirror_investigator`「把引擎的看法写回卡片」），逐字段挑会拼出一个从未存在过的状态（HP 取 A 线、重伤盒取 B 线），所以连同 `save/` 下各引擎的快照一起作为**一条** `engine_state` 冲突整体择一；一条线死了（HP < 0 或 `dead` 条件）另一条活着报 `dead_alive`；一次性效果与已掷的骰**不合并**（它们是各线历史里的收据，合并提交把两段历史都留着，不重复计入状态）。
+- 冲突类别与允许的处置（闭合表）：`numeric` → from|min|max（只剩幸运；见上）；`dead_alive` → from；`consumed` → from|drop；`flag` → from；`npc_presence` → from|sum（并集）；`mod_state` → from；`engine_state` → from（**只能整条线地取**：一条线说疯了、另一条说没疯，没有中间值，而且快照里的到期时刻是绝对 clock 分钟）；`clue` 永不冲突（并集）。`drop` 必须带 `note`。旧树的清单 `NON_DUPLICABLE_CONFLICT_CLASSES`（死亡、一次性效果、消耗、已掷骰）在这里体现为：这些类别没有 `sum`/`duplicate` 模式。
 - 冲突 id 是语义的：`conflict:<class>:<subject>:<field>`，同一报告重算两次逐字节相同。
 - 回声：分叉（loop）与汇流时，内核从其他父线（回溯时是上一圈）的回合记录生成 `save/worldlines/echoes.json`：每条 `{"id": "echo:<line>-t<n>-<k>", "line", "loop", "turn", "scene", "kind": presence|clue_taken|fight|death|move|handout, "summary": "<从收据确定性生成的一句 play_language>", "receipts": [...], "entities": [名]}`。回声是守秘人专属的可投放证据：`apply {"kind": "clue", "clue": "echo:<id>"}` 把它揭示给玩家（渲染 `【变化】线索：<label 或 summary>`，进 `world.discovered_echoes`），之后 `known` 里能看到；回声不是叙述，是收据的投影，守秘人不能改它的内容，只能决定揭不揭示、怎么讲。
 
@@ -898,7 +898,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 **§15.4 汇流：**
 
 - **算什么与 git 合什么是两件事。** git 只被要求把两条历史都留在可达处：新分支起点取 `lines[0]` 的末提交，其余父线用 `git merge -s ours --no-commit` 记成父，然后提交——**一个字节都不从对方的树里取**。合并后的世界、表、记忆并集与回声全部由内核按报告算好之后写进工作树，随那个合并提交落地。
-- **冲突 id 的三段。** `conflict:<class>:<subject>:<field>`：`numeric` 与 `dead_alive` 与 `consumed` 的 subject 是调查员 id（field 分别是 `hp|san|mp|luck`、`alive`、归一化后的物品名），`flag` 的 subject 是 flag 名、field 是 `value`，`npc_presence` 的 subject 是 NPC 句柄、field 是 `scene`。报告按 id 排序，两次算出的字节相同。
+- **冲突 id 的三段。** `conflict:<class>:<subject>:<field>`：`numeric` 与 `dead_alive` 与 `consumed` 的 subject 是调查员 id（field 分别是 `hp|san|mp|luck`、`alive`、归一化后的物品名），`flag` 的 subject 是 flag 名、field 是 `value`，`npc_presence` 的 subject 是 NPC 句柄、field 是 `scene`，`mod_state` 是 `game-mods`/`snapshot`，`engine_state` 是 `engines`/`snapshot`（**整桌一条**，`values[线]` 里 `save` 给各引擎存档的 sha256 前缀而不是字节——一份理智快照就有 4.7KB，而这一行要进 `needs` 错误、`turn.json` 与回合记录三处；胜出线的字节在落地时从 git 读）。报告按 id 排序，两次算出的字节相同。
 - **`sum` 对单值字段的收口（契约只写了「并集」）。** `npc_presence` 是 `npc → 场景` 的单值映射，两条线把同一个人放在两处时并不出「并集」这种值。定下的口径：`sum` 把这个人放在汇流落地的那个场景（`into`，缺省 `lines[0]` 的所在），若那个场景不在候选里就取候选里字典序第一个；报告的 `values` 里两处都在，所以守秘人看得见自己放弃了什么。一条线动过、另一条线没动过（还在书上的位置）也算冲突，`values` 里那一项记作 `*book*`。
 - **不能复制的类别没有 `sum`。** 闭表写死在 `confluence.DISPOSITIONS`：`numeric` → from|min|max，`dead_alive` → from，`consumed` → from|drop，`flag` → from，`npc_presence` → from|sum。`clue` 根本不在表里——线索、回声、手卡、走过的场景一律并集，不产生冲突。旧树的 `NON_DUPLICABLE_CONFLICT_CLASSES` 就体现为这张表里没有的那些模式。
 - **未处置就整批不写。** `needs` 在 `apply` 的批处理里抛出，`details.conflicts` 是完整的冲突列表（每条带 `values` 与 `modes`）。处置里出现报告没有的 id、类别不允许的 mode、`from` 指向不在本次汇流里的线、`drop` 没有 `note`，都是 `invalid_params`。同一回合可以反复试，`apply` 不关回合。
