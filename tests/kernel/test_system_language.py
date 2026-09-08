@@ -94,6 +94,7 @@ def test_a_zh_hans_turn_is_delivered_verbatim_with_every_receipt_projected(kerne
                             "difficulty": "regular", "level": roll["level"], "passed": roll["passed"], "pushed": False,
                             "visibility": "public", "call": "t1-c1", "family": "core-check"}
     assert mechanics[1] == {"kind": "clue", "receipt": "clue:knott-keys-t1", "clue": "knott-keys", "label": "钥匙",
+                            "summary": "Knott hands over the house keys, the address, and $20 cash in advance.",
                             "call": "t1-c2"}
     assert mechanics[2] == {"kind": "time", "receipt": "time:t1-c2", "minutes": 15, "call": "t1-c2"}
     assert mechanics[3] == {"kind": "item", "receipt": "item:t1-c2", "name": "温彻斯特霰弹枪", "quantity": 1,

@@ -68,6 +68,20 @@ describe('the card draws a marked delivery', () => {
     expect(container.textContent).toContain('8');
   });
 
+  it('folds a handout carrying text into a disclosure and keeps a textless one a plain row', () => {
+    const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:9, mechanics:[
+      {kind:'handout', receipt:'h1', name:'globe', label:'环球报未刊稿', available:true,
+        path:'/tmp/x.md', media_type:'text/markdown', text:'正文第一段。\n\n正文第二段。'},
+      {kind:'handout', receipt:'h2', name:'skull', label:'标题骷髅', available:false},
+    ]}} />);
+    const folds = container.querySelectorAll('details.coc-mech-fold');
+    expect(folds).toHaveLength(1);
+    expect(folds[0].textContent).toContain('环球报未刊稿');
+    expect(folds[0].textContent).toContain('正文第二段。');
+    expect(container.querySelectorAll('div.coc-mech-row[data-kind="handout"]')).toHaveLength(1);
+    expect(container.textContent).toContain('尚未交付');
+  })
+
   it('keeps confirmed investigator names on roll, dice and change cards', () => {
     const {container} = render(<Delivery details={{play_language:'en', turn:5, mechanics:[
       ROLL,
@@ -77,6 +91,19 @@ describe('the card draws a marked delivery', () => {
     expect(container.textContent).toContain('托马斯·海斯');
     expect(screen.getAllByText(/Mira/)).toHaveLength(2);
   });
+
+  it('unfolds a clue with a summary and keeps a bare one a plain row', () => {
+    const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:6, mechanics:[
+      {kind:'clue', receipt:'clue:tide-t6', clue:'tide-marks', label:'潮痕',
+        summary:'第三级台阶的绿苔水位线比涨潮线高出一掌。'},
+      CLUE,
+    ]}} />);
+    const folds = container.querySelectorAll('details.coc-mech-fold');
+    expect(folds).toHaveLength(1);
+    expect(folds[0].textContent).toContain('潮痕');
+    expect(folds[0].textContent).toContain('涨潮线');
+    expect(container.querySelectorAll('div.coc-mech-row[data-kind="clue"]')).toHaveLength(1);
+  })
 
   it('keeps the prose in order and puts each placed receipt at its point', () => {
     const { container } = render(

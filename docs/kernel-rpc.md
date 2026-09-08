@@ -938,7 +938,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 ### 16.2 机制投影（`mechanics`）
 
-内核不再把收据拼成句子。`narrate`/`ask` 的结果与 `table.status` 带 `mechanics: [...]`，每条一个语言中立的对象，直接对应收据，按收据顺序。每条都带公共字段 `kind` 与 `receipt`（收据 id，`mechanics_missing` 的 `details.missing` 按它指认）；收据上已有的名字作为数据顺带过去（`actor_label`、`subject_label`、`from_label`/`to_label`、`label`、`currency`、`rounds`、`available`、`path`）：
+内核不再把收据拼成句子。`narrate`/`ask` 的结果与 `table.status` 带 `mechanics: [...]`，每条一个语言中立的对象，直接对应收据，按收据顺序。每条都带公共字段 `kind` 与 `receipt`（收据 id，`mechanics_missing` 的 `details.missing` 按它指认）；收据上已有的名字作为数据顺带过去（`actor_label`、`subject_label`、`from_label`/`to_label`、`label`、`currency`、`rounds`、`available`、`path`）；`clue` 行的 `summary` 同理：收据铸成时就带着模组写的这条线索说了什么（`apply clue` 的收据，`table.py` `_stage_clue`），与 `label` 不同时投影，让前端能把这一行展开成线索的具体内容，而不必另查模组图。
 
 | kind | 字段 |
 | --- | --- |
@@ -946,20 +946,20 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 | `dice` | `actor`, `label`, `expression`, `faces`, `total` |
 | `change` | `resource`, `subject`, `before`, `after` |
 | `scene` | `from`, `to`, `minutes`, `via`? |
-| `clue` | `clue`, `label`? |
+| `clue` | `clue`, `label`?, `summary`? |
 | `time` | `minutes` |
 | `item` | `name`, `quantity`, `to`, `weapon`? |
 | `cash` | `subject`, `before`, `after` |
 | `session` | `family`, `transition`, `round`?, `outcome`? |
 | `choice` | `option` |
-| `handout` | `name`, `available`, `label`?, `path`? |
+| `handout` | `name`, `available`, `label`?, `path`?, `media_type`?, `text`? |
 | `worldline` | `operation`, `line`, `loop`, `from`?（§15.3；切片 8 加的，此前只在实现里，照契约读的前端不知道有这一类） |
 
 每条还可能带两个分组字段：`call` 是铸出该收据的 `call_id`，同一次 resolve/apply 铸出的收据同属一次结算；`family` 是 resolve 结算它的规则族（这次结算里的 `delta` 也带上），`apply` 的簿记行没有 `family`。前端按 `call` 把一次结算的行收进一组，按 `family` 决定这一组的气质；缺了任一个字段就退成单列的行，不许猜。
 
 扩展把它作为会话条目 `coc-mechanics`（`{turn, mechanics}`）追加到 Pi 会话并发到总线 `coc:mechanics`；Pi RPC 事件流因此带着它（`entry_appended`），驾驭器落进 `events.jsonl`；未来的 Electron/web 前端按它渲染骰子卡与变化条。投影为空时不发条目。TUI 只显示守秘人的正文。
 
-**手卡**：Pi 没有出站附件通道（`docs/pi-host-contract.md` §3.3），所以路径不进正文。内核给 `name`/`available`，扩展把 `apply` 结果里的 `attachment` 合进这一行（`path`、`media_type`），前端按它取图；坐在终端前的人由 table 扩展通知一次（`handout <名>: <路径>`，每张卡一次，不进正文）。契约里任何「渲染【明骰】【变化】【第 n 轮】【手卡】行」的旧说法一律以本节为准，包括 §5、§11.6、§11.9、§12.5，以及 §11 的会话渲染、§14.8 的手卡、§14 的实现小节、§15 的世界线收据——那些段落描述的行不再存在，对应的信息以 `mechanics` 的一行投影出去。
+**手卡**：Pi 没有出站附件通道（`docs/pi-host-contract.md` §3.3），所以路径不进正文。内核给 `name`/`available`，扩展把 `apply` 结果里的 `attachment` 合进这一行（`path`、`media_type`），前端按它取图；坐在终端前的人由 table 扩展通知一次（`handout <名>: <路径>`，每张卡一次，不进正文）。文本手卡（§14.8 物化的 markdown）额外带 `text`：正文原样（不含物化时加的那行 H1，上限 8000 字符，超出以 … 截断），让前端能把这一行展开成可读的卡片而不需要文件通道；图片手卡没有 `text`。契约里任何「渲染【明骰】【变化】【第 n 轮】【手卡】行」的旧说法一律以本节为准，包括 §5、§11.6、§11.9、§12.5，以及 §11 的会话渲染、§14.8 的手卡、§14 的实现小节、§15 的世界线收据——那些段落描述的行不再存在，对应的信息以 `mechanics` 的一行投影出去。
 
 ### 16.3 Story text and system JSON (2026-09-07 user correction)
 
@@ -1617,7 +1617,10 @@ The label is the name the Keeper gave the clue when `apply clue` discovered it,
 kept in `world.clue_labels` exactly as a scene's name is kept in
 `world.scene_labels`, and it falls back to the graph's display name for a clue
 discovered before that field existed. The handle stays as `clue`, so a consumer
-can still key on identity. Undiscovered clues remain absent.
+can still key on identity. A row also carries `summary` when the clue's module
+node authors one -- the player panel unfolds the clue into exactly that text,
+so what a clue says is one tap away instead of nowhere. Undiscovered clues
+remain absent.
 
 A `roll` or `dice` receipt carries `actor_label` for an investigator as it
 already did for an NPC: the sheet's own name. The §16.2 projection copies it, so

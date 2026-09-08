@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 from . import (KERNEL_VERSION, bookkeeping, continuation, echoes, history, library, memory,
                recall as recall_roads, warn as warn_lane, worldline)
-from .capsule import (clue_label, scene_label, build_capsule, clues_here, investigator_view, npc_view, npcs_present,
+from .capsule import (clue_label, clue_summary, scene_label, build_capsule, clues_here, investigator_view, npc_view, npcs_present,
                       present_section, where_section)
 from .craft import DEFAULT_REGISTER, TextGraph
 from .director import DirectorGraph, director_adoption
@@ -133,6 +133,17 @@ def _number(value: Any) -> Any:
 def _turn_state_error(turn: dict[str, Any], method: str, allowed: str) -> RpcError:
     return RpcError("turn_state", f"{method} is not allowed while the turn is {turn['state']!r}",
                     fix=allowed, details={"turn": turn["turn"], "state": turn["state"]})
+
+
+def _clue_row(graph: Any, world: dict[str, Any], handle: str) -> dict[str, Any]:
+    """One table.view clue row (§23): the table's name for the clue, plus the module's summary
+    when it adds anything, so the panel can unfold the row into what the clue says."""
+    row: dict[str, Any] = {"clue": handle, "label": clue_label(graph, world, handle)}
+    summary = clue_summary(graph, handle)
+    # A summary that merely repeats the row's own label adds nothing and projects no key.
+    if summary and summary != row["label"]:
+        row["summary"] = summary
+    return row
 
 
 def _markers_of(turn: dict[str, Any], new_receipts: list[dict[str, Any]]) -> list[str]:
@@ -599,8 +610,9 @@ class Table:
             "state": turn["state"],
             "investigators": [investigator_view(sheet) for sheet in party],
             # §23: the player reads this list, so each row carries the name the table used for
-            # that clue, not only the handle the kernel files it under.
-            "clues": {"discovered": [{"clue": handle, "label": clue_label(graph, world, handle)}
+            # that clue, not only the handle the kernel files it under; `summary` is what the
+            # clue actually says, so the panel can unfold a row into it.
+            "clues": {"discovered": [_clue_row(graph, world, handle)
                                      for handle in (world.get("discovered_clues") or [])]},
             "labels": player_glossary(self.tables, language),
         }

@@ -40,9 +40,15 @@ def test_handout_with_authored_text_is_materialized_and_rendered(kernel):
 
     narrated = kernel.table("narrate", call_id="t1-c2", text="他把一张剪报推过来。\n\n你读了起来。")
     assert narrated["rendered_text"] == "他把一张剪报推过来。\n\n你读了起来。"
-    assert narrated["mechanics"] == [{"kind": "handout", "receipt": f"handout:{TEXT_HANDOUT}-t1", "name": receipt["name"],
-                                      "available": True, "label": "1918 年环球报未刊稿", "path": attachment["path"],
-                                      "call": "t1-c1"}]
+    # §16.2: a text handout's row carries its body so the frontend can unfold it into a readable
+    # card -- the materialized file's H1 is the row's own name, so the body drops it.
+    row = {"kind": "handout", "receipt": f"handout:{TEXT_HANDOUT}-t1", "name": receipt["name"],
+           "available": True, "label": "1918 年环球报未刊稿", "path": attachment["path"],
+           "media_type": "text/markdown", "call": "t1-c1"}
+    assert narrated["mechanics"] == [{**row, "text": narrated["mechanics"][0]["text"]}]
+    projected = narrated["mechanics"][0]["text"]
+    assert projected == path.read_text(encoding="utf-8").split("\n", 1)[1].strip()
+    assert not projected.startswith("#")
 
 
 def test_handout_without_shipped_bytes_is_declared_unavailable_not_invented(kernel):

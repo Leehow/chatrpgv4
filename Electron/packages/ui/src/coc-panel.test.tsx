@@ -64,6 +64,22 @@ describe('a discovered clue is named, not handled', () => {
     await screen.findByText('诺特的委托合同');
     expect(screen.queryByText('knott-commission')).toBeNull();
   });
+
+  it('unfolds a clue with a summary into what it says, and keeps a bare one a plain row', async () => {
+    const withDetail = view({ clues: { discovered: [
+      { clue: 'knott-commission', label: '诺特的委托合同',
+        summary: 'Landlord Steven Knott pays $20/day to examine the Corbitt House.' },
+      { clue: 'bare-clue', label: '空线索' },
+    ] } });
+    const { container } = render(<Panel api={host({ ok: true, data: { status: 'ready', view: withDetail, campaign: 'c1' } })} />);
+    await screen.findByText('诺特的委托合同');
+    const folds = container.querySelectorAll('details.coc-clue-fold');
+    expect(folds).toHaveLength(1);
+    expect(folds[0].textContent).toContain('诺特的委托合同');
+    expect(folds[0].textContent).toContain('Corbitt House');
+    expect(folds[0].querySelector('summary')?.textContent).not.toContain('Corbitt House');
+    expect(screen.getByText('空线索')).toBeTruthy();
+  });
 });
 
 describe('the three states with no sheet', () => {

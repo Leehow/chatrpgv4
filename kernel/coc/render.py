@@ -6,6 +6,7 @@ System facts stay in JSON. Story text is never required to repeat receipt number
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 
 from .errors import RpcError, invalid_params
@@ -96,6 +97,12 @@ def mechanics_of(receipt: dict[str, Any]) -> dict[str, Any] | None:
     if kind == "clue":
         out = {"kind": "clue", "receipt": receipt_id, "clue": receipt.get("clue")}
         _with_label(out, "label", receipt.get("label"))
+        # §16.2: the receipt was minted with the module's word for what this clue says
+        # (table.py `_stage_clue`); it rides along when it adds to the label, so the frontend
+        # can unfold the row into the clue itself instead of sending anyone to the module graph.
+        summary = receipt.get("summary")
+        if isinstance(summary, str) and summary.strip() and summary.strip() != out.get("label"):
+            out["summary"] = summary.strip()
         return out
     if kind == "time":
         return {"kind": "time", "receipt": receipt_id, "minutes": int(receipt.get("minutes") or 0)}
@@ -141,8 +148,39 @@ def mechanics_of(receipt: dict[str, Any]) -> dict[str, Any] | None:
                "available": bool(attachment.get("available"))}
         _with_label(out, "label", receipt.get("label"))
         _with_label(out, "path", attachment.get("path"))
+        _with_label(out, "media_type", attachment.get("media_type"))
+        body = _handout_text(attachment)
+        if body is not None:
+            out["text"] = body
         return out
     return None
+
+
+#: A projected handout body is capped: the row expands into a readable card, not a file dump.
+HANDOUT_TEXT_LIMIT = 8000
+
+
+def _handout_text(attachment: dict[str, Any]) -> str | None:
+    """A materialized text handout's body (§14.8), None for images, unreadable files, non-text media.
+
+    The materialized file starts with the H1 the staging added (`# <display>`); the row already
+    shows that name, so the projection drops the title line and keeps the authored body verbatim."""
+    media_type = attachment.get("media_type")
+    path = attachment.get("path")
+    if not isinstance(path, str) or not path:
+        return None
+    if not (isinstance(media_type, str) and media_type.startswith("text/")):
+        return None
+    try:
+        body = Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    lines = body.split("\n")
+    if lines and lines[0].startswith("# "):
+        body = "\n".join(lines[1:]).strip()
+    if len(body) > HANDOUT_TEXT_LIMIT:
+        body = body[:HANDOUT_TEXT_LIMIT].rstrip() + " …"
+    return body or None
 
 
 #: The `{{marker}}` a keeper may place in a delivery (§16.6). Literal: the prose is never read

@@ -117,6 +117,19 @@ const CSS = `
 .coc-clue:first-child{border-top:0;padding-top:0}
 .coc-clue-name{color:var(--text-strong);font-weight:600}
 .coc-clue-sum{margin-top:3px;color:var(--muted);font-size:12px}
+
+/* A clue that says more than its name opens into what it says; one without a summary stays a
+   plain line, because there is nothing to open into. */
+.coc-clue-fold{display:block;padding:0}
+.coc-clue-fold>summary{display:flex;align-items:baseline;gap:6px;padding:6px 0;cursor:pointer;
+  list-style:none;border-radius:4px}
+.coc-clue-fold>summary::-webkit-details-marker{display:none}
+.coc-clue-fold>summary::after{content:"▸";margin-left:auto;flex:none;color:var(--subtle);
+  font-size:10px;transition:transform .12s ease}
+.coc-clue-fold[open]>summary::after{transform:rotate(90deg)}
+.coc-clue-body{padding:0 0 8px;color:var(--muted);line-height:1.6;overflow-wrap:anywhere}
+
+
 .coc-who{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0}
 .coc-who button{padding:6px 10px;border:1px solid var(--border);border-radius:7px;
   background:var(--surface);color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
@@ -497,9 +510,13 @@ export function createComponent(React) {
       rows.push(line);
     }
     return h(Section, { title: t.clues }, rows.map((row, index) =>
-      h("div", { className: "coc-clue", key: `${row.name}:${index}` },
-        h("span", { className: "coc-clue-name" }, row.name),
-        row.summary ? h("span", { className: "coc-clue-sum" }, ` ${row.summary}`) : null)));
+      row.summary
+        // The name stays on the line; what the clue says is one tap away.
+        ? h("details", { className: "coc-clue coc-clue-fold", key: `${row.name}:${index}` },
+            h("summary", null, h("span", { className: "coc-clue-name" }, row.name)),
+            h("div", { className: "coc-clue-body" }, row.summary))
+        : h("div", { className: "coc-clue", key: `${row.name}:${index}` },
+            h("span", { className: "coc-clue-name" }, row.name))));
   }
 
   /** @param {{api: {invoke?: Function, subscribeExt?: Function}}} props */
