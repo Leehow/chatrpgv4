@@ -24,9 +24,10 @@ const ROLL = {
   passed: false, pushed: false, visibility: 'public', marker: 'check:library-use',
 }
 const TIME = { kind: 'time', receipt: 'time:t5-c2', minutes: 10, marker: 'time' }
+const SHELF = { kind: 'clue', receipt: 'clue:shelf-t5', clue: 'shelf-scratches', label: '匣底刻痕', marker: 'clue:shelf' }
 const CLUE = { kind: 'clue', receipt: 'clue:knott-keys-t5', clue: 'knott-keys', label: '宅子钥匙' }
 
-const MARKED = '你翻遍了匣子{{check:library-use}}\n\n十分钟很快耗尽。{{time}}架子深处还有未开的匣。'
+const MARKED = '你翻遍了匣子{{check:library-use}}\n\n十分钟很快耗尽。{{time}}架子深处还有未开的匣。{{clue:shelf}}你把手电压低。'
 
 describe('the card draws a marked delivery', () => {
   it.each([['chapter', '章节'], ['campaign', '战役']])('distinguishes the %s ending scope', (family, label) => {
@@ -117,9 +118,18 @@ describe('the card draws a marked delivery', () => {
     expect(container.querySelectorAll('div.coc-mech-row[data-kind="clue"]')).toHaveLength(1);
   })
 
+  it('renders the glossary projection of a clue summary when the delivery carries one', () => {
+    const summary = 'The waterline on the third step sits a hand above high tide.';
+    const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:6,
+      labels: { [summary]: '第三级台阶的水线比涨潮线高出一掌。' },
+      mechanics:[{kind:'clue', receipt:'clue:tide-t6', clue:'tide-marks', label:'潮痕', summary}]}} />);
+    const body = container.querySelector('details.coc-mech-fold .coc-mech-fold-body');
+    expect(body?.textContent).toBe('第三级台阶的水线比涨潮线高出一掌。');
+  })
+
   it('keeps the prose in order and puts each placed receipt at its point', () => {
     const { container } = render(
-      <Delivery details={{ play_language: 'zh-Hans', turn: 5, marked_text: MARKED, mechanics: [ROLL, TIME] }} />,
+      <Delivery details={{ play_language: 'zh-Hans', turn: 5, marked_text: MARKED, mechanics: [ROLL, TIME, SHELF] }} />,
     )
     const blocks = [...container.querySelectorAll('.coc-mech-para, .coc-mech-here')]
       .map(node => (node.className === 'coc-mech-para' ? 'text' : 'row'))
@@ -128,9 +138,21 @@ describe('the card draws a marked delivery', () => {
     expect(screen.getByText(/你翻遍了匣子/)).toBeTruthy()
   })
 
+  it('never draws a time receipt: the clock is the panel\'s, not the transcript\'s', () => {
+    const { container } = render(
+      <Delivery details={{ play_language: 'zh-Hans', turn: 5, marked_text: MARKED, mechanics: [ROLL, TIME] }} />,
+    )
+    // Neither where the Keeper placed it nor in the trailing group, and the prose around its
+    // marker stays one paragraph rather than splitting around a hole.
+    expect(container.querySelector('[data-kind="time"]')).toBeNull()
+    expect(container.textContent).not.toContain('10 分钟')
+    expect(container.querySelector('.coc-mech-list')).toBeNull()
+    expect(screen.getByText('十分钟很快耗尽。架子深处还有未开的匣。你把手电压低。')).toBeTruthy()
+  })
+
   it('groups a receipt the Keeper did not place instead of losing it', () => {
     const { container } = render(
-      <Delivery details={{ play_language: 'zh-Hans', turn: 5, marked_text: MARKED, mechanics: [ROLL, TIME, CLUE] }} />,
+      <Delivery details={{ play_language: 'zh-Hans', turn: 5, marked_text: MARKED, mechanics: [ROLL, TIME, SHELF, CLUE] }} />,
     )
     expect(container.querySelectorAll('.coc-mech-here')).toHaveLength(2)
     expect(container.querySelector('.coc-mech-list')?.textContent).toContain('宅子钥匙')

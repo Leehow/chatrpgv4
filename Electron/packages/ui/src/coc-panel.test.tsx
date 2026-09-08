@@ -80,6 +80,40 @@ describe('a discovered clue is named, not handled', () => {
     expect(folds[0].querySelector('summary')?.textContent).not.toContain('Corbitt House');
     expect(screen.getByText('空线索')).toBeTruthy();
   });
+
+  it('renders the glossary projection of a clue summary when one is provided', async () => {
+    const summary = 'Landlord Howard Crane pays $20/day to examine the Crowe House.';
+    const withDetail = view({
+      clues: { discovered: [{ clue: 'crane-commission', label: '克兰的佣金', summary }] },
+      labels: { ...view().labels, [summary]: '房东霍华德·克兰出价每天 20 美元，要求查清克罗宅的事。' },
+    });
+    const { container } = render(<Panel api={host({ ok: true, data: { status: 'ready', view: withDetail, campaign: 'c1' } })} />);
+    await screen.findByText('克兰的佣金');
+    const body = container.querySelector('details.coc-clue-fold .coc-clue-body');
+    expect(body?.textContent).toBe('房东霍华德·克兰出价每天 20 美元，要求查清克罗宅的事。');
+  });
+});
+
+describe('the time section reads the clock in the fiction', () => {
+  it('prints the date and hour the module put the table at', async () => {
+    const dated = view({ clock: { minutes: 15, elapsed: '0 h 15 min', at: '1920-10-12T10:05', day_part: 'morning' } });
+    render(<Panel api={host({ ok: true, data: { status: 'ready', view: dated, campaign: 'c1' } })} />);
+    // The minute keeps its padding; the date does not carry any.
+    await screen.findByText('1920年10月12日 10:05');
+    expect(screen.queryByText(/已过/)).toBeNull();
+  });
+
+  it('falls back to elapsed time for a module that never said when it opens', async () => {
+    const undated = view({ clock: { minutes: 95, elapsed: '1 h 35 min' } });
+    render(<Panel api={host({ ok: true, data: { status: 'ready', view: undated, campaign: 'c1' } })} />);
+    await screen.findByText('已过 1 小时 35 分');
+  });
+
+  it('reads an en table in en', async () => {
+    const dated = view({ play_language: 'en', clock: { minutes: 15, at: '1920-10-12T10:05' } });
+    render(<Panel api={host({ ok: true, data: { status: 'ready', view: dated, campaign: 'c1' } })} />);
+    await screen.findByText('1920-10-12 10:05');
+  });
 });
 
 describe('the background section speaks the play language', () => {
