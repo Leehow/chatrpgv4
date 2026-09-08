@@ -1,7 +1,7 @@
 """Completed-campaign accounting seams; legacy fixtures are not gameplay evidence."""
 import json
 
-from conftest import CONTENT_DIR, RpcClient, campaign_dir, open_turn, read_json
+from conftest import CONTENT_DIR, RpcClient, campaign_dir, narrate, open_turn, read_json
 from coc.rules import development
 from coc.rules.tables import RuleTables
 from test_rules_families import first_success
@@ -18,7 +18,7 @@ def legacy_completed(client):
     open_turn(client)
     call_id, _ = first_success(client, 't1-c', intent='investigate', goal='Inspect the desk.', method='Spot Hidden')
     ordinal = int(call_id.split('-c')[1]) + 1
-    client.table('narrate', call_id=f't1-c{ordinal}', text='调查结束。')
+    narrate(client, f't1-c{ordinal}', '调查结束。')
     directory = campaign_dir(client.workspace)
     world = read_json(directory / 'world.json')
     world['ending'] = {'summary': 'The prior release closed the investigation.', 'turn': 1}
@@ -47,7 +47,7 @@ def test_ending_requires_accounting_and_source_expression_uses_existing_frozen_p
     assert capsule['scenario_san_reward_expr'] == '100D1'
     assert capsule['development_inputs']['thomas-hayes']['deterministic_plan']['scenario_san_reward']['total'] == 100
     kernel.table('apply', call_id='t1-c2', effects=[{'kind': 'ending', 'scope': 'campaign', 'summary': 'The investigation is over.'}])
-    kernel.table('narrate', call_id='t1-c3', text='调查结束。')
+    narrate(kernel, 't1-c3', '调查结束。')
     kernel.table('player_input', text='核对结算。')
     replay = end_session(kernel, 't2-c1')
     assert replay['outcome']['ending_id'] == outcome['ending_id']
@@ -78,7 +78,7 @@ def test_late_accounting_preserves_ending_and_cannot_repeat_or_replace_reward(ke
         'method': '', 'decision': 'development:end-session', 'scenario_san_reward_expr': '10D8'})
     assert error['code'] == 'idempotency_conflict' and 'frozen' in error['message']
     assert kernel.table('look', focus='investigator') == after
-    kernel.table('narrate', call_id='t2-c4', text='遗漏的结算已经补齐，原结局保持不变。')
+    narrate(kernel, 't2-c4', '遗漏的结算已经补齐，原结局保持不变。')
     client = RpcClient(kernel.workspace)
     try:
         client.table('open')

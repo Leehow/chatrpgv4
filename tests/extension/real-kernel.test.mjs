@@ -171,7 +171,9 @@ test("真内核：开场与一个回合走通，收据、渲染、git 提交齐�
 test("a placed marker leaves the delivery and reaches the frontend on the projection entry", async t => {
 	// 契约 §16.6：守秘人把内核发给它的标记放进正文；正文交付里没有标记，`marked_text` 只走投影条目。
 	// 这条走真内核，因为要验的正是「内核铸的标记穿过扩展到达前端」这一段接缝，stub 验不了。
-	const table = await openTable({ realKernel: true, campaign: "marker-seam", responses: [
+	// 种子锁死是为了让守秘人的正文能写出这一回合欠的数字：§16.3 的数字核（#84）要求每条公开收据的
+	// 数字逐字出现在交付里，而这里的守秘人是预设回答，没法看着收据现写。seed 7 的 Spot Hidden 是 92/55。
+	const table = await openTable({ realKernel: true, campaign: "marker-seam", env: { COC_KERNEL_SEED: "7" }, responses: [
 		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage("开场之后多写的一句，应被替换"),
@@ -180,7 +182,7 @@ test("a placed marker leaves the delivery and reaches the frontend on the projec
 		} })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "clue", clue: "clue-knott-research-leads", how: "他提到旧档" }] })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("narrate", {
-			text: "你打量他的神色{{check:spot-hidden}}，他松口提起了市政厅的旧档{{clue:knott-research-leads}}。",
+			text: "你打量他的神色{{check:spot-hidden}}，他松口提起了市政厅的旧档{{clue:knott-research-leads}}。（掷出 92，目标 55。）",
 		})], { stopReason: "toolUse" }),
 		fauxAssistantMessage("回合之后多写的一句，应被替换"),
 	] });

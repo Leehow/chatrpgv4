@@ -138,6 +138,9 @@ const TURN_CLOSED_REASON = "the turn is closed, waiting for the player";
 /** Used when the kernel refuses a delivery that carries none of the campaign's play_language script. */
 const PLAY_LANGUAGE_MISMATCH_STEER =
 	"The kernel refused this turn's delivery: play_language_mismatch. Rewrite every player-facing word in the campaign's play_language, then deliver it again.";
+/** §16.3's second floor: the delivery did not state the figures its public receipts settled. */
+const MECHANICS_MISSING_STEER =
+	"The kernel refused this turn's delivery: mechanics_missing. State every figure the turn's public receipts settled -- the roll and its target, a dice total, a resource's before and after, minutes passed -- inside the prose, in the player's language, then deliver it again. Do not change what happened to fit the words; the receipts are what happened.";
 
 let table: TableState | undefined;
 /** In setup mode there is no table, so the kernel subprocess hangs here on its own (contract §14.4). */
@@ -271,27 +274,37 @@ function errorText(error: unknown): string {
 	return [error.toToolText(), ...errorDetailLines(error.details)].join("\n");
 }
 
+/** The two floors §16.3 puts under a delivery, in the order the kernel applies them. */
+type FloorDetail = "play_language_mismatch" | "mechanics_missing";
+const FLOOR_DETAILS: ReadonlySet<string> = new Set<string>(["play_language_mismatch", "mechanics_missing"]);
+
 /**
- * The kernel's delivery-floor refusals (contract §5 / §16.3): `invalid_params` with
- * `code_detail: "play_language_mismatch"`. The detail is read from
- * all the places it can travel, because it is one contract field and not a semantic judgement.
+ * The kernel's delivery-floor refusals (contract §5 / §16.3): `invalid_params` with a
+ * `code_detail` naming which floor the delivery fell through -- script first, then figures.
+ * The detail is read from all the places it can travel, because it is one contract field and
+ * not a semantic judgement.
+ *
+ * Both floors are handled here on purpose. The script one shipped alone while the figure
+ * check went unwritten for so long that the extension only ever learned the one word; now
+ * that the kernel enforces both, a keeper who misstates a number gets told how to fix it
+ * instead of an unexplained refusal (#84).
  */
-function floorDetail(error: unknown): "play_language_mismatch" | undefined {
+function floorDetail(error: unknown): FloorDetail | undefined {
 	if (!isKernelError(error)) return undefined;
 	const detail =
-		error.code === "play_language_mismatch"
+		FLOOR_DETAILS.has(error.code)
 			? error.code
 			: (error.codeDetail ?? (error.details as { code_detail?: unknown } | undefined)?.code_detail);
-	if (detail === "play_language_mismatch") return detail;
+	if (typeof detail === "string" && FLOOR_DETAILS.has(detail)) return detail as FloorDetail;
 	return undefined;
 }
 
 function floorSteer(
-	detail: "play_language_mismatch",
+	detail: FloorDetail,
 	error: unknown,
 ): { kind: string; text: string } {
-	const base = PLAY_LANGUAGE_MISMATCH_STEER;
-	const kind = "play-language-mismatch";
+	const base = detail === "mechanics_missing" ? MECHANICS_MISSING_STEER : PLAY_LANGUAGE_MISMATCH_STEER;
+	const kind = detail === "mechanics_missing" ? "mechanics-missing" : "play-language-mismatch";
 	const fix =
 		isKernelError(error) && error.fix ? `${base} The kernel says: ${error.fix}` : base;
 	return { kind, text: fix };

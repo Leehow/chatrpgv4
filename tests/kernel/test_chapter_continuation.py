@@ -1,5 +1,5 @@
 """A chapter closes its accounting, not the campaign or the next scene."""
-from conftest import RpcClient, campaign_dir, open_turn, read_json
+from conftest import RpcClient, campaign_dir, narrate, open_turn, read_json
 from coc.rules import development
 from test_postgame_settlement import end_session, legacy_completed
 
@@ -36,7 +36,7 @@ def test_chapter_accounting_replays_until_movement_then_next_session_can_settle(
     directory = campaign_dir(kernel.workspace)
     result = end_session(kernel, 't1-c1', scenario_san_reward_expr='1D1')
     kernel.table('apply', call_id='t1-c2', effects=[end_effect()])
-    closed = kernel.table('narrate', call_id='t1-c3', text='这一章结束，旅程仍将继续。')
+    closed = narrate(kernel, 't1-c3', '这一章结束，旅程仍将继续。')
     assert any(row.get('family') == 'chapter' for row in closed['mechanics'])
     meta = read_json(directory / 'campaign.json')
     assert meta['status'] == 'active' and meta['ending']['scope'] == 'chapter'
@@ -51,7 +51,7 @@ def test_chapter_accounting_replays_until_movement_then_next_session_can_settle(
     kernel.table('ask', call_id='t2-c3', prompt='下一步去哪里？', options=['档案馆', '先休息'])
     kernel.table('player_input', text='去档案馆。')
     move_on(kernel, 't3-c1')
-    kernel.table('narrate', call_id='t3-c2', text='你抵达档案馆，新的调查开始了。')
+    narrate(kernel, 't3-c2', '你抵达档案馆，新的调查开始了。')
     assert read_json(directory / 'campaign.json')['status'] == 'active'
     assert read_json(directory / 'world.json')['ending']['continued'] is True
     assert (directory / 'party/thomas-hayes.json').read_bytes() == sheet
@@ -67,7 +67,7 @@ def test_legacy_chapter_correction_preserves_history_and_rewards_and_survives_re
     original_turn = (directory / 'turns/0001.json').read_bytes()
     kernel.table('player_input', text='补齐上一章的结算。')
     settled = end_session(kernel, 't2-c1', scenario_san_reward_expr='1D8')
-    kernel.table('narrate', call_id='t2-c2', text='奖励和成长已经结算。')
+    narrate(kernel, 't2-c2', '奖励和成长已经结算。')
     accounting_turn = (directory / 'turns/0002.json').read_bytes()
     sheet = (directory / 'party/thomas-hayes.json').read_bytes()
     rewards = rewards_on_disk(directory)
@@ -80,7 +80,7 @@ def test_legacy_chapter_correction_preserves_history_and_rewards_and_survives_re
     assert read_json(directory / 'campaign.json')['status'] == 'completed'
     assert kernel.table_err('apply', call_id='t3-c2', effects=[{'kind': 'time', 'minutes': 1}])['code'] == 'campaign_not_ready'
     assert kernel.table_err('ask', call_id='t3-c2', prompt='继续吗？', options=['继续', '暂停'])['code'] == 'invalid_params'
-    kernel.table('narrate', call_id='t3-c2', text='秘鲁章节已结算，原来的调查员继续下一章。')
+    narrate(kernel, 't3-c2', '秘鲁章节已结算，原来的调查员继续下一章。')
     meta = read_json(directory / 'campaign.json')
     assert meta['status'] == 'active'
     assert meta['ending']['scope'] == 'chapter'
@@ -94,7 +94,7 @@ def test_legacy_chapter_correction_preserves_history_and_rewards_and_survives_re
         assert replay['outcome']['ending_id'] == settled['outcome']['ending_id']
         assert replay['effects'] == []
         move_on(other, 't4-c2')
-        other.table('narrate', call_id='t4-c3', text='新的调查已经开始。')
+        narrate(other, 't4-c3', '新的调查已经开始。')
         assert read_json(directory / 'campaign.json')['status'] == 'active'
     finally:
         other.close()
@@ -108,7 +108,7 @@ def test_explicit_campaign_ending_cannot_be_reclassified(kernel):
     open_turn(kernel)
     end_session(kernel, 't1-c1')
     kernel.table('apply', call_id='t1-c2', effects=[end_effect('campaign')])
-    kernel.table('narrate', call_id='t1-c3', text='整场战役已经结束。')
+    narrate(kernel, 't1-c3', '整场战役已经结束。')
     kernel.table('player_input', text='再开一章。')
     assert kernel.table_err('apply', call_id='t2-c1', effects=[end_effect()])['code'] == 'campaign_not_ready'
 
