@@ -1948,9 +1948,21 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
         if (event.status === 'started' && event.turnEpoch !== undefined) {
           openedTurnEpochBySessionRef.current.set(event.sessionId, event.turnEpoch)
         }
-        applyObservedStatus(event.sessionId, event.status === 'started' || event.status === 'streaming'
+        const backgroundStatus: SessionStatus = event.status === 'started' || event.status === 'streaming'
           ? 'running'
-          : event.status === 'settled' ? 'completed' : 'interrupted')
+          : event.status === 'settled' ? 'completed' : 'interrupted'
+        applyObservedStatus(event.sessionId, backgroundStatus)
+        // The cached transcript of a backgrounded session is restored verbatim
+        // on the next select. A terminal status has to close its assistant rows
+        // here — `closeOpenTurn` only ever runs for the selected session, so an
+        // unswept row keeps spinning behind an idle composer forever.
+        if (backgroundStatus !== 'running') {
+          const cached = messagesBySessionRef.current.get(event.sessionId)
+          if (cached) {
+            const settled = finishStreamingMessage(cached)
+            if (settled !== cached) messagesBySessionRef.current.set(event.sessionId, settled)
+          }
+        }
         return
       }
       if (event.type === 'session_title') {
