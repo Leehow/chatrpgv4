@@ -1,0 +1,7 @@
+{
+  "contract_id": "coc.starter-listing.v1",
+  "schema_version": 1,
+  "scenario_id": "mystery-house",
+  "listed": false,
+  "not_listed_reason": "Rule gym, not a story: every lead site is stocked to exercise a CoC7 settle path (injury, SAN, chase, fight, rest, clinic, ward, spell teaching), which is why its own `setting_tags` carry `rule-gym`. It stays registrable by id for tests and rule work; set `listed` to true to put it in front of players."
+}

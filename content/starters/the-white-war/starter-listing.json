@@ -1,0 +1,15 @@
+{
+  "contract_id": "coc.starter-listing.v1",
+  "schema_version": 1,
+  "scenario_id": "the-white-war",
+  "listed": false,
+  "not_listed_reason": "Taken out of the player catalog on the owner's call (2026-09-08): the picker ships one scenario. The starter itself is unchanged and still registrable by id; set `listed` to true to put it back, the authored titles and blurbs are below.",
+  "title": {
+    "zh-Hans": "白色战争",
+    "en": "The White War"
+  },
+  "blurb": {
+    "zh-Hans": "1916 年的意大利阿尔卑斯前线，一支山地巡逻队奉命穿过冰川，去侦察一处几夜前枪声骤停、从此再无音讯的奥军阵地。冰隧道的尽头封着不该被打开的东西。无需模组 PDF，建好调查员即可开场。",
+    "en": "The Italian Alpine front, 1916. A mountain patrol is sent across the glacier to an Austrian position that fell silent after a night of gunfire, and finds at the end of an ice tunnel something that was sealed there long before the war. Playable without the scenario PDF."
+  }
+}

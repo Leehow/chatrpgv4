@@ -28,6 +28,40 @@ async function withGuidance(prepared: any) {
     occupations: occupations.occupations, model: input.model, thinking: input.thinking, signal: guidanceAbort.signal});
   return {...prepared, guidance};
 }
+/** The play languages the picker is authored in; the same closed set the host validates
+ *  on `select` and the onboarding `<select>` offers. */
+const PLAY_LANGUAGES = ['zh-Hans', 'en'];
+/** The player-facing scenario catalog.
+ *
+ *  `content/starters/` is a build directory, not a shelf: next to the curated scenarios it
+ *  holds the rule gym every CoC7 settle path is exercised against and the build lane's
+ *  source-bound counterpart to `the-haunting` (same module `name`, so listing it put two
+ *  indistinguishable rows in front of players). A starter reaches players only by shipping
+ *  `starter-listing.json` with `listed: true`, so a folder that declares nothing — a
+ *  fixture, a future build artifact — stays out instead of leaking into the picker. Title
+ *  and blurb are authored per play language there; the module node's `name` is the fallback
+ *  for a starter whose listing carries no title in any offered language. */
+async function starterCatalog(playLanguage?: string) {
+  const language = PLAY_LANGUAGES.includes(playLanguage as string) ? playLanguage as string : PLAY_LANGUAGES[0];
+  const root = join(repo, 'content/starters');
+  const rows: Array<{id: string; order: number; title: string; blurb: string}> = [];
+  for (const id of await readdir(root)) {
+    let listing: any, name = '';
+    try {listing = JSON.parse(await readFile(join(root, id, 'starter-listing.json'), 'utf8'));}
+    catch {continue; /* undeclared folders are not player-facing */}
+    if (listing?.listed !== true) continue;
+    try {
+      const graph = JSON.parse(await readFile(join(root, id, 'module-graph.json'), 'utf8'));
+      name = graph.nodes.find((node: any) => node.node_kind === 'module')?.name || '';
+    } catch {continue; /* a listing without a graph is nothing the kernel can open */}
+    const authored = (field: any): string =>
+      (typeof field?.[language] === 'string' && field[language]) ||
+      PLAY_LANGUAGES.map(other => field?.[other]).find((value: any) => typeof value === 'string') || '';
+    rows.push({id, order: Number.isFinite(listing.order) ? Number(listing.order) : Number.MAX_SAFE_INTEGER,
+      title: authored(listing.title) || name || id, blurb: authored(listing.blurb)});
+  }
+  return rows.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id)).map(({order, ...row}) => row);
+}
 async function main() {
   if(action==='presentation') {
     if(input.standing) {
@@ -42,13 +76,7 @@ async function main() {
     return prepareCharacterPresentation({...input,known_labels,signal:guidanceAbort.signal});
   }
   if (action === 'catalog') {
-    const presets = [];
-    for (const id of await readdir(join(repo, 'content/starters'))) {
-      try {
-        const graph = JSON.parse(await readFile(join(repo, 'content/starters', id, 'module-graph.json'), 'utf8'));
-        presets.push({id, title: graph.nodes.find((node: any) => node.node_kind === 'module')?.name || id});
-      } catch { /* non-module folders are not presets */ }
-    }
+    const presets = await starterCatalog(input.play_language);
     const library = await call('module.list');
     const occupations = await call('setup.occupations');
     return {presets, modules: library.modules.filter((row: any) => row.source !== 'starter' && (row.status === 'installed'||row.setup_ready)), occupations: occupations.occupations};

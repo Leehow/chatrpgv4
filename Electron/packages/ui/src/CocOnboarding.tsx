@@ -24,7 +24,7 @@ export function CocOnboarding({host, sessionId}: Props) {
   const [job,setJob] = useState<Row | null>(null)
   const [busy,setBusy] = useState(false), [error,setError] = useState('')
   const [language,setLanguage] = useState('zh-Hans')
-  const starting=useRef(false)
+  const starting=useRef(false), restored=useRef(false)
   const chooser = useRef<HTMLInputElement>(null), cancelled = useRef(false), uploadRunning = useRef(false)
   const storageKey = 'pipicoc-import:' + sessionId
   async function call(params: Row): Promise<Row> {
@@ -39,12 +39,20 @@ export function CocOnboarding({host, sessionId}: Props) {
     void query.refresh()
     try {localStorage.setItem(storageKey,next.id)} catch { /* storage may be disabled */ }
   }
+  // Scenario titles and blurbs are authored per play language, so the catalog is re-read
+  // when the picker's language changes. `remember` adopts a restored import's language,
+  // which would re-enter this effect: the restore itself happens once.
   useEffect(() => {
     let active = true
-    void call({action:'catalog'}).then(data => {if(active){setCatalog(data);if(data.current_import)remember(data.current_import)}}).catch(e => {if(active)setError(e.message)})
+    void call({action:'catalog',play_language:language}).then(data => {if(active){setCatalog(data)
+      if(data.current_import&&!restored.current){restored.current=true;remember(data.current_import)}}}).catch(e => {if(active)setError(e.message)})
+    return () => {active=false}
+  },[host,sessionId,language])
+  useEffect(() => {
+    let active = true
     try {
       const id = localStorage.getItem(storageKey)
-      if(id)void call({action:'status',id}).then(data => {if(active)remember(data)}).catch(() => {})
+      if(id)void call({action:'status',id}).then(data => {if(active){restored.current=true;remember(data)}}).catch(() => {})
     } catch { /* no browser storage */ }
     return () => {active=false}
   },[host,sessionId])
@@ -91,7 +99,7 @@ export function CocOnboarding({host, sessionId}: Props) {
       {section==='pdf' && <button className="coc-drop-zone" onClick={()=>chooser.current?.click()} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();void upload(e.dataTransfer.files?.[0])}}>将 PDF 拖到这里，或点击选择文件<span>最大 128 MB · 原文件会保留 · 长篇模组分阶段准备</span></button>}
       {(section==='starter'||section==='module') && <section className="coc-source-list" aria-label={section==='starter'?'预设剧本':'已解析剧本'}>
         {!catalog?<p role="status">正在读取剧本列表…</p>:(section==='starter'?catalog.presets:catalog.modules).length===0?<div className="coc-empty-library"><p>还没有已解析的剧本</p><button onClick={()=>chooser.current?.click()}>上传第一份 PDF</button></div>:
-          (section==='starter'?catalog.presets:catalog.modules).map((item:Row)=><button disabled={busy} key={item.id||item.module_id} onClick={()=>void act({action:'select',source:section,module_id:item.id||item.module_id,name:item.title})}><strong>{item.title}</strong><span>{section==='starter'?`预设 · ${item.id}`:'已保存的准备成果'}</span><b>选择 →</b></button>)}
+          (section==='starter'?catalog.presets:catalog.modules).map((item:Row)=><button disabled={busy} key={item.id||item.module_id} onClick={()=>void act({action:'select',source:section,module_id:item.id||item.module_id,name:item.title})}><strong>{item.title}</strong><span>{section==='starter'?item.blurb:'已保存的准备成果'}</span><b>选择 →</b></button>)}
       </section>}
     </>}
     {job && <section className="coc-preparation" aria-label="剧本准备">
@@ -107,6 +115,6 @@ export function CocOnboarding({host, sessionId}: Props) {
       {['ready','conversing'].includes(job.state)&&<p role="status">正在进入建卡对话，开场资料将在后台继续准备。</p>}
       {!preparing&&!busy&&job.state!=='created'&&<button className="coc-back" onClick={back}>← 返回选择剧本</button>}
     </section>}
-    {error&&<div className="coc-error" role="alert"><strong>这一步没有完成</strong><p>{error}</p><button onClick={()=>{setError('');void call({action:'catalog'}).then(setCatalog).catch(e=>setError(e.message))}}>重试连接</button></div>}
+    {error&&<div className="coc-error" role="alert"><strong>这一步没有完成</strong><p>{error}</p><button onClick={()=>{setError('');void call({action:'catalog',play_language:language}).then(setCatalog).catch(e=>setError(e.message))}}>重试连接</button></div>}
   </div></div>
 }

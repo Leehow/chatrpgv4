@@ -36,3 +36,12 @@ Historical provenance (the retired text pipeline): `module.bind` on a 17-page bu
 reader (`grok-relay/grok-4.5`), the second and third as §14.6 deep reads. 90 nodes after the
 first pass, 127 after the third, nothing dropped, every pass through all three gates with no
 findings. The build telemetry is in the ignored `.coc/modules/the-haunting-rulebook/build.jsonl`.
+
+## Not in the player catalog
+
+`starter-listing.json` here declares `listed: false`. Both builds carry the module name
+`The Haunting`, so listing both put two rows in the picker that a player cannot tell apart;
+the comparison above is the point of shipping this one, and it is a comparison for us, not
+a choice for them. It stays registrable by id — `campaign.create {module:
+"the-haunting-rulebook"}` and the kernel tests are unaffected. Flip `listed` to true to put
+it in the picker, and give it a title that says which build it is.

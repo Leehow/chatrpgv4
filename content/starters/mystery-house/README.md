@@ -32,3 +32,11 @@ No pregens.
 | Danvers visiting ward | Treatment / insight / reality check |
 
 Numbers still settle at the table. `chase:conflict` stays kernel-limited.
+
+## Not in the player catalog
+
+`starter-listing.json` here declares `listed: false`: this is the rule gym the CoC7 settle
+paths are exercised against, not a story to put in front of a player, and its own
+`setting_tags` say so (`rule-gym`). It stays registrable by id — `campaign.create
+{module: "mystery-house"}` and the kernel tests are unaffected. Flip `listed` to true (and
+give it a `title`/`blurb` per play language) to put it in the picker.

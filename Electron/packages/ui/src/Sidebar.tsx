@@ -8,6 +8,7 @@ import './sidebar.css'
 import gearIcon from './sf-icons/gearshape.png'
 import qrcodeIcon from './sf-icons/qrcode.png'
 import personGroupIcon from './sf-icons/person-2.png'
+import pipicocIcon from './assets/pipicoc.png'
 
 /** SF Symbols parity footer icons. Rendered from system-exported SF Symbols
  *  bitmaps via CSS mask, so the icon shape matches Swift's `systemName` glyphs
@@ -743,8 +744,15 @@ export function Sidebar(props: SidebarProps) {
     <nav className="sb-root" aria-label="会话侧边栏" data-testid="sidebar">
       {!collapsed && (
         <header className="sb-topbar">
+          {productName === 'PipiCOC' && <svg width="0" height="0" aria-hidden="true" style={{position:'absolute'}}>
+            <filter id="coc-logo-remove-paper" colorInterpolationFilters="sRGB">
+              <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  -10 -10 -10 24 0" />
+            </filter>
+          </svg>}
           {logo
             ? <img className="sb-brand-logo" src={logo} alt="自定义 Logo" />
+            : productName === 'PipiCOC'
+            ? <img className="sb-brand-logo sb-brand-octopus" src={pipicocIcon} alt="PipiCOC" />
             : <div className="sb-brand-wordmark" aria-label={productName}>{brandWordmark(productName)}</div>}
           <button type="button" className="pane-toggle sb-pane-toggle" data-testid="toggle-sidebar" title="收起左栏" aria-label="收起左栏" aria-expanded="true" onClick={onToggleCollapsed}>≡</button>
         </header>

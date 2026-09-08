@@ -73,6 +73,7 @@
   pointer-events:none;
 }
 .sb-pane-toggle{position:relative;z-index:1;-webkit-app-region:no-drag}
+.sb-brand-octopus{width:38px;height:38px;max-height:38px;filter:url(#coc-logo-remove-paper)}
 .sb-search{
   display:flex;
   align-items:center;

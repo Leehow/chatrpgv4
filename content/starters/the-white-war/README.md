@@ -58,3 +58,11 @@ The starter installs module structure and a player-safe character creation
 briefing. It does not ship default player characters; create an investigator
 for the 1916 Italian Alpine front, or ask the AI to draft one for your approval
 before play begins.
+
+## Not in the player catalog
+
+`starter-listing.json` here declares `listed: false`: the picker ships one scenario
+(2026-09-08, the owner's call). Nothing about the starter itself changed — the graph, the
+OGL attribution and `campaign.create {module: "the-white-war"}` are untouched, and the
+kernel tests still run against it. The authored `title`/`blurb` per play language are kept
+in the listing file, so putting it back is flipping `listed` to true.

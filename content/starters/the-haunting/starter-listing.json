@@ -1,0 +1,15 @@
+{
+  "contract_id": "coc.starter-listing.v1",
+  "schema_version": 1,
+  "scenario_id": "the-haunting",
+  "listed": true,
+  "order": 10,
+  "title": {
+    "zh-Hans": "鬼屋",
+    "en": "The Haunting"
+  },
+  "blurb": {
+    "zh-Hans": "1920 年的波士顿，房东雇你查清一栋没人住得下去的老宅：前任租客发了疯，邻居管它叫鬼屋，地窖底下埋着一个不该被埋在那里的人。无需模组 PDF，建好调查员即可开场。",
+    "en": "Boston, 1920. A landlord hires you to find out what is wrong with the house nobody will keep: the last tenants went mad, the neighbours call it haunted, and someone who should never have been buried lies under the basement. Playable without the scenario PDF."
+  }
+}

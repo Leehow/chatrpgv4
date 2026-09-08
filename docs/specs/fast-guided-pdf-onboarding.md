@@ -165,6 +165,24 @@ Web 当前每连接一个 backend，关闭 backend 会 dispose 解析。仅做�
 
 交接序幕、确认版本和首次开场都以已有持久标识去重。图谱 ready 回调、角色确认、重连同时到达，只允许一次交接。
 
+### 3.6 预设剧本目录：上架是被声明的，不是被扫描出来的
+
+`content/starters/` 是构建目录，不是货架。除了策展好的剧本，它同时装着规则靶场
+（`mystery-house`，自己的 `setting_tags` 里就写着 `rule-gym`）和构建车道产出的对照本
+（`the-haunting-rulebook`，与 `the-haunting` 同名，两条并列时玩家分不出差别）。目录扫描
+把这些一并推到了玩家面前，并且只能拿开发用的文件夹 slug 当副标题。上架与否是产品决定，
+不是目录里有什么：`the-white-war` 内容完好，只是当前不上架（2026-09-08）。
+
+- 每个想上架的 starter 自带 `starter-listing.json`：`listed`、`order`，以及按游玩语言授权的
+  `title` / `blurb`。没有这个文件、或 `listed` 不为 `true`，就不进玩家目录——默认关闭，
+  以后往这个目录里落的构建产物不会自己漏出去。不上架的一方写明 `not_listed_reason`。
+- 上架与否只是宿主的展示决定：内核的 starter 注册路径不变，`campaign.create {module: <id>}`
+  仍然认所有 id，测试与规则工作不受影响。
+- 标题和简介按 `play_language` 取；缺该语言时退到另一种已授权语言，再退到图谱模块节点的
+  `name`。这些文本是授权内容，不在代码里做语言判断或翻译。
+- 目录读取因此带上 `play_language`：`onboarding` 的 `catalog` 动作接受它，前端在游玩语言
+  变更时重取一次。
+
 ## 4. 进度浮窗的扩展方式
 
 本次只补通现有 `overlay` 位置，不顺带建设 statusBar 或新的任务中心。

@@ -7,6 +7,8 @@ import { join } from 'node:path';
 type Row = Record<string, any>;
 const MAX_FILE = 128 * 1024 * 1024;
 const CHUNK = 1024 * 1024;
+/** The play languages a job and the scenario catalog may be asked for. */
+const PLAY_LANGUAGES = ['zh-Hans', 'en'];
 export type CocOnboardingOptions = {repo:string; home:string; agentDir:string; env:NodeJS.ProcessEnv};
 export class CocOnboardingHost {
   private stopping = new Set<string>();
@@ -70,7 +72,7 @@ export class CocOnboardingHost {
       activeReaders:current.progress?.activeReaders||0,stopping:current.stopping,
       candidates:current.candidates,error:current.error||job.error,
       preparation:{guidance,opening},character:{state:character},canConverse,
-      canHandoff:character==='confirmed'&&(waitingForOpening||handoffCommitted)&&opening.state==='ready'&&!playing,playing,
+      canHandoff:character==='confirmed'&&(waitingForOpening||handoffCommitted)&&opening.state==='ready'&&!playing,playing,hidden:!!job.hidden,
       model:job.model,thinking:job.thinking,campaign:job.campaign,play_language:job.play_language};
   }
   private run(action: string, data: Row, job?: Row, phase?:string, attempt?:string): Promise<any> {
@@ -138,7 +140,7 @@ export class CocOnboardingHost {
       return {current_import:latest?this.snapshot(latest):null};
     }
     if (params.action === 'catalog') {
-      const catalog = await this.run('catalog', {});
+      const catalog = await this.run('catalog', {play_language: PLAY_LANGUAGES.includes(params.play_language) ? params.play_language : undefined});
       const imports: Array<{job: Row; modified: number}> = [];
       if (session && existsSync(this.root)) for (const id of readdirSync(this.root)) {
         try {
@@ -154,7 +156,7 @@ export class CocOnboardingHost {
       if (params.action === 'begin' && (!Number.isSafeInteger(params.size) || params.size < 5 || params.size > MAX_FILE ||
         typeof params.name !== 'string' || !params.name.toLowerCase().endsWith('.pdf'))) throw new Error('Choose a PDF of up to 128 MiB');
       if (!model.vision && params.source !== 'starter') throw new Error('Choose a model with image input');
-      if (params.play_language && !['zh-Hans','en'].includes(params.play_language)) throw new Error('Invalid play language');
+      if (params.play_language && !PLAY_LANGUAGES.includes(params.play_language)) throw new Error('Invalid play language');
       const job: Row = {play_language: params.play_language || 'zh-Hans', id: randomUUID(), session, name: params.name, size: params.size || 0, received: 0,
         source: params.action === 'begin' ? 'pdf' : params.source, module_id: params.module_id,
         preparation:{guidance:{state:'queued'},opening:{state:'queued'}}, model: model.id, thinking: model.thinking, state: params.action === 'begin' ? 'uploading' : 'preparing'};
@@ -168,6 +170,14 @@ export class CocOnboardingHost {
     }
     const job = this.load(params.id, session);
     if (params.action === 'status') return this.snapshot(job);
+    // Hiding the status overlay is a player preference, not an operation on the import: it must
+    // work while other work runs, and unlike `dismiss` (choose another scenario) it leaves the
+    // job as `current`. Only a finished preparation may be hidden — the overlay is the only
+    // place holding pause, resume and retry.
+    if (params.action === 'hide') {
+      if (job.preparation?.opening?.state !== 'ready') throw new Error('Hide the status once the opening is ready');
+      return this.snapshot(this.patch(job, {hidden: true}));
+    }
     if (this.busy.has(job.id)) throw new Error('This operation is already in progress');
     this.busy.add(job.id);
     try {

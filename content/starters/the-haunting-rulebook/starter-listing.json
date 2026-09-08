@@ -1,0 +1,7 @@
+{
+  "contract_id": "coc.starter-listing.v1",
+  "schema_version": 1,
+  "scenario_id": "the-haunting-rulebook",
+  "listed": false,
+  "not_listed_reason": "The build lane's source-bound counterpart to `the-haunting`, shipped so the two can be compared node by node against pages 446-462. Both carry the module name `The Haunting`, so listing both put two indistinguishable rows in front of players. It stays registrable by id; set `listed` to true to put it in the catalog, and give it a title that tells the two apart."
+}

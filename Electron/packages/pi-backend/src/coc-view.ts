@@ -35,12 +35,12 @@ export function mechanicsEntry(row:any, language?:string): HistoryEntry | undefi
   return {id:row.id,role:'assistant',content:'',timestamp:Date.parse(row.timestamp)||0,
     presentation:{renderer:'coc-mechanics',details:{turn:row.data.turn,mechanics,labels:row.data.labels,...marked,play_language:row.data.play_language??language??'en'}}};
 }
-export async function readColdSheet(repo:string, context:CocBinding, previewRevision?:number):Promise<unknown> {
-  return callColdKernel(repo, context.home, previewRevision===undefined?'table.view':'setup.previewed', {campaign:context.campaign,...(previewRevision===undefined?{}:{revision:previewRevision})});
+export async function readColdSheet(repo:string, context:CocBinding, previewRevision?:number, env:NodeJS.ProcessEnv=process.env):Promise<unknown> {
+  return callColdKernel(repo, context.home, previewRevision===undefined?'table.view':'setup.previewed', {campaign:context.campaign,...(previewRevision===undefined?{}:{revision:previewRevision})}, env);
 }
 /** Host management can work before a Keeper exists; this never opens a fictional turn. */
-export async function callColdKernel(repo:string, home:string, method:string, params:Record<string,unknown>):Promise<unknown> {
+export async function callColdKernel(repo:string, home:string, method:string, params:Record<string,unknown>, env:NodeJS.ProcessEnv=process.env):Promise<unknown> {
   const client=new KernelClient({command:['uv','run','--frozen','python','-m','coc.rpc','--workspace',home,'--content',join(repo,'content')],cwd:repo,
-    env:{...process.env,PYTHONPATH:join(repo,'kernel'),PYTHONDONTWRITEBYTECODE:'1'} as Record<string,string>,timeoutMs:15000});
+    env:{...env,PYTHONPATH:join(repo,'kernel'),PYTHONDONTWRITEBYTECODE:'1'} as Record<string,string>,timeoutMs:15000});
   try {return await client.call(method,params);} finally {await client.close();}
 }

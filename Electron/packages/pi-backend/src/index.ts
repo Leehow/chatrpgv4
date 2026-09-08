@@ -2432,7 +2432,7 @@ export class PiHostBackend implements HostBackend {
     this.profileMode = options.profileMode ?? "default";
     this.resourceMode = options.resourceMode ?? "default";
     this.proc = options.spawn ?? (spawn as ProcFactory);
-    this.env = options.env ?? process.env;
+    this.env = { ...(options.env ?? process.env), ...(this.piCommand.env ?? {}) };
     this.revealPath = options.revealPath ?? defaultRevealPath;
     const queueRoot =
       options.agentDir || !options.sessionsRoot
@@ -8507,7 +8507,7 @@ export class PiHostBackend implements HostBackend {
         const request:Record<string,unknown> = isRecord(params) ? {...params} : {};
         delete request.campaign;
         if (context) request.campaign = context.campaign;
-        return {ok:true,data:await callColdKernel(repo,context?.home ?? resolve(this.env.PI_COC_HOME || repo),method,request)};
+        return {ok:true,data:await callColdKernel(repo,context?.home ?? resolve(this.env.PI_COC_HOME || repo),method,request,this.env)};
       } catch(error) {return settingsDenied("mods_failed",error instanceof Error ? error.message : String(error));}
     }
     if(id==='coc-keeper' && (method==='draft-previewed'||method==='draft-presentation')) {
@@ -8524,7 +8524,7 @@ export class PiHostBackend implements HostBackend {
         try {return {ok:true,data:this.cocOnboarding.presentationStatus({campaign:binding.campaign,revision:Number(revision),play_language:binding.play_language,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})};}
         catch(error){return settingsDenied('presentation_failed',error instanceof Error?error.message:String(error));}
       }
-      try {return {ok:true,data:await readColdSheet(join(this.managedNodeModulesRoot,'..'),binding,Number(revision))};}
+      try {return {ok:true,data:await readColdSheet(join(this.managedNodeModulesRoot,'..'),binding,Number(revision),this.env)};}
       catch(error){if((error as any)?.code==='idempotency_conflict')return {ok:true,data:{superseded:true}};return settingsDenied('preview_failed',error instanceof Error?error.message:String(error));}
     }
     if (id === "coc-keeper" && ["sheet","choose"].includes(method) && !(isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim())) {
@@ -8561,7 +8561,7 @@ export class PiHostBackend implements HostBackend {
           if (!context) return {ok:true,data:{status:"unbound",view:null,campaign:null}};
           try {
             if (!this.managedNodeModulesRoot) throw new Error("Canonical runtime is unavailable");
-            const view=await readColdSheet(join(this.managedNodeModulesRoot ?? "", ".."),context);
+            const view=await readColdSheet(join(this.managedNodeModulesRoot ?? "", ".."),context,undefined,this.env);
             try {
               const folder=join(context.home,'.coc/campaigns',context.campaign);
               const meta=JSON.parse(await fs.readFile(join(folder,'campaign.json'),'utf8'));

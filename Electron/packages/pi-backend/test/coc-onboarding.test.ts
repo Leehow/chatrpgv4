@@ -74,6 +74,14 @@ it('conversation binding is idempotent and never creates an investigator',async(
   const {host,home}=await service();
   const catalog=await host.invoke({action:'catalog'},'one',model);
   expect(catalog.presets.some((p:any)=>p.id==='the-haunting')).toBe(true);
+  // §content/starters is a build directory: only a starter that ships
+  // `starter-listing.json` with `listed: true` is put in front of players.
+  expect(catalog.presets.map((p:any)=>p.id)).toEqual(['the-haunting']);
+  expect(catalog.presets[0].title).toBe('鬼屋');
+  expect(catalog.presets[0].blurb).toContain('波士顿');
+  const english=await host.invoke({action:'catalog',play_language:'en'},'one',model);
+  expect(english.presets[0].title).toBe('The Haunting');
+  expect(english.presets[0].blurb).toContain('Boston, 1920');
   let job=await host.invoke({action:'select',source:'starter',module_id:'the-haunting',name:'The Haunting',play_language:'en'},'one',model);
   const deadline=Date.now()+10000;
   while(job.state==='preparing'&&Date.now()<deadline){await new Promise(r=>setTimeout(r,50));job=await host.invoke({action:'status',id:job.id},'one',model)}
@@ -96,4 +104,21 @@ it('conversation binding is idempotent and never creates an investigator',async(
   const {readdir:files}=await import('node:fs/promises');
   expect((await files(join(home,'.coc/campaigns',first.campaign,'party'))).filter(x=>x.endsWith('.json'))).toHaveLength(0);
   await expect(host.invoke({action:'create',id:job.id,character:{name:'Forbidden',occupation:'Journalist'}},'one',model)).rejects.toThrow('Unknown onboarding action');
+});
+it('hides only a finished preparation, and a hidden job stays the current import',async()=>{
+  const {host,home}=await service();
+  const pending:Array<{action:string;resolve:(value:any)=>void}>=[];
+  vi.spyOn(host as any,'run').mockImplementation((action:any)=>new Promise(resolve=>pending.push({action,resolve})));
+  const job=await host.invoke({action:'select',source:'module',module_id:'book-1',name:'Book'},'one',model);
+  // While preparation runs the overlay carries pause, resume and retry: it cannot be hidden.
+  await expect(host.invoke({action:'hide',id:job.id},'one',model)).rejects.toThrow('opening is ready');
+  pending.shift()!.resolve({module_id:'book-1',guidance:{scene:'Dock'},guidance_key:'a'.repeat(64),opening_ready:true});
+  await new Promise(resolve=>setTimeout(resolve,0));
+  const hidden=await host.invoke({action:'hide',id:job.id},'one',model);
+  expect(hidden.hidden).toBe(true);
+  expect(JSON.parse(await readFile(join(home,'.coc/imports',job.id,'job.json'),'utf8')).hidden).toBe(true);
+  const current=await host.invoke({action:'current'},'one',model);
+  expect(current.current_import.id).toBe(job.id);
+  expect(current.current_import.hidden).toBe(true);
+  expect(current.current_import.preparation.opening.state).toBe('ready');
 });

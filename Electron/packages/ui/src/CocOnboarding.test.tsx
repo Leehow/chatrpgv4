@@ -4,6 +4,8 @@ import {render,screen,fireEvent,waitFor,cleanup} from '@testing-library/react';
 import {afterEach,it,expect,vi} from 'vitest';
 import {CocOnboarding} from './CocOnboarding';
 
+type Row=Record<string,any>;
+
 afterEach(()=>{cleanup();localStorage.clear()});
 it('shows three scenario entries and an honest empty prepared library',async()=>{
   const invokeExtension=vi.fn(async()=>({ok:true,data:{presets:[],modules:[],occupations:[]}}));
@@ -12,7 +14,21 @@ it('shows three scenario entries and an honest empty prepared library',async()=>
   expect(screen.getByRole('button',{name:/上传 PDF/})).toBeTruthy();
   fireEvent.click(screen.getByRole('button',{name:/选择已解析剧本/}));
   await waitFor(()=>expect(screen.getByText('还没有已解析的剧本')).toBeTruthy());
-  expect(invokeExtension).toHaveBeenCalledWith('coc-keeper','onboarding',{action:'catalog'},{sessionId:'new'});
+  expect(invokeExtension).toHaveBeenCalledWith('coc-keeper','onboarding',{action:'catalog',play_language:'zh-Hans'},{sessionId:'new'});
+});
+it('lists a starter by its authored blurb, not its folder slug, and re-reads the catalog in the chosen play language',async()=>{
+  const cards:Record<string,Row[]>={'zh-Hans':[{id:'the-haunting',title:'鬼屋',blurb:'1920 年的波士顿，房东雇你查清一栋没人住得下去的老宅。'}],
+    en:[{id:'the-haunting',title:'The Haunting',blurb:'Boston, 1920. A landlord hires you to find out what is wrong with the house nobody will keep.'}]};
+  const invokeExtension=vi.fn(async(_id:string,_method:string,p:any)=>({ok:true,data:{presets:cards[p.play_language]||[],modules:[],occupations:[]}}));
+  render(<CocOnboarding host={{invokeExtension} as any} sessionId="new"/>);
+  fireEvent.click(screen.getByRole('button',{name:/选择预设剧本/}));
+  expect(await screen.findByText('鬼屋')).toBeTruthy();
+  expect(screen.getByText(/1920 年的波士顿/)).toBeTruthy();
+  expect(screen.queryByText(/预设 · the-haunting/)).toBeNull();
+  fireEvent.change(screen.getByLabelText('游玩语言'),{target:{value:'en'}});
+  expect(await screen.findByText('The Haunting')).toBeTruthy();
+  expect(screen.getByText(/A landlord hires you/)).toBeTruthy();
+  expect(screen.queryByText('鬼屋')).toBeNull();
 });
 it('automatically opens the existing conversation after preparation without a character form',async()=>{
   const invokeExtension=vi.fn(async(_id,_method,p)=>({ok:true,data:p.action==='catalog'?{presets:[{id:'the-haunting',title:'The Haunting'}],modules:[],occupations:[]}:p.action==='select'?{id:'import',name:'The Haunting',state:'ready'}:{id:'import',name:'The Haunting',state:'conversing'}}));

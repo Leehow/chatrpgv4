@@ -1693,8 +1693,9 @@ campaign's `play_language`. Canonical English rules names and kebab handles are
 the machine's vocabulary and stop at the projection boundary. Three player
 surfaces were showing handles because the projection had nothing else to give.
 
-`table.view.labels` maps canonical characteristic abbreviations and skill names
-to the rules data's own `localized_labels` for this campaign's `play_language`.
+`table.view.labels` maps canonical characteristic abbreviations, their full names (a
+characteristic check is filed under "Appearance", not "APP"), and skill names to the rules
+data's own `localized_labels` for this campaign's `play_language`.
 It is empty for `en`, whose canonical names already are the player's, and it
 carries only terms that language actually renames. The glossary is read from the
 rules tables; §16.1 forbids one written in code, and a name the data does not
@@ -1739,7 +1740,10 @@ Keeper with the main session as player, as explicitly requested for this slice.
 The local App embeds only the frontend. A packaged `pi-coc-runtime.json` points
 to the canonical checkout and installed Node executable; the checkout and its
 Python/Pi dependencies must remain available. No credentials enter the bundle.
-The local canonical artifact is `build/PipiCOC.app` in this checkout.
+The build artifact is `build/PipiCOC.app`; the installed App is `/Applications/PipiCOC.app`.
+Keeper, preparation workers and cold UI kernel reads share the resolved command
+environment, including the packaged tool PATH. Finder launches must not depend
+on an interactive shell environment. This remains a local development package.
 
 The frontend's `text` stream event accepts `replace: true` for an authoritative
 final message that differs from its streamed draft. Replacement is scoped to the
