@@ -1483,6 +1483,14 @@ Opening/detail now queue directly without all-page navigation. One tool-enabled 
 
 Source image cache entries and readable view paths publish by atomic rename; the private pdf tool verifies image bytes before delivery. Every new image reaches the provider before history eviction. Each reviewer cites only images it received. Failed transport/output units retry once in isolated attempts; semantic findings return to source-based repair. Existing leases, cancellation, additive conflicts and source gates remain binding.
 
+The reader host distinguishes Pi's transient provider errors from the final child
+outcome. A later successful assistant message clears the earlier provider error;
+an unrecovered terminal error still fails the attempt even if the child exits zero.
+Malformed events, observer failures and evidence-log failures remain fatal. Author
+and reviewer observers collect source evidence without prematurely failing on a
+retryable message. Retain the complete error/retry/success event stream. This avoids
+repeating successful reading after Pi has already recovered a provider failure.
+
 ### 22.1 来源、页与索引
 
 来源存于 `.coc/modules/<module_id>/source.pdf`。宿主 PDF.js 读取元数据并计算原文件摘要；内核绑定时重算文件字节摘要，校验元数据形状，不解析 PDF，也不声称独立核实 PDF 页数。页数的正确性由宿主渲染验收证明。

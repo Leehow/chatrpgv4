@@ -11,6 +11,24 @@ test('review grouping retains numeric children and critical nested pointers',()=
  assert.deepEqual(groups,[['/nodes/0','/nodes/0/properties/mechanics/HP','/nodes/0/properties/mechanics']]);
 });
 
+test('a source reviewer keeps recovered provider errors as evidence without repeating the review',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-review-recovered-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ let runs=0;
+ const pages=await reviewCandidate({cwd,task:{},draft:{nodes:[{properties:{}}],claims:[]},instructions:'unused',round:1,
+  model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,progress(){},record(){},
+  async run(request){
+   runs++;
+   request.onEvent({type:'message_end',message:{role:'assistant',stopReason:'error',errorMessage:'Provider 500'}});
+   request.onEvent({type:'auto_retry_end',success:true});
+   request.onEvent({type:'tool_execution_end',toolCallId:'page-call',isError:false,result:{details:{kind:'source_pages',observations:[{page:1}]}}});
+   await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['page-call']})+'\n');
+   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{path:'/nodes/0',source_refs:[{page:1}],verdict:'supported',reason:'Fixture evidence'}],missing:[]}));
+   return {ok:true,ms:1,stderr:''};
+  }});
+ assert.equal(runs,1);
+ assert.deepEqual(pages,[1]);
+});
+
 test('forty source reviewers run concurrently and all owned children drain on cancellation',async t=>{
  const cwd=await mkdtemp(join(tmpdir(),'coc-review-pool-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
  const abort=new AbortController();let active=0,peak=0;

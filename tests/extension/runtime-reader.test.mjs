@@ -53,6 +53,29 @@ child.once('message',()=>{
   return executable;
 }
 
+test("reader provider retries preserve recovery while terminal and malformed streams fail", async t => {
+  const error = {type:"message_end", message:{role:"assistant", stopReason:"error", errorMessage:"Provider 500: Auth context expired"}};
+  const success = {type:"message_end", message:{role:"assistant", stopReason:"toolUse", content:[]}};
+  for (const sample of [
+    {name:"recovered", events:[error, {type:"auto_retry_start",attempt:1}, success, {type:"auto_retry_end",success:true,attempt:1}], ok:true},
+    {name:"terminal", events:[success, error, {type:"auto_retry_end",success:false,finalError:"Provider retry exhausted"}], ok:false, reason:/Provider retry exhausted/},
+    {name:"malformed", events:[error, success], malformed:true, ok:false, reason:/unreadable reader event/},
+  ]) {
+    await t.test(sample.name, async t => {
+      const home = await temporary(t), executable = join(home, "events.mjs"), eventLog = join(home, "events.jsonl");
+      await writeFile(executable, (sample.malformed ? "console.log('not-json');\n" : "")
+        + sample.events.map(event => `console.log(${JSON.stringify(JSON.stringify(event))});`).join("\n"));
+      const context = composeRuntimeContext({owner:"preparation", home}, options({PI_COC_READER_CMD:JSON.stringify([process.execPath, executable])}));
+      const outcome = await runReader({cwd:home, brief:"Run the event fixture", eventLog}, context);
+      assert.equal(outcome.ok, sample.ok, JSON.stringify(outcome));
+      if (sample.reason) assert.match(outcome.error, sample.reason);
+      const logged = (await readFile(eventLog,"utf8")).trim().split("\n").map(line => JSON.parse(line));
+      assert.equal(logged.length, sample.events.length);
+      assert.equal(logged[0].message.errorMessage ?? logged[1].message.errorMessage, error.message.errorMessage);
+    });
+  }
+});
+
 test("reader jobs preserve tool flags and captured deployment state across ambient changes", async t => {
   const home = await temporary(t), content = join(home, "selected content"), cwd = join(home, "attempt one");
   await mkdir(join(content, "setup"), { recursive: true });
