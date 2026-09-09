@@ -315,3 +315,51 @@ it('supports legacy weapon fields and preserves supplied quantities without inve
  expect(row.textContent).toContain('当前弹药0');
  expect(row.textContent).not.toContain('弹匣容量');
 });
+
+/**
+ * A paper's public view is a paragraph of description, a condition and a few traits, and three of
+ * them filled the sidebar. Everything past the name now folds away by default, the way a clue
+ * folds; the description, which the definition also lists among its player fields, is printed
+ * once; and the paper button stays on the folded line, because a fold must never stand between
+ * the player and their own writing.
+ */
+describe('a possession folds everything past its name', () => {
+  const paper = { name: '林岚的记事本', category: 'document', description: '一本口袋记事本，内页全空。',
+    parameters: { description: '一本口袋记事本，内页全空。' }, state: { condition: 'intact' }, traits: [],
+    document: { presentation: 'plain', modified: false } };
+  const carrying = () => view({ investigators: [{ ...investigator,
+    equipment: ['大衣', { name: '林岚的记事本', quantity: 1 }], objects: [paper] }] });
+
+  it('keeps name, count and the paper button on the line and folds the rest away closed', async () => {
+    render(<Panel api={host({ ok: true, data: { status: 'ready', view: carrying(), campaign: 'c1' } })} />);
+    const row = (await screen.findByText('林岚的记事本')).closest('li')!;
+    const fold = row.querySelector('details.coc-inventory-fold') as HTMLDetailsElement;
+    expect(fold.open).toBe(false);
+    const summary = fold.querySelector('summary')!;
+    expect(summary.textContent).toContain('x1');
+    expect(summary.querySelector('button.coc-inventory-document')?.textContent).toContain('翻阅与书写');
+    expect(fold.querySelector('.coc-inventory-body')?.textContent).toContain('intact');
+    // A bare entry has nothing to open into and stays a plain line.
+    expect(screen.getByText('大衣').closest('li')!.querySelector('details')).toBeNull();
+  });
+
+  it('prints the description once, not again as a parameter', async () => {
+    render(<Panel api={host({ ok: true, data: { status: 'ready', view: carrying(), campaign: 'c1' } })} />);
+    const row = (await screen.findByText('林岚的记事本')).closest('li')!;
+    expect(row.textContent!.split('一本口袋记事本，内页全空。').length - 1).toBe(1);
+    expect(Array.from(row.querySelectorAll('dt')).map(el => el.textContent)).not.toContain('描述');
+  });
+
+  it('opens the paper from the folded line without unfolding it', async () => {
+    render(<Panel api={host({ ok: true, data: { status: 'ready', view: carrying(), campaign: 'c1' } })} />);
+    const row = (await screen.findByText('林岚的记事本')).closest('li')!;
+    const fold = row.querySelector('details') as HTMLDetailsElement;
+    fireEvent.click(row.querySelector('summary')!);
+    expect(fold.open).toBe(true);
+    fireEvent.click(row.querySelector('summary')!);
+    expect(fold.open).toBe(false);
+    fireEvent.click(row.querySelector('button.coc-inventory-document')!);
+    expect(fold.open).toBe(false);
+    await screen.findByText('随身纸面');
+  });
+});

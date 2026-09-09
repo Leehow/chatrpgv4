@@ -91,6 +91,17 @@ const CSS = `
 .coc-inventory-params dd{margin:0;color:var(--text-strong);font-size:13px;line-height:1.6;
   overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 .coc-inventory-wide{grid-column:1/-1}
+/* An entry that carries more than its name -- a description, where it is kept, a parameter
+   grid -- folds all of that behind the name line, as a clue folds behind its name: the list
+   reads as a list, and one entry opens at a time. A bare entry stays a plain line, because
+   there is nothing to open into. The paper button stays on the name line, so a fold never
+   stands between the player and their own writing. */
+.coc-inventory-fold{display:block}
+.coc-inventory-fold>summary{cursor:pointer;list-style:none;border-radius:4px}
+.coc-inventory-fold>summary::-webkit-details-marker{display:none}
+.coc-inventory-trail{flex:none;display:inline-flex;align-items:baseline;gap:8px}
+.coc-inventory-trail::after{content:"▸";color:var(--subtle);font-size:10px;transition:transform .12s ease}
+.coc-inventory-fold[open] .coc-inventory-trail::after{transform:rotate(90deg)}
 .coc-finance{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px}
 .coc-finance .coc-line{display:block;min-width:0;padding:0 0 10px}
 .coc-finance .coc-line-key{display:block;margin-bottom:4px;color:var(--muted);font-size:11px}
@@ -585,24 +596,41 @@ export function createComponent(React) {
     const valueText=value=>typeof value==="boolean"?(value?t.itemYes:t.itemNo):Array.isArray(value)?value.map(valueText).join(" / "):term(text(value));
     return h(Section, { title: props.title },
       h("ul",{className:"coc-inventory"},list.map((item,index)=>{
-        const object=(props.objects || []).find(row=>row.name===(isRecord(item)?text(item.name):text(item)));
-        const writable=(props.documents || props.objects || []).find(row=>row.document&&row.name===(isRecord(item)?text(item.name):text(item)));
+        const name=isRecord(item)?text(item.name):text(item);
+        const object=(props.objects || []).find(row=>row.name===name);
+        const writable=(props.documents || props.objects || []).find(row=>row.document&&row.name===name);
         const merged=object&&isRecord(item)?{...item,...object.parameters,...(object.state?.ammo!==null&&object.state?.ammo!==undefined?{ammo:object.state.ammo}:{})}:item;
         const line=itemLine(merged,term);
+        // A definition's public view carries its description as prose and, when `description` is
+        // also among its player fields, once more as a parameter. The prose is printed; the
+        // parameter only stays when it says something the prose does not.
+        const description=object?.description?text(object.description):"";
+        if(description)line.details=line.details.filter(({key,value})=>key!=="description"||text(value)!==description);
         if(object){
           for(const trait of object.traits || []) line.details.push({key:`trait:${trait.name}`,label:term(trait.name),value:`${trait.value}${trait.unit?' '+trait.unit:''}`});
           for(const key of ['condition','charges']) if(object.state?.[key]!==null&&object.state?.[key]!==undefined) line.details.push({key,value:object.state[key]});
         }
-        return h("li",{className:"coc-inventory-entry",key:index,"data-detailed":line.details.length>0?"true":"false"},
-          h("div",{className:"coc-inventory-heading"},writable && props.onOpenDocument
-            ? h("button",{type:"button",className:"coc-inventory-document",onClick:()=>props.onOpenDocument(writable.name)},
-                h("span",{className:"coc-inventory-name"},line.title),h("small",null,props.paperLabel))
-            : h("span",{className:"coc-inventory-name"},line.title),
-            line.quantity!==undefined?h("span",{className:"coc-inventory-quantity"},`x${line.quantity}`):null),
-          object?.description?h("p",{className:"coc-sheet-note",style:{margin:"6px 0"}},object.description):null,
-          writable?.container?h("p",{className:"coc-sheet-note"},props.insideLabel," ",term(writable.container)):null,
-          line.details.length?h("dl",{className:"coc-inventory-params"},line.details.map(({key,label,value,wide})=>
-            h("div",{key,className:wide?"coc-inventory-wide":undefined},h("dt",null,label||t.itemFields[key]||term(key)),h("dd",null,valueText(value))))):null);
+        const nameNode=writable && props.onOpenDocument
+          ? h("button",{type:"button",className:"coc-inventory-document",onClick:event=>{
+              // On a folded line the paper's own click must not also toggle the fold.
+              event.preventDefault();props.onOpenDocument(writable.name);}},
+              h("span",{className:"coc-inventory-name"},line.title),h("small",null,props.paperLabel))
+          : h("span",{className:"coc-inventory-name"},line.title);
+        const quantity=line.quantity!==undefined?h("span",{className:"coc-inventory-quantity"},`x${line.quantity}`):null;
+        const body=[
+          description?h("p",{className:"coc-sheet-note",style:{margin:"6px 0"},key:"description"},description):null,
+          writable?.container?h("p",{className:"coc-sheet-note",key:"container"},props.insideLabel," ",term(writable.container)):null,
+          line.details.length?h("dl",{className:"coc-inventory-params",key:"params"},line.details.map(({key,label,value,wide})=>
+            h("div",{key,className:wide?"coc-inventory-wide":undefined},h("dt",null,label||t.itemFields[key]||term(key)),h("dd",null,valueText(value))))):null,
+        ].filter(Boolean);
+        // Keyed by name so an entry that changes place is drawn afresh (closed) rather than
+        // inheriting the open fold of whatever stood at its index before.
+        return h("li",{className:"coc-inventory-entry",key:`${line.title}:${index}`,"data-detailed":line.details.length>0?"true":"false"},
+          body.length
+            ? h("details",{className:"coc-inventory-fold"},
+                h("summary",{className:"coc-inventory-heading"},nameNode,h("span",{className:"coc-inventory-trail"},quantity)),
+                h("div",{className:"coc-inventory-body"},body))
+            : h("div",{className:"coc-inventory-heading"},nameNode,quantity));
       })));
   }
 
