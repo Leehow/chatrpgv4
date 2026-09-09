@@ -1,12 +1,16 @@
 import type { Readable, Writable } from "node:stream";
 import { internalError, pythonStringRepr, RpcError } from "./errors.js";
-import type { HandlerGroup } from "./handlers.js";
+import type { HandlerGroup, ProgressReporter } from "./handlers.js";
 import { compareUnicode, isJsonObject, parsePythonJson, PythonJsonDecodeError, pythonJsonDumps, utf8Bytes, type JsonValue, type ReadonlyJson } from "./json.js";
 import { isBlankLine } from "./snapshots.js";
+import { nowIso } from "./write/store.js";
 
 export type Diagnostic = (message: string) => void;
 
-export async function handleLine(line: string, methods: HandlerGroup, diagnostic: Diagnostic = () => {}): Promise<ReadonlyJson> {
+/** Receives one progress frame object; the transport writes it ahead of the final response. */
+export type ProgressFrameSink = (frame: ReadonlyJson) => void;
+
+export async function handleLine(line: string, methods: HandlerGroup, diagnostic: Diagnostic = () => {}, progressSink?: ProgressFrameSink): Promise<ReadonlyJson> {
   let requestId: JsonValue = null;
   try {
     const request = parsePythonJson(line);
@@ -20,7 +24,12 @@ export async function handleLine(line: string, methods: HandlerGroup, diagnostic
     if (!Object.hasOwn(methods, method)) {
       throw new RpcError("unknown_method", `unknown method ${pythonStringRepr(method)}`, { details: { methods: Object.keys(methods).sort(compareUnicode) } });
     }
-    const result = await methods[method](params);
+    // Progress frames are strictly opt-in: without top-level "progress": true no reporter exists
+    // and the byte stream is exactly what clients without the flag have always seen (contract §1).
+    const report: ProgressReporter | undefined = request.progress === true && progressSink
+      ? (stage, detail) => progressSink({ id: requestId, progress: { stage, ...(detail ? { detail } : {}), at: nowIso() } })
+      : undefined;
+    const result = await methods[method](params, report);
     return { id: requestId, ok: true, result };
   } catch (error) {
     let rpcError: RpcError;
@@ -53,10 +62,15 @@ async function* utf8Lines(input: Readable): AsyncGenerator<string> {
 
 /** Arrival order, response writes and EOF draining all belong to one loop. */
 export async function serve(input: Readable, output: Writable, methods: HandlerGroup, diagnostic: Diagnostic = () => {}): Promise<void> {
+  const writeLine = (value: ReadonlyJson) => new Promise<void>((resolve, reject) =>
+    output.write(utf8Bytes(pythonJsonDumps(value) + "\n"), error => error ? reject(error) : resolve()));
   for await (const line of utf8Lines(input)) {
     if (isBlankLine(line)) continue;
-    const response = await handleLine(line, methods, diagnostic);
-    const bytes = utf8Bytes(pythonJsonDumps(response) + "\n");
-    await new Promise<void>((resolve, reject) => output.write(bytes, error => error ? reject(error) : resolve()));
+    // Frames fire while the handler still runs; the stream keeps every frame ahead of the
+    // response that settles the call.
+    const writes: Promise<void>[] = [];
+    const response = await handleLine(line, methods, diagnostic, frame => { writes.push(writeLine(frame)); });
+    writes.push(writeLine(response));
+    await Promise.all(writes);
   }
 }

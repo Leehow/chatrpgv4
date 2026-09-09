@@ -5,7 +5,10 @@ import type { JsonObject, ReadonlyJson } from "./json.js";
 import { withExclusiveLock } from "./locks.js";
 
 export type KernelResult = { readonly [key: string]: ReadonlyJson };
-export type KernelHandler = (params: JsonObject) => KernelResult | Promise<KernelResult>;
+/** Optional second handler argument: fires one progress frame per real stage boundary, and only
+ *  exists when the request opted in with top-level "progress": true (contract §1). */
+export type ProgressReporter = (stage: string, detail?: string) => void;
+export type KernelHandler = (params: JsonObject, report?: ProgressReporter) => KernelResult | Promise<KernelResult>;
 export type HandlerGroup = Readonly<Record<string, KernelHandler>>;
 
 /** The current Python public method vocabulary, including unmigrated methods. */
@@ -23,11 +26,11 @@ export const KNOWN_METHODS = Object.freeze([
   "mods.install", "mods.defaults", "mods.context", "mods.job", "mods.accept",
 ] as const);
 
-async function guardCampaign(context: KernelContext, params: JsonObject, handler: KernelHandler): Promise<KernelResult> {
+async function guardCampaign(context: KernelContext, params: JsonObject, handler: KernelHandler, report?: ProgressReporter): Promise<KernelResult> {
   const campaign = params.campaign;
   if (typeof campaign !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(campaign) ||
-    !await context.snapshots.isFile(join(context.campaignsRoot, campaign, "campaign.json"))) return handler(params);
-  return withExclusiveLock(context.locks, join(context.stateRoot, "locks", `${campaign}.lock`), async () => handler(params), {
+    !await context.snapshots.isFile(join(context.campaignsRoot, campaign, "campaign.json"))) return handler(params, report);
+  return withExclusiveLock(context.locks, join(context.stateRoot, "locks", `${campaign}.lock`), async () => handler(params, report), {
     timeoutMs: context.campaignLockTimeoutMs,
     // A refusal that names the campaign and the reason is the difference between "retry when the
     // turn holding it ends" and an internal error the caller can only shrug at.
@@ -46,7 +49,7 @@ export function assembleHandlers(context: KernelContext, ...groups: readonly Han
       if (!KNOWN_METHODS.includes(name as typeof KNOWN_METHODS[number])) throw new TypeError(`undeclared kernel method ${name}`);
       if (Object.hasOwn(selected, name)) throw new TypeError(`duplicate kernel method ${name}`);
       if (typeof handler !== "function") throw new TypeError(`kernel method ${name} must be a function`);
-      selected[name] = params => guardCampaign(context, params, handler);
+      selected[name] = (params, report) => guardCampaign(context, params, handler, report);
     }
   }
   for (const name of KNOWN_METHODS) {

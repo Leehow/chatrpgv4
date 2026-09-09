@@ -2,7 +2,7 @@
 import { mkdir, rm, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { KernelContext } from '../context.js';
-import type { HandlerGroup } from '../handlers.js';
+import type { HandlerGroup, ProgressReporter } from '../handlers.js';
 import type { TurnTransaction } from '../transactions.js';
 import { RpcError, internalError } from '../errors.js';
 import { sha256Text,isJsonObject } from '../json.js';
@@ -746,13 +746,15 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         }, started.callId);
         return result;
     }
-    async function narrate(params: Row): Promise<Row> {
+    async function narrate(params: Row, report?: ProgressReporter): Promise<Row> {
         const { campaign, snapshot, module } = await load(params), turn = snapshot.turn;
         const started = await createTurnTransaction(campaign, snapshot.world, turn).beginWrite('table.narrate', params, {
             allowOpening: true
         });
         if (started.kind === 'replay')
             return started.result;
+        // Progress stages follow the contract §5 closed enum; each fires once at the real boundary.
+        report?.('load');
         preflightCampaign(snapshot.meta, snapshot.world, turn, snapshot.party);
         await validateMods(snapshot.world);
         const text = required(params, 'text')!, receipts = [...array(turn.receipts)], placed = bindMarkers(text, receipts), rendered = truth(placed) ? stripMarkers(text) : text;
@@ -764,8 +766,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             text: rendered
         });
         await stanceTable(context);
+        report?.('validate');
         const projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts)), n = number(turn.turn), receipt = `turn:${n}`, world = tableSnapshot(snapshot, module.graph);
         const factLists = facts(module.graph, snapshot.world, snapshot.party, receipts, world, turn.player_text), labels = await playerGlossary(context, language);
+        report?.('project');
         const result: Row = {
             rendered_text: rendered,
             mechanics: projected,
@@ -826,6 +830,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 status: snapshot.world.ending.scope === 'chapter' ? 'active' : 'completed',
                 ending: snapshot.world.ending
             });
+        report?.('write');
         let sha: string;
         try {
             sha = await commit(context, campaign.id, `turn ${n}: ${chars(words(text), 60)}`);
@@ -851,6 +856,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 }
             });
         }
+        // A failed commit throws above, so this frame only ever announces a real commit.
+        report?.('commit');
         record.commit = sha;
         record.calls[started.callId].result.commit = sha;
         await campaign.writeTurnRecord(record);
@@ -877,6 +884,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             }
             await postStep('checkpoint',checkpoint);
         }
+        report?.('poststep');
         return {...result,commit:sha,...(moved?{worldline:moved}:{})};
     }
     return {
