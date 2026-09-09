@@ -6,6 +6,13 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 
+/** One progress frame from contract §1: `{"id", "progress": {stage, detail?, at}}`. */
+export interface KernelProgressFrame {
+	stage: string;
+	detail?: string;
+	at?: string;
+}
+
 export interface KernelErrorPayload {
 	code: string;
 	message: string;
@@ -63,6 +70,8 @@ interface Pending {
 	resolve: (value: unknown) => void;
 	reject: (error: Error) => void;
 	timer: NodeJS.Timeout;
+	/** Set only when the call opted into progress frames (contract §1). */
+	onProgress?: (frame: KernelProgressFrame) => void;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -96,8 +105,8 @@ export class KernelClient {
 	}
 
 	/** Executed one at a time in arrival order: the extension serialises them. */
-	call<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-		const run = () => this.dispatch<T>(method, params);
+	call<T = unknown>(method: string, params: Record<string, unknown> = {}, onProgress?: (frame: KernelProgressFrame) => void): Promise<T> {
+		const run = () => this.dispatch<T>(method, params, onProgress);
 		const result = this.queue.then(run, run);
 		this.queue = result.then(
 			() => undefined,
@@ -206,6 +215,7 @@ export class KernelClient {
 			ok?: boolean;
 			result?: unknown;
 			error?: KernelErrorPayload;
+			progress?: unknown;
 		};
 		try {
 			payload = JSON.parse(line);
@@ -221,6 +231,19 @@ export class KernelClient {
 		const pending = this.pending.get(id);
 		if (!pending) {
 			// A response that arrived after its timeout: dropped.
+			return;
+		}
+		if (payload.progress !== undefined) {
+			// A progress frame (contract §1): it never settles the call, so the pending
+			// entry and its timeout stay untouched and the ok/error frame still decides.
+			const frame = payload.progress as Partial<KernelProgressFrame> | null;
+			if (!frame || typeof frame !== "object" || typeof frame.stage !== "string") {
+				this.options.onDiagnostic?.(`kernel progress frame is malformed: ${line.slice(0, 200)}`);
+			} else if (pending.onProgress) {
+				pending.onProgress(frame as KernelProgressFrame);
+			} else {
+				this.options.onDiagnostic?.(`kernel sent a progress frame to a call that did not ask for one: ${line.slice(0, 200)}`);
+			}
 			return;
 		}
 		this.pending.delete(id);
@@ -240,7 +263,7 @@ export class KernelClient {
 		);
 	}
 
-	private dispatch<T>(method: string, params: Record<string, unknown>): Promise<T> {
+	private dispatch<T>(method: string, params: Record<string, unknown>, onProgress?: (frame: KernelProgressFrame) => void): Promise<T> {
 		if (this.dead) {
 			return Promise.reject(new KernelError({ code: "internal", message: "the kernel has stopped and cannot be restarted" }));
 		}
@@ -265,7 +288,9 @@ export class KernelClient {
 		}
 		this.seq += 1;
 		const id = `x${this.seq}`;
-		const line = `${JSON.stringify({ id, method, params })}\n`;
+		// The progress flag sits at the top level, outside params, so it cannot enter the
+		// call_id idempotency hash (contract §1); it is sent only when the caller listens.
+		const line = `${JSON.stringify({ id, method, params, ...(onProgress ? { progress: true } : {}) })}\n`;
 		return new Promise<T>((resolve, reject) => {
 			const timer = setTimeout(() => {
 				this.pending.delete(id);
@@ -281,6 +306,7 @@ export class KernelClient {
 				resolve: resolve as (value: unknown) => void,
 				reject,
 				timer,
+				onProgress,
 			});
 			child.stdin?.write(line, (error) => {
 				if (!error) return;

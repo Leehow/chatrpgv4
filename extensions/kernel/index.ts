@@ -5,14 +5,15 @@
  */
 
 import type { ImageContent } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createRuntime, type HostRuntime } from "../../runtime/host.ts";
 export { kernelCommand } from "../../runtime/host.ts";
 import { cocHome, cocMode } from "../lanes/host.ts";
 import { extensionSurface } from "../ui/words.ts";
-import { type KernelClient, KernelError, isKernelError } from "./client.ts";
+import { type KernelClient, KernelError, type KernelProgressFrame, isKernelError } from "./client.ts";
+import { progressPartial } from "./progress.ts";
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 
@@ -647,6 +648,7 @@ export default function (pi: ExtensionAPI) {
 		toolCallId: string,
 		params: Record<string, unknown>,
 		signal?: AbortSignal,
+		onUpdate?: AgentToolUpdateCallback<Record<string, unknown>>,
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }> {
 		const state = table;
 		if (!state) {
@@ -659,6 +661,9 @@ export default function (pi: ExtensionAPI) {
 		}
 		const startedAt = new Date().toISOString();
 		const began = Date.now();
+		// Progress frames (contract §1) are requested only when the runtime gave us its
+		// update channel; each frame becomes one partial result on the tool status line.
+		const onProgress = onUpdate ? (frame: KernelProgressFrame) => onUpdate(progressPartial(frame)) : undefined;
 		try {
 			if (spec.name === "lookup" && params.kind === "source") {
 				if (!asString(params.query)?.trim()) throw new KernelError({
@@ -675,11 +680,11 @@ export default function (pi: ExtensionAPI) {
         if (Array.isArray(payload.effects)) payload.effects = payload.effects.map(effect => ({...(effect as Record<string, unknown>)}));
         await mods.prepare(spec.name, payload, signal);
       }
-			try { result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload)) ?? {}; }
+			try { result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress)) ?? {}; }
 			catch (failure) {
 				if (!(isKernelError(failure)) || failure.details?.reason !== "material_pending" || !reading || !readingModule) throw failure;
 				await reading.ensure(readingModule, { ...(failure.details.read as Record<string, unknown>), foreground: true }, signal);
-				result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload)) ?? {};
+				result = (await state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress)) ?? {};
 			}
 			if (spec.name === "lookup" && params.kind === "module" && params.question) {
 				result.note = "This is published graph material. Use lookup kind source only if an original-page recheck is needed.";
@@ -751,7 +756,7 @@ export default function (pi: ExtensionAPI) {
 			parameters: spec.parameters,
 			// The actions of a turn are ordered: run them serially, so the calls after narrate in the same batch can be stopped.
 			executionMode: "sequential",
-			execute: async (toolCallId, params, signal) => runTool(spec, toolCallId, params as Record<string, unknown>, signal),
+			execute: async (toolCallId, params, signal, onUpdate) => runTool(spec, toolCallId, params as Record<string, unknown>, signal, onUpdate),
 		});
 	}
 

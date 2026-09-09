@@ -16,6 +16,7 @@ PDF 直接阅读与按需构图的目标契约见 §22（2026-09-07，待实现�
 - 请求：`{"id": "<string>", "method": "<string>", "params": {...}}`。
 - 成功：`{"id": "<同请求>", "ok": true, "result": {...}}`。
 - 失败：`{"id": "<同请求>", "ok": false, "error": {"code": "<闭合枚举>", "message": "<给模型看的一句话>", "fix": "<可直接照做的修正，可省略>", "details": {...可省略}}}`。
+- 进度帧（本切片）：请求可带顶层字段 `"progress": true`（不进 `params`，不参与 `call_id` 的幂等哈希）。只在此标记存在时，内核才允许在最终响应之前发零或多条进度帧：`{"id": "<同请求>", "progress": {"stage": "<该方法小节的闭合枚举>", "detail"?: "<一句英文>", "at": "<iso>"}}`。进度帧不结算调用：客户端仍以 `ok`/`error` 帧为准；进度帧不得携带结果数据。未请求 `progress` 的调用永远收不到进度帧——旧客户端、驾驭器与 §23 的 Electron 桥的字节流形状不变。
 - 内核不并发处理请求：按到达顺序逐个执行。扩展负责序列化。
 - 内核崩溃或退出时扩展重新拉起并调用 `table.open`；所有状态都在磁盘上，内核进程无内存权威。
 
@@ -24,6 +25,12 @@ PDF 直接阅读与按需构图的目标契约见 §22（2026-09-07，待实现�
 Section 26 adds two closed host-document error codes: `not_owned` refuses access
 after ownership changes; `revision_conflict` refuses a stale document/worldline
 write while preserving the client draft. Hot and cold UI bridges retain these codes.
+
+### 1.1 内核的决定（进度帧）
+
+- **opt-in 而不是常开。** 进度帧只在请求带顶层 `"progress": true` 时发出：驾驭器、§23 的 Electron 桥与任何旧客户端的字节流一行不多，不需要同时改。字段放顶层而不进 `params`，是为了不碰 `call_id` 幂等哈希（§2）。
+- **帧是真实阶段边界，不是心跳。** 内核只在流水线真的走过一个阶段时发帧，不发定时器，不报「预计剩余」；慢的真相（比如 git 提交占大头）由帧间间隔自己说出来，不被平滑掉。
+- **Python 对照暂不发帧。** 生产内核是 `kernel-ts`；`kernel/coc/table.py` 的 RPC 对照保持一问一答，需要对照进度帧时另行补。
 
 ## 2. 标识法
 
@@ -193,7 +200,10 @@ params：`{"call_id", "text": "<本回合叙述>"}`（`placement` 已废止：�
 5. 写 `turns/<NNNN>.json`、逐字记录（keeper，写 rendered_text）、`turn-finalized` 事件。
 6. 同步 git 提交，提交信息 `turn <n>: <前 60 字>`；失败报 `commit_failed`，回合保持 `acting`，不递增。
 7. 成功后 `turn.json` 进 `awaiting_player`，`turn + 1`。
-result：`{"rendered_text": "<即 text，正文原样>", "mechanics": [...], "turn": int, "receipt": "turn:<n>", "commit": "<短 sha>", "facts": {...}, "extraction": {"job_id"}}`；`facts` 与 `extraction` 见 12.5 与 12.3。提交之后的链（检查点、episode、抽取任务）在 12.2–12.3，其中任何一步失败都不撤销已成功的提交：回合已关，失败只进遥测与 backlog。
+
+进度帧 stage 闭合枚举（请求带 `progress: true` 时，按流水线真实边界至多各发一次，顺序即下列顺序）：`load`（快照载入与幂等回放核对后）、`validate`（preflight、mods 校验、§16.3 语言脚本核过后）、`project`（mechanics 投影、facts、labels 生成后）、`write`（回合记录、逐字、`turn-finalized` 事件、下一回合游标落盘后）、`commit`（git 提交返回后；失败照发 `commit_failed` 错误帧，无 `commit` 帧）、`poststep`（提交后链——检查点、episode、世界线——处理完，最终结果帧之前）。帧是真实阶段边界不是心跳；早退路径（如幂等回放直接返回）可以一跳直达结果，一帧不发。
+
+result：`{"rendered_text": "<即 text，正文原样>"..., "mechanics": [...], "turn": int, "receipt": "turn:<n>", "commit": "<短 sha>", "facts": {...}, "extraction": {"job_id"}}`；`facts` 与 `extraction` 见 12.5 与 12.3。提交之后的链（检查点、episode、抽取任务）在 12.2–12.3，其中任何一步失败都不撤销已成功的提交：回合已关，失败只进遥测与 backlog。
 
 开桌回合（turn 0）：`table.open` 返回 `opening_needed: true` 时，扩展先让守秘人 `look`，再 `narrate` 开场；此时状态从 `awaiting_player` 直接允许 `narrate`，内核视作 turn 0 的关闭。
 
@@ -3257,3 +3267,49 @@ overwrite authored source, and none may retract it either.
 A Mod-namespaced `apply` (door 4) and call-named check values (door 3) are named
 here so they are not reinvented, and are not built in this version. A package that
 needs a value the book never gave has the Keeper play it without state.
+
+## 29. 宿主向记忆线：全图读取与桌级分支（2026-09-09）
+
+右侧栏「记忆线」面板的内核面：把战役的整条 git 记忆线（主线与所有世界线）按游戏内时钟画给玩家，并让玩家从历史节点开新线。设计见 `docs/specs/memory-line-panel.md`，桌级分支与法则二的关系见 `docs/adr/0004-host-level-branch.md`。两个方法都是**宿主向**的（同 `table.view` 一层）：守秘人工具表不变，仍只有七个动词。
+
+### 29.1 `table.graph`：全图读取
+
+- params：`{"campaign", "max_nodes"?: int}`；`max_nodes` 缺省 500，上限 1000。
+- 只读：不开桌、不掷骰、不写；冷进程（无桌）与活进程同答。ADR-0001 的「recall 不读 git 对象」约束的是守秘人读面；本方法与 29.2 是宿主方法，`parents` 只能来自 git，这条例外只给这两个方法。
+- result：
+
+```
+{"campaign", "active": "<线名>",
+ "lines": [{"name", "kind", "loop", "status", "last_turn", "last_commit",
+            "forked_from": {"line", "turn", "commit"} | null,
+            "parents": [{"line", "turn", "commit"}]}],   // merge 线才有 parents
+ "nodes": [{"sha", "turn": int | null, "clock": int, "when": {"y", "mo", "d", "hh", "mm"},
+            "kind": "setup" | "turn" | "worldline" | "merge",
+            "title", "at", "parents": ["<sha>"], "tip_of": ["<线名>"]}],
+ "truncated": bool}
+```
+
+- 节点是所有 `wl/*` 引用可达的提交，按 `at` 降序。`kind` 是机械分类（闭合集，不是语义判断）：提交信息以 `turn <n>:` 开头 → `turn`（`turn` 取 n）；父数 > 1 → `merge`；首条回合提交之前 → `setup`；其余（seal、落地、`loop <n> reset`）→ `worldline`。
+- `clock` 是该提交关闭时的**游戏内时钟**（分钟），`when` 是它按战役时钟锚点投影出的日历字段（与 §23 sheet 的 `at` 同一投影机器；面板不做时钟算术）。回合节点读该线 `turns/NNNN.json` 的世界快照；`worldline` 与 `merge` 节点取其落地回合的时钟；`setup` 节点取战役起始时钟。
+- git 读取必须批量（`cat-file --batch` 或同级手段）；每节点一次 `git show` 不合格。
+- 截断：节点总数超 `max_nodes` 时按 `at` 降序取前 `max_nodes` 并置 `truncated: true`；每条线的 tip 节点永远保留，即使因此略超上限。
+- 宿主按 §23 附 `ui`；内核不回 `ui`。
+
+### 29.2 `table.branch`：桌级从历史节点开线
+
+- params：`{"campaign", "commit": "<sha>", "name"?: "<线名>", "label"?: "<一句>"}`。
+- 这是**桌级动作**，与建战役、开桌同级：操作者是桌子前的人，不是守秘人。法则二（世界改变只经 `apply`）管的是模型；本方法不改任何已发生的事实——旧线的每个提交原样保留（证据永不删除），新线从历史节点继续。
+- 校验（任一不过整批不写）：
+  - `commit` 存在且从某条 `wl/*` 可达，否则 `invalid_params`（`details.commit` 带回所给值）。
+  - 桌子空闲：没有挂着未关回合的 `turn.json`；回合进行中报 `operation_in_progress`。
+  - 另一活进程持战役锁时报 `operation_in_progress`。
+  - `name` 缺省铸 `if-<forkturn>-<k>`（k 是该分叉回合上的序号）；显式 `name` 须合世界线名语法且不与现有线撞，撞名报 `invalid_params`。
+- 执行复用 §15.9 的迁移机器：必要时 seal 当前线 → 在 `commit` 上建 `wl/<name>` → 注册表加 `{"name", "kind": "if", "loop": 0, "forked_from": {"line", "turn", "commit"}, "seed": "sha256(\"<campaign>:<name>:<commit>\") 前 16 位", "status": "active", "last_turn", "last_commit", "created_at"}`，原活动线转 `dormant` → 检出 → 注册表覆盖写回 → 按新线种子与下一回合号重播 rng → 从分叉点的回合记录重建检查点。失败即回滚（检出回源线、删掉刚建的分支、注册表写回原样），遥测一行 `lane: worldline, op: branch, ok: false`。
+- 事件 `worldline-forked` 落在**新线**上，`turn` 取新线接下来要打的回合，`data.from` 指出从哪条线哪一回合来——与 §15.9 同一条规则。
+- 幂等：同 `(campaign, commit, name)` 重放返回同一形状：线已存在且 `forked_from.commit` 相同就不重复建线，只确保活动线是它（第一次调用的效果包含 `active = name`，重放把这一点补齐）。
+- result：`{"ok": true, "line": {"name", "kind": "if", "loop": 0, "forked_from": {...}}, "active": "<name>", "branched_from": {"line", "turn", "commit"}}`。
+- 换线通知：分支成功后下一次 `player_input` 的胶囊带一次性 `branched` 节 `{"name", "from_line", "from_turn"}`（内核置旗、胶囊读后清）；`worldlines` 节照常反映新线。宿主在会话里追加分水岭展示条目（§23 的 `coc-mechanics` 通道，投影 `{"kind": "worldline", "operation": "fork", "line", "from_line", "from_turn"}`），玩家由此在聊天流里看见分界。
+
+### 29.3 内核的决定
+
+（实现切片落地后记在这里。）
