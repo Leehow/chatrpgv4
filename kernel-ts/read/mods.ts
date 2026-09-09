@@ -300,16 +300,15 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
         unregistered_equipment: unregistered
     };
 }
-export function publicSheet(world: Row, view: Row): Row {
-    const result = clone(view),
-        data = row(world.objects),
+export function publicItems(world: Row, ownerId: string, includeContainedDocuments = false): Row[] {
+    const data = row(world.objects),
         definitions = row(data.definitions),
         instances = row(data.instances),
         items: Row[] = [];
     for (const item of values(instances)) {
-        const direct = item.owner.kind === "investigator" && item.owner.id === view.id;
+        const direct = item.owner.kind === "investigator" && item.owner.id === ownerId;
         if (!direct) {
-            if (!truth(item.document))
+            if (!includeContainedDocuments || !truth(item.document))
                 continue;
             let owner = item.owner;
             const seen = new Set<string>();
@@ -319,7 +318,7 @@ export function publicSheet(world: Row, view: Row): Row {
                 seen.add(owner.id);
                 owner = instances[owner.id].owner;
             }
-            if (owner.kind !== "investigator" || owner.id !== view.id)
+            if (owner.kind !== "investigator" || owner.id !== ownerId)
                 continue;
         }
         const definition = definitions[item.definition],
@@ -346,6 +345,10 @@ export function publicSheet(world: Row, view: Row): Row {
             } : {})
         });
     }
+    return items;
+}
+export function publicSheet(world: Row, view: Row): Row {
+    const result = clone(view), items = publicItems(world, view.id, true);
     result.objects = items;
     for (const item of items)
         if (item.container)

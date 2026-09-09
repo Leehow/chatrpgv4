@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import RpcClient
+from conftest import RpcClient, stating
 from rpc_support import differences, python_command, snapshot
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -104,6 +104,9 @@ CASES = {
     "completed-replay": [ordinary(), ordinary("t1-c2"), resolve("t1-c3", intent="idle"),
         ("table.resolve", {"campaign": "c1", "call_id": "t1-c4", "action": "bad"}),
         resolve("t1-c5", intent="montage", decision="missing")],
+    "replay-before-unrelated-session-read": [ordinary(),
+        {"damage": "save/combat.json", "value": "{bad json"}, ordinary(),
+        ordinary("t1-c2", modifiers={"bonus_dice": True})],
 }
 
 
@@ -163,12 +166,24 @@ def run_case(root, label, command, base, name):
     exchanges, snapshots = [], []
     try:
         for step in CASES[name]:
-            if isinstance(step, dict):
+            if isinstance(step, dict) and "damage" in step:
+                path = workspace / ".coc/campaigns/c1" / step["damage"]
+                if path.exists():
+                    (root / f"{label}-retained-before-damage.bin").write_bytes(path.read_bytes())
+                path.write_text(step["value"])
+            elif isinstance(step, dict):
                 exchanges.extend(client.exchanges)
                 client.close()
                 client = RpcClient(workspace, command=command, frozen_clock=True, env={"COC_KERNEL_SEED": seed})
             else:
-                client.call(*step)
+                method, params = step
+                if method == "table.narrate":
+                    result = client.ok(method, {**params, "text": stating(client, params["text"])})
+                    assert result.get("commit"), "An accepted check sequence must actually commit its narration"
+                elif method == "table.player_input":
+                    client.ok(method, params)
+                else:
+                    client.call(method, params)
                 snapshots.append(state_snapshot(workspace))
         exchanges.extend(client.exchanges)
     finally:
@@ -199,7 +214,7 @@ def test_unsupported_families_are_refused_before_rng_or_persistence():
     client = RpcClient(base, command=TS_COMMAND, frozen_clock=True, env={"COC_KERNEL_SEED": "check-oracle-206"})
     before = state_snapshot(base)
     try:
-        for index, decision in enumerate(["combat:attack", "chase:start", "sanity:check", "healing:first-aid-ordinary", "magic:cast-spell", "development:end-session", "objects:use"]):
+        for index, decision in enumerate(["combat:attack", "chase:start", "sanity:check", "magic:cast-spell", "objects:use"]):
             response = client.call(*ordinary(f"t1-c{index + 1}", decision=decision))
             assert response["error"]["code"] == "not_implemented", response
             assert state_snapshot(base) == before

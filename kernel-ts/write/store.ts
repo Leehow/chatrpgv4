@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import type { KernelContext } from '../context.js';
 import type { JsonObject, JsonValue, ReadonlyJson } from '../json.js';
-import { jsonDigest } from '../json.js';
+import { jsonDigest, isJsonObject } from '../json.js';
 import { appendJsonl, writeJsonAtomic } from '../fileio.js';
 import { RpcError } from '../errors.js';
 import type { CampaignWritePort, DomainEvent, ResolveCommit, TurnTransaction, WriteMethod, WriteStart } from '../transactions.js';
@@ -79,6 +79,10 @@ export class CampaignWriter implements CampaignWritePort {
         return await this.context.snapshots.pathExists(path) ? clone(await this.context.snapshots.readJson(path)) as JsonValue : null;
     }
     writeSave(name: string, value: ReadonlyJson): Promise<void> { return writeJsonAtomic(this.savePath(name), value); }
+    saveExists(name: string): Promise<boolean> { return this.context.snapshots.pathExists(this.savePath(name)); }
+    saveDirectories(name: string): Promise<string[]> {
+        return this.context.snapshots.sortedChildNames(this.savePath(name), path => this.context.snapshots.isDirectory(path));
+    }
     writeCampaign(value: Row) { return this.write('campaign.json', value); }
     writeWorld(value: Row) { return this.write('world.json', value); }
     writeTurn(value: Row) { return this.write('turn.json', value); }
@@ -178,12 +182,13 @@ export function createTurnTransaction(campaign: CampaignWriter, world: Row, turn
                 };
             const meta = await campaign.readCampaign();
             if (meta.status === 'completed' && method !== 'table.ask' && method !== 'table.narrate') {
-                const action = row(params.action), effects = array(params.effects), decision = string(action.decision || '').replace(/^decision:/, '').replace(/^coc7:/, '');
+                const action = row(params.action), effects = array(params.effects), requested = string(action.decision || '').trim();
+                const decision = requested.startsWith('decision:') ? requested : `decision:coc7:${requested}`;
                 const accounting = method === 'table.resolve' && action.intent === 'montage'
                     && Object.keys(action).every(key => ['intent', 'goal', 'method', 'decision', 'ending', 'actor', 'scenario_san_reward_expr'].includes(key))
-                    && ['development:end-session', 'development:settle-ending'].includes(decision);
+                    && ['decision:coc7:development:end-session', 'decision:coc7:development:settle-ending'].includes(decision);
                 const correction = method === 'table.apply' && !Object.hasOwn(row(meta.ending), 'scope') && effects.length === 1
-                    && effects[0].kind === 'ending' && effects[0].scope === 'chapter'
+                    && isJsonObject(effects[0]) && effects[0].kind === 'ending' && effects[0].scope === 'chapter'
                     && Object.keys(effects[0]).every(key => ['kind', 'scope', 'summary'].includes(key));
                 if (!accounting && !correction)
                     throw new RpcError('campaign_not_ready', 'this campaign is completed; only late development accounting is writable', {

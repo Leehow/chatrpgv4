@@ -135,10 +135,10 @@ export function outcomeOf(ref: string, result: Row): Row {
         };
     throw new Error(`No result projection for ${ref}`);
 }
-export function shapeSettlement(context: SettleContext, runtime: RuleGraph, chosen: Row, envelope: Row): Row {
+export function shapeSettlement(context: SettleContext, runtime: RuleGraph, chosen: Row, envelope: Row, familyOutcome?: Row): Row {
     const result = row(row(envelope.settlement).result);
     const ref = string(chosen.decision_ref);
-    const outcome = outcomeOf(ref, result);
+    const outcome = familyOutcome ?? outcomeOf(ref, result);
     let continuations = array(result.next_continuations).map(value => continuationEntry(runtime, string(value)));
     for (const card of array(envelope.next_decisions)) {
         const entry = continuationEntry(runtime, string(card.decision_ref));

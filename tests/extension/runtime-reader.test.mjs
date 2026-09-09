@@ -172,12 +172,16 @@ test("the stable checker CLI retains source flags and selected TypeScript checks
   assert.equal(valid.code, 0, valid.stdout + valid.stderr);
   assert.equal(JSON.parse(valid.stdout).name, "Notebook");
   const context = composeRuntimeContext({ owner: "check", home }, options({ PATH: "" }, { backend: "typescript" }));
-  await assert.rejects(runCheck(context, { kind: "mod-definition", draft: mod }, active()), error => error.code === "not_implemented");
-  const unavailable = await command(process.execPath, [join(ROOT, "runtime", "check.ts"), "--kind", "mod-definition", "--draft", mod], {
+  assert.deepEqual(await runCheck(context, {kind: "mod-definition", draft: mod}, active()), {ok: true, name: "Notebook"});
+  const native = await command(process.execPath, [join(ROOT, "runtime", "check.ts"), "--kind", "mod-definition", "--draft", mod], {
     ...env, PATH: "", PI_COC_RUNTIME: "typescript", PI_COC_RUNTIME_OPTIONS: undefined,
   });
-  assert.equal(unavailable.code, 1);
-  assert.equal(JSON.parse(unavailable.stdout).error.code, "not_implemented");
+  assert.equal(native.code, 0, native.stdout + native.stderr);
+  assert.deepEqual(JSON.parse(native.stdout), {ok: true, name: "Notebook"});
+  await json(mod, {name: "Notebook"});
+  const rejected = await runCheck(composeRuntimeContext({owner: "check", home}, options()), {kind: "mod-definition", draft: mod}, active());
+  assert.equal(rejected.ok, false);
+  assert.deepEqual(await runCheck(context, {kind: "mod-definition", draft: mod}, active()), rejected);
 });
 
 test("closing one owner kills its reader group and preserves artifacts without stopping another owner", async t => {

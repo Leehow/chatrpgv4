@@ -8,14 +8,15 @@ import type { ModuleGraph } from '../read/module-graph.js';
 import { RuleObservations } from '../read/rule-facts.js';
 import { activeMods } from '../read/mods.js';
 import { SessionView } from '../read/session-view.js';
-import { array, clone, integer, number, repr, string, truth, type Row } from '../read/values.js';
+import { array, clone, integer, normalize, number, repr, string, truth, type Row } from '../read/values.js';
 import { RuleTables } from '../rules/tables.js';
 import { SkillResolver } from '../rules/skills.js';
 import { nowIso } from '../write/store.js';
 import { CheckArithmetic } from './arithmetic.js';
 import { SettleContext, type ResolveWriter } from './context.js';
-import { ResolvePipeline, resolveActor, unsupportedValue, validateExtras } from './pipeline.js';
+import { ResolvePipeline, actionSkills, resolveActor, unsupportedValue, validateExtras } from './pipeline.js';
 import { resolveResult } from './projection.js';
+import type {FixedFamilies} from './families.js';
 export { CheckArithmetic, rollExpression, resourceDelta } from './arithmetic.js';
 export { SettleContext, continuableCheck, latestCheckReceipt, recordSkillTicks, skillTickEligible } from './context.js';
 export type { ResolveWriter, SettlementExecutor, ExecutionResult } from './context.js';
@@ -23,7 +24,7 @@ export { compileSettlement, failureEnvelope } from './settlement.js';
 export type { SettlementPort } from './settlement.js';
 const INTENTS = ['ambiguous', 'cast', 'combat', 'flee', 'idle', 'investigate', 'meta', 'montage', 'move', 'social', 'stuck'];
 const NONE_INTENTS = new Set(['idle', 'meta', 'stuck', 'ambiguous']);
-export interface ResolveContributions {
+export interface ResolveContributions extends FixedFamilies {
     requireMaterial?: (graph: ModuleGraph, names: any[]) => Promise<void>;
 }
 function modifiers(input: any, arithmetic: CheckArithmetic): [
@@ -89,14 +90,12 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
     const handlers: HandlerGroup = {
         'table.resolve': async (params) => {
             const transaction = await writer.transaction(params, {
-                repairLegacyTrail: false
+                repairLegacyTrail: false, preload: false
             });
             const snapshot = new CampaignSnapshot(kernel, transaction.campaign.id);
             snapshot.meta = await transaction.campaign.readCampaign();
             snapshot.world = transaction.world;
             snapshot.turn = transaction.turn;
-            await snapshot.preload();
-            snapshot.party = clone(snapshot.party);
             const module = await loadModule(kernel, string(snapshot.meta.module_id));
             const graph = module.graph;
             const action = params.action;
@@ -141,6 +140,7 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                 }
             };
             const noneResult = async (note: string) => {
+                await snapshot.preload();snapshot.party=clone(snapshot.party);
                 await beforeExecute();
                 const view = new SessionView(snapshot, graph, snapshot.party, transaction.world);
                 const result = {
@@ -165,10 +165,18 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             if (NONE_INTENTS.has(intent))
                 return noneResult(`intent ${intent}: nothing to roll; answer or clarify in the narration`);
             validateExtras(action);
+            await snapshot.preload();snapshot.party=clone(snapshot.party);
             const sessions = new SessionView(snapshot, graph, snapshot.party, transaction.world);
             const actor = resolveActor(snapshot.party, graph, sessions, action);
-            const context = new SettleContext(kernel, transaction, snapshot, module, tables, arithmetic, observations, start.callId, start.ordinal, actor.actor, actor.actor, action, actor.actingId);
-            const pipeline = new ResolvePipeline(context, await SkillResolver.create(tables, actor.actor), rollModifiers, actor.npcInSession);
+            const resolver = await SkillResolver.create(tables, actor.actor);
+            const target = typeof action.target === 'string' ? snapshot.party.find(sheet => [normalize(sheet.id),normalize(sheet.name)].includes(normalize(action.target))) : undefined;
+            let subject = actor.actor;
+            if (target) {
+                try { if (actionSkills(action,resolver).some(skill => skill === 'First Aid' || skill === 'Medicine')) subject = target; }
+                catch (error) { if (!(error instanceof RpcError)) throw error; }
+            }
+            const context = new SettleContext(kernel, transaction, snapshot, module, tables, arithmetic, observations, start.callId, start.ordinal, actor.actor, subject, action, actor.actingId);
+            const pipeline = new ResolvePipeline(context, resolver, rollModifiers, actor.npcInSession, contributions);
             const settled = await pipeline.run(beforeExecute);
             if (settled.kind === 'none')
                 return noneResult(settled.note);

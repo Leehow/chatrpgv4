@@ -41,6 +41,9 @@
   "dependencies": {
     "@napi-rs/canvas": "1.0.8",
     "fs-ext": "2.1.1",
-    "pdfjs-dist": "6.3.289"
+    "lzma-purejs": "0.9.3",
+    "pdfjs-dist": "6.3.289",
+    "seek-bzip": "2.0.0",
+    "yauzl": "3.4.0"
   }
 }

@@ -4,10 +4,24 @@ import { RuleGraph } from '../rules/graph.js';
 import { array, clone, integer, number, repr, row, string, truth, type Row } from '../read/values.js';
 import { SettleContext, type ExecutionResult } from './context.js';
 import { BASIC_EXECUTORS } from './basic.js';
+import type { FixedFamilyBinding } from './families.js';
 import { COMBINED, LUCK, LUCK_ROLL, OBSERVE, ORDINARY, PUSH, REALIZE, SOCIAL, executorArgs, hostLocked } from './bindings.js';
 export interface SettlementPort {
     execute(plan: Row, selected: Row): Promise<ExecutionResult>;
     beforeExecute?(): Promise<void>;
+}
+export async function settleFamily(context: SettleContext, runtime: RuleGraph, selected: Row, grant: Row | null, family: FixedFamilyBinding, beforeExecute: () => Promise<void>): Promise<Row> {
+    const envelope = compileSettlement(runtime,selected,context.callId,grant,await family.locked(context,runtime,selected,grant));
+    if(envelope.status !== 'compiled')return envelope;
+    const plan = envelope.settlement.plan, args=family.args(context,plan,selected);
+    await beforeExecute();
+    const result=await family.execute(context,args,plan);
+    await context.prepareFacts();
+    envelope.next_decisions=runtime.continuationCards(plan,context.callId);
+    Object.assign(envelope,{status:'settled',settlement:{existing_result_envelope:true,execution:'canonical-resolver-subsystem',plan,result:clone(result.data)}});
+    if(result.warnings.length)envelope.warnings=result.warnings;
+    if(result.hints.length)envelope.hints=result.hints;
+    return envelope;
 }
 export function failureEnvelope(runtime: RuleGraph, ref: string, id: string, code: string, message: string, details: Row = {}): Row {
     return {

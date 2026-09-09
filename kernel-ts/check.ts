@@ -5,7 +5,20 @@ import { RpcError, internalError } from './errors.js';
 import { loadModuleContract } from './modules/contract.js';
 import { checkDraft, requiredViewPages } from './modules/visual.js';
 import { row } from './read/values.js';
+import { validateDefinition } from './mods/definition.js';
 export { pythonJsonDumps as serializeCheckResult } from './json.js';
+export async function checkModDefinition(path: string): Promise<{ok: boolean; [key: string]: unknown}> {
+    try {
+        const value=validateDefinition(await snapshots.readJson(path));
+        return {ok:true,name:value.name};
+    } catch(error) {
+        if(typeof (error as NodeJS.ErrnoException)?.code==='string' && !(error instanceof RpcError)){
+            const message=internalError(error).message;
+            return {ok:false,error:message.slice(message.indexOf(': ')+2)};
+        }
+        return {ok:false,error:error instanceof Error?error.message:String(error)};
+    }
+}
 export async function checkSourceDraft(content: string, packetPath: string, draftPath: string): Promise<{
     ok: boolean;
     [key: string]: unknown;

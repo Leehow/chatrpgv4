@@ -9,6 +9,11 @@ import { createSetupHandlers } from "./setup/index.js";
 import { createLibraryHandlers, createLibraryWriteBack } from "./library/index.js";
 import { createResolveRuntime } from "./resolve/index.js";
 import { createMemoryHandlers } from "./memory/index.js";
+import { createDevelopmentFamily, stageEnding } from "./development/index.js";
+import { createApplyHandlers } from "./apply/index.js";
+import { applyResources } from "./apply/resources.js";
+import { createHealingResolveContribution } from "./healing/index.js";
+import { createModRuntime } from "./mods/index.js";
 /** Integration owner only: add each later slice's static handler group here. */
 export function createKernelRuntime(context: KernelContext): {
     handlers: HandlerGroup;
@@ -16,12 +21,14 @@ export function createKernelRuntime(context: KernelContext): {
 } {
     const rules = createRuleQueries(context);
     const modules = createModuleRuntime(context);
+    const mods = createModRuntime(context);
     const writer = createWriteRuntime(context, { openingReady: modules.source.openingReady,
+        mods,
         sourceGraphPath: id => modules.source.store.graphPath(id),
         queueAdjacentReading: modules.source.queueAdjacentReading,
         libraryWriteBack: createLibraryWriteBack(context) });
-    const resolver = createResolveRuntime(context, writer, { requireMaterial: modules.source.requireMaterial });
-    const handlers = assembleHandlers(context, foundationHandlers(context), readHandlers(context, { ...writer.read, lookupRules: rules.lookup }), writer.handlers, modules.handlers, createSetupHandlers(context, writer), createLibraryHandlers(context, writer), resolver.handlers, createMemoryHandlers(context, writer));
+    const resolver = createResolveRuntime(context, writer, { requireMaterial: modules.source.requireMaterial, development: createDevelopmentFamily(), healing:createHealingResolveContribution() });
+    const handlers = assembleHandlers(context, foundationHandlers(context), readHandlers(context, { ...writer.read, lookupRules: rules.lookup }), writer.handlers, modules.handlers, createSetupHandlers(context, writer), createLibraryHandlers(context, writer), resolver.handlers, createMemoryHandlers(context, writer), mods.handlers(writer), createApplyHandlers(context, writer, {resources:applyResources,ending:stageEnding,requireMaterial:modules.source.requireMaterial,materialReady:modules.source.materialReady,queueAdjacentReading:modules.source.queueAdjacentReading}));
     let closing: Promise<void> | undefined;
     return Object.freeze({ handlers, close() {
             return closing ??= (async () => { try {

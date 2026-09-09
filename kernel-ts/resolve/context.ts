@@ -22,6 +22,7 @@ export type SettlementExecutor = (context: SettleContext, args: Row, plan: Row) 
 export interface ResolveWriter {
     transaction(params: Row, options?: {
         repairLegacyTrail?: boolean;
+        preload?: boolean;
     }): Promise<TurnTransaction>;
 }
 export class SettleContext {
@@ -271,6 +272,7 @@ export class SettleContext {
         });
     }
     async prepareFacts(): Promise<void> {
+        this.settlementPending = false;
         const magic = row(await this.readSave(`magic-state/${this.subjectId}.json`));
         this.knownSpells = array(magic.learned_spells).map(string);
         for (const study of array(magic.studying_spells).filter(isJsonObject)) {

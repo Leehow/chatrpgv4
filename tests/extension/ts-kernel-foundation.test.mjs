@@ -17,7 +17,7 @@ await symlink(join(REPO, "node_modules"), join(temporary, "node_modules"), "dir"
 await build({
   entryPoints: { rpc: join(REPO, "kernel-ts/rpc.ts"), api: join(REPO, "kernel-ts/testing/api.ts") },
   outdir: temporary, outExtension: { ".js": ".mjs" },
-  bundle: true, format: "esm", platform: "node", target: "node22", logLevel: "silent",
+  bundle: true, packages: "external", format: "esm", platform: "node", target: "node22", logLevel: "silent",
 });
 const api = await import(pathToFileURL(join(temporary, "api.mjs")).href);
 const reference = JSON.parse(await readFile(join(REPO, "kernel-ts/testing/python-reference.json"), "utf8"));
@@ -146,7 +146,7 @@ test("actual JSONL subprocess serves hello and existing campaigns and drains EOF
   const requests = [
     { id: "hello", method: "kernel.hello", params: null },
     { id: "list", method: "campaign.list" },
-    { id: "later", method: "table.apply", params: {} },
+    { id: "later", method: "mods.job", params: {} },
     { id: "unknown", method: "table.not_real" },
     { id: "after errors", method: "kernel.hello" },
   ];

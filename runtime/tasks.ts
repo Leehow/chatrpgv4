@@ -87,9 +87,11 @@ function taskExecutable(context: RuntimeContext, command: string): string {
 /** Both CLIs import the exact validators used by module.read.finish and mods.accept. */
 export async function runCheck(context: RuntimeContext, request: RuntimeCheck, signal: AbortSignal): Promise<{ ok: boolean; [key: string]: unknown }> {
   ensureActive(signal);
-  if (context.backend === "typescript" && request.kind === "source-draft") {
-    const {checkSourceDraft} = await import(pathToFileURL(join(context.resourceRoot, "build/kernel/check.mjs")).href);
-    const result = await checkSourceDraft(context.contentRoot, resolve(context.home, request.packet), resolve(context.home, request.draft));
+  if (context.backend === "typescript" && (request.kind === "source-draft" || request.kind === "mod-definition")) {
+    const checks = await import(pathToFileURL(join(context.resourceRoot, "build/kernel/check.mjs")).href);
+    const result = request.kind === "source-draft"
+      ? await checks.checkSourceDraft(context.contentRoot, resolve(context.home, request.packet), resolve(context.home, request.draft))
+      : await checks.checkModDefinition(resolve(context.home, request.draft));
     ensureActive(signal);
     return result;
   }

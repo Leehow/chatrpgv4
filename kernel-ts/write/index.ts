@@ -90,6 +90,11 @@ export interface WriteContributions {
     openingReady?(moduleId: string, focus?: string): Promise<boolean>;
     sourceGraphPath?(moduleId: string): Promise<string>;
     queueAdjacentReading?(graph: ModuleGraph, scene: Row): Promise<string[]>;
+    mods?: {
+        initializeWorld(world: Row): Promise<boolean>;
+        initializeCampaign(campaign: CampaignWriter, world: Row, options?: {pending?: boolean}): Promise<void>;
+        validateWorld(world: Row): Promise<void>;
+    };
 }
 export function createWriteRuntime(context: KernelContext, contributions: WriteContributions = {}): {
     handlers: HandlerGroup;
@@ -103,11 +108,20 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     sourceGraphPath(moduleId: string): Promise<string>;
     transaction(params: Row, options?: {
         repairLegacyTrail?: boolean;
+        preload?: boolean;
     }): Promise<TurnTransaction>;
 } {
     const resumes = new Map<string, Row>(), firstStyleTurn = new Map<string, number>();
     const writer = (id: string) => new CampaignWriter(context, id);
-    const preflightCampaign = (meta: Row, world: Row, turn: Row, party: Row[]) => validateContributions(meta, world, turn, party, { libraryWriteBack: !!contributions.libraryWriteBack });
+    const preflightCampaign = (meta: Row, world: Row, turn: Row, party: Row[]) => validateContributions(meta, world, turn, party, { libraryWriteBack: !!contributions.libraryWriteBack, modManagement: !!contributions.mods });
+    async function validateMods(world: Row): Promise<void> {
+        if(contributions.mods)await contributions.mods.validateWorld(world);
+        else await defaultModPlan(context,world);
+    }
+    async function initializeNewWorld(world: Row): Promise<Row> {
+        if(contributions.mods){await contributions.mods.initializeWorld(world);return world;}
+        const plan=await defaultModPlan(context,world);await plan.install();return plan.world;
+    }
     async function campaign(params: Row, options: {
         requireTurn?: boolean;
         requireWorld?: boolean;
@@ -220,7 +234,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         snapshot.jsonFiles.set('turn.json', snapshot.turn);
         return snapshot;
     }
-    async function load(params: Row, ready = false, requireTurn = true, repair = true): Promise<{
+    async function load(params: Row, ready = false, requireTurn = true, repair = true, preload = true): Promise<{
         campaign: CampaignWriter;
         snapshot: CampaignSnapshot;
         module: LoadedModule;
@@ -229,7 +243,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         snapshot.meta = clone(snapshot.meta);
         snapshot.world = clone(snapshot.world);
         snapshot.turn = clone(snapshot.turn);
-        snapshot.party = await snapshot.files('party');
+        if(preload)snapshot.party = await snapshot.files('party');
         const status = string(snapshot.meta.status), statuses = ready ? ['ready_for_table', 'active', 'completed'] : ['active', 'completed'];
         if (!statuses.includes(status)) {
             const steps = status === 'setting_up' ? row(await context.snapshots.readJson(join(context.content, 'setup', 'steps.json'))) : {};
@@ -245,14 +259,21 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const module = await loadModule(context, string(snapshot.meta.module_id));
         if (repair)
             await repairLegacyTrail(snapshot);
-        await snapshot.preload();
+        if(preload)await snapshot.preload();
         return {
             campaign: writer(snapshot.id),
             snapshot,
             module
         };
     }
-    async function initializeMods(campaign: CampaignWriter, snapshot: CampaignSnapshot): Promise<void> {
+    async function initializeMods(campaign: CampaignWriter, snapshot: CampaignSnapshot, pending = false): Promise<void> {
+        if(contributions.mods){
+            await contributions.mods.initializeCampaign(campaign,snapshot.world,{pending});
+            snapshot.meta=await campaign.readCampaign();snapshot.party=await campaign.party();
+            snapshot.jsonFiles.set('campaign.json',snapshot.meta);snapshot.jsonFiles.set('world.json',snapshot.world);
+            for(const sheet of snapshot.party)snapshot.jsonFiles.set(join('party',`${sheet.id}.json`),sheet);
+            return;
+        }
         const staged = snapshot.meta.mods_pending;
         let base = snapshot.world, changed = !Object.hasOwn(base, 'mods') && staged && typeof staged === 'object' && !Array.isArray(staged);
         if (changed)
@@ -352,7 +373,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const existing = await context.snapshots.pathExists(metadata) ? row(await context.snapshots.readJson(metadata)) : {};
         if (existing.reading_version && !contributions.openingReady)
             missingContribution('visual source creation');
-        await defaultModPlan(context, {});
+        if(!contributions.mods)await defaultModPlan(context, {});
         const moduleMeta = starter ? await registerStarter(context, moduleId) : clone(existing);
         if (!starter && pregen != null)
             throw new RpcError('invalid_params', 'pregens exist only for starters', {
@@ -390,8 +411,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 throw new RpcError('invalid_params', 'start_scene must name an authored opening');
         }
         const playable = graph && (!moduleMeta.reading_version || await setupOpeningReady(moduleId, chosen || ''));
-        const [world, start] = playable ? initialWorld(graph!, chosen) : [null, chosen && graph ? graph.handle(graph.scene(chosen)) : null], mods = await defaultModPlan(context, world || {});
-        await mods.install();
+        const [world, start] = playable ? initialWorld(graph!, chosen) : [null, chosen && graph ? graph.handle(graph.scene(chosen)) : null], modConfiguration = await initializeNewWorld(world || {});
         const meta: Row = {
             id,
             title,
@@ -406,7 +426,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             ...(guidance ? {
                 guidance_key: guidance
             } : {}),
-            ...(world == null ? { mods_pending: mods.world.mods } : {}),
+            ...(world == null ? { mods_pending: modConfiguration.mods } : {}),
             investigators: sheet ? [sheet.id] : [],
             active_worldline: 'main',
             worldlines: {
@@ -426,7 +446,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             if (sheet)
                 await campaign.writeSheet(sheet);
             if (world != null)
-                await campaign.writeWorld(mods.world);
+                await campaign.writeWorld(modConfiguration);
             await campaign.writeCampaign(meta);
             await campaign.writeTurn(freshTurn(0));
             checked(await context.git.init(id), 'init');
@@ -454,7 +474,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const initial = await recoverySnapshot(params), campaign = writer(initial.id);
         const meta = clone(initial.meta), initialParty = await initial.files('party');
         preflightCampaign(meta, initial.world, {}, initialParty);
-        await defaultModPlan(context, initial.world);
+        if(!contributions.mods)await defaultModPlan(context, initial.world);
         const metadata = join(context.stateRoot, 'modules', string(meta.module_id), 'module.json');
         const moduleReading = await context.snapshots.pathExists(metadata) && truth(row(await context.snapshots.readJson(metadata)).reading_version);
         if (moduleReading && !contributions.queueAdjacentReading)
@@ -533,7 +553,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
     async function playerInput(params: Row): Promise<Row> {
         const { campaign, snapshot, module } = await load(params);
         preflightCampaign(snapshot.meta, snapshot.world, snapshot.turn, snapshot.party);
-        await initializeMods(campaign, snapshot);
+        await initializeMods(campaign, snapshot, true);
         const turn = snapshot.turn, text = required(params, 'text')!;
         if (!['awaiting_player', 'asked'].includes(turn.state))
             throw turnStateError(turn, 'table.player_input', 'finish the current turn with narrate or ask first');
@@ -619,7 +639,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if (started.kind === 'replay')
             return started.result;
         preflightCampaign(snapshot.meta, snapshot.world, turn, snapshot.party);
-        await defaultModPlan(context, snapshot.world);
+        await validateMods(snapshot.world);
         const kind = params.kind ?? 'story';
         if (!['story', 'mechanics'].includes(kind))
             throw new RpcError('invalid_params', 'kind must be story or mechanics');
@@ -714,7 +734,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if (started.kind === 'replay')
             return started.result;
         preflightCampaign(snapshot.meta, snapshot.world, turn, snapshot.party);
-        await defaultModPlan(context, snapshot.world);
+        await validateMods(snapshot.world);
         const text = required(params, 'text')!, receipts = [...array(turn.receipts)], placed = bindMarkers(text, receipts), rendered = truth(placed) ? stripMarkers(text) : text;
         const language = string(snapshot.meta.play_language || 'zh-Hans');
         checkLanguage(language, {
@@ -848,6 +868,6 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             'table.ask': ask,
             'table.narrate': narrate
         }),
-        async transaction(params, options = {}) { const { campaign, snapshot } = await load(params, false, true, options.repairLegacyTrail !== false); return createTurnTransaction(campaign, snapshot.world, snapshot.turn); }
+        async transaction(params, options = {}) { const { campaign, snapshot } = await load(params, false, true, options.repairLegacyTrail !== false, options.preload !== false); return createTurnTransaction(campaign, snapshot.world, snapshot.turn); }
     };
 }

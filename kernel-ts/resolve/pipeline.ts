@@ -13,7 +13,8 @@ import { campaignEffectiveOptionalRules, disabledDecisionGates, OptionalRuleErro
 import { APPROACH_BY_SKILL, SOCIAL_APPROACH_SKILLS } from './arithmetic.js';
 import { SettleContext, latestCheckReceipt, recordSkillTicks } from './context.js';
 import { BASIC_DECISIONS, COMBINED, LUCK, LUCK_ROLL, OBSERVE, OPPOSED, ORDINARY, PUSH, REALIZE, SOCIAL, psychologyBinding, psychologyRealizeBinding, socialBinding } from './bindings.js';
-import { settleBasic } from './settlement.js';
+import { settleBasic, settleFamily } from './settlement.js';
+import { familyBinding, type FixedFamilies } from './families.js';
 import { shapeSettlement, tagNpcReceipts } from './projection.js';
 const COMBAT_DEFEND = 'decision:coc7:combat:defend';
 const SANITY_CHECK = 'decision:coc7:sanity:check';
@@ -106,6 +107,22 @@ export function resolveActor(party: Row[], graph: SettleContext['graph'], sessio
         npcInSession: false
     };
 }
+export function actionSkills(action: Row, resolver: SkillResolver): string[] {
+    const explicit = action.skill;
+    if (explicit != null) {
+        if (typeof explicit !== 'string' || !explicit.trim())
+            throw new RpcError('invalid_params', 'action.skill must be a non-empty string');
+        const found = resolver.resolveExplicit(explicit);
+        if (!found)
+            throw new RpcError('needs', `unknown skill or characteristic ${repr(explicit)}`, {
+                fix: 'set action.skill to one of details.needs.options',
+                details: {needs: {field: 'skill', options: resolver.optionsFor(explicit)}}
+            });
+        return [found];
+    }
+    const matches = resolver.findInText(typeof action.method === 'string' ? action.method : '');
+    return matches.length ? matches : resolver.findInText(typeof action.goal === 'string' ? action.goal : '');
+}
 export class ResolvePipeline {
     readonly intent: string;
     readonly goal: string;
@@ -116,7 +133,7 @@ export class ResolvePipeline {
         number,
         number,
         string
-    ], readonly npcInSession = false) {
+    ], readonly npcInSession = false, readonly families: FixedFamilies = {}) {
         const action = context.action;
         this.intent = string(action.intent);
         this.goal = typeof action.goal === 'string' ? action.goal : '';
@@ -126,25 +143,7 @@ export class ResolvePipeline {
     }
     get action(): Row { return this.context.action; }
     skillMatches(): string[] {
-        const explicit = this.action.skill;
-        if (explicit != null) {
-            if (typeof explicit !== 'string' || !explicit.trim())
-                throw new RpcError('invalid_params', 'action.skill must be a non-empty string');
-            const found = this.resolver.resolveExplicit(explicit);
-            if (!found)
-                throw new RpcError('needs', `unknown skill or characteristic ${repr(explicit)}`, {
-                    fix: 'set action.skill to one of details.needs.options',
-                    details: {
-                        needs: {
-                            field: 'skill',
-                            options: this.resolver.optionsFor(explicit)
-                        }
-                    }
-                });
-            return [found];
-        }
-        const matches = this.resolver.findInText(this.method);
-        return matches.length ? matches : this.resolver.findInText(this.goal);
+        return actionSkills(this.action, this.resolver);
     }
     oneSkill(): string {
         const matches = this.skillMatches();
@@ -628,7 +627,7 @@ export class ResolvePipeline {
             withheld.push(...array(answer.withheld).filter(value => candidates.includes(value.decision_ref)));
         }
         if (!cards.length) {
-            if (candidates.every(ref => !BASIC_DECISIONS.has(ref)))
+            if (candidates.every(ref => !BASIC_DECISIONS.has(ref) && !familyBinding(this.families, ref, runtime.capabilityOf(ref))))
                 unsupportedDecision(runtime, candidates[0]);
             this.noCandidates(candidates, withheld, source);
         }
@@ -644,9 +643,11 @@ export class ResolvePipeline {
         });
         const chosen = selectedCard.card;
         const ref = string(chosen.decision_ref);
-        if (!BASIC_DECISIONS.has(ref))
+        const family = familyBinding(this.families, ref, runtime.capabilityOf(ref));
+        if (!BASIC_DECISIONS.has(ref) && !family)
             unsupportedDecision(runtime, ref);
-        const [semantic, extras] = await this.slots(ref, npc);
+        const bound = family ? await family.slots(ref, context, {npc, investigator: context.sheetById(this.action.target)}) : null;
+        const [semantic, extras] = bound ? [bound.semantic, bound.extras] : await this.slots(ref, npc);
         const selected: Row = {
             decision_ref: ref,
             semantic_inputs: semantic,
@@ -657,11 +658,13 @@ export class ResolvePipeline {
                 _host_source_receipt_id: source[0],
                 _host_source_receipt: source[1]
             });
-        const envelope = await settleBasic(context, runtime, selected, runtime.latestGrantCovering(ref), beforeExecute);
+        const grant = runtime.latestGrantCovering(ref);
+        const envelope = family ? await settleFamily(context, runtime, selected, grant, family, beforeExecute)
+            : await settleBasic(context, runtime, selected, grant, beforeExecute);
         if (envelope.status !== 'settled')
             throwPlanningFailure(envelope, chosen);
         await recordSkillTicks(context);
-        const shaped = shapeSettlement(context, runtime, chosen, envelope);
+        const shaped = shapeSettlement(context, runtime, chosen, envelope, family?.outcome(context, ref, row(envelope.settlement.result)));
         tagNpcReceipts(context, chosen.family, npc, shaped.outcome);
         if (selectedCard.decision_source)
             shaped.decision_source = selectedCard.decision_source;

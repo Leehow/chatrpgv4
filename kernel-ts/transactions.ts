@@ -19,8 +19,10 @@ export interface CampaignWritePort {
   readTurn(): Promise<JsonObject>;
   party(): Promise<readonly JsonObject[]>;
   readTurnRecord(turn: number): Promise<JsonObject | null>;
-  readSave(name: string): Promise<JsonValue | null>;
-  writeSave(name: string, value: ReadonlyJson): Promise<void>;
+    readSave(name: string): Promise<JsonValue | null>;
+    writeSave(name: string, value: ReadonlyJson): Promise<void>;
+    saveExists(name: string): Promise<boolean>;
+    saveDirectories(name: string): Promise<string[]>;
   writeCampaign(value: JsonObject): Promise<void>;
   writeWorld(value: JsonObject): Promise<void>;
   writeTurn(value: JsonObject): Promise<void>;

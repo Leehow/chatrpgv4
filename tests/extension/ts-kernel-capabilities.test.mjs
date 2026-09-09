@@ -52,7 +52,7 @@ test("declared resolver names do not enable unmigrated kernel dispatch", async (
   await build({
     entryPoints: [join(REPO, "kernel-ts/testing/api.ts")],
     outfile: join(temporary, "api.mjs"),
-    bundle: true, format: "esm", platform: "node", target: "node22", logLevel: "silent",
+    bundle: true, packages: "external", format: "esm", platform: "node", target: "node22", logLevel: "silent",
   });
   const api = await import(pathToFileURL(join(temporary, "api.mjs")).href);
   const context = await api.createKernelContext({ workspace: temporary, content: join(REPO, "content"), seed: "capability-declarations" });

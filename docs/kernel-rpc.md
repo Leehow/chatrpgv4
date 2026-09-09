@@ -2693,3 +2693,51 @@ host checker and later creation acceptance, including bounded document seeds.
 Management does not implement creation jobs, object operations or gameplay effect
 families. Folder and ZIP constraints, digests, namespace state and existing saves
 retain their current shapes; no new package registry or storage format is added.
+
+### 27.9 Fixed settlement families and resource synchronization
+
+Later settlement slices supply named, statically composed family contributions
+to the existing resolve pipeline. A family binds its closed decision/capability
+set, semantic slots, host-locked facts, executor arguments, execution and outcome
+projection. Selection, card grants, plan compilation, receipt minting, replay,
+skill ticks and final cursor/event commit remain in the common owner. This does
+not add an imperative registration API or an alternative settlement pipeline.
+
+The healing contribution owns the existing wound/healing snapshots, MP and time
+synchronization. It uses SettleContext and the campaign port's existing save and
+sheet operations; session families reuse this helper. First Aid/Medicine select
+the target investigator as patient before evaluating facts/cards, with the acting
+investigator or NPC retained separately. The apply owner stages its existing batch
+and calls the same resource contribution for HP/MP/clock effects, preserving the
+current write order and failure semantics.
+
+Development owns its fixed skill/accounting/end-of-chapter decisions and guards.
+It shares the setup/library writer, preserves chapter continuation versus completed
+campaigns, and contributes late accounting through the existing explicit writer
+gate. No new ending, rule, time unit or save schema is introduced by migration.
+
+The transaction preparation read may opt out of eager snapshot loading. Apply
+loads only the party and save documents its selected resource operation needs;
+an unrelated broken session cannot preempt damage's existing roll/actor order or
+a clock advance. Resolve serves an existing call replay before loading unrelated
+session snapshots. Positive oracle scenarios must assert successful narration
+and a real commit; two matching refusals do not prove turn-finalization coverage.
+
+### 27.10 Standalone resource layout
+
+The packaged descriptor is versioned and contains paths relative to the App's
+Resources directory. It selects the packaged Node, Git, Pi and emitted COC
+entrypoints; absolute checkout descriptors remain a development-only format.
+The packaged loader refuses missing resources or paths escaping that root.
+All process owners receive the same captured locations through RuntimeHostOptions.
+Packaged preparation/read/check entrypoints are emitted JavaScript, including the
+UI agent bridge and PDF page helper; no production TypeScript loader is required.
+
+Installed resources are immutable. The App's userData contains its isolated Pi
+home, credentials, UI sessions and runtime work, while the player's chosen COC
+home retains campaigns/modules. Packaged launchers do not write settings or assets
+inside the bundle. They use the verified macOS shell and the bundled runtime
+tool paths, with dependency download fallback disabled. Package assembly records
+the locked production dependency closure, licenses, native ABI/architecture and
+dependency hashes before signing; relocation and GUI acceptance remain separate
+from that build proof.
