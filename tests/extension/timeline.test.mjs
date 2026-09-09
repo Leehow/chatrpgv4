@@ -41,6 +41,8 @@ test("an unbound session answers unbound, and never leaks a panel-supplied campa
 	await withRegistry(async (handlers) => {
 		const pi = piSurface();
 		registerTimelinePanel(pi);
+		// A live session without a binding: the kernel bridge exists, no campaign has been bound.
+		pi.events.emit("coc:kernel-bridge", { call: async () => ({}) });
 		const unbound = await handlers.get("timeline.graph")({});
 		assert.equal(unbound.status, "unbound");
 		assert.equal(unbound.campaign, null);
