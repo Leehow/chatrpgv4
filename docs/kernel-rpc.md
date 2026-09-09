@@ -2023,6 +2023,66 @@ Deviations and residue, each a decision or a ticket rather than a silent gap:
   a build script for starters and should read the script class from
   `content/languages.json` when next touched.
 
+### Host decision: the play language is open; words are projected, not authored (2026-09-09, supersedes the closed set above)
+
+The user's ruling on the section above: moving the language tables from code into
+`content/ui/<tag>/` and registering tags in `languages.json` is still hardcoding.
+It is classic i18n -- a closed set of locales, each authored by hand -- and this
+product does not work that way. The player's language is whatever the player
+names; the words are produced in it by the Keeper and the generators (leg one),
+or projected into it by the presenter lane (leg two). Nothing is authored per
+language, nothing validates a tag against a list, and nothing guesses a
+language from the text it is about to print. Adding a language is nothing.
+
+**The tag set is open.** `play_language` is any BCP-47-shaped tag
+(`/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/`, the pattern `validSourceLanguage` already
+uses), accepted by `campaign.create`, the hosts, the extensions and the lanes by
+shape alone. `content/languages.json` (`coc.play-languages.v2`) keeps only
+`default`, the tag a host or kernel falls back to when a session carries none,
+and `suggested`, the tags a picker offers first; `languages`, `autonym` and
+`script` are gone. A picker names a language through `Intl.DisplayNames` in
+that language itself and falls back to the tag; it accepts free text.
+
+**No script obligation.** The kernel's `checkLanguage` / `SCRIPTS` table and the
+`play_language_mismatch` refusal on `narrate` and `ask` are removed: a character
+class is a detector, and an open set has no table to look in. Whether a
+delivery is in the play language is the verifier lane's judgment: a fourth
+finding kind `play_language_mismatch` ("the player-facing prose is not written
+in <tag>"), advisory like the other three, recorded by `table.warn`. The host's
+delivery loop no longer re-asks the Keeper on a kernel language refusal, because
+the kernel makes none.
+
+**Words: one authored source, projected per tag.** `content/ui/en/<surface>.json`
+is the only authored set of captions (English is the system language). For a
+tag, the words resolve in this order: a shipped seed `content/ui/<tag>/`
+(optional; a cache the product ships in the same shape, so the default table
+pays no model call -- `zh-Hans` ships one, and the seed parity test still pins
+its keys to `en`); the home cache `<home>/.coc/ui-words/<tag>-<digest>.json`
+written by the projection lane (`digest` = sha256 of the `en` source plus the
+instruction, so an edited caption re-projects); otherwise the `en` words are
+answered at once with `ui.projected: false` and the host starts one background
+projection for the tag, after which the sheet, Mods and choice surfaces refresh
+(`sheet_changed`, `mods-changed`, and the bus event `coc:ui-words {tag}` for the
+extensions). The projection lane is the presenter: a tool-enabled run with
+`content/setup/ui-presentation.md` over every `en` caption, templates keeping
+their `{placeholders}` verbatim, answered as `{"texts": {source: projected}}`,
+validated complete, retried once, cached per tag for every campaign in the home
+(`extensions/module/ui-presentation.ts`, `prepareUiWords`). The extensions read
+seed -> cache -> `en` without yielding and reset their surface on `coc:ui-words`.
+
+**Rules terms and guidance.** `localized_labels` rows in the rules data are a
+seed of the same kind: the glossary for a tag with no rows is empty and the
+presenter lanes (card, standing, possessions, clues) fill the sheet as they
+already do, so no kernel change is needed beyond accepting the tag. Bundled
+starter guidance is built for the `suggested` tags; a starter opened in a tag
+with no bundle generates its guidance per campaign as a PDF module does, never
+`guidance_not_ready`.
+
+**Guard.** `tests/extension/ui-words.test.mjs` pins every shipped seed to the
+`en` keys and asserts `languages.json` has no `languages` table;
+`system-language.test.mjs` keeps refusing a tag comparison or a table keyed by
+a tag anywhere in code. `Agents.md` states the rule for every future agent.
+
 ### Host decision: RPC adapter
 
 The adapter preserves transport/session/model options, removes host persona and

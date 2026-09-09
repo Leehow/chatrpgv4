@@ -87,10 +87,20 @@ Grok 系模型屡次把「交付」当目标、把意图当配菜，也屡次静
 ## 系统语言是英文，玩家语言由模型产出（2026-09-06 用户裁定）
 
 - **代码、提示、工具描述、宿主消息、内核写给守秘人的一切文字（胶囊、压力、义务、Director 理由、检查点、事实句、车道指令、读者简报）只用英文。** 代码里不许有中文，注释也不许；`tests/kernel/test_system_language.py` 与 `tests/extension/system-language.test.mjs` 扫 CJK 守着这条。
-- **玩家看到的文字由守秘人模型按战役的 `play_language` 写**（闭合集 `zh-Hans`、`en`）。守秘人是 agent，自己会语义理解，不需要翻译层；**不做 i18n 字符串表**，不按语言分支渲染。
+- **玩家看到的文字由守秘人模型按战役的 `play_language` 写**。守秘人是 agent，自己会语义理解，不需要翻译层；**不做 i18n 字符串表**，不按语言分支渲染。语言集合是开放的，见下一节。
 - **机制不渲染成文字，投影成 JSON。** 收据 → `mechanics` 列表（契约 §16.2），随 `narrate`/`ask` 结果回来，扩展落成会话条目 `coc-mechanics` 与总线 `coc:mechanics`，给未来的 Electron/web 前端渲染骰子卡与变化条；TUI 只显示守秘人正文。
 - **系统内容只走 JSON**（2026-09-07 用户更正）：检定数值、成败、资源变化与规则选项由前端专用 UI 展示；正文只写故事与行动后果。取消正文复述数字的要求。失败后不自动询问推骰/花幸运；必要的系统选择走结构化交互，不能拼进正文。
 - 内容数据（模组图、starter、玩测证据）是它本来的语言，不受此条约束；`content/setup/steps.json`、`content/craft/beat-directives.json` 是系统内容，英文。
+
+## 多语言：玩家语言是开放的，字由模型产出或投影，不许写死（2026-09-09 用户裁定）
+
+这不是 i18n。i18n 是预先按语言手写一份资源、圈一个闭合的语言集合；本产品是**玩家用什么语言，字就以什么语言产出**。同一天里同一个人先把语言表从代码搬进数据（`content/ui/<tag>/*.json` + `languages.json` 登记表），被用户指出「这还是硬编码」——记住这个教训：**搬到数据里的语言表仍是语言表**。契约见 `docs/kernel-rpc.md` §23「the play language is open; words are projected, not authored」。
+
+- **语言集合开放。** `play_language` 是任何 BCP-47 形状的标签，内核、宿主、扩展、车道只按形状收，**不校验成员资格**。`content/languages.json` 只有 `default`（会话没带语言时的兜底）和 `suggested`（选择器先列出的几项）；选择器接受自由输入，语言名用 `Intl.DisplayNames` 取，不写表。加一种语言什么都不用做。
+- **两条腿，没有第三条。** 玩家可见的字要么由守秘人/生成器按 `play_language` 直接写（正文、问句、物品描述、卡面文本、线索标签），要么由展示车道（带工具的 presenter）从系统语言投影出来（规则术语、场景名、物品词、线索正文、产品自己的界面字）。**代码里、数据里都不许出现按语言分的表或分支**：`{"zh-Hans": …}`、`tag === 'zh-Hans'`、`if language == …` 一律不许。
+- **产品自己的字只有一份英文源。** `content/ui/en/<surface>.json` 是唯一手写的；其他语言由 presenter 车道按 `content/setup/ui-presentation.md` 投影，按语言缓存在 home（`.coc/ui-words/<tag>-<digest>.json`）。`content/ui/<tag>/` 若存在，只是产品随包带的一份**缓存种子**，不是要求，也不是可以随手补翻译的地方；缺了就由车道生成。规则数据的 `localized_labels` 同理是种子，词表为空时车道补齐。
+- **不检测语言。** 不许用 CJK 正则、字符类、词表、标签前缀判断「这是不是某种语言」。交付是否用了玩家语言，由校验车道用模型判（finding `play_language_mismatch`），是建议不是拒绝。内核不再按脚本拒绝 `narrate`/`ask`。
+- **守卫。** `tests/extension/system-language.test.mjs` 拒绝代码里任何按标签的比较或表；`tests/extension/ui-words.test.mjs` 把每份种子钉在 `en` 的键集上，并断言 `languages.json` 没有登记表。改这些守卫等于改这条规则，先问用户。
 
 ## 语义问题不许硬编码
 
