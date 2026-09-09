@@ -607,7 +607,7 @@ export function createComponent(React) {
         const description=object?.description?text(object.description):"";
         if(description)line.details=line.details.filter(({key,value})=>key!=="description"||text(value)!==description);
         if(object){
-          for(const trait of object.traits || []) line.details.push({key:`trait:${trait.name}`,label:term(trait.name),value:`${trait.value}${trait.unit?' '+trait.unit:''}`});
+          for(const trait of object.traits || []) line.details.push({key:`trait:${trait.name}`,label:term(trait.name),value:`${term(text(trait.value))}${trait.unit?' '+term(trait.unit):''}`});
           for(const key of ['condition','charges']) if(object.state?.[key]!==null&&object.state?.[key]!==undefined) line.details.push({key,value:object.state[key]});
         }
         const nameNode=writable && props.onOpenDocument
@@ -725,12 +725,14 @@ export function createComponent(React) {
     }
     return h(Section, { title: t.clues }, rows.map((row, index) =>
       row.summary
-        // The name stays on the line; what the clue says is one tap away.
+        // The name stays on the line; what the clue says is one tap away. Both go through the
+        // glossary: the Keeper's own label comes back as itself, a graph name or the book's
+        // summary comes back in the play language once the clue lane has projected it.
         ? h("details", { className: "coc-clue coc-clue-fold", key: `${row.name}:${index}` },
-            h("summary", null, h("span", { className: "coc-clue-name" }, row.name)),
+            h("summary", null, h("span", { className: "coc-clue-name" }, term(row.name))),
             h("div", { className: "coc-clue-body" }, term(row.summary)))
         : h("div", { className: "coc-clue", key: `${row.name}:${index}` },
-            h("span", { className: "coc-clue-name" }, row.name))));
+            h("span", { className: "coc-clue-name" }, term(row.name)))));
   }
 
   /** @param {{api: {invoke?: Function, subscribeExt?: Function}}} props */

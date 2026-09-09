@@ -36,13 +36,6 @@ CJK = re.compile(
 CJK_PLAY_LANGUAGES = frozenset({"zh-Hans"})
 
 
-def _number(value: Any) -> str:
-    """The digits the keeper is expected to copy: an integral float prints as an int."""
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
-    return str(value)
-
-
 def _with_label(out: dict[str, Any], key: str, value: Any) -> None:
     if isinstance(value, str) and value.strip():
         out[key] = value
@@ -313,75 +306,6 @@ def mechanics(receipts: list[dict[str, Any]], placed: dict[str, str] | None = No
             row["marker"] = marker
         rows.append(row)
     return rows
-
-
-def is_public(receipt: dict[str, Any]) -> bool:
-    return receipt.get("visibility") != "keeper"
-
-
-def expected_numbers(receipt: dict[str, Any]) -> list[str]:
-    """The digits a public receipt obliges the keeper to state (§5 step 2): a roll's
-    roll and target, a dice roll's total, a delta's or cash's before and after, a time
-    receipt's minutes. Anything else (names, scenes, clues, items) is the keeper's to
-    word. Empty for keeper-only receipts."""
-    if not is_public(receipt):
-        return []
-    kind = receipt.get("kind")
-    if kind == "roll":
-        if receipt.get("form") == "dice":
-            return [_number(receipt.get("total"))]
-        return [_number(receipt.get("roll")), _number(receipt.get("target"))]
-    if kind in ("delta", "cash"):
-        return [_number(receipt.get("before")), _number(receipt.get("after"))]
-    if kind == "time":
-        return [_number(int(receipt.get("minutes") or 0))]
-    return []
-
-
-#: §16.3's closed refinement of `invalid_params` for a delivery that owes figures.
-MECHANICS_MISSING = "mechanics_missing"
-
-
-def missing_numbers(text: str, receipts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """§16.3 step 2: which digits the delivery still owes.
-
-    For every public receipt, the numbers `expected_numbers` says the keeper must state,
-    minus the ones the text actually contains. Plain string containment, deliberately: the
-    check may not read the keeper's sentence, only look for the figure in it. Names --
-    skills, scenes, clues, items -- are never checked, because those the keeper writes in
-    the player's language.
-
-    This check existed. `f1fe3c46` ("the kernel checks numbers") wrote it, and `ffb6361a`
-    ("separate player mechanics and choices from story text") deleted it -- `missing_numbers`,
-    `check_numbers` and the error constructor all went, while the same commit left §16.3's
-    demand for it standing in the contract and left `expected_numbers` behind as their orphan
-    material. Separating mechanics from prose means the kernel never *inserts* a number, not
-    that the keeper may omit one; the real table settled which reading was right, at the cost
-    of defect #64 -- prose saying "HP 3" over a receipt that took 7, and a player who could
-    not read the number that killed them (#84).
-
-    Restored with one change: a receipt reports only the figures actually absent, because
-    §16.3 asks the fix to say "which numbers to add" and the original listed all of them
-    again once any was missing.
-    """
-    owed = []
-    for receipt in receipts:
-        absent = [number for number in expected_numbers(receipt) if number not in text]
-        if absent:
-            owed.append({"receipt": receipt.get("id"), "expected": absent})
-    return owed
-
-
-def check_numbers(text: str, receipts: list[dict[str, Any]]) -> None:
-    """Raise §16.3's `mechanics_missing` when the delivery owes a public receipt's figures."""
-    owed = missing_numbers(text, receipts)
-    if not owed:
-        return
-    wanted = "; ".join(f"{row['receipt']}: {', '.join(row['expected'])}" for row in owed)
-    raise invalid_params(
-        "text does not state the numbers of every public receipt of this turn",
-        code_detail=MECHANICS_MISSING, details={"missing": owed},
-        fix=f"state these numbers, as digits, in the player's language in text and call again: {wanted}")
 
 
 def check_play_language(language: str, fields: dict[str, str | None]) -> None:

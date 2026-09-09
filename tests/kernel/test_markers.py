@@ -5,7 +5,7 @@ consequence of a check and nothing says which sentence produced it. These pin th
 the Keeper places a token the kernel handed it, and the delivery a text consumer reads is still
 the prose, with nothing rendered into it by code.
 """
-from conftest import CAMPAIGN, PREGEN, open_turn, stating
+from conftest import CAMPAIGN, PREGEN, open_turn
 
 SEARCH = {"intent": "investigate", "goal": "找线索", "method": "翻找", "skill": "Spot Hidden"}
 
@@ -40,9 +40,7 @@ def test_a_placed_marker_leaves_the_prose_and_lands_on_its_row(kernel):
     open_turn(kernel)
     resolve_search(kernel)
     kernel.table("apply", call_id="t1-c2", effects=[{"kind": "clue", "clue": "knott-commission", "label": "委托条件"}])
-    # §16.3 obliges the delivery to state its public figures (#84); `stating` appends them
-    # the way a keeper would, after the sentence the markers sit in.
-    text = stating(kernel, "你翻过桌上的纸{{check:spot-hidden}}，条款写得清楚{{clue:knott-commission}}。")
+    text = "你翻过桌上的纸{{check:spot-hidden}}，条款写得清楚{{clue:knott-commission}}。"
     result = kernel.table("narrate", call_id="t1-c3", text=text)
 
     # What a text consumer reads: the prose, with nothing put in the markers' place.
@@ -64,7 +62,7 @@ def test_a_receipt_nobody_placed_is_projected_without_a_marker(kernel):
     resolve_search(kernel)
     kernel.table("apply", call_id="t1-c2", effects=[{"kind": "time", "minutes": 10}])
     result = kernel.table("narrate", call_id="t1-c3",
-                          text=stating(kernel, "你翻过桌上的纸{{check:spot-hidden}}。"))
+                          text="你翻过桌上的纸{{check:spot-hidden}}。")
 
     rows = {row["kind"]: row for row in result["mechanics"]}
     assert rows["roll"]["marker"] == "check:spot-hidden"
@@ -74,7 +72,7 @@ def test_a_receipt_nobody_placed_is_projected_without_a_marker(kernel):
 def test_a_delivery_with_no_marker_is_exactly_what_it_was(kernel):
     open_turn(kernel)
     resolve_search(kernel)
-    text = stating(kernel, "你翻过桌上的纸，什么也没找到。")
+    text = "你翻过桌上的纸，什么也没找到。"
     result = kernel.table("narrate", call_id="t1-c3", text=text)
     assert result["rendered_text"] == text
     assert "marked_text" not in result
@@ -125,7 +123,7 @@ def test_the_turn_record_keeps_both_readings(kernel):
     from conftest import campaign_dir
     open_turn(kernel)
     resolve_search(kernel)
-    text = stating(kernel, "你翻过桌上的纸{{check:spot-hidden}}。")
+    text = "你翻过桌上的纸{{check:spot-hidden}}。"
     kernel.table("narrate", call_id="t1-c3", text=text)
     record = json.loads((campaign_dir(kernel.workspace) / "turns" / "0001.json").read_text(encoding="utf-8"))
     assert record["rendered_text"] == text.replace("{{check:spot-hidden}}", "")

@@ -59,6 +59,7 @@
     "build/kernel/rpc.mjs",
     "build/kernel/check.mjs",
     "build/runtime/host.mjs",
+    "build/runtime/ui-words.mjs",
     "build/runtime/preparation.mjs",
     "build/runtime/check.mjs",
     "build/runtime/launch.mjs",

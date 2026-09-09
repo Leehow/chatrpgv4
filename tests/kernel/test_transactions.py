@@ -1,6 +1,6 @@
 import json
 
-from conftest import RpcClient, campaign_dir, create_campaign, narrate, narrate_opening, open_turn, read_json, stating
+from conftest import RpcClient, campaign_dir, create_campaign, narrate, narrate_opening, open_turn, read_json
 
 
 ACTION = {"intent": "investigate", "goal": "看桌上有什么", "method": "用侦查扫一眼"}
@@ -21,7 +21,7 @@ def test_idempotent_replay_and_conflict(kernel):
     assert kernel.table("look", focus="time") == {"clock": {"minutes": 5}}
     assert kernel.table_err("apply", call_id="t1-c2", effects=[{"kind": "time", "minutes": 6}])["code"] == "idempotency_conflict"
 
-    text = stating(kernel, "他抬起头。")
+    text = "他抬起头。"
     narrated = kernel.table("narrate", call_id="t1-c3", text=text)
     # The turn is closed; the same narrate call replays from the closed record.
     again = kernel.table("narrate", call_id="t1-c3", text=text)
@@ -163,7 +163,7 @@ def test_commit_failure_keeps_the_turn_open(kernel):
     broken = repo.with_name("c1.broken")
     repo.rename(broken)
     try:
-        error = kernel.table_err("narrate", call_id="t1-c2", text=stating(kernel, "第一段。\n\n第二段。"))
+        error = kernel.table_err("narrate", call_id="t1-c2", text="第一段。\n\n第二段。")
     finally:
         broken.rename(repo)
     assert error["code"] == "commit_failed"

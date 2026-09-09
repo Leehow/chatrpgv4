@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import RpcClient, stating
+from conftest import RpcClient, in_play_language
 from rpc_support import differences, python_command, snapshot
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -178,7 +178,7 @@ def run_case(root, label, command, base, name):
             else:
                 method, params = step
                 if method == "table.narrate":
-                    result = client.ok(method, {**params, "text": stating(client, params["text"])})
+                    result = client.ok(method, {**params, "text": in_play_language(client, params["text"])})
                     assert result.get("commit"), "An accepted check sequence must actually commit its narration"
                 elif method == "table.player_input":
                     client.ok(method, params)

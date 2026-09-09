@@ -1,6 +1,6 @@
 import { CocOnboardingHost, CocOnboardingRegistry, type CocOnboardingOptions } from './coc-onboarding.js';
 export { CocOnboardingRegistry } from './coc-onboarding.js';
-import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations } from "./coc-view.js";
+import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, laneWords, laneProjection, SHEET_LANES, type SheetLane } from "./coc-view.js";
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { createExtensionHostWorkers, type ExtensionHostWorkers } from "./extension-host-workers.js";
 import { closeSync, constants as fsConstants, createReadStream, createWriteStream, existsSync, lstatSync, openSync, readFileSync, realpathSync, watch, writeSync, promises as fs, type Dirent } from "node:fs";
@@ -2142,6 +2142,8 @@ export class PiHostBackend implements HostBackend {
   private readonly cocChoiceClaims = new Map<string,string>();
   private readonly cocSheetReads = new Map<string, Promise<any>>();
   private readonly cocSheetPresentationJobs = new Map<string, {status:"pending"|"failed"}>();
+  /** Keyed by lane and the words a sheet still lacks: a failed set is asked again only once it changes. */
+  private readonly cocLaneJobs = new Map<string, {status:"pending"|"failed"}>();
   private cocOnboarding?: CocOnboardingHost;
   private cocOnboardingRegistry: CocOnboardingRegistry;
   private ownsCocOnboardingRegistry: boolean;
@@ -8659,6 +8661,29 @@ export class PiHostBackend implements HostBackend {
               } catch { /* Keep readable card data; the next sheet read retries missing names. */ }
             }
             liveView.standing_labels=names;
+            // Words the sheet shows in the language they were authored in -- an acquired object's
+            // traits and the kernel's own condition words, a discovered clue's name and what the
+            // book says it is -- are projected by the presenter that projects the card, one lane
+            // each, in the background, and merged under the glossary. The read is never held.
+            for(const lane of Object.keys(SHEET_LANES) as SheetLane[]) {
+              try {
+                const repo=resolve(this.managedNodeModulesRoot,'..');
+                const saved=await laneProjection(context,lane,await laneWords(repo,lane,liveView));
+                if(saved.missing.length) {
+                  const key=JSON.stringify([context.home,context.campaign,context.play_language,lane,saved.missing]);
+                  if(isRecord(params)&&params.retry_projection===true)for(const [old,job] of this.cocLaneJobs)if(job.status==='failed')this.cocLaneJobs.delete(old);
+                  if(!this.cocLaneJobs.has(key)) {
+                    this.cocLaneJobs.set(key,{status:'pending'});
+                    this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
+                    const refresh=()=>emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context.campaign}}});
+                    void this.getModelState(sessionId).then(state=>this.cocOnboarding!.presentation({campaign:context.campaign,play_language:context.play_language,[lane]:true,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})).then(()=>{
+                      this.cocLaneJobs.delete(key);refresh();
+                    },()=>{this.cocLaneJobs.set(key,{status:'failed'});});
+                  }
+                }
+                liveView.labels={...saved.texts,...(isRecord(liveView.labels)?liveView.labels:{})};
+              } catch { /* The sheet reads without that lane's words; the panel falls back to the canonical ones. */ }
+            }
             return {ok:true,data:{status:"ready",view,campaign:context.campaign}};
           } catch(error) {return {ok:true,data:{status:"error",view:null,campaign:context.campaign,reason:error instanceof Error?error.message:String(error)}};}
         })().finally(()=>this.cocSheetReads.delete(sessionId));

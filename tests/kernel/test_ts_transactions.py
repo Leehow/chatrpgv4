@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import RpcClient, stating
+from conftest import RpcClient, in_play_language
 from rpc_support import differences, python_command, snapshot
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -142,7 +142,7 @@ def observe(root: Path, name: str, command: list[str], label: str, base: Path | 
                 world = json.loads(path.read_text()); world["ending"] = step["ending"]
                 path.write_text(json.dumps(world, ensure_ascii=False, indent=2) + "\n")
             elif "stated" in step:
-                client.call("table.narrate", {"campaign": "c1", "call_id": step["call_id"], "text": stating(client, step["stated"])})
+                client.call("table.narrate", {"campaign": "c1", "call_id": step["call_id"], "text": in_play_language(client, step["stated"])})
         exchanges.extend(client.exchanges)
     finally:
         client.close()

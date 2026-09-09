@@ -74,6 +74,27 @@ export function mechanicsEntry(row:any, language?:string, presentations?:Readonl
 export async function readColdSheet(repo:string, context:CocBinding, previewRevision?:number, env:NodeJS.ProcessEnv=process.env, runtimeOptions:CocColdRuntimeOptions={}):Promise<unknown> {
   return callColdKernel(repo, context.home, previewRevision===undefined?'table.view':'setup.previewed', {campaign:context.campaign,...(previewRevision===undefined?{}:{revision:previewRevision})}, env, runtimeOptions);
 }
+/**
+ * The growing lanes a sheet read tops up, each named after its presentation file and pointing at
+ * the presenter's own collector for its words: what an acquired object carries, and what a
+ * discovered clue is called and says. The collector is the one definition of a lane's words,
+ * read from the built presenter, so the host never counts a sheet's words a second way.
+ */
+export const SHEET_LANES={possessions:'possessionTexts',clues:'clueTexts'} as const;
+export type SheetLane=keyof typeof SHEET_LANES;
+export async function laneWords(repo:string, lane:SheetLane, view:unknown, entrypoint='build/extensions/module/character-presentation.mjs'):Promise<string[]> {
+  const presenter=await import(pathToFileURL(resolve(repo,entrypoint)).href);
+  return presenter[SHEET_LANES[lane]](view);
+}
+/** A campaign's saved vocabulary for one lane, and what of `wanted` it still lacks. */
+export async function laneProjection(context:CocBinding, lane:SheetLane, wanted:string[]):Promise<{texts:Record<string,string>;missing:string[]}> {
+  let texts:Record<string,string>={};
+  try {
+    const saved=JSON.parse(await readFile(join(context.home,'.coc/campaigns',context.campaign,'setup/presentations',`${lane}-${context.play_language}.json`),'utf8'));
+    if(saved?.play_language===context.play_language&&saved.texts&&typeof saved.texts==='object'&&!Array.isArray(saved.texts))texts=saved.texts;
+  } catch { /* An unprojected campaign reads with its canonical words. */ }
+  return {texts,missing:wanted.filter(text=>typeof texts[text]!=='string'||!texts[text].trim())};
+}
 /** Host management can work before a Keeper exists; this never opens a fictional turn. */
 export async function callColdKernel(repo:string, home:string, method:string, params:Record<string,unknown>, env:NodeJS.ProcessEnv=process.env, runtimeOptions:CocColdRuntimeOptions={}):Promise<unknown> {
   const {hostEntrypoint, ...options}=runtimeOptions;

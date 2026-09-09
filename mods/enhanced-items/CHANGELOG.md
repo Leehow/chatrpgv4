@@ -1,3 +1,10 @@
+# 1.1.3
+
+Player-visible physical traits, each trait's name, unit and string value, are
+written in the campaign play_language, as the description already is; structural
+keys stay English. The host projects the kernel's condition words and the traits
+of older definitions for reading, so no sheet shows them in English.
+
 # 1.1.2
 
 Generated readable writing follows the campaign play_language in both creator

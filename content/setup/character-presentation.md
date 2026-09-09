@@ -5,7 +5,8 @@ Write presentation.json as {"texts": {"exact source text": "player-language text
 Include every source string exactly once as a key, with no extra keys. All values
 must be in play_language. Keep text that is already in the player's language as it
 is. Localize all UI terms, occupation and era names, languages, currency names,
-background categories, skill specializations, equipment and weapon labels. Preserve
+background categories, skill specializations, equipment and weapon labels, the
+physical trait names, units and values of carried objects and their condition words. Preserve
 meaning, claims and any numbers or dice notation in prose. For standalone scene
 and NPC names, use natural translations/transliterations in play_language,
 including proper names. Keep the same person/place identity and add no biography.

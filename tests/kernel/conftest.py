@@ -21,7 +21,7 @@ CONTENT_DIR = WORKTREE / "content"
 sys.path.insert(0, str(KERNEL_DIR))
 
 from coc.facts import language_of  # noqa: E402
-from coc.render import CJK, CJK_PLAY_LANGUAGES, expected_numbers  # noqa: E402
+from coc.render import CJK, CJK_PLAY_LANGUAGES  # noqa: E402
 
 MODULE = "the-haunting"
 PREGEN = "thomas-hayes"
@@ -155,28 +155,25 @@ def open_turn(client: RpcClient, text: str = "我仔细观察诺特。") -> dict
     return client.table("player_input", text=text)
 
 
-def stating(client: RpcClient, text: str) -> str:
-    """`text` plus one line stating the numbers this turn's public receipts oblige the
-    keeper to give (§16.3) when the text does not already: what a keeper does in prose,
-    for tests whose subject is not the number check itself. On a CJK play_language table
-    a CJK character is appended the same way when the text carries none."""
-    owed = [n for r in client.table("status")["receipts"] for n in expected_numbers(r)]
-    missing = [n for n in dict.fromkeys(owed) if n not in text]
-    body = f"{text}\n\n({' '.join(missing)})" if missing else text
+def in_play_language(client: RpcClient, text: str) -> str:
+    """`text`, with a CJK full stop appended on a CJK play_language table when it carries none,
+    so a test whose subject is not the script check (§16.3) clears it. Nothing else is added:
+    the kernel looks for no figures in the prose (2026-09-09 decision), so a keeper text that
+    states none of its receipts' numbers is delivered exactly as written."""
     meta_path = campaign_dir(client.workspace) / "campaign.json"
     language = language_of(read_json(meta_path) if meta_path.exists() else None)
-    if body and language in CJK_PLAY_LANGUAGES and not CJK.search(body):
-        body = f"{body}。"
-    return body
+    if text and language in CJK_PLAY_LANGUAGES and not CJK.search(text):
+        return f"{text}。"
+    return text
 
 
 def narrate(client: RpcClient, call_id: str, text: str, **params: Any) -> dict[str, Any]:
-    return client.table("narrate", call_id=call_id, text=stating(client, text), **params)
+    return client.table("narrate", call_id=call_id, text=in_play_language(client, text), **params)
 
 
 def ask(client: RpcClient, call_id: str, prompt: str, options: list[str], text: str | None = None,
         **params: Any) -> dict[str, Any]:
-    stated = stating(client, text or "").strip()
+    stated = in_play_language(client, text or "").strip()
     if stated:
         params["text"] = stated
     return client.table("ask", call_id=call_id, prompt=prompt, options=options, **params)

@@ -74,13 +74,57 @@ export function standingTexts(view:Row):string[] {
   return [...new Set([view.scene?.display_name||view.scene?.name,...(Array.isArray(view.present)?view.present:[]),view.session?.kind]
     .filter((value):value is string=>typeof value==='string'&&!!value.trim()))].sort();
 }
-export async function prepareStandingPresentation(options:TextOptions&{campaign:string;view:Row}):Promise<Row> {
+export function prepareStandingPresentation(options:TextOptions&{campaign:string;view:Row}):Promise<Row> {
+  return prepareGrowingPresentation(options,'standing',standingTexts);
+}
+/**
+ * The words an acquired object brings onto the sheet in the language its definition was written
+ * in: trait names, units and string values, the state keys the kernel keeps and its closed state
+ * words. Names, descriptions and containers are the Keeper's own prose in the play language and
+ * stay out; numbers are the kernel's.
+ */
+export function possessionTexts(view:Row):string[] {
+  const texts=new Set<string>();
+  const add=(value:unknown)=>{if(typeof value==='string'&&value.trim())texts.add(value)};
+  for(const sheet of Array.isArray(view?.investigators)?view.investigators:[])
+    for(const object of Array.isArray(sheet?.objects)?sheet.objects:[]) {
+      for(const trait of Array.isArray(object?.traits)?object.traits:[]){add(trait?.name);add(trait?.unit);add(trait?.value);}
+      const state=object?.state&&typeof object.state==='object'&&!Array.isArray(object.state)?object.state:{};
+      for(const [key,value] of Object.entries(state)){if(value===null||value===undefined)continue;add(key);add(value);}
+    }
+  return [...texts].sort();
+}
+export function preparePossessionPresentation(options:TextOptions&{campaign:string;view:Row}):Promise<Row> {
+  return prepareGrowingPresentation(options,'possessions',possessionTexts);
+}
+/**
+ * The words a discovered clue puts on the sheet: the name the table filed it under and what the
+ * book says it is. The name is the Keeper's own play-language word when `apply clue` gave one and
+ * otherwise the graph's display name; the summary is always the module's, in the language the book
+ * was read in. The row does not say which, so both are asked, exactly as a scene's name is, and a
+ * word already in the play language comes back as itself. The handle never enters, and a clue the
+ * scene offers but nobody has found stays the Keeper's business.
+ */
+export function clueTexts(view:Row):string[] {
+  const texts=new Set<string>();
+  const add=(value:unknown)=>{if(typeof value==='string'&&value.trim())texts.add(value)};
+  const clues=view?.clues&&typeof view.clues==='object'&&!Array.isArray(view.clues)?view.clues:{};
+  const found=[...(Array.isArray(clues.here)?clues.here:[]).filter((row:unknown)=>(row as Row)?.discovered===true),
+    ...(Array.isArray(clues.discovered)?clues.discovered:[])];
+  for(const row of found){if(row&&typeof row==='object'){add((row as Row).label);add((row as Row).summary);}}
+  return [...texts].sort();
+}
+export function prepareCluePresentation(options:TextOptions&{campaign:string;view:Row}):Promise<Row> {
+  return prepareGrowingPresentation(options,'clues',clueTexts);
+}
+/** A projection that grows with the table: what its saved file lacks is asked, what it has is kept. */
+async function prepareGrowingPresentation(options:TextOptions&{campaign:string;view:Row},kind:string,collect:(view:Row)=>string[]):Promise<Row> {
   if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(options.campaign)||!['zh-Hans','en'].includes(options.play_language))throw new Error('Invalid presentation request');
-  if(options.view.play_language!==options.play_language)throw new Error('View language does not match the session');
-  const file=`standing-${options.play_language}.json`;
+  if(options.view?.play_language!==options.play_language)throw new Error('View language does not match the session');
+  const file=`${kind}-${options.play_language}.json`;
   let previous:Record<string,string>={};
   try {const saved=JSON.parse(await readFile(join(options.home,'.coc/campaigns',options.campaign,'setup/presentations',file),'utf8'));if(saved.play_language===options.play_language)previous=saved.texts||{};}catch{}
-  const missing=standingTexts(options.view).filter(text=>typeof previous[text]!=='string'||!previous[text].trim());
+  const missing=collect(options.view).filter(text=>typeof previous[text]!=='string'||!previous[text].trim());
   const added=missing.length?(await prepareTexts(options,missing)).texts:{};
   const result={play_language:options.play_language,texts:{...previous,...added}};
   await saveProjection(options,file,result);return result;

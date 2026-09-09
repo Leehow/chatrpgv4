@@ -304,8 +304,10 @@ export class CocOnboardingHost {
     if(job.error){this.presentations.delete(this.presentationKey(data));throw job.error;}
     return job.result||{pending:true};
   }
+  /** The growing lanes: each is its own job, and a finished one is not kept, so the next word starts a fresh run. */
+  private static readonly GROWING_LANES=['standing','possessions','clues'] as const;
   private presentationKey(data:Row) {
-    return JSON.stringify([data.campaign,data.revision,data.play_language,data.standing===true]);
+    return JSON.stringify([data.campaign,data.revision,data.play_language,...CocOnboardingHost.GROWING_LANES.map(lane=>data[lane]===true)]);
   }
   private presentationJob(data:Row) {
     const key=this.presentationKey(data);
@@ -313,7 +315,7 @@ export class CocOnboardingHost {
       const job:{task:Promise<Row>;result?:Row;error?:unknown}={task:Promise.resolve({})};
       this.presentations.set(key,job);
       job.task=this.runPresentation(data).then(result=>{job.result=result;return result;},error=>{job.error=error;throw error;})
-        .finally(()=>{if(data.standing)this.presentations.delete(key);});
+        .finally(()=>{if(CocOnboardingHost.GROWING_LANES.some(lane=>data[lane]))this.presentations.delete(key);});
       void job.task.catch(()=>undefined);
     }
     return this.presentations.get(key)!;

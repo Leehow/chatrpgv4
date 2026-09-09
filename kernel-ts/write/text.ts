@@ -1,6 +1,6 @@
 /** Existing receipt facts and delivery guards, without semantic interpretation. */
 import { RpcError } from '../errors.js';
-import { PythonFloat, pythonJsonDumps } from '../json.js';
+import { pythonJsonDumps } from '../json.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { mechanicsOf } from '../read/mechanics.js';
 import { npcsPresent } from '../read/capsule.js';
@@ -20,30 +20,6 @@ export function checkLanguage(language: string, fields: Row): void {
                 fields: missing,
                 play_language: language
             },
-        });
-}
-function digits(value: any): string { return value instanceof PythonFloat && Number.isInteger(Number(value)) ? String(Number(value)) : string(value ?? null); }
-export function expectedNumbers(receipt: Row): string[] {
-    if (receipt.visibility === 'keeper')
-        return [];
-    if (receipt.kind === 'roll')
-        return receipt.form === 'dice' ? [digits(receipt.total)] : [digits(receipt.roll), digits(receipt.target)];
-    if (['delta', 'cash'].includes(receipt.kind))
-        return [digits(receipt.before), digits(receipt.after)];
-    return receipt.kind === 'time' ? [String(Math.trunc(number(receipt.minutes)))] : [];
-}
-export function checkNumbers(text: string, receipts: Row[]): void {
-    const missing = receipts.map(receipt => ({
-        receipt: receipt.id ?? null,
-        expected: expectedNumbers(receipt).filter(value => !text.includes(value))
-    })).filter(item => item.expected.length);
-    if (missing.length)
-        throw new RpcError('invalid_params', 'text does not state the numbers of every public receipt of this turn', {
-            codeDetail: 'mechanics_missing',
-            details: {
-                missing
-            },
-            fix: `state these numbers, as digits, in the player's language in text and call again: ${missing.map(item => `${item.receipt}: ${item.expected.join(', ')}`).join('; ')}`,
         });
 }
 function markerName(receipt: Row): string | null {

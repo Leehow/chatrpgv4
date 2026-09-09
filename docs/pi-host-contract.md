@@ -200,7 +200,7 @@ and source acceptance remains the host/kernel's responsibility after child exit.
 | `ctx.shutdown()` 在没有 `shutdownHandler` 的模式下是空转，不抛 | `setup.test.mjs`「七步表走完」：交接命令交出去，测试台照常收尾 |
 | 助手消息装不下附件（只有 text/thinking/toolCall），出站没有附件通道 | `module.test.mjs`「手卡」：路径落在机制投影与遥测里 |
 | `pi.appendEntry(customType, data)` 写一条 `CustomEntry`，它不进 `buildSessionContext`，但会发 `entry_appended`，RPC 模式原样透传 | `turn.test.mjs`／`real-kernel.test.mjs`：`coc-mechanics` 条目里是每条收据的投影 |
-| `message_end` 的替换消息可以**一个块都不剩**（内核以 `mechanics_missing` 退回隐式 narrate 时，被退回的正文整块摘掉，不留成一次交付） | `turn.test.mjs`「隐式 narrate 缺数字」 |
+| `message_end` 的替换消息可以**一个块都不剩**（内核以 `play_language_mismatch` 退回隐式 narrate 时，被退回的正文整块摘掉，不留成一次交付） | `turn.test.mjs`「隐式 narrate 不是玩家语言」 |
 | 工具的 `parameters` 用 `additionalProperties: true` 时，模型摊在顶层的参数原样进 `execute` | `setup.test.mjs` 全部用例：`setup {step, ...params}` |
 | `pi.registerCommand` 注册的命令由 `AgentSession.prompt` 在建提示之前派掉，命中就返回：不产生用户消息、不发 `before_agent_start`、不起回合 | `command.test.mjs`「桌况面板走 ctx.ui，不占回合……」：消息数不变、玩家消息仍只有一条、`table.player_input` 仍只有一次 |
 | `ctx.mode` 由运行模式在 `bindExtensions` 时给；非 `tui` 的命令降级只回一行 | `command.test.mjs`「非交互模式」：六条子命令各一行 warning，零内核调用、零遥测、模型没换 |

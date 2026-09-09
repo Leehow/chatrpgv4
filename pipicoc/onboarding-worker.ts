@@ -6,7 +6,7 @@ import { composeRuntimeContext, createRuntime, type HostRuntime, type RuntimeCon
 import { ReadingService } from '../extensions/module/reading-service.ts';
 import type { ReaderRequest } from '../extensions/module/reader.ts';
 import { prepareCharacterGuidance, guidanceFingerprint, acceptedGuidance } from '../extensions/module/character-guidance.ts';
-import { prepareCharacterPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
+import { prepareCharacterPresentation, prepareCluePresentation, preparePossessionPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
 import { labelsFor } from './panel.js';
 import { presentDocument } from '../extensions/mods/document-presentation.ts';
 
@@ -83,6 +83,17 @@ async function main() {
       // The current sidebar hides canonical NPC identities, even if table.view carries them.
       view.present=[];
       return prepareStandingPresentation({...input,contentRoot:context.contentRoot,view,known_labels:view.labels||{},signal:guidanceAbort.signal,runner:runTask});
+    }
+    if(input.possessions) {
+      const view=await call('table.view',{campaign:input.campaign});
+      // The sidebar's own captions for the kernel's item fields are settled words, never a question.
+      const known_labels={...(view.labels||{}),...labelsFor(input.play_language).itemFields};
+      return preparePossessionPresentation({...input,contentRoot:context.contentRoot,view,known_labels,signal:guidanceAbort.signal,runner:runTask});
+    }
+    if(input.clues) {
+      // Only what table.view already shows the player: discovered rows, never the scene's unfound offer.
+      const view=await call('table.view',{campaign:input.campaign});
+      return prepareCluePresentation({...input,contentRoot:context.contentRoot,view,known_labels:view.labels||{},signal:guidanceAbort.signal,runner:runTask});
     }
     // The draft row already carries the kernel's glossary. When the caller hands it over there is
     // no campaign-scoped read left to make, so this projection never queues behind the Keeper's
