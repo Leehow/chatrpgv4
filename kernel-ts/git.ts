@@ -11,6 +11,8 @@ export interface GitResult { readonly code: number; readonly stdout: string; rea
 export interface GitRuntime {
   requireAvailable(): void;
   run(campaign: string, args: readonly string[]): Promise<GitResult>;
+  /** Same captured subprocess with stdin fed once, for batched readers such as cat-file --batch. */
+  runInput(campaign: string, args: readonly string[], input: string): Promise<GitResult>;
   init(campaign: string): Promise<GitResult>;
   lineBlob(campaign: string, line: string, path: string): Promise<string | null>;
   rootCommit(campaign: string): Promise<string | null>;
@@ -40,12 +42,16 @@ export function createGitRuntime(workspace: string, suppliedEnv: NodeJS.ProcessE
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(campaign)) throw new CommitFailed("Invalid campaign for Git operation");
     return {repo: join(workspace, ".coc", "repos", `${campaign}.git`), work: join(workspace, ".coc", "campaigns", campaign)};
   }
-  function execute(cwd: string, args: readonly string[]): Promise<GitResult> {
+  function execute(cwd: string, args: readonly string[], input?: string): Promise<GitResult> {
     if (lifetime.signal.aborted) return Promise.reject(new CommitFailed("The Git runtime is closed"));
     if (!command) return Promise.reject(new CommitFailed("The managed Git executable is unavailable"));
     const pending = new Promise<GitResult>((accept, reject) => {
       const grouped = process.platform !== "win32";
-      const child = spawn(command, [...IDENTITY, ...args], {cwd, env, detached: grouped, stdio: ["ignore", "pipe", "pipe"]});
+      const child = spawn(command, [...IDENTITY, ...args], {cwd, env, detached: grouped, stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"]});
+      if (input !== undefined && child.stdin) {
+        child.stdin.on("error", () => { /* A cancelled child may close stdin before the feed ends. */ });
+        child.stdin.end(input);
+      }
       const stdout: Buffer[] = [], stderr: Buffer[] = [];
       let failure: Error | undefined, settled = false;
       let escalation: NodeJS.Timeout | undefined, deadline: NodeJS.Timeout | undefined;
@@ -74,8 +80,8 @@ export function createGitRuntime(workspace: string, suppliedEnv: NodeJS.ProcessE
           accept({code, stdout: decode(stdout), stderr: decode(stderr)});
         } catch (error) { reject(new CommitFailed(String(error))); }
       }
-      child.stdout.on("data", chunk => stdout.push(chunk));
-      child.stderr.on("data", chunk => stderr.push(chunk));
+      child.stdout!.on("data", chunk => stdout.push(chunk));
+      child.stderr!.on("data", chunk => stderr.push(chunk));
       child.on("error", error => { failure = new CommitFailed(error.message); });
       child.once("exit", () => { clearTimeout(timer); if (grouped) kill("SIGKILL"); });
       child.once("close", code => finish(failure, code ?? -1));
@@ -86,11 +92,15 @@ export function createGitRuntime(workspace: string, suppliedEnv: NodeJS.ProcessE
     void pending.then(() => active.delete(pending), () => active.delete(pending));
     return pending;
   }
-  const run = (campaign: string, args: readonly string[]) => {
+  const runArgs = (campaign: string, args: readonly string[]) => {
     const {repo, work} = paths(campaign);
-    return execute(work, [`--git-dir=${repo}`, `--work-tree=${work}`, ...args]);
+    return [`--git-dir=${repo}`, `--work-tree=${work}`, ...args] as const;
   };
+  const run = (campaign: string, args: readonly string[]) => execute(paths(campaign).work, runArgs(campaign, args));
   return Object.freeze({run, requireAvailable,
+    runInput(campaign, args, input) {
+      return execute(paths(campaign).work, runArgs(campaign, args), input);
+    },
     async init(campaign) {
       const {repo, work} = paths(campaign);
       requireAvailable();

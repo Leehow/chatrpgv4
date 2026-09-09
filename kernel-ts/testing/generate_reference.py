@@ -109,14 +109,19 @@ def main():
         workspace = Path(directory)
         table = Table(Store(workspace), ROOT / "content", random.Random("foundation-reference"))
         methods = build_methods(table)
+        # Host-facing methods that exist only in the TypeScript kernel (contract §29); the Python
+        # reference never implements them, but the locked vocabulary comparison must list them,
+        # including inside the unknown_method error frames.
+        extended = {**methods, "table.graph": lambda params: None, "table.branch": lambda params: None}
+        vocabulary = sorted(extended)
         empty_list = table.campaign_list({})
         for name, text in files.items():
             path = workspace / ".coc" / "campaigns" / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
-        rpc = {"methods": sorted(methods), "hello": table.hello({}), "empty_list": empty_list,
+        rpc = {"methods": vocabulary, "hello": table.hello({}), "empty_list": empty_list,
                "files": files, "campaign_list_line": json.dumps(table.campaign_list({}), ensure_ascii=False),
-               "invalid": [{"line": line, "response": handle_line(line, methods)} for line in invalid]}
+               "invalid": [{"line": line, "response": handle_line(line, extended)} for line in invalid]}
     output = {"python": sys.version.split()[0], "rng": [random_case(seed) for seed in seeds],
               "worldlines": worldlines, "json": [json_case(source) for source in sources],
               "floats": floats, "rpc": rpc}
