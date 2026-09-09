@@ -86,7 +86,11 @@ console.log(JSON.stringify({type:'transport_ready'}));\n`);
   assert.match(instruction, /Read only/);
   assert.doesNotMatch(instruction, /Index only|Review only/);
   assert.match(await readFile(join(cwd, "events.jsonl"), "utf8"), /transport_ready/);
-  assert.match(await readFile(join(cwd, "host-bin", "python3"), "utf8"), /--frozen.*python/);
+  assert.match(await readFile(join(cwd, "host-bin", "node"), "utf8"), new RegExp(context.nodeExecutable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  const checker = await readFile(join(cwd, "host-bin", "coc-read-check"), "utf8");
+  assert.ok(checker.includes(context.entrypoints.check));
+  assert.ok(context.entrypoints.check.endsWith('/build/runtime/check.mjs'));
+  await assert.rejects(readFile(join(cwd, "host-bin", "python3")), {code: 'ENOENT'});
   const flags = readerCommand("fixture/model", "/task/prompt.md", "low", true, true, { ...context, env: {} });
   assert.equal(flags[0], context.nodeExecutable);
   assert.equal(flags[flags.indexOf("--tools") + 1], "read,write,edit,bash,pdf,submit_reading");
@@ -123,7 +127,7 @@ test("source and Mod checks invoke shared read-only validators and preserve reje
   const sourceDraft = { nodes: [{ node_id: "scene-dock", node_kind: "scene", name: "Dock", source_refs: [{ page: 1 }], properties: { is_entrance: true } }],
     claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: [] };
   await json(draft, sourceDraft);
-  const context = composeRuntimeContext({ owner: "check", home }, options());
+  const context = composeRuntimeContext({ owner: "check", home }, options({}, {backend: 'python'}));
   const before = await readFile(draft), files = await readdir(home);
   const valid = await runCheck(context, { kind: "source-draft", packet, draft }, active());
   assert.equal(valid.ok, true, JSON.stringify(valid));
@@ -154,7 +158,7 @@ test("the TypeScript checker CLI preserves source page integers without Python",
   await writeFile(packet, '{"purpose":"guidance","module_id":"book-one","source":{"page_count":9007199254740993},"known_nodes":[]}');
   await writeFile(draft, '{"nodes":[{"node_id":"scene-dock","node_kind":"scene","name":"Dock","source_refs":[{"page":9007199254740993}],"properties":{"is_entrance":true}}],"claims":[],"node_refs":[],"coverage":{},"dependencies":[],"critical":[],"ready_nodes":[]}');
   const before = await readFile(draft);
-  const result = await command(process.execPath, [join(ROOT, "runtime/check.ts"), "--packet", packet, "--draft", draft], {
+  const result = await command(process.execPath, [join(ROOT, "build/runtime/check.mjs"), "--packet", packet, "--draft", draft], {
     ...process.env, PATH: "", PI_COC_HOME: home,
     PI_COC_RUNTIME_OPTIONS: JSON.stringify({backend: "typescript", resourceRoot: ROOT}),
   });
@@ -173,7 +177,7 @@ test("the stable checker CLI retains source flags and selected TypeScript checks
   assert.equal(JSON.parse(valid.stdout).name, "Notebook");
   const context = composeRuntimeContext({ owner: "check", home }, options({ PATH: "" }, { backend: "typescript" }));
   assert.deepEqual(await runCheck(context, {kind: "mod-definition", draft: mod}, active()), {ok: true, name: "Notebook"});
-  const native = await command(process.execPath, [join(ROOT, "runtime", "check.ts"), "--kind", "mod-definition", "--draft", mod], {
+  const native = await command(process.execPath, [join(ROOT, "build/runtime/check.mjs"), "--kind", "mod-definition", "--draft", mod], {
     ...env, PATH: "", PI_COC_RUNTIME: "typescript", PI_COC_RUNTIME_OPTIONS: undefined,
   });
   assert.equal(native.code, 0, native.stdout + native.stderr);
@@ -231,7 +235,7 @@ test("an exited reader releases descendants holding inherited output without wai
 });
 
 test("cancelling a check stops its disposable process group without rewriting input", async t => {
-  const home = await temporary(t), transport = join(home, "checking-transport.mjs"), launcher = join(home, "uv");
+  const home = await temporary(t), transport = join(home, "checking-transport.mjs"), launcher = join(home, "selected-node");
   await writeFile(transport, `import {spawn} from 'node:child_process'; import {writeFileSync} from 'node:fs';
 const child=spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{}); setInterval(()=>{},1000)"],{stdio:'ignore'});
 writeFileSync(process.env.RUNTIME_TEST_PROCESSES,JSON.stringify({parent:process.pid,child:child.pid}));
@@ -241,25 +245,26 @@ setInterval(()=>{},1000);\n`);
   await chmod(launcher, 0o755);
   const processes = join(home, "processes.json"), draft = join(home, "retained.json");
   await json(draft, { retained: true });
-  const context = composeRuntimeContext({ owner: "check", home }, options({ PATH: home, RUNTIME_TEST_PROCESSES: processes }));
+  const context = composeRuntimeContext({ owner: "check", home }, options({ PATH: home, RUNTIME_TEST_PROCESSES: processes }, {nodeExecutable: launcher}));
   const controller = new AbortController();
   const result = runCheck(context, { kind: "mod-definition", draft }, controller.signal).catch(error => error);
+  t.after(async () => { controller.abort(); await result; });
   const pids = await until(async () => { try { return JSON.parse(await readFile(processes, "utf8")); } catch { return undefined; } });
   controller.abort();
-  assert.equal((await result).details?.reason, "runtime_cancelled");
+  assert.match((await result).message, /cancelled/i);
   await until(() => { try { process.kill(pids.child, 0); return false; } catch { return true; } });
   assert.throws(() => process.kill(pids.parent, 0));
   assert.deepEqual(JSON.parse(await readFile(draft, "utf8")), { retained: true });
 });
 
 test("an exited checker releases inherited output descendants and preserves its completed result", async t => {
-  const home = await temporary(t), transport = await exitedDescendant(home), launcher = join(home, "uv");
+  const home = await temporary(t), transport = await exitedDescendant(home), launcher = join(home, "selected-node");
   const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
   await writeFile(launcher, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(transport)} "$@"\n`);
   await chmod(launcher, 0o755);
   const processes = join(home, "processes.json"), draft = join(home, "retained.json");
   await json(draft, { retained: true });
-  const context = composeRuntimeContext({ owner: "check", home }, options({ PATH: home, RUNTIME_TEST_PROCESSES: processes }));
+  const context = composeRuntimeContext({ owner: "check", home }, options({ PATH: home, RUNTIME_TEST_PROCESSES: processes }, {nodeExecutable: launcher}));
   const controller = new AbortController();
   let finished = false, outcome, failure;
   const pending = runCheck(context, { kind: "mod-definition", draft }, controller.signal)

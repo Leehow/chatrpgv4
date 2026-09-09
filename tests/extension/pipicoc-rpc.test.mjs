@@ -10,8 +10,9 @@ test('UI transport survives while coding persona and tools cannot replace the Ke
   assert.ok(!result.includes('coding'));
   assert.ok(!result.includes('/host/coding.ts'));
   for (const name of ['kernel','mods','onboarding','module','memory','table'])
-    assert.equal(result.filter(v => v === `/repo/extensions/${name}/index.ts`).length, 1);
-  assert.equal(result.filter(v => v === '/repo/pipicoc/agent.ts').length, 1);
+    assert.equal(result.filter(v => v === `/repo/build/extensions/${name}/index.mjs`).length, 1);
+  assert.equal(result.filter(v => v === '/repo/build/pipicoc/agent.mjs').length, 1);
+  assert.ok(!result.some(value => value.startsWith('/repo/') && value.endsWith('.ts')));
 });
 test('setup uses canonical setup mode and rejects unknown modes or broken arguments', () => {
   assert.equal(keeperArguments(['--mode','rpc'], '/repo', 'setup')[0], 'setup');

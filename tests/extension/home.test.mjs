@@ -59,7 +59,8 @@ test("PI_COC_HOME: the kernel subprocess is given it as its --workspace (contrac
 	});
 	withEnv({ PI_COC_KERNEL_CMD: undefined, PI_COC_HOME: "/var/pi-coc" }, () => {
 		const command = kernelCommand(cocHome("/tmp/table"));
-		assert.equal(command[0], "uv", "the launch command itself is unchanged");
+		assert.equal(command[0], process.execPath, "the default kernel uses the captured Node executable");
+		assert.match(command[1], /\/build\/kernel\/rpc\.mjs$/);
 		assert.equal(command[command.indexOf("--workspace") + 1], "/var/pi-coc", "the module library and the saves move together");
 	});
 });

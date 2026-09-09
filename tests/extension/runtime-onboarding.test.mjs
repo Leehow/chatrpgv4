@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, symlinkSync, existsSync, rmSync, realpathSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, symlinkSync, existsSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
@@ -28,11 +28,12 @@ function fixture(t, worker) {
   const home = join(base, 'selected data home');
   const agentHome = join(base, 'selected Pi home');
   for (const path of [resourceRoot, contentRoot, home, agentHome]) mkdirSync(path, {recursive: true});
-  for (const path of ['extensions', 'runtime', 'node_modules']) symlinkSync(join(root, path), join(resourceRoot, path), 'dir');
+  symlinkSync(join(root, 'node_modules'), join(resourceRoot, 'node_modules'), 'dir');
+  mkdirSync(join(resourceRoot, 'build/pipicoc'), {recursive: true});
+  for (const path of ['extensions', 'runtime', 'kernel', 'host']) symlinkSync(join(root, 'build', path), join(resourceRoot, 'build', path), 'dir');
   if (worker) {
-    mkdirSync(join(resourceRoot, 'pipicoc'));
-    writeFileSync(join(resourceRoot, 'pipicoc/onboarding-worker.ts'), worker);
-  } else symlinkSync(join(root, 'pipicoc'), join(resourceRoot, 'pipicoc'), 'dir');
+    writeFileSync(join(resourceRoot, 'build/pipicoc/onboarding-worker.mjs'), worker);
+  } else copyFileSync(join(root, 'build/pipicoc/onboarding-worker.mjs'), join(resourceRoot, 'build/pipicoc/onboarding-worker.mjs'));
   const starter = join(contentRoot, 'starters', 'selected-story');
   mkdirSync(starter, {recursive: true});
   writeFileSync(join(starter, 'starter-listing.json'), JSON.stringify({listed: true, title: {en: 'Selected content'}, blurb: {en: 'Relocated catalog'}}));

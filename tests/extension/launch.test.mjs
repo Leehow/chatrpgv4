@@ -1,6 +1,6 @@
 /**
  * 怎么把进程起起来：内核的缺省启动命令（契约第 1 节）与 bin/pi-coc（契约第 9 节）。
- * 两边都用桩程序拦住真正的 uv 与 pi，只看命令行、cwd 与环境。
+ * Both seams capture their selected Node/Pi transport, argv, cwd and environment.
  */
 
 import { strict as assert } from "node:assert";
@@ -20,19 +20,14 @@ function scratch(prefix) {
 	return realpathSync(mkdtempSync(join(tmpdir(), prefix)));
 }
 
-test("缺省启动命令：uv run --frozen python -m coc.rpc，cwd 是包根，PYTHONPATH 指向 kernel", async (t) => {
-	const stubDir = scratch("pi-coc-uv-");
-	const log = join(stubDir, "uv.log");
-	const stub = join(stubDir, "uv");
-	writeFileSync(
-		stub,
-		[
-			"#!/usr/bin/env bash",
-			'{ echo "cwd=$(pwd)"; echo "pythonpath=$PYTHONPATH"; printf "arg=%s\\n" "$@"; } > "$UV_STUB_LOG"',
-			'exec node "$FAKE_KERNEL_PATH"',
-			"",
-		].join("\n"),
-	);
+test("the default kernel command uses captured Node and emitted RPC without Python environment", async (t) => {
+	const stubDir = scratch("pi-coc-node-");
+	const log = join(stubDir, "node.json");
+	const stub = join(stubDir, "selected-node.mjs");
+	writeFileSync(stub, `#!${process.execPath}\nimport {writeFileSync} from 'node:fs';
+import {pathToFileURL} from 'node:url';
+writeFileSync(process.env.NODE_STUB_LOG,JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2),pythonpath:process.env.PYTHONPATH??null,backend:process.env.PI_COC_RUNTIME}));
+await import(pathToFileURL(process.env.FAKE_KERNEL_PATH).href);\n`);
 	chmodSync(stub, 0o755);
 
 	const table = await openTable({
@@ -40,14 +35,16 @@ test("缺省启动命令：uv run --frozen python -m coc.rpc，cwd 是包根，P
 		env: {
 			// 不设 PI_COC_KERNEL_CMD，走扩展自己拼的缺省命令。
 			PI_COC_KERNEL_CMD: undefined,
-			PATH: `${stubDir}:${process.env.PATH}`,
-			UV_STUB_LOG: log,
+			PI_COC_RUNTIME: undefined,
+			PI_COC_NODE_EXECUTABLE: stub,
+			PYTHONPATH: undefined,
+			NODE_STUB_LOG: log,
 			FAKE_KERNEL_PATH: FAKE_KERNEL,
 		},
 	});
-	t.after(() => {
+	t.after(async () => {
+		await table.dispose();
 		rmSync(stubDir, { recursive: true, force: true });
-		return table.dispose();
 	});
 
 	assert.deepEqual(
@@ -57,21 +54,17 @@ test("缺省启动命令：uv run --frozen python -m coc.rpc，cwd 是包根，P
 		"缺省命令也应该真的把桌子开起来",
 	);
 
-	const lines = readFileSync(log, "utf8").trim().split("\n");
-	const args = lines.filter((line) => line.startsWith("arg=")).map((line) => line.slice(4));
-	assert.deepEqual(args, [
-		"run",
-		"--frozen",
-		"python",
-		"-m",
-		"coc.rpc",
+	const captured = JSON.parse(readFileSync(log, "utf8"));
+	assert.deepEqual(captured.args, [
+		join(REPO, "build/kernel/rpc.mjs"),
 		"--workspace",
 		table.workspace,
 		"--content",
 		join(REPO, "content"),
 	]);
-	assert.equal(lines.find((line) => line.startsWith("cwd=")), `cwd=${REPO}`, "内核在包根里跑");
-	assert.equal(lines.find((line) => line.startsWith("pythonpath=")), `pythonpath=${join(REPO, "kernel")}`);
+	assert.equal(captured.cwd, REPO);
+	assert.equal(captured.pythonpath, null);
+	assert.equal(captured.backend, 'typescript');
 });
 
 /** 造一棵最小的仓库树：启动器 + 守秘人提示 + 假的 pi。 */
@@ -79,28 +72,27 @@ function fakeRepo() {
 	const root = scratch("pi-coc-launcher-");
 	mkdirSync(join(root, "bin"));
 	mkdirSync(join(root, "prompts"));
+	mkdirSync(join(root, "content"));
+	mkdirSync(join(root, "build/runtime"), {recursive: true});
+	copyFileSync(join(REPO, "build/runtime/launch.mjs"), join(root, "build/runtime/launch.mjs"));
 	mkdirSync(join(root, "node_modules", ".bin"), { recursive: true });
 	copyFileSync(join(REPO, "bin", "pi-coc"), join(root, "bin", "pi-coc"));
 	chmodSync(join(root, "bin", "pi-coc"), 0o755);
 	writeFileSync(join(root, "prompts", "keeper.md"), "# 守秘人\n");
 	writeFileSync(join(root, "prompts", "setup.md"), "# 建卡\n");
 	const piStub = join(root, "node_modules", ".bin", "pi");
-	writeFileSync(
-		piStub,
-		[
-			"#!/usr/bin/env bash",
-			'{ echo "cwd=$(pwd)"; echo "agentdir=$PI_CODING_AGENT_DIR"; echo "campaign=${PI_COC_CAMPAIGN-<unset>}";',
-			'  echo "mode=${PI_COC_MODE-<unset>}"; printf "arg=%s\\n" "$@"; } > "$PI_STUB_LOG"',
-			"",
-		].join("\n"),
-	);
+	writeFileSync(piStub, `const fs=require('node:fs');
+fs.writeFileSync(process.env.PI_STUB_LOG,[
+ 'cwd='+process.cwd(),'agentdir='+process.env.PI_CODING_AGENT_DIR,'campaign='+(process.env.PI_COC_CAMPAIGN??'<unset>'),
+ 'mode='+(process.env.PI_COC_MODE??'<unset>'),'runtime='+process.env.PI_COC_RUNTIME,
+ ...process.argv.slice(2).map(arg=>'arg='+arg)].join('\\n')+'\\n');\n`);
 	chmodSync(piStub, 0o755);
 	return root;
 }
 
 function runLauncher(root, args, extraEnv = {}) {
 	const log = join(root, "pi.log");
-	const env = { ...process.env, PI_STUB_LOG: log, ...extraEnv };
+	const env = { ...process.env, PI_STUB_LOG: log, PI_COC_NODE_EXECUTABLE: process.execPath, PI_COC_HOME: root, ...extraEnv };
 	delete env.PI_COC_CAMPAIGN;
 	execFileSync(join(root, "bin", "pi-coc"), args, { env, encoding: "utf8" });
 	const lines = readFileSync(log, "utf8").trim().split("\n");
@@ -109,6 +101,10 @@ function runLauncher(root, args, extraEnv = {}) {
 		args: lines.filter((line) => line.startsWith("arg=")).map((line) => line.slice(4)),
 		value: (key) => lines.find((line) => line.startsWith(`${key}=`))?.slice(key.length + 1),
 	};
+}
+function defaultMounts(root) {
+	return ['--no-extensions', ...['kernel', 'mods', 'onboarding', 'module', 'memory', 'table'].flatMap(name => ['-e', join(root, 'build/extensions', name, 'index.mjs')]),
+		'-e', join(root, 'build/extensions/deepseek/agent/index.mjs')];
 }
 
 test("bin/pi-coc：写 settings.json、导出战役、拼出 pi 的命令行", (t) => {
@@ -120,6 +116,7 @@ test("bin/pi-coc：写 settings.json、导出战役、拼出 pi 的命令行", (
 	assert.equal(run.value("cwd"), root, "cwd 是仓库根");
 	assert.equal(run.value("agentdir"), join(root, ".pi", "coc-agent"));
 	assert.equal(run.value("campaign"), "camp-a");
+	assert.equal(run.value("runtime"), "typescript");
 	assert.deepEqual(run.args, [
 		"--no-builtin-tools",
 		"--no-context-files",
@@ -127,6 +124,7 @@ test("bin/pi-coc：写 settings.json、导出战役、拼出 pi 的命令行", (
 		join(root, "prompts", "keeper.md"),
 		"--session-id",
 		"coc-camp-a",
+		...defaultMounts(root),
 		"--mode",
 		"rpc",
 		"--no-session",
@@ -163,6 +161,7 @@ test("bin/pi-coc：不给战役就不定 session-id，也不导出 PI_COC_CAMPAI
 		"--no-context-files",
 		"--system-prompt",
 		join(root, "prompts", "keeper.md"),
+		...defaultMounts(root),
 		"--mode",
 		"rpc",
 	]);
@@ -177,7 +176,8 @@ test("bin/pi-coc：没装 pi 时报清楚", (t) => {
 		() => execFileSync(join(root, "bin", "pi-coc"), ["--campaign", "camp-a"], { encoding: "utf8", stdio: "pipe" }),
 		(error) => {
 			assert.equal(error.status, 1);
-			assert.match(error.stderr, /npm install/);
+			assert.match(error.stderr, /ENOENT/);
+			assert.ok(error.stderr.includes(join(root, 'node_modules/.bin/pi')));
 			return true;
 		},
 	);
@@ -198,6 +198,7 @@ test("bin/pi-coc setup：建卡进程另起一页提示、另一个模式、另�
 		join(root, "prompts", "setup.md"),
 		"--session-id",
 		"coc-setup-camp-c",
+		...defaultMounts(root),
 	]);
 });
 

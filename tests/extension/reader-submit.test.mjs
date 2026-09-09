@@ -31,8 +31,8 @@ test('small reader input is supplied up front while oversized input retains file
  assert.match(readerInput({task:'x'.repeat(50000)}),/^Read task.json/);
  const args=readerCommand('xai/grok-4.6','brief','low',true,true);
  assert.ok(args.includes('read,write,edit,bash,pdf,submit_reading'));
- assert.ok(args.some(arg=>arg.endsWith('/reader-submit.ts')));
- assert.ok(!readerCommand(undefined,undefined,undefined,true).some(arg=>arg.endsWith('/reader-submit.ts')));
+ assert.ok(args.some(arg=>arg.endsWith('/build/extensions/module/reader-submit.mjs')));
+ assert.ok(!readerCommand(undefined,undefined,undefined,true).some(arg=>arg.endsWith('/reader-submit.mjs')));
 });
 
 test('failed draft and unseen source checks return to repair before a terminating submission',async t=>{

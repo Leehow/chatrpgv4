@@ -113,9 +113,13 @@ if(existsSync(process.env.TEST_GIT_BLOCK)&&process.argv.slice(2).includes('commi
   assert.equal(JSON.parse(await readFile(join(home,'.coc/campaigns/c1/turn.json'),'utf8')).turn,2);
 });
 
-test('unavailable contributions reject new writes before mutation but allow a stored narration replay',async t=>{
+test('a deliberately incomplete writer rejects unavailable contributions but allows stored narration replay',async t=>{
   for(const kind of ['worldline'])await t.test(kind,async()=>{
-    const home=await mkdtemp(join(evidence,`preflight-${kind}-`)),kernel=client(home,environment());
+    const home=await mkdtemp(join(evidence,`preflight-${kind}-`));
+    const context=await api.createKernelContext({workspace:home,content:CONTENT,env:environment()});
+    const runtime=api.createWriteRuntime(context);
+    // The public registry is complete; this unit seam deliberately omits the contribution.
+    const kernel={call:(method,params)=>runtime.handlers[method](params),close:()=>context.git.close()};
     try {
       await kernel.call('campaign.create',create);await kernel.call('table.open',{campaign:'c1'});
       const opening={campaign:'c1',call_id:'t0-c1',text:'The case begins.'};

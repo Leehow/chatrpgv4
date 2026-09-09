@@ -146,7 +146,7 @@ test("actual JSONL subprocess serves hello and existing campaigns and drains EOF
   const requests = [
     { id: "hello", method: "kernel.hello", params: null },
     { id: "list", method: "campaign.list" },
-    { id: "later", method: "mods.job", params: {} },
+    { id: "registered invalid job", method: "mods.job", params: {} },
     { id: "unknown", method: "table.not_real" },
     { id: "after errors", method: "kernel.hello" },
   ];
@@ -162,7 +162,7 @@ test("actual JSONL subprocess serves hello and existing campaigns and drains EOF
   assert.deepEqual(responses[0].result, reference.rpc.hello);
   const listLine = run.stdout.split("\n")[1];
   assert.equal(listLine, '{"id": "list", "ok": true, "result": ' + reference.rpc.campaign_list_line + '}');
-  assert.equal(responses[2].error.code, "not_implemented");
+  assert.deepEqual(responses[2].error, {code: "invalid_params", message: "params.campaign is required"});
   assert.equal(responses[3].error.code, "unknown_method");
   assert.deepEqual(responses[4].result, reference.rpc.hello);
   assert.match(run.stderr, /ready workspace=/);
