@@ -611,6 +611,19 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             consume: true,
             resume
         });
+        // §29.2: a table.branch sets `pending_branch` on campaign.json; the first player_input
+        // after it carries the one-time `branched` section and clears the flag.
+        const branched = snapshot.meta.pending_branch;
+        if (isJsonObject(branched)) {
+            view.branched = {
+                name: string(branched.name),
+                from_line: string(branched.from_line),
+                from_turn: number(branched.from_turn)
+            };
+            const fresh = await campaign.readCampaign();
+            delete fresh.pending_branch;
+            await campaign.writeCampaign(fresh);
+        }
         if (snapshot.meta.status === 'completed') {
             view.head = 'This campaign remains completed until an allowed chapter correction commits. Only late accounting or an explicitly allowed legacy chapter correction is writable: read the source conclusion/rewards, then resolve explicit development:end-session or a pending development:settle-ending with intent montage; ask/narrate may return control or deliver accounting. Adventure effects must wait for an allowed chapter correction to commit. ' + view.head;
             if (!Object.hasOwn(row(snapshot.meta.ending), 'scope'))
