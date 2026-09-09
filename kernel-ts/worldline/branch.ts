@@ -83,14 +83,27 @@ export function createBranchHandlers(context: KernelContext, writer: WriteRuntim
         // Idempotent replay: the line exists from this very commit; only ensure it is active.
         if (source !== name) {
           if (await lineCommit(wl, name) == null) throw new RpcError("invalid_params", `worldline ${JSON.stringify(name)} has no branch ref`, { details: { line: name } });
-          await commitIfDirty(wl, `worldline ${source}: sealed before resuming ${name}`);
-          await checkout(wl, name);
-          if (isJsonObject(lines[source])) lines[source].status = "dormant";
-          lines[name].status = "active";
-          meta.worldlines = lines;
-          meta.active_worldline = name;
-          await campaign.writeCampaign(meta);
-          if (!context.seedLocked) context.rng.seed(`${string(existing.seed || lineSeed(campaign.id, name, short))}:${number(existing.last_turn ?? forkTurn) + 1}`);
+          const before = clone(meta);
+          try {
+            await commitIfDirty(wl, `worldline ${source}: sealed before resuming ${name}`);
+            await checkout(wl, name);
+            if (isJsonObject(lines[source])) lines[source].status = "dormant";
+            lines[name].status = "active";
+            meta.worldlines = lines;
+            meta.active_worldline = name;
+            // A replay that switches the active line is still a branch from the player's seat:
+            // the keeper gets the same one-time branched section as a fresh branch.
+            meta.pending_branch = { name, from_line: string(existing.forked_from.line), from_turn: number(existing.forked_from.turn) };
+            await campaign.writeCampaign(meta);
+            if (!context.seedLocked) context.rng.seed(`${string(existing.seed || lineSeed(campaign.id, name, short))}:${number(existing.last_turn ?? forkTurn) + 1}`);
+          } catch (error) {
+            try {
+              await checkout(wl, source, true);
+              await campaign.writeCampaign(before);
+            } catch { /* the rollback itself is best-effort; the original error carries the news */ }
+            await campaign.telemetry({ lane: "worldline", op: "branch", ok: false, line: name, error: internalError(error).message });
+            throw error;
+          }
         }
         return { ok: true, line: { name, kind: "if", loop: 0, forked_from: clone(existing.forked_from) }, active: name, branched_from: clone(existing.forked_from) };
       }
@@ -111,10 +124,10 @@ export function createBranchHandlers(context: KernelContext, writer: WriteRuntim
     });
 
     const before = clone(meta);
-    const seal = await commitIfDirty(wl, `worldline ${source}: sealed before branching`);
-    const base = seal || await head(wl);
     let created = false;
     try {
+      const seal = await commitIfDirty(wl, `worldline ${source}: sealed before branching`);
+      const base = seal || await head(wl);
       await createBranch(wl, name, short);
       created = true;
       await checkout(wl, name);
