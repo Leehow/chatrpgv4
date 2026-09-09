@@ -8670,15 +8670,19 @@ export class PiHostBackend implements HostBackend {
         if (method === "timeline.branch" && isRecord(data) && data.ok === true) {
           // The watershed belongs in the transcript (contract §16.2): the same coc-mechanics row
           // the live path appends through the pack, written here because no live process can.
+          // The append rides the host's own per-session write barrier, and the parent id is read
+          // inside it, so a racing append cannot hand this row a stale parent.
           const from = isRecord(data.branched_from) ? data.branched_from : {};
           const line = isRecord(data.line) ? data.line : {};
           const mechanics = [{kind:"worldline",operation:"fork",
             line:typeof line.name==="string"?line.name:undefined,
             from_line:typeof from.line==="string"?from.line:undefined,
             from_turn:typeof from.turn==="number"?from.turn:undefined}];
-          await fs.appendFile(selected.path, `${JSON.stringify({type:"custom",customType:"coc-mechanics",
-            data:{turn:typeof from.turn==="number"?from.turn:0,mechanics,play_language:context.play_language},
-            id:crypto.randomUUID(),parentId:await lastJsonlEntryId(selected.path),timestamp:new Date().toISOString()})}\n`);
+          await this.sessionFileExclusive(sid)(async () => {
+            await fs.appendFile(selected.path, `${JSON.stringify({type:"custom",customType:"coc-mechanics",
+              data:{turn:typeof from.turn==="number"?from.turn:0,mechanics,play_language:context.play_language},
+              id:crypto.randomUUID(),parentId:await lastJsonlEntryId(selected.path),timestamp:new Date().toISOString()})}\n`);
+          });
           emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'timeline-changed',payload:{campaign:context.campaign}}});
         }
         // A Timeline answer the panel draws from carries the words it draws them with.

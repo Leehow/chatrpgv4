@@ -10,6 +10,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { registerTimelinePanel } from "../../pipicoc/timeline.ts";
+import { runRequest } from "../../Electron/resources/runtime/kernel/pipiui-ext-invoke.ts";
 
 function piSurface() {
 	const entries = [];
@@ -108,19 +109,44 @@ test("a successful branch appends the watershed entry and pushes timeline-change
 	});
 });
 
-test("kernel refusals are coded answers, and a held campaign lock reads as operation_in_progress", async () => {
+test("kernel refusals keep their code in the envelope the panel reads", async () => {
 	await withRegistry(async (handlers) => {
 		const pi = piSurface();
 		registerTimelinePanel(pi);
-		pi.events.emit("coc:kernel-bridge", { campaign: "selected", call: async () => { throw Object.assign(new Error("turn 4 is acting"), { code: "operation_in_progress" }); } });
-		const busy = await handlers.get("timeline.branch")({ commit: "abc123" });
-		assert.equal(busy.status, "error");
-		assert.equal(busy.code, "operation_in_progress");
-		pi.events.emit("coc:kernel-bridge", { campaign: "selected", call: async () => { throw Object.assign(new Error("another process is holding"), { code: "internal", details: { reason: "campaign_locked" } }); } });
-		const locked = await handlers.get("timeline.branch")({ commit: "abc123" });
-		assert.equal(locked.code, "operation_in_progress");
-		const bad = await handlers.get("timeline.branch")({});
-		assert.equal(bad.code, "invalid_params");
+		const pushed = [];
+		const priorPort = process.env.PIPIUI_BRIDGE_PORT;
+		const priorCapability = process.env.PIPIUI_SESSION_CAPABILITY;
+		const priorFetch = globalThis.fetch;
+		process.env.PIPIUI_BRIDGE_PORT = "1";
+		process.env.PIPIUI_SESSION_CAPABILITY = "test";
+		globalThis.fetch = async (url, init) => { pushed.push(JSON.parse(init.body)); return { ok: true }; };
+		try {
+			pi.events.emit("coc:kernel-bridge", { campaign: "selected", call: async () => { throw Object.assign(new Error("turn 4 is acting"), { code: "operation_in_progress" }); } });
+			const busy = await handlers.get("timeline.branch")({ commit: "abc123" });
+			assert.equal(busy.ok, false);
+			assert.equal(busy.error.code, "operation_in_progress");
+			assert.equal(typeof busy.error.message, "string");
+			// A failed branch leaves no watershed and sends no push.
+			assert.equal(pi.entries.length, 0);
+			await new Promise((resolve) => setImmediate(resolve));
+			assert.equal(pushed.length, 0);
+			// A held campaign lock reads to the panel as the same operation_in_progress word, through
+			// the ext-invoke mount's own reply shaping -- the code, not just the envelope, survives.
+			pi.events.emit("coc:kernel-bridge", { campaign: "selected", call: async () => { throw Object.assign(new Error("another process is holding"), { code: "internal", details: { reason: "campaign_locked" } }); } });
+			const reply = await runRequest(
+				{ requestId: "r1", extensionId: "coc-keeper", method: "timeline.branch", params: { commit: "abc123" } },
+				{ register: () => () => {}, resolve: (_id, method) => handlers.get(method) },
+			);
+			assert.equal(reply.ok, false);
+			assert.equal(reply.code, "operation_in_progress");
+			const bad = await handlers.get("timeline.branch")({});
+			assert.equal(bad.ok, false);
+			assert.equal(bad.error.code, "invalid_params");
+		} finally {
+			if (priorPort === undefined) delete process.env.PIPIUI_BRIDGE_PORT; else process.env.PIPIUI_BRIDGE_PORT = priorPort;
+			if (priorCapability === undefined) delete process.env.PIPIUI_SESSION_CAPABILITY; else process.env.PIPIUI_SESSION_CAPABILITY = priorCapability;
+			globalThis.fetch = priorFetch;
+		}
 	});
 });
 

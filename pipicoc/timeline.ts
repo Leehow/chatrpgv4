@@ -33,17 +33,25 @@ interface KernelBridgeEvent {
 }
 
 export interface TimelineAnswer {
-	status?: "ready" | "error" | "unbound";
+	status?: "ready" | "unbound";
 	/** Which campaign the answer came from, so a panel left open across tables can tell. */
 	campaign: string | null;
-	/** Why there is no answer, when there is none. English: this string is for the log, not the player. */
-	reason?: string;
-	/** The word the panel shows for that refusal is looked up by this (contract §23). */
-	code?: string;
 	/** The product's own captions for this session's play language, so no renderer keeps a table. */
 	ui?: UiWords;
 	/** The kernel's own fields ride at the top level, unwrapped. */
 	[key: string]: unknown;
+}
+
+/**
+ * A refusal in the envelope the panel reads (`data.error.{code,message}`; the cold path reaches
+ * the same shape through the host's `cocDenied`). The ext-invoke mount forwards this envelope's
+ * code and message untouched, while a thrown handler error would be flattened to `agent_error` —
+ * so a refusal is returned, never thrown. `message` is English and for the log; the word the
+ * player reads is looked up by `code` (contract §23).
+ */
+export interface TimelineFailure {
+	ok: false;
+	error: { code: string; message: string };
 }
 
 /** A lock refusal arrives as `internal` with `details.reason === "campaign_locked"` (kernel-ts
@@ -80,13 +88,11 @@ export function registerTimelinePanel(pi: ExtensionAPI): void {
 		const ui = await chrome();
 		return ui ? { ...row, ui } : row;
 	}
-	async function failure(error: unknown): Promise<TimelineAnswer> {
-		return answer({
-			status: "error",
-			campaign: campaign ?? null,
-			code: answerCode(error),
-			reason: error instanceof Error ? error.message : String(error),
-		});
+	function refuse(code: string, message: string): TimelineFailure {
+		return { ok: false, error: { code, message } };
+	}
+	function failure(error: unknown): TimelineFailure {
+		return refuse(answerCode(error), error instanceof Error ? error.message : String(error));
 	}
 
 	pi.events.on("coc:kernel-bridge", (data) => {
@@ -126,10 +132,10 @@ export function registerTimelinePanel(pi: ExtensionAPI): void {
 		pi.events.emit("coc:mechanics", { campaign, turn, mechanics });
 	}
 
-	async function graph(raw: unknown): Promise<TimelineAnswer> {
+	async function graph(raw: unknown): Promise<TimelineAnswer | TimelineFailure> {
 		if (raw !== undefined && (raw === null || typeof raw !== "object" || Array.isArray(raw)))
-			return answer({ status: "error", campaign: campaign ?? null, code: "invalid_params", reason: "Expected timeline.graph parameters to be an object" });
-		if (!bridge) return answer({ status: "error", campaign: campaign ?? null, code: "table_not_open", reason: "the table is not open" });
+			return refuse("invalid_params", "Expected timeline.graph parameters to be an object");
+		if (!bridge) return refuse("table_not_open", "the table is not open");
 		if (!campaign) return answer({ status: "unbound", campaign: null });
 		const params = { ...((raw ?? {}) as Record<string, unknown>) };
 		delete params.campaign;
@@ -141,17 +147,17 @@ export function registerTimelinePanel(pi: ExtensionAPI): void {
 		}
 	}
 
-	async function branch(raw: unknown): Promise<TimelineAnswer> {
+	async function branch(raw: unknown): Promise<TimelineAnswer | TimelineFailure> {
 		if (raw === null || typeof raw !== "object" || Array.isArray(raw))
-			return answer({ status: "error", campaign: campaign ?? null, code: "invalid_params", reason: "Expected timeline.branch parameters to be an object" });
+			return refuse("invalid_params", "Expected timeline.branch parameters to be an object");
 		const params = { ...(raw as Record<string, unknown>) };
 		delete params.campaign;
 		if (typeof params.commit !== "string" || !params.commit.trim())
-			return answer({ status: "error", campaign: campaign ?? null, code: "invalid_params", reason: "timeline.branch needs the commit to branch from" });
+			return refuse("invalid_params", "timeline.branch needs the commit to branch from");
 		for (const key of ["name", "label"] as const)
 			if (params[key] !== undefined && typeof params[key] !== "string")
-				return answer({ status: "error", campaign: campaign ?? null, code: "invalid_params", reason: `timeline.branch parameter ${key} must be a string` });
-		if (!bridge) return answer({ status: "error", campaign: campaign ?? null, code: "table_not_open", reason: "the table is not open" });
+				return refuse("invalid_params", `timeline.branch parameter ${key} must be a string`);
+		if (!bridge) return refuse("table_not_open", "the table is not open");
 		if (!campaign) return answer({ status: "unbound", campaign: null });
 		try {
 			const result = await bridge("table.branch", { ...params, campaign });
