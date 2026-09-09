@@ -11,6 +11,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { extensionWords } from "../../extensions/ui/words.ts";
 import { openTable, waitForIdle } from "./harness.mjs";
 
 /** 表由内核给；测试从假内核那一份读，跟扩展读的是同一张。 */
@@ -190,8 +191,13 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
 	assert.equal(finished.ok, true);
 	assert.match(finished.handoff_command, /^bin\/pi-coc --campaign /, "最后一步交出开桌命令（契约 §14.4）");
 	assert.equal(finished.next, "Every setup step is done.");
+	// The handoff line is the campaign's sentence around the command (contract §23): the command is
+	// a command and reads the same everywhere, the words about it come from the `extension` surface.
+	const words = await extensionWords("zh-Hans");
+	const english = await extensionWords("en");
+	assert.notEqual(words.word("setup_complete"), english.word("setup_complete"), "a second language hands off in its own words");
 	assert.ok(
-		table.ui.notifications.some((row) => row.message.includes(finished.handoff_command)),
+		table.ui.notifications.some((row) => row.message === words.line("setup_complete", { command: finished.handoff_command })),
 		"开桌命令也报给玩家",
 	);
 

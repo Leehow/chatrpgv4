@@ -54,7 +54,7 @@ it('cold host sheet reads are tied to the requested session and never start Pi',
     expect(catalog.ok).toBe(true);
     const mods=await backend.handle('invokeExtension',['coc-keeper','mods.list',{campaign:'must-not-be-guessed'}, {sessionId:first.id}]) as any;
     expect(mods.ok).toBe(true);
-    expect(mods.data.mods.map((row:any)=>row.id)).toEqual(['enhanced-items','natural-npc']);
+    expect(mods.data.mods.map((row:any)=>row.id)).toEqual(['enhanced-items','guided-creation','natural-npc']);
     expect(mods.data.campaign).toBeUndefined();
     const defaults=await backend.handle('invokeExtension',['coc-keeper','mods.defaults',{id:'natural-npc',enabled:false}, {sessionId:first.id}]) as any;
     expect(defaults).toMatchObject({ok:true,data:{'natural-npc':false}});

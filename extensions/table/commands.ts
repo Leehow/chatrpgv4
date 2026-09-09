@@ -26,6 +26,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { modelLabel, resolveLaneModel } from "../lanes/subsession.ts";
+import type { ExtensionWords } from "../ui/words.ts";
 
 /** Pi's closed thinking ladder (`ThinkingLevel` in @earendil-works/pi-agent-core). */
 export const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
@@ -81,6 +82,13 @@ export interface CommandDeps {
 	telemetryTail(limit: number): Record<string, unknown>[];
 	/** Evidence paths for `/coc evidence`. */
 	paths(): { label: string; path: string }[];
+	/**
+	 * The campaign's own captions for the lines this file sends unprompted (contract §23). The
+	 * `/coc` read-outs themselves stay English: they are a developer console, printed on request,
+	 * and their rows are kernel field names. Only the ingest job's progress arrives unasked, while
+	 * the player is looking at the table, so only that is drawn in the campaign's language.
+	 */
+	words(): Promise<ExtensionWords>;
 }
 
 // ---- The status panel ------------------------------------------------------
@@ -326,7 +334,7 @@ function lanesView(ctx: ExtensionCommandContext, deps: CommandDeps): string {
 // ---- The module store (contract §20.3) -------------------------------------
 
 /**
- * `<pdf path> [--id x] [--title t] [--language zh-Hans]`, tokenised the way a shell would: quotes hold
+ * `<pdf path> [--id x] [--title t] [--language <BCP 47>]`, tokenised the way a shell would: quotes hold
  * a path with spaces together, everything that is not a flag is a positional. Nothing here reads the
  * words themselves — this is punctuation, not meaning.
  */
@@ -448,27 +456,31 @@ export function moduleUseLines(row: ModuleRow | undefined, id: string, campaign:
 }
 
 /** One progress line for the person watching an ingest (contract §20.2's `-progress` payload). */
-export function ingestProgressLine(row: Record<string, unknown>): string {
-	const stage = str(row.stage) ?? "?";
+export function ingestProgressLine(row: Record<string, unknown>, words: ExtensionWords): string {
+	const stage = str(row.stage) ?? words.word("parse_stage_unknown");
 	const page = num(row.page);
 	const of = num(row.of);
-	const where = of === undefined ? "" : page === undefined ? `  ${of} pages` : `  page ${page}/${of}`;
-	return `parse   ${stage}${where}${str(row.detail) ? `  ${str(row.detail)}` : ""}`;
+	const where = of === undefined ? "" : page === undefined ? words.line("parse_pages_total", { of }) : words.line("parse_page", { page, of });
+	return [words.line("parse_stage", { stage }), where, str(row.detail) ?? ""].filter(Boolean).join("  ");
 }
 
 /** The one line the person gets when a job ends, either way. */
-export function ingestDoneLine(row: Record<string, unknown>): string {
-	const id = str(row.module_id) ?? "?";
+export function ingestDoneLine(row: Record<string, unknown>, words: ExtensionWords): string {
+	const id = str(row.module_id) ?? words.word("parse_stage_unknown");
 	const pages = num(row.page_count);
 	return [
-		`parse   done  ${id}`,
-		pages !== undefined ? `  pages ${pages}` : "",
-		row.opening_ready === true ? "  opening ready" : "  opening not ready",
-	].join("");
+		words.line("parse_done", { module: id }),
+		pages !== undefined ? words.line("parse_pages", { pages }) : "",
+		words.word(row.opening_ready === true ? "parse_opening_ready" : "parse_opening_not_ready"),
+	]
+		.filter(Boolean)
+		.join("  ");
 }
 
-export function ingestFailedLine(row: Record<string, unknown>): string {
-	return `parse   failed  ${str(row.reason) ?? "internal"}  ${str(row.detail) ?? ""}`.trimEnd();
+export function ingestFailedLine(row: Record<string, unknown>, words: ExtensionWords): string {
+	return [words.line("parse_failed", { reason: str(row.reason) ?? words.word("parse_reason_unknown") }), str(row.detail) ?? ""]
+		.filter(Boolean)
+		.join("  ");
 }
 
 async function moduleRows(deps: CommandDeps): Promise<ModuleRow[]> {
@@ -655,6 +667,15 @@ export function registerCocCommand(pi: ExtensionAPI, deps: CommandDeps): void {
 	// Keeper's context. Only stage changes and every tenth page are shown: a 41-page book must not
 	// scroll the table away.
 	let lastStage: string | undefined;
+	/** One unprompted line, in the campaign's own words; a content root that cannot be read drops the line rather than throwing into the bus. */
+	function report(draw: (words: ExtensionWords) => string, type: "info" | "error"): void {
+		void deps
+			.words()
+			.then((words) => deps.notify(draw(words), type))
+			.catch(() => {
+				/* one progress line is not worth an exception */
+			});
+	}
 	pi.events.on("coc:module-ingest", () => {
 		lastStage = undefined;
 	});
@@ -665,10 +686,10 @@ export function registerCocCommand(pi: ExtensionAPI, deps: CommandDeps): void {
 		const of = num(row.of);
 		const worthShowing = stage !== lastStage || (page !== undefined && of !== undefined && of > 0 && (page % 10 === 0 || page === of));
 		lastStage = stage;
-		if (worthShowing) deps.notify(ingestProgressLine(row), "info");
+		if (worthShowing) report((words) => ingestProgressLine(row, words), "info");
 	});
-	pi.events.on("coc:module-ingest-done", (data) => deps.notify(ingestDoneLine(rec(data)), "info"));
-	pi.events.on("coc:module-ingest-failed", (data) => deps.notify(ingestFailedLine(rec(data)), "error"));
+	pi.events.on("coc:module-ingest-done", (data) => report((words) => ingestDoneLine(rec(data), words), "info"));
+	pi.events.on("coc:module-ingest-failed", (data) => report((words) => ingestFailedLine(rec(data), words), "error"));
 
 	pi.registerCommand(COC_COMMAND, {
 		description: "COC table: status, model, thinking, lanes, evidence, module, investigator",

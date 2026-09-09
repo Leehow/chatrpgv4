@@ -14,12 +14,18 @@
  * - the COC-shaped context fold (§19.2, in `./fold.ts`): `session_before_compact` hands Pi a cut
  *   point and a summary this extension wrote itself, and `before_agent_start` compacts early
  *   enough that it never lands in the middle of a tool round trip.
+ *
+ * Every caption on those lines comes from `content/ui/<tag>/extension.json` for the campaign's own
+ * `play_language`, which arrives on `coc:table-open` (contract §23, 2026-09-09). Nothing here names
+ * a language or keeps a word of its own: the numbers, names and closed kernel enums are the
+ * kernel's, the chrome around them is data.
  */
 
 import type { CompactionResult, ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendJsonl, cocHome, cocMode } from "../lanes/host.ts";
+import { type ExtensionWords, extensionSurface } from "../ui/words.ts";
 import { type CommandDeps, registerCocCommand } from "./commands.ts";
 import { compactAt, FOLD_NOTE_KIND, foldContext } from "./fold.ts";
 
@@ -62,40 +68,53 @@ interface MechanicsEvent {
 interface TableOpenEvent {
 	campaign?: string;
 	open?: {
-		campaign?: { title?: string; module_id?: string };
+		campaign?: { title?: string; module_id?: string; play_language?: string };
 		turn?: { number?: number; state?: string };
 		investigators?: Array<{ name?: string; hp?: number; san?: number }>;
 		scene?: { name?: string; display_name?: string };
 	};
 }
 
-function describe(payload: TableOpenEvent): string {
+/** The campaign's play language as `table.open` reported it; undefined until the table opens, which reads as the default. */
+export function tableLanguage(payload: TableOpenEvent | undefined): string | undefined {
+	const tag = payload?.open?.campaign?.play_language;
+	return typeof tag === "string" && tag.trim() ? tag : undefined;
+}
+
+export function describe(payload: TableOpenEvent, words: ExtensionWords): string {
 	const open = payload.open ?? {};
-	const title = open.campaign?.title ?? payload.campaign ?? "unnamed campaign";
-	const scene = open.scene?.display_name ?? open.scene?.name ?? "unknown scene";
+	const unknown = words.word("table_value_unknown");
+	const title = open.campaign?.title ?? payload.campaign ?? words.word("table_campaign_unnamed");
+	const scene = open.scene?.display_name ?? open.scene?.name ?? words.word("table_scene_unknown");
 	const who = (open.investigators ?? [])
-		.map((inv) => `${inv.name ?? "unnamed investigator"}  HP ${inv.hp ?? "?"} / SAN ${inv.san ?? "?"}`)
+		.map((inv) =>
+			words.line("table_investigator", {
+				name: inv.name ?? words.word("table_investigator_unnamed"),
+				hp: inv.hp ?? unknown,
+				san: inv.san ?? unknown,
+			}),
+		)
 		.join(" | ");
 	const turn = open.turn?.number ?? 0;
-	return `${title}  turn ${turn}  ${scene}${who ? `\n${who}` : ""}`;
+	return `${words.line("table_open", { title, turn, scene })}${who ? `\n${who}` : ""}`;
 }
 
 /** One line of session summary; undefined when there is no session or it has ended, and the caller takes the line down. */
-function sessionLine(session: SessionSummary | null | undefined): string | undefined {
+export function sessionLine(session: SessionSummary | null | undefined, words: ExtensionWords): string | undefined {
 	if (!session?.kind) return undefined;
 	if (session.ended === true || session.status === "ended") return undefined;
-	// Session kinds and defence options are closed enums from the contract: shown verbatim, never
-	// translated — the status line is provenance for a human, not an instruction for the Keeper,
-	// and a translation layer would only stop matching the words in the capsule.
+	// The session kind and the defence options are closed kernel enums, shown verbatim: they are the
+	// same words the capsule carries, and the rules glossary is where they get a play-language
+	// reading. Only this line's own chrome comes from the extension surface.
 	const parts = [session.kind];
-	if (typeof session.round === "number") parts.push(`round ${session.round}`);
+	if (typeof session.round === "number") parts.push(words.line("session_round", { round: session.round }));
 	const whose = session.turn_of ?? session.active_actor;
-	if (whose) parts.push(`turn: ${whose}`);
+	if (whose) parts.push(words.line("session_turn", { who: whose }));
 	const defense = session.pending_defense;
 	if (defense) {
-		const who = defense.for === "player" ? "player" : (defense.defender ?? "NPC");
+		const who = defense.for === "player" ? words.word("session_defender_player") : (defense.defender ?? words.word("session_defender_npc"));
 		const options = (defense.options ?? []).join("/");
-		parts.push(`defence: ${who}${options ? ` (${options})` : ""}`);
+		parts.push(options ? words.line("session_defence_options", { who, options }) : words.line("session_defence", { who }));
 	}
 	return parts.join("  ");
 }
@@ -103,13 +122,13 @@ function sessionLine(session: SessionSummary | null | undefined): string | undef
 /**
  * One line of Director suggestion; undefined when there is no `director` section (slice 0-2 kernels),
  * and the caller takes the line down. Beat names and hard-rule names are closed enums from the
- * contract, shown verbatim.
+ * contract, shown verbatim; the words around them are the campaign's.
  */
-function directorLine(director: DirectorSection | null | undefined): string | undefined {
+export function directorLine(director: DirectorSection | null | undefined, words: ExtensionWords): string | undefined {
 	const beat = typeof director?.beat === "string" ? director.beat.trim() : "";
 	if (!beat) return undefined;
 	const override = typeof director?.override === "string" ? director.override.trim() : "";
-	return override ? `beat ${beat}  override ${override}` : `beat ${beat}`;
+	return override ? words.line("director_beat_override", { beat, override }) : words.line("director_beat", { beat });
 }
 
 function text(value: unknown): string | undefined {
@@ -122,66 +141,75 @@ function num(value: unknown): string | undefined {
 
 /**
  * One mechanics row as a compact status fragment. The kinds are the closed set of contract §16.2;
- * an unknown kind is shown by its name alone. Nothing here is player-facing text: it is the
- * language-neutral projection rendered for whoever is watching the terminal.
+ * an unknown kind is shown by its name alone. The numbers and names are the kernel's own and are
+ * never rewritten here; the words around them come from the campaign's `extension` surface.
  */
-function mechanicsFragment(row: Record<string, unknown>): string | undefined {
+export function mechanicsFragment(row: Record<string, unknown>, words: ExtensionWords): string | undefined {
 	const kind = text(row.kind);
 	if (!kind) return undefined;
 	switch (kind) {
 		case "roll": {
 			const roll = num(row.roll);
 			const target = num(row.target);
-			if (!roll || !target) return "roll";
-			return `roll ${roll}/${target} ${row.passed === true ? "pass" : "fail"}`;
+			if (!roll || !target) return words.word("receipt_roll_plain");
+			const outcome = words.word(row.passed === true ? "receipt_roll_pass" : "receipt_roll_fail");
+			return words.line("receipt_roll", { roll, target, outcome });
 		}
 		case "dice": {
 			const total = num(row.total);
-			const label = text(row.expression) ?? text(row.label) ?? "dice";
-			return total ? `${label} = ${total}` : label;
+			const label = text(row.expression) ?? text(row.label) ?? words.word("receipt_dice_plain");
+			return total ? words.line("receipt_dice", { label, total }) : label;
 		}
 		case "change": {
-			const resource = text(row.resource) ?? "change";
+			const resource = text(row.resource) ?? words.word("receipt_change_plain");
 			const before = num(row.before);
 			const after = num(row.after);
-			return before && after ? `${resource} ${before}->${after}` : resource;
+			return before && after ? words.line("receipt_change", { resource, before, after }) : resource;
 		}
 		case "cash": {
 			const before = num(row.before);
 			const after = num(row.after);
-			return before && after ? `cash ${before}->${after}` : "cash";
+			return before && after ? words.line("receipt_cash", { before, after }) : words.word("receipt_cash_plain");
 		}
 		case "scene": {
 			const to = text(row.to);
-			return to ? `move -> ${to}` : "move";
+			return to ? words.line("receipt_move", { scene: to }) : words.word("receipt_move_plain");
 		}
-		case "clue":
-			return `clue ${text(row.label) ?? text(row.clue) ?? ""}`.trim();
+		case "clue": {
+			const name = text(row.label) ?? text(row.clue);
+			return name ? words.line("receipt_clue", { name }) : words.word("receipt_clue_plain");
+		}
 		case "time": {
 			const minutes = num(row.minutes);
-			return minutes ? `+${minutes}m` : "time";
+			return minutes ? words.line("receipt_time", { minutes }) : words.word("receipt_time_plain");
 		}
 		case "item": {
-			const name = text(row.name) ?? "item";
-			const quantity = typeof row.quantity === "number" && row.quantity !== 1 ? ` x${row.quantity}` : "";
-			return `item ${name}${quantity}`;
+			const name = text(row.name) ?? words.word("receipt_item_plain");
+			const quantity = typeof row.quantity === "number" && row.quantity !== 1 ? row.quantity : undefined;
+			return quantity === undefined ? words.line("receipt_item", { name }) : words.line("receipt_item_quantity", { name, quantity });
 		}
 		case "session": {
-			const family = text(row.family) ?? "session";
+			const family = text(row.family) ?? words.word("receipt_session_plain");
 			const transition = text(row.transition);
-			return transition ? `${family} ${transition}` : family;
+			return transition ? words.line("receipt_session", { family, transition }) : family;
 		}
-		case "choice":
-			return `choice ${text(row.option) ?? ""}`.trim();
-		case "handout":
-			return `handout ${text(row.name) ?? ""}`.trim();
+		case "choice": {
+			const option = text(row.option);
+			return option ? words.line("receipt_choice", { option }) : words.word("receipt_choice_plain");
+		}
+		case "handout": {
+			const name = text(row.name);
+			return name ? words.line("receipt_handout", { name }) : words.word("receipt_handout_plain");
+		}
 		case "worldline": {
 			// Contract §15.7: which line the table moved to, and which circuit of the loop.
 			const line = text(row.label) ?? text(row.line) ?? "";
-			const operation = text(row.operation) ?? "worldline";
+			const operation = text(row.operation) ?? words.word("receipt_worldline_plain");
 			const loop = num(row.loop);
-			const circuit = text(row.mode) === "loop" && loop ? ` loop ${loop}` : "";
-			return `${operation} -> ${line}${circuit}`.trim();
+			return (text(row.mode) === "loop" && loop
+				? words.line("receipt_worldline_loop", { operation, line, loop })
+				: words.line("receipt_worldline", { operation, line })
+			).trim();
 		}
 		default:
 			return kind;
@@ -189,14 +217,14 @@ function mechanicsFragment(row: Record<string, unknown>): string | undefined {
 }
 
 /** The compact status line for one turn's mechanics; undefined when there is nothing to show. */
-function mechanicsLine(event: MechanicsEvent): string | undefined {
+export function mechanicsLine(event: MechanicsEvent, words: ExtensionWords): string | undefined {
 	const rows = Array.isArray(event.mechanics) ? event.mechanics : [];
 	const parts = rows
-		.map((row) => (row && typeof row === "object" ? mechanicsFragment(row as Record<string, unknown>) : undefined))
+		.map((row) => (row && typeof row === "object" ? mechanicsFragment(row as Record<string, unknown>, words) : undefined))
 		.filter((part): part is string => Boolean(part));
 	if (parts.length === 0) return undefined;
-	const turn = typeof event.turn === "number" ? `t${event.turn}  ` : "";
-	return `${turn}${parts.join("  ")}`;
+	const turn = typeof event.turn === "number" ? words.line("mechanics_turn", { turn: event.turn }) : "";
+	return [turn, ...parts].filter(Boolean).join("  ");
 }
 
 export default function (pi: ExtensionAPI) {
@@ -211,10 +239,24 @@ export default function (pi: ExtensionAPI) {
 	let director: string | undefined;
 	let mechanics: string | undefined;
 	const handoutsSeen = new Set<string>();
+	/** The campaign's captions (contract §23); the default language until `coc:table-open` says which. */
+	const surface = extensionSurface();
 	/** This turn's capsule, verbatim off the bus: the panel and the post-fold note read it, nothing rewrites it. */
 	let capsule: Record<string, unknown> | undefined;
 	/** The kernel RPC closure (docs/pi-host-contract.md §3.1); undefined before the table opens and after it closes. */
 	let bridge: ((method: string, params: Record<string, unknown>) => Promise<unknown>) | undefined;
+
+	/**
+	 * Draw a line once the captions are in hand. Reading `content/ui/` is a file read, so a line
+	 * that used to be painted inside the event handler is painted one microtask later; the surface
+	 * hands back the same settled promise after the first read, so the bus order is kept. A content
+	 * root that cannot be read leaves the line as it was rather than throwing into the bus.
+	 */
+	function withWords(draw: (words: ExtensionWords) => void): void {
+		void surface.words().then(draw).catch(() => {
+			/* one status line is never worth an exception */
+		});
+	}
 
 	/** The workspace root (`PI_COC_HOME`, contract §20.7); undefined before the session starts. */
 	function home(): string | undefined {
@@ -252,12 +294,23 @@ export default function (pi: ExtensionAPI) {
 	function announce(): void {
 		if (announced || !payload || !ctx) return;
 		announced = true;
-		const line = describe(payload);
-		if (ctx.hasUI) {
-			ctx.ui.notify(line, "info");
-			return;
-		}
-		pi.appendEntry("coc-welcome", { campaign: payload.campaign, text: line });
+		const open = payload;
+		withWords((words) => {
+			const line = describe(open, words);
+			try {
+				if (ctx?.hasUI) {
+					ctx.ui.notify(line, "info");
+					return;
+				}
+			} catch {
+				/* the session is gone; the welcome still belongs in the record below */
+			}
+			try {
+				pi.appendEntry("coc-welcome", { campaign: open.campaign, text: line });
+			} catch {
+				/* the session is gone */
+			}
+		});
 	}
 
 	function paintSession(): void {
@@ -289,19 +342,31 @@ export default function (pi: ExtensionAPI) {
 			if (text(entry.kind) !== "handout") continue;
 			const path = text(entry.path);
 			if (!path) continue;
-			const name = text(entry.name) ?? "handout";
-			const key = `${turn}:${name}:${path}`;
+			const named = text(entry.name);
+			const key = `${turn}:${named ?? ""}:${path}`;
 			if (handoutsSeen.has(key)) continue;
 			handoutsSeen.add(key);
-			const line = `handout ${name}: ${path}`;
-			if (ctx?.hasUI) ctx.ui.notify(line, "info");
-			else pi.appendEntry("coc-handout", { turn: event.turn, name, path });
+			withWords((words) => {
+				const name = named ?? words.word("handout_unnamed");
+				const line = words.line("handout_written", { name, path });
+				try {
+					if (ctx?.hasUI) {
+						ctx.ui.notify(line, "info");
+						return;
+					}
+					pi.appendEntry("coc-handout", { turn: event.turn, name, path });
+				} catch {
+					/* the session is gone */
+				}
+			});
 		}
 	}
 
 	// A bus event may arrive before this extension's session_start (the kernel extension loads first): both orders must be caught.
 	pi.events.on("coc:table-open", (data) => {
 		payload = (data ?? {}) as TableOpenEvent;
+		// The campaign's own play language, before any line is drawn from it (contract §23).
+		surface.speak(tableLanguage(payload));
 		announce();
 	});
 
@@ -309,10 +374,13 @@ export default function (pi: ExtensionAPI) {
 	pi.events.on("coc:capsule", (data) => {
 		const event = (data ?? {}) as CapsuleEvent;
 		capsule = event.capsule ?? undefined;
-		const next = directorLine(event.capsule?.director);
-		if (next === director) return;
-		director = next;
-		paintDirector();
+		const section = event.capsule?.director;
+		withWords((words) => {
+			const next = directorLine(section, words);
+			if (next === director) return;
+			director = next;
+			paintDirector();
+		});
 	});
 
 	// The kernel RPC closure (docs/pi-host-contract.md §5: extensions share nothing but this bus).
@@ -322,10 +390,13 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.events.on("coc:resolve", (data) => {
-		const next = sessionLine(((data ?? {}) as ResolveEvent).result?.session);
-		if (next === session) return;
-		session = next;
-		paintSession();
+		const summary = ((data ?? {}) as ResolveEvent).result?.session;
+		withWords((words) => {
+			const next = sessionLine(summary, words);
+			if (next === session) return;
+			session = next;
+			paintSession();
+		});
 	});
 
 	// The mechanics projection of a closed turn (contract §16.2): a compact status line only. The
@@ -333,10 +404,12 @@ export default function (pi: ExtensionAPI) {
 	pi.events.on("coc:mechanics", (data) => {
 		const event = (data ?? {}) as MechanicsEvent;
 		announceHandouts(event);
-		const next = mechanicsLine(event);
-		if (next === mechanics) return;
-		mechanics = next;
-		paintMechanics();
+		withWords((words) => {
+			const next = mechanicsLine(event, words);
+			if (next === mechanics) return;
+			mechanics = next;
+			paintMechanics();
+		});
 	});
 
 	// ---- The command surface (contract §19.1) -----------------------------
@@ -384,6 +457,7 @@ export default function (pi: ExtensionAPI) {
 			];
 		},
 		home,
+		words: () => surface.words(),
 		notify: (message, type) => {
 			try {
 				if (ctx?.hasUI) ctx.ui.notify(message, type);

@@ -7,6 +7,8 @@ import { prepareCharacterGuidance, acceptedGuidance, type Guidance } from '../mo
 import { registerInvokeHandlers } from '../../pipicoc/host-bridge.ts';
 import { Type } from "typebox";
 import { cocHome, cocMode } from "../lanes/host.ts";
+import { playLanguageTag } from "../../runtime/ui-words.ts";
+import { type ExtensionWords, extensionContentRoot, extensionSurface } from "../ui/words.ts";
 import {
 	allowedSteps,
 	gate,
@@ -17,6 +19,7 @@ import {
 	declaredSources,
 	normalizeSteps,
 	type OpSpec,
+	progressCounts,
 	progressLine,
 	sourceKinds,
 	type Step,
@@ -94,6 +97,24 @@ export default function (pi: ExtensionAPI) {
   const guidanceAbort = new AbortController();
   let invokeDisposers:Array<()=>void>=[];
   let completing=false;
+	/** The captions this setup speaks with (contract §23), for whatever play language the table has named so far. */
+	const surface = extensionSurface();
+	/** The campaign's play language as the kernel reported it; undefined until then, which reads as the data default. */
+	function playLanguage(): string | undefined {
+		return asString(context.play_language);
+	}
+	/** The captions for the language this setup is in right now; the tag is re-read every time, because it arrives mid-run. */
+	function speaking(): Promise<ExtensionWords> {
+		surface.speak(playLanguage());
+		return surface.words();
+	}
+	/**
+	 * The play language to record and to prepare guidance in: the campaign's when it has one, and
+	 * otherwise the tag `content/languages.json` declares as the default. No tag is written here.
+	 */
+	function boundLanguage(): Promise<string> {
+		return playLanguageTag(extensionContentRoot(), playLanguage());
+	}
   async function ensureGuidance(): Promise<Guidance | undefined> {
     if(characterGuidance)return characterGuidance;
     if(guidancePending)return guidancePending;
@@ -109,7 +130,7 @@ export default function (pi: ExtensionAPI) {
       const occupations=asRecord(await bridge!.call('setup.occupations',{})).occupations as any[];
       characterGuidance=await prepareCharacterGuidance({home,module_id:moduleId,
         opening:asString(context.start_scene),
-        play_language:asString(context.play_language)||'zh-Hans',occupations,
+        play_language:await boundLanguage(),occupations,
         model:ctx?.model ? ctx.model.provider+'/'+ctx.model.id : undefined,
         thinking:pi.getThinkingLevel(),signal:guidanceAbort.signal});
       return characterGuidance;
@@ -125,13 +146,33 @@ export default function (pi: ExtensionAPI) {
 		};
 	}
 
+	/**
+	 * The progress line the player watches (contract §23): the same counts the tool's own `progress`
+	 * reports, drawn with the campaign's captions instead of the English the model reads.
+	 */
 	function paint(): void {
-		try {
-			if (!ctx?.hasUI || !steps) return;
-			ctx.ui.setStatus("coc-setup", progressLine(steps, state()));
-		} catch {
-			/* the status line must not break a step */
-		}
+		const table = steps;
+		if (!table) return;
+		const counts = progressCounts(table, state());
+		void speaking()
+			.then((words) => {
+				try {
+					if (!ctx?.hasUI) return;
+					ctx.ui.setStatus(
+						"coc-setup",
+						counts
+							? counts.next
+								? words.line("setup_progress", { done: counts.done, total: counts.total, step: counts.next.id })
+								: words.line("setup_progress_ready", { done: counts.done, total: counts.total })
+							: undefined,
+					);
+				} catch {
+					/* the status line must not break a step */
+				}
+			})
+			.catch(() => {
+				/* an unreadable content root leaves the line as it was */
+			});
 	}
 
 	// ---- The table --------------------------------------------------------
@@ -381,7 +422,7 @@ export default function (pi: ExtensionAPI) {
 				if(op.method==='setup.draft') {
           draftRevision=result.revision as number;
           context.draft=result;
-          const payload={...result,play_language:context.play_language||'zh-Hans'};
+          const payload={...result,play_language:await boundLanguage()};
           pi.appendEntry('coc-character-draft',payload);
           if(process.env.PI_COC_SETUP_AUTOSTART!=='1') {
             pi.sendMessage({customType:'coc-character-preview',content:JSON.stringify(result.sheet),display:true});
@@ -394,8 +435,9 @@ export default function (pi: ExtensionAPI) {
 			} catch (error) {
 				// The kernel's `fix` and `details` are the only actionable part of a refusal
 				// (contract §1) and they must survive this projection: dropping them is what made
-				// the setup model try play_language "zh", then "zh-CN", then give up on the
-				// parameter altogether while the kernel had been naming zh-Hans and en all along (#33).
+				// the setup model guess one near-miss play_language after another and then give up on
+				// the parameter altogether, while the refusal had been naming the accepted tags all
+				// along (#33).
 				const fix = (error as { fix?: unknown }).fix;
 				const details = (error as { details?: unknown }).details;
 				return {
@@ -482,7 +524,7 @@ export default function (pi: ExtensionAPI) {
       } catch(error) {guidanceBlocked=true;return {ok:false,code:'guidance_failed',message:errorText(error)};}
     }
 		const next = nextStep(steps, state());
-		if (!next) finish();
+		if (!next) await finish();
 		return {
 			...Object.fromEntries(Object.entries(outcome).map(([key,value])=>[key,key==='setup.draft'||key==='setup.confirm'?{...asRecord(value),revision:undefined,labels:undefined,sheet:{...asRecord(asRecord(value).sheet),id:undefined,creation:{...asRecord(asRecord(asRecord(value).sheet).creation),seed:undefined,equipment:undefined}}}:value])),
 			step: id,
@@ -494,13 +536,24 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/** No next step in the table: hand over the command that opens the table, and exit the process once this run has spoken (contract §14.4, step seven). */
-	function finish(): void {
+	async function finish(): Promise<void> {
 		const campaign = asString(context.campaign);
 		handoff = campaign ? `bin/pi-coc --campaign ${campaign}` : "bin/pi-coc";
-		const line = `Setup complete. Open the table with: ${handoff}`;
+		const command = handoff;
+		// The command itself is a command, so it is the same in every language; the sentence around
+		// it is the campaign's (contract §23). A content root that cannot be read still owes the
+		// person the command: the handoff is the way out of setup and must never be swallowed.
+		let language = playLanguage();
+		let line = command;
 		try {
-			if(campaign && ctx)pi.appendEntry('coc-session',{campaign,home:cocHome(ctx.cwd),play_language:context.play_language||'zh-Hans',mode:'play'});
-      pi.appendEntry("coc-setup-handoff", { campaign: campaign ?? null, command: handoff });
+			language = await boundLanguage();
+			line = (await speaking()).line("setup_complete", { command });
+		} catch {
+			/* the command alone, rather than nothing at all */
+		}
+		try {
+			if(campaign && ctx)pi.appendEntry('coc-session',{campaign,home:cocHome(ctx.cwd),play_language:language,mode:'play'});
+      pi.appendEntry("coc-setup-handoff", { campaign: campaign ?? null, command });
 			if (ctx?.hasUI && process.env.PI_COC_SETUP_AUTOSTART!=='1') ctx.ui.notify(line, "info");
 		} catch {
 			/* failing to print the handoff must not block the exit */
@@ -544,7 +597,15 @@ export default function (pi: ExtensionAPI) {
     await ensureSteps();
     let guidance: Guidance | undefined;
     try {guidance=await ensureGuidance();}
-    catch(error) {guidanceBlocked=true;ctx?.ui.notify(errorText(error),'error');return {systemPrompt:event.systemPrompt+'\nModule guidance is unavailable. Do not invent a prologue, create an investigator or continue setup.'};}
+    catch(error) {
+      guidanceBlocked=true;
+      // What the player is told is the campaign's sentence; the English message the preparation
+      // threw stays in it as the detail, which is what a log and a bug report need (contract §23).
+      const detail=errorText(error);
+      try {ctx?.ui.notify((await speaking()).line('setup_guidance_failed',{detail}),'error');}
+      catch {ctx?.ui.notify(detail,'error');}
+      return {systemPrompt:event.systemPrompt+'\nModule guidance is unavailable. Do not invent a prologue, create an investigator or continue setup.'};
+    }
     // Setup packages (contract §26): what the campaign's enabled Mods have to say about creation, refreshed every turn so a panel toggle lands on the next reply.
     // Consulted whether or not module guidance exists: a package speaks to setup, not to the prologue.
     let setupPackages='';
@@ -555,7 +616,13 @@ export default function (pi: ExtensionAPI) {
         const setup=Array.isArray(mods.setup)?mods.setup as Array<Record<string,unknown>>:[];
         if(setup.length)setupPackages='\n\nActive setup packages ('+setup.map(entry=>String(entry.mod)).join(', ')+'). Their instructions below extend the core setup policy for this campaign:'+
           setup.map(entry=>'\n\n['+String(entry.mod)+' '+String(entry.version)+'] settings: '+JSON.stringify(entry.settings??{})+'\n'+String(entry.instruction)).join('');
-      } catch(error) {guidanceBlocked=true;ctx?.ui.notify(errorText(error),'error');return {systemPrompt:event.systemPrompt+'\nThe setup package context is unavailable. Do not draft or continue setup until it is restored.'};}
+      } catch(error) {
+        guidanceBlocked=true;
+        const detail=errorText(error);
+        try {ctx?.ui.notify((await speaking()).line('setup_packages_failed',{detail}),'error');}
+        catch {ctx?.ui.notify(detail,'error');}
+        return {systemPrompt:event.systemPrompt+'\nThe setup package context is unavailable. Do not draft or continue setup until it is restored.'};
+      }
     }
     if(!guidance)return setupPackages?{systemPrompt:event.systemPrompt+setupPackages}:undefined;
     return {systemPrompt:event.systemPrompt+'\n\nPrepared module prologue ('+(prologueRecorded?'already delivered; continue from the player answer without repeating it':'use on the first setup reply only')+'):\n'+guidance.opening+
@@ -596,7 +663,7 @@ export default function (pi: ExtensionAPI) {
         const snapshot=asRecord(await bridge.call('setup.steps',{campaign:context.campaign}));
         if(!asRecord(snapshot.state).waiting_for_opening)return {waiting:false};
         await bridge.call('setup.complete',{campaign:context.campaign});
-        completed.add('complete');finish();
+        completed.add('complete');await finish();
         pi.appendEntry('coc-setup-exit',{command:handoff});
         ctx.shutdown();
         return {completed:true};
@@ -612,13 +679,27 @@ export default function (pi: ExtensionAPI) {
       pi.sendMessage({customType:'coc-setup-opening',content:guidance.opening,display:true,details:{kind:'setup-opening'}});
     }
     if (ctx.hasUI && steps && process.env.PI_COC_SETUP_AUTOSTART!=='1') {
-			ctx.ui.notify(`Setup: ${steps.length} steps in all. ${instructionFor(nextStep(steps, state()))}`, "info");
+			// The player is told how long the table is and which step is next. The step's own
+			// instruction sentence is not repeated here: that one is written for the model and stays
+			// English (contract §16.1), while this line is the player's and comes from the surface.
+			// With no next step the table is already done and `finish` says so; this line would only
+			// name a step that is not there.
+			const next = nextStep(steps, state());
+			try {
+				if (next) ctx.ui.notify((await speaking()).line("setup_opened", { total: steps.length, step: next.id }), "info");
+			} catch {
+				/* one opening line must not stop the session from starting */
+			}
 		}
 	});
 
 	// After the last step, wait for this run to say the handoff out loud before exiting (contract §14.4: the process exits and prints the command that opens the table).
 	pi.on("agent_end", async () => {
-    if(guidanceBlocked){ctx?.ui.notify("Character guidance review failed; retry preparation before continuing.","error");return;}
+    if(guidanceBlocked){
+      try {ctx?.ui.notify((await speaking()).word('setup_guidance_review_failed'),'error');}
+      catch {/* an unreadable content root must not swallow the agent_end handler */}
+      return;
+    }
     if(characterGuidance && bridge && context.campaign && !prologueRecorded && !handoff) {
       const messages=ctx?.sessionManager.getBranch().filter((e:any)=>e.type==='message'&&e.message?.role==='assistant') as any[] || [];
       const last=messages.at(-1)?.message?.content?.filter((x:any)=>x.type==='text').map((x:any)=>x.text).join('\n');

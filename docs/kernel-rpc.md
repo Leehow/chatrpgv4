@@ -1924,6 +1924,33 @@ for CJK as it scans `extensions/` and `kernel-ts/`, and
 default's key set; `content/ui/**` and `content/languages.json` are data and
 are not scanned.
 
+**What landed on the extension side, and where it departs from the paragraphs
+above.** The extensions read `content/ui/<tag>/extension.json` through
+`extensions/ui/words.ts`, which resolves the content root the way
+`runtime/host.ts` does (`PI_COC_CONTENT_ROOT`, else `content/` beside the
+resource root): a relocated content bundle must therefore carry
+`languages.json` and `ui/<tag>/` as it already carries `starters/` and
+`rulesets/`. Three departures:
+
+- The kernel's own stderr on the `coc-kernel` status line
+  (`extensions/kernel/index.ts`) stays English and keeps no key on the surface.
+  It is a log, not a caption; a play-language frame around an English stack
+  trace would only read as a product line that failed to translate.
+- `progressLine` and `instructionFor` in `extensions/onboarding/steps.ts` are
+  read by the model, so they stay English. The status line and the "setup
+  opened" notice draw the same counts through the surface instead
+  (`progressCounts`), and the setup notice no longer repeats the step's
+  model-facing instruction sentence at the player.
+- `guide` in `content/setup/character-guidance.md` is bound to the source's own
+  name, not to `play_language`: `setup.prologue` resolves it against the module
+  graph (`kernel-ts/setup/drafts.ts`, `graph.npc(guide)`), so a translated
+  spelling refuses the whole prologue. The prompt and its reviewer now say so,
+  where before the field was unbound. Giving the *player* a play-language guide
+  name is a kernel change -- store `graph.displayName(npc)` beside the resolved
+  handle, as `scene` is already normalised -- plus the presentation projection
+  that already renders scene names; until then the Keeper renders the name in
+  the prose, as it does every other graph name.
+
 ### Host decision: RPC adapter
 
 The adapter preserves transport/session/model options, removes host persona and

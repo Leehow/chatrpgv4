@@ -9,7 +9,9 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { playLanguageTag } from "../../runtime/ui-words.ts";
 import { runLane } from "../lanes/subsession.ts";
+import { extensionContentRoot } from "../ui/words.ts";
 
 /** The closed set of three finding kinds; a row of any other kind is dropped whole. */
 const FINDING_KINDS: ReadonlySet<string> = new Set(["reveal", "uncommitted_state", "player_agency"]);
@@ -51,7 +53,14 @@ function factLines(facts: unknown[] | undefined): string {
 	return facts.map((fact) => `- ${typeof fact === "string" ? fact : JSON.stringify(fact)}`).join("\n");
 }
 
-export function verifierSystemPrompt(playLanguage?: string): string {
+/**
+ * The lane's instructions. The language its `why` is written in is always named: a campaign whose
+ * `play_language` the kernel did not report reads as the language `content/languages.json` defaults
+ * to, so the findings never come back in whatever language the model felt like (contract §23). No
+ * tag is written here; the data says which tags exist and which one is the fallback.
+ */
+export async function verifierSystemPrompt(playLanguage?: string, contentRoot?: string): Promise<string> {
+	const tag = await playLanguageTag(extensionContentRoot(contentRoot), playLanguage);
 	return [
 		"You are doing an after-the-fact verification pass for a Call of Cthulhu Keeper. The prose you read has already been delivered to the player and cannot be changed; you only report, you never rewrite.",
 		"Look for three kinds of problem, and report none if you find none:",
@@ -62,7 +71,7 @@ export function verifierSystemPrompt(playLanguage?: string): string {
 		'{"findings":[{"kind":"reveal"|"uncommitted_state"|"player_agency","quote":"<the sentence from the prose, word for word, <=120 chars>","why":"<=200 chars>"}]}',
 		'With no problems, answer {"findings":[]}.',
 		"The quote must be taken verbatim from the prose: change one character, splice two sentences, or add a mark of punctuation, and the row is dropped.",
-		playLanguage ? `Write why in ${playLanguage}.` : "",
+		`Write why in ${tag}.`,
 	]
 		.filter(Boolean)
 		.join("\n");
@@ -127,7 +136,7 @@ export async function runVerifierLane(options: VerifierLaneOptions): Promise<voi
 	const lane = await runLane<Finding[]>({
 		ctx,
 		envName: "PI_COC_VERIFIER_MODEL",
-		systemPrompt: verifierSystemPrompt(options.playLanguage),
+		systemPrompt: await verifierSystemPrompt(options.playLanguage),
 		input: buildVerifierInput(payload),
 		...(options.signal ? { signal: options.signal } : {}),
 		timeoutMs: laneTimeoutMs(),

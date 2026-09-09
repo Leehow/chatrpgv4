@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { createRuntime, type HostRuntime } from "../../runtime/host.ts";
 export { kernelCommand } from "../../runtime/host.ts";
 import { cocHome, cocMode } from "../lanes/host.ts";
+import { extensionSurface } from "../ui/words.ts";
 import { type KernelClient, KernelError, isKernelError } from "./client.ts";
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
@@ -150,6 +151,12 @@ let soloKernel: KernelClient | undefined;
  * makes a late call fail on the spot rather than wake a kernel nobody owns.
  */
 let bridgeGate = { open: false };
+/**
+ * The captions this extension notifies with (contract §23), for the campaign's own play language.
+ * `startupError` itself stays English: it is also thrown at the Keeper (`the kernel is not up`) and
+ * given as a block reason, and the system language of everything the model reads is English.
+ */
+const surface = extensionSurface();
 let startupError: string | undefined;
 /** Every field of the session_start ctx is computed on access, so holding it is holding a live view of the session. */
 let sessionCtx: ExtensionContext | undefined;
@@ -831,6 +838,11 @@ export default function (pi: ExtensionAPI) {
 					// The kernel's stderr and restart notices can arrive after the session is disposed (the user
 					// quits pi while a lane is still flying), and after that every ctx getter throws
 					// (docs/pi-host-contract.md §5): one line of diagnostics must not become an unhandled rejection.
+					//
+					// This line is the kernel's own stderr, verbatim and English (contract §23: kernel prose
+					// never reaches a player field). It is a log, not a caption: nothing is prefixed onto it,
+					// nothing is translated, and it carries no key on the `extension` surface -- inventing a
+					// caption for it would only put a play-language frame around an English stack trace.
 					try {
 						if (ctx.hasUI) ctx.ui.setStatus("coc-kernel", message.slice(0, 120));
 					} catch {
@@ -900,9 +912,25 @@ export default function (pi: ExtensionAPI) {
 			pi.events.emit("coc:table-open", { campaign, open });
 
 			if (ctx.hasUI) {
-				const title = open.campaign?.title ?? campaign;
-				const scene = open.scene?.display_name ?? open.scene?.name ?? "unknown scene";
-				ctx.ui.notify(`COC table open: ${title} | turn ${table.turn} (${table.state}) | ${scene}`, "info");
+				// The campaign's own captions (contract §23): the one line saying the table is open reads
+				// from `content/ui/<tag>/extension.json`, never from a word written here. The table is
+				// already open by now, so a content root that cannot be read costs one line, never the
+				// table -- letting it throw here would report an open table as a failed one.
+				surface.speak(table.playLanguage);
+				try {
+					const words = await surface.words();
+					ctx.ui.notify(
+						words.line("kernel_table_open", {
+							title: open.campaign?.title ?? campaign,
+							turn: table.turn,
+							state: table.state,
+							scene: open.scene?.display_name ?? open.scene?.name ?? words.word("table_scene_unknown"),
+						}),
+						"info",
+					);
+				} catch {
+					/* one welcome line is not worth refusing the table */
+				}
 			}
 
 			const pending = open.pending_turn;
@@ -928,11 +956,22 @@ export default function (pi: ExtensionAPI) {
 				);
 			}
 		} catch (error) {
-			startupError = `The kernel could not open the table: ${errorText(error)}`;
+			const detail = errorText(error);
+			startupError = `The kernel could not open the table: ${detail}`;
 			await runtime?.close();
 			runtime = undefined;
 			table = undefined;
-			if (ctx.hasUI) ctx.ui.notify(startupError, "error");
+			if (ctx.hasUI) {
+				// The table never opened, so its language may be unknown; the surface then reads the
+				// language `content/languages.json` defaults to, and never guesses one from the message.
+				let line = startupError;
+				try {
+					line = (await surface.words()).line("kernel_table_failed", { detail });
+				} catch {
+					/* an unreadable content root still owes the person the English message */
+				}
+				ctx.ui.notify(line, "error");
+			}
 		}
 	});
 

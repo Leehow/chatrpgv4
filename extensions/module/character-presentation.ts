@@ -3,6 +3,9 @@ import {createHash,randomUUID} from 'node:crypto';
 import {mkdir,readFile,writeFile,rename} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {resourceRootFrom,runtimeEntryUrl} from '../../runtime/deployment.mjs';
+import {loadPlayLanguages} from '../../runtime/ui-words.ts';
+import {coded} from '../ui/errors.ts';
+import {extensionContentRoot} from '../ui/words.ts';
 import type {ReaderRequest,ReaderOutcome} from './reader.ts';
 const root=resourceRootFrom(import.meta.url);
 export const CARD_TEXT = ['Character draft','Character draft — reply to confirm or describe changes.',
@@ -10,6 +13,15 @@ export const CARD_TEXT = ['Character draft','Character draft — reply to confir
   'Show calculation details','Hide calculation details','Characteristics','Calculation','Rolled value','Dice results','Age adjustment','EDU improvement checks','Keep highest','Base movement','Age movement penalty','Round down','Standard rolled characteristics','Rolled characteristics assigned to the stated aptitudes','Quick-fire array','Equipment','Weapons','Preview unavailable','Retry',
   'cash','assets','spending','credit_rating','living_standard','damage','range','attacks','ammo','malfunction','skill','Yes','No'];
 type Row=Record<string,any>;
+/**
+ * Whether the requested tag is one this build plays in. The set is `content/languages.json`, never a
+ * list written here: adding a language is adding an entry there plus its `content/ui/<tag>/`
+ * directory and its `localized_labels` rows, and no code names a tag (contract §23).
+ */
+async function knownLanguage(options:{contentRoot?:string;play_language:string}):Promise<boolean> {
+  const known=await loadPlayLanguages(extensionContentRoot(options.contentRoot));
+  return Boolean(known.languages[options.play_language]);
+}
 export function cardTexts(sheet:Row):string[] {
   const texts=new Set(CARD_TEXT);
   const add=(value:unknown)=>{if(typeof value==='string'&&value.trim()&&!/^(?=.*\d)[\d\s()+\-*/Dd×.,]+$/.test(value))texts.add(value)};
@@ -25,12 +37,12 @@ export function cardTexts(sheet:Row):string[] {
 }
 export function validatePresentation(value:unknown,texts:string[]):Record<string,string> {
   const map=(value as Row)?.texts;
-  if(!map||typeof map!=='object'||Array.isArray(map)||Object.keys(map).length!==texts.length||texts.some(t=>typeof map[t]!=='string'||!map[t].trim()))throw new Error('Incomplete card presentation');
+  if(!map||typeof map!=='object'||Array.isArray(map)||Object.keys(map).length!==texts.length||texts.some(t=>typeof map[t]!=='string'||!map[t].trim()))throw coded('preparation_failed','Incomplete card presentation');
   return Object.fromEntries(texts.map(t=>[t,map[t]]));
 }
 export function validateFinanceEquipment(value:unknown,equipment:string[]):string[] {
   const excluded=(value as Row)?.finance_equipment;
-  if(!Array.isArray(excluded)||new Set(excluded).size!==excluded.length||excluded.some(name=>typeof name!=='string'||!equipment.includes(name)))throw new Error('Invalid financial equipment projection');
+  if(!Array.isArray(excluded)||new Set(excluded).size!==excluded.length||excluded.some(name=>typeof name!=='string'||!equipment.includes(name)))throw coded('preparation_failed','Invalid financial equipment projection');
   return excluded;
 }
 export async function creationRuleDetails(sheet:Row,contentRoot=join(root,'content')):Promise<Row> {
@@ -53,9 +65,9 @@ export async function creationRuleDetails(sheet:Row,contentRoot=join(root,'conte
   return details;
 }
 export async function prepareCharacterPresentation(options:TextOptions&{campaign:string;revision:number}):Promise<Row> {
-  if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(options.campaign)||!Number.isSafeInteger(options.revision)||options.revision<1||!['zh-Hans','en'].includes(options.play_language))throw new Error('Invalid presentation request');
+  if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(options.campaign)||!Number.isSafeInteger(options.revision)||options.revision<1||!await knownLanguage(options))throw coded('invalid_params','Invalid presentation request');
   const draft=JSON.parse(await readFile(join(options.home,'.coc/campaigns',options.campaign,'setup/drafts',`${options.revision}.json`),'utf8'));
-  if(draft.play_language!==options.play_language)throw new Error('Draft language does not match the session');
+  if(draft.play_language!==options.play_language)throw coded('invalid_params','Draft language does not match the session');
   const calculations=await creationRuleDetails(draft.sheet,options.contentRoot);
   const texts=[...new Set([...cardTexts(draft.sheet),...(calculations.movement?[calculations.movement.condition]:[])])].sort();
   const projection=await prepareTexts({...options,equipment:draft.sheet.equipment},texts);
@@ -119,8 +131,8 @@ export function prepareCluePresentation(options:TextOptions&{campaign:string;vie
 }
 /** A projection that grows with the table: what its saved file lacks is asked, what it has is kept. */
 async function prepareGrowingPresentation(options:TextOptions&{campaign:string;view:Row},kind:string,collect:(view:Row)=>string[]):Promise<Row> {
-  if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(options.campaign)||!['zh-Hans','en'].includes(options.play_language))throw new Error('Invalid presentation request');
-  if(options.view?.play_language!==options.play_language)throw new Error('View language does not match the session');
+  if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(options.campaign)||!await knownLanguage(options))throw coded('invalid_params','Invalid presentation request');
+  if(options.view?.play_language!==options.play_language)throw coded('invalid_params','View language does not match the session');
   const file=`${kind}-${options.play_language}.json`;
   let previous:Record<string,string>={};
   try {const saved=JSON.parse(await readFile(join(options.home,'.coc/campaigns',options.campaign,'setup/presentations',file),'utf8'));if(saved.play_language===options.play_language)previous=saved.texts||{};}catch{}
@@ -203,7 +215,7 @@ async function prepareTexts(options:TextOptions,texts:string[]):Promise<{texts:R
     finance_equipment:finance!});
   if(!missing.length&&finance)return answer();
   const runner=options.runner;
-  if(!runner)throw new Error('Character presentation requires its owner runtime');
+  if(!runner)throw coded('preparation_failed','Character presentation requires its owner runtime');
   const attempt=join(options.home,'.coc/character-presentations/attempts',randomUUID());await mkdir(attempt,{recursive:true});
   await writeFile(join(attempt,'check.mjs'),`import {readFileSync} from 'node:fs';\nimport {validatePresentation,validateFinanceEquipment} from ${JSON.stringify(runtimeEntryUrl('characterPresentation',import.meta.url))};\ntry {const packet=JSON.parse(readFileSync('texts.json','utf8'));const value=JSON.parse(readFileSync('presentation.json','utf8'));validatePresentation(value,packet.texts);if(packet.finance_equipment_required)validateFinanceEquipment(value,packet.equipment);console.log('Presentation valid');}catch(error){console.error(error.message);process.exitCode=1;}\n`);
   let failure:unknown;
@@ -214,7 +226,7 @@ async function prepareTexts(options:TextOptions,texts:string[]):Promise<{texts:R
       brief:'Read texts.json and write the player-facing text projection to presentation.json. Its "texts" object answers exactly the strings texts.json lists, which are the ones not already projected: words it does not list are already settled and must not be added. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing.'
         +(missing.length?'':' This request lists no texts: write "texts": {} and only the financial equipment subset.')
         +(round>1?' Read findings.json and supply exactly the entries it still names; the words already accepted are not asked again.':'')});
-    if(!outcome.ok||options.signal?.aborted)throw new Error('Card presentation could not be prepared');
+    if(!outcome.ok||options.signal?.aborted)throw coded(options.signal?.aborted?'presentation_timeout':'preparation_failed','Card presentation could not be prepared');
     const bytes=await readFile(join(attempt,'presentation.json'),'utf8');
     await writeFile(join(attempt,`presentation-round-${round}.json`),bytes);
     let value:unknown;
@@ -232,11 +244,11 @@ async function prepareTexts(options:TextOptions,texts:string[]):Promise<{texts:R
       } catch(error){failure=error;}
     }
     if(!missing.length&&finance)break;
-    failure??=new Error('Incomplete card presentation');
+    failure??=coded('preparation_failed','Incomplete card presentation');
     await writeFile(join(attempt,'findings.json'),JSON.stringify({error:String(failure),texts:missing,
       finance_equipment_required:wantEquipment&&!finance},null,2));
   }
-  if(missing.length)throw new Error(`Incomplete card presentation: ${missing.length} text${missing.length===1?'':'s'} were not projected`);
-  if(!finance)throw failure instanceof Error?failure:new Error('Invalid financial equipment projection');
+  if(missing.length)throw coded('preparation_failed',`Incomplete card presentation: ${missing.length} text${missing.length===1?'':'s'} were not projected`);
+  if(!finance)throw failure instanceof Error?failure:coded('preparation_failed','Invalid financial equipment projection');
   return answer();
 }

@@ -3,6 +3,9 @@ import {createHash, randomUUID} from 'node:crypto';
 import {mkdir, readFile, writeFile, rename} from 'node:fs/promises';
 import {join, resolve, relative, isAbsolute} from 'node:path';
 import {resourceRootFrom} from '../../runtime/deployment.mjs';
+import {loadPlayLanguages} from '../../runtime/ui-words.ts';
+import {coded} from '../ui/errors.ts';
+import {extensionContentRoot} from '../ui/words.ts';
 import type {ReaderRequest, ReaderOutcome} from './reader.ts';
 
 const root = resourceRootFrom(import.meta.url);
@@ -41,39 +44,41 @@ export async function guidanceFingerprint(options:Options):Promise<string> {
   return digest(JSON.stringify([source,opening,options.play_language,options.occupations,prompts]));
 }
 export async function acceptedGuidance(home:string,moduleId:string,key:string):Promise<Guidance> {
-  if(!/^[a-f0-9]{64}$/.test(key))throw new Error('Invalid guidance reference');
+  if(!/^[a-f0-9]{64}$/.test(key))throw coded('invalid_params','Invalid guidance reference');
   const folder=resolve(home,'.coc/modules',moduleId);
   const meta=JSON.parse(await readFile(join(folder,'module.json'),'utf8'));
   const saved=await json(join(folder,'character-guidance',key,'accepted.json'));
   if(saved.fingerprint!==key||saved.approved!==true||
-    (meta.reading_version && !meta.character_guidance?.[key]))throw new Error('Guidance has not been accepted');
+    (meta.reading_version && !meta.character_guidance?.[key]))throw coded('guidance_not_ready','Guidance has not been accepted');
   return validateGuidance(saved.guidance);
 }
 function text(value:unknown, empty=false):string {
-  if(typeof value !== 'string' || (!empty && !value.trim()) || value.length>4000) throw new Error('Invalid character guidance text');
+  if(typeof value !== 'string' || (!empty && !value.trim()) || value.length>4000) throw coded('guidance_unavailable','Invalid character guidance text');
   return value;
 }
 export function validateGuidance(value:Row, _occupations?:Options['occupations']):Guidance {
-  if(!value || typeof value!=='object')throw new Error('Invalid character guidance');
+  if(!value || typeof value!=='object')throw coded('guidance_unavailable','Invalid character guidance');
   return {opening:text(value.opening),advice:text(value.advice),scene:text(value.scene),guide:text(value.guide,true),handoff:text(value.handoff)};
 }
 async function json(path:string) {
   const raw=await readFile(path,'utf8');
-  if(Buffer.byteLength(raw)>64*1024)throw new Error('Character guidance exceeds the file limit');
+  if(Buffer.byteLength(raw)>64*1024)throw coded('guidance_unavailable','Character guidance exceeds the file limit');
   return JSON.parse(raw);
 }
 export async function prepareCharacterGuidance(options:Options):Promise<Guidance> {
   const content = options.contentRoot ?? join(root, 'content');
   const promptPath = join(content, 'setup/character-guidance.md');
   const reviewPath = join(content, 'setup/character-guidance-review.md');
-  if(options.signal?.aborted)throw new Error('Character guidance cancelled');
-  if(!/^[a-z0-9-]{1,64}$/.test(options.module_id))throw new Error('Invalid module');
-  if(!['zh-Hans','en'].includes(options.play_language))throw new Error('Invalid play language');
+  if(options.signal?.aborted)throw coded('interrupted','Character guidance cancelled');
+  if(!/^[a-z0-9-]{1,64}$/.test(options.module_id))throw coded('invalid_params','Invalid module');
+  // The play languages are `content/languages.json`, not a list written here: adding one is adding
+  // an entry there plus its `content/ui/<tag>/` directory (contract §23).
+  if(!(await loadPlayLanguages(extensionContentRoot(options.contentRoot))).languages[options.play_language])throw coded('invalid_params','Invalid play language');
   const folder=resolve(options.home,'.coc/modules',options.module_id);
   const meta=JSON.parse(await readFile(join(folder,'module.json'),'utf8'));
   const graphPath=resolve(folder,meta.graph_file || 'module-graph.json');
   const rel=relative(folder,graphPath);
-  if(!rel||rel.startsWith('..')||isAbsolute(rel))throw new Error('Module graph escapes its store');
+  if(!rel||rel.startsWith('..')||isAbsolute(rel))throw coded('invalid_params','Module graph escapes its store');
   const graphBytes=await readFile(graphPath,'utf8');
   const [prompt,reviewPrompt]=await Promise.all([readFile(promptPath,'utf8'),readFile(reviewPath,'utf8')]);
   const selectedOpening=options.opening || meta.opening_choice?.start_scene || meta.opening?.start_scene || '';
@@ -85,8 +90,8 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
     if(saved.fingerprint===key && saved.approved===true && !saved.draft_sha256)return validateGuidance(saved.guidance,options.occupations);
   } catch { /* A missing or invalid cache is rebuilt; attempts remain on disk. */ }
   if(meta.bundled_guidance_required && !options.buildBundle)
-    throw new Error('Bundled starter guidance is missing or stale. Rebuild the starter guidance bundle.');
-  if(options.signal?.aborted)throw new Error('Character guidance cancelled');
+    throw coded('guidance_not_ready','Bundled starter guidance is missing or stale. Rebuild the starter guidance bundle.');
+  if(options.signal?.aborted)throw coded('interrupted','Character guidance cancelled');
   const attempt=join(cache,'attempts',randomUUID());
   await mkdir(attempt,{recursive:true});
   const graph=JSON.parse(graphBytes);
@@ -106,7 +111,7 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
   await writeFile(join(attempt,'author-prompt.md'),prompt);
   await writeFile(join(attempt,'review-prompt.md'),reviewPrompt);
   const runner=options.runner;
-  if(!runner)throw new Error('Character guidance requires its owner runtime');
+  if(!runner)throw coded('preparation_failed','Character guidance requires its owner runtime');
   const request={cwd:attempt,model:options.model,thinking:options.thinking,signal:options.signal};
   let guidance: Guidance | undefined;
   let review: Row = {approved:false,issues:[]};
@@ -115,20 +120,20 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
     const authored=await runner({...request,systemPrompt:promptPath,eventLog:join(attempt,'author.jsonl'),
       brief:round===1?'Read packet.json and write guidance.json according to your instructions.':
         'Revise guidance.json using the independent review findings in review.json. Preserve source facts and obey the original instructions.'});
-    if(!authored.ok||options.signal?.aborted)throw new Error('Character guidance could not be prepared. Retry preparation.');
+    if(!authored.ok||options.signal?.aborted)throw coded(options.signal?.aborted?'interrupted':'preparation_failed','Character guidance could not be prepared. Retry preparation.');
     guidance=validateGuidance(await json(join(attempt,'guidance.json')),options.occupations);
     await writeFile(join(attempt,'guidance.json'),JSON.stringify(guidance,null,2));
     await writeFile(join(attempt,`guidance-round-${round}.json`),JSON.stringify(guidance,null,2));
     await writeFile(join(attempt,'packet.json'),JSON.stringify(packet,null,2));
     const reviewed=await runner({...request,systemPrompt:reviewPath,eventLog:join(attempt,'reviewer.jsonl'),
       brief:'Independently review packet.json and guidance.json. Write review.json.'});
-    if(!reviewed.ok||options.signal?.aborted)throw new Error('Character guidance review interrupted. Retry preparation.');
+    if(!reviewed.ok||options.signal?.aborted)throw coded(options.signal?.aborted?'interrupted':'preparation_failed','Character guidance review interrupted. Retry preparation.');
     review=await json(join(attempt,'review.json'));
     await writeFile(join(attempt,`review-round-${round}.json`),JSON.stringify(review,null,2));
-    if(JSON.stringify(validateGuidance(await json(join(attempt,'guidance.json')),options.occupations))!==JSON.stringify(guidance))throw new Error('Character guidance changed during review');
+    if(JSON.stringify(validateGuidance(await json(join(attempt,'guidance.json')),options.occupations))!==JSON.stringify(guidance))throw coded('preparation_failed','Character guidance changed during review');
     if(review.approved===true && Array.isArray(review.issues) && !review.issues.length)break;
   }
-  if(review.approved!==true||!Array.isArray(review.issues)||review.issues.length)throw new Error('Character guidance needs revision. Retry preparation.');
+  if(review.approved!==true||!Array.isArray(review.issues)||review.issues.length)throw coded('preparation_failed','Character guidance needs revision. Retry preparation.');
   const pending=join(cache,randomUUID()+'.tmp');
   await writeFile(pending,JSON.stringify({fingerprint:key,approved:true,guidance},null,2));
   await rename(pending,join(cache,'accepted.json'));
