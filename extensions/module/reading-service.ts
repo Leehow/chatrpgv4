@@ -331,7 +331,6 @@ export class ReadingService implements ReadingBridge {
 									const path = reads.get(event.toolCallId); if (path) imageCalls.set(event.toolCallId, [path]);
 									if (event.result?.details?.kind === "source_pages") imageCalls.set(event.toolCallId, event.result.details.observations.map((row: Row) => row.path));
 								}
-								if (event.type === "message_end" && event.message?.errorMessage) throw new Error(event.message.errorMessage);
 							},
 						} }, signal);
 						if (imageCalls.size) {

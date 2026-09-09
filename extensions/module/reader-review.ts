@@ -71,7 +71,6 @@ export async function reviewCandidate(options: {
 					systemPrompt: options.instructions, source: options.source, signal: options.signal, eventLog,
 					brief: (guidanceBytes ? readerInput({task:{...options.task,required_review:paths}, draft:options.draft, guidance:JSON.parse(guidanceBytes)}) : "Read task.json and draft.json.") + " Independently review only task.required_review against original images using pdf. Keep the full graph as context. Produce checked paths, verdict, source_refs and reason, plus missing (only necessary current material). Never edit the draft. " + (guidanceBytes ? "Also review guidance.json under the Independent review instructions and include guidance:{approved,issues} in the same review. Never modify guidance.json. Pass this small review object directly to submit_reading as your sole final tool call; a separate write followed by submit would waste another model request. " : "Write review.json. ") + "Finish this unit and stop.",
 					onEvent(event) {
-						if (event.type === "message_end" && event.message?.errorMessage) throw new Error(event.message.errorMessage);
 						if (event.type === "tool_execution_end" && !event.isError && event.result?.details?.kind === "source_pages")
 							imageCalls.set(event.toolCallId, event.result.details.observations);
 					},

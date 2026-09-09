@@ -161,6 +161,7 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 		let stderr = "";
 		let timedOut = false;
 		let eventError: string | undefined;
+		let providerError: string | undefined;
 		let hardKill: ReturnType<typeof setTimeout> | undefined;
 		const log = request.eventLog ? createWriteStream(request.eventLog, { flags: "a" }) : undefined;
 		log?.on("error", error => { eventError = error.message; });
@@ -173,7 +174,10 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 			clearTimeout(timer);
 			if (hardKill) clearTimeout(hardKill);
 			request.signal?.removeEventListener("abort", onAbort);
-			const done = () => resolve({ ...outcome, ...(eventError ? { ok: false, error: eventError } : {}), ms: Date.now() - began, stderr: stderr.slice(-STDERR_KEEP), command });
+			const done = () => {
+				const error = eventError ?? providerError;
+				resolve({ ...outcome, ...(error ? { ok: false, error } : {}), ms: Date.now() - began, stderr: stderr.slice(-STDERR_KEEP), command });
+			};
 			if (log && !log.destroyed) log.end(done);
 			else done();
 		};
@@ -220,10 +224,19 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 					const line = pending.slice(0, end); pending = pending.slice(end + 1);
 					try {
 						const event = { ...JSON.parse(line), observed_at: new Date().toISOString() };
-						request.onEvent?.(event);
 						log?.write(JSON.stringify(event, (_key, value) => value?.type === "image" && typeof value.data === "string"
 							? { type: "image", mimeType: value.mimeType, bytes: Buffer.byteLength(value.data, "base64"), sha256: createHash("sha256").update(Buffer.from(value.data, "base64")).digest("hex") }
 							: value) + "\n");
+						if (event.type === "message_end" && event.message?.role === "assistant") {
+							const message = event.message;
+							if (message.errorMessage || message.stopReason === "error" || message.stopReason === "aborted")
+								providerError = message.errorMessage || `Reader model ${message.stopReason}`;
+							else if (message.stopReason === "stop" || message.stopReason === "toolUse")
+								providerError = undefined;
+						}
+						if (event.type === "auto_retry_end" && event.success === false)
+							providerError = event.finalError || providerError || "Reader model retry failed";
+						request.onEvent?.(event);
 					} catch (error) { eventError = `unreadable reader event: ${String(error)}`; }
 				}
 			});
