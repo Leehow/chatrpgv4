@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from conftest import (CAMPAIGN, MODULE, RpcClient, campaign_dir, create_campaign,
-                      narrate, narrate_opening, read_json, repo_dir)
+                      narrate, narrate_opening, read_json, read_jsonl, repo_dir)
 
 ROOT = Path(__file__).resolve().parents[2]
 TS_COMMAND = ["node", str(ROOT / "build" / "kernel" / "rpc.mjs")]
@@ -121,6 +121,10 @@ def test_branch_from_a_mid_history_commit_on_main(kernel):
     state = turn_json(kernel)
     assert state["turn"] == 3 and state["state"] == "awaiting_player"
 
+    # The checkpoint was rebuilt from the fork point's turn record and follows the new line.
+    checkpoint = read_json(campaign_dir(workspace) / "save" / "continuation" / "latest.json")
+    assert checkpoint["worldline"] == "side" and checkpoint["turn"] == 2
+
 
 def test_branch_from_a_commit_that_lives_on_a_dormant_line(kernel):
     """The fork point may be reachable only from a non-active wl/* ref; forked_from names it."""
@@ -195,6 +199,37 @@ def test_branch_refuses_a_name_that_collides(kernel):
     commit = turn_commit(kernel, 1)
     error = kernel.table_err("branch", commit=commit, name="side")
     assert error["code"] == "invalid_params"
+
+
+def test_branch_lands_the_label_on_the_worldline_forked_event(kernel):
+    play_to_turn(kernel, 2)
+    commit = turn_commit(kernel, 1)
+    kernel.table("branch", commit=commit, name="side", label="回到那个下午。")
+    forked = [event for event in read_jsonl(campaign_dir(kernel.workspace) / "events.jsonl")
+              if event["type"] == "worldline-forked"]
+    assert len(forked) == 1
+    assert forked[0]["data"]["label"] == "回到那个下午。"
+    assert forked[0]["data"]["from"] == {"line": "main", "turn": 1, "commit": commit}
+
+
+def test_a_replay_that_switches_back_still_announces_the_branch_once(kernel):
+    play_to_turn(kernel, 2)
+    first = turn_commit(kernel, 1)
+    kernel.table("branch", commit=first, name="side")
+    # Consume the first notice on the new line, then leave it for another branch.
+    result = kernel.table("player_input", text="从这里再看看。")
+    assert result["capsule"]["branched"] == {"name": "side", "from_line": "main", "from_turn": 1}
+    narrate(kernel, "t2-c1", "你回到了那个下午。")
+    kernel.table("branch", commit=first, name="other")
+    assert meta_of(kernel)["active_worldline"] == "other"
+
+    replay = kernel.table("branch", commit=first, name="side")
+    assert replay["active"] == "side" and meta_of(kernel)["active_worldline"] == "side"
+    result = kernel.table("player_input", text="我又回来了。")
+    assert result["capsule"]["branched"] == {"name": "side", "from_line": "main", "from_turn": 1}
+    narrate(kernel, "t3-c1", "还是那条岔路。")
+    result = kernel.table("player_input", text="继续。")
+    assert "branched" not in result["capsule"]
 
 
 def test_the_next_player_input_capsule_carries_the_branched_section_exactly_once(kernel):
