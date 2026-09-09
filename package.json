@@ -27,14 +27,18 @@
     "typebox": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.85.1"
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "esbuild": "0.28.1",
+    "typescript": "5.9.3"
   },
   "scripts": {
     "test:ext": "node --test \"tests/extension/**/*.test.mjs\"",
-    "test:electron": "node Electron/scripts/suite-baseline.mjs"
+    "test:electron": "node Electron/scripts/suite-baseline.mjs",
+    "check:kernel": "tsc -p tsconfig.kernel.json"
   },
   "dependencies": {
     "@napi-rs/canvas": "1.0.8",
-    "pdfjs-dist": "6.3.289"
+    "pdfjs-dist": "6.3.289",
+    "fs-ext": "2.1.1"
   }
 }

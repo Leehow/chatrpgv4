@@ -2487,10 +2487,30 @@ The runtime offers these existing capabilities:
 - `close()`: revoke the owner and stop its processes. Repeated calls await the
   same shutdown. A closed or aborted owner cannot start or restart work.
 
+Reader requests may identify an existing instruction template with
+`prompt: {phase: "index" | "read" | "verify", guidance?: boolean}`. The host
+adapter resolves the template from its captured content root and materializes it
+inside the owned attempt directory. Callers do not compute template locations.
+Existing explicit Mod job system prompts remain supported; conflicting prompt
+forms are rejected rather than silently selecting one.
+
 The capabilities are direct module calls and subprocesses. This introduces no
 daemon, scheduler, network endpoint, dynamic plugin registry or second source of
 game state. The kernel retains serial RPC, receipts, arithmetic, transactions,
 source-publication leases and the authority defined by the earlier sections.
+
+The existing `coc:kernel-bridge` also carries the session's `runtime` capability
+object. Setup publishes it after hello without opening a table; play publishes it
+after its normal open. Revocation publishes both `call` and `runtime` as undefined.
+Consumers use that owner rather than constructing a second session runtime.
+Its immutable `resourceRoot` and `contentRoot` are also available to existing
+host presentation helpers for reading their templates and rule data. Neither
+property is an alternate launch configuration or a mutable global setting.
+The captured optional `readerModel` lets the host's existing vision check inspect
+the same configured reader route that task execution uses.
+Cold frontend table and management calls use a short-lived `check` owner from the
+same emitted host adapter. They never construct a separate Python command or
+start a Keeper merely to inspect existing state.
 
 ### 27.2 Runtime selection and failures
 
@@ -2500,6 +2520,16 @@ JSON argv override and is resolved at owner creation. The host captures executab
 working directory, content and environment consistently; changing ambient process
 configuration cannot redirect an existing owner's subsequent launch or restart.
 The compatibility `kernelCommand` export delegates to the same command builder.
+
+Host-only `backend` (`python` or `typescript`), or the captured `PI_COC_RUNTIME`
+development selection, chooses the kernel and checking implementation together.
+The default remains Python during migration. TypeScript uses the managed Node
+executable and a compiled kernel entrypoint, defaulting to `build/kernel/rpc.mjs`
+under the resource root; a host may supply its packaged entrypoint explicitly.
+Missing TypeScript artifacts fail explicitly. The older `PI_COC_KERNEL_CMD` is
+only a diagnostic command override, not permission for checking adapters to
+silently switch implementation. A checking capability unavailable for the selected
+backend reports `not_implemented`.
 
 Composition validates its supplied locations and launch inputs before creating
 processes or writing campaign state. Missing or invalid deployment configuration
@@ -2532,3 +2562,38 @@ for a package without Python, uv, developer files or global runtimes.
 requested deletion of two unmerged worker attempts. No code from those attempts
 is being integrated. The first slice provides host-owned kernel composition;
 remaining task/check adapters and production TypeScript cutover stay pending.
+
+The TypeScript lock backend uses native POSIX `flock` through `fs-ext`, preserving
+shared/exclusive, nonblocking and descriptor-lifetime behavior with Python's
+`fcntl.flock`. Blocking acquisition awaits repeated native nonblocking attempts
+so waiters cannot exhaust Node's filesystem thread pool and prevent release.
+It never substitutes a directory or lease file for an advisory lock. The native
+addon is built for the selected managed Node ABI and must ship with that runtime.
+The [fs-ext implementation](https://github.com/baudehlo/node-fs-ext) confirms the
+underlying flock operation; [NAN](https://github.com/nodejs/nan) documents the
+Node ABI compatibility layer. Actual cross-language contention and process-exit
+tests, rather than these references alone, determine compatibility.
+
+### 27.5 Read projections during partial migration
+
+`kernel-ts/read/` owns ModuleGraph, Director, ontology, capsule, mechanics and
+snapshot-only table projections. It exports one static handler group and reusable
+pure views. The read slice may serve existing saved campaigns without importing
+an unfinished transaction, publication or subsystem writer. Later slices reuse
+these projections instead of forking them.
+
+Existing `look`/`lookup` can transition an open turn to acting, and legacy load may
+repair a missing scene trail. These effects remain part of compatibility. Before
+the transaction slice supplies them, the partial backend explicitly refuses cases
+requiring either write. Supported already-acting snapshots must compare responses
+and unchanged state against Python. `table.view` retains its existing read-only
+legacy projection behavior.
+
+The read slice owns one pure condition/fact projection module for current rule
+gate observations. RuleGraph migration consumes that same module. Unmigrated
+decisions, catalogs or settlements cannot be replaced with empty successful data.
+`kernel-ts/capabilities.ts` independently declares the existing registered state
+paths and resolver/executor vocabulary for ontology validation. These declarations
+do not mean the corresponding TS executors are implemented: actual dispatch still
+refuses absent implementations. The declarations are checked against the Python
+reference and must not be inferred from the ontology being validated.
