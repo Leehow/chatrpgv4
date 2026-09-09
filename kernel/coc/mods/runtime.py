@@ -22,7 +22,8 @@ from ..fileio import canonical_json, read_json, write_json_atomic
 GAME_API = "pipicoc.game.v1"
 CAPABILITIES = frozenset({"checks.percentile.v1", "context.npc.v1", "definitions.v1",
                           "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1",
-                          "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1"})
+                          "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1",
+                          "setup.guidance.v1", "setup.aptitude.v1"})
 SLUG = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 MAX_PACKAGE_BYTES = 16 * 1024 * 1024
@@ -95,7 +96,7 @@ def manifest_from(files: dict[str, bytes]) -> dict[str, Any]:
         raise invalid_params("Game interface v1 settings are scalar values")
     if not isinstance(manifest.get("settings_schema", {}), dict):
         raise invalid_params("settings_schema must be an object")
-    if set(manifest["contributes"]) - {"instructions", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "document_editor"}:
+    if set(manifest["contributes"]) - {"instructions", "setup_instructions", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "document_editor"}:
         raise invalid_params("Unknown Mod contribution in game interface v1")
     for dep, ver in manifest["dependencies"].items():
         if not SLUG.fullmatch(dep):
@@ -103,7 +104,7 @@ def manifest_from(files: dict[str, bytes]) -> dict[str, Any]:
         version_key(ver)
     if type(manifest.get("default_enabled")) is not bool:
         raise invalid_params("default_enabled must be boolean")
-    for field in ("instructions", "materializer", "auditor"):
+    for field in ("instructions", "setup_instructions", "materializer", "auditor"):
         path = manifest["contributes"].get(field)
         if path is not None and (not isinstance(path, str) or path not in files or not path.endswith(".md")):
             raise invalid_params(f"contributes.{field} must name a package Markdown file")
@@ -443,6 +444,19 @@ class ModRuntime:
         return {"game_api": GAME_API, "capabilities": sorted(CAPABILITIES), "mods": rows,
                 "order": self.order(world), "pending_order": locks.get("pending_order"),
                 "providers": self.providers(world) if world and locks else {}}
+
+    def setup_context(self, lock: dict[str, Any] | None) -> dict[str, Any]:
+        """The mod set as the setup process sees it: which packages are on, what they require
+        and what they have to say about creation. `lock` is world.mods or campaign.mods_pending."""
+        world = {"mods": lock or {}}
+        active = self.active(world)
+        return {"active": [{"id": r["id"], "version": r["version"]} for r in active],
+                "authority": "Only this active Mod set applies to setup. Earlier instructions from disabled or replaced versions are inactive.",
+                "capabilities": sorted({cap for r in active for cap in r.get("requires", [])}),
+                "setup": [{"mod": r["id"], "version": r["version"],
+                           "settings": world["mods"]["active"][r["id"]]["settings"],
+                           "instruction": r["files"][r["contributes"]["setup_instructions"]].decode()}
+                          for r in active if r["contributes"].get("setup_instructions")]}
 
     def instructions(self, world: dict[str, Any]) -> list[dict[str, Any]]:
         return [{"mod": r["id"], "version": r["version"], "settings":world["mods"]["active"][r["id"]]["settings"],

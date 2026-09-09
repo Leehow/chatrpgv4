@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import fcntl
 from contextlib import contextmanager
 from typing import Any
@@ -16,6 +17,7 @@ FIELDS = {"name", "occupation", "age", "sex", "concept", "occupation_skills", "i
           "own_language", "backstory", "key_connection", "equipment", "weapons", "era", "aptitude"}
 APTITUDE = ("strong", "weak")
 APTITUDE_FIELDS = (*APTITUDE, "origin")
+APTITUDE_CAPABILITY = "setup.aptitude.v1"
 
 @contextmanager
 def locked(campaign):
@@ -160,6 +162,19 @@ class SetupDrafts:
                 raise RpcError("needs", "No applicable rulebook finance period has been selected for the authored era",
                     fix="Choose profile.era from the returned options only when it matches the source setting, then retry in this turn. If no period applies, keep setup blocked; do not approximate or invent finance tables. Do not ask the player to fix a system parameter.",
                     details={"field": "era", "source_era": source_era, "options": periods})
+            # Prose moves a characteristic only through a package that opened that door (contract §23.4, §26).
+            try:
+                stated = self.setup.chargen.aptitude(profile.get("aptitude"))
+            except ChargenError as exc:
+                raise RpcError("needs", str(exc), details={"expected": exc.expected}) from exc
+            if stated:
+                lock = (json.loads(campaign.world_json.read_text(encoding="utf-8")).get("mods")
+                        if campaign.world_json.exists() else meta.get("mods_pending"))
+                mods = self.table.mods.runtime.setup_context(lock)
+                if APTITUDE_CAPABILITY not in mods["capabilities"]:
+                    raise RpcError("needs", "A stated aptitude needs an active setup package that provides characteristic assignment; without one the characteristics are the dice",
+                                   fix="Omit profile.aptitude and let the rolled characteristics stand, or enable a package that requires setup.aptitude.v1 in the Mods panel",
+                                   details={"capability": APTITUDE_CAPABILITY, "active": [m["id"] for m in mods["active"]]})
             try:
                 sheet, receipt = self.setup.chargen.build(investigator_id="investigator", name=profile["name"],
                     occupation_id=profile["occupation"], concept=profile["concept"], age=profile.get("age", 27),

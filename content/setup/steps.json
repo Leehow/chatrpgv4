@@ -137,7 +137,7 @@
       "params": {
         "profile": {
           "required": true,
-          "description": "Semantic object: name, occupation (catalog id), age, sex, concept, occupation_skills (8 distinct concrete catalog names), interest_skills (selected concrete names), own_language (actual language), era (optional rulebook period from returned options; the agent chooses it from source context), backstory (3-6 of personal_description/ideology_beliefs/significant_people/meaningful_locations/treasured_possessions/traits plus scenario_bound), key_connection {backstory_field,summary}, equipment [ordinary item names], weapons [optional rulebook profile names], aptitude {strong:[ABBR],weak:[ABBR]} when the player's own words call this person notably strong or notably poor in body or mind (characteristic abbreviations only; the kernel assigns this player's own rolled results accordingly and promises no value). On edits send only changed fields. No numeric skills/cash."
+          "description": "Semantic object: name, occupation (catalog id), age, sex, concept, occupation_skills (8 distinct concrete catalog names), interest_skills (selected concrete names), own_language (actual language), era (optional rulebook period from returned options; the agent chooses it from source context), backstory (3-6 of personal_description/ideology_beliefs/significant_people/meaningful_locations/treasured_possessions/traits plus scenario_bound), key_connection {backstory_field,summary}, equipment [ordinary item names], weapons [optional rulebook profile names], aptitude {strong:[ABBR],weak:[ABBR],origin} only under an active setup package that provides setup.aptitude.v1 (characteristic abbreviations only; the kernel assigns this player's own rolled results accordingly and promises no value; without such a package the field is refused). On edits send only changed fields. No numeric skills/cash."
         }
       },
       "defaults": {
@@ -191,7 +191,7 @@
       },
       "receipt": "draft",
       "lines": {
-        "do": "Compute a complete draft from the player concept with setup.draft after the follow-up answer (one follow-up by default, spent on an aptitude direction that steers the skill choices; a second only for a genuine gap; immediately when the player delegated the remaining choices). Propose rather than ask whatever you can: the way into the opening, personal ties, age, ordinary gear. Complete ordinary missing semantic choices yourself at draft time. The tool returns actual values for the host to show. Do not ask the player for numbers. Do not claim a card is committed yet.",
+        "do": "Compute a complete draft from the player concept with setup.draft as soon as a name and an occupation concept are known, unless an active setup package's instructions call for an exchange first. Propose rather than ask whatever you can: the way into the opening, personal ties, age, ordinary gear. Complete ordinary missing semantic choices yourself at draft time. The tool returns actual values for the host to show. Do not ask the player for numbers. Do not claim a card is committed yet.",
         "next": "Prepare or revise the full investigator draft using profile. On missing catalog names fix them using returned options in the same turn."
       }
     },

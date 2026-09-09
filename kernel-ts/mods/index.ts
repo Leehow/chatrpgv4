@@ -5,7 +5,7 @@ import { isJsonObject } from '../json.js';
 import { readCampaign } from '../read/handlers.js';
 import { CampaignSnapshot, loadModule } from '../read/campaign.js';
 import { SessionView } from '../read/session-view.js';
-import { modContext } from '../read/mods.js';
+import { modContext, setupModContext } from '../read/mods.js';
 import { row, clone, truth, string, type Row } from '../read/values.js';
 import type { CampaignWriter } from '../write/store.js';
 import type { createWriteRuntime } from '../write/index.js';
@@ -89,6 +89,12 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
         return listing(params);
       },
       'mods.context': async params => {
+        // A campaign still being set up has no capsule: it gets the setup shape (§26) from the same lock mods.configure writes.
+        const settingUp = await writer.campaign(params, {requireWorld: false}), meta = await settingUp.readCampaign();
+        if (meta.status === 'setting_up') {
+          const lock = await context.snapshots.pathExists(settingUp.path('world.json')) ? row(await settingUp.readWorld()).mods : meta.mods_pending;
+          return setupModContext(context, row(lock));
+        }
         const {campaign, module} = await readCampaign(context, params, false, false, writer.read);
         return modContext(context, module.graph, campaign.world, campaign.party);
       },

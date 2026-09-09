@@ -105,7 +105,7 @@ def observe(root, label, command, scenario):
             client.err("mods.defaults", {"id":"unknown","enabled":True})
             client.err("mods.defaults", {"id":"fixture-mod","enabled":1})
             client.ok("mods.defaults", {"id":"fixture-mod","enabled":True})
-            order = ["fixture-mod", "natural-npc", "enhanced-items"]
+            order = ["fixture-mod", "guided-creation", "natural-npc", "enhanced-items"]
             client.err("mods.order", {"order":["fixture-mod"]})
             client.ok("mods.order", {"order":order})
             client.err("campaign.create", {"id":"not a slug","module":"the-haunting","pregen":"thomas-hayes"})
@@ -200,7 +200,7 @@ def observe(root, label, command, scenario):
             client.ok("table.player_input",{"campaign":"c1","text":"I continue the conversation."})
             before=json.loads(world_path.read_text())["mods"]["active"]
             client.ok("mods.configure",{**args,"enabled":False})
-            order=["natural-npc","enhanced-items","fixture-mod"]
+            order=["natural-npc","enhanced-items","guided-creation","fixture-mod"]
             client.ok("mods.order",{"campaign":"c1","order":order})
             assert json.loads(world_path.read_text())["mods"]["active"]==before
             client.ok("mods.context",{"campaign":"c1"})
@@ -244,12 +244,12 @@ def observe(root, label, command, scenario):
             dependent,_=package(inputs,"dependent",id="dependent",dependencies={"natural-npc":"1.0.0"})
             conflicting,_=package(inputs,"conflicting",id="conflicting",conflicts=["natural-npc"])
             client.ok("mods.install",{"path":str(dependent)}); client.ok("mods.install",{"path":str(conflicting)}); create(client)
-            client.ok("mods.order",{"campaign":"c1","order":["natural-npc","dependent","conflicting","enhanced-items"]})
+            client.ok("mods.order",{"campaign":"c1","order":["natural-npc","dependent","conflicting","enhanced-items","guided-creation"]})
             client.ok("mods.configure",{"campaign":"c1","id":"dependent","enabled":True})
             client.err("mods.configure",{"campaign":"c1","id":"conflicting","enabled":True})
             client.err("mods.configure",{"campaign":"c1","id":"natural-npc","enabled":False})
-            client.err("mods.order",{"campaign":"c1","order":["dependent","natural-npc","conflicting","enhanced-items"]})
-            client.ok("mods.order",{"campaign":"c1","order":["natural-npc","dependent","conflicting","enhanced-items"]})
+            client.err("mods.order",{"campaign":"c1","order":["dependent","natural-npc","conflicting","enhanced-items","guided-creation"]})
+            client.ok("mods.order",{"campaign":"c1","order":["natural-npc","dependent","conflicting","enhanced-items","guided-creation"]})
             client.ok("mods.context",{"campaign":"c1"})
         elif scenario == "existing-objects":
             from coc.mods.objects import define, move

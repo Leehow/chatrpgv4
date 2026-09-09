@@ -1,0 +1,10 @@
+{
+  "id": "guided-creation", "version": "1.0.0", "game_api": "pipicoc.game.v1",
+  "state_version": 1, "name": "Guided Creation", "author": "PipiCOC",
+  "description": "A short, player-paced exchange before the card is drafted; what the player says about the person reaches the rolled characteristics.",
+  "default_enabled": true, "requires": ["setup.guidance.v1", "setup.aptitude.v1"],
+  "dependencies": {}, "conflicts": [],
+  "settings": {"max_guided_turns": 3},
+  "settings_schema": {"max_guided_turns": {"minimum": 1, "maximum": 6}},
+  "contributes": {"setup_instructions": "guide.md"}
+}

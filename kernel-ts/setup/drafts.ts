@@ -7,6 +7,8 @@ import { playerGlossary } from '../read/handlers.js';
 import { loadModule } from '../read/campaign.js';
 import { row, array, clone, string, number, truth, equal, repr, type Row } from '../read/values.js';
 import { moduleEra } from '../library/index.js';
+import { setupModContext } from '../read/mods.js';
+const APTITUDE_CAPABILITY = 'setup.aptitude.v1';
 import type { CampaignWriter } from '../write/store.js';
 import type { Setup } from './index.js';
 import { ChargenError } from './chargen.js';
@@ -81,6 +83,16 @@ export class SetupDrafts {
       if (!periods.includes(era)) throw new RpcError('needs', 'No applicable rulebook finance period has been selected for the authored era', {
         fix: 'Choose profile.era from the returned options only when it matches the source setting, then retry in this turn. If no period applies, keep setup blocked; do not approximate or invent finance tables. Do not ask the player to fix a system parameter.',
         details: {field: 'era', source_era: sourceEra, options: periods}});
+      // Prose moves a characteristic only through a package that opened that door (§23.4, §26).
+      let stated: Row | null = null;
+      try { stated = this.setup.chargen.aptitude(profile.aptitude ?? null); }
+      catch (error) { if (!(error instanceof ChargenError)) throw error; throw new RpcError('needs', error.message, {details: {expected: error.expected}}); }
+      if (stated) {
+        const lock = await this.setup.context.snapshots.pathExists(campaign.path('world.json')) ? row(await campaign.readWorld()).mods : meta.mods_pending;
+        const mods = await setupModContext(this.setup.context, row(lock));
+        if (!array(mods.capabilities).includes(APTITUDE_CAPABILITY)) throw new RpcError('needs', 'A stated aptitude needs an active setup package that provides characteristic assignment; without one the characteristics are the dice',
+          {fix: 'Omit profile.aptitude and let the rolled characteristics stand, or enable a package that requires setup.aptitude.v1 in the Mods panel', details: {capability: APTITUDE_CAPABILITY, active: array(mods.active).map((mod: Row) => mod.id)}});
+      }
       let sheet: Row, receipt: Row;
       try { [sheet, receipt] = await this.setup.chargen.build({investigatorId: 'investigator', name: profile.name, occupationId: profile.occupation, concept: profile.concept,
         age: Object.hasOwn(profile, 'age') ? profile.age : 27, sex: profile.sex ?? null, method: 'rolled', seed, era, aptitude: profile.aptitude ?? null,

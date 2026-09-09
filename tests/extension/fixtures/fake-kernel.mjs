@@ -464,6 +464,12 @@ function handle(method, params) {
 					state: {},
 				},
 			};
+		case "mods.context":
+			// During setup the kernel answers with the setup shape (contract §26); the sentinel lets a test see the instruction land in the prompt.
+			return { ok: true, result: params?.campaign
+				? { active: [{ id: "guided-creation", version: "1.0.0" }], capabilities: ["setup.aptitude.v1", "setup.guidance.v1"],
+					setup: [{ mod: "guided-creation", version: "1.0.0", settings: { max_guided_turns: 3 }, instruction: "FAKE-SETUP-INSTRUCTION: ask one situational question before drafting." }] }
+				: { active: [], capabilities: [], setup: [] } };
 		case "setup.occupations":
 			// 职业清单原样给建卡进程，由模型按玩家那句话挑 id；内核只认 id（契约 §14.7）。
 			return {

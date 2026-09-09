@@ -225,3 +225,35 @@ def test_a_reading_off_the_concept_is_recorded_as_a_reading(kernel):
                                       "profile": {"aptitude": {"strong": ["EDU", "INT"], "origin": "concept"}}})
     assert over["code"] == "needs"
     assert kernel.ok("setup.steps", {"campaign": CAMPAIGN})["state"]["draft"]["revision"] == said["revision"]
+
+
+# ---- the door a package opens: setup context and the aptitude gate (contract §26) ----
+
+def test_a_setting_up_campaign_gets_the_setup_shape_from_mods_context(kernel):
+    begin(kernel)
+    context = kernel.ok("mods.context", {"campaign": CAMPAIGN})
+    assert "guided-creation" in [row["id"] for row in context["active"]], "the built-in is on by default"
+    assert {"setup.guidance.v1", "setup.aptitude.v1"} <= set(context["capabilities"])
+    guide = next(row for row in context["setup"] if row["mod"] == "guided-creation")
+    assert guide["settings"] == {"max_guided_turns": 3}
+    assert "Guided Creation" in guide["instruction"]
+    assert "instructions" not in context and "pending_contacts" not in context, "no capsule shape before the world is open"
+
+
+def test_without_the_package_prose_cannot_move_a_characteristic(kernel):
+    begin(kernel)
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": "guided-creation", "enabled": False})
+    context = kernel.ok("mods.context", {"campaign": CAMPAIGN})
+    assert "guided-creation" not in [row["id"] for row in context["active"]]
+    assert context["setup"] == [] and "setup.aptitude.v1" not in context["capabilities"]
+    refused = kernel.err("setup.draft", {"campaign": CAMPAIGN,
+                                          "profile": {"aptitude": {"strong": ["STR"], "origin": "player"}}})
+    assert refused["code"] == "needs"
+    assert refused["details"]["capability"] == "setup.aptitude.v1"
+    assert "guided-creation" not in refused["details"]["active"]
+    plain = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"age": 31}})
+    assert plain["sheet"]["creation"]["method"] == "rolled", "the core is the dice in table order"
+    kernel.ok("mods.configure", {"campaign": CAMPAIGN, "id": "guided-creation", "enabled": True})
+    opened = kernel.ok("setup.draft", {"campaign": CAMPAIGN,
+                                        "profile": {"aptitude": {"strong": ["STR"], "origin": "player"}}})
+    assert opened["sheet"]["creation"]["method"] == "rolled_pool_assignment"

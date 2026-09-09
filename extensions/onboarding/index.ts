@@ -545,12 +545,25 @@ export default function (pi: ExtensionAPI) {
     let guidance: Guidance | undefined;
     try {guidance=await ensureGuidance();}
     catch(error) {guidanceBlocked=true;ctx?.ui.notify(errorText(error),'error');return {systemPrompt:event.systemPrompt+'\nModule guidance is unavailable. Do not invent a prologue, create an investigator or continue setup.'};}
-    if(!guidance)return;
+    // Setup packages (contract §26): what the campaign's enabled Mods have to say about creation, refreshed every turn so a panel toggle lands on the next reply.
+    // Consulted whether or not module guidance exists: a package speaks to setup, not to the prologue.
+    let setupPackages='';
+    // The id may be known before the campaign exists (PI_COC_CAMPAIGN); ask only once create-campaign has actually run, here or in an earlier session.
+    if(bridge && context.campaign && completed.has('create-campaign')) {
+      try {
+        const mods=asRecord(await bridge.call('mods.context',{campaign:context.campaign}));
+        const setup=Array.isArray(mods.setup)?mods.setup as Array<Record<string,unknown>>:[];
+        if(setup.length)setupPackages='\n\nActive setup packages ('+setup.map(entry=>String(entry.mod)).join(', ')+'). Their instructions below extend the core setup policy for this campaign:'+
+          setup.map(entry=>'\n\n['+String(entry.mod)+' '+String(entry.version)+'] settings: '+JSON.stringify(entry.settings??{})+'\n'+String(entry.instruction)).join('');
+      } catch(error) {guidanceBlocked=true;ctx?.ui.notify(errorText(error),'error');return {systemPrompt:event.systemPrompt+'\nThe setup package context is unavailable. Do not draft or continue setup until it is restored.'};}
+    }
+    if(!guidance)return setupPackages?{systemPrompt:event.systemPrompt+setupPackages}:undefined;
     return {systemPrompt:event.systemPrompt+'\n\nPrepared module prologue ('+(prologueRecorded?'already delivered; continue from the player answer without repeating it':'use on the first setup reply only')+'):\n'+guidance.opening+
       '\n\nModule-specific setup advice:\n'+guidance.advice+
       '\nChoose profile.era from these rulebook periods only when it matches the authored setting: '+JSON.stringify(context.rulebook_eras||[])+'. The source era can be descriptive prose; do not copy it as a table key. If no period applies, retain the finance blocker rather than choosing a nearby era.'+
-      '\nWhen the player supplies only a name and an occupation concept without delegating the rest, ask ONE in-character follow-up question (a second only for a genuine gap), wait for the answer, and do not draft in that reply. Spend the question on an aptitude direction only the player can decide — what the person is notably good or poor at, asked in the fiction, never as numbers — because it steers the concrete skill choices and, when the body or the mind itself is described, profile.aptitude {strong,weak,origin} of characteristic abbreviations. origin is \'player\' for what the player actually claimed and \'concept\' when they said nothing about the body or mind and you are reading the person they did describe, which is welcome but stays within the kernel\'s concept limit and is reported as your own reading, never as something they said. The kernel assigns this player\'s own rolled results to it and guarantees no value, so describe the returned card rather than promising a number. Propose rather than ask whatever you can: the way into the opening, personal ties and the key connection, age, ordinary gear, and say that the complete draft comes next. After the answer, or at once on explicit delegation, use setup create-investigator with a complete structured profile. Do not merely describe a character: the computed draft must appear before approval. Use confirm-investigator only after approval or explicit write-now delegation.'+
+      '\nAs soon as a name and an occupation concept are known, use setup create-investigator with a complete structured profile in that reply, unless an active setup package below asks for an exchange first. Propose rather than ask whatever you can: the way into the opening, personal ties and the key connection, age, ordinary gear. Do not merely describe a character: the computed draft must appear before approval. Use confirm-investigator only after approval or explicit write-now delegation.'+
       '\nBoth the occupational and the personal-interest skill lists are priority ordered for the tier allocation, which walks each list from the front until its budget runs out. Put scenario prerequisites and the player\'s essential abilities first in both, and keep the interest list short enough that its tail still receives points. Inspect the computed draft against those requirements before asking for confirmation. If an essential ability remains at its base value, revise the same profile order or legal interest choices; preserve the existing seed and required occupation skills. Do not claim an ability the actual card lacks.'+
+      setupPackages+
       (process.env.PI_COC_SETUP_AUTOSTART==='1'?'\nThis is the frontend. The card defaults to final values and has a calculation-details toggle for all dice, adjustments and allocation evidence. Keep the accompanying prose brief: identity, edition/method and one confirmation invitation. Do not automatically repeat calculations or budgets; point to the details control or explain them if the player explicitly asks. After complete, close the prologue without a launch command; the host hands off to play.':'')};
   });
 

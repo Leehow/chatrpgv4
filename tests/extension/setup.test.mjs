@@ -212,3 +212,33 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
 		);
 	}
 });
+
+test("setup packages: the campaign's enabled Mods reach the setup prompt through mods.context, and only once a campaign exists (contract §26)", async (t) => {
+	const first = firstStep();
+	const investigator = stepById("create-investigator");
+	const prompts = [];
+	const capture = (message) => (context) => { prompts.push(context.systemPrompt ?? ""); return message; };
+	const table = await openSetup([
+		capture(setupCall({ step: first.id, kind: "starter", module: "the-haunting" })),
+		capture(setupCall({ step: "create-campaign", id: "setup-fixture", title: "闹鬼的房子", play_language: "zh-Hans" })),
+		capture(fauxAssistantMessage("先说说你是谁。")),
+		// The next player message starts a new agent run, whose prompt is composed with the campaign in hand.
+		capture(fauxAssistantMessage("记下了。")),
+	]);
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我想玩闹鬼的房子");
+	await waitForIdle(table.session);
+	await table.session.prompt("我叫托马斯，是个记者。");
+	await waitForIdle(table.session);
+
+	const contexts = table.kernelRequests().filter((entry) => entry.method === "mods.context");
+	assert.ok(contexts.length >= 1, "the onboarding extension asks the kernel what the campaign's packages say about setup");
+	assert.ok(contexts.every((entry) => entry.params.campaign === "setup-fixture"), "always for the campaign that was created, never a guess");
+	assert.equal(prompts.length, 4, "three model requests in the first run, one in the second");
+	assert.ok(prompts.slice(0, 3).every((prompt) => !prompt.includes("FAKE-SETUP-INSTRUCTION")), "the first run's prompt was composed before a campaign existed: no package to consult, the core policy stands");
+	const after = prompts[3];
+	assert.ok(after.includes("FAKE-SETUP-INSTRUCTION"), "once the campaign exists the package's setup instruction is in the system prompt");
+	assert.ok(after.includes("[guided-creation 1.0.0] settings: {\"max_guided_turns\":3}"), "the instruction is labeled with its package, version and settings");
+	assert.ok(after.includes("Active setup packages (guided-creation)"), "the prompt names which packages are speaking");
+});

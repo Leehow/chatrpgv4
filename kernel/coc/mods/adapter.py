@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import hashlib
 from pathlib import Path
 from typing import Any
@@ -564,6 +565,13 @@ def methods(table: Any) -> dict[str, Any]:
         return listing(params)
 
     def context(params):
+        # A campaign still being set up has no capsule: it gets the setup shape (contract §26)
+        # from the same lock mods.configure writes during setup.
+        pending = table.store.open(params.get("campaign"), require_turn=False, require_world=False)
+        meta = pending.read_campaign()
+        if meta.get("status") == "setting_up":
+            lock = json.loads(pending.world_json.read_text(encoding="utf-8")).get("mods") if pending.world_json.exists() else meta.get("mods_pending")
+            return adapter.runtime.setup_context(lock)
         campaign, graph, world, _turn = table._context(params)
         return adapter.context(campaign, graph, world)
 

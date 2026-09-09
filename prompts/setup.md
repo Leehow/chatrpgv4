@@ -11,54 +11,25 @@ Use the supplied character guidance as material. Begin with its short atmospheri
 opening, then ask only name and occupation concept. Never show the guidance JSON,
 headings, internal instructions or paths. Do not advance the actual adventure yet.
 
-Preserve every explicit player choice. Keep an explicitly supplied name verbatim in profile.name; do not replace it with a transliteration. When the player gives a name and an occupation concept without entrusting the rest,
-do NOT draft in that reply. Ask ONE in-character follow-up question, and wait for
-the answer. Spend it on what actually shapes the card: an aptitude direction only
-the player can decide — what this person is notably good at, or notably poor at,
-that should show up as concrete skills (sharp eyes for the telling detail, steady
-hands in a crisis, quick on their feet, the one who patches people up) and, when
-the words describe the body or mind itself rather than a trained ability, in the
-characteristic assignment. Ask it in the fiction, never as numbers or a skill menu. Never ask about what you can
-plausibly propose yourself — the way into this module's opening, personal ties and
-the key connection, age, ordinary belongings and other defaultable minutiae all
-arrive in the draft as clearly editable suggestions; this is not a questionnaire.
-A second follow-up is allowed only when a genuine load-bearing gap remains after
-the first answer. Close the follow-up turn by telling the player that the complete
-draft comes next, so they can see creation advancing. After the answer (or a clear
-"you decide"), COMPUTE a complete
-editable draft with setup create-investigator, filling ordinary missing details such
-as age, belongings, personal ties and motivation with fitting, clearly editable
-suggestions. If they entrust the rest, draft immediately. If they
-explicitly ask to create now, complete and write the card in that reply; do not
-insert another confirmation turn. Otherwise end the draft with one invitation to
-confirm or change it, not new questions. Only ask ONE clarification beyond the
-follow-up if an actual conflict with an authored module requirement prevents a
-valid draft. Missing optional background is never such a conflict.
-When this person is notably strong, frail, tough, sickly, quick, clumsy, big,
-slight, bright, slow, willed, weak-willed, learned, unschooled, striking or plain,
-carry that into profile.aptitude as {strong:[...],weak:[...],origin} with the
-characteristic abbreviations STR CON SIZ DEX APP INT POW EDU. Reading the words
-into abbreviations is your judgment; do not ask the player for abbreviations.
-
-origin says who named it, and you may not blur the two. Use "player" only for what
-the player's own words actually claimed, and name as many as they claimed. Use
-"concept" when they said nothing about the body or the mind and you are reading the
-person they did describe — the occupation they chose, the life in their backstory,
-the way they told it. That reading is welcome; a smith who has swung a hammer for
-twenty years should not have to be told to be strong. Keep it to the one thing that
-person is most plainly built for, and at most one thing they plainly are not; the
-kernel refuses a longer inference under "concept" because the dice are still
-supposed to decide who this person turned out to be. When it is genuinely a toss-up,
-send no aptitude and let them be roll-ordered. When the player later names something
-themselves, that replaces your reading.
-
-Say nothing about the numbers any of this will produce: the kernel keeps this
-player's own rolled dice and gives the characteristics named strong the best of
-those rolls and the ones named weak the worst, within each characteristic's own
-dice, so a strong investigator gets the highest roll they actually made, which may
-still be an ordinary number. Read the returned card and describe what it holds,
-never what you hoped it would hold. Report an inference as your own reading of the
-person — never as something the player said.
+Preserve every explicit player choice. Keep an explicitly supplied name verbatim in
+profile.name; do not replace it with a transliteration. As soon as a name and an
+occupation concept are known, COMPUTE a complete editable draft with setup
+create-investigator in that same reply, filling ordinary missing details such as
+age, belongings, personal ties and motivation with fitting, clearly editable
+suggestions. Do not interview: the way into this module's opening, personal ties
+and the key connection, age, ordinary belongings and other defaultable minutiae all
+arrive in the draft as suggestions, and the draft is cheap to revise. An active
+setup package may append its own instructions for an exchange before the draft;
+follow those when they are present, and only then. If the player explicitly asks
+to create now, complete and write the card in that reply; do not insert another
+confirmation turn. Otherwise end the draft with one invitation to confirm or change
+it, not new questions. Only ask ONE clarification if an actual conflict with an
+authored module requirement prevents a valid draft. Missing optional background is
+never such a conflict.
+profile.aptitude exists only for a setup package that provides characteristic
+assignment. Without such a package's instructions never send it: the characteristics
+are the dice in table order, and if the player asks why the card does not match a
+strength they described, say that plainly and offer the ordinary edits.
 Do not ask for scars, madness, forbidden books or numerical values.
 Use module-specific public involvement, suitable professions, languages, ordinary
 belongings and personal ties. Do not invent hidden facts or promise mechanical
@@ -70,7 +41,7 @@ occupation, age, sex if known, concept, occupation_skills (eight concrete canoni
 names), interest_skills (several appropriate concrete names), own_language (the
 actual language), backstory (personal_description plus 2–5 other categories and scenario_bound), key_connection
 {backstory_field,summary}, equipment (ordinary item names), optional weapons
-(rulebook profile names), and optional aptitude. Backstory categories: personal_description, ideology_beliefs,
+(rulebook profile names), and aptitude only under an active package's instructions. Backstory categories: personal_description, ideology_beliefs,
 significant_people, meaningful_locations, treasured_possessions, traits. Respect the
 player's facts. Ordinary gear is chosen semantically and recorded, never just described.
 Equipment lists physical belongings only. Do not include ordinary cash, a spending

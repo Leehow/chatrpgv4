@@ -8,7 +8,7 @@ import { compareUnicode, jsonDigest, parsePythonJson } from "../json.js";
 import { ModuleGraph } from "./module-graph.js";
 import { npcsPresent } from "./capsule.js";
 import { entries, values, array, row, truth, string, number, integer, numeric, normalize, sorted, chars, length, clone, pick, type Row } from "./values.js";
-export const MOD_CAPABILITIES = new Set(["checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1"]);
+export const MOD_CAPABILITIES = new Set(["checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1"]);
 const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
 };
@@ -56,14 +56,14 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("Game interface v1 settings are scalar values");
     if (!plain(manifest.settings_schema ?? {}))
         invalid("settings_schema must be an object");
-    if (Object.keys(manifest.contributes).some(k => !["instructions", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "document_editor"].includes(k)))
+    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "document_editor"].includes(k)))
         invalid("Unknown Mod contribution in game interface v1");
     for (const [dep, ver] of entries(manifest.dependencies)) {
         if (!/^[a-z][a-z0-9-]{0,63}$/.test(dep))
             invalid("Dependency ids must be semantic slugs");
         version(ver);
     }
-    for (const field of ["instructions", "materializer", "auditor"]) {
+    for (const field of ["instructions", "setup_instructions", "materializer", "auditor"]) {
         const path = manifest.contributes[field];
         if (path != null && (typeof path !== "string" || !files.has(path) || !path.endsWith(".md")))
             invalid(`contributes.${field} must name a package Markdown file`);
@@ -209,6 +209,24 @@ export function effectiveMods(active: Row[]): Row[] {
         if (!policy.length && truth(c.auditor)) policy.push(`audit:${c.audit_slot ?? mod.id}`);
         return !policy.length || policy.some(key => providers[key].at(-1) === mod.id);
     });
+}
+/** The mod set as the setup process sees it: which packages are on, what they require and what
+ *  they have to say about creation. `lock` is world.mods or campaign.mods_pending (§26). */
+export async function setupModContext(context: KernelContext, lock: Row): Promise<Row> {
+    const world = { mods: row(lock) },
+        active = await activeMods(context, world),
+        decode = (mod: Row) => new TextDecoder("utf-8", { fatal: true }).decode(mod.files.get(mod.contributes.setup_instructions));
+    return {
+        active: active.map(mod => ({ id: mod.id, version: mod.version })),
+        authority: "Only this active Mod set applies to setup. Earlier instructions from disabled or replaced versions are inactive.",
+        capabilities: sorted(new Set(active.flatMap(mod => array(mod.requires).map(string)))),
+        setup: active.filter(mod => truth(mod.contributes.setup_instructions)).map(mod => ({
+            mod: mod.id,
+            version: mod.version,
+            settings: row(row(world.mods.active)[mod.id]).settings,
+            instruction: decode(mod)
+        }))
+    };
 }
 export function unregisteredEquipment(party: Row[]): Row[] {
     return party.flatMap(sheet => {
