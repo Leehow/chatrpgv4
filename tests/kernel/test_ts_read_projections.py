@@ -78,14 +78,15 @@ def observe(workspace: Path, command: list[str], reads: list[tuple[str, dict]], 
             "snapshot": snapshot(workspace), "exit_code": client.proc.returncode, "failure": failure}
 
 
-def compare(root: Path, reads: list[tuple[str, dict]] = READS, content: Path | None = None) -> tuple[dict, dict]:
+def compare(root: Path, reads: list[tuple[str, dict]] = READS, content: Path | None = None,
+            *, expect_write: bool = False) -> tuple[dict, dict]:
     source, candidate = root / "reference-workspace", root / "candidate-workspace"
     shutil.copytree(source, candidate, symlinks=True)
     reference = observe(source, python_command(), reads, content)
     actual = observe(candidate, candidate_command(), reads, content)
     evidence, findings = retain_comparison(root.name, reference, actual, root / "comparisons")
-    assert reference["before_bytes"] == reference["after_bytes"], f"Oracle read changed state: {evidence}"
-    assert actual["before_bytes"] == actual["after_bytes"], f"TypeScript read changed state: {evidence}"
+    assert (reference["before_bytes"] != reference["after_bytes"]) == expect_write, f"Unexpected oracle mutation: {evidence}"
+    assert (actual["before_bytes"] != actual["after_bytes"]) == expect_write, f"Unexpected TypeScript mutation: {evidence}"
     assert not reference["failure"] and not actual["failure"], str(evidence)
     assert reference["exit_code"] == actual["exit_code"] == 0, str(evidence)
     assert not findings, f"{evidence}: " + "\n".join(findings)
@@ -124,37 +125,33 @@ def test_legacy_table_view_reads_without_persisting_the_scene_trail():
     compare(root, [("table.view", {})])
 
 
-def test_open_turn_and_legacy_repair_are_explicitly_unimplemented_without_writes():
-    root = retained("writer-boundary")
-    workspace = root / "candidate-workspace"
+@pytest.mark.parametrize("boundary", ["open-turn", "legacy-trail"])
+def test_read_side_transitions_match_the_python_writer(boundary):
+    root = retained("writer-boundary-" + boundary)
+    workspace = root / "reference-workspace"
     prepare(workspace)
-    turn_path = campaign_dir(workspace) / "turn.json"
-    turn = json.loads(turn_path.read_text())
-    turn["state"] = "open"
-    turn_path.write_text(json.dumps(turn, ensure_ascii=False, indent=2) + "\n")
-    result = observe(workspace, candidate_command(), [
-        ("table.look", {"focus": "scene"}), ("table.lookup", {"kind": "module", "query": "Knott"})])
-    assert result["before_bytes"] == result["after_bytes"]
-    assert all(item["response"]["error"]["code"] == "not_implemented" for item in result["exchanges"])
-    (root / "open-transition.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
-    world_path = campaign_dir(workspace) / "world.json"
-    world = json.loads(world_path.read_text())
-    world.pop("scene_trail", None)
-    world_path.write_text(json.dumps(world, ensure_ascii=False, indent=2) + "\n")
-    result = observe(workspace, candidate_command(), [("table.status", {}), ("table.capsule", {})])
-    assert result["before_bytes"] == result["after_bytes"]
-    assert all(item["response"]["error"]["code"] == "not_implemented" for item in result["exchanges"])
-    (root / "legacy-repair.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+    if boundary == "open-turn":
+        path = campaign_dir(workspace) / "turn.json"
+        turn = json.loads(path.read_text())
+        turn["state"] = "open"
+        path.write_text(json.dumps(turn, ensure_ascii=False, indent=2) + "\n")
+        reads = [("table.look", {"focus": "scene"}), ("table.lookup", {"kind": "module", "query": "Knott"})]
+    else:
+        path = campaign_dir(workspace) / "world.json"
+        world = json.loads(path.read_text())
+        world.pop("scene_trail", None)
+        path.write_text(json.dumps(world, ensure_ascii=False, indent=2) + "\n")
+        reads = [("table.status", {}), ("table.capsule", {})]
+    _, result = compare(root, reads, expect_write=True)
+    assert all(item["response"]["ok"] for item in result["exchanges"])
 
 
-def test_rule_catalog_and_unmigrated_writers_cannot_report_placeholder_success():
+def test_unmigrated_writers_cannot_report_placeholder_success():
     root = retained("unsupported-families")
     workspace = root / "candidate-workspace"
     prepare(workspace)
     result = observe(workspace, candidate_command(), [
-        ("table.lookup", {"kind": "rule", "query": "healing"}),
-        ("table.lookup", {"kind": "catalog", "query": "weapon"}),
-        ("table.resolve", {}), ("table.apply", {}), ("table.open", {}), ("table.recall", {})])
+        ("table.resolve", {}), ("table.apply", {}), ("table.recall", {})])
     assert result["before_bytes"] == result["after_bytes"]
     assert all(item["response"]["error"]["code"] == "not_implemented" for item in result["exchanges"])
     (root / "unsupported.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")

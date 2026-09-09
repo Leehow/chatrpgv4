@@ -59,6 +59,55 @@ export function evaluateCondition(expression: any, facts: Row): boolean | null {
     const compared = numbers ? number(value) - number(operand) : compareUnicode(value, operand);
     return op === "lt" ? compared < 0 : op === "lte" ? compared <= 0 : op === "gt" ? compared > 0 : compared >= 0;
 }
+export function requirementPhrase(expression: Row, negated = false): string {
+    const op = expression.op;
+    if (op === "exists")
+        return negated ? "to be absent" : "to be present";
+    const phrases: Record<string, string> = {
+        eq: "to equal",
+        neq: "to differ from",
+        lt: "to be less than",
+        lte: "to be at most",
+        gt: "to be greater than",
+        gte: "to be at least",
+        contains: "to contain",
+        "not-contains": "not to contain",
+    };
+    const phrase = phrases[string(op)] ?? `to satisfy ${repr(op)} against`;
+    return negated ? `not (${phrase} ${repr(expression.value)})` : `${phrase} ${repr(expression.value)}`;
+}
+export function classifyExceptionCondition(expression: any, facts: Row): [
+    string,
+    string | null
+] {
+    if (!expression || typeof expression !== "object" || Array.isArray(expression))
+        return ["unevaluated", "malformed_expression"];
+    const op = expression.op;
+    if (["all", "any", "not"].includes(op)) {
+        const nested = children(expression);
+        if (nested == null || op === "not" && nested.length !== 1)
+            return ["unevaluated", "malformed_expression"];
+        const statuses = nested.map(child => classifyExceptionCondition(child, facts));
+        if (op === "all") {
+            if (statuses.some(([status]) => status === "inactive"))
+                return ["inactive", null];
+            return statuses.find(([status]) => status === "unevaluated") ?? ["matched", null];
+        }
+        if (op === "any") {
+            if (statuses.some(([status]) => status === "matched"))
+                return ["matched", null];
+            return statuses.find(([status]) => status === "unevaluated") ?? ["inactive", null];
+        }
+        const [status, reason] = statuses[0];
+        return status === "unevaluated" ? [status, reason] : status === "matched" ? ["inactive", null] : ["matched", null];
+    }
+    if (["eq", "neq", "lt", "lte", "gt", "gte", "contains", "not-contains", "exists"].includes(op)) {
+        if (typeof expression.path !== "string" || !PATHS.has(expression.path))
+            return ["unevaluated", "unregistered_path"];
+        return evaluateCondition(expression, facts) === true ? ["matched", null] : ["inactive", null];
+    }
+    return ["unevaluated", "unknown_operator"];
+}
 export function factsFromState(state: Row, sheet: Row, minutes: number | null, extra: Row = {}): Row {
     const conditions = array(state.conditions),
         facts: Row = {

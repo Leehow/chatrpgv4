@@ -174,11 +174,17 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     })).sort((a, b) => Number(a.discovered) - Number(b.discovered));
     if (knows.length)
         entry.knows = knows.slice(0, 6);
-    for (const [field, values] of [["knowledge", graph.authoredLines(node, "knowledge")], ["believes", graph.npcBeliefs(node)], ["would_lie_about", graph.npcWouldSay(node)]] as const)
-        if (values.length)
-            entry[field] = values.slice(0, 3);
+    const knowledge = graph.authoredLines(node, "knowledge");
+    if (knowledge.length)
+        entry.knowledge = knowledge.slice(0, 3);
     if (truth(recordOf(node).keeper_note))
         entry.keeper_note = recordOf(node).keeper_note;
+    const beliefs = graph.npcBeliefs(node);
+    if (beliefs.length)
+        entry.believes = beliefs.slice(0, 3);
+    const lies = graph.npcWouldSay(node);
+    if (lies.length)
+        entry.would_lie_about = lies.slice(0, 3);
     const presence = row(world.npc_presence),
         here = new Set(Object.keys(presence).filter(handle => presence[handle] === presence[graph.handle(node)]));
     const rank = (tie: Row) => here.has(graph.handle(tie.node)) ? 0 : ["faction", "organization"].includes(tie.node.node_kind) ? 1 : 2;
