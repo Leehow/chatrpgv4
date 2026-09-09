@@ -58,10 +58,14 @@ const TABLE_SCOPE = ["pipicoc", "extensions", "Electron/packages/ui/src"];
 const TEST_FILE = /(^|[./])(test|spec)\.[cm]?[jt]sx?$|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)__tests__(\/|$)/;
 const SOURCE_FILE = /\.([cm]?[jt]sx?|mjs|cjs|py|md)$/;
 
+/** Caches and compiled bytes are not sources: a `.pyc` holds no line anyone wrote. */
+const SKIPPED_DIRS = new Set(["__pycache__", "node_modules", ".pytest_cache"]);
+const COMPILED_FILE = /\.(pyc|pyo)$/;
+
 function walk(path) {
 	const stats = statSync(path);
-	if (!stats.isDirectory()) return [path];
-	return readdirSync(path).flatMap((entry) => walk(join(path, entry)));
+	if (!stats.isDirectory()) return COMPILED_FILE.test(path) ? [] : [path];
+	return readdirSync(path).filter((entry) => !SKIPPED_DIRS.has(entry)).flatMap((entry) => walk(join(path, entry)));
 }
 
 /** Sources only, and never a test: a fixture may carry any language, and this guard is about shipped code. */
