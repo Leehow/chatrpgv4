@@ -93,7 +93,7 @@
   "resourceFiles": ["extensions/mods/document-presentation.md", "pipicoc/install", "pipiui-extension.json", "bin/pi-coc", "bin/pi-coc-setup", "bin/coc-read-check", "bin/coc-source", "pipicoc/rpc"],
   "uiFiles": [
     "panel.js", "mods-panel.js", "mechanics.js", "choices.js", "preparation.js",
-    "sheet-icon.svg", "pipicoc.png", "product.json"
+    "sheet-icon.svg", "mods-icon.svg", "pipicoc.png", "product.json"
   ],
   "hostAssets": [
     "Electron/resources/runtime/auth/pi-auth-helper.mjs",

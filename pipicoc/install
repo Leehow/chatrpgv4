@@ -52,7 +52,7 @@ function writeGeneratedManifest(path,value){
 }
 const destination=join(context.agentHome,'extensions/coc-keeper');
 for(const path of [join(context.agentHome,'extensions'),destination,join(destination,'pipicoc'),join(destination,'pipicoc/assets')])generatedDirectory(path);
-for(const asset of ['preparation.js','panel.js','mods-panel.js','mechanics.js','choices.js','timeline.js','sheet-icon.svg','timeline.svg'])
+for(const asset of ['preparation.js','panel.js','mods-panel.js','mechanics.js','choices.js','timeline.js','sheet-icon.svg','timeline.svg','mods-icon.svg'])
   copyGeneratedFile(join(root,'pipicoc',asset),join(destination,'pipicoc',asset));
 copyGeneratedFile(join(root,'pipicoc/assets/paper-texture.jpg'),join(destination,'pipicoc/assets/paper-texture.jpg'));
 copyGeneratedFile(context.entrypoints.agent,join(destination,'pipicoc/agent.mjs'));
