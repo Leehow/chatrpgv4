@@ -1,6 +1,6 @@
 import { CocOnboardingHost, CocOnboardingRegistry, type CocOnboardingOptions } from './coc-onboarding.js';
 export { CocOnboardingRegistry } from './coc-onboarding.js';
-import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations } from "./coc-view.js";
+import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, possessionWords, possessionProjection } from "./coc-view.js";
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { createExtensionHostWorkers, type ExtensionHostWorkers } from "./extension-host-workers.js";
 import { closeSync, constants as fsConstants, createReadStream, createWriteStream, existsSync, lstatSync, openSync, readFileSync, realpathSync, watch, writeSync, promises as fs, type Dirent } from "node:fs";
@@ -2142,6 +2142,8 @@ export class PiHostBackend implements HostBackend {
   private readonly cocChoiceClaims = new Map<string,string>();
   private readonly cocSheetReads = new Map<string, Promise<any>>();
   private readonly cocSheetPresentationJobs = new Map<string, {status:"pending"|"failed"}>();
+  /** Keyed by the words a sheet still lacks: a failed set is asked again only once it changes. */
+  private readonly cocPossessionJobs = new Map<string, {status:"pending"|"failed"}>();
   private cocOnboarding?: CocOnboardingHost;
   private cocOnboardingRegistry: CocOnboardingRegistry;
   private ownsCocOnboardingRegistry: boolean;
@@ -8659,6 +8661,26 @@ export class PiHostBackend implements HostBackend {
               } catch { /* Keep readable card data; the next sheet read retries missing names. */ }
             }
             liveView.standing_labels=names;
+            // Words an acquired object brought onto the sheet in its definition's language, and the
+            // kernel's own condition words: projected by the presenter that projects the card, in the
+            // background, and merged under the glossary. The read is never held for them.
+            try {
+              const repo=resolve(this.managedNodeModulesRoot,'..');
+              const possessions=await possessionProjection(context,await possessionWords(repo,liveView));
+              if(possessions.missing.length) {
+                const key=JSON.stringify([context.home,context.campaign,context.play_language,possessions.missing]);
+                if(isRecord(params)&&params.retry_projection===true)for(const [old,job] of this.cocPossessionJobs)if(job.status==='failed')this.cocPossessionJobs.delete(old);
+                if(!this.cocPossessionJobs.has(key)) {
+                  this.cocPossessionJobs.set(key,{status:'pending'});
+                  this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
+                  const refresh=()=>emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context.campaign}}});
+                  void this.getModelState(sessionId).then(state=>this.cocOnboarding!.presentation({campaign:context.campaign,play_language:context.play_language,possessions:true,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})).then(()=>{
+                    this.cocPossessionJobs.delete(key);refresh();
+                  },()=>{this.cocPossessionJobs.set(key,{status:'failed'});});
+                }
+              }
+              liveView.labels={...possessions.texts,...(isRecord(liveView.labels)?liveView.labels:{})};
+            } catch { /* The sheet reads without its possession words; the panel falls back to the canonical ones. */ }
             return {ok:true,data:{status:"ready",view,campaign:context.campaign}};
           } catch(error) {return {ok:true,data:{status:"error",view:null,campaign:context.campaign,reason:error instanceof Error?error.message:String(error)}};}
         })().finally(()=>this.cocSheetReads.delete(sessionId));

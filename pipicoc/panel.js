@@ -607,7 +607,7 @@ export function createComponent(React) {
         const description=object?.description?text(object.description):"";
         if(description)line.details=line.details.filter(({key,value})=>key!=="description"||text(value)!==description);
         if(object){
-          for(const trait of object.traits || []) line.details.push({key:`trait:${trait.name}`,label:term(trait.name),value:`${trait.value}${trait.unit?' '+trait.unit:''}`});
+          for(const trait of object.traits || []) line.details.push({key:`trait:${trait.name}`,label:term(trait.name),value:`${term(text(trait.value))}${trait.unit?' '+term(trait.unit):''}`});
           for(const key of ['condition','charges']) if(object.state?.[key]!==null&&object.state?.[key]!==undefined) line.details.push({key,value:object.state[key]});
         }
         const nameNode=writable && props.onOpenDocument

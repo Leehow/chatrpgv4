@@ -150,6 +150,17 @@ describe('the background section speaks the play language', () => {
     expect(screen.getByText('完好')).toBeTruthy();
   });
 
+  it('reads a trait unit and a string value through the glossary, like the name beside them', async () => {
+    const withGear = { ...investigator, equipment: [{ name: '相机', quantity: 1 }],
+      objects: [{ name: '相机', category: 'gear', traits: [{ name: 'length', value: 22, unit: 'cm' }, { name: 'material', value: 'mahogany' }], state: { condition: 'intact' } }] };
+    const localized = view({ investigators: [withGear],
+      labels: { ...view().labels, length: '长度', cm: '厘米', material: '材质', mahogany: '桃花心木', condition: '状态', intact: '完好' } });
+    render(<Panel api={host({ ok: true, data: { status: 'ready', view: localized, campaign: 'c1' } })} />);
+    const row = (await screen.findByText('相机')).closest('li')!;
+    const values = Object.fromEntries(Array.from(row.querySelectorAll('dl>div')).map(el => [el.querySelector('dt')?.textContent, el.querySelector('dd')?.textContent]));
+    expect(values).toEqual({ '长度': '22 厘米', '材质': '桃花心木', '状态': '完好' });
+  });
+
   it('labels its chrome in zh-Hans instead of English literals', async () => {
     const withStory = {
       ...investigator,

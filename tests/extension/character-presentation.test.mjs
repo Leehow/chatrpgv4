@@ -130,3 +130,28 @@ test('kernel glossary labels are context for the model, never a question put to 
  assert.equal(result.texts.STR,'力量');
  assert.equal(result.texts['Language (Other: Latin)'],'其他语言（拉丁语）');
 });
+
+test('possession words are localized once, grow with the kit, and never include what the Keeper wrote',async()=>{
+ const {preparePossessionPresentation,possessionTexts}=await import('../../extensions/module/character-presentation.ts');
+ const home=await mkdtemp(join(tmpdir(),'possession-presentation-'));
+ const camera={name:'林岚的相机',category:'item',description:'一台木壳折叠相机。',parameters:{description:'一台木壳折叠相机。'},
+  traits:[{name:'length',value:22,unit:'cm'},{name:'capacity',value:'12 exposures'},{name:'material',value:'mahogany, leather bellows'}],
+  state:{condition:'intact',ammo:null,charges:null},container:'林岚的背包'};
+ const view={play_language:'zh-Hans',turn:2,investigators:[{...sheet,objects:[camera]}]};
+ const original=JSON.stringify(view);let calls=0;
+ const runner=async r=>{calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
+  for(const hidden of ['林岚的相机','一台木壳折叠相机。','林岚的背包','22'])assert.ok(!input.texts.includes(hidden),hidden);
+  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({finance_equipment:[],texts:Object.fromEntries(input.texts.map(t=>[t,`${input.play_language}:${t}`]))}));return {ok:true}};
+ const options={home,campaign:'c1',play_language:'zh-Hans',view,runner};
+ assert.deepEqual(possessionTexts(view),['12 exposures','capacity','cm','condition','intact','length','mahogany, leather bellows','material']);
+ const first=await preparePossessionPresentation(options);
+ assert.equal(first.texts.intact,'zh-Hans:intact');assert.equal(first.texts['mahogany, leather bellows'],'zh-Hans:mahogany, leather bellows');assert.equal(calls,1);
+ assert.deepEqual(JSON.parse(await readFile(join(home,'.coc/campaigns/c1/setup/presentations/possessions-zh-Hans.json'),'utf8')),first);
+ assert.deepEqual(await preparePossessionPresentation({...options,view:{...view,turn:3}}),first);assert.equal(calls,1);
+ const damaged={...camera,state:{...camera.state,condition:'damaged'}};
+ const next=await preparePossessionPresentation({...options,view:{...view,investigators:[{...sheet,objects:[damaged]}]}});
+ assert.equal(calls,2);assert.equal(next.texts.intact,first.texts.intact);assert.equal(next.texts.damaged,'zh-Hans:damaged');
+ assert.equal(JSON.stringify(view),original);
+ await assert.rejects(preparePossessionPresentation({...options,view:{...view,play_language:'en'}}),/language/);
+ assert.deepEqual(possessionTexts({investigators:[{objects:[{traits:[{name:'重量',value:2.4,unit:'公斤'}],state:{condition:'intact'}}]}]}),['condition','intact','公斤','重量']);
+});

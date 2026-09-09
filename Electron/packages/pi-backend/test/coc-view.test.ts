@@ -2,7 +2,7 @@ import {expect,it,vi} from 'vitest';
 import {mkdtemp,mkdir,writeFile,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
-import {draftPresentations,mechanicsEntry,readCocBinding,readColdSheet} from '../src/coc-view.js';
+import {draftPresentations,mechanicsEntry,possessionProjection,possessionWords,readCocBinding,readColdSheet} from '../src/coc-view.js';
 import {KernelClient} from '../../../../extensions/kernel/client.js';
 
 it('projects only public rows with stable identity and language',()=>{
@@ -137,3 +137,45 @@ it('a drawn card travels with the row, and only an unprojected draft is left to 
   expect(await draftPresentations(undefined)).toEqual(new Map());
   expect(await draftPresentations({campaign:'absent',home,play_language:'zh-Hans'})).toEqual(new Map());
 });
+
+it('possession words come from the built presenter, and the saved projection says what is still missing',async()=>{
+  const repo=resolve(import.meta.dirname,'../../../..');
+  const view={play_language:'zh-Hans',investigators:[{id:'inv-1',objects:[{name:'相机',description:'一台相机。',traits:[{name:'length',value:22,unit:'cm'},{name:'material',value:'mahogany'}],state:{condition:'intact',ammo:null}}]}]};
+  const words=await possessionWords(repo,view);
+  expect(words).toEqual(['cm','condition','intact','length','mahogany','material']);
+  const home=await mkdtemp(join(tmpdir(),'coc-possessions-'));
+  const context={campaign:'c1',home,play_language:'zh-Hans'};
+  expect(await possessionProjection(context,words)).toEqual({texts:{},missing:words});
+  const folder=join(home,'.coc/campaigns/c1/setup/presentations');await mkdir(folder,{recursive:true});
+  const texts={cm:'厘米',condition:'状态',intact:'完好',length:'长度',material:'材质'};
+  await writeFile(join(folder,'possessions-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts}));
+  expect(await possessionProjection(context,words)).toEqual({texts,missing:['mahogany']});
+  // A projection in another language is no projection at all.
+  await writeFile(join(folder,'possessions-zh-Hans.json'),JSON.stringify({play_language:'en',texts:{cm:'cm'}}));
+  expect((await possessionProjection(context,words)).missing).toEqual(words);
+});
+
+it('a bound sheet read merges the saved possession words under the kernel glossary and starts no run for a sheet that lacks nothing',async()=>{
+  const {cp}=await import('node:fs/promises');
+  const {createPiHostBackend}=await import('../src/index.js');
+  const repo=resolve(import.meta.dirname,'../../../..'),root=await mkdtemp(join(tmpdir(),'coc-possession-host-'));
+  const client=new KernelClient({command:['uv','run','--frozen','python','-m','coc.rpc','--workspace',root,'--content',join(repo,'content')],cwd:repo,env:{PYTHONPATH:join(repo,'kernel'),UV_CACHE_DIR:'/tmp/pi-coc-uv-cache'}});
+  try {await client.call('campaign.create',{id:'carried',module:'the-haunting',pregen:'thomas-hayes',play_language:'zh-Hans'});}finally{await client.close();}
+  const folder=join(root,'.coc/campaigns/carried/setup/presentations');await mkdir(folder,{recursive:true});
+  // The projection may not outrank the glossary: the kernel's word for a skill stays the kernel's.
+  await writeFile(join(folder,'possessions-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:{intact:'完好','Spot Hidden':'不是这个'}}));
+  const profile=join(root,'profile'),pack=join(profile,'extensions/coc-keeper');await mkdir(pack,{recursive:true});
+  await cp(join(repo,'pipiui-extension.json'),join(pack,'pipiui-extension.json'));await cp(join(repo,'pipicoc'),join(pack,'pipicoc'),{recursive:true});
+  const backend=createPiHostBackend({agentDir:profile,sessionsRoot:join(root,'sessions'),runtimeRoot:join(root,'runtime'),defaultPack:'coc-keeper',managedNodeModulesRoot:join(repo,'node_modules'),env:{...process.env,PI_COC_HOME:root,UV_CACHE_DIR:'/tmp/pi-coc-uv-cache'},piCommand:{executable:join(repo,'pipicoc/rpc'),env:{PATH:process.env.PATH!}},spawn:()=>{throw new Error('Pi must remain asleep');}});
+  try {
+    await backend.handle('addProject',[root]);const projects=await backend.handle('listProjects',[]) as any[];
+    const session=await backend.handle('newSession',[projects[0].id]) as any;
+    const located=await (backend as any).locate(session.id);
+    await writeFile(located.path+'.coc.json',JSON.stringify({campaign:'carried',home:root,play_language:'zh-Hans'}));
+    const result=await backend.handle('invokeExtension',['coc-keeper','sheet',{}, {sessionId:session.id}]) as any;
+    expect(result.ok).toBe(true);expect(result.data.status).toBe('ready');
+    expect(result.data.view.labels.intact).toBe('完好');
+    expect(result.data.view.labels['Spot Hidden']).toBe('侦查');
+    expect((backend as any).cocPossessionJobs.size).toBe(0);
+  } finally {await backend.close();}
+},40000);

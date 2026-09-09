@@ -2335,6 +2335,50 @@ This separates source from presentation as recommended by
 provides a comparable translated reading surface. Unlike Firefox's local models,
 this product uses its existing tool-enabled Pi content runner.
 
+### Possession words in the play language (2026-09-09)
+
+An object reaches the sidebar with the words its definition was written in. Under
+Enhanced Items 1.1.2 the creator wrote `player_view.description` and document text
+in `play_language` and everything else in English, so a zh-Hans table read a
+camera's `length`, `weight`, `capacity: 12 exposures` and `material: mahogany,
+leather bellows, brass fittings, glass lens` untranslated, beside the kernel's own
+`condition: intact`. The sidebar carries no hand-written translation of any of
+these. The two legs below are the two legs document text already has: the producer
+writes in the play language, and the host projects what was written before.
+
+Enhanced Items 1.1.3 instructs the creator to write player-facing physical traits,
+each trait's name, its unit and any string value, in `request.play_language`,
+exactly as it writes the description, and to list the same localized names in
+`player_view.traits`. Structural keys stay English: category, parameter names,
+effect kinds, `player_view.fields`, the basis. A trait name has no mechanical
+reading (the kernel checks shape and uniqueness; the Keeper reads traits through
+`look`), so a localized name changes nothing the engine consumes. The kernel checks
+shape, not language; a definition that slips through in English is still read in
+the play language by the projection below. Accepted definitions keep their words;
+a campaign locked to 1.1.2 upgrades explicitly, as before.
+
+The kernel's own state words (`condition` with its closed values `intact`,
+`damaged`, `jammed`, `broken`; `charges`) and the traits of definitions written
+before 1.1.3 are projected on the read side by the same tool-enabled presenter that
+projects card text and standing names, from the same per-language vocabulary, so a
+word is asked of the model once per language, never per campaign.
+`possessionTexts(view)` collects, from every investigator's `objects`, each trait
+name and unit, each state key that carries a value and each string state value.
+Item names, descriptions, containers and numbers are never sent: the first three are
+already written in the play language, the last are the kernel's. The projection is
+saved as `setup/presentations/possessions-<language>.json` beside the standing
+names and grows with the campaign.
+
+On every sheet read the host merges that file under the kernel glossary
+(`labels = {...possessions.texts, ...labels}`, the glossary winning) and compares
+the sheet's current words against it. A word the file lacks starts one background
+run, keyed by the missing set; the read is not held, and the panel draws the
+canonical word until the run's `sheet_changed` refresh redraws it. A failed run
+keeps its key, so the same set is not asked again until the set changes or the
+player's refresh (`retry_projection`) clears it. The panel looks a trait's unit up
+through the same `labels` lookup as its name, so the value on the sheet is the
+number and the projected unit.
+
 ### Writable documents and ordered overrides (2026-09-08)
 
 Enhanced Items 1.1.0 adds `objects.documents.v1`. The semantic creator may attach

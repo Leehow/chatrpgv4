@@ -145,6 +145,11 @@ test('independent real setup workers retain campaign binding and saved presentat
   const output = await observe(presentation).complete;
   assert.equal(output.code, 0, output.stderr);
   assert.deepEqual(JSON.parse(readFileSync(join(f.home, '.coc/campaigns/campaign-one/setup/presentations/standing-en.json'), 'utf8')), {play_language: 'en', texts: {}});
+  const possessions = host.start('presentation', {campaign: 'campaign-one', play_language: 'en', possessions: true});
+  f.active.push(possessions);
+  const carried = await observe(possessions).complete;
+  assert.equal(carried.code, 0, carried.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(join(f.home, '.coc/campaigns/campaign-one/setup/presentations/possessions-en.json'), 'utf8')), {play_language: 'en', texts: {}});
 });
 
 test('cancelling a real cold worker awaits kernel exit and permits a fresh owner to retry', async t => {

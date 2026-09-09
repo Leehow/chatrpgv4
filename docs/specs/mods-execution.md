@@ -264,3 +264,24 @@ ExtInvokeResult/ErrorCode failures as the untouched integration checkout; no new
 diagnostics were introduced. No full native-App package or GUI relaunch was run.
 Existing locked versions receive reading projection with the updated host; new
 generation instructions require explicitly upgrading the campaign to 1.1.2.
+
+### Possession words in the play language (2026-09-09)
+
+Enhanced Items 1.1.3 writes player-visible physical traits (name, unit, string
+value) in campaign play_language; structural keys stay English. The sidebar's
+possession vocabulary (trait words plus the kernel's `condition`/`charges` keys
+and closed condition values) is projected by the existing tool-enabled presenter
+into `setup/presentations/possessions-<language>.json`, merged under
+`table.view.labels` on every sheet read, and topped up by one background run
+per missing set with a `sheet_changed` refresh. The panel reads trait units
+through the same glossary lookup. Contract: `docs/kernel-rpc.md` §26.
+
+Validation: presentation lane 10/10 (node --test), real onboarding workers 6/6
+including a possessions run through the built worker, pi-backend
+coc-onboarding + coc-view 20/20 including a bound cold sheet read that merges
+the saved words under the glossary (the merge line is mutation-killed), sidebar
+panel 29/29. `tsc` on pi-backend reports the same 8 pre-existing ErrorCode /
+ExtInvokeResult diagnostics and none in the touched files; `check:kernel` is
+clean. Not exercised here: a live table acquiring an object and the background
+run completing through a real model; that is real-table evidence, not fixture.
+

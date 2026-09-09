@@ -31,10 +31,14 @@ Optional traits contain measurable physical facts such as length, weight, capaci
 material and strength: [{name, value, unit?, basis?}]. They inform the Keeper's
 feasibility decisions; they are not automatic effects. Do not hide an unsupported
 activated power or timer in traits. player_view may also contain traits:[names]
-listing only facts the player knows. Passive tools may have charges:null/effects:[];
+listing only facts the player knows. Traits are read by the player on their sheet:
+write each trait's name, its unit and any string value in request.play_language,
+the way you write the description, and list the same localized names in
+player_view.traits. Numbers stay numbers. Passive tools may have charges:null/effects:[];
 their use is an ordinary skill/world action, not a fake automatic effect.
 Name and category must exactly match the request. Write player_view.description
-in request.play_language. Structural keys and the system-facing basis stay English.
+in request.play_language. Structural keys (category, parameter names, effect kinds,
+player_view.fields) and the system-facing basis stay English.
 basis is an explanation of the
 presets/source/context used and the newly generated choices. player_view is
 {description, fields:[parameter names the player knows]}; never disclose a hidden

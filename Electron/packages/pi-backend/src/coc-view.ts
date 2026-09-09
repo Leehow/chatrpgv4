@@ -74,6 +74,20 @@ export function mechanicsEntry(row:any, language?:string, presentations?:Readonl
 export async function readColdSheet(repo:string, context:CocBinding, previewRevision?:number, env:NodeJS.ProcessEnv=process.env, runtimeOptions:CocColdRuntimeOptions={}):Promise<unknown> {
   return callColdKernel(repo, context.home, previewRevision===undefined?'table.view':'setup.previewed', {campaign:context.campaign,...(previewRevision===undefined?{}:{revision:previewRevision})}, env, runtimeOptions);
 }
+/** The words a sheet's objects carry, counted by the presenter itself: one definition, read from the built lane. */
+export async function possessionWords(repo:string, view:unknown, entrypoint='build/extensions/module/character-presentation.mjs'):Promise<string[]> {
+  const lane=await import(pathToFileURL(resolve(repo,entrypoint)).href);
+  return lane.possessionTexts(view);
+}
+/** A campaign's saved possession vocabulary, and what of `wanted` it still lacks. */
+export async function possessionProjection(context:CocBinding, wanted:string[]):Promise<{texts:Record<string,string>;missing:string[]}> {
+  let texts:Record<string,string>={};
+  try {
+    const saved=JSON.parse(await readFile(join(context.home,'.coc/campaigns',context.campaign,'setup/presentations',`possessions-${context.play_language}.json`),'utf8'));
+    if(saved?.play_language===context.play_language&&saved.texts&&typeof saved.texts==='object'&&!Array.isArray(saved.texts))texts=saved.texts;
+  } catch { /* An unprojected campaign reads with its canonical words. */ }
+  return {texts,missing:wanted.filter(text=>typeof texts[text]!=='string'||!texts[text].trim())};
+}
 /** Host management can work before a Keeper exists; this never opens a fictional turn. */
 export async function callColdKernel(repo:string, home:string, method:string, params:Record<string,unknown>, env:NodeJS.ProcessEnv=process.env, runtimeOptions:CocColdRuntimeOptions={}):Promise<unknown> {
   const {hostEntrypoint, ...options}=runtimeOptions;
