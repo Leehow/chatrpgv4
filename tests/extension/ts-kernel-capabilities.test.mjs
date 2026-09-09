@@ -56,7 +56,7 @@ test("declared resolver names do not enable unmigrated kernel dispatch", async (
   });
   const api = await import(pathToFileURL(join(temporary, "api.mjs")).href);
   const context = await api.createKernelContext({ workspace: temporary, content: join(REPO, "content"), seed: "capability-declarations" });
-  const methods = api.buildHandlers(context);
+  const methods = api.assembleHandlers(context, api.foundationHandlers(context));
   for (const name of RESOLVER_NAMES) assert.equal(Object.hasOwn(methods, name), false, name);
   for (const method of ["table.resolve", "table.apply"]) {
     const response = await api.handleLine(JSON.stringify({ id: method, method, params: {} }), methods);

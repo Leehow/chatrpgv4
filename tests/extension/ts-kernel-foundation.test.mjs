@@ -46,7 +46,7 @@ test("the public vocabulary and error frames match the locked Python reference",
   assert.equal(reference.python, "3.14.6");
   assert.deepEqual([...api.KNOWN_METHODS].sort(), reference.rpc.methods);
   const ctx = await context("error frames");
-  const handlers = api.buildHandlers(ctx);
+  const handlers = api.assembleHandlers(ctx, api.foundationHandlers(ctx));
   assert.equal(Object.isFrozen(handlers), true);
   assert.equal(Object.isFrozen(ctx), true);
   assert.equal(Object.isFrozen(ctx.snapshots), true);

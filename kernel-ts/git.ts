@@ -6,7 +6,7 @@ import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 const IDENTITY = ["-c", "user.name=coc-kernel", "-c", "user.email=kernel@coc.invalid",
   "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false"];
 
-export class CommitFailed extends Error {}
+export class CommitFailed extends Error { override name = "CommitFailed"; }
 export interface GitResult { readonly code: number; readonly stdout: string; readonly stderr: string }
 export interface GitRuntime {
   requireAvailable(): void;

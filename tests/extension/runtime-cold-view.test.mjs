@@ -78,13 +78,13 @@ test('cold sheet and preview calls preserve positional arguments and use indepen
   for(const pid of f.pids())assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});
 });
 
-test('a cold TypeScript read fails explicitly and preserves data without falling back to Python',async t=>{
+test('a cold TypeScript read preserves missing-campaign errors without falling back to Python',async t=>{
   const f=fixture(t),retained=join(f.home,'retained.json');
   writeFileSync(retained,'{"keep":true}\n');
   const env={...f.env,PATH:''};
   const options={...f.options,kernelEntrypoint:join(f.repo,'build/kernel/rpc.mjs')};
-  await assert.rejects(readColdSheet(f.repo,{home:f.home,campaign:'unimplemented',play_language:'en'},undefined,env,options),
-    error=>error.code==='not_implemented'&&/table.view/.test(error.message));
+  await assert.rejects(readColdSheet(f.repo,{home:f.home,campaign:'missing-campaign',play_language:'en'},undefined,env,options),
+    error=>error.code==='campaign_not_found'&&/missing-campaign/.test(error.message));
   assert.equal(f.pids().length,1);
   for(const pid of f.pids())assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});
   assert.equal(readFileSync(retained,'utf8'),'{"keep":true}\n');

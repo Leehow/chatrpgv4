@@ -13,9 +13,11 @@
 - #38/#39/#40 的调用方已接到统一运行时，包括冷态角色卡与 Mods 管理。读者/检查进程在父进程退出时清理继承管道的子进程；文档展示的进行中缓存按 owner 隔离。已于 `8690fa3d` 合入 `0.9.2a` 并关闭三票。
 - 本批验证：内核/驾驭器 1226 通过、1 跳过；扩展全套 198 通过，最后冷态入口及归属接线另有 29 项通过；Electron 与 197 条已有失败基线一致、无新增。真实 TS hello 和 Python catalog 从发出的 JS 宿主成功运行。未冒充真桌或独立安装包验收。
 - 证据：`.coc/playtests/runtime-consolidation/checks/stage-a-71zWsN/`。实际开发 Node 为 22.19.0；原生锁已验证与 Python 相互排斥及进程退出释放，打包时仍须匹配受管 Node 的 ABI。
-- #43 正在 `kernel-ts/read/` 迁移图谱与只读投影；共享边界已记入契约 §27.5。#42 的正常 setup/play 验证由主会话执行，当前真实建卡运行记录见主检出 `.coc/playtests/runtime-consolidation/live-a96e4f41.json`；守秘人为现有配置 `xai/grok-4.6`，尚未完成真桌验收。
+- #43 的图谱与只读投影已实现：15 个实际 RPC/存档字节对照通过，独立语义/本体验证 109 项通过；集成后的扩展全套 313 项通过，正在提交。共享边界见契约 §27.5。#42 的正常 setup/play 验证由主会话执行，当前真实建卡运行记录见主检出 `.coc/playtests/runtime-consolidation/live-a96e4f41.json`；守秘人为现有配置 `xai/grok-4.6`，建卡已完成并进入实际调查，尚未完成真桌验收。
 - 本任务模型例外已由用户明确批准：Opencode 余额不足后，改由当前 Codex 主会话及原生 Codex workers 直接实现。保留既定依赖、文件归属和验收，不改全局配置。两次 Opus 请求均为 0 次工具执行，未产生改动。
 - 原生 worker 路由：`worker_runner=codex`、`worker_profile=implementer`、`model_policy=inherit`、`execution_mode=oneshot`；禁止再派子代理、禁止提交。主会话是唯一集成者并获准直接实现共享代码。
+- #43 的共享 Git 读取/受控子进程与事务接口已提交为 `734843b6`；首批 20 个基础/锁/Git 检查通过。只读投影在真实保存状态上继续做逐项 Python 对照，不能以类型检查代替兼容性。
+- 受管 Node 24.19.0/arm64/ABI137 的 fs-ext 构建及 Python 互锁预检已通过（10 项、11 个子进程均退出）；证据位于 `/private/var/folders/wn/8ly53x4n6sq3jkvkptvtkrsm0000gn/T/pipicoc-flock-node24-skGd4B/`。此为 #46 先决验证，安装包尚未完成。
 - 完成标准仍是 #62 的独立安装包和真桌验收，不能以某个中间切片代替。
 
 状态：**实现中**。用户已批准本拆分；27 张直属子票、45 条原生阻塞关系和所有正文已核对，当前按依赖推进并逐批合入。

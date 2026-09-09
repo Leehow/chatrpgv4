@@ -1,0 +1,184 @@
+/** Receipt-to-JSON projection. It neither changes receipts nor evaluates story text. */
+import { array, row, number, integer, truth, chars, length, type Row } from "./values.js";
+const labeled = (out: Row, key: string, value: any) => {
+    if (typeof value === "string" && value.trim())
+        out[key] = value;
+};
+function investigator(out: Row, receipt: Row, key: string) {
+    out[`${key}_is_investigator`] = receipt[`${key}_is_investigator`] === true;
+    if (out[`${key}_is_investigator`]) {
+        out[key] = receipt[key] ?? null;
+        labeled(out, `${key}_label`, receipt[`${key}_label`]);
+    }
+}
+export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = new Map()): Row | null {
+    const id = receipt.id ?? null,
+        kind = receipt.kind;
+    if (kind === "roll") {
+        const out: Row = receipt.form === "dice"
+            ? {
+                kind: "dice",
+                receipt: id,
+                label: receipt.skill ?? null,
+                expression: receipt.expression ?? null,
+                faces: [...array(receipt.faces)],
+                total: receipt.total ?? null,
+                visibility: receipt.visibility || "public"
+            }
+            : {
+                kind: "roll",
+                receipt: id,
+                skill: receipt.skill ?? null,
+                roll: receipt.roll ?? null,
+                target: receipt.target ?? null,
+                threshold: receipt.threshold ?? null,
+                difficulty: receipt.difficulty ?? null,
+                level: receipt.level ?? null,
+                passed: truth(receipt.passed),
+                pushed: truth(receipt.pushed),
+                visibility: receipt.visibility || "public"
+            };
+        investigator(out, receipt, "actor");
+        return out;
+    }
+    if (kind === "delta") {
+        const out: Row = {
+            kind: "change",
+            receipt: id,
+            resource: receipt.resource ?? null,
+            before: receipt.before ?? null,
+            after: receipt.after ?? null
+        };
+        investigator(out, receipt, "subject");
+        labeled(out, "item", receipt.item);
+        return out;
+    }
+    if (kind === "move") {
+        if (truth(receipt.renamed))
+            return null;
+        const out: Row = {
+            kind: "scene",
+            receipt: id,
+            from: receipt.from ?? null,
+            to: receipt.to ?? null,
+            minutes: Math.trunc(number(receipt.minutes))
+        };
+        for (const key of ["from_label", "to_label"])
+            labeled(out, key, receipt[key]);
+        return out;
+    }
+    if (kind === "clue") {
+        const out: Row = {
+            kind: "clue",
+            receipt: id,
+            clue: receipt.clue ?? null
+        };
+        labeled(out, "label", receipt.label);
+        if (typeof receipt.summary === "string" && receipt.summary.trim() && receipt.summary.trim() !== out.label)
+            out.summary = receipt.summary.trim();
+        return out;
+    }
+    if (kind === "time")
+        return {
+            kind,
+            receipt: id,
+            minutes: Math.trunc(number(receipt.minutes))
+        };
+    if (kind === "item") {
+        const out: Row = {
+            kind,
+            receipt: id,
+            name: receipt.name ?? null,
+            quantity: Math.trunc(number(truth(receipt.quantity) ? receipt.quantity : 1)),
+            to: receipt.subject ?? null
+        };
+        labeled(out, "label", receipt.label);
+        labeled(out, "to_label", receipt.subject_label);
+        for (const key of ["from", "weapon"])
+            labeled(out, key, receipt[key]);
+        return out;
+    }
+    if (kind === "cash") {
+        const out: Row = {
+            kind,
+            receipt: id,
+            subject: receipt.subject ?? null,
+            before: receipt.before ?? null,
+            after: receipt.after ?? null
+        };
+        for (const key of ["subject_label", "currency", "with", "with_label"])
+            labeled(out, key, receipt[key]);
+        return out;
+    }
+    if (kind === "session") {
+        const out: Row = {
+            kind,
+            receipt: id,
+            family: receipt.family ?? null,
+            transition: receipt.transition ?? null
+        };
+        for (const key of ["round", "rounds"])
+            if (integer(receipt[key]) || typeof receipt[key] === "boolean")
+                out[key] = receipt[key];
+        labeled(out, "outcome", receipt.outcome);
+        return out;
+    }
+    if (kind === "choice")
+        return {
+            kind,
+            receipt: id,
+            option: receipt.option ?? null
+        };
+    if (kind === "worldline") {
+        const out: Row = {
+            kind,
+            receipt: id,
+            operation: receipt.operation ?? null,
+            line: receipt.line ?? null,
+            mode: receipt.mode ?? null,
+            loop: Math.trunc(number(receipt.loop)),
+            from_line: row(receipt.from).line ?? null,
+            from_turn: row(receipt.from).turn ?? null
+        };
+        labeled(out, "label", receipt.label);
+        return out;
+    }
+    if (kind === "handout") {
+        const attachment = row(receipt.attachment),
+            out: Row = {
+            kind,
+            receipt: id,
+            name: receipt.name || receipt.handout || null,
+            available: truth(attachment.available)
+        };
+        labeled(out, "label", receipt.label);
+        labeled(out, "path", attachment.path);
+        labeled(out, "media_type", attachment.media_type);
+        let body = texts.get(attachment.path);
+        if (body !== undefined) {
+            const lines = body.split("\n");
+            if (lines[0]?.startsWith("# "))
+                body = lines.slice(1).join("\n").trim();
+            if (length(body) > 8000)
+                body = chars(body, 8000).trimEnd() + " …";
+            if (body)
+                out.text = body;
+        }
+        return out;
+    }
+    return null;
+}
+export function mechanics(receipts: Row[], placed: Row = {}, texts: ReadonlyMap<string, string> = new Map()): Row[] {
+    const byReceipt = new Map(Object.entries(placed).map(([marker, id]) => [id, marker]));
+    return receipts.flatMap(receipt => {
+        const out = mechanicsOf(receipt, texts);
+        if (!out)
+            return [];
+        for (const [from, to] of [["call_id", "call"], ["family", "family"]])
+            if (typeof receipt[from] === "string" && receipt[from])
+                out[to] = receipt[from];
+        if (byReceipt.has(receipt.id))
+            out.marker = byReceipt.get(receipt.id);
+        return [out];
+    });
+}

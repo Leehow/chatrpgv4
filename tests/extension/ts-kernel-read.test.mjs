@@ -1,0 +1,353 @@
+import assert from 'node:assert/strict';
+import { after, test } from 'node:test';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { build } from 'esbuild';
+
+const ROOT=resolve(import.meta.dirname,'../..'),CONTENT=join(ROOT,'content');
+const temporary=await mkdtemp(join(tmpdir(),'coc read oracle '));
+after(()=>rm(temporary,{recursive:true,force:true}));
+const exports=[
+  ['json',['parsePythonJson','pythonJsonDumps','canonicalJson','PythonFloat']],
+  ['context',['createKernelContext']],
+  ['capabilities',['REGISTERED_CONDITION_PATHS','RESOLVER_NAMES']],
+  ['read/campaign',['CampaignSnapshot']],
+  ['read/module-graph',['ModuleGraph','conditionStatus']],
+  ['read/content',['DirectorGraph','TextGraph','Ontology']],
+  ['read/director',['score','signals','directorSection']],
+  ['read/rule-facts',['evaluateCondition','factsFromState','semanticName']],
+  ['read/mechanics',['mechanics']],
+  ['read/capsule',['fitBudget','fittedModuleSection','npcEntry','npcView','presentSection','investigatorView']],
+  ['read/session-view',['SessionView']],
+  ['read/mods',['publicSheet','objectLook']],
+];
+await build({stdin:{contents:exports.map(([file,names])=>`export {${names.join(',')}} from ${JSON.stringify(join(ROOT,'kernel-ts',file+'.ts'))};`).join('\n'),
+  resolveDir:ROOT,sourcefile:'read-oracle-api.ts',loader:'ts'},outfile:join(temporary,'api.mjs'),bundle:true,platform:'node',format:'esm',target:'node22',logLevel:'silent'});
+const api=await import(pathToFileURL(join(temporary,'api.mjs')).href);
+const clone=value=>api.parsePythonJson(api.pythonJsonDumps(value));
+const json=async path=>api.parsePythonJson(await readFile(path,'utf8'));
+const graphPath=join(temporary,'module-graph.json');
+const raw=await json(join(CONTENT,'starters/the-haunting/module-graph.json'));
+raw.nodes.push(...['east','west'].map(side=>({node_id:`npc-${side}-doctor`,node_kind:'npc',name:`Doctor ${side}`,aliases:['The Doctor'],
+  summary:`A ${side} specialist.`,visibility:'keeper',properties:{agenda:'Keep the records private',secret:`${side} confidential evidence`,knowledge:['The archive is open.']}})));
+await writeFile(graphPath,api.pythonJsonDumps(raw));
+const graphBytes=await readFile(graphPath),dossier=(await json(join(CONTENT,'modules/module-graph-contract-v3.json'))).actor_dossier;
+const graph=new api.ModuleGraph('the-haunting',raw,createHash('sha256').update(graphBytes).digest('hex'),dossier);
+const scene=graph.kind('scene')[0],sceneId=scene.node_id,sceneHandle=graph.handle(scene),npc=graph.kind('npc')[0];
+const party=[{id:'alice',name:'Alice',occupation:'Journalist',current_hp:8,current_san:45,current_mp:9,current_luck:40,
+  characteristics:{CON:55},derived:{HP:12},conditions:[],skills:{Listen:60,'Spot Hidden':60},equipment:[],weapons:[]}];
+const world={active_scene:sceneHandle,npc_presence:{[graph.handle(npc)]:sceneHandle,'east-doctor':sceneHandle,'west-doctor':sceneHandle},
+  discovered_clues:[],flags:{'door-open':true,'alarm-off':false},clock:{minutes:60}};
+
+const REFERENCE=String.raw`
+import copy,json,sys
+from pathlib import Path
+from coc.errors import RpcError
+from coc.module_graph import ModuleGraph
+from coc import capsule,director,render
+from coc.rules.graph import evaluate_condition,facts_from_state,semantic_name
+from coc.ontology import Ontology
+from coc.sessions import SessionView
+from coc.mods.objects import public_sheet,look
+p=json.load(sys.stdin)
+graph=ModuleGraph('the-haunting',Path(p['graph_path']))
+def captured(fn):
+    try: return {'value':fn()}
+    except RpcError as error: return {'error':error.to_json()}
+op=p['operation']
+if op=='graph':
+    output=[]
+    for case in p['cases']:
+        args=([graph.nodes[case['node']]] if case.get('node') else [])+case.get('args',[])
+        output.append(captured(lambda case=case,args=args:getattr(graph,case['python'])(*args)))
+elif op=='conditions':
+    output=[evaluate_condition(c['expression'],c['facts']) for c in p['cases']]
+elif op=='semantic_names': output=[semantic_name(value) for value in p['names']]
+elif op=='ontology':
+    from coc.rules.graph import REGISTERED_CONDITION_PATHS
+    from coc.rules.runtime import RulesEngine
+    from coc.rules.tables import RuleTables
+    content=Path(p['content']);manifest=json.loads((content/'rulesets/coc7/manifest.json').read_text())
+    rule_graph=json.loads((content/'rulesets/coc7'/manifest['entry_points']['rule_graph']).read_text())
+    text_graph=json.loads((content/'craft/text-graph.json').read_text())
+    dg=director.DirectorGraph(content/'director')
+    absent=Path(p['absent_content']);assert not absent.exists()
+    engine=RulesEngine(absent,RuleTables(absent/'rulesets/coc7/rules-json'))
+    output=[Ontology(Path(c['path'])).validate(rule_node_ids=[n['node_id'] for n in rule_graph['nodes']],
+      director_node_ids=dg.nodes,text_node_ids=[n['node_id'] for n in text_graph['nodes']],registered_paths=REGISTERED_CONDITION_PATHS,
+      capabilities=engine.resolver_index(),module_node_ids=lambda name:list(graph.nodes) if name=='the-haunting' else None) for c in p['cases']]
+elif op=='director_invalid': output=captured(lambda:director.DirectorGraph(Path(p['directory'])).digest)
+elif op=='facts':
+    output=[facts_from_state(c['state'],c['sheet'],elapsed_minutes=c['minutes'],extra=c.get('extra',{})) for c in p['cases']]
+elif op=='director':
+    dg=director.DirectorGraph(Path(p['content'])/'director')
+    output=[director.score(dg,c['signals'],graph.nodes[c['scene']],can_move=c['canMove'],overlap=c['overlap'],pressure_available=c['pressureAvailable']) for c in p['cases']]
+elif op=='signals':
+    output=[]
+    for c in p['cases']:
+        output.append(director.signals(graph,c['world'],graph.nodes[c['scene']],c['turn'],party=c['party'],
+          present=[graph.nodes[n] for n in c['present']],undiscovered_here=c['undiscovered'],records={r['turn']:r for r in c['records']},
+          session=c['session'],clock_near_full=c['nearFull'],conditions_of=lambda s:c['conditions'].get(s['id'],[]),
+          sanity_of=lambda s:c['sanity'].get(s['id']),worldline=c.get('worldline')))
+elif op=='grounding':
+    dg=director.DirectorGraph(Path(p['content'])/'director');ontology=Ontology(Path(p['content'])/'ontology/system-ontology.json')
+    output=[]
+    for c in p['cases']:
+        output.append(capsule.director_section(dg,ontology,graph,c['world'],graph.nodes[c['scene']],c['turn'],c['party'],
+          [graph.nodes[n] for n in c['present']],{r['turn']:r for r in c['records']},c['session'],clock_near_full=c['nearFull'],
+          memory_rows=c.get('memory',[]),conditions_of=lambda s:c['conditions'].get(s['id'],[]),
+          sanity_of=lambda s:c['sanity'].get(s['id']),worldline=c.get('worldline')))
+elif op=='mechanics': output=render.mechanics(p['receipts'],p['placed'])
+elif op=='budget':
+    output=[]
+    for c in p['cases']:
+        section=copy.deepcopy(c['section']);cut=capsule.fit_budget(section,c['budget'],drop=c['drop']);output.append({'section':section,'cut':cut})
+elif op=='module_budget': output=[capsule.fitted_module_section(graph,budget) for budget in p['budgets']]
+elif op=='sessions':
+    output=[]
+    for c in p['cases']:
+        view=SessionView(Path(c['directory']),graph,c['party'],c['world'])
+        output.append({'active':view.active_session(),'pending':view.pending_choice(),'combat':view.combat_view(),
+          'chase':view.chase_view(),'facts':view.facts(c['party'][0]['id'],c['minutes'])})
+elif op=='npc':
+    node=graph.nodes[p['node']];memories={r['id']:r for r in p['memories']}
+    output={'entry':capsule.npc_entry(graph,p['world'],node,p['ledger'],memories),
+      'view':capsule.npc_view(graph,p['world'],node,p['ledger']),
+      'present':capsule.present_section(graph,p['world'],graph.nodes[p['scene']],p['ledger'],p['memories']),
+      'investigator':capsule.investigator_view(p['sheet'])}
+elif op=='objects': output=[captured(lambda:public_sheet(p['world'],p['sheet']))]+[captured(lambda name=name:look(p['world'],name)) for name in p['names']]
+else: raise ValueError(op)
+json.dump(output,sys.stdout,ensure_ascii=False)
+`;
+function oracle(operation,data) {
+  const result=spawnSync('uv',['run','--frozen','python','-c',REFERENCE],{cwd:ROOT,
+    env:{...process.env,PYTHONPATH:join(ROOT,'kernel'),PYTHONDONTWRITEBYTECODE:'1',UV_OFFLINE:'1',UV_NO_SYNC:'1'},
+    input:api.pythonJsonDumps({operation,graph_path:graphPath,content:CONTENT,...data}),encoding:'utf8',maxBuffer:8*1024*1024,timeout:30000});
+  assert.equal(result.status,0,result.stderr||String(result.error));
+  return api.parsePythonJson(result.stdout);
+}
+function captured(run) {try{return {value:run()};}catch(error){if(typeof error.toJson==='function')return {error:error.toJson()};throw error;}}
+function same(actual,expected,label) {assert.equal(api.canonicalJson(actual),api.canonicalJson(expected),label);}
+async function rows(t,cases,expected,run) {for(const [index,entry] of cases.entries())await t.test(entry.label||String(index),async()=>same(await run(entry,index),expected[index],entry.label));}
+
+test('ModuleGraph read methods match Python on authored material and ambiguous aliases',async t=>{
+  const cases=[];
+  for(const node of [...graph.kind('scene').slice(0,2),...graph.kind('npc').slice(0,2)]) {
+    cases.push({label:`entity ${node.node_id}`,python:'entity_view',typescript:'entityView',node:node.node_id});
+    if(node.node_kind==='scene')for(const [python,typescript] of [['scene_exits','sceneExits'],['scene_clue_ids','sceneClueIds'],['scene_assets','sceneAssets'],['scene_endings','sceneEndings']])
+      cases.push({label:`${python} ${node.node_id}`,python,typescript,node:node.node_id});
+    else for(const [python,typescript] of [['actor_profile','actorProfile'],['npc_knows','npcKnows'],['npc_beliefs','npcBeliefs'],['npc_would_say','npcWouldSay']])
+      cases.push({label:`${python} ${node.node_id}`,python,typescript,node:node.node_id});
+  }
+  for(const name of [sceneHandle,graph.displayName(npc),'The Doctor','unlisted-person'])cases.push({label:`resolve ${name}`,python:'resolve',typescript:'resolve',args:[name]});
+  for(const query of ['doctor','Knott','library','corridor'])cases.push({label:`search ${query}`,python:'search',typescript:'search',args:[query]});
+  const before=api.pythonJsonDumps(raw),expected=oracle('graph',{cases});
+  await rows(t,cases,expected,c=>captured(()=>graph[c.typescript](...(c.node?[graph.nodes.get(c.node)]:[]),...(c.args||[]))));
+  assert.equal(api.pythonJsonDumps(raw),before);
+  assert.deepEqual(await readFile(graphPath),graphBytes);
+});
+
+test('condition evaluation preserves unresolved gates and Python scalar comparisons',async t=>{
+  const cases=[
+    {label:'missing registered fact stays unresolved',expression:{op:'eq',path:'actor.resources.hp',value:0},facts:{}},
+    {label:'unknown path stays unresolved',expression:{op:'exists',path:'not.registered'},facts:{'not.registered':true}},
+    {label:'false fact exists',expression:{op:'exists',path:'actor.conditions.dead'},facts:{'actor.conditions.dead':false}},
+    {label:'false dominates unresolved conjunction',expression:{op:'all',of:[{op:'eq',path:'actor.resources.hp',value:1},{op:'exists',path:'actor.conditions.dead'}]},facts:{}},
+    {label:'true dominates unresolved alternative',expression:{op:'any',of:[{op:'eq',path:'actor.resources.hp',value:1},{op:'exists',path:'actor.conditions.dead'}]},facts:{'actor.conditions.dead':true}},
+    {label:'negation keeps unresolved',expression:{op:'not',of:{op:'eq',path:'actor.resources.hp',value:1}},facts:{}},
+    {label:'empty all',expression:{op:'all',of:[]},facts:{}},
+    {label:'invalid not arity',expression:{op:'not',of:[]},facts:{}},
+    {label:'Python bool equals integer',expression:{op:'eq',path:'actor.resources.hp',value:true},facts:{'actor.resources.hp':1}},
+    {label:'Python float equals integer',expression:{op:'eq',path:'actor.resources.hp',value:new api.PythonFloat(1)},facts:{'actor.resources.hp':1}},
+    {label:'nested numeric equality',expression:{op:'eq',path:'actor.conditions',value:[new api.PythonFloat(1)]},facts:{'actor.conditions':[1]}},
+    {label:'large integer differs from rounded adjacent float',expression:{op:'eq',path:'actor.resources.hp',value:new api.PythonFloat(9007199254740992)},facts:{'actor.resources.hp':9007199254740993n}},
+    {label:'nested large integer differs from rounded adjacent float',expression:{op:'eq',path:'actor.conditions',value:[{value:new api.PythonFloat(9007199254740992)}]},facts:{'actor.conditions':[{value:9007199254740993n}]}},
+    {label:'exact representable large integer equals float',expression:{op:'eq',path:'actor.resources.hp',value:new api.PythonFloat(9007199254740992)},facts:{'actor.resources.hp':9007199254740992n}},
+    {label:'condition membership',expression:{op:'not-contains',path:'actor.conditions',value:'dead'},facts:{'actor.conditions':['major_wound']}},
+    {label:'mixed ordering stays unresolved',expression:{op:'lt',path:'actor.resources.hp',value:'one'},facts:{'actor.resources.hp':1}},
+    {label:'Unicode code point ordering',expression:{op:'gt',path:'actor.id',value:'\ufffd'},facts:{'actor.id':'\u{1f680}'}},
+  ];
+  await rows(t,cases,oracle('conditions',{cases}),c=>api.evaluateCondition(c.expression,c.facts));
+});
+
+test('investigator facts retain wound-clock boundaries and explicit unknown overrides',async t=>{
+  const state={investigator_id:'alice',current_hp:3,current_san:45,current_mp:9,current_luck:40,conditions:['major_wound'],
+    wound_ledger:[{wound_id:'older',status:'active',occurred_elapsed_minutes:-60},{wound_id:'recent',status:'active',occurred_elapsed_minutes:10}],major_wound_recovery_ledger:[]};
+  const cases=[
+    {label:'absent state',state:{},sheet:{},minutes:null},
+    {label:'one minute before weekly recovery',state,sheet:party[0],minutes:10089},
+    {label:'weekly recovery becomes due',state,sheet:party[0],minutes:10090},
+    {label:'recovery attempt resets baseline',state:{...state,major_wound_recovery_ledger:[{wound_id:'recent',attempt_elapsed_minutes:10090}]},sheet:party[0],minutes:10091},
+    {label:'malformed wound blocks due projection',state:{...state,wound_ledger:[{status:'active',occurred_elapsed_minutes:10}]},sheet:party[0],minutes:11000},
+    {label:'float timestamp is not integer evidence',state:{...state,wound_ledger:[{wound_id:'float',status:'active',occurred_elapsed_minutes:new api.PythonFloat(10)}]},sheet:party[0],minutes:11000},
+    {label:'explicit null rescuer count stays unknown',state:{},sheet:{},minutes:null,extra:{'intent.rescuer_count':null}},
+    {label:'boolean elapsed time is invalid',state,sheet:party[0],minutes:true},
+  ];
+  await rows(t,cases,oracle('facts',{cases}),c=>api.factsFromState(c.state,c.sheet,c.minutes,c.extra||{}));
+});
+
+test('Director signals and authored scoring match the Python decision table',async t=>{
+  const base={world,scene:sceneId,turn:{turn:4,pending_choice:null},party,present:[npc.node_id],undiscovered:2,
+    records:[{turn:3,player_text:'Inspect the papers',intents:['investigate'],world:{scene:{name:sceneHandle}},receipts:[{kind:'roll',passed:false,pushed:true,level:'failure'}]},
+      {turn:2,player_text:'Wait',world:{scene:{name:sceneHandle}},receipts:[]}],session:null,nearFull:false,conditions:{alice:[]},sanity:{},worldline:{loop_count:2,echoes_here:1,loop_available:true}};
+  const cases=[{...base,label:'stalled source investigation'},
+    {...base,label:'worst investigator drives rescue',party:[...party,{...party[0],id:'bob',name:'Bob',current_hp:0}],conditions:{bob:['major_wound']}},
+    {...base,label:'SAN loss within scene',records:[{turn:3,player_text:'See it',world:{scene:{name:sceneHandle}},receipts:[{kind:'delta',resource:'san',subject:'alice',before:45,after:40}]}]},
+    {...base,label:'live bout and pending player choice',turn:{turn:4,pending_choice:{name:'pending'}},sanity:{alice:{bout_active:true}},session:{kind:'sanity_bout',status:'active'}}];
+  const expected=oracle('signals',{cases});
+  await rows(t,cases,expected,c=>api.signals({...c,graph,scene:graph.nodes.get(c.scene),present:c.present.map(id=>graph.nodes.get(id)),conditions:s=>c.conditions[s.id]||[],sanity:s=>c.sanity[s.id]||null}));
+  const dg=new api.DirectorGraph(await json(join(CONTENT,'director/director-graph.json')),await json(join(CONTENT,'director/director-graph-manifest.json')));
+  const quiet={...expected[0],intent:'none',undiscovered_here:0,agenda_npc_present:0,dramatic_question:false,exit_condition_met:false,main_line_complete:false,
+    stalled_turns:0,turns_in_scene:1,hp_state:'healthy',sanity_state:'stable',session:'none',last_roll:'none',pushed_fail_pending:false,pending_choice:false,clock_near_full:false};
+  const scored=[{label:'baseline is not a trigger',signals:quiet},...expected.map((signals,index)=>({label:`derived signals ${index}`,signals})),
+    {label:'fumble override',signals:{...quiet,last_roll:'fumble'}},{label:'choice override',signals:{...quiet,pending_choice:true}},
+    {label:'session override precedes dying',signals:{...quiet,session:'combat',hp_state:'dying',last_roll:'fumble'}},
+    ...dg.structureTypes.map(structure_type=>({label:`weighted stalled transition ${structure_type}`,signals:{...quiet,structure_type,intent:'stuck',stalled_turns:4,turns_in_scene:5,pushed_fail_pending:true}}))]
+    .map(c=>({...c,scene:sceneId,canMove:true,overlap:c.signals.intent==='stuck'?2:0,pressureAvailable:true}));
+  await rows(t,scored,oracle('director',{cases:scored}),c=>api.score(dg,c.signals,scene,c));
+  const names=['decision:coc7:combat:attack','decision:mods:weapon:repair','rule:coc7:combat:attack','decision:short','legacy'];
+  same(names.map(api.semanticName),oracle('semantic_names',{names}),'semantic decision names');
+  const ontology=new api.Ontology(await json(join(CONTENT,'ontology/system-ontology.json')));
+  const grounded=[cases[0],{...base,label:'subsystem decision grounding',session:{kind:'combat',status:'active'}},cases[1]];
+  await rows(t,grounded,oracle('grounding',{cases:grounded}),c=>{
+    const selected=graph.nodes.get(c.scene),present=c.present.map(id=>graph.nodes.get(id));
+    const sig=api.signals({...c,graph,scene:selected,present,undiscovered:graph.sceneClueIds(selected).filter(id=>!c.world.discovered_clues.includes(graph.handle(graph.nodes.get(id)))).length,
+      conditions:s=>c.conditions[s.id]||[],sanity:s=>c.sanity[s.id]||null});
+    return api.directorSection(dg,ontology,graph,c.world,selected,sig,c.memory||[],present);
+  });
+});
+
+test('ontology rejects invalid graph references against independent node and capability pools',async t=>{
+  const directorGraph=await json(join(CONTENT,'director/director-graph.json'));
+  const dg=new api.DirectorGraph(directorGraph,await json(join(CONTENT,'director/director-graph-manifest.json')));
+  const textGraph=await json(join(CONTENT,'craft/text-graph.json'));
+  const craft=new api.TextGraph(textGraph,await json(join(CONTENT,'craft/text-graph-manifest.json')),await json(join(CONTENT,'craft/beat-directives.json')),dg.beats);
+  const manifest=await json(join(CONTENT,'rulesets/coc7/manifest.json'));
+  const ruleIds=(await json(join(CONTENT,'rulesets/coc7',manifest.entry_points.rule_graph))).nodes.map(node=>node.node_id);
+  const valid={contract_id:'coc.system-ontology-registry.v1',graphs:[
+    {graph_id:'rule:coc7',graph_kind:'rule'},{graph_id:'state:live',graph_kind:'live-state'},
+    {graph_id:'execution:current',graph_kind:'execution'},{graph_id:'director:current',graph_kind:'director'},
+    {graph_id:'text:current',graph_kind:'text'},{graph_id:'module:the-haunting',graph_kind:'module'},
+  ],references:[
+    {ref_id:'ref:rule',graph_id:'rule:coc7',semantic_id:ruleIds[0]},
+    {ref_id:'ref:state',graph_id:'state:live',semantic_id:'fact:current',locator:api.REGISTERED_CONDITION_PATHS[0]},
+    {ref_id:'ref:execution',graph_id:'execution:current',semantic_id:'executor:current',locator:api.RESOLVER_NAMES[0]},
+    {ref_id:'ref:director',graph_id:'director:current',semantic_id:directorGraph.nodes[0].node_id},
+    {ref_id:'ref:text',graph_id:'text:current',semantic_id:textGraph.nodes[0].node_id},
+    {ref_id:'ref:module',graph_id:'module:the-haunting',semantic_id:sceneId},
+  ],relations:[{relation_id:'grounding',relation_kind:'grounded-by',from_ref:'ref:director',to_ref:'ref:rule'}]};
+  const cases=[{label:'independent valid pools',raw:valid},
+    {label:'bad rule node',change:value=>{value.references[0].semantic_id='rule:missing';}},
+    {label:'unknown live-state locator',change:value=>{value.references[1].locator='actor.unregistered';}},
+    {label:'unknown executor locator',change:value=>{value.references[2].locator='unregistered.executor';}},
+    {label:'missing relation endpoint',change:value=>{value.relations[0].to_ref='ref:missing';}},
+  ];
+  for(const [index,c] of cases.entries()){
+    c.raw=clone(valid);c.change?.(c.raw);delete c.change;
+    c.path=join(temporary,`ontology-${index}.json`);await writeFile(c.path,api.pythonJsonDumps(c.raw));
+  }
+  const expected=oracle('ontology',{cases,absent_content:join(temporary,'absent-executor-content')});
+  assert.deepEqual(expected[0],[]);
+  for(const finding of expected.slice(1))assert.equal(finding.length,1);
+  await rows(t,cases,expected,c=>new api.Ontology(c.raw).validate(ruleIds,dg,craft,async name=>name==='the-haunting'?[...graph.nodes.keys()]:null));
+});
+
+test('Director graph digest mismatch returns the same refusal as Python',async()=>{
+  const directory=join(temporary,'invalid Director');await mkdir(directory);
+  const source=await json(join(CONTENT,'director/director-graph.json'));
+  const manifest={...await json(join(CONTENT,'director/director-graph-manifest.json')),graph_content_digest:'0'.repeat(64)};
+  await writeFile(join(directory,'director-graph.json'),api.pythonJsonDumps(source));
+  await writeFile(join(directory,'director-graph-manifest.json'),api.pythonJsonDumps(manifest));
+  const expected=oracle('director_invalid',{directory});
+  assert.equal(expected.error.code,'campaign_not_ready');
+  same(captured(()=>new api.DirectorGraph(source,manifest).digest),expected,'Director manifest refusal');
+});
+
+test('mechanics match Python without exposing unlabeled NPC identities',async()=>{
+  const path=join(temporary,'handout.md'),text='# Handout\n\n'+('Evidence \u{1f680} '.repeat(900));await writeFile(path,text);
+  const receipts=[
+    {id:'roll:one',kind:'roll',skill:'Listen',roll:22,target:55,threshold:55,difficulty:'regular',level:'regular',passed:true,actor:'secret-npc',actor_label:'Hidden name',visibility:'keeper',call_id:'t1-c1',family:'core-check'},
+    {id:'dice:one',kind:'roll',form:'dice',skill:'Damage',expression:'1D6',faces:[4],total:4,actor:'alice',actor_label:'Alice',actor_is_investigator:true},
+    {id:'delta:one',kind:'delta',resource:'hp',before:12,after:8,subject:'alice',subject_is_investigator:true,subject_label:'Alice'},
+    {id:'delta:hidden',kind:'delta',resource:'hp',before:8,after:5,subject:'secret-npc'},
+    {id:'move:rename',kind:'move',renamed:true,from:'room',to:'room'},
+    {id:'move:one',kind:'move',from:'room',to:'hall',minutes:3,to_label:'Hall'},
+    {id:'clue:one',kind:'clue',clue:'paper',label:'Paper',summary:' A dated letter. '},
+    {id:'time:one',kind:'time',minutes:60},
+    {id:'item:one',kind:'item',name:'Key',quantity:0,subject:'alice',subject_label:'Alice'},
+    {id:'cash:one',kind:'cash',subject:'alice',before:new api.PythonFloat(5),after:new api.PythonFloat(3.5),currency:'USD'},
+    {id:'session:one',kind:'session',family:'combat',transition:'start',round:1},
+    {id:'choice:one',kind:'choice',option:'dodge'},
+    {id:'line:one',kind:'worldline',operation:'fork',line:'alternate',mode:'if',loop:0,from:{line:'main',turn:2}},
+    {id:'paper:one',kind:'handout',name:'Handout',attachment:{path,media_type:'text/markdown',available:true}},
+    {id:'note:one',kind:'note',text:'No mechanics projection'},
+  ];
+  const placed={'listen':'roll:one','damage':'delta:one'},before=api.pythonJsonDumps(receipts);
+  same(api.mechanics(receipts,placed,new Map([[path,text]])),oracle('mechanics',{receipts,placed}),'mechanics');
+  assert.equal(api.pythonJsonDumps(receipts),before);
+});
+
+test('capsule budget cuts match Python for nested lists, Unicode and module rosters',async t=>{
+  const cases=[
+    {label:'recent drops oldest',section:[1,2,3].map(turn=>({turn,text:'A scene detail '.repeat(10)})),budget:230,drop:'oldest'},
+    {label:'ranked memory drops last',section:[1,2,3].map(turn=>({turn,text:'Retained thought '.repeat(10)})),budget:240,drop:'last'},
+    {label:'inner facts trim before outer NPC',section:[{name:'Alice',facts:['long fact '.repeat(20),'another fact '.repeat(20)]},{name:'Bob',facts:['short']}],budget:150,drop:'last'},
+    {label:'single Unicode row remains present',section:[{name:'Witness',text:'\u{1f680}'.repeat(300)}],budget:80,drop:'oldest'},
+    {label:'scalar dictionary has no removable row',section:{summary:'fixed'.repeat(40)},budget:30,drop:'last'},
+  ];
+  await rows(t,cases,oracle('budget',{cases}),c=>{const section=clone(c.section);return {section,cut:api.fitBudget(section,c.budget,c.drop)};});
+  const budgets=[2048,900,400,120],expected=oracle('module_budget',{budgets});
+  for(const [index,budget] of budgets.entries())await t.test(`module budget ${budget}`,()=>same(api.fittedModuleSection(graph,budget),expected[index],`module ${budget}`));
+});
+
+test('saved session views match Python without constructing engine writers',async t=>{
+  const home=join(temporary,'sessions');await mkdir(home);
+  const context=await api.createKernelContext({workspace:home,content:CONTENT,seed:'read-fixture'});
+  const combat={status:'active',current_round:2,initiative_cursor:0,current_initiative:[{actor_id:'alice'}],participants:[{actor_id:'alice',side:'investigator',hp_current:8,hp_max:12,conditions:[],weapons:['pistol']},{actor_id:graph.handle(npc),side:'npc',hp_current:9,hp_max:9,conditions:[]}],weapon_catalog:{pistol:{magazine:6}}};
+  const chase={status:'active',current_round:1,initiative_cursor:0,rounds:[{dex_order:['alice']}],participants:[{actor_id:'alice',side:'pursuer',hp:8,position:0,movement_actions:2,movement_actions_remaining:0,mov_adjusted:8},{actor_id:graph.handle(npc),side:'quarry',hp:9,position:1,mov_adjusted:8}],location_chain:[{index:0,label:'Street'},{index:1,label:'Gate'},{index:2,label:'End'}]};
+  const sanity={bout_active:true,current_hp:8,san_current:40,temporary_insane:true,indefinite_insane:false,permanently_insane:false,bout_rounds_remaining:3,active_bout_id:'bout-one',bouts_of_madness:[{bout_id:'bout-one',duration_rounds:5,bout_result:'flight',bout_kind:'realtime',mode:'realtime'}],active_delusion:{},recovery_trigger:{due_elapsed_minutes:60}};
+  const cases=[
+    {label:'combat pending firearm defense',saves:{'combat.json':{...combat,pending_attack:{actor_id:graph.handle(npc),target_actor_id:'alice',resolution_hint:'firearm_attack',allowed_defenses:['dive_for_cover','fight_back']}}}},
+    {label:'active chase exhausted movement',saves:{'chase.json':chase}},
+    {label:'chase positional conflict',saves:{'chase.json':{...chase,participants:chase.participants.map(p=>({...p,position:0}))}}},
+    {label:'canonical sanity snapshot path',saves:{'sanity-state/alice.json':sanity,'sanity-gain-pending/alice.json':{san_gain:2}}},
+    {label:'combat priority over concurrent bout',saves:{'combat.json':combat,'sanity-state/alice.json':sanity}},
+  ];
+  const retained=new Map();
+  for(const [index,c] of cases.entries()) {
+    c.id=`case-${index}`;c.directory=join(home,'.coc/campaigns',c.id);c.party=party;c.world=world;c.minutes=60;
+    for(const [name,value] of Object.entries({...c.saves,'../party/alice.json':party[0]})){
+      const path=join(c.directory,'save',name),bytes=api.pythonJsonDumps(value);await mkdir(dirname(path),{recursive:true});await writeFile(path,bytes);retained.set(path,bytes);
+    }
+  }
+  const expected=oracle('sessions',{cases});
+  await rows(t,cases,expected,async c=>{
+    const saved=new api.CampaignSnapshot(context,c.id);await saved.preload();const view=new api.SessionView(saved,graph,party,world);
+    return {active:view.activeSession(),pending:view.pendingChoice(),combat:view.combatView(),chase:view.chaseView(),facts:view.facts('alice',60)};
+  });
+  for(const [path,bytes] of retained)assert.equal(await readFile(path,'utf8'),bytes,path);
+});
+
+test('NPC dossiers and public object views preserve their different secrecy boundaries',async t=>{
+  const doctor=graph.nodes.get('npc-east-doctor'),ledger={[doctor.node_id]:{stance:{value:'friendly',because:[{how:'keeper',turn:2,stance:'friendly',why:'Helped at the gate'}]},turns_present:{count:3,last:4},promises:[{memory_id:'promise-one',turn:2}]}},memories=[{id:'promise-one',statement:'Return the borrowed key.',status:'candidate'}];
+  const expected=oracle('npc',{node:doctor.node_id,scene:sceneId,world,ledger,memories,sheet:party[0]});
+  same({entry:api.npcEntry(graph,world,doctor,ledger,new Map(memories.map(m=>[m.id,m]))),view:api.npcView(graph,world,doctor,ledger),
+    present:api.presentSection(graph,world,scene,ledger,memories),investigator:api.investigatorView(party[0])},expected,'NPC/public investigator projections');
+  const definitions={case:{id:'case',name:'Case',category:'item',description:'Private compartment',basis:'Source',parameters:{},traits:[],player_view:{description:'A leather case',fields:[]}},
+    paper:{id:'paper',name:'Letter',category:'item',description:'Hidden source provenance',basis:'Source',parameters:{},traits:[],player_view:{description:'A folded letter',fields:[]}},
+    pistol:{id:'pistol',name:'Pistol',category:'weapon',description:'Secret tuning',basis:'Source',parameters:{damage:'1D10',magazine:6,hidden_modifier:9},traits:[{name:'visible'},{name:'secret'}],player_view:{description:'A pistol',fields:['damage','magazine'],traits:['visible']}}};
+  const carried={kind:'investigator',id:'alice',name:'Alice'},instances={case:{id:'case-one',name:'Case',definition:'case',owner:carried,quantity:1,state:{condition:'intact'}},
+    letter:{id:'letter-one',name:'Letter',definition:'paper',owner:{kind:'object',id:'case-one',name:'Case'},quantity:1,state:{condition:'intact'},document:{text:'Edited note',original:'Original note',presentation:'paper'}},
+    pistol:{id:'pistol-one',name:'Pistol',definition:'pistol',owner:carried,quantity:1,state:{condition:'intact',ammo:4}},
+    hidden:{id:'hidden-one',name:'Other letter',definition:'paper',owner:{kind:'npc',id:'east-doctor',name:'Doctor east'},quantity:1,state:{condition:'intact'},document:{text:'NPC secret',original:'NPC secret',presentation:'paper'}}};
+  // Instance dictionaries are keyed by canonical object ids, as persisted by the kernel.
+  const objectWorld={objects:{definitions,instances:Object.fromEntries(Object.values(instances).map(item=>[item.id,item]))}};
+  const sheet={...party[0],weapons:[{name:'Pistol',object_id:'pistol-one',weapon_id:'pistol-one',hidden_modifier:9,ammo:6}]},names=[null,'Letter','Pistol','missing'];
+  const before=api.pythonJsonDumps({objectWorld,sheet}),reference=oracle('objects',{world:objectWorld,sheet,names});
+  await rows(t,[{label:'public sheet'},...names.map(name=>({label:`object look ${name}`}))],reference,(_c,index)=>captured(()=>index===0?api.publicSheet(objectWorld,sheet):api.objectLook(objectWorld,names[index-1])));
+  assert.equal(api.pythonJsonDumps({objectWorld,sheet}),before);
+});
