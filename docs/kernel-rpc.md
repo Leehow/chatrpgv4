@@ -1682,6 +1682,43 @@ existing presentation map; standing-sheet queries still refresh their visible
 context. The tool-enabled presentation agent runs the shared schema checker and
 gets one bounded repair for malformed output, retaining both original attempts.
 
+### Kernel decision: a drawn card is not re-earned (2026-09-09)
+
+The saved `setup/presentations/<revision>-<language>.json` projection travels with
+the `coc-character-draft` history row, as every other player-facing projection
+already does. The renderer fetch is the path for a draft that has no projection
+yet, not the path for every mount: without it a scroll, a session switch, the
+setup-to-play handoff and a restart each redrew the loading placeholder on a card
+whose text had been on disk for hours. The job also starts when the draft is
+appended rather than when its card mounts, and is handed the glossary the row
+already carries, so it makes no campaign-scoped read and never queues behind the
+turn that produced it. A presentation run is bounded; past its deadline the card
+reports a failure it can offer a retry for instead of staying pending forever.
+
+Card text is projected from one accumulating per-language vocabulary rather than
+a per-character fingerprint. A card's strings are overwhelmingly the previous
+card's strings — UI chrome, characteristic and skill names, era, occupation — so
+fingerprinting the whole list made every new investigator a complete miss that
+paid for a fresh translation of the entire card before it could be drawn. The
+vocabulary is keyed by play language and the instruction digest; the financial
+equipment subset is keyed by the kit. Kernel glossary labels are context for the
+agent and never a question put to it. A round is accepted in part: the words that
+validated are kept and only the remainder is asked again, because one dropped key
+used to discard every correct translation in the round and, with two rounds, turn
+a near miss into a card that never appeared. `validatePresentation` keeps its
+all-or-nothing schema for the agent's own checker, which the card is still drawn
+under.
+
+### Kernel decision: a contended campaign says so (2026-09-09)
+
+`guardCampaign` waits for the per-campaign advisory lock against a deadline
+(`PI_COC_CAMPAIGN_LOCK_TIMEOUT_MS`, 25s) instead of blocking without one, and
+refuses with `internal` + `details.reason = "campaign_locked"`, the campaign name
+and a `fix`. The deadline is below the RPC transport's own 30-second timeout on
+purpose: an unbounded wait was reported to the caller as a dead transport, with
+nothing in it that said another process held the campaign. Both kernels bound the
+wait identically. No error code is added and no method changes.
+
 Both normal and idle setup completion emit the existing `coc-setup-exit` marker.
 The backend uses it to recognize the play child's startup within the same RPC
 wrapper. Pi may start its extension-owned opening before the RPC subscription
@@ -2027,6 +2064,45 @@ is refused rather than silently ignored. Because assignment is a permutation of
 existing rolls, strong is not a promise of a high number: the setup model states
 what the returned card actually holds and never a value it does not.
 
+**Who said it is part of the field.** A player who describes nobody in particular
+still hands over a person: an occupation, a concept, a background. Reading an
+emphasis out of that is legitimate and is what a Keeper building a pregen does,
+but it is the model's inference and not the player's claim, and a card may not
+blur the two. `aptitude.origin` is therefore required whenever aptitude is present
+and closed to `steps.json`'s `create-investigator.aptitude.origins`: `player` when
+the player's own words named it, `concept` when the model read it off the person
+they described. The kernel records the origin in the generated record and the
+receipt, and the setup model says which one it used in its own words — never
+"as you said" for an inference it made itself.
+
+Both origins place the same rolls the same way; only the licence differs. An
+inferred emphasis is capped at `concept_limit` strong and `concept_limit` weak
+(content, not code) so that reading a person does not quietly optimize every card
+into its occupation's archetype and retire the dice; a longer emphasis has to come
+from the player. Exceeding it is an `aptitude`-stage refusal naming the limit.
+
+**The interest list is priority ordered too.** The occupational list has been a
+priority order since #21: `spread` walks it in the supplied order and raises each
+entry to a tier before starting the next tier. The personal-interest budget kept
+the older one-point round robin, which spends the same amount on every entry, so
+the ability the player called defining came out level with the fillers it was
+listed beside — a stated strength could reach the characteristics and still leave
+its own skill near base. `steps.json` therefore carries a second policy block,
+`create-investigator.interest_allocation` (`default: spread`, `options: [spread,
+fill]`, `tiers`), overridable per call with `params.interest_allocation`, refused
+the same way as an unknown occupational policy but at stage `interest_allocation`.
+
+The tiered walk is applied only to a model-supplied `interest_skills` list, which
+is ordered by what the player said matters. The legacy auto-pool of
+`setup.investigator` is the era's whole standard sheet in table order and carries
+no such intent, so it keeps the round robin; `sheet.creation.skills.interest`
+records the policy actually applied and its source, and the receipt carries
+`interest_allocation`. Both policies stop only when the budget is gone or every
+entry has reached the starting cap, so neither leaves the budget unspent while an
+entry is still raisable, and the conversational completeness check is unchanged.
+A tail entry that receives nothing stays at its base value like any untrained
+skill; the setup prompt owns keeping that list short enough to mean something.
+
 **Pacing.** Conversational pacing is prompt-layer policy, not kernel gating: when the player supplies only a name and an occupation concept without delegating the rest, the setup guide asks one or two in-character follow-up questions, one at a time, and drafts only after the answers; explicit delegation or a write-now order drafts in the same reply. The kernel gates no player turn.
 
 **RPC.** All calls include campaign. setup.draft accepts profile, a partial update
@@ -2035,7 +2111,7 @@ of the current semantic profile: name, occupation, age, sex, concept, occupation
 skills), own_language, backstory (3–6 populated first-six categories plus scenario_bound),
 key_connection (backstory_field and summary), equipment (named ordinary items),
 weapons (optional catalog names) and aptitude (optional strong/weak characteristic
-abbreviations). Unknown skills return the relevant catalog; no
+abbreviations with their origin). Unknown skills return the relevant catalog; no
 semantic regex picks skills or fills an open choice. The kernel reuses Chargen's
 arithmetic and validates complete budgets, provenance, gear and background.
 

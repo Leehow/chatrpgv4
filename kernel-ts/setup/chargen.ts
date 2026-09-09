@@ -94,17 +94,24 @@ export class Chargen {
     }
     return pools;
   }
-  /** The player's own words about this person, already read into characteristics by the setup model. */
+  /** What this person is notably good or poor at, already read into characteristics by the
+   *  setup model, carrying whether the player said it or the model read it off the concept. */
   aptitude(value: any): Row | null {
     if (value == null) return null;
     const declared = row(value), strong = array(declared.strong).map(string), weak = array(declared.weak).map(string);
     if (!strong.length && !weak.length) return null;
+    const block = row(this.policy.aptitude), origins = array(block.origins).map(string), origin = declared.origin;
+    if (typeof origin !== 'string' || !origins.includes(origin)) throw new ChargenError('aptitude', `aptitude.origin must say who named this: ${repr(origins)}`, {options: origins});
     const known = this.characteristics, unknown = [...strong, ...weak].filter(abbr => !known.includes(abbr));
     if (unknown.length) throw new ChargenError('aptitude', `unknown characteristics ${repr(unknown)}`, {options: known});
     const both = strong.filter(abbr => weak.includes(abbr));
     if (both.length) throw new ChargenError('aptitude', `${repr(both)} cannot be both notably strong and notably weak`, {strong, weak});
     if (new Set(strong).size !== strong.length || new Set(weak).size !== weak.length) throw new ChargenError('aptitude', 'name each characteristic at most once', {strong, weak});
-    return {strong, weak};
+    const limit = Math.trunc(number(block.concept_limit));
+    if (origin === 'concept' && (strong.length > limit || weak.length > limit))
+      throw new ChargenError('aptitude', `an emphasis read from the concept may name at most ${limit} strong and ${limit} weak; a longer one has to come from the player`,
+        {origin, concept_limit: limit, strong, weak});
+    return {strong, weak, origin};
   }
   quickFire(priority: string[]): Row {
     const values: Row = {}, array = this.dice.generation_methods.quick_fire_array.array.map((value: any) => Math.trunc(number(value)));
@@ -208,12 +215,12 @@ export class Chargen {
     const text = string(base);
     return text.startsWith('half_') ? Math.floor(number(get(characteristics, text.slice(5))) / 2) : Math.trunc(number(get(characteristics, text)));
   }
-  allocationPolicy(name: any): Row {
-    const block = row(this.policy.allocation), policy = name == null ? block.default : name;
-    if (!ALLOCATION_POLICIES.includes(policy)) throw new ChargenError('allocation', "allocation must be one of ('spread', 'fill')", {options: [...ALLOCATION_POLICIES], default: block.default ?? null});
+  allocationPolicy(name: any, field = 'allocation'): Row {
+    const block = row(this.policy[field]), policy = name == null ? block.default : name;
+    if (!ALLOCATION_POLICIES.includes(policy)) throw new ChargenError(field, `${field} must be one of ('spread', 'fill')`, {options: [...ALLOCATION_POLICIES], default: block.default ?? null});
     const tiers = array(block.tiers);
-    if (!tiers.every(integer)) throw new ChargenError('allocation', 'allocation.tiers must be integers', {tiers});
-    return {policy: string(policy), tiers: tiers.map(number), source: 'steps.json create-investigator.allocation'};
+    if (!tiers.every(integer)) throw new ChargenError(field, `${field}.tiers must be integers`, {tiers});
+    return {policy: string(policy), tiers: tiers.map(number), source: `steps.json create-investigator.${field}`};
   }
   static spread(slots: string[], resolved: Set<string>, budget: number, values: Row, cap: number, tiers: number[]): [Row, Row[]] {
     const allocations: Row = {}, reserved: Row = {};
@@ -242,10 +249,11 @@ export class Chargen {
     }
     return Object.fromEntries(entries(allocations).filter(([, points]) => points > 0));
   }
-  async build(options: {investigatorId: string; name: string; occupationId: any; concept: string | null; age: any; sex: any; method: any; seed: string; era: string; allocation?: any; aptitude?: any; occupationSkills?: string[]; interestSkills?: string[]}): Promise<[Row, Row]> {
+  async build(options: {investigatorId: string; name: string; occupationId: any; concept: string | null; age: any; sex: any; method: any; seed: string; era: string; allocation?: any; interestAllocation?: any; aptitude?: any; occupationSkills?: string[]; interestSkills?: string[]}): Promise<[Row, Row]> {
     const {investigatorId, name, concept, age, sex, method, seed, era, occupationSkills, interestSkills} = options;
     if (!METHODS.includes(method)) throw new ChargenError('method', "method must be one of ('quick_fire', 'rolled')", {options: [...METHODS]});
     const [occupationName, spec] = this.occupation(options.occupationId), policy = this.allocationPolicy(options.allocation), formula = parseFormula(spec.skill_point_formula || '');
+    const interestPolicy = this.allocationPolicy(options.interestAllocation, 'interest_allocation');
     const aptitude = this.aptitude(options.aptitude);
     if (aptitude && method !== 'rolled') throw new ChargenError('aptitude', 'a stated aptitude assigns rolled results and cannot direct the quick-fire array', {method, expected_method: 'rolled'});
     const rng = new PythonRandom(seed), trace: Row = {seed, method};
@@ -276,23 +284,30 @@ export class Chargen {
     const interestBudget = evaluateFormula(parseFormula(string(this.policy.formulas.personal_interest_points)), characteristics), excluded = new Set(array(row(this.policy.interest_pool).exclude));
     const interestPool = interestSkills !== undefined ? [...interestSkills] : (sheetIds ?? []).filter(skill => !resolved.includes(skill) && !excluded.has(skill));
     for (const skill of interestPool) if (!Object.hasOwn(values, skill)) values[skill] = this.skillBase(skill, characteristics);
-    const interest = Chargen.allocate(interestPool, interestBudget.total, values, this.cap);
+    // Only a model-supplied list is ordered by what the player said matters; the legacy
+    // auto-pool is the era's standard sheet in table order and keeps the round robin.
+    const interestApplied = interestSkills !== undefined ? interestPolicy.policy : 'fill';
+    const interest = interestApplied === 'spread'
+      ? Chargen.spread(interestPool, new Set(interestPool), interestBudget.total, values, this.cap, interestPolicy.tiers)[0]
+      : Chargen.allocate(interestPool, interestBudget.total, values, this.cap);
     for (const [skill, amount] of entries(interest)) values[skill] += amount;
     const spent = sum(Object.values(occupational)), interestSpent = sum(Object.values(interest));
     if (occupationSkills !== undefined && (spent !== points || interestSpent !== interestBudget.total)) throw new ChargenError('skills', 'Selected skills cannot hold the full budget; choose more interest skills or a wider legal occupational selection', {occupation_unspent: points - spent, interest_unspent: interestBudget.total - interestSpent});
     trace.skills = {standard_sheet: sheetIds ? `skills.standard_sheet.${era}` : null, cap: {value: this.cap, source: 'skills.guided_creation_policy.starting_skill_cap'},
       occupation: {id: occupationName, resolved, choices_pending: pending, budget, credit_rating: {value: credit, range: creditRange, source: 'occupations.credit_rating_range[0]'}, points, spent, unspent: points - spent, allocations: occupational, allocation: policy.policy, reserved},
-      interest: {budget: interestBudget, pool: interestPool, spent: interestSpent, allocations: interest, unspent: interestBudget.total - interestSpent}};
+      interest: {budget: interestBudget, pool: interestPool, spent: interestSpent, allocations: interest, unspent: interestBudget.total - interestSpent,
+        allocation: interestApplied, tiers: interestApplied === 'spread' ? interestPolicy.tiers : null, source: interestPolicy.source}};
     let finance: Row | null;
     try { finance = await this.tables.cashAndAssets(credit, era); trace.finance = {available: true, source: `cash-assets.periods.${era}`}; }
     catch (error) { if (!(error instanceof Error) || error.name !== 'ValueError') throw error; finance = null; trace.finance = {available: false, reason: error.message, source: 'cash-assets.periods'}; }
-    trace.equipment = {source: null, note: 'equipment.json records carry no occupation field; no default kit is invented'}; trace.allocation = policy;
+    trace.equipment = {source: null, note: 'equipment.json records carry no occupation field; no default kit is invented'};
+    trace.allocation = policy; trace.interest_allocation = {...interestPolicy, applied: interestApplied};
     const sheet: Row = {schema_version: 1, id: investigatorId, name, occupation: occupationName, era, age, sex,
       characteristics: {...Object.fromEntries(this.characteristics.map(key => [key, Math.trunc(number(characteristics[key]))])), LUCK: luck.value}, derived: derived.values,
       skills: Object.fromEntries(entries(values).sort(([a], [b]) => compareUnicode(a, b))), weapons: [], equipment: [], backstory: {concept}, credit_rating: credit,
       cash: finance ? `${string(finance.cash.amount)} ${finance.cash.currency}` : null, finance, creation: trace};
     const receipt: Row = {id: `investigator:${investigatorId}`, kind: 'investigator', investigator: investigatorId, name, occupation: occupationName, method: string(generated.method), seed, choices_pending: pending,
-      allocation: policy.policy, occupation_unspent: points - spent, occupation_reserved: sum(reserved.map((item: Row) => number(item.points))), interest_unspent: interestBudget.total - interestSpent, finance_available: finance !== null};
+      allocation: policy.policy, interest_allocation: interestApplied, occupation_unspent: points - spent, occupation_reserved: sum(reserved.map((item: Row) => number(item.points))), interest_unspent: interestBudget.total - interestSpent, finance_available: finance !== null};
     return [sheet, receipt];
   }
 }

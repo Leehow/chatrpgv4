@@ -140,3 +140,34 @@ it('hides only a finished preparation, and a hidden job stays the current import
   expect(current.current_import.hidden).toBe(true);
   expect(current.current_import.preparation.opening.state).toBe('ready');
 });
+
+it('an eager draft projection and the card that later asks for it are one job',async()=>{
+ const {host}=await service();
+ const run=vi.spyOn(host as any,'run').mockImplementation(()=>new Promise(()=>{}));
+ const labels={'Spot Hidden':'侦查'};
+ void host.presentation({campaign:'c1',revision:1,play_language:'zh-Hans',labels});
+ // The renderer knows only the revision; the glossary must not split the key into two runs.
+ expect(host.presentationStatus({campaign:'c1',revision:1,play_language:'zh-Hans'})).toEqual({pending:true});
+ expect(run).toHaveBeenCalledTimes(1);
+ expect((run.mock.calls[0]![1] as any).labels).toEqual(labels);
+});
+
+it('a presentation that never answers fails with a retryable card instead of staying pending',async()=>{
+ const home=await mkdtemp(join(tmpdir(),'coc-onboarding-'));
+ const repo=resolve(import.meta.dirname,'../../../..');
+ const host=new CocOnboardingHost({repo,home,agentDir:join(home,'agent'),
+   env:{...process.env,PI_COC_PRESENTATION_DEADLINE_MS:'30'}});
+ services.push(host);
+ let aborted=false;
+ vi.spyOn(host as any,'run').mockImplementation((...args:any[])=>{
+  (args[5] as AbortController).signal.addEventListener('abort',()=>{aborted=true});
+  return new Promise(()=>{});
+ });
+ const data={campaign:'stuck',revision:1,play_language:'en'};
+ expect(host.presentationStatus(data)).toEqual({pending:true});
+ await expect(host.presentation(data)).rejects.toThrow(/did not finish in time/);
+ expect(aborted).toBe(true);
+ // The card is told once, and the retry it offers starts a new run rather than re-reading a stall.
+ expect(()=>host.presentationStatus(data)).toThrow(/did not finish in time/);
+ expect(host.presentationStatus(data)).toEqual({pending:true});
+});

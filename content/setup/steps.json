@@ -157,6 +157,26 @@
         ],
         "source_note": "Occupation-point policy (#21), content not code. spread: walk the occupation's skill list in the book's order, raising every entry to tiers[0], then tiers[1], then the starting cap (skills.json guided_creation_policy.starting_skill_cap); an entry the kernel cannot name (a rulebook choice such as 'any one other skill' or a group such as 'Firearms') is reserved the tier's value as unspent for the table's development family instead of the points piling onto the four skills it can name. fill: the earlier one-point round-robin over the resolvable entries only, kept as an option. The tiers are a table-feel choice (a rounded investigator over four maxed skills), not rulebook numbers."
       },
+      "interest_allocation": {
+        "default": "spread",
+        "options": [
+          "spread",
+          "fill"
+        ],
+        "tiers": [
+          50,
+          70
+        ],
+        "source_note": "Personal-interest policy, content not code, and the same walk #21 gave the occupational list. spread: walk the supplied interest_skills in order, raising every entry to tiers[0], then tiers[1], then the starting cap; fill: the older one-point round-robin, kept as an option. Only a model-supplied interest_skills list is ordered by what the player said matters, so only that list takes the tiered walk; the legacy auto-pool is the era's standard sheet in table order and keeps the round-robin."
+      },
+      "aptitude": {
+        "origins": [
+          "player",
+          "concept"
+        ],
+        "concept_limit": 1,
+        "source_note": "Who the emphasis came from, content not code. player: the player's own words named this characteristic. concept: the setup model read it off the person the player described, which is legitimate but is an inference, so the card records it as one and the model never reports it as something the player said. Both origins place the same rolls identically; concept_limit caps an inferred emphasis at that many strong and that many weak so reading a person does not optimize every card into its occupation's archetype and retire the dice. A longer emphasis has to come from the player."
+      },
       "formulas": {
         "personal_interest_points": "INT*2",
         "source_note": "Keeper Rulebook Chapter 3, personal interest skill points = INT x 2 (investigator-create-contract.json skill_budget description)."

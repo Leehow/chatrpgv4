@@ -78,3 +78,55 @@ test('financial exclusions must be an exact equipment subset and are preserved i
  assert.deepEqual(await prepareCharacterPresentation({...options,runner:async()=>{throw Error('Unexpected model call')}}),result);
  assert.equal(await readFile(join(dir,'1.json'),'utf8'),raw);
 });
+
+test('a second investigator only asks for the words the language has never seen',async()=>{
+ const home=await mkdtemp(join(tmpdir(),'card-vocabulary-')),dir=join(home,'.coc/campaigns/c1/setup/drafts');await mkdir(dir,{recursive:true});
+ const other={...sheet,name:'Marcus',occupation:'Journalist',backstory:{traits:'Never off the record'},equipment:['Camera','Notebook']};
+ await writeFile(join(dir,'1.json'),JSON.stringify({play_language:'zh-Hans',sheet}));
+ await writeFile(join(dir,'2.json'),JSON.stringify({play_language:'zh-Hans',sheet:other}));
+ const asked=[];const runner=async r=>{const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));asked.push(input.texts);
+  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({finance_equipment:[],texts:Object.fromEntries(input.texts.map(t=>[t,`zh:${t}`]))}));return {ok:true}};
+ const options={home,campaign:'c1',play_language:'zh-Hans',runner};
+ const first=await prepareCharacterPresentation({...options,revision:1});
+ const second=await prepareCharacterPresentation({...options,revision:2});
+ assert.equal(asked.length,2);
+ assert.ok(asked[0].includes('Parameter')&&asked[0].includes('Lawyer'));
+ // The whole card was translated once. The second investigator's card is drawn from the same
+ // vocabulary plus their own new words, so the shared chrome is never bought twice.
+ assert.deepEqual(asked[1],['Journalist','Never off the record','Notebook']);
+ assert.equal(second.texts.Parameter,first.texts.Parameter);
+ assert.equal(second.texts.Journalist,'zh:Journalist');
+ assert.ok(!('Lawyer' in second.texts),'a card carries only its own strings');
+});
+
+test('a round that drops a key keeps every word it got right and re-asks only the remainder',async()=>{
+ const home=await mkdtemp(join(tmpdir(),'card-partial-')),dir=join(home,'.coc/campaigns/c1/setup/drafts');await mkdir(dir,{recursive:true});
+ await writeFile(join(dir,'1.json'),JSON.stringify({play_language:'zh-Hans',sheet}));
+ const asked=[];let calls=0;
+ const result=await prepareCharacterPresentation({home,campaign:'c1',revision:1,play_language:'zh-Hans',runner:async r=>{
+  calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));asked.push(input.texts);
+  const supplied=calls===1?input.texts.filter(t=>t!=='Camera'):input.texts;
+  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({finance_equipment:[],texts:Object.fromEntries(supplied.map(t=>[t,`zh:${t}`]))}));
+  return {ok:true};
+ }});
+ assert.equal(calls,2);
+ assert.deepEqual(asked[1],['Camera']);
+ assert.ok(JSON.parse(await readFile(join(dir,'..','presentations','1-zh-Hans.json'),'utf8')).texts.Camera);
+ assert.equal(result.texts.Camera,'zh:Camera');
+ assert.equal(result.texts.Parameter,'zh:Parameter');
+});
+
+test('kernel glossary labels are context for the model, never a question put to it',async()=>{
+ const home=await mkdtemp(join(tmpdir(),'card-known-')),dir=join(home,'.coc/campaigns/c1/setup/drafts');await mkdir(dir,{recursive:true});
+ await writeFile(join(dir,'1.json'),JSON.stringify({play_language:'zh-Hans',sheet}));
+ let packet;
+ const result=await prepareCharacterPresentation({home,campaign:'c1',revision:1,play_language:'zh-Hans',
+  known_labels:{STR:'力量','Language (Other: Latin)':'其他语言（拉丁语）',Unrelated:'无关'},
+  runner:async r=>{packet=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
+   await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({finance_equipment:[],texts:Object.fromEntries(packet.texts.map(t=>[t,`zh:${t}`]))}));return {ok:true}}});
+ assert.ok(!packet.texts.includes('STR'));
+ assert.ok(!packet.texts.includes('Language (Other: Latin)'));
+ assert.deepEqual(packet.known_labels,{STR:'力量','Language (Other: Latin)':'其他语言（拉丁语）'});
+ assert.equal(result.texts.STR,'力量');
+ assert.equal(result.texts['Language (Other: Latin)'],'其他语言（拉丁语）');
+});

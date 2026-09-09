@@ -2,7 +2,7 @@ import {expect,it,vi} from 'vitest';
 import {mkdtemp,mkdir,writeFile,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
-import {mechanicsEntry,readCocBinding,readColdSheet} from '../src/coc-view.js';
+import {draftPresentations,mechanicsEntry,readCocBinding,readColdSheet} from '../src/coc-view.js';
 import {KernelClient} from '../../../../extensions/kernel/client.js';
 
 it('projects only public rows with stable identity and language',()=>{
@@ -116,4 +116,24 @@ it('setup exit lets the play child establish a new turn when its agent_start was
     expect(mark).toHaveBeenCalledTimes(1);expect(live.turnEpoch).toBe(8);
     expect(frames.some(frame=>frame.channel==='stream'&&frame.event.type==='status'&&frame.event.status==='started'&&frame.event.turnEpoch===8)).toBe(true);
   }finally{unsubscribe();await backend.close();}
+});
+
+it('a drawn card travels with the row, and only an unprojected draft is left to fetch',async()=>{
+  const home=await mkdtemp(join(tmpdir(),'coc-draft-projection-'));
+  const binding={campaign:'c1',home,play_language:'zh-Hans'};
+  const folder=join(home,'.coc/campaigns/c1/setup/presentations');await mkdir(folder,{recursive:true});
+  await writeFile(join(folder,'1-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:{Parameter:'参数'},finance_equipment:[]}));
+  await writeFile(join(folder,'2-en.json'),JSON.stringify({play_language:'en',texts:{Parameter:'Parameter'}}));
+  await writeFile(join(folder,'standing-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:{Office:'办公室'}}));
+  await writeFile(join(folder,'3-zh-Hans.json'),'{ half written');
+  const saved=await draftPresentations(binding);
+  expect([...saved.keys()]).toEqual([1]);
+  const row=(revision:number)=>({type:'custom',id:`draft-${revision}`,customType:'coc-character-draft',timestamp:'2026-09-09',data:{revision,sheet:{name:'艾琳'},labels:{}}});
+  const drawn=mechanicsEntry(row(1),'zh-Hans',saved)!;
+  expect((drawn.presentation?.details as any).presentation.texts).toEqual({Parameter:'参数'});
+  // A revision with no projection yet must stay fetchable; attaching nothing is not attaching {}.
+  expect((mechanicsEntry(row(2),'zh-Hans',saved)!.presentation?.details as any).presentation).toBeUndefined();
+  expect((mechanicsEntry(row(3),'zh-Hans',saved)!.presentation?.details as any).presentation).toBeUndefined();
+  expect(await draftPresentations(undefined)).toEqual(new Map());
+  expect(await draftPresentations({campaign:'absent',home,play_language:'zh-Hans'})).toEqual(new Map());
 });

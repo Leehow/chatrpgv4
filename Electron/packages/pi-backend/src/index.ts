@@ -1,6 +1,6 @@
 import { CocOnboardingHost, CocOnboardingRegistry, type CocOnboardingOptions } from './coc-onboarding.js';
 export { CocOnboardingRegistry } from './coc-onboarding.js';
-import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry } from "./coc-view.js";
+import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations } from "./coc-view.js";
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { createExtensionHostWorkers, type ExtensionHostWorkers } from "./extension-host-workers.js";
 import { closeSync, constants as fsConstants, createReadStream, createWriteStream, existsSync, lstatSync, openSync, readFileSync, realpathSync, watch, writeSync, promises as fs, type Dirent } from "node:fs";
@@ -1435,8 +1435,9 @@ function redactHistoryEntry(entry: HistoryEntry | undefined, secrets: RevealedSe
     ...(entry.tools ? { tools: entry.tools.map((tool) => ({ ...tool, input: redactText(tool.input, secrets) })) } : {}),
   };
 }
-function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], language?:string): HistoryEntry | undefined {
-  const mechanics = mechanicsEntry(entry, language);
+function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], language?:string,
+  presentations?: ReadonlyMap<number, Record<string, unknown>>): HistoryEntry | undefined {
+  const mechanics = mechanicsEntry(entry, language, presentations);
   if (mechanics) return mechanics;
   if (entry?.type === "message") return redactHistoryEntry(historyEntryFromMessage(entry), secrets);
   if (isVisibleCustomMessage(entry)) {
@@ -1560,6 +1561,8 @@ async function readHistoryFallback(
   const wanted = new Set(pageIds);
   const mappedById = new Map<string, HistoryEntry>();
   const cocBinding = await readCocBinding(path);
+  // One directory read per page, not one fetch per mounted card.
+  const cocPresentations = await draftPresentations(cocBinding);
   const lines = createInterface({
     input: jsonlSnapshotStream(path, byteEnd),
     crlfDelay: Infinity,
@@ -1573,7 +1576,7 @@ async function readHistoryFallback(
     }
     if (!wanted.has(entry?.id)) continue;
     const secrets = vaultDir && sessionId ? revealRedactionSecrets(vaultDir, sessionId) : [];
-    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language);
+    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations);
     if (!mapped) continue;
     mappedById.set(mapped.id, mapped);
   }
@@ -5717,6 +5720,36 @@ export class PiHostBackend implements HostBackend {
       throw error;
     }
   }
+  /**
+   * A draft's text projection starts when the draft appears, not when its card mounts.
+   *
+   * The renderer used to be the trigger: it mounted, drew its loading ellipsis, and only then did
+   * the model job begin, so the player watched the whole latency with an empty card in front of
+   * them. The row already carries the kernel's own glossary, so the job is handed the labels it
+   * would otherwise have gone back to the kernel for — which also keeps it out of the campaign
+   * lock the Keeper still holds while it finishes the same turn. A later `draft-presentation`
+   * invoke joins this job rather than starting a second one.
+   */
+  private startDraftPresentation(sessionId: string, data: any): void {
+    const revision = Number(data?.revision);
+    if (!Number.isSafeInteger(revision) || revision < 1 || !this.managedNodeModulesRoot) return;
+    void (async () => {
+      const path = (await this.locate(sessionId)).path;
+      const binding = await readCocBinding(path);
+      if (!binding) return;
+      const repo = resolve(this.managedNodeModulesRoot!, "..");
+      const host = this.cocOnboardingRegistry.get({...this.cocRuntime, repo, home: binding.home,
+        agentDir: this.sharedProfileDir, env: this.env});
+      const state = await this.getModelState(sessionId);
+      await host.presentation({campaign: binding.campaign, revision, play_language: binding.play_language,
+        ...(isRecord(data.labels) ? {labels: data.labels} : {}),
+        model: `${state.model.provider}/${state.model.id}`, thinking: state.thinkingLevel});
+      // History pages are cached against the transcript's own size and mtime, and a projection
+      // landing beside it changes neither. Without this the next read would serve the card back
+      // without the text that had just been written for it.
+      this.historyCache.delete(path);
+    })().catch(() => undefined /* the card still asks for itself if this never lands */);
+  }
   private lines(live: Live, chunk: string) {
     if (this.projectionDebugEnabled()) this.projectionDebugLine(`[stream-debug] stdout session=${this.projectionDebugSessionTag(live.session.id)} t=${Date.now()} bytes=${chunk.length}`, "log");
     live.buffer += chunk;
@@ -5739,6 +5772,7 @@ export class PiHostBackend implements HostBackend {
     if (!this.sessionRuntimeTokenIsCurrent(live.session.id, live.runtimeToken)) return;
     if (e.type === "entry_appended") {
       if(e.entry?.customType==='coc-setup-exit')live.cocSetupHandoffPending=true;
+      if(e.entry?.customType==='coc-character-draft'&&e.entry?.data?.sheet)this.startDraftPresentation(live.session.id,e.entry.data);
       const entry = e.entry?.customType === "coc-setup-opening" ? visibleHistoryEntry(e.entry,this.sessionSecrets(live.session.id)) : mechanicsEntry(e.entry);
       if (entry) this.stream({type:"presentation",sessionId:live.session.id,entry});
     }

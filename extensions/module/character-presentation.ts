@@ -1,7 +1,7 @@
 /** Player-facing text for an immutable card. Numeric cells never enter the model. */
 import {createHash,randomUUID} from 'node:crypto';
 import {mkdir,readFile,writeFile,rename} from 'node:fs/promises';
-import {join} from 'node:path';
+import {dirname,join} from 'node:path';
 import {resourceRootFrom,runtimeEntryUrl} from '../../runtime/deployment.mjs';
 import type {ReaderRequest,ReaderOutcome} from './reader.ts';
 const root=resourceRootFrom(import.meta.url);
@@ -85,30 +85,114 @@ export async function prepareStandingPresentation(options:TextOptions&{campaign:
   const result={play_language:options.play_language,texts:{...previous,...added}};
   await saveProjection(options,file,result);return result;
 }
+/**
+ * Every card is drawn from one accumulating per-language vocabulary, not from a per-character
+ * projection. A card's strings are overwhelmingly the same strings as the last card's — the UI
+ * chrome, the characteristic and skill names, the era, the occupation — and fingerprinting the
+ * whole list made every new investigator a full miss, so each draft paid for a fresh translation
+ * of ~140 strings before it could be drawn at all. Keyed by language, the second investigator
+ * asks for the handful of words that are actually new: their backstory prose and their kit.
+ *
+ * The instruction digest stays in the file name so editing the prompt still starts a clean
+ * vocabulary rather than silently keeping text the old instructions produced.
+ */
+function vocabularyPath(home: string, language: string, instructions: string): string {
+  const digest = createHash('sha256').update(instructions).digest('hex').slice(0, 8);
+  return join(home, '.coc/character-presentations', `vocabulary-${language}-${digest}.json`);
+}
+async function readVocabulary(path: string, language: string): Promise<Record<string,string>> {
+  try {
+    const saved = JSON.parse(await readFile(path, 'utf8'));
+    if (saved?.play_language !== language || !saved.texts || typeof saved.texts !== 'object' || Array.isArray(saved.texts)) return {};
+    return Object.fromEntries(Object.entries(saved.texts as Row)
+      .filter(([, value]) => typeof value === 'string' && value.trim())) as Record<string,string>;
+  } catch { return {}; /* An absent or unreadable vocabulary costs a translation, never a wrong word. */ }
+}
+/** Re-read before writing: another card may have added words while this one was with the model. */
+async function mergeVocabulary(path: string, language: string, added: Record<string,string>): Promise<Record<string,string>> {
+  const merged = {...await readVocabulary(path, language), ...added};
+  await mkdir(dirname(path), {recursive: true});
+  const temp = join(dirname(path), randomUUID() + '.tmp');
+  await writeFile(temp, JSON.stringify({play_language: language, texts: merged}, null, 2));
+  await rename(temp, path);
+  return merged;
+}
+/** Which equipment entries are money rather than belongings depends on the kit, not the character. */
+function equipmentPath(home: string, language: string, equipment: string[]): string {
+  const key = createHash('sha256').update(JSON.stringify([language, equipment])).digest('hex').slice(0, 32);
+  return join(home, '.coc/character-presentations', `equipment-${language}-${key}.json`);
+}
+/**
+ * The words this round got right, whatever it got wrong.
+ *
+ * `validatePresentation` is the schema the agent's own checker runs, and it is all-or-nothing on
+ * purpose: the card may not be drawn from a partial map. That is the wrong rule for the pipeline,
+ * where one dropped key used to throw away every other correct translation in the round and, with
+ * only two rounds, turn a near-miss into a card that never appears. Accepting what validated and
+ * re-asking for the remainder costs the model a word, not the sheet.
+ */
+export function acceptedTexts(value: unknown, wanted: readonly string[]): Record<string,string> {
+  const map = (value as Row)?.texts;
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return {};
+  return Object.fromEntries(wanted.filter(text => typeof map[text] === 'string' && map[text].trim())
+    .map(text => [text, map[text] as string]));
+}
 async function prepareTexts(options:TextOptions,texts:string[]):Promise<{texts:Record<string,string>;finance_equipment:string[]}> {
   const prompt=join(options.contentRoot ?? join(root,'content'),'setup/character-presentation.md');
-  const equipment=[...new Set((options.equipment||[]).filter(value=>typeof value==='string'))].sort();
   const instructions=await readFile(prompt,'utf8');
+  const language=options.play_language;
+  // Only the card path carries a kit; a standing-name projection has no financial subset to make.
+  const wantEquipment=Array.isArray(options.equipment);
+  const equipment=[...new Set((options.equipment||[]).filter(value=>typeof value==='string'))].sort();
   const known=Object.fromEntries(Object.entries(options.known_labels||{}).filter(([key])=>texts.includes(key)));
-  const fingerprint=createHash('sha256').update(JSON.stringify([options.play_language,texts,known,instructions,equipment])).digest('hex');
-  const directory=join(options.home,'.coc/character-presentations',fingerprint),accepted=join(directory,'accepted.json');
-  try {const cached=JSON.parse(await readFile(accepted,'utf8'));return {texts:{...validatePresentation(cached,texts),...known},finance_equipment:validateFinanceEquipment(cached,equipment)}}catch{/* Missing projections are generated without modifying the card. */}
+  const vocabularyFile=vocabularyPath(options.home,language,instructions);
+  const financeFile=equipmentPath(options.home,language,equipment);
+  let vocabulary=await readVocabulary(vocabularyFile,language);
+  // Known labels are the kernel's own glossary. They were being sent to the model and then
+  // overwritten with the same values on the way back; they are context now, never a question.
+  let missing=texts.filter(text=>!known[text]&&!vocabulary[text]);
+  let finance:string[]|undefined;
+  if(!wantEquipment)finance=[];
+  else try {finance=validateFinanceEquipment(JSON.parse(await readFile(financeFile,'utf8')),equipment);}
+  catch{/* An uncached kit is asked for once, alongside whatever words are still missing. */}
+  const answer=()=>({texts:{...Object.fromEntries(texts.filter(text=>vocabulary[text]).map(text=>[text,vocabulary[text]])),...known},
+    finance_equipment:finance!});
+  if(!missing.length&&finance)return answer();
   const runner=options.runner;
   if(!runner)throw new Error('Character presentation requires its owner runtime');
-  const attempt=join(directory,'attempts',randomUUID());await mkdir(attempt,{recursive:true});
-  await writeFile(join(attempt,'texts.json'),JSON.stringify({play_language:options.play_language,texts,known_labels:known,equipment},null,2));
-  await writeFile(join(attempt,'check.mjs'),`import {readFileSync} from 'node:fs';\nimport {validatePresentation,validateFinanceEquipment} from ${JSON.stringify(runtimeEntryUrl('characterPresentation',import.meta.url))};\ntry {const packet=JSON.parse(readFileSync('texts.json','utf8'));const value=JSON.parse(readFileSync('presentation.json','utf8'));validatePresentation(value,packet.texts);validateFinanceEquipment(value,packet.equipment);console.log('Presentation valid');}catch(error){console.error(error.message);process.exitCode=1;}\n`);
-  let result:{texts:Record<string,string>;finance_equipment:string[]}|undefined;
+  const attempt=join(options.home,'.coc/character-presentations/attempts',randomUUID());await mkdir(attempt,{recursive:true});
+  await writeFile(join(attempt,'check.mjs'),`import {readFileSync} from 'node:fs';\nimport {validatePresentation,validateFinanceEquipment} from ${JSON.stringify(runtimeEntryUrl('characterPresentation',import.meta.url))};\ntry {const packet=JSON.parse(readFileSync('texts.json','utf8'));const value=JSON.parse(readFileSync('presentation.json','utf8'));validatePresentation(value,packet.texts);if(packet.finance_equipment_required)validateFinanceEquipment(value,packet.equipment);console.log('Presentation valid');}catch(error){console.error(error.message);process.exitCode=1;}\n`);
+  let failure:unknown;
   for(let round=1;round<=2;round++) {
+    await writeFile(join(attempt,'texts.json'),JSON.stringify({play_language:language,texts:missing,known_labels:known,
+      equipment,finance_equipment_required:wantEquipment&&!finance},null,2));
     const outcome=await runner({cwd:attempt,systemPrompt:prompt,model:options.model,thinking:options.thinking,signal:options.signal,eventLog:join(attempt,`events-${round}.jsonl`),timeoutMs:120000,
-      brief:'Read texts.json and write the complete player-facing text projection to presentation.json. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing.'+(round>1?' Read findings.json and repair the retained file; preserve every correct translation.':'')});
+      brief:'Read texts.json and write the player-facing text projection to presentation.json. Its "texts" object answers exactly the strings texts.json lists, which are the ones not already projected: words it does not list are already settled and must not be added. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing.'
+        +(missing.length?'':' This request lists no texts: write "texts": {} and only the financial equipment subset.')
+        +(round>1?' Read findings.json and supply exactly the entries it still names; the words already accepted are not asked again.':'')});
     if(!outcome.ok||options.signal?.aborted)throw new Error('Card presentation could not be prepared');
     const bytes=await readFile(join(attempt,'presentation.json'),'utf8');
     await writeFile(join(attempt,`presentation-round-${round}.json`),bytes);
-    try {const value=JSON.parse(bytes);result={texts:validatePresentation(value,texts),finance_equipment:validateFinanceEquipment(value,equipment)};break;}
-    catch(error){await writeFile(join(attempt,'findings.json'),JSON.stringify({error:String(error)}));if(round===2)throw error;}
+    let value:unknown;
+    try {value=JSON.parse(bytes);}
+    catch(error){failure=error;await writeFile(join(attempt,'findings.json'),JSON.stringify({error:String(error)}));continue;}
+    const accepted=acceptedTexts(value,missing);
+    if(Object.keys(accepted).length)vocabulary=await mergeVocabulary(vocabularyFile,language,accepted);
+    missing=missing.filter(text=>!vocabulary[text]);
+    if(wantEquipment&&!finance) {
+      try {
+        finance=validateFinanceEquipment(value,equipment);
+        const temp=join(dirname(financeFile),randomUUID()+'.tmp');
+        await writeFile(temp,JSON.stringify({play_language:language,equipment,finance_equipment:finance},null,2));
+        await rename(temp,financeFile);
+      } catch(error){failure=error;}
+    }
+    if(!missing.length&&finance)break;
+    failure??=new Error('Incomplete card presentation');
+    await writeFile(join(attempt,'findings.json'),JSON.stringify({error:String(failure),texts:missing,
+      finance_equipment_required:wantEquipment&&!finance},null,2));
   }
-  if(!result)throw new Error('Card presentation could not be validated');
-  const temporary=join(directory,randomUUID()+'.tmp');await writeFile(temporary,JSON.stringify(result,null,2));await rename(temporary,accepted);
-  return {...result,texts:{...result.texts,...known}};
+  if(missing.length)throw new Error(`Incomplete card presentation: ${missing.length} text${missing.length===1?'':'s'} were not projected`);
+  if(!finance)throw failure instanceof Error?failure:new Error('Invalid financial equipment projection');
+  return answer();
 }

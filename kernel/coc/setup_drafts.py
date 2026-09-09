@@ -15,6 +15,7 @@ BACKSTORY = ("personal_description", "ideology_beliefs", "significant_people",
 FIELDS = {"name", "occupation", "age", "sex", "concept", "occupation_skills", "interest_skills",
           "own_language", "backstory", "key_connection", "equipment", "weapons", "era", "aptitude"}
 APTITUDE = ("strong", "weak")
+APTITUDE_FIELDS = (*APTITUDE, "origin")
 
 @contextmanager
 def locked(campaign):
@@ -115,17 +116,18 @@ class SetupDrafts:
         if not isinstance(weapons, list) or not all(isinstance(x, str) and x in self.table.tables.weapons_table() for x in weapons):
             errors.append("weapons must use existing rulebook profile names")
         aptitude = profile.get("aptitude")
-        if aptitude is not None and (not isinstance(aptitude, dict) or set(aptitude) - set(APTITUDE)
+        if aptitude is not None and (not isinstance(aptitude, dict) or set(aptitude) - set(APTITUDE_FIELDS)
                                      or any(not isinstance(aptitude[k], list) or not all(isinstance(a, str) for a in aptitude[k])
                                             for k in APTITUDE if k in aptitude)):
-            errors.append("aptitude names the characteristics the player called notably strong or notably weak")
+            errors.append("aptitude names strong/weak characteristics and the origin that named them")
         if errors:
             raise RpcError("needs", "Complete the semantic profile without interviewing for ordinary missing details",
                            details={"issues": errors, "backstory_fields": BACKSTORY,
                                     "skills": list(skills), "language_specialty": "Language (Other: English)",
                                     "occupations": self.setup.chargen.occupations(),
                                     "aptitude": {"directions": list(APTITUDE),
-                                                 "characteristics": list(self.setup.chargen.characteristics)}})
+                                                 "characteristics": list(self.setup.chargen.characteristics),
+                                                 "origins": list((self.setup.chargen.policy.get("aptitude") or {}).get("origins") or [])}})
 
     def draft(self, params):
         campaign = self.campaign(params)

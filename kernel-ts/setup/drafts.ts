@@ -12,7 +12,7 @@ import type { Setup } from './index.js';
 import { ChargenError } from './chargen.js';
 import { BACKSTORY, completeness, nonempty } from './sheet.js';
 const FIELDS = ['name', 'occupation', 'age', 'sex', 'concept', 'occupation_skills', 'interest_skills', 'own_language', 'backstory', 'key_connection', 'equipment', 'weapons', 'era', 'aptitude'];
-const APTITUDE = ['strong', 'weak'];
+const APTITUDE = ['strong', 'weak'], APTITUDE_FIELDS = [...APTITUDE, 'origin'];
 export class SetupDrafts {
   constructor(readonly setup: Setup) {}
   async locked<T>(params: Row, action: (campaign: CampaignWriter) => Promise<T>): Promise<T> {
@@ -53,12 +53,13 @@ export class SetupDrafts {
     const weapons = Object.hasOwn(profile, 'weapons') ? profile.weapons : [], catalog = await this.setup.tables.weaponsTable();
     if (!Array.isArray(weapons) || !weapons.every(name => typeof name === 'string' && Object.hasOwn(catalog, name))) issues.push('weapons must use existing rulebook profile names');
     const aptitude = Object.hasOwn(profile, 'aptitude') ? profile.aptitude : null;
-    if (aptitude !== null && (!isJsonObject(aptitude) || Object.keys(aptitude).some(key => !APTITUDE.includes(key))
+    if (aptitude !== null && (!isJsonObject(aptitude) || Object.keys(aptitude).some(key => !APTITUDE_FIELDS.includes(key))
       || APTITUDE.some(key => Object.hasOwn(aptitude, key) && (!Array.isArray(aptitude[key]) || !aptitude[key].every((abbr: unknown) => typeof abbr === 'string')))))
-      issues.push('aptitude names the characteristics the player called notably strong or notably weak');
+      issues.push('aptitude names strong/weak characteristics and the origin that named them');
     if (issues.length) throw new RpcError('needs', 'Complete the semantic profile without interviewing for ordinary missing details', {
       details: {issues, backstory_fields: [...BACKSTORY], skills: Object.keys(skills), language_specialty: 'Language (Other: English)',
-        occupations: this.setup.chargen.occupations(), aptitude: {directions: [...APTITUDE], characteristics: this.setup.chargen.characteristics}}});
+        occupations: this.setup.chargen.occupations(), aptitude: {directions: [...APTITUDE], characteristics: this.setup.chargen.characteristics,
+          origins: [...array(row(this.setup.chargen.policy.aptitude).origins)]}}});
   }
   async draft(params: Row): Promise<Row> {
     return this.locked(params, async campaign => {

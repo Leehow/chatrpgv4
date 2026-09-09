@@ -156,12 +156,12 @@ def test_a_stated_aptitude_reaches_the_characteristics_without_new_dice(kernel):
     STR was below average, because the description could only ever reach the skills."""
     plain = begin(kernel)
     stated = kernel.ok("setup.draft", {"campaign": CAMPAIGN,
-                                       "profile": {"aptitude": {"strong": ["STR"], "weak": ["INT"]}}})
+                                       "profile": {"aptitude": {"strong": ["STR"], "weak": ["INT"], "origin": "player"}}})
     before, after = plain["sheet"]["characteristics"], stated["sheet"]["characteristics"]
     generated = stated["sheet"]["creation"]["characteristics"]
     assert generated["method"] == "rolled_pool_assignment"
     assert stated["sheet"]["creation"]["method"] == "rolled_pool_assignment"
-    assert generated["aptitude"] == {"strong": ["STR"], "weak": ["INT"]}
+    assert generated["aptitude"] == {"strong": ["STR"], "weak": ["INT"], "origin": "player"}
     initial = plain["sheet"]["creation"]["characteristics"]["values"]
     assert generated["values"]["STR"] == max(initial[a] for a in POOLS["3D6"])
     assert generated["values"]["INT"] == min(initial[a] for a in POOLS["2D6+6"])
@@ -174,7 +174,7 @@ def test_a_stated_aptitude_reaches_the_characteristics_without_new_dice(kernel):
 def test_revising_an_aptitude_keeps_this_players_own_rolls(kernel):
     plain = begin(kernel)
     initial = plain["sheet"]["creation"]["characteristics"]["values"]
-    stated = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"aptitude": {"strong": ["DEX"]}}})
+    stated = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"aptitude": {"strong": ["DEX"], "origin": "concept"}}})
     assert sorted(stated["sheet"]["creation"]["characteristics"]["values"].values()) == sorted(initial.values())
     cleared = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"aptitude": None}})
     assert cleared["sheet"]["creation"]["characteristics"] == plain["sheet"]["creation"]["characteristics"]
@@ -183,6 +183,45 @@ def test_revising_an_aptitude_keeps_this_players_own_rolls(kernel):
 
 def test_an_illegal_aptitude_is_refused_and_keeps_the_valid_draft(kernel):
     original = begin(kernel)
-    for patch in ({"strong": ["Strength"]}, {"strong": ["STR"], "weak": ["STR"]}, {"strong": "STR"}, {"muscle": ["STR"]}):
+    for patch in ({"strong": ["Strength"], "origin": "player"}, {"strong": ["STR"], "weak": ["STR"], "origin": "player"},
+                  {"strong": "STR", "origin": "player"}, {"muscle": ["STR"]}, {"strong": ["STR"]},
+                  {"strong": ["STR", "CON"], "origin": "concept"}):
         assert kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": {"aptitude": patch}})["code"] == "needs"
     assert kernel.ok("setup.steps", {"campaign": CAMPAIGN})["state"]["draft"]["revision"] == original["revision"]
+
+
+def test_the_interest_list_is_spent_in_the_order_the_player_cares_about(kernel):
+    """The other half of the same defect: a stated strength reached the characteristics
+    while its own skill stayed level with the fillers listed beside it."""
+    begin(kernel)
+    long_list = ["Fighting (Brawl)", "Throw", "First Aid", "Climb", "Library Use", "Navigate", "Swim", "Jump"]
+    front = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"interest_skills": long_list}})
+    interest = front["sheet"]["creation"]["skills"]["interest"]
+    assert interest["allocation"] == "spread"
+    assert interest["source"] == "steps.json create-investigator.interest_allocation"
+    assert interest["unspent"] == 0
+    assert front["sheet"]["skills"]["Fighting (Brawl)"] > front["sheet"]["skills"]["Jump"]
+    back = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"interest_skills": list(reversed(long_list))}})
+    assert back["sheet"]["skills"]["Jump"] > back["sheet"]["skills"]["Fighting (Brawl)"]
+    assert back["sheet"]["creation"]["skills"]["interest"]["spent"] == interest["spent"], "reordering never changes the budget"
+    assert back["sheet"]["characteristics"] == front["sheet"]["characteristics"], "and never rerolls"
+
+
+def test_a_reading_off_the_concept_is_recorded_as_a_reading(kernel):
+    """The player named nothing about the body or the mind; the model read the person they
+    did describe. That is allowed, stays inside the concept limit, and never poses as a claim."""
+    begin(kernel)
+    read = kernel.ok("setup.draft", {"campaign": CAMPAIGN,
+                                     "profile": {"aptitude": {"strong": ["EDU"], "origin": "concept"}}})
+    generated = read["sheet"]["creation"]["characteristics"]
+    assert generated["aptitude"]["origin"] == "concept"
+    assert generated["method"] == "rolled_pool_assignment"
+    assert generated["values"]["EDU"] == max(generated["values"][a] for a in POOLS["2D6+6"])
+    said = kernel.ok("setup.draft", {"campaign": CAMPAIGN,
+                                     "profile": {"aptitude": {"strong": ["EDU"], "origin": "player"}}})
+    assert said["sheet"]["characteristics"] == read["sheet"]["characteristics"], "only the licence differs"
+    assert said["sheet"]["creation"]["characteristics"]["aptitude"]["origin"] == "player"
+    over = kernel.err("setup.draft", {"campaign": CAMPAIGN,
+                                      "profile": {"aptitude": {"strong": ["EDU", "INT"], "origin": "concept"}}})
+    assert over["code"] == "needs"
+    assert kernel.ok("setup.steps", {"campaign": CAMPAIGN})["state"]["draft"]["revision"] == said["revision"]

@@ -34,19 +34,31 @@ insert another confirmation turn. Otherwise end the draft with one invitation to
 confirm or change it, not new questions. Only ask ONE clarification beyond the
 follow-up if an actual conflict with an authored module requirement prevents a
 valid draft. Missing optional background is never such a conflict.
-When the player's own words say this person is notably strong, frail, tough, sickly,
-quick, clumsy, big, slight, bright, slow, willed, weak-willed, learned, unschooled,
-striking or plain, carry that into profile.aptitude as {strong:[...],weak:[...]}
-with the characteristic abbreviations STR CON SIZ DEX APP INT POW EDU. That is your
-judgment to make from what they said; do not ask them for abbreviations. Record only
-what the player actually claimed — never an emphasis you invented, and never one
-implied by the occupation alone. Say nothing about the numbers this will produce:
-the kernel keeps this player's own rolled dice and gives the characteristics they
-called strong the best of those rolls and the ones they called weak the worst,
-within each characteristic's own dice, so a strong investigator gets the highest
-roll they actually made, which may still be an ordinary number. Read the returned
-card and describe what it holds, never what you hoped it would hold. A player who
-says nothing about the person's body or mind gets no aptitude field at all.
+When this person is notably strong, frail, tough, sickly, quick, clumsy, big,
+slight, bright, slow, willed, weak-willed, learned, unschooled, striking or plain,
+carry that into profile.aptitude as {strong:[...],weak:[...],origin} with the
+characteristic abbreviations STR CON SIZ DEX APP INT POW EDU. Reading the words
+into abbreviations is your judgment; do not ask the player for abbreviations.
+
+origin says who named it, and you may not blur the two. Use "player" only for what
+the player's own words actually claimed, and name as many as they claimed. Use
+"concept" when they said nothing about the body or the mind and you are reading the
+person they did describe — the occupation they chose, the life in their backstory,
+the way they told it. That reading is welcome; a smith who has swung a hammer for
+twenty years should not have to be told to be strong. Keep it to the one thing that
+person is most plainly built for, and at most one thing they plainly are not; the
+kernel refuses a longer inference under "concept" because the dice are still
+supposed to decide who this person turned out to be. When it is genuinely a toss-up,
+send no aptitude and let them be roll-ordered. When the player later names something
+themselves, that replaces your reading.
+
+Say nothing about the numbers any of this will produce: the kernel keeps this
+player's own rolled dice and gives the characteristics named strong the best of
+those rolls and the ones named weak the worst, within each characteristic's own
+dice, so a strong investigator gets the highest roll they actually made, which may
+still be an ordinary number. Read the returned card and describe what it holds,
+never what you hoped it would hold. Report an inference as your own reading of the
+person — never as something the player said.
 Do not ask for scars, madness, forbidden books or numerical values.
 Use module-specific public involvement, suitable professions, languages, ordinary
 belongings and personal ties. Do not invent hidden facts or promise mechanical
@@ -89,6 +101,16 @@ On unrelated occupation/skill/concept edits keep the appearance paragraph verbat
 Read the returned appearance before inviting confirmation; correct unnatural or
 unintelligible wording in the same turn if needed, retaining the intended features.
 
+Both skill lists are priority ordered, and the order is spent, not decorative: the
+kernel walks each list from the front, raising entry after entry to a usable tier
+before it starts the next tier, so a budget runs out somewhere down the list. Put
+the abilities the player actually named first in occupation_skills and first in
+interest_skills, then the ones the concept implies, and keep the interest list
+short enough that its tail still means something. Read the returned card before
+inviting confirmation: if an ability the player called defining is still sitting at
+its base value, reorder the same lists or choose different legal skills and draft
+again in this turn — do not describe the person as good at something the card says
+they are not.
 Map the occupation and skills using the tool's catalog feedback. Names like Art and
 Craft (Photography), Language (Own), Fighting (Brawl) are concrete; choose specialties,
 not generic groups or 'any skill'. For another language use Language (Other: French).
@@ -106,8 +128,9 @@ card was built, using only the returned sheet.creation trace and actual values:
   rolled characteristics here, not point-buy or quick-fire). State the dice formulas
   and multiplier with explicit parentheses: (2D6+6)*5. Distinguish generated
   values from later adjustments. When the trace records a pool assignment, say that
-  the same rolls were assigned to the aptitudes the player described, within each
-  characteristic's own dice, and name the ones that moved.
+  the same rolls were assigned to the described aptitudes, within each characteristic's
+  own dice, and name the ones that moved. Say whose reading it was: the player's own
+  words, or yours from the person they described.
 - Explain the age bracket's actual reductions and EDU improvement check results
   (before, roll, gain, after), plus Luck rolls/keep policy. State zero when no
   adjustment applies; do not imply that every EDU check grants an increase.
@@ -116,7 +139,9 @@ card was built, using only the returned sheet.creation trace and actual values:
 - Show the occupation budget formula and total, Credit Rating paid from that
   budget, remaining occupational additions, and INT-based interest points. Explain
   that skill totals combine base chance + occupational additions + interest
-  additions, with one or two concrete examples from the trace. Identify the actual
+  additions, with one or two concrete examples from the trace. Say that both budgets
+  were walked down their lists in tiers, so the entries at the front reached a usable
+  value and a tail entry may remain at its base. Identify the actual
   auto-allocation policy, chosen Credit Rating and cap as system defaults/options,
   not mandatory rulebook bonuses. Do not promise numerical overrides that setup
   does not support: the current profile edits cannot set a skill cap or Credit

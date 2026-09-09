@@ -1,7 +1,7 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { createReadStream } from 'node:fs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { HistoryEntry } from '@pipi/host-api';
 
@@ -23,8 +23,40 @@ export async function readCocBinding(sessionPath:string): Promise<CocBinding | u
   if(found)return found;
   try {return binding(JSON.parse(await readFile(sessionPath+'.coc.json','utf8')));} catch {return undefined;}
 }
-export function mechanicsEntry(row:any, language?:string): HistoryEntry | undefined {
-  if(row?.type==='custom'&&row.customType==='coc-character-draft'&&row.data?.sheet)return {id:row.id,role:'assistant',content:'',timestamp:Date.parse(row.timestamp)||0,presentation:{renderer:'coc-character-draft',details:row.data}};
+const DRAFT_PROJECTION=/^(\d+)-(.+)\.json$/;
+/**
+ * The saved text projection of every draft revision in this campaign, by revision.
+ *
+ * The pipeline already writes each card's player-facing text to disk, but the transcript row
+ * carries only the sheet, so the renderer had to go and fetch the text every time it mounted and
+ * showed its loading ellipsis until a model job answered — after a scroll, a session switch, the
+ * setup-to-play handoff or a restart, on a card that had been complete for hours. Attaching it
+ * here is the same rule the rest of this file follows: what the player already has reaches the
+ * renderer with the row, and the fetch is left for the one card that genuinely has no text yet.
+ */
+export async function draftPresentations(binding?:CocBinding): Promise<Map<number,Record<string,unknown>>> {
+  const found=new Map<number,Record<string,unknown>>();
+  if(!binding)return found;
+  const folder=join(binding.home,'.coc/campaigns',binding.campaign,'setup/presentations');
+  let names:string[];
+  try {names=await readdir(folder);} catch {return found; /* nothing has been projected yet */}
+  for(const name of names) {
+    const match=DRAFT_PROJECTION.exec(name);
+    if(!match||match[2]!==binding.play_language)continue;
+    try {
+      const saved=JSON.parse(await readFile(join(folder,name),'utf8'));
+      if(saved?.play_language===binding.play_language&&saved.texts&&typeof saved.texts==='object'&&!Array.isArray(saved.texts))
+        found.set(Number(match[1]),saved);
+    } catch { /* a half-written projection is simply not attached */ }
+  }
+  return found;
+}
+export function mechanicsEntry(row:any, language?:string, presentations?:ReadonlyMap<number,Record<string,unknown>>): HistoryEntry | undefined {
+  if(row?.type==='custom'&&row.customType==='coc-character-draft'&&row.data?.sheet) {
+    const saved=presentations?.get(Number(row.data.revision));
+    return {id:row.id,role:'assistant',content:'',timestamp:Date.parse(row.timestamp)||0,
+      presentation:{renderer:'coc-character-draft',details:saved?{...row.data,presentation:saved}:row.data}};
+  }
   if(row?.type==='custom'&&row.customType==='coc-choice'&&row.data?.kind==='story')return {id:row.id,role:'assistant',content:row.data.prompt||'',timestamp:Date.parse(row.timestamp)||0};
   if(row?.type==='custom' && row.customType==='coc-choice' && Array.isArray(row.data?.options)) {
     return {id:row.id,role:'assistant',content:'',timestamp:Date.parse(row.timestamp)||0,

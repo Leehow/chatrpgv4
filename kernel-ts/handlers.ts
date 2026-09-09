@@ -27,7 +27,15 @@ async function guardCampaign(context: KernelContext, params: JsonObject, handler
   const campaign = params.campaign;
   if (typeof campaign !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(campaign) ||
     !await context.snapshots.isFile(join(context.campaignsRoot, campaign, "campaign.json"))) return handler(params);
-  return withExclusiveLock(context.locks, join(context.stateRoot, "locks", `${campaign}.lock`), async () => handler(params));
+  return withExclusiveLock(context.locks, join(context.stateRoot, "locks", `${campaign}.lock`), async () => handler(params), {
+    timeoutMs: context.campaignLockTimeoutMs,
+    // A refusal that names the campaign and the reason is the difference between "retry when the
+    // turn holding it ends" and an internal error the caller can only shrug at.
+    timeout: () => new RpcError("internal", `another process is holding campaign ${JSON.stringify(campaign)}`, {
+      fix: "wait for the turn that holds this campaign to finish, or close the other window on it",
+      details: { reason: "campaign_locked", campaign },
+    }),
+  });
 }
 
 /** Assemble once at startup; there is no runtime registration or mutable registry. */
