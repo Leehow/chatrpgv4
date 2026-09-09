@@ -2,7 +2,7 @@ import {expect,it,vi} from 'vitest';
 import {mkdtemp,mkdir,writeFile,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
-import {draftPresentations,laneProjection,laneWords,mechanicsEntry,readCocBinding,readColdSheet} from '../src/coc-view.js';
+import {cocContentRoot,cocUiWords,draftPresentations,laneLabels,laneProjection,laneWords,mechanicsEntry,readCocBinding,readColdSheet} from '../src/coc-view.js';
 import {KernelClient} from '../../../../extensions/kernel/client.js';
 
 it('projects only public rows with stable identity and language',()=>{
@@ -47,6 +47,9 @@ it('cold host sheet reads are tied to the requested session and never start Pi',
     expect(spawns).toBe(0);
     const anonymous=await backend.handle('invokeExtension',['coc-keeper','sheet',{}]) as any;
     expect(anonymous).toMatchObject({ok:true,data:{status:'unbound'}});
+    // An unbound answer says which words the panel should draw, so it never guesses a language.
+    expect(result.data.ui.tag).toBe('zh-Hans');
+    expect(anonymous.data.ui.tag).toBe('zh-Hans');
     const catalog=await backend.handle('invokeExtension',['coc-keeper','onboarding',{action:'catalog'}, {sessionId:first.id}]) as any;
     expect(catalog.ok).toBe(true);
     const mods=await backend.handle('invokeExtension',['coc-keeper','mods.list',{campaign:'must-not-be-guessed'}, {sessionId:first.id}]) as any;
@@ -164,6 +167,63 @@ it('lane words come from the built presenter, and each saved projection says wha
   expect((await laneProjection(context,'possessions',words)).missing).toEqual(words);
 });
 
+/** A content root of this build's own shape, so a test never depends on the words that ship. */
+async function words():Promise<string> {
+  const root=await mkdtemp(join(tmpdir(),'coc-ui-words-'));
+  await writeFile(join(root,'languages.json'),JSON.stringify({default:'zz',languages:{zz:{autonym:'Zz'},en:{autonym:'English'}}}));
+  for(const tag of ['zz','en']) {
+    await mkdir(join(root,'ui',tag),{recursive:true});
+    await writeFile(join(root,'ui',tag,'sheet.json'),JSON.stringify({clues:`${tag} clues`}));
+  }
+  return root;
+}
+
+it('the chrome reads its words for the tag it is given, the data default for one it is not',async()=>{
+  const repo=resolve(import.meta.dirname,'../../../..'),root=await words();
+  expect(cocContentRoot(repo,{},{})).toBe(join(repo,'content'));
+  expect(cocContentRoot(repo,{},{PI_COC_CONTENT_ROOT:'/chosen/content'})).toBe('/chosen/content');
+  expect(cocContentRoot(repo,{contentRoot:'/packaged/content'},{PI_COC_CONTENT_ROOT:'/chosen/content'})).toBe('/packaged/content');
+  const own=await cocUiWords(repo,root,'en');
+  expect(own?.tag).toBe('en');
+  expect(own?.words.sheet.clues).toBe('en clues');
+  // A tag this build does not declare reads as the default; no host invents one.
+  const unknown=await cocUiWords(repo,root,'ww');
+  expect(unknown?.tag).toBe('zz');
+  expect(unknown?.words.sheet.clues).toBe('zz clues');
+  // A content root with nothing to read is not a failed answer: there is simply no `ui`.
+  expect(await cocUiWords(repo,await mkdtemp(join(tmpdir(),'coc-no-words-')),'en')).toBeUndefined();
+});
+
+it('a card reads the campaign words the sheet reads, with the kernel glossary on top',async()=>{
+  const home=await mkdtemp(join(tmpdir(),'coc-card-words-'));
+  const context={campaign:'c1',home,play_language:'zh-Hans'};
+  expect(await laneLabels(context)).toEqual({});
+  const folder=join(home,'.coc/campaigns/c1/setup/presentations');await mkdir(folder,{recursive:true});
+  await writeFile(join(folder,'standing-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:{Office:'办公室'}}));
+  await writeFile(join(folder,'possessions-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:{intact:'完好','Spot Hidden':'不是这个'}}));
+  await writeFile(join(folder,'clues-zh-Hans.json'),JSON.stringify({play_language:'zh-Hans',texts:{'blood-pool':'血泊'}}));
+  // Another language's lane is another campaign's vocabulary as far as this binding is concerned.
+  await writeFile(join(folder,'clues-en.json'),JSON.stringify({play_language:'en',texts:{'blood-pool':'must not be read'}}));
+  const lanes=await laneLabels(context);
+  expect(lanes).toEqual({Office:'办公室',intact:'完好','Spot Hidden':'不是这个','blood-pool':'血泊'});
+  const ui={tag:'zh-Hans',words:{mechanics:{roll:'检定'}}};
+  const row={type:'custom',id:'rolled',customType:'coc-mechanics',data:{turn:3,labels:{'Spot Hidden':'侦查'},
+    mechanics:[{kind:'roll',skill:'Spot Hidden',roll:25,target:50}]}};
+  const details=mechanicsEntry(row,'zh-Hans',undefined,{lanes,ui})!.presentation!.details as any;
+  expect(details.labels).toEqual({Office:'办公室',intact:'完好','Spot Hidden':'侦查','blood-pool':'血泊'});
+  expect(details.ui).toEqual(ui);
+  // A choice and a draft card draw from the same words, and a draft's own projection sits between.
+  const choice=mechanicsEntry({type:'custom',id:'asked',customType:'coc-choice',data:{options:['run','hide']}},'zh-Hans',undefined,{lanes,ui})!;
+  expect((choice.presentation!.details as any).labels).toEqual(lanes);
+  expect((choice.presentation!.details as any).ui).toEqual(ui);
+  const saved=new Map([[1,{play_language:'zh-Hans',texts:{Office:'不是这个',Parameter:'参数'}}]]);
+  const draft=mechanicsEntry({type:'custom',id:'drawn',customType:'coc-character-draft',data:{revision:1,sheet:{},labels:{'Spot Hidden':'侦查'}}},'zh-Hans',saved,{lanes,ui})!;
+  expect((draft.presentation!.details as any).labels).toEqual({Office:'不是这个',Parameter:'参数',intact:'完好','Spot Hidden':'侦查','blood-pool':'血泊'});
+  expect((draft.presentation!.details as any).ui).toEqual(ui);
+  // No words at all is a card with no `ui` key, never a card in some other language.
+  expect((mechanicsEntry(row,'zh-Hans')!.presentation!.details as any).ui).toBeUndefined();
+});
+
 it('a bound sheet read merges every lane\'s saved words under the kernel glossary and starts no run for a sheet that lacks nothing',async()=>{
   const {cp}=await import('node:fs/promises');
   const {createPiHostBackend}=await import('../src/index.js');
@@ -189,5 +249,18 @@ it('a bound sheet read merges every lane\'s saved words under the kernel glossar
     expect(result.data.view.labels[summary]).toBe('科比特能让地板、天花板或墙上渗出血泊，把闯入者吓离他的秘密。');
     expect(result.data.view.labels['Spot Hidden']).toBe('侦查');
     expect((backend as any).cocLaneJobs.size).toBe(0);
+    // Every sheet answer carries the words the panel draws it with (contract §23).
+    expect(result.data.ui.tag).toBe('zh-Hans');
+    expect(result.data.ui.words).toBeTypeOf('object');
+    // A binding whose campaign is gone is a coded refusal, not prose the player has to read.
+    const orphan=await backend.handle('newSession',[projects[0].id]) as any;
+    const missing=await (backend as any).locate(orphan.id);
+    await writeFile(missing.path+'.coc.json',JSON.stringify({campaign:'never-created',home:root,play_language:'en'}));
+    const failed=await backend.handle('invokeExtension',['coc-keeper','sheet',{}, {sessionId:orphan.id}]) as any;
+    expect(failed.data.status).toBe('error');
+    expect(typeof failed.data.code).toBe('string');
+    expect(failed.data.code).not.toBe('');
+    expect(failed.data.reason).toBeTruthy();
+    expect(failed.data.ui.tag).toBe('en');
   } finally {await backend.close();}
 },40000);

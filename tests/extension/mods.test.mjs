@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
-import {mkdir, mkdtemp, readFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import modsExtension from '../../extensions/mods/index.ts';
@@ -60,6 +60,38 @@ test('the panel adapter binds mutations to its own campaign and ignores supplied
       {ok:false,error:{code:'revision_conflict',message:'Paper changed'}});
     pi.events.emit('coc:kernel-bridge',{call:async()=>({})});
     await assert.rejects(()=>handlers.get('mods.configure')({id:'natural-npc',enabled:true}),/Select a campaign/);
+  } finally {globalThis[symbol]=prior;}
+});
+
+test('a Mods answer carries the session language words, and its refusals carry codes', async () => {
+  const symbol=Symbol.for('pipiui.ext-invoke.registry');
+  const prior=globalThis[symbol];
+  const handlers=new Map();
+  globalThis[symbol]={version:1,register(_id,method,handler){handlers.set(method,handler);return()=>{};}};
+  try {
+    const contentRoot=await mkdtemp(join(tmpdir(),'coc-mods-words-'));
+    await writeFile(join(contentRoot,'languages.json'),JSON.stringify({default:'zz',
+      languages:{zz:{autonym:'Zz'},en:{autonym:'English'}}}));
+    for(const tag of ['zz','en']) {
+      await mkdir(join(contentRoot,'ui',tag),{recursive:true});
+      await writeFile(join(contentRoot,'ui',tag,'mods.json'),JSON.stringify({install:`${tag} install`}));
+    }
+    const pi=piSurface();
+    registerModsPanel(pi);
+    // No runtime yet: the panel is told the game runtime is not ready, by code.
+    const cold=await handlers.get('mods.list')({}).then(()=>undefined,error=>error);
+    assert.equal(cold.code,'runtime_unavailable');
+    pi.events.emit('coc:kernel-bridge',{campaign:'selected',runtime:{contentRoot},call:async()=>({mods:[]})});
+    const listed=await handlers.get('mods.list')({});
+    assert.deepEqual(listed.mods,[]);
+    assert.equal(listed.ui.tag,'zz');
+    assert.equal(listed.ui.words.mods.install,'zz install');
+    pi.events.emit('coc:table-open',{campaign:'selected',open:{campaign:{play_language:'en'}}});
+    assert.equal((await handlers.get('mods.list')({})).ui.words.mods.install,'en install');
+    assert.throws(()=>handlers.get('mods.install')(['not','an','object']),{code:'invalid_params'});
+    pi.events.emit('coc:kernel-bridge',{runtime:{contentRoot},call:async()=>({})});
+    const unbound=await handlers.get('mods.configure')({id:'natural-npc',enabled:true}).then(()=>undefined,error=>error);
+    assert.equal(unbound.code,'campaign_unbound');
   } finally {globalThis[symbol]=prior;}
 });
 
