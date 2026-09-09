@@ -247,15 +247,14 @@ export default function (pi: ExtensionAPI) {
 	let bridge: ((method: string, params: Record<string, unknown>) => Promise<unknown>) | undefined;
 
 	/**
-	 * Draw a line once the captions are in hand. Reading `content/ui/` is a file read, so a line
-	 * that used to be painted inside the event handler is painted one microtask later; the surface
-	 * hands back the same settled promise after the first read, so the bus order is kept. A content
-	 * root that cannot be read leaves the line as it was rather than throwing into the bus.
+	 * Draw a line with the captions in hand, inside the event that carries the fact. The surface reads
+	 * `content/ui/` once per tag without yielding: a line that waited for a file read landed after the
+	 * turn it described, and a fast turn never showed it. A content root that cannot be read draws the
+	 * keys rather than throwing into the bus.
 	 */
 	function withWords(draw: (words: ExtensionWords) => void): void {
-		void surface.words().then(draw).catch(() => {
-			/* one status line is never worth an exception */
-		});
+		try { draw(surface.wordsNow()); }
+		catch { /* one status line is never worth an exception */ }
 	}
 
 	/** The workspace root (`PI_COC_HOME`, contract §20.7); undefined before the session starts. */

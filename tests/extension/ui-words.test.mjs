@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { loadPlayLanguages, loadUiWords, playLanguageTag } from "../../runtime/ui-words.ts";
+import { loadPlayLanguages, loadPlayLanguagesSync, loadUiWords, loadUiWordsSync, playLanguageTag } from "../../runtime/ui-words.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -62,4 +62,11 @@ test("the shipped languages each carry every surface and every key the default l
 			for (const [key, value] of Object.entries(own)) assert.ok(typeof value === "string" && value.trim(), `content/ui/${tag}/${name}: ${key} is a word`);
 		}
 	}
+});
+
+test("the synchronous reader answers exactly what the asynchronous one does, for a caller inside a bus event", async () => {
+	const root = await fixture();
+	assert.deepEqual(loadPlayLanguagesSync(root), await loadPlayLanguages(root));
+	for (const tag of ["aa", "bb", "zz", undefined]) assert.deepEqual(loadUiWordsSync(root, tag), await loadUiWords(root, tag), `tag ${tag}`);
+	assert.throws(() => loadUiWordsSync(join(root, "absent"), "aa"), /ENOENT/, "a content root without languages.json is an error, not an empty answer");
 });

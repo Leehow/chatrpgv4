@@ -13,6 +13,7 @@
  * nothing. The guard test pins every language to the default's key set, so that fallback is a
  * safety net, not a way of shipping a language.
  */
+import { readdirSync, readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -23,8 +24,7 @@ export interface UiWords { tag: string; words: Record<string, Record<string, str
 const LANGUAGES = "languages.json";
 const UI = "ui";
 
-export async function loadPlayLanguages(contentRoot: string): Promise<PlayLanguages> {
-	const raw = JSON.parse(await readFile(join(contentRoot, LANGUAGES), "utf8"));
+function parseLanguages(raw: any): PlayLanguages {
 	const languages: Record<string, PlayLanguage> = {};
 	for (const [tag, row] of Object.entries(raw?.languages ?? {})) {
 		if (!row || typeof row !== "object") continue;
@@ -36,10 +36,28 @@ export async function loadPlayLanguages(contentRoot: string): Promise<PlayLangua
 	return { default: fallback, languages };
 }
 
+export async function loadPlayLanguages(contentRoot: string): Promise<PlayLanguages> {
+	return parseLanguages(JSON.parse(await readFile(join(contentRoot, LANGUAGES), "utf8")));
+}
+
+/** The same declaration read without yielding: for a caller inside an event handler that must not fall behind the bus. */
+export function loadPlayLanguagesSync(contentRoot: string): PlayLanguages {
+	return parseLanguages(JSON.parse(readFileSync(join(contentRoot, LANGUAGES), "utf8")));
+}
+
 /** The tag itself when it is a play language, else the default: a caller never invents a tag. */
 export async function playLanguageTag(contentRoot: string, tag: unknown): Promise<string> {
 	const known = await loadPlayLanguages(contentRoot);
 	return typeof tag === "string" && known.languages[tag] ? tag : known.default;
+}
+
+function parseSurface(tag: string, name: string, text: string): Record<string, string> {
+	let raw: unknown;
+	try { raw = JSON.parse(text); }
+	catch (error) { throw new Error(`content/ui/${tag}/${name} is not a JSON object: ${error instanceof Error ? error.message : String(error)}`); }
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`content/ui/${tag}/${name} is not a JSON object`);
+	return Object.fromEntries(Object.entries(raw as Record<string, unknown>)
+		.filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 }
 
 async function readSurfaces(contentRoot: string, tag: string): Promise<Record<string, Record<string, string>>> {
@@ -48,16 +66,26 @@ async function readSurfaces(contentRoot: string, tag: string): Promise<Record<st
 	try { names = (await readdir(folder)).filter(name => name.endsWith(".json")).sort(); }
 	catch { return {}; }
 	const words: Record<string, Record<string, string>> = {};
-	for (const name of names) {
-		const surface = name.slice(0, -5);
-		let raw: unknown;
-		try { raw = JSON.parse(await readFile(join(folder, name), "utf8")); }
-		catch (error) { throw new Error(`content/ui/${tag}/${name} is not a JSON object: ${error instanceof Error ? error.message : String(error)}`); }
-		if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`content/ui/${tag}/${name} is not a JSON object`);
-		words[surface] = Object.fromEntries(Object.entries(raw as Record<string, unknown>)
-			.filter((entry): entry is [string, string] => typeof entry[1] === "string"));
-	}
+	for (const name of names) words[name.slice(0, -5)] = parseSurface(tag, name, await readFile(join(folder, name), "utf8"));
 	return words;
+}
+
+function readSurfacesSync(contentRoot: string, tag: string): Record<string, Record<string, string>> {
+	const folder = join(contentRoot, UI, tag);
+	let names: string[];
+	try { names = readdirSync(folder).filter(name => name.endsWith(".json")).sort(); }
+	catch { return {}; }
+	const words: Record<string, Record<string, string>> = {};
+	for (const name of names) words[name.slice(0, -5)] = parseSurface(tag, name, readFileSync(join(folder, name), "utf8"));
+	return words;
+}
+
+function mergeSurfaces(known: PlayLanguages, tag: unknown, base: Record<string, Record<string, string>>, own: Record<string, Record<string, string>>): UiWords {
+	const wanted = typeof tag === "string" && known.languages[tag] ? tag : known.default;
+	const words: Record<string, Record<string, string>> = {};
+	for (const surface of new Set([...Object.keys(base), ...Object.keys(own)]))
+		words[surface] = { ...(base[surface] ?? {}), ...(own[surface] ?? {}) };
+	return { tag: wanted, words };
 }
 
 /** Every surface's words for `tag`, each key filled from the default language when `tag` lacks it. */
@@ -65,9 +93,17 @@ export async function loadUiWords(contentRoot: string, tag: unknown): Promise<Ui
 	const known = await loadPlayLanguages(contentRoot);
 	const wanted = typeof tag === "string" && known.languages[tag] ? tag : known.default;
 	const base = await readSurfaces(contentRoot, known.default);
-	const own = wanted === known.default ? base : await readSurfaces(contentRoot, wanted);
-	const words: Record<string, Record<string, string>> = {};
-	for (const surface of new Set([...Object.keys(base), ...Object.keys(own)]))
-		words[surface] = { ...(base[surface] ?? {}), ...(own[surface] ?? {}) };
-	return { tag: wanted, words };
+	return mergeSurfaces(known, wanted, base, wanted === known.default ? base : await readSurfaces(contentRoot, wanted));
+}
+
+/**
+ * The same words read without yielding. An extension that paints a status line inside a bus event
+ * cannot wait for a file: by the time a read resolves the turn may be over and the line lost. The
+ * files are small and read once per tag; a host that can wait uses `loadUiWords`.
+ */
+export function loadUiWordsSync(contentRoot: string, tag: unknown): UiWords {
+	const known = loadPlayLanguagesSync(contentRoot);
+	const wanted = typeof tag === "string" && known.languages[tag] ? tag : known.default;
+	const base = readSurfacesSync(contentRoot, known.default);
+	return mergeSurfaces(known, wanted, base, wanted === known.default ? base : readSurfacesSync(contentRoot, wanted));
 }

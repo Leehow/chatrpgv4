@@ -13,7 +13,7 @@
  */
 import { join, resolve } from "node:path";
 import { resourceRootFrom } from "../../runtime/deployment.mjs";
-import { loadUiWords, type UiWords } from "../../runtime/ui-words.ts";
+import { loadUiWords, loadUiWordsSync, type UiWords } from "../../runtime/ui-words.ts";
 
 /** The surface these captions live on; every other surface belongs to a renderer. */
 const SURFACE = "extension";
@@ -65,6 +65,12 @@ export interface ExtensionSurface {
 	speak(tag: unknown): void;
 	/** This extension's captions, read once per tag and re-read when the campaign's language changes. */
 	words(): Promise<ExtensionWords>;
+	/**
+	 * The same captions without yielding, for a line painted inside a bus event: a status line that
+	 * waited for a file read used to land after the turn it described. A content root that cannot be
+	 * read answers with the keys themselves, and the next call reads again.
+	 */
+	wordsNow(): ExtensionWords;
 }
 
 /**
@@ -75,11 +81,18 @@ export interface ExtensionSurface {
 export function extensionSurface(contentRoot?: string): ExtensionSurface {
 	let requested: unknown;
 	let pending: Promise<ExtensionWords> | undefined;
+	let settled: ExtensionWords | undefined;
 	return {
 		speak(tag: unknown): void {
 			if (tag === requested) return;
 			requested = tag;
 			pending = undefined;
+			settled = undefined;
+		},
+		wordsNow(): ExtensionWords {
+			if (settled) return settled;
+			try { return (settled = surface(loadUiWordsSync(extensionContentRoot(contentRoot), requested))); }
+			catch { return { tag: typeof requested === "string" ? requested : "", word: (key) => key, line: (key, values) => fill(key, values) }; }
 		},
 		words(): Promise<ExtensionWords> {
 			return (pending ??= extensionWords(requested, contentRoot).catch((error) => {
