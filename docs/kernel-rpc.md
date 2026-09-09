@@ -2372,6 +2372,14 @@ Multiple audit contributions are combined into one tool-enabled read of the draf
 findings are returned before delivery. Previously accepted same-name definitions
 are reused, while a definition cannot shadow an existing rulebook spell.
 
+A `mod_narrative_repair` refusal projects its validated `missing` objects and
+`findings` (each reason and fix) into the model-visible tool result body as JSON,
+as well as retaining the structured error details for the interface. The Keeper
+must receive the actionable repair, not only the generic retry instruction.
+Repairing the unpublished draft does not reroll settled actions or change the
+authority of the audit. This closes the missing-feedback seam observed during
+the runtime-consolidation visible acceptance.
+
 ### Packages, activation and upgrade
 
 Enhanced Items 1.0.1 requires `weapons.profile.v2`: non-applicable range and
