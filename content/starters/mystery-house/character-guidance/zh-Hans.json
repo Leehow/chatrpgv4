@@ -1,0 +1,14 @@
+{
+  "module_id": "mystery-house",
+  "play_language": "zh-Hans",
+  "graph_sha256": "3a73e34cf7aedcdb3cf95c693c528f42b7afb617175b51597ec8a47376e554b1",
+  "fingerprint": "260a5146029a17815d39363b27a70f150fea4f367d1e457588038b7a67566000",
+  "approved": true,
+  "guidance": {
+    "opening": "秋日波士顿，一九二〇年。霍华德·克兰的事务所里烟草味混着陈旧木板的气味，窗玻璃上映着街车驶过的影子。房东本人坐在堆满租约与钥匙圈的书桌后，袖口沾着粉笔灰，把一叠报纸往旁一推。\n\n「我是霍华德·克兰。外头那栋谁也不肯再租的房子——街坊叫它克罗屋。上一户科斯塔家走了，人进了疯人院。我按日给钱，想找人去看看那地方到底怎么回事，才让你进这门。」他抬眼打量来人，手指敲了敲桌面。「那么——你是谁？平时做什么营生？」",
+    "advice": "1920s Boston investigator. Use only listed occupation names. Strong public fits: Journalist, Private Investigator, Lawyer, Police Detective, Police Officer, Librarian, Professor, Antiquarian, Author, Parapsychologist, Doctor of Medicine, Clergy. Library Use, History, Law, Credit Rating, Persuade, Fast Talk, Spot Hidden, Listen, Occult, Latin or Italian can help paper trails and tenants without inventing numbers. Era kit: notebook, press card, modest revolver if the occupation supports it, streetcar fare, overcoat—do not start with house keys or Crane’s cash. Optional ties: knew a Costa, wrote about haunted rentals, or owes a landlord a favor. Keep Crane’s daily fee and keys unaccepted until after identity is set. Distinguishing rumor (neighbors, asylum) from unproven causes. Optional motivation questions only, not a questionnaire.",
+    "scene": "Howard Crane's Office",
+    "guide": "Howard Crane",
+    "handoff": "The visitor is in Howard Crane’s Boston office in autumn 1920. Crane has stated he is the landlord of the unlettable Crowe House, that the Costas left for an asylum, and that he pays by the day, then asked who the visitor is and what work they do. Identity has not been settled; no commission has been accepted and no keys, cash, or other items have been taken. Continue the identity conversation in that office."
+  }
+}

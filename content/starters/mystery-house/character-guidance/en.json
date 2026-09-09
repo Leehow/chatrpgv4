@@ -1,0 +1,14 @@
+{
+  "module_id": "mystery-house",
+  "play_language": "en",
+  "graph_sha256": "3a73e34cf7aedcdb3cf95c693c528f42b7afb617175b51597ec8a47376e554b1",
+  "fingerprint": "f066a9d2c4aa57205e1c6740d26429673f659379c5499b40da004be2b3c048a8",
+  "approved": true,
+  "guidance": {
+    "opening": "Autumn light slants through dusty glass in Howard Crane's Boston office. Ledgers and a ring of unlabeled keys sit on the blotter; coal smoke and typewriter oil hang in the air. Crane, a landlord in a rumpled waistcoat, drums his fingers, then looks up.\n\n\"Sit. I'm Howard Crane. I've a house nobody will re-let—neighbors call it Crowe House. Last tenants, the Costas, packed for an asylum. I need someone who can look into why it sits empty.\" He spreads his hands, waiting. \"So—who are you, and what work do you do?\"",
+    "advice": "1920s Boston investigator. Prefer listed occupations that fit the era and a landlord's public hire: Journalist, Private Investigator, Police Detective, Police Officer, Lawyer, Librarian, Professor, Author, Antiquarian, Doctor of Medicine, Parapsychologist, Clergy, Engineer, Dilettante. Hacker is listed but clashes with 1920; skip unless the table insists. Useful skills: Library Use, History, Law, Persuade, Spot Hidden, Listen, Occult (optional rumor-level only), Fast Talk, Credit Rating for offices. Languages: English; Latin or Italian can help later records or immigrant tenants—optional, not required. Belongings: notebook, press card or PI license, modest cash, overcoat, flashlight, hat—no house keys or advance pay yet. Public involvement: Crane wants the empty Crowe House understood so it can be let again after the Costas left for an asylum; day rate is rumor until he actually hires. Optional ties: prior reporting on tenements, a cousin in Roxbury, curiosity about haunted rentals—keep them player-chosen, not module facts. Do not invent numbers. Use the existing setup tool for the card.",
+    "scene": "Howard Crane's Office",
+    "guide": "Howard Crane",
+    "handoff": "The visitor is in Howard Crane's office in autumn 1920 Boston. Crane has explained he is the landlord of a house neighbors call Crowe House that will not re-let after the Costas left for an asylum, and he has asked who the visitor is and what work they do. Identity is not settled; no commission has been accepted and no keys, money, or address have been taken. Continue the identity conversation there."
+  }
+}
