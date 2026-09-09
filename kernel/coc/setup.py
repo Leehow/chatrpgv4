@@ -278,9 +278,11 @@ class SetupMethods:
             raise invalid_params("params.seed must be an integer or string")
         seed = str(seed)
         allocation = params.get("allocation")
-        if allocation is not None and not isinstance(allocation, str):
-            raise unsupported_value("allocation", allocation, ALLOCATION_POLICIES,
-                                    message="params.allocation must be a policy name from the steps table")
+        interest_allocation = params.get("interest_allocation")
+        for field, value in (("allocation", allocation), ("interest_allocation", interest_allocation)):
+            if value is not None and not isinstance(value, str):
+                raise unsupported_value(field, value, ALLOCATION_POLICIES,
+                                        message=f"params.{field} must be a policy name from the steps table")
         module_id = str(meta["module_id"])
         from .library import module_era as era_of_module  # local: keep this module free of graph imports at load
         module_era = None
@@ -304,7 +306,7 @@ class SetupMethods:
             sheet, receipt = self.chargen.build(investigator_id=investigator_id, name=name,
                                                 occupation_id=params.get("occupation"), concept=concept,
                                                 age=age, sex=sex, method=method, seed=seed, era=era,
-                                                allocation=allocation)
+                                                allocation=allocation, interest_allocation=interest_allocation)
         except ChargenError as exc:
             if exc.stage == "occupation":
                 raise RpcError("needs", str(exc), fix="call setup.occupations and pass one of its ids",

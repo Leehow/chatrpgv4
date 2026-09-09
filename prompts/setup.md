@@ -89,6 +89,16 @@ On unrelated occupation/skill/concept edits keep the appearance paragraph verbat
 Read the returned appearance before inviting confirmation; correct unnatural or
 unintelligible wording in the same turn if needed, retaining the intended features.
 
+Both skill lists are priority ordered, and the order is spent, not decorative: the
+kernel walks each list from the front, raising entry after entry to a usable tier
+before it starts the next tier, so a budget runs out somewhere down the list. Put
+the abilities the player actually named first in occupation_skills and first in
+interest_skills, then the ones the concept implies, and keep the interest list
+short enough that its tail still means something. Read the returned card before
+inviting confirmation: if an ability the player called defining is still sitting at
+its base value, reorder the same lists or choose different legal skills and draft
+again in this turn — do not describe the person as good at something the card says
+they are not.
 Map the occupation and skills using the tool's catalog feedback. Names like Art and
 Craft (Photography), Language (Own), Fighting (Brawl) are concrete; choose specialties,
 not generic groups or 'any skill'. For another language use Language (Other: French).
@@ -116,7 +126,9 @@ card was built, using only the returned sheet.creation trace and actual values:
 - Show the occupation budget formula and total, Credit Rating paid from that
   budget, remaining occupational additions, and INT-based interest points. Explain
   that skill totals combine base chance + occupational additions + interest
-  additions, with one or two concrete examples from the trace. Identify the actual
+  additions, with one or two concrete examples from the trace. Say that both budgets
+  were walked down their lists in tiers, so the entries at the front reached a usable
+  value and a tail entry may remain at its base. Identify the actual
   auto-allocation policy, chosen Credit Rating and cap as system defaults/options,
   not mandatory rulebook bonuses. Do not promise numerical overrides that setup
   does not support: the current profile edits cannot set a skill cap or Credit

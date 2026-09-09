@@ -186,3 +186,20 @@ def test_an_illegal_aptitude_is_refused_and_keeps_the_valid_draft(kernel):
     for patch in ({"strong": ["Strength"]}, {"strong": ["STR"], "weak": ["STR"]}, {"strong": "STR"}, {"muscle": ["STR"]}):
         assert kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": {"aptitude": patch}})["code"] == "needs"
     assert kernel.ok("setup.steps", {"campaign": CAMPAIGN})["state"]["draft"]["revision"] == original["revision"]
+
+
+def test_the_interest_list_is_spent_in_the_order_the_player_cares_about(kernel):
+    """The other half of the same defect: a stated strength reached the characteristics
+    while its own skill stayed level with the fillers listed beside it."""
+    begin(kernel)
+    long_list = ["Fighting (Brawl)", "Throw", "First Aid", "Climb", "Library Use", "Navigate", "Swim", "Jump"]
+    front = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"interest_skills": long_list}})
+    interest = front["sheet"]["creation"]["skills"]["interest"]
+    assert interest["allocation"] == "spread"
+    assert interest["source"] == "steps.json create-investigator.interest_allocation"
+    assert interest["unspent"] == 0
+    assert front["sheet"]["skills"]["Fighting (Brawl)"] > front["sheet"]["skills"]["Jump"]
+    back = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"interest_skills": list(reversed(long_list))}})
+    assert back["sheet"]["skills"]["Jump"] > back["sheet"]["skills"]["Fighting (Brawl)"]
+    assert back["sheet"]["creation"]["skills"]["interest"]["spent"] == interest["spent"], "reordering never changes the budget"
+    assert back["sheet"]["characteristics"] == front["sheet"]["characteristics"], "and never rerolls"

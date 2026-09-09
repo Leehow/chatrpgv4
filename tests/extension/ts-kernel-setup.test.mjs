@@ -118,3 +118,58 @@ test('stated-aptitude assignment matches the Python oracle roll for roll', async
     } finally { await context.git.close(); }
   } finally { await rm(temporary, {recursive: true, force: true}); }
 });
+
+test('both kernels allocate the same skill points for either interest policy', async () => {
+  const temporary = await mkdtemp(join(tmpdir(), 'pi-coc-setup-interest-'));
+  const OPTIONS = {
+    occupation_id: 'Farmer', seed: 'interest-parity', era: '1920s', age: 34, method: 'rolled',
+    occupation_skills: ['Spot Hidden', 'Listen', 'Track', 'Natural World', 'Mechanical Repair', 'Drive Auto', 'Intimidate', 'Operate Heavy Machinery'],
+    interest_skills: ['Fighting (Brawl)', 'Throw', 'First Aid', 'Climb', 'Library Use', 'Navigate', 'Swim', 'Jump'],
+  };
+  const CASES = [null, 'spread', 'fill'];
+  try {
+    await build({stdin: {contents: [
+      "export {RuleTables} from './kernel-ts/rules/tables.ts';",
+      "export {createKernelContext} from './kernel-ts/context.ts';",
+      "export {canonicalJson} from './kernel-ts/json.ts';",
+      "export {Chargen} from './kernel-ts/setup/chargen.ts';",
+    ].join('\n'), resolveDir: REPO, sourcefile: 'setup-interest-test.ts'}, outfile: join(temporary, 'interest.mjs'),
+      bundle: true, format: 'esm', platform: 'node', target: 'node22', logLevel: 'silent'});
+    const api = await import(pathToFileURL(join(temporary, 'interest.mjs')).href);
+    const oracle = spawnSync('uv', ['run', '--frozen', 'python', '-c', [
+      'import json, sys',
+      'from pathlib import Path',
+      'sys.path.insert(0, "kernel")',
+      'from coc.rules.tables import RuleTables',
+      'from coc.chargen import Chargen',
+      'from coc.fileio import canonical_json',
+      'steps = json.loads(Path("content/setup/steps.json").read_text(encoding="utf-8"))',
+      'policy = next(s for s in steps["steps"] if s["id"] == "create-investigator")',
+      'chargen = Chargen(RuleTables(Path("content/rulesets/coc7/rules-json")), policy)',
+      `data = json.loads(${JSON.stringify(JSON.stringify({options: OPTIONS, cases: CASES}))})`,
+      'output = []',
+      'for case in data["cases"]:',
+      '    sheet, receipt = chargen.build(investigator_id="a", name="A", concept=None, sex=None,',
+      '                                   interest_allocation=case, **data["options"])',
+      '    output.append({"case": case, "skills": canonical_json(sheet["skills"]),',
+      '                   "interest": canonical_json(sheet["creation"]["skills"]["interest"]),',
+      '                   "receipt": canonical_json(receipt["interest_allocation"])})',
+      'print(json.dumps(output))',
+    ].join('\n')], {cwd: REPO, encoding: 'utf8', timeout: 30000});
+    assert.equal(oracle.error, undefined);
+    assert.equal(oracle.status, 0, oracle.stderr);
+    const context = await api.createKernelContext({workspace: temporary, content: join(REPO, 'content'), seed: 'interest-proof'});
+    try {
+      const steps = JSON.parse(await readFile(join(REPO, 'content/setup/steps.json'), 'utf8'));
+      const chargen = await api.Chargen.create(new api.RuleTables(context), steps.steps.find(step => step.id === 'create-investigator'));
+      for (const expected of JSON.parse(oracle.stdout)) {
+        const [sheet, receipt] = await chargen.build({investigatorId: 'a', name: 'A', concept: null, sex: null,
+          occupationId: OPTIONS.occupation_id, seed: OPTIONS.seed, era: OPTIONS.era, age: OPTIONS.age, method: OPTIONS.method,
+          occupationSkills: OPTIONS.occupation_skills, interestSkills: OPTIONS.interest_skills, interestAllocation: expected.case});
+        assert.equal(api.canonicalJson(sheet.skills), expected.skills, `skills for ${expected.case}`);
+        assert.equal(api.canonicalJson(sheet.creation.skills.interest), expected.interest, `interest ledger for ${expected.case}`);
+        assert.equal(api.canonicalJson(receipt.interest_allocation), expected.receipt, `receipt for ${expected.case}`);
+      }
+    } finally { await context.git.close(); }
+  } finally { await rm(temporary, {recursive: true, force: true}); }
+});

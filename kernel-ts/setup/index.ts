@@ -72,9 +72,10 @@ export class Setup {
     if (seed == null) seed = string(this.context.rng.getrandbits(32));
     else if (!integer(seed) && typeof seed !== 'string') throw new RpcError('invalid_params', 'params.seed must be an integer or string');
     seed = string(seed);
-    const allocation = params.allocation;
-    if (allocation != null && typeof allocation !== 'string') throw new RpcError('invalid_params', 'params.allocation must be a policy name from the steps table',
-      {fix: 'use one of details.options: spread, fill', details: {field: 'allocation', options: [...ALLOCATION_POLICIES]}});
+    const allocation = params.allocation, interestAllocation = params.interest_allocation;
+    for (const [field, value] of [['allocation', allocation], ['interest_allocation', interestAllocation]] as Array<[string, any]>)
+      if (value != null && typeof value !== 'string') throw new RpcError('invalid_params', `params.${field} must be a policy name from the steps table`,
+        {fix: 'use one of details.options: spread, fill', details: {field, options: [...ALLOCATION_POLICIES]}});
     const moduleId = string(meta.module_id), bookEra = await moduleAvailable(this.context, moduleId, this.writer) ? moduleEra((await loadModule(this.context, moduleId)).graph) : null;
     const era = truth(params.era) ? params.era : bookEra || '1920s';
     if (typeof era !== 'string') throw new RpcError('invalid_params', 'params.era must be a string');
@@ -82,7 +83,7 @@ export class Setup {
     if (typeof id !== 'string' || !id.trim()) throw new RpcError('invalid_params', 'params.id must be a slug');
     if (party.some(sheet => string(sheet.id) === id)) throw new RpcError('invalid_params', `investigator ${repr(id)} already exists in this campaign`, {fix: 'give another id, or another name'});
     let sheet: Row, receipt: Row;
-    try { [sheet, receipt] = await this.chargen.build({investigatorId: id, name, occupationId: params.occupation ?? null, concept, age, sex, method, seed, era, allocation}); }
+    try { [sheet, receipt] = await this.chargen.build({investigatorId: id, name, occupationId: params.occupation ?? null, concept, age, sex, method, seed, era, allocation, interestAllocation}); }
     catch (error) {
       if (!(error instanceof ChargenError)) throw error;
       if (error.stage === 'occupation') throw new RpcError('needs', error.message, {fix: 'call setup.occupations and pass one of its ids', details: {needs: {field: 'occupation', options: row(error.expected).options ?? null}}});

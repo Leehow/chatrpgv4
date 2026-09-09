@@ -406,3 +406,65 @@ def test_the_built_card_records_the_assignment_as_its_method(chargen):
     plain, _ = build(chargen, method="rolled")
     assert plain["creation"]["method"] == "rolled"
     assert "aptitude" not in plain["creation"]["characteristics"]
+
+
+# ---- personal interest points are walked in the supplied order ------------------------
+
+#: longer than the INT*2 budget can lift, which is the case the order decides
+INTERESTS = ["Fighting (Brawl)", "Throw", "First Aid", "Climb", "Library Use", "Navigate", "Swim", "Jump"]
+
+
+def interest_profile(**overrides):
+    params = dict(method="rolled", seed="interest-1", interest_skills=list(INTERESTS),
+                  occupation_skills=["Spot Hidden", "Listen", "Track", "Natural World",
+                                     "Mechanical Repair", "Drive Auto", "Intimidate", "Operate Heavy Machinery"],
+                  occupation_id="Farmer")
+    params.update(overrides)
+    return params
+
+
+def test_the_supplied_interest_order_decides_who_reaches_a_usable_value(chargen):
+    first, _ = build(chargen, **interest_profile())
+    interest = first["creation"]["skills"]["interest"]
+    assert interest["allocation"] == "spread"
+    assert interest["tiers"] == [50, 70]
+    assert interest["source"] == "steps.json create-investigator.interest_allocation"
+    assert first["skills"]["Fighting (Brawl)"] == 50, "the entry the player named first reaches the tier"
+    assert first["skills"]["Jump"] == chargen.skill_base("Jump", first["characteristics"]), "the tail keeps its base"
+    second, _ = build(chargen, **interest_profile(interest_skills=list(reversed(INTERESTS))))
+    assert second["skills"]["Jump"] == 50, "moving an entry to the front is what buys it the tier"
+    assert second["skills"]["Fighting (Brawl)"] < first["skills"]["Fighting (Brawl)"], "order is spent, not decorative"
+    assert second["creation"]["skills"]["interest"]["spent"] == first["creation"]["skills"]["interest"]["spent"]
+
+
+def test_the_interest_budget_is_still_spent_whole(chargen):
+    for policy in ("spread", "fill"):
+        sheet, receipt = build(chargen, **interest_profile(interest_allocation=policy))
+        interest = sheet["creation"]["skills"]["interest"]
+        assert interest["unspent"] == 0
+        assert interest["spent"] == interest["budget"]["total"]
+        assert interest["allocation"] == policy
+        assert receipt["interest_allocation"] == policy
+
+
+def test_fill_keeps_the_older_level_round_robin(chargen):
+    sheet, _ = build(chargen, **interest_profile(interest_allocation="fill"))
+    given = sorted(sheet["creation"]["skills"]["interest"]["allocations"].values())
+    assert given[-1] - given[0] <= 1, "the round robin gives every entry the same amount"
+    assert sheet["creation"]["skills"]["interest"]["tiers"] is None
+
+
+def test_the_legacy_auto_pool_carries_no_order_so_it_keeps_the_round_robin(chargen):
+    sheet, receipt = build(chargen, occupation_id="Farmer")
+    interest = sheet["creation"]["skills"]["interest"]
+    assert interest["allocation"] == "fill"
+    assert receipt["interest_allocation"] == "fill"
+    given = sorted(interest["allocations"].values())
+    assert given[-1] - given[0] <= 1
+
+
+def test_an_unknown_interest_policy_is_refused_at_its_own_stage(chargen):
+    with pytest.raises(ChargenError) as raised:
+        build(chargen, **interest_profile(interest_allocation="pointy"))
+    assert raised.value.stage == "interest_allocation"
+    assert raised.value.expected["options"] == ["spread", "fill"]

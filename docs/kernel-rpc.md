@@ -2027,6 +2027,28 @@ is refused rather than silently ignored. Because assignment is a permutation of
 existing rolls, strong is not a promise of a high number: the setup model states
 what the returned card actually holds and never a value it does not.
 
+**The interest list is priority ordered too.** The occupational list has been a
+priority order since #21: `spread` walks it in the supplied order and raises each
+entry to a tier before starting the next tier. The personal-interest budget kept
+the older one-point round robin, which spends the same amount on every entry, so
+the ability the player called defining came out level with the fillers it was
+listed beside — a stated strength could reach the characteristics and still leave
+its own skill near base. `steps.json` therefore carries a second policy block,
+`create-investigator.interest_allocation` (`default: spread`, `options: [spread,
+fill]`, `tiers`), overridable per call with `params.interest_allocation`, refused
+the same way as an unknown occupational policy but at stage `interest_allocation`.
+
+The tiered walk is applied only to a model-supplied `interest_skills` list, which
+is ordered by what the player said matters. The legacy auto-pool of
+`setup.investigator` is the era's whole standard sheet in table order and carries
+no such intent, so it keeps the round robin; `sheet.creation.skills.interest`
+records the policy actually applied and its source, and the receipt carries
+`interest_allocation`. Both policies stop only when the budget is gone or every
+entry has reached the starting cap, so neither leaves the budget unspent while an
+entry is still raisable, and the conversational completeness check is unchanged.
+A tail entry that receives nothing stays at its base value like any untrained
+skill; the setup prompt owns keeping that list short enough to mean something.
+
 **Pacing.** Conversational pacing is prompt-layer policy, not kernel gating: when the player supplies only a name and an occupation concept without delegating the rest, the setup guide asks one or two in-character follow-up questions, one at a time, and drafts only after the answers; explicit delegation or a write-now order drafts in the same reply. The kernel gates no player turn.
 
 **RPC.** All calls include campaign. setup.draft accepts profile, a partial update

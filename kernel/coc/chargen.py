@@ -353,19 +353,20 @@ class Chargen:
         sheet = (self.skills_doc.get("standard_sheet") or {}).get(era)
         return [str(s) for s in sheet["default_skill_ids"]] if isinstance(sheet, dict) else None
 
-    def allocation_policy(self, name: Any) -> dict[str, Any]:
-        """The occupation-point policy: `name` when given, else the block's default. The
-        tiers come from the block too; the cap is skills.json's."""
-        block = self.policy.get("allocation") if isinstance(self.policy.get("allocation"), dict) else {}
+    def allocation_policy(self, name: Any, field: str = "allocation") -> dict[str, Any]:
+        """A point policy: `name` when given, else the block's default. The tiers come from
+        the block too; the cap is skills.json's. `field` picks the occupational block or
+        the personal-interest one, which are two independent policies."""
+        block = self.policy.get(field) if isinstance(self.policy.get(field), dict) else {}
         policy = name if name is not None else block.get("default")
         if policy not in ALLOCATION_POLICIES:
-            raise ChargenError("allocation", f"allocation must be one of {ALLOCATION_POLICIES}",
+            raise ChargenError(field, f"{field} must be one of {ALLOCATION_POLICIES}",
                                expected={"options": list(ALLOCATION_POLICIES), "default": block.get("default")})
         tiers = block.get("tiers") if isinstance(block.get("tiers"), list) else []
         if not all(isinstance(t, int) and not isinstance(t, bool) for t in tiers):
-            raise ChargenError("allocation", "allocation.tiers must be integers", expected={"tiers": tiers})
+            raise ChargenError(field, f"{field}.tiers must be integers", expected={"tiers": tiers})
         return {"policy": str(policy), "tiers": [int(t) for t in tiers],
-                "source": "steps.json create-investigator.allocation"}
+                "source": f"steps.json create-investigator.{field}"}
 
     @staticmethod
     def spread(slots: list[str], resolved: set[str], budget: int, values: dict[str, int], cap: int,
@@ -423,13 +424,14 @@ class Chargen:
 
     def build(self, *, investigator_id: str, name: str, occupation_id: str, concept: str | None,
               age: int, sex: str | None, method: str, seed: str, era: str,
-              allocation: str | None = None, aptitude: Any = None,
+              allocation: str | None = None, interest_allocation: str | None = None, aptitude: Any = None,
               occupation_skills: list[str] | None = None,
               interest_skills: list[str] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
         if method not in METHODS:
             raise ChargenError("method", f"method must be one of {METHODS}", expected={"options": list(METHODS)})
         occupation_name, spec = self.occupation(occupation_id)
         policy = self.allocation_policy(allocation)
+        interest_policy = self.allocation_policy(interest_allocation, "interest_allocation")
         formula = parse_formula(str(spec.get("skill_point_formula") or ""))
         stated = self.aptitude(aptitude)
         if stated and method != "rolled":
@@ -505,7 +507,14 @@ class Chargen:
         for skill_id in interest_pool:
             if skill_id not in values:
                 values[skill_id] = self.skill_base(skill_id, characteristics)
-        interest_alloc = self.allocate(interest_pool, interest_budget["total"], values, self.cap)
+        # Only a model-supplied list is ordered by what the player said matters; the legacy
+        # auto-pool is the era's standard sheet in table order and keeps the round robin.
+        interest_applied = interest_policy["policy"] if interest_skills is not None else "fill"
+        if interest_applied == "spread":
+            interest_alloc = self.spread(interest_pool, set(interest_pool), interest_budget["total"],
+                                         values, self.cap, interest_policy["tiers"])[0]
+        else:
+            interest_alloc = self.allocate(interest_pool, interest_budget["total"], values, self.cap)
         for skill_id, points in interest_alloc.items():
             values[skill_id] += points
         if occupation_skills is not None and (sum(occupation_alloc.values()) != occupation_points or sum(interest_alloc.values()) != interest_budget["total"]):
@@ -523,7 +532,10 @@ class Chargen:
                            "reserved": reserved},
             "interest": {"budget": interest_budget, "pool": interest_pool, "spent": sum(interest_alloc.values()),
                          "allocations": interest_alloc,
-                         "unspent": interest_budget["total"] - sum(interest_alloc.values())},
+                         "unspent": interest_budget["total"] - sum(interest_alloc.values()),
+                         "allocation": interest_applied,
+                         "tiers": interest_policy["tiers"] if interest_applied == "spread" else None,
+                         "source": interest_policy["source"]},
         }
 
         # 4. finance and kit
@@ -538,6 +550,7 @@ class Chargen:
                               "note": "equipment.json records carry no occupation field; no default kit is invented"}
         #: #21: the policy by name, with its tiers and where they came from
         trace["allocation"] = policy
+        trace["interest_allocation"] = {**interest_policy, "applied": interest_applied}
 
         sheet: dict[str, Any] = {
             "schema_version": 1,
@@ -568,6 +581,7 @@ class Chargen:
             "seed": seed,
             "choices_pending": pending,
             "allocation": policy["policy"],
+            "interest_allocation": interest_applied,
             "occupation_unspent": trace["skills"]["occupation"]["unspent"],
             "occupation_reserved": sum(int(r["points"]) for r in reserved),
             "interest_unspent": trace["skills"]["interest"]["unspent"],
