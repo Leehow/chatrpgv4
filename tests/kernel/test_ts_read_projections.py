@@ -150,8 +150,7 @@ def test_unmigrated_writers_cannot_report_placeholder_success():
     root = retained("unsupported-families")
     workspace = root / "candidate-workspace"
     prepare(workspace)
-    result = observe(workspace, candidate_command(), [
-        ("table.resolve", {}), ("table.apply", {}), ("table.recall", {})])
+    result = observe(workspace, candidate_command(), [("table.apply", {})])
     assert result["before_bytes"] == result["after_bytes"]
     assert all(item["response"]["error"]["code"] == "not_implemented" for item in result["exchanges"])
     (root / "unsupported.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")

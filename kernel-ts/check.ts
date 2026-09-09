@@ -1,0 +1,31 @@
+/** Read-only host checks use publication validators without constructing a kernel. */
+import { dirname, join } from 'node:path';
+import { snapshots } from './snapshots.js';
+import { RpcError, internalError } from './errors.js';
+import { loadModuleContract } from './modules/contract.js';
+import { checkDraft, requiredViewPages } from './modules/visual.js';
+import { row } from './read/values.js';
+export { pythonJsonDumps as serializeCheckResult } from './json.js';
+export async function checkSourceDraft(content: string, packetPath: string, draftPath: string): Promise<{
+    ok: boolean;
+    [key: string]: unknown;
+}> {
+    try {
+        const draft = await snapshots.readJson(draftPath), packet = row(await snapshots.readJson(packetPath));
+        const filled = checkDraft(draft, packet, await loadModuleContract({ content, snapshots }));
+        const path = join(dirname(packetPath), 'baseline.json');
+        const baseline = await snapshots.pathExists(path) ? row(await snapshots.readJson(path)) : null;
+        return { ok: true, required_review: filled.required_review, required_view_pages: requiredViewPages(row(draft), baseline) };
+    }
+    catch (error) {
+        if (error instanceof RpcError)
+            return { ok: false, error: error.toJson() };
+        if (error instanceof SyntaxError)
+            return { ok: false, error: error.message };
+        if (typeof (error as NodeJS.ErrnoException)?.code === 'string') {
+            const message = internalError(error).message;
+            return { ok: false, error: message.slice(message.indexOf(': ') + 2) };
+        }
+        throw error;
+    }
+}

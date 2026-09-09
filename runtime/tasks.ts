@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { KernelError } from "../extensions/kernel/client.ts";
 import { runReader, type ReaderRequest } from "../extensions/module/reader.ts";
 import type { RuntimeCapabilities, RuntimeCheck, RuntimeContext } from "./host.ts";
@@ -86,6 +87,12 @@ function taskExecutable(context: RuntimeContext, command: string): string {
 /** Both CLIs import the exact validators used by module.read.finish and mods.accept. */
 export async function runCheck(context: RuntimeContext, request: RuntimeCheck, signal: AbortSignal): Promise<{ ok: boolean; [key: string]: unknown }> {
   ensureActive(signal);
+  if (context.backend === "typescript" && request.kind === "source-draft") {
+    const {checkSourceDraft} = await import(pathToFileURL(join(context.resourceRoot, "build/kernel/check.mjs")).href);
+    const result = await checkSourceDraft(context.contentRoot, resolve(context.home, request.packet), resolve(context.home, request.draft));
+    ensureActive(signal);
+    return result;
+  }
   if (context.backend !== "python") throw new KernelError({ code: "not_implemented", message: `Runtime check is unavailable for ${context.backend}: ${request.kind}` });
   const args = request.kind === "source-draft"
     ? ["-m", "coc.modules.visual_check", "--packet", resolve(context.home, request.packet), "--draft", resolve(context.home, request.draft)]

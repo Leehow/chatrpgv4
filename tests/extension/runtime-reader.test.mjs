@@ -130,9 +130,15 @@ test("source and Mod checks invoke shared read-only validators and preserve reje
   assert.deepEqual(valid.required_view_pages, [1]);
   assert.deepEqual(await readFile(draft), before);
   assert.deepEqual(await readdir(home), files);
+  const native = composeRuntimeContext({owner: "check", home}, options({PATH: ""}, {backend: "typescript"}));
+  assert.deepEqual(await runCheck(native, {kind: "source-draft", packet, draft}, active()), valid);
+  assert.deepEqual(await readFile(draft), before);
+  assert.deepEqual(await readdir(home), files);
   await json(draft, { ...sourceDraft, nodes: [{ ...sourceDraft.nodes[0], source_refs: [{ page: 3 }] }] });
   const rejectedBytes = await readFile(draft);
-  assert.equal((await runCheck(context, { kind: "source-draft", packet, draft }, active())).ok, false);
+  const rejected = await runCheck(context, {kind: "source-draft", packet, draft}, active());
+  assert.equal(rejected.ok, false);
+  assert.deepEqual(await runCheck(native, {kind: "source-draft", packet, draft}, active()), rejected);
   assert.deepEqual(await readFile(draft), rejectedBytes);
   const mod = join(home, "Mod definition.json");
   await json(mod, { name: "Notebook", category: "item", description: "A ruled paper notebook.", basis: "A bounded equipment definition.", parameters: { effects: [] }, player_view: { description: "A notebook.", fields: [] } });
@@ -141,6 +147,21 @@ test("source and Mod checks invoke shared read-only validators and preserve reje
   assert.equal((await runCheck(context, { kind: "mod-definition", draft: mod }, active())).ok, false);
   assert.equal((await readdir(home)).includes(".coc"), false);
   assert.equal((await readdir(home)).includes("campaigns"), false);
+});
+
+test("the TypeScript checker CLI preserves source page integers without Python", async t => {
+  const home = await temporary(t), packet = join(home, "packet.json"), draft = join(home, "draft.json");
+  await writeFile(packet, '{"purpose":"guidance","module_id":"book-one","source":{"page_count":9007199254740993},"known_nodes":[]}');
+  await writeFile(draft, '{"nodes":[{"node_id":"scene-dock","node_kind":"scene","name":"Dock","source_refs":[{"page":9007199254740993}],"properties":{"is_entrance":true}}],"claims":[],"node_refs":[],"coverage":{},"dependencies":[],"critical":[],"ready_nodes":[]}');
+  const before = await readFile(draft);
+  const result = await command(process.execPath, [join(ROOT, "runtime/check.ts"), "--packet", packet, "--draft", draft], {
+    ...process.env, PATH: "", PI_COC_HOME: home,
+    PI_COC_RUNTIME_OPTIONS: JSON.stringify({backend: "typescript", resourceRoot: ROOT}),
+  });
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /"required_view_pages": \[9007199254740993\]/);
+  assert.deepEqual(await readFile(draft), before);
+  assert.equal((await readdir(home)).includes(".coc"), false);
 });
 
 test("the stable checker CLI retains source flags and selected TypeScript checks never fall back", async t => {

@@ -88,7 +88,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("An audit slot needs a semantic name and an auditor");
     return manifest;
 }
-async function packageFiles(root: string): Promise<Map<string, Buffer>> {
+export async function packageFiles(root: string): Promise<Map<string, Buffer>> {
     const paths: string[] = [];
     const walk = async (directory: string) => {
         for (const name of await readdir(directory)) {
@@ -117,6 +117,15 @@ async function packageFiles(root: string): Promise<Map<string, Buffer>> {
     }
     return files;
 }
+export function packageDigest(files: ReadonlyMap<string, Buffer>): string {
+    const digest = createHash("sha256");
+    for (const name of sorted(files.keys())) {
+        digest.update(Buffer.from(name));
+        digest.update(Buffer.from([0]));
+        digest.update(createHash("sha256").update(files.get(name)!).digest());
+    }
+    return digest.digest("hex");
+}
 export async function readModCatalog(context: KernelContext): Promise<Map<string, Row>> {
     const roots: string[] = [],
         builtin = join(dirname(context.content), "mods"),
@@ -129,16 +138,10 @@ export async function readModCatalog(context: KernelContext): Promise<Map<string
     const catalog = new Map<string, Row>();
     for (const root of roots.sort((left, right) => compareUnicode(join(left, "mod.json"), join(right, "mod.json")))) {
         const files = await packageFiles(root),
-            manifest = manifestFrom(files),
-            digest = createHash("sha256");
-        for (const name of sorted(files.keys())) {
-            digest.update(Buffer.from(name));
-            digest.update(Buffer.from([0]));
-            digest.update(createHash("sha256").update(files.get(name)!).digest());
-        }
+            manifest = manifestFrom(files);
         const value = {
             ...manifest,
-            digest: digest.digest("hex"),
+            digest: packageDigest(files),
             files,
             compatible: manifest.game_api === "pipicoc.game.v1" && manifest.requires.every((cap: string) => MOD_CAPABILITIES.has(cap))
         },

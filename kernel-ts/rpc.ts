@@ -1,5 +1,5 @@
 import { createKernelContext } from "./context.js";
-import { buildHandlers } from "./registry.js";
+import { createKernelRuntime } from "./registry.js";
 import { serve } from "./transport.js";
 import { nativeAdvisoryLocks } from "./native-locks.js";
 
@@ -30,19 +30,20 @@ async function main(): Promise<void> {
     return;
   }
   log(`ready workspace=${context.workspace} content=${context.content}`);
-  const stop = () => { void context.git.close().then(() => process.stdin.destroy(), error => {
+  const runtime = createKernelRuntime(context);
+  const stop = () => { void runtime.close().then(() => process.stdin.destroy(), error => {
     log(String(error)); process.exitCode = 1; process.stdin.destroy();
   }); };
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
   try {
-    await serve(process.stdin, process.stdout, buildHandlers(context), log);
+    await serve(process.stdin, process.stdout, runtime.handlers, log);
     log("stdin closed; exiting");
   } catch (error) {
     log(error instanceof Error ? error.stack ?? error.message : String(error));
     process.exitCode = 1;
   } finally {
-    await context.git.close();
+    await runtime.close();
     process.removeListener("SIGTERM", stop);
     process.removeListener("SIGINT", stop);
   }

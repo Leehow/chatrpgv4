@@ -1,7 +1,7 @@
 /** Read-only rules tables; family arithmetic and mutation stay with their executors. */
 import { join } from "node:path";
 import type { KernelContext } from "../context.js";
-import { isJsonObject, type ReadonlyJson } from "../json.js";
+import { isJsonObject, PythonFloat, type ReadonlyJson } from "../json.js";
 import { pythonTypeName } from "../errors.js";
 import { array, row, entries, string, truth, repr, type Row } from "../read/values.js";
 import { caseFold } from "./casefold.js";
@@ -66,6 +66,61 @@ export class RuleTables {
     }
     occupationsTable(): Promise<Row> {
         return this.block("occupations", "occupations", true);
+    }
+    async weaponByName(name: string): Promise<Row> {
+        const value = (await this.weaponsTable())[name];
+        if (value != null) return value;
+        const error = new Error(repr(`unknown weapon: ${repr(name)}`));
+        error.name = "KeyError";
+        throw error;
+    }
+    async skillByName(name: string): Promise<Row> {
+        const value = (await this.skillsTable())[name];
+        if (value != null) return value;
+        const error = new Error(repr(`unknown skill: ${repr(name)}`));
+        error.name = "KeyError";
+        throw error;
+    }
+    async damageBonusBuild(strValue: number, sizValue: number): Promise<Row> {
+        const total = strValue + sizValue;
+        for (const entry of array(await this.load("damage-bonus-build"))) {
+            if (!(Number(entry.min) <= total && total <= Number(entry.max))) continue;
+            const result: Row = {total, damage_bonus: entry.damage_bonus, build: entry.build};
+            const extrapolation = entry.extrapolation;
+            if (extrapolation != null && total > Number(extrapolation.applies_when_total_greater_than)) {
+                const excess = total - Number(extrapolation.applies_when_total_greater_than);
+                const steps = Math.floor((excess + Number(extrapolation.per_80_points) - 1) / Number(extrapolation.per_80_points));
+                result.damage_bonus = `+${5 + steps}D6`;
+                result.build = 6 + steps;
+            }
+            return result;
+        }
+        const error = new Error(`STR+SIZ total out of table range: ${total}`);
+        error.name = "ValueError";
+        throw error;
+    }
+    async cashAndAssets(creditRating: number, period = "1920s"): Promise<Row> {
+        const table = row(await this.load("cash-assets")), periods = table.periods;
+        const fail = (message: string): never => { const error = new Error(message); error.name = "ValueError"; throw error; };
+        if (!isJsonObject(periods) || !Object.hasOwn(periods, period)) fail(`unsupported finance period: ${period}`);
+        const rows = periods[period];
+        if (!Array.isArray(rows)) fail(`cash-assets table period is not a list: ${period}`);
+        const currency = string(truth(table.currency) ? table.currency : "USD");
+        const amount = (value: any, formula: string | null = null): Row => ({amount: value ?? null, currency, ...(formula ? {formula} : {})});
+        const multiply = (value: any): any => value instanceof PythonFloat ? new PythonFloat(creditRating * value.value)
+            : typeof value === "bigint" ? BigInt(creditRating) * value : creditRating * value;
+        for (const entry of rows) {
+            if (!isJsonObject(entry) || !(Number(entry.credit_rating_min) <= creditRating && creditRating <= Number(entry.credit_rating_max))) continue;
+            let cashFormula: string | null = null, cash = entry.cash ?? null;
+            if (Object.hasOwn(entry, "cash_multiplier")) { cashFormula = `CR x ${string(entry.cash_multiplier)}`; cash = multiply(entry.cash_multiplier); }
+            let assetsFormula: string | null = null, assets = entry.assets ?? null;
+            if (Object.hasOwn(entry, "assets_multiplier")) { assetsFormula = `CR x ${string(entry.assets_multiplier)}`; assets = multiply(entry.assets_multiplier); }
+            else if (Object.hasOwn(entry, "assets_minimum")) { assetsFormula = "minimum"; assets = entry.assets_minimum; }
+            else if (assets === null) assetsFormula = "None";
+            return {credit_rating: creditRating, living_standard: entry.living_standard, cash: amount(cash, cashFormula),
+                assets: amount(assets, assetsFormula), spending_level: amount(entry.spending_level), period};
+        }
+        return fail(`credit rating out of cash-assets table range: ${creditRating}`);
     }
     spellsTable(): Promise<Row> {
         return this.block("spells");

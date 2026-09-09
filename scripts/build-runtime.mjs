@@ -8,6 +8,7 @@ await build({
   absWorkingDir: root,
   entryPoints: {
     'kernel/rpc': 'kernel-ts/rpc.ts',
+    'kernel/check': 'kernel-ts/check.ts',
     'runtime/host': 'runtime/host.ts',
     'runtime/preparation': 'runtime/preparation.ts',
     'runtime/check': 'runtime/check.ts',

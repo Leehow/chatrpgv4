@@ -114,17 +114,16 @@ if(existsSync(process.env.TEST_GIT_BLOCK)&&process.argv.slice(2).includes('commi
 });
 
 test('unavailable contributions reject new writes before mutation but allow a stored narration replay',async t=>{
-  for(const kind of ['library','worldline','pending-mod'])await t.test(kind,async()=>{
+  for(const kind of ['worldline','pending-mod'])await t.test(kind,async()=>{
     const home=await mkdtemp(join(evidence,`preflight-${kind}-`)),kernel=client(home,environment());
     try {
       await kernel.call('campaign.create',create);await kernel.call('table.open',{campaign:'c1'});
       const opening={campaign:'c1',call_id:'t0-c1',text:'The case begins.'};
       const committed=await kernel.call('table.narrate',opening);
       await kernel.call('table.player_input',{campaign:'c1',text:'I inspect the letter.'});
-      const path=join(home,'.coc/campaigns/c1',kind==='library'?'party/thomas-hayes.json':kind==='worldline'?'turn.json':'world.json');
+      const path=join(home,'.coc/campaigns/c1',kind==='worldline'?'turn.json':'world.json');
       const saved=JSON.parse(await readFile(path,'utf8'));
-      if(kind==='library')saved.origin={library_id:'retained-library-card'};
-      else if(kind==='worldline')saved.worldline={operation:'fork',line:'later'};
+      if(kind==='worldline')saved.worldline={operation:'fork',line:'later'};
       else saved.mods.pending={'natural-npc':{enabled:false}};
       await writeFile(path,JSON.stringify(saved,null,2)+'\n');
       const before=await stateBytes(home);

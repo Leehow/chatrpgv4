@@ -5,7 +5,7 @@ import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { mechanicsOf } from '../read/mechanics.js';
 import { npcsPresent } from '../read/capsule.js';
 import { array, row, entries, values, truth, number, string, integer, kebab, chars, words, type Row } from '../read/values.js';
-export const asciiSlug = (text: string): string => text.normalize('NFKD').replace(/[^\x00-\x7f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).join('-').slice(0, 24).replace(/-+$/, '');
+export const asciiSlug = (text: string, limit = 24): string => text.normalize('NFKD').replace(/[^\x00-\x7f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).join('-').slice(0, limit).replace(/-+$/, '');
 const MARKER = /\{\{([a-z0-9][a-z0-9:_-]*)\}\}/g;
 const CJK = /[\u2e80-\u2fdf\u3000-\u303f\u3040-\u30ff\u3100-\u31ff\u3200-\u33ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff\ufe30-\ufe4f\uff00-\uffef\u{20000}-\u{3134f}]/u;
 export function checkLanguage(language: string, fields: Row): void {
@@ -63,9 +63,8 @@ function markerName(receipt: Row): string | null {
         default: return null;
     }
 }
-export function bindMarkers(text: string, receipts: Row[]): Row {
-    const counts = new Map<string, number>(),
-        names = new Map<string, string>();
+export function markersFor(receipts: Row[]): Map<string, string> {
+    const counts = new Map<string, number>(), names = new Map<string, string>();
     for (const receipt of receipts) {
         const base = markerName(receipt);
         if (!base || typeof receipt.id !== 'string' || !mechanicsOf(receipt))
@@ -74,10 +73,11 @@ export function bindMarkers(text: string, receipts: Row[]): Row {
         counts.set(base, n);
         names.set(receipt.id, n === 1 ? base : `${base}-${n}`);
     }
-    const available = new Map([...names].map(([id, marker]) => [marker, id])),
-        seen: Row = {},
-        unknown: string[] = [],
-        duplicate: string[] = [];
+    return names;
+}
+export function bindMarkers(text: string, receipts: Row[]): Row {
+    const names = markersFor(receipts);
+    const available = new Map([...names].map(([id, marker]) => [marker, id])), seen: Row = {}, unknown: string[] = [], duplicate: string[] = [];
     for (const match of text.matchAll(MARKER)) {
         const marker = match[1];
         if (!available.has(marker)) {
@@ -111,15 +111,13 @@ export function bindMarkers(text: string, receipts: Row[]): Row {
     return seen;
 }
 export const stripMarkers = (text: string): string => text.replace(MARKER, '').replace(/[ \t]{2,}/g, ' ').trim();
-export function facts(graph: ModuleGraph, world: Row, party: Row[], receipts: Row[], snapshot: Row, player: any): Row {
-    const committed: string[] = [],
-        label = (id: any) => party.find(s => string(s.id) === string(id))?.name || string(id ?? null);
+export function committedFacts(receipts: Row[], snapshot: Row, label: (id: any) => string, player: any): string[] {
+    const committed: string[] = [];
     if (typeof player === 'string' && player.trim())
         committed.push(`Player declared: ${words(player)}`);
     for (const r of receipts) {
         if (r.kind === 'roll') {
-            const actor = r.actor_label || label(r.actor),
-                skill = string(r.skill ?? null);
+            const actor = r.actor_label || label(r.actor), skill = string(r.skill ?? null);
             if (r.form === 'dice')
                 committed.push(`${actor} rolls ${skill} ${string(r.expression ?? null)}: ${string(r.total ?? null)}`);
             else
@@ -156,8 +154,11 @@ export function facts(graph: ModuleGraph, world: Row, party: Row[], receipts: Ro
     }
     committed.push(`Location: ${string(row(snapshot.scene).display_name || row(snapshot.scene).name || null)}`);
     committed.push(array(snapshot.present).length ? `Present: ${snapshot.present.map(string).join(', ')}` : 'Present: nobody');
-    const scene = graph.scene(world.active_scene),
-        keeper: string[] = [];
+    return committed;
+}
+export function facts(graph: ModuleGraph, world: Row, party: Row[], receipts: Row[], snapshot: Row, player: any): Row {
+    const committed = committedFacts(receipts, snapshot, id => party.find(s => string(s.id) === string(id))?.name || string(id ?? null), player);
+    const scene = graph.scene(world.active_scene), keeper: string[] = [];
     for (const id of graph.sceneClueIds(scene)) {
         const node = graph.nodes.get(id)!;
         if (!array(world.discovered_clues).includes(graph.handle(node)))
@@ -178,21 +179,18 @@ export function facts(graph: ModuleGraph, world: Row, party: Row[], receipts: Ro
     };
 }
 export function oneLine(turn: number, snapshot: Row, text: any): string {
-    const session = row(snapshot.session),
-        label = truth(session) ? `${string(session.kind ?? null)} in progress (round ${string(session.round ?? null)})` : 'no session';
+    const session = row(snapshot.session), label = truth(session) ? `${string(session.kind ?? null)} in progress (round ${string(session.round ?? null)})` : 'no session';
     return `Turn ${turn}: ${string(row(snapshot.scene).display_name || row(snapshot.scene).name || null)}, clock ${Math.trunc(number(row(snapshot.clock).minutes))} min, ${label}; last turn: ${chars(words(typeof text === 'string' ? text : ''), 60) || '(no delivery)'}`;
 }
 export function directorAdoption(graph: ModuleGraph, turn: Row, snapshot: Row, closedBy: string): Row | null {
     const director = row(row(turn.capsule).director);
     if (!director.beat)
         return null;
-    const receipts = array(turn.receipts),
-        beat = director.beat;
+    const receipts = array(turn.receipts), beat = director.beat;
     const ids = (kind: string, test: (r: Row) => boolean = () => true) => receipts.filter(r => r.kind === kind && test(r)).map(r => string(r.id));
     const families = (names: string[]) => values(row(turn.calls)).flatMap(c => names.includes(row(c.result).family) ? array(c.result.receipts).map(string) : []);
     const moves = ids('move');
-    let evidence: string[] = [],
-        adopted = false;
+    let evidence: string[] = [], adopted = false;
     if (beat === 'REVEAL') {
         evidence = ids('clue', r => array(director.reveal).some(wanted => wanted.clue === r.clue));
         adopted = evidence.length > 0;

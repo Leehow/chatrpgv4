@@ -10,8 +10,7 @@ import { readModCatalog, activeMods } from '../read/mods.js';
 import { array, entries, values, clone, row, string, number, integer, truth, sorted, type Row } from '../read/values.js';
 import { CampaignWriter, missingContribution, nowIso } from './store.js';
 function topological(preferred: string[], active: Row[]): string[] {
-    const todo = [...preferred],
-        done: string[] = [];
+    const todo = [...preferred], done: string[] = [];
     while (todo.length) {
         const next = todo.find(id => Object.keys(row(active.find(r => r.id === id)?.dependencies)).every(dep => done.includes(dep)));
         if (next == null)
@@ -26,12 +25,9 @@ export async function defaultModPlan(context: KernelContext, world: Row): Promis
     changed: boolean;
     install(): Promise<void>;
 }> {
-    const staged = clone(world),
-        catalog = await readModCatalog(context),
-        defaultsPath = join(context.stateRoot, 'mods', 'defaults.json');
+    const staged = clone(world), catalog = await readModCatalog(context), defaultsPath = join(context.stateRoot, 'mods', 'defaults.json');
     const defaults = await context.snapshots.pathExists(defaultsPath) ? row(await context.snapshots.readJson(defaultsPath)) : {};
-    const packages = [...catalog.values()],
-        builtin = join(dirname(context.content), 'mods');
+    const packages = [...catalog.values()], builtin = join(dirname(context.content), 'mods');
     const assertSupported = async (mods: Row[]) => {
         for (const mod of mods) {
             const path = join(builtin, mod.id, 'mod.json');
@@ -43,8 +39,7 @@ export async function defaultModPlan(context: KernelContext, world: Row): Promis
         missingContribution('object inventory projection');
     if (truth(row(staged.mods).pending) || Object.hasOwn(row(staged.mods), 'pending_order'))
         missingContribution('pending Mod configuration');
-    let changed = false,
-        retained: Row[] = [];
+    let changed = false, retained: Row[] = [];
     if (Object.hasOwn(staged, 'mods')) {
         const active = await activeMods(context, staged);
         await assertSupported(active);
@@ -79,8 +74,7 @@ export async function defaultModPlan(context: KernelContext, world: Row): Promis
                 enabled: Object.hasOwn(defaults, id) ? defaults[id] : mod.default_enabled,
                 settings: clone(mod.settings)
             };
-        const path = join(context.stateRoot, 'mods', 'load-order.json'),
-            ids = new Set(packages.map(p => p.id));
+        const path = join(context.stateRoot, 'mods', 'load-order.json'), ids = new Set(packages.map(p => p.id));
         const preferred = await context.snapshots.pathExists(path) ? array(await context.snapshots.readJson(path)) : [];
         staged.mods.order = topological([...preferred.filter(id => ids.has(id)), ...sorted([...ids].filter(id => !preferred.includes(id)))], active);
         await activeMods(context, staged);
@@ -114,12 +108,13 @@ export async function defaultModPlan(context: KernelContext, world: Row): Promis
         }
     };
 }
-export function preflightCampaign(meta: Row, world: Row, turn: Row, party: Row[]): void {
-    if (party.some(sheet => typeof row(sheet.origin).library_id === 'string' && sheet.origin.library_id))
+export function preflightCampaign(meta: Row, world: Row, turn: Row, party: Row[], available: {
+    libraryWriteBack?: boolean;
+} = {}): void {
+    if (!available.libraryWriteBack && party.some(sheet => typeof row(sheet.origin).library_id === 'string' && sheet.origin.library_id))
         missingContribution('investigator library writeback');
     const name = typeof meta.active_worldline === 'string' && meta.active_worldline ? meta.active_worldline : 'main';
-    const lines = row(meta.worldlines),
-        line = row(lines[name]);
+    const lines = row(meta.worldlines), line = row(lines[name]);
     if (name !== 'main' || truth(turn.worldline) || Object.keys(lines).some(id => id !== 'main') || line.kind && line.kind !== 'main')
         missingContribution('worldline transition');
     if (truth(row(world.mods).pending) || Object.hasOwn(row(world.mods), 'pending_order'))
@@ -135,8 +130,11 @@ const emptyNpc = (): Row => ({
     skills: {},
     turns_present: null
 });
-function entry(ledger: Row, id: string): Row { if (!ledger[id] || typeof ledger[id] !== 'object' || Array.isArray(ledger[id]))
-    ledger[id] = emptyNpc(); return ledger[id]; }
+function entry(ledger: Row, id: string): Row {
+    if (!ledger[id] || typeof ledger[id] !== 'object' || Array.isArray(ledger[id]))
+        ledger[id] = emptyNpc();
+    return ledger[id];
+}
 function npcId(graph: ModuleGraph, value: any): string | null {
     if (typeof value !== 'string' || !value.trim())
         return null;
@@ -158,8 +156,7 @@ export async function stanceTable(context: KernelContext): Promise<Row> {
     return table;
 }
 function setStance(item: Row, table: Row, value: number, turn: number, receipt: any, because: Row): void {
-    const old = row(item.stance),
-        score = Math.max(number(table.score_range[0]), Math.min(number(table.score_range[1]), Math.trunc(value)));
+    const old = row(item.stance), score = Math.max(number(table.score_range[0]), Math.min(number(table.score_range[1]), Math.trunc(value)));
     const word = array(table.levels).find(level => score <= number(level.at_most))?.value ?? array(table.levels).at(-1)?.value ?? 'neutral';
     item.stance = {
         value: word,
@@ -177,14 +174,12 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
     for (const receipt of array(record.receipts)) {
         const kind = receipt.kind;
         if (kind === 'roll') {
-            const against = npcId(graph, receipt.npc),
-                actor = npcId(graph, receipt.actor);
+            const against = npcId(graph, receipt.npc), actor = npcId(graph, receipt.actor);
             const family = ['social', 'combat', 'chase', 'psychology'].includes(receipt.family || receipt.roll_kind) ? receipt.family || receipt.roll_kind : null;
             for (const [id, target] of [[against, true], [actor, false]] as const) {
                 if (!id || id === against && !target)
                     continue;
-                const item = entry(ledger, id),
-                    approach = receipt.approach;
+                const item = entry(ledger, id), approach = receipt.approach;
                 item.interactions.push({
                     turn,
                     kind: family || 'social',
@@ -247,8 +242,7 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
             const id = npcId(graph, receipt.npc || receipt.name);
             if (!id)
                 continue;
-            const item = entry(ledger, id),
-                levels = array(table.levels);
+            const item = entry(ledger, id), levels = array(table.levels);
             let floor = number(table.score_range[0]);
             for (const level of levels) {
                 if (receipt.stance === level.value) {
@@ -297,8 +291,7 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
         const id = npcId(graph, name);
         if (!id)
             continue;
-        const item = entry(ledger, id),
-            seen = item.turns_present;
+        const item = entry(ledger, id), seen = item.turns_present;
         if (!seen || typeof seen !== 'object' || Array.isArray(seen))
             item.turns_present = {
                 first: turn,
@@ -327,8 +320,7 @@ export async function updateNpcLedger(campaign: CampaignWriter, graph: ModuleGra
     await campaign.write('npc-ledger.json', ledger);
 }
 export async function rebuildNpcLedger(campaign: CampaignWriter, graph: ModuleGraph): Promise<void> {
-    const ledger: Row = {},
-        table = await stanceTable(campaign.context);
+    const ledger: Row = {}, table = await stanceTable(campaign.context);
     const names = await campaign.context.snapshots.sortedChildNames(campaign.path('turns'), path => campaign.context.snapshots.isFile(path));
     for (const name of names.filter(n => n.endsWith('.json'))) {
         let record: Row;
@@ -341,9 +333,12 @@ export async function rebuildNpcLedger(campaign: CampaignWriter, graph: ModuleGr
         if (intLike(record.turn))
             foldNpcTurn(ledger, graph, record, table);
     }
-    for (const candidate of await campaign.context.snapshots.readJsonl(campaign.path('memory/candidates.jsonl'))) {
-        const memory = row(candidate),
-            turn = Object.hasOwn(memory, 'valid_from_turn') ? memory.valid_from_turn : memory.turn ?? null;
+    noteMemory(ledger, graph, (await campaign.context.snapshots.readJsonl(campaign.path('memory/candidates.jsonl'))).map(row));
+    await campaign.write('npc-ledger.json', ledger);
+}
+export function noteMemory(ledger: Row, graph: ModuleGraph, candidates: Row[]): void {
+    for (const candidate of candidates) {
+        const memory = row(candidate), turn = Object.hasOwn(memory, 'valid_from_turn') ? memory.valid_from_turn : memory.turn ?? null;
         const ids = memory.kind === 'promise' ? [memory.subject] : ['knowledge', 'belief'].includes(memory.kind) ? array(memory.knowers) : [];
         for (const name of ids) {
             const id = npcId(graph, name);
@@ -357,11 +352,9 @@ export async function rebuildNpcLedger(campaign: CampaignWriter, graph: ModuleGr
                 });
         }
     }
-    await campaign.write('npc-ledger.json', ledger);
 }
 export function episode(record: Row): Row {
-    const snapshot = row(record.world),
-        receipts = array(record.receipts);
+    const snapshot = row(record.world), receipts = array(record.receipts);
     return {
         episode_id: `ep:t${record.turn}`,
         turn: number(record.turn),

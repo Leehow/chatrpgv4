@@ -8,40 +8,68 @@ export const kindRank = (kind: any): number => {
     return index < 0 ? CANDIDATE_TIERS.length : index;
 };
 export class EntityIndex {
-    constructor(readonly graph: ModuleGraph, readonly party: Row[], readonly labels: Row = {}) {
+    constructor(readonly graph: ModuleGraph, readonly party: Row[], readonly labels: Row = {}, readonly allowed: string[] | null = null) {
     }
-    matches(name: string): string[] {
-        const key = normalize(name),
-            found: string[] = [];
+    matches(name: string, options: {
+        reserved?: readonly string[];
+        kinds?: readonly string[];
+        investigators?: boolean;
+    } = {}): string[] {
+        const key = normalize(name), found: string[] = [];
         if (!key)
             return found;
-        if (["world", "party", "keeper", "player"].includes(key))
+        if ((options.reserved ?? ["world", "party", "keeper", "player"]).includes(key))
             found.push(`reserved:${key}`);
-        for (const sheet of this.party)
+        for (const sheet of options.investigators === false ? [] : this.party)
             if ([normalize(sheet.id), normalize(sheet.name)].includes(key))
                 found.push(`investigator:${string(sheet.id)}`);
         for (const id of sorted(this.graph.names.get(key) ?? [])) {
             const node = this.graph.nodes.get(id)!;
-            if (["npc", "scene", "clue"].includes(node.node_kind))
+            if ((options.kinds ?? ["npc", "scene", "clue"]).includes(node.node_kind) && (this.allowed === null || this.allowed.includes(id)))
                 found.push(`${node.node_kind}:${id}`);
         }
-        for (const [handle, label] of entries(this.labels))
+        for (const [handle, label] of (options.kinds ?? ["npc", "scene", "clue"]).includes("scene") ? entries(this.labels) : [])
             if (normalize(label) === key) {
-                const node = this.graph.find(handle, ["scene"]),
-                    id = node ? `scene:${node.node_id}` : null;
-                if (id && !found.includes(id))
+                const node = this.graph.find(handle, ["scene"]), id = node ? `scene:${node.node_id}` : null;
+                if (id && (this.allowed === null || this.allowed.includes(node!.node_id)) && !found.includes(id))
                     found.push(id);
             }
         return found;
+    }
+    looseMatches(name: string, kinds: readonly string[] = ["npc", "scene", "clue"]): string[] {
+        const key = normalize(name), people: string[] = [], others: string[] = [];
+        if (!key)
+            return [];
+        for (const sheet of this.party) {
+            const words = new Set([...normalize(sheet.name).split(" "), ...normalize(sheet.id).split(" ")]);
+            if (words.has(key))
+                people.push(`investigator:${string(sheet.id)}`);
+        }
+        for (const kind of kinds)
+            for (const node of this.graph.kind(kind)) {
+                if (this.allowed !== null && !this.allowed.includes(node.node_id))
+                    continue;
+                const aliases = [this.graph.displayName(node), this.graph.handle(node), node.node_id,
+                    ...(kind === "scene" ? [this.labels[this.graph.handle(node)]] : [])];
+                if (aliases.filter(truth).some(alias => normalize(alias).split(" ").includes(key)))
+                    (kind === "npc" ? people : others).push(`${kind}:${node.node_id}`);
+            }
+        return people.length ? people : others;
+    }
+    usableNames(): string[] {
+        const ids = this.allowed ?? ["npc", "scene", "clue"].flatMap(kind => this.graph.kind(kind).map(node => node.node_id));
+        return [...this.party.map(sheet => string(sheet.name)), ...ids.filter(id => this.graph.nodes.has(id)).map(id => this.canonicalName(`x:${id}`))];
+    }
+    describe(key: string): Row {
+        const split = key.indexOf(":"), kind = key.slice(0, split), id = key.slice(split + 1);
+        return { name: this.canonicalName(key), kind, id };
     }
     lenientKey(name: string): string {
         const matches = this.matches(name);
         return matches.length === 1 ? matches[0] : `name:${normalize(name)}`;
     }
     canonicalName(key: string): string {
-        const at = key.indexOf(":"),
-            kind = key.slice(0, at),
-            rest = key.slice(at + 1);
+        const at = key.indexOf(":"), kind = key.slice(0, at), rest = key.slice(at + 1);
         if (kind === "reserved")
             return rest;
         if (kind === "investigator")
@@ -78,8 +106,7 @@ export function queryCandidates(rows: Row[], index: EntityIndex, about: string[]
     includeSuperseded?: boolean;
     limit?: number;
 } = {}): Row[] {
-    const keys = new Set(about.map(name => index.lenientKey(name))),
-        hits: Array<{
+    const keys = new Set(about.map(name => index.lenientKey(name))), hits: Array<{
         overlap: number;
         tier: number;
         turn: number;
@@ -92,8 +119,7 @@ export function queryCandidates(rows: Row[], index: EntityIndex, about: string[]
         const turn = number(value.valid_from_turn);
         if (options.turns?.length && !(options.turns[0] <= turn && turn <= options.turns[1]))
             continue;
-        const names = new Set([value.subject, ...array(value.knowers), ...array(value.entities)].filter(truth).map(name => index.lenientKey(string(name)))),
-            overlap = [...names].filter(name => keys.has(name)).length;
+        const names = new Set([value.subject, ...array(value.knowers), ...array(value.entities)].filter(truth).map(name => index.lenientKey(string(name)))), overlap = [...names].filter(name => keys.has(name)).length;
         if (options.narrow && !overlap)
             continue;
         hits.push({
@@ -137,9 +163,7 @@ export function latestNamed(rows: Row[], status: string): Row[] {
 }
 const newest = (rows: Row[]) => [...rows].sort((a, b) => number(b.turn) - number(a.turn) || number(b.seq) - number(a.seq));
 export function noteObligations(rows: Row[], present: string[], here: string[]): Row[] {
-    const notes = latestNamed(rows, "open"),
-        names = new Set([...present, ...here].filter(Boolean).map(normalize)),
-        linked = notes.filter(note => array(note.entities).some(entity => names.has(normalize(entity))));
+    const notes = latestNamed(rows, "open"), names = new Set([...present, ...here].filter(Boolean).map(normalize)), linked = notes.filter(note => array(note.entities).some(entity => names.has(normalize(entity))));
     return [...linked, ...newest(notes.filter(note => !linked.includes(note))).slice(0, 3)].map(note => ({
         kind: "note",
         name: string(note.name),
@@ -154,14 +178,11 @@ export function rulingsForCapsule(rows: Row[], session: string | null, present: 
         combat: "combat",
         chase: "chase",
         sanity_bout: "sanity"
-    },
-        family = session ? families[session] ?? null : null,
-        here = [...present, scene];
+    }, family = session ? families[session] ?? null : null, here = [...present, scene];
     const hits = latestNamed(rows, "active").filter(value => {
         if (value.scope === "scene" && value.scene !== scene || value.scope === "module" && value.module != null && value.module !== module)
             return false;
-        const anchor = row(value.anchor),
-            judged = values(families).includes(anchor.family);
+        const anchor = row(value.anchor), judged = values(families).includes(anchor.family);
         return value.scope === "scene" && value.scene === scene || (judged || truth(anchor.entities)) && (!judged || anchor.family == null || anchor.family === family) && (!truth(anchor.entities) || array(anchor.entities).some(entity => here.includes(entity)));
     });
     return newest(hits).slice(0, 3).map(value => ({

@@ -1,6 +1,6 @@
 /** Static contracts for the existing writer; this module performs no state changes. */
 import type {KernelResult} from "./handlers.js";
-import type {JsonObject} from "./json.js";
+import type {JsonObject, JsonValue, ReadonlyJson} from "./json.js";
 
 export type WriteMethod = "table.resolve" | "table.apply" | "table.ask" | "table.narrate";
 
@@ -19,6 +19,8 @@ export interface CampaignWritePort {
   readTurn(): Promise<JsonObject>;
   party(): Promise<readonly JsonObject[]>;
   readTurnRecord(turn: number): Promise<JsonObject | null>;
+  readSave(name: string): Promise<JsonValue | null>;
+  writeSave(name: string, value: ReadonlyJson): Promise<void>;
   writeCampaign(value: JsonObject): Promise<void>;
   writeWorld(value: JsonObject): Promise<void>;
   writeTurn(value: JsonObject): Promise<void>;

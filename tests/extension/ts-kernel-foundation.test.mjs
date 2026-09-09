@@ -146,7 +146,7 @@ test("actual JSONL subprocess serves hello and existing campaigns and drains EOF
   const requests = [
     { id: "hello", method: "kernel.hello", params: null },
     { id: "list", method: "campaign.list" },
-    { id: "later", method: "table.resolve", params: {} },
+    { id: "later", method: "table.apply", params: {} },
     { id: "unknown", method: "table.not_real" },
     { id: "after errors", method: "kernel.hello" },
   ];

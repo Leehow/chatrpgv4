@@ -20,7 +20,9 @@ import { array, entries, values, row, clone, number, string, truth, repr, chars,
 import { CampaignWriter, freshTurn, nowIso, required, missingContribution, createTurnTransaction, rememberCall, turnStateError } from './store.js';
 import { checked, commit, CommitFailed } from './history.js';
 import { registerStarter } from './source.js';
-import { defaultModPlan, preflightCampaign, rebuildNpcLedger, updateNpcLedger, stanceTable, writeEpisode } from './contributions.js';
+import { resolveStartScene } from '../modules/visual.js';
+import { loadModuleContract } from '../modules/contract.js';
+import { defaultModPlan, preflightCampaign as validateContributions, rebuildNpcLedger, updateNpcLedger, stanceTable, writeEpisode } from './contributions.js';
 import { bindMarkers, stripMarkers, checkLanguage, checkNumbers, asciiSlug, facts, directorAdoption } from './text.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 export { createTurnTransaction } from './store.js';
@@ -63,9 +65,7 @@ function initialWorld(graph: ModuleGraph, chosen: string | null): [
     Row,
     string
 ] {
-    const start = chosen ? graph.scene(chosen) : startScene(graph),
-        handle = graph.handle(start),
-        presence: Row = {};
+    const start = chosen ? graph.scene(chosen) : startScene(graph), handle = graph.handle(start), presence: Row = {};
     for (const scene of graph.kind('scene'))
         for (const id of graph.sceneNpcIds(scene)) {
             const npc = graph.handle(graph.nodes.get(id)!);
@@ -85,14 +85,75 @@ function initialWorld(graph: ModuleGraph, chosen: string | null): [
             npc_presence: presence
         }, handle];
 }
-export function createWriteRuntime(context: KernelContext): {
+export interface WriteContributions {
+    libraryWriteBack?(campaign: CampaignWriter, record: Row): Promise<void>;
+    openingReady?(moduleId: string, focus?: string): Promise<boolean>;
+    sourceGraphPath?(moduleId: string): Promise<string>;
+    queueAdjacentReading?(graph: ModuleGraph, scene: Row): Promise<string[]>;
+}
+export function createWriteRuntime(context: KernelContext, contributions: WriteContributions = {}): {
     handlers: HandlerGroup;
     read: ReadContributions;
-    transaction(params: Row): Promise<TurnTransaction>;
+    campaign(params: Row, options?: {
+        requireTurn?: boolean;
+        requireWorld?: boolean;
+    }): Promise<CampaignWriter>;
+    startSetupWorld(campaign: CampaignWriter, meta: Row): Promise<boolean>;
+    setupOpeningReady(moduleId: string, focus?: string): Promise<boolean>;
+    sourceGraphPath(moduleId: string): Promise<string>;
+    transaction(params: Row, options?: {
+        repairLegacyTrail?: boolean;
+    }): Promise<TurnTransaction>;
 } {
-    const resumes = new Map<string, Row>(),
-        firstStyleTurn = new Map<string, number>();
+    const resumes = new Map<string, Row>(), firstStyleTurn = new Map<string, number>();
     const writer = (id: string) => new CampaignWriter(context, id);
+    const preflightCampaign = (meta: Row, world: Row, turn: Row, party: Row[]) => validateContributions(meta, world, turn, party, { libraryWriteBack: !!contributions.libraryWriteBack });
+    async function campaign(params: Row, options: {
+        requireTurn?: boolean;
+        requireWorld?: boolean;
+    } = {}): Promise<CampaignWriter> {
+        const id = params.campaign;
+        if (typeof id !== 'string' || !id)
+            throw new RpcError('invalid_params', 'params.campaign is required');
+        const value = writer(id);
+        if (!await context.snapshots.pathExists(value.path('campaign.json')))
+            throw new RpcError('campaign_not_found', `no campaign ${repr(id)}`, {
+                fix: 'call campaign.list, or campaign.create',
+                details: { campaigns: await context.snapshots.sortedChildNames(context.campaignsRoot, path => context.snapshots.pathExists(join(path, 'campaign.json'))) }
+            });
+        for (const name of [...(options.requireWorld !== false ? ['world.json'] : []), ...(options.requireTurn !== false ? ['turn.json'] : [])])
+            if (!await context.snapshots.pathExists(value.path(name)))
+                throw new RpcError('campaign_not_ready', `campaign ${repr(id)} is missing ${name}`);
+        return value;
+    }
+    async function startSetupWorld(value: CampaignWriter, meta: Row): Promise<boolean> {
+        if (await context.snapshots.pathExists(value.path('world.json')) && truth(meta.opening_scene))
+            return false;
+        const id = string(meta.module_id), directory = join(context.stateRoot, 'modules', id);
+        const moduleMeta = await context.snapshots.pathExists(join(directory, 'module.json'))
+            ? row(await context.snapshots.readJson(join(directory, 'module.json'))) : {};
+        const graphPath = await sourceGraphPath(id);
+        if (!await context.snapshots.pathExists(graphPath))
+            return false;
+        if (moduleMeta.reading_version) {
+            if (!await setupOpeningReady(id, meta.opening_scene || ''))
+                return false;
+        }
+        const module = await loadModule(context, id), [world, opening] = initialWorld(module.graph, meta.opening_scene || null);
+        await value.writeWorld(world);
+        meta.opening_scene = opening;
+        meta.module_digest = module.graph.digest;
+        meta.module_generation = module.generation;
+        await value.writeCampaign(meta);
+        return true;
+    }
+    async function setupOpeningReady(moduleId: string, focus?: string): Promise<boolean> {
+        const ready = contributions.openingReady;
+        return ready ? ready(moduleId, focus) : missingContribution('visual source opening');
+    }
+    async function sourceGraphPath(moduleId: string): Promise<string> {
+        return contributions.sourceGraphPath ? contributions.sourceGraphPath(moduleId) : join(context.stateRoot, 'modules', moduleId, 'module-graph.json');
+    }
     async function repairLegacyTrail(snapshot: CampaignSnapshot): Promise<void> {
         if (Object.hasOwn(snapshot.world, 'scene_trail'))
             return;
@@ -121,8 +182,7 @@ export function createWriteRuntime(context: KernelContext): {
         consume?: boolean;
         resume?: Row;
     } = {}): Promise<Row> {
-        const first = firstStyleTurn.get(snapshot.id),
-            full = first == null || first === number(snapshot.turn.turn);
+        const first = firstStyleTurn.get(snapshot.id), full = first == null || first === number(snapshot.turn.turn);
         if (options.consume && first == null)
             firstStyleTurn.set(snapshot.id, number(snapshot.turn.turn));
         return buildCapsule(snapshot, module, {
@@ -142,8 +202,7 @@ export function createWriteRuntime(context: KernelContext): {
         const id = params.campaign;
         if (typeof id !== 'string' || !id)
             throw new RpcError('invalid_params', 'params.campaign is required');
-        const snapshot = new CampaignSnapshot(context, id),
-            campaign = writer(id);
+        const snapshot = new CampaignSnapshot(context, id), campaign = writer(id);
         if (!await context.snapshots.pathExists(campaign.path('campaign.json')))
             throw new RpcError('campaign_not_found', `no campaign ${repr(id)}`, {
                 fix: 'call campaign.list, or campaign.create',
@@ -161,7 +220,7 @@ export function createWriteRuntime(context: KernelContext): {
         snapshot.jsonFiles.set('turn.json', snapshot.turn);
         return snapshot;
     }
-    async function load(params: Row, ready = false, requireTurn = true): Promise<{
+    async function load(params: Row, ready = false, requireTurn = true, repair = true): Promise<{
         campaign: CampaignWriter;
         snapshot: CampaignSnapshot;
         module: LoadedModule;
@@ -171,8 +230,7 @@ export function createWriteRuntime(context: KernelContext): {
         snapshot.world = clone(snapshot.world);
         snapshot.turn = clone(snapshot.turn);
         snapshot.party = await snapshot.files('party');
-        const status = string(snapshot.meta.status),
-            statuses = ready ? ['ready_for_table', 'active', 'completed'] : ['active', 'completed'];
+        const status = string(snapshot.meta.status), statuses = ready ? ['ready_for_table', 'active', 'completed'] : ['active', 'completed'];
         if (!statuses.includes(status)) {
             const steps = status === 'setting_up' ? row(await context.snapshots.readJson(join(context.content, 'setup', 'steps.json'))) : {};
             throw new RpcError('campaign_not_ready', `campaign ${repr(snapshot.id)} is ${repr(status)}`, {
@@ -185,7 +243,8 @@ export function createWriteRuntime(context: KernelContext): {
             });
         }
         const module = await loadModule(context, string(snapshot.meta.module_id));
-        await repairLegacyTrail(snapshot);
+        if (repair)
+            await repairLegacyTrail(snapshot);
         await snapshot.preload();
         return {
             campaign: writer(snapshot.id),
@@ -195,8 +254,7 @@ export function createWriteRuntime(context: KernelContext): {
     }
     async function initializeMods(campaign: CampaignWriter, snapshot: CampaignSnapshot): Promise<void> {
         const staged = snapshot.meta.mods_pending;
-        let base = snapshot.world,
-            changed = !Object.hasOwn(base, 'mods') && staged && typeof staged === 'object' && !Array.isArray(staged);
+        let base = snapshot.world, changed = !Object.hasOwn(base, 'mods') && staged && typeof staged === 'object' && !Array.isArray(staged);
         if (changed)
             base = {
                 ...base,
@@ -216,10 +274,7 @@ export function createWriteRuntime(context: KernelContext): {
         }
     }
     async function validateOntology(): Promise<void> {
-        const director = await DirectorGraph.load(context),
-            craft = await TextGraph.load(context, director.beats),
-            ontology = await Ontology.load(context),
-            rules = await RuleObservations.load(context);
+        const director = await DirectorGraph.load(context), craft = await TextGraph.load(context, director.beats), ontology = await Ontology.load(context), rules = await RuleObservations.load(context);
         const bad = await ontology.validate([...rules.nodes.keys()], director, craft, async (id) => {
             try {
                 return [...(await loadModule(context, id)).graph.nodes.keys()];
@@ -281,26 +336,21 @@ export function createWriteRuntime(context: KernelContext): {
             throw new RpcError('invalid_params', `campaign ${repr(id)} already exists`, {
                 fix: 'pick another id or open the existing campaign'
             });
-        const moduleId = required(params, 'module')!,
-            pregen = required(params, 'pregen', true),
-            language = required(params, 'play_language', true) || 'zh-Hans';
+        const moduleId = required(params, 'module')!, pregen = required(params, 'pregen', true), language = required(params, 'play_language', true) || 'zh-Hans';
         if (!['zh-Hans', 'en'].includes(language))
             unsupported('play_language', language, ['zh-Hans', 'en']);
-        const director = await DirectorGraph.load(context),
-            craft = await TextGraph.load(context, director.beats),
-            register = required(params, 'register', true) || 'purist';
+        const director = await DirectorGraph.load(context), craft = await TextGraph.load(context, director.beats), register = required(params, 'register', true) || 'purist';
         const registers = [...craft.nodes.values()].filter(node => node.node_kind === 'play-register').sort((a, b) => number(a.properties.ordinal) - number(b.properties.ordinal)).map(node => node.properties.legacy_key);
         if (!registers.includes(register))
             unsupported('register', register, registers);
         const starters = await context.snapshots.sortedChildNames(join(context.content, 'starters'), path => context.snapshots.pathExists(join(path, 'module-graph.json')));
-        const starter = starters.includes(moduleId),
-            metadata = join(context.stateRoot, 'modules', moduleId, 'module.json');
+        const starter = starters.includes(moduleId), metadata = join(context.stateRoot, 'modules', moduleId, 'module.json');
         if (!starter && !await context.snapshots.pathExists(metadata))
             throw new RpcError('invalid_params', `unknown module ${repr(moduleId)}`, {
                 fix: `one of ${repr(starters)}, or a module registered with module.source.bind`
             });
         const existing = await context.snapshots.pathExists(metadata) ? row(await context.snapshots.readJson(metadata)) : {};
-        if (existing.reading_version)
+        if (existing.reading_version && !contributions.openingReady)
             missingContribution('visual source creation');
         await defaultModPlan(context, {});
         const moduleMeta = starter ? await registerStarter(context, moduleId) : clone(existing);
@@ -308,9 +358,8 @@ export function createWriteRuntime(context: KernelContext): {
             throw new RpcError('invalid_params', 'pregens exist only for starters', {
                 fix: 'create the investigator with setup.investigator'
             });
-        const loaded = await loadModule(context, moduleId),
-            graph = loaded.graph;
-        const title = required(params, 'title', true) || graph.title();
+        const loaded = starter || await context.snapshots.pathExists(await sourceGraphPath(moduleId)) ? await loadModule(context, moduleId) : null, graph = loaded?.graph;
+        const title = required(params, 'title', true) || (graph ? graph.title() : string(moduleMeta.title || moduleId));
         let sheet: Row | null = null;
         if (pregen != null) {
             const path = join(context.content, 'starters', moduleId, 'pregens', pregen, 'character.json');
@@ -332,25 +381,23 @@ export function createWriteRuntime(context: KernelContext): {
             const accepted = row(moduleMeta.character_guidance)[guidance];
             if (!accepted || accepted.play_language !== language)
                 throw new RpcError('invalid_params', 'the requested character guidance has not been accepted');
-            if (chosen && graph.handle(graph.scene(chosen)) !== graph.handle(graph.scene(accepted.scene)))
+            if (chosen && graph && graph.handle(graph.scene(chosen)) !== graph.handle(graph.scene(accepted.scene)))
                 throw new RpcError('invalid_params', 'the selected scene does not match the accepted guidance');
             chosen = accepted.scene;
         }
         if (chosen) {
-            const scene = graph.find(chosen, ['scene']);
-            if (!scene || !(row(scene.properties).is_start === true || row(scene.properties).is_entrance === true || recordOf(scene).is_start === true
-                || array(graph.raw.entry_scene_ids).includes(scene.node_id) || array(row(graph.moduleNode?.properties).entry_scene_ids).includes(scene.node_id)))
+            if (!graph || resolveStartScene(graph.raw, chosen, await loadModuleContract(context)) == null)
                 throw new RpcError('invalid_params', 'start_scene must name an authored opening');
         }
-        const [world, start] = initialWorld(graph, chosen),
-            mods = await defaultModPlan(context, world);
+        const playable = graph && (!moduleMeta.reading_version || await setupOpeningReady(moduleId, chosen || ''));
+        const [world, start] = playable ? initialWorld(graph!, chosen) : [null, chosen && graph ? graph.handle(graph.scene(chosen)) : null], mods = await defaultModPlan(context, world || {});
         await mods.install();
         const meta: Row = {
             id,
             title,
             module_id: moduleId,
-            module_digest: graph.digest,
-            module_generation: number(moduleMeta.generation || loaded.generation),
+            module_digest: graph?.digest ?? null,
+            module_generation: number(moduleMeta.generation || loaded?.generation),
             play_language: language,
             register,
             status: sheet ? 'active' : 'setting_up',
@@ -359,6 +406,7 @@ export function createWriteRuntime(context: KernelContext): {
             ...(guidance ? {
                 guidance_key: guidance
             } : {}),
+            ...(world == null ? { mods_pending: mods.world.mods } : {}),
             investigators: sheet ? [sheet.id] : [],
             active_worldline: 'main',
             worldlines: {
@@ -377,7 +425,8 @@ export function createWriteRuntime(context: KernelContext): {
             await mkdir(campaign.path('turns'));
             if (sheet)
                 await campaign.writeSheet(sheet);
-            await campaign.writeWorld(mods.world);
+            if (world != null)
+                await campaign.writeWorld(mods.world);
             await campaign.writeCampaign(meta);
             await campaign.writeTurn(freshTurn(0));
             checked(await context.git.init(id), 'init');
@@ -402,22 +451,19 @@ export function createWriteRuntime(context: KernelContext): {
         };
     }
     async function open(params: Row): Promise<Row> {
-        const initial = await recoverySnapshot(params),
-            campaign = writer(initial.id);
-        const meta = clone(initial.meta),
-            initialParty = await initial.files('party');
+        const initial = await recoverySnapshot(params), campaign = writer(initial.id);
+        const meta = clone(initial.meta), initialParty = await initial.files('party');
         preflightCampaign(meta, initial.world, {}, initialParty);
         await defaultModPlan(context, initial.world);
         const metadata = join(context.stateRoot, 'modules', string(meta.module_id), 'module.json');
-        if (await context.snapshots.pathExists(metadata) && row(await context.snapshots.readJson(metadata)).reading_version)
+        const moduleReading = await context.snapshots.pathExists(metadata) && truth(row(await context.snapshots.readJson(metadata)).reading_version);
+        if (moduleReading && !contributions.queueAdjacentReading)
             missingContribution('visual source opening and reading queue');
         await ensureMain(campaign, meta);
         const starter = join(context.content, 'starters', string(meta.module_id), 'module-graph.json');
         if (!await context.snapshots.pathExists(metadata) && await context.snapshots.pathExists(starter))
             await registerStarter(context, string(meta.module_id));
-        const loaded = await load(params, true, false),
-            snapshot = loaded.snapshot,
-            module = loaded.module;
+        const loaded = await load(params, true, false), snapshot = loaded.snapshot, module = loaded.module;
         await initializeMods(campaign, snapshot);
         await validateOntology();
         if (snapshot.meta.status === 'ready_for_table') {
@@ -425,11 +471,12 @@ export function createWriteRuntime(context: KernelContext): {
             snapshot.meta.activated_at = nowIso();
             await campaign.writeCampaign(snapshot.meta);
         }
+        if (contributions.queueAdjacentReading)
+            await contributions.queueAdjacentReading(module.graph, module.graph.scene(snapshot.world.active_scene));
         if (!await context.snapshots.pathExists(campaign.path('npc-ledger.json')))
             await rebuildNpcLedger(campaign, module.graph);
         const [checkpoint, checkpointRebuilt] = await syncCheckpoint(campaign, tableSnapshot(snapshot, module.graph), 'main');
-        let turn = await readableTurn(campaign),
-            rebuilt = checkpointRebuilt;
+        let turn = await readableTurn(campaign), rebuilt = checkpointRebuilt;
         if (!turn) {
             turn = await rebuildTurn(campaign, checkpoint);
             if (!turn)
@@ -444,15 +491,13 @@ export function createWriteRuntime(context: KernelContext): {
             since: turn.opened_at ?? null,
             last_call_ordinal: Math.max(0, ...ordinals)
         } : null;
-        const opening = number(turn.turn) === 0 && turn.state === 'awaiting_player',
-            resume = opening ? null : resumeView(checkpoint, rebuilt);
+        const opening = number(turn.turn) === 0 && turn.state === 'awaiting_player', resume = opening ? null : resumeView(checkpoint, rebuilt);
         seedTurn(context, snapshot.meta, number(turn.turn));
         if (resume)
             resumes.set(campaign.id, resume);
         else
             resumes.delete(campaign.id);
-        const scene = module.graph.scene(snapshot.world.active_scene),
-            line = row(row(snapshot.meta.worldlines).main);
+        const scene = module.graph.scene(snapshot.world.active_scene), line = row(row(snapshot.meta.worldlines).main);
         return {
             campaign: snapshot.meta,
             turn: {
@@ -476,7 +521,7 @@ export function createWriteRuntime(context: KernelContext): {
             opening_needed: opening,
             mod_context: await modContext(context, module.graph, snapshot.world, snapshot.party),
             setup_prologue: opening ? row(row(snapshot.meta.setup).handoff).prologue ?? null : null,
-            module_reading: false,
+            module_reading: moduleReading,
             resume,
             worldline: {
                 name: 'main',
@@ -489,12 +534,10 @@ export function createWriteRuntime(context: KernelContext): {
         const { campaign, snapshot, module } = await load(params);
         preflightCampaign(snapshot.meta, snapshot.world, snapshot.turn, snapshot.party);
         await initializeMods(campaign, snapshot);
-        const turn = snapshot.turn,
-            text = required(params, 'text')!;
+        const turn = snapshot.turn, text = required(params, 'text')!;
         if (!['awaiting_player', 'asked'].includes(turn.state))
             throw turnStateError(turn, 'table.player_input', 'finish the current turn with narrate or ask first');
-        let next = number(turn.turn),
-            pending = null;
+        let next = number(turn.turn), pending = null;
         if (turn.state === 'asked') {
             next++;
             pending = turn.pending_choice ?? null;
@@ -569,8 +612,7 @@ export function createWriteRuntime(context: KernelContext): {
         return value;
     }
     async function ask(params: Row): Promise<Row> {
-        const { campaign, snapshot, module } = await load(params),
-            turn = snapshot.turn;
+        const { campaign, snapshot, module } = await load(params), turn = snapshot.turn;
         const started = await createTurnTransaction(campaign, snapshot.world, turn).beginWrite('table.ask', params, {
             allowOpening: true
         });
@@ -589,14 +631,10 @@ export function createWriteRuntime(context: KernelContext): {
             throw new RpcError('invalid_params', 'params.options must be a non-empty list of strings');
         if (kind === 'mechanics' && options.some(option => !['push', 'spend_luck', 'accept', 'dodge', 'fight_back', 'flee'].includes(option)))
             throw new RpcError('invalid_params', 'unknown mechanics choice option');
-        const binds = required(params, 'binds', true),
-            text = required(params, 'text', true),
-            ending = row(snapshot.world.ending);
+        const binds = required(params, 'binds', true), text = required(params, 'text', true), ending = row(snapshot.world.ending);
         if (truth(ending) && ((ending.scope || 'campaign') === 'campaign' && snapshot.meta.status !== 'completed' || ending.scope === 'chapter' && snapshot.meta.status === 'completed'))
             throw new RpcError('invalid_params', 'a campaign ending must be delivered with narrate, not ask');
-        const receipts = [...array(turn.receipts)],
-            placed = text ? bindMarkers(text, receipts) : {},
-            stripped = truth(placed) ? stripMarkers(text!) : text;
+        const receipts = [...array(turn.receipts)], placed = text ? bindMarkers(text, receipts) : {}, stripped = truth(placed) ? stripMarkers(text!) : text;
         const language = string(snapshot.meta.play_language || 'zh-Hans');
         checkLanguage(language, {
             ...(kind === 'story' ? {
@@ -608,17 +646,14 @@ export function createWriteRuntime(context: KernelContext): {
             } : {})
         });
         await stanceTable(context);
-        const n = number(turn.turn),
-            pending = {
+        const n = number(turn.turn), pending = {
             name: `ask-${asciiSlug(binds || '') || kind}-t${n}`,
             prompt,
             options: [...options],
             binds,
             kind
         };
-        const rendered = stripped ? stripped.trim() : '',
-            projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts)),
-            labels = await playerGlossary(context, language);
+        const rendered = stripped ? stripped.trim() : '', projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts)), labels = await playerGlossary(context, language);
         const result: Row = {
             pending_choice: pending,
             interaction: {
@@ -637,8 +672,7 @@ export function createWriteRuntime(context: KernelContext): {
         turn.pending_choice = pending;
         turn.state = 'asked';
         rememberCall(turn, started.callId, params, result);
-        const world = tableSnapshot(snapshot, module.graph),
-            record = {
+        const world = tableSnapshot(snapshot, module.graph), record = {
             turn: n,
             player_text: turn.player_text ?? null,
             receipts,
@@ -673,8 +707,7 @@ export function createWriteRuntime(context: KernelContext): {
         return result;
     }
     async function narrate(params: Row): Promise<Row> {
-        const { campaign, snapshot, module } = await load(params),
-            turn = snapshot.turn;
+        const { campaign, snapshot, module } = await load(params), turn = snapshot.turn;
         const started = await createTurnTransaction(campaign, snapshot.world, turn).beginWrite('table.narrate', params, {
             allowOpening: true
         });
@@ -682,22 +715,15 @@ export function createWriteRuntime(context: KernelContext): {
             return started.result;
         preflightCampaign(snapshot.meta, snapshot.world, turn, snapshot.party);
         await defaultModPlan(context, snapshot.world);
-        const text = required(params, 'text')!,
-            receipts = [...array(turn.receipts)],
-            placed = bindMarkers(text, receipts),
-            rendered = truth(placed) ? stripMarkers(text) : text;
+        const text = required(params, 'text')!, receipts = [...array(turn.receipts)], placed = bindMarkers(text, receipts), rendered = truth(placed) ? stripMarkers(text) : text;
         const language = string(snapshot.meta.play_language || 'zh-Hans');
         checkLanguage(language, {
             text: rendered
         });
         checkNumbers(rendered, receipts);
         await stanceTable(context);
-        const projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts)),
-            n = number(turn.turn),
-            receipt = `turn:${n}`,
-            world = tableSnapshot(snapshot, module.graph);
-        const factLists = facts(module.graph, snapshot.world, snapshot.party, receipts, world, turn.player_text),
-            labels = await playerGlossary(context, language);
+        const projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts)), n = number(turn.turn), receipt = `turn:${n}`, world = tableSnapshot(snapshot, module.graph);
+        const factLists = facts(module.graph, snapshot.world, snapshot.party, receipts, world, turn.player_text), labels = await playerGlossary(context, language);
         const result: Row = {
             rendered_text: rendered,
             mechanics: projected,
@@ -713,11 +739,8 @@ export function createWriteRuntime(context: KernelContext): {
                 job_id: `extract:${campaign.id}:t${n}`
             }
         };
-        const before = clone(turn),
-            transcriptSize = await fileSize(campaign.path('transcript.jsonl')),
-            eventsSize = await fileSize(campaign.path('events.jsonl'));
-        const recordPath = campaign.path(campaign.recordName(n)),
-            hadRecord = await context.snapshots.pathExists(recordPath);
+        const before = clone(turn), transcriptSize = await fileSize(campaign.path('transcript.jsonl')), eventsSize = await fileSize(campaign.path('events.jsonl'));
+        const recordPath = campaign.path(campaign.recordName(n)), hadRecord = await context.snapshots.pathExists(recordPath);
         rememberCall(turn, started.callId, params, result);
         const record: Row = {
             turn: n,
@@ -775,8 +798,10 @@ export function createWriteRuntime(context: KernelContext): {
             await truncateFile(campaign.path('transcript.jsonl'), transcriptSize);
             await truncateFile(campaign.path('events.jsonl'), eventsSize);
             if (!hadRecord)
-                await unlink(recordPath).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-                    throw error; });
+                await unlink(recordPath).catch(error => {
+                    if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+                        throw error;
+                });
             throw new RpcError('commit_failed', `git commit failed; the turn stays open: ${error.message}`, {
                 fix: 'retry narrate with the same text',
                 details: {
@@ -789,6 +814,7 @@ export function createWriteRuntime(context: KernelContext): {
         await campaign.writeTurnRecord(record);
         for (const [step, action] of [
             ['checkpoint', () => writeCheckpoint(campaign, checkpointFromRecord(campaign.id, record, world, 'main'))],
+            ...(contributions.libraryWriteBack ? [['library', () => contributions.libraryWriteBack!(campaign, record)] as const] : []),
             ['episode', () => writeEpisode(campaign, record)],
         ] as const) {
             try {
@@ -811,6 +837,10 @@ export function createWriteRuntime(context: KernelContext): {
     }
     return {
         read,
+        campaign,
+        startSetupWorld,
+        setupOpeningReady,
+        sourceGraphPath,
         handlers: Object.freeze({
             'campaign.create': create,
             'table.open': open,
@@ -818,6 +848,6 @@ export function createWriteRuntime(context: KernelContext): {
             'table.ask': ask,
             'table.narrate': narrate
         }),
-        async transaction(params) { const { campaign, snapshot } = await load(params); return createTurnTransaction(campaign, snapshot.world, snapshot.turn); }
+        async transaction(params, options = {}) { const { campaign, snapshot } = await load(params, false, true, options.repairLegacyTrail !== false); return createTurnTransaction(campaign, snapshot.world, snapshot.turn); }
     };
 }

@@ -18,7 +18,10 @@
 - 原生 worker 路由：`worker_runner=codex`、`worker_profile=implementer`、`model_policy=inherit`、`execution_mode=oneshot`；禁止再派子代理、禁止提交。主会话是唯一集成者并获准直接实现共享代码。
 - #43 的共享 Git 读取/受控子进程与事务接口已提交为 `734843b6`；首批 20 个基础/锁/Git 检查通过。只读投影在真实保存状态上继续做逐项 Python 对照，不能以类型检查代替兼容性。
 - 受管 Node 24.19.0/arm64/ABI137 的 fs-ext 构建及 Python 互锁预检已通过（10 项、11 个子进程均退出）；证据位于 `/private/var/folders/wn/8ly53x4n6sq3jkvkptvtkrsm0000gn/T/pipicoc-flock-node24-skGd4B/`。此为 #46 先决验证，安装包尚未完成。
-- #44/#45 已实现并完成联合验证：30 个实际 RPC/状态/提交哈希对照通过，扩展全套 368 项通过；保留必要的未迁移功能拒绝。联合日志位于 `/Users/haoli/leehow/code/chatrpgv4-wt-pi-coc-v2/.coc/playtests/runtime-consolidation/checks/write-rules-YpFfZQ`；完整逐项证据在集成树的 `.coc/playtests/ts-transactions/`、`.coc/playtests/runtime-consolidation/read-projections/`、`rule-queries/`。正在提交。
+- #44/#45 已于 `d93eb0c9` 合入并关票：30 个实际 RPC/状态/提交哈希对照通过，扩展全套 368 项通过；保留必要的未迁移功能拒绝。联合日志位于 `/Users/haoli/leehow/code/chatrpgv4-wt-pi-coc-v2/.coc/playtests/runtime-consolidation/checks/write-rules-YpFfZQ`；完整逐项证据在集成树的 `.coc/playtests/ts-transactions/`、`.coc/playtests/runtime-consolidation/read-projections/`、`rule-queries/`。
+- #47/#48/#49/#50 已接入同一 TS 内核：普通检定、推骰/幸运、建卡与角色库、记忆与历史、模组阅读队列及发布；源码默认入口仍为 Python。#47 的 17 组、#48 的 9 组、#49 的 9 组、#50 的 9 组实际 RPC 对照均通过；随后既有读写/规则、记忆恢复与语言检查合计 44 项通过，扩展全套 443 项通过，新增源稿大整数 CLI 覆盖后的读者 11 项也通过。独立复核发现的「损坏当前游标不能阻止已提交回合的 advisory 车道」已修复并加入实际对照。源稿检查使用发出的纯 JS 校验器，关闭时释放真实阅读租约。本批准备提交，尚未称作完整 TS 产品。
+- #42 的正常建卡、游玩与关闭流程已按真实 Pi/Grok 驾驭器执行。5 次建卡输入、27 次游玩输入的原始记录保留；角色在游玩中受伤昏迷，后续两次等待未获得救援或结局，按真实玩法阻断保留，未伪造结束。两个 driver/keeper 对的 PID 均已退出。主检出 `stage-a-live-closeout.json` 与 `stage-a-live-kpi.md` 记录实际耗时、活跃调用耗时和限制；此为 Stage A 入口验收，不是最终无 Python/UI 验收。
+- #51 已由原生 Codex worker 领取，范围限定为 Mod 管理与共享定义校验。后续治疗、战斗、追逐、理智、世界线和实际 Mod 效果仍按依赖推进。
 - 完成标准仍是 #62 的独立安装包和真桌验收，不能以某个中间切片代替。
 
 状态：**实现中**。用户已批准本拆分；27 张直属子票、45 条原生阻塞关系和所有正文已核对，当前按依赖推进并逐批合入。

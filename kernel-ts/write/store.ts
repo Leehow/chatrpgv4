@@ -1,8 +1,8 @@
 /** Campaign writes and remembered calls; each RPC reloads authoritative disk state. */
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import type { KernelContext } from '../context.js';
-import type { JsonObject } from '../json.js';
+import type { JsonObject, JsonValue, ReadonlyJson } from '../json.js';
 import { jsonDigest } from '../json.js';
 import { appendJsonl, writeJsonAtomic } from '../fileio.js';
 import { RpcError } from '../errors.js';
@@ -55,7 +55,7 @@ export function turnStateError(turn: Row, method: string, allowed: string): RpcE
         },
     });
 }
-const EVENT_TYPES = new Set(['turn-started', 'player-declared', 'roll-resolved', 'scene-moved', 'clue-discovered', 'time-advanced',
+export const EVENT_TYPES: ReadonlySet<string> = new Set(['turn-started', 'player-declared', 'roll-resolved', 'scene-moved', 'clue-discovered', 'time-advanced',
     'turn-finalized', 'resource-changed', 'decision-settled', 'session-changed', 'choice-asked', 'memory-written', 'setup-completed',
     'handout-shown', 'item-transferred', 'definition-created', 'ability-acquired', 'flag-set', 'note-written', 'ruling-made',
     'npc-changed', 'worldline-forked', 'worldline-switched', 'worldline-merged']);
@@ -68,6 +68,17 @@ export class CampaignWriter implements CampaignWritePort {
     readCampaign() { return this.read('campaign.json'); }
     readWorld() { return this.read('world.json'); }
     readTurn() { return this.read('turn.json'); }
+    private savePath(name: string): string {
+        const root = join(this.directory, 'save'), target = resolve(root, name), path = relative(root, target);
+        if (!name || !path || path === '..' || path.startsWith('..' + sep))
+            throw new RpcError('invalid_params', 'Save document must remain inside its campaign save directory');
+        return target;
+    }
+    async readSave(name: string): Promise<JsonValue | null> {
+        const path = this.savePath(name);
+        return await this.context.snapshots.pathExists(path) ? clone(await this.context.snapshots.readJson(path)) as JsonValue : null;
+    }
+    writeSave(name: string, value: ReadonlyJson): Promise<void> { return writeJsonAtomic(this.savePath(name), value); }
     writeCampaign(value: Row) { return this.write('campaign.json', value); }
     writeWorld(value: Row) { return this.write('world.json', value); }
     writeTurn(value: Row) { return this.write('turn.json', value); }
@@ -119,10 +130,12 @@ export class CampaignWriter implements CampaignWritePort {
             data: event.data
         });
     }
-    telemetry(value: Row) { return appendJsonl(this.path('telemetry.jsonl'), {
-        at: nowIso(),
-        ...value
-    }); }
+    telemetry(value: Row) {
+        return appendJsonl(this.path('telemetry.jsonl'), {
+            at: nowIso(),
+            ...value
+        });
+    }
     async replay(turn: Row, callId: string, params: Row): Promise<Row | null> {
         let stored = row(turn.calls)[callId];
         if (stored == null)
@@ -156,8 +169,7 @@ export function createTurnTransaction(campaign: CampaignWriter, world: Row, turn
         world,
         turn,
         async beginWrite(method: WriteMethod, params: JsonObject, options = {}): Promise<WriteStart> {
-            const [, ordinal] = parseCallId(params.call_id),
-                callId = string(params.call_id);
+            const [, ordinal] = parseCallId(params.call_id), callId = string(params.call_id);
             const replay = await campaign.replay(turn, callId, params);
             if (replay)
                 return {
@@ -166,9 +178,7 @@ export function createTurnTransaction(campaign: CampaignWriter, world: Row, turn
                 };
             const meta = await campaign.readCampaign();
             if (meta.status === 'completed' && method !== 'table.ask' && method !== 'table.narrate') {
-                const action = row(params.action),
-                    effects = array(params.effects),
-                    decision = string(action.decision || '').replace(/^decision:/, '').replace(/^coc7:/, '');
+                const action = row(params.action), effects = array(params.effects), decision = string(action.decision || '').replace(/^decision:/, '').replace(/^coc7:/, '');
                 const accounting = method === 'table.resolve' && action.intent === 'montage'
                     && Object.keys(action).every(key => ['intent', 'goal', 'method', 'decision', 'ending', 'actor', 'scenario_san_reward_expr'].includes(key))
                     && ['development:end-session', 'development:settle-ending'].includes(decision);
@@ -189,10 +199,12 @@ export function createTurnTransaction(campaign: CampaignWriter, world: Row, turn
                 ordinal
             };
         },
-        async touchActing() { if (turn.state === 'open') {
-            turn.state = 'acting';
-            await campaign.writeTurn(turn);
-        } },
+        async touchActing() {
+            if (turn.state === 'open') {
+                turn.state = 'acting';
+                await campaign.writeTurn(turn);
+            }
+        },
         async commitResolve(commit: ResolveCommit) {
             turn.receipts.push(...commit.receipts);
             turn.state = 'acting';

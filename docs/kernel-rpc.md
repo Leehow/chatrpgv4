@@ -2640,3 +2640,56 @@ Argument validation and transition order remain in the existing read handler;
 there is still exactly one registered handler per public RPC method. The writer's
 `capsule` callback reuses the existing projection with its process-local style
 lifecycle; ordinary table.capsule retains its non-consumption of pending resume.
+
+Setup and library reuse named writer operations `campaign(params, requirements)`
+and `startSetupWorld(campaign, meta)`; a missing world is allowed only when that
+caller explicitly requests it. The latter is idempotent and uses the same source
+opening readiness and initial-world construction as campaign opening. A static
+`libraryWriteBack` callback enables imported-library writes and runs between the
+normal checkpoint and episode steps after a successful commit.
+
+Settlement domains use the campaign port's `readSave`/`writeSave` for their
+existing files below `save/`. These preserve JSON types and atomic writes; they
+are not a new state store. `transaction(params, {repairLegacyTrail:false})` offers
+an operation-local preparation read so a partial executor can reject an unsupported
+decision before requesting the existing legacy repair. Named receipt markers are
+computed once by the shared `markersFor` helper, also used by narration binding.
+
+### 27.7 Memory and recall migration
+
+The memory handler group receives the same writer instance. Jobs rebuild their
+packets from committed turn records even when earlier episode/job files are absent.
+Candidate validation uses the shared EntityIndex restricted to the job's known
+entities; submission retains superseded rows and their raw sources. The existing
+advisory warning anchors, transcript selectors, history diffs and worldline reads
+keep their public shapes. Memory uses the shared committed-fact and NPC-ledger
+helpers instead of deriving a second account of receipts. The memory/verifier
+host lanes retain their existing zero-tool exception; the kernel makes no model
+calls. Recall performs the writer-owned read transition after validating its kind.
+
+The static kernel composition returns `{handlers, close}`. The RPC entry awaits
+the module reader's lease release and the Git adapter's shutdown on EOF or an
+owner signal. Releasing a source lease leaves its durable running queue entry for
+the existing stale-owner recovery; it never invents successful publication. Setup
+and writer opening readiness share the composed source predicate. Library and
+source handlers are assembled once beside the existing read and writer groups.
+
+The source contribution owns `sourceGraphPath`, opening readiness, adjacent-scene
+read-ahead and the pre-effect material gate. Setup, writer and resolve delegate to
+these functions. The host's emitted read-only checker imports the same source
+validator as publication, with vocabulary loaded from captured content. Its CLI
+uses the shared Python-compatible JSON serializer, including large page integers.
+
+### 27.8 Mod management migration
+
+The static Mod management group owns package installation, immutable versions,
+defaults, activation order, pending safe-boundary changes and namespace migration.
+It accepts the same captured KernelContext and campaign writer. Its initialization
+contribution replaces the transaction slice's temporary built-in-only plan;
+callers do not grow their own package, pending-change or migration algorithms.
+The existing read projection remains authoritative for context and installed
+definitions. Definition validation is a pure shared module, used by the emitted
+host checker and later creation acceptance, including bounded document seeds.
+Management does not implement creation jobs, object operations or gameplay effect
+families. Folder and ZIP constraints, digests, namespace state and existing saves
+retain their current shapes; no new package registry or storage format is added.
