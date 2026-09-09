@@ -10,6 +10,8 @@
 - 集中候选全套完成：1346 通过、2 失败、1 跳过；保守分类为 665 项 TS RPC 通过、2 项 RPC 失败、1 项候选检查器通过，其余为 Python 实现/源码/驾驭器等证据。两项失败同源于遗漏 `session-changed` 投影；修复后 events/session 两文件共 14 项通过（`final-focused-2026-09-09T11-06-16-382Z-29Wt8C`）。独立复核发现目录软链接递归会让世界线恢复误删链接目标；隔离实际 Git 回归已复现并以 lstat 修复，writer 子集 6 项通过。尚未宣称修复后的完整套件重跑成功。
 - 只读搬迁资源验证：实际受管 Node24/Git 的内核、事务、重开和检查器通过；安装器首次/只读副本再次更新通过，账号配置哨兵未变；PDF helper 页图像素和缓存复用通过。两个实际 Pi setup RPC 入口在独立空 profile 中返回 get_state/get_commands 并退出，未调用模型。证据 `package-runtime-KCQhoi` 保留初始失败及明确标记的修复变体；这不是 App UI 或真实游玩验收。
 - 最终装配发现 electron-builder 默认排除资源根的 node_modules；现由配方在 Electron 打包后复制完整受管闭包，逐文件校验 hash/链接，再签名。完整 App 已用原 PipiUI Dev 身份签名并复制到 `/Applications/PipiCOC.app`，旧版保留在自有 `.build.noindex`。只读 App 初启因宿主资源 copier 继承只读权限而未创建窗口，真实日志在 `app-tH6gQt/startup.log`；已对 generated staging/previous 副本修复可写权限及失败回滚，界面待重验。并行最终内核全套使用原签名 App 的 Node24/Git，证据 `final-packaged-2026-09-09T11-15-26-405Z-40iVhU`，其 App 与内核文件保持冻结。
+- 包内最终全套已通过：1348 通过、1 跳过；其中 546 项为 App Node24 的 RPC，121 项为源码 Node22 的 RPC，1 项为源码 checker，其他为参考/源码/驾驭器检查。七个受检二进制/模块 hash 前后相同。`63b22e13` 已合入主检出并重新编译，App 主窗口已经打开。
+- 用户实见检查指出 COC/Mods 不显示及图标错误，账号配置/真桌因此暂停。根因已验证：无项目的 extension overlay 绕过 defaultPack；扩展页把显式空项目错误回退到旧 profile 的 last-session 项目 ID；打包新增 PNG 被 dock.setIcon 用来覆盖正确 ICNS。修复这些装配点并让空页面读取 productName，界面回归 19 项及 projectless pack 启用/显式禁用回归通过；完整 App 产品外观及实际 Mods 列表仍待重包实见确认。旧 profile、存档及独立玩测进程未被删除或迁移。
 
 以下为各批次当时的实施记录；当前状态以上述汇总为准。
 

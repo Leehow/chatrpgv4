@@ -23,6 +23,7 @@ const STEPS: { id: Exclude<SetupGuideStep, 'checking'>; title: string; action: s
 ]
 
 export function EmptySetupGuide({
+  productName = 'PipiUI',
   modelsLoading,
   hasModels,
   hasProjects,
@@ -31,6 +32,7 @@ export function EmptySetupGuide({
   onAddProject,
   onNewSession,
 }: {
+  productName?: string
   modelsLoading: boolean
   hasModels: boolean
   hasProjects: boolean
@@ -59,7 +61,7 @@ export function EmptySetupGuide({
           }}>×</button>
         </div>
       )}
-      <h1>开始使用 PipiUI</h1>
+      <h1>开始使用 {productName}</h1>
       <p className="empty-setup-lead">先配好模型，再打开一个项目就能聊。</p>
       {step === 'checking' ? (
         <p className="empty-setup-checking" data-testid="empty-setup-checking">正在检查模型…</p>

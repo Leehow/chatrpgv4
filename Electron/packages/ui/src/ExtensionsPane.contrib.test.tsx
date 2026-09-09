@@ -51,6 +51,27 @@ function managementHost(initial: ExtensionDescriptor[]) {
 }
 
 describe('ExtensionsPane agent contributions', () => {
+  it('respects an explicitly empty project instead of reviving a previous profile selection', async () => {
+    const key = 'pipiui:eui:last-session:v1', previous = localStorage.getItem(key)
+    localStorage.setItem(key, JSON.stringify({projectId: 'old-profile-project', sessionId: 'old-session'}))
+    try {
+      const coc = pkg({id: 'coc-keeper', name: 'COC Keeper', state: 'enabled'})
+      const host = managementHost([coc])
+      host.listProjects = vi.fn(async () => [])
+      host.listExtensions.mockImplementation(async projectId => {
+        if (projectId) throw new Error(`unknown project ${projectId}`)
+        return [coc]
+      })
+      render(<ExtensionsPane host={host} projectId="" addOpen={false} onCloseAdd={() => undefined} />)
+      await waitFor(() => expect(host.listExtensions).toHaveBeenCalledWith())
+      expect(await screen.findByText('COC Keeper')).toBeTruthy()
+      expect(screen.queryByText(/extensions-load-failed/)).toBeNull()
+    } finally {
+      cleanup()
+      if (previous === null) localStorage.removeItem(key)
+      else localStorage.setItem(key, previous)
+    }
+  })
   it('shows contributed agents, source, availability, and patch diagnostics read-only', async () => {
     const host = managementHost([pkg({
       id: 'ext-research',

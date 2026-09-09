@@ -178,7 +178,7 @@ function lastProjectId(): string | undefined {
 
 async function loadUserMcpServers(host: PipiHostAPI | undefined, preferredProjectId?: string): Promise<UserMcpServer[]> {
   if (!host?.listUserMcpServers) return []
-  let projectId = preferredProjectId || lastProjectId()
+  let projectId = preferredProjectId ?? lastProjectId()
   if (!projectId) {
     const projects = await host.listProjects()
     projectId = projects[0]?.id
@@ -811,7 +811,7 @@ function ExtensionPackagesSection({ host, projectId, servers, onServersChanged }
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<ExtensionStatusFilter>('all')
   const [categoryFilter, setCategoryFilter] = useState<DisplayExtensionCategory | 'all'>('all')
-  const resolvedProjectId = projectId || lastProjectId()
+  const resolvedProjectId = projectId === undefined ? lastProjectId() : projectId || undefined
   const catalogDiagnostics = useMemo(() => collectCatalogDiagnostics(agents), [agents])
   const canSwitchPacks = Boolean(resolvedProjectId && host.setExtensionEnabled)
   const packs = useMemo(() => packViewsFrom(items), [items])
@@ -1349,7 +1349,7 @@ export function ExtensionsPane({
 
   useEffect(() => reloadServers(), [reloadServers])
 
-  const resolvedProjectId = projectId || lastProjectId()
+  const resolvedProjectId = projectId === undefined ? lastProjectId() : projectId || undefined
 
   return (
     <div className="extensions-pane" data-testid="extensions-pane">

@@ -198,7 +198,7 @@ if (app) {
     // A packaged build gets its icon from the app bundle. A product running from a base
     // checkout has no bundle of its own, so the dock icon is the only place its identity
     // shows while it is unpackaged; without this every product is a generic Electron icon.
-    if (product.icon && app.dock) {
+    if (!app.isPackaged && product.icon && app.dock) {
       const icon = nativeImage.createFromPath(product.icon)
       if (icon.isEmpty()) console.warn(`[pipiui] product icon unreadable: ${product.icon}`)
       else app.dock.setIcon(icon)

@@ -61,6 +61,37 @@ async function coldStart(project: string): Promise<{ backend: ReturnType<typeof 
 }
 
 describe("cold-start extension enablement", () => {
+  it("applies the default product pack before any project exists and preserves an explicit App disable", async () => {
+    root = await mkdtemp(join(tmpdir(), "pipi-cold-projectless-pack-"));
+    const directory = join(root, "agent", "extensions", "coc-keeper");
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, "pipiui-extension.json"), JSON.stringify({
+      id: "coc-keeper", name: "COC Keeper", version: "0.1.0", defaultEnabled: false, capabilities: [],
+      app: { ui: {
+        layout: { primarySidebar: "pipi.sessions", center: "pipi.conversation", auxiliarySidebar: "coc.mods" },
+        panels: [{ slot: "toolPanel", id: "coc.mods", title: "Mods", entry: "mods-panel.js" }],
+      } },
+    }));
+    await writeFile(join(directory, "mods-panel.js"), "export default function mount() {}\n");
+    const options = { profileMode: "default", defaultPack: "coc-keeper", spawn: () => { throw new Error("No Pi process is needed for product discovery"); } };
+    const backend = backendFor(options);
+    try {
+      expect(await backend.handle("listProjects", [])).toEqual([]);
+      const items = await backend.handle("listExtensions", []) as Array<Listed & { ui?: { panels?: Array<{ id: string }> } }>;
+      const pack = items.find(item => item.id === "coc-keeper");
+      expect(pack?.state, JSON.stringify(pack)).toBe("enabled");
+      expect(pack?.ui?.panels?.map(panel => panel.id)).toContain("coc.mods");
+      await backend.handle("setExtensionEnabled" as never, ["coc-keeper", false, "app"]);
+      expect((await backend.handle("listExtensions", []) as Listed[]).find(item => item.id === "coc-keeper")?.state).toBe("disabled");
+    } finally { await backend.close() }
+
+    const reopened = backendFor(options);
+    try {
+      expect(await reopened.handle("listProjects", [])).toEqual([]);
+      expect((await reopened.handle("listExtensions", []) as Listed[]).find(item => item.id === "coc-keeper")?.state).toBe("disabled");
+    } finally { await reopened.close() }
+  });
+
   it("honors the project ext-enabled.json override on the first listExtensions after boot", async () => {
     root = await mkdtemp(join(tmpdir(), "pipi-cold-enable-"));
     const project = join(root, "workspace");

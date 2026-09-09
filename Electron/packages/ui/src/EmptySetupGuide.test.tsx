@@ -27,6 +27,10 @@ describe('currentSetupStep', () => {
 })
 
 describe('EmptySetupGuide', () => {
+  it('uses the configured product identity before a session exists', () => {
+    render(<EmptySetupGuide productName="PipiCOC" modelsLoading={false} hasModels={false} hasProjects={false} gitInstalled={true} onAddApiKey={() => undefined} onAddProject={() => undefined} onNewSession={() => undefined} />)
+    expect(screen.getByRole('heading', {name: '开始使用 PipiCOC'})).toBeTruthy()
+  })
   beforeEach(() => localStorage.clear())
 
   it('makes 添加 API Key the primary action when no model is configured', () => {

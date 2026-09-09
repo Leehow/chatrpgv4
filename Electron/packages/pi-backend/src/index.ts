@@ -7816,7 +7816,7 @@ export class PiHostBackend implements HostBackend {
       // Same merge spawn uses ({...app, ...project}): project keys win, else inherit App.
       return this.mergedExtensionOverlay(root);
     }
-    return readAppExtensionEnabled(await this.readSettings());
+    return this.mergedExtensionOverlay(undefined);
   }
   private async setExtensionEnabled(
     idValue: unknown,
