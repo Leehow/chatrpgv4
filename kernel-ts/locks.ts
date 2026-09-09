@@ -40,9 +40,34 @@ export function createAdvisoryLocks(flock?: Flock): AdvisoryLocks {
   });
 }
 
-export async function withExclusiveLock<T>(locks: AdvisoryLocks, path: string, action: () => Promise<T>): Promise<T> {
-  const lease = await locks.acquire(path, "exclusive", { createParents: true });
-  if (!lease) throw new Error("blocking advisory lock returned no lease");
+/** How often a bounded wait re-offers for the lock. Short enough to be invisible when it frees. */
+const LOCK_POLL_MS = 50;
+/**
+ * A bounded wait for an exclusive lease, or null when the deadline passes.
+ *
+ * A blocking flock has no deadline, and a holder that stops answering makes every waiter wait with
+ * it. That is not serialization, it is a stall the waiter cannot name: the RPC transport gives up
+ * on its own timeout and reports a generic internal failure with nothing in it that says another
+ * process is holding this campaign. A deadline lets the caller say so.
+ */
+async function acquireExclusive(locks: AdvisoryLocks, path: string, timeoutMs?: number): Promise<LockLease | null> {
+  if (timeoutMs === undefined) return locks.acquire(path, "exclusive", { createParents: true });
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  for (;;) {
+    const lease = await locks.acquire(path, "exclusive", { createParents: true, nonblocking: true });
+    if (lease) return lease;
+    if (Date.now() >= deadline) return null;
+    await new Promise<void>(resolve => { const timer = setTimeout(resolve, LOCK_POLL_MS); timer.unref?.(); });
+  }
+}
+export async function withExclusiveLock<T>(locks: AdvisoryLocks, path: string, action: () => Promise<T>,
+  options: { readonly timeoutMs?: number; readonly timeout?: () => Error } = {}): Promise<T> {
+  const lease = await acquireExclusive(locks, path, options.timeoutMs);
+  if (!lease) {
+    if (options.timeoutMs === undefined) throw new Error("blocking advisory lock returned no lease");
+    throw options.timeout?.() ?? new RpcError("internal", `advisory lock ${path} is held elsewhere`,
+      { details: { reason: "lock_timeout", path } });
+  }
   try { return await action(); }
   finally { await lease.release(); }
 }

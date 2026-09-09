@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import datetime as _dt
+import errno
 import fcntl
 import re
+import time as _time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -17,9 +19,22 @@ CAMPAIGN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 CALL_ID = re.compile(r"^t(?P<turn>\d+)-c(?P<n>\d+)$")
 
 
+#: Long enough for any single campaign transaction, short enough to beat the 30s RPC timeout, so a
+#: contended campaign is reported as a contended campaign and not as a dead transport.
+CAMPAIGN_LOCK_TIMEOUT_S = 25.0
+#: How often a bounded wait re-offers for the lock. Invisible when the holder finishes.
+CAMPAIGN_LOCK_POLL_S = 0.05
+
+
 @contextmanager
-def campaign_lock(store: "Store", params: dict[str, Any]):
-    """Serialize short campaign RPC transactions across live and cold processes."""
+def campaign_lock(store: "Store", params: dict[str, Any],
+                  timeout: float = CAMPAIGN_LOCK_TIMEOUT_S):
+    """Serialize short campaign RPC transactions across live and cold processes.
+
+    The wait is bounded. A blocking flock has no deadline, so a holder that stops answering made
+    every waiter wait with it until the RPC transport gave up on its own timeout and reported a
+    generic internal failure — with nothing in it that said another process held this campaign.
+    """
     name = params.get("campaign")
     folder = store.campaigns_dir / name if isinstance(name, str) and CAMPAIGN_ID.fullmatch(name) else None
     if folder is None or not (folder / "campaign.json").is_file():
@@ -29,7 +44,21 @@ def campaign_lock(store: "Store", params: dict[str, Any]):
     lock_dir.mkdir(parents=True, exist_ok=True)
     # A worldline checkout must never replace the inode of the held process lock.
     with (lock_dir / f"{name}.lock").open("a+b") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
+        deadline = _time.monotonic() + max(0.0, timeout)
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as error:
+                if error.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
+                    raise
+                if _time.monotonic() >= deadline:
+                    raise RpcError(
+                        "internal", f"another process is holding campaign {name!r}",
+                        fix="wait for the turn that holds this campaign to finish, "
+                            "or close the other window on it",
+                        details={"reason": "campaign_locked", "campaign": name}) from None
+                _time.sleep(CAMPAIGN_LOCK_POLL_S)
         try:
             yield
         finally:

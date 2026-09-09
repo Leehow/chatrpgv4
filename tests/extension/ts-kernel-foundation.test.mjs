@@ -310,7 +310,23 @@ test("descriptor lock seam retains inode lifetime and fails closed without nativ
   const ctx = await context("campaign lock guard", { locks });
   await populate(ctx.workspace);
   assert.equal((await api.handleLine('{"id":"hello","method":"kernel.hello","params":{"campaign":"zeta"}}', api.buildHandlers(ctx))).ok, true);
-  assert.deepEqual(operations.slice(-2), ["ex", "un"]);
+  // The guard offers non-blocking and waits against its own deadline, so a campaign held by
+  // another process is a refusal that names the campaign rather than a wait with nothing to say.
+  assert.deepEqual(operations.slice(-2), ["exnb", "un"]);
+  const held = await context("campaign lock guard", {
+    workspace: ctx.workspace, content: ctx.content, campaignLockTimeoutMs: 60,
+    locks: api.createAdvisoryLocks(async (_fd, operation) => {
+      if (operation === "exnb") throw Object.assign(new Error("busy"), { code: "EAGAIN" });
+    }),
+  });
+  const started = Date.now();
+  const contended = await api.handleLine('{"id":"busy","method":"kernel.hello","params":{"campaign":"zeta"}}', api.buildHandlers(held));
+  assert.ok(Date.now() - started >= 60, "the guard waits for its deadline before refusing");
+  assert.equal(contended.error.code, "internal");
+  assert.equal(contended.error.details.reason, "campaign_locked");
+  assert.equal(contended.error.details.campaign, "zeta");
+  assert.match(contended.error.message, /zeta/);
+  assert.ok(contended.error.fix);
   const unbacked = await api.createKernelContext({ workspace: ctx.workspace, content: ctx.content });
   const refusal = await api.handleLine('{"id":"guard","method":"campaign.list","params":{"campaign":"zeta"}}', api.buildHandlers(unbacked));
   assert.equal(refusal.error.code, "not_implemented");

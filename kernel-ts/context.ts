@@ -15,7 +15,12 @@ export interface KernelContext {
   readonly locks: AdvisoryLocks;
   readonly rng: PythonRandom;
   readonly seedLocked: boolean;
+  /** Deadline for the per-campaign RPC lock. Below the RPC transport's own timeout on purpose, so
+   *  a contended campaign is reported as a contended campaign and not as a dead transport. */
+  readonly campaignLockTimeoutMs: number;
 }
+/** Long enough for any single campaign transaction, short enough to beat the 30s RPC timeout. */
+const CAMPAIGN_LOCK_TIMEOUT_MS = 25_000;
 
 async function resolvedPath(path: string): Promise<string> {
   const absolute = resolve(path);
@@ -33,6 +38,7 @@ export async function createKernelContext(options: {
   readonly workspace: string; readonly content: string; readonly seed?: string;
   readonly locks?: AdvisoryLocks;
   readonly env?: NodeJS.ProcessEnv;
+  readonly campaignLockTimeoutMs?: number;
 }): Promise<KernelContext> {
   for (const [name, path] of [["workspace", options.workspace], ["content", options.content]]) {
     if (typeof path !== "string" || !path || path.includes("\0")) throw new TypeError(`--${name} must be a non-empty path`);
@@ -48,5 +54,7 @@ export async function createKernelContext(options: {
     workspace, content, stateRoot, campaignsRoot: join(stateRoot, "campaigns"),
     snapshots, git: createGitRuntime(workspace, options.env), locks: options.locks ?? createAdvisoryLocks(),
     rng, seedLocked: Boolean(options.seed),
+    campaignLockTimeoutMs: options.campaignLockTimeoutMs
+      ?? (Number((options.env ?? process.env).PI_COC_CAMPAIGN_LOCK_TIMEOUT_MS) || CAMPAIGN_LOCK_TIMEOUT_MS),
   });
 }

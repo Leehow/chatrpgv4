@@ -8,6 +8,8 @@ import { pathToFileURL } from 'node:url';
 
 type Row = Record<string, any>;
 const MAX_FILE = 128 * 1024 * 1024;
+/** Two bounded model rounds plus worker startup; past this a card is a failure, not a wait. */
+const PRESENTATION_DEADLINE_MS = 360_000;
 const CHUNK = 1024 * 1024;
 /** The play languages a job and the scenario catalog may be asked for. */
 const PLAY_LANGUAGES = ['zh-Hans', 'en'];
@@ -99,10 +101,10 @@ export class CocOnboardingHost {
       canHandoff:character==='confirmed'&&(waitingForOpening||handoffCommitted)&&opening.state==='ready'&&!playing,playing,hidden:!!job.hidden,
       model:job.model,thinking:job.thinking,campaign:job.campaign,play_language:job.play_language};
   }
-  private run(action: string, data: Row, job?: Row, phase?:string, attempt?:string): Promise<any> {
+  private run(action: string, data: Row, job?: Row, phase?:string, attempt?:string, external?: AbortController): Promise<any> {
     if(this.lifetime.signal.aborted)return Promise.reject(new Error('The onboarding host is closed'));
     const key=job?this.phaseKey(job,phase||action):undefined;
-    const controller=new AbortController();
+    const controller=external??new AbortController();
     if(key)this.children.set(key,controller);
     const signal=AbortSignal.any([this.lifetime.signal,controller.signal]);
     const task=(async()=>{
@@ -260,6 +262,29 @@ export class CocOnboardingHost {
   presentation(data:Row):Promise<Row> {
     return this.presentationJob(data).task;
   }
+  /**
+   * A presentation run is bounded, because an unbounded one is a card that never appears.
+   *
+   * The status poll answers `{pending:true}` for as long as the job has neither result nor error,
+   * and nothing else was watching the worker: a child that emitted its result but never exited,
+   * or stalled before it, left the job pending for the life of the process and the card showing
+   * its loading ellipsis with no retry to offer. A deadline turns that into a failure the player
+   * can act on, and cancels the worker instead of leaving it behind.
+   */
+  private runPresentation(data:Row):Promise<Row> {
+    const limit=Number(this.options.env.PI_COC_PRESENTATION_DEADLINE_MS)||PRESENTATION_DEADLINE_MS;
+    const controller=new AbortController();
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    const bounded=new Promise<never>((_resolve,reject)=>{
+      timer=setTimeout(()=>{
+        controller.abort();
+        reject(new Error('The card presentation did not finish in time; retry it'));
+      },limit);
+      timer?.unref?.();
+    });
+    return Promise.race([this.run('presentation',data,undefined,undefined,undefined,controller),bounded])
+      .finally(()=>clearTimeout(timer));
+  }
   documentPresentationStatus(data:Row):Row {
     const key=JSON.stringify([data.campaign,data.actor,data.name,data.version,data.play_language]);
     let job=this.documentReadings.get(key);
@@ -287,7 +312,7 @@ export class CocOnboardingHost {
     if(!this.presentations.has(key)) {
       const job:{task:Promise<Row>;result?:Row;error?:unknown}={task:Promise.resolve({})};
       this.presentations.set(key,job);
-      job.task=this.run('presentation',data).then(result=>{job.result=result;return result;},error=>{job.error=error;throw error;})
+      job.task=this.runPresentation(data).then(result=>{job.result=result;return result;},error=>{job.error=error;throw error;})
         .finally(()=>{if(data.standing)this.presentations.delete(key);});
       void job.task.catch(()=>undefined);
     }

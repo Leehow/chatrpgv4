@@ -1682,6 +1682,43 @@ existing presentation map; standing-sheet queries still refresh their visible
 context. The tool-enabled presentation agent runs the shared schema checker and
 gets one bounded repair for malformed output, retaining both original attempts.
 
+### Kernel decision: a drawn card is not re-earned (2026-09-09)
+
+The saved `setup/presentations/<revision>-<language>.json` projection travels with
+the `coc-character-draft` history row, as every other player-facing projection
+already does. The renderer fetch is the path for a draft that has no projection
+yet, not the path for every mount: without it a scroll, a session switch, the
+setup-to-play handoff and a restart each redrew the loading placeholder on a card
+whose text had been on disk for hours. The job also starts when the draft is
+appended rather than when its card mounts, and is handed the glossary the row
+already carries, so it makes no campaign-scoped read and never queues behind the
+turn that produced it. A presentation run is bounded; past its deadline the card
+reports a failure it can offer a retry for instead of staying pending forever.
+
+Card text is projected from one accumulating per-language vocabulary rather than
+a per-character fingerprint. A card's strings are overwhelmingly the previous
+card's strings — UI chrome, characteristic and skill names, era, occupation — so
+fingerprinting the whole list made every new investigator a complete miss that
+paid for a fresh translation of the entire card before it could be drawn. The
+vocabulary is keyed by play language and the instruction digest; the financial
+equipment subset is keyed by the kit. Kernel glossary labels are context for the
+agent and never a question put to it. A round is accepted in part: the words that
+validated are kept and only the remainder is asked again, because one dropped key
+used to discard every correct translation in the round and, with two rounds, turn
+a near miss into a card that never appeared. `validatePresentation` keeps its
+all-or-nothing schema for the agent's own checker, which the card is still drawn
+under.
+
+### Kernel decision: a contended campaign says so (2026-09-09)
+
+`guardCampaign` waits for the per-campaign advisory lock against a deadline
+(`PI_COC_CAMPAIGN_LOCK_TIMEOUT_MS`, 25s) instead of blocking without one, and
+refuses with `internal` + `details.reason = "campaign_locked"`, the campaign name
+and a `fix`. The deadline is below the RPC transport's own 30-second timeout on
+purpose: an unbounded wait was reported to the caller as a dead transport, with
+nothing in it that said another process held the campaign. Both kernels bound the
+wait identically. No error code is added and no method changes.
+
 Both normal and idle setup completion emit the existing `coc-setup-exit` marker.
 The backend uses it to recognize the play child's startup within the same RPC
 wrapper. Pi may start its extension-owned opening before the RPC subscription

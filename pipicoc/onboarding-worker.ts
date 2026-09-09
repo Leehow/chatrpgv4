@@ -84,9 +84,13 @@ async function main() {
       view.present=[];
       return prepareStandingPresentation({...input,contentRoot:context.contentRoot,view,known_labels:view.labels||{},signal:guidanceAbort.signal,runner:runTask});
     }
-    const state=await call('setup.steps',{campaign:input.campaign});
+    // The draft row already carries the kernel's glossary. When the caller hands it over there is
+    // no campaign-scoped read left to make, so this projection never queues behind the Keeper's
+    // own turn on the campaign lock.
+    const glossary=input.labels&&typeof input.labels==='object'&&!Array.isArray(input.labels)?input.labels
+      :((await call('setup.steps',{campaign:input.campaign})).state?.draft?.labels||{});
     const ui=labelsFor(input.play_language);
-    const known_labels={...(state.state?.draft?.labels||{}),Finance:ui.finance,Equipment:ui.equipment,Weapons:ui.weapons,cash:ui.cash,assets:ui.assets,spending:ui.spending,credit_rating:ui.creditRating,living_standard:ui.livingStandard};
+    const known_labels={...glossary,Finance:ui.finance,Equipment:ui.equipment,Weapons:ui.weapons,cash:ui.cash,assets:ui.assets,spending:ui.spending,credit_rating:ui.creditRating,living_standard:ui.livingStandard};
     return prepareCharacterPresentation({...input,contentRoot:context.contentRoot,known_labels,signal:guidanceAbort.signal,runner:runTask});
   }
   if (action === 'catalog') {
