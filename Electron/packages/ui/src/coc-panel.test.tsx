@@ -102,6 +102,36 @@ describe('rules terms come from the kernel glossary', () => {
   });
 });
 
+describe('icons restate the stable rules keys, never the words', () => {
+  it('marks vitals and known characteristics with decorative glyphs, and guesses none', async () => {
+    // A glyph keys off the machine name (HP, STR), not the localized word, so one render covers
+    // every language the panel may be in. HOMEBREW stands in for a characteristic the map does
+    // not know: it must draw no icon at all, because a guessed glyph is a wrong caption.
+    const sheet = {
+      ...investigator,
+      hp: 9, san: 46, mp: 10, luck: 60,
+      derived: { HP: 9, SAN: 50, MP: 10, MOV: 9, DB: 'none', BUILD: 0 },
+      characteristics: { STR: 60, CON: 40, SIZ: 50, DEX: 65, APP: 70, INT: 70, POW: 50, EDU: 75, HOMEBREW: 33 },
+    };
+    const { container } = render(<Panel api={host({ ok: true, data: { status: 'ready', view: view({ investigators: [sheet] }), campaign: 'c1' } })} />);
+    await screen.findByText('力量');
+    const vitals = Array.from(container.querySelectorAll('.coc-vital'));
+    expect(vitals.map(el => el.querySelector('svg.coc-icon')?.getAttribute('data-icon')))
+      .toEqual(['heart', 'brain', 'sparkles', 'clover']);
+    for (const vital of vitals) {
+      expect(vital.querySelector('svg.coc-icon')?.getAttribute('aria-hidden')).toBe('true');
+    }
+    const iconOf = (name: string) =>
+      screen.getByText(name).closest('.coc-char')?.querySelector('svg.coc-icon')?.getAttribute('data-icon');
+    expect(iconOf('力量')).toBe('dumbbell');
+    expect(iconOf('CON')).toBe('shield');
+    expect(iconOf('MOV')).toBe('wind');
+    expect(iconOf('DB')).toBe('sword');
+    expect(iconOf('BUILD')).toBe('body');
+    expect(iconOf('HOMEBREW')).toBeUndefined();
+  });
+});
+
 describe('a discovered clue is named, not handled', () => {
   it('shows the label the table gave it rather than the kernel handle', async () => {
     render(<Panel api={host({ ok: true, data: { status: 'ready', view: view(), campaign: 'c1' } })} />);

@@ -54,10 +54,14 @@ const CSS = `
 .coc-sheet-heading{display:flex;align-items:center;gap:10px;margin:0 0 12px;color:var(--muted);
   font-size:12px;font-weight:650;line-height:1.4;letter-spacing:.025em}
 .coc-sheet-heading::after{content:"";flex:1;height:1px;background:var(--border)}
+/* A glyph only restates the caption beside it: sized to the caption, hidden from screen readers. */
+.coc-icon{flex:none;width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
 .coc-vitals{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .coc-vital{--tone:var(--muted);min-width:0;padding:11px 12px;border:1px solid var(--border);
   border-radius:9px;background:color-mix(in srgb,var(--tone) 5%,var(--surface-raised,var(--surface)))}
-.coc-vital-key{display:block;color:var(--muted);font-size:11px;line-height:1.4;margin-bottom:5px}
+.coc-vital-key{display:flex;align-items:center;gap:5px;color:var(--muted);font-size:11px;line-height:1.4;margin-bottom:5px}
+.coc-vital-key .coc-icon{color:var(--tone)}
 .coc-vital-num{color:var(--text-strong);font:600 26px/1.2 var(--coc-serif);font-variant-numeric:tabular-nums}
 .coc-vital-max{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .coc-vital-track{margin-top:7px;height:4px;border-radius:4px;overflow:hidden;background:var(--border)}
@@ -66,7 +70,7 @@ const CSS = `
 .coc-chars{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
 .coc-char{min-width:0;border:1px solid var(--border);border-radius:8px;padding:10px;
   background:var(--surface-raised,var(--surface))}
-.coc-char-key{display:block;color:var(--muted);font-size:11px;line-height:1.4;overflow-wrap:anywhere}
+.coc-char-key{display:flex;align-items:center;gap:4px;color:var(--muted);font-size:11px;line-height:1.4;overflow-wrap:anywhere}
 .coc-char-val{display:block;margin-top:5px;color:var(--text-strong);font:600 21px/1.1 var(--coc-serif);
   font-variant-numeric:tabular-nums}
 .coc-list{display:flex;flex-direction:column;gap:0}
@@ -205,6 +209,42 @@ const SKILL_PREVIEW = 12;
 const CHARACTERISTIC_ORDER = ["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK"];
 /** Derived values that are numbers or short words worth a cell. */
 const DERIVED_ORDER = ["MOV", "DB", "BUILD"];
+
+/**
+ * One small stroke glyph per stable rules key, restating the caption it sits beside.
+ *
+ * A glyph keys off the machine name -- HP, STR, MOV -- never the localized word, because the
+ * word is the table's language and the key is the contract (§23). A key with no glyph draws
+ * none: a guessed icon is a wrong caption, a missing one is just text again. The paths are
+ * plain 24x24 stroke geometry kept in this file, because an icon font or an image fetch would
+ * make the sheet depend on an asset the host may not serve.
+ */
+const ICON_PATHS = {
+  heart: ["M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z"],
+  brain: ["M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z",
+    "M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z",
+    "M12 5v13"],
+  sparkles: ["M12 4l1.8 4.95a2 2 0 0 0 1.25 1.25L20 12l-4.95 1.8a2 2 0 0 0-1.25 1.25L12 20l-1.8-4.95a2 2 0 0 0-1.25-1.25L4 12l4.95-1.8a2 2 0 0 0 1.25-1.25L12 4Z"],
+  clover: ["M5.8 9a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0-6.4 0Z", "M11.8 9a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0-6.4 0Z",
+    "M5.8 15a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0-6.4 0Z", "M11.8 15a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0-6.4 0Z",
+    "M12 18.2c-.3 1.5-1.3 2.7-2.8 3.3"],
+  dumbbell: ["M6.5 6.5v11", "M17.5 6.5v11", "M3.5 9.5v5", "M20.5 9.5v5", "M6.5 12h11"],
+  shield: ["M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1Z"],
+  expand: ["M15 3h6v6", "M9 21H3v-6", "M21 3l-7 7", "M3 21l7-7"],
+  zap: ["M13 2 3 14h9l-1 8 10-12h-9l1-8Z"],
+  smile: ["M3 12a9 9 0 1 0 18 0 9 9 0 1 0-18 0Z", "M8.5 14.5a4.5 4.5 0 0 0 7 0", "M9 9.5h.01", "M15 9.5h.01"],
+  bulb: ["M15 14c.2-1 .7-1.7 1.5-2.5C17.5 10.6 18 9.3 18 8a6 6 0 0 0-12 0c0 1.3.5 2.6 1.5 3.5.8.8 1.3 1.5 1.5 2.5",
+    "M9 18h6", "M10 22h4"],
+  flame: ["M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"],
+  book: ["M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2Z", "M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7Z"],
+  wind: ["M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2", "M9.6 4.6A2 2 0 1 1 11 8H2", "M12.6 19.4A2 2 0 1 0 14 16H2"],
+  sword: ["M14.5 17.5 3 6 3 3 6 3 17.5 14.5", "M13 19l6-6", "M16 16l4 4", "M19 21l2-2"],
+  body: ["M8.8 7a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0-6.4 0Z", "M5.5 21a6.5 6.5 0 0 1 13 0"],
+};
+/** Which glyph each vital carries; luck has no bar and no cap, but it has a clover. */
+const VITAL_ICON = { HP: "heart", SAN: "brain", MP: "sparkles", luck: "clover" };
+/** Which glyph each known characteristic or derived cell carries; an unknown key draws none. */
+const CHAR_ICON = { STR: "dumbbell", CON: "shield", SIZ: "expand", DEX: "zap", APP: "smile", INT: "bulb", POW: "flame", EDU: "book", MOV: "wind", DB: "sword", BUILD: "body" };
 
 function isRecord(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -404,6 +444,18 @@ export function createComponent(React) {
   const h = React.createElement;
   const DocumentEditor = createDocumentEditor(React);
 
+  /**
+   * A decorative glyph restating its label, keyed by the stable rules key rather than the
+   * localized word. `data-icon` names the glyph so a test can tell which one a cell drew
+   * without parsing path data.
+   */
+  function Icon(props) {
+    const paths = ICON_PATHS[props.name];
+    if (!paths) return null;
+    return h("svg", { className: "coc-icon", viewBox: "0 0 24 24", "aria-hidden": "true", focusable: "false", "data-icon": props.name },
+      paths.map((d, index) => h("path", { key: index, d })));
+  }
+
   function Section(props) {
     return h("section", { className: "coc-sheet-section" },
       h("h2", { className: "coc-sheet-heading" }, props.title),
@@ -430,11 +482,11 @@ export function createComponent(React) {
   const VITAL_TONE = { HP: "var(--danger)", SAN: "var(--accent)", MP: "var(--subtle)", luck: "var(--warning)" };
 
   function Vital(props) {
-    const { label, tone, current, max } = props;
+    const { label, tone, current, max, icon } = props;
     const cap = typeof max === "number" && max > 0 ? max : undefined;
     const pct = cap ? Math.max(0, Math.min(100, (current / cap) * 100)) : 0;
     return h("div", { className: "coc-vital", style: { "--tone": tone }, title: label },
-      h("span", { className: "coc-vital-key" }, label),
+      h("span", { className: "coc-vital-key" }, icon ? h(Icon, { name: icon }) : null, label),
       h("span", { className: "coc-vital-num" }, text(current)),
       cap ? h("span", { className: "coc-vital-max" }, ` / ${cap}`) : null,
       // The bar restates the number beside it, so it is decoration to a screen reader.
@@ -450,11 +502,11 @@ export function createComponent(React) {
       const current = numberOr(sheet[currentKey], undefined);
       if (current === undefined) continue;
       // A maximum the kernel did not give is not one the panel may invent: the bar just goes away.
-      items.push(h(Vital, { key: label, label: term(label), tone: VITAL_TONE[label], current, max: numberOr(derived[maxKey], undefined) }));
+      items.push(h(Vital, { key: label, label: term(label), tone: VITAL_TONE[label], icon: VITAL_ICON[label], current, max: numberOr(derived[maxKey], undefined) }));
     }
     // Luck has no maximum on the sheet (§17.4), so it never grows a bar.
     const luck = numberOr(sheet.luck, undefined);
-    if (luck !== undefined) items.push(h(Vital, { key: "luck", label: t("luck"), tone: VITAL_TONE.luck, current: luck }));
+    if (luck !== undefined) items.push(h(Vital, { key: "luck", label: t("luck"), tone: VITAL_TONE.luck, icon: VITAL_ICON.luck, current: luck }));
     return items.length ? h(Section, { title: t("condition") }, h("div", { className: "coc-vitals" }, items)) : null;
   }
 
@@ -478,7 +530,7 @@ export function createComponent(React) {
     return h(Section, { title: t("characteristics") },
       h("div", { className: "coc-chars" }, entries.map(([key, value]) =>
         h("div", { className: "coc-char", key },
-          h("span", { className: "coc-char-key", title: term(key) }, term(key)),
+          h("span", { className: "coc-char-key", title: term(key) }, CHAR_ICON[key] ? h(Icon, { name: CHAR_ICON[key] }) : null, term(key)),
           h("span", { className: "coc-char-val" }, key === "DB" && value === "none" ? "0" : typeof value === "string" ? term(value) : text(value))))));
   }
 
