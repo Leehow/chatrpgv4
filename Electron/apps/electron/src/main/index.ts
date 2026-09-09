@@ -272,6 +272,7 @@ if (app) {
       piCommand: assets.piCommand,
       env: piProcessEnv,
       managedNodeModulesRoot: assets.managedNodeModulesRoot,
+      cocRuntime: assets.cocRuntime,
       browserAction: (request, sessionId) => browser.toolAction(sessionId, request as any),
       browserWatch: (request, sessionId) => handleBrowserWatchEvent(request, sessionId, browser, watchCallbacks),
       terminalAction: (request, sessionId) => terminalHost.toolAction(sessionId, request as any),

@@ -1,10 +1,11 @@
 /** A tool-enabled Pi child for one visual reading or review phase. */
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { mkdir, writeFile, chmod } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { RuntimeContext } from "../../runtime/host.ts";
 
 const PKG_ROOT = resolvePath(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -23,6 +24,8 @@ export interface ReaderRequest {
 	signal?: AbortSignal;
 	timeoutMs?: number;
 	systemPrompt?: string;
+	/** The host selects an existing source instruction from its captured content root. */
+	prompt?: { phase: "index" | "read" | "verify"; guidance?: boolean };
 	eventLog?: string;
 	source?: { pdf: string; cache: string };
 	imageHistory?: number;
@@ -46,8 +49,9 @@ export interface ReaderOutcome {
 }
 
 /** The reader's command line, without the final `brief` argument. */
-export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false, submission = false): string[] {
-	const override = process.env.PI_COC_READER_CMD?.trim();
+export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false, submission = false, context?: RuntimeContext): string[] {
+	const root = context?.resourceRoot ?? PKG_ROOT;
+	const override = context?.env.PI_COC_READER_CMD?.trim();
 	if (override) {
 		const parsed: unknown = JSON.parse(override);
 		if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((part) => typeof part !== "string")) {
@@ -56,19 +60,20 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
 		return parsed as string[];
 	}
 	return [
-		join(PKG_ROOT, "node_modules", ".bin", "pi"),
+		context?.nodeExecutable ?? process.execPath,
+		join(root, "node_modules", ".bin", "pi"),
 		"-p",
 		"--no-session",
 		"--no-context-files",
 		"--no-extensions",
 		"--no-skills",
-		...(systemPrompt ? ["--extension", join(PKG_ROOT, "extensions/module/reader-context.ts")] : []),
+		...(systemPrompt ? ["--extension", join(root, "extensions/module/reader-context.ts")] : []),
 		"--tools",
 		[pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : [])].join(","),
-		...(pdf ? ["--extension", join(PKG_ROOT, "extensions/module/reader-pdf.ts")] : []),
-		...(submission ? ["--extension", join(PKG_ROOT, "extensions/module/reader-submit.ts")] : []),
+		...(pdf ? ["--extension", join(root, "extensions/module/reader-pdf.ts")] : []),
+		...(submission ? ["--extension", join(root, "extensions/module/reader-submit.ts")] : []),
 		"--system-prompt",
-		systemPrompt ?? join(PKG_ROOT, "content", "setup", "visual-reader.md"),
+		systemPrompt ?? join(context?.contentRoot ?? join(root, "content"), "setup", "visual-reader.md"),
 		...(model ? ["--model", model] : []),
 		...(thinking ? ["--thinking", thinking] : []),
 		// Everything after `--` is the prompt: a brief starting with `-` is not taken for an option.
@@ -111,18 +116,19 @@ export async function acquireReaderSlot(signal?: AbortSignal): Promise<(() => vo
 }
 
 /** Run one reader round. Failed or cancelled runs retain their evidence. */
-export async function runReader(request: ReaderRequest): Promise<ReaderOutcome> {
+export async function runReader(request: ReaderRequest, context?: RuntimeContext): Promise<ReaderOutcome> {
+	if (!context) throw new Error("Reader execution requires a captured host runtime context");
 	const release = await acquireReaderSlot(request.signal);
 	if (!release) return {ok:false,code:null,timedOut:false,ms:0,stderr:"",command:[],error:"cancelled"};
-	try { return await runOwnedReader(request); } finally { release(); }
+	try { return await runOwnedReader(request, context); } finally { release(); }
 }
 
-async function runOwnedReader(request: ReaderRequest): Promise<ReaderOutcome> {
+async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): Promise<ReaderOutcome> {
 	const began = Date.now();
 	let command: string[];
 	try {
-		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission);
-		if (request.eventLog && !process.env.PI_COC_READER_CMD) command.splice(command.length - 1, 0, "--mode", "json");
+		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission, context);
+		if (request.eventLog && !context.env.PI_COC_READER_CMD?.trim()) command.splice(command.length - 1, 0, "--mode", "json");
 		command.push(request.brief);
 	} catch (error) {
 		return {
@@ -136,7 +142,7 @@ async function runOwnedReader(request: ReaderRequest): Promise<ReaderOutcome> {
 		};
 	}
 	const [bin, ...args] = command;
-	const env = { ...process.env };
+	const env: NodeJS.ProcessEnv = { ...context.env, PI_CODING_AGENT_DIR: context.agentHome };
 	if(request.imageHistory)env.PI_COC_READER_IMAGE_HISTORY=String(request.imageHistory);
 	if (request.source) env.PI_COC_READER_SOURCE = JSON.stringify(request.source);
 	else delete env.PI_COC_READER_SOURCE;
@@ -149,17 +155,7 @@ async function runOwnedReader(request: ReaderRequest): Promise<ReaderOutcome> {
 		env.PI_COC_READER_IMAGES_LOG = request.eventLog + ".images.jsonl";
 		env.PI_COC_READER_REQUESTS_LOG = request.eventLog + ".requests.jsonl";
 	}
-	if (request.systemPrompt) {
-		const binDir = join(request.cwd, "host-bin");
-		await mkdir(binDir, { recursive: true });
-		const quotedRoot = "'" + PKG_ROOT.replaceAll("'", "'\\''") + "'";
-		for (const name of ["python", "python3"]) {
-			const path = join(binDir, name);
-			await writeFile(path, `#!/bin/sh\nexec uv run --project ${quotedRoot} --frozen python "$@"\n`);
-			await chmod(path, 0o755);
-		}
-		env.PATH = `${binDir}:${env.PATH ?? ""}`;
-	}
+	if (request.signal?.aborted) return { ok: false, code: null, timedOut: false, ms: 0, stderr: "", command, error: "cancelled" };
 
 	return await new Promise<ReaderOutcome>((resolve) => {
 		let settled = false;
@@ -184,6 +180,7 @@ async function runOwnedReader(request: ReaderRequest): Promise<ReaderOutcome> {
 		};
 
 		const kill = () => {
+			if (hardKill) return;
 			try {
 				if (grouped && child.pid) process.kill(-child.pid, "SIGTERM");
 				else child.kill();
@@ -210,6 +207,7 @@ async function runOwnedReader(request: ReaderRequest): Promise<ReaderOutcome> {
 			kill();
 		};
 		request.signal?.addEventListener("abort", onAbort, { once: true });
+		if (request.signal?.aborted) onAbort();
 
 		// JSON events provide image-use evidence; a final sentence alone never proves a valid graph.
 		if (!request.eventLog) child.stdout?.resume();
@@ -239,9 +237,18 @@ async function runOwnedReader(request: ReaderRequest): Promise<ReaderOutcome> {
 		child.on("error", (error: Error) => {
 			finish({ ok: false, code: null, timedOut, error: error.message });
 		});
+		child.once("exit", () => {
+			clearTimeout(timer);
+			// Inherited output pipes can keep close pending after the reader itself exits.
+			if (grouped && child.pid) kill();
+		});
 		child.on("close", (code, signal) => {
+			// Descendants belong to this task even when their parent exits first.
+			if (grouped && child.pid) {
+				try { process.kill(-child.pid, "SIGKILL"); } catch { /* The owned group has already exited. */ }
+			}
 			finish({
-				ok: !timedOut && code === 0,
+				ok: !timedOut && !request.signal?.aborted && code === 0,
 				code: code ?? null,
 				timedOut,
 				...(signal ? { signal } : {}),

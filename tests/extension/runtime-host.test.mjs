@@ -127,7 +127,8 @@ test("capabilities use captured context, and closure rejects late task results",
 });
 
 test("unregistered capabilities fail explicitly without booting a kernel", async t => {
-	const { runtime } = fixture(t);
+	const { home, captured } = fixture(t);
+	const runtime = createRuntime({ owner: "check", home }, {resourceRoot: root, env: captured, capabilities: {check: undefined}});
 	await assert.rejects(runtime.check({ kind: "source-draft", packet: "unused", draft: "unused" }), { code: "not_implemented" });
 	await runtime.close();
 });

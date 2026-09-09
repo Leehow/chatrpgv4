@@ -2,7 +2,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { runReader, readerInput } from "./reader.ts";
+import { readerInput, type ReaderRequest, type ReaderOutcome } from "./reader.ts";
 
 type Row = Record<string, any>;
 function numeric(value: any, path: string): string[] {
@@ -43,14 +43,13 @@ export function checkReviewEvidence(review: Row, paths: string[], pages: Set<num
 export async function reviewCandidate(options: {
 	cwd: string; task: Row; draft: Row; instructions: string; round: number;
 	model: { id: string; thinking?: string }; source: { pdf: string; cache: string }; signal: AbortSignal;
-	run?: typeof runReader;
+	run: (request: ReaderRequest) => Promise<ReaderOutcome>;
 	record(row: Row): void; progress(row: Row): void;
 }): Promise<number[]> {
 	const guidanceBytes = options.task.purpose === "guidance" ? await readFile(join(options.cwd, "guidance.json"), "utf8") : undefined;
 	const candidateBytes = guidanceBytes ? await readFile(join(options.cwd,"draft.json")) : Buffer.from(JSON.stringify(options.draft));
 	const units = guidanceBytes ? [reviewUnits(options.draft).flat()] : reviewUnits(options.draft), results: Row[] = [], observed = new Set<number>();
 	let next = 0, completed = 0, active = 0;
-	const configured = Number(process.env.PI_COC_READER_TIMEOUT_MS);
 	const failures: string[] = [];
 	const capacity = Math.min(40, units.length);
 	await Promise.allSettled(Array.from({ length: capacity }, async () => {
@@ -67,10 +66,9 @@ export async function reviewCandidate(options: {
 			active++;
 			options.record({ lane: "reading", event: "review_concurrency", active, capacity });
 			try {
-				const run = await (options.run ?? runReader)({ cwd, model: options.model.id, thinking: options.model.thinking,
+				const run = await options.run({ cwd, model: options.model.id, thinking: options.model.thinking,
 					...(guidanceBytes?{imageHistory:4,submission:true}:{}),
 					systemPrompt: options.instructions, source: options.source, signal: options.signal, eventLog,
-					...(configured > 0 ? { timeoutMs: configured } : {}),
 					brief: (guidanceBytes ? readerInput({task:{...options.task,required_review:paths}, draft:options.draft, guidance:JSON.parse(guidanceBytes)}) : "Read task.json and draft.json.") + " Independently review only task.required_review against original images using pdf. Keep the full graph as context. Produce checked paths, verdict, source_refs and reason, plus missing (only necessary current material). Never edit the draft. " + (guidanceBytes ? "Also review guidance.json under the Independent review instructions and include guidance:{approved,issues} in the same review. Never modify guidance.json. Pass this small review object directly to submit_reading as your sole final tool call; a separate write followed by submit would waste another model request. " : "Write review.json. ") + "Finish this unit and stop.",
 					onEvent(event) {
 						if (event.type === "message_end" && event.message?.errorMessage) throw new Error(event.message.errorMessage);

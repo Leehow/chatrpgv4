@@ -1,4 +1,4 @@
-import { CocOnboardingHost, CocOnboardingRegistry } from './coc-onboarding.js';
+import { CocOnboardingHost, CocOnboardingRegistry, type CocOnboardingOptions } from './coc-onboarding.js';
 export { CocOnboardingRegistry } from './coc-onboarding.js';
 import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry } from "./coc-view.js";
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
@@ -708,6 +708,7 @@ async function writeCanonicalModelsFile(path: string, contents: string): Promise
 
 export type PiBackendOptions = {
   cocOnboardingRegistry?: CocOnboardingRegistry;
+  cocRuntime?: Pick<CocOnboardingOptions, 'nodeExecutable' | 'contentRoot' | 'backend' | 'kernelEntrypoint' | 'preparationEntrypoint'>;
   /** Explicit Pi process invocation. Packaged Electron supplies bundled Node + unpacked Pi CLI. */
   piCommand?: PiCommand;
   /** Legacy/development shorthand for a directly executable external `pi`. */
@@ -2275,6 +2276,7 @@ export class PiHostBackend implements HostBackend {
   private piCommand: PiCommand;
   private runtimeRoot: string;
   private managedNodeModulesRoot?: string;
+  private readonly cocRuntime: PiBackendOptions['cocRuntime'];
   private runtimeAssets?: RuntimeAssets;
   private agentDir: string;
   private vaultDir: string;
@@ -2428,6 +2430,9 @@ export class PiHostBackend implements HostBackend {
     this.structuredOutputNormalize = options.structuredOutputNormalize;
     this.structuredOutputsEnabledFn = options.structuredOutputsEnabled;
     this.managedNodeModulesRoot = options.managedNodeModulesRoot;
+    this.cocRuntime = Object.freeze({...options.cocRuntime,
+      nodeExecutable: options.cocRuntime?.nodeExecutable ?? options.authNodePath
+        ?? (this.piCommand.prefixArgs?.length ? this.piCommand.executable : undefined)});
     this.runtimeAssets = options.runtimeAssets;
     this.profileMode = options.profileMode ?? "default";
     this.resourceMode = options.resourceMode ?? "default";
@@ -8449,7 +8454,7 @@ export class PiHostBackend implements HostBackend {
         if (!this.managedNodeModulesRoot) throw new Error("Canonical runtime is unavailable");
         const repo = resolve(this.managedNodeModulesRoot, "..");
         const home = resolve(this.env.PI_COC_HOME || repo);
-        this.cocOnboarding = this.cocOnboardingRegistry.get({repo, home, agentDir: this.sharedProfileDir, env: this.env});
+        this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime, repo, home, agentDir: this.sharedProfileDir, env: this.env});
         if (request.action === "start") {
           const selected = await this.locate(sid);
           const binding=await readCocBinding(selected.path);
@@ -8508,11 +8513,11 @@ export class PiHostBackend implements HostBackend {
         const request:Record<string,unknown> = isRecord(params) ? {...params} : {};
         delete request.campaign;
         if (context) request.campaign = context.campaign;
-        let data:any = await callColdKernel(repo,context?.home ?? resolve(this.env.PI_COC_HOME || repo),method,request,this.env);
+        let data:any = await callColdKernel(repo,context?.home ?? resolve(this.env.PI_COC_HOME || repo),method,request,this.env,this.cocRuntime);
         if (method === "mods.document.apply") emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context?.campaign}}});
         if (method.startsWith("mods.document.") && context) {
           const state = await this.getModelState(sid);
-          const host = this.cocOnboardingRegistry.get({repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
+          const host = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
           const reading = host.documentPresentationStatus({campaign:context.campaign,actor:data.actor,name:data.name,version:data.version,play_language:data.play_language,
             model:this.env.PI_COC_MOD_MODEL?.trim() || `${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel});
           data = reading.pending ? reading : {...data,display_name:reading.display_name,text:reading.text,original:reading.original};
@@ -8533,12 +8538,12 @@ export class PiHostBackend implements HostBackend {
       if(!binding||!this.managedNodeModulesRoot)return settingsDenied('unbound','No campaign is bound');
       if(method==='draft-presentation') {
         const repo=resolve(this.managedNodeModulesRoot,'..');
-        this.cocOnboarding = this.cocOnboardingRegistry.get({repo,home:binding.home,agentDir:this.sharedProfileDir,env:this.env});
+        this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:binding.home,agentDir:this.sharedProfileDir,env:this.env});
         const state=await this.getModelState(sid);
         try {return {ok:true,data:this.cocOnboarding.presentationStatus({campaign:binding.campaign,revision:Number(revision),play_language:binding.play_language,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})};}
         catch(error){return settingsDenied('presentation_failed',error instanceof Error?error.message:String(error));}
       }
-      try {return {ok:true,data:await readColdSheet(join(this.managedNodeModulesRoot,'..'),binding,Number(revision),this.env)};}
+      try {return {ok:true,data:await readColdSheet(join(this.managedNodeModulesRoot,'..'),binding,Number(revision),this.env,this.cocRuntime)};}
       catch(error){if((error as any)?.code==='idempotency_conflict')return {ok:true,data:{superseded:true}};return settingsDenied('preview_failed',error instanceof Error?error.message:String(error));}
     }
     if (id === "coc-keeper" && ["sheet","choose"].includes(method) && !(isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim())) {
@@ -8575,7 +8580,7 @@ export class PiHostBackend implements HostBackend {
           if (!context) return {ok:true,data:{status:"unbound",view:null,campaign:null}};
           try {
             if (!this.managedNodeModulesRoot) throw new Error("Canonical runtime is unavailable");
-            const view=await readColdSheet(join(this.managedNodeModulesRoot ?? "", ".."),context,undefined,this.env);
+            const view=await readColdSheet(join(this.managedNodeModulesRoot ?? "", ".."),context,undefined,this.env,this.cocRuntime);
             try {
               const folder=join(context.home,'.coc/campaigns',context.campaign);
               const meta=JSON.parse(await fs.readFile(join(folder,'campaign.json'),'utf8'));
@@ -8584,7 +8589,7 @@ export class PiHostBackend implements HostBackend {
               try {projection=JSON.parse(await fs.readFile(join(folder,'setup/presentations',`${revision}-${context.play_language}.json`),'utf8'));} catch {}
               if(Number.isSafeInteger(revision)&&(!projection||projection.play_language!==context.play_language||!Array.isArray(projection.finance_equipment))) {
                 const repo=resolve(this.managedNodeModulesRoot,'..');
-                this.cocOnboarding ??= new CocOnboardingHost({repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
+                this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
                 const key=JSON.stringify([context.home,context.campaign,revision,context.play_language]);
                 if(isRecord(params)&&params.retry_projection===true&&this.cocSheetPresentationJobs.get(key)?.status==='failed')this.cocSheetPresentationJobs.delete(key);
                 if(!this.cocSheetPresentationJobs.has(key)) {
@@ -8613,7 +8618,7 @@ export class PiHostBackend implements HostBackend {
             if(visibleNames.some(name=>typeof names[name]!=='string'||!names[name].trim())) {
               try {
                 const repo=resolve(this.managedNodeModulesRoot,'..');
-                this.cocOnboarding = this.cocOnboardingRegistry.get({repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
+                this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
                 const state=await this.getModelState(sessionId);
                 const projection=await this.cocOnboarding.presentation({campaign:context.campaign,play_language:context.play_language,standing:true,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel});
                 names=projection.texts;

@@ -54,6 +54,71 @@ test('pending polls reuse work and surface a preparation failure for retry',asyn
   } finally {await rm(home,{recursive:true,force:true});}
 });
 
+test('separate owners isolate pending work and poll failures while retaining accepted disk reuse',async()=>{
+  const home=await mkdtemp(join(tmpdir(),'paper-owners-'));
+  const firstController=new AbortController(),secondController=new AbortController();
+  const jobs=new Map();
+  let calls=0;
+  const runner=request=>new Promise(resolve=>{
+    calls++;
+    let settled=false;
+    const finish=ok=>{
+      if(settled)return;
+      settled=true;request.signal.removeEventListener('abort',cancel);
+      resolve({ok,code:ok?0:1,timedOut:false,ms:1,stderr:'',command:[]});
+    };
+    const cancel=()=>finish(false);
+    jobs.set(request.signal,{async complete(){
+      await writeFile(join(request.cwd,'result.json'),JSON.stringify({title:'Second owner reading',text:'Independent completed text'}));
+      finish(true);
+    }});
+    request.signal.addEventListener('abort',cancel,{once:true});
+    if(request.signal.aborted)cancel();
+  });
+  const firstOptions={home,owner:{},runner,signal:firstController.signal};
+  const secondOptions={home,owner:{},runner,signal:secondController.signal};
+  const source={name:'Shared slip',text:'Same source',original:'Same source',version:'one',play_language:'en'};
+  const waitFor=async read=>{
+    for(let round=0;round<200;round++){
+      const result=read();if(result)return result;
+      await new Promise(resolve=>setTimeout(resolve,5));
+    }
+    assert.fail('Owned presentation did not reach its expected state');
+  };
+  const first=presentDocument(firstOptions,source).catch(error=>error);
+  const second=presentDocument(secondOptions,source).catch(error=>error);
+  try {
+    assert.deepEqual(documentPresentationStatus({...firstOptions},source),{pending:true});
+    assert.deepEqual(documentPresentationStatus({...firstOptions},source),{pending:true});
+    assert.deepEqual(documentPresentationStatus({...secondOptions},source),{pending:true});
+    await waitFor(()=>jobs.size===2);
+    assert.equal(calls,2);
+    firstController.abort();
+    assert.match((await first).message,/could not be prepared/);
+    const failure=await waitFor(()=>{
+      try{documentPresentationStatus({...firstOptions},source);}catch(error){return error;}
+    });
+    assert.match(failure.message,/could not be prepared/);
+    assert.deepEqual(documentPresentationStatus({...secondOptions},source),{pending:true});
+    await jobs.get(secondController.signal).complete();
+    const result=await second;
+    assert.equal(result.text,'Independent completed text');
+    const view=await waitFor(()=>{
+      const value=documentPresentationStatus({...secondOptions},source);return !value.pending&&value;
+    });
+    assert.equal(view.display_name,'Second owner reading');
+    assert.equal(view.text,result.text);
+    const cached=await presentDocument({home,owner:{},runner:async()=>{throw new Error('Accepted disk cache should be reused');}},source);
+    assert.equal(cached.text,result.text);
+    assert.equal(calls,2);
+    assert.equal(source.text,'Same source');
+  } finally {
+    firstController.abort();secondController.abort();
+    await Promise.all([first,second]);
+    await rm(home,{recursive:true,force:true});
+  }
+});
+
 test('the artifact gate rejects invented blank-paper writing and oversized text',()=>{
   assert.throws(()=>validateDocumentReading({title:'Paper',text:'Invented letter'},{text:''}));
   assert.throws(()=>validateDocumentReading({title:'Paper',text:'x'.repeat(64001)},{text:'source'}));

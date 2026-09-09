@@ -3,14 +3,12 @@ import {createHash, randomUUID} from 'node:crypto';
 import {mkdir, readFile, writeFile, rename} from 'node:fs/promises';
 import {dirname, join, resolve, relative, isAbsolute} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {runReader, type ReaderRequest, type ReaderOutcome} from './reader.ts';
+import type {ReaderRequest, ReaderOutcome} from './reader.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const promptPath = join(root, 'content/setup/character-guidance.md');
-const reviewPath = join(root, 'content/setup/character-guidance-review.md');
 type Row = Record<string, any>;
 export type Guidance = {opening:string; advice:string; scene:string; guide:string; handoff:string};
-type Options = {home:string; module_id:string; play_language:string; opening?:string;
+type Options = {home:string; contentRoot?:string; module_id:string; play_language:string; opening?:string;
   buildBundle?:boolean;
   occupations:Array<{id:string; name:string}>; model?:string; thinking?:string; signal?:AbortSignal;
   runner?:(request:ReaderRequest)=>Promise<ReaderOutcome>};
@@ -28,9 +26,10 @@ function openingNode(graph:Row, meta:Row, selected?:string):Row|undefined {
   });
 }
 export async function guidanceFingerprint(options:Options):Promise<string> {
+  const content = options.contentRoot ?? join(root, 'content');
   const folder=resolve(options.home,'.coc/modules',options.module_id);
   const meta=JSON.parse(await readFile(join(folder,'module.json'),'utf8'));
-  const prompts=await Promise.all([promptPath,reviewPath,...(meta.file_sha256?[join(root,'content/setup/visual-guidance.md')]:[])].map(path=>readFile(path,'utf8')));
+  const prompts=await Promise.all([join(content,'setup/character-guidance.md'),join(content,'setup/character-guidance-review.md'),...(meta.file_sha256?[join(content,'setup/visual-guidance.md')]:[])].map(path=>readFile(path,'utf8')));
   let source=meta.file_sha256;
   let opening=options.opening || '';
   if(!source) {
@@ -64,6 +63,9 @@ async function json(path:string) {
   return JSON.parse(raw);
 }
 export async function prepareCharacterGuidance(options:Options):Promise<Guidance> {
+  const content = options.contentRoot ?? join(root, 'content');
+  const promptPath = join(content, 'setup/character-guidance.md');
+  const reviewPath = join(content, 'setup/character-guidance-review.md');
   if(options.signal?.aborted)throw new Error('Character guidance cancelled');
   if(!/^[a-z0-9-]{1,64}$/.test(options.module_id))throw new Error('Invalid module');
   if(!['zh-Hans','en'].includes(options.play_language))throw new Error('Invalid play language');
@@ -103,7 +105,8 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
   await writeFile(join(attempt,'packet.json'),JSON.stringify(packet,null,2));
   await writeFile(join(attempt,'author-prompt.md'),prompt);
   await writeFile(join(attempt,'review-prompt.md'),reviewPrompt);
-  const runner=options.runner||runReader;
+  const runner=options.runner;
+  if(!runner)throw new Error('Character guidance requires its owner runtime');
   const request={cwd:attempt,model:options.model,thinking:options.thinking,signal:options.signal};
   let guidance: Guidance | undefined;
   let review: Row = {approved:false,issues:[]};

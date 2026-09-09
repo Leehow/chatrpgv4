@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,resolve} from 'node:path';
 import {reviewCandidate,reviewUnits} from '../../extensions/module/reader-review.ts';
+import {createRuntime} from '../../runtime/host.ts';
 
 test('review grouping retains numeric children and critical nested pointers',()=>{
  const groups=reviewUnits({nodes:[{properties:{mechanics:{HP:10},image_sources:[{page:2}]}}],claims:[],critical:['/nodes/0/properties/mechanics']});
@@ -32,18 +33,21 @@ test('source and review runs share forty permits and cancelled waiters consume n
  const reusable=await acquireReaderSlot();reusable();
 });
 
-test('every independent reviewer attempt receives the configured reader timeout', async t => {
+test('every independent reviewer attempt uses the owner timeout despite ambient changes', {timeout:5000}, async t => {
  const cwd=await mkdtemp(join(tmpdir(),'coc-review-timeout-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
  const prior=process.env.PI_COC_READER_TIMEOUT_MS;
  t.after(()=>{if(prior===undefined)delete process.env.PI_COC_READER_TIMEOUT_MS;else process.env.PI_COC_READER_TIMEOUT_MS=prior;});
- const timeouts=[];
+ const runtime=createRuntime({owner:'preparation',home:cwd},{resourceRoot:resolve(import.meta.dirname,'../..'),env:{...process.env,
+  PI_COC_READER_TIMEOUT_MS:'80',PI_COC_READER_CMD:JSON.stringify([process.execPath,'-e','setInterval(()=>{},1000)'])}});
+ t.after(()=>runtime.close());
+ const outcomes=[];
  const options={cwd,task:{},draft:{nodes:[{properties:{}},{properties:{}}],claims:[]},instructions:'unused',round:1,
   model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,progress(){},record(){},
-  async run(request){timeouts.push(request.timeoutMs);return {ok:false,timedOut:true,error:'reviewer timed out'};}};
- process.env.PI_COC_READER_TIMEOUT_MS='4567';
+  async run(request){const result=await runtime.runTask({kind:'reader',request},request.signal);outcomes.push(result);return result;}};
+ process.env.PI_COC_READER_TIMEOUT_MS='600000';
  await assert.rejects(reviewCandidate(options),/reviewer timed out/);
- assert.deepEqual(timeouts,[4567,4567,4567,4567]);
- timeouts.length=0;process.env.PI_COC_READER_TIMEOUT_MS='0';
+ assert.equal(outcomes.length,4);assert.ok(outcomes.every(result=>result.timedOut && !result.ok));
+ outcomes.length=0;process.env.PI_COC_READER_TIMEOUT_MS='0';
  await assert.rejects(reviewCandidate({...options,round:2}),/reviewer timed out/);
- assert.deepEqual(timeouts,[undefined,undefined,undefined,undefined]);
+ assert.equal(outcomes.length,4);assert.ok(outcomes.every(result=>result.timedOut && !result.ok));
 });

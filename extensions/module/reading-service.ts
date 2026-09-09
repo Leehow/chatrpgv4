@@ -1,14 +1,13 @@
 /** A single host service for PDF preparation and foreground/background reading. */
 import { readFile, writeFile, mkdir, copyFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { basename, dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, join, resolve } from "node:path";
 import { KernelError , isKernelError } from "../kernel/client.ts";
-import { runReader, readerInput } from "./reader.ts";
+import { readerInput } from "./reader.ts";
 import { reviewCandidate } from "./reader-review.ts";
-import { sourceAsset, sourceInfo } from "./source.ts";
+import { sourceAsset } from "./source.ts";
+import type { HostRuntime } from "../../runtime/host.ts";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 type Row = Record<string, any>;
 type Call = (method: string, params: Row) => Promise<any>;
 export interface ReadingBridge {
@@ -18,6 +17,7 @@ export interface ReadingBridge {
 interface Dependencies {
 	call: Call;
 	home: string;
+	runtime?: HostRuntime;
 	model(): { id: string; vision: boolean; thinking?: string };
 	progress(row: Row): void;
 	record(row: Row): void;
@@ -68,6 +68,10 @@ export class ReadingService implements ReadingBridge {
 	private cancelledJobs = new Set<string>();
 	private readonly deps: Dependencies;
 	constructor(deps: Dependencies) { this.deps = deps; }
+	private runtime(): HostRuntime {
+		if (!this.deps.runtime) throw new Error("Source reading requires its owner's runtime");
+		return this.deps.runtime;
+	}
 
 	dispose() {
 		this.stopped = true;
@@ -85,9 +89,10 @@ export class ReadingService implements ReadingBridge {
 			if (!model.vision) throw error("vision_required", "the configured reader cannot receive images", "select a reader model with image input");
 			const path = resolve(this.deps.home, params.pdf);
 			this.deps.progress({ stage: "source" });
-			let source: Awaited<ReturnType<typeof sourceInfo>>;
-			try { source = await sourceInfo(path); }
+			let source: Awaited<ReturnType<HostRuntime["sourceInfo"]>>;
+			try { source = await this.runtime().sourceInfo({ pdf: path, cache: this.deps.home }, signal); }
 			catch (failure) {
+				if (isKernelError(failure)) throw failure;
 				throw error("bad_pdf", `the original PDF could not be opened: ${failure instanceof Error ? failure.message : String(failure)}`,
 					"choose an accessible, readable original PDF");
 			}
@@ -238,8 +243,8 @@ export class ReadingService implements ReadingBridge {
 		const cwd = job.work_dir;
 		const cache = join(this.deps.home, ".coc", "modules", job.module_id, "cache", "pages");
 		await mkdir(cache, { recursive: true });
-		const commands = { page: `${quote(join(ROOT, "bin/coc-source"))} --pdf ${quote(job.source.path)} --cache ${quote(cache)} page`,
-			check: `${quote(join(ROOT, "bin/coc-read-check"))} --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
+		const commands = { page: `coc-source --pdf ${quote(job.source.path)} --cache ${quote(cache)} page`,
+			check: `coc-read-check --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
 		const task: Row = { purpose: job.purpose, module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
 			...(job.purpose === "guidance" ? {play_language:job.play_language, occupations:job.occupations.map((row:Row)=>({name:row.name}))} : {}),
 			source: { page_count: job.source.page_count }, index: job.index, known_nodes: job.known_nodes,
@@ -249,7 +254,7 @@ export class ReadingService implements ReadingBridge {
 			vocabulary: job.vocabulary, coverage_domains: job.coverage_domains, commands };
 		if (job.purpose === "index") { delete task.index; delete task.known_nodes; delete task.known_claims; delete task.vocabulary; delete task.coverage_domains; delete task.commands.check; }
 		if (job.purpose === "guidance") {
-			const { labels, bookmarks } = await sourceInfo(job.source.path);
+			const { labels, bookmarks } = await this.runtime().sourceInfo({ pdf: job.source.path, cache }, signal);
 			task.source = { ...task.source, labels, bookmarks };
 		}
 		await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
@@ -297,17 +302,14 @@ export class ReadingService implements ReadingBridge {
 								await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
 							} catch { /* the first draft has not been written */ }
 						}
-						const guide = await readFile(join(ROOT, "content/setup/visual-reader.md"), "utf8");
-						const intro = guide.slice(0, guide.indexOf("## Index phase"));
-						const header = phase === "index" ? "## Index phase" : phase === "read" ? "## Read phase" : "## Verify phase";
-						const start = guide.indexOf(header), end = guide.indexOf("\n## ", start + header.length);
 						const instructions = join(cwd, `instructions-${phase}.md`);
-						await writeFile(instructions, job.purpose === "guidance" ? await readFile(join(ROOT,"content/setup/visual-guidance.md"),"utf8") : intro + guide.slice(start, end < 0 ? undefined : end) + "\nComplete only this phase and then stop.\n");
 						this.deps.progress({ module_id: job.module_id, stage: phase === "read" && job.purpose === "skeleton" ? "skeleton" : phase, focus: job.focus, of: job.source.page_count });
 						if (phase === "verify") {
 							observations.review_pages = await reviewCandidate({ cwd, task,
 								draft: JSON.parse(await readFile(join(cwd, "draft.json"), "utf8")), instructions, round,
 								model, source: { pdf: job.source.path, cache }, signal,
+								run: ({systemPrompt: _instructions, ...request}) => this.runtime().runTask({ kind: "reader", request: { ...request,
+									prompt: { phase: "verify", guidance: job.purpose === "guidance" } } }, request.signal),
 								record: row => this.deps.record({ module_id: job.module_id, ...row }),
 								progress: row => this.deps.progress({ module_id: job.module_id, ...row }) });
 							await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
@@ -318,12 +320,10 @@ export class ReadingService implements ReadingBridge {
 						const imageCalls = new Map<string, string[]>();
 
 						const reads = new Map<string, string>();
-						const configured = Number(process.env.PI_COC_READER_TIMEOUT_MS);
-						const run = await runReader({ cwd, model: model.id, thinking: model.thinking, signal,
+						const run = await this.runtime().runTask({ kind: "reader", request: { cwd, model: model.id, thinking: model.thinking,
 							...(job.purpose==="guidance"?{imageHistory:4, submission:true}:{}),
-							systemPrompt: instructions, source: { pdf: job.source.path, cache },
+							prompt: { phase, guidance: job.purpose === "guidance" }, source: { pdf: job.source.path, cache },
 							eventLog: join(cwd, `${phase}-${round}.jsonl`),
-							...(configured > 0 ? { timeoutMs: configured } : {}),
 							brief: `${job.purpose === "guidance" ? readerInput({task}) : "Read task.json."} Your phase is ${phase}. Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${job.purpose === "guidance" ? "Use submit_reading as your sole final tool call to save/check the pair and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`,
 							onEvent(event) {
 								if (event.type === "tool_execution_start" && event.toolName === "read" && event.args?.path) reads.set(event.toolCallId, resolve(cwd, event.args.path));
@@ -333,7 +333,7 @@ export class ReadingService implements ReadingBridge {
 								}
 								if (event.type === "message_end" && event.message?.errorMessage) throw new Error(event.message.errorMessage);
 							},
-						});
+						} }, signal);
 						if (imageCalls.size) {
 							const visibility = (await readFile(join(cwd, `${phase}-${round}.jsonl.images.jsonl`), "utf8")).trim().split("\n").filter(Boolean).flatMap(line => JSON.parse(line).included ?? []);
 							for (const id of visibility) for (const path of imageCalls.get(id) ?? []) imagePaths.add(path);

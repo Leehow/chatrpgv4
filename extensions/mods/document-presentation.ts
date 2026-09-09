@@ -3,17 +3,28 @@ import {createHash, randomUUID} from "node:crypto";
 import {mkdir, readFile, writeFile, rename} from "node:fs/promises";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
-import {runReader, type ReaderRequest, type ReaderOutcome} from "../module/reader.ts";
+import type {ReaderRequest, ReaderOutcome} from "../module/reader.ts";
 
-const prompt = fileURLToPath(new URL("./document-presentation.md", import.meta.url));
+const defaultPrompt = fileURLToPath(new URL("./document-presentation.md", import.meta.url));
 type Row = Record<string, any>;
-type Options = {home:string; model?:string; thinking?:string; signal?:AbortSignal;
+type Options = {home:string; owner?:object; resourceRoot?:string; model?:string; thinking?:string; signal?:AbortSignal;
   runner?:(request:ReaderRequest)=>Promise<ReaderOutcome>};
-const pending = new Map<string, Promise<{title:string; text:string}>>();
-const views = new Map<string, {result?:Row; error?:unknown}>();
+type OwnerCache = {pending:Map<string, Promise<{title:string; text:string}>>; views:Map<string, {result?:Row; error?:unknown}>};
+const owners = new WeakMap<object, OwnerCache>();
+function cacheFor(options:Options):OwnerCache {
+  // Production supplies its runtime; direct callers can retain a runner or options identity.
+  const owner = options.owner ?? options.runner ?? options;
+  let cache = owners.get(owner);
+  if (!cache) {
+    cache = {pending:new Map(), views:new Map()};
+    owners.set(owner, cache);
+  }
+  return cache;
+}
 
 /** Panel invokes remain short; repeated owned views poll the same background job. */
 export function documentPresentationStatus(options:Options, document:Row):Row {
+  const {views} = cacheFor(options);
   const key = JSON.stringify([options.home, document.name, document.version, document.play_language]);
   let job = views.get(key);
   if (!job) {
@@ -40,6 +51,7 @@ export function validateDocumentReading(value:any, source:{text:string}):{title:
 }
 
 async function reading(options:Options, title:string, text:string, language:string) {
+  const prompt = options.resourceRoot ? join(options.resourceRoot, 'extensions/mods/document-presentation.md') : defaultPrompt;
   const instructions = await readFile(prompt, "utf8");
   const request = {title, text, play_language:language};
   const fingerprint = createHash("sha256").update(JSON.stringify([request, instructions])).digest("hex");
@@ -48,7 +60,10 @@ async function reading(options:Options, title:string, text:string, language:stri
   try {return validateDocumentReading(JSON.parse(await readFile(accepted, "utf8")), request);}
   catch { /* Missing or invalid cache entries are regenerated from the same source. */ }
   const key = accepted;
+  const {pending} = cacheFor(options);
   if (pending.has(key)) return pending.get(key)!;
+  const runner = options.runner;
+  if (!runner) throw new Error('Document presentation requires its owner runtime');
   const task = (async () => {
     const attempt = join(directory, "attempts", randomUUID());
     await mkdir(attempt, {recursive:true});
@@ -60,7 +75,7 @@ validateDocumentReading(JSON.parse(readFileSync("result.json","utf8")),JSON.pars
 `);
     let result;
     for (let round = 1; round <= 2; round++) {
-      const outcome = await (options.runner || runReader)({cwd:attempt, systemPrompt:prompt,
+      const outcome = await runner({cwd:attempt, systemPrompt:prompt,
         model:options.model, thinking:options.thinking, signal:options.signal, timeoutMs:120000,
         eventLog:join(attempt, `events-${round}.jsonl`),
         brief:"Read request.json and write result.json. Run node --experimental-strip-types check.mjs and repair any error."

@@ -1,11 +1,15 @@
 import { readFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { createReadStream } from 'node:fs';
-import { join } from 'node:path';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { HistoryEntry } from '@pipi/host-api';
-import { KernelClient } from '../../../../extensions/kernel/client.js';
 
 export type CocBinding = {campaign:string; home:string; play_language:string; mode?:string};
+export type CocColdRuntimeOptions = {contentRoot?:string; nodeExecutable?:string; backend?:'python'|'typescript';
+  kernelEntrypoint?:string; hostEntrypoint?:string};
+type ColdRuntime = {openKernel(options:{timeoutMs:number}):{call(method:string,params:Record<string,unknown>):Promise<unknown>};
+  close():Promise<void>};
 function binding(value:any): CocBinding | undefined {
   return value && typeof value.campaign === 'string' && typeof value.home === 'string'
     && ['zh-Hans','en'].includes(value.play_language) ? value : undefined;
@@ -35,12 +39,16 @@ export function mechanicsEntry(row:any, language?:string): HistoryEntry | undefi
   return {id:row.id,role:'assistant',content:'',timestamp:Date.parse(row.timestamp)||0,
     presentation:{renderer:'coc-mechanics',details:{turn:row.data.turn,mechanics,labels:row.data.labels,...marked,play_language:row.data.play_language??language??'en'}}};
 }
-export async function readColdSheet(repo:string, context:CocBinding, previewRevision?:number, env:NodeJS.ProcessEnv=process.env):Promise<unknown> {
-  return callColdKernel(repo, context.home, previewRevision===undefined?'table.view':'setup.previewed', {campaign:context.campaign,...(previewRevision===undefined?{}:{revision:previewRevision})}, env);
+export async function readColdSheet(repo:string, context:CocBinding, previewRevision?:number, env:NodeJS.ProcessEnv=process.env, runtimeOptions:CocColdRuntimeOptions={}):Promise<unknown> {
+  return callColdKernel(repo, context.home, previewRevision===undefined?'table.view':'setup.previewed', {campaign:context.campaign,...(previewRevision===undefined?{}:{revision:previewRevision})}, env, runtimeOptions);
 }
 /** Host management can work before a Keeper exists; this never opens a fictional turn. */
-export async function callColdKernel(repo:string, home:string, method:string, params:Record<string,unknown>, env:NodeJS.ProcessEnv=process.env):Promise<unknown> {
-  const client=new KernelClient({command:['uv','run','--frozen','python','-m','coc.rpc','--workspace',home,'--content',join(repo,'content')],cwd:repo,
-    env:{...env,PYTHONPATH:join(repo,'kernel'),PYTHONDONTWRITEBYTECODE:'1'} as Record<string,string>,timeoutMs:15000});
-  try {return await client.call(method,params);} finally {await client.close();}
+export async function callColdKernel(repo:string, home:string, method:string, params:Record<string,unknown>, env:NodeJS.ProcessEnv=process.env, runtimeOptions:CocColdRuntimeOptions={}):Promise<unknown> {
+  const {hostEntrypoint, ...options}=runtimeOptions;
+  const resourceRoot=resolve(repo), payload={...params};
+  const host={...options,resourceRoot,env:{...env,PYTHONDONTWRITEBYTECODE:'1'}};
+  const module=await import(pathToFileURL(resolve(resourceRoot,hostEntrypoint??'build/runtime/host.mjs')).href);
+  const owner:ColdRuntime=module.createRuntime({owner:'check',home,
+    ...(typeof payload.campaign==='string'?{campaign:payload.campaign}:{})},host);
+  try {return await owner.openKernel({timeoutMs:15000}).call(method,payload);} finally {await owner.close();}
 }

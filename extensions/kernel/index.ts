@@ -788,13 +788,13 @@ export default function (pi: ExtensionAPI) {
 		if (current) {
 			// Cut off lane completions still in flight first: an exiting process should not wait on a model round trip.
 			current.lanes.abort();
-			pi.events.emit("coc:kernel-bridge", { campaign: current.campaign, call: undefined });
+			pi.events.emit("coc:kernel-bridge", { campaign: current.campaign, call: undefined, runtime: undefined });
 		}
 		// The setup process has no table, so its kernel hangs here on its own (contract §14.4).
 		const solo = soloKernel;
 		soloKernel = undefined;
 		if (solo) {
-			pi.events.emit("coc:kernel-bridge", { call: undefined });
+			pi.events.emit("coc:kernel-bridge", { call: undefined, runtime: undefined });
 		}
 		const closing = runtime;
 		runtime = undefined;
@@ -843,6 +843,7 @@ export default function (pi: ExtensionAPI) {
 					...(chosen ? { campaign: chosen } : {}),
 					hello,
 					call: bridgeCall(kernel),
+					runtime,
 				});
 				return;
 			}
@@ -878,6 +879,7 @@ export default function (pi: ExtensionAPI) {
 			pi.events.emit("coc:kernel-bridge", {
 				campaign,
 				call: bridgeCall(kernel),
+				runtime,
 			});
 			pi.events.emit("coc:table-open", { campaign, open });
 

@@ -1,6 +1,6 @@
 import { accessSync, constants, readFileSync } from 'node:fs'
 import { dirname, delimiter, join, resolve } from 'node:path'
-import type { PiCommand, RuntimeAssets } from '@pipi/pi-backend'
+import type { PiBackendOptions, PiCommand, RuntimeAssets } from '@pipi/pi-backend'
 
 export interface AssetLookup {
   packaged: boolean
@@ -14,6 +14,7 @@ export interface AssetLookup {
 export interface ResolvedAssets extends RuntimeAssets {
   piCommand?: PiCommand
   managedNodeModulesRoot?: string
+  cocRuntime?: PiBackendOptions['cocRuntime']
 }
 export const EMBEDDED_NODE_VERSION = '24.19.0'
 export const PI_RUNTIME_PACKAGE = '@earendil-works/pi-coding-agent' as const
@@ -34,6 +35,7 @@ export function resolveRuntimeAssets(lookup: AssetLookup): ResolvedAssets {
   return {
     sourceRoot: join(repo, 'Electron', 'resources', 'runtime'),
     managedNodeModulesRoot: join(repo, 'node_modules'),
+    cocRuntime: nodePath ? {nodeExecutable: nodePath} : undefined,
     piCommand: {
       executable: launcher,
       piPath: join(repo, 'node_modules', '.bin', 'pi'),

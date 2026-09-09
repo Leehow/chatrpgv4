@@ -1,25 +1,47 @@
 /** Durable, session-bound onboarding over the existing authenticated Host API. */
-import { spawn, type ChildProcess } from 'node:child_process';
+import type { ChildProcessByStdio } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, mkdirSync, readFileSync, writeFileSync, renameSync, appendFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Readable } from 'node:stream';
+import { pathToFileURL } from 'node:url';
 
 type Row = Record<string, any>;
 const MAX_FILE = 128 * 1024 * 1024;
 const CHUNK = 1024 * 1024;
 /** The play languages a job and the scenario catalog may be asked for. */
 const PLAY_LANGUAGES = ['zh-Hans', 'en'];
-export type CocOnboardingOptions = {repo:string; home:string; agentDir:string; env:NodeJS.ProcessEnv};
+export type CocOnboardingOptions = {repo:string; home:string; agentDir:string; env:NodeJS.ProcessEnv;
+  contentRoot?:string; nodeExecutable?:string; backend?:'python'|'typescript'; kernelEntrypoint?:string;
+  preparationEntrypoint?:string};
+type PreparationHost = {home:string; start(action:string,input:Row,signal?:AbortSignal):{
+  child:ChildProcessByStdio<null,Readable,Readable>; closed:Promise<void>; close():Promise<void>}};
 export class CocOnboardingHost {
-  private stopping = new Set<string>();
   private presentations = new Map<string,{task:Promise<Row>;result?:Row;error?:unknown}>();
-  private presentationChildren = new Set<ChildProcess>();
   private documentReadings = new Map<string,{result?:Row;error?:unknown}>();
   private root: string;
-  private children = new Map<string, ChildProcess>();
+  private options: CocOnboardingOptions;
+  private preparation: Promise<PreparationHost>;
+  private lifetime = new AbortController();
+  private closing?: Promise<void>;
+  private running = new Set<Promise<unknown>>();
+  private children = new Map<string, AbortController>();
   private busy = new Set<string>();
-  constructor(private options: CocOnboardingOptions) {
+  constructor(options: CocOnboardingOptions) {
+    this.options = {...options, env: {...options.env}};
     this.root = join(options.home, '.coc/imports');
+    // Both source builds and packages supply the emitted host adapter, never a TS loader.
+    this.preparation = import(pathToFileURL(options.preparationEntrypoint || join(options.repo, 'build/runtime/preparation.mjs')).href).then(module => {
+      const host:PreparationHost = module.createPreparationHost(this.options.home, {
+        resourceRoot:this.options.repo, contentRoot:this.options.contentRoot, agentHome:this.options.agentDir,
+        nodeExecutable:this.options.nodeExecutable, backend:this.options.backend,
+        kernelEntrypoint:this.options.kernelEntrypoint, env:this.options.env,
+      });
+      this.options.home = host.home;
+      this.root = join(host.home, '.coc/imports');
+      return host;
+    });
+    void this.preparation.catch(() => undefined);
   }
   private folder(id: string) {
     if (typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id)) throw new Error('Unknown import');
@@ -77,37 +99,45 @@ export class CocOnboardingHost {
       model:job.model,thinking:job.thinking,campaign:job.campaign,play_language:job.play_language};
   }
   private run(action: string, data: Row, job?: Row, phase?:string, attempt?:string): Promise<any> {
-    const child = spawn(process.execPath, ['--experimental-strip-types', join(this.options.repo, 'pipicoc/onboarding-worker.ts'), action,
-      JSON.stringify({...data, home: this.options.home})], {
-      cwd: this.options.repo, env: {...this.options.env, ELECTRON_RUN_AS_NODE: '1', PI_CODING_AGENT_DIR: this.options.agentDir}, stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    if(this.lifetime.signal.aborted)return Promise.reject(new Error('The onboarding host is closed'));
     const key=job?this.phaseKey(job,phase||action):undefined;
-    if(key)this.children.set(key,child);
-    if(action==='presentation'||action==='document-presentation'){this.presentationChildren.add(child);child.once('close',()=>this.presentationChildren.delete(child));}
-    return new Promise((resolve, reject) => {
-      let pending = '', tail = '', result: any, failure: any;
-      child.stderr.on('data', chunk => {tail = (tail + chunk).slice(-2000);});
-      child.stdout.setEncoding('utf8');
-      child.stdout.on('data', chunk => {
-        pending += chunk;
-        let end: number;
-        while ((end = pending.indexOf('\n')) >= 0) {
-          const line = pending.slice(0, end); pending = pending.slice(end + 1);
-          let event: any;
-          try {event = JSON.parse(line);} catch {continue;}
-          if (event.type === 'result') result = event.data;
-          if (event.type === 'error') failure = event.data;
-          if(job && phase && event.type==='progress') {const latest=this.load(job.id,job.session);const state=latest.preparation?.[phase];if(state?.attempt===attempt && state.state==='running')this.patch(latest,{preparation:{...latest.preparation,[phase]:{...state,stage:event.data.stage,progress:event.data}}});}
-          if (job) appendFileSync(join(this.folder(job.id), 'events.jsonl'), JSON.stringify({at: new Date().toISOString(), ...event}) + '\n');
-        }
+    const controller=new AbortController();
+    if(key)this.children.set(key,controller);
+    const signal=AbortSignal.any([this.lifetime.signal,controller.signal]);
+    const task=(async()=>{
+      const host=await this.preparation;
+      const process=host.start(action,data,signal);
+      const child=process.child;
+      const output=new Promise((resolve, reject) => {
+        let pending = '', tail = '', result: any, failure: any;
+        child.stderr.on('data', chunk => {tail = (tail + chunk).slice(-2000);});
+        child.stdout.setEncoding('utf8');
+        child.stdout.on('data', chunk => {
+          pending += chunk;
+          let end: number;
+          while ((end = pending.indexOf('\n')) >= 0) {
+            const line = pending.slice(0, end); pending = pending.slice(end + 1);
+            let event: any;
+            try {event = JSON.parse(line);} catch {continue;}
+            if (event.type === 'result') result = event.data;
+            if (event.type === 'error') failure = event.data;
+            if(job && phase && event.type==='progress') {const latest=this.load(job.id,job.session);const state=latest.preparation?.[phase];if(state?.attempt===attempt && state.state==='running')this.patch(latest,{preparation:{...latest.preparation,[phase]:{...state,stage:event.data.stage,progress:event.data}}});}
+            if (job) appendFileSync(join(this.folder(job.id), 'events.jsonl'), JSON.stringify({at: new Date().toISOString(), ...event}) + '\n');
+          }
+        });
+        child.on('error', error => {failure ||= error;});
+        child.on('close', code => {
+          if (signal.aborted || code !== 0 || failure || result === undefined) reject(Object.assign(new Error(failure?.message || tail || 'Preparation interrupted'), failure || {}));
+          else resolve(result);
+        });
       });
-      child.on('error', reject);
-      child.on('close', code => {
-        if(key && this.children.get(key)===child)this.children.delete(key);
-        if (code !== 0 || failure || result === undefined) reject(Object.assign(new Error(failure?.message || tail || 'Preparation interrupted'), failure || {}));
-        else resolve(result);
-      });
+      return (await Promise.all([output,process.closed]))[0];
+    })().finally(()=>{
+      if(key&&this.children.get(key)===controller)this.children.delete(key);
+      this.running.delete(task);
     });
+    this.running.add(task);
+    return task;
   }
   private prepare(job:Row,retry=false) {
     const phase=job.preparation?.guidance?.state==='ready'?'opening':'guidance';
@@ -132,6 +162,8 @@ export class CocOnboardingHost {
     });
   }
   async invoke(params: Row, session: string, model: {id: string; thinking: string; vision: boolean}): Promise<Row> {
+    await this.preparation;
+    if(this.lifetime.signal.aborted)throw new Error('The onboarding host is closed');
     if(params.action==='current') {
       let latest:Row|undefined,modified=0;
       if(session&&existsSync(this.root))for(const id of readdirSync(this.root))try {
@@ -200,7 +232,7 @@ export class CocOnboardingHost {
         const preparation={...job.preparation};
         for(const target of targets)if(preparation[target]?.state!=='ready')preparation[target]={...preparation[target],state:'paused'};
         this.patch(job,{state:job.campaign?'conversing':'paused',preparation});
-        for(const target of targets)this.children.get(this.phaseKey(job,target))?.kill('SIGTERM');
+        for(const target of targets)this.children.get(this.phaseKey(job,target))?.abort();
       } else if (params.action === 'resume' || params.action === 'opening') {
         if (!job.module_id) {
           const path=join(this.folder(job.id),'source.pdf');
@@ -261,19 +293,24 @@ export class CocOnboardingHost {
     return this.presentations.get(key)!;
   }
   dispose() {
-    for(const child of this.presentationChildren)child.kill('SIGTERM');
-    for (const [key, child] of this.children) {
+    if(this.lifetime.signal.aborted)return;
+    for (const [key] of this.children) {
       const [id,phase]=key.split(':');
       try {
         const job = JSON.parse(readFileSync(join(this.folder(id), 'job.json'), 'utf8'));
         if(job.preparation?.[phase]?.state==='running'){job.preparation[phase].state='paused';this.save(job);}
       } catch { /* retain any available evidence if the job file is unavailable */ }
-      child.kill('SIGTERM');
     }
+    this.lifetime.abort();
   }
-  async close() {
-    const waiting=[...this.children.values(),...this.presentationChildren].map(child=>new Promise<void>(resolve=>child.once('close',()=>resolve())));
-    this.dispose();await Promise.allSettled(waiting);
+  close():Promise<void> {
+    if(this.closing)return this.closing;
+    this.dispose();
+    return this.closing=Promise.allSettled([...this.running]).then(results=>{
+      const failed=results.find((result):result is PromiseRejectedResult=>result.status==='rejected'&&
+        (result.reason?.reason==='runtime_shutdown'||result.reason?.details?.reason==='runtime_shutdown'));
+      if(failed)throw failed.reason;
+    });
   }
 }
 
@@ -281,10 +318,10 @@ export class CocOnboardingHost {
 export class CocOnboardingRegistry {
   private hosts=new Map<string,CocOnboardingHost>();
   get(options:CocOnboardingOptions):CocOnboardingHost {
-    const key=JSON.stringify([options.repo,options.home,options.agentDir]);
+    const key=JSON.stringify([options.repo,options.home,options.agentDir,options.contentRoot,options.nodeExecutable,options.backend,options.kernelEntrypoint,options.preparationEntrypoint]);
     if(!this.hosts.has(key))this.hosts.set(key,new CocOnboardingHost(options));
     return this.hosts.get(key)!;
   }
   dispose(){for(const host of this.hosts.values())host.dispose();this.hosts.clear();}
-  async close(){await Promise.allSettled([...this.hosts.values()].map(host=>host.close()));this.hosts.clear();}
+  async close(){try{await Promise.all([...this.hosts.values()].map(host=>host.close()));}finally{this.hosts.clear();}}
 }

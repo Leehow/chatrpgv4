@@ -187,6 +187,7 @@ export async function openTable({
 	const mechanics = [];
 	/** 模组构建那几条总线事件，按到达顺序：{channel, data}。 */
 	const bus = [];
+	const runtimeBridges = [];
 	const settingsManager = SettingsManager.inMemory({
 		compaction: { enabled: false },
 		retry: { enabled: false },
@@ -212,6 +213,7 @@ export async function openTable({
 					api = pi;
 					pi.events.on("coc:turn-committed", (data) => committed.push(data));
 					pi.events.on("coc:mechanics", (data) => mechanics.push(data));
+					pi.events.on("coc:kernel-bridge", (data) => runtimeBridges.push(data));
 					// 模组车道的总线（契约 §14.5）：构建起没起、开场就绪没有，测试从这里看。
 					for (const channel of [
 						// PDF 摄入那四条（契约 §20.2）。
@@ -279,6 +281,7 @@ export async function openTable({
 		rawEntries: () => sessionManager.getEntries(),
 		/** 模组车道的总线事件，按到达顺序。 */
 		bus: (channel) => (channel ? bus.filter((row) => row.channel === channel) : [...bus]),
+		runtimeBridges: () => [...runtimeBridges],
 		/**
 		 * 往总线上发一条（探针扩展借的是同一条 `pi.events`）。
 		 * The probe shares the same bus as the reading and kernel extensions,

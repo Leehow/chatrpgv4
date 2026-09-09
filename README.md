@@ -22,6 +22,8 @@ extensions/   Pi 扩展：kernel（七个工具、回合事务、校验车道）
               module（无人值守构建与按需深读，读者是子 pi 进程）、onboarding（建卡进程的 setup 工具）、lanes（共用）、
               deepseek（DeepSeek Extended provider，`openai-responses` + hosted web_search，从 PipiUI 上游移植）
 kernel/coc/   Python 内核包，入口 `python -m coc.rpc`；rules/（十族规则引擎与 RuleGraph 运行时）、modules/（模组存储与车道）
+kernel-ts/    迁移中的 TypeScript 内核；Python 仍是默认，未迁移的调用显式拒绝
+runtime/      宿主组合：统一捕获部署配置、启动/取消内核与读者、执行只读检查
 content/      只读内容：rulesets/coc7、starters/<module>、director/、craft/、ontology/、modules/（契约与可玩性模板）、setup/（七步表、读者提示）
 prompts/      守秘人与建卡助手的系统提示
 scripts/      starter 投影器（IR → 模组图）
@@ -34,6 +36,7 @@ tests/        kernel（内核接缝）、extension（扩展接缝）、play（�
 ```bash
 npm install
 uv sync --frozen --dev
+npm run build:runtime                 # 生成 Electron 宿主适配器和开发用 TS 内核
 bin/pi-coc setup                      # 建卡：选 starter 或资料包，建调查员，交桌
 bin/pi-coc --campaign <id>            # 开桌
 ```
@@ -50,6 +53,7 @@ bin/pi-coc --campaign <id>            # 开桌
 ```bash
 uv run --frozen python -m pytest tests/kernel tests/play -q
 npm run test:ext
+npm run check:kernel                  # TS 内核严格类型检查
 npm run test:electron        # 复制进来的 PipiUI 套件，比对已记录的失败基线
 ```
 

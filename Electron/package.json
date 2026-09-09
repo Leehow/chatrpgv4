@@ -6,6 +6,8 @@
     "apps/*"
   ],
   "scripts": {
+    "prebuild": "npm --prefix .. run build:runtime",
+    "predev": "npm --prefix .. run build:runtime",
     "benchmark:agent-aging": "node scripts/agent-aging.mjs",
     "dev": "npm run dev -w @pipiui/electron",
     "dev:watch": "npm run dev:watch -w @pipiui/electron",

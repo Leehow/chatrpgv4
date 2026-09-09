@@ -49,6 +49,13 @@ test("系统语言：extensions、bin、prompts 里没有一个中日韩字符�
 	assert.deepEqual(found, [], `这些行还是中文（系统语言是英文）：\n${found.join("\n")}`);
 });
 
+test("TypeScript kernel production sources preserve the English system-language boundary", () => {
+	const root = join(REPO, "kernel-ts");
+	const files = walk(root).filter(path => path.endsWith(".ts") && !relative(root, path).startsWith("testing/"));
+	assert.ok(files.length > 0, "The TypeScript kernel sources must be present");
+	assert.deepEqual(files.flatMap(offences), []);
+});
+
 test("守卫本身认得出中日韩字符：正则不是摆设", () => {
 	// 变异测试：把这条改成永真的正则，上面那个用例就再也杀不死任何东西。
 	for (const sample of ["【明骰】", "回合已关闭", "カタカナ", "한글", "全角ＡＢＣ", "、"]) {

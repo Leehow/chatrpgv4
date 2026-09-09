@@ -32,13 +32,15 @@
     "typescript": "5.9.3"
   },
   "scripts": {
+    "build:runtime": "node scripts/build-runtime.mjs",
+    "check:kernel": "tsc -p tsconfig.kernel.json",
     "test:ext": "node --test \"tests/extension/**/*.test.mjs\"",
-    "test:electron": "node Electron/scripts/suite-baseline.mjs",
-    "check:kernel": "tsc -p tsconfig.kernel.json"
+    "pretest:electron": "npm run build:runtime && npm --prefix Electron run build -w @pipi/host-api && npm --prefix Electron run build -w @pipiui/extension-api && npm --prefix Electron run build -w @pipi/account-usage-core && node Electron/packages/pi-backend/scripts/bundle-runtime-agents.mjs",
+    "test:electron": "node Electron/scripts/suite-baseline.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "1.0.8",
-    "pdfjs-dist": "6.3.289",
-    "fs-ext": "2.1.1"
+    "fs-ext": "2.1.1",
+    "pdfjs-dist": "6.3.289"
   }
 }

@@ -1,9 +1,10 @@
 /** Share one visual reading service between setup, commands and live material requests. */
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { appendJsonl, cocHome, cocMode } from "../lanes/host.ts";
+import { appendJsonl, cocMode } from "../lanes/host.ts";
 import { isKernelError } from "../kernel/client.ts";
 import { ReadingService } from "./reading-service.ts";
+import type { HostRuntime } from "../../runtime/host.ts";
 
 type Row = Record<string, any>;
 type Call = (method: string, params: Row) => Promise<any>;
@@ -11,7 +12,7 @@ const record = (value: unknown): Row => value && typeof value === "object" ? val
 
 export default function (pi: ExtensionAPI) {
     let ctx: ExtensionContext | undefined;
-    let bridge: { call: Call; campaign?: string } | undefined;
+    let bridge: { call: Call; runtime: HostRuntime; campaign?: string } | undefined;
     let reading: ReadingService | undefined;
     let moduleId: string | undefined;
     let campaign: string | undefined;
@@ -21,11 +22,11 @@ export default function (pi: ExtensionAPI) {
     function shareReader() {
         if (!ctx || !bridge) return;
         reading?.dispose();
-        const home = cocHome(ctx.cwd), current = bridge;
+        const home = bridge.runtime.home, current = bridge;
         reading = new ReadingService({
-            call: current.call, home,
+            call: current.call, runtime: current.runtime, home,
             model: () => {
-                const id = process.env.PI_COC_BUILD_MODEL?.trim() || (ctx?.model ? `${ctx.model.provider}/${ctx.model.id}` : "");
+                const id = current.runtime.readerModel || (ctx?.model ? `${ctx.model.provider}/${ctx.model.id}` : "");
                 const slash = id.indexOf("/");
                 const model = ctx?.modelRegistry.find(id.slice(0, slash), id.slice(slash + 1));
                 return { id, vision: model?.input?.includes("image") === true, thinking: pi.getThinkingLevel() };
@@ -43,7 +44,7 @@ export default function (pi: ExtensionAPI) {
 
     pi.events.on("coc:kernel-bridge", data => {
         const row = record(data);
-        bridge = typeof row.call === "function" ? { call: row.call, campaign: row.campaign } : undefined;
+        bridge = typeof row.call === "function" && row.runtime ? { call: row.call, runtime: row.runtime, campaign: row.campaign } : undefined;
         campaign = bridge?.campaign ?? campaign;
         if (bridge) shareReader();
         else { reading?.dispose(); reading = undefined; pi.events.emit("coc:reading-bridge", null); }

@@ -1,32 +1,37 @@
 /** Host-owned source preparation and deterministic setup; never a Keeper substitute. */
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { readFile, readdir } from 'node:fs/promises';
-import { KernelClient, isKernelError } from '../extensions/kernel/client.ts';
+import { KernelError, isKernelError } from '../extensions/kernel/client.ts';
+import { composeRuntimeContext, createRuntime, type HostRuntime, type RuntimeContext } from '../runtime/host.ts';
 import { ReadingService } from '../extensions/module/reading-service.ts';
+import type { ReaderRequest } from '../extensions/module/reader.ts';
 import { prepareCharacterGuidance, guidanceFingerprint, acceptedGuidance } from '../extensions/module/character-guidance.ts';
 import { prepareCharacterPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
 import { labelsFor } from './panel.js';
-import { sourceInfo } from '../extensions/module/source.ts';
 import { presentDocument } from '../extensions/mods/document-presentation.ts';
 
-const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const [action, raw] = process.argv.slice(2);
-const input = JSON.parse(raw || '{}');
+const [action, raw, configuration] = process.argv.slice(2);
+let input: any;
 const emit = (type: string, data: unknown) => process.stdout.write(JSON.stringify({type, data}) + '\n');
-const kernel = new KernelClient({command: ['uv', 'run', '--frozen', 'python', '-m', 'coc.rpc', '--workspace', input.home, '--content', join(repo, 'content')],
-  cwd: repo, env: {...process.env, PYTHONPATH: join(repo, 'kernel'), PYTHONDONTWRITEBYTECODE: '1'} as Record<string,string>});
+let runtime: HostRuntime | undefined;
+let context: RuntimeContext;
 let reader: ReadingService | undefined;
 let stopping = false;
 const guidanceAbort = new AbortController();
-for (const signal of ['SIGTERM','SIGINT'] as const) process.on(signal, () => {stopping = true; guidanceAbort.abort(); reader?.dispose();});
-const call = (method: string, params: Record<string, unknown> = {}) => kernel.call<any>(method, params);
+function stop() {
+  stopping = true; guidanceAbort.abort(); reader?.dispose();
+  // ReadingService releases its claimed jobs before the kernel closes.
+  if (!reader) void runtime?.close().catch(reportError);
+}
+for (const signal of ['SIGTERM','SIGINT'] as const) process.on(signal, stop);
+const call = (method: string, params: Record<string, unknown> = {}) => runtime!.openKernel().call<any>(method, params);
+const runTask = ({signal, ...request}: ReaderRequest) => runtime!.runTask({kind: 'reader', request}, signal);
 async function withGuidance(prepared: any) {
   emit('progress', {stage: 'guidance'});
   const occupations = await call('setup.occupations');
-  const options = {home: input.home, module_id: input.module_id,
+  const options = {home: input.home, contentRoot: context.contentRoot, module_id: input.module_id,
     play_language: input.play_language || 'zh-Hans', opening: input.start_scene,
-    occupations: occupations.occupations, model: input.model, thinking: input.thinking, signal: guidanceAbort.signal};
+    occupations: occupations.occupations, model: input.model, thinking: input.thinking, signal: guidanceAbort.signal, runner: runTask};
   const guidance = await prepareCharacterGuidance(options);
   const guidance_key = await guidanceFingerprint(options);
   const meta = JSON.parse(await readFile(join(input.home,'.coc/modules',input.module_id,'module.json'),'utf8'));
@@ -47,7 +52,7 @@ const PLAY_LANGUAGES = ['zh-Hans', 'en'];
  *  for a starter whose listing carries no title in any offered language. */
 async function starterCatalog(playLanguage?: string) {
   const language = PLAY_LANGUAGES.includes(playLanguage as string) ? playLanguage as string : PLAY_LANGUAGES[0];
-  const root = join(repo, 'content/starters');
+  const root = join(context.contentRoot, 'starters');
   const rows: Array<{id: string; order: number; title: string; blurb: string}> = [];
   for (const id of await readdir(root)) {
     let listing: any, name = '';
@@ -70,19 +75,19 @@ async function main() {
   if (action === 'document-presentation') {
     const document = await call('mods.document.view', {campaign:input.campaign, actor:input.actor, name:input.name});
     if (document.version !== input.version) throw Object.assign(new Error('The document changed; reload before saving'), {code:'revision_conflict'});
-    return presentDocument({...input, signal:guidanceAbort.signal}, document);
+    return presentDocument({...input, owner:runtime!, resourceRoot:context.resourceRoot, signal:guidanceAbort.signal, runner:runTask}, document);
   }
   if(action==='presentation') {
     if(input.standing) {
       const view=await call('table.view',{campaign:input.campaign});
       // The current sidebar hides canonical NPC identities, even if table.view carries them.
       view.present=[];
-      return prepareStandingPresentation({...input,view,known_labels:view.labels||{},signal:guidanceAbort.signal});
+      return prepareStandingPresentation({...input,contentRoot:context.contentRoot,view,known_labels:view.labels||{},signal:guidanceAbort.signal,runner:runTask});
     }
     const state=await call('setup.steps',{campaign:input.campaign});
     const ui=labelsFor(input.play_language);
     const known_labels={...(state.state?.draft?.labels||{}),Finance:ui.finance,Equipment:ui.equipment,Weapons:ui.weapons,cash:ui.cash,assets:ui.assets,spending:ui.spending,credit_rating:ui.creditRating,living_standard:ui.livingStandard};
-    return prepareCharacterPresentation({...input,known_labels,signal:guidanceAbort.signal});
+    return prepareCharacterPresentation({...input,contentRoot:context.contentRoot,known_labels,signal:guidanceAbort.signal,runner:runTask});
   }
   if (action === 'catalog') {
     const presets = await starterCatalog(input.play_language);
@@ -91,7 +96,7 @@ async function main() {
     return {presets, modules: library.modules.filter((row: any) => row.source !== 'starter' && (row.status === 'installed'||row.setup_ready)), occupations: occupations.occupations};
   }
   if (action === 'inspect') {
-    const source = await sourceInfo(input.pdf);
+    const source = await runtime!.sourceInfo({pdf: input.pdf, cache: join(dirname(input.pdf), 'pages')}, guidanceAbort.signal);
     const bound = await call('module.source.bind', {source, title: input.name.replace(/\.pdf$/i, '')});
     return {...bound, page_count: source.page_count};
   }
@@ -100,11 +105,11 @@ async function main() {
       await call('module.register', {module_id: input.module_id});
       return await withGuidance({module_id: input.module_id, opening_ready: true});
     }
-    reader = new ReadingService({call, home: input.home, model: () => ({id: input.model, vision: true, thinking: input.thinking}),
+    reader = new ReadingService({call, runtime:runtime!, home: input.home, model: () => ({id: input.model, vision: true, thinking: input.thinking}),
       progress: data => emit('progress', data), record: data => emit('telemetry', data)});
     let retry = input.retry === true;
     const occupations = await call('setup.occupations');
-    const guidanceOptions = {home:input.home,module_id:input.module_id,play_language:input.play_language||'zh-Hans',
+    const guidanceOptions = {home:input.home,contentRoot:context.contentRoot,module_id:input.module_id,play_language:input.play_language||'zh-Hans',
       opening:input.start_scene,occupations:occupations.occupations};
     const guidance_key = action==='guidance' ? await guidanceFingerprint(guidanceOptions) : undefined;
     while (!stopping) {
@@ -132,8 +137,37 @@ async function main() {
   }
   throw new Error('Unknown onboarding operation');
 }
-main().then(data => emit('result', data)).catch(error => {
+function reportError(error: any) {
   emit('error', {message: error.message, code: error.code, reason: error.details?.reason, fix: error.fix,
     candidates: error.details?.candidates?.map((row: any) => ({scene: row.scene, name: row.name, summary:row.summary}))});
   process.exitCode = 1;
-}).finally(async () => { await reader?.close(); await kernel.close(); });
+}
+async function run() {
+  try {
+    input = JSON.parse(raw || '{}');
+    const host = JSON.parse(configuration || '{}');
+    const binding = {owner: 'preparation' as const, home: input.home, campaign: input.campaign};
+    context = composeRuntimeContext(binding, host);
+    runtime = createRuntime(binding, {...host, ...context});
+    input.home = runtime.home;
+    if (stopping) throw new Error('Preparation paused');
+    const result = await main();
+    if (stopping) throw new Error('Preparation paused');
+    emit('result', result);
+  } catch (error) { reportError(error); }
+  finally {
+    let deadline: NodeJS.Timeout | undefined;
+    try {
+      if (reader) await Promise.race([reader.close(), new Promise<never>((_resolve, reject) => {
+        deadline = setTimeout(() => reject(new KernelError({code: 'internal',
+          message: 'Preparation readers did not stop after cancellation', details: {reason: 'runtime_shutdown'}})), 5000);
+      })]);
+    }
+    finally {
+      clearTimeout(deadline);
+      await runtime?.close();
+      for (const signal of ['SIGTERM','SIGINT'] as const) process.removeListener(signal, stop);
+    }
+  }
+}
+void run().catch(reportError);

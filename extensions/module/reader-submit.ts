@@ -10,6 +10,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 export default async function readerSubmit(pi: any) {
 	const cwd = process.cwd();
+	const checker = process.env.PI_COC_READER_CHECK ?? join(ROOT, "bin/coc-read-check");
 	const task = JSON.parse(await readFile(join(cwd, "task.json"), "utf8"));
 	if (task.purpose !== "guidance") throw new Error("Checked submission is only available for source guidance");
 	const reviewing = Array.isArray(task.required_review);
@@ -49,7 +50,7 @@ export default async function readerSubmit(pi: any) {
 					validateGuidance(guidance);
 					if (Object.keys(guidance).length !== 5) throw new Error("guidance needs exactly five bounded strings");
 				}
-				const result = await pi.exec(join(ROOT, "bin/coc-read-check"), ["--packet",join(cwd,"task.json"),"--draft",join(cwd,"draft.json")], {signal});
+				const result = await pi.exec(checker, ["--packet",join(cwd,"task.json"),"--draft",join(cwd,"draft.json")], {signal});
 				if (result.code !== 0) throw new Error(result.stdout || result.stderr || "source draft check failed");
 				const check = JSON.parse(result.stdout);
 				if (check.ok !== true || !Array.isArray(check.required_view_pages)) throw new Error("source draft check did not complete");
