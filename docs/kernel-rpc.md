@@ -1820,6 +1820,102 @@ run for that lane, keyed by lane and missing set, with the same `sheet_changed`
 refresh and retry rules the possession lane has (§26). The panel reads a clue's
 name and its body through the same `labels` lookup as everything else on the sheet.
 
+### Host decision: languages and UI words are data (2026-09-09)
+
+An audit found the language set and the product's own captions written into code
+in five places each: `['zh-Hans','en']` in nine files, `zh-Hans` as a default in a
+dozen, a CJK regex that only obliges one tag, four separate two-column word tables
+in the pack renderers, one renderer with no table (`preparation.js`, all English)
+and one with a single hardcoded language (`CocOnboarding.tsx`, all Chinese under
+an `en` option), hand-written translations of Mod names and of six mechanics
+option words, and host error prose rendered to the player. The user's ruling: no
+detection by script, no table in code; every player-visible word travels the
+play language by mechanism, and adding a language must not touch code.
+
+**`content/languages.json`** is the closed set of play languages: `default` (the
+tag a host or kernel falls back to when a campaign or session carries none),
+and per tag an `autonym` (for a picker) and an optional `script` class the
+delivery guard obliges (`cjk` today). The kernel validates `play_language`
+against this file, takes its default from it, and applies the script obligation
+by class; `kernel-ts/write/text.ts` owns the closed table of script classes to
+character ranges, and nothing else in code names a tag. Loops over bundled
+per-language files (starter guidance, listings) iterate this file.
+
+**`content/ui/<tag>/<surface>.json`** holds one surface's captions per language:
+`sheet`, `paper`, `mechanics`, `choices`, `mods`, `preparation`, `onboarding`,
+`transcript`, `errors`, `extension`. Keys are stable identifiers, values are the
+words. `runtime/ui-words.ts` (`loadUiWords(contentRoot, tag)`) merges the
+surfaces into `{tag, words: {surface: {key: word}}}`, an unknown tag reading as
+the default and a missing key filling from the default language. The guard test
+pins every shipped language to the default's surfaces and keys, so that fallback
+is a net, not a delivery.
+
+**Hosts attach `ui`.** Every answer a renderer draws from carries
+`ui: {tag, words}` for the session's play language, or the default when the
+session has none: the `sheet` answer (bound, unbound and failed alike), `mods.*`
+answers, onboarding and preparation snapshots, and the `details` of
+`coc-mechanics` and `coc-choice` entries. Both hosts do it: the Electron backend
+where it serves `coc-keeper` invokes itself, and `pipicoc/sheet.ts` /
+`pipicoc/mods.ts` where the extension serves them. A renderer reads
+`ui.words.<surface>.<key>`; before its first answer it draws no words (an
+ellipsis, never a language); a missing key renders as the key, which is an
+identifier and a visible gap, never as a word from another language. The
+renderers keep no `LABELS`, `WORDS`, `PAPER_WORDS` or `zh ? … : …`; the §16.1
+exception for a chrome table in `panel.js` is withdrawn, the table is data now.
+
+**Errors carry codes.** A host failure a renderer shows is `{code, message}`;
+the renderer shows `ui.words.errors[code]`, or `errors.unknown` when the code
+has no word, and keeps `message` (English, for the log) behind a fold captioned
+`errors.details`. Codes in use: `runtime_unavailable`, `campaign_unbound`,
+`document_unavailable`, `invalid_params`, `stale_choice`, `no_session`,
+`pack_unreachable`, `pack_silent`, `table_not_open`, `campaign_not_open`,
+`preparation_paused`, `preparation_failed`, `upload_too_large`,
+`model_without_images`, `unknown_import`, `import_other_session`,
+`operation_in_progress`, `upload_chunk_invalid`, `upload_size_mismatch`,
+`upload_incomplete`, `upload_retry`, `guidance_not_ready`, `guidance_unavailable`,
+`opening_bound`, `preparation_pause_first`, `scenario_not_ready`,
+`name_and_occupation_required`, `unknown_action`, `presentation_timeout`,
+`interrupted`, `kernel_error`. Extensions that notify through `ctx.ui` read the
+`extension` surface for the campaign's language.
+
+**The glossary is generic.** `table.view.labels` is the union of every
+`localized_labels` row in `content/rulesets/coc7/rules-json/*.json` for the
+campaign's tag, whatever file it sits in; no abbreviation whitelist, no `en`
+shortcut (a language whose canonical words are the keys simply has no rows). The
+kernel's own closed player-visible words -- object `condition` values, object
+`category`, document `presentation`, session `kind`, turn `state`, `day_part`,
+resource names (`hp`, `mp`, `san`, `luck`, `cash`), backstory field names, the
+engine's die captions (`SAN Loss`, `SAN Reward`, `damage`, `armor`,
+`object-effect`), difficulty and success levels, eras and occupation names --
+get `localized_labels` rows in the rules data (`kernel-terms.json` for those the
+rules files do not already hold), so the panel's `term()` finds them. The
+mechanics entry's `labels` are that glossary merged under the campaign's growing
+lanes (`standing`, `possessions`, `clues`), attached by the host when it loads
+history, so the mechanics card reads the same words as the sheet; the renderer
+routes every content field through `term()` (clue name and summary, item and
+owner names, scene names, currency, session outcome, worldline and handout
+names, die captions).
+
+**Kernel prose never reaches a player field.** `normalizeText` keeps every
+script's letters and digits (`\p{L}\p{N}`), so markers, ids and alias
+resolution work for kana, hangul, Cyrillic and Arabic as they do for Han.
+`apply clue` without a `label` files the graph's display name on the receipt,
+not the handle. Revealing an echo requires a `label` (`invalid_params` naming
+it), because an echo's summary is the kernel's own sentence. A chase session
+carries the campaign's language, not a constant. The rules catalogue's
+`localized_name` becomes `localized_names` keyed by tag. Tool descriptions for
+`ask` (`prompt`, `options`, `text`), `define.name` / `description`,
+`object.name` and `document.text` say "in the campaign's play_language" as
+`narrate` does; a Mod's `name` and `description` in `mod.json` are objects keyed
+by tag, the panel reads the session's, and no renderer names a Mod.
+
+**Guard.** `tests/extension/system-language.test.mjs` scans `pipicoc/*.js`,
+`Electron/packages/ui/src` and `Electron/packages/pi-backend/src` (non-test)
+for CJK as it scans `extensions/` and `kernel-ts/`, and
+`tests/extension/ui-words.test.mjs` pins every language directory to the
+default's key set; `content/ui/**` and `content/languages.json` are data and
+are not scanned.
+
 ### Host decision: RPC adapter
 
 The adapter preserves transport/session/model options, removes host persona and
