@@ -143,6 +143,13 @@ async function copyGit(manifest, archive, resource, work, cache) {
     arrangement: 'The Git archive supplies the git/ submodule of the dugite-native build-source archive.', license: 'GPL-2.0; preserve upstream file-level notices and corresponding source.' });
 }
 async function copyResources(repo, resource, manifest) {
+  const content = join(repo, 'content');
+  const languages = JSON.parse(await readFile(join(content, 'languages.json'), 'utf8'));
+  const surfaces = (await readdir(join(content, 'ui', languages.default))).filter(name => name.endsWith('.json'));
+  if (!surfaces.length) throw new Error('The default play language has no packaged UI surfaces');
+  for (const tag of Object.keys(languages.languages)) {
+    for (const surface of surfaces) await requiredFile(join(content, 'ui', tag, surface));
+  }
   for (const directory of manifest.resourceDirectories) await copyTree(join(repo, directory), join(resource, directory), copiedAsset);
   for (const file of manifest.resourceFiles ?? []) {
     await requiredFile(join(repo, safeRelative(file)));

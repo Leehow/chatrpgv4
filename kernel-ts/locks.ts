@@ -57,7 +57,8 @@ async function acquireExclusive(locks: AdvisoryLocks, path: string, timeoutMs?: 
     const lease = await locks.acquire(path, "exclusive", { createParents: true, nonblocking: true });
     if (lease) return lease;
     if (Date.now() >= deadline) return null;
-    await new Promise<void>(resolve => { const timer = setTimeout(resolve, LOCK_POLL_MS); timer.unref?.(); });
+    // This awaited operation owns its timer until acquisition or the bounded refusal.
+    await new Promise<void>(resolve => setTimeout(resolve, LOCK_POLL_MS));
   }
 }
 export async function withExclusiveLock<T>(locks: AdvisoryLocks, path: string, action: () => Promise<T>,
