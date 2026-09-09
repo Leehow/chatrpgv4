@@ -5,6 +5,7 @@ import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
 import { CampaignSnapshot, loadModule } from '../read/campaign.js';
 import { readCampaign, unsupported } from '../read/handlers.js';
+import { playLanguageOf } from '../read/languages.js';
 import { array, row, number, integer, string, truth, repr, chars, type Row } from '../read/values.js';
 import { createWriteRuntime } from '../write/index.js';
 import { CampaignWriter, nowIso } from '../write/store.js';
@@ -70,7 +71,7 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
         const { campaign, snapshot, module } = loaded, turn = parseJobId(campaign, id);
         let job = await readJob(campaign, string(id));
         if (!job && (await committedRecords(campaign)).has(turn)) {
-            await openJob(campaign, await buildJob(campaign, module.graph, string(snapshot.meta.play_language || 'zh-Hans'), turn, await campaign.party(), snapshot.world));
+            await openJob(campaign, await buildJob(campaign, module.graph, await playLanguageOf(context, snapshot.meta), turn, await campaign.party(), snapshot.world));
             job = await readJob(campaign, string(id));
         }
         return [job, turn];
@@ -87,7 +88,7 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
             }
             else if (!integer(turn) || number(turn) < 0)
                 throw new RpcError('invalid_params', 'params.turn must be a committed turn number');
-            return openJob(campaign, await buildJob(campaign, module.graph, string(snapshot.meta.play_language || 'zh-Hans'), number(turn), await campaign.party(), snapshot.world));
+            return openJob(campaign, await buildJob(campaign, module.graph, await playLanguageOf(context, snapshot.meta), number(turn), await campaign.party(), snapshot.world));
         },
         'memory.submit': async (params) => {
             const loaded = await load(params), { campaign, module } = loaded, [job, turn] = await jobFor(loaded, params.job_id);

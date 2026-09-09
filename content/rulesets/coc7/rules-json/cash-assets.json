@@ -1,6 +1,10 @@
 {
   "schema_version": 1,
   "currency": "USD",
+  "eras": {
+    "1920s": {"localized_labels": {"zh-Hans": "1920 年代", "en": "1920s"}},
+    "modern": {"localized_labels": {"zh-Hans": "现代", "en": "Modern"}}
+  },
   "periods": {
     "1920s": [
       {

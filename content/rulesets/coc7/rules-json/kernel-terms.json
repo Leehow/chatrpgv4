@@ -1,0 +1,79 @@
+{
+  "note": "The kernel's own closed player-visible words, as data (host decision 2026-09-09, contract §23). Keys are the identifiers the kernel writes into receipts, sheets and views; each row's localized_labels gives the word a player reads under each play language. The panel finds them through the generic glossary, which unions every localized_labels row in this directory whatever file or nesting it sits in, so a group here is only a reading aid. A key another file already claims (SAN, LUCK) reads the same word there.",
+  "terms": {
+    "condition": {
+      "intact": {"localized_labels": {"zh-Hans": "完好", "en": "Intact"}},
+      "damaged": {"localized_labels": {"zh-Hans": "受损", "en": "Damaged"}},
+      "jammed": {"localized_labels": {"zh-Hans": "卡壳", "en": "Jammed"}},
+      "broken": {"localized_labels": {"zh-Hans": "损坏", "en": "Broken"}}
+    },
+    "category": {
+      "item": {"localized_labels": {"zh-Hans": "物品", "en": "Item"}},
+      "weapon": {"localized_labels": {"zh-Hans": "武器", "en": "Weapon"}},
+      "spell": {"localized_labels": {"zh-Hans": "法术", "en": "Spell"}}
+    },
+    "presentation": {
+      "paper": {"localized_labels": {"zh-Hans": "纸页", "en": "Paper"}},
+      "notebook": {"localized_labels": {"zh-Hans": "笔记本", "en": "Notebook"}},
+      "book": {"localized_labels": {"zh-Hans": "书", "en": "Book"}}
+    },
+    "session": {
+      "combat": {"localized_labels": {"zh-Hans": "战斗", "en": "Combat"}},
+      "chase": {"localized_labels": {"zh-Hans": "追逐", "en": "Chase"}},
+      "sanity_bout": {"localized_labels": {"zh-Hans": "疯狂发作", "en": "Bout of madness"}}
+    },
+    "turn_state": {
+      "open": {"localized_labels": {"zh-Hans": "回合开启", "en": "Open"}},
+      "acting": {"localized_labels": {"zh-Hans": "行动中", "en": "Acting"}},
+      "asked": {"localized_labels": {"zh-Hans": "等待选择", "en": "Choice pending"}},
+      "awaiting_player": {"localized_labels": {"zh-Hans": "等待玩家", "en": "Awaiting the player"}}
+    },
+    "day_part": {
+      "small_hours": {"localized_labels": {"zh-Hans": "凌晨", "en": "Small hours"}},
+      "dawn": {"localized_labels": {"zh-Hans": "黎明", "en": "Dawn"}},
+      "morning": {"localized_labels": {"zh-Hans": "上午", "en": "Morning"}},
+      "midday": {"localized_labels": {"zh-Hans": "正午", "en": "Midday"}},
+      "afternoon": {"localized_labels": {"zh-Hans": "下午", "en": "Afternoon"}},
+      "evening": {"localized_labels": {"zh-Hans": "傍晚", "en": "Evening"}},
+      "night": {"localized_labels": {"zh-Hans": "夜晚", "en": "Night"}}
+    },
+    "resource": {
+      "hp": {"localized_labels": {"zh-Hans": "生命值", "en": "HP"}},
+      "mp": {"localized_labels": {"zh-Hans": "魔法值", "en": "MP"}},
+      "san": {"localized_labels": {"zh-Hans": "理智", "en": "SAN"}},
+      "luck": {"localized_labels": {"zh-Hans": "幸运", "en": "Luck"}},
+      "cash": {"localized_labels": {"zh-Hans": "现金", "en": "Cash"}},
+      "HP": {"localized_labels": {"zh-Hans": "生命值", "en": "HP"}},
+      "MP": {"localized_labels": {"zh-Hans": "魔法值", "en": "MP"}},
+      "SAN": {"localized_labels": {"zh-Hans": "理智", "en": "SAN"}},
+      "LUCK": {"localized_labels": {"zh-Hans": "幸运", "en": "Luck"}}
+    },
+    "living_standard": {
+      "Penniless": {"localized_labels": {"zh-Hans": "身无分文"}},
+      "Poor": {"localized_labels": {"zh-Hans": "贫穷"}},
+      "Average": {"localized_labels": {"zh-Hans": "普通"}},
+      "Wealthy": {"localized_labels": {"zh-Hans": "富裕"}},
+      "Rich": {"localized_labels": {"zh-Hans": "富有"}},
+      "Super Rich": {"localized_labels": {"zh-Hans": "巨富"}}
+    },
+    "backstory": {
+      "personal_description": {"localized_labels": {"zh-Hans": "个人描述", "en": "Personal description"}},
+      "ideology_beliefs": {"localized_labels": {"zh-Hans": "思想与信念", "en": "Ideology and beliefs"}},
+      "significant_people": {"localized_labels": {"zh-Hans": "重要之人", "en": "Significant people"}},
+      "meaningful_locations": {"localized_labels": {"zh-Hans": "意义非凡之地", "en": "Meaningful locations"}},
+      "treasured_possessions": {"localized_labels": {"zh-Hans": "宝贵之物", "en": "Treasured possessions"}},
+      "traits": {"localized_labels": {"zh-Hans": "特质", "en": "Traits"}}
+    },
+    "die": {
+      "SAN Loss": {"localized_labels": {"zh-Hans": "理智损失", "en": "SAN loss"}},
+      "SAN Reward": {"localized_labels": {"zh-Hans": "理智奖励", "en": "SAN reward"}},
+      "damage": {"localized_labels": {"zh-Hans": "伤害", "en": "Damage"}},
+      "armor": {"localized_labels": {"zh-Hans": "护甲", "en": "Armor"}},
+      "object-effect": {"localized_labels": {"zh-Hans": "物品效果", "en": "Object effect"}}
+    },
+    "state": {
+      "condition": {"localized_labels": {"zh-Hans": "状态", "en": "Condition"}},
+      "charges": {"localized_labels": {"zh-Hans": "剩余次数", "en": "Charges"}}
+    }
+  }
+}

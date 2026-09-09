@@ -18,7 +18,9 @@ export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedE
         let rows:Row[]=[];try{const raw=await context.campaign.readSave('worldlines/echoes.json');rows=array(isJsonObject(raw)?raw.echoes:raw).filter(isJsonObject);}catch{/* Existing echo reads tolerate unavailable saved projections. */}
         const echo=rows.find(value=>string(value.id)===name);
         if(!echo)throw new RpcError('unknown_entity',`no echo ${repr(name)} on this worldline`,{fix:'reveal one of details.echoes, or none: echoes come from other lines',details:{echo:name,echoes:rows.slice(0,12).map(value=>value.id)}});
-        const receipt={id:`clue:${name.replaceAll(':','-')}-t${turn}`,kind:'clue',call_id:context.callId,clue:name,label:label||echo.summary,summary:echo.summary,scene:echo.scene,how,from:null,
+        // An echo's summary is the kernel's own sentence, never a player-facing word: the receipt needs the keeper's label.
+        if(!label)throw new RpcError('invalid_params',`revealing echo ${repr(name)} needs a label`,{fix:"pass label: a short name for this echo in the campaign's play_language",details:{fields:['label'],echo:name}});
+        const receipt={id:`clue:${name.replaceAll(':','-')}-t${turn}`,kind:'clue',call_id:context.callId,clue:name,label,summary:echo.summary,scene:echo.scene,how,from:null,
             echo:{line:echo.line,loop:echo.loop,turn:echo.turn,kind:echo.kind},at:nowIso()};
         if(array(world.discovered_echoes??=[]).includes(name))return {receipt,event:null};world.discovered_echoes.push(name);
         return {receipt,event:{type:'clue-discovered',data:{clue:name,scene:echo.scene,how,echo:echo.line}}};
@@ -32,7 +34,8 @@ export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedE
         const holders=new Set((graph.incoming.get(node.node_id)||[]).filter(rel=>['held-by','delivered-by'].includes(rel.relation_kind)).map(rel=>graph.nodes.get(rel.from_node_id)).filter(node=>node?.node_kind==='npc').map(node=>graph.handle(node!)));
         const candidates=sorted([...holders].filter(name=>present.has(name)));if(candidates.length===1)source=candidates[0];
     }
-    const receipt={id:`clue:${handle}-t${turn}`,kind:'clue',call_id:context.callId,clue:handle,label:label||handle,summary:node.summary||node.name,scene:graph.handle(scene),how,from:source,at:nowIso()};
+    // Without a keeper label the receipt files the graph's display name: a handle is a machine word and never reaches the player.
+    const receipt={id:`clue:${handle}-t${turn}`,kind:'clue',call_id:context.callId,clue:handle,label:label||graph.displayName(node),summary:node.summary||node.name,scene:graph.handle(scene),how,from:source,at:nowIso()};
     if(label)(world.clue_labels??={})[handle]=label;
     if(array(world.discovered_clues??=[]).includes(handle))return {receipt,event:null};world.discovered_clues.push(handle);
     return {receipt,event:{type:'clue-discovered',data:{clue:handle,scene:receipt.scene,how}}};

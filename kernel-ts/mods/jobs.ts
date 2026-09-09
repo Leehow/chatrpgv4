@@ -6,6 +6,7 @@ import { RpcError } from '../errors.js';
 import { writeJsonAtomic } from '../fileio.js';
 import { isJsonObject, jsonDigest } from '../json.js';
 import { loadModule } from '../read/campaign.js';
+import { playLanguageOf } from '../read/languages.js';
 import { recordOf, type ModuleGraph } from '../read/module-graph.js';
 import { whereSection } from '../read/capsule.js';
 import { MOD_CAPABILITIES, objectContext, unregisteredEquipment, findNamedObject } from '../read/mods.js';
@@ -73,7 +74,7 @@ export class ModJobs {
         const promptField = role === 'create' ? 'materializer' : 'auditor', candidates = await this.contributors(world, turn, role);
         if (!candidates.length) return {enabled: false};
         const packageRow = candidates[0], party = await campaign.party() as Row[];
-        const request: Row = {role, input: params.input ?? null, capabilities: sorted(MOD_CAPABILITIES), play_language: field(meta, 'play_language', 'en'),
+        const request: Row = {role, input: params.input ?? null, capabilities: sorted(MOD_CAPABILITIES), play_language: await playLanguageOf(this.context, meta),
             mod_settings: Object.fromEntries(candidates.map(mod => [mod.id, (world as Row).mods.active[mod.id].settings])),
             scene: whereSection(graph, world, graph.scene(world.active_scene as string)), party, objects: objectContext(world), receipts: field(turn, 'receipts', []),
             known_handouts: (await this.knownHandouts(graph, world)).map(item => ({name: item.name, preview: chars(item.text, 240)})),

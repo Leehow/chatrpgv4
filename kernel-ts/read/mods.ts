@@ -13,6 +13,9 @@ const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
 };
 const plain = (value: any): boolean => value != null && typeof value === "object" && !Array.isArray(value) && !numeric(value);
+/** A player-facing manifest word: one non-empty string, or at least one tag mapped to a non-empty string. */
+const localizedText = (value: any): boolean => typeof value === "string" ? Boolean(value.trim())
+    : plain(value) && Object.keys(value).length > 0 && Object.values(value).every(word => typeof word === "string" && Boolean(word.trim()));
 function version(value: any) {
     if (typeof value !== "string" || !/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(value))
         invalid("Mod version must be major.minor.patch");
@@ -28,7 +31,12 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
     if (!/^[a-z][a-z0-9-]{0,63}$/.test(string(manifest.id ?? "")))
         invalid("Mod id must be a lowercase semantic slug");
     version(manifest.version);
-    for (const field of ["name", "description", "author", "game_api"])
+    // A Mod's name and description reach the player, so they are a plain string or an object keyed by
+    // play-language tag whose values are strings; the panel reads the session's tag (contract §23).
+    for (const field of ["name", "description"])
+        if (!localizedText(manifest[field]))
+            invalid(`mod.json needs ${field}: a non-empty string, or an object of non-empty strings keyed by play-language tag`);
+    for (const field of ["author", "game_api"])
         if (typeof manifest[field] !== "string" || !manifest[field].trim())
             invalid(`mod.json needs ${field}`);
     if (!integer(manifest.state_version) || number(manifest.state_version) < 1)

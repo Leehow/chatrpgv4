@@ -1,7 +1,7 @@
 {
-  "regular": {"divisor": 1},
-  "hard": {"divisor": 2},
-  "extreme": {"divisor": 5},
+  "regular": {"divisor": 1, "localized_labels": {"zh-Hans": "常规", "en": "Regular"}},
+  "hard": {"divisor": 2, "localized_labels": {"zh-Hans": "困难", "en": "Hard"}},
+  "extreme": {"divisor": 5, "localized_labels": {"zh-Hans": "极难", "en": "Extreme"}},
   "from_opponent": {
     "source_note": "Keeper Rulebook p.83 opposed rolls: the opponent's skill level sets the required success level. Opponent skill <50 -> Regular, 50-89 -> Hard, 90+ -> Extreme.",
     "threshold_regular": 50,

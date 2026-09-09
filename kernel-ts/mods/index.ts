@@ -3,6 +3,7 @@ import type { KernelContext } from '../context.js';
 import type { HandlerGroup } from '../handlers.js';
 import { isJsonObject } from '../json.js';
 import { readCampaign } from '../read/handlers.js';
+import { playLanguageOf } from '../read/languages.js';
 import { CampaignSnapshot, loadModule } from '../read/campaign.js';
 import { SessionView } from '../read/session-view.js';
 import { modContext, setupModContext } from '../read/mods.js';
@@ -52,7 +53,7 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
       if (!truth(params.campaign)) return runtime.view();
       const campaign = await writer.campaign(params, {requireWorld: false}), meta = await campaign.readCampaign();
       const config = await context.snapshots.pathExists(campaign.path('world.json')) ? await campaign.readWorld() : {mods: Object.hasOwn(meta, 'mods_pending') ? meta.mods_pending : {}};
-      return {...await runtime.view(config), campaign: campaign.id, play_language: Object.hasOwn(meta, 'play_language') ? meta.play_language : 'en'};
+      return {...await runtime.view(config), campaign: campaign.id, play_language: await playLanguageOf(context, meta)};
     }
     return Object.freeze({
       ...createDocumentHandlers(writer, runtime),

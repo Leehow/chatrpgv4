@@ -2,6 +2,7 @@
   "source_note": "Keeper Rulebook Chapter 3: Creating Investigators, Sample Occupations (pp.40-41 / PDF idx 39-40). Each occupation lists occupational skills, credit rating range, and skill point formula. Skills marked [Lovecraftian] are noted; [Modern] occupations are modern-only.",
   "occupations": {
     "Antiquarian": {
+      "localized_labels": {"zh-Hans": "古物学家"},
       "tags": [
         "lovecraftian"
       ],
@@ -22,6 +23,7 @@
       "skill_point_formula": "EDU*4"
     },
     "Artist": {
+      "localized_labels": {"zh-Hans": "艺术家"},
       "tags": [],
       "occupational_skills": [
         "Art/Craft (any)",
@@ -39,6 +41,7 @@
       "skill_point_formula": "EDU*2+either POW*2 or DEX*2"
     },
     "Athlete": {
+      "localized_labels": {"zh-Hans": "运动员"},
       "tags": [],
       "occupational_skills": [
         "Climb",
@@ -57,6 +60,7 @@
       "skill_point_formula": "EDU*2+either DEX*2 or STR*2"
     },
     "Author": {
+      "localized_labels": {"zh-Hans": "作家"},
       "tags": [
         "lovecraftian"
       ],
@@ -77,6 +81,7 @@
       "skill_point_formula": "EDU*4"
     },
     "Clergy": {
+      "localized_labels": {"zh-Hans": "神职人员"},
       "tags": [],
       "occupational_skills": [
         "Accounting",
@@ -95,6 +100,7 @@
       "skill_point_formula": "EDU*4"
     },
     "Criminal": {
+      "localized_labels": {"zh-Hans": "罪犯"},
       "tags": [],
       "occupational_skills": [
         "one interpersonal skill (Charm, Fast Talk, Intimidate, or Persuade)",
@@ -110,6 +116,7 @@
       "skill_point_formula": "EDU*2+either DEX*2 or STR*2"
     },
     "Dilettante": {
+      "localized_labels": {"zh-Hans": "业余爱好者"},
       "tags": [
         "lovecraftian"
       ],
@@ -128,6 +135,7 @@
       "skill_point_formula": "EDU*2+APP*2"
     },
     "Doctor of Medicine": {
+      "localized_labels": {"zh-Hans": "医生"},
       "tags": [
         "lovecraftian"
       ],
@@ -147,6 +155,7 @@
       "skill_point_formula": "EDU*4"
     },
     "Drifter": {
+      "localized_labels": {"zh-Hans": "流浪者"},
       "tags": [],
       "occupational_skills": [
         "Climb",
@@ -164,6 +173,7 @@
       "skill_point_formula": "EDU*2+either APP*2, DEX*2 or STR*2"
     },
     "Engineer": {
+      "localized_labels": {"zh-Hans": "工程师"},
       "tags": [],
       "occupational_skills": [
         "Art/Craft (Technical Drawing)",
@@ -182,6 +192,7 @@
       "skill_point_formula": "EDU*4"
     },
     "Entertainer": {
+      "localized_labels": {"zh-Hans": "演艺人员"},
       "tags": [],
       "occupational_skills": [
         "Art/Craft (Acting)",
@@ -198,6 +209,7 @@
       "skill_point_formula": "EDU*2+APP*2"
     },
     "Farmer": {
+      "localized_labels": {"zh-Hans": "农民"},
       "tags": [],
       "occupational_skills": [
         "Art/Craft (Farming)",
@@ -216,6 +228,7 @@
       "skill_point_formula": "EDU*2+either DEX*2 or STR*2"
     },
     "Hacker": {
+      "localized_labels": {"zh-Hans": "黑客"},
       "tags": [
         "modern"
       ],
@@ -235,6 +248,7 @@
       "skill_point_formula": "EDU*4"
     },
     "Journalist": {
+      "localized_labels": {"zh-Hans": "记者"},
       "tags": [
         "lovecraftian"
       ],
@@ -254,6 +268,7 @@
       "skill_point_formula": "EDU*4"
     },
     "Lawyer": {
+      "localized_labels": {"zh-Hans": "律师"},
       "tags": [],
       "occupational_skills": [
         "Accounting",
@@ -270,6 +285,7 @@
       "skill_point_formula": "EDU*4"
     },
     "Librarian": {
+      "localized_labels": {"zh-Hans": "图书管理员"},
       "tags": [
         "lovecraftian"
       ],
@@ -287,6 +303,7 @@
       "skill_point_formula": "EDU*4"
     },
     "Military Officer": {
+      "localized_labels": {"zh-Hans": "军官"},
       "tags": [],
       "occupational_skills": [
         "Accounting",
@@ -304,6 +321,7 @@
       "skill_point_formula": "EDU*2+either DEX*2 or STR*2"
     },
     "Missionary": {
+      "localized_labels": {"zh-Hans": "传教士"},
       "tags": [],
       "occupational_skills": [
         "Art/Craft",
@@ -321,6 +339,7 @@
       "skill_point_formula": "EDU*4"
     },
     "Musician": {
+      "localized_labels": {"zh-Hans": "音乐家"},
       "tags": [],
       "occupational_skills": [
         "Art/Craft (instrument)",
@@ -336,6 +355,7 @@
       "skill_point_formula": "EDU*2+either DEX*2 or POW*2"
     },
     "Parapsychologist": {
+      "localized_labels": {"zh-Hans": "超心理学家"},
       "tags": [],
       "occupational_skills": [
         "Anthropology",
@@ -354,6 +374,7 @@
       "skill_point_formula": "EDU*4"
     },
     "Pilot": {
+      "localized_labels": {"zh-Hans": "飞行员"},
       "tags": [],
       "occupational_skills": [
         "Electrical Repair",
@@ -371,6 +392,7 @@
       "skill_point_formula": "EDU*2+DEX*2"
     },
     "Police Detective": {
+      "localized_labels": {"zh-Hans": "警探"},
       "tags": [
         "lovecraftian"
       ],
@@ -391,6 +413,7 @@
       "skill_point_formula": "EDU*2+either DEX*2 or STR*2"
     },
     "Police Officer": {
+      "localized_labels": {"zh-Hans": "警察"},
       "tags": [],
       "occupational_skills": [
         "Fighting (Brawl)",
@@ -409,6 +432,7 @@
       "skill_point_formula": "EDU*2+either DEX*2 or STR*2"
     },
     "Private Investigator": {
+      "localized_labels": {"zh-Hans": "私家侦探"},
       "tags": [],
       "occupational_skills": [
         "Art/Craft (photography)",
@@ -427,6 +451,7 @@
       "skill_point_formula": "EDU*2+either DEX*2 or STR*2"
     },
     "Professor": {
+      "localized_labels": {"zh-Hans": "教授"},
       "tags": [
         "lovecraftian"
       ],
@@ -444,6 +469,7 @@
       "skill_point_formula": "EDU*4"
     },
     "Soldier": {
+      "localized_labels": {"zh-Hans": "士兵"},
       "tags": [],
       "occupational_skills": [
         "Climb or Swim",
@@ -461,6 +487,7 @@
       "skill_point_formula": "EDU*2+either DEX*2 or STR*2"
     },
     "Tribe Member": {
+      "localized_labels": {"zh-Hans": "部落成员"},
       "tags": [],
       "occupational_skills": [
         "Climb",
@@ -479,6 +506,7 @@
       "skill_point_formula": "EDU*2+either DEX*2 or STR*2"
     },
     "Zealot": {
+      "localized_labels": {"zh-Hans": "狂热者"},
       "tags": [],
       "occupational_skills": [
         "History",

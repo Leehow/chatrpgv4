@@ -8,6 +8,8 @@ export const SUPPORTED_KINDS = ["weapon", "item", "spell", "creature", "skill", 
 const SECRET_KINDS = new Set(["spell", "creature", "artifact", "tome", "poison"]);
 export const queryTokens = (query: any): string[] => (string(query).match(/[0-9A-Za-z]+/g) ?? []).map(caseFold);
 const normalized = (value: any): string => typeof value === "string" ? queryTokens(value).join(" ") : "";
+/** `{tag: label}` for every non-empty string label, in the data's own order; nothing names a tag here. */
+const localizedNames = (value: any): Row => Object.fromEntries(entries(row(value)).filter((entry): entry is [string, string] => typeof entry[1] === "string" && Boolean(entry[1].trim())).map(([tag, label]) => [tag, label.trim()]));
 const failure = (code: string, fields: Row = {}): Row => ({
     ok: false,
     error: {
@@ -24,7 +26,8 @@ export function catalogRecord(options: {
     params?: Row;
     aliases?: string[];
     era?: string[];
-    localizedName?: string | null;
+    /** The record's name under each play language that renames it, keyed by tag; a language whose word is `name` has no entry. */
+    localizedNames?: Row;
     tags?: string[];
     category?: string | null;
     labels?: string[];
@@ -34,7 +37,7 @@ export function catalogRecord(options: {
         kind: options.kind,
         entity_id: options.entityId,
         name: options.name,
-        localized_name: options.localizedName ?? null,
+        localized_names: localizedNames(options.localizedNames),
         aliases: options.aliases ?? [],
         labels: options.labels ?? [],
         tags: options.tags ?? [],
@@ -140,7 +143,7 @@ export class Catalog {
                     entityId: name,
                     name,
                     table: "skills.json",
-                    localizedName: typeof labels["zh-Hans"] === "string" ? labels["zh-Hans"] : null,
+                    localizedNames: labels,
                     aliases: values(labels).filter(v => typeof v === "string"),
                     era: truth(value.modern_only) ? ["modern"] : [],
                     tags: truth(value.uncommon) ? ["uncommon"] : [],
@@ -452,9 +455,10 @@ function normalizeLimit(input: any): number | Row {
 }
 export function recordTokens(record: Row): string[] {
     const parts: string[] = [];
-    for (const key of ["entity_id", "name", "localized_name"])
+    for (const key of ["entity_id", "name"])
         if (typeof record[key] === "string")
             parts.push(record[key]);
+    parts.push(...values(localizedNames(record.localized_names)));
     for (const key of ["aliases", "labels", "tags"])
         if (Array.isArray(record[key]))
             parts.push(...record[key].filter((value: any) => typeof value === "string" || integer(value) || typeof value === "boolean").map(string));
@@ -469,7 +473,7 @@ function matches(query: string, tokens: string[], record: Row): string[] {
         reasons.push("exact_id");
     if (caseFold(string(record.name || "")) === fold)
         reasons.push("exact_name");
-    if (caseFold(string(record.localized_name || "")) === fold && fold)
+    if (fold && values(localizedNames(record.localized_names)).some(label => caseFold(label) === fold))
         reasons.push("exact_localized_name");
     const parts = queryTokens(query);
     if (parts.length && parts.every(part => tokens.includes(part)))
@@ -594,7 +598,7 @@ function dto(record: Row, reasons: string[], parameter?: Row): Row {
         kind: record.kind ?? null,
         entity_id: record.entity_id ?? null,
         name: record.name ?? null,
-        localized_name: typeof record.localized_name === "string" ? record.localized_name : null,
+        localized_names: localizedNames(record.localized_names),
         aliases: array(record.aliases).filter(value => typeof value === "string"),
         era: array(record.era).filter(value => typeof value === "string"),
         secret: truth(record.secret),

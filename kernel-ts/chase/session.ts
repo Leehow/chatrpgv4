@@ -2,6 +2,7 @@
 import type { PythonRandom } from '../random.js';
 import type { RuleTables } from '../rules/tables.js';
 import { orderedObject } from '../json.js';
+import { defaultPlayLanguage } from '../read/languages.js';
 import { array, clone, entries, number, repr, row, string, truth, values, type Row } from '../read/values.js';
 import { CheckArithmetic, valueError } from '../resolve/arithmetic.js';
 import { CombatSession, combatAttack, resolveOpposed, type CombatAttackPort } from '../combat/engine.js';
@@ -43,12 +44,13 @@ export class ChaseSession {
     revision = 0;
     initiativeCursor = 0;
     consumedCombatReceipts: Row[] = [];
-    constructor(readonly chaseId: string, readonly rng: PythonRandom, readonly tables: RuleTables, readonly arithmetic: CheckArithmetic, readonly rules: Row, readonly playLanguage = 'zh-Hans', readonly glossary: Row = {}) { }
+    /** `playLanguage` is the campaign's; a session created without one carries the data default, never a literal. */
+    constructor(readonly chaseId: string, readonly rng: PythonRandom, readonly tables: RuleTables, readonly arithmetic: CheckArithmetic, readonly rules: Row, readonly playLanguage: string, readonly glossary: Row = {}) { }
     static async create(chaseId: string, rng: PythonRandom, tables: RuleTables, arithmetic?: CheckArithmetic, options: {
         playLanguage?: string;
         glossary?: Row;
     } = {}): Promise<ChaseSession> {
-        return new ChaseSession(chaseId, rng, tables, arithmetic ?? await CheckArithmetic.create(tables), await loadChaseRules(tables), options.playLanguage ?? 'zh-Hans', options.glossary ?? {});
+        return new ChaseSession(chaseId, rng, tables, arithmetic ?? await CheckArithmetic.create(tables), await loadChaseRules(tables), options.playLanguage ?? await defaultPlayLanguage(tables.context), options.glossary ?? {});
     }
     private participant(id: string): Row {
         const participant = this.participants[id];
@@ -1293,7 +1295,7 @@ export class ChaseSession {
             return valueError(`chase snapshot is invalid: ${(error as Error).message}`);
         }
         const session = await ChaseSession.create(data.chase_id, rng, tables, arithmetic, {
-            playLanguage: get(data, 'play_language', 'zh-Hans')
+            ...(typeof data.play_language === 'string' && data.play_language ? { playLanguage: data.play_language } : {})
         });
         session.status = get(data, 'status', 'active');
         session.outcome = data.outcome ?? null;

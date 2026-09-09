@@ -55,6 +55,36 @@ UNREAD_TABLES = {
 }
 
 
+def _carries_localized_labels(value: object) -> bool:
+    """Whether a table holds a `localized_labels` row anywhere in its nesting."""
+    if isinstance(value, dict):
+        return "localized_labels" in value or any(_carries_localized_labels(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_carries_localized_labels(v) for v in value)
+    return False
+
+
+def _glossary_tables() -> set[str]:
+    """Tables the player glossary reads without naming them.
+
+    `kernel-ts/read/handlers.ts` (`playerGlossary`) opens every table in the directory
+    and keeps each `localized_labels` row for the campaign's play language (contract
+    §23), so a table that carries such rows is read by that walk -- `kernel-terms`
+    exists for nothing else -- while one that carries none contributes nothing to it
+    and still needs a named reader.
+    """
+    import json
+
+    found: set[str] = set()
+    for path in sorted(RULES_JSON.glob("*.json")):
+        try:
+            if _carries_localized_labels(json.loads(path.read_text(encoding="utf-8"))):
+                found.add(path.stem)
+        except (OSError, ValueError):  # pragma: no cover - a broken table fails elsewhere
+            continue
+    return found
+
+
 def _string_constants(root: Path) -> set[str]:
     """Every string literal in the kernel's Python source."""
     found: set[str] = set()
@@ -72,7 +102,7 @@ def _string_constants(root: Path) -> set[str]:
 def test_every_shipped_table_is_read_or_declared_unread():
     tables = {path.stem for path in RULES_JSON.glob("*.json")}
     assert tables, "the coc7 ruleset ships no tables at all"
-    named = _string_constants(KERNEL)
+    named = _string_constants(KERNEL) | _glossary_tables()
     unread = tables - named
 
     unexpected = sorted(unread - set(UNREAD_TABLES))

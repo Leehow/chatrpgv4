@@ -621,13 +621,19 @@ def test_an_echo_is_revealed_by_apply_clue_and_only_then_is_it_known(tmp_path):
         assert [echo["id"] for echo in section["echoes"]] == ["echo:main-t2-1", "echo:main-t3-1"]
         assert world_of(client).get("discovered_echoes") in (None, [])
 
+        # An echo's summary is the kernel's own sentence, never a player's word: revealing one
+        # needs the keeper's label (§23), and nothing is written until it arrives.
+        refused = client.table_err("apply", call_id="t6-c0",
+                                   effects=[{"kind": "clue", "clue": "echo:main-t3-1"}])
+        assert refused["code"] == "invalid_params" and refused["details"]["fields"] == ["label"]
+        assert world_of(client).get("discovered_echoes") in (None, [])
         applied = client.table("apply", call_id="t6-c1",
-                               effects=[{"kind": "clue", "clue": "echo:main-t3-1"}])
+                               effects=[{"kind": "clue", "clue": "echo:main-t3-1", "label": "有人读过的日记"}])
         assert applied["receipts"] == ["clue:echo-main-t3-1-t6"]
         delivered = narrate(client, "t6-c2", "你想起有人在这里读过什么。")
-        # §16.2: it projects as a clue row like any other piece of evidence.
+        # §16.2: it projects as a clue row like any other piece of evidence, under the keeper's word.
         row = next(r for r in delivered["mechanics"] if r["kind"] == "clue")
-        assert row["clue"] == "echo:main-t3-1"
+        assert row["clue"] == "echo:main-t3-1" and row["label"] == "有人读过的日记"
 
         assert world_of(client)["discovered_echoes"] == ["echo:main-t3-1"]
         capsule = client.table("player_input", text="然后呢。")["capsule"]

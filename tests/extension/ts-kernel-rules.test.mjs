@@ -33,6 +33,16 @@ const tables = new api.RuleTables(context), catalog = new api.Catalog(tables);
 const observed = await api.RuleObservations.load(context);
 const decoded = value => JSON.parse(api.pythonJsonDumps(value));
 const clone = value => api.parsePythonJson(api.pythonJsonDumps(value));
+/**
+ * The Python reference predates `localized_names` keyed by play-language tag (contract §23): it
+ * still carries one `localized_name`. That field is the subject of ts-kernel-i18n.test.mjs, so
+ * catalogue comparisons here read both sides without it -- top-level for kernel records (whose
+ * values keep their Python number identity), deep for decoded JSON answers.
+ */
+const unnamed = record => Object.fromEntries(Object.entries(record).filter(([key]) => key !== 'localized_names'));
+const unlocalized = value => Array.isArray(value) ? value.map(unlocalized)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'localized_name' && key !== 'localized_names').map(([key, inner]) => [key, unlocalized(inner)]))
+  : value;
 const capture = action => {
   try { return { value: decoded(action()) }; }
   catch (error) { return { error: typeof error.toJson === 'function' ? decoded(error.toJson()) : { name: error.name, message: error.message } }; }
@@ -62,7 +72,7 @@ def capture(fn):
     except Exception as error: return {'error':{'name':type(error).__name__,'message':str(error)}}
 operation=p['operation']
 if operation=='records':
-    output={kind:{'count':len(catalog.records([kind])),'digest':digest(catalog.records([kind]))} for kind in p['kinds']}
+    output={kind:{'count':len(catalog.records([kind])),'digest':digest([{k:v for k,v in r.items() if k!='localized_name'} for r in catalog.records([kind])])} for kind in p['kinds']}
 elif operation=='search':
     module=ModuleGraph('fixture',Path(p['module'])) if p.get('module') else None
     spells=SettleContext.module_spells_for(module,p.get('world')) if module else None
@@ -127,7 +137,7 @@ async function oracle(operation, input) {
 test('every catalog kind retains the Python record count and canonical content digest', async () => {
   const expected = await oracle('records', { kinds: api.SUPPORTED_KINDS });
   const actual = {};
-  for (const kind of api.SUPPORTED_KINDS) { const records = await catalog.records([kind]); actual[kind] = { count: records.length, digest: api.jsonDigest(records) }; }
+  for (const kind of api.SUPPORTED_KINDS) { const records = await catalog.records([kind]); actual[kind] = { count: records.length, digest: api.jsonDigest(records.map(unnamed)) }; }
   await writeFile(join(evidence, 'record-digests-actual.json'), JSON.stringify(actual, null, 2));
   assert.deepEqual(actual, expected);
 });
@@ -152,7 +162,7 @@ test('catalog recall preserves price variants, scopes, family parameters and clo
   ];
   const expected = await oracle('search', { cases });
   for (const [index, value] of cases.entries()) await t.test(`query ${index}: ${String(value.query)}`, async () => {
-    assert.deepEqual(decoded(await catalog.search(value.query, value)), expected[index]);
+    assert.deepEqual(unlocalized(decoded(await catalog.search(value.query, value))), unlocalized(expected[index]));
   });
 });
 
@@ -167,9 +177,9 @@ test('module spell aliases, unpriced declarations and rulebook authority match P
   const graph = new api.ModuleGraph('fixture', raw, '', {}), moduleSpells = api.moduleSpellRecords(graph);
   const cases = [{ query: 'Flesh Ward', kinds: ['spell'] }, { query: 'Short Gate', kinds: ['spell'] }, { query: 'Local Gate', kinds: ['weapon'] }, { query: 'STRASSE', kinds: ['spell'] }];
   const expected = await oracle('search', { cases, module: path });
-  assert.deepEqual(await Promise.all(cases.map(async value => decoded(await catalog.search(value.query, { ...value, moduleSpells })))), expected);
+  assert.deepEqual(unlocalized(await Promise.all(cases.map(async value => decoded(await catalog.search(value.query, { ...value, moduleSpells }))))), unlocalized(expected));
   const names = [{ kind: 'spell', name: 'Flesh Ward' }, { kind: 'spell', name: 'Short Gate' }, { kind: 'spell', name: 'Summon/Bind Dimensional Shambler' }, { kind: 'spell', name: 'Summon/Bind Gug' }];
-  assert.deepEqual(await Promise.all(names.map(async value => decoded(await catalog.resolveName(value.kind, value.name, moduleSpells)))), await oracle('resolve_names', { cases: names, module: path }));
+  assert.deepEqual(unlocalized(await Promise.all(names.map(async value => decoded(await catalog.resolveName(value.kind, value.name, moduleSpells))))), unlocalized(await oracle('resolve_names', { cases: names, module: path })));
 });
 
 test('skill aliases and defaults preserve the source rules vocabulary', async () => {

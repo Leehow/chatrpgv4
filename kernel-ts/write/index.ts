@@ -15,6 +15,7 @@ import { buildCapsule } from '../read/assemble.js';
 import { mechanics } from '../read/mechanics.js';
 import { sceneLabel } from '../read/capsule.js';
 import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } from '../read/handlers.js';
+import { playLanguages, playLanguageOf } from '../read/languages.js';
 import { modContext } from '../read/mods.js';
 import { array, entries, values, row, clone, number, string, truth, repr, chars, words, equal, type Row } from '../read/values.js';
 import { CampaignWriter, freshTurn, nowIso, required, missingContribution, createTurnTransaction, rememberCall, turnStateError } from './store.js';
@@ -361,9 +362,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             throw new RpcError('invalid_params', `campaign ${repr(id)} already exists`, {
                 fix: 'pick another id or open the existing campaign'
             });
-        const moduleId = required(params, 'module')!, pregen = required(params, 'pregen', true), language = required(params, 'play_language', true) || 'zh-Hans';
-        if (!['zh-Hans', 'en'].includes(language))
-            unsupported('play_language', language, ['zh-Hans', 'en']);
+        const known = await playLanguages(context);
+        const moduleId = required(params, 'module')!, pregen = required(params, 'pregen', true), language = required(params, 'play_language', true) || known.default;
+        if (!known.tags.includes(language))
+            unsupported('play_language', language, [...known.tags]);
         const director = await DirectorGraph.load(context), craft = await TextGraph.load(context, director.beats), register = required(params, 'register', true) || 'purist';
         const registers = [...craft.nodes.values()].filter(node => node.node_kind === 'play-register').sort((a, b) => number(a.properties.ordinal) - number(b.properties.ordinal)).map(node => node.properties.legacy_key);
         if (!registers.includes(register))
@@ -662,8 +664,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             throw new RpcError('invalid_params', 'a campaign ending must be delivered with narrate, not ask');
         if(truth(turn.worldline))throw new RpcError('invalid_params','a turn that forks or switches the worldline cannot be closed by ask',{fix:"close this turn with narrate; ask on the new line's first turn",details:{worldline:row(turn.worldline).operation??null}});
         const receipts = [...array(turn.receipts)], placed = text ? bindMarkers(text, receipts) : {}, stripped = truth(placed) ? stripMarkers(text!) : text;
-        const language = string(snapshot.meta.play_language || 'zh-Hans');
-        checkLanguage(language, {
+        const language = await playLanguageOf(context, snapshot.meta);
+        await checkLanguage(context, language, {
             ...(kind === 'story' ? {
                 prompt,
                 ...Object.fromEntries(options.map((value, i) => [`options[${i}]`, value]))
@@ -743,11 +745,11 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         preflightCampaign(snapshot.meta, snapshot.world, turn, snapshot.party);
         await validateMods(snapshot.world);
         const text = required(params, 'text')!, receipts = [...array(turn.receipts)], placed = bindMarkers(text, receipts), rendered = truth(placed) ? stripMarkers(text) : text;
-        const language = string(snapshot.meta.play_language || 'zh-Hans');
+        const language = await playLanguageOf(context, snapshot.meta);
         // The only floor under a delivery is the play-language script. Figures are never looked
         // for in the prose: they travel as the mechanics projection and the frontend draws them
         // (2026-09-09 user decision, contract §16.3).
-        checkLanguage(language, {
+        await checkLanguage(context, language, {
             text: rendered
         });
         await stanceTable(context);
