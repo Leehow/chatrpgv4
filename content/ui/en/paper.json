@@ -1,0 +1,22 @@
+{
+  "altered": "Edited since acquisition",
+  "body": "Document text",
+  "clean": "Saved",
+  "close": "Close",
+  "dirty": "Unsaved changes",
+  "discard": "Close without saving",
+  "empty": "This page is blank. Write here…",
+  "inside": "Inside",
+  "loading": "Opening the paper…",
+  "open": "Read and write",
+  "original": "Acquisition original retained",
+  "reloaded": "Latest version loaded; your draft is retained. Save to write this draft.",
+  "reset": "Restore acquisition original",
+  "retry": "Reload paper",
+  "save": "Save",
+  "saveClose": "Save and close",
+  "saving": "Saving…",
+  "stay": "Keep editing",
+  "title": "Carried papers",
+  "unsaved": "Keep your writing before closing."
+}
