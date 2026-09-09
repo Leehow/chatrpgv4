@@ -34,6 +34,7 @@ INVESTIGATOR_TEMPLATE_KIND = "investigator-template"
 #: `npc_profile` reads the first-class key first and falls back, so a campaign compiled
 #: before this slice is read, never rebuilt.
 PROFILE_KEYS = contract.DOSSIER_PROFILE_KEYS
+PROFILE_LABELS = contract.DOSSIER_PROFILE_LABELS
 DOSSIER_PREDICATES = contract.DOSSIER_PREDICATES
 TIE_RELATION_KINDS = contract.TIE_RELATION_KINDS
 KNOWS, BELIEVES, ASSERTS, HIDES = DOSSIER_PREDICATES

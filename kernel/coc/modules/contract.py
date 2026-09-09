@@ -45,6 +45,12 @@ RELATION_KINDS: frozenset[str] = frozenset(CONTRACT["relation_kinds"])
 #: invented here -- every predicate and relation named is already in `relation_kinds`.
 _DOSSIER: dict[str, Any] = CONTRACT["actor_dossier"]
 DOSSIER_PROFILE_KEYS: tuple[str, ...] = tuple(_DOSSIER["profile_keys"])
+#: Contract 28.4: the Keeper-facing name each profile key arrives under at the table, and
+#: the order it arrives in. The capsule reads this instead of keeping its own copy, so a
+#: key the spine gains cannot be dropped on the way to the Keeper.
+DOSSIER_PROFILE_LABELS: dict[str, str] = {
+    str(key): str(label) or str(key)
+    for key, label in (_DOSSIER.get("profile_labels") or {k: k for k in DOSSIER_PROFILE_KEYS}).items()}
 DOSSIER_PROSE_KEYS: tuple[str, ...] = tuple(_DOSSIER["prose_keys"])
 DOSSIER_PREDICATES: tuple[str, ...] = tuple(_DOSSIER["claim_predicates"])
 TIE_RELATION_KINDS: tuple[str, ...] = tuple(_DOSSIER["tie_relation_kinds"])

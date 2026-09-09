@@ -226,6 +226,14 @@
       "voice",
       "relationship_to_investigators"
     ],
+    "profile_labels": {
+      "relationship_to_investigators": "role",
+      "agenda": "wants",
+      "fear": "fears",
+      "secret": "hides",
+      "voice": "voice"
+    },
+    "profile_labels_why": "The Keeper-facing name each profile key arrives under in the turn capsule's `present` dossier, and the order it arrives in. It lives beside the keys so the table reads the same spine the reader prompt, the starter projector and the brief read, instead of keeping its own copy; a key with no label here arrives under its own name.",
     "prose_keys": [
       "deflect_lines"
     ],

@@ -130,8 +130,15 @@ export function cluesHere(graph: ModuleGraph, world: Row, scene: Row): Row[] {
     });
 }
 function dossier(graph: ModuleGraph, node: Row): Row {
-    const profile = graph.npcProfile(node);
-    return Object.fromEntries([["relationship_to_investigators", "role"], ["agenda", "wants"], ["fear", "fears"], ["secret", "hides"], ["voice", "voice"]].filter(([key]) => truth(profile[key])).map(([key, field]) => [field, profile[key]]));
+    // The Keeper-facing names and their order come from the contract's actor_dossier, not from a
+    // copy kept here: a profile key the spine gains must reach the table, or it was never added
+    // (contract 28.4). A key the spine labels nothing arrives under its own name.
+    const profile = graph.npcProfile(node),
+        labels = row(graph.dossier.profile_labels),
+        named: Array<[string, string]> = truth(labels)
+            ? entries(labels).map(([key, label]) => [key, string(label) || key])
+            : array(graph.dossier.profile_keys).map(key => [string(key), string(key)]);
+    return Object.fromEntries(named.filter(([key]) => truth(profile[key])).map(([key, label]) => [label, profile[key]]));
 }
 function npcHistory(ledger: Row, memories: Map<string, Row>): Row | null {
     const result: Row = {},

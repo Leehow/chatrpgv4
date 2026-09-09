@@ -2178,11 +2178,17 @@ not relabeled as rulebook Quick Fire. No invented point method or outstanding sk
 choice may pass completeness. Skill directions, concrete specialties, languages,
 backstory and ordinary kit are semantic choices supplied by the setup model.
 
-**Stated aptitude reaches the characteristics.** A player who describes this person
-as notably strong, frail, quick, slow, bright or dull is describing characteristics,
-not only skills, and the draft must not contradict them. Optional profile field
-`aptitude {strong: [ABBR], weak: [ABBR]}` carries that, using the characteristic
-abbreviations of `characteristic-dice.json`. Deciding which abbreviations the
+**Stated aptitude reaches the characteristics — when a package opens that door.**
+A player who describes this person as notably strong, frail, quick, slow, bright or
+dull is describing characteristics, not only skills, and the draft must not
+contradict them. Optional profile field `aptitude {strong: [ABBR], weak: [ABBR]}`
+carries that, using the characteristic abbreviations of `characteristic-dice.json`.
+The field is accepted only while the campaign's mod set (§26: `world.mods`, or
+`campaign.mods_pending` before the world exists) holds an enabled package that
+requires `setup.aptitude.v1`; otherwise a non-empty aptitude is `needs` with
+`details.capability` and the active package ids, and characteristics are the dice
+in table order. The core product therefore never lets prose move a characteristic;
+Guided Creation (§26) is what does. Deciding which abbreviations the
 player's own words mean is the setup model's semantic judgment; the kernel only
 accepts the closed set and never classifies prose. An absent or empty aptitude
 generates exactly as before.
@@ -2246,7 +2252,13 @@ entry is still raisable, and the conversational completeness check is unchanged.
 A tail entry that receives nothing stays at its base value like any untrained
 skill; the setup prompt owns keeping that list short enough to mean something.
 
-**Pacing.** Conversational pacing is prompt-layer policy, not kernel gating: when the player supplies only a name and an occupation concept without delegating the rest, the setup guide asks one or two in-character follow-up questions, one at a time, and drafts only after the answers; explicit delegation or a write-now order drafts in the same reply. The kernel gates no player turn.
+**Pacing.** Conversational pacing is prompt-layer policy, not kernel gating, and
+the core policy is the quick one: as soon as a name and an occupation concept are
+known the setup guide drafts, filling every ordinary missing detail itself as an
+editable suggestion; it interviews nobody. A guided exchange before the draft —
+what to ask, how many turns, when to stop — is a package contribution (§26,
+`setup.guidance.v1`), so a campaign without such a package goes from name and
+occupation to a card in one reply. The kernel gates no player turn either way.
 
 **RPC.** All calls include campaign. setup.draft accepts profile, a partial update
 of the current semantic profile: name, occupation, age, sex, concept, occupation_skills
@@ -2661,7 +2673,8 @@ versions with different bytes. Installation does not activate or upgrade a save.
 
 Host-only methods: `mods.list {campaign?}`, `mods.install {path}`,
 `mods.configure {campaign, id, enabled?, version?, settings?}`,
-`mods.defaults {id, enabled}`, and `mods.context {campaign}`. List returns every
+`mods.defaults {id, enabled}`, and `mods.context {campaign}` (which also answers a
+`setting_up` campaign with the setup shape above). List returns every
 installed version, compatibility, active/pending versions and player-safe settings.
 Unbound panels manage installation and new-campaign defaults; they never guess a
 campaign. Changes during open/acting turns or live subsystem sessions remain pending
@@ -2679,6 +2692,46 @@ the old lock/state retained. Historical receipts and accepted definitions are no
 rewritten. Disabled mods retain state; generated objects using core capabilities
 remain usable. Worldline snapshots include mods, definitions and instances; merges
 must treat conflicting records explicitly rather than silently pick one.
+
+### Setup packages: `setup.guidance.v1` and `setup.aptitude.v1` (2026-09-09)
+
+Two capabilities let a package reach the setup process, which has no capsule and
+until now read no mod at all. `contributes.setup_instructions` names a Markdown
+file, validated like `instructions`; `setup.guidance.v1` is the capability a
+package must require to contribute it. `mods.context {campaign}` accepts a
+`setting_up` campaign and then returns `{active, authority, capabilities, setup}`
+instead of the play shape: `capabilities` is the union of what the enabled packages
+require, and `setup` lists, in load order, every enabled package's setup
+instruction with its version and settings. The lock it reads is `world.mods` when
+world.json exists and `campaign.mods_pending` otherwise, the same two places
+`mods.configure` writes during setup, so a package toggled in the Mods panel
+while onboarding takes effect on the next setup turn.
+
+The onboarding extension calls `mods.context` for the campaign on every setup turn
+and appends each `setup` entry to the system prompt under the package's id and
+settings. Setup instructions may add an exchange before the draft, name what the
+player's words imply for the card, and set their own stopping rule; they cannot
+add a tool, a check or a fact. A failed `mods.context` blocks the turn with a
+notice rather than silently running the core policy.
+
+`setup.aptitude.v1` is the fifth door of §28.1 in the other direction: not a fact
+about the world, but a semantic input to creation. It gates `profile.aptitude` as
+§23.4 says. Both capabilities enter `MOD_CAPABILITIES` in both kernels; the
+Python kernel mirrors the setup context and the gate.
+
+### Guided Creation
+
+Built-in package `guided-creation` (default enabled) requires both setup
+capabilities and contributes `guide.md`. It replaces the core's one-reply draft
+with an exchange paced by the player: it asks about situations rather than
+numbers, one thing per turn, and answers each reply by naming in one clause what
+it will mean on the card before asking the next; it reads how much the player
+wants to say from how much they say, stops when the load-bearing choices are in
+or when `settings.max_guided_turns` is reached, and ends every guiding turn with
+the same short reminder that saying "draft it now" ends the exchange. It owns
+the aptitude rules of §23.4 (player vs concept origin, the concept limit, honest
+reporting) because without it the field is closed. Disabling it returns the
+campaign to the core policy: name and occupation, then a card.
 
 ### Natural NPC
 
@@ -3049,3 +3102,114 @@ tool paths, with dependency download fallback disabled. Package assembly records
 the locked production dependency closure, licenses, native ABI/architecture and
 dependency hashes before signing; relocation and GUI acceptance remain separate
 from that build proof.
+
+## 28. Mod vocabulary and the build boundary (proposed 2026-09-09)
+
+### 28.1 The four closed doors
+
+`pipicoc.game.v1` accepts `instructions`, `checks`, `materializer`, `auditor`
+with `audit_slot`, and `document_editor`. A package can change how the Keeper
+plays and can add one declarative percentile decision. It cannot add a *fact*
+about the world. Four doors are closed, in the order they cost:
+
+1. **The actor dossier is a closed spine.** `actor_dossier.profile_keys` in
+   `content/modules/module-graph-contract-v3.json` is the one list the reader
+   prompt, `ModuleGraph.npcProfile`, the starter projector and the playability
+   measure `npcs_without_material` all read (§17.2). A package cannot add to it,
+   so there is nowhere to put a fact about a person the five core keys do not
+   already name.
+2. **The reader takes no contributions.** `kernel-ts/modules/contract.ts` is the
+   closed source vocabulary loaded from the captured content root, and nothing
+   under `kernel-ts/modules/` reads `world.mods`. A key nobody asks for is never
+   extracted, so door 1 alone would only add an always-empty field.
+3. **A contributed check's values are manifest-static.** `contributes.checks[]
+   .values[].path` is validated against the `characteristics.` / `skills.`
+   prefixes at install and read literally at settlement. A decision whose
+   governing skill is named by the call — which language, which craft, which
+   science — cannot be expressed.
+4. **There is no Mod-namespaced `apply`.** `world.mods.state[<id>]` exists and
+   survives worldlines, upgrades and disablement, but only a contributed check
+   writes it. A package cannot record what the table established rather than
+   what the book said.
+
+Setup is a door of a different kind: `setup.guidance.v1` and `setup.aptitude.v1`
+(§26) let a package speak to the creation process and hand the kernel a semantic
+input about the investigator being made, never a fact about the world.
+
+Non-actor nodes are not a fifth door. `ModuleGraph.entityView` passes every
+authored property through except `runtime_projection` and `asset_ref`, so a
+property on a scene, item or handout already reaches the Keeper through `look
+focus`. Only the per-turn actor dossier is gated.
+
+### 28.2 The build boundary
+
+Mods are campaign-scoped: `mods.configure` takes a campaign and a save pins
+version, digest, settings and state version in `world.mods`. Modules are not. A
+module is built once and shared by every campaign compiled from it, and a
+campaign is a compile snapshot of that graph. A vocabulary contribution therefore
+cannot be a per-campaign setting — two campaigns cannot disagree about what the
+reader was asked while sharing one graph.
+
+Vocabulary binds at **build** time, from installed packages enabled through
+`mods.defaults`, and the built module records the vocabulary that was in force in
+its own provenance. A campaign whose active packages contribute a key its module
+was not built with sees that key absent on every actor. That is not an error: it
+is the same absence as a book that does not say. Enabling a package does not
+re-extract a book, exactly as enabling Enhanced Items does not re-read one (§26,
+`objects.adopt.v1`).
+
+### 28.3 `graph.vocabulary.v1`
+
+A package requiring this capability may contribute:
+
+```
+"contributes": {"vocabulary": {"actor_profile_keys": [
+  {"key": "language", "label": "speaks",
+   "ask": "the language or dialect this person speaks, and how well, when the book says so"}]}}
+```
+
+`key` is a semantic slug that must not collide with a core profile key or another
+active package's key; `label` is the Keeper-facing name in the turn capsule's
+`present` dossier; `ask` is one bounded English line appended to the reader's
+dossier ask. The contract law is unchanged and applies to contributed keys as
+written: *a key a book does not give is absent, never invented*.
+
+The key enters `actor_dossier.profile_keys`, which means every existing consumer
+picks it up with no further wiring — that is the point of the spine. It is a
+property on the `npc` node, not a claim: a claim's object is a node, never a
+sentence (§17.2).
+
+### 28.4 The dossier spine gains its labels
+
+`dossier()` in `kernel-ts/read/capsule.ts` is today the one consumer that does
+**not** read the spine: it carries its own copy of the five keys with their
+Keeper-facing labels. A contributed key would be written by the reader, stored on
+the graph, returned by `npcProfile`, and then silently dropped on the way to the
+table — the projection-whitelist defect this contract has already paid for twice.
+
+`actor_dossier` therefore carries the label beside each key, and `dossier()`
+reads the spine. Core labels are unchanged (`relationship_to_investigators`→role,
+`agenda`→wants, `fear`→fears, `secret`→hides, `voice`→voice) so `prompts/keeper.md`
+still describes what arrives. A regression test adds a key to the contract and
+asserts it reaches the capsule, so the whitelist cannot silently close again.
+
+### 28.5 Measures, backfill and disabling
+
+`npcs_without_material` keeps counting the **core** keys only. A book silent about
+language must not report every actor in it as thin.
+
+Backfill uses the existing on-demand deepen (§14.6, `focus: {npc: <name>}`); no
+bulk re-read runs on enable. A deepen is queued for an actor that lacks a
+contributed key only once the party has actually met them (`turns_present` in the
+ledger), which bounds the cost to what this table will see. A deepen that comes
+back with nothing records that absence so the same actor is not asked twice.
+
+Disabling a package stops its instructions, its projection and its asks. Facts
+already extracted stay on the graph and in campaigns compiled from it: no Mod may
+overwrite authored source, and none may retract it either.
+
+### 28.6 Out of this version
+
+A Mod-namespaced `apply` (door 4) and call-named check values (door 3) are named
+here so they are not reinvented, and are not built in this version. A package that
+needs a value the book never gave has the Keeper play it without state.

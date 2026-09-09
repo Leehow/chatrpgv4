@@ -385,6 +385,53 @@ def test_the_dossier_vocabulary_has_one_home():
     assert "task.vocabulary.actor_dossier" in reader
 
 
+def test_a_profile_key_the_spine_gains_arrives_at_the_table(tmp_path):
+    """Contract 28.4: the capsule used to keep its own copy of the five keys and their
+    Keeper-facing names, so a key added to the spine would be extracted, stored, returned by
+    `npc_profile` -- and then dropped on the way to the table. This gives the contract a sixth
+    key and a person who has it, and requires it to arrive under its declared label, in both
+    the per-turn dossier and the focused view. Put the copy back in `dossier()` and this fails.
+
+    It runs against the emitted kernel because only that one takes its vocabulary from the
+    `--content` it was given; `coc.modules.contract` loads the repo's own file at import."""
+    import os
+    import shutil
+
+    from conftest import RpcClient, create_campaign
+
+    entry = KERNEL_DIR.parent / "build" / "kernel" / "rpc.mjs"
+    command = json.loads(os.environ["COC_TS_MODS_COMMAND"]) if os.environ.get("COC_TS_MODS_COMMAND") \
+        else ["node", str(entry)]
+    if command[-1] == str(entry) and not entry.is_file():
+        pytest.skip("build the emitted kernel first (npm run build:runtime)")
+
+    content = tmp_path / "content"
+    shutil.copytree(CONTENT, content)
+
+    contract_path = content / "modules" / "module-graph-contract-v3.json"
+    spine = json.loads(contract_path.read_text(encoding="utf-8"))
+    spine["actor_dossier"]["profile_keys"].append("language")
+    spine["actor_dossier"]["profile_labels"]["language"] = "speaks"
+    contract_path.write_text(json.dumps(spine), encoding="utf-8")
+
+    graph_path = content / "starters" / "the-haunting" / "module-graph.json"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    node = next(n for n in graph["nodes"] if n["node_id"] == KNOTT)
+    node.setdefault("properties", {})["language"] = "English; his Italian is broken"
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+
+    client = RpcClient(tmp_path / "ws", command=command, content=content)
+    try:
+        create_campaign(client)
+        knott = present(client)["Steven Knott"]
+        assert knott["speaks"] == "English; his Italian is broken"
+        assert knott["wants"] and knott["role"] and knott["fears"]  # the core labels did not move
+        assert client.table("look", focus="npc", name="Steven Knott")["speaks"] == knott["speaks"]
+    finally:
+        client.close()
+
+
+
 # ---- the dossier survives the build path (§17.2) ---------------------------------------------
 
 def test_a_reader_s_dossier_claims_reach_the_graph_and_the_table(kernel, tmp_path):

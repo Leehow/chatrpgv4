@@ -17,7 +17,8 @@ from .craft import TextGraph
 from .director import DirectorGraph
 from .errors import RpcError
 from .library import era_note
-from .module_graph import (ASSERTS, BELIEVES, HIDES, NPC_KIND, ModuleGraph,  # noqa: F401 - condition helpers re-exported
+from .module_graph import (ASSERTS, BELIEVES, HIDES, NPC_KIND, PROFILE_LABELS as DOSSIER_PROFILE_LABELS,
+                           ModuleGraph,  # noqa: F401 - condition helpers re-exported
                            condition_met, condition_status, describe_condition, module_declaration,
                            record_of)
 from .ontology import Ontology
@@ -317,8 +318,7 @@ def npc_entry(graph: ModuleGraph, world: dict[str, Any], node: dict[str, Any],
              for entry in graph.npc_knows(node)]
     knows.sort(key=lambda row: row["discovered"])
     entry: dict[str, Any] = {"name": graph.display_name(node)}
-    for key, field in (("relationship_to_investigators", "role"), ("agenda", "wants"),
-                       ("fear", "fears"), ("secret", "hides"), ("voice", "voice")):
+    for key, field in DOSSIER_PROFILE_LABELS.items():
         if profile.get(key):
             entry[field] = profile[key]
     if knows:
@@ -835,9 +835,7 @@ def npc_view(graph: ModuleGraph, world: dict[str, Any], node: dict[str, Any],
         "summary": node.get("summary"),
         "visibility": node.get("visibility"),
     }
-    view.update({field: value for key, field in (("relationship_to_investigators", "role"),
-                                                 ("agenda", "wants"), ("fear", "fears"),
-                                                 ("secret", "hides"), ("voice", "voice"))
+    view.update({field: value for key, field in DOSSIER_PROFILE_LABELS.items()
                  if (value := graph.npc_profile(node).get(key))})
     discovered = set(world.get("discovered_clues") or [])
     knows = [{"clue": entry["handle"], "summary": entry["node"].get("summary") or entry["node"].get("name"),
