@@ -10,10 +10,10 @@
 - 对照证据保存在主检出的 `.coc/playtests/runtime-consolidation/checks/`；运行时实现位于自有集成工作树，仍需完成后续票与最终验收。
 - 内核/驾驭器全套已复跑：1226 通过、1 跳过。旧崩溃测试的 uv 进程假设已改为终止实际 RPC 内核，相关 37 项检查也通过。
 - #36、#37、#41 已合入 `0.9.2a` 并关票。TS 基础提交为 `bf638755`：hello/list、严格 JSONL、Python 数值/哈希/随机采样、原子写和原生 flock；开发后端仍不支持完整游玩。
-- #38/#39/#40 的调用方已接到统一运行时，包括冷态角色卡与 Mods 管理。读者/检查进程在父进程退出时清理继承管道的子进程；文档展示的进行中缓存按 owner 隔离。正在合入这批代码。
+- #38/#39/#40 的调用方已接到统一运行时，包括冷态角色卡与 Mods 管理。读者/检查进程在父进程退出时清理继承管道的子进程；文档展示的进行中缓存按 owner 隔离。已于 `8690fa3d` 合入 `0.9.2a` 并关闭三票。
 - 本批验证：内核/驾驭器 1226 通过、1 跳过；扩展全套 198 通过，最后冷态入口及归属接线另有 29 项通过；Electron 与 197 条已有失败基线一致、无新增。真实 TS hello 和 Python catalog 从发出的 JS 宿主成功运行。未冒充真桌或独立安装包验收。
 - 证据：`.coc/playtests/runtime-consolidation/checks/stage-a-71zWsN/`。实际开发 Node 为 22.19.0；原生锁已验证与 Python 相互排斥及进程退出释放，打包时仍须匹配受管 Node 的 ABI。
-- #43 正在 `kernel-ts/read/` 迁移图谱与只读投影；共享边界已记入契约 §27.5。#42 的正常 setup/play 验证由主会话执行。
+- #43 正在 `kernel-ts/read/` 迁移图谱与只读投影；共享边界已记入契约 §27.5。#42 的正常 setup/play 验证由主会话执行，当前真实建卡运行记录见主检出 `.coc/playtests/runtime-consolidation/live-a96e4f41.json`；守秘人为现有配置 `xai/grok-4.6`，尚未完成真桌验收。
 - 本任务模型例外已由用户明确批准：Opencode 余额不足后，改由当前 Codex 主会话及原生 Codex workers 直接实现。保留既定依赖、文件归属和验收，不改全局配置。两次 Opus 请求均为 0 次工具执行，未产生改动。
 - 原生 worker 路由：`worker_runner=codex`、`worker_profile=implementer`、`model_policy=inherit`、`execution_mode=oneshot`；禁止再派子代理、禁止提交。主会话是唯一集成者并获准直接实现共享代码。
 - 完成标准仍是 #62 的独立安装包和真桌验收，不能以某个中间切片代替。
