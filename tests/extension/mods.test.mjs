@@ -1,6 +1,9 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
+import {mkdir, mkdtemp, readFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import modsExtension from '../../extensions/mods/index.ts';
 import {registerModsPanel} from '../../pipicoc/mods.ts';
 import {readerCommand} from '../../extensions/module/reader.ts';
@@ -58,4 +61,101 @@ test('the panel adapter binds mutations to its own campaign and ignores supplied
     pi.events.emit('coc:kernel-bridge',{call:async()=>({})});
     await assert.rejects(()=>handlers.get('mods.configure')({id:'natural-npc',enabled:true}),/Select a campaign/);
   } finally {globalThis[symbol]=prior;}
+});
+
+test('one apply materializes its definitions together and keeps the batch order', async () => {
+  const pi = piSurface();
+  let bridge;
+  pi.events.on('coc:mods-bridge', value=>{bridge=value;});
+  modsExtension(pi);
+  const cwd = await mkdtemp(join(tmpdir(), 'coc-mods-'));
+  let running = 0, peak = 0;
+  const accepted = [];
+  pi.events.emit('coc:kernel-bridge',{
+    call:async(method,params)=>{
+      if(method==='mods.job') return {enabled:true, accepted:false, job:`job-${params.input.name}`, cwd, system_prompt:join(cwd,'prompt.md'), role:'create'};
+      accepted.push(params.job);
+      return {definition:{name:params.job.replace('job-','')}, provenance:{mod:'enhanced-items', job:params.job}};
+    },
+    runtime:{
+      async runTask() {
+        running += 1; peak = Math.max(peak, running);
+        await new Promise(resolve=>setTimeout(resolve, 20));
+        running -= 1;
+        return {ok:true, code:0, timedOut:false, ms:20, stderr:'', command:[]};
+      },
+      async check() { return {ok:true}; },
+    },
+  });
+  const payload = {campaign:'c1', effects:[
+    {kind:'define', name:'A', category:'item'},
+    {kind:'clue', clue:'A note'},
+    {kind:'define', name:'B', category:'item'},
+    {kind:'define', name:'C', category:'item'},
+  ]};
+  await bridge.prepare('apply', payload);
+  assert.ok(peak > 1, `definitions ran one at a time (peak ${peak})`);
+  assert.deepEqual(payload.effects.map(effect=>effect._definition?.name ?? null), ['A', null, 'B', 'C']);
+  assert.deepEqual([...accepted].sort(), ['job-A','job-B','job-C']);
+});
+
+test('a definition that fails is reported in batch order while its siblings still land', async () => {
+  const pi = piSurface();
+  let bridge;
+  pi.events.on('coc:mods-bridge', value=>{bridge=value;});
+  modsExtension(pi);
+  const cwd = await mkdtemp(join(tmpdir(), 'coc-mods-'));
+  const attempted = [];
+  pi.events.emit('coc:kernel-bridge',{
+    call:async(method,params)=>{
+      if(method==='mods.job') return {enabled:true, accepted:false, job:`job-${params.input.name}`, cwd:join(cwd, params.input.name), system_prompt:join(cwd,'prompt.md'), role:'create'};
+      return {definition:{name:params.job.replace('job-','')}, provenance:{mod:'enhanced-items', job:params.job}};
+    },
+    runtime:{
+      async runTask(task) {
+        const name = task.request.cwd.split('/').pop();
+        attempted.push(name);
+        await mkdir(task.request.cwd, {recursive:true});
+        if (name === 'B') return {ok:false, code:null, timedOut:true, ms:5, stderr:'', command:[]};
+        return {ok:true, code:0, timedOut:false, ms:5, stderr:'', command:[]};
+      },
+      async check() { return {ok:true}; },
+    },
+  });
+  const payload = {campaign:'c1', effects:[
+    {kind:'define', name:'A', category:'item'},
+    {kind:'define', name:'B', category:'item'},
+    {kind:'define', name:'C', category:'item'},
+  ]};
+  await assert.rejects(()=>bridge.prepare('apply', payload), error=>error.details?.reason==='mod_agent_failed' && error.details?.timed_out===true);
+  // Sibling definitions were not cancelled by the failure: their jobs are accepted and retained.
+  assert.deepEqual([...attempted].sort(), ['A','B','C']);
+  assert.equal(payload.effects[0]._definition, undefined);
+  assert.equal(JSON.parse(await readFile(join(cwd,'A','run-1.json'),'utf8')).ok, true);
+});
+
+test('two identical defines in one batch share the single job the kernel keys them to', async () => {
+  const pi = piSurface();
+  let bridge;
+  pi.events.on('coc:mods-bridge', value=>{bridge=value;});
+  modsExtension(pi);
+  const cwd = await mkdtemp(join(tmpdir(), 'coc-mods-'));
+  let runs = 0;
+  pi.events.emit('coc:kernel-bridge',{
+    call:async(method,params)=>{
+      if(method==='mods.job') return {enabled:true, accepted:false, job:`job-${params.input.name}`, cwd, system_prompt:join(cwd,'prompt.md'), role:'create'};
+      return {definition:{name:params.job.replace('job-','')}, provenance:{mod:'enhanced-items', job:params.job}};
+    },
+    runtime:{
+      async runTask() { runs += 1; return {ok:true, code:0, timedOut:false, ms:1, stderr:'', command:[]}; },
+      async check() { return {ok:true}; },
+    },
+  });
+  const payload = {campaign:'c1', effects:[
+    {kind:'define', name:'火柴', category:'item', description:'一盒火柴'},
+    {kind:'define', name:'火柴', category:'item', description:'一盒火柴'},
+  ]};
+  await bridge.prepare('apply', payload);
+  assert.equal(runs, 1, 'one job directory must not be written by two concurrent agents');
+  assert.deepEqual(payload.effects.map(effect=>effect._definition.name), ['火柴','火柴']);
 });
