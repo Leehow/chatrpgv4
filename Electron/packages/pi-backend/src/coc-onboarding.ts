@@ -59,7 +59,7 @@ function uiWords(repo: string, contentRoot: string, tag: unknown): Promise<CocUi
 }
 export type CocOnboardingOptions = {repo:string; home:string; agentDir:string; env:NodeJS.ProcessEnv;
   layout?:'source'|'compiled';
-  contentRoot?:string; nodeExecutable?:string; backend?:'python'|'typescript'; kernelEntrypoint?:string;
+  contentRoot?:string; nodeExecutable?:string; backend?:'typescript'; kernelEntrypoint?:string;
   preparationEntrypoint?:string};
 type PreparationHost = {home:string; start(action:string,input:Row,signal?:AbortSignal):{
   child:ChildProcessByStdio<null,Readable,Readable>; closed:Promise<void>; close():Promise<void>}};

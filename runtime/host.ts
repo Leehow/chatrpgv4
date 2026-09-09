@@ -18,7 +18,7 @@ export interface RuntimeBinding {
 /** Supplied by host entrypoints; ordinary tasks receive an already composed runtime. */
 export interface RuntimeHostOptions {
 	layout?: RuntimeLayout;
-	backend?: "python" | "typescript";
+	backend?: "typescript";
 	kernelEntrypoint?: string;
 	resourceRoot?: string;
 	contentRoot?: string;
@@ -40,7 +40,7 @@ type SourcePage = Awaited<ReturnType<typeof import("../extensions/module/source.
 export interface RuntimeContext {
 	readonly layout: RuntimeLayout;
 	readonly entrypoints: RuntimeEntrypoints;
-	readonly backend: "python" | "typescript";
+	readonly backend: "typescript";
 	readonly resourceRoot: string;
 	readonly contentRoot: string;
 	readonly agentHome: string;
@@ -101,9 +101,10 @@ function executable(command: string, cwd: string, env: NodeJS.ProcessEnv): strin
 	throw new Error(`Runtime executable is unavailable: ${command}`);
 }
 
-function backend(host: RuntimeHostOptions, env: NodeJS.ProcessEnv): "python" | "typescript" {
+function backend(host: RuntimeHostOptions, env: NodeJS.ProcessEnv): "typescript" {
 	const selected = host.backend ?? env.PI_COC_RUNTIME ?? "typescript";
-	if (selected !== "python" && selected !== "typescript") throw new Error(`Unknown runtime backend: ${selected}`);
+	if (selected === "python") throw new Error("The Python runtime is retired; use TypeScript. Historical Python references are test-only.");
+	if (selected !== "typescript") throw new Error(`Unknown runtime backend: ${selected}`);
 	return selected;
 }
 
@@ -113,8 +114,7 @@ export function kernelCommand(home: string, host: RuntimeHostOptions = {}): stri
 	const root = resolve(host.resourceRoot ?? resourceRootFrom(import.meta.url, env));
 	const compiled = host.layout === "compiled" || env.PI_COC_LAYOUT === "compiled" || existsSync(join(root, "deployment.json"));
 	const deployment = compiled ? readDeployment(root) : undefined;
-	const selected = backend(host, env);
-	if (deployment && selected !== "typescript") throw new Error("Standalone deployments require the TypeScript kernel");
+	backend(host, env);
 	if (deployment && host.nodeExecutable && location(host.nodeExecutable, root) !== deployment.node) throw new Error("Standalone deployments require their managed Node executable");
 	if (deployment && host.kernelEntrypoint && location(host.kernelEntrypoint, root) !== deployment.entrypoints.kernel) throw new Error("Standalone deployments require their emitted kernel entrypoint");
 	if (env.PI_COC_KERNEL_CMD?.trim()) {
@@ -125,11 +125,7 @@ export function kernelCommand(home: string, host: RuntimeHostOptions = {}): stri
 		}
 		return [...command];
 	}
-	if (selected === "typescript") {
-		return [deployment?.node ?? host.nodeExecutable ?? env.PI_COC_NODE_EXECUTABLE ?? process.execPath, resolve(root, host.kernelEntrypoint ?? "build/kernel/rpc.mjs"),
-			"--workspace", home, "--content", resolve(root, host.contentRoot ?? env.PI_COC_CONTENT_ROOT ?? "content")];
-	}
-	return ["uv", "run", "--frozen", "python", "-m", "coc.rpc", "--workspace", home,
+	return [deployment?.node ?? host.nodeExecutable ?? env.PI_COC_NODE_EXECUTABLE ?? process.execPath, resolve(root, host.kernelEntrypoint ?? "build/kernel/rpc.mjs"), "--workspace", home,
 		"--content", resolve(root, host.contentRoot ?? env.PI_COC_CONTENT_ROOT ?? "content")];
 }
 
@@ -154,7 +150,6 @@ export function composeRuntimeContext(binding: RuntimeBinding, host: RuntimeHost
 		const agentHome = location(host.agentHome ?? env.PI_CODING_AGENT_DIR ?? join(cwd, ".pi", "coc-agent"), cwd);
 		let entrypoints = deployment?.entrypoints ?? runtimeEntrypoints(cwd, layout);
 		if (deployment) {
-			if (selected !== "typescript") throw new Error("Standalone deployments require the TypeScript kernel");
 			if (env.PI_COC_KERNEL_CMD?.trim() || env.PI_COC_READER_CMD?.trim()) throw new Error("Standalone deployments cannot override runtime process commands");
 			if (host.nodeExecutable && location(host.nodeExecutable, cwd) !== deployment.node) throw new Error("Standalone deployments require their managed Node executable");
 			if (host.kernelEntrypoint && location(host.kernelEntrypoint, cwd) !== entrypoints.kernel) throw new Error("Standalone deployments require their emitted kernel entrypoint");
@@ -182,8 +177,8 @@ export function createRuntime(binding: RuntimeBinding, host: RuntimeHostOptions 
 		const command = kernelCommand(home, { ...host, layout: context.layout, backend: context.backend,
 			kernelEntrypoint: context.entrypoints.kernel, resourceRoot, contentRoot, nodeExecutable, env });
 		command[0] = executable(command[0], resourceRoot, env);
-		if (context.backend === "typescript" && !env.PI_COC_KERNEL_CMD?.trim()) accessSync(command[1], constants.R_OK);
-		launch = { command, cwd: resourceRoot, inheritEnv: false, env: context.backend === "python" ? { ...env, PYTHONPATH: join(resourceRoot, "kernel") } : { ...env } };
+		if (!env.PI_COC_KERNEL_CMD?.trim()) accessSync(command[1], constants.R_OK);
+		launch = { command, cwd: resourceRoot, inheritEnv: false, env: { ...env } };
 	} catch (error) {
 		throw failure("runtime_configuration", `Runtime configuration failed: ${error instanceof Error ? error.message : String(error)}`);
 	}

@@ -1,3 +1,4 @@
+import {pythonOracleEnvironment} from "../python-oracle.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtemp, rm, symlink } from "node:fs/promises";
@@ -22,7 +23,6 @@ test("ontology vocabularies match the current Python implementation without cont
   const run = spawnSync("uv", ["run", "--frozen", "python", "-c", [
     "import json, sys",
     "from pathlib import Path",
-    "sys.path.insert(0, str(Path.cwd() / 'kernel'))",
     "from coc.rules.graph import REGISTERED_CONDITION_PATHS",
     "from coc.rules.runtime import RulesEngine",
     "from coc.rules.tables import RuleTables",
@@ -30,7 +30,7 @@ test("ontology vocabularies match the current Python implementation without cont
     "assert not content.exists()",
     "engine = RulesEngine(content, RuleTables(content / 'rulesets/coc7/rules-json'))",
     "print(json.dumps({'registered_condition_paths': sorted(REGISTERED_CONDITION_PATHS), 'resolver_names': sorted(engine.resolver_index())}))",
-  ].join("\n"), temporary], { cwd: REPO, encoding: "utf8", timeout: 30000 });
+  ].join("\n"), temporary], { cwd: REPO, env:pythonOracleEnvironment(), encoding: "utf8", timeout: 30000 });
   assert.equal(run.error, undefined);
   assert.equal(run.status, 0, run.stderr);
   const reference = JSON.parse(run.stdout);

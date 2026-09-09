@@ -4,7 +4,7 @@ export const ERROR_CODES = Object.freeze([
   "invalid_params", "unknown_method", "not_implemented", "campaign_not_found",
   "campaign_not_ready", "turn_state", "idempotency_conflict", "needs", "needs_choice",
   "unknown_entity", "not_reachable", "not_here", "not_owned", "revision_conflict",
-  "commit_failed", "internal",
+  "commit_failed", "operation_in_progress", "internal",
 ] as const);
 export type ErrorCode = typeof ERROR_CODES[number];
 

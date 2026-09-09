@@ -488,7 +488,8 @@ def test_apply_move_returns_the_destination_view(kernel):
 def test_mechanics_projection_is_language_neutral_and_the_check_skips_keeper_rolls():
     import sys
     from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "kernel"))
+    from conftest import KERNEL_DIR
+    sys.path.insert(0, str(KERNEL_DIR))
     from coc.render import mechanics
 
     def roll(skill, round_no, roll_value=40, target=50, actor_label=None, visibility="public", investigator=True):

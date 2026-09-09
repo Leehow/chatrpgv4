@@ -1,0 +1,5 @@
+{
+  "revision": "49e21382a3d65afaaafe938ea386b9f93a3212c8",
+  "paths": ["kernel", "content", "mods", "scripts/starter_graph.py"],
+  "purpose": "Frozen developer comparison only. New implementation work belongs in kernel-ts."
+}

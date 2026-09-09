@@ -40,6 +40,13 @@
           "title": "Investigator",
           "entry": "pipicoc/panel.js",
           "icon": "pipicoc/sheet-icon.svg"
+        },
+        {
+          "slot": "toolPanel",
+          "id": "coc.timeline",
+          "title": "Timeline",
+          "entry": "pipicoc/timeline.js",
+          "icon": "pipicoc/timeline.svg"
         }
       ],
       "toolRenderers": [

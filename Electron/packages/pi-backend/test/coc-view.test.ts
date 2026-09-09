@@ -21,8 +21,7 @@ it('missing binding stays missing and a recorded binding wins over a legacy side
 });
 it('a cold sheet read starts no Keeper and leaves campaign bytes unchanged',async()=>{
   const repo=resolve(import.meta.dirname,'../../../..');const root=await mkdtemp(join(tmpdir(),'coc-cold-view-'));
-  // The product kernel is the built TypeScript one; the Python kernel is retired and cannot read the per-language Mod manifests.
-  const client=new KernelClient({command:[process.execPath,join(repo,'build/kernel/rpc.mjs'),'--workspace',root,'--content',join(repo,'content')],cwd:repo,env:{PATH:process.env.PATH!}});
+  const client=new KernelClient({command:[process.execPath,join(repo,'build/kernel/rpc.mjs'),'--workspace',root,'--content',join(repo,'content')],cwd:repo,env:{}});
   try {await client.call('campaign.create',{id:'cold-view',module:'the-haunting',pregen:'thomas-hayes',play_language:'zh-Hans'});}finally{await client.close();}
   const dir=join(root,'.coc/campaigns/cold-view');
   const files=['campaign.json','world.json','turn.json'];
@@ -229,8 +228,7 @@ it('a bound sheet read merges every lane\'s saved words under the kernel glossar
   const {cp}=await import('node:fs/promises');
   const {createPiHostBackend}=await import('../src/index.js');
   const repo=resolve(import.meta.dirname,'../../../..'),root=await mkdtemp(join(tmpdir(),'coc-possession-host-'));
-  // The product kernel is the built TypeScript one; the Python kernel is retired and cannot read the per-language Mod manifests.
-  const client=new KernelClient({command:[process.execPath,join(repo,'build/kernel/rpc.mjs'),'--workspace',root,'--content',join(repo,'content')],cwd:repo,env:{PATH:process.env.PATH!}});
+  const client=new KernelClient({command:[process.execPath,join(repo,'build/kernel/rpc.mjs'),'--workspace',root,'--content',join(repo,'content')],cwd:repo,env:{}});
   try {await client.call('campaign.create',{id:'carried',module:'the-haunting',pregen:'thomas-hayes',play_language:'zh-Hans'});}finally{await client.close();}
   const folder=join(root,'.coc/campaigns/carried/setup/presentations');await mkdir(folder,{recursive:true});
   // The projection may not outrank the glossary: the kernel's word for a skill stays the kernel's.
@@ -264,5 +262,31 @@ it('a bound sheet read merges every lane\'s saved words under the kernel glossar
     expect(failed.data.code).not.toBe('');
     expect(failed.data.reason).toBeTruthy();
     expect(failed.data.ui.tag).toBe('en');
+  } finally {await backend.close();}
+},40000);
+it('the timeline cold path maps the panel invoke names to the kernel methods (contract §29)',async()=>{
+  const {cp}=await import('node:fs/promises');
+  const {createPiHostBackend}=await import('../src/index.js');
+  const repo=resolve(import.meta.dirname,'../../../..'),root=await mkdtemp(join(tmpdir(),'coc-timeline-cold-'));
+  // A campaign the cold graph read can draw: created through the real kernel, no Pi.
+  const client=new KernelClient({command:[process.execPath,join(repo,'build/kernel/rpc.mjs'),'--workspace',root,'--content',join(repo,'content')],cwd:repo,env:{}});
+  try {await client.call('campaign.create',{id:'tl-cold',module:'the-haunting',pregen:'thomas-hayes',play_language:'zh-Hans'});}finally{await client.close();}
+  const profile=join(root,'profile'),pack=join(profile,'extensions/coc-keeper');await mkdir(pack,{recursive:true});
+  await cp(join(repo,'pipiui-extension.json'),join(pack,'pipiui-extension.json'));await cp(join(repo,'pipicoc'),join(pack,'pipicoc'),{recursive:true});
+  let spawns=0;
+  const backend=createPiHostBackend({agentDir:profile,sessionsRoot:join(root,'sessions'),runtimeRoot:join(root,'runtime'),defaultPack:'coc-keeper',managedNodeModulesRoot:join(repo,'node_modules'),env:{...process.env,PI_COC_HOME:root,PATH:'/usr/bin:/bin'},piCommand:{executable:join(repo,'pipicoc/rpc'),env:{PATH:process.env.PATH!}},spawn:()=>{spawns++;throw new Error('Pi must remain asleep');}});
+  try {
+    await backend.handle('addProject',[root]);const projects=await backend.handle('listProjects',[]) as any[];
+    const session=await backend.handle('newSession',[projects[0].id]) as any;
+    const located=await (backend as any).locate(session.id);
+    await writeFile(located.path+'.coc.json',JSON.stringify({campaign:'tl-cold',home:root,play_language:'zh-Hans'}));
+    const answer=await backend.handle('invokeExtension',['coc-keeper','timeline.graph',{}, {sessionId:session.id}]) as any;
+    // The panel's name is not the kernel's: without the mapping the kernel answers unknown_method.
+    expect(answer.ok).toBe(true);
+    expect(answer.data.campaign).toBe('tl-cold');
+    expect(Array.isArray(answer.data.lines)).toBe(true);
+    expect(Array.isArray(answer.data.nodes)).toBe(true);
+    expect(answer.data.ui.tag).toBe('zh-Hans');
+    expect(spawns).toBe(0);
   } finally {await backend.close();}
 },40000);

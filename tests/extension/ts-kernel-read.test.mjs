@@ -1,3 +1,4 @@
+import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { spawnSync } from 'node:child_process';
@@ -125,7 +126,7 @@ json.dump(output,sys.stdout,ensure_ascii=False)
 `;
 function oracle(operation,data) {
   const result=spawnSync('uv',['run','--frozen','python','-c',REFERENCE],{cwd:ROOT,
-    env:{...process.env,PYTHONPATH:join(ROOT,'kernel'),PYTHONDONTWRITEBYTECODE:'1',UV_OFFLINE:'1',UV_NO_SYNC:'1'},
+    env:{...process.env,PYTHONPATH: join(pythonOracleRoot(), "kernel"),PYTHONDONTWRITEBYTECODE:'1',UV_OFFLINE:'1',UV_NO_SYNC:'1'},
     input:api.pythonJsonDumps({operation,graph_path:graphPath,content:CONTENT,...data}),encoding:'utf8',maxBuffer:8*1024*1024,timeout:30000});
   assert.equal(result.status,0,result.stderr||String(result.error));
   return api.parsePythonJson(result.stdout);

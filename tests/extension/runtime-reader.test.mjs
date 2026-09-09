@@ -150,7 +150,7 @@ test("source and Mod checks invoke shared read-only validators and preserve reje
   const sourceDraft = { nodes: [{ node_id: "scene-dock", node_kind: "scene", name: "Dock", source_refs: [{ page: 1 }], properties: { is_entrance: true } }],
     claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: [] };
   await json(draft, sourceDraft);
-  const context = composeRuntimeContext({ owner: "check", home }, options({}, {backend: 'python'}));
+  const context = composeRuntimeContext({ owner: "check", home }, options({}, {backend: 'typescript'}));
   const before = await readFile(draft), files = await readdir(home);
   const valid = await runCheck(context, { kind: "source-draft", packet, draft }, active());
   assert.equal(valid.ok, true, JSON.stringify(valid));

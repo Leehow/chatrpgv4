@@ -1,4 +1,4 @@
-"""Kernel seam tests speak JSON lines to a real `python -m coc.rpc` subprocess."""
+"""Current RPC tests target TypeScript; Python helper imports use the frozen oracle."""
 
 from __future__ import annotations
 
@@ -12,10 +12,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from rpc_support import fixed_environment, read_command, ts_command
+from rpc_support import fixed_environment, read_command, typescript_command
 
 WORKTREE = Path(__file__).resolve().parents[2]
-KERNEL_DIR = WORKTREE / "kernel"
+sys.path.insert(0, str(WORKTREE / "tests"))
+from python_oracle import ORACLE_KERNEL  # noqa: E402
+
+KERNEL_DIR = ORACLE_KERNEL
 CONTENT_DIR = WORKTREE / "content"
 
 sys.path.insert(0, str(KERNEL_DIR))
@@ -40,7 +43,7 @@ class RpcClient:
         if frozen_clock:
             merged = fixed_environment(merged)
         entry = read_command(json.dumps(command)) if command is not None else read_command(merged.get("COC_TEST_KERNEL_CMD"))
-        entry = entry if entry is not None else ts_command()
+        entry = entry if entry is not None else typescript_command()
         self.proc = subprocess.Popen(
             [*entry, "--workspace", str(self.workspace), "--content", str(self.content)],
             cwd=WORKTREE, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

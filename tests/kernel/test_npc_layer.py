@@ -397,16 +397,16 @@ def test_a_profile_key_the_spine_gains_arrives_at_the_table(tmp_path):
     import os
     import shutil
 
-    from conftest import RpcClient, create_campaign
+    from conftest import RpcClient, create_campaign, WORKTREE
 
-    entry = KERNEL_DIR.parent / "build" / "kernel" / "rpc.mjs"
+    entry = WORKTREE / "build" / "kernel" / "rpc.mjs"
     command = json.loads(os.environ["COC_TS_MODS_COMMAND"]) if os.environ.get("COC_TS_MODS_COMMAND") \
         else ["node", str(entry)]
     if command[-1] == str(entry) and not entry.is_file():
         pytest.skip("build the emitted kernel first (npm run build:runtime)")
 
     content = tmp_path / "content"
-    shutil.copytree(CONTENT, content)
+    shutil.copytree(WORKTREE / "content", content)
 
     contract_path = content / "modules" / "module-graph-contract-v3.json"
     spine = json.loads(contract_path.read_text(encoding="utf-8"))

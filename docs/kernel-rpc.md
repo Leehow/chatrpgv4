@@ -2934,6 +2934,14 @@ real browser. A generated card or deterministic fixture is not real-table eviden
 
 ## 27. Host runtime composition (runtime migration, issue #35)
 
+Python source retirement (2026-09-09, user authorized): TypeScript is the only
+runtime backend in source and packaged modes. Python runtime selection is rejected
+explicitly. The former editable kernel and legacy Python graph tools leave the
+active tree; developer comparisons use a pinned Git revision exported by the
+test-only oracle helper. Ordinary RPC tests target the compiled TypeScript kernel.
+The frozen oracle is a compatibility baseline, not another implementation to edit.
+Python test drivers and the native-addon build toolchain remain developer-only.
+
 ### 27.1 Ownership and interface
 
 The host creates one runtime object for each play/setup session, preparation task,
@@ -3366,7 +3374,7 @@ needs a value the book never gave has the Keeper play it without state.
 - 校验（任一不过整批不写）：
   - `commit` 存在且从某条 `wl/*` 可达，否则 `invalid_params`（`details.commit` 带回所给值）。
   - 桌子空闲：没有挂着未关回合的 `turn.json`；回合进行中报 `operation_in_progress`。
-  - 另一活进程持战役锁时报 `operation_in_progress`。
+  - 另一活进程持战役锁时报 `internal`，`details.reason` 为 `campaign_locked`（共享 `guardCampaign` 的唯一口径，Python 对照在 `tests/kernel/test_campaign_lock.py` 钉死；宿主在展示层用 `operation_in_progress` 的玩家词渲染它，见 29.3）。
   - `name` 缺省铸 `if-<forkturn>-<k>`（k 是该分叉回合上的序号）；显式 `name` 须合世界线名语法且不与现有线撞，撞名报 `invalid_params`。
 - 执行复用 §15.9 的迁移机器：必要时 seal 当前线 → 在 `commit` 上建 `wl/<name>` → 注册表加 `{"name", "kind": "if", "loop": 0, "forked_from": {"line", "turn", "commit"}, "seed": "sha256(\"<campaign>:<name>:<commit>\") 前 16 位", "status": "active", "last_turn", "last_commit", "created_at"}`，原活动线转 `dormant` → 检出 → 注册表覆盖写回 → 按新线种子与下一回合号重播 rng → 从分叉点的回合记录重建检查点。失败即回滚（检出回源线、删掉刚建的分支、注册表写回原样），遥测一行 `lane: worldline, op: branch, ok: false`。
 - 事件 `worldline-forked` 落在**新线**上，`turn` 取新线接下来要打的回合，`data.from` 指出从哪条线哪一回合来——与 §15.9 同一条规则。
@@ -3376,4 +3384,8 @@ needs a value the book never gave has the Keeper play it without state.
 
 ### 29.3 内核的决定
 
-（实现切片落地后记在这里。）
+**`table.graph` 的实现面。** `kernel-ts/read/graph.ts` 一个模块装下：战役经 `CampaignSnapshot.open(ctx, id, requireWorld=false, requireTurn=false)` 打开（setting_up 的战役也读得了，不碰桌态）。`at` 取 committer 时间（`%cI`），节点按它降序——`when` 已经是游戏内日历，「更早的历史省略」是提交时间语义。`clock` 用一次 `git cat-file --batch` 给截断后留下的每个节点读 `<sha>:world.json` 的 `clock.minutes`（每节点一次的 `git show` 不允许；读不到的继承父节点，根为 0），`when` 走 `clockSection` 投影机（模组没声明 `start_clock.local_datetime` 时为 null）。枚举全图 = 一次 `for-each-ref refs/heads/wl/` + 一次 `git log --format`，每次调用 3 个 git 进程。`kind` 按契约顺序机械判；`title` 对回合节点剥 `turn N:` 前缀；sha 用短形与注册表一致。`max_nodes` 缺省 500、超 1000 收 1000、非整数或 <1 报 `invalid_params`；截断后把缺的线 tip 补回。`generate_reference.py` 学了 TS-only 方法名单（词汇锁证据可重生成）。
+
+**`table.branch` 的实现面。** `kernel-ts/worldline/branch.ts` 驱动 §15.9 原语（`worldline/history.ts` 的 checkout/createBranch/deleteBranch/commitIfDirty/head/lineCommit），回滚形状与 `transition` 同款；`forkPlan` 本身用不了（它要开着的回合与图），所以是原语级复用，这是对「复用迁移机器」的正确读法。复审修复后：回放切线路径包同款回滚（强制检出回源线 + 写回 campaign.json + `ok: false` 遥测），且回放切线也置 `pending_branch`（回放切线仍是玩家视角的开线成功，守秘人必须听到）；seal 与 `before` 快照进 try，失败遥测一律有。分叉点回合记录的 `commit` 可以是 null（回合记录从下一次提交起才带 sha），检查点断言只钉 worldline 与 turn。胶囊旗标生命周期：`pending_branch` 随注册表重写写入，下一次 `player_input` 里鲜读→删→写，不会复活。
+
+**锁码的决定（2026-09-09）。** §29.2 原写「锁占用报 `operation_in_progress`」。实现证明 handler 内 remap 不可能：`guardCampaign` 在 handler 之前拿锁，flock 按 open-file-description 计，handler 探不到竞争；而共享 guard 的 `internal` + `details.reason="campaign_locked"` 被 Python 对照（`tests/kernel/test_campaign_lock.py`）钉死，只改 TS 一侧会让两棵树在兼容性边界上分叉。定：契约接受 guard 的形状（§29.2 已改）；宿主在展示层把 `internal`+`reason:campaign_locked` 渲染成 `errors.operation_in_progress` 的玩家词（§23 的词表机制，线上代码不动）；两棵内核树都不动。

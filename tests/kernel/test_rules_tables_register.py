@@ -14,7 +14,7 @@ does any line of kernel source name it.
 
 The check is deliberately crude. `RuleTables.load(name)` is always called with a
 literal, so a table is "read" when its stem appears as a string constant anywhere
-under `kernel/`. That over-counts (a stem could appear in prose) and never
+under `kernel-ts/`. That over-counts (a stem could appear in prose) and never
 under-counts, which is the safe direction: it will not call a live table dead.
 
 Adding a table to `rules-json/` now forces a choice — wire it, or write down here
@@ -23,17 +23,23 @@ why it ships unread. Deleting the last reader of a live table fails here too.
 
 from __future__ import annotations
 
-import ast
+import json
+import os
+import subprocess
 from pathlib import Path
 
 WORKTREE = Path(__file__).resolve().parents[2]
 RULES_JSON = WORKTREE / "content/rulesets/coc7/rules-json"
-KERNEL = WORKTREE / "kernel"
+KERNEL = WORKTREE / "kernel-ts"
 
 #: Tables that ship with the ruleset and that no kernel code opens, each with the
 #: reason it is still here. These are not bugs on their own — the bug would be one
 #: arriving without anybody noticing.
 UNREAD_TABLES = {
+    "metadata": "Ruleset source metadata; the old Python scan mistook a combat event field "
+                "with the same name for a reader of this file.",
+    "build-scale": "Comparative-build reference data. The retired Python helper had no "
+                   "reachable RPC or graph decision; active maneuver arithmetic reads combat-rule.",
     "npc-core-tags": "Extracted for the NPC layer; §17 ships stance, ties and claims off the "
                      "module graph instead, and the tags have no consumer yet.",
     "npc-role-templates": "Same extraction. Role templates would be a generator for walk-on NPCs; "
@@ -86,17 +92,33 @@ def _glossary_tables() -> set[str]:
 
 
 def _string_constants(root: Path) -> set[str]:
-    """Every string literal in the kernel's Python source."""
-    found: set[str] = set()
-    for path in sorted(root.rglob("*.py")):
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except (OSError, SyntaxError):  # pragma: no cover - a broken kernel fails elsewhere
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                found.add(node.value)
-    return found
+    """Read string literals from the active TypeScript kernel with its parser."""
+    source = r'''
+const ts = require('typescript'), fs = require('node:fs'), path = require('node:path');
+const found = new Set();
+function walk(dir) {
+  for (const item of fs.readdirSync(dir, {withFileTypes: true})) {
+    const file = path.join(dir, item.name);
+    if (item.isDirectory()) walk(file);
+    else if (file.endsWith('.ts')) {
+      const tree = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+      function visit(node) {
+        if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+          found.add(node.text);
+          if (node.text.endsWith('.json')) found.add(path.basename(node.text, '.json'));
+        }
+        ts.forEachChild(node, visit);
+      }
+      visit(tree);
+    }
+  }
+}
+walk(process.argv[1]);
+process.stdout.write(JSON.stringify([...found]));
+'''
+    return set(json.loads(subprocess.check_output(
+        [os.environ.get("COC_TEST_NODE", "node"), "-e", source, str(root)], cwd=WORKTREE, text=True,
+    )))
 
 
 def test_every_shipped_table_is_read_or_declared_unread():

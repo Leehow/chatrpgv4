@@ -8645,6 +8645,57 @@ export class PiHostBackend implements HostBackend {
         return {ok:true,data:isRecord(data)&&ui?{...data,ui}:data};
       } catch(error) {return this.cocDenied(this.cocCode(error),error instanceof Error ? error.message : String(error));}
     }
+    if (id === "coc-keeper" && ["timeline.graph","timeline.branch"].includes(method)) {
+      // Contract §29: the memory-line panel. Live sessions answer through the pack's ext-invoke
+      // handlers (pipicoc/timeline.ts); without one, a short-lived kernel answers the same two
+      // methods, exactly as the Mods block above does.
+      try {
+        const sid = isRecord(optsValue) && typeof optsValue.sessionId === "string" ? optsValue.sessionId.trim() : "";
+        const active = sid ? this.live.get(sid) : undefined;
+        if (active && this.liveProcessUsable(active)) {
+          if (!this.extensions.isMounted(sid,id)) return this.cocDenied("capability_denied","extension not mounted on session");
+          return this.enqueueExtInvoke(sid,id,method,params);
+        }
+        const words = async (tag?: string) => ({...await this.cocAnswerWords(tag)});
+        if (!sid) return {ok:true,data:{status:"unbound",campaign:null,...await words(undefined)}};
+        const selected = await this.locate(sid);
+        const context = await readCocBinding(selected.path);
+        if (!context) return {ok:true,data:{status:"unbound",campaign:null,...await words(undefined)}};
+        if (!this.managedNodeModulesRoot) throw this.cocRefusal("runtime_unavailable", "Canonical runtime is unavailable");
+        const repo = resolve(this.managedNodeModulesRoot,"..");
+        const request:Record<string,unknown> = isRecord(params) ? {...params} : {};
+        delete request.campaign;
+        request.campaign = context.campaign;
+        const data:any = await callColdKernel(repo,context.home,method==="timeline.graph"?"table.graph":"table.branch",request,this.env,this.cocRuntime);
+        if (method === "timeline.branch" && isRecord(data) && data.ok === true) {
+          // The watershed belongs in the transcript (contract §16.2): the same coc-mechanics row
+          // the live path appends through the pack, written here because no live process can.
+          // The append rides the host's own per-session write barrier, and the parent id is read
+          // inside it, so a racing append cannot hand this row a stale parent.
+          const from = isRecord(data.branched_from) ? data.branched_from : {};
+          const line = isRecord(data.line) ? data.line : {};
+          const mechanics = [{kind:"worldline",operation:"fork",
+            line:typeof line.name==="string"?line.name:undefined,
+            from_line:typeof from.line==="string"?from.line:undefined,
+            from_turn:typeof from.turn==="number"?from.turn:undefined}];
+          await this.sessionFileExclusive(sid)(async () => {
+            await fs.appendFile(selected.path, `${JSON.stringify({type:"custom",customType:"coc-mechanics",
+              data:{turn:typeof from.turn==="number"?from.turn:0,mechanics,play_language:context.play_language},
+              id:crypto.randomUUID(),parentId:await lastJsonlEntryId(selected.path),timestamp:new Date().toISOString()})}\n`);
+          });
+          emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'timeline-changed',payload:{campaign:context.campaign}}});
+        }
+        // A Timeline answer the panel draws from carries the words it draws them with.
+        const ui = (await this.cocAnswerWords(context.play_language)).ui;
+        return {ok:true,data:isRecord(data)&&ui?{...data,ui}:data};
+      } catch(error) {
+        // A live process mid-turn holds the campaign lock; the kernel reports the bounded wait as
+        // internal/campaign_locked, and the panel's word for it is the open-turn one.
+        const details=(error as {details?:unknown})?.details;
+        const locked=(error as {code?:unknown})?.code==="internal"&&isRecord(details)&&details.reason==="campaign_locked";
+        return this.cocDenied(locked?"operation_in_progress":this.cocCode(error),error instanceof Error?error.message:String(error));
+      }
+    }
     if(id==='coc-keeper' && (method==='draft-previewed'||method==='draft-presentation')) {
       const sid=isRecord(optsValue)&&typeof optsValue.sessionId==='string'?optsValue.sessionId:'';
       if(!sid)return this.cocDenied('no_session','Select the draft session');
