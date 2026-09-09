@@ -57,9 +57,13 @@ def test_the_glossary_is_the_rules_data_in_the_campaigns_play_language(kernel):
     assert all(isinstance(value, str) and value for value in labels.values())
 
 
-def test_an_english_table_gets_no_glossary_because_it_needs_none(kernel):
+def test_an_english_table_gets_only_the_rows_the_data_declares_for_english(kernel):
+    """No tag is a shortcut: the glossary is the union of the data's `en` rows, which exist only
+    where the key is an identifier (the kernel's own words), never for a canonical English word."""
     kernel.ok('campaign.create', {'id': 'en1', 'module': MODULE, 'pregen': PREGEN, 'play_language': 'en'})
-    assert kernel.ok('table.view', {'campaign': 'en1'})['labels'] == {}
+    labels = kernel.ok('table.view', {'campaign': 'en1'})['labels']
+    assert 'STR' not in labels and 'Spot Hidden' not in labels and 'Antiquarian' not in labels
+    assert labels['intact'] == 'Intact' and labels['sanity_bout'] == 'Bout of madness'
 
 
 def test_a_discovered_clue_is_listed_by_the_name_the_table_gave_it(kernel):

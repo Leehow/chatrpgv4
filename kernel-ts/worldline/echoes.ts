@@ -9,7 +9,8 @@ export function mergeEchoes(existing:Row[],fresh:Row[]):Row[]{const byId=new Map
 function echoOf(receipt:Row,where:string):[string,string,string,string[]]|null{
     const kind=string(receipt.kind||'');
     if(kind==='move')return ['move',string(receipt.to||where),`They came here from ${string(receipt.from||'elsewhere')}.`,[]];
-    if(kind==='clue'){const source=receipt.from;return ['clue_taken',string(receipt.scene||where),`They found ${string(receipt.label||receipt.clue||'')} here.${source?' '+string(source)+' gave it to them.':''}`,source?[string(source)]:[]];}
+    // The summary is the kernel's own sentence for the keeper, so it names the handle the keeper acts on; the player's word for the clue travels on the receipt's label, never in here.
+    if(kind==='clue'){const source=receipt.from;return ['clue_taken',string(receipt.scene||where),`They found ${string(receipt.clue||receipt.label||'')} here.${source?' '+string(source)+' gave it to them.':''}`,source?[string(source)]:[]];}
     if(kind==='handout')return ['handout',where,`They were shown ${string(receipt.label||receipt.name||receipt.handout||'')} here.`,[]];
     if(kind==='session'&&receipt.family==='combat')return ['fight',where,'A fight broke out here.',[]];
     if(kind==='npc'){const name=string(receipt.name||receipt.handle||'');return typeof receipt.to==='string'&&receipt.to&&receipt.to!=='away'&&name?['presence',receipt.to,`${name} was here.`,[name]]:null;}

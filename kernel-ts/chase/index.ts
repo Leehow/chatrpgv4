@@ -2,6 +2,7 @@
 import { RpcError } from '../errors.js';
 import { isJsonObject, orderedObject } from '../json.js';
 import { SessionView, active } from '../read/session-view.js';
+import { playLanguageOf } from '../read/languages.js';
 import { array, clone, entries, repr, row, string, truth, type Row } from '../read/values.js';
 import type { FixedFamilyBinding } from '../resolve/families.js';
 import type { SettleContext, ExecutionResult, SettlementExecutor } from '../resolve/context.js';
@@ -90,7 +91,10 @@ export const executeChase: SettlementExecutor = async (context, args) => {
             throw new RpcError('turn_state', 'a chase is already underway', {
                 fix: 'continue it with chase decisions'
             });
-        const session = await ChaseSession.create(string(payload.chase_id), context.rng, context.tables, context.arithmetic);
+        // The session carries the campaign's play language, so nothing it files for the player is a constant.
+        const session = await ChaseSession.create(string(payload.chase_id), context.rng, context.tables, context.arithmetic, {
+            playLanguage: await playLanguageOf(context.kernel, context.snapshot.meta)
+        });
         for (const participant of array(payload.participants))
             session.addParticipant(participant.actor_id, participant.side, int(participant.mov), int(participant.dex), {
                 con: participant.con ?? null,

@@ -7,6 +7,7 @@ import { jsonDigest, compareUnicode } from '../json.js';
 import { RpcError } from '../errors.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { loadModule } from '../read/campaign.js';
+import { playLanguages } from '../read/languages.js';
 import { array, row, clone, entries, values, truth, number, string, repr, integer, sorted, equal, type Row } from '../read/values.js';
 import { nowIso } from './store.js';
 import { childPath, inside, resolvedPath } from '../modules/paths.js';
@@ -429,7 +430,7 @@ export async function registerStarter(context: KernelContext, id: string): Promi
     if (!await context.snapshots.pathExists(installedPath))
         throw new RpcError('campaign_not_ready', `module ${repr(id)} has no graph yet`, { fix: 'prepare the original PDF with the visual reading service' });
     const installedView = new ModuleGraph(id, clone(row(await context.snapshots.readJson(installedPath))), await sha256File(installedPath), dossier);
-    for (const language of ['zh-Hans', 'en']) {
+    for (const language of (await playLanguages(context)).tags) {
         const path = join(source, 'character-guidance', `${language}.json`);
         if (!await context.snapshots.pathExists(path))
             continue;

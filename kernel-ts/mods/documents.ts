@@ -5,6 +5,7 @@ import { RpcError } from '../errors.js';
 import { jsonDigest } from '../json.js';
 import { appendJsonl } from '../fileio.js';
 import { actor as selectActor } from '../read/handlers.js';
+import { playLanguageOf } from '../read/languages.js';
 import { findNamedObject, rootObjectOwner } from '../read/mods.js';
 import { length, row, truth, values, type Row } from '../read/values.js';
 import { nowIso, type CampaignWriter } from '../write/store.js';
@@ -56,7 +57,7 @@ export function createDocumentHandlers(writer: ReturnType<typeof createWriteRunt
         return {name: item.name, actor: actor.name, text: document.text, original: document.original, presentation: document.presentation,
             player_edited: Object.hasOwn(document, 'player_edited') ? document.player_edited : truth(document.edited_at) && document.text !== document.original,
             version: await documentVersion(campaign, world, item), editor: await runtime.editor(world),
-            play_language: Object.hasOwn(meta, 'play_language') ? meta.play_language : 'en'};
+            play_language: await playLanguageOf(campaign.context, meta)};
     }
     return {
         'mods.document.view': async params => response(await owned(params)),

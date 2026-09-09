@@ -1,5 +1,14 @@
 {
   "critical_roll": 1,
+  "levels_note": "The success levels a check reports, as the player reads them; keys are the engine's outcome words.",
+  "levels": {
+    "critical": {"localized_labels": {"zh-Hans": "大成功", "en": "Critical success"}},
+    "extreme": {"localized_labels": {"zh-Hans": "极难", "en": "Extreme"}},
+    "hard": {"localized_labels": {"zh-Hans": "困难", "en": "Hard"}},
+    "regular": {"localized_labels": {"zh-Hans": "常规", "en": "Regular"}},
+    "failure": {"localized_labels": {"zh-Hans": "失败", "en": "Failure"}},
+    "fumble": {"localized_labels": {"zh-Hans": "大失败", "en": "Fumble"}}
+  },
   "fumble": {
     "target_threshold": 50,
     "target_below_threshold": [96, 100],

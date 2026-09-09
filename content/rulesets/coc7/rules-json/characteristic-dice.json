@@ -86,6 +86,7 @@
     },
     "Luck": {
       "name": "Luck",
+      "abbreviation": "LUCK",
       "localized_labels": {"zh-Hans": "幸运"},
       "dice": "3D6",
       "independent_of_pow": true,

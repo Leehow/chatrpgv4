@@ -68,7 +68,8 @@ export const words = (value: any): string => string(value).trim().split(/\s+/u).
 export const sorted = (values: Iterable<string>): string[] => [...values].sort(compareUnicode);
 export const unique = <T>(values: Iterable<T>): T[] => [...new Set(values)];
 export const normalize = (value: any): string => string(value).normalize("NFKC").toLowerCase().replace(/[\s_\-]+/gu, " ").trim();
-export const normalizeText = (value: any): string => string(value).normalize("NFKC").toLowerCase().replace(/[^0-9a-z\u3400-\u9fff\uf900-\ufaff]+/gu, " ").trim();
+/** Every script's letters, combining marks and digits survive (NFKC, lower-cased); anything else separates. Machine names go through asciiSlug instead. */
+export const normalizeText = (value: any): string => string(value).normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, " ").trim();
 export const kebab = (value: any): string => normalizeText(value).split(/\s+/u).filter(Boolean).join("-");
 export const stripPrefix = (value: string, kind: string): string => value.startsWith(kind + "-") ? value.slice(kind.length + 1) : value;
 export const pick = (value: Row, keys: string[]): Row => Object.fromEntries(keys.filter(k => Object.hasOwn(value, k)).map(k => [k, value[k]]));

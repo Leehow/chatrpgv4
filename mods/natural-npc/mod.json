@@ -1,7 +1,8 @@
 {
   "id": "natural-npc", "version": "1.0.0", "game_api": "pipicoc.game.v1",
-  "state_version": 1, "name": "Natural NPC", "author": "PipiCOC",
-  "description": "A lasting first impression from Appearance or Credit Rating, realized by the Keeper in character.",
+  "state_version": 1, "author": "PipiCOC",
+  "name": {"zh-Hans": "自然 NPC 行为", "en": "Natural NPC"},
+  "description": {"zh-Hans": "以外貌或信用评级留下初见印象，持续影响 NPC 对待你的方式。", "en": "Appearance or Credit Rating shapes a lasting first impression and the NPC's behavior."},
   "default_enabled": true, "requires": ["checks.percentile.v1", "context.npc.v1"],
   "dependencies": {}, "conflicts": [], "settings": {},
   "contributes": {

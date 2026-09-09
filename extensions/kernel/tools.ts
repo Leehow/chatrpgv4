@@ -79,21 +79,21 @@ const ItemEffect = Type.Object({
 
 const DefineEffect = Type.Object({
   kind: StringEnum(["define"] as const),
-  name: Type.String({description:"Stable natural name of the new definition"}),
+  name: Type.String({description:"Stable natural name of the new definition, in the campaign's play_language"}),
   category: StringEnum(["weapon", "spell", "item"] as const),
-  description: Type.String({description:"Established appearance, function, era and constraints; the Mod agent derives executable parameters from these and presets"}),
+  description: Type.String({description:"Established appearance, function, era and constraints, in the campaign's play_language; the Mod agent derives executable parameters from these and presets"}),
   template: Type.Optional(Type.String({description:"Optional rulebook or existing definition to use as evidence"})),
 });
 const ObjectEffect = Type.Object({
   kind: StringEnum(["object"] as const),
   adopt: Type.Optional(Type.String({description:"Exact existing unmanaged equipment name to enrich in place for the investigator in to; no from, no new acquisition, preserve quantity and state"})),
-  name: Type.String({description:"Unique natural name of this physical instance; keep it when ownership changes"}),
+  name: Type.String({description:"Unique natural name of this physical instance, in the campaign's play_language; keep it when ownership changes"}),
   document: Type.Optional(Type.Union([
-    Type.Object({text:Type.String({maxLength:64000,description:"Established readable text, or empty for blank stationery; never undiscovered source truth"}),
+    Type.Object({text:Type.String({maxLength:64000,description:"Established readable text in the campaign's play_language, or empty for blank stationery; never undiscovered source truth"}),
       presentation:StringEnum(["paper","notebook","book"] as const)}),
     Type.Object({handout:Type.String({description:"Name of an already revealed textual handout; the kernel copies its exact authored text"}),
       presentation:StringEnum(["paper","notebook","book"] as const)}),
-    Type.Object({action:StringEnum(["write"] as const),text:Type.String({maxLength:64000})}),
+    Type.Object({action:StringEnum(["write"] as const),text:Type.String({maxLength:64000,description:"The carrier's current text after this writing, in the campaign's play_language"})}),
   ],{description:"Initialize a writable carrier once, or write its current text with a causal why; same from/to for existing objects, acquisition original is retained"})),
   definition: Type.Optional(Type.String({description:"Accepted definition name when first placing the instance"})),
   to: Type.String({description:"New owner: investigator, NPC, scene or existing container instance; here means the current scene"}),
@@ -490,7 +490,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			text: Type.Optional(
 				Type.String({
 					description:
-						"Fiction and observable consequences only. No roll results, numbers from receipts, or mechanical questions.",
+						"Fiction and observable consequences only, in the campaign's play_language. No roll results, numbers from receipts, or mechanical questions.",
 				}),
 			),
 			kind: Type.Literal("mechanics"),

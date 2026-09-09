@@ -5,6 +5,7 @@ import type { HandlerGroup } from '../handlers.js';
 import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
 import { loadModule } from '../read/campaign.js';
+import { playLanguageOf } from '../read/languages.js';
 import { array, row, clone, string, number, integer, truth, repr, type Row } from '../read/values.js';
 import { RuleTables } from '../rules/tables.js';
 import type { createWriteRuntime } from '../write/index.js';
@@ -52,7 +53,7 @@ export class Setup {
     if (investigatorKinds.has('library')) { completed.add('browse-library'); completed.add('load-investigator'); }
     if (['ready_for_table', 'active'].includes(meta.status)) completed.add('complete');
     const ordered = this.steps.order(new Set([kind, ...investigatorKinds])).filter(step => completed.has(step));
-    const state: Row = {campaign: campaign.id, module_id: moduleId, module: moduleId, source: {kind, module_id: moduleId}, source_kind: kind, play_language: meta.play_language ?? 'zh-Hans'};
+    const state: Row = {campaign: campaign.id, module_id: moduleId, module: moduleId, source: {kind, module_id: moduleId}, source_kind: kind, play_language: await playLanguageOf(this.context, meta)};
     const draft = await this.drafts.load(campaign, meta);
     if (draft) state.draft = await this.drafts.result(draft);
     state.prologue = row(meta.setup).prologue ?? null; state.guidance_key = meta.guidance_key ?? null;

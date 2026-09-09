@@ -9,6 +9,7 @@ import { EntityIndex, capsuleMemory, noteObligations, rulingsForCapsule, promise
 import { clockPressures, threatPressures, unansweredContinuations, continuationRows, questObligations, choiceObligation, sessionObligation } from "./pressures.js";
 import { worldlineSection, crossLineReader, loopObligation, worldlineSignals } from "./worldline.js";
 import { modContext } from "./mods.js";
+import { playLanguageOf } from "./languages.js";
 import { RpcError } from "../errors.js";
 import { array, row, number, string, truth, chars, clone, type Row } from "./values.js";
 export const HEAD = "Everything at the start of this turn: the clock, the undiscovered clues here and their gates, the secrets " +
@@ -57,6 +58,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         craft = await TextGraph.load(context, dg.beats),
         ontology = await Ontology.load(context),
         rules = await RuleObservations.load(context);
+    const language = await playLanguageOf(context, meta);
     const bad = await ontology.validate([...rules.nodes.keys()], dg, craft, async (id) => {
         try {
             return [...(await loadModule(context, id)).graph.nodes.keys()];
@@ -118,7 +120,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         worldlines,
         rulings: rulingsForCapsule(campaign.logs.get("rulings.jsonl") ?? [], session?.kind ?? null, present.map(n => graph.handle(n)), graph.handle(scene), graph.moduleId),
         memory: capsuleMemory(memory, new EntityIndex(graph, party, row(world.scene_labels)), [...present.map(n => graph.displayName(n)), ...party.map(sheet => string(sheet.name))]),
-        style: craft.style(string(meta.play_language || "zh-Hans"), string(meta.register || "purist"), director.beat, full),
+        style: craft.style(language, string(meta.register || "purist"), director.beat, full),
         recent: campaign.records.filter(record => number(record.turn) < number(turn.turn) && (truth(record.player_text) || truth(record.rendered_text))).slice(-2).map(record => ({
             turn: record.turn,
             player: record.player_text ?? null,

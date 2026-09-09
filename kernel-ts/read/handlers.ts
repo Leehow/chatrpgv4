@@ -3,6 +3,8 @@ import { join } from "node:path";
 import type { KernelContext } from "../context.js";
 import type { HandlerGroup, KernelResult } from "../handlers.js";
 import { RpcError } from "../errors.js";
+import { isJsonObject } from "../json.js";
+import { playLanguageOf } from "./languages.js";
 import { CampaignSnapshot, loadModule, replayTrail, type LoadedModule } from "./campaign.js";
 import { ModuleGraph, recordOf } from "./module-graph.js";
 import { SessionView } from "./session-view.js";
@@ -39,40 +41,65 @@ function required(params: Row, key: string): string {
 const unfinished = (message: string): never => {
     throw new RpcError("not_implemented", message);
 };
-export async function playerGlossary(context: KernelContext, language: string): Promise<Row> {
-    if (!language || language === "en")
-        return {};
-    const result: Row = {},
-        root = join(context.content, "rulesets", "coc7", "rules-json"),
-        label = (entry: Row) => {
-        const value = row(entry.localized_labels)[language];
-        return typeof value === "string" && value.trim() ? value.trim() : null;
-    };
-    let characteristics: Row = {},
-        skills: Row = {};
-    try {
-        characteristics = row(row(await context.snapshots.readJson(join(root, "characteristic-dice.json"))).characteristics);
+/**
+ * The player's glossary: the union of every `localized_labels` row in the rules data for
+ * `language`, whatever file or nesting the row sits in, keyed as the panel looks a term up --
+ * the row's own key, its `name` and its `abbreviation` (contract §23). No file list, no key
+ * whitelist, no tag shortcut: a language whose canonical words are the keys simply has no rows.
+ * The first row to claim a key keeps it, in file-name order and then document order, so two
+ * files naming one key cannot flicker. Unreadable display data contributes no invented label.
+ */
+export function playerGlossary(context: KernelContext, language: string): Promise<Row> {
+    if (typeof language !== "string" || !language.trim())
+        return Promise.resolve({});
+    let byLanguage = glossaries.get(context);
+    if (!byLanguage)
+        glossaries.set(context, byLanguage = new Map());
+    let pending = byLanguage.get(language);
+    if (!pending) {
+        pending = readGlossary(context, language);
+        byLanguage.set(language, pending);
+        void pending.catch(() => byLanguage!.delete(language));
     }
-    catch { /* Missing display data contributes no invented label. */
-    }
-    for (const [key, entry] of entries(characteristics)) {
-        const abbr = key.toUpperCase(),
-            word = label(row(entry));
-        if (["STR", "DEX", "INT", "POW", "CON", "APP", "SIZ", "EDU", "LUCK"].includes(abbr) && word) {
-            result[abbr] = word;
-            if (typeof entry.name === "string" && entry.name.trim() && entry.name.trim() !== abbr)
-                result[entry.name.trim()] = word;
+    return pending.then(clone);
+}
+/** Rules data is immutable while a kernel runs, so one read per context and language serves every view. */
+const glossaries = new WeakMap<KernelContext, Map<string, Promise<Row>>>();
+async function readGlossary(context: KernelContext, language: string): Promise<Row> {
+    const result: Row = {};
+    const root = join(context.content, "rulesets", "coc7", "rules-json"),
+        claim = (key: unknown, word: string) => {
+            if (typeof key === "string" && key.trim() && !Object.hasOwn(result, key.trim()))
+                result[key.trim()] = word;
+        },
+        visit = (value: unknown, key: string | null): void => {
+            if (Array.isArray(value)) {
+                for (const item of value)
+                    visit(item, null);
+                return;
+            }
+            if (!isJsonObject(value))
+                return;
+            const word = row(value.localized_labels)[language];
+            if (typeof word === "string" && word.trim()) {
+                claim(key, word.trim());
+                claim(value.name, word.trim());
+                claim(value.abbreviation, word.trim());
+            }
+            for (const [child, inner] of entries(value))
+                if (child !== "localized_labels")
+                    visit(inner, child);
+        };
+    const names = await context.snapshots.sortedChildNames(root, async path => path.endsWith(".json") && await context.snapshots.isFile(path));
+    for (const name of names) {
+        let document: unknown;
+        try {
+            document = await context.snapshots.readJson(join(root, name));
         }
-    }
-    try {
-        skills = row(row(await context.snapshots.readJson(join(root, "skills.json"))).skills);
-    }
-    catch { /* This matches the existing read-only glossary fallback. */
-    }
-    for (const [name, entry] of entries(skills)) {
-        const word = label(row(entry));
-        if (word)
-            result[name] = word;
+        catch {
+            continue;
+        }
+        visit(document, null);
     }
     return result;
 }
@@ -189,7 +216,7 @@ export async function sceneView(campaign: CampaignSnapshot, module: LoadedModule
 }
 export async function tableView(context: KernelContext, params: Row): Promise<Row> {
     const initial = await CampaignSnapshot.open(context, params.campaign, false, false),
-        language = string(initial.meta.play_language || "zh-Hans");
+        language = await playLanguageOf(context, initial.meta);
     if (initial.meta.status === "setting_up")
         return {
             play_language: language,

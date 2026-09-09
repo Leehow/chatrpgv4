@@ -4,6 +4,7 @@ import { RpcError } from '../errors.js';
 import { isJsonObject, jsonDigest } from '../json.js';
 import { withExclusiveLock } from '../locks.js';
 import { playerGlossary } from '../read/handlers.js';
+import { playLanguageOf } from '../read/languages.js';
 import { loadModule } from '../read/campaign.js';
 import { row, array, clone, string, number, truth, equal, repr, type Row } from '../read/values.js';
 import { moduleEra } from '../library/index.js';
@@ -26,7 +27,7 @@ export class SetupDrafts {
   async result(draft: Row): Promise<Row> {
     const issues = completeness(draft.sheet);
     return {revision: draft.revision, sheet: draft.sheet, profile: draft.profile,
-      labels: await playerGlossary(this.setup.context, draft.play_language ?? 'en'), completeness: {valid: !issues.length, issues}};
+      labels: await playerGlossary(this.setup.context, await playLanguageOf(this.setup.context, draft)), completeness: {valid: !issues.length, issues}};
   }
   async validateProfile(profile: Row): Promise<void> {
     const issues: string[] = [];
@@ -95,7 +96,7 @@ export class SetupDrafts {
       const issues = completeness(sheet);
       if (issues.length) throw new RpcError('needs', 'The card is incomplete', {details: {issues}});
       const revision = number(previous?.revision) + 1;
-      const draft = {revision, play_language: meta.play_language ?? 'en', seed, profile, sheet, input_key: params.input_key ?? null, receipt, digest: jsonDigest(sheet)};
+      const draft = {revision, play_language: await playLanguageOf(this.setup.context, meta), seed, profile, sheet, input_key: params.input_key ?? null, receipt, digest: jsonDigest(sheet)};
       await campaign.write(join('setup', 'drafts', `${revision}.json`), draft);
       meta.setup = {...row(meta.setup), draft_revision: revision, previewed_revision: null}; await campaign.writeCampaign(meta);
       return this.result(draft);
