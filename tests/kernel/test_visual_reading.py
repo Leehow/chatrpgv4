@@ -3,9 +3,6 @@ import copy
 import hashlib
 import json
 import random
-import os
-import signal
-import subprocess
 import shutil
 from pathlib import Path
 
@@ -373,10 +370,8 @@ def test_kernel_crash_reclaims_a_new_attempt_and_rejects_the_old_lease(kernel, t
     old = claim(kernel, mid)
     evidence = Path(old["work_dir"]) / "unfinished.txt"
     evidence.write_text("retained source work", encoding="utf-8")
-    # RpcClient owns uv, whose child owns the lock. Kill that exact kernel process.
-    children = subprocess.check_output(["pgrep", "-P", str(kernel.proc.pid)], text=True).split()
-    assert len(children) == 1
-    os.kill(int(children[0]), signal.SIGKILL)
+    # The selected entrypoint is the kernel, independent of its implementation language.
+    kernel.proc.kill()
     kernel.proc.wait(timeout=5)
     other = RpcClient(kernel.workspace)
     try:

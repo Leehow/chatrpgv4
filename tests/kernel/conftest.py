@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
 import pytest
+from rpc_support import fixed_environment, python_command, read_command
 
 WORKTREE = Path(__file__).resolve().parents[2]
 KERNEL_DIR = WORKTREE / "kernel"
@@ -27,29 +30,46 @@ CAMPAIGN = "c1"
 
 
 class RpcClient:
-    def __init__(self, workspace: Path, env: dict[str, str] | None = None, content: Path | None = None) -> None:
+    def __init__(self, workspace: Path, env: dict[str, str] | None = None, content: Path | None = None,
+                 *, command: list[str] | None = None, frozen_clock: bool = False) -> None:
         self.workspace = Path(workspace)
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.content = Path(content) if content is not None else CONTENT_DIR
         merged = {**os.environ, "PYTHONPATH": str(KERNEL_DIR), "PYTHONDONTWRITEBYTECODE": "1"}
         merged.update(env or {})
+        if frozen_clock:
+            merged = fixed_environment(merged)
+        entry = read_command(json.dumps(command)) if command is not None else read_command(merged.get("COC_TEST_KERNEL_CMD"))
+        entry = entry if entry is not None else python_command()
         self.proc = subprocess.Popen(
-            ["uv", "run", "--frozen", "python", "-m", "coc.rpc",
-             "--workspace", str(self.workspace), "--content", str(self.content)],
+            [*entry, "--workspace", str(self.workspace), "--content", str(self.content)],
             cwd=WORKTREE, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", bufsize=1, env=merged,
         )
         self._n = 0
+        self._stdout = b""
+        self.exchanges: list[dict[str, Any]] = []
 
     def raw(self, line: str) -> dict[str, Any]:
         assert self.proc.stdin and self.proc.stdout
         self.proc.stdin.write(line + "\n")
         self.proc.stdin.flush()
-        reply = self.proc.stdout.readline()
-        if not reply:
-            stderr = self.proc.stderr.read() if self.proc.stderr else ""
-            raise AssertionError(f"kernel exited (rc={self.proc.poll()}):\n{stderr}")
-        return json.loads(reply)
+        deadline = time.monotonic() + 30
+        while b"\n" not in self._stdout:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not select.select([self.proc.stdout], [], [], remaining)[0]:
+                raise AssertionError("kernel did not return a JSON line within 30 seconds")
+            chunk = os.read(self.proc.stdout.fileno(), 65536)
+            if not chunk:
+                break
+            self._stdout += chunk
+        reply, separator, self._stdout = self._stdout.partition(b"\n")
+        if not separator:
+            stderr = self.proc.stderr.read() if self.proc.poll() is not None and self.proc.stderr else ""
+            raise AssertionError(f"kernel stdout closed before a complete JSON line (rc={self.proc.poll()}):\n{stderr}")
+        response = json.loads(reply)
+        self.exchanges.append({"request": line, "response": response})
+        return response
 
     def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         self._n += 1
@@ -69,12 +89,20 @@ class RpcClient:
         return response["error"]
 
     def close(self) -> None:
-        if self.proc.stdin:
-            self.proc.stdin.close()
+        if self.proc.stdin and not self.proc.stdin.closed:
+            try:
+                self.proc.stdin.close()
+            except BrokenPipeError:
+                pass
         try:
             self.proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             self.proc.kill()
+            self.proc.wait(timeout=5)
+        if self.proc.stdout:
+            self.proc.stdout.close()
+        if self.proc.stderr:
+            self.proc.stderr.close()
 
     # ---- table shortcuts (campaign fixed to CAMPAIGN) ----------------------
 

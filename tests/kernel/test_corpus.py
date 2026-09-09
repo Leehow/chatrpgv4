@@ -3,12 +3,14 @@ replayed as a resolve action. The same decision must be selected, the effect/eve
 must match and the session transitions must match; dice are random and never compared."""
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 
 from conftest import RpcClient, campaign_dir, open_turn, read_json, read_jsonl
 from test_rules_families import first_failure, seed_wound
+from rpc_support import python_command, read_command, retain_comparison, snapshot
 
 CORPUS = Path(__file__).with_name("corpus")
 CASES = sorted(p for p in CORPUS.glob("*.json"))
@@ -137,15 +139,36 @@ def _check(client: RpcClient, workspace: Path, call_id: str, action: dict, expec
     return result
 
 
-@pytest.mark.parametrize("path", CASES, ids=[p.stem for p in CASES])
-def test_recorded_payload_replays_as_a_resolve(path, tmp_path):
+def run_recorded_case(path, workspace, *, command=None, frozen_clock=False, capture_failure=False):
     case = json.loads(path.read_text(encoding="utf-8"))
-    client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": str((case.get("setup") or {}).get("seed") or path.stem)})
+    client = None
+    failure = None
     try:
+        client = RpcClient(workspace, env={"COC_KERNEL_SEED": str((case.get("setup") or {}).get("seed") or path.stem)},
+                           command=command, frozen_clock=frozen_clock)
         open_turn(client, "回归。")
         ordinal = _setup(client, case)
         _check(client, client.workspace, f"t1-c{ordinal}", case["action"], case["expect"])
         for offset, followup in enumerate(case.get("followups") or [], start=1):
             _check(client, client.workspace, f"t1-c{ordinal + offset}", followup["action"], followup["expect"])
+    except Exception as exc:
+        if not capture_failure:
+            raise
+        failure = {"type": type(exc).__name__, "message": str(exc)}
     finally:
-        client.close()
+        if client:
+            client.close()
+    return {"exchanges": client.exchanges if client else [], "state": snapshot(workspace), "failure": failure}
+
+
+@pytest.mark.parametrize("path", CASES, ids=[p.stem for p in CASES])
+def test_recorded_payload_replays_as_a_resolve(path, tmp_path):
+    candidate = read_command(os.environ.get("COC_TEST_COMPARE_CMD"))
+    if candidate is None:
+        run_recorded_case(path, tmp_path / "ws")
+        return
+    reference = run_recorded_case(path, tmp_path / "reference", command=python_command(), frozen_clock=True, capture_failure=True)
+    actual = run_recorded_case(path, tmp_path / "candidate", command=candidate, frozen_clock=True, capture_failure=True)
+    evidence, findings = retain_comparison(path.stem, reference, actual, tmp_path / "evidence")
+    assert not reference["failure"] and not actual["failure"], f"A corpus runtime failed; retained evidence: {evidence}"
+    assert not findings, f"RPC/state comparison differs; evidence: {evidence}\n" + "\n".join(findings)
