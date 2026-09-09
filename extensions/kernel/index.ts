@@ -204,6 +204,13 @@ function errorDetailLines(details: Record<string, unknown> | undefined): string[
 		// A `play_language_mismatch` refusal (contract §16.3): rewrite these player-facing fields.
 		lines.push(`rewrite in the campaign's play_language: ${fields.map((field) => String(field)).join(", ")}`);
 	}
+	// A batch whose definition agent ran out of time is not the same refusal as one whose agent died:
+	// the first says the batch itself is too big to retry unchanged, and `fix` alone cannot say which.
+	if (details.reason === "mod_agent_failed") {
+		lines.push(details.timed_out === true
+			? "the definition agent ran out of time: retry with fewer define effects in this apply"
+			: "the definitions already accepted are retained, so the retry resumes from where this one stopped");
+	}
 	return lines;
 }
 
@@ -694,6 +701,10 @@ export default function (pi: ExtensionAPI) {
 			const code = isKernelError(error) ? error.code : "internal";
 			if ((error as { details?: { reason?: string } })?.details?.reason === "reading_timeout") state.readingWait = true;
 			const floor = floorDetail(error);
+			// `code` alone collapses every refusal of one family into one word. The kernel's own
+			// `reason` is a closed authored field, and without it a failure lane cannot tell a
+			// definition agent that died from a batch the Keeper simply got wrong.
+			const reason = asString((error as { details?: { reason?: unknown } })?.details?.reason);
 			await record({
 				tool: spec.name,
 				call_id: payload.call_id ?? null,
@@ -701,6 +712,7 @@ export default function (pi: ExtensionAPI) {
 				ms: Date.now() - began,
 				ok: false,
 				code,
+				...(reason ? { reason } : {}),
 				...(floor ? { code_detail: floor } : {}),
 			});
 			return {

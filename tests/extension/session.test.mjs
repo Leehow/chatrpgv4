@@ -125,6 +125,49 @@ test("内核报错：模型拿到 code: message 与 fix，结果标成错误", a
 	assert.equal(narrate.params.call_id, "t1-c2");
 });
 
+/**
+ * 造物代理跑了三分多钟然后没跑完，守秘人只收到「重试同一批」——超时和中途夭折是两回事：
+ * 超时说明这一批本身太大，照原样重试还会超时。details 里的 reason 必须活过投影，
+ * 遥测那条也得能分辨，否则失败车道只看得见一个 needs。
+ */
+test("造物代理超时：批量太大这件事要到守秘人手上，遥测记得下 reason", async (t) => {
+	const table = await openTable({
+		env: {
+			FAKE_KERNEL_ERRORS: JSON.stringify({
+				"table.apply": {
+					code: "needs",
+					message: "The Mod agent did not finish its task",
+					fix: "Retry the same request to resume the retained job",
+					details: { reason: "mod_agent_failed", timed_out: true },
+				},
+			}),
+		},
+		responses: [
+			fauxAssistantMessage(
+				[fauxToolCall("apply", { effects: [{ kind: "define", name: "火柴", category: "item", description: "一盒火柴" }] })],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "你摸了摸口袋。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("收尾"),
+		],
+	});
+	t.after(() => table.dispose());
+
+	await table.session.prompt("我清点随身的东西");
+
+	const [failed] = table.session.messages.filter(
+		(message) => message.role === "toolResult" && message.toolName === "apply",
+	);
+	assert.equal(failed.isError, true);
+	assert.match(resultText(failed), /fix: Retry the same request/);
+	assert.match(resultText(failed), /ran out of time: retry with fewer define effects/);
+
+	const row = table.telemetry().find((entry) => entry.tool === "apply");
+	assert.equal(row.ok, false);
+	assert.equal(row.code, "needs");
+	assert.equal(row.reason, "mod_agent_failed");
+});
+
 test("回合没关时催一次，且只催一次", async (t) => {
 	const table = await openTable({
 		responses: [
