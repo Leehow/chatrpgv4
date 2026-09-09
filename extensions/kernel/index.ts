@@ -192,6 +192,14 @@ function errorDetailLines(details: Record<string, unknown> | undefined): string[
 			lines.push(when ? `- ${name}: ${when}` : `- ${name}`);
 		}
 	}
+	if (Array.isArray(details.conflicts) && details.conflicts.length > 0) {
+		const conflicts = details.conflicts.map((conflict) => {
+			if (conflict?.class !== "mod_state" && conflict?.class !== "engine_state") return conflict;
+			const { values, ...summary } = conflict;
+			return { ...summary, lines: Object.keys(values ?? {}) };
+		});
+		lines.push(`merge conflicts: ${JSON.stringify(conflicts)}`);
+	}
 	const exits = details.exits;
 	if (Array.isArray(exits) && exits.length > 0) {
 		lines.push(`reachable: ${exits.map((exit) => (typeof exit === "string" ? exit : JSON.stringify(exit))).join(", ")}`);

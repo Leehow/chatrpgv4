@@ -846,6 +846,13 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 ### 15.4 汇流报告与回声
 
+The extension includes each merge conflict's semantic ID, class, subject, field
+and allowed modes in the model-visible error body. Scalar conflict values remain
+visible. For `mod_state` and `engine_state`, it lists the available source lines
+instead of expanding entire snapshots; those classes can only select one whole
+line. Full snapshots remain in structured interface details. The Keeper can then
+submit the chosen dispositions without guessing IDs or repeating the failed call.
+
 - 合并口径：在场者取并集（按图重算 `npc_presence` 后叠加各线的移动）；已发现线索取并集；`flags` 取并集（冲突则报）；物品按名字取并集，但一条线消耗掉（`quantity` 为负的 `item` 收据）而另一条线还在的报 `consumed`；调查员的幸运各线不同报 `numeric`；**HP/SAN/MP 不再单独比**——它们是引擎存档的镜像（`mirror_investigator`「把引擎的看法写回卡片」），逐字段挑会拼出一个从未存在过的状态（HP 取 A 线、重伤盒取 B 线），所以连同 `save/` 下各引擎的快照一起作为**一条** `engine_state` 冲突整体择一；一条线死了（HP < 0 或 `dead` 条件）另一条活着报 `dead_alive`；一次性效果与已掷的骰**不合并**（它们是各线历史里的收据，合并提交把两段历史都留着，不重复计入状态）。
 - 冲突类别与允许的处置（闭合表）：`numeric` → from|min|max（只剩幸运；见上）；`dead_alive` → from；`consumed` → from|drop；`flag` → from；`npc_presence` → from|sum（并集）；`mod_state` → from；`engine_state` → from（**只能整条线地取**：一条线说疯了、另一条说没疯，没有中间值，而且快照里的到期时刻是绝对 clock 分钟）；`clue` 永不冲突（并集）。`drop` 必须带 `note`。旧树的清单 `NON_DUPLICABLE_CONFLICT_CLASSES`（死亡、一次性效果、消耗、已掷骰）在这里体现为：这些类别没有 `sum`/`duplicate` 模式。
 - 冲突 id 是语义的：`conflict:<class>:<subject>:<field>`，同一报告重算两次逐字节相同。
