@@ -2883,6 +2883,14 @@ real browser. A generated card or deterministic fixture is not real-table eviden
 
 ## 27. Host runtime composition (runtime migration, issue #35)
 
+Python source retirement (2026-09-09, user authorized): TypeScript is the only
+runtime backend in source and packaged modes. Python runtime selection is rejected
+explicitly. The former editable kernel and legacy Python graph tools leave the
+active tree; developer comparisons use a pinned Git revision exported by the
+test-only oracle helper. Ordinary RPC tests target the compiled TypeScript kernel.
+The frozen oracle is a compatibility baseline, not another implementation to edit.
+Python test drivers and the native-addon build toolchain remain developer-only.
+
 ### 27.1 Ownership and interface
 
 The host creates one runtime object for each play/setup session, preparation task,

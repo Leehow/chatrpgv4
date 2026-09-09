@@ -17,7 +17,7 @@ import zipfile
 
 import pytest
 
-from conftest import RpcClient
+from conftest import RpcClient, KERNEL_DIR
 from rpc_support import differences, python_command, snapshot
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -297,7 +297,7 @@ def test_emitted_mod_checker_reuses_validation_without_kernel_or_state_writes():
     for name, value in [("weapon",weapon()), ("document",{"name":"Notebook","category":"item","description":"Paper.","basis":"A fixture.","parameters":{"effects":[]},"document":{"text":"\U0001f3b2"*64000,"presentation":"notebook"},"player_view":{"description":"Notes.","fields":[]}}),
                         ("bad",{"name":"incomplete"})]:
         draft=root/f"{name}.json"; write_json(draft,value); before=draft.read_bytes()
-        reference=subprocess.run([sys.executable,"-m","coc.mods.check",str(draft)],cwd=ROOT,env={**os.environ,"PYTHONPATH":str(ROOT/"kernel")},capture_output=True,text=True,timeout=15)
+        reference=subprocess.run([sys.executable,"-m","coc.mods.check",str(draft)],cwd=ROOT,env={**os.environ,"PYTHONPATH":str(KERNEL_DIR)},capture_output=True,text=True,timeout=15)
         env={**os.environ,"PATH":"", "PI_COC_HOME":str(home),"PI_COC_RUNTIME_OPTIONS":json.dumps({"backend":"typescript","resourceRoot":str(ROOT),"contentRoot":str(ROOT/"content"),"nodeExecutable":shutil.which("node")})}
         candidate=subprocess.run([shutil.which("node"),str(ROOT/"build/runtime/check.mjs"),"--kind","mod-definition","--draft",str(draft)],cwd=ROOT,env=env,capture_output=True,text=True,timeout=15)
         result={"python":{"code":reference.returncode,"response":json.loads(reference.stdout)},"typescript":{"code":candidate.returncode,"response":json.loads(candidate.stdout)}}

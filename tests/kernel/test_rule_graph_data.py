@@ -27,7 +27,8 @@ from typing import Any
 import pytest
 
 WORKTREE = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(WORKTREE / "kernel"))
+from conftest import KERNEL_DIR
+sys.path.insert(0, str(KERNEL_DIR))
 
 from coc.rules.graph_digest import (  # noqa: E402
     compute_graph_content_digest,

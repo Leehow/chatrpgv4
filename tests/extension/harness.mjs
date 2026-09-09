@@ -42,9 +42,9 @@ export function createRealCampaign(workspace, campaign, { module = "the-haunting
 		params: { id: campaign, module, pregen, play_language: "zh-Hans", title: `${campaign} (extension seam)` },
 	});
 	const run = spawnSync(
-		"uv",
-		["run", "--frozen", "python", "-m", "coc.rpc", "--workspace", workspace, "--content", join(REPO, "content")],
-		{ cwd: REPO, env: { ...process.env, PYTHONPATH: join(REPO, "kernel") }, input: `${request}\n`, encoding: "utf8" },
+		process.execPath,
+		[join(REPO, "build/kernel/rpc.mjs"), "--workspace", workspace, "--content", join(REPO, "content")],
+		{ cwd: REPO, env: { ...process.env }, input: `${request}\n`, encoding: "utf8" },
 	);
 	const line = run.stdout.split("\n").find((row) => row.trim());
 	const response = line ? JSON.parse(line) : null;

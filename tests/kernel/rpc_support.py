@@ -19,6 +19,13 @@ def python_command() -> list[str]:
     return [sys.executable, str(HERE / "rpc_reference.py")]
 
 
+def typescript_command() -> list[str]:
+    entry = HERE.parents[1] / "build" / "kernel" / "rpc.mjs"
+    if not entry.is_file():
+        raise RuntimeError("Build the TypeScript kernel with npm run build:runtime before running RPC tests")
+    return [os.environ.get("COC_TEST_NODE", "node"), str(entry)]
+
+
 def read_command(value: str | None) -> list[str] | None:
     if value is None:
         return None

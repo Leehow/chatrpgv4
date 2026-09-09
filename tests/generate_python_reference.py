@@ -1,7 +1,7 @@
 """Regenerate test evidence with the repository's locked Python, never at runtime.
 
 Run from the repository root:
-    uv run --frozen python kernel-ts/testing/generate_reference.py
+    uv run --frozen python tests/generate_python_reference.py
 """
 from __future__ import annotations
 
@@ -13,8 +13,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "kernel"))
+ROOT = Path(__file__).resolve().parents[1]
+from python_oracle import ORACLE_KERNEL
+sys.path.insert(0, str(ORACLE_KERNEL))
 
 from coc.fileio import canonical_json, sha256_text
 from coc.rpc import build_methods, handle_line
@@ -125,7 +126,7 @@ def main():
     output = {"python": sys.version.split()[0], "rng": [random_case(seed) for seed in seeds],
               "worldlines": worldlines, "json": [json_case(source) for source in sources],
               "floats": floats, "rpc": rpc}
-    destination = Path(__file__).with_name("python-reference.json")
+    destination = ROOT / "kernel-ts" / "testing" / "python-reference.json"
     destination.write_text(json.dumps(output, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
     print(f"wrote {destination.relative_to(ROOT)}: {len(seeds)} RNG seeds, {len(sources)} JSON cases, {len(floats)} floats")
 

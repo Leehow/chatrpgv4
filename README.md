@@ -21,14 +21,13 @@ COC Keeper for Pi：一个 Pi 包加一个编译后的 TypeScript 内核子进�
 extensions/   Pi 扩展：kernel（七个工具、回合事务、校验车道）、table（状态行）、memory（记忆抽取车道）、
               module（无人值守构建与按需深读，读者是子 pi 进程）、onboarding（建卡进程的 setup 工具）、lanes（共用）、
               deepseek（DeepSeek Extended provider，`openai-responses` + hosted web_search，从 PipiUI 上游移植）
-kernel/coc/   保留的 Python 对照实现，仅供开发者兼容性验证，不进入独立安装包
 kernel-ts/    TypeScript 内核，编译为 build/kernel/rpc.mjs，默认由统一运行时启动
 runtime/      宿主组合：统一捕获部署配置、启动/取消内核与读者、执行只读检查
 content/      只读内容：rulesets/coc7、starters/<module>、director/、craft/、ontology/、modules/（契约与可玩性模板）、setup/（七步表、读者提示）
 prompts/      守秘人与建卡助手的系统提示
-scripts/      starter 投影器（IR → 模组图）
+scripts/      构建与打包工具
 bin/          pi-coc（游玩 / setup）、pi-coc-setup（驾驭器用）、coc-source 与 coc-read-check（原页访问与视觉草稿检查）
-tests/        kernel（内核接缝）、extension（扩展接缝）、play（驾驭器、KPI、资料包工具）
+tests/        kernel（默认检查 TS RPC）、extension（扩展接缝）、play（驾驭器、KPI）、固定版本的历史对照入口
 ```
 
 ## 运行
@@ -87,7 +86,9 @@ pipicoc/dev --campaign <战役名>     # 关闭建卡窗口后，用同一界面
 源码运行与独立 App 组包共用编译入口；前端验收与 PDF 阅读验收分别记录。
 
 本地打包：`node pipicoc/package.mjs`，生成 `build/PipiCOC.app`，以 `PipiUI Dev` 签名。
-此配方组装独立 TypeScript 运行时：受管 Node、Git、Pi、原生模块和只读内容都随包提供；运行时描述只保存包内相对路径。Pi 配置、凭据、会话和运行目录位于 App 自有 userData，战役仍保存在用户选择的 COC home。源码模式保留仓库隔离的 Pi home；显式 `PI_COC_RUNTIME=python` 仅供开发者对照，独立包拒绝该后端。
+此配方组装独立 TypeScript 运行时：受管 Node、Git、Pi、原生模块和只读内容都随包提供；运行时描述只保存包内相对路径。Pi 配置、凭据、会话和运行目录位于 App 自有 userData，战役仍保存在用户选择的 COC home。源码模式也只运行 TypeScript，`PI_COC_RUNTIME=python` 会明确报错。
+
+Python 旧内核已从当前树移除。兼容测试通过 `tests/python-oracle.json` 固定的 Git 历史版本，在忽略且只读的 `.cache/python-oracle/` 中取得对照；这里不是开发目录。测试检出必须包含该历史提交，浅克隆需补齐历史。新增规则和修复只写 `kernel-ts/`。Python 测试控制器和原生扩展构建工具仍使用锁定的 uv 环境，不随 App 分发。
 
 安装包与完整行为验收状态见 `docs/specs/runtime-consolidation-tickets.md`；本地开发签名不代表已完成公开分发的签名与公证。
 Web 端：先运行 `pipicoc/install` 安装 `.pi/` 中的面板资产，再运行 `PI_COC_MODE=setup npm --prefix Electron run dev:browser`，打开 `http://localhost:5173`。

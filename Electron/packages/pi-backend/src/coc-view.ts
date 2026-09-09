@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import type { HistoryEntry } from '@pipi/host-api';
 
 export type CocBinding = {campaign:string; home:string; play_language:string; mode?:string};
-export type CocColdRuntimeOptions = {contentRoot?:string; nodeExecutable?:string; backend?:'python'|'typescript';
+export type CocColdRuntimeOptions = {contentRoot?:string; nodeExecutable?:string; backend?:'typescript';
   kernelEntrypoint?:string; hostEntrypoint?:string};
 type ColdRuntime = {openKernel(options:{timeoutMs:number}):{call(method:string,params:Record<string,unknown>):Promise<unknown>};
   close():Promise<void>};

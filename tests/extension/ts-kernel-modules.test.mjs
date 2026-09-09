@@ -1,3 +1,4 @@
+import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
@@ -87,7 +88,7 @@ function capture(case_) {
 async function compare(name, cases, t) {
   const input = api.pythonJsonDumps({ cases });
   const reference = spawnSync('uv', ['run', '--frozen', 'python', '-c', REFERENCE], { cwd: ROOT, input, encoding: 'utf8', timeout: 30000,
-    env: { ...process.env, PYTHONPATH: join(ROOT, 'kernel'), PYTHONDONTWRITEBYTECODE: '1' } });
+    env: { ...process.env, PYTHONPATH: join(pythonOracleRoot(), "kernel"), PYTHONDONTWRITEBYTECODE: '1' } });
   assert.equal(reference.status, 0, reference.stderr);
   const expected = api.parsePythonJson(reference.stdout), actual = cases.map(capture);
   await writeFile(join(evidence, name + '-input.json'), input);

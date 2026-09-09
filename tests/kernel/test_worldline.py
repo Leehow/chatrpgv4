@@ -147,7 +147,8 @@ def test_a_new_campaign_is_born_on_wl_main(kernel):
 
 def test_the_seed_is_the_campaign_the_line_and_the_fork_point(kernel, tmp_path):
     import sys
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "kernel"))
+    from conftest import KERNEL_DIR
+    sys.path.insert(0, str(KERNEL_DIR))
     from coc.worldline import line_seed
     assert line_seed("c1", "main", None) == line_seed("c1", "main", "")
     assert line_seed("c1", "main", None) != line_seed("c2", "main", None)

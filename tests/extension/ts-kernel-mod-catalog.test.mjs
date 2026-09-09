@@ -1,3 +1,4 @@
+import {pythonOracleEnvironment} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {mkdtemp, rm} from 'node:fs/promises';
@@ -22,11 +23,10 @@ export {pythonJsonDumps} from './kernel-ts/json.ts';`,resolveDir:root,loader:'ts
   const reference=spawnSync('uv',['run','--frozen','python','-c',[
     'import json, sys',
     'from pathlib import Path',
-    'sys.path.insert(0, str(Path.cwd() / "kernel"))',
     'from coc.mods.runtime import ModRuntime',
     'rows = ModRuntime(Path.cwd() / "mods", Path(sys.argv[1])).catalog().values()',
     'print(json.dumps([{k: v for k, v in row.items() if k != "files"} for row in rows]))',
-  ].join('\n'),home],{cwd:root,encoding:'utf8',timeout:30000});
+  ].join('\n'),home],{cwd:root,env:pythonOracleEnvironment(),encoding:'utf8',timeout:30000});
   assert.equal(reference.status,0,reference.stderr);
   assert.ok(actual.length>0,'The product ships builtin packages without requiring an earlier install');
   assert.deepEqual(JSON.parse(api.pythonJsonDumps(actual)),JSON.parse(reference.stdout));

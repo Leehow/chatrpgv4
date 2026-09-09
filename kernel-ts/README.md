@@ -130,7 +130,7 @@ Unit tests with an injected descriptor operation verify lifecycle only.
 Regenerate reference evidence only with the locked interpreter:
 
 ```sh
-uv run --frozen python kernel-ts/testing/generate_reference.py
+uv run --frozen python tests/generate_python_reference.py
 node --test tests/extension/ts-kernel-foundation.test.mjs
 ```
 

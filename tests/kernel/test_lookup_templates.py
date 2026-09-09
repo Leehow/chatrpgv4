@@ -6,7 +6,8 @@ import sys
 
 from conftest import CONTENT_DIR as CONTENT, WORKTREE
 
-sys.path.insert(0, str(WORKTREE / "kernel"))
+from conftest import KERNEL_DIR
+sys.path.insert(0, str(KERNEL_DIR))
 from coc.module_graph import ModuleGraph  # noqa: E402 - the kernel package lives under kernel/
 
 

@@ -18,7 +18,7 @@ from coc.module_graph import ModuleGraph  # noqa: E402
 from coc.modules.store import ModuleStore  # noqa: E402
 from coc.rules.graph_digest import compute_graph_content_digest  # noqa: E402
 
-SCRIPT = WORKTREE / "scripts" / "starter_graph.py"
+SCRIPT = KERNEL_DIR.parent / "scripts" / "starter_graph.py"
 OLD_HAUNTING = Path("/Users/haoli/leehow/code/chatrpgv4/plugins/coc-keeper/references/starter-scenarios/the-haunting")
 
 

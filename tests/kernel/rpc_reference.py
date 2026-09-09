@@ -2,7 +2,13 @@
 import datetime
 import os
 import runpy
+import sys
 import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from python_oracle import ORACLE_KERNEL
+sys.path.insert(0, str(ORACLE_KERNEL))
 
 clock = os.environ.get("COC_TEST_CLOCK")
 if clock:

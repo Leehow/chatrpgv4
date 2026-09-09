@@ -34,9 +34,7 @@ export async function checkMain(args: string[]): Promise<number> {
     request.draft = resolve(request.draft);
     if (request.kind === "source-draft") request.packet = resolve(request.packet);
     const result = await evaluateCheck(context, request, controller.signal);
-    const serialize = context.backend === "typescript"
-      ? (await import(pathToFileURL(context.entrypoints.kernelCheck).href)).serializeCheckResult
-      : JSON.stringify;
+    const serialize = (await import(pathToFileURL(context.entrypoints.kernelCheck).href)).serializeCheckResult;
     process.stdout.write(serialize(result) + "\n");
     return result.ok ? 0 : 1;
   } catch (error) {

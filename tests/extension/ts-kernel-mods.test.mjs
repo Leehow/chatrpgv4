@@ -1,3 +1,4 @@
+import {pythonOracleEnvironment} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
@@ -11,7 +12,6 @@ import {build} from 'esbuild';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const reference = String.raw`
 import copy, json, sys
-sys.path.insert(0, 'kernel')
 from coc.mods.objects import validate_definition
 from coc.mods.documents import validate_seed
 from coc.fileio import canonical_json
@@ -78,7 +78,7 @@ test('shared definition and bounded document validation matches Python without m
     await build({stdin:{contents:["export * from './kernel-ts/mods/definition.ts';","export {parsePythonJson,canonicalJson} from './kernel-ts/json.ts';"].join('\n'),resolveDir:ROOT,sourcefile:'mod-definition-test.ts'},
       outfile:join(temporary,'api.mjs'),bundle:true,format:'esm',platform:'node',target:'node22',logLevel:'silent'});
     const api = await import(pathToFileURL(join(temporary, 'api.mjs')).href);
-    const run = spawnSync('uv', ['run','--frozen','python','-c',reference], {cwd:ROOT,encoding:'utf8',timeout:30000,maxBuffer:16*1024*1024});
+    const run = spawnSync('uv', ['run','--frozen','python','-c',reference], {cwd:ROOT,env:pythonOracleEnvironment(),encoding:'utf8',timeout:30000,maxBuffer:16*1024*1024});
     assert.equal(run.error,undefined); assert.equal(run.status,0,run.stderr);
     const digest = value => createHash('sha256').update(value).digest('hex');
     for (const expected of JSON.parse(run.stdout)) {

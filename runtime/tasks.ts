@@ -1,5 +1,4 @@
 /** Fixed host adapters; checking never opens a kernel or publishes an artifact. */
-import { spawn } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
@@ -12,17 +11,6 @@ import { runHostProcess } from "./process.ts";
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 const cancelled = () => new KernelError({ code: "internal", message: "Runtime operation was cancelled", details: { reason: "runtime_cancelled" } });
 function ensureActive(signal: AbortSignal) { if (signal.aborted) throw cancelled(); }
-
-/** Resolve the locked Python environment from the host's captured deployment inputs. */
-function pythonConfiguration(context: RuntimeContext) {
-  const paths = (context.env.PATH ?? "").split(delimiter).filter(Boolean).map(path => resolve(context.resourceRoot, path, "uv"));
-  const uv = paths.find(path => {
-    try { accessSync(path, constants.X_OK); return statSync(path).isFile(); } catch { return false; }
-  });
-  if (!uv) throw new KernelError({ code: "internal", message: "The managed Python launcher is unavailable", details: { reason: "runtime_configuration" } });
-  return { command: [uv, "run", "--project", context.resourceRoot, "--frozen", "python"],
-    env: { ...context.env, PYTHONPATH: join(context.resourceRoot, "kernel"), PYTHONDONTWRITEBYTECODE: "1" } };
-}
 
 /** The standalone helper receives only deployment locations, never a serialized environment. */
 function helperOptions(context: RuntimeContext) {
@@ -39,12 +27,7 @@ async function readerContext(context: RuntimeContext, request: ReaderRequest, si
     "coc-read-check": [context.nodeExecutable, context.entrypoints.check],
     "coc-source": [context.nodeExecutable, context.entrypoints.source],
   };
-  let env = { ...context.env };
-  if (context.backend === "python" && request.systemPrompt) {
-    const python = pythonConfiguration(context);
-    commands.python = commands.python3 = python.command;
-    env = python.env;
-  }
+  const env = { ...context.env };
   for (const [name, command] of Object.entries(commands)) {
     const path = join(bin, name);
     await writeFile(path, `#!/bin/sh\nexec ${command.map(quote).join(" ")} "$@"\n`);
@@ -88,7 +71,6 @@ function taskExecutable(context: RuntimeContext, command: string): string {
 
 /** Both CLIs import the exact validators used by module.read.finish and mods.accept. */
 export async function runCheck(context: RuntimeContext, request: RuntimeCheck, signal: AbortSignal): Promise<{ ok: boolean; [key: string]: unknown }> {
-  if (context.backend === "python") return evaluateCheck(context, request, signal);
   const args = request.kind === "source-draft" ? ["--packet", resolve(context.home, request.packet)] : ["--kind", "mod-definition"];
   const output = await runHostProcess([context.nodeExecutable, context.entrypoints.check, ...args, "--draft", resolve(context.home, request.draft)], {
     cwd: context.resourceRoot, env: {...context.env, PI_COC_RUNTIME_OPTIONS: helperOptions(context)}, signal, timeoutMs: 30_000,
@@ -102,7 +84,7 @@ export async function runCheck(context: RuntimeContext, request: RuntimeCheck, s
 /** Called in the selected Node helper; this is the same pure publication validator. */
 export async function evaluateCheck(context: RuntimeContext, request: RuntimeCheck, signal: AbortSignal): Promise<{ ok: boolean; [key: string]: unknown }> {
   ensureActive(signal);
-  if (context.backend === "typescript" && (request.kind === "source-draft" || request.kind === "mod-definition")) {
+  if (request.kind === "source-draft" || request.kind === "mod-definition") {
     const checks = await import(pathToFileURL(context.entrypoints.kernelCheck).href);
     const result = request.kind === "source-draft"
       ? await checks.checkSourceDraft(context.contentRoot, resolve(context.home, request.packet), resolve(context.home, request.draft))
@@ -110,60 +92,7 @@ export async function evaluateCheck(context: RuntimeContext, request: RuntimeChe
     ensureActive(signal);
     return result;
   }
-  if (context.backend !== "python") throw new KernelError({ code: "not_implemented", message: `Runtime check is unavailable for ${context.backend}: ${request.kind}` });
-  const args = request.kind === "source-draft"
-    ? ["-m", "coc.modules.visual_check", "--packet", resolve(context.home, request.packet), "--draft", resolve(context.home, request.draft)]
-    : request.kind === "mod-definition" ? ["-m", "coc.mods.check", resolve(context.home, request.draft)] : undefined;
-  if (!args) throw new KernelError({ code: "not_implemented", message: "Unknown runtime check" });
-  const python = pythonConfiguration(context);
-  return new Promise((accept, reject) => {
-    const grouped = process.platform !== "win32";
-    let stdout = "", stderr = "", failure: Error | undefined, stopped = false;
-    let hardKill: ReturnType<typeof setTimeout> | undefined;
-    const child = spawn(python.command[0], [...python.command.slice(1), ...args], {
-      cwd: context.resourceRoot, env: python.env, stdio: ["ignore", "pipe", "pipe"], detached: grouped,
-    });
-    const kill = (signal: NodeJS.Signals) => {
-      try { if (grouped && child.pid) process.kill(-child.pid, signal); else child.kill(signal); } catch { /* The owned process is already gone. */ }
-    };
-    const stop = () => {
-      if (stopped) return;
-      stopped = true;
-      kill("SIGTERM");
-      hardKill = setTimeout(() => kill("SIGKILL"), 2000);
-    };
-    const timeout = setTimeout(() => { failure = new Error("Runtime check timed out"); stop(); }, 30_000);
-    signal.addEventListener("abort", stop, { once: true });
-    if (signal.aborted) stop();
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      if (failure) return;
-      stdout += chunk;
-      if (Buffer.byteLength(stdout) > 4 * 1024 * 1024) { failure = new Error("Runtime check output exceeded its limit"); stop(); }
-    });
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk: string) => { stderr = (stderr + chunk).slice(-2000); });
-    child.on("error", error => { failure = error; });
-    child.once("exit", () => {
-      clearTimeout(timeout);
-      // Stop descendants before waiting for the inherited output pipes to close.
-      if (grouped && child.pid) stop();
-    });
-    child.on("close", code => {
-      clearTimeout(timeout);
-      if (hardKill) clearTimeout(hardKill);
-      signal.removeEventListener("abort", stop);
-      if (grouped && child.pid) kill("SIGKILL");
-      if (signal.aborted) return reject(cancelled());
-      if (failure) return reject(failure);
-      try {
-        const result = JSON.parse(stdout);
-        if (!result || typeof result !== "object" || Array.isArray(result) || typeof result.ok !== "boolean" ||
-          (result.ok ? code !== 0 : code !== 1)) throw new Error("Runtime check returned an invalid result or exit code");
-        accept(result);
-      } catch (error) { reject(new Error(`Runtime check failed: ${error instanceof Error ? error.message : String(error)}${stderr ? `; ${stderr}` : ""}`)); }
-    });
-  });
+  throw new KernelError({ code: "not_implemented", message: "Unknown runtime check" });
 }
 
 export const runtimeCapabilities: RuntimeCapabilities = Object.freeze({

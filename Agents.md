@@ -113,6 +113,8 @@ Grok 系模型屡次把「交付」当目标、把意图当配菜，也屡次静
 
 生产内核、检查器和准备入口使用发出的 JavaScript；Python 仅供显式开发对照与原生模块构建工具使用。
 
+当前内核实现只在 `kernel-ts/` 维护。旧 Python 内核已退役；测试通过 `tests/python-oracle.json` 指定的 Git 提交导出只读对照缓存。该缓存只验证历史兼容性，不同步新功能、不修补其实现。普通 RPC 测试默认启动 TS；Python 实现内部的测试只证明固定历史版本。历史文档中的 `kernel/coc/` 路径按这个固定版本查阅。
+
 唯一环境由 `.python-version`、`pyproject.toml` 与提交的 `uv.lock` 定义。所有 Python 命令从仓库根以 `uv run --frozen python …` 运行（别处加 `--project <repo>`）；子进程用 `sys.executable`；不从 `PATH` 挑 `python`。升级 Python 或依赖是一次跨 `.python-version`/`pyproject`/`uv.lock`/文档的原子改动。
 
 ## 开发方法

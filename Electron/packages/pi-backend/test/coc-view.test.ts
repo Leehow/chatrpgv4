@@ -21,7 +21,7 @@ it('missing binding stays missing and a recorded binding wins over a legacy side
 });
 it('a cold sheet read starts no Keeper and leaves campaign bytes unchanged',async()=>{
   const repo=resolve(import.meta.dirname,'../../../..');const root=await mkdtemp(join(tmpdir(),'coc-cold-view-'));
-  const client=new KernelClient({command:['uv','run','--frozen','python','-m','coc.rpc','--workspace',root,'--content',join(repo,'content')],cwd:repo,env:{PYTHONPATH:join(repo,'kernel'),UV_CACHE_DIR:'/tmp/pi-coc-uv-cache'}});
+  const client=new KernelClient({command:[process.execPath,join(repo,'build/kernel/rpc.mjs'),'--workspace',root,'--content',join(repo,'content')],cwd:repo,env:{}});
   try {await client.call('campaign.create',{id:'cold-view',module:'the-haunting',pregen:'thomas-hayes',play_language:'zh-Hans'});}finally{await client.close();}
   const dir=join(root,'.coc/campaigns/cold-view');
   const files=['campaign.json','world.json','turn.json'];
@@ -228,7 +228,7 @@ it('a bound sheet read merges every lane\'s saved words under the kernel glossar
   const {cp}=await import('node:fs/promises');
   const {createPiHostBackend}=await import('../src/index.js');
   const repo=resolve(import.meta.dirname,'../../../..'),root=await mkdtemp(join(tmpdir(),'coc-possession-host-'));
-  const client=new KernelClient({command:['uv','run','--frozen','python','-m','coc.rpc','--workspace',root,'--content',join(repo,'content')],cwd:repo,env:{PYTHONPATH:join(repo,'kernel'),UV_CACHE_DIR:'/tmp/pi-coc-uv-cache'}});
+  const client=new KernelClient({command:[process.execPath,join(repo,'build/kernel/rpc.mjs'),'--workspace',root,'--content',join(repo,'content')],cwd:repo,env:{}});
   try {await client.call('campaign.create',{id:'carried',module:'the-haunting',pregen:'thomas-hayes',play_language:'zh-Hans'});}finally{await client.close();}
   const folder=join(root,'.coc/campaigns/carried/setup/presentations');await mkdir(folder,{recursive:true});
   // The projection may not outrank the glossary: the kernel's word for a skill stays the kernel's.
