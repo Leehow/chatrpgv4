@@ -7,7 +7,7 @@ import type { KernelContext } from '../context.js';
 import { RpcError } from '../errors.js';
 import { writeJsonAtomic } from '../fileio.js';
 import { isJsonObject, orderedObject, PythonFloat } from '../json.js';
-import { MOD_CAPABILITIES, packageFiles, packageDigest, manifestFrom, readModCatalog, activeMods, modProviders, effectiveMods } from '../read/mods.js';
+import { MOD_CAPABILITIES, buildVocabulary, packageFiles, packageDigest, manifestFrom, readModCatalog, activeMods, modProviders, effectiveMods } from '../read/mods.js';
 import { array, row, values, entries, string, truth, clone, equal, sorted, type Row } from '../read/values.js';
 import { readZipPackage } from './zip.js';
 
@@ -85,6 +85,11 @@ export class ModRuntime {
     for (const mod of [...catalog.values()].sort((a, b) => compareVersion(a.version, b.version))) if (mod.compatible) latest.set(mod.id, mod);
     return latest;
   }
+  /** Contract 28.2: the words the installed packages add to the reader's dossier ask. The rule and
+   *  its ordering live in `read/mods.ts` -- the module store calls it on every reading claim, and
+   *  reaching it through this class would pull the installer's zip reader into every bundle that
+   *  reads a module. */
+  buildVocabulary(): Promise<Row> { return buildVocabulary(this.context); }
   private async publish(target: string, files: ReadonlyMap<string, Buffer>): Promise<void> {
     const stage = join(this.root, 'imports', randomUUID().replaceAll('-', ''));
     await mkdir(stage, {recursive: true});
@@ -121,8 +126,8 @@ export class ModRuntime {
     }
     return defaults;
   }
-  async order(world: Row | null = null): Promise<string[]> {
-    const ids = new Set<string>([...[...(await this.catalog()).values()].map(mod => mod.id), ...Object.keys(row(row(world).mods).active ?? {})]);
+  async order(world: Row | null = null, catalog: Map<string, Row> | null = null): Promise<string[]> {
+    const ids = new Set<string>([...[...(catalog ?? await this.catalog()).values()].map(mod => mod.id), ...Object.keys(row(row(world).mods).active ?? {})]);
     let preferred = row(row(world).mods).order;
     if (preferred == null) {
       const path = join(this.root, 'load-order.json');

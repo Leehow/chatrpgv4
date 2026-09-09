@@ -3591,9 +3591,18 @@ contributed key only once the party has actually met them (`turns_present` in th
 ledger), which bounds the cost to what this table will see. A deepen that comes
 back with nothing records that absence so the same actor is not asked twice.
 
-Disabling a package stops its instructions, its projection and its asks. Facts
-already extracted stay on the graph and in campaigns compiled from it: no Mod may
+Disabling a package stops its instructions, its auditor and its future asks. It
+does not stop the word. A module records the vocabulary it was read under, and the
+read side takes the word from that provenance rather than from a campaign's locks —
+the graph carries the book's own material under it, and hiding that would leave the
+book less readable than it was before the package was installed. No Mod may
 overwrite authored source, and none may retract it either.
+
+A module keeps the union of every key it was ever asked for, so a key extracted
+under a package that has since been removed still reaches the table. Two packages
+claiming one key are settled by load order: the first keeps it, the rest are
+recorded as displaced. A collision is never allowed to fail an unrelated book's
+build, and never resolved silently.
 
 ### 28.6 Out of this version
 

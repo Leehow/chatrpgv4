@@ -6,7 +6,8 @@ import type { KernelContext } from '../context.js';
 import { RpcError } from '../errors.js';
 import { appendJsonl, sha256File, writeJsonAtomic } from '../fileio.js';
 import { compareUnicode } from '../json.js';
-import { ModuleGraph } from '../read/module-graph.js';
+import { ModuleGraph, dossierWith } from '../read/module-graph.js';
+import { buildVocabulary } from '../read/mods.js';
 import { array, clone, normalize, number, repr, row, string, truth, type Row } from '../read/values.js';
 import { assetRegistry, graphManifest, openingReport, registerStarter, startSceneCandidates } from '../write/source.js';
 import { nowIso } from '../write/store.js';
@@ -29,6 +30,10 @@ export class ModuleStore {
     private contractPromise?: Promise<ModuleContract>;
     constructor(readonly context: KernelContext) { this.root = join(context.stateRoot, 'modules'); }
     contract(): Promise<ModuleContract> { return this.contractPromise ??= loadModuleContract(this.context); }
+    /** Contract 28.2: the words the installed packages add to the reader's dossier ask. Read per
+     *  build rather than cached, so installing or defaulting a package changes the next book and
+     *  never a book already read. */
+    buildVocabulary(): Promise<Row> { return buildVocabulary(this.context); }
     moduleDir(id: string): string { return join(this.root, id); }
     moduleJson(id: string): string { return join(this.moduleDir(id), 'module.json'); }
     queuePath(id: string): string { return join(this.moduleDir(id), 'deepen-queue.json'); }
@@ -75,7 +80,8 @@ export class ModuleStore {
         const path = await this.graphPath(id);
         if (!await this.context.snapshots.pathExists(path))
             throw new RpcError('campaign_not_ready', `module ${repr(id)} has no graph yet`, { fix: 'prepare the original PDF with the visual reading service' });
-        const graph = new ModuleGraph(id, clone(row(await this.context.snapshots.readJson(path))), await sha256File(path), row((await this.contract()).graph.actor_dossier));
+        const dossier = dossierWith(row((await this.contract()).graph.actor_dossier), row((await this.module(id)).vocabulary));
+        const graph = new ModuleGraph(id, clone(row(await this.context.snapshots.readJson(path))), await sha256File(path), dossier);
         this.graphs.set(id, { generation, graph });
         return graph;
     }

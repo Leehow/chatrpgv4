@@ -9,7 +9,7 @@ import { ModuleGraph } from "./module-graph.js";
 import { npcsPresent } from "./capsule.js";
 import { entries, values, array, row, truth, string, number, integer, numeric, normalize, sorted, chars, length, clone, pick, type Row } from "./values.js";
 import { claimedEquipment } from "../mods/queue.js";
-export const MOD_CAPABILITIES = new Set(["checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1"]);
+export const MOD_CAPABILITIES = new Set(["checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1"]);
 const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
 };
@@ -20,6 +20,77 @@ const localizedText = (value: any): boolean => typeof value === "string" ? Boole
 function version(value: any) {
     if (typeof value !== "string" || !/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(value))
         invalid("Mod version must be major.minor.patch");
+}
+/** Contract 28.2: the words the installed packages add to the reader's dossier ask, from the newest
+ *  compatible version of every package the defaults enable. A module is shared by every campaign
+ *  compiled from it, so a per-campaign lock cannot decide what its reader was asked. Two packages
+ *  claiming one key are settled by load order: the first keeps it and the rest are recorded as
+ *  displaced, never dropped silently and never allowed to fail an unrelated book's build.
+ *
+ *  This lives on the read side, not on ModRuntime: the module store calls it on every reading claim,
+ *  and reaching it through the runtime would pull the package installer -- and its zip reader -- into
+ *  every bundle that reads a module. */
+export async function buildVocabulary(context: KernelContext): Promise<Row> {
+    const catalog = await readModCatalog(context), root = join(context.stateRoot, "mods");
+    const key = (value: string): bigint[] => string(value).split(".").map(part => BigInt(/^[0-9]+$/.test(part) ? part : 0));
+    const newer = (left: string, right: string): boolean => {
+        const a = key(left), b = key(right);
+        for (let i = 0; i < 3; i++)
+            if (a[i] !== b[i]) return a[i] > b[i];
+        return false;
+    };
+    const latest = new Map<string, Row>();
+    for (const mod of catalog.values())
+        if (mod.compatible && (!latest.has(mod.id) || newer(string(mod.version), string(latest.get(mod.id)!.version))))
+            latest.set(mod.id, mod);
+    const read = async (name: string): Promise<any> => {
+        const path = join(root, name);
+        return await context.snapshots.pathExists(path) ? await context.snapshots.readJson(path) : null;
+    };
+    const defaults = row(await read("defaults.json")), preferred = array(await read("load-order.json")).map(name => string(name));
+    const ids = new Set([...latest.values()].map(mod => string(mod.id)));
+    const order = [...preferred.filter(name => ids.has(name)), ...sorted([...ids].filter(name => !preferred.includes(name)))];
+    const enabled = [...latest.values()]
+        .filter(mod => truth(Object.hasOwn(defaults, string(mod.id)) ? defaults[string(mod.id)] : mod.default_enabled))
+        .sort((a, b) => order.indexOf(string(a.id)) - order.indexOf(string(b.id)));
+    const keys: Row[] = [], displaced: Row[] = [], claimed = new Map<string, string>();
+    for (const mod of enabled)
+        for (const entry of array(row(row(mod.contributes).vocabulary).actor_profile_keys)) {
+            const name = string(entry.key), owner = claimed.get(name);
+            if (owner != null) { displaced.push({ key: name, mod: string(mod.id), kept_by: owner }); continue; }
+            claimed.set(name, string(mod.id));
+            keys.push({ key: name, label: string(entry.label), ask: string(entry.ask), mod: string(mod.id), version: string(mod.version) });
+        }
+    return { actor_profile_keys: keys, ...(displaced.length ? { displaced } : {}) };
+}
+/** Contract 28.3: a package may add words to the actor dossier spine -- a fact about a person the
+ *  five core keys do not name. Only shape is decided here. Collision with the core spine and with
+ *  another package's key is decided where the contract is loaded, because only there is the core
+ *  spine known. */
+export function validateVocabulary(manifest: Row): void {
+    const contributed = manifest.contributes.vocabulary;
+    if (contributed == null)
+        return;
+    if (!plain(contributed) || Object.keys(contributed).some(key => key !== "actor_profile_keys"))
+        invalid("Unknown Mod vocabulary contribution in game interface v1");
+    if (!array(manifest.requires).includes("graph.vocabulary.v1"))
+        invalid("A package contributing vocabulary must require graph.vocabulary.v1");
+    const keys = contributed.actor_profile_keys;
+    if (!Array.isArray(keys) || !keys.length || keys.length > 8)
+        invalid("Contributed actor profile keys must be a list of one to eight");
+    const seen = new Set<string>();
+    for (const entry of keys) {
+        if (!plain(entry) || sorted(Object.keys(entry)).join(",") !== "ask,key,label")
+            invalid("A contributed profile key needs exactly a key, a label and an ask");
+        if (typeof entry.key !== "string" || !/^[a-z][a-z0-9_-]{0,39}$/.test(entry.key))
+            invalid("A contributed profile key must be a lowercase semantic slug");
+        for (const [field, limit] of [["label", 40], ["ask", 400]] as const)
+            if (typeof entry[field] !== "string" || !entry[field].trim() || length(entry[field]) > limit)
+                invalid(`A contributed profile key needs a bounded ${field}`);
+        if (seen.has(entry.key))
+            invalid("A package cannot contribute the same profile key twice");
+        seen.add(entry.key);
+    }
 }
 export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
     let manifest: Row;
@@ -65,8 +136,9 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("Game interface v1 settings are scalar values");
     if (!plain(manifest.settings_schema ?? {}))
         invalid("settings_schema must be an object");
-    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "document_editor"].includes(k)))
+    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "document_editor", "vocabulary"].includes(k)))
         invalid("Unknown Mod contribution in game interface v1");
+    validateVocabulary(manifest);
     for (const [dep, ver] of entries(manifest.dependencies)) {
         if (!/^[a-z][a-z0-9-]{0,63}$/.test(dep))
             invalid("Dependency ids must be semantic slugs");

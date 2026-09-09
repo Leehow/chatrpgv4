@@ -6,6 +6,39 @@ export const TEMPLATE_NOTE = "the book's pregenerated investigator, not at this 
 const EXIT_KINDS = ["route-to", "play-precedes", "may-lead-to", "alternative-to", "hands-off-to"];
 const CHARACTERISTICS = new Set(["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK", "SAN"]);
 const DERIVED = new Set(["HP", "MP", "BUILD", "MOVE", "MAGIC_POINTS", "DAMAGE_BONUS", "AGE", "ARMOR"]);
+/** Contract 28.3/28.4: the dossier spine as one list. `profile_keys` stays the core words the
+ *  book's own vocabulary names -- the playability measure counts those and only those, so a book
+ *  silent about a package's key does not report every actor in it as thin. `contributed` are the
+ *  words a package added, bound when the module was built and carried in its provenance. */
+export const dossierKeys = (dossier: Row): string[] => [
+    ...array(dossier.profile_keys).map(key => string(key)),
+    ...array(dossier.contributed).map(entry => string(row(entry).key)),
+].filter(key => key !== "");
+export function dossierLabels(dossier: Row): Array<[string, string]> {
+    const labels = row(dossier.profile_labels),
+        core: Array<[string, string]> = truth(labels)
+            ? entries(labels).map(([key, label]) => [key, string(label) || key])
+            : array(dossier.profile_keys).map(key => [string(key), string(key)]);
+    return [...core, ...array(dossier.contributed).map(entry => {
+        const key = string(row(entry).key);
+        return [key, string(row(entry).label) || key] as [string, string];
+    })].filter(([key]) => key !== "");
+}
+/** The module's own recorded vocabulary merged onto the current contract. A package can only add
+ *  a word, never rename or take away a core one, and a key the module was not built with stays
+ *  absent -- the same absence as a book that does not say (contract 28.2). */
+export function dossierWith(dossier: Row, recorded: Row | null | undefined): Row {
+    const core = new Set(array(dossier.profile_keys).map(key => string(key))),
+        seen = new Set<string>(),
+        contributed = array(row(recorded).actor_profile_keys).flatMap(entry => {
+            const key = string(row(entry).key);
+            if (!key || core.has(key) || seen.has(key))
+                return [];
+            seen.add(key);
+            return [{ key, label: string(row(entry).label) || key }];
+        });
+    return contributed.length ? { ...dossier, contributed } : dossier;
+}
 export function recordOf(node: Row | null | undefined): Row {
     const props = row(node?.properties),
         record = row(props.runtime_projection).record;
@@ -354,7 +387,7 @@ export class ModuleGraph {
     }
     npcProfile(node: Row): Row {
         const profile: Row = {};
-        for (const key of array(this.dossier.profile_keys)) {
+        for (const key of dossierKeys(this.dossier)) {
             let value = row(node.properties)[key];
             if (!(typeof value === "string" && value.trim()))
                 value = recordOf(node)[key];
@@ -413,7 +446,11 @@ export class ModuleGraph {
         return this.kind("npc").filter(npc => this.npcKnows(npc).some(entry => entry.node.node_id === node.node_id)).map(npc => npc.node_id);
     }
     npcHasMaterial(node: Row): boolean {
-        return truth(this.npcProfile(node)) || array(this.dossier.claim_predicates).some(predicate => this.npcClaims(node, predicate).length > 0) || truth(recordOf(node).facts);
+        // Core words only, matching `npcs_without_material`: a book silent about a package's key must
+        // not report every actor in it as thin, and a key only a package asked for must not stand in
+        // for the material the book itself owes an actor (contract 28.5).
+        const profile = this.npcProfile(node), core = array(this.dossier.profile_keys).some(key => truth(profile[string(key)]));
+        return core || array(this.dossier.claim_predicates).some(predicate => this.npcClaims(node, predicate).length > 0) || truth(recordOf(node).facts);
     }
     npcTies(node: Row): Row[] {
         const result: Row[] = [],

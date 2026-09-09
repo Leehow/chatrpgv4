@@ -1,7 +1,7 @@
 /** Closed source vocabulary loaded from the captured content root. */
 import { join } from 'node:path';
 import type { KernelContext } from '../context.js';
-import { array, row, sorted, type Row } from '../read/values.js';
+import { array, row, sorted, string, type Row } from '../read/values.js';
 export const VISUAL_CONTRACT_ID = 'coc.module-graph-shard.v4';
 export const SHARD_KEYS = ['contract_id', 'nodes', 'claims', 'node_refs', 'coverage', 'dependencies', 'critical', 'ready_nodes'];
 export const NODE_KEYS = ['node_id', 'node_kind', 'name', 'aliases', 'summary', 'properties', 'visibility', 'source_refs'];
@@ -22,8 +22,15 @@ export const validSemanticId = (value: unknown): value is string => typeof value
  * section 23): the shape is checked, membership never is.
  */
 export const validSourceLanguage = (value: unknown): value is string => typeof value === 'string' && /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(value) && !value.endsWith('\n');
-export function vocabulary(contract: ModuleContract): Row {
+/** Contract 28.3: the words a package added arrive in the reader's own dossier ask, each with the
+ *  one bounded line the package wrote. The contract law is unchanged and applies to them as
+ *  written -- a key a book does not give is absent, never invented. */
+export function vocabulary(contract: ModuleContract, contributed: Row | null = null): Row {
     const { graph, template } = contract;
+    const added = array(row(contributed).actor_profile_keys).map(entry => ({
+        key: string(row(entry).key), label: string(row(entry).label), ask: string(row(entry).ask),
+    })).filter(entry => entry.key !== '' && !array(graph.actor_dossier?.profile_keys).includes(entry.key));
+    const dossier = added.length ? { ...row(graph.actor_dossier), contributed: added } : graph.actor_dossier;
     return {
         shard_contract_id: VISUAL_CONTRACT_ID,
         shard_keys: sorted(SHARD_KEYS), node_keys: sorted(NODE_KEYS), claim_keys: sorted(CLAIM_KEYS),
@@ -35,6 +42,6 @@ export function vocabulary(contract: ModuleContract): Row {
         source_ref_law: 'Use source_refs with a physical page starting at 1 and an optional normalized box. No text spans are required.',
         exit_relation_kinds: [...array(template.entrance_relation_kinds), 'route-to'],
         playable_node_kinds: [...array(template.playable_node_kinds)], actor_kinds: [...array(template.actor_kinds)],
-        actor_dossier: graph.actor_dossier,
+        actor_dossier: dossier,
     };
 }

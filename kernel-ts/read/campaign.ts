@@ -5,7 +5,7 @@ import type { KernelContext } from "../context.js";
 import { RpcError } from "../errors.js";
 import { sha256File } from "../fileio.js";
 import { parsePythonJson } from "../json.js";
-import { ModuleGraph } from "./module-graph.js";
+import { ModuleGraph, dossierWith } from "./module-graph.js";
 import { array, row, clone, normalize, stripPrefix, number, repr, type Row } from "./values.js";
 export class CampaignSnapshot {
     readonly dir: string;
@@ -161,7 +161,7 @@ export async function loadModule(context: KernelContext, id: string): Promise<Lo
     }
     const raw = row(await context.snapshots.readJson(path)),
         contract = row(await context.snapshots.readJson(join(context.content, "modules", "module-graph-contract-v3.json")));
-    const graph = new ModuleGraph(id, raw, await sha256File(path), row(contract.actor_dossier));
+    const graph = new ModuleGraph(id, raw, await sha256File(path), dossierWith(row(contract.actor_dossier), row(meta.vocabulary)));
     const material = (name: string) => {
         if (!registered || !meta.reading_version)
             return "ready";

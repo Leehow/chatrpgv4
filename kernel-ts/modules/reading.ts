@@ -333,8 +333,19 @@ export class Reading {
                     }));
                     if (!known.length)
                         known = [{ node_id: `module-${mid}`, node_kind: 'module', name: meta.title, ready: false }];
-                    const contract = await this.store.contract();
-                    const packet = { ...job, module_id: mid, source, concurrency: 3, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], vocabulary: vocabulary(contract), coverage_domains: [...array(contract.graph.coverage_domains)] };
+                    const contract = await this.store.contract(), contributed = await this.store.buildVocabulary();
+                    // Contract 28.2: the reader is asked for what the installed packages contribute now, and
+                    // the module keeps the union of every key it was ever asked for -- a key extracted under
+                    // an earlier package must still be readable when that package is gone.
+                    const recorded = new Map(array(row(meta.vocabulary).actor_profile_keys).map(entry => [string(row(entry).key), row(entry)]));
+                    const added = array(contributed.actor_profile_keys).filter(entry => !recorded.has(string(entry.key)));
+                    if (added.length) {
+                        for (const entry of added)
+                            recorded.set(string(entry.key), entry);
+                        meta.vocabulary = { actor_profile_keys: [...recorded.values()] };
+                        await this.store.writeModule(meta);
+                    }
+                    const packet = { ...job, module_id: mid, source, concurrency: 3, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
                     await writeJsonAtomic(join(work, 'packet.json'), packet);
                     this.owned();
                     return packet;
