@@ -126,12 +126,13 @@ test("TypeScript kernel production sources preserve the English system-language 
 	assert.deepEqual(files.flatMap((file) => offences(file)), []);
 });
 
-// The pack renderers and the Electron host draw their words from `content/ui/<tag>/` under §23, so
-// their sources have no reason left to hold a CJK character. The renderer and host workers are
-// removing the last of them on the integration branch for the 2026-09-09 languages-as-data
-// decision; until that lands this reports the remaining lines instead of failing the suite.
-test("system language: the pack renderers and the Electron host hold no CJK either (contract §23)", { todo: "pending the languages-as-data integration branch" }, () => {
-	const files = ADDED_SCOPE.flatMap(sourcesUnder);
+// The pack renderers and the Electron host's COC files draw their words from `content/ui/<tag>/`
+// under §23, so their sources have no reason left to hold a CJK character. The rest of the Electron
+// application is the PipiUI host's own chrome, written in its own language by another product, and
+// is not this guard's business: only the COC files under `Electron/` are scanned.
+const COC_HOST_FILE = /(^|\/)(Coc[A-Za-z]*|coc-[a-z-]+)\.[cm]?[jt]sx?$/;
+test("system language: the pack renderers and the Electron host's COC files hold no CJK either (contract §23)", () => {
+	const files = ADDED_SCOPE.flatMap(sourcesUnder).filter((file) => !file.includes("/Electron/") || COC_HOST_FILE.test(file));
 	assert.ok(files.length >= 15, `too few files scanned (${files.length}); a path is probably wrong`);
 	// One row per file rather than per line: this scope still holds thousands of lines, and a wall
 	// of them says nothing a count does not.
@@ -142,10 +143,9 @@ test("system language: the pack renderers and the Electron host hold no CJK eith
 	assert.deepEqual(found, [], `${found.length} files still hold CJK:\n${found.join("\n")}`);
 });
 
-// The renderer worker is removing the last tables (`pipicoc/panel.js`, `mechanics.js`,
-// `mods-panel.js`, `choices.js`) on the same integration branch; `extensions/**` and the Coc*
-// components are already clear. Reported rather than failed until that lands.
-test("no per-language table survives in a renderer, an extension or a Coc component (contract §23)", { todo: "pending the languages-as-data integration branch" }, () => {
+// A table keyed by a play language, or a comparison against one, is the shape §23 removed: the
+// words live in `content/ui/<tag>/` and the tags in `content/languages.json`.
+test("no per-language table survives in a renderer, an extension or a Coc component (contract §23)", () => {
 	const pattern = languageTablePattern(declaredTags());
 	const files = TABLE_SCOPE.flatMap(sourcesUnder).filter((file) => !/\/Electron\/packages\/ui\/src\/(?!Coc)/.test(file));
 	assert.ok(files.length >= 15, `too few files scanned (${files.length}); a path is probably wrong`);

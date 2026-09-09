@@ -1961,6 +1961,53 @@ resource root): a relocated content bundle must therefore carry
   that already renders scene names; until then the Keeper renders the name in
   the prose, as it does every other graph name.
 
+#### What landed and what is left (integration, 2026-09-09)
+
+Landed on four branches and integrated: the renderers (`pipicoc/*.js`, `Coc*.tsx`,
+`Transcript.tsx`) read `ui` and caption errors by code; both hosts attach `ui` and
+merge the growing lanes under the mechanics entry's labels; the extensions notify
+through the `extension` surface; the kernel reads languages from data, obliges
+the script class by data, keeps every script in `normalizeText`, builds the
+glossary from every `localized_labels` row plus `kernel-terms.json`, requires a
+label to reveal an echo, files the display name on an unlabelled clue receipt,
+carries the campaign language into a chase, and reads Mod names per tag.
+
+Deviations and residue, each a decision or a ticket rather than a silent gap:
+
+- **Guard scope.** The CJK guard scans `pipicoc/` and only the COC files under
+  `Electron/` (`Coc*.tsx`, `coc-*.ts`). The rest of `Electron/packages/ui/src`
+  and `pi-backend/src` is the PipiUI host's own chrome (93 and 19 files of it),
+  another product's words; localising the host application is its own ticket.
+- **Python differential suites.** `tests/kernel/test_ts_*.py` compare the
+  TypeScript kernel against the retired Python kernel, which cannot read a
+  per-language Mod manifest, so 112 of them fail on `campaign.create`. The
+  Python kernel is retired by decision; these suites need retiring with it or a
+  frozen pre-contract fixture. Not decided here.
+- **Starter guidance bundles.** The guidance prompt now states each field's
+  language, which changes the bundle fingerprint. The-haunting's bundles were
+  rebuilt in parallel; mystery-house's shipped text already satisfied the prompt
+  and was re-stamped with the current fingerprint, not regenerated. A guide name
+  in the play language needs `kernel-ts/setup/drafts.ts` to store the NPC's
+  display name beside the resolved handle, then a bundle rebuild.
+- **Panel titles.** `pipiui-extension.json` panel and view titles ("Investigator",
+  "Mods", "Scenario preparation") are validated as plain strings by the host's
+  manifest schema; no localisation path exists without changing that schema.
+  The panels name their landmark from the host-supplied title and draw no
+  English fallback of their own.
+- **Mod settings.** A Mod setting's caption comes from its JSON Schema `title`
+  (string or per-tag object); enum values render as themselves. A per-language
+  channel for enum labels belongs to the Mod manifest schema.
+- **Handout bodies on the mechanics card** are module text and go through
+  `term()`, which only helps when a projection exists; the document-presentation
+  lane that reads papers in the play language is the right producer and is not
+  yet wired to handout rows.
+- **The kernel-minted defence prompt** for a player (`session-view.ts`) is still
+  an English sentence; the host discards it and has the Keeper ask in the play
+  language, as §16 already ruled. The sentence stays a Keeper-facing note.
+- `scripts/starter_graph.py` decides "is this a CJK language" by tag prefix; it is
+  a build script for starters and should read the script class from
+  `content/languages.json` when next touched.
+
 ### Host decision: RPC adapter
 
 The adapter preserves transport/session/model options, removes host persona and
