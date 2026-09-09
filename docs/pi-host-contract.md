@@ -1,5 +1,13 @@
 # Pi 宿主契约
 
+Runtime migration follows kernel contract section 27. Each host owner captures
+its runtime configuration once and obtains kernel, reader and checking capabilities
+from composition. Stage A retains the existing Python kernel and Pi CLI behavior;
+the change does not fork Pi, change the seven Keeper verbs or alter source-reader
+tool permissions. Source and packaged delivery will use the same business entrypoints
+with host-owned resource and writable-data locations. Until the final package gate
+passes, source execution and local-checkout App delivery remain the supported forms.
+
 PDF 视觉阅读已按 [visual-pdf-reader.md](specs/visual-pdf-reader.md) 与 [内核契约 §22](kernel-rpc.md#22-visual-pdf-reading-and-demand-driven-graph-building) 接线；旧 OCR、文字资料包和 build/deepen 编排已退役。最后的全量与真桌验证状态见规格中的实施记录。
 
 我们不 fork Pi，也不打补丁。这份文件写清 pi-coc 依赖 Pi 的哪些接口与行为、我们在哪里绕过了它的限制、想请上游改什么，以及 Pi 升版时怎么核对。Pi 升级 = 改一个版本号，然后按第 7 节走一遍。

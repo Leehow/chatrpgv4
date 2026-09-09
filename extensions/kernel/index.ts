@@ -7,10 +7,11 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { appendFile, mkdir } from "node:fs/promises";
-import { dirname, join, resolve as resolvePath } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { createRuntime, type HostRuntime } from "../../runtime/host.ts";
+export { kernelCommand } from "../../runtime/host.ts";
 import { cocHome, cocMode } from "../lanes/host.ts";
-import { KernelClient, KernelError , isKernelError } from "./client.ts";
+import { type KernelClient, KernelError, isKernelError } from "./client.ts";
 import { COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 
@@ -132,7 +133,6 @@ interface TableState {
 	lanes: AbortController;
 }
 
-const PKG_ROOT = packageRoot();
 const CLOSED_STATES: ReadonlySet<TurnState> = new Set<TurnState>(["awaiting_player", "committed", "asked"]);
 const TURN_CLOSED_REASON = "the turn is closed, waiting for the player";
 /** Used when the kernel refuses a delivery that carries none of the campaign's play_language script. */
@@ -156,40 +156,6 @@ let bridgeGate = { open: false };
 let startupError: string | undefined;
 /** Every field of the session_start ctx is computed on access, so holding it is holding a live view of the session. */
 let sessionCtx: ExtensionContext | undefined;
-
-function packageRoot(): string {
-	const here = dirname(fileURLToPath(import.meta.url));
-	return resolvePath(here, "..", "..");
-}
-
-/**
- * The launch command: the uv command from contract §1 by default, replaced by PI_COC_KERNEL_CMD (a
- * JSON array) in tests. The workspace is `PI_COC_HOME` when it is set and the session's working
- * directory otherwise (contract §20.7), which is what decides where `.coc/` — the module library and
- * the campaign saves — actually lives.
- */
-export function kernelCommand(workspace: string): string[] {
-	const override = process.env.PI_COC_KERNEL_CMD?.trim();
-	if (override) {
-		const parsed: unknown = JSON.parse(override);
-		if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((part) => typeof part !== "string")) {
-			throw new Error("PI_COC_KERNEL_CMD must be a non-empty JSON array of strings");
-		}
-		return parsed as string[];
-	}
-	return [
-		"uv",
-		"run",
-		"--frozen",
-		"python",
-		"-m",
-		"coc.rpc",
-		"--workspace",
-		workspace,
-		"--content",
-		join(PKG_ROOT, "content"),
-	];
-}
 
 function normalizeName(value: unknown): unknown {
 	if (typeof value !== "string") return value;
@@ -343,6 +309,7 @@ function readMechanics(result: Record<string, unknown>): Array<Record<string, un
 }
 
 export default function (pi: ExtensionAPI) {
+	let runtime: HostRuntime | undefined;
   let mods: {prepare(method: string, payload: Record<string, any>, signal?: AbortSignal): Promise<void>} | undefined;
   pi.events.on("coc:mods-bridge", value => { mods = value as typeof mods; });
 	let reading: { ensure(moduleId: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> } | undefined;
@@ -822,15 +789,16 @@ export default function (pi: ExtensionAPI) {
 			// Cut off lane completions still in flight first: an exiting process should not wait on a model round trip.
 			current.lanes.abort();
 			pi.events.emit("coc:kernel-bridge", { campaign: current.campaign, call: undefined });
-			await current.kernel.close();
 		}
 		// The setup process has no table, so its kernel hangs here on its own (contract §14.4).
 		const solo = soloKernel;
 		soloKernel = undefined;
 		if (solo) {
 			pi.events.emit("coc:kernel-bridge", { call: undefined });
-			await solo.close();
 		}
+		const closing = runtime;
+		runtime = undefined;
+		await closing?.close();
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -839,12 +807,10 @@ export default function (pi: ExtensionAPI) {
 		// A new session gets a new gate: a closure handed out by the previous table can only fail, never touch this kernel.
 		bridgeGate = { open: true };
 		startupError = undefined;
-		let kernel: KernelClient | undefined;
 		try {
-			kernel = new KernelClient({
-				command: kernelCommand(cocHome(ctx.cwd)),
-				cwd: PKG_ROOT,
-				env: { PYTHONPATH: join(PKG_ROOT, "kernel") },
+			runtime = createRuntime({ owner: "session", home: cocHome(ctx.cwd),
+				campaign: process.env.PI_COC_CAMPAIGN?.trim() || undefined });
+			const kernel = runtime.openKernel({
 				onDiagnostic: (message) => {
 					// The kernel's stderr and restart notices can arrive after the session is disposed (the user
 					// quits pi while a lane is still flying), and after that every ctx getter throws
@@ -865,7 +831,6 @@ export default function (pi: ExtensionAPI) {
 					applyOpen(reopened);
 				},
 			});
-			kernel.start();
 			const hello = await kernel.call<Record<string, unknown>>("kernel.hello");
 			if (setupMode) {
 				// The setup process: the kernel is here, the table is not. Put the RPC closure on the bus for the
@@ -946,7 +911,8 @@ export default function (pi: ExtensionAPI) {
 			}
 		} catch (error) {
 			startupError = `The kernel could not open the table: ${errorText(error)}`;
-			await kernel?.close();
+			await runtime?.close();
+			runtime = undefined;
 			table = undefined;
 			if (ctx.hasUI) ctx.ui.notify(startupError, "error");
 		}

@@ -2461,3 +2461,74 @@ inventory and restart persistence, disabled-generator usability and worldline
 conflicts through public interfaces. Then run the required suites and real Grok
 play with this main session as the sole player. UI controls must be exercised in a
 real browser. A generated card or deterministic fixture is not real-table evidence.
+
+## 27. Host runtime composition (runtime migration, issue #35)
+
+### 27.1 Ownership and interface
+
+The host creates one runtime object for each play/setup session, preparation task,
+or standalone check. Its binding contains `owner` (`session`, `preparation`, or
+`check`), `home`, optional `campaign`, and optional `signal`. The runtime object's
+lifetime, not a process-global registry, identifies its owner. Separate objects
+never share a kernel or a mutable campaign cache.
+
+Only the host composition accepts deployment configuration: resource root,
+content root, Pi home, Node executable and an environment snapshot. Business
+callers supply the binding and operation inputs. They do not construct Python,
+uv, PATH, PYTHONPATH or repository-relative launch recipes.
+
+The runtime offers these existing capabilities:
+
+- `openKernel(options)`: return the owner's existing KernelClient connection,
+  starting it lazily. Connection options cover diagnostics, timeout and reopen
+  behavior; executable selection belongs to composition.
+- Reader/Mod task execution with cancellation and retained evidence.
+- Read-only source-draft and Mod-definition checks, and host PDF page access.
+- `close()`: revoke the owner and stop its processes. Repeated calls await the
+  same shutdown. A closed or aborted owner cannot start or restart work.
+
+The capabilities are direct module calls and subprocesses. This introduces no
+daemon, scheduler, network endpoint, dynamic plugin registry or second source of
+game state. The kernel retains serial RPC, receipts, arithmetic, transactions,
+source-publication leases and the authority defined by the earlier sections.
+
+### 27.2 Runtime selection and failures
+
+Stage A keeps the existing Python implementation. The default kernel command is
+the locked uv/Python launch from section 1. `PI_COC_KERNEL_CMD` remains a host-only
+JSON argv override and is resolved at owner creation. The host captures executable,
+working directory, content and environment consistently; changing ambient process
+configuration cannot redirect an existing owner's subsequent launch or restart.
+The compatibility `kernelCommand` export delegates to the same command builder.
+
+Composition validates its supplied locations and launch inputs before creating
+processes or writing campaign state. Missing or invalid deployment configuration
+is explicit; it never triggers a fallback download or selects another runtime.
+Cancelling an owner revokes new calls immediately and initiates shutdown of work
+already owned. A shutdown timeout is reported, never treated as verified cleanup.
+
+Read-only checks share their validators with authoritative kernel acceptance.
+Successful feedback alone does not publish a graph, accept a Mod definition or
+mutate a campaign. Readers retain their tool-enabled Pi workflow and source
+evidence. The memory/verifier exception and the seven Keeper verbs are unchanged.
+
+### 27.3 Migration and verification
+
+The lead owns this contract, common runtime shape and final wiring. Caller lanes
+own play/setup integration, preparation integration, and reader/check integration
+respectively. Kernel migration lanes use the existing JSONL interface and
+preserve the previous state formats. A selectable incomplete TypeScript kernel
+must refuse unsupported work explicitly and cannot call Python as a fallback.
+
+Verify the runtime through actual subprocess startup, requests, restart,
+cancellation and exit, including paths with spaces and independent owners.
+Use the existing RPC corpus for semantic compatibility and the normal product
+entrypoints for genuine acceptance. Stage A does not satisfy the final requirement
+for a package without Python, uv, developer files or global runtimes.
+
+### 27.4 Implementation record
+
+2026-09-09: implementation restarted from the clean 0.9.2a baseline after the user
+requested deletion of two unmerged worker attempts. No code from those attempts
+is being integrated. The first slice provides host-owned kernel composition;
+remaining task/check adapters and production TypeScript cutover stay pending.

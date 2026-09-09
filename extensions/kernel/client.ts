@@ -48,7 +48,9 @@ export interface KernelClientOptions {
 	command: string[];
 	/** Working directory of the subprocess (the package root). */
 	cwd: string;
-	env?: Record<string, string>;
+	env?: NodeJS.ProcessEnv;
+	/** Host composition supplies a captured environment for every start and restart. */
+	inheritEnv?: boolean;
 	/** Timeout for a single request, 30 seconds by default. */
 	timeoutMs?: number;
 	/** Diagnostics: stderr lines, protocol noise, restart notices. */
@@ -74,6 +76,7 @@ export class KernelClient {
 	private queue: Promise<unknown> = Promise.resolve();
 	private seq = 0;
 	private closing = false;
+	private closePromise: Promise<void> | undefined;
 	private restartUsed = false;
 	private dead = false;
 
@@ -87,6 +90,7 @@ export class KernelClient {
 	}
 
 	start(): void {
+		if (this.closing || this.dead) throw new KernelError({ code: "internal", message: "the kernel is closed or stopped" });
 		if (this.child) return;
 		this.spawnChild();
 	}
@@ -110,31 +114,41 @@ export class KernelClient {
 		return this.dispatch<T>(method, params);
 	}
 
-	async close(): Promise<void> {
+	close(): Promise<void> {
+		if (this.closePromise) return this.closePromise;
 		this.closing = true;
 		const child = this.child;
 		this.child = undefined;
 		this.rejectAllPending(new KernelError({ code: "internal", message: "the kernel is closed" }));
-		if (!child) return;
-		await new Promise<void>((resolve) => {
-			const done = () => resolve();
-			child.once("exit", done);
+		if (!child) return this.closePromise = Promise.resolve();
+		this.closePromise = new Promise<void>((resolve, reject) => {
+			let escalation: NodeJS.Timeout | undefined;
+			let deadline: NodeJS.Timeout | undefined;
+			const done = () => { clearTimeout(escalation); clearTimeout(deadline); resolve(); };
+			child.once("close", done);
 			try {
 				child.stdin?.end();
 				child.kill();
-			} catch {
-				done();
+			} catch (error) {
+				child.removeListener("close", done);
+				reject(error);
 				return;
 			}
-			setTimeout(() => {
+			escalation = setTimeout(() => {
 				try {
 					child.kill("SIGKILL");
 				} catch {
 					/* already gone */
 				}
-				done();
-			}, 2000).unref?.();
+				deadline = setTimeout(() => {
+					child.removeListener("close", done);
+					reject(new KernelError({ code: "internal", message: "kernel shutdown did not complete after SIGKILL" }));
+				}, 2000);
+				deadline.unref?.();
+			}, 2000);
+			escalation.unref?.();
 		});
+		return this.closePromise;
 	}
 
 	private spawnChild(): void {
@@ -145,7 +159,7 @@ export class KernelClient {
 		}
 		const child = spawn(command, args, {
 			cwd: this.options.cwd,
-			env: { ...process.env, ...(this.options.env ?? {}) },
+			env: this.options.inheritEnv === false ? { ...this.options.env } : { ...process.env, ...this.options.env },
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 		this.child = child;
@@ -160,6 +174,8 @@ export class KernelClient {
 			}
 		});
 		child.on("error", (error: Error) => {
+			if (this.child !== child) return;
+			this.child = undefined;
 			this.options.onDiagnostic?.(`kernel spawn error: ${error.message}`);
 			this.handleExit(error.message);
 		});
