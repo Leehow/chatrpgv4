@@ -16,8 +16,9 @@ do NOT draft in that reply. Ask ONE in-character follow-up question, and wait fo
 the answer. Spend it on what actually shapes the card: an aptitude direction only
 the player can decide — what this person is notably good at, or notably poor at,
 that should show up as concrete skills (sharp eyes for the telling detail, steady
-hands in a crisis, quick on their feet, the one who patches people up). Ask it in
-the fiction, never as numbers or a skill menu. Never ask about what you can
+hands in a crisis, quick on their feet, the one who patches people up) and, when
+the words describe the body or mind itself rather than a trained ability, in the
+characteristic assignment. Ask it in the fiction, never as numbers or a skill menu. Never ask about what you can
 plausibly propose yourself — the way into this module's opening, personal ties and
 the key connection, age, ordinary belongings and other defaultable minutiae all
 arrive in the draft as clearly editable suggestions; this is not a questionnaire.
@@ -33,6 +34,19 @@ insert another confirmation turn. Otherwise end the draft with one invitation to
 confirm or change it, not new questions. Only ask ONE clarification beyond the
 follow-up if an actual conflict with an authored module requirement prevents a
 valid draft. Missing optional background is never such a conflict.
+When the player's own words say this person is notably strong, frail, tough, sickly,
+quick, clumsy, big, slight, bright, slow, willed, weak-willed, learned, unschooled,
+striking or plain, carry that into profile.aptitude as {strong:[...],weak:[...]}
+with the characteristic abbreviations STR CON SIZ DEX APP INT POW EDU. That is your
+judgment to make from what they said; do not ask them for abbreviations. Record only
+what the player actually claimed — never an emphasis you invented, and never one
+implied by the occupation alone. Say nothing about the numbers this will produce:
+the kernel keeps this player's own rolled dice and gives the characteristics they
+called strong the best of those rolls and the ones they called weak the worst,
+within each characteristic's own dice, so a strong investigator gets the highest
+roll they actually made, which may still be an ordinary number. Read the returned
+card and describe what it holds, never what you hoped it would hold. A player who
+says nothing about the person's body or mind gets no aptitude field at all.
 Do not ask for scars, madness, forbidden books or numerical values.
 Use module-specific public involvement, suitable professions, languages, ordinary
 belongings and personal ties. Do not invent hidden facts or promise mechanical
@@ -43,8 +57,8 @@ Create the draft with setup step create-investigator, profile containing name,
 occupation, age, sex if known, concept, occupation_skills (eight concrete canonical
 names), interest_skills (several appropriate concrete names), own_language (the
 actual language), backstory (personal_description plus 2–5 other categories and scenario_bound), key_connection
-{backstory_field,summary}, equipment (ordinary item names), and optional weapons
-(rulebook profile names). Backstory categories: personal_description, ideology_beliefs,
+{backstory_field,summary}, equipment (ordinary item names), optional weapons
+(rulebook profile names), and optional aptitude. Backstory categories: personal_description, ideology_beliefs,
 significant_people, meaningful_locations, treasured_possessions, traits. Respect the
 player's facts. Ordinary gear is chosen semantically and recorded, never just described.
 Equipment lists physical belongings only. Do not include ordinary cash, a spending
@@ -91,7 +105,9 @@ card was built, using only the returned sheet.creation trace and actual values:
 - Name Call of Cthulhu 7th edition and the actual generation method (standard
   rolled characteristics here, not point-buy or quick-fire). State the dice formulas
   and multiplier with explicit parentheses: (2D6+6)*5. Distinguish generated
-  values from later adjustments.
+  values from later adjustments. When the trace records a pool assignment, say that
+  the same rolls were assigned to the aptitudes the player described, within each
+  characteristic's own dice, and name the ones that moved.
 - Explain the age bracket's actual reductions and EDU improvement check results
   (before, roll, gain, after), plus Luck rolls/keep policy. State zero when no
   adjustment applies; do not imply that every EDU check grants an increase.

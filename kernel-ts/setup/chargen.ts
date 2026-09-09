@@ -84,6 +84,28 @@ export class Chargen {
     if (found) return found;
     throw new ChargenError('occupation', `unknown occupation id ${repr(id)}`, {options: Object.keys(this.occupationTable).sort(compareUnicode)});
   }
+  /** Characteristics grouped by the die that makes them; a pool assignment never crosses groups. */
+  dicePools(): Array<[string, string[]]> {
+    const pools: Array<[string, string[]]> = [];
+    for (const abbr of this.characteristics) {
+      const expression = string(this.dice.characteristics[abbr].dice).trim().toUpperCase().replaceAll(' ', '');
+      const pool = pools.find(([key]) => key === expression);
+      if (pool) pool[1].push(abbr); else pools.push([expression, [abbr]]);
+    }
+    return pools;
+  }
+  /** The player's own words about this person, already read into characteristics by the setup model. */
+  aptitude(value: any): Row | null {
+    if (value == null) return null;
+    const declared = row(value), strong = array(declared.strong).map(string), weak = array(declared.weak).map(string);
+    if (!strong.length && !weak.length) return null;
+    const known = this.characteristics, unknown = [...strong, ...weak].filter(abbr => !known.includes(abbr));
+    if (unknown.length) throw new ChargenError('aptitude', `unknown characteristics ${repr(unknown)}`, {options: known});
+    const both = strong.filter(abbr => weak.includes(abbr));
+    if (both.length) throw new ChargenError('aptitude', `${repr(both)} cannot be both notably strong and notably weak`, {strong, weak});
+    if (new Set(strong).size !== strong.length || new Set(weak).size !== weak.length) throw new ChargenError('aptitude', 'name each characteristic at most once', {strong, weak});
+    return {strong, weak};
+  }
   quickFire(priority: string[]): Row {
     const values: Row = {}, array = this.dice.generation_methods.quick_fire_array.array.map((value: any) => Math.trunc(number(value)));
     const order = priority.filter(abbr => this.characteristics.includes(abbr));
@@ -92,14 +114,38 @@ export class Chargen {
     order.forEach((abbr, index) => { values[abbr] = array[index]; });
     return {method: 'quick_fire', values, assignment_order: order, array, source: 'characteristic-dice.generation_methods.quick_fire_array'};
   }
-  rolled(rng: PythonRandom): Row {
+  rolled(rng: PythonRandom, aptitude: Row | null = null): Row {
+    const rolled: Row = {};
+    for (const abbr of this.characteristics) rolled[abbr] = creationRoll(string(this.dice.characteristics[abbr].dice), rng);
+    const held = aptitude ? this.assign(rolled, aptitude) : Object.fromEntries(this.characteristics.map(abbr => [abbr, abbr]));
     const values: Row = {}, rolls: Row = {};
     for (const abbr of this.characteristics) {
-      const roll = creationRoll(string(this.dice.characteristics[abbr].dice), rng);
+      const roll = rolled[held[abbr]];
       values[abbr] = roll.total * this.multiplier;
       rolls[abbr] = {dice: roll.expression, faces: roll.rolls, total: roll.total};
     }
-    return {method: 'rolled', values, rolls, multiplier: this.multiplier, source: 'characteristic-dice.characteristics'};
+    const generated: Row = {method: 'rolled', values, rolls, multiplier: this.multiplier, source: 'characteristic-dice.characteristics'};
+    if (!aptitude) return generated;
+    const direction = (abbr: string): string | null => array(aptitude.strong).includes(abbr) ? 'strong' : array(aptitude.weak).includes(abbr) ? 'weak' : null;
+    return {...generated, method: 'rolled_pool_assignment', aptitude,
+      assignment: this.characteristics.map(abbr => ({characteristic: abbr, rolled_for: held[abbr], direction: direction(abbr)})),
+      source: 'characteristic-dice.generation_methods.rolled_pool_assignment'};
+  }
+  /** Which slot's result each characteristic ends up holding; the multiset of results is unchanged. */
+  private assign(rolled: Row, aptitude: Row): Row {
+    const held: Row = {};
+    for (const [, pool] of this.dicePools()) {
+      const available = [...pool], take = (best: (a: number, b: number) => boolean) => (abbr: string) => {
+        const chosen = available.reduce((carry, slot) => best(number(rolled[slot].total), number(rolled[carry].total)) ? slot : carry);
+        available.splice(available.indexOf(chosen), 1); held[abbr] = chosen;
+      };
+      array(aptitude.strong).filter(abbr => pool.includes(abbr)).forEach(take((a, b) => a > b));
+      array(aptitude.weak).filter(abbr => pool.includes(abbr)).forEach(take((a, b) => a < b));
+      const rest = pool.filter(abbr => !Object.hasOwn(held, abbr));
+      for (const abbr of rest) if (available.includes(abbr)) { available.splice(available.indexOf(abbr), 1); held[abbr] = abbr; }
+      for (const abbr of rest) if (!Object.hasOwn(held, abbr)) held[abbr] = available.shift() as string;
+    }
+    return held;
   }
   luck(rng: PythonRandom, keepHighest: number): Row {
     const expression = string(this.dice.characteristics.Luck.dice), attempts: Row[] = [];
@@ -196,13 +242,15 @@ export class Chargen {
     }
     return Object.fromEntries(entries(allocations).filter(([, points]) => points > 0));
   }
-  async build(options: {investigatorId: string; name: string; occupationId: any; concept: string | null; age: any; sex: any; method: any; seed: string; era: string; allocation?: any; occupationSkills?: string[]; interestSkills?: string[]}): Promise<[Row, Row]> {
+  async build(options: {investigatorId: string; name: string; occupationId: any; concept: string | null; age: any; sex: any; method: any; seed: string; era: string; allocation?: any; aptitude?: any; occupationSkills?: string[]; interestSkills?: string[]}): Promise<[Row, Row]> {
     const {investigatorId, name, concept, age, sex, method, seed, era, occupationSkills, interestSkills} = options;
     if (!METHODS.includes(method)) throw new ChargenError('method', "method must be one of ('quick_fire', 'rolled')", {options: [...METHODS]});
     const [occupationName, spec] = this.occupation(options.occupationId), policy = this.allocationPolicy(options.allocation), formula = parseFormula(spec.skill_point_formula || '');
+    const aptitude = this.aptitude(options.aptitude);
+    if (aptitude && method !== 'rolled') throw new ChargenError('aptitude', 'a stated aptitude assigns rolled results and cannot direct the quick-fire array', {method, expected_method: 'rolled'});
     const rng = new PythonRandom(seed), trace: Row = {seed, method};
-    const generated = method === 'quick_fire' ? this.quickFire(formulaCharacteristics(formula)) : this.rolled(occupationSkills !== undefined ? new PythonRandom(seed + ':characteristics') : rng);
-    trace.characteristics = generated;
+    const generated = method === 'quick_fire' ? this.quickFire(formulaCharacteristics(formula)) : this.rolled(occupationSkills !== undefined ? new PythonRandom(seed + ':characteristics') : rng, aptitude);
+    trace.method = string(generated.method); trace.characteristics = generated;
     const aged = this.applyAge(generated.values, age, occupationSkills !== undefined ? new PythonRandom(seed + ':age') : rng), characteristics = aged.values;
     trace.age = aged.trace;
     const luck = this.luck(occupationSkills !== undefined ? new PythonRandom(seed + ':luck') : rng, aged.trace.luck_rolls_keep_highest);
@@ -243,7 +291,7 @@ export class Chargen {
       characteristics: {...Object.fromEntries(this.characteristics.map(key => [key, Math.trunc(number(characteristics[key]))])), LUCK: luck.value}, derived: derived.values,
       skills: Object.fromEntries(entries(values).sort(([a], [b]) => compareUnicode(a, b))), weapons: [], equipment: [], backstory: {concept}, credit_rating: credit,
       cash: finance ? `${string(finance.cash.amount)} ${finance.cash.currency}` : null, finance, creation: trace};
-    const receipt: Row = {id: `investigator:${investigatorId}`, kind: 'investigator', investigator: investigatorId, name, occupation: occupationName, method, seed, choices_pending: pending,
+    const receipt: Row = {id: `investigator:${investigatorId}`, kind: 'investigator', investigator: investigatorId, name, occupation: occupationName, method: string(generated.method), seed, choices_pending: pending,
       allocation: policy.policy, occupation_unspent: points - spent, occupation_reserved: sum(reserved.map((item: Row) => number(item.points))), interest_unspent: interestBudget.total - interestSpent, finance_available: finance !== null};
     return [sheet, receipt];
   }

@@ -324,3 +324,85 @@ def test_kernel_defaults_come_from_the_steps_table(kernel):
     assert sheet["age"] == POLICY["defaults"]["age"]
     assert sheet["creation"]["method"] == POLICY["defaults"]["method"]
     assert sheet["era"] == "1920s"  # the module node's era
+
+
+# ---- stated aptitude: assignment inside each dice pool ---------------------------------
+
+APTITUDE_SEEDS = ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"]
+
+
+def pools(chargen: Chargen) -> list[list[str]]:
+    return [pool for _, pool in chargen.dice_pools()]
+
+
+def test_dice_pools_group_the_characteristics_by_their_own_expression(chargen):
+    assert chargen.dice_pools() == [("3D6", ["STR", "CON", "DEX", "APP", "POW"]), ("2D6+6", ["SIZ", "INT", "EDU"])]
+
+
+@pytest.mark.parametrize("seed", APTITUDE_SEEDS)
+def test_an_aptitude_permutes_the_same_rolls_inside_each_pool(chargen, seed):
+    plain = chargen.rolled(random.Random(seed))
+    stated = chargen.rolled(random.Random(seed), {"strong": ["STR"], "weak": ["INT"]})
+    assert stated["method"] == "rolled_pool_assignment"
+    assert stated["multiplier"] == plain["multiplier"]
+    for pool in pools(chargen):
+        assert sorted(plain["values"][a] for a in pool) == sorted(stated["values"][a] for a in pool)
+    assert stated["values"]["STR"] == max(plain["values"][a] for a in pools(chargen)[0])
+    assert stated["values"]["INT"] == min(plain["values"][a] for a in pools(chargen)[1])
+
+
+@pytest.mark.parametrize("seed", APTITUDE_SEEDS)
+def test_each_characteristic_reports_the_dice_that_actually_made_its_value(chargen, seed):
+    stated = chargen.rolled(random.Random(seed), {"strong": ["STR", "CON"], "weak": ["APP"]})
+    for abbr, roll in stated["rolls"].items():
+        assert sum(roll["faces"]) + (6 if roll["dice"] == "2D6+6" else 0) == roll["total"]
+        assert roll["total"] * stated["multiplier"] == stated["values"][abbr]
+    moved = {row["characteristic"] for row in stated["assignment"] if row["characteristic"] != row["rolled_for"]}
+    assert moved <= set(pools(chargen)[0]), "an assignment never crosses a dice pool"
+    assert {row["characteristic"] for row in stated["assignment"] if row["direction"]} == {"STR", "CON", "APP"}
+
+
+@pytest.mark.parametrize("seed", APTITUDE_SEEDS)
+def test_only_the_named_characteristic_and_the_slot_it_took_from_move(chargen, seed):
+    plain = chargen.rolled(random.Random(seed))
+    stated = chargen.rolled(random.Random(seed), {"strong": ["STR"], "weak": []})
+    donor = {row["rolled_for"] for row in stated["assignment"] if row["characteristic"] == "STR"}
+    for abbr in chargen.characteristics:
+        if abbr in {"STR"} | donor:
+            continue
+        assert stated["values"][abbr] == plain["values"][abbr], f"{abbr} moved without being named"
+
+
+def test_an_absent_or_empty_aptitude_generates_exactly_as_before(chargen):
+    plain = chargen.rolled(random.Random("s1"))
+    for empty in (None, {}, {"strong": [], "weak": []}):
+        assert chargen.rolled(random.Random("s1"), chargen.aptitude(empty)) == plain
+
+
+@pytest.mark.parametrize("value,message", [
+    ({"strong": ["LUCK"]}, "unknown characteristics"),
+    ({"strong": ["Strength"]}, "unknown characteristics"),
+    ({"strong": ["STR"], "weak": ["STR"]}, "cannot be both"),
+    ({"strong": ["STR", "STR"]}, "at most once"),
+])
+def test_the_kernel_only_accepts_the_closed_set(chargen, value, message):
+    with pytest.raises(ChargenError) as raised:
+        chargen.aptitude(value)
+    assert raised.value.stage == "aptitude"
+    assert message in str(raised.value)
+
+
+def test_an_aptitude_cannot_direct_the_quick_fire_array(chargen):
+    with pytest.raises(ChargenError) as raised:
+        build(chargen, method="quick_fire", aptitude={"strong": ["STR"]})
+    assert raised.value.stage == "aptitude"
+
+
+def test_the_built_card_records_the_assignment_as_its_method(chargen):
+    sheet, receipt = build(chargen, method="rolled", aptitude={"strong": ["STR"], "weak": ["INT"]})
+    assert sheet["creation"]["method"] == "rolled_pool_assignment"
+    assert receipt["method"] == "rolled_pool_assignment"
+    assert sheet["creation"]["characteristics"]["aptitude"] == {"strong": ["STR"], "weak": ["INT"]}
+    plain, _ = build(chargen, method="rolled")
+    assert plain["creation"]["method"] == "rolled"
+    assert "aptitude" not in plain["creation"]["characteristics"]

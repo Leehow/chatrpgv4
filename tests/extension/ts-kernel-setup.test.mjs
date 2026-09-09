@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {mkdtemp, rm} from 'node:fs/promises';
+import {mkdtemp, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
@@ -63,6 +63,57 @@ test('shared creation table methods preserve Python finance types and damage-tab
         catch (error) { actual = {error: `${error.name}: ${error.message}`}; }
         const {method, args, ...result} = expected;
         assert.deepEqual(actual, result, `${method}(${args.join(', ')})`);
+      }
+    } finally { await context.git.close(); }
+  } finally { await rm(temporary, {recursive: true, force: true}); }
+});
+
+test('stated-aptitude assignment matches the Python oracle roll for roll', async () => {
+  const temporary = await mkdtemp(join(tmpdir(), 'pi-coc-setup-aptitude-'));
+  const SEEDS = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8'];
+  const CASES = [null, {strong: ['STR'], weak: ['INT']}, {strong: ['DEX', 'POW'], weak: ['APP', 'SIZ']},
+    {strong: ['EDU', 'INT', 'SIZ']}, {weak: ['STR', 'CON', 'DEX', 'APP', 'POW']}];
+  try {
+    await build({stdin: {contents: [
+      "export {RuleTables} from './kernel-ts/rules/tables.ts';",
+      "export {createKernelContext} from './kernel-ts/context.ts';",
+      "export {canonicalJson} from './kernel-ts/json.ts';",
+      "export {Chargen} from './kernel-ts/setup/chargen.ts';",
+      "export {PythonRandom} from './kernel-ts/random.ts';",
+    ].join('\n'), resolveDir: REPO, sourcefile: 'setup-aptitude-test.ts'}, outfile: join(temporary, 'aptitude.mjs'),
+      bundle: true, format: 'esm', platform: 'node', target: 'node22', logLevel: 'silent'});
+    const api = await import(pathToFileURL(join(temporary, 'aptitude.mjs')).href);
+    const oracle = spawnSync('uv', ['run', '--frozen', 'python', '-c', [
+      'import json, random, sys',
+      'from pathlib import Path',
+      'sys.path.insert(0, "kernel")',
+      'from coc.rules.tables import RuleTables',
+      'from coc.chargen import Chargen',
+      'from coc.fileio import canonical_json',
+      'steps = json.loads(Path("content/setup/steps.json").read_text(encoding="utf-8"))',
+      'policy = next(s for s in steps["steps"] if s["id"] == "create-investigator")',
+      'chargen = Chargen(RuleTables(Path("content/rulesets/coc7/rules-json")), policy)',
+      `data = json.loads(${JSON.stringify(JSON.stringify({seeds: SEEDS, cases: CASES}))})`,
+      'seeds, cases = data["seeds"], data["cases"]',
+      'output = [{"pools": canonical_json(chargen.dice_pools())}]',
+      'for seed in seeds:',
+      '    for case in cases:',
+      '        generated = chargen.rolled(random.Random(seed), chargen.aptitude(case))',
+      '        output.append({"seed": seed, "aptitude": case, "generated": canonical_json(generated)})',
+      'print(json.dumps(output))',
+    ].join('\n')], {cwd: REPO, encoding: 'utf8', timeout: 30000});
+    assert.equal(oracle.error, undefined);
+    assert.equal(oracle.status, 0, oracle.stderr);
+    const context = await api.createKernelContext({workspace: temporary, content: join(REPO, 'content'), seed: 'aptitude-proof'});
+    try {
+      const steps = JSON.parse(await readFile(join(REPO, 'content/setup/steps.json'), 'utf8'));
+      const policy = steps.steps.find(step => step.id === 'create-investigator');
+      const chargen = await api.Chargen.create(new api.RuleTables(context), policy);
+      const [pools, ...rows] = JSON.parse(oracle.stdout);
+      assert.equal(api.canonicalJson(chargen.dicePools()), pools.pools, 'the dice pools are read from the same table');
+      for (const {seed, aptitude, generated} of rows) {
+        const actual = chargen.rolled(new api.PythonRandom(seed), chargen.aptitude(aptitude));
+        assert.equal(api.canonicalJson(actual), generated, `rolled(${seed}, ${JSON.stringify(aptitude)})`);
       }
     } finally { await context.git.close(); }
   } finally { await rm(temporary, {recursive: true, force: true}); }

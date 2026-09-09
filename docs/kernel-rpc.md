@@ -1998,14 +1998,44 @@ not relabeled as rulebook Quick Fire. No invented point method or outstanding sk
 choice may pass completeness. Skill directions, concrete specialties, languages,
 backstory and ordinary kit are semantic choices supplied by the setup model.
 
+**Stated aptitude reaches the characteristics.** A player who describes this person
+as notably strong, frail, quick, slow, bright or dull is describing characteristics,
+not only skills, and the draft must not contradict them. Optional profile field
+`aptitude {strong: [ABBR], weak: [ABBR]}` carries that, using the characteristic
+abbreviations of `characteristic-dice.json`. Deciding which abbreviations the
+player's own words mean is the setup model's semantic judgment; the kernel only
+accepts the closed set and never classifies prose. An absent or empty aptitude
+generates exactly as before.
+
+When aptitude is present the kernel rolls the same dice, in the same order, from
+the same stream, and then assigns the rolled results within each characteristic's
+own dice expression: the pool of 3D6 results is assigned among STR/CON/DEX/APP/POW
+and the pool of 2D6+6 results among SIZ/INT/EDU. Assignment never crosses pools,
+invents a value or changes the multiset of results, so the card is the same set of
+rolls this player would otherwise have had. Named strong characteristics take the
+highest remaining result of their pool in listed order, named weak ones the lowest
+remaining in listed order, and every other characteristic keeps its own result when
+that result is still free, otherwise takes what remains in table order. This is
+`characteristic-dice.generation_methods.rolled_pool_assignment`: the generated
+record, `creation.method` and the receipt all say `rolled_pool_assignment` rather
+than `rolled`, and `creation.characteristics.assignment` records, per characteristic,
+which slot rolled the result it holds and whether the player named it strong or weak.
+
+A characteristic named in both directions, named twice, or outside the closed set
+is `aptitude`-stage ChargenError with the legal options; aptitude with `quick_fire`
+is refused rather than silently ignored. Because assignment is a permutation of
+existing rolls, strong is not a promise of a high number: the setup model states
+what the returned card actually holds and never a value it does not.
+
 **Pacing.** Conversational pacing is prompt-layer policy, not kernel gating: when the player supplies only a name and an occupation concept without delegating the rest, the setup guide asks one or two in-character follow-up questions, one at a time, and drafts only after the answers; explicit delegation or a write-now order drafts in the same reply. The kernel gates no player turn.
 
 **RPC.** All calls include campaign. setup.draft accepts profile, a partial update
 of the current semantic profile: name, occupation, age, sex, concept, occupation_skills
 (eight concrete skills, including required catalog skills), interest_skills (concrete
 skills), own_language, backstory (3–6 populated first-six categories plus scenario_bound),
-key_connection (backstory_field and summary), equipment (named ordinary items), and
-weapons (optional catalog names). Unknown skills return the relevant catalog; no
+key_connection (backstory_field and summary), equipment (named ordinary items),
+weapons (optional catalog names) and aptitude (optional strong/weak characteristic
+abbreviations). Unknown skills return the relevant catalog; no
 semantic regex picks skills or fills an open choice. The kernel reuses Chargen's
 arithmetic and validates complete budgets, provenance, gear and background.
 

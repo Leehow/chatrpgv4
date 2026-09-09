@@ -146,3 +146,43 @@ def test_new_draft_requires_appearance_and_preserves_it_across_skill_changes(ker
     changed = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"interest_skills": [*profile()["interest_skills"], "Natural World"]}})
     assert changed["sheet"]["backstory"]["personal_description"] == appearance
     assert changed["sheet"]["creation"]["characteristics"] == original["sheet"]["creation"]["characteristics"]
+
+
+POOLS = {"3D6": ["STR", "CON", "DEX", "APP", "POW"], "2D6+6": ["SIZ", "INT", "EDU"]}
+
+
+def test_a_stated_aptitude_reaches_the_characteristics_without_new_dice(kernel):
+    """The defect this pins: a player who said 'very strong, rather slow' got a card whose
+    STR was below average, because the description could only ever reach the skills."""
+    plain = begin(kernel)
+    stated = kernel.ok("setup.draft", {"campaign": CAMPAIGN,
+                                       "profile": {"aptitude": {"strong": ["STR"], "weak": ["INT"]}}})
+    before, after = plain["sheet"]["characteristics"], stated["sheet"]["characteristics"]
+    generated = stated["sheet"]["creation"]["characteristics"]
+    assert generated["method"] == "rolled_pool_assignment"
+    assert stated["sheet"]["creation"]["method"] == "rolled_pool_assignment"
+    assert generated["aptitude"] == {"strong": ["STR"], "weak": ["INT"]}
+    initial = plain["sheet"]["creation"]["characteristics"]["values"]
+    assert generated["values"]["STR"] == max(initial[a] for a in POOLS["3D6"])
+    assert generated["values"]["INT"] == min(initial[a] for a in POOLS["2D6+6"])
+    for pool in POOLS.values():
+        assert sorted(initial[a] for a in pool) == sorted(generated["values"][a] for a in pool), "no new dice, no crossed pool"
+    assert after["STR"] >= before["STR"] and after["INT"] <= before["INT"]
+    assert stated["completeness"]["valid"]
+
+
+def test_revising_an_aptitude_keeps_this_players_own_rolls(kernel):
+    plain = begin(kernel)
+    initial = plain["sheet"]["creation"]["characteristics"]["values"]
+    stated = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"aptitude": {"strong": ["DEX"]}}})
+    assert sorted(stated["sheet"]["creation"]["characteristics"]["values"].values()) == sorted(initial.values())
+    cleared = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": {"aptitude": None}})
+    assert cleared["sheet"]["creation"]["characteristics"] == plain["sheet"]["creation"]["characteristics"]
+    assert cleared["sheet"]["creation"]["luck"] == plain["sheet"]["creation"]["luck"]
+
+
+def test_an_illegal_aptitude_is_refused_and_keeps_the_valid_draft(kernel):
+    original = begin(kernel)
+    for patch in ({"strong": ["Strength"]}, {"strong": ["STR"], "weak": ["STR"]}, {"strong": "STR"}, {"muscle": ["STR"]}):
+        assert kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": {"aptitude": patch}})["code"] == "needs"
+    assert kernel.ok("setup.steps", {"campaign": CAMPAIGN})["state"]["draft"]["revision"] == original["revision"]

@@ -11,7 +11,8 @@ import type { CampaignWriter } from '../write/store.js';
 import type { Setup } from './index.js';
 import { ChargenError } from './chargen.js';
 import { BACKSTORY, completeness, nonempty } from './sheet.js';
-const FIELDS = ['name', 'occupation', 'age', 'sex', 'concept', 'occupation_skills', 'interest_skills', 'own_language', 'backstory', 'key_connection', 'equipment', 'weapons', 'era'];
+const FIELDS = ['name', 'occupation', 'age', 'sex', 'concept', 'occupation_skills', 'interest_skills', 'own_language', 'backstory', 'key_connection', 'equipment', 'weapons', 'era', 'aptitude'];
+const APTITUDE = ['strong', 'weak'];
 export class SetupDrafts {
   constructor(readonly setup: Setup) {}
   async locked<T>(params: Row, action: (campaign: CampaignWriter) => Promise<T>): Promise<T> {
@@ -51,8 +52,13 @@ export class SetupDrafts {
     } catch (error) { if (!(error instanceof ChargenError)) throw error; issues.push('occupation must be a listed occupation'); }
     const weapons = Object.hasOwn(profile, 'weapons') ? profile.weapons : [], catalog = await this.setup.tables.weaponsTable();
     if (!Array.isArray(weapons) || !weapons.every(name => typeof name === 'string' && Object.hasOwn(catalog, name))) issues.push('weapons must use existing rulebook profile names');
+    const aptitude = Object.hasOwn(profile, 'aptitude') ? profile.aptitude : null;
+    if (aptitude !== null && (!isJsonObject(aptitude) || Object.keys(aptitude).some(key => !APTITUDE.includes(key))
+      || APTITUDE.some(key => Object.hasOwn(aptitude, key) && (!Array.isArray(aptitude[key]) || !aptitude[key].every((abbr: unknown) => typeof abbr === 'string')))))
+      issues.push('aptitude names the characteristics the player called notably strong or notably weak');
     if (issues.length) throw new RpcError('needs', 'Complete the semantic profile without interviewing for ordinary missing details', {
-      details: {issues, backstory_fields: [...BACKSTORY], skills: Object.keys(skills), language_specialty: 'Language (Other: English)', occupations: this.setup.chargen.occupations()}});
+      details: {issues, backstory_fields: [...BACKSTORY], skills: Object.keys(skills), language_specialty: 'Language (Other: English)',
+        occupations: this.setup.chargen.occupations(), aptitude: {directions: [...APTITUDE], characteristics: this.setup.chargen.characteristics}}});
   }
   async draft(params: Row): Promise<Row> {
     return this.locked(params, async campaign => {
@@ -76,7 +82,8 @@ export class SetupDrafts {
         details: {field: 'era', source_era: sourceEra, options: periods}});
       let sheet: Row, receipt: Row;
       try { [sheet, receipt] = await this.setup.chargen.build({investigatorId: 'investigator', name: profile.name, occupationId: profile.occupation, concept: profile.concept,
-        age: Object.hasOwn(profile, 'age') ? profile.age : 27, sex: profile.sex ?? null, method: 'rolled', seed, era, occupationSkills: profile.occupation_skills, interestSkills: profile.interest_skills}); }
+        age: Object.hasOwn(profile, 'age') ? profile.age : 27, sex: profile.sex ?? null, method: 'rolled', seed, era, aptitude: profile.aptitude ?? null,
+        occupationSkills: profile.occupation_skills, interestSkills: profile.interest_skills}); }
       catch (error) { if (!(error instanceof ChargenError) && (!(error instanceof Error) || !['ValueError', 'KeyError'].includes(error.name))) throw error;
         throw new RpcError('needs', error.message, {details: {expected: error instanceof ChargenError ? error.expected : null}}); }
       sheet.backstory = clone(profile.backstory); sheet.key_connection = clone(profile.key_connection); sheet.own_language = profile.own_language; sheet.equipment = [...profile.equipment];

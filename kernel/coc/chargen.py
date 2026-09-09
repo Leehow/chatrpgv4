@@ -132,15 +132,91 @@ class Chargen:
         return {"method": "quick_fire", "values": values, "assignment_order": order,
                 "array": array, "source": "characteristic-dice.generation_methods.quick_fire_array"}
 
-    def rolled(self, rng: random.Random) -> dict[str, Any]:
+    def dice_pools(self) -> list[tuple[str, list[str]]]:
+        """Characteristics grouped by the die that makes them; a pool assignment never
+        crosses groups, so the 3D6 results stay among STR/CON/DEX/APP/POW and the
+        2D6+6 results among SIZ/INT/EDU."""
+        pools: list[tuple[str, list[str]]] = []
+        for abbr in self.characteristics:
+            expression = str(self.dice_table[abbr]["dice"]).strip().upper().replace(" ", "")
+            for key, pool in pools:
+                if key == expression:
+                    pool.append(abbr)
+                    break
+            else:
+                pools.append((expression, [abbr]))
+        return pools
+
+    def aptitude(self, value: Any) -> dict[str, list[str]] | None:
+        """The player's own words about this person, already read into characteristics by
+        the setup model. The kernel only accepts the closed set; it classifies no prose."""
+        if value is None:
+            return None
+        declared = value if isinstance(value, dict) else {}
+        strong = [str(abbr) for abbr in (declared.get("strong") or [])]
+        weak = [str(abbr) for abbr in (declared.get("weak") or [])]
+        if not strong and not weak:
+            return None
+        unknown = [abbr for abbr in strong + weak if abbr not in self.characteristics]
+        if unknown:
+            raise ChargenError("aptitude", f"unknown characteristics {unknown!r}",
+                               expected={"options": list(self.characteristics)})
+        both = [abbr for abbr in strong if abbr in weak]
+        if both:
+            raise ChargenError("aptitude", f"{both!r} cannot be both notably strong and notably weak",
+                               expected={"strong": strong, "weak": weak})
+        if len(set(strong)) != len(strong) or len(set(weak)) != len(weak):
+            raise ChargenError("aptitude", "name each characteristic at most once",
+                               expected={"strong": strong, "weak": weak})
+        return {"strong": strong, "weak": weak}
+
+    def _assign(self, rolled: dict[str, Any], aptitude: dict[str, list[str]]) -> dict[str, str]:
+        """Which slot's result each characteristic ends up holding. The multiset of results
+        is unchanged: named strong take the highest remaining of their pool in listed order,
+        named weak the lowest, and everyone else keeps their own result when it is free."""
+        held: dict[str, str] = {}
+        total = lambda slot: int(rolled[slot]["total"])  # noqa: E731
+        for _, pool in self.dice_pools():
+            available = list(pool)
+            #: ties keep the first slot in table order, which `max`/`min` already do
+            for pick, named in ((max, aptitude["strong"]), (min, aptitude["weak"])):
+                for abbr in named:
+                    if abbr in pool:
+                        chosen = pick(available, key=total)
+                        available.remove(chosen)
+                        held[abbr] = chosen
+            rest = [abbr for abbr in pool if abbr not in held]
+            for abbr in rest:
+                if abbr in available:
+                    available.remove(abbr)
+                    held[abbr] = abbr
+            for abbr in rest:
+                if abbr not in held:
+                    held[abbr] = available.pop(0)
+        return held
+
+    def rolled(self, rng: random.Random, aptitude: dict[str, list[str]] | None = None) -> dict[str, Any]:
+        rolled = {abbr: roll_expression(str(self.dice_table[abbr]["dice"]), rng) for abbr in self.characteristics}
+        held = self._assign(rolled, aptitude) if aptitude else {abbr: abbr for abbr in self.characteristics}
         values: dict[str, int] = {}
         rolls: dict[str, Any] = {}
         for abbr in self.characteristics:
-            roll = roll_expression(str(self.dice_table[abbr]["dice"]), rng)
+            roll = rolled[held[abbr]]
             values[abbr] = int(roll["total"]) * self.multiplier
             rolls[abbr] = {"dice": roll["expression"], "faces": roll["rolls"], "total": roll["total"]}
-        return {"method": "rolled", "values": values, "rolls": rolls,
-                "multiplier": self.multiplier, "source": "characteristic-dice.characteristics"}
+        generated = {"method": "rolled", "values": values, "rolls": rolls,
+                     "multiplier": self.multiplier, "source": "characteristic-dice.characteristics"}
+        if not aptitude:
+            return generated
+
+        def direction(abbr: str) -> str | None:
+            return "strong" if abbr in aptitude["strong"] else "weak" if abbr in aptitude["weak"] else None
+
+        generated.update(method="rolled_pool_assignment", aptitude=aptitude,
+                         assignment=[{"characteristic": abbr, "rolled_for": held[abbr], "direction": direction(abbr)}
+                                     for abbr in self.characteristics],
+                         source="characteristic-dice.generation_methods.rolled_pool_assignment")
+        return generated
 
     def luck(self, rng: random.Random, keep_highest: int) -> dict[str, Any]:
         spec = self.dice_table[LUCK_KEY]
@@ -347,13 +423,18 @@ class Chargen:
 
     def build(self, *, investigator_id: str, name: str, occupation_id: str, concept: str | None,
               age: int, sex: str | None, method: str, seed: str, era: str,
-              allocation: str | None = None, occupation_skills: list[str] | None = None,
+              allocation: str | None = None, aptitude: Any = None,
+              occupation_skills: list[str] | None = None,
               interest_skills: list[str] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
         if method not in METHODS:
             raise ChargenError("method", f"method must be one of {METHODS}", expected={"options": list(METHODS)})
         occupation_name, spec = self.occupation(occupation_id)
         policy = self.allocation_policy(allocation)
         formula = parse_formula(str(spec.get("skill_point_formula") or ""))
+        stated = self.aptitude(aptitude)
+        if stated and method != "rolled":
+            raise ChargenError("aptitude", "a stated aptitude assigns rolled results and cannot direct the quick-fire array",
+                               expected={"method": method, "expected_method": "rolled"})
         rng = random.Random(seed)
         trace: dict[str, Any] = {"seed": seed, "method": method}
 
@@ -361,7 +442,8 @@ class Chargen:
         if method == "quick_fire":
             generated = self.quick_fire(formula_characteristics(formula))
         else:
-            generated = self.rolled(random.Random(seed + ":characteristics") if occupation_skills is not None else rng)
+            generated = self.rolled(random.Random(seed + ":characteristics") if occupation_skills is not None else rng, stated)
+        trace["method"] = str(generated["method"])
         trace["characteristics"] = generated
         aged = self.apply_age(generated["values"], age, random.Random(seed + ":age") if occupation_skills is not None else rng)
         characteristics = aged["values"]
@@ -482,7 +564,7 @@ class Chargen:
             "investigator": investigator_id,
             "name": name,
             "occupation": occupation_name,
-            "method": method,
+            "method": str(generated["method"]),
             "seed": seed,
             "choices_pending": pending,
             "allocation": policy["policy"],
