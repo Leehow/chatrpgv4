@@ -1,4 +1,17 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-exec node "$root/extensions/module/source.ts" "$@"
+export PI_COC_RESOURCE_ROOT="$root"
+if [ -f "$root/deployment.json" ] || [ "${PI_COC_LAYOUT:-}" = compiled ]; then
+  export PI_COC_LAYOUT=compiled
+  unset NODE_OPTIONS NODE_PATH ELECTRON_RUN_AS_NODE
+  runner="$root/node/bin/node"
+  [ -x "$runner" ] || { echo 'The standalone COC source runtime is incomplete.' >&2; exit 1; }
+else
+  export PI_COC_LAYOUT=source
+  runner="${PI_COC_NODE_EXECUTABLE:-$(command -v node)}"
+fi
+entry="$root/build/extensions/module/source.mjs"
+[ -f "$entry" ] || { echo 'The COC JavaScript runtime is missing. Run npm run build:runtime first.' >&2; exit 1; }
+export PI_COC_NODE_EXECUTABLE="$runner"
+exec "$runner" "$entry" "$@"

@@ -12,6 +12,8 @@ import { RuleTables } from '../rules/tables.js';
 import { moduleSpellRecords } from '../rules/catalog.js';
 import { caseFold } from '../rules/casefold.js';
 import { nowIso } from '../write/store.js';
+import {weaponRows} from '../mods/projection.js';
+import {prepareMagicFacts,augmentMagicFacts,provisionalMagicSemantic,type PreparedMagicFacts} from '../magic/facts.js';
 import { CheckArithmetic, SUCCESS_OUTCOMES, valueError } from './arithmetic.js';
 export interface ExecutionResult {
     data: Row;
@@ -29,13 +31,14 @@ export class SettleContext {
     readonly receipts: Row[] = [];
     readonly effects: Row[] = [];
     private readonly minted = new Set<string>();
-    readonly actorId: string;
+    actorId: string;
     readonly subjectId: string;
     readonly turnNumber: number;
     readonly moduleSpells: Row[];
     private knownSpells: string[] = [];
     private learningSources: Row = {};
     private settlementPending = false;
+    private preparedMagic?: PreparedMagicFacts;
     constructor(readonly kernel: KernelContext, readonly transaction: TurnTransaction, readonly snapshot: CampaignSnapshot, readonly module: LoadedModule, readonly tables: RuleTables, readonly arithmetic: CheckArithmetic, readonly observations: RuleObservations, readonly callId: string, readonly ordinal: number, public actor: Row, public subject: Row, readonly action: Row, readonly actingId = string(actor.id)) {
         this.actorId = string(actor.id);
         this.subjectId = string(subject.id);
@@ -104,6 +107,7 @@ export class SettleContext {
         const resources = row(row(this.world.npc_resources)[handle]);
         const result = clone(profile);
         result.spells = [...new Set([...array(result.spells), ...Object.keys(row(row(row(this.world.objects).abilities)[handle]))])];
+        result.weapons = [...array(result.weapons),...weaponRows(this.world,handle)];
         if (Object.hasOwn(resources, 'current_hp'))
             result.hp_current = resources.current_hp;
         for (const key of ['current_mp', 'conditions', 'characteristics'])
@@ -149,6 +153,10 @@ export class SettleContext {
         await this.transaction.campaign.writeSave(name, value);
         this.snapshot.jsonFiles.set(join('save', name), value);
     }
+    async removeSave(name: string): Promise<void> {
+        await this.transaction.campaign.removeSave(name);
+        this.snapshot.jsonFiles.set(join('save',name),null);
+    }
     allReceipts(): Row[] {
         return [...this.snapshot.records.flatMap(record => array(record.receipts).filter(isJsonObject)), ...array(this.turn.receipts).filter(isJsonObject), ...this.receipts];
     }
@@ -172,6 +180,13 @@ export class SettleContext {
             return string(sheet.name || id);
         const node = this.npcNode(id);
         return node ? this.graph.displayName(node) : id;
+    }
+    addSessionReceipt(family: string, transition: string, options: Row = {}): string {
+        const id=this.mint(`session:${family}-${transition}-t${this.turnNumber}-c${this.ordinal}`);
+        const {outcome=null,summary=null,...extra}=options;
+        this.receipts.push({id,kind:'session',call_id:this.callId,family,transition,outcome,summary,
+            ...Object.fromEntries(entries(extra).filter(([,value])=>value!=null)),at:nowIso()});
+        return id;
     }
     addRoll(input: Row): string {
         const { actor, skill, target, difficulty, threshold, roll, level, passed, bonus = 0, penalty = 0, visibility = 'public', kind = 'skill_check', pushed = false, source_receipt, check, skill_label, ...extra } = input;
@@ -273,31 +288,9 @@ export class SettleContext {
     }
     async prepareFacts(): Promise<void> {
         this.settlementPending = false;
-        const magic = row(await this.readSave(`magic-state/${this.subjectId}.json`));
-        this.knownSpells = array(magic.learned_spells).map(string);
-        for (const study of array(magic.studying_spells).filter(isJsonObject)) {
-            if (integer(study.due_elapsed_minutes) && number(study.due_elapsed_minutes) <= this.clockMinutes) {
-                const name = string(study.spell || '');
-                if (name && !this.knownSpells.includes(name))
-                    this.knownSpells.push(name);
-            }
-        }
-        const sources: Row = {};
-        for (const node of this.graph.kind('npc')) {
-            const handle = this.graph.handle(node);
-            const spells = this.npcProfile(handle)?.spells;
-            if (Array.isArray(spells) && spells.length)
-                sources[`person:${handle}`] = spells.filter(value => typeof value === 'string');
-        }
-        for (const [owner, abilities] of entries(row(this.world.objects).abilities))
-            sources[`person:${owner}`] = [...new Set([...array(sources[`person:${owner}`]), ...Object.keys(row(abilities))])];
-        for (const [kind, prefix] of [['tome', 'tome'], ['creature', 'entity']])
-            for (const node of this.graph.kind(kind)) {
-                const spells = truth(row(node.properties).spells) ? node.properties.spells : recordOf(node).spells;
-                if (Array.isArray(spells) && spells.length)
-                    sources[`${prefix}:${this.graph.handle(node)}`] = spells.filter(value => typeof value === 'string');
-            }
-        this.learningSources = sources;
+        this.preparedMagic = await prepareMagicFacts(this);
+        this.knownSpells = [...this.preparedMagic.knownSpells];
+        this.learningSources = this.preparedMagic.learningSources;
         const endings = join(this.transaction.campaign.directory, 'save', 'development-settlements', 'endings');
         for (const id of await this.kernel.snapshots.sortedChildNames(endings, path => this.kernel.snapshots.isDirectory(path))) {
             const capsule = row(await this.readSave(`development-settlements/endings/${id}/capsule.json`));
@@ -332,6 +325,9 @@ export class SettleContext {
             'development.settlement.pending': this.settlementPending,
         });
     }
+    provisionalSemantic(target?:string|null):Row {
+        return this.preparedMagic?provisionalMagicSemantic(this,this.preparedMagic,target):{};
+    }
     augmentFacts(selected: Row | null, facts: Row): Row {
         const output = clone(facts);
         const semantic = row(selected?.semantic_inputs);
@@ -346,6 +342,7 @@ export class SettleContext {
             output['intent.pushed'] = truth(source.pushed);
             output['receipt.push_eligible'] = source.push_eligible !== false;
         }
+        if(this.preparedMagic)return augmentMagicFacts(this.preparedMagic,selected,output);
         output['magic.spell.known'] = false;
         output['magic.learn.source-available'] = values(this.learningSources).some(value => Array.isArray(value) && value.length > 0);
         return output;

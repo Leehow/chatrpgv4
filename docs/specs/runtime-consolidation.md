@@ -1,6 +1,6 @@
 # Runtime Consolidation and Standalone Distribution
 
-Status: Proposed implementation specification. Acceptance seams confirmed by the user on 2026-09-08. This task delivers the specification only; implementation has not started and no acceptance run was performed. Existing contracts remain authoritative until the corresponding implementation stage updates them.
+Status: Approved and implementing under #35. Acceptance seams were confirmed by the user on 2026-09-08. The implementation ledger is `runtime-consolidation-tickets.md`; kernel contract §27 records the integrated decisions and validation limits. Production migration is implemented and entering consolidated verification; standalone and full product acceptance remain pending.
 
 ## Problem Statement
 
@@ -60,7 +60,7 @@ From the user's point of view the outcome is simple: a packaged app that plays t
 
 ## Implementation Decisions
 
-Planned work, not existing implementation.
+Approved implementation requirements. Consult the execution ledger for current delivery and acceptance evidence.
 
 Preserve the external game RPC contract: methods, envelopes, closed error codes, serial ordering, the seven Keeper verbs, ownership of receipts and call identities, state authority, and gameplay behavior. The runtime replacement happens behind that contract; it does not redefine it.
 

@@ -2716,6 +2716,13 @@ It shares the setup/library writer, preserves chapter continuation versus comple
 campaigns, and contributes late accounting through the existing explicit writer
 gate. No new ending, rule, time unit or save schema is introduced by migration.
 
+Combat, chase and sanity use the same named family bindings. Their snapshot
+serialization and rule engines stay in their respective modules; shared wounds,
+HP/MP and clock synchronization remain owned by healing/resources. Combat attack
+behavior used from chase is exposed by the combat module, not copied. Session
+and pending-choice projections come from the existing family result shape. The
+common pipeline retains session priority and cross-family continuation ownership.
+
 The transaction preparation read may opt out of eager snapshot loading. Apply
 loads only the party and save documents its selected resource operation needs;
 an unrelated broken session cannot preempt damage's existing roll/actor order or

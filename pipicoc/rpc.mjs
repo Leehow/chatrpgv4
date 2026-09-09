@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
+import { compiledEnvironment, readDeployment, resourceRootFrom, runtimeEntrypoints } from '../runtime/deployment.mjs';
 
-export function keeperArguments(args, repo, mode = 'play') {
+export function keeperArguments(args, repo, mode = 'play', entrypoints = runtimeEntrypoints(repo)) {
   if (!['play', 'setup'].includes(mode)) throw new Error(`Unsupported pi-coc mode: ${mode}`);
   const forwarded = [];
   const valueFlags = new Set(['--system-prompt', '--append-system-prompt', '--tools', '--extension', '-e']);
@@ -19,10 +21,8 @@ export function keeperArguments(args, repo, mode = 'play') {
     forwarded.push(args[i]);
   }
   const mounts = [
-    join(repo, 'Electron/resources/runtime/kernel/pipiui-ext-invoke.ts'),
-    ...['kernel', 'mods', 'onboarding', 'module', 'memory', 'table'].map(name => join(repo, 'extensions', name, 'index.ts')),
-    join(repo, 'pipicoc/agent.ts'),
-    join(repo, 'extensions', 'deepseek', 'agent', 'index.js'),
+    join(entrypoints.hostAssets, 'kernel', 'pipiui-ext-invoke.mjs'),
+    ...entrypoints.extensions, entrypoints.agent, entrypoints.deepseek,
   ];
   return [...(mode === 'setup' ? ['setup'] : []), ...forwarded,
     '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes',
@@ -30,15 +30,19 @@ export function keeperArguments(args, repo, mode = 'play') {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-  const env = { ...process.env };
+  const repo = resourceRootFrom(import.meta.url);
+  const deployment = process.env.PI_COC_LAYOUT === 'compiled' || existsSync(join(repo, 'deployment.json')) ? readDeployment(repo) : undefined;
+  const env = deployment ? compiledEnvironment(deployment, process.env) : {...process.env, PI_COC_RESOURCE_ROOT: repo};
+  const entrypoints = deployment?.entrypoints ?? runtimeEntrypoints(repo);
   // Host prompt contracts must not become a second persona in a reader or Keeper.
   for (const name of ['PIPIUI_CORE_PROMPT', 'PIPIUI_PROMPT_OBSERVER_EXT', 'PIPI_PHILOSOPHY_LAYER_DIRS']) delete env[name];
+  if (deployment && (!env.PI_COC_HOME || !env.PI_CODING_AGENT_DIR)) throw new Error('Standalone UI startup requires its writable profile and COC home');
   env.PI_COC_HOME ||= repo;
   let stopping = false;
   let child;
   const launch = mode => {
-  child = spawn(join(repo, 'bin/pi-coc'), keeperArguments(process.argv.slice(2), repo, mode), {
+  const args = keeperArguments(process.argv.slice(2), repo, mode, entrypoints);
+  child = spawn(deployment?.node ?? join(repo, 'bin/pi-coc'), deployment ? [entrypoints.launch, ...args] : args, {
     cwd: repo, env: {...env,PI_COC_MODE:mode}, stdio: 'inherit', detached: process.platform !== 'win32',
   });
   child.on('error', error => { console.error(error.message); process.exitCode = 1; });
@@ -58,8 +62,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const stop = signal => {
     stopping = true;
     try {
-      if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, signal);
-      else child.kill(signal);
+      if (process.platform !== 'win32' && child?.pid) process.kill(-child.pid, signal);
+      else child?.kill(signal);
     } catch (error) { if (error.code !== 'ESRCH') throw error; }
   };
   for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(signal, () => stop(signal));

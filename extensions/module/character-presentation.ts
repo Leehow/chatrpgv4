@@ -1,10 +1,10 @@
 /** Player-facing text for an immutable card. Numeric cells never enter the model. */
 import {createHash,randomUUID} from 'node:crypto';
 import {mkdir,readFile,writeFile,rename} from 'node:fs/promises';
-import {dirname,join,resolve} from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {join} from 'node:path';
+import {resourceRootFrom,runtimeEntryUrl} from '../../runtime/deployment.mjs';
 import type {ReaderRequest,ReaderOutcome} from './reader.ts';
-const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
+const root=resourceRootFrom(import.meta.url);
 export const CARD_TEXT = ['Character draft','Character draft — reply to confirm or describe changes.',
   'Parameter','Value','Skill','Base value','Occupation points','Interest points','Final value','Point allocation','Total points','Spent','Remaining','Skills','Finance','Background','Language','Key connection',
   'Show calculation details','Hide calculation details','Characteristics','Calculation','Rolled value','Dice results','Age adjustment','EDU improvement checks','Keep highest','Base movement','Age movement penalty','Round down','Standard rolled characteristics','Quick-fire array','Equipment','Weapons','Preview unavailable','Retry',
@@ -97,11 +97,11 @@ async function prepareTexts(options:TextOptions,texts:string[]):Promise<{texts:R
   if(!runner)throw new Error('Character presentation requires its owner runtime');
   const attempt=join(directory,'attempts',randomUUID());await mkdir(attempt,{recursive:true});
   await writeFile(join(attempt,'texts.json'),JSON.stringify({play_language:options.play_language,texts,known_labels:known,equipment},null,2));
-  await writeFile(join(attempt,'check.mjs'),`import {readFileSync} from 'node:fs';\nimport {validatePresentation,validateFinanceEquipment} from ${JSON.stringify(import.meta.url)};\ntry {const packet=JSON.parse(readFileSync('texts.json','utf8'));const value=JSON.parse(readFileSync('presentation.json','utf8'));validatePresentation(value,packet.texts);validateFinanceEquipment(value,packet.equipment);console.log('Presentation valid');}catch(error){console.error(error.message);process.exitCode=1;}\n`);
+  await writeFile(join(attempt,'check.mjs'),`import {readFileSync} from 'node:fs';\nimport {validatePresentation,validateFinanceEquipment} from ${JSON.stringify(runtimeEntryUrl('characterPresentation',import.meta.url))};\ntry {const packet=JSON.parse(readFileSync('texts.json','utf8'));const value=JSON.parse(readFileSync('presentation.json','utf8'));validatePresentation(value,packet.texts);validateFinanceEquipment(value,packet.equipment);console.log('Presentation valid');}catch(error){console.error(error.message);process.exitCode=1;}\n`);
   let result:{texts:Record<string,string>;finance_equipment:string[]}|undefined;
   for(let round=1;round<=2;round++) {
     const outcome=await runner({cwd:attempt,systemPrompt:prompt,model:options.model,thinking:options.thinking,signal:options.signal,eventLog:join(attempt,`events-${round}.jsonl`),timeoutMs:120000,
-      brief:'Read texts.json and write the complete player-facing text projection to presentation.json. The file must contain exactly one JSON object, without Markdown or trailing text. Run node --experimental-strip-types check.mjs and correct any error before finishing.'+(round>1?' Read findings.json and repair the retained file; preserve every correct translation.':'')});
+      brief:'Read texts.json and write the complete player-facing text projection to presentation.json. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing.'+(round>1?' Read findings.json and repair the retained file; preserve every correct translation.':'')});
     if(!outcome.ok||options.signal?.aborted)throw new Error('Card presentation could not be prepared');
     const bytes=await readFile(join(attempt,'presentation.json'),'utf8');
     await writeFile(join(attempt,`presentation-round-${round}.json`),bytes);

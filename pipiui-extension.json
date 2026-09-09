@@ -3,7 +3,7 @@
   "name": "COC Keeper",
   "version": "0.1.0",
   "category": "workflow",
-  "description": "Call of Cthulhu at a real table: the Keeper is the product, seven verbs reach a deterministic Python kernel, and the module graph is the only authored truth.",
+  "description": "Call of Cthulhu at a real table: the Keeper is the product, seven verbs reach a deterministic kernel, and the module graph is the only authored truth.",
   "capabilities": [
     "invoke.agent",
     "bridge.emit"

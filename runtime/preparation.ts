@@ -1,7 +1,6 @@
 /** Host-only launch adapter for the existing onboarding JSONL worker. */
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
-import { join, resolve } from 'node:path';
 import type { Readable } from 'node:stream';
 import { KernelError } from '../extensions/kernel/client.ts';
 import { composeRuntimeContext, type RuntimeHostOptions } from './host.ts';
@@ -14,24 +13,24 @@ export interface PreparationProcess {
 
 export function createPreparationHost(home: string, options: RuntimeHostOptions = {}) {
   const context = composeRuntimeContext({owner: 'preparation', home}, options);
-  const entrypoint = join(context.resourceRoot, 'pipicoc', 'onboarding-worker.ts');
+  const entrypoint = context.entrypoints.onboardingWorker;
   try { accessSync(entrypoint, constants.R_OK); }
   catch { throw new KernelError({code: 'internal', message: 'The preparation worker is unavailable',
     details: {reason: 'runtime_configuration'}}); }
-  const configuration = JSON.stringify({backend: context.backend, resourceRoot: context.resourceRoot,
+  const configuration = JSON.stringify({layout: context.layout, backend: context.backend, resourceRoot: context.resourceRoot,
     contentRoot: context.contentRoot, agentHome: context.agentHome, nodeExecutable: context.nodeExecutable,
-    ...(options.kernelEntrypoint ? {kernelEntrypoint: resolve(context.resourceRoot, options.kernelEntrypoint)} : {})});
+    kernelEntrypoint: context.entrypoints.kernel});
 
   return Object.freeze({home: context.home,
     start(action: string, input: Record<string, unknown>, signal?: AbortSignal): PreparationProcess {
       if (signal?.aborted) throw new KernelError({code: 'internal', message: 'Preparation was cancelled',
         details: {reason: 'runtime_cancelled'}});
       const grouped = process.platform !== 'win32';
-      const child = spawn(context.nodeExecutable, ['--experimental-strip-types', entrypoint, action,
+      const child = spawn(context.nodeExecutable, [entrypoint, action,
         JSON.stringify({...input, home: context.home}), configuration], {
         cwd: context.resourceRoot, detached: grouped,
         env: {...context.env, PI_COC_CAMPAIGN: typeof input.campaign === 'string' ? input.campaign : undefined,
-          ELECTRON_RUN_AS_NODE: '1', PYTHONDONTWRITEBYTECODE: '1'}, stdio: ['ignore', 'pipe', 'pipe'],
+          ...(context.layout === 'source' ? {ELECTRON_RUN_AS_NODE: '1', PYTHONDONTWRITEBYTECODE: '1'} : {})}, stdio: ['ignore', 'pipe', 'pipe'],
       });
       let ended = false, stopping = false;
       let escalation: NodeJS.Timeout | undefined, deadline: NodeJS.Timeout | undefined;

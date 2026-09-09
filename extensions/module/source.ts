@@ -2,14 +2,15 @@
 import { createHash, randomUUID } from "node:crypto";
 import { appendFile, copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { getDocument, version } from "pdfjs-dist/legacy/build/pdf.mjs";
-import { createCanvas, loadImage } from "@napi-rs/canvas";
+import { createCanvas, loadImage, type Canvas, type SKRSContext2D } from "@napi-rs/canvas";
 
 const require = createRequire(import.meta.url);
 const pdfRoot = dirname(require.resolve("pdfjs-dist/package.json"));
 export type Box = [number, number, number, number];
+type PdfCanvas = {canvas: Canvas; context: SKRSContext2D};
+interface PdfCanvasFactory {create(width: number, height: number): PdfCanvas; destroy(target: PdfCanvas): void}
 
 export function validateBox(value?: number[]): Box {
 	const box = value ?? [0, 0, 1, 1];
@@ -23,13 +24,14 @@ export function validateBox(value?: number[]): Box {
 async function openPdf(path: string) {
 	const bytes = await readFile(path);
 	const sha256 = createHash("sha256").update(bytes).digest("hex");
-	const task = getDocument({
+	const options = {
 		data: new Uint8Array(bytes),
 		cMapUrl: join(pdfRoot, "cmaps") + "/", cMapPacked: true,
 		standardFontDataUrl: join(pdfRoot, "standard_fonts") + "/",
 		wasmUrl: join(pdfRoot, "wasm") + "/",
 		isEvalSupported: false, useSystemFonts: true, verbosity: 0,
-	});
+	};
+	const task = getDocument(options);
 	try {
 		return { document: await task.promise, sha256, close: () => task.destroy() };
 	} catch (error) {
@@ -85,9 +87,11 @@ export async function sourcePage(pdf: string, cache: string, page: number, optio
 			const height = base.height * (box[3] - box[1]);
 			const scale = pixels / Math.max(width, height);
 			const viewport = pdfPage.getViewport({ scale });
-			const canvas = document.canvasFactory.create(Math.max(1, Math.ceil(width * scale)), Math.max(1, Math.ceil(height * scale)));
+			const factory = document.canvasFactory as PdfCanvasFactory;
+			const canvas = factory.create(Math.max(1, Math.ceil(width * scale)), Math.max(1, Math.ceil(height * scale)));
 			try {
-				await pdfPage.render({ canvasContext: canvas.context, viewport,
+				await pdfPage.render({ canvas: canvas.canvas as unknown as HTMLCanvasElement,
+					canvasContext: canvas.context as unknown as CanvasRenderingContext2D, viewport,
 					transform: [1, 0, 0, 1, -base.width * box[0] * scale, -base.height * box[1] * scale] }).promise;
 				const bytes = format === "jpeg" ? canvas.canvas.toBuffer("image/jpeg", 92) : canvas.canvas.toBuffer("image/png");
 				result = { path, page, box, width: canvas.canvas.width, height: canvas.canvas.height,
@@ -98,7 +102,7 @@ export async function sourcePage(pdf: string, cache: string, page: number, optio
 				const metaTemporary = `${metaPath}.${randomUUID()}.tmp`;
 				await writeFile(metaTemporary, JSON.stringify(result) + "\n");
 				await rename(metaTemporary, metaPath);
-			} finally { document.canvasFactory.destroy(canvas); pdfPage.cleanup(); }
+			} finally { factory.destroy(canvas); pdfPage.cleanup(); }
 		}
 		const viewPath = join(resolve(cache), `page-${page}-region-${box.join("-")}-${pixels}.${suffix}`);
 		const viewTemporary = `${viewPath}.${randomUUID()}.tmp`;
@@ -135,7 +139,7 @@ export async function sourceAsset(pdf: string, cache: string, regions: Array<{ p
 	return { path: destination, sha256: createHash("sha256").update(bytes).digest("hex"), media_type: "image/png" };
 }
 
-async function main(args: string[]) {
+export async function sourceCli(args: string[]) {
 	const take = (flag: string) => {
 		const index = args.indexOf(flag);
 		if (index < 0) return undefined;
@@ -154,8 +158,4 @@ async function main(args: string[]) {
 		const result = await sourcePage(pdf, cache, Number(args[1]), { ...(rawBox ? { box: rawBox.split(",").map(Number) } : {}) });
 		console.log(JSON.stringify({ page: result.page, box: result.box, image: result.path, width: result.width, height: result.height }));
 	} else throw new Error("choose info or page <physical-page>; page also needs --cache <directory>");
-}
-
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-	main(process.argv.slice(2)).catch((error) => { console.error(JSON.stringify({ error: String(error.message ?? error) })); process.exitCode = 1; });
 }

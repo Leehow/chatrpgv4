@@ -1,11 +1,11 @@
 /** Module-owned, reviewed guidance shared by character creation sessions. */
 import {createHash, randomUUID} from 'node:crypto';
 import {mkdir, readFile, writeFile, rename} from 'node:fs/promises';
-import {dirname, join, resolve, relative, isAbsolute} from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {join, resolve, relative, isAbsolute} from 'node:path';
+import {resourceRootFrom} from '../../runtime/deployment.mjs';
 import type {ReaderRequest, ReaderOutcome} from './reader.ts';
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const root = resourceRootFrom(import.meta.url);
 type Row = Record<string, any>;
 export type Guidance = {opening:string; advice:string; scene:string; guide:string; handoff:string};
 type Options = {home:string; contentRoot?:string; module_id:string; play_language:string; opening?:string;

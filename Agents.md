@@ -6,7 +6,7 @@
 
 | 分支 | 是什么 | 怎么用 |
 | --- | --- | --- |
-| **`0.9.2a`** | 重构后的产品：一个 Pi 包 + 一个 Python 内核子进程，守秘人只见七个动词。从孤儿分支重建，**从来没有包含过旧树**。 | 只在这里开发。检出在 worktree `chatrpgv4-wt-pi-coc-v2`（或你自己的 worktree）。 |
+| **`0.9.2a`** | 重构后的产品：一个 Pi 包 + 一个编译后的 TypeScript 内核子进程，守秘人只见七个动词。从孤儿分支重建，**从来没有包含过旧树**。 | 只在这里开发。检出在 worktree `chatrpgv4-wt-pi-coc-v2`（或你自己的 worktree）。 |
 | `0.9.1a` | 同一棵树在 2026-09-08 的封版快照，停在 `91092c9a`。 | **保留，不在上面开发。** 要看那一版用 `git show 0.9.1a:<路径>`。 |
 | `0.9.0a` | 同一棵树在 2026-09-08 的封版快照，停在 `41417a24`。 | **保留，不在上面开发。** 要看那一版用 `git show 0.9.0a:<路径>`。 |
 | `0.8.2a`、`main` 及所有 `claude/*`、`codex/*` 旧分支 | 重构前的旧树（`plugins/coc-keeper/`、MCP、typed tools、七文件 IR、steward……）。 | **只读参照，不清空，不在上面开发，不合并进来。** 还有东西没搬完（见下），要搬的时候用 `git show 0.8.2a:<路径>` 读，或者读主检出 `/Users/haoli/leehow/code/chatrpgv4`（它停在 `0.8.2a`）。搬的是想法和数据（规则表、图、测试断言），不是机器。 |
@@ -24,6 +24,7 @@ PipiCOC 界面现已复制到本分支 `Electron/`，经 `pipicoc/rpc` 启动当
 | 扩展与内核之间的一切（方法、收据、回合状态机、胶囊、resolve 流水线、提交链、Director、模组车道、世界线、系统语言与机制投影） | `docs/kernel-rpc.md`。**改契约先于改代码**；每个切片的实现决定记在对应的「内核的决定」小节。 |
 | PDF 阅读、构图、按需补读或旧解析链路退役 | `docs/specs/visual-pdf-reader.md`、`docs/kernel-rpc.md` §22 与 GitHub #34。视觉实现与旧路径退役已接线；最后验证状态见规格实施记录；保留全部证据，Electron 留后。 |
 | 对 Pi 的依赖、绕法、升版 | `docs/pi-host-contract.md`。不 fork、不打补丁。 |
+| 运行时、编译入口、独立打包或 Python 对照 | `docs/kernel-rpc.md` §27、`docs/specs/runtime-consolidation-tickets.md`；先看实现与验收状态，编译通过不等于独立包验收完成。 |
 | 架构规格与切片票 | GitHub issue #12（规格）、#13–#18（切片，已关）、#19–#22（真桌缺口，已关）、#26（切片 7：系统语言英文、机制 JSON）、#23（切片 8：世界线，契约 §15，代码已做完，§15.8 的真桌验收未跑）、#25（`apply npc`，留后）。用 `gh`。 |
 | 决策记录 | `docs/adr/`。 |
 | 真桌验收怎么做、证据在哪 | `docs/acceptance.md`。 |
@@ -97,7 +98,7 @@ Grok 系模型屡次把「交付」当目标、把意图当配菜，也屡次静
 
 ## 产品不变量
 
-- **内核不解析 PDF**：PDF 处理只发生在宿主，Python 侧禁止 import PDF 库的两条测试不变。当前来源契约见 §22：原 PDF、按需页图、带工具 Pi 读者、独立复核和可追溯图谱；OCR/Markdown 资料包生产路径已退役。
+- **内核不解析 PDF**：PDF 处理只发生在宿主，TypeScript 内核与 Python 对照均保持此边界，既有隔离测试保留。当前来源契约见 §22：原 PDF、按需页图、带工具 Pi 读者、独立复核和可追溯图谱；OCR/Markdown 资料包生产路径已退役。
 - 守秘人是产品：语义意图、因果、NPC、叙事归它；规则归内核算术；状态归内核事务。模组真相只读且默认保密，玩家猜对了仍是猜测。
 - 数值只出自 `resolve`，世界改变只经 `apply`，叙述里发生了却没收据的事等于没发生。
 - 模型可见的标识都是名字；哈希、收据 id、call id 由宿主与内核铸造，不让模型抄。
@@ -106,9 +107,11 @@ Grok 系模型屡次把「交付」当目标、把意图当配菜，也屡次静
 
 ## Pi home 隔离（binding）
 
-Pi 完全隔离在仓库内：游玩用 `{repo}/.pi/coc-agent`（`PI_CODING_AGENT_DIR`），编码用 `{repo}/.pi/agent`。不用 `~/.pi/*`，不把 COC 包装进全局 settings，不把这个 home 软链回 `~/.pi`。`auth.json`/`models.json` 永不提交。
+源码模式的 Pi 隔离在仓库内：游玩用 `{repo}/.pi/coc-agent`（`PI_CODING_AGENT_DIR`），编码用 `{repo}/.pi/agent`。独立 App 的 Pi home、凭据与会话位于 App 自有 userData，资源包保持只读。两种模式都不用 `~/.pi/*`，不把 COC 包装进全局 settings，不把 home 软链回 `~/.pi`。`auth.json`/`models.json` 永不提交或打入安装包。
 
-## Python 解释器契约
+## 开发与对照用 Python 解释器契约
+
+生产内核、检查器和准备入口使用发出的 JavaScript；Python 仅供显式开发对照与原生模块构建工具使用。
 
 唯一环境由 `.python-version`、`pyproject.toml` 与提交的 `uv.lock` 定义。所有 Python 命令从仓库根以 `uv run --frozen python …` 运行（别处加 `--project <repo>`）；子进程用 `sys.executable`；不从 `PATH` 挑 `python`。升级 Python 或依赖是一次跨 `.python-version`/`pyproject`/`uv.lock`/文档的原子改动。
 

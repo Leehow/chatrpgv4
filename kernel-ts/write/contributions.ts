@@ -111,12 +111,13 @@ export async function defaultModPlan(context: KernelContext, world: Row): Promis
 export function preflightCampaign(meta: Row, world: Row, turn: Row, party: Row[], available: {
     libraryWriteBack?: boolean;
     modManagement?: boolean;
+    worldlines?: boolean;
 } = {}): void {
     if (!available.libraryWriteBack && party.some(sheet => typeof row(sheet.origin).library_id === 'string' && sheet.origin.library_id))
         missingContribution('investigator library writeback');
     const name = typeof meta.active_worldline === 'string' && meta.active_worldline ? meta.active_worldline : 'main';
     const lines = row(meta.worldlines), line = row(lines[name]);
-    if (name !== 'main' || truth(turn.worldline) || Object.keys(lines).some(id => id !== 'main') || line.kind && line.kind !== 'main')
+    if (!available.worldlines && (name !== 'main' || truth(turn.worldline) || Object.keys(lines).some(id => id !== 'main') || line.kind && line.kind !== 'main'))
         missingContribution('worldline transition');
     if (!available.modManagement && (truth(row(world.mods).pending) || Object.hasOwn(row(world.mods), 'pending_order')))
         missingContribution('pending Mod configuration');

@@ -59,6 +59,8 @@ export function rebaseHealingClock(state: Row, delta: number): Row {
     }
     return moved;
 }
+export const CLOCK_SAVE_PATHS = ['save/healing-state'] as const;
+export const rebaseClock = rebaseHealingClock;
 export class HealingSession {
     currentHp: number;
     readonly conditions: string[];

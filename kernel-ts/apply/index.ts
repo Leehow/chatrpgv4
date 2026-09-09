@@ -17,6 +17,14 @@ import { createWriteRuntime } from '../write/index.js';
 import { nowIso } from '../write/store.js';
 import { advanceClock } from './clock.js';
 import { stageMove } from './move.js';
+import {appendJsonl} from '../fileio.js';
+import {join} from 'node:path';
+import {stageFlag,stageNote,stageRuling} from './bookkeeping.js';
+import {stageClue,stageNpc,stageHandout} from './entities.js';
+import {stageItem,stageCash,commitInventorySheets} from './inventory.js';
+import type {createWorldlineRuntime} from '../worldline/index.js';
+import type {createModRuntime} from '../mods/index.js';
+import type {CampaignWriter} from '../write/store.js';
 const KINDS = ['ability', 'cash', 'clue', 'damage', 'define', 'ending', 'flag', 'fork', 'handout', 'item', 'merge', 'move', 'note', 'npc', 'object', 'ruling', 'switch', 'time'];
 export interface ApplyContext {
     readonly kernel: KernelContext;
@@ -44,6 +52,8 @@ export interface ApplyResources {
     dayBoundary(context: ApplyContext, clockBefore: number): Promise<Row | null>;
 }
 export interface ApplyContributions {
+    readonly worldlines?: ReturnType<typeof createWorldlineRuntime>;
+    readonly mods?: ReturnType<ReturnType<typeof createModRuntime>['apply']>;
     readonly resources?: ApplyResources;
     readonly ending?: (context: ApplyContext, effect: Row) => Promise<{
         receipt: Row;
@@ -52,6 +62,8 @@ export interface ApplyContributions {
     readonly requireMaterial?: (graph: ModuleGraph, names: any[]) => Promise<void>;
     readonly materialReady?: (moduleId: string, name: string) => Promise<boolean>;
     readonly queueAdjacentReading?: (graph: ModuleGraph, scene: Row) => Promise<string[]>;
+    readonly asset?: (moduleId:string,name:string)=>Promise<Row|null>;
+    readonly weaponCatalog?: (graph:ModuleGraph)=>Promise<Map<string,Row>>;
 }
 function atIndex(error: RpcError, index: number): RpcError {
     return new RpcError(error.code, error.message, { fix: error.fix, codeDetail: error.codeDetail, details: { index, ...error.details } });
@@ -68,7 +80,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 return started.result;
             if (!Array.isArray(effects) || !effects.length)
                 throw new RpcError('invalid_params', 'params.effects must be a non-empty list');
-            const available = (kind: string) => ['time', 'damage', 'move'].includes(kind) ? !!contributions.resources : kind === 'ending' ? !!contributions.ending : false;
+            const available = (kind: string) => ['clue','npc','item','cash','flag','note','ruling'].includes(kind) || (['define','object','ability'].includes(kind)?!!contributions.mods:['fork','switch','merge'].includes(kind)?!!contributions.worldlines:kind==='handout'?!!contributions.asset:['time', 'damage', 'move'].includes(kind) ? !!contributions.resources : kind === 'ending' ? !!contributions.ending : false);
             // A partial backend refuses unimplemented batches before any domain draws or writes.
             for (const [index, effect] of effects.entries())
                 if (isJsonObject(effect) && typeof effect.kind === 'string' && KINDS.includes(effect.kind) && !available(effect.kind))
@@ -88,6 +100,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             }
             const staged: Row = clone(transaction.world), taken = new Set(array(turn.receipts).map(value => string(value.id)));
             const receipts: Row[] = [], events: DomainEvent[] = [], ids: string[] = [];
+            const stagedSheets=new Map<string,Row>(),stagedNotes:Row[]=[],stagedRulings:Row[]=[],attachments:Row[]=[],already:string[]=[];
             const context: ApplyContext = { kernel, transaction, campaign, world: staged, turn, graph, module, callId: started.callId, ordinal: started.ordinal,
                 mint(base) { let id = base, next = 2; while (taken.has(id))
                     id = `${base}-${next++}`; taken.add(id); return id; },
@@ -102,6 +115,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 }
             };
             let timeEffects = 0, restMinutes = 0;
+            let stagedWorldline:Row|null=null;
             for (const [index, effect] of effects.entries()) {
                 try {
                     if (!isJsonObject(effect) || typeof effect.kind !== 'string')
@@ -109,6 +123,10 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     const kind = effect.kind;
                     if (!KINDS.includes(kind))
                         unsupported('kind', kind, KINDS, `unknown effect kind ${repr(kind)}`);
+                    if(['fork','switch','merge'].includes(kind)){
+                        const moved=await contributions.worldlines!.stage(campaign,graph,staged,effect,turn,index,effects.length,context.mint,started.callId);
+                        receipts.push(moved.receipt);ids.push(moved.receipt.id);taken.add(moved.receipt.id);stagedWorldline=moved.plan;continue;
+                    }
                     if (kind === 'damage') {
                         const result = await contributions.resources!.damage(context, effect);
                         receipts.push(...result.receipts);
@@ -130,6 +148,22 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     }
                     else if (kind === 'ending')
                         ({ receipt, event } = await contributions.ending!(context, effect));
+                    else if(kind==='clue'){
+                        const clue=await stageClue(context,effect);receipt=clue.receipt;
+                        if(!clue.event){already.push(receipt.clue);ids.push(receipt.id);continue;}event=clue.event;
+                    }
+                    else if(kind==='npc')({receipt,event}=await stageNpc(context,effect) as {receipt:Row;event:DomainEvent});
+                    else if(kind==='handout'){
+                        ({receipt,event}=await stageHandout(context,effect,contributions.asset!) as {receipt:Row;event:DomainEvent});attachments.push(receipt.attachment);
+                    }
+                    else if(kind==='item')({receipt,event}=await stageItem(context,effect,stagedSheets,()=>{
+                        if(!contributions.weaponCatalog)throw new RpcError('not_implemented','The weapon catalog contribution is unavailable');return contributions.weaponCatalog(graph);
+                    }) as {receipt:Row;event:DomainEvent});
+                    else if(kind==='cash')({receipt,event}=await stageCash(context,effect,stagedSheets) as {receipt:Row;event:DomainEvent});
+                    else if(kind==='flag')({receipt,event}=stageFlag(context,effect) as {receipt:Row;event:DomainEvent});
+                    else if(kind==='note')({receipt,event}=await stageNote(context,effect,stagedNotes) as {receipt:Row;event:DomainEvent});
+                    else if(kind==='ruling')({receipt,event}=await stageRuling(context,effect,stagedRulings) as {receipt:Row;event:DomainEvent});
+                    else if(['define','object','ability'].includes(kind))({receipt,event}=await contributions.mods!.stage(context,effect,stagedSheets));
                     else {
                         const minutes = effect.minutes;
                         if (!integer(minutes) || number(minutes) < 0)
@@ -154,14 +188,18 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     throw error;
                 }
             }
-            if (truth(staged.ending) && (row(staged.ending).scope ?? 'campaign') === 'campaign' && truth(turn.worldline))
+            if (truth(staged.ending) && (row(staged.ending).scope ?? 'campaign') === 'campaign' && (stagedWorldline||truth(turn.worldline)))
                 throw new RpcError('invalid_params', 'a campaign ending cannot share a turn with a worldline transition');
             const recovery = contributions.resources ? await contributions.resources.recovery(context, restMinutes) : { receipts: [], events: [], recovered: [] };
             receipts.push(...recovery.receipts);
             ids.push(...recovery.receipts.map(value => string(value.id)));
             events.push(...recovery.events);
             const days = contributions.resources ? await contributions.resources.dayBoundary(context, number(row(transaction.world.clock).minutes)) : null;
+            await commitInventorySheets(context,stagedSheets);
             await campaign.writeWorld(staged);
+            if(effects.some(effect=>isJsonObject(effect)&&effect.kind==='object'))await contributions.mods!.projectInventory(campaign as CampaignWriter,staged);
+            for(const note of stagedNotes)await appendJsonl(join(campaign.directory,'notes.jsonl'),note);
+            for(const ruling of stagedRulings)await appendJsonl(join(campaign.directory,'rulings.jsonl'),ruling);
             const material = truth(module.meta.reading_version) ? await contributions.materialReady!(graph.moduleId, graph.handle(graph.scene(staged.active_scene))) ? 'ready' : 'missing' : 'ready';
             const result: Row = { receipts: ids, markers: markersOf({ ...turn, receipts: [...array(turn.receipts), ...receipts] }, receipts), world: { active_scene: staged.active_scene, clock: staged.clock }, material_ready: material === 'ready', material };
             if (receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed)) {
@@ -177,6 +215,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 result.recovered = recovery.recovered;
             if (days)
                 result.day_ended = days;
+            if(attachments.length){result.attachments=attachments.filter(truth);result.attachment=result.attachments[0]??null;}
+            if(already.length){result.already_discovered=already;if(!receipts.length)result.replayed=true;}
+            if(stagedWorldline){turn.worldline=stagedWorldline;result.worldline={operation:stagedWorldline.operation,line:stagedWorldline.line,mode:stagedWorldline.mode??null,loop:number(stagedWorldline.loop),when:"after this turn's narrate commits"};}
             await transaction.commitResolve({ callId: started.callId, params: callParams, result, receipts, events });
             return result;
         } };

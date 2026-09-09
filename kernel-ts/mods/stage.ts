@@ -1,0 +1,120 @@
+/** Stage existing Mod object effects in the shared apply batch. */
+import { RpcError } from '../errors.js';
+import { canonicalJson, isJsonObject, orderedObject } from '../json.js';
+import { actor as selectActor } from '../read/handlers.js';
+import { findNamedObject } from '../read/mods.js';
+import type { ModuleGraph } from '../read/module-graph.js';
+import { array, clone, entries, equal, integer, normalize, repr, row, string, truth, type Row } from '../read/values.js';
+import type { CampaignWritePort, DomainEvent } from '../transactions.js';
+import type { ApplyContext } from '../apply/index.js';
+import { stagedSheet } from '../apply/inventory.js';
+import { validateDefinition } from './definition.js';
+import { initializeDocument, ownershipChanged, writeDocument } from './documents.js';
+import { defineObject, moveObject, objectInstance, objectRegistry } from './objects.js';
+import type { ModJobs } from './jobs.js';
+
+const field = (value: Row, key: string, fallback: any): any => Object.hasOwn(value, key) ? value[key] : fallback;
+export async function objectOwner(campaign: CampaignWritePort, graph: ModuleGraph, world: Row, name: any): Promise<Row> {
+    if (typeof name !== 'string' || !name.trim()) throw new RpcError('invalid_params', 'Object owner must be an investigator, NPC or scene name');
+    if (name === 'here') { const scene = graph.scene(world.active_scene); return {kind: 'scene', id: graph.handle(scene), name: graph.displayName(scene)}; }
+    for (const sheet of await campaign.party()) if ([normalize(sheet.id), normalize(sheet.name)].includes(normalize(name))) return {kind: 'investigator', id: sheet.id, name: sheet.name};
+    const node = graph.find(name);
+    if (node?.node_kind === 'npc') return {kind: 'npc', id: graph.handle(node), name: graph.displayName(node)};
+    const container = objectInstance(world, name);
+    if (container) return {kind: 'object', id: container.id, name: container.name};
+    try { const scene = graph.scene(name); return {kind: 'scene', id: graph.handle(scene), name: graph.displayName(scene)}; }
+    catch (error) { if (!(error instanceof RpcError)) throw error; throw new RpcError('unknown_entity', `No object owner named ${repr(name)}`); }
+}
+export async function stageModEffect(context: ApplyContext, original: Row, sheets: Map<string, Row>, jobs: ModJobs): Promise<{receipt: Row; event: DomainEvent}> {
+    const {campaign, graph, world, callId} = context, turn = context.turn.turn;
+    let effect = original;
+    const kind = effect.kind, mint = (id: string) => context.mint(id);
+    if (kind === 'define') {
+        const draft = effect._definition;
+        if (!isJsonObject(draft)) throw new RpcError('needs', "Definition needs the host's tool-enabled Mod creator", {details: {reason: 'mod_generation_required'}});
+        validateDefinition(draft, {name: effect.name ?? null, category: effect.category ?? null});
+        const provenance = truth(effect._provenance) ? effect._provenance : {}, active = await jobs.runtime.active(world), packageRow = active.find(mod => mod.id === provenance.mod);
+        if (!packageRow || packageRow.digest !== provenance.digest || !truth(packageRow.contributes.materializer)) throw new RpcError('invalid_params', 'Definition provenance is not an active materializer');
+        const accepted = await jobs.accept({campaign: campaign.id, job: provenance.job});
+        if (canonicalJson(accepted.definition ?? null) !== canonicalJson(draft)) throw new RpcError('invalid_params', 'Definition differs from the accepted Mod job');
+        const value = defineObject(world, draft, provenance);
+        return {receipt: {id: mint(`definition:${callId}`), kind: 'definition', name: value.name, category: value.category, definition: value.id, visibility: 'keeper', call_id: callId},
+            event: {type: 'definition-created', data: {name: value.name, category: value.category}}};
+    }
+    if (kind === 'object') {
+        const name = effect.name;
+        if (typeof name !== 'string' || !name.trim()) throw new RpcError('invalid_params', 'Object needs a name');
+        const owner = await objectOwner(campaign, graph, world, effect.to), source = truth(effect.from) ? await objectOwner(campaign, graph, world, effect.from) : null;
+        const prior = objectInstance(world, name); let adopted: any = null;
+        if (!prior && !Object.hasOwn(effect, 'adopt') && owner.kind === 'investigator') {
+            const sheet = sheets ? await stagedSheet(context, sheets, owner.name) : selectActor(await campaign.party() as Row[], owner.name);
+            if (array(sheet.equipment).some(item => typeof item === 'string' ? item === name : isJsonObject(item) && item.name === name))
+                throw new RpcError('invalid_params', 'This equipment is already owned; use object.adopt to enrich it instead of awarding another copy');
+        }
+        if (Object.hasOwn(effect, 'adopt')) {
+            if (typeof effect.adopt !== 'string' || !effect.adopt.trim() || prior || source || owner.kind !== 'investigator' || !sheets)
+                throw new RpcError('invalid_params', 'Adopt needs an existing investigator equipment name, without from or an existing instance');
+            const sheet = await stagedSheet(context, sheets, owner.name), matches = array(sheet.equipment).flatMap((item, index) =>
+                typeof item === 'string' && item === effect.adopt || isJsonObject(item) && !truth(item.object_id) && item.name === effect.adopt ? [[index, item] as const] : []);
+            if (matches.length !== 1) throw new RpcError('invalid_params', 'Adoption must identify exactly one existing unmanaged equipment row');
+            const [index, value] = matches[0]; adopted = value;
+            if (array(sheet.weapons).some(weapon => isJsonObject(weapon) && normalize(string(weapon.name || weapon.display_name || '')) === normalize(effect.adopt)
+                && truth(weapon.weapon_id || weapon.damage || weapon.damage_die))) throw new RpcError('invalid_params', 'This equipment already has executable weapon parameters');
+            const recorded = row(adopted), count = field(recorded, 'quantity', 1), condition = field(recorded, 'condition', 'intact');
+            if (!equal(field(effect, 'quantity', count), count) || !equal(field(effect, 'condition', condition), condition)) throw new RpcError('invalid_params', 'Adoption preserves recorded quantity and condition');
+            effect = {...effect, quantity: count, condition}; sheet.equipment.splice(index, 1);
+        }
+        const beforeCondition = prior?.state.condition ?? null;
+        if (prior && effect.condition != null && effect.condition !== beforeCondition && !string(effect.why || '').trim()) throw new RpcError('invalid_params', 'A physical state change needs its causal reason in why');
+        const quantity = field(effect, 'quantity', prior ? prior.quantity : 1);
+        let seed: Row | null = null, writing = false;
+        if (Object.hasOwn(effect, 'document')) {
+            if (prior && !equal(source, owner)) throw new RpcError('invalid_params', 'Document initialization or writing uses the same current from/to owner');
+            const value = effect.document; writing = isJsonObject(value) && value.action === 'write';
+            if (writing) {
+                if (Object.keys(value).length !== 2 || !Object.hasOwn(value, 'text') || !prior || !string(effect.why || '').trim()) throw new RpcError('invalid_params', 'Writing an existing document needs text and a causal why');
+            } else seed = await jobs.documentSeed(graph, world, value);
+        }
+        const item = moveObject(world, name, effect.definition ?? null, owner, {source, turn, quantity, condition: effect.condition ?? null, documentSeed: prior ? null : seed});
+        const definition = objectRegistry(world).definitions[item.definition];
+        if (prior && Object.hasOwn(effect, 'document')) {
+            if (writing) writeDocument(item, effect.document.text);
+            else { initializeDocument(item, seed); ownershipChanged(world); }
+        }
+        if (adopted !== null) {
+            const recorded = row(adopted);
+            for (const key of ['ammo', 'charges']) if (Object.hasOwn(recorded, key)) {
+                const value = recorded[key];
+                if (value !== null && (!integer(value) || value < 0)) throw new RpcError('invalid_params', 'Recorded ammunition and charges must be nonnegative integers or null');
+                item.state[key] = value;
+            }
+            return {receipt: {id: mint(`definition:adopt-${callId}`), kind: 'definition', name, category: definition.category, definition: definition.id,
+                instance: item.id, adopted: effect.adopt, subject: owner.id, visibility: 'keeper', call_id: callId},
+                event: {type: 'resource-changed', data: {resource: 'equipment_representation', subject: owner.id, item: name}}};
+        }
+        if (prior && Object.hasOwn(effect, 'document')) return {receipt: {id: mint(`definition:document-${callId}`), kind: 'definition', name, document_changed: true, visibility: 'keeper', call_id: callId},
+            event: {type: 'resource-changed', data: {resource: 'document', subject: owner.id, item: name}}};
+        if (prior && equal(source, owner) && effect.condition != null) {
+            const receipt = {id: mint(`delta:item-condition-${callId}`), kind: 'delta', resource: 'condition', subject: owner.id, subject_label: owner.name,
+                subject_is_investigator: owner.kind === 'investigator', item: item.name, instance: item.id, before: beforeCondition, after: item.state.condition,
+                why: effect.why ?? null, call_id: callId};
+            return {receipt, event: {type: 'resource-changed', data: {resource: receipt.resource, subject: receipt.subject, item: receipt.item, before: receipt.before, after: receipt.after}}};
+        }
+        const receipt = {id: mint(`item:${callId}`), kind: 'item', name, label: name, subject: owner.id, subject_label: owner.name, quantity, instance: item.id,
+            from: source?.name ?? null, weapon: definition.category === 'weapon' ? item.id : null, call_id: callId, why: effect.why ?? null, state: clone(item.state)};
+        return {receipt, event: {type: 'item-transferred', data: {name, to: owner.name, from: receipt.from}}};
+    }
+    if (kind === 'ability') {
+        const owner = await objectOwner(campaign, graph, world, effect.to);
+        if (!['npc', 'investigator'].includes(owner.kind) || typeof effect.source !== 'string' || !effect.source.trim()) throw new RpcError('invalid_params', 'Ability acquisition needs a person and an explicit source');
+        const definition = findNamedObject(objectRegistry(world).definitions, string(effect.name));
+        if (!definition || definition.category !== 'spell') throw new RpcError('invalid_params', 'Ability must name an accepted spell definition');
+        if (owner.kind === 'investigator') throw new RpcError('needs', 'Owning a source does not teach its spell; use resolve magic:learn-spell', {details: {reason: 'spell_learning_required'}});
+        const abilities = objectRegistry(world).abilities;
+        if (!Object.hasOwn(abilities, owner.id)) abilities[owner.id] = {};
+        abilities[owner.id] = orderedObject([...entries(abilities[owner.id]), [definition.name, {source: effect.source, turn}]]);
+        return {receipt: {id: mint(`ability:${callId}`), kind: 'ability', name: definition.name, subject: owner.id, source: effect.source, visibility: 'keeper', call_id: callId},
+            event: {type: 'ability-acquired', data: {name: definition.name, subject: owner.id}}};
+    }
+    throw new RpcError('invalid_params', 'Unsupported Mod world effect');
+}

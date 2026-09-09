@@ -7,6 +7,7 @@ import { checkDraft, requiredViewPages } from './modules/visual.js';
 import { row } from './read/values.js';
 import { validateDefinition } from './mods/definition.js';
 export { pythonJsonDumps as serializeCheckResult } from './json.js';
+export { parsePythonJson as parseCheckResult } from './json.js';
 export async function checkModDefinition(path: string): Promise<{ok: boolean; [key: string]: unknown}> {
     try {
         const value=validateDefinition(await snapshots.readJson(path));

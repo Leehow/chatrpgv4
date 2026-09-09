@@ -1,0 +1,143 @@
+/** Tool-enabled host job packets and acceptance; this module never invokes a model. */
+import { mkdir, lstat, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import type { KernelContext } from '../context.js';
+import { RpcError } from '../errors.js';
+import { writeJsonAtomic } from '../fileio.js';
+import { isJsonObject, jsonDigest } from '../json.js';
+import { loadModule } from '../read/campaign.js';
+import { recordOf, type ModuleGraph } from '../read/module-graph.js';
+import { whereSection } from '../read/capsule.js';
+import { MOD_CAPABILITIES, objectContext, unregisteredEquipment, findNamedObject } from '../read/mods.js';
+import { array, chars, clone, entries, equal, normalize, row, sorted, string, truth, type Row } from '../read/values.js';
+import { RuleTables } from '../rules/tables.js';
+import type { createWriteRuntime } from '../write/index.js';
+import { validateDefinition, validateDocumentSeed } from './definition.js';
+import type { ModRuntime } from './runtime.js';
+
+export interface ModSources { asset?: (moduleId: string, name: string) => Promise<Row | null>; }
+const field = (value: Row, key: string, fallback: any): any => Object.hasOwn(value, key) ? value[key] : fallback;
+export class ModJobs {
+    readonly tables: RuleTables;
+    constructor(readonly context: KernelContext, readonly runtime: ModRuntime, readonly writer: ReturnType<typeof createWriteRuntime>, readonly sources: ModSources = {}) {
+        this.tables = new RuleTables(context);
+    }
+    private async load(params: Row) {
+        const transaction = await this.writer.transaction(params, {preload: false});
+        const meta = await transaction.campaign.readCampaign(), module = await loadModule(this.context, string(meta.module_id));
+        return {...transaction, meta, graph: module.graph};
+    }
+    async knownHandouts(graph: ModuleGraph, world: Row): Promise<Row[]> {
+        const result: Row[] = [];
+        for (const handle of array(world.handouts_shown)) {
+            const node = graph.find(handle);
+            if (!node) continue;
+            if (!this.sources.asset) throw new RpcError('not_implemented', 'The module asset contribution is not implemented');
+            const record = recordOf(node), registered = await this.sources.asset(graph.moduleId, node.node_id) || {};
+            const value = typeof record.authored_text === 'string' ? record.authored_text : registered.authored_text;
+            if (typeof value === 'string') result.push({name: graph.displayName(node), text: value});
+        }
+        return result;
+    }
+    async documentSeed(graph: ModuleGraph, world: Row, value: any): Promise<Row> {
+        let seed = validateDocumentSeed(value);
+        if (Object.hasOwn(seed, 'handout')) {
+            const matches = (await this.knownHandouts(graph, world)).filter(item => normalize(item.name) === normalize(seed.handout));
+            if (matches.length !== 1) throw new RpcError('invalid_params', 'Document source must name one already revealed textual handout');
+            seed = validateDocumentSeed({text: matches[0].text, presentation: seed.presentation});
+        }
+        return seed;
+    }
+    async contributors(world: Row, turn: Row, role: string): Promise<Row[]> {
+        if (role === 'create') return (await this.runtime.active(world)).filter(mod => truth(mod.contributes.materializer)).slice(-1);
+        const decisions = new Set(array(turn.receipts).map(receipt => receipt.decision ?? null)), owners = await this.runtime.decisions(world), providers = await this.runtime.providers(world);
+        const result: Row[] = [];
+        for (const mod of await this.runtime.effective(world)) {
+            const contributes = mod.contributes;
+            if (!truth(contributes.auditor) || providers[`audit:${field(contributes, 'audit_slot', mod.id)}`].at(-1) !== mod.id) continue;
+            const triggers = contributes.audit_on_decisions;
+            if (truth(triggers) && !array(triggers).some(name => decisions.has(name) && (!owners.has(name) || owners.get(name)![0] === mod.id))) continue;
+            result.push(mod);
+        }
+        return result;
+    }
+    async job(params: Row): Promise<Row> {
+        const {campaign, graph, world, turn, meta} = await this.load(params), role = params.role;
+        if (!['create', 'audit'].includes(role)) throw new RpcError('invalid_params', 'Mod job role must be create or audit');
+        if (role === 'create') {
+            const input = params.input;
+            if (!isJsonObject(input) || !['weapon', 'spell', 'item'].includes(input.category as string)) throw new RpcError('invalid_params', 'Definition request needs a category and a name');
+            if (input.category === 'spell' && array((await this.tables.spellsTable()).spells).some(spell => normalize(string(spell.name)) === normalize(string(input.name))))
+                throw new RpcError('needs', 'This name already belongs to a rulebook spell', {fix: 'use the existing spell, or give a distinct derivative its own name'});
+        }
+        const promptField = role === 'create' ? 'materializer' : 'auditor', candidates = await this.contributors(world, turn, role);
+        if (!candidates.length) return {enabled: false};
+        const packageRow = candidates[0], party = await campaign.party() as Row[];
+        const request: Row = {role, input: params.input ?? null, capabilities: sorted(MOD_CAPABILITIES), play_language: field(meta, 'play_language', 'en'),
+            mod_settings: Object.fromEntries(candidates.map(mod => [mod.id, (world as Row).mods.active[mod.id].settings])),
+            scene: whereSection(graph, world, graph.scene(world.active_scene as string)), party, objects: objectContext(world), receipts: field(turn, 'receipts', []),
+            known_handouts: (await this.knownHandouts(graph, world)).map(item => ({name: item.name, preview: chars(item.text, 240)})),
+            unregistered_equipment: unregisteredEquipment(party)};
+        if (role === 'create') request.catalogs = {weapons: await this.tables.weaponsTable(), spells: await this.tables.spellsTable()};
+        const identity: Row = {campaign: campaign.id, turn: turn.turn, worldline: meta.active_worldline ?? null, mod: packageRow.id, digest: packageRow.digest,
+            packages: candidates.map(mod => ({id: mod.id, digest: mod.digest})), request: role === 'audit' ? request : {input: params.input ?? null, role}};
+        const key = jsonDigest(identity), root = join(this.runtime.root, 'jobs', key);
+        if (!await this.context.snapshots.pathExists(join(root, 'request.json'))) {
+            await mkdir(root, {recursive: true});
+            await writeJsonAtomic(join(root, 'request.json'), request);
+            await writeJsonAtomic(join(root, 'identity.json'), Object.fromEntries(entries(identity).filter(([name]) => name !== 'request')));
+            const prompts: Buffer[] = [];
+            for (const [index, mod] of candidates.entries()) { if (index) prompts.push(Buffer.from('\n\n')); prompts.push(mod.files.get(mod.contributes[promptField])); }
+            await writeFile(join(root, 'prompt.md'), Buffer.concat(prompts));
+            if (role === 'create') {
+                const prior = findNamedObject(row(row(world.objects).definitions), string(params.input.name));
+                if (prior && prior.category === params.input.category) {
+                    const definition = Object.fromEntries(['name', 'category', 'description', 'basis', 'parameters', 'player_view', 'traits', 'document'].filter(name => Object.hasOwn(prior, name)).map(name => [name, clone(prior[name])]));
+                    await writeJsonAtomic(join(root, 'accepted.json'), {definition, provenance: {mod: packageRow.id, digest: packageRow.digest, job: key, reused_definition: prior.id}});
+                }
+            }
+        }
+        return {enabled: true, job: key, cwd: root, system_prompt: join(root, 'prompt.md'), accepted: await this.context.snapshots.pathExists(join(root, 'accepted.json')), role};
+    }
+    async accept(params: Row): Promise<Row> {
+        const key = params.job;
+        if (typeof key !== 'string' || key.length !== 64 || !/^[0-9a-f]{64}$/.test(key)) throw new RpcError('invalid_params', 'Unknown Mod job');
+        const root = join(this.runtime.root, 'jobs', key), identity = row(await this.context.snapshots.readJson(join(root, 'identity.json')));
+        const {campaign, graph, world, turn, meta} = await this.load(params);
+        if (identity.campaign !== campaign.id || !equal(identity.turn, turn.turn) || !equal(identity.worldline, meta.active_worldline ?? null)) throw new RpcError('invalid_params', 'Mod job belongs to another turn or worldline');
+        const active = new Map((await this.runtime.active(world)).map(mod => [mod.id, mod]));
+        if (!active.has(identity.mod) || active.get(identity.mod)!.digest !== identity.digest) throw new RpcError('invalid_params', 'Mod changed while the job was running');
+        if (array(identity.packages).some(mod => active.get(mod.id)?.digest !== mod.digest)) throw new RpcError('invalid_params', 'An audit contributor changed while the job was running');
+        const request = row(await this.context.snapshots.readJson(join(root, 'request.json'))), providers = (await this.contributors(world, turn, request.role)).map(mod => ({id: mod.id, digest: mod.digest}));
+        if (!equal(providers, identity.packages ?? null)) throw new RpcError('invalid_params', 'The effective Mod provider changed while the job was running');
+        const acceptedPath = join(root, 'accepted.json');
+        if (await this.context.snapshots.pathExists(acceptedPath)) return row(await this.context.snapshots.readJson(acceptedPath));
+        const resultPath = join(root, 'result.json');
+        if (!await this.context.snapshots.pathExists(resultPath)) throw new RpcError('invalid_params', 'Mod agent did not write a bounded result.json');
+        const stat = await lstat(resultPath);
+        if (stat.isSymbolicLink() || stat.size > 512000) throw new RpcError('invalid_params', 'Mod agent did not write a bounded result.json');
+        const raw = clone(await this.context.snapshots.readJson(resultPath));
+        let result: Row;
+        if (request.role === 'create') {
+            if (isJsonObject(raw) && Object.hasOwn(raw, 'document')) raw.document = await this.documentSeed(graph, world, raw.document);
+            const value = validateDefinition(raw, {name: request.input.name ?? null, category: request.input.category ?? null});
+            if (value.category === 'weapon' && array(active.get(identity.mod)!.requires).includes('weapons.profile.v2') && !Object.hasOwn(value.parameters, 'adds_damage_bonus'))
+                throw new RpcError('invalid_params', 'Weapon profile v2 must explicitly declare adds_damage_bonus from its preset rule');
+            result = {definition: value, provenance: {mod: identity.mod, digest: identity.digest, job: key}};
+        } else {
+            if (!isJsonObject(raw) || Object.keys(raw).some(name => !['missing', 'findings'].includes(name)) || !Array.isArray(raw.missing) || raw.missing.length > 16)
+                throw new RpcError('invalid_params', 'Audit must return a bounded missing list');
+            for (const finding of raw.missing) {
+                if (!isJsonObject(finding) || Object.keys(finding).length !== 3 || !['name', 'category', 'reason'].every(name => Object.hasOwn(finding, name))
+                    || !['weapon', 'spell', 'item'].includes(finding.category as string) || entries(finding).some(([, value]) => typeof value !== 'string' || !value.trim()))
+                    throw new RpcError('invalid_params', 'Audit finding needs name, category and reason');
+            }
+            const findings = field(raw, 'findings', []);
+            if (!Array.isArray(findings) || findings.length > 10 || findings.some(finding => !isJsonObject(finding) || Object.keys(finding).length !== 2
+                || !Object.hasOwn(finding, 'reason') || !Object.hasOwn(finding, 'fix') || entries(finding).some(([, value]) => typeof value !== 'string' || !value.trim())))
+                throw new RpcError('invalid_params', 'Narrative audit findings need reason and fix');
+            result = raw;
+        }
+        await writeJsonAtomic(acceptedPath, result); return result;
+    }
+}

@@ -7,7 +7,7 @@ import type { KernelContext } from '../context.js';
 import { RpcError } from '../errors.js';
 import { writeJsonAtomic } from '../fileio.js';
 import { isJsonObject, orderedObject, PythonFloat } from '../json.js';
-import { MOD_CAPABILITIES, packageFiles, packageDigest, manifestFrom, readModCatalog, activeMods, modProviders } from '../read/mods.js';
+import { MOD_CAPABILITIES, packageFiles, packageDigest, manifestFrom, readModCatalog, activeMods, modProviders, effectiveMods } from '../read/mods.js';
 import { array, row, values, entries, string, truth, clone, equal, sorted, type Row } from '../read/values.js';
 import { readZipPackage } from './zip.js';
 
@@ -68,6 +68,17 @@ export class ModRuntime {
   constructor(readonly context: KernelContext) { this.root = join(context.stateRoot, 'mods'); }
   catalog(): Promise<Map<string, Row>> { return readModCatalog(this.context); }
   active(world: Row): Promise<Row[]> { return activeMods(this.context, world); }
+  async providers(world: Row): Promise<Row> { return modProviders(await this.active(world)); }
+  async effective(world: Row): Promise<Row[]> { return effectiveMods(await this.active(world)); }
+  async editor(world: Row): Promise<Row> {
+    const active = await this.active(world), provider = modProviders(active).document_editor.at(-1);
+    return provider === 'core' ? {provider: 'core', renderer: 'plain'} : {provider, ...active.find(mod => mod.id === provider)!.contributes.document_editor};
+  }
+  async decisions(world: Row): Promise<Map<string, [string, Row]>> {
+    const result = new Map<string, [string, Row]>();
+    for (const mod of await this.active(world)) for (const check of array(mod.contributes.checks)) result.set(check.name, [mod.id, check]);
+    return result;
+  }
   async validateWorld(world: Row): Promise<void> { await this.active(world); }
   private latest(catalog: Map<string, Row>): Map<string, Row> {
     const latest = new Map<string, Row>();

@@ -5,7 +5,7 @@ import type { KernelContext } from '../context.js';
 import type { HandlerGroup } from '../handlers.js';
 import type { TurnTransaction } from '../transactions.js';
 import { RpcError, internalError } from '../errors.js';
-import { sha256Text } from '../json.js';
+import { sha256Text,isJsonObject } from '../json.js';
 import { fileSize, truncateFile } from '../fileio.js';
 import { CampaignSnapshot, loadModule, replayTrail, type LoadedModule } from '../read/campaign.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
@@ -25,6 +25,9 @@ import { loadModuleContract } from '../modules/contract.js';
 import { defaultModPlan, preflightCampaign as validateContributions, rebuildNpcLedger, updateNpcLedger, stanceTable, writeEpisode } from './contributions.js';
 import { bindMarkers, stripMarkers, checkLanguage, checkNumbers, asciiSlug, facts, directorAdoption } from './text.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
+import {activeName} from '../read/worldline.js';
+import {eventOf} from '../worldline/index.js';
+import type {createWorldlineRuntime} from '../worldline/index.js';
 export { createTurnTransaction } from './store.js';
 export { CampaignWriter } from './store.js';
 export { writeEpisode } from './contributions.js';
@@ -86,6 +89,7 @@ function initialWorld(graph: ModuleGraph, chosen: string | null): [
         }, handle];
 }
 export interface WriteContributions {
+    worldlines?: ReturnType<typeof createWorldlineRuntime>;
     libraryWriteBack?(campaign: CampaignWriter, record: Row): Promise<void>;
     openingReady?(moduleId: string, focus?: string): Promise<boolean>;
     sourceGraphPath?(moduleId: string): Promise<string>;
@@ -113,7 +117,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
 } {
     const resumes = new Map<string, Row>(), firstStyleTurn = new Map<string, number>();
     const writer = (id: string) => new CampaignWriter(context, id);
-    const preflightCampaign = (meta: Row, world: Row, turn: Row, party: Row[]) => validateContributions(meta, world, turn, party, { libraryWriteBack: !!contributions.libraryWriteBack, modManagement: !!contributions.mods });
+    const preflightCampaign = (meta: Row, world: Row, turn: Row, party: Row[]) => validateContributions(meta, world, turn, party, { libraryWriteBack: !!contributions.libraryWriteBack, modManagement: !!contributions.mods,worldlines:!!contributions.worldlines });
     async function validateMods(world: Row): Promise<void> {
         if(contributions.mods)await contributions.mods.validateWorld(world);
         else await defaultModPlan(context,world);
@@ -122,7 +126,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if(contributions.mods){await contributions.mods.initializeWorld(world);return world;}
         const plan=await defaultModPlan(context,world);await plan.install();return plan.world;
     }
-    async function campaign(params: Row, options: {
+    async function openCampaign(params: Row, options: {
         requireTurn?: boolean;
         requireWorld?: boolean;
     } = {}): Promise<CampaignWriter> {
@@ -471,6 +475,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         };
     }
     async function open(params: Row): Promise<Row> {
+        if(contributions.worldlines){const value=await openCampaign(params,{requireTurn:false});await contributions.worldlines.open(value,await value.readCampaign());}
         const initial = await recoverySnapshot(params), campaign = writer(initial.id);
         const meta = clone(initial.meta), initialParty = await initial.files('party');
         preflightCampaign(meta, initial.world, {}, initialParty);
@@ -479,7 +484,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const moduleReading = await context.snapshots.pathExists(metadata) && truth(row(await context.snapshots.readJson(metadata)).reading_version);
         if (moduleReading && !contributions.queueAdjacentReading)
             missingContribution('visual source opening and reading queue');
-        await ensureMain(campaign, meta);
+        if(!contributions.worldlines)await ensureMain(campaign, meta);
         const starter = join(context.content, 'starters', string(meta.module_id), 'module-graph.json');
         if (!await context.snapshots.pathExists(metadata) && await context.snapshots.pathExists(starter))
             await registerStarter(context, string(meta.module_id));
@@ -495,7 +500,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             await contributions.queueAdjacentReading(module.graph, module.graph.scene(snapshot.world.active_scene));
         if (!await context.snapshots.pathExists(campaign.path('npc-ledger.json')))
             await rebuildNpcLedger(campaign, module.graph);
-        const [checkpoint, checkpointRebuilt] = await syncCheckpoint(campaign, tableSnapshot(snapshot, module.graph), 'main');
+        const [checkpoint, checkpointRebuilt] = await syncCheckpoint(campaign, tableSnapshot(snapshot, module.graph), activeName(snapshot.meta));
         let turn = await readableTurn(campaign), rebuilt = checkpointRebuilt;
         if (!turn) {
             turn = await rebuildTurn(campaign, checkpoint);
@@ -517,7 +522,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             resumes.set(campaign.id, resume);
         else
             resumes.delete(campaign.id);
-        const scene = module.graph.scene(snapshot.world.active_scene), line = row(row(snapshot.meta.worldlines).main);
+        const scene = module.graph.scene(snapshot.world.active_scene), line = row(row(snapshot.meta.worldlines)[activeName(snapshot.meta)]);
         return {
             campaign: snapshot.meta,
             turn: {
@@ -544,7 +549,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             module_reading: moduleReading,
             resume,
             worldline: {
-                name: 'main',
+                name: activeName(snapshot.meta),
                 kind: line.kind ?? null,
                 loop: number(line.loop)
             }
@@ -654,6 +659,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const binds = required(params, 'binds', true), text = required(params, 'text', true), ending = row(snapshot.world.ending);
         if (truth(ending) && ((ending.scope || 'campaign') === 'campaign' && snapshot.meta.status !== 'completed' || ending.scope === 'chapter' && snapshot.meta.status === 'completed'))
             throw new RpcError('invalid_params', 'a campaign ending must be delivered with narrate, not ask');
+        if(truth(turn.worldline))throw new RpcError('invalid_params','a turn that forks or switches the worldline cannot be closed by ask',{fix:"close this turn with narrate; ask on the new line's first turn",details:{worldline:row(turn.worldline).operation??null}});
         const receipts = [...array(turn.receipts)], placed = text ? bindMarkers(text, receipts) : {}, stripped = truth(placed) ? stripMarkers(text!) : text;
         const language = string(snapshot.meta.play_language || 'zh-Hans');
         checkLanguage(language, {
@@ -832,32 +838,34 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         record.commit = sha;
         record.calls[started.callId].result.commit = sha;
         await campaign.writeTurnRecord(record);
-        for (const [step, action] of [
-            ['checkpoint', () => writeCheckpoint(campaign, checkpointFromRecord(campaign.id, record, world, 'main'))],
-            ...(contributions.libraryWriteBack ? [['library', () => contributions.libraryWriteBack!(campaign, record)] as const] : []),
-            ['episode', () => writeEpisode(campaign, record)],
-        ] as const) {
-            try {
-                await action();
+        const postStep=async(step:string,action:()=>Promise<unknown>)=>{try{await action();}catch(error){await campaign.telemetry({lane:'kernel',step,turn:n,ok:false,error:internalError(error).message});}};
+        const moves=isJsonObject(record.worldline)&&truth(record.worldline.operation);
+        let checkpointRecord=record,checkpointWorld=world,moved:Row|null=null;
+        const checkpoint=async()=>writeCheckpoint(campaign,checkpointFromRecord(campaign.id,checkpointRecord,checkpointWorld,activeName(await campaign.readCampaign())));
+        if(!moves)await postStep('checkpoint',checkpoint);
+        if(contributions.libraryWriteBack)await postStep('library',()=>contributions.libraryWriteBack!(campaign,record));
+        await postStep('episode',()=>writeEpisode(campaign,record));
+        if(moves){
+            const plan=record.worldline;
+            try{
+                if(!contributions.worldlines)missingContribution('worldline transition');
+                moved=await contributions.worldlines!.transition(campaign,module.graph,plan,n);
+            }catch(error){await campaign.telemetry({lane:'worldline',turn:n,ok:false,operation:plan.operation??null,line:plan.line??null,error:internalError(error).message});}
+            if(moved){
+                const landed=number((await campaign.readTurn()).turn)||n+1;
+                await campaign.appendEvent(landed,{...eventOf(plan),receipt:string(plan.receipt||'')});
+                await campaign.telemetry({lane:'worldline',turn:n,ok:true,...moved});
+                const meta=await campaign.readCampaign();seedTurn(context,meta,landed);
+                const current=new CampaignSnapshot(context,campaign.id);current.meta=meta;current.world=await campaign.readWorld();current.turn=await campaign.readTurn();await current.preload();
+                checkpointRecord={...record,world:null};checkpointWorld=tableSnapshot(current,module.graph);
             }
-            catch (error) {
-                await campaign.telemetry({
-                    lane: 'kernel',
-                    step,
-                    turn: n,
-                    ok: false,
-                    error: internalError(error).message
-                });
-            }
+            await postStep('checkpoint',checkpoint);
         }
-        return {
-            ...result,
-            commit: sha
-        };
+        return {...result,commit:sha,...(moved?{worldline:moved}:{})};
     }
     return {
         read,
-        campaign,
+        campaign:openCampaign,
         startSetupWorld,
         setupOpeningReady,
         sourceGraphPath,

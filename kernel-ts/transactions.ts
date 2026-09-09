@@ -21,6 +21,7 @@ export interface CampaignWritePort {
   readTurnRecord(turn: number): Promise<JsonObject | null>;
     readSave(name: string): Promise<JsonValue | null>;
     writeSave(name: string, value: ReadonlyJson): Promise<void>;
+    removeSave(name: string): Promise<void>;
     saveExists(name: string): Promise<boolean>;
     saveDirectories(name: string): Promise<string[]>;
   writeCampaign(value: JsonObject): Promise<void>;

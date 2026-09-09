@@ -19,9 +19,13 @@ export interface FixedFamilyBinding {
 export interface FixedFamilies {
     readonly healing?: FixedFamilyBinding;
     readonly development?: FixedFamilyBinding;
+    readonly combat?: FixedFamilyBinding;
+    readonly chase?: FixedFamilyBinding;
+    readonly sanity?: FixedFamilyBinding;
+    readonly magic?: FixedFamilyBinding;
 }
 export function familyBinding(families: FixedFamilies, ref: string, capability: string | null): FixedFamilyBinding | undefined {
-    const matching = [families.healing, families.development].filter((binding): binding is FixedFamilyBinding => !!binding && binding.matches(ref, capability));
+    const matching = [families.healing, families.development, families.combat, families.chase, families.sanity, families.magic].filter((binding): binding is FixedFamilyBinding => !!binding && binding.matches(ref, capability));
     if (matching.length > 1)
         throw new Error(`Multiple fixed families own ${ref}`);
     return matching[0];

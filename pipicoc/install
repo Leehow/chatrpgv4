@@ -1,23 +1,45 @@
-#!/usr/bin/env bash
-# Install UI assets only; the launcher reads the canonical source in this checkout.
+#!/bin/bash
+# Install compiled UI entries into the bound Pi profile without changing account configuration.
 set -euo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$HERE/.." && pwd)"
-DEST="$REPO/.pi/coc-agent/extensions/coc-keeper"
-mkdir -p "$DEST/pipicoc"
-mkdir -p "$DEST/pipicoc/assets"
-cp "$HERE/assets/paper-texture.jpg" "$DEST/pipicoc/assets/"
-cp "$REPO/pipiui-extension.json" "$DEST/"
-for asset in preparation.js panel.js mods-panel.js mods.ts mechanics.js choices.js host-bridge.ts sheet.ts agent.ts sheet-icon.svg; do
-  cp "$HERE/$asset" "$DEST/pipicoc/"
-done
-printf 'Installed PipiCOC UI assets at %s\n' "$DEST"
-
-# DeepSeek Extended provider: the whole tree (manifest + plain-JS agent half)
-# feeds the app's model picker, settings section and generic auth-provider
-# registration. Idempotent: replace the copy wholesale.
-DS_DEST="$REPO/.pi/coc-agent/extensions/deepseek"
-rm -rf "$DS_DEST"
-mkdir -p "$DS_DEST"
-cp -R "$REPO/extensions/deepseek/." "$DS_DEST/"
-printf 'Installed DeepSeek Extended provider at %s\n' "$DS_DEST"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PI_COC_RESOURCE_ROOT="$root"
+if [ -f "$root/deployment.json" ] || [ "${PI_COC_LAYOUT:-}" = compiled ]; then
+  export PI_COC_LAYOUT=compiled
+  unset NODE_OPTIONS NODE_PATH ELECTRON_RUN_AS_NODE
+  runner="$root/node/bin/node"
+  [ -x "$runner" ] || { echo 'The standalone COC runtime is incomplete.' >&2; exit 1; }
+else
+  export PI_COC_LAYOUT=source
+  runner="${PI_COC_NODE_EXECUTABLE:-$(command -v node)}"
+fi
+[ -f "$root/build/runtime/host.mjs" ] || { echo 'Run npm run build:runtime before installing COC UI assets.' >&2; exit 1; }
+export PI_COC_NODE_EXECUTABLE="$runner"
+exec "$runner" --input-type=module - "$root" <<'JS'
+import {accessSync,constants,copyFileSync,cpSync,existsSync,mkdirSync,readFileSync,writeFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
+const root=process.argv[2];
+const {composeRuntimeContext}=await import(pathToFileURL(join(root,'build/runtime/host.mjs')).href);
+const compiled=existsSync(join(root,'deployment.json'));
+if(compiled&&(!process.env.PI_COC_HOME||!process.env.PI_CODING_AGENT_DIR))throw new Error('Standalone installation requires its writable profile and COC home');
+const context=composeRuntimeContext({owner:'preparation',home:process.env.PI_COC_HOME||root},{resourceRoot:root,
+  agentHome:compiled?process.env.PI_CODING_AGENT_DIR:join(root,'.pi/coc-agent')});
+for(const path of [context.entrypoints.agent,context.entrypoints.deepseek])accessSync(path,constants.R_OK);
+const destination=join(context.agentHome,'extensions/coc-keeper');
+mkdirSync(join(destination,'pipicoc/assets'),{recursive:true});
+for(const asset of ['preparation.js','panel.js','mods-panel.js','mechanics.js','choices.js','sheet-icon.svg'])
+  copyFileSync(join(root,'pipicoc',asset),join(destination,'pipicoc',asset));
+copyFileSync(join(root,'pipicoc/assets/paper-texture.jpg'),join(destination,'pipicoc/assets/paper-texture.jpg'));
+copyFileSync(context.entrypoints.agent,join(destination,'pipicoc/agent.mjs'));
+const manifest=JSON.parse(readFileSync(join(root,'pipiui-extension.json'),'utf8'));
+manifest.agent.extension='pipicoc/agent.mjs';
+writeFileSync(join(destination,'pipiui-extension.json'),JSON.stringify(manifest,null,2)+'\n');
+const provider=join(context.agentHome,'extensions/deepseek');
+mkdirSync(provider,{recursive:true});
+cpSync(join(root,'extensions/deepseek'),provider,{recursive:true});
+copyFileSync(context.entrypoints.deepseek,join(provider,'agent/index.mjs'));
+const providerManifest=JSON.parse(readFileSync(join(provider,'pipiui-extension.json'),'utf8'));
+providerManifest.agent.extension='agent/index.mjs';
+writeFileSync(join(provider,'pipiui-extension.json'),JSON.stringify(providerManifest,null,2)+'\n');
+console.log(`Installed compiled COC and provider UI assets at ${context.agentHome}`);
+JS

@@ -10,6 +10,8 @@ export const MP_SAVE_DIR = 'mp-state';
 export const mpStatePath = (id: string): string => `${MP_SAVE_DIR}/${id}.json`;
 export const readMpState = async (port: HealingSavePort, id: string): Promise<Row> => clone(row(await port.readSave(mpStatePath(id))));
 export const rebaseMpClock = (state: Row, _delta: number): Row => clone(state);
+export const CLOCK_SAVE_PATHS = ['save/mp-state'] as const;
+export const rebaseClock = rebaseMpClock;
 function roundedMinutes(value: number): number {
     if (Number.isNaN(value))
         valueError('cannot convert float NaN to integer');

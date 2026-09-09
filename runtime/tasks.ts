@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { KernelError } from "../extensions/kernel/client.ts";
 import { runReader, type ReaderRequest } from "../extensions/module/reader.ts";
 import type { RuntimeCapabilities, RuntimeCheck, RuntimeContext } from "./host.ts";
+import { runHostProcess } from "./process.ts";
 
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 const cancelled = () => new KernelError({ code: "internal", message: "Runtime operation was cancelled", details: { reason: "runtime_cancelled" } });
@@ -25,7 +26,7 @@ function pythonConfiguration(context: RuntimeContext) {
 
 /** The standalone helper receives only deployment locations, never a serialized environment. */
 function helperOptions(context: RuntimeContext) {
-  return JSON.stringify({ backend: context.backend, resourceRoot: context.resourceRoot, contentRoot: context.contentRoot,
+  return JSON.stringify({ layout: context.layout, backend: context.backend, resourceRoot: context.resourceRoot, contentRoot: context.contentRoot,
     agentHome: context.agentHome, nodeExecutable: context.nodeExecutable });
 }
 
@@ -34,8 +35,9 @@ async function readerContext(context: RuntimeContext, request: ReaderRequest, si
   const bin = join(request.cwd, "host-bin");
   await mkdir(bin, { recursive: true });
   const commands: Record<string, string[]> = {
-    "coc-read-check": [context.nodeExecutable, join(context.resourceRoot, "runtime", "check.ts")],
-    "coc-source": [context.nodeExecutable, join(context.resourceRoot, "extensions", "module", "source.ts")],
+    node: [context.nodeExecutable],
+    "coc-read-check": [context.nodeExecutable, context.entrypoints.check],
+    "coc-source": [context.nodeExecutable, context.entrypoints.source],
   };
   let env = { ...context.env };
   if (context.backend === "python" && request.systemPrompt) {
@@ -86,9 +88,22 @@ function taskExecutable(context: RuntimeContext, command: string): string {
 
 /** Both CLIs import the exact validators used by module.read.finish and mods.accept. */
 export async function runCheck(context: RuntimeContext, request: RuntimeCheck, signal: AbortSignal): Promise<{ ok: boolean; [key: string]: unknown }> {
+  if (context.backend === "python") return evaluateCheck(context, request, signal);
+  const args = request.kind === "source-draft" ? ["--packet", resolve(context.home, request.packet)] : ["--kind", "mod-definition"];
+  const output = await runHostProcess([context.nodeExecutable, context.entrypoints.check, ...args, "--draft", resolve(context.home, request.draft)], {
+    cwd: context.resourceRoot, env: {...context.env, PI_COC_RUNTIME_OPTIONS: helperOptions(context)}, signal, timeoutMs: 30_000,
+  });
+  const {parseCheckResult} = await import(pathToFileURL(context.entrypoints.kernelCheck).href);
+  const result = parseCheckResult(output.stdout);
+  if (!result || typeof result.ok !== "boolean" || (result.ok ? output.code !== 0 : output.code !== 1)) throw new Error("Runtime check returned an invalid result or exit code");
+  return result;
+}
+
+/** Called in the selected Node helper; this is the same pure publication validator. */
+export async function evaluateCheck(context: RuntimeContext, request: RuntimeCheck, signal: AbortSignal): Promise<{ ok: boolean; [key: string]: unknown }> {
   ensureActive(signal);
   if (context.backend === "typescript" && (request.kind === "source-draft" || request.kind === "mod-definition")) {
-    const checks = await import(pathToFileURL(join(context.resourceRoot, "build/kernel/check.mjs")).href);
+    const checks = await import(pathToFileURL(context.entrypoints.kernelCheck).href);
     const result = request.kind === "source-draft"
       ? await checks.checkSourceDraft(context.contentRoot, resolve(context.home, request.packet), resolve(context.home, request.draft))
       : await checks.checkModDefinition(resolve(context.home, request.draft));
@@ -172,16 +187,20 @@ export const runtimeCapabilities: RuntimeCapabilities = Object.freeze({
   check: runCheck,
   async sourceInfo(context, source, signal) {
     ensureActive(signal);
-    const { sourceInfo } = await import("../extensions/module/source.ts");
-    const result = await sourceInfo(resolve(context.home, source.pdf));
-    ensureActive(signal);
-    return result;
+    return sourceOperation(context, "info", {...source, pdf: resolve(context.home, source.pdf)}, signal);
   },
   async sourcePage(context, page, signal) {
     ensureActive(signal);
-    const { sourcePage } = await import("../extensions/module/source.ts");
-    const result = await sourcePage(resolve(context.home, page.pdf), resolve(context.home, page.cache), page.page, page);
-    ensureActive(signal);
-    return result;
+    return sourceOperation(context, "page", {...page, pdf: resolve(context.home, page.pdf), cache: resolve(context.home, page.cache)}, signal);
   },
 });
+
+async function sourceOperation(context: RuntimeContext, kind: "info" | "page", request: object, signal: AbortSignal) {
+  const output = await runHostProcess([context.nodeExecutable, context.entrypoints.sourceWorker, kind, JSON.stringify(request)], {
+    cwd: context.resourceRoot, env: {...context.env}, signal, outputLimit: 32 * 1024 * 1024,
+  });
+  const envelope = JSON.parse(output.stdout);
+  if (output.code !== 0 || envelope.ok !== true) throw new Error(envelope.error ?? "Source helper failed");
+  ensureActive(signal);
+  return envelope.result;
+}

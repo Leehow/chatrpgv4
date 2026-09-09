@@ -2,10 +2,10 @@
 import {createHash, randomUUID} from "node:crypto";
 import {mkdir, readFile, writeFile, rename} from "node:fs/promises";
 import {join} from "node:path";
-import {fileURLToPath} from "node:url";
+import {resourceRootFrom,runtimeEntryUrl} from "../../runtime/deployment.mjs";
 import type {ReaderRequest, ReaderOutcome} from "../module/reader.ts";
 
-const defaultPrompt = fileURLToPath(new URL("./document-presentation.md", import.meta.url));
+const defaultPrompt = join(resourceRootFrom(import.meta.url), 'extensions/mods/document-presentation.md');
 type Row = Record<string, any>;
 type Options = {home:string; owner?:object; resourceRoot?:string; model?:string; thinking?:string; signal?:AbortSignal;
   runner?:(request:ReaderRequest)=>Promise<ReaderOutcome>};
@@ -70,7 +70,7 @@ async function reading(options:Options, title:string, text:string, language:stri
     await writeFile(join(attempt, "request.json"), JSON.stringify(request, null, 2));
     await writeFile(join(attempt, "check.mjs"),
       `import {readFileSync} from "node:fs";
-import {validateDocumentReading} from ${JSON.stringify(import.meta.url)};
+import {validateDocumentReading} from ${JSON.stringify(runtimeEntryUrl('documentPresentation',import.meta.url))};
 validateDocumentReading(JSON.parse(readFileSync("result.json","utf8")),JSON.parse(readFileSync("request.json","utf8")));
 `);
     let result;
@@ -78,7 +78,7 @@ validateDocumentReading(JSON.parse(readFileSync("result.json","utf8")),JSON.pars
       const outcome = await runner({cwd:attempt, systemPrompt:prompt,
         model:options.model, thinking:options.thinking, signal:options.signal, timeoutMs:120000,
         eventLog:join(attempt, `events-${round}.jsonl`),
-        brief:"Read request.json and write result.json. Run node --experimental-strip-types check.mjs and repair any error."
+        brief:"Read request.json and write result.json. Run node check.mjs and repair any error."
           + (round > 1 ? " Read findings.json and repair the retained result." : "")});
       await writeFile(join(attempt, `run-${round}.json`), JSON.stringify(outcome));
       if (!outcome.ok || options.signal?.aborted) throw new Error("Document reading could not be prepared");

@@ -1,14 +1,13 @@
-# TypeScript kernel foundation
+# TypeScript kernel
 
-This is the selectable migration backend from contract section 27. The production
-default remains Python. The foundation, campaign creation/opening, player input,
-ask/narrate transactions, existing-campaign read projections and rule/catalog
-queries are implemented. The writer preserves replay, recovery and Git identity;
-unsupported source/library/Mod/worldline contributions still refuse new writes.
-Other current public methods return
-`not_implemented`; undeclared names return
-`unknown_method` with the same method vocabulary as Python. There is no Python
-fallback, embedded interpreter, game simulation or second state store.
+This is the production backend from contract section 27. All 50 declared RPC
+methods have concrete handlers, including rule families, source publication,
+setup, Mods and worldlines. The writer preserves replay, recovery and Git identity.
+Undeclared names return `unknown_method` with the same method vocabulary as the
+Python reference. Python remains an explicitly selected source-development oracle;
+there is no production fallback, embedded interpreter or second state store.
+Registration and compilation do not establish compatibility: current acceptance
+results and pending gates are in `docs/specs/runtime-consolidation-tickets.md`.
 
 The integration owner builds `rpc.ts` as `build/kernel/rpc.mjs`, with an ESM Node
 bundle and any native dependencies external to the bundle. Its arguments remain

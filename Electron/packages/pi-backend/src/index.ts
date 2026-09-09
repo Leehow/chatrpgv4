@@ -708,7 +708,7 @@ async function writeCanonicalModelsFile(path: string, contents: string): Promise
 
 export type PiBackendOptions = {
   cocOnboardingRegistry?: CocOnboardingRegistry;
-  cocRuntime?: Pick<CocOnboardingOptions, 'nodeExecutable' | 'contentRoot' | 'backend' | 'kernelEntrypoint' | 'preparationEntrypoint'>;
+  cocRuntime?: Pick<CocOnboardingOptions, 'layout' | 'nodeExecutable' | 'contentRoot' | 'backend' | 'kernelEntrypoint' | 'preparationEntrypoint'>;
   /** Explicit Pi process invocation. Packaged Electron supplies bundled Node + unpacked Pi CLI. */
   piCommand?: PiCommand;
   /** Legacy/development shorthand for a directly executable external `pi`. */

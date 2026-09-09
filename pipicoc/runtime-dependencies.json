@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "platform": "darwin",
+  "architecture": "arm64",
+  "node": {
+    "version": "24.19.0",
+    "abi": "137",
+    "url": "https://nodejs.org/dist/v24.19.0/node-v24.19.0-darwin-arm64.tar.gz",
+    "sha256": "8294b7aa9b03997481c06babf1e8b270c859358f27da57a11509afe537ac381d",
+    "archiveRoot": "node-v24.19.0-darwin-arm64"
+  },
+  "git": {
+    "version": "2.53.0",
+    "release": "v2.53.0-4",
+    "url": "https://github.com/desktop/dugite-native/releases/download/v2.53.0-4/dugite-native-v2.53.0-4098283-macOS-arm64.tar.gz",
+    "sha256": "f9dc64635a5b62fbd7ad95db73268bbb8912255ac516d65d37bf7af22fcb8ffe",
+    "executables": [
+      { "path": "bin/git", "sha256": "8b0c175c430d35d8a790ca907a37ca8742966a15f0da0b75e6747e640e24460a" },
+      { "path": "libexec/git-core/git", "sha256": "8b0c175c430d35d8a790ca907a37ca8742966a15f0da0b75e6747e640e24460a" }
+    ],
+    "symlinks": [
+      { "path": "libexec/git-core/git-merge-ours", "target": "git" }
+    ],
+    "templates": "share/git-core/templates",
+    "sources": [
+      {
+        "name": "git-source-67ad42147a7acc2af6074753ebd03d904476118f.tar.gz",
+        "url": "https://codeload.github.com/git/git/tar.gz/67ad42147a7acc2af6074753ebd03d904476118f",
+        "sha256": "89b73762be55037144c92eaf5d0657b644330770f66c584c1ba2e7b90b6218cf",
+        "licensePath": "git-67ad42147a7acc2af6074753ebd03d904476118f/COPYING",
+        "licenseName": "Git-COPYING"
+      },
+      {
+        "name": "dugite-native-source-4098283a7ecb8a227b9d43580336c78a06f90e5d.tar.gz",
+        "url": "https://codeload.github.com/desktop/dugite-native/tar.gz/4098283a7ecb8a227b9d43580336c78a06f90e5d",
+        "sha256": "88ca6b778c3daac6c58bb760cd41099b1f348b07ef3d8daf551269a142bccb5f",
+        "licensePath": "dugite-native-4098283a7ecb8a227b9d43580336c78a06f90e5d/LICENSE.md",
+        "licenseName": "dugite-native-LICENSE.md"
+      }
+    ]
+  },
+  "production": {
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@napi-rs/canvas": "1.0.8",
+    "fs-ext": "2.1.1",
+    "pdfjs-dist": "6.3.289"
+  },
+  "deployment": {
+    "schemaVersion": 1,
+    "layout": "compiled",
+    "backend": "typescript",
+    "node": "node/bin/node",
+    "git": "git/bin/git",
+    "gitExec": "git/libexec/git-core",
+    "gitTemplates": "git/share/git-core/templates",
+    "pi": "node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
+  },
+  "requiredEntries": [
+    "build/kernel/rpc.mjs",
+    "build/kernel/check.mjs",
+    "build/runtime/host.mjs",
+    "build/runtime/preparation.mjs",
+    "build/runtime/check.mjs",
+    "build/runtime/launch.mjs",
+    "build/runtime/source-worker.mjs",
+    "build/pipicoc/onboarding-worker.mjs",
+    "build/pipicoc/agent.mjs",
+    "build/pipicoc/rpc.mjs",
+    "build/extensions/kernel/index.mjs",
+    "build/extensions/mods/index.mjs",
+    "build/extensions/onboarding/index.mjs",
+    "build/extensions/module/index.mjs",
+    "build/extensions/memory/index.mjs",
+    "build/extensions/table/index.mjs",
+    "build/extensions/deepseek/agent/index.mjs",
+    "build/extensions/module/source.mjs",
+    "build/extensions/module/reader-context.mjs",
+    "build/extensions/module/reader-pdf.mjs",
+    "build/extensions/module/reader-submit.mjs",
+    "build/extensions/module/character-guidance.mjs",
+    "build/extensions/module/character-presentation.mjs",
+    "build/extensions/mods/document-presentation.mjs",
+    "build/host/runtime/kernel/pipiui-ext-invoke.mjs",
+    "build/host/runtime/kernel/pipiui-secret-vault.mjs",
+    "build/host/runtime/kernel/pipiui-update-center.mjs",
+    "build/host/runtime/kernel/pipiui-runtime-info.mjs",
+    "build/host/runtime/kernel/pipiui-prompt-observer.mjs",
+    "build/host/runtime/pi-ext/packages/context-fold/index.mjs"
+  ],
+  "buildDirectories": ["kernel", "runtime", "pipicoc", "extensions", "host"],
+  "resourceDirectories": ["prompts", "content", "mods", "extensions/deepseek"],
+  "resourceFiles": ["extensions/mods/document-presentation.md", "pipicoc/install", "pipiui-extension.json", "bin/pi-coc", "bin/pi-coc-setup", "bin/coc-read-check", "bin/coc-source", "pipicoc/rpc"],
+  "uiFiles": [
+    "panel.js", "mods-panel.js", "mechanics.js", "choices.js", "preparation.js",
+    "sheet-icon.svg", "pipicoc.png", "product.json"
+  ],
+  "hostAssets": [
+    "Electron/resources/runtime/auth/pi-auth-helper.mjs",
+    "Electron/resources/runtime/browser-dom/controller.js",
+    "Electron/resources/runtime/model-capabilities/models-dev-reasoning-options.json",
+    "Electron/resources/runtime/pi-core-prompt/SYSTEM_BASE.md",
+    "Electron/resources/runtime/pi-ext/packages/context-fold/LICENSE"
+  ]
+}

@@ -6,6 +6,8 @@ import { array, clone, entries, equal, number, row, string, truth, type Row } fr
 import { valueError } from '../resolve/arithmetic.js';
 import { checkedEndingId, checkedInvestigatorId, deterministicDevelopmentPlan, endingEventId, endingIdForEvent, finishInputSnapshot, sanityBaseline, tickedSkillBaseline } from './plan.js';
 export const endingCapsuleName = (id: string): string => `development-settlements/endings/${checkedEndingId(id)}/capsule.json`;
+export const CLOCK_SAVE_PATHS = ['save/development-state','save/development-settlements'] as const;
+export const rebaseClock = (state:Row,_delta:number):Row=>clone(state);
 export function endingSettlementName(ending: string, investigator: string): string {
     checkedInvestigatorId(investigator);
     return `development-settlements/endings/${checkedEndingId(ending)}/${investigator}.json`;

@@ -2,7 +2,7 @@
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { composeRuntimeContext, type RuntimeHostOptions, type RuntimeCheck } from "./host.ts";
-import { runCheck } from "./tasks.ts";
+import { evaluateCheck } from "./tasks.ts";
 import { isKernelError } from "../extensions/kernel/client.ts";
 
 export function checkArguments(input: string[]): RuntimeCheck {
@@ -33,9 +33,9 @@ export async function checkMain(args: string[]): Promise<number> {
     const request = checkArguments(args);
     request.draft = resolve(request.draft);
     if (request.kind === "source-draft") request.packet = resolve(request.packet);
-    const result = await runCheck(context, request, controller.signal);
+    const result = await evaluateCheck(context, request, controller.signal);
     const serialize = context.backend === "typescript"
-      ? (await import(pathToFileURL(resolve(context.resourceRoot, "build/kernel/check.mjs")).href)).serializeCheckResult
+      ? (await import(pathToFileURL(context.entrypoints.kernelCheck).href)).serializeCheckResult
       : JSON.stringify;
     process.stdout.write(serialize(result) + "\n");
     return result.ok ? 0 : 1;

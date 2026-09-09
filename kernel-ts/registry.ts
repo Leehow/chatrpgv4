@@ -14,6 +14,13 @@ import { createApplyHandlers } from "./apply/index.js";
 import { applyResources } from "./apply/resources.js";
 import { createHealingResolveContribution } from "./healing/index.js";
 import { createModRuntime } from "./mods/index.js";
+import {moduleWeaponCatalog} from './combat/profiles.js';
+import {createSanityFamily} from './sanity/index.js';
+import {createMagicFamily} from './magic/index.js';
+import {createCombatResolveContribution} from './combat/index.js';
+import {createChaseResolveContribution} from './chase/index.js';
+import {createWorldlineRuntime} from './worldline/index.js';
+import {clockEngines} from './clock-engines.generated.js';
 /** Integration owner only: add each later slice's static handler group here. */
 export function createKernelRuntime(context: KernelContext): {
     handlers: HandlerGroup;
@@ -21,14 +28,16 @@ export function createKernelRuntime(context: KernelContext): {
 } {
     const rules = createRuleQueries(context);
     const modules = createModuleRuntime(context);
-    const mods = createModRuntime(context);
+    const mods = createModRuntime(context,{asset:(id,name)=>modules.source.store.asset(id,name)});
+    const worldlines = createWorldlineRuntime(context,clockEngines);
     const writer = createWriteRuntime(context, { openingReady: modules.source.openingReady,
         mods,
+        worldlines,
         sourceGraphPath: id => modules.source.store.graphPath(id),
         queueAdjacentReading: modules.source.queueAdjacentReading,
         libraryWriteBack: createLibraryWriteBack(context) });
-    const resolver = createResolveRuntime(context, writer, { requireMaterial: modules.source.requireMaterial, development: createDevelopmentFamily(), healing:createHealingResolveContribution() });
-    const handlers = assembleHandlers(context, foundationHandlers(context), readHandlers(context, { ...writer.read, lookupRules: rules.lookup }), writer.handlers, modules.handlers, createSetupHandlers(context, writer), createLibraryHandlers(context, writer), resolver.handlers, createMemoryHandlers(context, writer), mods.handlers(writer), createApplyHandlers(context, writer, {resources:applyResources,ending:stageEnding,requireMaterial:modules.source.requireMaterial,materialReady:modules.source.materialReady,queueAdjacentReading:modules.source.queueAdjacentReading}));
+    const resolver = createResolveRuntime(context, writer, { beforeMain:mods.resolveBeforeMain,requireMaterial: modules.source.requireMaterial, development: createDevelopmentFamily(), healing:createHealingResolveContribution(), sanity:createSanityFamily(),magic:createMagicFamily({effects:mods.magicEffects}),combat:createCombatResolveContribution(),chase:createChaseResolveContribution() });
+    const handlers = assembleHandlers(context, foundationHandlers(context), readHandlers(context, { ...writer.read, lookupRules: rules.lookup }), writer.handlers, modules.handlers, createSetupHandlers(context, writer), createLibraryHandlers(context, writer), resolver.handlers, createMemoryHandlers(context, writer), mods.handlers(writer), createApplyHandlers(context, writer, {mods:mods.apply(writer),worldlines,resources:applyResources,ending:stageEnding,requireMaterial:modules.source.requireMaterial,materialReady:modules.source.materialReady,queueAdjacentReading:modules.source.queueAdjacentReading,asset:(id,name)=>modules.source.store.asset(id,name),weaponCatalog:graph=>moduleWeaponCatalog(context,graph)}));
     let closing: Promise<void> | undefined;
     return Object.freeze({ handlers, close() {
             return closing ??= (async () => { try {

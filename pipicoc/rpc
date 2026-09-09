@@ -1,4 +1,18 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec node "$HERE/rpc.mjs" "$@"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PI_COC_RESOURCE_ROOT="$root"
+if [ -f "$root/deployment.json" ] || [ "${PI_COC_LAYOUT:-}" = compiled ]; then
+  export PI_COC_LAYOUT=compiled
+  unset NODE_OPTIONS NODE_PATH ELECTRON_RUN_AS_NODE
+  runner="$root/node/bin/node"
+  entry="$root/build/pipicoc/rpc.mjs"
+  [ -x "$runner" ] && [ -f "$entry" ] || { echo 'The standalone COC UI runtime is incomplete.' >&2; exit 1; }
+else
+  export PI_COC_LAYOUT=source
+  runner="${PI_COC_NODE_EXECUTABLE:-$(command -v node)}"
+  entry="$root/build/pipicoc/rpc.mjs"
+fi
+[ -f "$entry" ] || { echo 'The COC JavaScript runtime is missing. Run npm run build:runtime first.' >&2; exit 1; }
+export PI_COC_NODE_EXECUTABLE="$runner"
+exec "$runner" "$entry" "$@"

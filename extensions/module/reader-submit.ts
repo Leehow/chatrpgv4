@@ -1,16 +1,14 @@
 /** Private checked submission for the small source-guidance task; never graph publication. */
 import { readFile, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { resourceRootFrom } from "../../runtime/deployment.mjs";
 import { Type } from "typebox";
 import { validateGuidance } from "./character-guidance.ts";
 import { checkReviewEvidence } from "./reader-review.ts";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-
 export default async function readerSubmit(pi: any) {
 	const cwd = process.cwd();
-	const checker = process.env.PI_COC_READER_CHECK ?? join(ROOT, "bin/coc-read-check");
+	const checker = process.env.PI_COC_READER_CHECK ?? join(resourceRootFrom(import.meta.url), "bin/coc-read-check");
 	const task = JSON.parse(await readFile(join(cwd, "task.json"), "utf8"));
 	if (task.purpose !== "guidance") throw new Error("Checked submission is only available for source guidance");
 	const reviewing = Array.isArray(task.required_review);

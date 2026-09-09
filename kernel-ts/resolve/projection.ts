@@ -179,8 +179,8 @@ export function shapeSettlement(context: SettleContext, runtime: RuleGraph, chos
         warnings: [...array(envelope.warnings)],
         effect_kinds: runtime.effectKindsFor(ref),
         settlement: result,
-        session: null,
-        pending_choice: null
+        session: ['combat', 'chase', 'sanity'].includes(chosen.family) ? result.session ?? null : null,
+        pending_choice: ['combat', 'chase', 'sanity'].includes(chosen.family) ? result.pending_choice ?? null : null
     };
 }
 export function tagNpcReceipts(context: SettleContext, family: string, npc: Row | null, outcome: Row): void {
@@ -208,6 +208,16 @@ export function markersOf(turn: Row, minted: Row[]): string[] {
     const ids = new Set(known.map(receipt => receipt.id));
     const markers = markersFor([...known, ...minted.filter(receipt => !ids.has(receipt.id))]);
     return minted.flatMap(receipt => markers.has(receipt.id) ? [markers.get(receipt.id)!] : []);
+}
+export function modResolveEvents(action:Row,result:Row,receipts:Row[]):DomainEvent[]{
+    const events:DomainEvent[]=[];
+    for(const receipt of receipts){
+        receipt.family??=result.family;
+        if(receipt.kind==='roll')events.push({type:'roll-resolved',data:{...orderedObject(entries(receipt).filter(([key])=>!['check','id','kind','call_id','at'].includes(key))),goal:Object.hasOwn(action,'goal')?action.goal:'',method:Object.hasOwn(action,'method')?action.method:''},receipt:receipt.id});
+        else if(receipt.kind==='delta')events.push({type:'resource-changed',data:{resource:receipt.resource,subject:receipt.subject,before:receipt.before,after:receipt.after},receipt:receipt.id});
+    }
+    if(!result.reused)events.push({type:'decision-settled',data:{decision:result.decision,family:result.family,outcome_kind:row(result.outcome).kind??null}});
+    return events;
 }
 export function rulingsForResolve(context: SettleContext, settled: Row): Row[] {
     const skills = context.receipts.filter(receipt => receipt.kind === 'roll' && receipt.form !== 'dice' && truth(receipt.skill)).map(receipt => string(receipt.skill));

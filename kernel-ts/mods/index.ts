@@ -1,4 +1,4 @@
-/** Static Mod management, initialization and read-only definition contribution. */
+/** Static Mod management, jobs, objects and named settlement contributions. */
 import type { KernelContext } from '../context.js';
 import type { HandlerGroup } from '../handlers.js';
 import { isJsonObject } from '../json.js';
@@ -11,10 +11,21 @@ import type { CampaignWriter } from '../write/store.js';
 import type { createWriteRuntime } from '../write/index.js';
 import { ModRuntime } from './runtime.js';
 import { projectInventory } from './projection.js';
+import type { ApplyContext } from '../apply/index.js';
+import { createDocumentHandlers } from './documents.js';
+import { ModJobs, type ModSources } from './jobs.js';
+import { stageModEffect } from './stage.js';
+import { resolveBeforeMain, type ModResolveInput } from './resolve.js';
+import { magicEffects } from './effects.js';
 export { validateDefinition, validateDocumentSeed, definitionExpression } from './definition.js';
 export { projectInventory, projectSheet, weaponRows } from './projection.js';
+export { magicEffects, effectTarget, applyObjectEffects, saveEffectTarget, useItem, repairItem, castNpc } from './effects.js';
+export { defineObject, moveObject, objectInstance, objectRegistry } from './objects.js';
+export { initializeDocument, ownershipChanged, writeDocument, documentVersion } from './documents.js';
+export { type ModResolveInput, type ModResolveResult } from './resolve.js';
+export { type ModSources } from './jobs.js';
 
-export function createModRuntime(context: KernelContext) {
+export function createModRuntime(context: KernelContext, sources: ModSources = {}) {
   const runtime = new ModRuntime(context);
   async function busy(campaign: CampaignWriter, world: Row): Promise<boolean> {
     const turn = await campaign.readTurn();
@@ -36,6 +47,7 @@ export function createModRuntime(context: KernelContext) {
     if (Object.hasOwn(world, 'objects')) await projectInventory(campaign, world);
   }
   function handlers(writer: ReturnType<typeof createWriteRuntime>): HandlerGroup {
+    const jobs = new ModJobs(context, runtime, writer, sources);
     async function listing(params: Row): Promise<Row> {
       if (!truth(params.campaign)) return runtime.view();
       const campaign = await writer.campaign(params, {requireWorld: false}), meta = await campaign.readCampaign();
@@ -43,6 +55,9 @@ export function createModRuntime(context: KernelContext) {
       return {...await runtime.view(config), campaign: campaign.id, play_language: Object.hasOwn(meta, 'play_language') ? meta.play_language : 'en'};
     }
     return Object.freeze({
+      ...createDocumentHandlers(writer, runtime),
+      'mods.job': params => jobs.job(params),
+      'mods.accept': params => jobs.accept(params),
       'mods.list': listing,
       'mods.install': async params => {
         if (!Object.hasOwn(params, 'path')) { const error = new Error("'path'"); error.name = 'KeyError'; throw error; }
@@ -79,6 +94,11 @@ export function createModRuntime(context: KernelContext) {
       },
     });
   }
-  return Object.freeze({runtime, handlers, initializeCampaign,
+  function apply(writer: ReturnType<typeof createWriteRuntime>) {
+    const jobs = new ModJobs(context, runtime, writer, sources);
+    return Object.freeze({stage: (input: ApplyContext, effect: Row, sheets: Map<string, Row>) => stageModEffect(input, effect, sheets, jobs), projectInventory});
+  }
+  return Object.freeze({runtime, handlers, initializeCampaign, apply, magicEffects,
+    resolveBeforeMain: (input: ModResolveInput) => resolveBeforeMain(context, runtime, input),
     initializeWorld: (world: Row) => runtime.initializeWorld(world), validateWorld: (world: Row) => runtime.validateWorld(world)});
 }

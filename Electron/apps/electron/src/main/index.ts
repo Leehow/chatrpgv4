@@ -20,7 +20,7 @@ import { resolveSystemProxyEnvironment } from './system-proxy.js'
 import { loadProductIdentity } from './product-identity.js'
 import { withProjectDirectoryPicker } from './project-directory-picker.js'
 import { withProductPackFileDialogs } from './product-pack-file-dialogs.js'
-import { EMBEDDED_NODE_VERSION, PI_RUNTIME_PACKAGE, resolveRuntimeAssets, UPDATE_CENTER_RUNTIME_PACKAGE_VERSIONS } from './runtime-assets.js'
+import { EMBEDDED_NODE_VERSION, installRuntimeProfile, PI_RUNTIME_PACKAGE, resolveRuntimeAssets, UPDATE_CENTER_RUNTIME_PACKAGE_VERSIONS } from './runtime-assets.js'
 import { createUpdateCenterService, extensionUpdateCatalogItems, UPDATE_CENTER_FRAMEWORK_VERSIONS, withUpdateCenter, type UpdateCatalogItem } from './update-center.js'
 import { withOpenDocumentExternally } from './external-document.js'
 import { withOpenExternal } from './external-url.js'
@@ -246,18 +246,20 @@ if (app) {
       packaged: app.isPackaged,
       resourcesPath: process.resourcesPath,
       dirname: __dirname,
-      env: process.env,
+      env: piProcessEnv,
       userData
     })
-    // The UI uses the canonical repository-local Pi profile.
-    const runtimeRoot = process.env.PIPIUI_RUNTIME_ROOT ?? join(userData, 'runtime')
+    // Source profiles stay repo-local; packaged profiles live outside immutable resources.
+    const runtimeRoot = assets.runtimeRoot
     const piProfile = {
-      agentDir: join(assets.managedNodeModulesRoot!, '..', '.pi', 'coc-agent'),
-      sessionsRoot: join(assets.managedNodeModulesRoot!, '..', '.pi', 'coc-agent', 'ui-sessions', process.env.PI_COC_MODE === 'setup' ? 'setup' : 'play')
+      agentDir: assets.agentDir,
+      sessionsRoot: assets.sessionsRoot
     }
     // Preserve the canonical model and credential files; only explicit UI edits may change them.
     const modelsWriteQueue = createCanonicalModelsWriteQueue()
-    const profileInstall = Promise.resolve()
+    const profileInstall = installRuntimeProfile(assets, piProcessEnv)
+    // The constructor's first extension scan must see the installed UI and provider manifests.
+    await profileInstall
     // Runtime tree install overlaps with window load and the first list-models load.
     // It is a warm-up only: refreshRuntimeTree re-runs it before every spawn.
     void Promise.resolve().then(() => {
@@ -270,7 +272,8 @@ if (app) {
     const quotaStore = new QuotaStore(process.env, { agentDir: piProfile.agentDir })
     const piBackend = createPiHostBackend({
       piCommand: assets.piCommand,
-      env: piProcessEnv,
+      env: {...piProcessEnv, ...assets.piCommand?.env},
+      authNodePath: assets.authNodePath,
       managedNodeModulesRoot: assets.managedNodeModulesRoot,
       cocRuntime: assets.cocRuntime,
       browserAction: (request, sessionId) => browser.toolAction(sessionId, request as any),

@@ -1,5 +1,5 @@
 /** Campaign writes and remembered calls; each RPC reloads authoritative disk state. */
-import { readFile } from 'node:fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import type { KernelContext } from '../context.js';
 import type { JsonObject, JsonValue, ReadonlyJson } from '../json.js';
@@ -79,6 +79,10 @@ export class CampaignWriter implements CampaignWritePort {
         return await this.context.snapshots.pathExists(path) ? clone(await this.context.snapshots.readJson(path)) as JsonValue : null;
     }
     writeSave(name: string, value: ReadonlyJson): Promise<void> { return writeJsonAtomic(this.savePath(name), value); }
+    async removeSave(name: string): Promise<void> {
+        try { await unlink(this.savePath(name)); }
+        catch(error){ if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error; }
+    }
     saveExists(name: string): Promise<boolean> { return this.context.snapshots.pathExists(this.savePath(name)); }
     saveDirectories(name: string): Promise<string[]> {
         return this.context.snapshots.sortedChildNames(this.savePath(name), path => this.context.snapshots.isDirectory(path));

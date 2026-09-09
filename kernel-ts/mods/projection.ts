@@ -4,6 +4,7 @@ import { RpcError } from '../errors.js';
 import { publicItems } from '../read/mods.js';
 import { array, row, values, string, truth, normalize, type Row } from '../read/values.js';
 import type { CampaignWriter } from '../write/store.js';
+export { usableWeapon, syncAmmo } from './combat-projection.js';
 
 export function weaponRows(world: Row, ownerId: string | null = null): Row[] {
   const data = row(world.objects), definitions = row(data.definitions), result: Row[] = [];

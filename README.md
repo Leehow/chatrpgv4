@@ -7,7 +7,7 @@ and ZIP packages use the same loader; save locks preserve the package bytes and
 accepted game results across application updates. See kernel contract section 26
 and `docs/specs/mods-execution.md` for the interface and verification record.
 
-COC Keeper for Pi：一个 Pi 包加一个 Python 内核子进程。守秘人只见七个动词：`look`、`lookup`、`recall`、`resolve`、`apply`、`ask`、`narrate`。
+COC Keeper for Pi：一个 Pi 包加一个编译后的 TypeScript 内核子进程。守秘人只见七个动词：`look`、`lookup`、`recall`、`resolve`、`apply`、`ask`、`narrate`。
 
 - 架构规格：GitHub issue #12。切片票：#13 到 #18。
 - 扩展与内核之间的契约：`docs/kernel-rpc.md`。改契约先于改代码。系统语言英文、玩家语言由守秘人模型按 `play_language` 产出、机制走 JSON 投影：见 `Agents.md`。
@@ -21,8 +21,8 @@ COC Keeper for Pi：一个 Pi 包加一个 Python 内核子进程。守秘人只
 extensions/   Pi 扩展：kernel（七个工具、回合事务、校验车道）、table（状态行）、memory（记忆抽取车道）、
               module（无人值守构建与按需深读，读者是子 pi 进程）、onboarding（建卡进程的 setup 工具）、lanes（共用）、
               deepseek（DeepSeek Extended provider，`openai-responses` + hosted web_search，从 PipiUI 上游移植）
-kernel/coc/   Python 内核包，入口 `python -m coc.rpc`；rules/（十族规则引擎与 RuleGraph 运行时）、modules/（模组存储与车道）
-kernel-ts/    迁移中的 TypeScript 内核；Python 仍是默认，未迁移的调用显式拒绝
+kernel/coc/   保留的 Python 对照实现，仅供开发者兼容性验证，不进入独立安装包
+kernel-ts/    TypeScript 内核，编译为 build/kernel/rpc.mjs，默认由统一运行时启动
 runtime/      宿主组合：统一捕获部署配置、启动/取消内核与读者、执行只读检查
 content/      只读内容：rulesets/coc7、starters/<module>、director/、craft/、ontology/、modules/（契约与可玩性模板）、setup/（七步表、读者提示）
 prompts/      守秘人与建卡助手的系统提示
@@ -36,7 +36,7 @@ tests/        kernel（内核接缝）、extension（扩展接缝）、play（�
 ```bash
 npm install
 uv sync --frozen --dev
-npm run build:runtime                 # 生成 Electron 宿主适配器和开发用 TS 内核
+npm run build:runtime                 # 生成内核、宿主、读者、准备进程与 Pi 扩展的 JS 入口
 bin/pi-coc setup                      # 建卡：选 starter 或资料包，建调查员，交桌
 bin/pi-coc --campaign <id>            # 开桌
 ```
@@ -84,9 +84,11 @@ pipicoc/dev --campaign <战役名>     # 关闭建卡窗口后，用同一界面
 
 模型与鉴权沿用 `.pi/coc-agent`，战役与模组默认沿用本仓库 `.coc`。
 `PI_COC_HOME` 可显式选择存档根目录。不要在两个窗口同时打开同一战役。
-当前支持源码运行和依赖本仓库运行时的本地 App；前端验收与 PDF 阅读验收分别记录。
+源码运行与独立 App 组包共用编译入口；前端验收与 PDF 阅读验收分别记录。
 
 本地打包：`node pipicoc/package.mjs`，生成 `build/PipiCOC.app`，以 `PipiUI Dev` 签名。
-这个本地包通过运行时描述文件指向当前仓库及 Node/uv；移动或删除仓库会使它无法启动。
+此配方组装独立 TypeScript 运行时：受管 Node、Git、Pi、原生模块和只读内容都随包提供；运行时描述只保存包内相对路径。Pi 配置、凭据、会话和运行目录位于 App 自有 userData，战役仍保存在用户选择的 COC home。源码模式保留仓库隔离的 Pi home；显式 `PI_COC_RUNTIME=python` 仅供开发者对照，独立包拒绝该后端。
+
+安装包与完整行为验收状态见 `docs/specs/runtime-consolidation-tickets.md`；本地开发签名不代表已完成公开分发的签名与公证。
 Web 端：先运行 `pipicoc/install` 安装 `.pi/` 中的面板资产，再运行 `PI_COC_MODE=setup npm --prefix Electron run dev:browser`，打开 `http://localhost:5173`。
 Web 端的“添加项目”使用页面内路径输入；人物面板与骰子组件通过宿主受限接口读取，支持 Codex 内置浏览器。

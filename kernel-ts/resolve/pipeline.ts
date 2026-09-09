@@ -15,6 +15,10 @@ import { SettleContext, latestCheckReceipt, recordSkillTicks } from './context.j
 import { BASIC_DECISIONS, COMBINED, LUCK, LUCK_ROLL, OBSERVE, OPPOSED, ORDINARY, PUSH, REALIZE, SOCIAL, psychologyBinding, psychologyRealizeBinding, socialBinding } from './bindings.js';
 import { settleBasic, settleFamily } from './settlement.js';
 import { familyBinding, type FixedFamilies } from './families.js';
+import {parseSanLoss} from '../sanity/expression.js';
+import {knownSpells,readMagicState} from '../magic/state.js';
+import {magicLearningSources} from '../magic/facts.js';
+import {presentOpponents} from '../chase/bindings.js';
 import { shapeSettlement, tagNpcReceipts } from './projection.js';
 const COMBAT_DEFEND = 'decision:coc7:combat:defend';
 const SANITY_CHECK = 'decision:coc7:sanity:check';
@@ -57,7 +61,7 @@ export function validateExtras(action: Row): void {
         throw new RpcError('invalid_params', 'action.interrupted must be a boolean');
     if (action.defense != null && !['dodge', 'fight_back', 'none'].includes(action.defense))
         unsupportedValue('action.defense', action.defense, ['dodge', 'fight_back', 'none']);
-    if (action.san_loss != null && !/(\d+(?:D\d+(?:\+\d+)?)?)\s*\/\s*(\d+D\d+(?:\+\d+)?|\d+)/i.test(action.san_loss))
+    if (action.san_loss != null && !parseSanLoss(action.san_loss))
         throw new RpcError('invalid_params', 'action.san_loss must read <success>/<failure>, e.g. 0/1D6 or 1/1D8');
     if (action.involuntary != null && !(typeof action.involuntary === 'string' || isJsonObject(action.involuntary) && typeof action.involuntary.kind === 'string'))
         throw new RpcError('invalid_params', 'action.involuntary must be a kind (string) or {kind, summary}');
@@ -231,8 +235,10 @@ export class ResolvePipeline {
             return [`decision:coc7:chase:${this.sessions.chasePendingKind(this.sessions.chase!) || 'move'}`];
         if ([...this.sessions.sanity.values()].some(boutActive))
             return [...BOUT];
-        if (this.intent === 'cast')
+        if (this.intent === 'cast') {
+            if(!truth(action.spell))throw new RpcError('needs',"casting needs the spell's name",{fix:'set action.spell',details:{needs:{field:'spell',options:knownSpells(await readMagicState(this.context,this.context.actorId),this.context.clockMinutes)}}});
             return ['decision:coc7:magic:cast-spell'];
+        }
         if (this.intent === 'combat' || this.npcInSession)
             return this.withSanityOffer(['decision:coc7:combat:attack']);
         if (this.intent === 'flee')
@@ -543,10 +549,16 @@ export class ResolvePipeline {
                 }, extras];
         return [{}, extras];
     }
-    private noCandidates(candidates: string[], withheld: Row[], source: [
+    private async noCandidates(candidates: string[], withheld: Row[], source: [
         string,
         Row
-    ] | null): never {
+    ] | null): Promise<never> {
+        const unmet=Object.fromEntries(withheld.map(value=>[value.decision_ref,array(value.unmet)]));
+        if(candidates.length===1&&candidates[0]==='decision:coc7:magic:cast-spell')throw new RpcError('needs',`${repr(this.action.spell)} is not a spell this investigator knows`,{fix:'set action.spell to a known spell (details.needs.options), or learn it first',details:{needs:{field:'spell',options:knownSpells(await readMagicState(this.context,this.context.actorId),this.context.clockMinutes)},unmet}});
+        if(candidates.length===1&&candidates[0]==='decision:coc7:magic:learn-spell')throw new RpcError('needs',`no authored source teaches ${repr(this.action.spell)} here`,{fix:'target a tome, teacher or entity that carries the spell (details.needs.options)',details:{needs:{field:'target',options:Object.keys(magicLearningSources(this.context)).sort()},unmet}});
+        if(candidates.length===1&&candidates[0]==='decision:coc7:chase:start'){
+            const present=presentOpponents(this.context);throw new RpcError('needs','a chase needs a pursuer with a stat block present in the scene',{fix:'establish the pursuer here first (an NPC whose module record carries mechanics.profile), or narrate the flight without dice',details:{needs:{field:'target',options:present.filter(([, ,profile])=>truth(profile)).map(([name])=>name).sort()},present:present.map(([name])=>name).sort(),unmet}});
+        }
         if (truth(this.action.push) || this.action.luck != null) {
             const unmet = Object.fromEntries(withheld.map(value => [value.decision_ref, array(value.unmet)]));
             const what = truth(this.action.push) ? 'push' : 'spend Luck on';
@@ -593,10 +605,11 @@ export class ResolvePipeline {
                 throw new RpcError('campaign_not_ready', error.message);
             throw error;
         }
-        const effectiveIntent = this.action.defense != null || this.npcInSession ? 'combat' : this.intent;
-        const runtime = new RuleGraph(context.observations, {
+        let effectiveIntent = this.action.defense != null || this.npcInSession ? 'combat' : this.intent;
+        if(active(this.sessions.chase)&&this.intent==='flee')effectiveIntent=candidates.length===1&&candidates[0]==='decision:coc7:chase:attack'?'combat':'move';
+        const runtimeFor=(intent:string)=>new RuleGraph(context.observations, {
             campaignId: context.campaignId,
-            facts: () => context.facts(effectiveIntent),
+            facts: () => context.facts(intent),
             resolverIndex: Object.fromEntries(RESOLVER_NAMES.map(name => [name, {}])),
             optionalRules: () => gates,
             augmentFacts: (selected, facts) => context.augmentFacts(selected, facts),
@@ -605,10 +618,11 @@ export class ResolvePipeline {
                 stage: 'acting'
             })
         });
+        const runtime=runtimeFor(effectiveIntent);
         const source = latestCheckReceipt(context);
         const question: Row = {
             kind: 'procedure',
-            semantic_inputs: {}
+            semantic_inputs: context.provisionalSemantic(typeof this.action.target==='string'?this.action.target:null)
         };
         if (source)
             Object.assign(question, {
@@ -629,7 +643,7 @@ export class ResolvePipeline {
         if (!cards.length) {
             if (candidates.every(ref => !BASIC_DECISIONS.has(ref) && !familyBinding(this.families, ref, runtime.capabilityOf(ref))))
                 unsupportedDecision(runtime, candidates[0]);
-            this.noCandidates(candidates, withheld, source);
+            await this.noCandidates(candidates, withheld, source);
         }
         const director = row(row(context.turn.capsule).director);
         const selectedCard = selectAvailableDecision(cards, candidates, {
@@ -668,6 +682,27 @@ export class ResolvePipeline {
         tagNpcReceipts(context, chosen.family, npc, shaped.outcome);
         if (selectedCard.decision_source)
             shaped.decision_source = selectedCard.decision_source;
+        if(ref==='decision:coc7:combat:flee'&&shaped.outcome.combat_outcome==='fled'){
+            const ready=!active(context.sessions().chase)&&context.party().length>0&&presentOpponents(context).some(([, ,profile])=>truth(profile));
+            if(!ready)shaped.continuations.push({decision:'chase:start',executed:false,when:'no pursuer with a stat block is present; the flight ends the fight'});
+            else{
+                const nextRuntime=runtimeFor('flee'),nextRef='decision:coc7:chase:start';
+                const card=array(nextRuntime.context({kind:'procedure',semantic_inputs:{},family:'chase'}).cards).find(card=>card.decision_ref===nextRef);
+                if(card){
+                    const binding=familyBinding(this.families,nextRef,nextRuntime.capabilityOf(nextRef));
+                    if(!binding)unsupportedDecision(nextRuntime,nextRef);
+                    const slots=await binding.slots(nextRef,context,{npc:null,investigator:null}),choice={decision_ref:nextRef,semantic_inputs:slots.semantic,...slots.extras};
+                    const next=await settleFamily(context,nextRuntime,choice,nextRuntime.latestGrantCovering(nextRef),binding,beforeExecute);
+                    if(next.status!=='settled')throwPlanningFailure(next,card);
+                    const result=row(row(next.settlement).result);
+                    shaped.continuations=shaped.continuations.filter((entry:Row)=>entry.decision!=='chase:start');
+                    shaped.continuations.push({decision:'chase:start',executed:true,when:card.label??null,outcome:binding.outcome(context,nextRef,result)});
+                    shaped.session=result.session??null;shaped.pending_choice=result.pending_choice??null;shaped.outcome.continued='chase:start';
+                    for(const rule of array(next.rule_refs))if(!shaped.rule_refs.includes(rule))shaped.rule_refs.push(string(rule));
+                    shaped.effects=[...context.effects];shaped.receipts=context.receipts;
+                }
+            }
+        }
         return shaped;
     }
 }

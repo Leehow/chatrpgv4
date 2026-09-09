@@ -1,13 +1,12 @@
 /** Per-owner runtime composition. Game state and request ordering stay in the kernel. */
-import { accessSync, constants, statSync } from "node:fs";
+import { accessSync, constants, existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { KernelClient, KernelError, type KernelClientOptions } from "../extensions/kernel/client.ts";
 import type { ReaderOutcome, ReaderRequest } from "../extensions/module/reader.ts";
 import { runtimeCapabilities } from "./tasks.ts";
-
-const RESOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+import { assertWritableLocation, compiledEnvironment, readDeployment, resourcePath, resourceRootFrom,
+  runtimeEntrypoints, type RuntimeEntrypoints, type RuntimeLayout } from "./deployment.mjs";
 
 export interface RuntimeBinding {
 	owner: "session" | "preparation" | "check";
@@ -18,6 +17,7 @@ export interface RuntimeBinding {
 
 /** Supplied by host entrypoints; ordinary tasks receive an already composed runtime. */
 export interface RuntimeHostOptions {
+	layout?: RuntimeLayout;
 	backend?: "python" | "typescript";
 	kernelEntrypoint?: string;
 	resourceRoot?: string;
@@ -38,6 +38,8 @@ type SourcePage = Awaited<ReturnType<typeof import("../extensions/module/source.
 
 /** Captured deployment inputs are visible only to the host's fixed capability adapters. */
 export interface RuntimeContext {
+	readonly layout: RuntimeLayout;
+	readonly entrypoints: RuntimeEntrypoints;
 	readonly backend: "python" | "typescript";
 	readonly resourceRoot: string;
 	readonly contentRoot: string;
@@ -100,7 +102,7 @@ function executable(command: string, cwd: string, env: NodeJS.ProcessEnv): strin
 }
 
 function backend(host: RuntimeHostOptions, env: NodeJS.ProcessEnv): "python" | "typescript" {
-	const selected = host.backend ?? env.PI_COC_RUNTIME ?? "python";
+	const selected = host.backend ?? env.PI_COC_RUNTIME ?? "typescript";
 	if (selected !== "python" && selected !== "typescript") throw new Error(`Unknown runtime backend: ${selected}`);
 	return selected;
 }
@@ -108,20 +110,27 @@ function backend(host: RuntimeHostOptions, env: NodeJS.ProcessEnv): "python" | "
 /** Compatibility export for existing launch assertions; also used by composition. */
 export function kernelCommand(home: string, host: RuntimeHostOptions = {}): string[] {
 	const env = host.env ?? process.env;
+	const root = resolve(host.resourceRoot ?? resourceRootFrom(import.meta.url, env));
+	const compiled = host.layout === "compiled" || env.PI_COC_LAYOUT === "compiled" || existsSync(join(root, "deployment.json"));
+	const deployment = compiled ? readDeployment(root) : undefined;
+	const selected = backend(host, env);
+	if (deployment && selected !== "typescript") throw new Error("Standalone deployments require the TypeScript kernel");
+	if (deployment && host.nodeExecutable && location(host.nodeExecutable, root) !== deployment.node) throw new Error("Standalone deployments require their managed Node executable");
+	if (deployment && host.kernelEntrypoint && location(host.kernelEntrypoint, root) !== deployment.entrypoints.kernel) throw new Error("Standalone deployments require their emitted kernel entrypoint");
 	if (env.PI_COC_KERNEL_CMD?.trim()) {
+		if (compiled) throw new Error("Standalone deployments cannot override the kernel command");
 		const command: unknown = JSON.parse(env.PI_COC_KERNEL_CMD);
 		if (!Array.isArray(command) || !command.length || command.some(part => typeof part !== "string")) {
 			throw new Error("PI_COC_KERNEL_CMD must be a non-empty JSON array of strings");
 		}
 		return [...command];
 	}
-	const root = resolve(host.resourceRoot ?? RESOURCE_ROOT);
-	if (backend(host, env) === "typescript") {
-		return [host.nodeExecutable ?? process.execPath, resolve(root, host.kernelEntrypoint ?? "build/kernel/rpc.mjs"),
-			"--workspace", home, "--content", resolve(root, host.contentRoot ?? "content")];
+	if (selected === "typescript") {
+		return [deployment?.node ?? host.nodeExecutable ?? env.PI_COC_NODE_EXECUTABLE ?? process.execPath, resolve(root, host.kernelEntrypoint ?? "build/kernel/rpc.mjs"),
+			"--workspace", home, "--content", resolve(root, host.contentRoot ?? env.PI_COC_CONTENT_ROOT ?? "content")];
 	}
 	return ["uv", "run", "--frozen", "python", "-m", "coc.rpc", "--workspace", home,
-		"--content", resolve(root, host.contentRoot ?? "content")];
+		"--content", resolve(root, host.contentRoot ?? env.PI_COC_CONTENT_ROOT ?? "content")];
 }
 
 /** Host adapters reuse the same immutable locations and environment without starting a kernel. */
@@ -129,19 +138,36 @@ export function composeRuntimeContext(binding: RuntimeBinding, host: RuntimeHost
 	if (binding.signal?.aborted) throw failure("runtime_cancelled", "The runtime owner is cancelled");
 	try {
 		if (!["session", "preparation", "check"].includes(binding.owner)) throw new Error("Unknown runtime owner kind");
-		const cwd = location(host.resourceRoot ?? RESOURCE_ROOT, process.cwd());
-		const contentRoot = location(host.contentRoot ?? "content", cwd);
+		let env = { ...(host.env ?? process.env) };
+		const cwd = location(host.resourceRoot ?? resourceRootFrom(import.meta.url, env), process.cwd());
+		const layout = host.layout ?? env.PI_COC_LAYOUT ?? (existsSync(join(cwd, "deployment.json")) ? "compiled" : "source");
+		if (layout !== "source" && layout !== "compiled") throw new Error(`Unknown runtime layout: ${layout}`);
+		if (layout === "source" && existsSync(join(cwd, "deployment.json"))) throw new Error("A standalone deployment cannot use source launch paths");
+		const deployment = layout === "compiled" ? readDeployment(cwd) : undefined;
+		const contentRoot = location(host.contentRoot ?? env.PI_COC_CONTENT_ROOT ?? "content", cwd);
 		const home = location(binding.home, process.cwd());
 		for (const path of [cwd, contentRoot]) {
 			if (!statSync(path).isDirectory()) throw new Error(`Runtime resource is not a directory: ${path}`);
 			accessSync(path, constants.R_OK | constants.X_OK);
 		}
-		const env = { ...(host.env ?? process.env) };
-		const selected = backend(host, env);
+		const selected = backend({ ...host, layout }, env);
 		const agentHome = location(host.agentHome ?? env.PI_CODING_AGENT_DIR ?? join(cwd, ".pi", "coc-agent"), cwd);
-		const nodeExecutable = executable(host.nodeExecutable ?? process.execPath, cwd, env);
-		return Object.freeze({ backend: selected, resourceRoot: cwd, contentRoot, home, agentHome, nodeExecutable,
-			env: Object.freeze({ ...env, PI_COC_HOME: home, PI_CODING_AGENT_DIR: agentHome,
+		let entrypoints = deployment?.entrypoints ?? runtimeEntrypoints(cwd, layout);
+		if (deployment) {
+			if (selected !== "typescript") throw new Error("Standalone deployments require the TypeScript kernel");
+			if (env.PI_COC_KERNEL_CMD?.trim() || env.PI_COC_READER_CMD?.trim()) throw new Error("Standalone deployments cannot override runtime process commands");
+			if (host.nodeExecutable && location(host.nodeExecutable, cwd) !== deployment.node) throw new Error("Standalone deployments require their managed Node executable");
+			if (host.kernelEntrypoint && location(host.kernelEntrypoint, cwd) !== entrypoints.kernel) throw new Error("Standalone deployments require their emitted kernel entrypoint");
+			resourcePath(cwd, relative(cwd, contentRoot), "directory");
+			assertWritableLocation(cwd, home);
+			assertWritableLocation(cwd, agentHome);
+			env = compiledEnvironment(deployment, env);
+		}
+		if (host.kernelEntrypoint) entrypoints = Object.freeze({ ...entrypoints, kernel: location(host.kernelEntrypoint, cwd) });
+		const nodeExecutable = executable(deployment?.node ?? host.nodeExecutable ?? env.PI_COC_NODE_EXECUTABLE ?? process.execPath, cwd, env);
+		return Object.freeze({ layout, entrypoints, backend: selected, resourceRoot: cwd, contentRoot, home, agentHome, nodeExecutable,
+			env: Object.freeze({ ...env, PI_COC_RESOURCE_ROOT: cwd, PI_COC_CONTENT_ROOT: contentRoot, PI_COC_LAYOUT: layout,
+				PI_COC_RUNTIME: selected, PI_COC_NODE_EXECUTABLE: nodeExecutable, PI_COC_HOME: home, PI_CODING_AGENT_DIR: agentHome,
 				PI_COC_CAMPAIGN: binding.campaign }) });
 	} catch (error) {
 		throw failure("runtime_configuration", `Runtime configuration failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -153,10 +179,11 @@ export function createRuntime(binding: RuntimeBinding, host: RuntimeHostOptions 
 	const { home, resourceRoot, contentRoot, nodeExecutable, env } = context;
 	let launch: Pick<KernelClientOptions, "command" | "cwd" | "env" | "inheritEnv">;
 	try {
-		const command = kernelCommand(home, { ...host, backend: context.backend, resourceRoot, contentRoot, nodeExecutable, env });
+		const command = kernelCommand(home, { ...host, layout: context.layout, backend: context.backend,
+			kernelEntrypoint: context.entrypoints.kernel, resourceRoot, contentRoot, nodeExecutable, env });
 		command[0] = executable(command[0], resourceRoot, env);
 		if (context.backend === "typescript" && !env.PI_COC_KERNEL_CMD?.trim()) accessSync(command[1], constants.R_OK);
-		launch = { command, cwd: resourceRoot, inheritEnv: false, env: { ...env, PYTHONPATH: join(resourceRoot, "kernel") } };
+		launch = { command, cwd: resourceRoot, inheritEnv: false, env: context.backend === "python" ? { ...env, PYTHONPATH: join(resourceRoot, "kernel") } : { ...env } };
 	} catch (error) {
 		throw failure("runtime_configuration", `Runtime configuration failed: ${error instanceof Error ? error.message : String(error)}`);
 	}

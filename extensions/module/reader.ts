@@ -4,10 +4,8 @@ import { createWriteStream } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve as resolvePath } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { RuntimeContext } from "../../runtime/host.ts";
-
-const PKG_ROOT = resolvePath(dirname(fileURLToPath(import.meta.url)), "..", "..");
+import { resourceRootFrom, runtimeEntrypoints } from "../../runtime/deployment.mjs";
 
 /** How long one reader round may run; a timeout counts as a round that did not pass, and leaves its mark in the findings. */
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
@@ -50,7 +48,8 @@ export interface ReaderOutcome {
 
 /** The reader's command line, without the final `brief` argument. */
 export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false, submission = false, context?: RuntimeContext): string[] {
-	const root = context?.resourceRoot ?? PKG_ROOT;
+	const root = context?.resourceRoot ?? resourceRootFrom(import.meta.url);
+	const entries = context?.entrypoints ?? runtimeEntrypoints(root);
 	const override = context?.env.PI_COC_READER_CMD?.trim();
 	if (override) {
 		const parsed: unknown = JSON.parse(override);
@@ -61,17 +60,17 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
 	}
 	return [
 		context?.nodeExecutable ?? process.execPath,
-		join(root, "node_modules", ".bin", "pi"),
+		entries.pi,
 		"-p",
 		"--no-session",
 		"--no-context-files",
 		"--no-extensions",
 		"--no-skills",
-		...(systemPrompt ? ["--extension", join(root, "extensions/module/reader-context.ts")] : []),
+		...(systemPrompt ? ["--extension", entries.readerContext] : []),
 		"--tools",
 		[pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : [])].join(","),
-		...(pdf ? ["--extension", join(root, "extensions/module/reader-pdf.ts")] : []),
-		...(submission ? ["--extension", join(root, "extensions/module/reader-submit.ts")] : []),
+		...(pdf ? ["--extension", entries.readerPdf] : []),
+		...(submission ? ["--extension", entries.readerSubmit] : []),
 		"--system-prompt",
 		systemPrompt ?? join(context?.contentRoot ?? join(root, "content"), "setup", "visual-reader.md"),
 		...(model ? ["--model", model] : []),

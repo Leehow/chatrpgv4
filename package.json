@@ -3,7 +3,7 @@
   "version": "2.0.0-alpha.0",
   "private": true,
   "type": "module",
-  "description": "COC Keeper for Pi: seven verbs over a deterministic Python kernel",
+  "description": "COC Keeper for Pi: seven verbs over a deterministic kernel",
   "keywords": [
     "pi-package",
     "coc",
@@ -27,7 +27,6 @@
     "typebox": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.85.1",
     "esbuild": "0.28.1",
     "typescript": "5.9.3"
   },
@@ -44,6 +43,7 @@
     "lzma-purejs": "0.9.3",
     "pdfjs-dist": "6.3.289",
     "seek-bzip": "2.0.0",
-    "yauzl": "3.4.0"
+    "yauzl": "3.4.0",
+    "@earendil-works/pi-coding-agent": "0.85.1"
   }
 }

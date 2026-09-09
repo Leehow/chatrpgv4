@@ -27,7 +27,18 @@ function intField(value: any): number {
     return Math.trunc(converted);
 }
 const field = (value: Row, key: string, fallback: any): any => Object.hasOwn(value, key) ? value[key] : fallback;
-export function closeSanityDays(input: Row, investigatorId: string, cmValue: number, clockMinutes: number, days: number): Row {
+export function scheduleSanityTreatment(state: Row, clockMinutes: number | null): string | null {
+    if (clockMinutes === null) return null;
+    const investigatorId = state.investigator_id, due = Math.trunc(clockMinutes) + 30 * 24 * 60;
+    const triggerId = `apply-treatment:${investigatorId}:${due}`;
+    state.treatment_trigger = { trigger_id: triggerId, handler: 'apply_psychoanalysis_treatment', due_elapsed_minutes: due,
+        policy: 'auto_apply_if_safe', payload: { condition: 'indefinite_insane' } };
+    state.events.push({ event_id: `se${state.events.length + 1}`, type: 'treatment_trigger_scheduled', payload: {
+        trigger_id: triggerId, due_elapsed_minutes: due,
+        summary: `${investigatorId} monthly Psychoanalysis treatment scheduled for elapsed>${due} (auto_apply_if_safe).` } });
+    return triggerId;
+}
+export function closeSanityDays(input: Row, investigatorId: string, cmValue: number, clockMinutes: number | null, days: number): Row {
     if (input.investigator_id !== investigatorId) {
         const error = new Error('persisted sanity investigator_id does not match requested investigator_id');
         error.name = 'SanityStateIdentityError';
@@ -67,11 +78,7 @@ export function closeSanityDays(input: Row, investigatorId: string, cmValue: num
         if (triggered) {
             state.indefinite_insane = true;
             event('indefinite_insanity', { summary: `${investigatorId} lost >=1/5 SAN in one day → indefinite insanity.`, daily_san_lost: lost, threshold });
-            const due = Math.trunc(clockMinutes) + 30 * 24 * 60, triggerId = `apply-treatment:${investigatorId}:${due}`;
-            state.treatment_trigger = { trigger_id: triggerId, handler: 'apply_psychoanalysis_treatment', due_elapsed_minutes: due,
-                policy: 'auto_apply_if_safe', payload: { condition: 'indefinite_insane' } };
-            event('treatment_trigger_scheduled', { trigger_id: triggerId, due_elapsed_minutes: due,
-                summary: `${investigatorId} monthly Psychoanalysis treatment scheduled for elapsed>${due} (auto_apply_if_safe).` });
+            scheduleSanityTreatment(state, clockMinutes);
         }
         state.daily_san_lost = 0;
         state.day_start_san = state.san_current;

@@ -137,9 +137,11 @@ export function kernelMount(id: KernelMountId): KernelMount {
  */
 export function resolveKernelPaths(runtimeRoot: string): KernelPaths {
   const paths: KernelPaths = {};
+  const compiledTree = KERNEL_MOUNTS.some(entry => entry.file.at(-1)?.endsWith('.ts') && existsSync(join(runtimeRoot, ...entry.file).replace(/\.ts$/, '.mjs')));
   for (const entry of KERNEL_MOUNTS) {
     const path = join(runtimeRoot, ...entry.file);
-    if (existsSync(path)) paths[entry.id] = path;
+    const selected = compiledTree ? path.replace(/\.ts$/, ".mjs") : path;
+    if (existsSync(selected)) paths[entry.id] = selected;
   }
   return paths;
 }

@@ -12,6 +12,7 @@ const CHUNK = 1024 * 1024;
 /** The play languages a job and the scenario catalog may be asked for. */
 const PLAY_LANGUAGES = ['zh-Hans', 'en'];
 export type CocOnboardingOptions = {repo:string; home:string; agentDir:string; env:NodeJS.ProcessEnv;
+  layout?:'source'|'compiled';
   contentRoot?:string; nodeExecutable?:string; backend?:'python'|'typescript'; kernelEntrypoint?:string;
   preparationEntrypoint?:string};
 type PreparationHost = {home:string; start(action:string,input:Row,signal?:AbortSignal):{
@@ -33,7 +34,7 @@ export class CocOnboardingHost {
     // Both source builds and packages supply the emitted host adapter, never a TS loader.
     this.preparation = import(pathToFileURL(options.preparationEntrypoint || join(options.repo, 'build/runtime/preparation.mjs')).href).then(module => {
       const host:PreparationHost = module.createPreparationHost(this.options.home, {
-        resourceRoot:this.options.repo, contentRoot:this.options.contentRoot, agentHome:this.options.agentDir,
+        layout:this.options.layout, resourceRoot:this.options.repo, contentRoot:this.options.contentRoot, agentHome:this.options.agentDir,
         nodeExecutable:this.options.nodeExecutable, backend:this.options.backend,
         kernelEntrypoint:this.options.kernelEntrypoint, env:this.options.env,
       });
@@ -318,7 +319,7 @@ export class CocOnboardingHost {
 export class CocOnboardingRegistry {
   private hosts=new Map<string,CocOnboardingHost>();
   get(options:CocOnboardingOptions):CocOnboardingHost {
-    const key=JSON.stringify([options.repo,options.home,options.agentDir,options.contentRoot,options.nodeExecutable,options.backend,options.kernelEntrypoint,options.preparationEntrypoint]);
+    const key=JSON.stringify([options.repo,options.home,options.agentDir,options.layout,options.contentRoot,options.nodeExecutable,options.backend,options.kernelEntrypoint,options.preparationEntrypoint]);
     if(!this.hosts.has(key))this.hosts.set(key,new CocOnboardingHost(options));
     return this.hosts.get(key)!;
   }

@@ -615,6 +615,12 @@ export function demotedModuleBlock(record: Row): Row | null {
         note: `the module also authors ${repr(block.node_id)} under this name. The ruleset catalogue row resolves and prices the entry; this node is the module's annotation on it — read its properties and source_refs, not its costs.`
     };
 }
+export function moduleRecordNamed(moduleSpells: any, name: string): Row | null {
+    if (!Array.isArray(moduleSpells)) return null;
+    const fold = caseFold(name.trim());
+    return moduleSpells.find(record => isJsonObject(record) && isJsonObject(record.module_authored)
+        && caseFold(string(record.name || '')) === fold) ?? null;
+}
 function markShadowed(candidates: Row[]): Row[] {
     const names = new Set(candidates.filter(value => !isJsonObject(value.module_authored)).map(value => caseFold(string(value.name || ""))));
     names.delete("");

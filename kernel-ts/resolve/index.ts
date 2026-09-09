@@ -15,7 +15,9 @@ import { nowIso } from '../write/store.js';
 import { CheckArithmetic } from './arithmetic.js';
 import { SettleContext, type ResolveWriter } from './context.js';
 import { ResolvePipeline, actionSkills, resolveActor, unsupportedValue, validateExtras } from './pipeline.js';
-import { resolveResult } from './projection.js';
+import { resolveResult,markersOf,modResolveEvents } from './projection.js';
+import {actor as selectActor} from '../read/handlers.js';
+import type {ModResolveInput,ModResolveResult} from '../mods/resolve.js';
 import type {FixedFamilies} from './families.js';
 export { CheckArithmetic, rollExpression, resourceDelta } from './arithmetic.js';
 export { SettleContext, continuableCheck, latestCheckReceipt, recordSkillTicks, skillTickEligible } from './context.js';
@@ -26,6 +28,7 @@ const INTENTS = ['ambiguous', 'cast', 'combat', 'flee', 'idle', 'investigate', '
 const NONE_INTENTS = new Set(['idle', 'meta', 'stuck', 'ambiguous']);
 export interface ResolveContributions extends FixedFamilies {
     requireMaterial?: (graph: ModuleGraph, names: any[]) => Promise<void>;
+    beforeMain?: (input:ModResolveInput)=>Promise<ModResolveResult|null>;
 }
 function modifiers(input: any, arithmetic: CheckArithmetic): [
     number,
@@ -118,7 +121,7 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             }
             const { arithmetic, observations } = await engine();
             const rollModifiers = modifiers(action.modifiers, arithmetic);
-            if (contributed || ['objects:use', 'objects:repair'].includes(string(action.decision || '')))
+            if (!contributions.beforeMain && (contributed || ['objects:use', 'objects:repair'].includes(string(action.decision || ''))))
                 throw new RpcError('not_implemented', 'Mod and object settlements are not implemented in the TypeScript resolve runtime', {
                     details: {
                         decision: action.decision ?? null
@@ -162,6 +165,24 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                 });
                 return result;
             };
+            if(contributions.beforeMain){
+                const modified=await contributions.beforeMain({campaign:transaction.campaign,graph,world:transaction.world,turn:transaction.turn,action,callId:start.callId,
+                    async settlement(name){
+                        await beforeExecute();
+                        const state=new CampaignSnapshot(kernel,transaction.campaign.id);state.meta=await transaction.campaign.readCampaign();state.world=transaction.world;state.turn=transaction.turn;
+                        await state.preload('view');state.party=clone(state.party);
+                        const actor=selectActor(state.party,name);
+                        return new SettleContext(kernel,transaction,state,module,tables,arithmetic,observations,start.callId,start.ordinal,actor,actor,action);
+                    }});
+                if(modified){
+                    await beforeExecute();
+                    const state=new CampaignSnapshot(kernel,transaction.campaign.id);state.meta=await transaction.campaign.readCampaign();state.world=await transaction.campaign.readWorld();state.turn=transaction.turn;await state.preload('view');
+                    const view=new SessionView(state,graph,state.party,state.world),result=modified.result;
+                    result.session=view.activeSession();result.pending_choice=view.pendingChoice()||transaction.turn.pending_choice||null;result.markers=markersOf(transaction.turn,modified.receipts);
+                    await transaction.commitResolve({callId:start.callId,params,result,receipts:[...choices,...modified.receipts],events:modResolveEvents(action,result,modified.receipts)});
+                    return result;
+                }
+            }
             if (NONE_INTENTS.has(intent))
                 return noneResult(`intent ${intent}: nothing to roll; answer or clarify in the narration`);
             validateExtras(action);

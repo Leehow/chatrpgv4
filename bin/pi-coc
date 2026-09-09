@@ -1,134 +1,19 @@
-#!/usr/bin/env bash
-# The pi-coc launcher. Contract in docs/kernel-rpc.md §9 and §14.4 (the setup process).
-# Usage: bin/pi-coc [--campaign <id>] [pi args...]         open a table (play mode)
-#        bin/pi-coc setup [--campaign <id>] [pi args...]   set up a game (setup mode)
-#
-# These environment variables are honoured (passed to pi verbatim and read by the extensions):
-#   PI_COC_CAMPAIGN         campaign id, the same as --campaign
-#   PI_COC_MODE             play|setup, exported by this script; the extensions register their tools by it (contract §14.4)
-#   PI_COC_HOME             where .coc/ lives: the module library and the campaign saves (contract §20.7).
-#                           Defaults to the directory pi was started in, so a developer running from the
-#                           repository sees no change; set it (an absolute path, a relative one, or ~/...) to keep
-#                           one library across directories, which is what an installed application needs
-#   PI_COC_VERIFIER_MODEL   the verifier lane's model, as provider/model; defaults to the table's own model
-#   PI_COC_MEMORY_MODEL     the memory extraction lane's model, likewise
-#   PI_COC_BUILD_MODEL      the reader subprocess's model, likewise (contract §14.5)
-#   PI_COC_READER_TIMEOUT_MS the cap on one reader round, 60 minutes by default
-#   PI_COC_LANE_TIMEOUT_MS  cap on one verifier-lane round, 2 minutes by default; past it the lane is cut off and leaves a timeout row
-#   PI_COC_COMPACT_AT       context share at which the table folds its own context before a turn (contract §19.2),
-#                           70% by default; a value above 1 is a percentage, a value at or below 1 is a fraction
-#   PI_COC_READ_WAIT_MS     foreground material wait, 120 seconds by default; preparation remains resumable
-# Lane models are in docs/pi-host-contract.md §3.1, the reader subprocess in §3.2,
-# the /coc command surface and the context fold in §3.5.
+#!/bin/bash
+# Canonical source or standalone Pi launcher. Process and profile composition live in runtime/launch.
 set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
-PI_BIN="$REPO/node_modules/.bin/pi"
-AGENT_DIR="$REPO/.pi/coc-agent"
-SETTINGS="$AGENT_DIR/settings.json"
-
-# A first positional argument of setup takes the setup process: another prompt page, another tool surface (contract §14.4).
-mode="play"
-if [ $# -gt 0 ] && [ "$1" = "setup" ]; then
-	mode="setup"
-	shift
-fi
-
-if [ "$mode" = "setup" ]; then
-	PROMPT="$REPO/prompts/setup.md"
-	PROMPT_WHAT="the setup prompt"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PI_COC_RESOURCE_ROOT="$root"
+if [ -f "$root/deployment.json" ] || [ "${PI_COC_LAYOUT:-}" = compiled ]; then
+  export PI_COC_LAYOUT=compiled
+  unset NODE_OPTIONS NODE_PATH ELECTRON_RUN_AS_NODE
+  runner="$root/node/bin/node"
+  entry="$root/build/runtime/launch.mjs"
+  [ -x "$runner" ] && [ -f "$entry" ] || { echo 'The standalone COC runtime is incomplete.' >&2; exit 1; }
 else
-	PROMPT="$REPO/prompts/keeper.md"
-	PROMPT_WHAT="the Keeper prompt"
+  export PI_COC_LAYOUT=source
+  runner="${PI_COC_NODE_EXECUTABLE:-$(command -v node)}"
+  entry="$root/build/runtime/launch.mjs"
 fi
-
-if [ ! -x "$PI_BIN" ]; then
-	echo "Cannot find $PI_BIN. Run npm install in $REPO first." >&2
-	exit 1
-fi
-if [ ! -f "$PROMPT" ]; then
-	echo "Cannot find ${PROMPT_WHAT} at $PROMPT." >&2
-	exit 1
-fi
-
-campaign="${PI_COC_CAMPAIGN:-}"
-args=()
-host_session=0
-while [ $# -gt 0 ]; do
-	case "$1" in
-		--session|--session=*)
-			host_session=1
-			args+=("$1")
-			shift
-			;;
-		--campaign)
-			if [ $# -lt 2 ]; then
-				echo "--campaign must be followed by a campaign id." >&2
-				exit 1
-			fi
-			campaign="$2"
-			shift 2
-			;;
-		--campaign=*)
-			campaign="${1#--campaign=}"
-			shift
-			;;
-		*)
-			args+=("$1")
-			shift
-			;;
-	esac
-done
-
-mkdir -p "$AGENT_DIR"
-if [ ! -f "$SETTINGS" ]; then
-	printf '{\n  "packages": ["%s"],\n  "quietStartup": true\n}\n' "$REPO" >"$SETTINGS"
-else
-	# An existing settings file gets one addition only: this repository in packages.
-	SETTINGS="$SETTINGS" REPO="$REPO" node -e '
-		const fs = require("node:fs");
-		const path = process.env.SETTINGS;
-		const repo = process.env.REPO;
-		let settings;
-		try {
-			settings = JSON.parse(fs.readFileSync(path, "utf8"));
-		} catch (error) {
-			console.error(`${path} is not valid JSON: ${error.message}`);
-			process.exit(1);
-		}
-		if (settings === null || typeof settings !== "object" || Array.isArray(settings)) {
-			console.error(`${path} is not an object at the top level; fix it by hand.`);
-			process.exit(1);
-		}
-		const packages = Array.isArray(settings.packages) ? settings.packages : [];
-		if (!packages.includes(repo)) {
-			settings.packages = [...packages, repo];
-			fs.writeFileSync(path, `${JSON.stringify(settings, null, 2)}\n`);
-		}
-	'
-fi
-
-if [ -n "$campaign" ]; then
-	export PI_COC_CAMPAIGN="$campaign"
-fi
-export PI_CODING_AGENT_DIR="$AGENT_DIR"
-export PI_COC_MODE="$mode"
-
-cd "$REPO"
-session_args=()
-if [ -n "$campaign" ] && [ "$host_session" = "0" ]; then
-	# Setup and play are two processes with two records: the session ids stay apart, so setup's questions never mix into the table's session.
-	if [ "$mode" = "setup" ]; then
-		session_args=(--session-id "coc-setup-$campaign")
-	else
-		session_args=(--session-id "coc-$campaign")
-	fi
-fi
-
-exec "$PI_BIN" \
-	--no-builtin-tools \
-	--no-context-files \
-	--system-prompt "$PROMPT" \
-	${session_args[@]+"${session_args[@]}"} \
-	${args[@]+"${args[@]}"}
+[ -f "$entry" ] || { echo 'The COC JavaScript runtime is missing. Run npm run build:runtime first.' >&2; exit 1; }
+export PI_COC_NODE_EXECUTABLE="$runner"
+exec "$runner" "$entry" "$@"

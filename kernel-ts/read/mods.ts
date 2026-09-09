@@ -200,6 +200,34 @@ export function modProviders(active: Row[]): Row {
     }
     return slots;
 }
+export function effectiveMods(active: Row[]): Row[] {
+    const providers = modProviders(active);
+    return active.filter(mod => {
+        const c = mod.contributes, policy = array(c.checks).map(check => `check:${check.name}`);
+        if (truth(c.materializer)) policy.push('materializer');
+        if (!policy.length && truth(c.document_editor)) policy.push('document_editor');
+        if (!policy.length && truth(c.auditor)) policy.push(`audit:${c.audit_slot ?? mod.id}`);
+        return !policy.length || policy.some(key => providers[key].at(-1) === mod.id);
+    });
+}
+export function unregisteredEquipment(party: Row[]): Row[] {
+    return party.flatMap(sheet => {
+        const executable = new Set(array(sheet.weapons).filter(w => truth(w.weapon_id) || truth(w.damage) || truth(w.damage_die)).map(w => normalize(w.name || w.display_name || '')));
+        return array(sheet.equipment).flatMap(value => {
+            const name = typeof value === 'string' ? value : row(value).name;
+            return !truth(name) || row(value).object_id || executable.has(normalize(name)) ? [] : [{ owner: sheet.name, name, row: value }];
+        });
+    });
+}
+export function rootObjectOwner(world: Row, item: Row): Row {
+    const instances = row(row(world.objects).instances), seen = new Set<string>();
+    let owner = item.owner;
+    while (owner.kind === 'object') {
+        if (seen.has(owner.id) || !instances[owner.id]) invalid('Document ownership is cyclic or incomplete');
+        seen.add(owner.id); owner = instances[owner.id].owner;
+    }
+    return owner;
+}
 export function objectContext(world: Row): Row {
     const data = row(world.objects),
         definitions = row(data.definitions);
@@ -259,28 +287,8 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
                         when: "first meaningful contact, not merely appearing in this list"
                     });
             }
-    const effective = active.filter(mod => {
-        const c = mod.contributes,
-            policy = array(c.checks).map(check => `check:${check.name}`);
-        if (truth(c.materializer))
-            policy.push("materializer");
-        if (!policy.length && truth(c.document_editor))
-            policy.push("document_editor");
-        if (!policy.length && truth(c.auditor))
-            policy.push(`audit:${c.audit_slot ?? mod.id}`);
-        return !policy.length || policy.some(key => providers[key].at(-1) === mod.id);
-    });
-    const unregistered = active.some(mod => truth(mod.contributes.materializer)) ? party.flatMap(sheet => {
-        const executable = new Set(array(sheet.weapons).filter(w => truth(w.weapon_id) || truth(w.damage) || truth(w.damage_die)).map(w => normalize(w.name || w.display_name || "")));
-        return array(sheet.equipment).flatMap(value => {
-            const name = typeof value === "string" ? value : row(value).name;
-            return !truth(name) || row(value).object_id || executable.has(normalize(name)) ? [] : [{
-                    owner: sheet.name,
-                    name,
-                    row: value
-                }];
-        });
-    }) : [];
+    const effective = effectiveMods(active);
+    const unregistered = active.some(mod => truth(mod.contributes.materializer)) ? unregisteredEquipment(party) : [];
     return {
         active: active.map(mod => ({
             id: mod.id,
@@ -310,14 +318,7 @@ export function publicItems(world: Row, ownerId: string, includeContainedDocumen
         if (!direct) {
             if (!includeContainedDocuments || !truth(item.document))
                 continue;
-            let owner = item.owner;
-            const seen = new Set<string>();
-            while (owner.kind === "object") {
-                if (seen.has(owner.id) || !instances[owner.id])
-                    invalid("Document ownership is cyclic or incomplete");
-                seen.add(owner.id);
-                owner = instances[owner.id].owner;
-            }
+            const owner = rootObjectOwner(world, item);
             if (owner.kind !== "investigator" || owner.id !== ownerId)
                 continue;
         }
@@ -366,6 +367,12 @@ export function publicSheet(world: Row, view: Row): Row {
     });
     return result;
 }
+export function findNamedObject(objects: Row,name: any): Row|undefined {
+    if(typeof name==='string'&&Object.hasOwn(objects,name))return objects[name];
+    const matches=values(objects).filter(value=>normalize(value.name)===normalize(name));
+    if(matches.length>1)throw new RpcError('unknown_entity','Object name is ambiguous',{details:{candidates:matches.map(value=>value.name)}});
+    return matches[0];
+}
 export function objectLook(world: Row, name?: any): Row {
     const data = row(world.objects),
         instances = row(data.instances),
@@ -381,14 +388,7 @@ export function objectLook(world: Row, name?: any): Row {
                 category: value.category
             }))
         };
-    const named = (objects: Row) => {
-        if (typeof name === "string" && Object.hasOwn(objects, name))
-            return objects[name];
-        const matches = values(objects).filter(value => normalize(value.name) === normalize(name));
-        if (matches.length > 1)
-            throw new RpcError("unknown_entity", "Object name is ambiguous", { details: { candidates: matches.map(value => value.name) } });
-        return matches[0];
-    };
+    const named = (objects: Row) => findNamedObject(objects,name);
     const item = named(instances),
         definition = item ? definitions[item.definition] : named(definitions);
     if (!definition)
