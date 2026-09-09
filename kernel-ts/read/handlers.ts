@@ -15,6 +15,13 @@ import { publicSheet, objectLook } from "./mods.js";
 import { array, row, entries, number, truth, string, repr, normalize, clone, sorted, type Row } from "./values.js";
 const LOOK_FOCUS = ["clues", "investigator", "npc", "object", "scene", "session", "time"];
 const LOOKUP_KINDS = ["catalog", "module", "rule", "secret"];
+export type RuleLookup = (campaign: CampaignSnapshot, module: LoadedModule, params: Row) => Promise<KernelResult>;
+export interface ReadContributions {
+    repairLegacyTrail?(campaign: CampaignSnapshot): Promise<void>;
+    touchActing?(campaign: CampaignSnapshot): Promise<void>;
+    capsule?(campaign: CampaignSnapshot, module: LoadedModule): Promise<KernelResult>;
+    lookupRules?: RuleLookup;
+}
 export function unsupported(field: string, value: any, options: string[], message?: string): never {
     throw new RpcError("invalid_params", message ?? `unsupported ${field} ${repr(value)}`, {
         fix: `use one of details.options: ${options.join(", ")}`,
@@ -116,7 +123,7 @@ export function tableSnapshot(campaign: CampaignSnapshot, graph: ModuleGraph): R
         pending_choice: view.pendingChoice()
     };
 }
-export async function readCampaign(context: KernelContext, params: Row, frontend = false, minimal = false): Promise<{
+export async function readCampaign(context: KernelContext, params: Row, frontend = false, minimal = false, contributions: ReadContributions = {}): Promise<{
     campaign: CampaignSnapshot;
     module: LoadedModule;
 }> {
@@ -138,19 +145,28 @@ export async function readCampaign(context: KernelContext, params: Row, frontend
     if (!minimal)
         await campaign.preload(frontend ? "view" : "all");
     if (!Object.hasOwn(campaign.world, "scene_trail")) {
-        if (!frontend)
-            unfinished("Reading this legacy snapshot requires scene-trail persistence; the transaction slice is not implemented");
-        campaign.world = {
-            ...campaign.world,
-            scene_trail: replayTrail(await campaign.replayEvents())
-        };
+        if (!frontend) {
+            const repair = contributions.repairLegacyTrail;
+            if (!repair)
+                return unfinished("Reading this legacy snapshot requires scene-trail persistence; the transaction slice is not implemented");
+            await repair(campaign);
+            if (!Object.hasOwn(campaign.world, "scene_trail"))
+                throw new RpcError("internal", "Legacy trail repair did not refresh the operation snapshot");
+        } else {
+            campaign.world = {
+                ...campaign.world,
+                scene_trail: replayTrail(await campaign.replayEvents())
+            };
+        }
     }
     return {
         campaign,
         module
     };
 }
-function requireNoTransition(campaign: CampaignSnapshot) {
+async function requireNoTransition(campaign: CampaignSnapshot, contributions: ReadContributions) {
+    if (contributions.touchActing)
+        await contributions.touchActing(campaign);
     if (campaign.turn.state === "open")
         unfinished("This read requires the open-to-acting transition; the transaction slice is not implemented");
 }
@@ -208,11 +224,11 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
         labels: await playerGlossary(context, language)
     };
 }
-export function readHandlers(context: KernelContext): HandlerGroup {
+export function readHandlers(context: KernelContext, contributions: ReadContributions = {}): HandlerGroup {
     return Object.freeze({
         "table.view": async (params) => tableView(context, params),
         "table.status": async (params) => {
-            const { campaign } = await readCampaign(context, params, false, true),
+            const { campaign } = await readCampaign(context, params, false, true, contributions),
                 { turn } = campaign,
                 receipts = array(turn.receipts);
             return {
@@ -224,17 +240,17 @@ export function readHandlers(context: KernelContext): HandlerGroup {
             };
         },
         "table.capsule": async (params) => {
-            const { campaign, module } = await readCampaign(context, params);
-            return buildCapsule(campaign, module);
+            const { campaign, module } = await readCampaign(context, params, false, false, contributions);
+            return contributions.capsule ? contributions.capsule(campaign, module) : buildCapsule(campaign, module);
         },
         "table.look": async (params) => {
-            const { campaign, module } = await readCampaign(context, params, false, true),
+            const { campaign, module } = await readCampaign(context, params, false, true, contributions),
                 { graph } = module,
                 { world } = campaign,
                 focus = params.focus || "scene";
             if (typeof focus !== "string" || !LOOK_FOCUS.includes(focus))
                 unsupported("focus", focus, LOOK_FOCUS, `unknown focus ${repr(focus)}`);
-            requireNoTransition(campaign);
+            await requireNoTransition(campaign, contributions);
             const scene = graph.scene(world.active_scene);
             if (focus === "object")
                 return objectLook(world, params.name);
@@ -275,13 +291,13 @@ export function readHandlers(context: KernelContext): HandlerGroup {
             return { clock: truth(world.clock) ? world.clock : { minutes: 0 } };
         },
         "table.lookup": async (params): Promise<KernelResult> => {
-            const { campaign, module } = await readCampaign(context, params, false, true),
+            const { campaign, module } = await readCampaign(context, params, false, true, contributions),
                 { graph } = module,
                 { world } = campaign,
                 kind = params.kind;
             if (typeof kind !== "string" || !LOOKUP_KINDS.includes(kind))
                 unsupported("kind", kind, LOOKUP_KINDS, `unknown lookup kind ${repr(kind)}`);
-            requireNoTransition(campaign);
+            await requireNoTransition(campaign, contributions);
             if (kind === "module") {
                 const query = required(params, "query");
                 return {
@@ -289,8 +305,12 @@ export function readHandlers(context: KernelContext): HandlerGroup {
                     entities: graph.search(query).map(node => graph.entityView(node))
                 };
             }
-            if (kind === "rule" || kind === "catalog")
-                unfinished(`table.lookup kind=${kind} is not implemented in the TypeScript kernel`);
+            if (kind === "rule" || kind === "catalog") {
+                const lookup = contributions.lookupRules;
+                if (!lookup)
+                    return unfinished(`table.lookup kind=${kind} is not implemented in the TypeScript kernel`);
+                return lookup(campaign, module, params);
+            }
             const scope = params.scope || "scene";
             if (scope !== "scene" && scope !== "module")
                 unsupported("scope", scope, ["scene", "module"]);

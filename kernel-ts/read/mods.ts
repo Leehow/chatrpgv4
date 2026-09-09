@@ -1,7 +1,7 @@
 /** Locked package and object read projections; installation and definition writes stay elsewhere. */
 import { createHash } from "node:crypto";
 import { lstat, readFile, readdir } from "node:fs/promises";
-import { join, relative, extname } from "node:path";
+import { dirname, join, relative, extname } from "node:path";
 import type { KernelContext } from "../context.js";
 import { RpcError } from "../errors.js";
 import { compareUnicode, jsonDigest, parsePythonJson } from "../json.js";
@@ -119,7 +119,7 @@ async function packageFiles(root: string): Promise<Map<string, Buffer>> {
 }
 export async function readModCatalog(context: KernelContext): Promise<Map<string, Row>> {
     const roots: string[] = [],
-        builtin = join(context.content, "mods"),
+        builtin = join(dirname(context.content), "mods"),
         installed = join(context.stateRoot, "mods", "packages");
     for (const id of await context.snapshots.sortedChildNames(builtin, p => context.snapshots.pathExists(join(p, "mod.json"))))
         roots.push(join(builtin, id));
@@ -127,7 +127,7 @@ export async function readModCatalog(context: KernelContext): Promise<Map<string
         for (const version of await context.snapshots.sortedChildNames(join(installed, id), p => context.snapshots.pathExists(join(p, "mod.json"))))
             roots.push(join(installed, id, version));
     const catalog = new Map<string, Row>();
-    for (const root of roots.sort(compareUnicode)) {
+    for (const root of roots.sort((left, right) => compareUnicode(join(left, "mod.json"), join(right, "mod.json")))) {
         const files = await packageFiles(root),
             manifest = manifestFrom(files),
             digest = createHash("sha256");

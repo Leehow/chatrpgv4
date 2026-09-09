@@ -2630,3 +2630,13 @@ a successful no-op. The minimal unconditional episode write needed by narration
 belongs to the transaction slice; the memory slice reuses it when adding job and
 recall behavior. Imported-library writeback and pending worldline transitions
 remain explicitly unavailable until their owning contributions exist.
+
+The static read group accepts four named contributions: `repairLegacyTrail`,
+`touchActing`, `capsule`, and `lookupRules`. The writer owns the first two and updates the
+operation's snapshot/cache after its persisted change; the rules-query slice owns
+`lookupRules` for the already declared rule/catalog lookup kinds. The lead supplies
+these callbacks at startup. Missing callbacks retain the partial-backend refusal.
+Argument validation and transition order remain in the existing read handler;
+there is still exactly one registered handler per public RPC method. The writer's
+`capsule` callback reuses the existing projection with its process-local style
+lifecycle; ordinary table.capsule retains its non-consumption of pending resume.
