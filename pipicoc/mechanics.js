@@ -25,9 +25,10 @@
  * family tone of a settlement group (§16.2's `call`/`family`). Rows that settled nothing stay
  * loose between the groups.
  *
- * Same shape as `panel.js`: plain ESM, no imports (the renderer has no import map), and a label
- * table keyed by `play_language` — §16.1's one exception, restated per file because a pack entry
- * cannot import a sibling.
+ * Same shape as `panel.js`: plain ESM, no imports (the renderer has no import map), and no word
+ * table. The delivery carries `details.ui = {tag, words}` for the session's play language (§23,
+ * 2026-09-09) and this file looks a caption up by key; every content field goes through `term()`,
+ * the campaign's glossary, so the card reads the same words the sheet does.
  */
 
 const STYLE_ID = "pipicoc-mechanics-style";
@@ -164,68 +165,22 @@ if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
   document.head.append(style);
 }
 
-/** Chrome per `play_language` (§14.4's closed set); `en` is also the fallback. */
-const LABELS = {
-  en: {
-    mechanics: "Mechanics",
-    kind: { roll: "roll", dice: "dice", change: "res", scene: "move", clue: "clue", time: "time",
-            item: "item", cash: "cash", session: "phase", worldline: "line", choice: "pick", handout: "sheet" },
-    pass: "pass",
-    fail: "fail",
-    // The kernel's six success levels (kernel/coc/rules/resolver.py's levels). regular and failure
-    // are absent on purpose: they say what the stamp already says, and writing them only thins it.
-    level: { hard: "hard", extreme: "extreme", critical: "critical", fumble: "fumble" },
-    pushed: "pushed",
-    minutes: (n) => `${n} min`,
-    arrow: "→",
-    to: "to",
-    removedFrom: (name) => `removed from ${name}'s inventory`,
-    available: "available",
-    pending: "not delivered",
-    round: (n) => `round ${n}`,
-    family: {
-      "core-check": "skill check", sanity: "sanity", combat: "combat", chase: "chase", social: "social",
-      psychology: "read", magic: "magic", healing: "healing", development: "growth", "push-luck": "push",
-      chapter: "chapter", campaign: "campaign",
-    },
-    opposed: "opposed",
-    session: { start: "begins", end: "ends" },
-    // §15.3's three operations and fork's two modes are closed sets (kernel/coc/worldline.py's
-    // OPERATIONS / MODES). The table changed history: the largest thing a row can say.
-    worldline: { fork: "forked", "fork:loop": "rewound", switch: "resumed", merge: "merged into" },
-    loop: (n) => `circuit ${n}`,
-    turn: (n) => `turn ${n}`,
-  },
-  "zh-Hans": {
-    mechanics: "本回合机制",
-    kind: { roll: "检定", dice: "掷骰", change: "变化", scene: "移动", clue: "线索", time: "时间",
-            item: "物品", cash: "现金", session: "进程", worldline: "世界线", choice: "选择", handout: "手卡" },
-    pass: "通过",
-    fail: "失败",
-    level: { hard: "困难", extreme: "极难", critical: "大成功", fumble: "大失败" },
-    pushed: "孤注一掷",
-    minutes: (n) => `${n} 分钟`,
-    arrow: "→",
-    to: "给",
-    removedFrom: (name) => `从${name}的物品中移除`,
-    available: "可取",
-    pending: "尚未交付",
-    round: (n) => `第 ${n} 轮`,
-    family: {
-      "core-check": "技能检定", sanity: "理智", combat: "战斗", chase: "追逐", social: "交涉",
-      psychology: "察言", magic: "法术", healing: "医疗", development: "成长", "push-luck": "孤注",
-      chapter: "章节", campaign: "战役",
-    },
-    opposed: "对抗",
-    session: { start: "开始", end: "结束" },
-    worldline: { fork: "岔出", "fork:loop": "重来", switch: "切回", merge: "并入" },
-    loop: (n) => `第 ${n} 圈`,
-    turn: (n) => `第 ${n} 回合`,
-  },
-};
+/**
+ * A caption from the delivery's own `ui` block: `ui.words[surface][key]`.
+ *
+ * A key the surface does not carry renders as `fallback`, and `fallback` defaults to the key
+ * itself -- an identifier a player can report, never a word from a language they did not choose.
+ */
+function word(ui, surface, key, fallback) {
+  const surfaces = isRecord(ui) && isRecord(ui.words) ? ui.words : {};
+  const table = isRecord(surfaces[surface]) ? surfaces[surface] : {};
+  return typeof table[key] === "string" ? table[key] : fallback === undefined ? key : fallback;
+}
 
-function labelsFor(language) {
-  return LABELS[language] || LABELS.en;
+/** A parameterised caption: `{name}` placeholders filled from `values`, order and all. */
+function fill(template, values) {
+  return String(template).replace(/\{([A-Za-z0-9_]+)\}/g, (whole, name) =>
+    Object.prototype.hasOwnProperty.call(values, name) ? text(values[name]) : whole);
 }
 
 /**
@@ -340,10 +295,10 @@ function groupRows(rows) {
 }
 
 /** The family's word, plus "opposed" when the settlement rolled two sides against each other. */
-function familyLabel(group, t) {
-  const name = (t.family && t.family[group.family]) || group.family || "";
+function familyLabel(group, t, term) {
+  const name = group.family ? t(`family.${group.family}`, term(group.family)) : "";
   const sides = group.rows.filter(row => row.kind === "roll").length;
-  return sides > 1 ? `${name} · ${t.opposed}` : name;
+  return sides > 1 ? `${name} · ${t("opposed")}` : name;
 }
 
 export function createComponent(React) {
@@ -358,12 +313,12 @@ export function createComponent(React) {
   }
 
   function Row(props) {
-    const { children, kindKey, kindLabel, grade, family } = props;
+    const { children, kindKey, kindLabel, grade, family, title } = props;
     const tone = family && FAMILY_TONE[family];
     return h("div", {
       className: "coc-mech-row",
       "data-kind": kindKey,
-      title: kindLabel,
+      title: title || kindLabel,
       ...(family ? { "data-family": family } : {}),
       ...(grade ? { "data-grade": grade } : {}),
     },
@@ -401,7 +356,7 @@ export function createComponent(React) {
   }
 
   function renderRow(row, t, term, index) {
-    const kindLabel = t.kind[row.kind] || row.kind;
+    const kindLabel = t(`kind.${row.kind}`, term(text(row.kind)));
     const key = `${text(row.receipt)}:${index}`;
     const family = text(row.family) || undefined;
     switch (row.kind) {
@@ -412,6 +367,9 @@ export function createComponent(React) {
         // The grade the kernel already assigned. Emphasis follows it — an extreme success and a
         // fumble are the two things a table talks about afterwards, so they get the weight.
         const grade = row.passed ? (level === "extreme" || level === "critical" ? level : "") : (level === "fumble" ? "fumble" : "");
+        // `regular` and `failure` carry no word on purpose: they say what the stamp already says,
+        // and an empty chip beside the stamp is worse than none.
+        const levelWord = level ? t(`level.${level}`, "") : "";
         return h(Row, { key, kindKey: "roll", kindLabel, grade, family },
           h("span", { className: "coc-mech-body" },
             who ? h("span", { className: "coc-mech-who" }, `${who} `) : null,
@@ -419,9 +377,9 @@ export function createComponent(React) {
           h("span", { className: "coc-mech-figure" },
             h(N, null, text(row.roll)),
             h("span", { className: "coc-mech-target" }, `/${text(row.target)}`)),
-          t.level[level] ? h("span", { className: "coc-mech-lv" }, t.level[level]) : null,
-          row.pushed ? h("span", { className: "coc-mech-faces" }, t.pushed) : null,
-          h(Stamp, { tone: row.passed ? "pass" : "fail" }, row.passed ? t.pass : t.fail));
+          levelWord ? h("span", { className: "coc-mech-lv" }, levelWord) : null,
+          row.pushed ? h("span", { className: "coc-mech-faces" }, t("pushed")) : null,
+          h(Stamp, { tone: row.passed ? "pass" : "fail" }, row.passed ? t("pass") : t("fail")));
       }
       case "dice": {
         const who = row.actor_is_investigator === true ? text(row.actor_label || row.actor) : "";
@@ -433,7 +391,7 @@ export function createComponent(React) {
         return h(Row, { key, kindKey: "dice", kindLabel, family },
           h("span", { className: "coc-mech-body" },
             who ? h("span", { className: "coc-mech-who" }, `${who} `) : null,
-            text(row.label || row.expression)),
+            term(text(row.label || row.expression))),
           faces ? h("span", { className: "coc-mech-faces" }, faces) : null,
           h("span", { className: "coc-mech-figure" }, h(N, null, text(row.total))));
       }
@@ -444,22 +402,22 @@ export function createComponent(React) {
         const delta = before !== undefined && after !== undefined ? after - before : undefined;
         return h(Row, { key, kindKey: "change", kindLabel, family },
           h("span", { className: "coc-mech-body" },
-            row.item ? h("span", { className: "coc-mech-who" }, `${text(row.item)} `) : row.subject_is_investigator === true
+            row.item ? h("span", { className: "coc-mech-who" }, `${term(text(row.item))} `) : row.subject_is_investigator === true
               ? h("span", { className: "coc-mech-who" }, `${text(row.subject_label || row.subject)} `) : "",
             h("span", { className: "coc-mech-res" }, term(text(row.resource).toUpperCase()))),
           h("span", { className: "coc-mech-figure" },
             h("span", { className: "coc-mech-from" }, text(row.before)),
-            ` ${t.arrow} `,
+            ` ${t("arrow")} `,
             h(N, null, text(row.after))),
           h(Delta, { value: delta }));
       }
       case "scene":
         return h(Row, { key, kindKey: "scene", kindLabel, family },
           h("span", { className: "coc-mech-body" },
-            text(row.from_label || row.from), ` ${t.arrow} `, text(row.to_label || row.to)),
-          num(row.minutes) ? h("span", { className: "coc-mech-faces" }, t.minutes(row.minutes)) : null);
+            term(text(row.from_label || row.from)), ` ${t("arrow")} `, term(text(row.to_label || row.to))),
+          num(row.minutes) ? h("span", { className: "coc-mech-faces" }, fill(t("minutes"), { n: row.minutes })) : null);
       case "clue": {
-        const name = text(row.label || row.clue);
+        const name = term(text(row.label || row.clue));
         const rawSummary = text(row.summary);
         if (!rawSummary || rawSummary === name) {
           // Nothing more to open into than the name itself: the row stays a line.
@@ -474,13 +432,13 @@ export function createComponent(React) {
       case "item": {
         const quantity = num(row.quantity);
         const amount = quantity === undefined ? undefined : Math.abs(quantity);
-        const owner = text(row.to_label || row.to);
+        const owner = term(text(row.to_label || row.to));
         const lost = quantity !== undefined && quantity < 0;
         return h(Row, { key, kindKey: "item", kindLabel, family },
           h("span", { className: "coc-mech-body" },
-            text(row.label || row.name), amount && amount > 1 ? ` ×${amount}` : "", owner ? " " : ""),
+            term(text(row.label || row.name)), amount && amount > 1 ? ` ×${amount}` : "", owner ? " " : ""),
           owner ? h("span", { className: "coc-mech-delta", "data-down": lost ? "1" : "0" },
-            lost ? t.removedFrom(owner) : `${t.to} ${owner}`) : null);
+            lost ? fill(t("removedFrom"), { name: owner }) : `${t("to")} ${owner}`) : null);
       }
       case "cash": {
         const before = num(row.before);
@@ -490,40 +448,41 @@ export function createComponent(React) {
           h("span", { className: "coc-mech-body" }, text(row.subject_label || row.subject)),
           h("span", { className: "coc-mech-figure" },
             h("span", { className: "coc-mech-from" }, text(row.before)),
-            ` ${t.arrow} `,
+            ` ${t("arrow")} `,
             h(N, null, text(row.after)),
-            h("span", { className: "coc-mech-faces" }, text(row.currency))),
+            h("span", { className: "coc-mech-faces" }, term(text(row.currency)))),
           h(Delta, { value: delta }));
       }
       case "session":
         return h(Row, { key, kindKey: "session", kindLabel, family },
           h("span", { className: "coc-mech-body" },
-            h("span", { className: "coc-mech-skill" }, t.family[row.family] || text(row.family)), " ",
-            (t.session[row.transition] || text(row.transition)),
-            num(row.round) ? ` · ${t.round(row.round)}` : "",
-            num(row.rounds) ? ` · ${t.round(row.rounds)}` : ""),
-          text(row.outcome) ? h(Stamp, { tone: "plain" }, text(row.outcome)) : null);
+            h("span", { className: "coc-mech-skill" }, t(`family.${text(row.family)}`, term(text(row.family)))), " ",
+            t(`session.${text(row.transition)}`, term(text(row.transition))),
+            num(row.round) ? ` · ${fill(t("round"), { n: row.round })}` : "",
+            num(row.rounds) ? ` · ${fill(t("round"), { n: row.rounds })}` : ""),
+          text(row.outcome) ? h(Stamp, { tone: "plain" }, term(text(row.outcome))) : null);
       case "choice":
         return h(Row, { key, kindKey: "choice", kindLabel, family },
-          h("span", { className: "coc-mech-body" }, text(row.option)));
+          h("span", { className: "coc-mech-body" }, term(text(row.option))));
       case "worldline": {
         // A fork/switch/merge: which line the table moved to, and whether this circuit again.
         // Fork has two modes (if forks away, loop rewinds to the anchor), so the key carries mode.
         const operation = text(row.operation);
-        const how = t.worldline[`${operation}:${text(row.mode)}`] || t.worldline[operation] || operation;
-        const from = text(row.from_line);
+        const how = t(`worldline.${operation}:${text(row.mode)}`,
+          t(`worldline.${operation}`, term(operation)));
+        const from = term(text(row.from_line));
         return h(Row, { key, kindKey: "worldline", kindLabel, family },
           h("span", { className: "coc-mech-body" },
             h("span", { className: "coc-mech-skill" }, how), " ",
-            h("span", { className: "coc-mech-who" }, text(row.label || row.line))),
+            h("span", { className: "coc-mech-who" }, term(text(row.label || row.line)))),
           h("span", { className: "coc-mech-faces" },
-            from ? `${t.arrow === "→" ? "←" : "<-"} ${from}` : "",
-            num(row.from_turn) ? ` · ${t.turn(row.from_turn)}` : "",
-            num(row.loop) ? ` · ${t.loop(row.loop)}` : ""));
+            from ? `${t("arrowBack")} ${from}` : "",
+            num(row.from_turn) ? ` · ${fill(t("turn"), { n: row.from_turn })}` : "",
+            num(row.loop) ? ` · ${fill(t("loop"), { n: row.loop })}` : ""));
       }
       case "handout": {
-        const name = text(row.label || row.name);
-        const stamp = h(Stamp, { tone: row.available ? "pass" : "plain" }, row.available ? t.available : t.pending);
+        const name = term(text(row.label || row.name));
+        const stamp = h(Stamp, { tone: row.available ? "pass" : "plain" }, row.available ? t("available") : t("pending"));
         const body = text(row.text);
         if (!body) {
           // Nothing to open into — an image, or bytes that never shipped: the row stays a line.
@@ -534,10 +493,11 @@ export function createComponent(React) {
           h("span", { className: "coc-mech-body" }, name), stamp);
       }
       default:
-        // An unknown kind is a kernel that grew a receipt this file has not met. Show it rather
-        // than swallow it: a blank row is how a projection silently stops arriving.
-        return h(Row, { key, kindKey: text(row.kind), kindLabel, family },
-          h("span", { className: "coc-mech-body" }, JSON.stringify(row)));
+        // An unknown kind is a kernel that grew a receipt this file has not met. Name it rather
+        // than swallow it -- a blank row is how a projection silently stops arriving -- but the
+        // reading surface gets the kind, not the row's JSON: a player reads this card.
+        return h(Row, { key, kindKey: text(row.kind), kindLabel, family, title: JSON.stringify(row) },
+          h("span", { className: "coc-mech-body" }, kindLabel));
     }
   }
 
@@ -577,9 +537,11 @@ export function createComponent(React) {
   return function DeliveryCard(props) {
     const details = isRecord(props.details) ? props.details : {};
     if (isRecord(details.coc_error)) return null; // the host's own error card is better than ours
-    const t = labelsFor(text(details.play_language));
+    // Both come with the delivery: the chrome from the session's play language, the content
+    // words from the campaign's own glossary (§16.5). Neither is a table in this file.
     const glossary = isRecord(details.labels) ? details.labels : {};
     const term = (name) => (typeof glossary[name] === "string" && glossary[name]) || name;
+    const t = (key, fallback) => word(details.ui, "mechanics", key, fallback);
 
     const prose = text(details.rendered_text);
     const all = (Array.isArray(details.mechanics) ? details.mechanics : []).filter(playerReads);
@@ -593,8 +555,8 @@ export function createComponent(React) {
           ? h("div", { className: "coc-mech-here", key: `row:${index}` }, renderRow(part.row, t, term, index))
           : proseBlocks(part.text, `text:${index}`)),
         unplaced.length
-          ? h("section", { className: "coc-mech-list", "aria-label": t.mechanics },
-              h("h2", { className: "coc-mech-cap" }, t.mechanics),
+          ? h("section", { className: "coc-mech-list", "aria-label": t("mechanics") },
+              h("h2", { className: "coc-mech-cap" }, t("mechanics")),
               unplaced.map((row, i) => renderRow(row, t, term, `rest:${i}`)))
           : null);
     }
@@ -606,8 +568,8 @@ export function createComponent(React) {
     return h("div", { className: "coc-mech" },
       prose ? h("div", { className: "coc-mech-prose" }, prose) : null,
       rows.length
-        ? h("section", { className: "coc-mech-list", "aria-label": t.mechanics },
-            h("h2", { className: "coc-mech-cap" }, t.mechanics),
+        ? h("section", { className: "coc-mech-list", "aria-label": t("mechanics") },
+            h("h2", { className: "coc-mech-cap" }, t("mechanics")),
             groupRows(rows).map((group, index) => group.call && group.rows.length > 1
               // A settlement of one row needs no group chrome: the disc already wears the tone.
               ? h("div", {
@@ -615,7 +577,7 @@ export function createComponent(React) {
                   className: "coc-mech-settle",
                   style: { "--tone": FAMILY_TONE[group.family] || "var(--muted)" },
                 },
-                h("div", { className: "coc-mech-fam" }, familyLabel(group, t)),
+                h("div", { className: "coc-mech-fam" }, familyLabel(group, t, term)),
                 group.rows.map((row, i) => renderRow(row, t, term, i)))
               : group.rows.map((row, i) => renderRow(row, t, term, `${index}:${i}`))))
         : null);

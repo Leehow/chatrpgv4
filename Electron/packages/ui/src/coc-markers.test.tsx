@@ -14,8 +14,20 @@ import { afterEach, describe, it, expect } from 'vitest'
 // @ts-expect-error -- plain ESM pack asset, no type declarations
 import { createComponent } from '../../../../pipicoc/mechanics.js'
 import { foldMarkedDeliveries, withoutMechanicsMarkers, type ChatMessage } from './transcript-model'
+import { say, ui } from './fixtures/coc-ui-words'
 
-const Delivery = createComponent(React)
+const Card = createComponent(React)
+
+/**
+ * The card under test, with the `ui` block a host attaches to every delivery (§23).
+ *
+ * The words are the shipped ones for the delivery's own play language, so a caption renamed in
+ * `content/ui/` has to travel here; a test that means to say something unusual about the words --
+ * a language with a gap in it -- passes its own `ui` and this leaves it alone.
+ */
+const Delivery = ({details}: {details: Record<string, unknown>}) =>
+  <Card details={{ui: ui(String(details.play_language ?? 'zh-Hans')), ...details}} />
+
 afterEach(cleanup)
 
 const ROLL = {
@@ -125,6 +137,53 @@ describe('the card draws a marked delivery', () => {
       mechanics:[{kind:'clue', receipt:'clue:tide-t6', clue:'tide-marks', label:'潮痕', summary}]}} />);
     const body = container.querySelector('details.coc-mech-fold .coc-mech-fold-body');
     expect(body?.textContent).toBe('第三级台阶的水线比涨潮线高出一掌。');
+  })
+
+  /**
+   * Every content field on this card goes through the campaign's glossary.
+   *
+   * The card printed a clue's name, an item's name, a scene's name, a currency and a die's caption
+   * exactly as the receipt carried them, which is English wherever the kernel minted the word --
+   * so a Chinese table read "Gold fragment", "USD" and "SAN Loss" beside its own prose. The lanes
+   * project all five into `labels`; nothing here may skip that lookup.
+   */
+  it('reads every content field through the campaign glossary, die captions included', () => {
+    const labels = {
+      'Gold fragment': '金嵌板', "Knott's Office": '诺特的办公室', 'Crowe House': '克罗宅',
+      USD: '美元', 'SAN Loss': '理智损失', 'Pools of blood': '血泊',
+      'The waterline sits a hand above high tide.': '水线比涨潮线高出一掌。',
+    }
+    const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:11, labels, mechanics:[
+      {kind:'clue', receipt:'c1', clue:'blood-pool', label:'Pools of blood',
+        summary:'The waterline sits a hand above high tide.'},
+      {kind:'item', receipt:'i1', name:'gold-fragment', label:'Gold fragment', quantity:1, to:'lin', to_label:'林远'},
+      {kind:'scene', receipt:'s1', from:'a', from_label:"Knott's Office", to:'b', to_label:'Crowe House'},
+      {kind:'cash', receipt:'m1', subject:'lin', subject_label:'林远', before:60, after:40, currency:'USD'},
+      {kind:'dice', receipt:'d1', label:'SAN Loss', expression:'1D6', faces:[4], total:4},
+    ]}} />)
+    for (const projected of Object.values(labels)) expect(container.textContent).toContain(projected)
+    for (const canonical of Object.keys(labels)) expect(container.textContent).not.toContain(canonical)
+  })
+
+  /**
+   * A receipt kind this file has not met names itself; it never dumps the row into the reading
+   * surface. The JSON is still reachable for a bug report, on the row's `title`.
+   */
+  it('names an unknown kind rather than printing its JSON at the player', () => {
+    const row = {kind:'augury', receipt:'a1', omen:'a crow on the sill'}
+    const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:12,
+      labels:{augury:'预兆'}, mechanics:[row]}} />)
+    const rendered = container.querySelector('[data-kind="augury"]') as HTMLElement
+    expect(rendered.querySelector('.coc-mech-body')?.textContent).toBe('预兆')
+    expect(container.textContent).not.toContain('a crow on the sill')
+    expect(rendered.getAttribute('title')).toContain('a crow on the sill')
+  })
+
+  it('captions the mechanics slip from the delivery, and shows the key for a language that lacks it', () => {
+    const {container} = render(<Delivery details={{play_language:'zh-Hans', turn:13,
+      ui: ui('zh-Hans', {mechanics: {mechanics: undefined}}), mechanics:[CLUE]}} />)
+    expect(container.querySelector('.coc-mech-cap')?.textContent).toBe('mechanics')
+    expect(container.textContent).not.toContain(say('en', 'mechanics', 'mechanics'))
   })
 
   it('keeps the prose in order and puts each placed receipt at its point', () => {

@@ -2,7 +2,7 @@
 import React from 'react'
 import {render,screen,waitFor,cleanup,fireEvent} from '@testing-library/react'
 import {afterEach,it,expect,vi} from 'vitest'
-import {CocCharacterDraft} from './CocCharacterDraft'
+import {CocCharacterDraft, isDiceNotation} from './CocCharacterDraft'
 afterEach(cleanup)
 const sheet={name:'艾琳',occupation:'Lawyer',age:28,era:'1920s',characteristics:{STR:20},derived:{HP:14,DB:'+1D4'},skills:{'Language (Other: Latin)':53},finance:{cash:{amount:60,currency:'USD'},assets:{amount:1500,currency:'USD'},spending_level:{amount:10,currency:'USD'}},credit_rating:30,backstory:{personal_description:'谨慎的律师'},own_language:'English',key_connection:{summary:'编辑朋友'},equipment:['Camera'],creation:{skills:{occupation:{unspent:0},interest:{unspent:0}}}}
 const zh={'Show calculation details':'查看计算详情','Hide calculation details':'收起计算详情','Characteristics':'属性','Calculation':'计算过程','Rolled value':'初始值','Dice results':'骰点','Age adjustment':'年龄调整','EDU improvement checks':'教育成长检定','Keep highest':'取最高','Base movement':'基础移动力','Age movement penalty':'年龄减值','Round down':'向下取整','Standard rolled characteristics':'标准掷骰建卡','Rolled characteristics assigned to the stated aptitudes':'掷骰后按所述特长分配','Quick-fire array':'快速建卡','Skill':'技能名称','Base value':'基础值','Occupation points':'职业加点','Interest points':'兴趣加点','Final value':'最终值','Point allocation':'点数分配','Total points':'总额','Spent':'已用','Remaining':'剩余','Character draft':'角色草稿','Character draft — reply to confirm or describe changes.':'请确认角色卡，或告诉我需要修改之处。',Parameter:'参数',Value:'数值',Half:'半值',Fifth:'五分之一值',Skills:'技能',Finance:'财务',Background:'背景',Language:'语言','Key connection':'关键联系',Equipment:'装备',Weapons:'武器','Occupation unspent':'未分配职业点数','Interest unspent':'未分配兴趣点数',cash:'现金',assets:'资产',spending:'消费水平',credit_rating:'信用评级',Lawyer:'律师','1920s':'1920年代',STR:'力量',HP:'生命值',DB:'伤害加值','Language (Other: Latin)':'其他语言（拉丁语）',personal_description:'个人描述','谨慎的律师':'谨慎的律师',English:'英语','编辑朋友':'编辑朋友',Camera:'相机',USD:'美元'}
@@ -106,6 +106,31 @@ it('uses semantic financial exclusions without removing physical money-related o
  const before=JSON.stringify(data);render(<CocCharacterDraft data={data}/>);
  expect(screen.queryByText('适量现金')).toBeNull();expect(screen.getByText('钱包')).toBeTruthy();expect(screen.getByText('收藏硬币')).toBeTruthy();expect(screen.getByText('60 美元')).toBeTruthy();expect(JSON.stringify(data)).toBe(before);
 });
+
+/**
+ * The card decides what to translate by shape, not by which alphabet a string is written in.
+ *
+ * The rule it replaced asked whether a value held a digit and nothing but digits, spaces, brackets
+ * and the letter D -- a character-class test, which quietly means "Latin script". A value in any
+ * other writing system fell straight past it into the glossary, and a Latin-script phrase with a
+ * number in it skipped the glossary and printed untranslated.
+ */
+it('treats dice notation as a reading and every other value as a word',()=>{
+ for(const dice of ['1D6','2D6+6','3D6','+1D4','15','15/30/60','3D6 × 5','-2','1.5'])
+  expect(isDiceNotation(dice)).toBe(true)
+ for(const prose of ['none','1 (3)','Firearms (Handgun)','.45 Revolver','每天 20 美元','20 доларів','1920s',''])
+  expect(isDiceNotation(prose)).toBe(false)
+})
+
+/**
+ * A word the projection does not carry is shown as it stands. Returning '' blanked the cell, which
+ * reads as "there is nothing here" -- the one outcome a player cannot tell apart from a real gap.
+ */
+it('shows an untranslated word rather than an empty cell',()=>{
+ render(<CocCharacterDraft data={{revision:1,sheet:{...sheet,equipment:['Hurricane lamp']},presentation:{texts:zh}}}/>)
+ expect(screen.getByText('Hurricane lamp')).toBeTruthy()
+ expect(screen.getByRole('region',{name:'角色草稿'}).querySelector('.coc-draft-kit')?.textContent).toBe('Hurricane lamp')
+})
 
 it('names the pool assignment and the dice each characteristic actually holds',()=>{
  const creation={method:'rolled_pool_assignment',characteristics:{method:'rolled_pool_assignment',multiplier:5,aptitude:{strong:['STR'],weak:['EDU']},values:{STR:50,EDU:20},rolls:{STR:{dice:'3D6',faces:[3,3,4],total:10},EDU:{dice:'2D6+6',faces:[1,3],total:4}},assignment:[{characteristic:'STR',rolled_for:'EDU',direction:'strong'},{characteristic:'EDU',rolled_for:'STR',direction:'weak'}]},age:{bracket:'20-39',edu_improvement_checks:[]}};

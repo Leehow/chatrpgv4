@@ -3,6 +3,7 @@ import React from 'react';
 import {render, screen, fireEvent, cleanup, waitFor} from '@testing-library/react';
 import {afterEach, test, expect, vi} from 'vitest';
 import {createComponent, createDocumentEditor} from '../../../../pipicoc/panel.js';
+import {say, ui} from './fixtures/coc-ui-words';
 
 const Editor=createDocumentEditor(React), Panel=createComponent(React);
 afterEach(cleanup);
@@ -16,7 +17,7 @@ test('localized reading waits without resubmitting a save and keeps the canonica
     reads++;
     return {ok:true,data:reads===1?{pending:true}:{...snapshot,...(saved?{text:'My note',version:'two'}:{})}};
   });
-  render(<Editor api={{invoke}} name="Commission slip" actor="i" language="zh-Hans" onClose={()=>{}}/>);
+  render(<Editor api={{invoke}} name="Commission slip" actor="i" ui={ui("zh-Hans")} onClose={()=>{}}/>);
   const heading=await screen.findByRole('heading',{name:'委托纸条'},{timeout:2000});
   expect(heading).toBeTruthy();
   expect(screen.getByRole('dialog').getAttribute('lang')).toBe('zh-Hans');
@@ -42,7 +43,7 @@ function host(original='Meet at the station.') {
 
 test('edits persist on reopening and Reset uses the server acquisition original',async()=>{
   const api=host();const close=vi.fn();
-  const first=render(<Editor api={api} name="Notebook" actor="i" language="en" onClose={close}/>);
+  const first=render(<Editor api={api} name="Notebook" actor="i" ui={ui("en")} onClose={close}/>);
   const body=await screen.findByLabelText('Document text');
   await waitFor(()=>expect((body as HTMLTextAreaElement).value).toBe('Meet at the station.'));
   fireEvent.change(body,{target:{value:'<script>literal text</script>\nMy annotation'}});
@@ -50,7 +51,7 @@ test('edits persist on reopening and Reset uses the server acquisition original'
   await waitFor(()=>expect(api.invoke).toHaveBeenCalledWith('mods.document.apply',expect.objectContaining({action:'save',text:'<script>literal text</script>\nMy annotation'})));
   await screen.findByText('Edited since acquisition');
   first.unmount();
-  render(<Editor api={api} name="Notebook" actor="i" language="en" onClose={close}/>);
+  render(<Editor api={api} name="Notebook" actor="i" ui={ui("en")} onClose={close}/>);
   await waitFor(()=>expect((screen.getByLabelText('Document text') as HTMLTextAreaElement).value).toContain('My annotation'));
   fireEvent.click(screen.getByRole('button',{name:'Restore acquisition original'}));
   await waitFor(()=>expect((screen.getByLabelText('Document text') as HTMLTextAreaElement).value).toBe('Meet at the station.'));
@@ -60,7 +61,7 @@ test('edits persist on reopening and Reset uses the server acquisition original'
 
 test('blank papers accept multiline writing and closing protects an unsaved draft',async()=>{
   const api=host('');const close=vi.fn();
-  render(<Editor api={api} name="Notebook" actor="i" language="en" onClose={close}/>);
+  render(<Editor api={api} name="Notebook" actor="i" ui={ui("en")} onClose={close}/>);
   await waitFor(()=>expect((screen.getByLabelText('Document text') as HTMLTextAreaElement).readOnly).toBe(false));
   fireEvent.change(screen.getByLabelText('Document text'),{target:{value:'First line\nSecond line'}});
   fireEvent.click(screen.getByRole('button',{name:'Close',exact:true}));
@@ -79,11 +80,13 @@ test('a conflict retains the draft and reload obtains a fresh revision before sa
     if(current==='v1'){current='v2';return{ok:false,error:{code:'revision_conflict'}};}
     return {ok:true,data:{text:params.text,original:'Original',version:'v3',editor:{renderer:'plain'}}};
   });
-  render(<Editor api={{invoke}} name="Notebook" actor="i" language="en" onClose={()=>{}}/>);
+  render(<Editor api={{invoke}} name="Notebook" actor="i" ui={ui("en")} onClose={()=>{}}/>);
   await waitFor(()=>expect((screen.getByLabelText('Document text') as HTMLTextAreaElement).value).toBe('Remote writing'));
   fireEvent.change(screen.getByLabelText('Document text'),{target:{value:'My retained draft'}});
   fireEvent.click(screen.getByRole('button',{name:'Save',exact:true}));
-  await screen.findByText(/paper changed elsewhere/i);
+  // The conflict is a code now, so the caption is the `errors` surface's word for it rather than
+  // whatever sentence the host happened to put in `message`.
+  await screen.findByText(say('en','errors','revision_conflict'));
   expect((screen.getByLabelText('Document text') as HTMLTextAreaElement).value).toBe('My retained draft');
   fireEvent.click(screen.getByRole('button',{name:'Reload paper'}));
   await screen.findByText(/Latest version loaded/);
@@ -93,7 +96,7 @@ test('a conflict retains the draft and reload obtains a fresh revision before sa
 });
 
 test('inventory clicks use the document capability rather than an item-name keyword',async()=>{
-  const invoke=vi.fn(async(method:string)=> method==='sheet'?{ok:true,data:{campaign:'c1',view:{play_language:'en',investigators:[{
+  const invoke=vi.fn(async(method:string)=> method==='sheet'?{ok:true,data:{campaign:'c1',ui:ui('en'),view:{play_language:'en',investigators:[{
     id:'i',name:'Investigator',equipment:[{name:'Folded leaf'},{name:'Notebook-shaped box'}],weapons:[],objects:[
       {name:'Folded leaf',category:'item',parameters:{},state:{},document:{presentation:'paper'}},
       {name:'Notebook-shaped box',category:'item',parameters:{},state:{}}]}]}}}:

@@ -1,0 +1,18 @@
+{
+  "body.confirmed": "已保存你确认的调查员。开场准备好后会继续进行。",
+  "body.handoff": "调查员与开场都已就绪，正在继续这场会面……",
+  "body.preparing": "开场正在后台准备，你可以先创建调查员。",
+  "body.ready": "继续创建你的调查员。开场已经准备好了，随时可以开始。",
+  "failed": "准备需要处理",
+  "hide": "隐藏准备进度",
+  "label": "剧本准备",
+  "pause": "暂停准备",
+  "paused": "准备已暂停",
+  "pausing": "正在暂停…",
+  "ready": "开场已就绪",
+  "resume": "继续准备",
+  "reviewed": "已核对 {done} / {total} 组资料",
+  "stage.opening": "正在准备开场",
+  "stage.verify": "正在核对开场资料",
+  "starting": "正在开始游戏"
+}
