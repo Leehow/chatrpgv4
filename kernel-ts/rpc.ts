@@ -30,12 +30,21 @@ async function main(): Promise<void> {
     return;
   }
   log(`ready workspace=${context.workspace} content=${context.content}`);
+  const stop = () => { void context.git.close().then(() => process.stdin.destroy(), error => {
+    log(String(error)); process.exitCode = 1; process.stdin.destroy();
+  }); };
+  process.once("SIGTERM", stop);
+  process.once("SIGINT", stop);
   try {
     await serve(process.stdin, process.stdout, buildHandlers(context), log);
     log("stdin closed; exiting");
   } catch (error) {
     log(error instanceof Error ? error.stack ?? error.message : String(error));
     process.exitCode = 1;
+  } finally {
+    await context.git.close();
+    process.removeListener("SIGTERM", stop);
+    process.removeListener("SIGINT", stop);
   }
 }
 

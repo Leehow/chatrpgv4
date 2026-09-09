@@ -2,6 +2,7 @@ import { realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { createAdvisoryLocks, type AdvisoryLocks } from "./locks.js";
 import { PythonRandom } from "./random.js";
+import { createGitRuntime, type GitRuntime } from "./git.js";
 import { isDirectory, pathExists, snapshots, type SnapshotReader } from "./snapshots.js";
 
 export interface KernelContext {
@@ -10,6 +11,7 @@ export interface KernelContext {
   readonly stateRoot: string;
   readonly campaignsRoot: string;
   readonly snapshots: SnapshotReader;
+  readonly git: GitRuntime;
   readonly locks: AdvisoryLocks;
   readonly rng: PythonRandom;
   readonly seedLocked: boolean;
@@ -30,6 +32,7 @@ async function resolvedPath(path: string): Promise<string> {
 export async function createKernelContext(options: {
   readonly workspace: string; readonly content: string; readonly seed?: string;
   readonly locks?: AdvisoryLocks;
+  readonly env?: NodeJS.ProcessEnv;
 }): Promise<KernelContext> {
   for (const [name, path] of [["workspace", options.workspace], ["content", options.content]]) {
     if (typeof path !== "string" || !path || path.includes("\0")) throw new TypeError(`--${name} must be a non-empty path`);
@@ -43,7 +46,7 @@ export async function createKernelContext(options: {
   Object.freeze(rng);
   return Object.freeze({
     workspace, content, stateRoot, campaignsRoot: join(stateRoot, "campaigns"),
-    snapshots, locks: options.locks ?? createAdvisoryLocks(),
+    snapshots, git: createGitRuntime(workspace, options.env), locks: options.locks ?? createAdvisoryLocks(),
     rng, seedLocked: Boolean(options.seed),
   });
 }

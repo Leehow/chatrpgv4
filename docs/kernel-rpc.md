@@ -2597,3 +2597,36 @@ paths and resolver/executor vocabulary for ontology validation. These declaratio
 do not mean the corresponding TS executors are implemented: actual dispatch still
 refuses absent implementations. The declarations are checked against the Python
 reference and must not be inferred from the ontology being validated.
+
+The composition also provides one captured Git adapter. Read projections use
+`lineBlob(campaignId, lineName, relativePath)` and `rootCommit(campaignId)` without
+checkout or recovery. The transaction/history lane reuses the same `run`/`init`
+adapter. It retains the existing identity flags, sidecar/work-tree paths, UTF-8
+text and 60-second command limit. `PI_COC_GIT` selects a managed executable;
+development may resolve Git from the captured PATH. No read projection chooses
+a binary or reads ambient environment. Owned Git children terminate on kernel
+shutdown. Packaging must supply Git and its helper environment.
+
+### 27.6 Transaction and settlement contributions
+
+`kernel-ts/transactions.ts` is the shared static type boundary implemented by the
+campaign/turn writer and consumed by later rule families. It defines the campaign
+I/O port, `beginWrite`, `touchActing` and `commitResolve`. `beginWrite` preserves
+current-call and closed-record replay/conflict checks before checking write state;
+its opening exception is explicit. A replay cannot consume RNG or run a domain
+executor. `touchActing` is the single writer-owned hook for look/lookup/recall.
+
+`commitResolve` preserves the existing order: append domain receipts to the
+current cursor, mark it acting, remember the result, write the cursor, then append
+domain events. It does not add a new rollback over effects that the current
+executor persisted earlier. The `apply` owner retains its distinct staged batch
+and the existing sheets/world/inventory/notes/rulings/cursor/event order. Narration
+keeps its existing Git rollback and post-commit boundaries. Neither interface
+turns these paths into a new general transaction store or runtime registry.
+
+Before mutating, the writer must check required source, Mod, NPC, memory, library
+and worldline contributions. A missing implementation is `not_implemented`, never
+a successful no-op. The minimal unconditional episode write needed by narration
+belongs to the transaction slice; the memory slice reuses it when adding job and
+recall behavior. Imported-library writeback and pending worldline transitions
+remain explicitly unavailable until their owning contributions exist.

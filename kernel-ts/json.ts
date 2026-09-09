@@ -61,6 +61,11 @@ function objectKeys(value: JsonObject): string[] {
   return [...prior.filter(key => existing.delete(key)), ...keys.filter(key => existing.has(key))];
 }
 
+/** Iterate a parsed Python dictionary without JavaScript's numeric-key reordering. */
+export function pythonObjectEntries(value: JsonObject): Array<[string, JsonValue]> {
+  return objectKeys(value).map(key => [key, value[key]]);
+}
+
 function quoted(value: string): string {
   let result = '"';
   for (const character of value) {
