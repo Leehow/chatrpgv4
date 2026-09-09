@@ -3,6 +3,22 @@ import './coc-character-draft.css'
 
 type Row = Record<string, any>
 type Props={data:Row;onRendered?:()=>Promise<void>;onPresentation?:()=>Promise<Row>}
+
+/**
+ * Dice notation, the one kind of value that is read rather than translated.
+ *
+ * `1D6`, `2D6+6`, `3D6 × 5`, `+1D4`, `15`: a die count, the letter D, faces, and arithmetic. The
+ * test is deliberately narrow -- a whole-string match on that grammar -- because the rule it
+ * replaces asked only whether a string held a digit and no letters but D, and so sent every
+ * language whose script it did not recognise straight past the glossary untranslated. Prose is
+ * never classified here by which characters it is made of; anything that is not this shape is a
+ * word, and a word goes to the glossary.
+ */
+export function isDiceNotation(value:unknown):boolean {
+  const written=String(value).trim()
+  if(!written)return false
+  return /^[+-]?(\d+(\.\d+)?|\d*[Dd]\d+)(\s*[+\-*/×]\s*(\d+(\.\d+)?|\d*[Dd]\d+))*$/.test(written)
+}
 export function CocCharacterDraft({data,onRendered,onPresentation}:Props) {
   const [presentation,setPresentation]=useState<Row|null>(data.presentation||null)
   const [showDetails,setShowDetails]=useState(false)
@@ -24,8 +40,11 @@ export function CocCharacterDraft({data,onRendered,onPresentation}:Props) {
   useEffect(()=>{if(presentation&&onRendered)void onRendered().catch(()=>setError(true))},[presentation,data.revision])
   const sheet=data.sheet
   if(!sheet||!presentation)return <section aria-busy={!error} role="status">{error?<button onClick={()=>setRetry(x=>x+1)}>↻</button>:'…'}</section>
-  const t=(value:string)=>presentation.texts[value]||''
-  const cell=(value:unknown):string=>value===null||value===undefined?'—':typeof value==='number'?String(value):typeof value==='boolean'?t(value?'Yes':'No'):Array.isArray(value)?value.map(cell).join(' / '):/^(?=.*\d)[\d\s()+\-*/Dd×.,]+$/.test(String(value))?String(value):t(String(value))
+  // A word the projection does not carry comes back as itself. Returning '' instead blanked the
+  // cell, which reads as "this card has nothing here" rather than "this word is not translated
+  // yet" -- and a blank is the one thing a player cannot report.
+  const t=(value:string)=>presentation.texts[value]||value
+  const cell=(value:unknown):string=>value===null||value===undefined?'—':typeof value==='number'?String(value):typeof value==='boolean'?t(value?'Yes':'No'):Array.isArray(value)?value.map(cell).join(' / '):isDiceNotation(value)?String(value):t(String(value))
   const values=(rows:Row)=><div className="coc-draft-table-scroll"><table className="coc-draft-table"><thead><tr><th>{t('Parameter')}</th><th>{t('Value')}</th></tr></thead><tbody>{Object.entries(rows).map(([key,value])=><tr key={key}><th scope="row">{t(key)}</th><td>{cell(key==='DB'&&value==='none'?0:value)}</td></tr>)}</tbody></table></div>
   const creation=sheet.creation||{},generated=creation.characteristics||{},age=creation.age||{}
   const generation=(key:string)=>{

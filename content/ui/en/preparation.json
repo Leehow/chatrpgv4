@@ -1,0 +1,18 @@
+{
+  "body.confirmed": "Your confirmed investigator is saved. Play will continue when the opening is ready.",
+  "body.handoff": "Your investigator and opening are ready. Continuing the meeting…",
+  "body.preparing": "Create your investigator while the opening is prepared in the background.",
+  "body.ready": "Continue creating your investigator. The opening is ready when you are.",
+  "failed": "Preparation needs attention",
+  "hide": "Hide preparation status",
+  "label": "Scenario preparation",
+  "pause": "Pause preparation",
+  "paused": "Preparation paused",
+  "pausing": "Pausing…",
+  "ready": "Opening ready",
+  "resume": "Resume preparation",
+  "reviewed": "{done} / {total} source groups reviewed",
+  "stage.opening": "Preparing the opening",
+  "stage.verify": "Verifying opening sources",
+  "starting": "Starting game"
+}

@@ -16,11 +16,12 @@
  * glossary stays where the rules live; this file only looks a term up and falls back to the
  * canonical name.
  *
- * LABELS ARE THE ONE EXCEPTION TO §16.1 (user's ruling, 2026-09-06). The system language is
- * English and the repository ships no string tables — except here: this surface is read by the
- * player, and the Keeper, who writes everything else the player sees, cannot reach it. So the
- * chrome is a table keyed by the campaign's own `play_language`. Adding a language means adding a
- * column here and nowhere else; a missing key falls back to English rather than showing a blank.
+ * THE CHROME IS DATA TOO (contract §23, 2026-09-09). This file keeps no word table: the `sheet`
+ * answer carries `ui: {tag, words}` for the session's play language, read from
+ * `content/ui/<tag>/<surface>.json`, and the panel looks a caption up by key. Before the first
+ * answer it draws an ellipsis rather than a language; a key the surface lacks renders as the key,
+ * because an identifier is a visible gap and another language's word is a silent one. Adding a
+ * language is adding a directory, never a column here.
  */
 
 const STYLE_ID = "pipicoc-sheet-style";
@@ -161,116 +162,41 @@ if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
 }
 
 /**
- * The chrome, per `play_language`. The closed set is the kernel's (§14.4): `zh-Hans`, `en`.
- * `en` is also the fallback, so an unknown tag degrades to readable rather than to blanks.
+ * A caption from the answer's own `ui` block: `ui.words[surface][key]`.
+ *
+ * A key the surface does not carry renders as `fallback`, and `fallback` defaults to the key
+ * itself -- an identifier a player can report, never a word from a language they did not choose.
  */
-const LABELS = {
-  en: {
-    loading: "Reading the table…",
-    refresh: "Refresh",
-    refreshing: "…",
-    noTable: "Open a table to see the sheet.",
-    noTableTitle: "No table yet",
-    unboundTitle: "No campaign on this session",
-    unboundDetail: "This session is bound to no campaign, and another one is never guessed for it.",
-    errorTitle: "The sheet could not be read",
-    errorDetail: "Try again.",
-    retry: "Try again",
-    noInvestigator: "No investigator",
-    time: "Time",
-    elapsed: (d, hh, mm) => (d > 0 ? `${d}d ${hh}h ${mm}m elapsed` : hh > 0 ? `${hh}h ${mm}m elapsed` : `${mm}m elapsed`),
-    at: (y, mo, d, hh, mm) => `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")} ${hh}:${mm}`,
-    turn: (n) => `turn ${n}`,
-    scene: "scene",
-    present: "present",
-    session: (kind, round) => (round ? `${kind} · round ${round}` : kind),
-    awaitingChoice: "a decision is pending",
-    condition: "Condition",
-    luck: "Luck",
-    characteristics: "Characteristics",
-    skills: (n) => `Skills (${n})`,
-    showAll: (n) => `Show all ${n}`,
-    showFewer: "Show fewer",
-    weapons: "Weapons",
-    itemYes: "Yes", itemNo: "No",
-    itemFields: {damage_die:"Base damage",damage:"Damage",base_range_yards:"Base range (yards)",range:"Range",uses_per_round:"Attacks per round",attacks:"Attacks",magazine:"Capacity",ammo:"Ammunition",malfunction:"Malfunction",skill:"Skill",adds_damage_bonus:"Adds damage bonus",special:"Notes",description:"Description"},
-    equipment: "Equipment",
-    noEquipment: "Carrying nothing yet.",
-    finance: "Finance",
-    cash: "Cash",
-    assets: "Assets",
-    spending: "Spending level",
-    creditRating: "Credit rating",
-    livingStandard: "Living standard",
-    clues: "Clues",
-    cluesHere: "here",
-    noClues: "Nothing found yet.",
-    occupation: "Occupation",
-    background: "Background",
-    language: "Language",
-    keyConnection: "Key connection",
-    era: "Era",
-    ageKey: "Age",
-    turnKey: "Turn",
-    sceneKey: "Scene",
-    presentKey: "Here",
-    sessionKey: "Bout",
-  },
-  "zh-Hans": {
-    loading: "正在读桌上的状态……",
-    refresh: "刷新",
-    refreshing: "……",
-    noTable: "开一张桌子才有卡可看。",
-    noTableTitle: "尚未开桌",
-    unboundTitle: "尚未关联战役",
-    unboundDetail: "此会话没有战役关联，不会自动猜测其他战役。",
-    errorTitle: "人物数据读取失败",
-    errorDetail: "请重试。",
-    retry: "重试",
-    noInvestigator: "还没有调查员",
-    time: "时间",
-    elapsed: (d, hh, mm) => (d > 0 ? `已过 ${d} 天 ${hh} 小时 ${mm} 分` : hh > 0 ? `已过 ${hh} 小时 ${mm} 分` : `已过 ${mm} 分`),
-    at: (y, mo, d, hh, mm) => `${y}年${mo}月${d}日 ${hh}:${mm}`,
-    turn: (n) => `第 ${n} 回合`,
-    scene: "场景",
-    present: "在场",
-    session: (kind, round) => (round ? `${kind} · 第 ${round} 轮` : kind),
-    awaitingChoice: "有一个待决的选择",
-    condition: "状态",
-    luck: "幸运",
-    characteristics: "属性",
-    skills: (n) => `技能（${n}）`,
-    showAll: (n) => `展开全部 ${n} 项`,
-    showFewer: "收起",
-    weapons: "武器",
-    itemYes: "是", itemNo: "否",
-    itemFields: {damage_die:"基础伤害",damage:"伤害",base_range_yards:"基础射程（码）",range:"射程",uses_per_round:"每轮攻击",attacks:"攻击次数",magazine:"弹匣容量",ammo:"当前弹药",malfunction:"故障值",skill:"使用技能",adds_damage_bonus:"计入伤害加值",special:"说明",description:"描述"},
-    equipment: "物品",
-    noEquipment: "身上还没有东西。",
-    finance: "财务",
-    cash: "现金",
-    assets: "资产",
-    spending: "消费水平",
-    creditRating: "信用评级",
-    livingStandard: "生活水准",
-    clues: "线索",
-    cluesHere: "此处",
-    noClues: "还没有发现线索。",
-    occupation: "职业",
-    background: "背景",
-    language: "语言",
-    keyConnection: "关键羁绊",
-    era: "时代",
-    ageKey: "年龄",
-    turnKey: "回合",
-    sceneKey: "场景",
-    presentKey: "在场",
-    sessionKey: "战况",
-  },
-};
+function word(ui, surface, key, fallback) {
+  const surfaces = isRecord(ui) && isRecord(ui.words) ? ui.words : {};
+  const table = isRecord(surfaces[surface]) ? surfaces[surface] : {};
+  return typeof table[key] === "string" ? table[key] : fallback === undefined ? key : fallback;
+}
 
-export function labelsFor(language) {
-  return LABELS[language] || LABELS.en;
+/**
+ * A parameterised caption: `{name}` placeholders filled from `values`.
+ *
+ * The order and the punctuation around them belong to the caption, so a language that writes the
+ * day before the month, or drops a separator, says so in its own file rather than here. A
+ * placeholder `values` has no entry for stays as written: the same visible gap a missing key is.
+ */
+function fill(template, values) {
+  return String(template).replace(/\{([A-Za-z0-9_]+)\}/g, (whole, name) =>
+    Object.prototype.hasOwnProperty.call(values, name) ? text(values[name]) : whole);
+}
+
+/**
+ * A `{code, message}` pair from an answer, or null when the answer reports no failure.
+ *
+ * The message never becomes a caption. It is English by contract (§23) -- written for the log, not
+ * for a player reading a table in another language -- so it travels behind a fold instead.
+ */
+function failureOf(answer) {
+  if (!isRecord(answer)) return null;
+  if (isRecord(answer.error)) return { code: text(answer.error.code), message: text(answer.error.message) };
+  // A host that still answers with a bare sentence: it is a message, and it stays one.
+  const reason = text(answer.reason);
+  return reason ? { code: "", message: reason } : null;
 }
 
 /** Skills worth showing before the player asks for the whole list. */
@@ -307,14 +233,17 @@ function elapsed(minutes) {
 }
 
 /**
- * `clock.at` split for a label, or null when it is absent or is not a local ISO stamp. The year,
- * month and day drop their padding because a date is read as a date; the hour and minute keep
- * theirs, because a clock reading 10:05 is not 10:5.
+ * `clock.at` split for the `at` caption, or null when it is absent or is not a local ISO stamp.
+ *
+ * Both readings of month and day travel: bare (`mo`, `d`) and zero-padded (`mo2`, `d2`). Which one
+ * a date wears is the language's business, and its caption says so by naming one or the other. The
+ * hour and minute are padded outright, because a clock reading 10:05 is not 10:5 in any language.
  */
 function storyTime(at) {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(text(at));
   if (!match) return null;
-  return [Number(match[1]), Number(match[2]), Number(match[3]), match[4], match[5]];
+  return { y: Number(match[1]), mo: Number(match[2]), d: Number(match[3]),
+           mo2: match[2], d2: match[3], hh: match[4], mm: match[5] };
 }
 
 /**
@@ -343,19 +272,6 @@ function clueLine(clue) {
   if (!isRecord(clue)) return { name: text(clue), summary: "" };
   return { name: text(clue.label || clue.name || clue.clue || clue.id), summary: text(clue.summary) };
 }
-
-const PAPER_WORDS = {
-  en: {title:"Carried papers", open:"Read and write", inside:"Inside", body:"Document text", close:"Close", save:"Save", saveClose:"Save and close",
-    reset:"Restore acquisition original", loading:"Opening the paper…", empty:"This page is blank. Write here…",
-    clean:"Saved", dirty:"Unsaved changes", altered:"Edited since acquisition", original:"Acquisition original retained",
-    failed:"The paper could not be saved. Your draft is still here.", conflict:"The paper changed elsewhere. Your draft is retained; reload before saving.",
-    retry:"Reload paper", reloaded:"Latest version loaded; your draft is retained. Save to write this draft.", discard:"Close without saving", stay:"Keep editing", unsaved:"Keep your writing before closing.", saving:"Saving…"},
-  "zh-Hans": {title:"随身纸面", open:"翻阅与书写", inside:"收在", body:"纸面内容", close:"关闭", save:"保存", saveClose:"保存并关闭",
-    reset:"恢复获取时内容", loading:"正在展开纸页…", empty:"纸页还是空白的，在这里写下文字…",
-    clean:"已保存", dirty:"有未保存的修改", altered:"内容已修改", original:"获取时的原文已保留",
-    failed:"暂时没有保存成功，编辑中的文字仍保留在这里。", conflict:"纸面已在别处更新，当前草稿已保留，请重新载入后再保存。",
-    retry:"重新载入纸面", reloaded:"已载入最新版本，当前草稿仍保留；点击保存会写入这份草稿。", discard:"不保存关闭", stay:"继续编辑", unsaved:"关闭前，别忘了保存写下的内容。", saving:"正在保存…"},
-};
 
 const PAPER_STYLE = `
 .coc-paper-dialog{padding:0;width:min(720px,calc(100vw - 40px));height:min(760px,calc(100dvh - 56px));max-width:none;max-height:none;
@@ -397,11 +313,15 @@ const PAPER_STYLE = `
 export function createDocumentEditor(React) {
   const h = React.createElement;
   const {useState, useEffect, useRef} = React;
-  return function DocumentEditor({api, name, actor, language, onClose, onSaved}) {
-    const t = PAPER_WORDS[language] || PAPER_WORDS.en;
+  return function DocumentEditor({api, name, actor, ui, onClose, onSaved}) {
+    const t = (key) => word(ui, "paper", key);
+    // A refusal shows its code's caption; the English message it carries goes behind the fold.
+    const failed = (failure) => word(ui, "errors", text(failure && failure.code), word(ui, "errors", "unknown"));
     const dialog = useRef(null), input = useRef(null), generation = useRef(0), focused = useRef(false);
     const [value, setValue] = useState(null), [draft, setDraft] = useState("");
-    const [busy, setBusy] = useState(false), [loading, setLoading] = useState(true), [error, setError] = useState("");
+    // The failure is kept whole -- `{code, message}` -- because the caption comes from the code and
+    // the message is only ever shown folded away.
+    const [busy, setBusy] = useState(false), [loading, setLoading] = useState(true), [error, setError] = useState(null);
     const [closing, setClosing] = useState(false);
     const [notice, setNotice] = useState("");
     const dirty = value && draft !== value.text;
@@ -415,28 +335,28 @@ export function createDocumentEditor(React) {
     }
     async function load(keepDraft = false) {
       const current = ++generation.current;
-      setLoading(true); setError("");
+      setLoading(true); setError(null);
       try {
         const response = await ready(await api.invoke("mods.document.view", {name, actor}), current);
         if (current !== generation.current) return;
-        if (!response?.ok) throw new Error(response?.error?.message || t.failed);
+        if (!response?.ok) { setError(failureOf(response) || {code:"document_unavailable", message:""}); return; }
         setValue(response.data); if(!keepDraft)setDraft(response.data.text); setClosing(false);
-        setNotice(keepDraft ? t.reloaded : "");
-      } catch (reason) { if (current === generation.current) setError(reason.message || t.failed); }
+        setNotice(keepDraft ? t("reloaded") : "");
+      } catch (reason) { if (current === generation.current) setError({code:"", message:reason instanceof Error ? reason.message : String(reason)}); }
       finally { if (current === generation.current) setLoading(false); }
     }
     async function persist(action) {
       if (!value || busy) return;
       const current = generation.current;
-      setBusy(true); setError(""); setNotice("");
+      setBusy(true); setError(null); setNotice("");
       try {
         const response = await ready(await api.invoke("mods.document.apply", {name, actor, version:value.version, action,
           ...(action === "save" ? {text:draft} : {})}), current);
         if (current !== generation.current) return;
-        if (!response?.ok) { setError(response?.error?.code === "revision_conflict" ? t.conflict : (response?.error?.message || t.failed)); return; }
+        if (!response?.ok) { setError(failureOf(response) || {code:"", message:""}); return; }
         setValue(response.data); setDraft(response.data.text); setClosing(false); onSaved?.();
         if (closing && action === "save") onClose();
-      } catch { if (current === generation.current) setError(t.failed); }
+      } catch (reason) { if (current === generation.current) setError({code:"", message:reason instanceof Error ? reason.message : String(reason)}); }
       finally { if (current === generation.current) setBusy(false); }
     }
     function close() {
@@ -451,29 +371,31 @@ export function createDocumentEditor(React) {
     useEffect(() => { focused.current=false; void load(); return () => {generation.current++;}; }, [api,name,actor]);
     useEffect(() => { if (!loading && value && !focused.current) {input.current?.focus();focused.current=true;} }, [loading,value]);
     return h(React.Fragment, null, h("style", null, PAPER_STYLE),
-      h("dialog", {ref:dialog, className:"coc-paper-dialog", "aria-label":value?.display_name || name, lang:value?.play_language || language, "data-renderer":value?.editor?.renderer || "paper",
+      h("dialog", {ref:dialog, className:"coc-paper-dialog", "aria-label":value?.display_name || name, lang:value?.play_language || (isRecord(ui) ? text(ui.tag) : ""), "data-renderer":value?.editor?.renderer || "paper",
         style:value?.texture ? {backgroundImage:`url(${value.texture})`} : undefined,
         onCancel:event=>{event.preventDefault();close();},
         onClick:event=>{if(event.target===event.currentTarget)close();},
         onKeyDown:event=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="s"){event.preventDefault();if(dirty)void persist("save");}}},
         h("div", {className:"coc-paper-shell"},
           h("header", {className:"coc-paper-head"}, h("div", null,
-            h("p", {className:"coc-paper-kicker"}, t.title), h("h2", null, value?.display_name || name)),
-            h("button", {type:"button",className:"coc-paper-close",disabled:busy,onClick:close}, t.close)),
-          loading && h("p", {className:"coc-paper-message",role:"status"}, t.loading),
-          error && h("p", {className:"coc-paper-message",role:"alert"}, error,
-            h("button", {type:"button",disabled:busy,onClick:()=>void load(!!dirty)}, t.retry)),
+            h("p", {className:"coc-paper-kicker"}, t("title")), h("h2", null, value?.display_name || name)),
+            h("button", {type:"button",className:"coc-paper-close",disabled:busy,onClick:close}, t("close"))),
+          loading && h("p", {className:"coc-paper-message",role:"status"}, t("loading")),
+          error && h("p", {className:"coc-paper-message",role:"alert"}, failed(error),
+            h("button", {type:"button",disabled:busy,onClick:()=>void load(!!dirty)}, t("retry")),
+            error.message ? h("details", null, h("summary", null, word(ui, "errors", "details")),
+              h("p", null, error.message)) : null),
           notice && h("p",{className:"coc-paper-message",role:"status"},notice),
-          h("textarea", {ref:input, "aria-label":t.body, value:draft, placeholder:t.empty, maxLength:64000,
+          h("textarea", {ref:input, "aria-label":t("body"), value:draft, placeholder:t("empty"), maxLength:64000,
             readOnly:loading||busy||!value, spellCheck:false, onChange:event=>{setDraft(event.target.value);setClosing(false);}}),
-          closing && h("div", {className:"coc-paper-message",role:"status"}, t.unsaved, " ",
-            h("button", {type:"button",onClick:onClose}, t.discard), " ",
-            h("button", {type:"button",onClick:()=>setClosing(false)}, t.stay)),
+          closing && h("div", {className:"coc-paper-message",role:"status"}, t("unsaved"), " ",
+            h("button", {type:"button",onClick:onClose}, t("discard")), " ",
+            h("button", {type:"button",onClick:()=>setClosing(false)}, t("stay"))),
           h("footer", {className:"coc-paper-foot"},
             h("div", null, h("button", {type:"button",disabled:loading||busy||!value||(draft===value.original&&value.text===value.original),
-              onClick:()=>void persist("reset")}, t.reset), h("span", {className:"coc-paper-status"}, t.original)),
-            h("div", null, h("span", {className:"coc-paper-status",role:"status"}, loading?t.loading:busy?t.saving:dirty?t.dirty:value?.text!==value?.original?t.altered:t.clean),
-              h("button", {type:"button",className:"coc-paper-save",disabled:loading||busy||!dirty,onClick:()=>void persist("save")}, closing?t.saveClose:t.save))))));
+              onClick:()=>void persist("reset")}, t("reset")), h("span", {className:"coc-paper-status"}, t("original"))),
+            h("div", null, h("span", {className:"coc-paper-status",role:"status"}, loading?t("loading"):busy?t("saving"):dirty?t("dirty"):value?.text!==value?.original?t("altered"):t("clean")),
+              h("button", {type:"button",className:"coc-paper-save",disabled:loading||busy||!dirty,onClick:()=>void persist("save")}, closing?t("saveClose"):t("save")))))));
   };
 }
 
@@ -532,8 +454,8 @@ export function createComponent(React) {
     }
     // Luck has no maximum on the sheet (§17.4), so it never grows a bar.
     const luck = numberOr(sheet.luck, undefined);
-    if (luck !== undefined) items.push(h(Vital, { key: "luck", label: t.luck, tone: VITAL_TONE.luck, current: luck }));
-    return items.length ? h(Section, { title: t.condition }, h("div", { className: "coc-vitals" }, items)) : null;
+    if (luck !== undefined) items.push(h(Vital, { key: "luck", label: t("luck"), tone: VITAL_TONE.luck, current: luck }));
+    return items.length ? h(Section, { title: t("condition") }, h("div", { className: "coc-vitals" }, items)) : null;
   }
 
   function Characteristics(props) {
@@ -553,7 +475,7 @@ export function createComponent(React) {
       if (derived[key] !== undefined) entries.push([key, derived[key]]);
     }
     if (!entries.length) return null;
-    return h(Section, { title: t.characteristics },
+    return h(Section, { title: t("characteristics") },
       h("div", { className: "coc-chars" }, entries.map(([key, value]) =>
         h("div", { className: "coc-char", key },
           h("span", { className: "coc-char-key", title: term(key) }, term(key)),
@@ -570,13 +492,13 @@ export function createComponent(React) {
       .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
     if (!rows.length) return null;
     const shown = expanded ? rows : rows.slice(0, SKILL_PREVIEW);
-    return h(Section, { title: t.skills(rows.length) },
+    return h(Section, { title: fill(t("skills"), { n: rows.length }) },
       h(Lines, { leader: true, rows: shown.map(row => ({ name: row.name, value: text(row.value), numeric: true })) }),
       rows.length > SKILL_PREVIEW
         ? h("button", {
             type: "button", className: "coc-more", "aria-expanded": expanded ? "true" : "false",
             onClick: () => setExpanded(v => !v),
-          }, expanded ? t.showFewer : t.showAll(rows.length))
+          }, expanded ? t("showFewer") : fill(t("showAll"), { n: rows.length }))
         : null);
   }
 
@@ -593,7 +515,7 @@ export function createComponent(React) {
       return props.empty ? h(Section, { title: props.title }, h("p", { className: "coc-sheet-note" }, props.empty)) : null;
     }
     const {t,term=value=>value}=props;
-    const valueText=value=>typeof value==="boolean"?(value?t.itemYes:t.itemNo):Array.isArray(value)?value.map(valueText).join(" / "):term(text(value));
+    const valueText=value=>typeof value==="boolean"?(value?t("itemYes"):t("itemNo")):Array.isArray(value)?value.map(valueText).join(" / "):term(text(value));
     return h(Section, { title: props.title },
       h("ul",{className:"coc-inventory"},list.map((item,index)=>{
         const name=isRecord(item)?text(item.name):text(item);
@@ -616,12 +538,12 @@ export function createComponent(React) {
               event.preventDefault();props.onOpenDocument(writable.name);}},
               h("span",{className:"coc-inventory-name"},line.title),h("small",null,props.paperLabel))
           : h("span",{className:"coc-inventory-name"},line.title);
-        const quantity=line.quantity!==undefined?h("span",{className:"coc-inventory-quantity"},`x${line.quantity}`):null;
+        const quantity=line.quantity!==undefined?h("span",{className:"coc-inventory-quantity"},fill(t("quantity"),{n:line.quantity})):null;
         const body=[
           description?h("p",{className:"coc-sheet-note",style:{margin:"6px 0"},key:"description"},description):null,
           writable?.container?h("p",{className:"coc-sheet-note",key:"container"},props.insideLabel," ",term(writable.container)):null,
           line.details.length?h("dl",{className:"coc-inventory-params",key:"params"},line.details.map(({key,label,value,wide})=>
-            h("div",{key,className:wide?"coc-inventory-wide":undefined},h("dt",null,label||t.itemFields[key]||term(key)),h("dd",null,valueText(value))))):null,
+            h("div",{key,className:wide?"coc-inventory-wide":undefined},h("dt",null,label||t(`item.${key}`,term(key))),h("dd",null,valueText(value))))):null,
         ].filter(Boolean);
         // Keyed by name so an entry that changes place is drawn afresh (closed) rather than
         // inheriting the open fold of whatever stood at its index before.
@@ -639,16 +561,16 @@ export function createComponent(React) {
     const finance = isRecord(sheet.finance) ? sheet.finance : {};
     const rows = [];
     if (sheet.cash !== undefined || finance.cash !== undefined) {
-      rows.push({ name: t.cash, value: finance.cash ? money(finance.cash, term) : text(sheet.cash), numeric: true });
+      rows.push({ name: t("cash"), value: finance.cash ? money(finance.cash, term) : text(sheet.cash), numeric: true });
     }
-    if (finance.assets !== undefined) rows.push({ name: t.assets, value: money(finance.assets, term), numeric: true });
+    if (finance.assets !== undefined) rows.push({ name: t("assets"), value: money(finance.assets, term), numeric: true });
     if (finance.spending_level !== undefined) {
-      rows.push({ name: t.spending, value: money(finance.spending_level, term), numeric: true });
+      rows.push({ name: t("spending"), value: money(finance.spending_level, term), numeric: true });
     }
     const creditRating = sheet.credit_rating !== undefined ? sheet.credit_rating : finance.credit_rating;
-    if (creditRating !== undefined) rows.push({ name: t.creditRating, value: text(creditRating), numeric: true });
-    if (finance.living_standard !== undefined) rows.push({ name: t.livingStandard, value: term(text(finance.living_standard)) });
-    return rows.length ? h(Section, { title: t.finance }, h(Lines, { kind: "finance", rows })) : null;
+    if (creditRating !== undefined) rows.push({ name: t("creditRating"), value: text(creditRating), numeric: true });
+    if (finance.living_standard !== undefined) rows.push({ name: t("livingStandard"), value: term(text(finance.living_standard)) });
+    return rows.length ? h(Section, { title: t("finance") }, h(Lines, { kind: "finance", rows })) : null;
   }
 
   /** The investigator's own history: what the sheet's backstory carries, in the play language. */
@@ -656,14 +578,14 @@ export function createComponent(React) {
     const {sheet,term,t}=props;
     const rows=Object.entries(isRecord(sheet.backstory)?sheet.backstory:{})
       .filter(([key,value])=>key!=="concept"&&typeof value==="string"&&value.trim());
-    if(sheet.own_language)rows.push([t.language,text(sheet.own_language)]);
-    if(isRecord(sheet.key_connection)&&sheet.key_connection.summary)rows.push([t.keyConnection,text(sheet.key_connection.summary)]);
+    if(sheet.own_language)rows.push([t("language"),text(sheet.own_language)]);
+    if(isRecord(sheet.key_connection)&&sheet.key_connection.summary)rows.push([t("keyConnection"),text(sheet.key_connection.summary)]);
     if(!rows.length)return null;
-    return h(Section,{title:t.background},h("dl",{className:"coc-background"},rows.map(([key,value])=>
+    return h(Section,{title:t("background")},h("dl",{className:"coc-background"},rows.map(([key,value])=>
       h("div",{key,"data-field":key},h("dt",null,term(key)),h("dd",null,term(value))))));
   }
 
-  /** Where and when the table stands: the old panel's 时间 tab, now with the module's own clock. */
+  /** Where and when the table stands: the old panel's time tab, now with the module's own clock. */
   function Standing(props) {
     const { view, t } = props;
     const names = isRecord(view.standing_labels) ? view.standing_labels : {};
@@ -673,18 +595,23 @@ export function createComponent(React) {
     const scene = isRecord(view.scene) ? view.scene : {};
     const session = isRecord(view.session) ? view.session : null;
     const lines = [];
-    if (view.turn !== undefined && view.turn !== null) lines.push({ key: t.turnKey, value: text(view.turn) });
-    if (scene.display_name || scene.name) lines.push({ key: t.sceneKey, value: display(scene.display_name || scene.name) });
+    if (view.turn !== undefined && view.turn !== null) lines.push({ key: t("turnKey"), value: text(view.turn) });
+    if (scene.display_name || scene.name) lines.push({ key: t("sceneKey"), value: display(scene.display_name || scene.name) });
     // Canonical NPC names may reveal a concealed identity; introductions belong to the Keeper.
-    if (session) lines.push({ key: t.sessionKey, value: t.session(display(session.kind), session.round), live: true });
-    if (view.pending_choice) lines.push({ key: "", value: t.awaitingChoice, live: true });
+    if (session) lines.push({ key: t("sessionKey"), value: session.round
+      ? fill(t("session.round"), { kind: display(session.kind), round: session.round })
+      : fill(t("session"), { kind: display(session.kind) }), live: true });
+    if (view.pending_choice) lines.push({ key: "", value: t("awaitingChoice"), live: true });
     const meta = lines.filter(line => !line.live);
     const live = lines.filter(line => line.live);
     const at = storyTime(clock.at);
     if (at === null && minutes === undefined && !lines.length) return null;
     const span = minutes === undefined ? null : elapsed(minutes);
-    const reading = at ? t.at(...at) : span ? t.elapsed(span.days, span.hours, span.minutes) : null;
-    return h(Section, { title: t.time },
+    const reading = at ? fill(t("at"), at)
+      : span ? fill(t(span.days > 0 ? "elapsed.dhm" : span.hours > 0 ? "elapsed.hm" : "elapsed.m"),
+          { d: span.days, hh: span.hours, mm: span.minutes })
+      : null;
+    return h(Section, { title: t("time") },
       reading ? h("div", { className: "coc-clock" }, reading) : null,
       meta.length
         ? h("div", { className: "coc-standing-meta" }, meta.flatMap((line, index) => [
@@ -702,7 +629,7 @@ export function createComponent(React) {
         : null);
   }
 
-  /** Found clues, plus what this scene still has on offer — the old panel's 线索 section. */
+  /** Found clues, plus what this scene still has on offer — the old panel's clues section. */
   function Clues(props) {
     const { view, t, term = value => value } = props;
     const clues = isRecord(view.clues) ? view.clues : {};
@@ -712,7 +639,7 @@ export function createComponent(React) {
     // only the ones already marked discovered are named.
     const foundHere = here.filter(clue => isRecord(clue) && clue.discovered === true);
     if (!discovered.length && !foundHere.length) {
-      return h(Section, { title: t.clues }, h("p", { className: "coc-sheet-note" }, t.noClues));
+      return h(Section, { title: t("clues") }, h("p", { className: "coc-sheet-note" }, t("noClues")));
     }
     const seen = new Set();
     const rows = [];
@@ -723,7 +650,7 @@ export function createComponent(React) {
       seen.add(key);
       rows.push(line);
     }
-    return h(Section, { title: t.clues }, rows.map((row, index) =>
+    return h(Section, { title: t("clues") }, rows.map((row, index) =>
       row.summary
         // The name stays on the line; what the clue says is one tap away. Both go through the
         // glossary: the Keeper's own label comes back as itself, a graph name or the book's
@@ -746,14 +673,15 @@ export function createComponent(React) {
     const [documentTarget, setDocumentTarget] = useState(null);
     useEffect(()=>setDocumentTarget(null),[api]);
     useEffect(()=>{if(answer?.campaign&&documentTarget&&answer.campaign!==documentTarget.campaign)setDocumentTarget(null);},[answer?.campaign]);
-    // The language of the last sheet that actually arrived, kept so the chrome of a failed read
-    // stays in the language the player was just reading rather than snapping back to English.
-    const [lastLanguage, setLastLanguage] = useState("");
+    // The words of the last answer that actually arrived, kept so the chrome of a failure this
+    // panel raised itself stays in the language the player was reading a moment ago.
+    const [lastUi, setLastUi] = useState(null);
 
     const load = useCallback(async (retryProjection = false) => {
       const request = ++generation.current;
       if (!api.invoke) {
-        setAnswer({ view: null, campaign: null, reason: "this host cannot reach the pack" });
+        setAnswer({ view: null, campaign: null, status: "error",
+          error: { code: "pack_unreachable", message: "this host cannot reach the pack" } });
         return;
       }
       setBusy(true);
@@ -762,16 +690,16 @@ export function createComponent(React) {
         if(request !== generation.current) return;
         if (result && result.ok === true && isRecord(result.data)) {
           setAnswer(result.data);
-          const language = isRecord(result.data.view) ? text(result.data.view.play_language) : "";
-          if (language) setLastLanguage(language);
+          if (isRecord(result.data.ui)) setLastUi(result.data.ui);
         }
         else {
-          const error = result && result.error;
-          setAnswer({ view: null, campaign: null, status: "error", reason: (error && error.message) || "the pack did not answer" });
+          setAnswer({ view: null, campaign: null, status: "error",
+            error: failureOf(result) || { code: "pack_silent", message: "the pack did not answer" } });
         }
       } catch (error) {
         if(request !== generation.current) return;
-        setAnswer({ view: null, campaign: null, status: "error", reason: error instanceof Error ? error.message : String(error) });
+        setAnswer({ view: null, campaign: null, status: "error",
+          error: { code: "", message: error instanceof Error ? error.message : String(error) } });
       } finally {
         if(request === generation.current) setBusy(false);
       }
@@ -787,19 +715,21 @@ export function createComponent(React) {
       return typeof unsubscribe === "function" ? unsubscribe : undefined;
     }, [api, load]);
 
-    const documentWindow = documentTarget ? h(DocumentEditor,{key:"document-editor",...documentTarget,api,
+    // A failure this panel raised carries no words of its own. The last block it actually saw is
+    // the table the player is sitting at, so an error's chrome stays in the language the sheet was
+    // in a moment ago rather than snapping to whichever language shipped first.
+    const ui = (isRecord(answer) && isRecord(answer.ui) && answer.ui) || lastUi;
+    const t = (key, fallback) => word(ui, "sheet", key, fallback);
+    const documentWindow = documentTarget ? h(DocumentEditor,{key:"document-editor",...documentTarget,api,ui,
       onClose:()=>setDocumentTarget(null),onSaved:()=>{void load();}}) : null;
     if (answer === undefined) {
+      // No answer, so no words: an ellipsis, never a caption in a language nobody chose.
       return h("div", { className: "coc-sheet" },
         documentWindow,
-        h("p", { className: "coc-sheet-note", role: "status" }, LABELS.en.loading));
+        h("p", { className: "coc-sheet-note", role: "status" }, "…"));
     }
 
     const view = isRecord(answer.view) ? answer.view : null;
-    // A failed read carries no language of its own. The last one this panel actually saw is the
-    // table the player is sitting at, so the chrome of an error stays in the language the sheet
-    // was in a moment ago instead of snapping back to English mid-session.
-    const t = labelsFor(view ? text(view.play_language) : lastLanguage);
     const party = view && Array.isArray(view.investigators) ? view.investigators.filter(isRecord) : [];
     const sheet = party[Math.min(who, Math.max(0, party.length - 1))] || null;
     // The play language's word for a rules term, straight from the rules data (§16.5). No table here.
@@ -807,36 +737,44 @@ export function createComponent(React) {
     const term = (name) => (typeof glossary[name] === "string" && glossary[name]) || name;
 
     const head = h("div", { className: "coc-sheet-head" },
-      h("span", { className: "coc-sheet-name" }, sheet ? text(sheet.name) || text(sheet.id) : t.noInvestigator),
+      h("span", { className: "coc-sheet-name" }, sheet ? text(sheet.name) || text(sheet.id) : t("noInvestigator")),
       h("button", { type: "button", className: "coc-sheet-refresh", onClick: () => { void load(true); }, disabled: busy },
-        busy ? t.refreshing : t.refresh));
+        busy ? t("refreshing") : t("refresh")));
 
     if (!view) {
       // Three different "no sheet" states, and the player is owed which one it is: a session that
-      // was never bound to a table, a read that failed, or a table that has no party yet. The
-      // words come from the same `play_language` table as everything else on this panel (§16.1's
-      // one exception) -- a literal here would be a fourth language rule nobody could see.
-      const status = answer.status || (answer.reason ? "error" : "empty");
-      const title = status === "unbound" ? t.unboundTitle : status === "error" ? t.errorTitle : t.noTableTitle;
-      const detail = status === "unbound" ? t.unboundDetail
-        : status === "error" ? (text(answer.reason) || t.errorDetail)
-        : t.noTable;
-      return h("div", { className: "coc-sheet", role: "region", "aria-label": props.title || "Investigator" },
+      // was never bound to a table, a read that failed, or a table that has no party yet. Every
+      // word comes from the answer's own `ui` block -- a literal here would be a language rule
+      // nobody could see. A failure names its code; its English message stays behind a fold.
+      const failure = failureOf(answer);
+      const status = answer.status || (failure ? "error" : "empty");
+      const title = status === "unbound" ? t("unboundTitle") : status === "error" ? t("errorTitle") : t("noTableTitle");
+      const detail = status === "unbound" ? t("unboundDetail")
+        : status === "error" ? word(ui, "errors", failure ? failure.code : "", word(ui, "errors", "unknown"))
+        : t("noTable");
+      // The landmark's name is the host's own panel title. There is no literal behind it: a word
+      // written here would be one language's, and this file may not choose one (§23). The manifest
+      // cannot yet carry a title per language, so an unnamed region is the honest state until it can.
+      return h("div", { className: "coc-sheet", role: "region", ...(props.title ? { "aria-label": props.title } : {}) },
         documentWindow,
         h("h2", null, title), h("p", { className: "coc-sheet-note", role: "status" }, detail),
-        h("button", { type: "button", onClick: () => { void load(true); }, disabled: busy }, busy ? t.loading : t.retry));
+        status === "error" && failure && failure.message
+          ? h("details", { className: "coc-sheet-note" },
+              h("summary", null, word(ui, "errors", "details")), h("p", null, failure.message))
+          : null,
+        h("button", { type: "button", onClick: () => { void load(true); }, disabled: busy }, busy ? t("loading") : t("retry")));
     }
 
     // The header of a printed sheet: labelled rules, not a run-on line of values.
     const fields = [];
     if (sheet) {
-      if (sheet.occupation) fields.push([t.occupation, term(text(sheet.occupation))]);
-      if (sheet.era) fields.push([t.era, term(text(sheet.era))]);
-      if (sheet.age !== undefined) fields.push([t.ageKey, text(sheet.age)]);
+      if (sheet.occupation) fields.push([t("occupation"), term(text(sheet.occupation))]);
+      if (sheet.era) fields.push([t("era"), term(text(sheet.era))]);
+      if (sheet.age !== undefined) fields.push([t("ageKey"), text(sheet.age)]);
     }
     const concept = sheet && isRecord(sheet.backstory) ? term(text(sheet.backstory.concept)) : "";
 
-    return h("div", { className: "coc-sheet", role: "region", "aria-label": props.title || "Investigator" },
+    return h("div", { className: "coc-sheet", role: "region", ...(props.title ? { "aria-label": props.title } : {}) },
       h("div", {className:"coc-sheet-identity"}, head,
       fields.length
         ? h("div", { className: "coc-sheet-fields" }, fields.flatMap(([key, value], index) => [
@@ -860,17 +798,15 @@ export function createComponent(React) {
       sheet ? h(Skills, { sheet, t, term }) : null,
       documentWindow,
       h("style",null,PAPER_STYLE),
-      sheet ? h(ItemSection, { title: t.weapons, list: sheet.weapons, objects:(sheet.objects || []).filter(item=>item.category==="weapon"), t, term,
-        documents:sheet.objects, insideLabel:(PAPER_WORDS[view.play_language]||PAPER_WORDS.en).inside,
-        paperLabel:(PAPER_WORDS[view.play_language]||PAPER_WORDS.en).open,
-        onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign,language:view.play_language}) }) : null,
-      sheet && view.presentation_status ? h(Section,{title:t.equipment},
-        h("p",{className:"coc-sheet-note",role:"status"},view.presentation_status==="failed"?t.errorDetail:t.loading),
-        view.presentation_status==="failed"?h("button",{type:"button",onClick:()=>{void load(true);}},t.retry):null) :
-      sheet ? h(ItemSection, { title: t.equipment, list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)), objects:(sheet.objects || []).filter(item=>item.category!=="weapon"), empty: t.noEquipment, t, term,
-        documents:sheet.objects, insideLabel:(PAPER_WORDS[view.play_language]||PAPER_WORDS.en).inside,
-        paperLabel:(PAPER_WORDS[view.play_language]||PAPER_WORDS.en).open,
-        onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign,language:view.play_language}) }) : null,
+      sheet ? h(ItemSection, { title: t("weapons"), list: sheet.weapons, objects:(sheet.objects || []).filter(item=>item.category==="weapon"), t, term,
+        documents:sheet.objects, insideLabel:word(ui,"paper","inside"), paperLabel:word(ui,"paper","open"),
+        onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign}) }) : null,
+      sheet && view.presentation_status ? h(Section,{title:t("equipment")},
+        h("p",{className:"coc-sheet-note",role:"status"},view.presentation_status==="failed"?t("errorDetail"):t("loading")),
+        view.presentation_status==="failed"?h("button",{type:"button",onClick:()=>{void load(true);}},t("retry")):null) :
+      sheet ? h(ItemSection, { title: t("equipment"), list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)), objects:(sheet.objects || []).filter(item=>item.category!=="weapon"), empty: t("noEquipment"), t, term,
+        documents:sheet.objects, insideLabel:word(ui,"paper","inside"), paperLabel:word(ui,"paper","open"),
+        onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign}) }) : null,
       sheet ? h(Finance, { sheet, t, term }) : null,
       sheet ? h(Background, { sheet, term, t }) : null,
 

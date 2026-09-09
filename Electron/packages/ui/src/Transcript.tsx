@@ -319,13 +319,27 @@ export const MessageView = memo(function MessageView({ message, showFooter, docu
   return <article className="message assistant-message"><AssistantTranscriptContent message={message} onOpenSubagents={onOpenSubagents} documentBasePath={documentBasePath} onOpenDocument={onOpenDocument} />{footer}</article>
 })
 
+/**
+ * The one caption this file owes a COC player, from the presentation's own `ui` block (§23).
+ *
+ * A presentation that carries no `ui` gets an ellipsis rather than a sentence: the words for a
+ * language nobody has chosen yet are worse than no words. A `ui` that carries no such key gets the
+ * key, which is a gap a player can report.
+ */
+function presentationWord(details: unknown, surface: string, key: string): string {
+  const words=(details as {ui?:{words?:Record<string,Record<string,string>>}})?.ui?.words
+  if(!words)return '…'
+  const word=words[surface]?.[key]
+  return typeof word==='string'?word:key
+}
+
 function PresentationEntry({message,onChoose}:{message:ChatMessage}&PresentationActionProps) {
   useToolRenderers()
   const data=message.presentation!
   if(data.renderer==='coc-character-draft')return <article className="message assistant-message"><CocCharacterDraft data={data.details as any} onPresentation={onChoose?async()=>await onChoose(data,'presentation') as any:undefined} onRendered={onChoose?async()=>{await onChoose(data,'previewed')}:undefined}/></article>
   const render=getToolRenderer(data.renderer)?.render
   return <article className="message assistant-message" data-presentation={data.renderer}>
-    {render ? render({tool:{id:message.id,name:data.renderer,input:'',startedAt:0,finished:true},content:'',details:data.details,onSelectOption:onChoose?async(option)=>{await onChoose(data,option)}:undefined,elapsed:()=>''}) : <p role="status">正在加载机制面板…</p>}
+    {render ? render({tool:{id:message.id,name:data.renderer,input:'',startedAt:0,finished:true},content:'',details:data.details,onSelectOption:onChoose?async(option)=>{await onChoose(data,option)}:undefined,elapsed:()=>''}) : <p role="status">{presentationWord(data.details,'transcript','loading')}</p>}
   </article>
 }
 

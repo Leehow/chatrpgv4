@@ -7,7 +7,7 @@ import { ReadingService } from '../extensions/module/reading-service.ts';
 import type { ReaderRequest } from '../extensions/module/reader.ts';
 import { prepareCharacterGuidance, guidanceFingerprint, acceptedGuidance } from '../extensions/module/character-guidance.ts';
 import { prepareCharacterPresentation, prepareCluePresentation, preparePossessionPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
-import { labelsFor } from './panel.js';
+import { loadUiWords } from '../runtime/ui-words.ts';
 import { presentDocument } from '../extensions/mods/document-presentation.ts';
 
 const [action, raw, configuration] = process.argv.slice(2);
@@ -87,7 +87,11 @@ async function main() {
     if(input.possessions) {
       const view=await call('table.view',{campaign:input.campaign});
       // The sidebar's own captions for the kernel's item fields are settled words, never a question.
-      const known_labels={...(view.labels||{}),...labelsFor(input.play_language).itemFields};
+      // They are the `sheet` surface's `item.<field>` rows, under the field name the kernel uses.
+      const sheetWords=(await loadUiWords(context.contentRoot, input.play_language)).words.sheet ?? {};
+      const itemFields=Object.fromEntries(Object.entries(sheetWords)
+        .filter(([key])=>key.startsWith('item.')).map(([key,value])=>[key.slice('item.'.length),value]));
+      const known_labels={...(view.labels||{}),...itemFields};
       return preparePossessionPresentation({...input,contentRoot:context.contentRoot,view,known_labels,signal:guidanceAbort.signal,runner:runTask});
     }
     if(input.clues) {
@@ -100,8 +104,8 @@ async function main() {
     // own turn on the campaign lock.
     const glossary=input.labels&&typeof input.labels==='object'&&!Array.isArray(input.labels)?input.labels
       :((await call('setup.steps',{campaign:input.campaign})).state?.draft?.labels||{});
-    const ui=labelsFor(input.play_language);
-    const known_labels={...glossary,Finance:ui.finance,Equipment:ui.equipment,Weapons:ui.weapons,cash:ui.cash,assets:ui.assets,spending:ui.spending,credit_rating:ui.creditRating,living_standard:ui.livingStandard};
+    const sheet=(await loadUiWords(context.contentRoot, input.play_language)).words.sheet ?? {};
+    const known_labels={...glossary,Finance:sheet.finance,Equipment:sheet.equipment,Weapons:sheet.weapons,cash:sheet.cash,assets:sheet.assets,spending:sheet.spending,credit_rating:sheet.creditRating,living_standard:sheet.livingStandard};
     return prepareCharacterPresentation({...input,contentRoot:context.contentRoot,known_labels,signal:guidanceAbort.signal,runner:runTask});
   }
   if (action === 'catalog') {

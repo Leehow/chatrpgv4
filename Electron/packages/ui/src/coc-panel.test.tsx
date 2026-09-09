@@ -2,16 +2,19 @@
 /**
  * The investigator panel's player-facing words.
  *
- * Two things shipped wrong and are guarded here. The panel's three "no sheet" states were written
- * as Chinese literals, so an `en` table read them in a language it had not chosen; and every rules
- * term fell back to canonical English because `table.view.labels` was an empty map, which is
- * invisible in a test that renders the happy path only.
+ * Three things shipped wrong and are guarded here. The panel's three "no sheet" states were written
+ * as Chinese literals, so an `en` table read them in a language it had not chosen; every rules term
+ * fell back to canonical English because `table.view.labels` was an empty map, which is invisible in
+ * a test that renders the happy path only; and the chrome itself was a two-column table in the
+ * renderer, so it is now the answer's own `ui` block (§23) and these tests read the shipped words
+ * rather than transcribing them.
  */
 import React from 'react';
 import weaponCatalog from '../../../../content/rulesets/coc7/rules-json/weapons.json';
 import { render, screen, cleanup, waitFor, fireEvent, act } from '@testing-library/react';
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { createComponent } from '../../../../pipicoc/panel.js';
+import { say, ui } from './fixtures/coc-ui-words';
 
 const Panel = createComponent(React);
 afterEach(cleanup);
@@ -35,11 +38,52 @@ function view(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** One `invoke` that answers `sheet` with whatever the test hands it, in order. */
+/**
+ * One `invoke` that answers `sheet` with whatever the test hands it, in order.
+ *
+ * A host attaches `ui` to every sheet answer (§23), so a bound view gets one here at its own play
+ * language. An answer with no view is left alone on purpose: that is how a test says "this failure
+ * carried no words", which is the case the panel's remembered `ui` exists for.
+ */
 function host(...answers: unknown[]) {
-  const invoke = vi.fn(async () => answers[Math.min(invoke.mock.calls.length, answers.length) - 1]);
+  const dressed = answers.map(answer => {
+    const data = (answer as {data?: Record<string, unknown>})?.data;
+    const view = data?.view as {play_language?: string} | null | undefined;
+    if (!data || 'ui' in data || !view) return answer;
+    return {...(answer as object), data: {...data, ui: ui(view.play_language ?? 'zh-Hans')}};
+  });
+  const invoke = vi.fn(async () => dressed[Math.min(invoke.mock.calls.length, dressed.length) - 1]);
   return { invoke };
 }
+
+/**
+ * Before any answer the panel has no words, so it may draw none.
+ *
+ * The old first mount printed the English table's "Reading the table…" whatever language the table
+ * was in -- one English sentence at the top of every Chinese session, and invisible to a test that
+ * only ever asserted on the settled panel.
+ */
+it('draws an ellipsis before the first answer, never a language', () => {
+  const pending = { invoke: () => new Promise<never>(() => {}) };
+  const { container } = render(<Panel api={pending} />);
+  expect(container.querySelector('.coc-sheet-note')?.textContent).toBe('…');
+  expect(container.textContent).not.toContain(say('en', 'sheet', 'loading'));
+  expect(container.textContent).not.toContain(say('zh-Hans', 'sheet', 'loading'));
+});
+
+/**
+ * A caption the language does not carry renders as its key.
+ *
+ * A key is an identifier a player can quote in a report; the alternative -- falling through to
+ * whichever language shipped first -- puts one English line in a Chinese panel and looks deliberate.
+ */
+it('renders the key itself for a caption the language is missing', async () => {
+  const gapped = ui('zh-Hans', { sheet: { clues: undefined } });
+  render(<Panel api={host({ ok: true, data: { status: 'ready', view: view(), campaign: 'c1', ui: gapped } })} />);
+  await screen.findByText('图书馆使用');
+  expect(screen.getByText('clues')).toBeTruthy();
+  expect(screen.queryByText(say('en', 'sheet', 'clues'))).toBeNull();
+});
 
 describe('rules terms come from the kernel glossary', () => {
   it('renders skills and characteristics in the play language', async () => {
@@ -191,20 +235,41 @@ describe('the background section speaks the play language', () => {
 
 describe('the three states with no sheet', () => {
   it('tells an English table it has no campaign, in English', async () => {
-    render(<Panel api={host({ ok: true, data: { status: 'unbound', view: null, campaign: null } })} />);
-    await screen.findByText('No campaign on this session');
-    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+    render(<Panel api={host({ ok: true, data: { status: 'unbound', view: null, campaign: null, ui: ui('en') } })} />);
+    await screen.findByText(say('en', 'sheet', 'unboundTitle'));
+    expect(screen.getByRole('button', { name: say('en', 'sheet', 'retry') })).toBeTruthy();
   });
 
-  it('shows the reason a read failed instead of a generic apology', async () => {
-    render(<Panel api={host({ ok: true, data: { status: 'error', view: null, campaign: 'c1', reason: 'kernel went away' } })} />);
-    await screen.findByText('kernel went away');
-    expect(screen.getByText('The sheet could not be read')).toBeTruthy();
+  /**
+   * A failure names its code, and the host's English sentence stays behind a fold.
+   *
+   * The panel used to print `reason` as the whole explanation, so a player reading a Chinese table
+   * met a line of English kernel prose where the product should have spoken. The message still
+   * travels -- it is what a bug report needs -- but it is not the sentence.
+   */
+  it('captions a failed read by its code and folds the English message away', async () => {
+    render(<Panel api={host({ ok: true, data: { status: 'error', view: null, campaign: 'c1',
+      error: { code: 'kernel_error', message: 'kernel went away' }, ui: ui('en') } })} />);
+    await screen.findByText(say('en', 'sheet', 'errorTitle'));
+    const detail = screen.getByRole('status');
+    expect(detail.textContent).toBe(say('en', 'errors', 'kernel_error'));
+    expect(detail.textContent).not.toContain('kernel went away');
+    expect(screen.getByText(say('en', 'sheet', 'errorTitle'))).toBeTruthy();
+    const fold = screen.getByText('kernel went away').closest('details');
+    expect(fold?.querySelector('summary')?.textContent).toBe(say('en', 'errors', 'details'));
+  });
+
+  it('falls back to the generic caption for a code no language has a word for', async () => {
+    render(<Panel api={host({ ok: true, data: { status: 'error', view: null, campaign: 'c1',
+      error: { code: 'a_code_from_a_later_kernel', message: 'something new' }, ui: ui('en') } })} />);
+    await screen.findByText(say('en', 'sheet', 'errorTitle'));
+    expect(screen.getByRole('status').textContent).toBe(say('en', 'errors', 'unknown'));
   });
 
   it('keeps the language of the table the player was just reading when a later read fails', async () => {
     const api = host(
       { ok: true, data: { status: 'ready', view: view(), campaign: 'c1' } },
+      // No view and no `ui`: a refusal this panel raised itself, with no words of its own.
       { ok: true, data: { status: 'error', view: null, campaign: 'c1' } },
     );
     const { rerender } = render(<Panel api={api} />);
@@ -212,8 +277,9 @@ describe('the three states with no sheet', () => {
     // The panel re-reads whenever it is told something changed; a new api object is the same
     // trigger the host's own mount/session change is.
     rerender(<Panel api={{ ...api }} />);
-    await waitFor(() => expect(screen.getByText('人物数据读取失败')).toBeTruthy());
-    expect(screen.getByRole('button', { name: '重试' })).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(say('zh-Hans', 'sheet', 'errorTitle'))).toBeTruthy());
+    expect(screen.getByRole('button', { name: say('zh-Hans', 'sheet', 'retry') })).toBeTruthy();
+    expect(screen.queryByText(say('en', 'sheet', 'errorTitle'))).toBeNull();
   });
 });
 

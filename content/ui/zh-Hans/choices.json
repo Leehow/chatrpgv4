@@ -1,0 +1,9 @@
+{
+  "actions": "行动选择",
+  "option.accept": "接受结果",
+  "option.dodge": "闪避",
+  "option.fight_back": "反击",
+  "option.flee": "逃离",
+  "option.push": "孤注一掷",
+  "option.spend_luck": "使用幸运"
+}

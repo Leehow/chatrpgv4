@@ -1,0 +1,9 @@
+{
+  "actions": "Actions",
+  "option.accept": "Accept",
+  "option.dodge": "Dodge",
+  "option.fight_back": "Fight back",
+  "option.flee": "Flee",
+  "option.push": "Push",
+  "option.spend_luck": "Spend Luck"
+}
