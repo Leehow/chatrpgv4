@@ -34,6 +34,16 @@ function fixture(t, worker) {
   if (worker) {
     writeFileSync(join(resourceRoot, 'build/pipicoc/onboarding-worker.mjs'), worker);
   } else copyFileSync(join(root, 'build/pipicoc/onboarding-worker.mjs'), join(resourceRoot, 'build/pipicoc/onboarding-worker.mjs'));
+  // A content root declares its play languages and holds the product's own captions (contract §23).
+  // `zz` is the default and authors nothing, so anything that reaches for a word has to walk the
+  // declared languages rather than assume the one the fixture happens to write.
+  writeFileSync(join(contentRoot, 'languages.json'), JSON.stringify({default: 'zz',
+    languages: {zz: {autonym: 'Zz'}, en: {autonym: 'English'}, qq: {autonym: 'Qq'}}}));
+  for (const [tag, word] of [['zz', 'zz sheet'], ['en', 'en sheet']]) {
+    mkdirSync(join(contentRoot, 'ui', tag), {recursive: true});
+    writeFileSync(join(contentRoot, 'ui', tag, 'sheet.json'), JSON.stringify({clues: word}));
+    writeFileSync(join(contentRoot, 'ui', tag, 'onboarding.json'), JSON.stringify({heading: `${tag} heading`}));
+  }
   const starter = join(contentRoot, 'starters', 'selected-story');
   mkdirSync(starter, {recursive: true});
   writeFileSync(join(starter, 'starter-listing.json'), JSON.stringify({listed: true, title: {en: 'Selected content'}, blurb: {en: 'Relocated catalog'}}));
@@ -124,6 +134,55 @@ test('the real catalog worker uses captured Node, data, Pi and relocated content
     assert.equal(event.late, undefined);
     assert.throws(() => process.kill(event.pid, 0), {code: 'ESRCH'});
   }
+});
+
+test('the catalog walks the declared play languages in data order for a title its own tag lacks', async t => {
+  const f = fixture(t);
+  const host = createPreparationHost(f.home, f.options);
+  // Authored under a tag no list in code could hold, so a title only arrives if the fallback walks
+  // `languages.json` itself. `qq` is declared last, and the module node's own name is the only
+  // other candidate — a catalog that guessed at languages would answer with that name instead.
+  writeFileSync(join(f.contentRoot, 'starters/selected-story/starter-listing.json'),
+    JSON.stringify({listed: true, title: {qq: 'Authored in qq'}, blurb: {qq: 'Blurb in qq'}}));
+  // No `play_language`: the worker settles on the declared default, `zz`, which authors nothing.
+  const task = host.start('catalog', {});
+  f.active.push(task);
+  const output = await observe(task).complete;
+  assert.equal(output.code, 0, output.stderr);
+  assert.deepEqual(output.events.find(event => event.type === 'result').data.presets,
+    [{id: 'selected-story', title: 'Authored in qq', blurb: 'Blurb in qq'}]);
+});
+
+test('an onboarding answer carries the words for its own play language, and its refusals carry codes', async t => {
+  const f = fixture(t, phaseWorker);
+  const host = trackedHost(f);
+  // No job yet, so the answer is in the language the data calls the default.
+  const empty = await host.invoke({action: 'current'}, 'session-one', model);
+  assert.equal(empty.current_import, null);
+  assert.equal(empty.ui.tag, 'zz');
+  assert.equal(empty.ui.words.onboarding.heading, 'zz heading');
+  const job = await host.invoke({action: 'begin', name: 'source.pdf', size: 9, play_language: 'en'}, 'session-one', model);
+  assert.equal(job.play_language, 'en');
+  assert.equal(job.ui.tag, 'en');
+  assert.equal(job.ui.words.onboarding.heading, 'en heading');
+  assert.equal(job.ui.words.sheet.clues, 'en sheet');
+  const status = await host.invoke({action: 'status', id: job.id}, 'session-one', model);
+  assert.equal(status.ui.tag, 'en');
+  const code = async (params, session = 'session-one') => {
+    const failure = await host.invoke(params, session, model).then(() => undefined, error => error);
+    assert.ok(failure, `${params.action} was expected to be refused`);
+    return failure.code;
+  };
+  assert.equal(await code({action: 'status', id: job.id}, 'another-session'), 'import_other_session');
+  assert.equal(await code({action: 'status', id: 'not-a-uuid'}), 'unknown_import');
+  assert.equal(await code({action: 'begin', name: 'source.txt', size: 9}), 'upload_too_large');
+  // `ww` is not declared, so it is refused rather than quietly swapped for the default.
+  assert.equal(await code({action: 'select', source: 'starter', module_id: 'selected-story', play_language: 'ww'}), 'invalid_params');
+  assert.equal(await code({action: 'hide', id: job.id}), 'scenario_not_ready');
+  assert.equal(await code({action: 'chunk', id: job.id, offset: 7, data: 'AAAA'}), 'upload_chunk_invalid');
+  assert.equal(await code({action: 'finish', id: job.id}), 'upload_incomplete');
+  assert.equal(await code({action: 'converse', id: job.id}), 'guidance_not_ready');
+  assert.equal(await code({action: 'nonsense', id: job.id}), 'unknown_action');
 });
 
 test('independent real setup workers retain campaign binding and saved presentation artifacts', async t => {

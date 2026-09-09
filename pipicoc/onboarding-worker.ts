@@ -8,7 +8,13 @@ import type { ReaderRequest } from '../extensions/module/reader.ts';
 import { prepareCharacterGuidance, guidanceFingerprint, acceptedGuidance } from '../extensions/module/character-guidance.ts';
 import { prepareCharacterPresentation, prepareCluePresentation, preparePossessionPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
 import { labelsFor } from './panel.js';
+import { loadPlayLanguages, playLanguageTag } from '../runtime/ui-words.ts';
 import { presentDocument } from '../extensions/mods/document-presentation.ts';
+
+/** A refusal the preparation overlay can show (contract §23): its code, and English for the log. */
+function refuse(code: string, message: string): Error {
+  return Object.assign(new Error(message), {code});
+}
 
 const [action, raw, configuration] = process.argv.slice(2);
 let input: any;
@@ -30,16 +36,13 @@ async function withGuidance(prepared: any) {
   emit('progress', {stage: 'guidance'});
   const occupations = await call('setup.occupations');
   const options = {home: input.home, contentRoot: context.contentRoot, module_id: input.module_id,
-    play_language: input.play_language || 'zh-Hans', opening: input.start_scene,
+    play_language: await playLanguageTag(context.contentRoot, input.play_language), opening: input.start_scene,
     occupations: occupations.occupations, model: input.model, thinking: input.thinking, signal: guidanceAbort.signal, runner: runTask};
   const guidance = await prepareCharacterGuidance(options);
   const guidance_key = await guidanceFingerprint(options);
   const meta = JSON.parse(await readFile(join(input.home,'.coc/modules',input.module_id,'module.json'),'utf8'));
   return {...prepared, guidance, ...(meta.character_guidance?.[guidance_key] ? {guidance_key} : {})};
 }
-/** The play languages the picker is authored in; the same closed set the host validates
- *  on `select` and the onboarding `<select>` offers. */
-const PLAY_LANGUAGES = ['zh-Hans', 'en'];
 /** The player-facing scenario catalog.
  *
  *  `content/starters/` is a build directory, not a shelf: next to the curated scenarios it
@@ -49,9 +52,12 @@ const PLAY_LANGUAGES = ['zh-Hans', 'en'];
  *  `starter-listing.json` with `listed: true`, so a folder that declares nothing — a
  *  fixture, a future build artifact — stays out instead of leaking into the picker. Title
  *  and blurb are authored per play language there; the module node's `name` is the fallback
- *  for a starter whose listing carries no title in any offered language. */
+ *  for a starter whose listing carries no title in any offered language. The offered languages
+ *  are `content/languages.json` in its own order, so shipping one is a data change. */
 async function starterCatalog(playLanguage?: string) {
-  const language = PLAY_LANGUAGES.includes(playLanguage as string) ? playLanguage as string : PLAY_LANGUAGES[0];
+  const known = await loadPlayLanguages(context.contentRoot);
+  const language = await playLanguageTag(context.contentRoot, playLanguage);
+  const offered = Object.keys(known.languages);
   const root = join(context.contentRoot, 'starters');
   const rows: Array<{id: string; order: number; title: string; blurb: string}> = [];
   for (const id of await readdir(root)) {
@@ -65,7 +71,7 @@ async function starterCatalog(playLanguage?: string) {
     } catch {continue; /* a listing without a graph is nothing the kernel can open */}
     const authored = (field: any): string =>
       (typeof field?.[language] === 'string' && field[language]) ||
-      PLAY_LANGUAGES.map(other => field?.[other]).find((value: any) => typeof value === 'string') || '';
+      offered.map(other => field?.[other]).find((value: any) => typeof value === 'string') || '';
     rows.push({id, order: Number.isFinite(listing.order) ? Number(listing.order) : Number.MAX_SAFE_INTEGER,
       title: authored(listing.title) || name || id, blurb: authored(listing.blurb)});
   }
@@ -124,7 +130,8 @@ async function main() {
       progress: data => emit('progress', data), record: data => emit('telemetry', data)});
     let retry = input.retry === true;
     const occupations = await call('setup.occupations');
-    const guidanceOptions = {home:input.home,contentRoot:context.contentRoot,module_id:input.module_id,play_language:input.play_language||'zh-Hans',
+    const guidanceOptions = {home:input.home,contentRoot:context.contentRoot,module_id:input.module_id,
+      play_language:await playLanguageTag(context.contentRoot, input.play_language),
       opening:input.start_scene,occupations:occupations.occupations};
     const guidance_key = action==='guidance' ? await guidanceFingerprint(guidanceOptions) : undefined;
     while (!stopping) {
@@ -141,7 +148,7 @@ async function main() {
         throw error;
       }
     }
-    throw new Error('Preparation paused');
+    throw refuse('preparation_paused', 'Preparation paused');
   }
   if (action === 'converse') {
     const campaign=input.campaign;
@@ -150,7 +157,7 @@ async function main() {
       start_scene:input.start_scene,guidance_key:input.guidance_key});
     return {campaign,play_language:input.play_language};
   }
-  throw new Error('Unknown onboarding operation');
+  throw refuse('unknown_action', 'Unknown onboarding operation');
 }
 function reportError(error: any) {
   emit('error', {message: error.message, code: error.code, reason: error.details?.reason, fix: error.fix,
@@ -165,9 +172,9 @@ async function run() {
     context = composeRuntimeContext(binding, host);
     runtime = createRuntime(binding, {...host, ...context});
     input.home = runtime.home;
-    if (stopping) throw new Error('Preparation paused');
+    if (stopping) throw refuse('preparation_paused', 'Preparation paused');
     const result = await main();
-    if (stopping) throw new Error('Preparation paused');
+    if (stopping) throw refuse('preparation_paused', 'Preparation paused');
     emit('result', result);
   } catch (error) { reportError(error); }
   finally {

@@ -1,5 +1,5 @@
 import {afterEach, expect, it, vi} from 'vitest';
-import {mkdtemp, readFile,writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {CocOnboardingHost} from '../src/coc-onboarding.js';
@@ -81,7 +81,60 @@ it('bounds upload bytes, acknowledges offsets and rejects another session',async
   expect(await readFile(join(home,'.coc/imports',job.id,'source.pdf'),'utf8')).toBe('%PDF-test');
   const invalid=await host.invoke({action:'finish',id:job.id},'one',model);
   expect(invalid.state).toBe('failed');
-  expect(invalid.error).toBeTruthy();
+  // A failure the overlay shows is a code it can look a word up by, never prose alone.
+  expect(typeof invalid.error.code).toBe('string');
+  expect(invalid.error.code).not.toBe('');
+  expect(invalid.error.message).toBeTruthy();
+});
+
+/** A content root of this build's own shape, so a test never depends on the words that ship. */
+async function contentRoot(){
+  const root=await mkdtemp(join(tmpdir(),'coc-onboarding-words-'));
+  await writeFile(join(root,'languages.json'),JSON.stringify({default:'zz',languages:{zz:{autonym:'Zz'},en:{autonym:'English'}}}));
+  for(const tag of ['zz','en']){
+    await mkdir(join(root,'ui',tag),{recursive:true});
+    await writeFile(join(root,'ui',tag,'onboarding.json'),JSON.stringify({heading:`${tag} heading`}));
+  }
+  return root;
+}
+
+it('every onboarding answer carries its own language words, and every refusal a code',async()=>{
+  const home=await mkdtemp(join(tmpdir(),'coc-onboarding-'));
+  const repo=resolve(import.meta.dirname,'../../../..');
+  const host=new CocOnboardingHost({repo,home,agentDir:join(home,'agent'),contentRoot:await contentRoot(),env:{...process.env}});
+  services.push(host);
+  // Nothing here needs a worker: these are the host's own guards and its own words.
+  vi.spyOn(host as any,'run').mockImplementation(()=>Promise.reject(Object.assign(new Error('the reader gave up'),{code:'reading_timeout'})));
+  const empty=await host.invoke({action:'current'},'one',model);
+  expect(empty.current_import).toBeNull();
+  expect(empty.ui.tag).toBe('zz');
+  expect(empty.ui.words.onboarding.heading).toBe('zz heading');
+  const job=await host.invoke({action:'begin',name:'book.pdf',size:9,play_language:'en'},'one',model);
+  expect(job.play_language).toBe('en');
+  expect(job.ui.tag).toBe('en');
+  expect(job.ui.words.onboarding.heading).toBe('en heading');
+  expect((await host.invoke({action:'status',id:job.id},'one',model)).ui.tag).toBe('en');
+  const code=async(params:any,session='one',who=model)=>
+    (await host.invoke(params,session,who).then(()=>undefined,(error:any)=>error))?.code;
+  expect(await code({action:'status',id:job.id},'two')).toBe('import_other_session');
+  expect(await code({action:'status',id:'not-a-uuid'})).toBe('unknown_import');
+  expect(await code({action:'begin',name:'book.txt',size:9})).toBe('upload_too_large');
+  expect(await code({action:'begin',name:'book.pdf',size:9},'one',{...model,vision:false})).toBe('model_without_images');
+  // `ww` is not declared, so it is refused rather than quietly swapped for the default.
+  expect(await code({action:'begin',name:'book.pdf',size:9,play_language:'ww'})).toBe('invalid_params');
+  expect(await code({action:'select',source:'starter',module_id:'NOT A SLUG'})).toBe('invalid_params');
+  expect(await code({action:'hide',id:job.id})).toBe('scenario_not_ready');
+  expect(await code({action:'chunk',id:job.id,offset:5,data:'AAAA'})).toBe('upload_chunk_invalid');
+  expect(await code({action:'finish',id:job.id})).toBe('upload_incomplete');
+  expect(await code({action:'converse',id:job.id})).toBe('guidance_not_ready');
+  expect(await code({action:'whatever',id:job.id})).toBe('unknown_action');
+  // A phase that failed keeps the reason's own code; the overlay shows a word for it, not the log.
+  const started=await host.invoke({action:'select',source:'module',module_id:'book-1',name:'Book'},'one',model);
+  await new Promise(resolve=>setTimeout(resolve,0));
+  const failed=await host.invoke({action:'status',id:started.id},'one',model);
+  expect(failed.preparation.guidance.error.code).toBe('reading_timeout');
+  expect(failed.preparation.guidance.error.message).toBeTruthy();
+  expect(failed.error.code).toBe('reading_timeout');
 });
 it('conversation binding is idempotent and never creates an investigator',async()=>{
   const {host,home}=await service();

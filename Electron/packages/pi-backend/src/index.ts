@@ -1,6 +1,7 @@
 import { CocOnboardingHost, CocOnboardingRegistry, type CocOnboardingOptions } from './coc-onboarding.js';
 export { CocOnboardingRegistry } from './coc-onboarding.js';
-import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, laneWords, laneProjection, SHEET_LANES, type SheetLane } from "./coc-view.js";
+import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, laneWords, laneProjection, laneLabels,
+  cocContentRoot, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding, type CocHistoryWords } from "./coc-view.js";
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { createExtensionHostWorkers, type ExtensionHostWorkers } from "./extension-host-workers.js";
 import { closeSync, constants as fsConstants, createReadStream, createWriteStream, existsSync, lstatSync, openSync, readFileSync, realpathSync, watch, writeSync, promises as fs, type Dirent } from "node:fs";
@@ -1435,9 +1436,11 @@ function redactHistoryEntry(entry: HistoryEntry | undefined, secrets: RevealedSe
     ...(entry.tools ? { tools: entry.tools.map((tool) => ({ ...tool, input: redactText(tool.input, secrets) })) } : {}),
   };
 }
+/** Where a host reads its own data from, for the answers a renderer draws words out of. */
+type CocHostPaths = {repo: string; contentRoot: string};
 function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], language?:string,
-  presentations?: ReadonlyMap<number, Record<string, unknown>>): HistoryEntry | undefined {
-  const mechanics = mechanicsEntry(entry, language, presentations);
+  presentations?: ReadonlyMap<number, Record<string, unknown>>, words: CocHistoryWords = {}): HistoryEntry | undefined {
+  const mechanics = mechanicsEntry(entry, language, presentations, words);
   if (mechanics) return mechanics;
   if (entry?.type === "message") return redactHistoryEntry(historyEntryFromMessage(entry), secrets);
   if (isVisibleCustomMessage(entry)) {
@@ -1550,6 +1553,7 @@ async function readHistoryFallback(
   vaultDir?: string,
   sessionId?: string,
   byteEnd?: number,
+  cocHost?: CocHostPaths,
 ): Promise<HistoryEntry[]> {
   if (byteEnd !== undefined && byteEnd < 0) return [];
   const visibleIds = await activeVisibleIds(path, byteEnd);
@@ -1561,8 +1565,14 @@ async function readHistoryFallback(
   const wanted = new Set(pageIds);
   const mappedById = new Map<string, HistoryEntry>();
   const cocBinding = await readCocBinding(path);
-  // One directory read per page, not one fetch per mounted card.
+  // One directory read per page, not one fetch per mounted card. The chrome's words and the
+  // campaign's projected vocabulary are loaded here for the same reason: every card on the page
+  // reads them, and a per-row read would open the same three files once per roll.
   const cocPresentations = await draftPresentations(cocBinding);
+  const cocWords: CocHistoryWords = {
+    lanes: await laneLabels(cocBinding),
+    ...(cocHost ? {ui: await cocUiWords(cocHost.repo, cocHost.contentRoot, cocBinding?.play_language)} : {}),
+  };
   const lines = createInterface({
     input: jsonlSnapshotStream(path, byteEnd),
     crlfDelay: Infinity,
@@ -1576,7 +1586,7 @@ async function readHistoryFallback(
     }
     if (!wanted.has(entry?.id)) continue;
     const secrets = vaultDir && sessionId ? revealRedactionSecrets(vaultDir, sessionId) : [];
-    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations);
+    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords);
     if (!mapped) continue;
     mappedById.set(mapped.id, mapped);
   }
@@ -1625,6 +1635,7 @@ async function readHistory(
   limit = 500,
   vaultDir?: string,
   sessionId?: string,
+  cocHost?: CocHostPaths,
 ): Promise<HistoryEntry[]> {
   const stat = await fs.stat(path);
   const large = stat.size > SESSION_MANAGER_MAX_BYTES;
@@ -1634,7 +1645,7 @@ async function readHistory(
     );
   }
   if (stat.size <= 0) return [];
-  return readHistoryFallback(path, before, limit, vaultDir, sessionId, stat.size - 1);
+  return readHistoryFallback(path, before, limit, vaultDir, sessionId, stat.size - 1, cocHost);
 }
 
 const TERMINAL_DURABILITY_TAIL_BYTES = 1024 * 1024;
@@ -3641,6 +3652,35 @@ export class PiHostBackend implements HostBackend {
   private async locate(id: string) {
     return this.confirmSessionMeta(await this.findSession(id));
   }
+  /**
+   * Where this host reads the product's own data from, or nothing when it manages no runtime.
+   *
+   * The same pair every COC answer needs: the checkout that holds the emitted runtime entries, and
+   * the content root `runtime/host.ts` would hand the kernel.
+   */
+  private cocHostPaths(): CocHostPaths | undefined {
+    if (!this.managedNodeModulesRoot) return undefined;
+    const repo = resolve(this.managedNodeModulesRoot, "..");
+    return {repo, contentRoot: cocContentRoot(repo, this.cocRuntime, this.env)};
+  }
+  /**
+   * The play language of every session this host has spawned, so a live card drawn inside the
+   * synchronous stream reader can be given the same words the history page would give it.
+   */
+  private cocSessionBindings = new Map<string, CocBinding>();
+  /**
+   * The chrome's words for a live card, from what a previous load already resolved.
+   *
+   * `rpcEvent` reads one stdout line at a time and cannot wait; the first card of a session may
+   * therefore reach the panel before its words, and the history page it is folded into carries
+   * them. Asking starts the load, so every later card in the session has them.
+   */
+  private cocLiveWords(sessionId: string): CocHistoryWords {
+    const paths = this.cocHostPaths();
+    if (!paths) return {};
+    const ui = cocUiWordsLoaded(paths.repo, paths.contentRoot, this.cocSessionBindings.get(sessionId)?.play_language);
+    return ui ? {ui} : {};
+  }
   private async readHistoryCached(path: string, before: number | string, limit: number, sessionId?: string): Promise<HistoryEntry[]> {
     const inflightKey = `${path}\0${String(before)}\0${limit}`;
     const pending = this.historyInflight.get(inflightKey);
@@ -3673,7 +3713,7 @@ export class PiHostBackend implements HostBackend {
     });
     const started = Date.now();
     try {
-      const entries = await readHistory(path, before, limit, this.vaultDir, sessionId);
+      const entries = await readHistory(path, before, limit, this.vaultDir, sessionId, this.cocHostPaths());
       this.historyCache.set(path, { mtimeMs: stat.mtimeMs, size: stat.size, before, limit, entries });
       freezeProbeHistoryScanEnd({ session: sessionId, size: stat.size, ms: Date.now() - started, rows: entries.length });
       return entries;
@@ -5524,6 +5564,9 @@ export class PiHostBackend implements HostBackend {
       const dotEnv = await this.readDotEnv();
       this.assertSessionGeneration(id, generation);
       const cocBinding = await readCocBinding(found.path);
+      // Kept so the live stream can hand a card the campaign's language without re-reading the
+      // transcript inside a synchronous reader.
+      if (cocBinding) this.cocSessionBindings.set(id, cocBinding);
       this.assertSessionGeneration(id, generation);
       const child = this.proc(this.piCommand.executable, [
         ...(this.piCommand.prefixArgs ?? []),
@@ -5775,7 +5818,9 @@ export class PiHostBackend implements HostBackend {
     if (e.type === "entry_appended") {
       if(e.entry?.customType==='coc-setup-exit')live.cocSetupHandoffPending=true;
       if(e.entry?.customType==='coc-character-draft'&&e.entry?.data?.sheet)this.startDraftPresentation(live.session.id,e.entry.data);
-      const entry = e.entry?.customType === "coc-setup-opening" ? visibleHistoryEntry(e.entry,this.sessionSecrets(live.session.id)) : mechanicsEntry(e.entry);
+      const entry = e.entry?.customType === "coc-setup-opening"
+        ? visibleHistoryEntry(e.entry,this.sessionSecrets(live.session.id))
+        : mechanicsEntry(e.entry, this.cocSessionBindings.get(live.session.id)?.play_language, undefined, this.cocLiveWords(live.session.id));
       if (entry) this.stream({type:"presentation",sessionId:live.session.id,entry});
     }
     try {
@@ -8451,6 +8496,37 @@ export class PiHostBackend implements HostBackend {
       void this.enqueueExtInvoke(sessionId, id, EXT_SETTINGS_CHANGED_METHOD, { settings }).catch(() => undefined);
     }
   }
+  /**
+   * A COC refusal a panel can show (contract §23): the product's own code, and English for the log.
+   *
+   * The renderer looks the code up in `ui.words.errors`, so the code list is the product's and is
+   * wider than the host-api invoke codes this frame shares with every other extension. The cast is
+   * that seam, in one place, rather than at every refusal.
+   */
+  private cocDenied(code: string, message: string): ExtInvokeResult {
+    return settingsDenied(code as ExtInvokeErrorCode, message);
+  }
+  /** The same pair, thrown: a branch's own guard reaching its branch's own catch. */
+  private cocRefusal(code: string, message: string): Error {
+    return Object.assign(new Error(message), {code});
+  }
+  /**
+   * The `ui` block an answer carries, or nothing when this host reads no content of its own.
+   *
+   * Spread into the answer rather than assigned, so a build without words produces an answer with
+   * no `ui` key at all: a renderer that finds none draws its identifiers instead of a language.
+   */
+  private async cocAnswerWords(tag: unknown): Promise<{ui?: unknown}> {
+    const paths = this.cocHostPaths();
+    if (!paths) return {};
+    const ui = await cocUiWords(paths.repo, paths.contentRoot, tag);
+    return ui ? {ui} : {};
+  }
+  /** A thrown failure's own code when it carries one; a kernel error's passes through unchanged. */
+  private cocCode(error: unknown, fallback = "kernel_error"): string {
+    const code = (error as {code?: unknown})?.code;
+    return typeof code === "string" && code ? code : fallback;
+  }
   private async invokeExtension(
     idValue: unknown,
     methodValue: unknown,
@@ -8486,15 +8562,15 @@ export class PiHostBackend implements HostBackend {
       try {
         const request = isRecord(params) ? params : {};
         const sid = isRecord(optsValue) && typeof optsValue.sessionId === "string" ? optsValue.sessionId : "";
-        if (!sid && request.action !== "catalog") throw new Error("Select a new session first");
-        if (!this.managedNodeModulesRoot) throw new Error("Canonical runtime is unavailable");
+        if (!sid && request.action !== "catalog") throw this.cocRefusal("no_session", "Select a new session first");
+        if (!this.managedNodeModulesRoot) throw this.cocRefusal("runtime_unavailable", "Canonical runtime is unavailable");
         const repo = resolve(this.managedNodeModulesRoot, "..");
         const home = resolve(this.env.PI_COC_HOME || repo);
         this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime, repo, home, agentDir: this.sharedProfileDir, env: this.env});
         if (request.action === "start") {
           const selected = await this.locate(sid);
           const binding=await readCocBinding(selected.path);
-          if (!binding) throw new Error("Create an investigator before starting");
+          if (!binding) throw this.cocRefusal("campaign_unbound", "Create an investigator before starting");
           // The COC extension owns the opening turn on session_start.
           // A synthetic player prompt here races that turn and becomes a follow-up.
           await this.ensure(sid);
@@ -8505,7 +8581,7 @@ export class PiHostBackend implements HostBackend {
         const state = await this.getModelState(sid || undefined);
         if (sid && ["begin", "select"].includes(String(request.action))) {
           const selected = await this.locate(sid);
-          if (await readCocBinding(selected.path)) throw new Error("This session already has a campaign; create a new session");
+          if (await readCocBinding(selected.path)) throw this.cocRefusal("opening_bound", "This session already has a campaign; create a new session");
         }
         const data = await this.cocOnboarding.invoke(request, sid, {
           id: `${state.model.provider}/${state.model.id}`, thinking: state.thinkingLevel, vision: state.model.supportsImages === true,
@@ -8520,7 +8596,9 @@ export class PiHostBackend implements HostBackend {
         }
         if (request.action === "converse" && data.campaign) {
           const selected = await this.locate(sid);
-          const binding = {campaign: data.campaign, home, play_language: data.play_language || "zh-Hans", mode: "setup"};
+          const language = data.play_language ?? await cocPlayLanguage(repo, cocContentRoot(repo, this.cocRuntime, this.env), undefined);
+          if (!language) throw this.cocRefusal("runtime_unavailable", "The play languages this build offers are unreadable");
+          const binding = {campaign: data.campaign, home, play_language: language, mode: "setup"};
           await fs.writeFile(selected.path + ".coc.json.tmp", JSON.stringify(binding) + "\n");
           await fs.rename(selected.path + ".coc.json.tmp", selected.path + ".coc.json");
           await this.renameSession(sid, data.name || "New campaign");
@@ -8531,21 +8609,21 @@ export class PiHostBackend implements HostBackend {
           if(opening)this.stream({type:'presentation',sessionId:sid,entry:opening});
         }
         return {ok: true, data};
-      } catch (error) { return settingsDenied("onboarding_failed", error instanceof Error ? error.message : String(error)); }
+      } catch (error) { return this.cocDenied(this.cocCode(error), error instanceof Error ? error.message : String(error)); }
     }
     if (id === "coc-keeper" && ["mods.list","mods.install","mods.defaults","mods.configure","mods.order","mods.document.view","mods.document.apply"].includes(method)) {
       try {
         const sid = isRecord(optsValue) && typeof optsValue.sessionId === "string" ? optsValue.sessionId.trim() : "";
         const active = sid ? this.live.get(sid) : undefined;
         if (active && this.liveProcessUsable(active)) {
-          if (!this.extensions.isMounted(sid,id)) return settingsDenied("capability_denied","extension not mounted on session");
+          if (!this.extensions.isMounted(sid,id)) return this.cocDenied("capability_denied","extension not mounted on session");
           return this.enqueueExtInvoke(sid,id,method,params);
         }
-        if (!this.managedNodeModulesRoot) throw new Error("Canonical runtime is unavailable");
+        if (!this.managedNodeModulesRoot) throw this.cocRefusal("runtime_unavailable", "Canonical runtime is unavailable");
         const repo = resolve(this.managedNodeModulesRoot,"..");
         const context = sid ? await readCocBinding((await this.locate(sid)).path) : undefined;
-        if (method === "mods.configure" && !context) throw new Error("Select a campaign before changing its Mods");
-        if (method.startsWith("mods.document.") && !context) throw new Error("Select the document's campaign");
+        if (method === "mods.configure" && !context) throw this.cocRefusal("campaign_unbound", "Select a campaign before changing its Mods");
+        if (method.startsWith("mods.document.") && !context) throw this.cocRefusal("campaign_unbound", "Select the document's campaign");
         const request:Record<string,unknown> = isRecord(params) ? {...params} : {};
         delete request.campaign;
         if (context) request.campaign = context.campaign;
@@ -8562,42 +8640,44 @@ export class PiHostBackend implements HostBackend {
           try {data.texture = `data:image/jpeg;base64,${(await fs.readFile(join(repo,'pipicoc/assets/paper-texture.jpg'))).toString('base64')}`;}
           catch { /* Text remains editable if the optional texture asset is unavailable. */ }
         }
-        return {ok:true,data};
-      } catch(error) {return settingsDenied(method.startsWith("mods.document.")&&typeof (error as any)?.code==='string'?(error as any).code:"mods_failed",error instanceof Error ? error.message : String(error));}
+        // A Mods answer the panel draws from carries the words it draws them with.
+        const ui = (await this.cocAnswerWords(context?.play_language)).ui;
+        return {ok:true,data:isRecord(data)&&ui?{...data,ui}:data};
+      } catch(error) {return this.cocDenied(this.cocCode(error),error instanceof Error ? error.message : String(error));}
     }
     if(id==='coc-keeper' && (method==='draft-previewed'||method==='draft-presentation')) {
       const sid=isRecord(optsValue)&&typeof optsValue.sessionId==='string'?optsValue.sessionId:'';
-      if(!sid)return settingsDenied('no_session','Select the draft session');
+      if(!sid)return this.cocDenied('no_session','Select the draft session');
       const revision=isRecord(params)?params.revision:undefined;
-      if(!Number.isSafeInteger(revision)||Number(revision)<1)return settingsDenied('invalid_preview','Invalid draft revision');
+      if(!Number.isSafeInteger(revision)||Number(revision)<1)return this.cocDenied('invalid_params','Invalid draft revision');
       const selected=await this.locate(sid), binding=await readCocBinding(selected.path);
-      if(!binding||!this.managedNodeModulesRoot)return settingsDenied('unbound','No campaign is bound');
+      if(!binding||!this.managedNodeModulesRoot)return this.cocDenied('campaign_unbound','No campaign is bound');
       if(method==='draft-presentation') {
         const repo=resolve(this.managedNodeModulesRoot,'..');
         this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:binding.home,agentDir:this.sharedProfileDir,env:this.env});
         const state=await this.getModelState(sid);
         try {return {ok:true,data:this.cocOnboarding.presentationStatus({campaign:binding.campaign,revision:Number(revision),play_language:binding.play_language,model:`${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel})};}
-        catch(error){return settingsDenied('presentation_failed',error instanceof Error?error.message:String(error));}
+        catch(error){return this.cocDenied(this.cocCode(error),error instanceof Error?error.message:String(error));}
       }
       try {return {ok:true,data:await readColdSheet(join(this.managedNodeModulesRoot,'..'),binding,Number(revision),this.env,this.cocRuntime)};}
-      catch(error){if((error as any)?.code==='idempotency_conflict')return {ok:true,data:{superseded:true}};return settingsDenied('preview_failed',error instanceof Error?error.message:String(error));}
+      catch(error){if((error as any)?.code==='idempotency_conflict')return {ok:true,data:{superseded:true}};return this.cocDenied(this.cocCode(error),error instanceof Error?error.message:String(error));}
     }
     if (id === "coc-keeper" && ["sheet","choose"].includes(method) && !(isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim())) {
-      return {ok:true,data:{status:"unbound",view:null,campaign:null}};
+      return {ok:true,data:{status:"unbound",view:null,campaign:null,...await this.cocAnswerWords(undefined)}};
     }
     const sessionId =
       isRecord(optsValue) && typeof optsValue.sessionId === "string" && optsValue.sessionId.trim()
         ? optsValue.sessionId.trim()
         : [...this.live.keys()].at(-1);
-    if (!sessionId) return settingsDenied("no_session", "no active session");
+    if (!sessionId) return this.cocDenied("no_session", "no active session");
     if (id === "coc-keeper" && method === "choose") {
       const sheet:any = await this.invokeExtension(id,"sheet",{}, {sessionId});
       const choice = sheet?.data?.view?.pending_choice;
       const selected = params as {choice?:string;option?:string};
       if (!choice || choice.name !== selected?.choice || !choice.options?.includes(selected?.option)) {
-        return settingsDenied("stale_choice", "This choice is no longer pending.");
+        return this.cocDenied("stale_choice", "This choice is no longer pending.");
       }
-      if (this.cocChoiceClaims.get(sessionId) === choice.name) return settingsDenied("stale_choice", "This choice was already submitted.");
+      if (this.cocChoiceClaims.get(sessionId) === choice.name) return this.cocDenied("stale_choice", "This choice was already submitted.");
       this.cocChoiceClaims.set(sessionId,choice.name);
       const input = choice.kind === "mechanics"
         ? JSON.stringify({kind:"mechanics_choice",action:selected.option,play_language:sheet.data.view.play_language})
@@ -8611,11 +8691,12 @@ export class PiHostBackend implements HostBackend {
       {
         const pending = this.cocSheetReads.get(sessionId);
         if (pending) return pending;
-        const read = (async () => {
+        const read = (async (): Promise<ExtInvokeResult> => {
           const context = await readCocBinding(selected.path);
-          if (!context) return {ok:true,data:{status:"unbound",view:null,campaign:null}};
+          if (!context) return {ok:true,data:{status:"unbound",view:null,campaign:null,...await this.cocAnswerWords(undefined)}};
+          const words = await this.cocAnswerWords(context.play_language);
           try {
-            if (!this.managedNodeModulesRoot) throw new Error("Canonical runtime is unavailable");
+            if (!this.managedNodeModulesRoot) throw this.cocRefusal("runtime_unavailable", "Canonical runtime is unavailable");
             const view=await readColdSheet(join(this.managedNodeModulesRoot ?? "", ".."),context,undefined,this.env,this.cocRuntime);
             try {
               const folder=join(context.home,'.coc/campaigns',context.campaign);
@@ -8684,17 +8765,18 @@ export class PiHostBackend implements HostBackend {
                 liveView.labels={...saved.texts,...(isRecord(liveView.labels)?liveView.labels:{})};
               } catch { /* The sheet reads without that lane's words; the panel falls back to the canonical ones. */ }
             }
-            return {ok:true,data:{status:"ready",view,campaign:context.campaign}};
-          } catch(error) {return {ok:true,data:{status:"error",view:null,campaign:context.campaign,reason:error instanceof Error?error.message:String(error)}};}
+            return {ok:true,data:{status:"ready",view,campaign:context.campaign,...words}};
+          } catch(error) {return {ok:true,data:{status:"error",view:null,campaign:context.campaign,
+            code:this.cocCode(error),reason:error instanceof Error?error.message:String(error),...words}};}
         })().finally(()=>this.cocSheetReads.delete(sessionId));
         this.cocSheetReads.set(sessionId,read);
         return read;
       }
     }
     const live = this.live.get(sessionId);
-    if (!live || !this.liveProcessUsable(live)) return settingsDenied("no_session", "no active session");
+    if (!live || !this.liveProcessUsable(live)) return this.cocDenied("no_session", "no active session");
     if (!this.extensions.isMounted(sessionId, id)) {
-      return settingsDenied("capability_denied", "extension not mounted on session");
+      return this.cocDenied("capability_denied", "extension not mounted on session");
     }
     return this.enqueueExtInvoke(sessionId, id, method, params);
   }
