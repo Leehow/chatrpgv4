@@ -211,6 +211,13 @@ function errorDetailLines(details: Record<string, unknown> | undefined): string[
 			? "the definition agent ran out of time: retry with fewer define effects in this apply"
 			: "the definitions already accepted are retained, so the retry resumes from where this one stopped");
 	}
+	if (details.reason === "mod_narrative_repair") {
+		// The Mod audit already validates these lists; preserve its semantic repair verbatim.
+		lines.push(`mod repair: ${JSON.stringify({
+			missing: Array.isArray(details.missing) ? details.missing : [],
+			findings: Array.isArray(details.findings) ? details.findings : [],
+		})}`);
+	}
 	return lines;
 }
 
