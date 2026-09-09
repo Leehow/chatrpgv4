@@ -1,6 +1,6 @@
 # 记忆线面板：世界线图谱与点击分支（设计）
 
-2026-09-09 设计稿。状态：已批准（含「Y 轴 = 游戏内时钟」修订）。契约 §29 已落笔（`docs/kernel-rpc.md`），桌级分支的决定见 `docs/adr/0004-host-level-branch.md`。
+2026-09-09 设计稿。状态：已实现并通过验收（见文末验证记录）。契约 §29 已落笔（`docs/kernel-rpc.md`），桌级分支的决定见 `docs/adr/0004-host-level-branch.md`。
 
 ## 一、用户想达成什么
 
@@ -60,7 +60,7 @@ ADR-0001 的「recall 不读 git」约束管的是守秘人读面；这个宿主
 
 **`table.branch {campaign, commit, name?, label?}`** — 写，桌级动作：
 
-- 校验：`commit` 存在且可从某条 `wl/*` 到达；桌子空闲（无进行中的回合，进行中报 `operation_in_progress`）；`name` 合语法且不撞（缺省内核铸 `if-<forkturn>-<序>`）；另一活进程持锁时报 `operation_in_progress`。
+- 校验：`commit` 存在且可从某条 `wl/*` 到达；桌子空闲（无进行中的回合，进行中报 `operation_in_progress`）；`name` 合语法且不撞（缺省内核铸 `if-<forkturn>-<序>`）；另一活进程持锁时报共享 guard 的 `internal`+`details.reason=campaign_locked`（宿主展示层用 `operation_in_progress` 玩家词渲染，§29.3 定了这个分工）。
 - 执行复用 §15.9 迁移机器：必要时 seal 当前线 → 在 `commit` 上建 `wl/<name>` → 注册表加 `{kind:"if", forked_from:{line,turn,commit}, seed, status:active}`，原活动线转 `dormant` → 检出 → 注册表覆盖写回 → 按新线种子重播 rng → 从分叉点的回合记录重建检查点。失败即回滚，遥测一行。
 - 事件 `worldline-forked` 落在**新线**上（turn 取新线下一回合），与 §15.9 一致。
 - 幂等：同 `(campaign, commit, name)` 重放返回同一结果，不重复建线。
@@ -107,3 +107,13 @@ ADR-0001 的「recall 不读 git」约束管的是守秘人读面；这个宿主
 - 守秘人工具表加图读面（守秘人仍只有七动词 + `recall history {lines:true}`）。
 - 会话上下文回滚（见 D2）。
 - 图的分页/增量加载（`truncated` 提示先顶着）。
+
+## 六、验证记录（2026-09-09）
+
+**套件**：`pytest tests/kernel tests/play` 1419 全过；`test:ext` 616 过 / 6 红全部证为基底既有（49e21382 同红）或并发抖动（独立跑绿）；`check:kernel` 干净；`test:electron` 与基线一致（196 已知，无新增）；`coc-view.test.ts` 13/13（含新的冷路径映射钉）。
+
+**界面验收**（web dev 模式，战役 game-7eb72074）：面板载入、游戏内时钟标尺、setup 环节点、回合节点全渲染；点第 3 回合出确认卡（时间/线/回合占位符替换正确）；确认后内核真建了 `wl/if-3-1`（forked_from main@turn 3，注册表 main 转休眠、新线 active，旧线一个提交不少）；图刷新后「你在这里」标记落在分叉点；会话文件追加 coc-mechanics 分水岭条目（worldline/fork 投影）。暗色主题：计算样式证实面板真暗（bg rgb(32,33,38)、文字 rgb(229,231,235)、泳道 rgb(101,120,234)）；暗色像素截图被当日 WebView 截图通道卡死（driver_error/冻帧）所阻，属工具问题非功能问题。
+
+**验收抓出并修掉的两个真接缝**：`pipicoc/install` 的面板资产名单是硬编码的，新面板文件不在其中（已加 timeline.js/svg）；冷路径把 invoke 名原样传给内核（timeline.graph → unknown_method），已加 `timeline.*`→`table.*` 映射并有 coc-view 测试钉住。
+
+**残留**：暗色主题的像素级截图未取（工具通道问题）；真桌长局验收按 docs/acceptance.md 并入下一次（世界线 §15.8 本未跑）。

@@ -8666,7 +8666,7 @@ export class PiHostBackend implements HostBackend {
         const request:Record<string,unknown> = isRecord(params) ? {...params} : {};
         delete request.campaign;
         request.campaign = context.campaign;
-        const data:any = await callColdKernel(repo,context.home,method,request,this.env,this.cocRuntime);
+        const data:any = await callColdKernel(repo,context.home,method==="timeline.graph"?"table.graph":"table.branch",request,this.env,this.cocRuntime);
         if (method === "timeline.branch" && isRecord(data) && data.ok === true) {
           // The watershed belongs in the transcript (contract §16.2): the same coc-mechanics row
           // the live path appends through the pack, written here because no live process can.
