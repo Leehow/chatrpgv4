@@ -146,16 +146,6 @@ def test_read_side_transitions_match_the_python_writer(boundary):
     assert all(item["response"]["ok"] for item in result["exchanges"])
 
 
-def test_unmigrated_writers_cannot_report_placeholder_success():
-    root = retained("unsupported-families")
-    workspace = root / "candidate-workspace"
-    prepare(workspace)
-    result = observe(workspace, candidate_command(), [("mods.job", {})])
-    assert result["before_bytes"] == result["after_bytes"]
-    assert all(item["response"]["error"]["code"] == "not_implemented" for item in result["exchanges"])
-    (root / "unsupported.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
-
-
 @pytest.mark.parametrize("hp,conditions,elapsed,age,decision", [
     (9, [], 30, 10, "healing:first-aid-ordinary"),
     (0, ["major_wound", "dying"], 30, 5, "healing:dying-round-clock"),

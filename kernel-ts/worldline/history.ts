@@ -1,5 +1,5 @@
 /** Worldline history through the single captured campaign Git capability. */
-import {mkdir,writeFile,unlink} from 'node:fs/promises';
+import {lstat,mkdir,writeFile,unlink} from 'node:fs/promises';
 import {dirname,join,relative} from 'node:path';
 import type {KernelContext} from '../context.js';
 import type {CampaignWritePort} from '../transactions.js';
@@ -26,7 +26,7 @@ export async function commitIfDirty(context:WorldlineContext,message:string):Pro
 export async function blob(context:WorldlineContext,rev:string,path:string):Promise<string|null>{const result=await run(context,['show',`${rev}:${path}`]);return result.code===0?result.stdout:null;}
 export async function tree(context:WorldlineContext,rev:string,prefix:string,recursive=false):Promise<string[]>{const result=await run(context,['ls-tree','--name-only',...(recursive?['-r']:[]),rev,prefix]);return result.code===0?sorted(result.stdout.trim().split(/\s+/).filter(Boolean)):[];}
 export async function diskFiles(context:WorldlineContext,prefix:string):Promise<string[]>{
-    const result:string[]=[];const visit=async(path:string)=>{for(const name of await context.kernel.snapshots.sortedChildNames(path,()=>Promise.resolve(true))){const full=join(path,name);if(await context.kernel.snapshots.isDirectory(full))await visit(full);else if(await context.kernel.snapshots.isFile(full))result.push(relative(context.campaign.directory,full).split('\\').join('/'));}};
+    const result:string[]=[];const visit=async(path:string)=>{for(const name of await context.kernel.snapshots.sortedChildNames(path,()=>Promise.resolve(true))){const full=join(path,name);if((await lstat(full)).isDirectory())await visit(full);else if(await context.kernel.snapshots.isFile(full))result.push(relative(context.campaign.directory,full).split('\\').join('/'));}};
     if(await context.kernel.snapshots.isDirectory(join(context.campaign.directory,prefix)))await visit(join(context.campaign.directory,prefix));return sorted(result);
 }
 export async function restoreTree(context:WorldlineContext,rev:string,prefix:string,keep:readonly string[]=[]):Promise<{written:string[];removed:string[]}>{

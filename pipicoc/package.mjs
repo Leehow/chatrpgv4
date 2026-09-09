@@ -16,7 +16,7 @@ if(fs.existsSync(target)&&execFileSync('/bin/ps',['-axo','command='],{encoding:'
 const run=(command,args,cwd=repo,env=process.env)=>execFileSync(command,args,{cwd,env,stdio:'inherit'});
 run('npm',['run','build:runtime']);
 run('npm',['--prefix','Electron','run','build']);
-const assembled=await assembleRuntime({repo,output:join(stage,'runtime')});
+const assembled=await assembleRuntime({repo,output:join(stage,'runtime'),nodeArchive:process.env.PIPICOC_NODE_ARCHIVE,gitArchive:process.env.PIPICOC_GIT_ARCHIVE});
 fs.writeFileSync(join(stage,'pi-coc-runtime.json'),JSON.stringify({schemaVersion:1,kind:'standalone',runtimeRoot:'pi-coc'},null,2)+'\n');
 fs.copyFileSync(join(repo,'pipicoc/product.json'),join(stage,'product.json'));
 const config={appId:'com.leehow.pipicoc',productName:'PipiCOC',forceCodeSigning:false,npmRebuild:true,

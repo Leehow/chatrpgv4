@@ -15,7 +15,7 @@ fi
 [ -f "$root/build/runtime/host.mjs" ] || { echo 'Run npm run build:runtime before installing COC UI assets.' >&2; exit 1; }
 export PI_COC_NODE_EXECUTABLE="$runner"
 exec "$runner" --input-type=module - "$root" <<'JS'
-import {accessSync,constants,copyFileSync,cpSync,existsSync,mkdirSync,readFileSync,writeFileSync} from 'node:fs';
+import {accessSync,chmodSync,constants,copyFileSync,existsSync,lstatSync,mkdirSync,readdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 const root=process.argv[2];
@@ -25,21 +25,45 @@ if(compiled&&(!process.env.PI_COC_HOME||!process.env.PI_CODING_AGENT_DIR))throw 
 const context=composeRuntimeContext({owner:'preparation',home:process.env.PI_COC_HOME||root},{resourceRoot:root,
   agentHome:compiled?process.env.PI_CODING_AGENT_DIR:join(root,'.pi/coc-agent')});
 for(const path of [context.entrypoints.agent,context.entrypoints.deepseek])accessSync(path,constants.R_OK);
+function generatedDirectory(path){
+  if(existsSync(path)&&lstatSync(path).isSymbolicLink())throw new Error(`Generated asset directory must not be a symbolic link: ${path}`);
+  mkdirSync(path,{recursive:true});chmodSync(path,0o755);
+}
+function writableGeneratedFile(path){
+  const entry=lstatSync(path,{throwIfNoEntry:false});
+  if(!entry)return;
+  if(!entry.isFile()||entry.isSymbolicLink())throw new Error(`Generated asset must be a regular file: ${path}`);
+  chmodSync(path,0o644);
+}
+function copyGeneratedFile(source,destination){
+  writableGeneratedFile(destination);copyFileSync(source,destination);chmodSync(destination,0o644);
+}
+function copyGeneratedTree(source,destination){
+  generatedDirectory(destination);
+  for(const name of readdirSync(source)){
+    const from=join(source,name),to=join(destination,name),entry=lstatSync(from);
+    if(entry.isDirectory())copyGeneratedTree(from,to);
+    else if(entry.isFile())copyGeneratedFile(from,to);
+    else throw new Error(`Unsupported generated asset: ${from}`);
+  }
+}
+function writeGeneratedManifest(path,value){
+  writableGeneratedFile(path);writeFileSync(path,JSON.stringify(value,null,2)+'\n');chmodSync(path,0o644);
+}
 const destination=join(context.agentHome,'extensions/coc-keeper');
-mkdirSync(join(destination,'pipicoc/assets'),{recursive:true});
+for(const path of [join(context.agentHome,'extensions'),destination,join(destination,'pipicoc'),join(destination,'pipicoc/assets')])generatedDirectory(path);
 for(const asset of ['preparation.js','panel.js','mods-panel.js','mechanics.js','choices.js','sheet-icon.svg'])
-  copyFileSync(join(root,'pipicoc',asset),join(destination,'pipicoc',asset));
-copyFileSync(join(root,'pipicoc/assets/paper-texture.jpg'),join(destination,'pipicoc/assets/paper-texture.jpg'));
-copyFileSync(context.entrypoints.agent,join(destination,'pipicoc/agent.mjs'));
+  copyGeneratedFile(join(root,'pipicoc',asset),join(destination,'pipicoc',asset));
+copyGeneratedFile(join(root,'pipicoc/assets/paper-texture.jpg'),join(destination,'pipicoc/assets/paper-texture.jpg'));
+copyGeneratedFile(context.entrypoints.agent,join(destination,'pipicoc/agent.mjs'));
 const manifest=JSON.parse(readFileSync(join(root,'pipiui-extension.json'),'utf8'));
 manifest.agent.extension='pipicoc/agent.mjs';
-writeFileSync(join(destination,'pipiui-extension.json'),JSON.stringify(manifest,null,2)+'\n');
+writeGeneratedManifest(join(destination,'pipiui-extension.json'),manifest);
 const provider=join(context.agentHome,'extensions/deepseek');
-mkdirSync(provider,{recursive:true});
-cpSync(join(root,'extensions/deepseek'),provider,{recursive:true});
-copyFileSync(context.entrypoints.deepseek,join(provider,'agent/index.mjs'));
+copyGeneratedTree(join(root,'extensions/deepseek'),provider);
+copyGeneratedFile(context.entrypoints.deepseek,join(provider,'agent/index.mjs'));
 const providerManifest=JSON.parse(readFileSync(join(provider,'pipiui-extension.json'),'utf8'));
 providerManifest.agent.extension='agent/index.mjs';
-writeFileSync(join(provider,'pipiui-extension.json'),JSON.stringify(providerManifest,null,2)+'\n');
+writeGeneratedManifest(join(provider,'pipiui-extension.json'),providerManifest);
 console.log(`Installed compiled COC and provider UI assets at ${context.agentHome}`);
 JS

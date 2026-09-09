@@ -299,6 +299,11 @@ export function resolveResult(context: SettleContext, settled: Row): {
                 },
                 receipt: receipt.id
             });
+        else if (receipt.kind === 'session') {
+            const data: Row = {family: receipt.family ?? null, transition: receipt.transition ?? null};
+            for (const key of ['outcome', 'summary']) if (receipt[key] != null) data[key] = receipt[key];
+            events.push({type: 'session-changed', data, receipt: receipt.id});
+        }
     }
     events.push({
         type: 'decision-settled',

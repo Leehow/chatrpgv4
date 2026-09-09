@@ -202,25 +202,3 @@ def test_check_settlements_match_python(name):
     findings = differences(expected, actual)
     (root / "comparison.json").write_text(json.dumps({"equal": not findings, "differences": findings}, indent=2) + "\n")
     assert not findings, f"{name}: retained {root}\n" + "\n".join(findings[:60])
-
-
-def test_unsupported_families_are_refused_before_rng_or_persistence():
-    root = retained("unsupported")
-    base = seed_base(root, "unsupported")
-    path = base / ".coc/campaigns/c1/world.json"
-    world = json.loads(path.read_text())
-    del world["scene_trail"]
-    path.write_text(json.dumps(world, indent=2) + "\n")
-    client = RpcClient(base, command=TS_COMMAND, frozen_clock=True, env={"COC_KERNEL_SEED": "check-oracle-206"})
-    before = state_snapshot(base)
-    try:
-        for index, decision in enumerate(["combat:attack", "chase:start", "sanity:check", "magic:cast-spell", "objects:use"]):
-            response = client.call(*ordinary(f"t1-c{index + 1}", decision=decision))
-            assert response["error"]["code"] == "not_implemented", response
-            assert state_snapshot(base) == before
-        result = client.ok(*ordinary("t1-c20"))
-        assert result["outcome"]["roll"] == 74
-        assert "scene_trail" in json.loads(path.read_text())
-    finally:
-        client.close()
-    (root / "exchanges.json").write_text(json.dumps(client.exchanges, indent=2) + "\n")

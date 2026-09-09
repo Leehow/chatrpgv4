@@ -15,9 +15,26 @@ await build({stdin:{contents:[
   `export {createKernelContext} from ${JSON.stringify(join(ROOT,'kernel-ts/context.ts'))};`,
   `export {createWriteRuntime} from ${JSON.stringify(join(ROOT,'kernel-ts/write/index.ts'))};`,
   `export {PythonRandom} from ${JSON.stringify(join(ROOT,'kernel-ts/random.ts'))};`,
+  `export {diskFiles,restoreTree} from ${JSON.stringify(join(ROOT,'kernel-ts/worldline/history.ts'))};`,
 ].join('\n'),sourcefile:'writer-test-api.ts',resolveDir:ROOT,loader:'ts'},outfile:join(output,'api.mjs'),bundle:true,packages:'external',platform:'node',format:'esm',target:'node22',logLevel:'silent'});
 const api=await import(pathToFileURL(join(output,'api.mjs')).href);
 const create={id:'c1',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'};
+test('worldline restoration skips directory links and preserves their external files',async()=>{
+  const home=await mkdtemp(join(evidence,'restore-links-'));
+  const kernel=await api.createKernelContext({workspace:home,content:CONTENT,env:environment()});
+  try {
+    const writer=api.createWriteRuntime(kernel);await writer.handlers['campaign.create'](create);
+    const campaign=await writer.campaign({campaign:'c1'}),outside=join(home,'outside-save');
+    await mkdir(outside);await mkdir(campaign.path('save'),{recursive:true});
+    await writeFile(join(outside,'retained.json'),'external evidence\n');
+    await symlink(outside,campaign.path('save/directory-link'),'dir');
+    await symlink(join(outside,'retained.json'),campaign.path('save/file-link'),'file');
+    const result=await api.restoreTree({kernel,campaign},'HEAD','save');
+    assert.deepEqual(result.removed,['save/file-link']);
+    assert.equal(await readFile(join(outside,'retained.json'),'utf8'),'external evidence\n');
+    assert.deepEqual(await api.diskFiles({kernel,campaign},'save'),[]);
+  } finally {await kernel.git.close();}
+});
 function environment(extra={}) {
   return {...Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith('GIT_'))),
     GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_COUNT:'0',GIT_AUTHOR_DATE:'2000-01-02T03:04:05Z',GIT_COMMITTER_DATE:'2000-01-02T03:04:05Z',
