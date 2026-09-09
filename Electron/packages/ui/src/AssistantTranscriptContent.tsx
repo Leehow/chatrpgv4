@@ -1,4 +1,4 @@
-import { memo, useState, type ReactNode } from 'react'
+import { memo, useEffect, useState, type ReactNode } from 'react'
 import { BUILTIN_EXTENSION_ID } from './builtin-extension-id'
 import { getToolRenderer, isLiveProjectedTool, registerToolRenderer, useToolRenderers } from './ui-registries'
 import { toToolRenderPayload } from './piui-envelope'
@@ -34,6 +34,23 @@ function displayFileSourceUrl(url: string | undefined): string | undefined {
 }
 
 function elapsed(startedAt: number, endedAt = Date.now()) { return `${Math.max(0, Math.round((endedAt - startedAt) / 1000))}s` }
+
+const RUNNING_ELAPSED_TICK_MS = 1_000
+
+/** A running step's age is read at render time, and a tool that emits nothing between its call and
+ *  its result causes no renders — so a host operation that took three minutes used to sit at the
+ *  stale second count of whatever unrelated render happened to land, reading as a wedged app. Only
+ *  unfinished steps tick; a settled card renders from its own `finishedAt` and never schedules. */
+function useRunningNow(running: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!running) return
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), RUNNING_ELAPSED_TICK_MS)
+    return () => window.clearInterval(timer)
+  }, [running])
+  return now
+}
 function toolRunSummary(steps: number, thinking: string | null, tools: { name: string }[]): string {
   const counts = new Map<string, number>()
   for (const tool of tools) counts.set(tool.name, (counts.get(tool.name) ?? 0) + 1)
@@ -54,6 +71,8 @@ function failedToolCount(activities: TranscriptActivity[]): number {
 }
 
 const TranscriptToolCard = memo(function TranscriptToolCard({ tool }: { tool: TranscriptTool; streaming?: boolean }) {
+  const running = !tool.finished && !tool.dispatched
+  const now = useRunningNow(running)
   const argsSummary = toolArgsSummary(tool.name, tool.input)
   const subagentNotice = tool.name === 'subagent' && tool.finished && tool.result && !tool.error ? parseSubagentNotice(tool.result) : null
   const summary = tool.name === 'subagent'
@@ -63,14 +82,14 @@ const TranscriptToolCard = memo(function TranscriptToolCard({ tool }: { tool: Tr
   const stats = !tool.error ? fileChangeTokenStats(tool.name, tool.input ?? '') : null
   const delta = stats && tool.finished ? finishedFileChangeDeltaLabel(stats) : undefined
   const live = stats && !tool.finished ? liveTokenLabel(stats.payloadChars) : undefined
-  const baseMeta = tool.error ? `失败 · ${completedElapsed}` : subagentNotice ? `${subagentNotice.ok ? '成功' : '失败'} · ${subagentNotice.cost} · ${completedElapsed}` : tool.dispatched ? `已派发 · ${completedElapsed}` : tool.finished ? `完成 · ${completedElapsed}` : `运行中 · ${elapsed(tool.startedAt)}`
+  const baseMeta = tool.error ? `失败 · ${completedElapsed}` : subagentNotice ? `${subagentNotice.ok ? '成功' : '失败'} · ${subagentNotice.cost} · ${completedElapsed}` : tool.dispatched ? `已派发 · ${completedElapsed}` : tool.finished ? `完成 · ${completedElapsed}` : `运行中 · ${elapsed(tool.startedAt, now)}`
   const deltaNode = delta
     ? <span className="tok-delta-wrap">{delta.split(' ').map((part, i) => <span key={i} className={part.startsWith('+') ? 'tok-add' : 'tok-del'}>{i ? ` ${part}` : part}</span>)}</span>
     : null
   const meta: ReactNode = deltaNode
     ? <span>{deltaNode} · {baseMeta}</span>
     : live ? `${baseMeta} · ${live}` : baseMeta
-  return <ActivityCard kind="tool" summary={summary} meta={meta} error={Boolean(tool.error || (subagentNotice && !subagentNotice.ok))} defaultExpanded={false}>
+  return <ActivityCard kind="tool" summary={summary} meta={meta} running={running} error={Boolean(tool.error || (subagentNotice && !subagentNotice.ok))} defaultExpanded={false}>
     {tool.images && tool.images.length > 0 && <div className="tool-images">{tool.images.map((img, i) => <img key={i} className="tool-screenshot" src={`data:${img.mimeType};base64,${img.data}`} alt="工具截图" loading="lazy" />)}</div>}
     {tool.input && <div className="tool-io"><div className="tool-io-label">输入</div><pre>{formatToolInput(tool.name, tool.input)}</pre></div>}
     {tool.result && <div className="tool-io"><div className="tool-io-label">输出</div><div className="tool-result"><TruncatedText text={tool.result} /></div></div>}
@@ -78,8 +97,9 @@ const TranscriptToolCard = memo(function TranscriptToolCard({ tool }: { tool: Tr
 })
 
 const ActiveToolCard = memo(function ActiveToolCard({ tool }: { tool: TranscriptTool }) {
+  const now = useRunningNow(true)
   const live = liveTokenLabel(fileChangeTokenStats(tool.name, tool.input ?? '')?.payloadChars ?? 0)
-  return <section className="activity-card activity-card-tool activity-card-active-tool" data-activity-card="tool" data-testid="active-tool"><div className="activity-summary"><span className="activity-status" aria-hidden="true">◌</span><b>{toolDisplaySummary(tool.name, tool.input)}</b><small className="activity-meta">运行中 · {elapsed(tool.startedAt)}{live ? ` · ${live}` : ''}</small></div></section>
+  return <section className="activity-card activity-card-tool activity-card-active-tool" data-activity-card="tool" data-testid="active-tool"><div className="activity-summary"><span className="activity-status" aria-hidden="true">◌</span><b>{toolDisplaySummary(tool.name, tool.input)}</b><small className="activity-meta">运行中 · {elapsed(tool.startedAt, now)}{live ? ` · ${live}` : ''}</small></div></section>
 })
 
 export const AssistantTranscriptContent = memo(function AssistantTranscriptContent({ message, expandSteps, documentBasePath, onOpenDocument, onOpenSubagents }: { message: AssistantTranscriptMessage; expandSteps?: boolean; documentBasePath?: string; onOpenDocument?: (path: string) => void; onOpenSubagents?: (agentId?: string) => void }) {

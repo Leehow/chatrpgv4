@@ -31,6 +31,35 @@ afterEach(() => {
 })
 
 describe('active-turn waiting placeholder', () => {
+  // An `apply` that defines objects runs host-side Mod agents for minutes and streams nothing, so the
+  // only surface that keeps moving through the call — the waiting line — carries the pack's own count.
+  it('carries CoC mod-definition progress while the tool call runs, and drops it when the phase turns', async () => {
+    let listener: ((event: StreamEvent) => void) | undefined
+    let extListener: ((event: { type: string; payload?: unknown }) => void) | undefined
+    const base = createMockHost()
+    const host: PipiHostAPI = { ...base,
+      subscribeStream: (_sessionId, callback) => { listener = callback; return () => { listener = undefined } },
+      subscribeExt: (extensionId: string, callback: (event: { type: string; payload?: unknown }) => void) => {
+        if (extensionId !== 'coc-keeper') return () => undefined
+        extListener = callback
+        return () => { extListener = undefined }
+      },
+    } as PipiHostAPI
+    render(<App host={host} />)
+    await screen.findAllByText('Electron 三栏界面')
+    await waitFor(() => expect(listener).toBeDefined())
+    await waitFor(() => expect(extListener).toBeDefined())
+
+    act(() => { listener?.({ type: 'status', sessionId: 'welcome', status: 'started', pendingFollowUps: ['host'] }) })
+    act(() => { listener?.({ type: 'tool_call', sessionId: 'welcome', toolCallId: 'apply-1', name: 'apply', delta: '{"effects":[]}' }) })
+    act(() => { extListener?.({ type: 'mods-progress', payload: { campaign: 'c1', done: 2, total: 7 } }) })
+    await waitFor(() => expect(document.querySelector('.waiting-placeholder__detail')?.textContent).toContain('生成物品定义 2/7'))
+
+    // The last definition lands: the count stops claiming work that is no longer running.
+    act(() => { extListener?.({ type: 'mods-progress', payload: { campaign: 'c1', done: 7, total: 7 } }) })
+    await waitFor(() => expect(document.querySelector('.waiting-placeholder__detail')?.textContent).not.toContain('生成物品定义'))
+  })
+
   it('folds a host-driven turn (resumed/read-only session) once it settles', async () => {
     let listener: ((event: StreamEvent) => void) | undefined
     const base = createMockHost()

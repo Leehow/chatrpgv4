@@ -540,6 +540,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   const [waitingVisible, setWaitingVisible] = useState(false)
   const [waitingPhase, setWaitingPhase] = useState<WaitingPhase>('awaiting')
   const [waitingDetail, setWaitingDetail] = useState<string | undefined>(undefined)
+  const [modsProgress, setModsProgress] = useState<string | undefined>(undefined)
   const [stoppingSessionId, setStoppingSessionId] = useState<string | null>(null)
   const [stopError, setStopError] = useState<{ sessionId: string; message: string } | null>(null)
   const [lease, setLease] = useState<SessionLease | null>(null)
@@ -1000,6 +1001,20 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     workspaceNoticeInFlightRef.current = true
     void refreshProjectsForWorkspaceRef.current().catch(() => undefined).finally(() => { workspaceNoticeInFlightRef.current = false })
   }), [host])
+  // A CoC apply that defines new objects spends its whole tool call on host-side Mod agents and
+  // streams nothing, so the transcript has no way to say what the minutes are going into. The pack
+  // reports its own progress on the D4 channel it already owns; the waiting line is the one surface
+  // that keeps ticking through a silent tool call, so it carries it. Cleared whenever the turn
+  // leaves the tool phase, so a stale count can never outlive the call it belongs to.
+  useEffect(() => subscribeExt(host, 'coc-keeper', event => {
+    if (event?.type !== 'mods-progress') return
+    const payload = (event.payload ?? {}) as { done?: unknown; total?: unknown }
+    const done = typeof payload.done === 'number' ? payload.done : null
+    const total = typeof payload.total === 'number' ? payload.total : null
+    if (done === null || total === null || total <= 0) return
+    setModsProgress(done >= total ? undefined : `生成物品定义 ${done}/${total}`)
+  }), [host])
+  useEffect(() => { if (waitingPhase !== 'tool') setModsProgress(undefined) }, [waitingPhase])
   useEffect(() => {
     if (!host.setEventProjectionSession) return
     void host.setEventProjectionSession(selectedSession || undefined).catch(() => undefined)
@@ -2685,8 +2700,11 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
   // The first-response wait (any active main turn) takes precedence at the
   // transcript tail; while it is hidden, a running background subagent keeps the
   // tail alive with a stable-timed phase=tool indicator and no stop button.
+  const waitingDetailShown = modsProgress && waitingPhase === 'tool'
+    ? waitingDetail ? `${waitingDetail} · ${modsProgress}` : modsProgress
+    : waitingDetail
   const firstResponseWaiting = waitingVisible && waitingStartedAt !== null
-    ? { startedAt: waitingStartedAt, phase: waitingPhase, detail: waitingDetail, onStop: stopSelectedSession }
+    ? { startedAt: waitingStartedAt, phase: waitingPhase, detail: waitingDetailShown, onStop: stopSelectedSession }
     : undefined
   const subagentWaiting = !firstResponseWaiting && subagentsRunningCount > 0 && subagentWaitingStartedAt !== null
     ? { startedAt: subagentWaitingStartedAt, phase: 'tool' as const, detail: `${subagentsRunningCount} 个子任务执行中` }
