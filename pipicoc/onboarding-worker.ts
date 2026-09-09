@@ -8,6 +8,7 @@ import { prepareCharacterGuidance, guidanceFingerprint, acceptedGuidance } from 
 import { prepareCharacterPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
 import { labelsFor } from './panel.js';
 import { sourceInfo } from '../extensions/module/source.ts';
+import { presentDocument } from '../extensions/mods/document-presentation.ts';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const [action, raw] = process.argv.slice(2);
@@ -66,6 +67,11 @@ async function starterCatalog(playLanguage?: string) {
   return rows.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id)).map(({order, ...row}) => row);
 }
 async function main() {
+  if (action === 'document-presentation') {
+    const document = await call('mods.document.view', {campaign:input.campaign, actor:input.actor, name:input.name});
+    if (document.version !== input.version) throw Object.assign(new Error('The document changed; reload before saving'), {code:'revision_conflict'});
+    return presentDocument({...input, signal:guidanceAbort.signal}, document);
+  }
   if(action==='presentation') {
     if(input.standing) {
       const view=await call('table.view',{campaign:input.campaign});

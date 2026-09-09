@@ -1,7 +1,8 @@
 /** Explicit-session panel adapter; it does not expose Keeper-only Mod context. */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { emitToPanel, registerInvokeHandlers } from "./host-bridge.ts";
 import { readFile } from "node:fs/promises";
+import { documentPresentationStatus } from "../extensions/mods/document-presentation.ts";
 
 let texture: Promise<string | undefined> | undefined;
 const paperTexture = () => texture ??= readFile(new URL("./assets/paper-texture.jpg", import.meta.url))
@@ -10,6 +11,11 @@ const paperTexture = () => texture ??= readFile(new URL("./assets/paper-texture.
 export function registerModsPanel(pi: ExtensionAPI): void {
   let call: ((method:string, params:Record<string, unknown>) => Promise<unknown>) | undefined;
   let campaign: string | undefined;
+  let context: ExtensionContext | undefined;
+  const abort = new AbortController();
+  pi.on("session_shutdown", async () => {abort.abort();});
+  pi.on("session_start", async (_event, ctx) => {context = ctx;});
+  pi.on("before_agent_start", async (_event, ctx) => {context = ctx;});
   pi.events.on("coc:kernel-bridge", (value) => {
     const event = value as {call?:typeof call; campaign?:string};
     call = event?.call;
@@ -23,9 +29,14 @@ export function registerModsPanel(pi: ExtensionAPI): void {
     if (!call) throw new Error("The game runtime is not ready");
     if (method === "mods.configure" && !campaign) throw new Error("Select a campaign before changing its Mods");
     if (method.startsWith("mods.document.") && !campaign) throw new Error("Select the document's campaign");
-    const result = await call(method, {...params, ...(campaign ? {campaign} : {})});
+    let result = await call(method, {...params, ...(campaign ? {campaign} : {})});
     if (method === "mods.document.apply") void emitToPanel("coc-keeper", "sheet-changed");
     else if (method !== "mods.list" && !method.startsWith("mods.document.")) notify();
+    if (method.startsWith("mods.document.")) {
+      result = documentPresentationStatus({home:process.env.PI_COC_HOME || context?.cwd || process.cwd(),
+        model:process.env.PI_COC_MOD_MODEL?.trim() || (context?.model ? `${context.model.provider}/${context.model.id}` : undefined),
+        thinking:context?.thinkingLevel, signal:abort.signal}, result as any);
+    }
     if (method.startsWith("mods.document.") && (result as any)?.editor?.renderer === "paper") {
       return {...result as any, texture:await paperTexture()};
     }

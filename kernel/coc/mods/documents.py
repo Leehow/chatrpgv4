@@ -53,6 +53,7 @@ def ownership_changed(world: dict[str, Any]) -> None:
         if document.get("acquired_by") != actor:
             if actor is not None:
                 document["original"] = document["text"]
+                document["player_edited"] = False
                 document["acquired_turn"] = item.get("changed_turn", item.get("created_turn"))
             document["acquired_by"] = actor
             document["revision"] += 1
@@ -73,6 +74,7 @@ def write(item: dict[str, Any], text: Any) -> bool:
     if text == document["text"]:
         return False
     document["text"] = text
+    document["player_edited"] = False
     document["revision"] += 1
     document["edited_at"] = now_iso()
     return True
@@ -100,6 +102,8 @@ def methods(adapter: Any) -> dict[str, Any]:
         editor = adapter.runtime.editor(world)
         return {"name": item["name"], "actor": actor["name"], "text": document["text"],
                 "original": document["original"], "presentation": document["presentation"],
+                "player_edited": document.get("player_edited", bool(document.get("edited_at"))
+                                               and document["text"] != document["original"]),
                 "version": version(campaign, world, item), "editor": editor,
                 "play_language": campaign.read_campaign().get("play_language", "en")}
 
@@ -118,7 +122,12 @@ def methods(adapter: Any) -> dict[str, Any]:
         document = item["document"]
         text = document["original"] if action == "reset" else params.get("text")
         before = document["text"]
-        if write(item, text):
+        changed = write(item, text)
+        if changed or document.get("player_edited", False) != (action == "save"):
+            if not changed:
+                document["revision"] += 1
+                document["edited_at"] = now_iso()
+            document["player_edited"] = action == "save"
             campaign.write_world(world)
             append_jsonl(campaign.dir / "document-edits.jsonl", {
                 "kind": "document-edit", "at": document["edited_at"], "action": action,

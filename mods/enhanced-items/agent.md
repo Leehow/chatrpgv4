@@ -8,6 +8,11 @@ For a previously revealed textual handout, use document:{handout:<its name>,
 presentation}; the kernel captures its exact source text, without retyping it.
 Only initialize once. Use the established readable text (empty for blank paper),
 retrieve its revealed source if needed, and keep all undiscovered source truth out.
+Write generated readable document text in the campaign play_language, including
+instance seeds and in-fiction NPC writing. Preserve names, amounts, line breaks,
+facts and intentionally quoted clues. The setting's language does not override
+the player's reading language. Exact handout captures are localized by the host
+for reading without changing their source. Preserve the player's own wording.
 This applies to existing owned carriers even when the new narration omits them.
 For player-declared in-fiction writing, use the same-owner object call with
 document:{action:"write",text} and a causal why. Writing changes current text only.

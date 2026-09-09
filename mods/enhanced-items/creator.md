@@ -15,6 +15,10 @@ Writable or readable physical carriers also need document:{text,presentation},
 where presentation is paper, notebook or book. Recognize these semantically from
 context, not only from a narrow set of names. A blank notebook/paper has text:"".
 Use the established readable writing, not a synopsis substituted for its words.
+Write generated document.text in request.play_language, just like the player
+description. Preserve facts, amounts, names, paragraph breaks and meaningful
+quoted clues; a setting in an English-speaking country is not a reason to write
+the player's paper in English. Leave an already localized passage verbatim.
 Retrieve known source text when needed; never invent letters/diary entries, expose
 undiscovered source secrets, translate undeciphered writing or grant spell knowledge.
 Ordinary paper/book carriers can use charges:null and effects:[]; their document

@@ -14,6 +14,7 @@ export class CocOnboardingHost {
   private stopping = new Set<string>();
   private presentations = new Map<string,{task:Promise<Row>;result?:Row;error?:unknown}>();
   private presentationChildren = new Set<ChildProcess>();
+  private documentReadings = new Map<string,{result?:Row;error?:unknown}>();
   private root: string;
   private children = new Map<string, ChildProcess>();
   private busy = new Set<string>();
@@ -82,7 +83,7 @@ export class CocOnboardingHost {
     });
     const key=job?this.phaseKey(job,phase||action):undefined;
     if(key)this.children.set(key,child);
-    if(action==='presentation'){this.presentationChildren.add(child);child.once('close',()=>this.presentationChildren.delete(child));}
+    if(action==='presentation'||action==='document-presentation'){this.presentationChildren.add(child);child.once('close',()=>this.presentationChildren.delete(child));}
     return new Promise((resolve, reject) => {
       let pending = '', tail = '', result: any, failure: any;
       child.stderr.on('data', chunk => {tail = (tail + chunk).slice(-2000);});
@@ -225,6 +226,20 @@ export class CocOnboardingHost {
   }
   presentation(data:Row):Promise<Row> {
     return this.presentationJob(data).task;
+  }
+  documentPresentationStatus(data:Row):Row {
+    const key=JSON.stringify([data.campaign,data.actor,data.name,data.version,data.play_language]);
+    let job=this.documentReadings.get(key);
+    if(!job) {
+      job={};this.documentReadings.set(key,job);
+      const current=job;
+      void this.run('document-presentation',data).then(result=>{current.result=result;},error=>{current.error=error;});
+      if(this.documentReadings.size>64)for(const [old,value] of this.documentReadings) {
+        if(old!==key&&(value.result||value.error)){this.documentReadings.delete(old);break;}
+      }
+    }
+    if(job.error){this.documentReadings.delete(key);throw job.error;}
+    return job.result||{pending:true};
   }
   presentationStatus(data:Row):Row {
     const job=this.presentationJob(data);

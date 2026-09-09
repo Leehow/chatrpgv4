@@ -241,3 +241,26 @@ campaign was closed or removed. UI assets were installed in the main checkout;
 the native App was not repackaged or replaced in this task. Existing saves select
 the new Mod version explicitly, and legacy inventory enrichment occurs on their
 next normal Keeper turn rather than through fabricated player input.
+
+### Paper reading language correction (2026-09-08)
+
+Enhanced Items 1.1.2 writes generated document content in campaign play_language.
+The shared host reader also localizes previously acquired and authored papers
+without migrating their canonical text or acquisition snapshots. Explicit player
+edits remain verbatim, including a save equal to the raw source. Reset restores
+the stored baseline and reuses its localized reading. Preparation is polled through
+owned views so the 15-second hot invoke timeout never owns a model-length wait.
+
+Validation: 45 focused kernel/Mod/language checks, 152 extension tests, and 41
+UI/onboarding-host tests passed. The actual tool-enabled Grok 4.6 reader translated
+the completed test campaign's Knott commission slip into Chinese in 7065 ms;
+the repeat cache read took 1 ms. Both live-panel adapter and cold worker produced
+the same title/text and retained the exact canonical revision. Before/after owned
+views were equal. This was a read-only presentation check, not a new playtest.
+Evidence is in the main checkout's output/paper-language-sep08 directory.
+
+TypeScript no-emit checking still reports the same pre-existing rootDir and
+ExtInvokeResult/ErrorCode failures as the untouched integration checkout; no new
+diagnostics were introduced. No full native-App package or GUI relaunch was run.
+Existing locked versions receive reading projection with the updated host; new
+generation instructions require explicitly upgrading the campaign to 1.1.2.

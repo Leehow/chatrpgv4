@@ -2196,6 +2196,39 @@ These UI captions use the sidebar's existing closed-language chrome exception.
 
 ## 26. Gameplay mods (2026-09-08)
 
+### Document reading language (2026-09-08)
+
+Enhanced Items 1.1.2 requires `ui.documents.language.v1` and instructs both the creator and Keeper to write generated,
+readable document content in campaign `play_language`, preserving established
+facts and intentional quoted clues. Authored handout captures remain exact.
+The host presents existing documents through a tool-enabled Pi reading projection:
+title, current writing and acquisition original use that same language, with
+paragraphs, names, amounts and clue wording preserved. It does not decipher text,
+retrieve hidden material, change canonical names or write campaign state.
+
+The projection cache binds exact input text, target language and instructions.
+Blank writing stays blank. Already localized text remains verbatim. Explicit
+player edits are never translated or rewritten: `mods.document.view/apply` return
+`player_edited` to distinguish these from generated writing. Legacy changed text
+with an edit timestamp is conservatively treated as player-authored. In-fiction
+Keeper writes clear that marker; acquisition by a new owner starts a new baseline.
+Reset still uses the stored acquisition original and then presents its cached
+reading version. No client-supplied translation becomes the reset authority.
+
+Hot and cold panel adapters share the same projector. Failed preparation leaves
+the editor in a retryable loading/error state; it does not silently claim an
+untranslated page is ready. The canonical revision token still guards writes.
+First preparation returns `{pending:true}`; the panel polls owned views while
+retaining its draft, never resubmitting a save/reset to wait for a translation.
+Projection is host presentation and also works for previously locked Mod versions
+and the plain core editor. Future generation instructions require a Mod upgrade.
+
+This separates source from presentation as recommended by
+[W3C internationalization guidance](https://www.w3.org/International/quicktips/index);
+[Firefox translation](https://firefox-source-docs.mozilla.org/toolkit/components/translations/resources/01_overview.html)
+provides a comparable translated reading surface. Unlike Firefox's local models,
+this product uses its existing tool-enabled Pi content runner.
+
 ### Writable documents and ordered overrides (2026-09-08)
 
 Enhanced Items 1.1.0 adds `objects.documents.v1`. The semantic creator may attach

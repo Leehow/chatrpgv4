@@ -7,6 +7,28 @@ import {createComponent, createDocumentEditor} from '../../../../pipicoc/panel.j
 const Editor=createDocumentEditor(React), Panel=createComponent(React);
 afterEach(cleanup);
 
+test('localized reading waits without resubmitting a save and keeps the canonical handle',async()=>{
+  let reads=0, saved=false;
+  const snapshot={name:'Commission slip',display_name:'委托纸条',play_language:'zh-Hans',actor:'i',
+    text:'每天 $20。',original:'每天 $20。',version:'one',editor:{renderer:'paper'}};
+  const invoke=vi.fn(async(method:string,params:any)=>{
+    if(method==='mods.document.apply'){saved=true;return {ok:true,data:{pending:true}};}
+    reads++;
+    return {ok:true,data:reads===1?{pending:true}:{...snapshot,...(saved?{text:'My note',version:'two'}:{})}};
+  });
+  render(<Editor api={{invoke}} name="Commission slip" actor="i" language="zh-Hans" onClose={()=>{}}/>);
+  const heading=await screen.findByRole('heading',{name:'委托纸条'},{timeout:2000});
+  expect(heading).toBeTruthy();
+  expect(screen.getByRole('dialog').getAttribute('lang')).toBe('zh-Hans');
+  const body=screen.getByRole('textbox') as HTMLTextAreaElement;
+  expect(body.value).toBe('每天 $20。');
+  fireEvent.change(body,{target:{value:'My note'}});
+  fireEvent.click(screen.getByRole('button',{name:'保存',exact:true}));
+  await waitFor(()=>expect(body.readOnly).toBe(false),{timeout:2000});
+  expect(invoke.mock.calls.filter(([method])=>method==='mods.document.apply')).toHaveLength(1);
+  expect(invoke).toHaveBeenCalledWith('mods.document.apply',expect.objectContaining({name:'Commission slip',text:'My note'}));
+});
+
 function host(original='Meet at the station.') {
   let value={name:'Notebook',actor:'Investigator',text:original,original,version:'v1',presentation:'notebook',editor:{renderer:'paper',provider:'enhanced-items'}};
   const invoke=vi.fn(async(method:string,params:any)=>{

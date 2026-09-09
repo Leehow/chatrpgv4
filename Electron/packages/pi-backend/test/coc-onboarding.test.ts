@@ -13,6 +13,19 @@ async function service(){
 }
 afterEach(()=>{for(const host of services.splice(0))host.dispose()});
 const model={id:'test/no-provider',thinking:'low',vision:true};
+it('polls document reading once per revision and language without repeating edits',async()=>{
+ const {host}=await service();let complete:(value:any)=>void=()=>{};
+ const run=vi.spyOn(host as any,'run').mockImplementation(()=>new Promise(resolve=>{complete=resolve}));
+ const data={campaign:'one',actor:'Investigator',name:'Slip',version:'v1',play_language:'zh-Hans'};
+ expect(host.documentPresentationStatus(data)).toEqual({pending:true});
+ expect(host.documentPresentationStatus(data)).toEqual({pending:true});
+ complete({text:'每天 $20。',original:'每天 $20。'});await Promise.resolve();
+ expect(host.documentPresentationStatus(data).text).toBe('每天 $20。');
+ expect(run).toHaveBeenCalledTimes(1);
+ expect(run).toHaveBeenCalledWith('document-presentation',data);
+ expect(host.documentPresentationStatus({...data,version:'v2'})).toEqual({pending:true});
+ expect(run).toHaveBeenCalledTimes(2);
+});
 it('projects legacy ready imports without discarding guidance or rewriting them on status',async()=>{
  const {host,home}=await service();const job=await host.invoke({action:'begin',name:'old.pdf',size:9},'one',model);
  const path=join(home,'.coc/imports',job.id,'job.json');const saved=JSON.parse(await readFile(path,'utf8'));

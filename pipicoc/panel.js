@@ -394,11 +394,19 @@ export function createDocumentEditor(React) {
     const [closing, setClosing] = useState(false);
     const [notice, setNotice] = useState("");
     const dirty = value && draft !== value.text;
+    async function ready(response, current) {
+      while (response?.ok && response.data?.pending) {
+        await new Promise(resolve=>setTimeout(resolve,700));
+        if (current !== generation.current) return null;
+        response = await api.invoke("mods.document.view", {name, actor});
+      }
+      return response;
+    }
     async function load(keepDraft = false) {
       const current = ++generation.current;
       setLoading(true); setError("");
       try {
-        const response = await api.invoke("mods.document.view", {name, actor});
+        const response = await ready(await api.invoke("mods.document.view", {name, actor}), current);
         if (current !== generation.current) return;
         if (!response?.ok) throw new Error(response?.error?.message || t.failed);
         setValue(response.data); if(!keepDraft)setDraft(response.data.text); setClosing(false);
@@ -411,8 +419,8 @@ export function createDocumentEditor(React) {
       const current = generation.current;
       setBusy(true); setError(""); setNotice("");
       try {
-        const response = await api.invoke("mods.document.apply", {name, actor, version:value.version, action,
-          ...(action === "save" ? {text:draft} : {})});
+        const response = await ready(await api.invoke("mods.document.apply", {name, actor, version:value.version, action,
+          ...(action === "save" ? {text:draft} : {})}), current);
         if (current !== generation.current) return;
         if (!response?.ok) { setError(response?.error?.code === "revision_conflict" ? t.conflict : (response?.error?.message || t.failed)); return; }
         setValue(response.data); setDraft(response.data.text); setClosing(false); onSaved?.();
@@ -432,14 +440,14 @@ export function createDocumentEditor(React) {
     useEffect(() => { focused.current=false; void load(); return () => {generation.current++;}; }, [api,name,actor]);
     useEffect(() => { if (!loading && value && !focused.current) {input.current?.focus();focused.current=true;} }, [loading,value]);
     return h(React.Fragment, null, h("style", null, PAPER_STYLE),
-      h("dialog", {ref:dialog, className:"coc-paper-dialog", "aria-label":name, "data-renderer":value?.editor?.renderer || "paper",
+      h("dialog", {ref:dialog, className:"coc-paper-dialog", "aria-label":value?.display_name || name, lang:value?.play_language || language, "data-renderer":value?.editor?.renderer || "paper",
         style:value?.texture ? {backgroundImage:`url(${value.texture})`} : undefined,
         onCancel:event=>{event.preventDefault();close();},
         onClick:event=>{if(event.target===event.currentTarget)close();},
         onKeyDown:event=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="s"){event.preventDefault();if(dirty)void persist("save");}}},
         h("div", {className:"coc-paper-shell"},
           h("header", {className:"coc-paper-head"}, h("div", null,
-            h("p", {className:"coc-paper-kicker"}, t.title), h("h2", null, name)),
+            h("p", {className:"coc-paper-kicker"}, t.title), h("h2", null, value?.display_name || name)),
             h("button", {type:"button",className:"coc-paper-close",disabled:busy,onClick:close}, t.close)),
           loading && h("p", {className:"coc-paper-message",role:"status"}, t.loading),
           error && h("p", {className:"coc-paper-message",role:"alert"}, error,

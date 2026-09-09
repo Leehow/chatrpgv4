@@ -1,3 +1,11 @@
+# 1.1.2
+
+Generated readable writing follows the campaign play_language in both creator
+definitions and Keeper instance writes. The host supplies cached reading versions
+for older and authored documents while retaining exact acquisition originals and
+the player's own edits.
+Requires ui.documents.language.v1; older hosts report an incompatible upgrade.
+
 # 1.1.1
 
 The shipped editor contribution uses the additive top-level ui field. Older live

@@ -8508,12 +8508,19 @@ export class PiHostBackend implements HostBackend {
         const request:Record<string,unknown> = isRecord(params) ? {...params} : {};
         delete request.campaign;
         if (context) request.campaign = context.campaign;
-        const data:any = await callColdKernel(repo,context?.home ?? resolve(this.env.PI_COC_HOME || repo),method,request,this.env);
+        let data:any = await callColdKernel(repo,context?.home ?? resolve(this.env.PI_COC_HOME || repo),method,request,this.env);
+        if (method === "mods.document.apply") emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context?.campaign}}});
+        if (method.startsWith("mods.document.") && context) {
+          const state = await this.getModelState(sid);
+          const host = this.cocOnboardingRegistry.get({repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
+          const reading = host.documentPresentationStatus({campaign:context.campaign,actor:data.actor,name:data.name,version:data.version,play_language:data.play_language,
+            model:this.env.PI_COC_MOD_MODEL?.trim() || `${state.model.provider}/${state.model.id}`,thinking:state.thinkingLevel});
+          data = reading.pending ? reading : {...data,display_name:reading.display_name,text:reading.text,original:reading.original};
+        }
         if (method.startsWith("mods.document.") && data?.editor?.renderer === "paper") {
           try {data.texture = `data:image/jpeg;base64,${(await fs.readFile(join(repo,'pipicoc/assets/paper-texture.jpg'))).toString('base64')}`;}
           catch { /* Text remains editable if the optional texture asset is unavailable. */ }
         }
-        if (method === "mods.document.apply") emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context?.campaign}}});
         return {ok:true,data};
       } catch(error) {return settingsDenied(method.startsWith("mods.document.")&&typeof (error as any)?.code==='string'?(error as any).code:"mods_failed",error instanceof Error ? error.message : String(error));}
     }

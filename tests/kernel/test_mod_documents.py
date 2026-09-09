@@ -35,12 +35,15 @@ def test_edit_reopen_reset_keeps_acquisition_source_and_turn_state(kernel):
     original_world=read_json(folder/"world.json")
     first=view(kernel)
     assert first["original"]==first["text"]=="Meet at the station."
+    assert first["player_edited"] is False
     assert first["editor"]=={"provider":"enhanced-items","renderer":"paper"}
     changed=edit(kernel,first,text="<script>not executable</script>\nMy notes")
     assert changed["original"]==first["original"] and changed["text"]!=first["text"]
+    assert changed["player_edited"] is True
     assert view(kernel)["text"]==changed["text"]
     reset=edit(kernel,changed,"reset")
     assert reset["text"]==reset["original"]==first["text"]
+    assert reset["player_edited"] is False
     assert before=={name:(folder/name).read_bytes() for name in before}
     world=read_json(folder/"world.json")
     assert world["objects"]["definitions"]==original_world["objects"]["definitions"]
@@ -62,6 +65,16 @@ def test_blank_original_and_stale_edits_are_preserved_across_processes(kernel):
     finally:
         other.close()
 
+def test_explicit_player_wording_is_preserved_even_when_equal_to_raw_source(kernel):
+    owned_paper(kernel, text="Keep this exact English wording.")
+    first = view(kernel)
+    saved = edit(kernel, first, text=first["text"])
+    assert saved["player_edited"] is True
+    assert saved["version"] != first["version"]
+    reset = edit(kernel, saved, "reset")
+    assert reset["player_edited"] is False
+    assert reset["text"] == reset["original"] == first["original"]
+
 
 def test_transfer_captures_actual_received_text_and_blocks_prior_owner(kernel):
     owned_paper(kernel)
@@ -74,6 +87,7 @@ def test_transfer_captures_actual_received_text_and_blocks_prior_owner(kernel):
     kernel.table("apply",call_id="t1-c4",effects=[{"kind":"object","name":"Notebook","from":"Steven Knott","to":"Thomas Hayes"}])
     received=view(kernel)
     assert received["original"]==received["text"]=="Knott's addition"
+    assert received["player_edited"] is False
     changed=edit(kernel,received,text="Another player edit")
     assert edit(kernel,changed,"reset")["text"]=="Knott's addition"
 
