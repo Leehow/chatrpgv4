@@ -8,7 +8,9 @@ core setup instructions still govern the draft, the confirmation and the handoff
 ## The shape of the exchange
 
 Once the player has given a name and an occupation concept, ask one question in the
-fiction before drafting. Ask about a situation this person has been in, never about
+fiction before drafting. If the core rule about a trade with no rulebook entry
+applies, settle that first, in its own turn, and count it as one of the guiding
+turns; it is not a reason to ask the situational question in the same breath. Ask about a situation this person has been in, never about
 a number, a stat or a menu of skills: a bar fight they did or did not join, the last
 time something broke and who fixed it, what they notice first in a room. Pick the
 situation so that any answer tells you something the card needs — what this person

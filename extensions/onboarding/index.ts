@@ -596,7 +596,10 @@ export default function (pi: ExtensionAPI) {
     lastPlayerInput=event.prompt;inputKey=randomUUID();guidanceBlocked=false;
     await ensureSteps();
     let guidance: Guidance | undefined;
-    try {guidance=await ensureGuidance();}
+    // The campaign id may be known before the campaign exists (PI_COC_CAMPAIGN); preparing guidance for a campaign that a
+    // rejected create-campaign never made throws, and that used to poison every later turn with a guidance refusal.
+    // Guidance is prepared by the create-campaign step itself and, on later turns, only once that step has run.
+    try {guidance=completed.has('create-campaign')||characterGuidance?await ensureGuidance():undefined;}
     catch(error) {
       guidanceBlocked=true;
       // What the player is told is the campaign's sentence; the English message the preparation

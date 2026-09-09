@@ -1,5 +1,11 @@
 # Guided Creation
 
+## 1.0.1
+
+A trade with no rulebook entry is settled first, in its own turn, before the
+situational question, and counts as a guiding turn. The bytes of 1.0.0 stay
+frozen wherever they were installed; a changed guide is a new version.
+
 ## 1.0.0
 
 First version. Requires `setup.guidance.v1` and `setup.aptitude.v1`. Contributes

@@ -281,6 +281,7 @@ export function investigatorSummary(sheet: Row): Row {
         id: sheet.id ?? null,
         name: sheet.name ?? null,
         occupation: sheet.occupation ?? null,
+        occupation_stated: sheet.occupation_stated ?? null,
         hp: sheet.current_hp ?? null,
         san: sheet.current_san ?? null,
         mp: sheet.current_mp ?? null,

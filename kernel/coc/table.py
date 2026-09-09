@@ -516,7 +516,8 @@ class Table:
     @staticmethod
     def investigator_row(sheet: dict[str, Any]) -> dict[str, Any]:
         return {"id": sheet.get("id"), "name": sheet.get("name"),
-                "occupation": sheet.get("occupation"), "hp": sheet.get("current_hp"),
+                "occupation": sheet.get("occupation"), "occupation_stated": sheet.get("occupation_stated"),
+                "hp": sheet.get("current_hp"),
                 "san": sheet.get("current_san"), "mp": sheet.get("current_mp"),
                 "luck": sheet.get("current_luck")}
 

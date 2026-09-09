@@ -13,7 +13,7 @@ import type { CampaignWriter } from '../write/store.js';
 import type { Setup } from './index.js';
 import { ChargenError } from './chargen.js';
 import { BACKSTORY, completeness, nonempty } from './sheet.js';
-const FIELDS = ['name', 'occupation', 'age', 'sex', 'concept', 'occupation_skills', 'interest_skills', 'own_language', 'backstory', 'key_connection', 'equipment', 'weapons', 'era', 'aptitude'];
+const FIELDS = ['name', 'occupation', 'age', 'sex', 'concept', 'occupation_skills', 'interest_skills', 'own_language', 'backstory', 'key_connection', 'equipment', 'weapons', 'era', 'aptitude', 'occupation_stated'];
 const APTITUDE = ['strong', 'weak'], APTITUDE_FIELDS = [...APTITUDE, 'origin'];
 export class SetupDrafts {
   constructor(readonly setup: Setup) {}
@@ -54,6 +54,9 @@ export class SetupDrafts {
     } catch (error) { if (!(error instanceof ChargenError)) throw error; issues.push('occupation must be a listed occupation'); }
     const weapons = Object.hasOwn(profile, 'weapons') ? profile.weapons : [], catalog = await this.setup.tables.weaponsTable();
     if (!Array.isArray(weapons) || !weapons.every(name => typeof name === 'string' && Object.hasOwn(catalog, name))) issues.push('weapons must use existing rulebook profile names');
+    // The player's own words for the trade, kept beside the catalog entry so a substitution is never silent (§23.4).
+    const stated = Object.hasOwn(profile, 'occupation_stated') ? profile.occupation_stated : null;
+    if (stated !== null && (typeof stated !== 'string' || !stated.trim())) issues.push('occupation_stated is the player\'s own words for the trade, a non-empty string, or omitted');
     const aptitude = Object.hasOwn(profile, 'aptitude') ? profile.aptitude : null;
     if (aptitude !== null && (!isJsonObject(aptitude) || Object.keys(aptitude).some(key => !APTITUDE_FIELDS.includes(key))
       || APTITUDE.some(key => Object.hasOwn(aptitude, key) && (!Array.isArray(aptitude[key]) || !aptitude[key].every((abbr: unknown) => typeof abbr === 'string')))))
@@ -100,7 +103,7 @@ export class SetupDrafts {
       catch (error) { if (!(error instanceof ChargenError) && (!(error instanceof Error) || !['ValueError', 'KeyError'].includes(error.name))) throw error;
         throw new RpcError('needs', error.message, {details: {expected: error instanceof ChargenError ? error.expected : null}}); }
       sheet.backstory = clone(profile.backstory); sheet.key_connection = clone(profile.key_connection); sheet.own_language = profile.own_language; sheet.equipment = [...profile.equipment];
-      sheet.backstory.concept = profile.concept;
+      sheet.backstory.concept = profile.concept; sheet.occupation_stated = typeof profile.occupation_stated === 'string' ? profile.occupation_stated.trim() : null;
       sheet.weapons = await Promise.all(array(profile.weapons).map(async name => ({name, ...await this.setup.tables.weaponByName(name)})));
       for (const weapon of array(profile.weapons)) if (!sheet.equipment.includes(weapon)) sheet.equipment.push(weapon);
       sheet.current_hp = sheet.derived.HP; sheet.current_mp = sheet.derived.MP; sheet.current_san = sheet.derived.SAN; sheet.current_luck = sheet.characteristics.LUCK;

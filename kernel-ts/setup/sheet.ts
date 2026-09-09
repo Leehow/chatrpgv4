@@ -4,7 +4,7 @@ import { row, integer, truth, equal, type Row } from '../read/values.js';
 export const BACKSTORY = Object.freeze(['personal_description', 'ideology_beliefs', 'significant_people', 'meaningful_locations', 'treasured_possessions', 'traits']);
 export const nonempty = (value: any): value is string => typeof value === 'string' && Boolean(value.trim());
 export function investigatorRow(sheet: Row): Row {
-  return {id: sheet.id ?? null, name: sheet.name ?? null, occupation: sheet.occupation ?? null, hp: sheet.current_hp ?? null,
+  return {id: sheet.id ?? null, name: sheet.name ?? null, occupation: sheet.occupation ?? null, occupation_stated: sheet.occupation_stated ?? null, hp: sheet.current_hp ?? null,
     san: sheet.current_san ?? null, mp: sheet.current_mp ?? null, luck: sheet.current_luck ?? null};
 }
 export function completeness(sheet: Row): string[] {

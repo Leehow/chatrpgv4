@@ -14,7 +14,7 @@ from .fileio import canonical_json, read_json, sha256_text, write_json_atomic
 BACKSTORY = ("personal_description", "ideology_beliefs", "significant_people",
              "meaningful_locations", "treasured_possessions", "traits")
 FIELDS = {"name", "occupation", "age", "sex", "concept", "occupation_skills", "interest_skills",
-          "own_language", "backstory", "key_connection", "equipment", "weapons", "era", "aptitude"}
+          "own_language", "backstory", "key_connection", "equipment", "weapons", "era", "aptitude", "occupation_stated"}
 APTITUDE = ("strong", "weak")
 APTITUDE_FIELDS = (*APTITUDE, "origin")
 APTITUDE_CAPABILITY = "setup.aptitude.v1"
@@ -117,6 +117,10 @@ class SetupDrafts:
         weapons = profile.get("weapons", [])
         if not isinstance(weapons, list) or not all(isinstance(x, str) and x in self.table.tables.weapons_table() for x in weapons):
             errors.append("weapons must use existing rulebook profile names")
+        # The player's own words for the trade, kept beside the catalog entry so a substitution is never silent (§23.4).
+        stated = profile.get("occupation_stated")
+        if stated is not None and (not isinstance(stated, str) or not stated.strip()):
+            errors.append("occupation_stated is the player's own words for the trade, a non-empty string, or omitted")
         aptitude = profile.get("aptitude")
         if aptitude is not None and (not isinstance(aptitude, dict) or set(aptitude) - set(APTITUDE_FIELDS)
                                      or any(not isinstance(aptitude[k], list) or not all(isinstance(a, str) for a in aptitude[k])
@@ -186,6 +190,8 @@ class SetupDrafts:
             sheet.update(backstory=copy.deepcopy(profile["backstory"]), key_connection=copy.deepcopy(profile["key_connection"]),
                          own_language=profile["own_language"], equipment=list(profile["equipment"]))
             sheet["backstory"]["concept"] = profile["concept"]
+            stated = profile.get("occupation_stated")
+            sheet["occupation_stated"] = stated.strip() if isinstance(stated, str) else None
             sheet["weapons"] = [{"name": name, **self.table.tables.weapon_by_name(name)} for name in profile.get("weapons", [])]
             for weapon in profile.get("weapons", []):
                 if weapon not in sheet["equipment"]:

@@ -3,7 +3,7 @@ import copy
 import json
 from pathlib import Path
 
-from conftest import CAMPAIGN, campaign_dir
+from conftest import CAMPAIGN, campaign_dir, read_json
 
 
 def profile():
@@ -257,3 +257,29 @@ def test_without_the_package_prose_cannot_move_a_characteristic(kernel):
     opened = kernel.ok("setup.draft", {"campaign": CAMPAIGN,
                                         "profile": {"aptitude": {"strong": ["STR"], "origin": "player"}}})
     assert opened["sheet"]["creation"]["method"] == "rolled_pool_assignment"
+
+
+def test_the_players_own_trade_stays_on_the_card_beside_the_entry(kernel):
+    """A nurse has no line in occupations.json. The entry is what the budget hangs off; the
+    player's words are what the table must still read, so both are on the sheet."""
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "zh-Hans"})
+    nurse = {**profile(), "occupation": "Doctor of Medicine", "occupation_stated": "教会医院的夜班护士",
+             "occupation_skills": ["First Aid", "Language (Other: Latin)", "Medicine", "Psychology", "Science (Biology)", "Science (Pharmacy)", "Spot Hidden", "Listen"]}
+    draft = kernel.ok("setup.draft", {"campaign": CAMPAIGN, "profile": nurse})
+    assert draft["sheet"]["occupation"] == "Doctor of Medicine"
+    assert draft["sheet"]["occupation_stated"] == "教会医院的夜班护士"
+    kernel.ok("setup.confirm", {"campaign": CAMPAIGN, "revision": draft["revision"], "consent": "delegated"})
+    card = read_json(campaign_dir(kernel.workspace) / "party" / "investigator.json")
+    assert card["occupation_stated"] == "教会医院的夜班护士", "the written card keeps the player's words"
+    kernel.ok("setup.complete", {"campaign": CAMPAIGN})
+    opened = kernel.ok("table.open", {"campaign": CAMPAIGN})
+    party = json.dumps(opened, ensure_ascii=False)
+    assert "教会医院的夜班护士" in party, "the table reads the player's words, not only the entry"
+
+
+def test_a_stated_trade_must_be_words_or_absent(kernel):
+    draft = begin(kernel)
+    assert draft["sheet"]["occupation_stated"] is None
+    for bad in ("", "   ", 7, ["nurse"]):
+        assert kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": {"occupation_stated": bad}})["code"] == "needs"
+    assert kernel.ok("setup.steps", {"campaign": CAMPAIGN})["state"]["draft"]["revision"] == draft["revision"]

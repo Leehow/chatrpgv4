@@ -141,3 +141,8 @@ it('names the pool assignment and the dice each characteristic actually holds',(
  const row=(name:string)=>screen.getByRole('rowheader',{name,exact:true}).closest('tr')!.textContent;
  expect(row('力量')).toContain('骰点: [3, 3, 4] → 10 × 5 = 50');
 })
+
+it('shows the trade the player named, with the rulebook entry after it',()=>{
+ render(<CocCharacterDraft data={{revision:4,sheet:{...sheet,occupation_stated:'护士'},presentation:{texts:zh}}}/>);
+ expect(screen.getByText(/护士 \(律师\) · 28/)).toBeTruthy();
+})

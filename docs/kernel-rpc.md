@@ -731,7 +731,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 ### 14.7 建卡：模型只问名字与职业概念，数值由内核推导
 
-`setup.occupations` params `{"campaign"}` → `content/rulesets/coc7/rules-json/occupations.json` 的职业清单（id、名字、技能点公式、职业技能、信用评级范围），供建卡进程把玩家的一句「我想玩个战地记者」落到一个职业 id——这一步是语义判断，归模型；内核只认 id。
+`setup.occupations` params `{"campaign"}` → `content/rulesets/coc7/rules-json/occupations.json` 的职业清单（id、名字、技能点公式、职业技能、信用评级范围），供建卡进程把玩家的一句「我想玩个战地记者」落到一个职业 id——这一步是语义判断，归模型；内核只认 id。玩家说的行当在清单里没有条目时（护士、卡车司机、码头搬运工），模型不得自作主张换一个近似条目：它要在虚构里说明规则书没有这一栏，报出两三个最近的条目各一句会落成什么，让玩家选或让它定；定了以后 `profile.occupation` 是所选条目，`profile.occupation_stated` 是玩家自己的说法，两者都上卡（§23.4）。
 
 `setup.investigator` params `{"campaign", "name", "occupation": "<id>", "concept"?: "<一句>", "age"?: int, "sex"?, "method"?: "quick_fire"|"rolled"}`：内核确定性地生成整张表——特征值（`quick_fire` 用规则书快速数组按职业主特征分配；`rolled` 用 `characteristic-dice.json` 掷，种子写进收据）、年龄修正（旧 `coc_character` 的规则）、衍生值（HP/MP/SAN/幸运/伤害加值/体格/移动）、职业技能点按公式分配，分配策略是内容不是代码（#21：`steps.json` 的建卡策略块 `allocation`，缺省 `spread`：先把职业技能表每项抬到 `tiers[0]`（如 50），再轮到 `tiers[1]`（如 70），最后到上限，用不完的记 `unspent`；`fill` 是旧的填满式，留作可选；策略名写进 `sheet.creation.allocation`，玩家可在桌上用 `development` 族改）、兴趣点分给 `concept` 无关的规则书通用技能（缺省列表来自规则数据，不是代码字面量）、信用评级取职业范围下限、现金与资产按时代与信用等级、随身装备取职业缺省。写 `party/<id>.json`（与 pregen 同形）与收据 `investigator:<id>`。名字与概念原样存，不做任何判断。同一战役第二次调用是第二个调查员（多人桌留口，本切片桌上仍只用第一位）。
 
@@ -2205,6 +2205,21 @@ not relabeled as rulebook Quick Fire. No invented point method or outstanding sk
 choice may pass completeness. Skill directions, concrete specialties, languages,
 backstory and ordinary kit are semantic choices supplied by the setup model.
 
+**The trade the player named stays on the card.** `occupation` is a catalog id
+because the budget formula, the skill list and the credit range hang off it; the
+player's words are not always an entry. A nurse, a truck driver or a dock labourer
+has no line in `occupations.json`, and a guide that quietly files them under
+Doctor of Medicine, Engineer or Drifter has changed who the investigator is for
+the whole campaign, since the sheet's `occupation` is what every later reader
+sees. The setup guide therefore never substitutes silently: when the stated trade
+has no entry it says so in the fiction, offers the two or three closest entries
+from `setup.occupations` with one clause each on what they would mean, and lets
+the player choose or delegate — the one clarification the quick policy permits,
+because a valid draft depends on it. The draft then carries `occupation` (the
+chosen entry) and `occupation_stated` (the player's words), both kernels store
+`occupation_stated` on the sheet beside `occupation` and in the investigator row
+the table reads, and the card shows the stated trade with the entry after it.
+
 **Stated aptitude reaches the characteristics — when a package opens that door.**
 A player who describes this person as notably strong, frail, quick, slow, bright or
 dull is describing characteristics, not only skills, and the draft must not
@@ -2292,8 +2307,10 @@ of the current semantic profile: name, occupation, age, sex, concept, occupation
 (eight concrete skills, including required catalog skills), interest_skills (concrete
 skills), own_language, backstory (3–6 populated first-six categories plus scenario_bound),
 key_connection (backstory_field and summary), equipment (named ordinary items),
-weapons (optional catalog names) and aptitude (optional strong/weak characteristic
-abbreviations with their origin). Unknown skills return the relevant catalog; no
+weapons (optional catalog names), aptitude (optional strong/weak characteristic
+abbreviations with their origin) and occupation_stated (optional: the player's own
+words for the trade when they differ from, or are more specific than, the catalog
+entry in occupation; a non-empty string, stored on the sheet verbatim). Unknown skills return the relevant catalog; no
 semantic regex picks skills or fills an open choice. The kernel reuses Chargen's
 arithmetic and validates complete budgets, provenance, gear and background.
 

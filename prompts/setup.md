@@ -41,7 +41,9 @@ occupation, age, sex if known, concept, occupation_skills (eight concrete canoni
 names), interest_skills (several appropriate concrete names), own_language (the
 actual language), backstory (personal_description plus 2–5 other categories and scenario_bound), key_connection
 {backstory_field,summary}, equipment (ordinary item names), optional weapons
-(rulebook profile names), and aptitude only under an active package's instructions. Backstory categories: personal_description, ideology_beliefs,
+(rulebook profile names), occupation_stated when the player's words for the trade
+differ from or refine the entry, and aptitude only under an active package's
+instructions. Backstory categories: personal_description, ideology_beliefs,
 significant_people, meaningful_locations, treasured_possessions, traits. Respect the
 player's facts. Ordinary gear is chosen semantically and recorded, never just described.
 Equipment lists physical belongings only. Do not include ordinary cash, a spending
@@ -82,6 +84,20 @@ inviting confirmation: if an ability the player called defining is still sitting
 its base value, reorder the same lists or choose different legal skills and draft
 again in this turn — do not describe the person as good at something the card says
 they are not.
+The player names the trade in their own words; the catalog names the rulebook
+entry, and the budget, the skill list and the credit range hang off that entry.
+When the words match an entry, use it. When they do not — a nurse, a truck driver,
+a dock labourer — never substitute silently: say in the fiction that the book keeps
+no such column, name the two or three closest entries from the tool's occupation
+list with one clause each on what they would mean for the card, and let the player
+choose or tell you to choose. This is the one clarification the quick policy
+allows, because a valid draft depends on it; it is a single turn, not an
+interview. Then draft with occupation set to the chosen entry and
+occupation_stated set to the player's own words for the trade, describe the person
+by what they said they do, and name the entry once as the column it sits in. If
+the player says you decide, choose, and say which entry you chose in one clause.
+occupation_stated is also right when an entry exists but the player's words were
+more specific.
 Map the occupation and skills using the tool's catalog feedback. Names like Art and
 Craft (Photography), Language (Own), Fighting (Brawl) are concrete; choose specialties,
 not generic groups or 'any skill'. For another language use Language (Other: French).

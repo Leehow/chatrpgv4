@@ -1,5 +1,5 @@
 {
-  "id": "guided-creation", "version": "1.0.0", "game_api": "pipicoc.game.v1",
+  "id": "guided-creation", "version": "1.0.1", "game_api": "pipicoc.game.v1",
   "state_version": 1, "name": "Guided Creation", "author": "PipiCOC",
   "description": "A short, player-paced exchange before the card is drafted; what the player says about the person reaches the rolled characteristics.",
   "default_enabled": true, "requires": ["setup.guidance.v1", "setup.aptitude.v1"],
