@@ -57,8 +57,9 @@ export function createGitRuntime(workspace: string, suppliedEnv: NodeJS.ProcessE
         if (settled || escalation) return;
         failure ??= new CommitFailed("Git operation cancelled");
         kill("SIGTERM");
-        escalation = setTimeout(() => kill("SIGKILL"), 2000);
-        deadline = setTimeout(() => finish(Object.assign(new CommitFailed("Git shutdown did not complete"), {reason: "runtime_shutdown"})), 4000);
+        // Finish before the host's two-second kernel SIGKILL escalation.
+        escalation = setTimeout(() => kill("SIGKILL"), 1000);
+        deadline = setTimeout(() => finish(Object.assign(new CommitFailed("Git shutdown did not complete"), {reason: "runtime_shutdown"})), 1750);
       };
       const timer = setTimeout(() => { failure = new CommitFailed("Git command exceeded 60 seconds"); stop(); }, 60_000);
       function finish(error?: Error, code = -1) {
