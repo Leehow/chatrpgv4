@@ -130,6 +130,20 @@ describe('icons restate the stable rules keys, never the words', () => {
     expect(iconOf('BUILD')).toBe('body');
     expect(iconOf('HOMEBREW')).toBeUndefined();
   });
+
+  it('gives each section heading its own glyph', async () => {
+    const sheet = { ...investigator, hp: 9, derived: { HP: 9 } };
+    const { container } = render(<Panel api={host({ ok: true, data: { status: 'ready', view: view({ investigators: [sheet] }), campaign: 'c1' } })} />);
+    await screen.findByText('力量');
+    const headings = Array.from(container.querySelectorAll('.coc-sheet-heading'))
+      .map(el => [el.textContent, el.querySelector('svg.coc-icon')?.getAttribute('data-icon')]);
+    expect(headings).toContainEqual(['时间', 'clock']);
+    expect(headings).toContainEqual(['状态', 'pulse']);
+    expect(headings).toContainEqual(['属性', 'gauge']);
+    expect(headings).toContainEqual(['技能（2）', 'target']);
+    expect(headings).toContainEqual(['物品', 'backpack']);
+    expect(headings).toContainEqual(['线索', 'search']);
+  });
 });
 
 describe('a discovered clue is named, not handled', () => {
@@ -194,7 +208,7 @@ describe('the time section reads the clock in the fiction', () => {
     await screen.findByText('已过 1 小时 35 分');
   });
 
-  it('drops a zero hour and keeps turn and scene on one quiet meta line', async () => {
+  it('drops a zero hour and keeps turn and scene as quiet meta pills', async () => {
     const v = view({
       clock: { minutes: 55, elapsed: '0 h 55 min' }, turn: 5,
       scene: { name: 'crowe-house-ground' },
@@ -202,8 +216,9 @@ describe('the time section reads the clock in the fiction', () => {
     });
     const { container } = render(<Panel api={host({ ok: true, data: { status: 'ready', view: v, campaign: 'c1' } })} />);
     await screen.findByText('已过 55 分');
-    const meta = container.querySelector('.coc-standing-meta');
-    expect(meta?.textContent).toBe('回合5·场景克罗屋一楼');
+    const pills = Array.from(container.querySelectorAll('.coc-standing-meta .coc-standing-item'))
+      .map(el => el.textContent);
+    expect(pills).toEqual(['回合5', '场景克罗屋一楼']);
     // Nothing live at this table, so no accent rows under the meta line.
     expect(container.querySelectorAll('.coc-standing-line')).toHaveLength(0);
   });

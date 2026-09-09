@@ -43,10 +43,12 @@ const CSS = `
   color:var(--accent);padding:5px 9px;font:inherit;font-size:11px;cursor:pointer;min-height:30px}
 .coc-sheet-refresh:hover{border-color:var(--accent)}
 .coc-sheet-refresh:disabled{opacity:.5;cursor:default}
-.coc-sheet-fields{margin:12px 0 0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:baseline}
+.coc-sheet-fields{margin:12px 0 0;display:flex;flex-wrap:wrap;gap:6px}
+/* Occupation, era and age wear pills, the way the table's bookkeeping does below. */
+.coc-sheet-field{display:inline-flex;align-items:baseline;gap:5px;min-width:0;padding:3px 10px;
+  border:1px solid var(--border);border-radius:999px;background:var(--surface)}
 .coc-sheet-field-key{color:var(--muted);font-size:11px}
 .coc-sheet-field-val{color:var(--text);font-size:12px;overflow-wrap:anywhere}
-.coc-sheet-field-val span{padding-bottom:1px}
 .coc-sheet-concept{margin:12px 0 0;padding-top:12px;border-top:1px solid var(--border);
   color:var(--muted);font-size:12px;line-height:1.75}
 .coc-sheet-note{margin:10px 0;color:var(--muted);line-height:1.65;font-size:12px}
@@ -54,6 +56,7 @@ const CSS = `
 .coc-sheet-heading{display:flex;align-items:center;gap:10px;margin:0 0 12px;color:var(--muted);
   font-size:12px;font-weight:650;line-height:1.4;letter-spacing:.025em}
 .coc-sheet-heading::after{content:"";flex:1;height:1px;background:var(--border)}
+.coc-sheet-heading .coc-icon{width:13px;height:13px}
 /* A glyph only restates the caption beside it: sized to the caption, hidden from screen readers. */
 .coc-icon{flex:none;width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none;
   stroke-linecap:round;stroke-linejoin:round}
@@ -65,7 +68,7 @@ const CSS = `
 .coc-vital-num{color:var(--text-strong);font:600 26px/1.2 var(--coc-serif);font-variant-numeric:tabular-nums}
 .coc-vital-max{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .coc-vital-track{margin-top:7px;height:4px;border-radius:4px;overflow:hidden;background:var(--border)}
-.coc-vital-fill{height:100%;background:var(--tone);border-radius:inherit}
+.coc-vital-fill{height:100%;background:var(--tone);border-radius:inherit;transition:width .25s ease-out}
 /* Three columns preserve the characteristic grouping at every sidebar width. */
 .coc-chars{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
 .coc-char{min-width:0;border:1px solid var(--border);border-radius:8px;padding:10px;
@@ -119,9 +122,10 @@ const CSS = `
 /* Where and when: the reading leads at a measured size — it is context, not a headline —
    and the table's bookkeeping follows as one quiet meta line. */
 .coc-clock{color:var(--text-strong);font:500 16px/1.4 var(--coc-serif);font-variant-numeric:tabular-nums;letter-spacing:.012em}
-.coc-standing-meta{margin-top:8px;display:flex;flex-wrap:wrap;gap:3px 10px;align-items:baseline}
-.coc-standing-item{display:inline-flex;gap:5px;align-items:baseline;min-width:0}
-.coc-standing-sep{color:var(--subtle);font-size:11px}
+.coc-standing-meta{margin-top:9px;display:flex;flex-wrap:wrap;gap:6px;align-items:baseline}
+/* The table's bookkeeping wears pills: turn, scene and session are badges, not a sentence. */
+.coc-standing-item{display:inline-flex;gap:5px;align-items:baseline;min-width:0;padding:3px 9px;
+  border:1px solid var(--border);border-radius:999px;background:var(--surface-raised,var(--surface))}
 .coc-standing-key{color:var(--muted);font-size:11px}
 .coc-standing-val{min-width:0;font-size:12px;overflow-wrap:anywhere}
 .coc-standing{margin-top:7px;display:flex;flex-direction:column;gap:4px}
@@ -156,6 +160,7 @@ const CSS = `
   background:var(--surface);color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
 .coc-who button[data-on="1"]{border-color:var(--accent);color:var(--accent)}
 @container (min-width:420px){.coc-vitals{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (prefers-reduced-motion:reduce){.coc-vital-fill{transition:none}}
 `;
 
 if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
@@ -240,6 +245,18 @@ const ICON_PATHS = {
   wind: ["M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2", "M9.6 4.6A2 2 0 1 1 11 8H2", "M12.6 19.4A2 2 0 1 0 14 16H2"],
   sword: ["M14.5 17.5 3 6 3 3 6 3 17.5 14.5", "M13 19l6-6", "M16 16l4 4", "M19 21l2-2"],
   body: ["M8.8 7a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0-6.4 0Z", "M5.5 21a6.5 6.5 0 0 1 13 0"],
+  clock: ["M3 12a9 9 0 1 0 18 0 9 9 0 1 0-18 0Z", "M12 7v5l3.5 2"],
+  pulse: ["M22 12h-4l-3 9L9 3l-3 9H2"],
+  gauge: ["m12 14 4-4", "M3.34 19a10 10 0 1 1 17.32 0"],
+  target: ["M3 12a9 9 0 1 0 18 0 9 9 0 1 0-18 0Z", "M7 12a5 5 0 1 0 10 0 5 5 0 1 0-10 0Z", "M11 12a1 1 0 1 0 2 0 1 1 0 1 0-2 0Z"],
+  backpack: ["M4 10a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z",
+    "M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2", "M9 22v-5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v5", "M9 6h6"],
+  swords: ["M14.5 17.5 3 6 3 3 6 3 17.5 14.5", "M13 19l6-6", "M16 16l4 4", "M19 21l2-2",
+    "M9.5 17.5 21 6 21 3 18 3 6.5 14.5", "M11 19l-6-6", "M8 16l-4 4", "M5 21l-2-2"],
+  search: ["M3 11a8 8 0 1 0 16 0 8 8 0 1 0-16 0Z", "m21 21-4.3-4.3"],
+  scroll: ["M19 17V5a2 2 0 0 0-2-2H4",
+    "M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"],
+  landmark: ["M3 22h18", "M6 18v-7", "M10 18v-7", "M14 18v-7", "M18 18v-7", "M12 2l8 5H4l8-5Z"],
 };
 /** Which glyph each vital carries; luck has no bar and no cap, but it has a clover. */
 const VITAL_ICON = { HP: "heart", SAN: "brain", MP: "sparkles", luck: "clover" };
@@ -456,9 +473,13 @@ export function createComponent(React) {
       paths.map((d, index) => h("path", { key: index, d })));
   }
 
+  /**
+   * A titled block of the sheet. A section may name a glyph from ICON_PATHS that restates what
+   * it is; the caption stays the surface's own word, and a section with no glyph just draws one.
+   */
   function Section(props) {
     return h("section", { className: "coc-sheet-section" },
-      h("h2", { className: "coc-sheet-heading" }, props.title),
+      h("h2", { className: "coc-sheet-heading" }, props.icon ? h(Icon, { name: props.icon }) : null, props.title),
       props.children);
   }
 
@@ -507,7 +528,7 @@ export function createComponent(React) {
     // Luck has no maximum on the sheet (§17.4), so it never grows a bar.
     const luck = numberOr(sheet.luck, undefined);
     if (luck !== undefined) items.push(h(Vital, { key: "luck", label: t("luck"), tone: VITAL_TONE.luck, icon: VITAL_ICON.luck, current: luck }));
-    return items.length ? h(Section, { title: t("condition") }, h("div", { className: "coc-vitals" }, items)) : null;
+    return items.length ? h(Section, { title: t("condition"), icon: "pulse" }, h("div", { className: "coc-vitals" }, items)) : null;
   }
 
   function Characteristics(props) {
@@ -527,7 +548,7 @@ export function createComponent(React) {
       if (derived[key] !== undefined) entries.push([key, derived[key]]);
     }
     if (!entries.length) return null;
-    return h(Section, { title: t("characteristics") },
+    return h(Section, { title: t("characteristics"), icon: "gauge" },
       h("div", { className: "coc-chars" }, entries.map(([key, value]) =>
         h("div", { className: "coc-char", key },
           h("span", { className: "coc-char-key", title: term(key) }, CHAR_ICON[key] ? h(Icon, { name: CHAR_ICON[key] }) : null, term(key)),
@@ -544,7 +565,7 @@ export function createComponent(React) {
       .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
     if (!rows.length) return null;
     const shown = expanded ? rows : rows.slice(0, SKILL_PREVIEW);
-    return h(Section, { title: fill(t("skills"), { n: rows.length }) },
+    return h(Section, { title: fill(t("skills"), { n: rows.length }), icon: "target" },
       h(Lines, { leader: true, rows: shown.map(row => ({ name: row.name, value: text(row.value), numeric: true })) }),
       rows.length > SKILL_PREVIEW
         ? h("button", {
@@ -564,11 +585,11 @@ export function createComponent(React) {
   function ItemSection(props) {
     const list = Array.isArray(props.list) ? props.list : [];
     if (!list.length) {
-      return props.empty ? h(Section, { title: props.title }, h("p", { className: "coc-sheet-note" }, props.empty)) : null;
+      return props.empty ? h(Section, { title: props.title, icon: props.icon }, h("p", { className: "coc-sheet-note" }, props.empty)) : null;
     }
     const {t,term=value=>value}=props;
     const valueText=value=>typeof value==="boolean"?(value?t("itemYes"):t("itemNo")):Array.isArray(value)?value.map(valueText).join(" / "):term(text(value));
-    return h(Section, { title: props.title },
+    return h(Section, { title: props.title, icon: props.icon },
       h("ul",{className:"coc-inventory"},list.map((item,index)=>{
         const name=isRecord(item)?text(item.name):text(item);
         const object=(props.objects || []).find(row=>row.name===name);
@@ -622,7 +643,7 @@ export function createComponent(React) {
     const creditRating = sheet.credit_rating !== undefined ? sheet.credit_rating : finance.credit_rating;
     if (creditRating !== undefined) rows.push({ name: t("creditRating"), value: text(creditRating), numeric: true });
     if (finance.living_standard !== undefined) rows.push({ name: t("livingStandard"), value: term(text(finance.living_standard)) });
-    return rows.length ? h(Section, { title: t("finance") }, h(Lines, { kind: "finance", rows })) : null;
+    return rows.length ? h(Section, { title: t("finance"), icon: "landmark" }, h(Lines, { kind: "finance", rows })) : null;
   }
 
   /** The investigator's own history: what the sheet's backstory carries, in the play language. */
@@ -633,7 +654,7 @@ export function createComponent(React) {
     if(sheet.own_language)rows.push([t("language"),text(sheet.own_language)]);
     if(isRecord(sheet.key_connection)&&sheet.key_connection.summary)rows.push([t("keyConnection"),text(sheet.key_connection.summary)]);
     if(!rows.length)return null;
-    return h(Section,{title:t("background")},h("dl",{className:"coc-background"},rows.map(([key,value])=>
+    return h(Section,{title:t("background"),icon:"scroll"},h("dl",{className:"coc-background"},rows.map(([key,value])=>
       h("div",{key,"data-field":key},h("dt",null,term(key)),h("dd",null,term(value))))));
   }
 
@@ -663,15 +684,13 @@ export function createComponent(React) {
       : span ? fill(t(span.days > 0 ? "elapsed.dhm" : span.hours > 0 ? "elapsed.hm" : "elapsed.m"),
           { d: span.days, hh: span.hours, mm: span.minutes })
       : null;
-    return h(Section, { title: t("time") },
+    return h(Section, { title: t("time"), icon: "clock" },
       reading ? h("div", { className: "coc-clock" }, reading) : null,
       meta.length
-        ? h("div", { className: "coc-standing-meta" }, meta.flatMap((line, index) => [
-            index ? h("span", { className: "coc-standing-sep", "aria-hidden": "true", key: `sep${index}` }, "·") : null,
+        ? h("div", { className: "coc-standing-meta" }, meta.map((line, index) =>
             h("span", { className: "coc-standing-item", key: `meta${index}` },
               line.key ? h("span", { className: "coc-standing-key" }, line.key) : null,
-              h("span", { className: "coc-standing-val" }, line.value)),
-          ].filter(Boolean)))
+              h("span", { className: "coc-standing-val" }, line.value))))
         : null,
       live.length
         ? h("div", { className: "coc-standing" }, live.map((line, index) =>
@@ -691,7 +710,7 @@ export function createComponent(React) {
     // only the ones already marked discovered are named.
     const foundHere = here.filter(clue => isRecord(clue) && clue.discovered === true);
     if (!discovered.length && !foundHere.length) {
-      return h(Section, { title: t("clues") }, h("p", { className: "coc-sheet-note" }, t("noClues")));
+      return h(Section, { title: t("clues"), icon: "search" }, h("p", { className: "coc-sheet-note" }, t("noClues")));
     }
     const seen = new Set();
     const rows = [];
@@ -702,7 +721,7 @@ export function createComponent(React) {
       seen.add(key);
       rows.push(line);
     }
-    return h(Section, { title: t("clues") }, rows.map((row, index) =>
+    return h(Section, { title: t("clues"), icon: "search" }, rows.map((row, index) =>
       row.summary
         // The name stays on the line; what the clue says is one tap away. Both go through the
         // glossary: the Keeper's own label comes back as itself, a graph name or the book's
@@ -829,10 +848,10 @@ export function createComponent(React) {
     return h("div", { className: "coc-sheet", role: "region", ...(props.title ? { "aria-label": props.title } : {}) },
       h("div", {className:"coc-sheet-identity"}, head,
       fields.length
-        ? h("div", { className: "coc-sheet-fields" }, fields.flatMap(([key, value], index) => [
-            h("span", { className: "coc-sheet-field-key", key: `k${index}` }, key),
-            h("span", { className: "coc-sheet-field-val", key: `v${index}` }, h("span", null, value)),
-          ]))
+        ? h("div", { className: "coc-sheet-fields" }, fields.map(([key, value], index) =>
+            h("span", { className: "coc-sheet-field", key: index },
+              h("span", { className: "coc-sheet-field-key" }, key),
+              h("span", { className: "coc-sheet-field-val" }, value))))
         : null,
       concept ? h("p", { className: "coc-sheet-concept" }, concept) : null),
       // More than one investigator at the table is legal (§5 `needs_choice`), so the panel picks.
@@ -850,13 +869,13 @@ export function createComponent(React) {
       sheet ? h(Skills, { sheet, t, term }) : null,
       documentWindow,
       h("style",null,PAPER_STYLE),
-      sheet ? h(ItemSection, { title: t("weapons"), list: sheet.weapons, objects:(sheet.objects || []).filter(item=>item.category==="weapon"), t, term,
+      sheet ? h(ItemSection, { title: t("weapons"), icon: "swords", list: sheet.weapons, objects:(sheet.objects || []).filter(item=>item.category==="weapon"), t, term,
         documents:sheet.objects, insideLabel:word(ui,"paper","inside"), paperLabel:word(ui,"paper","open"),
         onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign}) }) : null,
-      sheet && view.presentation_status ? h(Section,{title:t("equipment")},
+      sheet && view.presentation_status ? h(Section,{title:t("equipment"),icon:"backpack"},
         h("p",{className:"coc-sheet-note",role:"status"},view.presentation_status==="failed"?t("errorDetail"):t("loading")),
         view.presentation_status==="failed"?h("button",{type:"button",onClick:()=>{void load(true);}},t("retry")):null) :
-      sheet ? h(ItemSection, { title: t("equipment"), list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)), objects:(sheet.objects || []).filter(item=>item.category!=="weapon"), empty: t("noEquipment"), t, term,
+      sheet ? h(ItemSection, { title: t("equipment"), icon: "backpack", list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)), objects:(sheet.objects || []).filter(item=>item.category!=="weapon"), empty: t("noEquipment"), t, term,
         documents:sheet.objects, insideLabel:word(ui,"paper","inside"), paperLabel:word(ui,"paper","open"),
         onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign}) }) : null,
       sheet ? h(Finance, { sheet, t, term }) : null,
