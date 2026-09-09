@@ -98,6 +98,12 @@ Production Python entrances to eliminate in stages B and C: the play kernel laun
 
 ## Testing Decisions
 
+Acceptance scope update, 2026-09-09: the user explicitly deferred the independent
+clean-macOS/VM acceptance step and formal distribution closeout (including
+notarization) because this is a self-signed build. Those gates are deferred, not
+passed. The VM is stopped and its evidence retained. Its fresh-install Git and
+project-onboarding findings remain open; local migration validation continues.
+
 Good tests exercise external behavior at the highest product seam, not implementation details. The acceptance seam is the existing PipiCOC UI and the existing setup and play product entrypoints; the compatibility seam is the existing kernel RPC. Prefer these existing seams; create a new one only if a concrete gap proves it necessary.
 
 Behavior cases to cover: full source-PDF setup and built-in starter; reviewed guidance and deferred opening; partial-work cancel and restart with cache reuse; play with mechanics and choices; Mod management before a Keeper exists and Mod-generated definitions during play, with accepted objects preserved after generator disablement or upgrade; save and resume, worldline fork, switch, and merge with existing history; duplicate requests with the same and different payloads; a crash between write, commit, and reply; no cross-campaign state; cold start, restart, and shutdown with no orphan writers or leases; and a read-only invalid checker that causes no campaign mutation. Include stale publication leases and simultaneous independent preparation jobs. Existing worldline live acceptance has documented gaps; exercise those behaviors and report remaining gaps rather than inferring coverage.

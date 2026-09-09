@@ -1755,6 +1755,10 @@ purpose: an unbounded wait was reported to the caller as a dead transport, with
 nothing in it that said another process held the campaign. Both kernels bound the
 wait identically. No error code is added and no method changes.
 
+The awaited retry timer keeps the TypeScript process alive until the lease is
+acquired or the deadline returns its refusal, even when no other event-loop
+handle is active. The bounded wait must not disappear as an unresolved promise.
+
 Both normal and idle setup completion emit the existing `coc-setup-exit` marker.
 The backend uses it to recognize the play child's startup within the same RPC
 wrapper. Pi may start its extension-owned opening before the RPC subscription
@@ -3154,6 +3158,8 @@ The packaged loader refuses missing resources or paths escaping that root.
 All process owners receive the same captured locations through RuntimeHostOptions.
 Packaged preparation/read/check entrypoints are emitted JavaScript, including the
 UI agent bridge and PDF page helper; no production TypeScript loader is required.
+Every declared play language includes the default language's UI resource surfaces.
+Assembly rejects missing surfaces instead of shipping an empty runtime fallback.
 
 Installed resources are immutable. The App's userData contains its isolated Pi
 home, credentials, UI sessions and runtime work, while the player's chosen COC
