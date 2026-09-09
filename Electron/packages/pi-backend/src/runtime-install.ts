@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 /**
@@ -75,35 +75,66 @@ const storedSignature = (dest: string): string | undefined => {
   try { return JSON.parse(readFileSync(join(dest, SIGNATURE_FILE), "utf8")).signature } catch { return undefined }
 };
 
+/** Only generated copies are writable; links never grant access to their source targets. */
+function makeGeneratedTreeWritable(path: string): void {
+  const stat = lstatSync(path, { throwIfNoEntry: false });
+  if (!stat || stat.isSymbolicLink()) return;
+  chmodSync(path, (stat.mode & 0o777) | 0o600 | (stat.isDirectory() ? 0o100 : 0));
+  if (stat.isDirectory())
+    for (const entry of readdirSync(path)) makeGeneratedTreeWritable(join(path, entry));
+}
+
+function removeGeneratedTree(path: string): void {
+  makeGeneratedTreeWritable(path);
+  rmSync(path, { recursive: true, force: true });
+}
+
+function cleanupGeneratedTree(path: string, report: InstallReport): void {
+  try { removeGeneratedTree(path) }
+  catch (error) { report.failures.push(`${path}: cleanup failed: ${error instanceof Error ? error.message : String(error)}`) }
+}
+
 /**
  * Signature-gated stage-and-swap copy.
  *
- * The swap window is one `rename` rather than the whole copy because this tree is what live
- * sessions resolve `-e` paths against: a half-copied `pi-ext` would take a session down with an
- * unreadable extension. A failed copy leaves the previous tree exactly as it was.
+ * Copy away from the live path, then retain the previous tree until the prepared copy has
+ * been renamed into place. Live sessions never see a half-copied `pi-ext`, and a failed
+ * preparation leaves the previous tree exactly as it was.
  */
 export function syncTree(source: string, dest: string, report: InstallReport = emptyReport()): InstallReport {
   if (!existsSync(source)) { report.failures.push(`${dest}: source missing at ${source}`); return report }
-  const signature = treeSignature(source);
-  if (existsSync(dest) && storedSignature(dest) === signature) { report.unchanged.push(dest); return report }
   // Unique per call, not just per process: two sessions can spawn at once, and both refresh the
   // tree before assembling their paths.
   const staging = `${dest}.staging-${process.pid}-${(stagingSeq += 1)}`;
+  const previous = `${dest}.previous-${process.pid}-${stagingSeq}`;
+  let movedPrevious = false, installed = false;
   try {
-    rmSync(staging, { recursive: true, force: true });
+    const signature = treeSignature(source);
+    if (existsSync(dest) && storedSignature(dest) === signature) { report.unchanged.push(dest); return report }
+    removeGeneratedTree(staging);
     const skip = SKIP_ENTRIES;
     cpSync(source, staging, { recursive: true, filter: path => {
       const name = path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1);
       return !skip.has(name) && !name.endsWith(".tsbuildinfo");
     } });
+    makeGeneratedTreeWritable(staging);
     writeFileSync(join(staging, SIGNATURE_FILE), JSON.stringify({ signature, installedAt: new Date().toISOString() }), "utf8");
-    rmSync(dest, { recursive: true, force: true });
+    if (existsSync(previous)) throw new Error(`previous runtime already retained at ${previous}`);
+    if (existsSync(dest)) { renameSync(dest, previous); movedPrevious = true }
     renameSync(staging, dest);
+    installed = true;
     report.installed.push(dest);
   } catch (error) {
-    rmSync(staging, { recursive: true, force: true });
     report.failures.push(`${dest}: ${error instanceof Error ? error.message : String(error)}`);
+    if (movedPrevious && !installed) {
+      try { renameSync(previous, dest) }
+      catch (restoreError) {
+        report.failures.push(`${dest}: restore failed; previous runtime retained at ${previous}: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`);
+      }
+    }
+    cleanupGeneratedTree(staging, report);
   }
+  if (installed && movedPrevious) cleanupGeneratedTree(previous, report);
   return report;
 }
 
@@ -157,7 +188,7 @@ function pruneUnshippedTrees(runtimeRoot: string, report: InstallReport): void {
     if (!RETIRED_RUNTIME_TREES.has(entry.name) || shipped.has(entry.name)) continue;
     const path = join(runtimeRoot, entry.name);
     try {
-      rmSync(path, { recursive: true, force: true });
+      removeGeneratedTree(path);
       report.removed.push(path);
     } catch (error) {
       report.failures.push(`${entry.name}: ${error instanceof Error ? error.message : String(error)}`);

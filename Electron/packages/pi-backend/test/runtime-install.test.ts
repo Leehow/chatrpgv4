@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -9,6 +9,17 @@ import { KERNEL_MOUNTS, resolveKernelPaths } from "../src/spawn-assembly.js";
 const runtimeSource = new URL("../../../resources/runtime", import.meta.url).pathname;
 const packsSource = new URL("../../../packs", import.meta.url).pathname;
 const temp = () => mkdtemp(join(tmpdir(), "runtime-install-"));
+const removeReadonlyFixture = async (root: string): Promise<void> => {
+  const writable = async (path: string): Promise<void> => {
+    await chmod(path, 0o700);
+    for (const entry of await readdir(path, { withFileTypes: true })) {
+      if (entry.isDirectory()) await writable(join(path, entry.name));
+      else if (entry.isFile()) await chmod(join(path, entry.name), 0o600);
+    }
+  };
+  await writable(root);
+  await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 });
+};
 
 describe("syncTree", () => {
   it("copies a tree, skips node_modules, and no-ops until the source changes", async () => {
@@ -54,6 +65,77 @@ describe("syncTree", () => {
       expect(report.failures.length).toBe(1);
       expect(await readFile(join(dest, "keep.ts"), "utf8")).toBe("old\n");
     } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 25 }) }
+  });
+
+  it("installs readonly resources and refreshes a readonly previous tree without changing the source or execute bits", async () => {
+    const root = await temp();
+    try {
+      const source = join(root, "source"), nested = join(source, "nested"), dest = join(root, "kernel");
+      const helper = join(nested, "helper"), data = join(source, "data.json"), account = join(root, "auth.json");
+      await mkdir(nested, { recursive: true });
+      await writeFile(helper, "#!/bin/sh\nexit 0\n");
+      await writeFile(data, '{"version":1}\n');
+      await writeFile(account, "unrelated account sentinel\n", { mode: 0o600 });
+      await chmod(helper, 0o555); await chmod(data, 0o444);
+      await chmod(nested, 0o555); await chmod(source, 0o555);
+      const sourceBefore = { signature: treeSignature(source), helper: await stat(helper), data: await stat(data) };
+      const accountBefore = await stat(account);
+
+      expect(syncTree(source, dest)).toMatchObject({ installed: [dest], failures: [] });
+      expect((await stat(join(dest, "nested", "helper"))).mode & 0o777).toBe(0o755);
+      expect((await stat(join(dest, "data.json"))).mode & 0o777).toBe(0o644);
+      expect((await stat(dest)).mode & 0o200).toBe(0o200);
+      expect(treeSignature(source)).toBe(sourceBefore.signature);
+      expect((await stat(helper)).mode).toBe(sourceBefore.helper.mode);
+      expect((await stat(data)).mtimeMs).toBe(sourceBefore.data.mtimeMs);
+      expect(syncTree(source, dest).unchanged).toEqual([dest]);
+
+      // An older copier could have left every generated destination readonly.
+      for (const path of [join(dest, "nested", "helper"), join(dest, "nested"), dest]) await chmod(path, 0o555);
+      for (const path of [join(dest, "data.json"), join(dest, ".pipiui-install.json")]) await chmod(path, 0o444);
+      await chmod(data, 0o644); await writeFile(data, '{"version":22}\n'); await chmod(data, 0o444);
+      const refreshedSource = treeSignature(source);
+      expect(syncTree(source, dest)).toMatchObject({ installed: [dest], failures: [] });
+      expect(await readFile(join(dest, "data.json"), "utf8")).toBe('{"version":22}\n');
+      expect((await stat(join(dest, "nested", "helper"))).mode & 0o111).toBe(0o111);
+      expect(treeSignature(source)).toBe(refreshedSource);
+      expect((await stat(source)).mode & 0o777).toBe(0o555);
+      expect((await stat(nested)).mode & 0o777).toBe(0o555);
+      expect((await stat(data)).mode & 0o777).toBe(0o444);
+      expect(await readFile(account, "utf8")).toBe("unrelated account sentinel\n");
+      expect((await stat(account)).mode).toBe(accountBefore.mode);
+      expect((await stat(account)).mtimeMs).toBe(accountBefore.mtimeMs);
+      expect((await readdir(root)).filter(name => name.includes(".staging-") || name.includes(".previous-"))).toEqual([]);
+    } finally { await removeReadonlyFixture(root) }
+  });
+
+  it.skipIf(process.getuid?.() === 0)("reports the copy error after a partial readonly copy and preserves the previous destination", async () => {
+    const root = await temp();
+    try {
+      const source = join(root, "source"), ready = join(source, "ready"), dest = join(root, "kernel");
+      await mkdir(ready, { recursive: true }); await mkdir(dest);
+      await writeFile(join(ready, "leaf.js"), "partial staged content\n");
+      await writeFile(join(source, "z-blocked.js"), "unreadable source\n");
+      await writeFile(join(dest, "old.js"), "previous runtime\n");
+      await chmod(join(ready, "leaf.js"), 0o444); await chmod(ready, 0o555);
+      await chmod(join(source, "z-blocked.js"), 0o000); await chmod(source, 0o555);
+      await chmod(join(dest, "old.js"), 0o444); await chmod(dest, 0o555);
+      const oldFile = await stat(join(dest, "old.js")), oldDirectory = await stat(dest);
+
+      const report = syncTree(source, dest);
+      expect(report.installed).toEqual([]);
+      expect(report.failures).toHaveLength(1);
+      expect(report.failures[0]).toMatch(/EACCES|EPERM/);
+      expect(report.failures[0]).not.toContain("ENOTEMPTY");
+      expect(await readFile(join(dest, "old.js"), "utf8")).toBe("previous runtime\n");
+      expect((await stat(join(dest, "old.js"))).mode).toBe(oldFile.mode);
+      expect((await stat(join(dest, "old.js"))).mtimeMs).toBe(oldFile.mtimeMs);
+      expect((await stat(dest)).mode).toBe(oldDirectory.mode);
+      expect((await stat(dest)).mtimeMs).toBe(oldDirectory.mtimeMs);
+      expect((await stat(join(source, "z-blocked.js"))).mode & 0o777).toBe(0o000);
+      expect((await stat(ready)).mode & 0o777).toBe(0o555);
+      expect((await readdir(root)).filter(name => name.includes(".staging-") || name.includes(".previous-"))).toEqual([]);
+    } finally { await removeReadonlyFixture(root) }
   });
 });
 

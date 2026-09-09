@@ -9,6 +9,7 @@
 - 实现检查点为 `61bf535a`（集成分支，未合入主检出）。集中检查发现 PDF 库打包到 worker 后误触发 CLI，已拆开纯库与 CLI；冷态 onboarding/sheet 的 14 项检查通过。扩展全套 554/554 通过，Electron 全套与既有 197 条失败基线一致、无新增。内核候选全套尚在运行，独立包与真桌尚未验收。
 - 集中候选全套完成：1346 通过、2 失败、1 跳过；保守分类为 665 项 TS RPC 通过、2 项 RPC 失败、1 项候选检查器通过，其余为 Python 实现/源码/驾驭器等证据。两项失败同源于遗漏 `session-changed` 投影；修复后 events/session 两文件共 14 项通过（`final-focused-2026-09-09T11-06-16-382Z-29Wt8C`）。独立复核发现目录软链接递归会让世界线恢复误删链接目标；隔离实际 Git 回归已复现并以 lstat 修复，writer 子集 6 项通过。尚未宣称修复后的完整套件重跑成功。
 - 只读搬迁资源验证：实际受管 Node24/Git 的内核、事务、重开和检查器通过；安装器首次/只读副本再次更新通过，账号配置哨兵未变；PDF helper 页图像素和缓存复用通过。两个实际 Pi setup RPC 入口在独立空 profile 中返回 get_state/get_commands 并退出，未调用模型。证据 `package-runtime-KCQhoi` 保留初始失败及明确标记的修复变体；这不是 App UI 或真实游玩验收。
+- 最终装配发现 electron-builder 默认排除资源根的 node_modules；现由配方在 Electron 打包后复制完整受管闭包，逐文件校验 hash/链接，再签名。完整 App 已用原 PipiUI Dev 身份签名并复制到 `/Applications/PipiCOC.app`，旧版保留在自有 `.build.noindex`。只读 App 初启因宿主资源 copier 继承只读权限而未创建窗口，真实日志在 `app-tH6gQt/startup.log`；已对 generated staging/previous 副本修复可写权限及失败回滚，界面待重验。并行最终内核全套使用原签名 App 的 Node24/Git，证据 `final-packaged-2026-09-09T11-15-26-405Z-40iVhU`，其 App 与内核文件保持冻结。
 
 以下为各批次当时的实施记录；当前状态以上述汇总为准。
 

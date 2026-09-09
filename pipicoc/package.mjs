@@ -22,12 +22,20 @@ fs.copyFileSync(join(repo,'pipicoc/product.json'),join(stage,'product.json'));
 const config={appId:'com.leehow.pipicoc',productName:'PipiCOC',forceCodeSigning:false,npmRebuild:true,
   extraMetadata:{version:'0.1.0'},directories:{output:join(stage,'output')},
   files:['out/**/*','package.json','!node_modules/**/*','node_modules/node-pty/**/*','node_modules/@xterm/headless/**/*','node_modules/@xterm/addon-serialize/**/*'],
-  extraResources:[{from:join(stage,'product.json'),to:'product.json'},{from:join(stage,'pi-coc-runtime.json'),to:'pi-coc-runtime.json'},{from:assembled.output,to:'pi-coc'}],
+  extraResources:[{from:join(stage,'product.json'),to:'product.json'},{from:join(stage,'pi-coc-runtime.json'),to:'pi-coc-runtime.json'},{from:join(repo,'pipicoc/pipicoc.png'),to:'pipicoc.png'}],
   mac:{identity:null,icon:join(repo,'pipicoc/pipicoc.icns'),extendInfo:{CFBundleDisplayName:'PipiCOC',CFBundleName:'PipiCOC'},target:['dir']}};
 fs.writeFileSync(join(stage,'builder.json'),JSON.stringify(config,null,2)+'\n');
 run(join(repo,'Electron/node_modules/.bin/electron-builder'),['--mac','--arm64','--dir','--config',join(stage,'builder.json')],join(repo,'Electron/apps/electron'),{...process.env,CSC_IDENTITY_AUTO_DISCOVERY:'false',CSC_NAME:''});
 const app=join(stage,'output/mac-arm64/PipiCOC.app'),runtime=join(app,'Contents/Resources/pi-coc');
+// electron-builder's generic resource filter excludes a root node_modules directory.
+// Copy the separately assembled Node closure after packaging and before signing.
+fs.cpSync(assembled.output,runtime,{recursive:true,verbatimSymlinks:true});
 const assembly=JSON.parse(fs.readFileSync(join(runtime,'assembly.json'),'utf8'));
+for(const entry of assembly.files){
+  const path=join(runtime,entry.path);
+  if(entry.link!==undefined){if(fs.readlinkSync(path)!==entry.link)throw new Error(`Runtime link changed during App assembly: ${entry.path}`);}
+  else if(createHash('sha256').update(fs.readFileSync(path)).digest('hex')!==entry.sha256)throw new Error(`Runtime file changed during App assembly: ${entry.path}`);
+}
 const signingTargets=assembly.native.filter(native=>native.format.startsWith('Mach-O'));
 for(const native of signingTargets){
   const path=join(runtime,native.path);
