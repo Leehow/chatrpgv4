@@ -147,9 +147,10 @@ class Chargen:
                 pools.append((expression, [abbr]))
         return pools
 
-    def aptitude(self, value: Any) -> dict[str, list[str]] | None:
-        """The player's own words about this person, already read into characteristics by
-        the setup model. The kernel only accepts the closed set; it classifies no prose."""
+    def aptitude(self, value: Any) -> dict[str, Any] | None:
+        """What this person is notably good or poor at, already read into characteristics by
+        the setup model, carrying whether the player said it or the model read it off the
+        concept. The kernel only accepts the closed sets; it classifies no prose."""
         if value is None:
             return None
         declared = value if isinstance(value, dict) else {}
@@ -157,6 +158,12 @@ class Chargen:
         weak = [str(abbr) for abbr in (declared.get("weak") or [])]
         if not strong and not weak:
             return None
+        block = self.policy.get("aptitude") if isinstance(self.policy.get("aptitude"), dict) else {}
+        origins = [str(o) for o in (block.get("origins") or [])]
+        origin = declared.get("origin")
+        if not isinstance(origin, str) or origin not in origins:
+            raise ChargenError("aptitude", f"aptitude.origin must say who named this: {origins!r}",
+                               expected={"options": origins})
         unknown = [abbr for abbr in strong + weak if abbr not in self.characteristics]
         if unknown:
             raise ChargenError("aptitude", f"unknown characteristics {unknown!r}",
@@ -168,7 +175,12 @@ class Chargen:
         if len(set(strong)) != len(strong) or len(set(weak)) != len(weak):
             raise ChargenError("aptitude", "name each characteristic at most once",
                                expected={"strong": strong, "weak": weak})
-        return {"strong": strong, "weak": weak}
+        limit = int(block.get("concept_limit") or 0)
+        if origin == "concept" and (len(strong) > limit or len(weak) > limit):
+            raise ChargenError("aptitude", f"an emphasis read from the concept may name at most {limit} strong "
+                                           f"and {limit} weak; a longer one has to come from the player",
+                               expected={"origin": origin, "concept_limit": limit, "strong": strong, "weak": weak})
+        return {"strong": strong, "weak": weak, "origin": origin}
 
     def _assign(self, rolled: dict[str, Any], aptitude: dict[str, list[str]]) -> dict[str, str]:
         """Which slot's result each characteristic ends up holding. The multiset of results

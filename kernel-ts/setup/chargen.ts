@@ -94,17 +94,24 @@ export class Chargen {
     }
     return pools;
   }
-  /** The player's own words about this person, already read into characteristics by the setup model. */
+  /** What this person is notably good or poor at, already read into characteristics by the
+   *  setup model, carrying whether the player said it or the model read it off the concept. */
   aptitude(value: any): Row | null {
     if (value == null) return null;
     const declared = row(value), strong = array(declared.strong).map(string), weak = array(declared.weak).map(string);
     if (!strong.length && !weak.length) return null;
+    const block = row(this.policy.aptitude), origins = array(block.origins).map(string), origin = declared.origin;
+    if (typeof origin !== 'string' || !origins.includes(origin)) throw new ChargenError('aptitude', `aptitude.origin must say who named this: ${repr(origins)}`, {options: origins});
     const known = this.characteristics, unknown = [...strong, ...weak].filter(abbr => !known.includes(abbr));
     if (unknown.length) throw new ChargenError('aptitude', `unknown characteristics ${repr(unknown)}`, {options: known});
     const both = strong.filter(abbr => weak.includes(abbr));
     if (both.length) throw new ChargenError('aptitude', `${repr(both)} cannot be both notably strong and notably weak`, {strong, weak});
     if (new Set(strong).size !== strong.length || new Set(weak).size !== weak.length) throw new ChargenError('aptitude', 'name each characteristic at most once', {strong, weak});
-    return {strong, weak};
+    const limit = Math.trunc(number(block.concept_limit));
+    if (origin === 'concept' && (strong.length > limit || weak.length > limit))
+      throw new ChargenError('aptitude', `an emphasis read from the concept may name at most ${limit} strong and ${limit} weak; a longer one has to come from the player`,
+        {origin, concept_limit: limit, strong, weak});
+    return {strong, weak, origin};
   }
   quickFire(priority: string[]): Row {
     const values: Row = {}, array = this.dice.generation_methods.quick_fire_array.array.map((value: any) => Math.trunc(number(value)));

@@ -71,8 +71,9 @@ test('shared creation table methods preserve Python finance types and damage-tab
 test('stated-aptitude assignment matches the Python oracle roll for roll', async () => {
   const temporary = await mkdtemp(join(tmpdir(), 'pi-coc-setup-aptitude-'));
   const SEEDS = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8'];
-  const CASES = [null, {strong: ['STR'], weak: ['INT']}, {strong: ['DEX', 'POW'], weak: ['APP', 'SIZ']},
-    {strong: ['EDU', 'INT', 'SIZ']}, {weak: ['STR', 'CON', 'DEX', 'APP', 'POW']}];
+  const CASES = [null, {strong: ['STR'], weak: ['INT'], origin: 'player'}, {strong: ['DEX'], weak: ['APP'], origin: 'concept'},
+    {strong: ['DEX', 'POW'], weak: ['APP', 'SIZ'], origin: 'player'}, {strong: ['EDU', 'INT', 'SIZ'], origin: 'player'},
+    {weak: ['STR', 'CON', 'DEX', 'APP', 'POW'], origin: 'player'}];
   try {
     await build({stdin: {contents: [
       "export {RuleTables} from './kernel-ts/rules/tables.ts';",

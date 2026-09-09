@@ -2064,6 +2064,23 @@ is refused rather than silently ignored. Because assignment is a permutation of
 existing rolls, strong is not a promise of a high number: the setup model states
 what the returned card actually holds and never a value it does not.
 
+**Who said it is part of the field.** A player who describes nobody in particular
+still hands over a person: an occupation, a concept, a background. Reading an
+emphasis out of that is legitimate and is what a Keeper building a pregen does,
+but it is the model's inference and not the player's claim, and a card may not
+blur the two. `aptitude.origin` is therefore required whenever aptitude is present
+and closed to `steps.json`'s `create-investigator.aptitude.origins`: `player` when
+the player's own words named it, `concept` when the model read it off the person
+they described. The kernel records the origin in the generated record and the
+receipt, and the setup model says which one it used in its own words — never
+"as you said" for an inference it made itself.
+
+Both origins place the same rolls the same way; only the licence differs. An
+inferred emphasis is capped at `concept_limit` strong and `concept_limit` weak
+(content, not code) so that reading a person does not quietly optimize every card
+into its occupation's archetype and retire the dice; a longer emphasis has to come
+from the player. Exceeding it is an `aptitude`-stage refusal naming the limit.
+
 **The interest list is priority ordered too.** The occupational list has been a
 priority order since #21: `spread` walks it in the supplied order and raises each
 entry to a tier before starting the next tier. The personal-interest budget kept
@@ -2094,7 +2111,7 @@ of the current semantic profile: name, occupation, age, sex, concept, occupation
 skills), own_language, backstory (3–6 populated first-six categories plus scenario_bound),
 key_connection (backstory_field and summary), equipment (named ordinary items),
 weapons (optional catalog names) and aptitude (optional strong/weak characteristic
-abbreviations). Unknown skills return the relevant catalog; no
+abbreviations with their origin). Unknown skills return the relevant catalog; no
 semantic regex picks skills or fills an open choice. The kernel reuses Chargen's
 arithmetic and validates complete budgets, provenance, gear and background.
 

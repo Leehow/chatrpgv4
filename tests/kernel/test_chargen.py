@@ -380,10 +380,12 @@ def test_an_absent_or_empty_aptitude_generates_exactly_as_before(chargen):
 
 
 @pytest.mark.parametrize("value,message", [
-    ({"strong": ["LUCK"]}, "unknown characteristics"),
-    ({"strong": ["Strength"]}, "unknown characteristics"),
-    ({"strong": ["STR"], "weak": ["STR"]}, "cannot be both"),
-    ({"strong": ["STR", "STR"]}, "at most once"),
+    ({"strong": ["LUCK"], "origin": "player"}, "unknown characteristics"),
+    ({"strong": ["Strength"], "origin": "player"}, "unknown characteristics"),
+    ({"strong": ["STR"], "weak": ["STR"], "origin": "player"}, "cannot be both"),
+    ({"strong": ["STR", "STR"], "origin": "player"}, "at most once"),
+    ({"strong": ["STR"]}, "must say who named this"),
+    ({"strong": ["STR"], "origin": "keeper"}, "must say who named this"),
 ])
 def test_the_kernel_only_accepts_the_closed_set(chargen, value, message):
     with pytest.raises(ChargenError) as raised:
@@ -392,17 +394,36 @@ def test_the_kernel_only_accepts_the_closed_set(chargen, value, message):
     assert message in str(raised.value)
 
 
+def test_an_inference_off_the_concept_is_capped_and_a_players_claim_is_not(chargen):
+    limit = POLICY["aptitude"]["concept_limit"]
+    read = {"strong": ["STR"] * limit, "weak": ["INT"][:limit], "origin": "concept"}
+    assert chargen.aptitude(read)["origin"] == "concept"
+    with pytest.raises(ChargenError) as raised:
+        chargen.aptitude({"strong": ["STR", "CON"], "weak": ["INT"], "origin": "concept"})
+    assert raised.value.stage == "aptitude"
+    assert raised.value.expected["concept_limit"] == limit
+    said = {"strong": ["STR", "CON"], "weak": ["INT", "EDU"], "origin": "player"}
+    assert chargen.aptitude(said)["strong"] == ["STR", "CON"], "a player may name as many as the pools hold"
+
+
+def test_both_origins_place_the_same_rolls_the_same_way(chargen):
+    placed = [chargen.rolled(random.Random("s1"), chargen.aptitude({"strong": ["STR"], "weak": ["INT"], "origin": origin}))
+              for origin in ("player", "concept")]
+    assert placed[0]["values"] == placed[1]["values"], "only the licence differs, never the arithmetic"
+    assert [p["aptitude"]["origin"] for p in placed] == ["player", "concept"]
+
+
 def test_an_aptitude_cannot_direct_the_quick_fire_array(chargen):
     with pytest.raises(ChargenError) as raised:
-        build(chargen, method="quick_fire", aptitude={"strong": ["STR"]})
+        build(chargen, method="quick_fire", aptitude={"strong": ["STR"], "origin": "player"})
     assert raised.value.stage == "aptitude"
 
 
 def test_the_built_card_records_the_assignment_as_its_method(chargen):
-    sheet, receipt = build(chargen, method="rolled", aptitude={"strong": ["STR"], "weak": ["INT"]})
+    sheet, receipt = build(chargen, method="rolled", aptitude={"strong": ["STR"], "weak": ["INT"], "origin": "player"})
     assert sheet["creation"]["method"] == "rolled_pool_assignment"
     assert receipt["method"] == "rolled_pool_assignment"
-    assert sheet["creation"]["characteristics"]["aptitude"] == {"strong": ["STR"], "weak": ["INT"]}
+    assert sheet["creation"]["characteristics"]["aptitude"] == {"strong": ["STR"], "weak": ["INT"], "origin": "player"}
     plain, _ = build(chargen, method="rolled")
     assert plain["creation"]["method"] == "rolled"
     assert "aptitude" not in plain["creation"]["characteristics"]
