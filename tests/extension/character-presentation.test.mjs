@@ -155,3 +155,28 @@ test('possession words are localized once, grow with the kit, and never include 
  await assert.rejects(preparePossessionPresentation({...options,view:{...view,play_language:'en'}}),/language/);
  assert.deepEqual(possessionTexts({investigators:[{objects:[{traits:[{name:'重量',value:2.4,unit:'公斤'}],state:{condition:'intact'}}]}]}),['condition','intact','公斤','重量']);
 });
+
+test('clue words are localized once, grow with what is found, and never include a handle or an unfound clue',async()=>{
+ const {prepareCluePresentation,clueTexts}=await import('../../extensions/module/character-presentation.ts');
+ const home=await mkdtemp(join(tmpdir(),'clue-presentation-'));
+ const summary='Corbitt can form pools of blood on floor, ceiling, or walls to frighten intruders away from his secret.';
+ const view={play_language:'zh-Hans',turn:2,investigators:[sheet],clues:{
+  discovered:[{clue:'blood-pool-manifest',label:'血泊',summary},{clue:'knott-commission',label:"Knott's commission"}],
+  here:[{name:'hidden-villain',summary:'The villain is Corbitt.',discovered:false},{name:'blood-pool-manifest',summary,discovered:true}]}};
+ const original=JSON.stringify(view);let calls=0;
+ const runner=async r=>{calls++;const input=JSON.parse(await readFile(join(r.cwd,'texts.json'),'utf8'));
+  for(const hidden of ['blood-pool-manifest','knott-commission','hidden-villain','The villain is Corbitt.','2'])assert.ok(!input.texts.includes(hidden),hidden);
+  await writeFile(join(r.cwd,'presentation.json'),JSON.stringify({finance_equipment:[],texts:Object.fromEntries(input.texts.map(t=>[t,t==='血泊'?t:`${input.play_language}:${t}`]))}));return {ok:true}};
+ const options={home,campaign:'c1',play_language:'zh-Hans',view,runner};
+ assert.deepEqual(clueTexts(view),[summary,"Knott's commission",'血泊']);
+ const first=await prepareCluePresentation(options);
+ assert.equal(first.texts[summary],`zh-Hans:${summary}`);assert.equal(first.texts["Knott's commission"],"zh-Hans:Knott's commission");assert.equal(first.texts['血泊'],'血泊');assert.equal(calls,1);
+ assert.deepEqual(JSON.parse(await readFile(join(home,'.coc/campaigns/c1/setup/presentations/clues-zh-Hans.json'),'utf8')),first);
+ assert.deepEqual(await prepareCluePresentation({...options,view:{...view,turn:3}}),first);assert.equal(calls,1);
+ const found={clue:'knott-keys',label:'宅子钥匙',summary:'Knott hands over the keys to the Corbitt house.'};
+ const next=await prepareCluePresentation({...options,view:{...view,clues:{discovered:[...view.clues.discovered,found]}}});
+ assert.equal(calls,2);assert.equal(next.texts[summary],first.texts[summary]);assert.equal(next.texts[found.summary],`zh-Hans:${found.summary}`);
+ assert.equal(JSON.stringify(view),original);
+ await assert.rejects(prepareCluePresentation({...options,view:{...view,play_language:'en'}}),/language/);
+ assert.deepEqual(clueTexts({clues:{discovered:[]}}),[]);assert.deepEqual(clueTexts({}),[]);
+});

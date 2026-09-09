@@ -1781,6 +1781,34 @@ sentences already preferred `actor_label`, and now get it for the whole table.
 Both label maps survive a worldline merge (§15.6) by the same union the scene
 labels always used: a name is not a claim two lines can disagree about.
 
+### Host decision: a clue's words reach the player in the play language (2026-09-09)
+
+A zh-Hans table unfolded 血泊 into "Corbitt can form pools of blood on floor,
+ceiling, or walls to frighten intruders away from his secret." The row's `summary`
+is the module's own text, written by the reader in the language the book was read
+in, and the row's `label` falls back to the graph's display name for a clue the
+Keeper never renamed. Neither is the kernel's to rewrite (§16: the kernel writes
+English and the module graph is the author's fact), and neither gets a hand-written
+translation in the panel. They travel the same leg as standing names and possession
+words: the tool-enabled presenter that projects the card.
+
+`clueTexts(view)` collects, from `table.view.clues.discovered` (and any `here` row
+marked `discovered`), each row's `label` and `summary`. The handle never enters,
+and an unfound clue the scene offers is not on the sheet and is not asked. A label
+the Keeper wrote in the play language is asked once and comes back as itself, as a
+renamed scene's name does; the row does not say which word is whose, and guessing
+by script is the detector §16 forbids. The projection is saved as
+`setup/presentations/clues-<language>.json` beside the standing and possession
+files and grows with the campaign: what the file lacks is asked, what it has is
+kept, so a clue's text costs one question per language.
+
+On every sheet read the host merges each growing lane's file under the kernel
+glossary (`labels = {...lane.texts, ...labels}`, the glossary winning) and compares
+the sheet's current words against it; a word the file lacks starts one background
+run for that lane, keyed by lane and missing set, with the same `sheet_changed`
+refresh and retry rules the possession lane has (§26). The panel reads a clue's
+name and its body through the same `labels` lookup as everything else on the sheet.
+
 ### Host decision: RPC adapter
 
 The adapter preserves transport/session/model options, removes host persona and

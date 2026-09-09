@@ -172,15 +172,15 @@ it('a presentation that never answers fails with a retryable card instead of sta
  expect(host.presentationStatus(data)).toEqual({pending:true});
 });
 
-it('a possession projection is its own job beside the standing one and is not kept once answered',async()=>{
+it('the possession and clue projections are their own jobs beside the standing one and are not kept once answered',async()=>{
  const {host}=await service();
- const run=vi.spyOn(host as any,'run').mockImplementation((_action:any,data:any)=>Promise.resolve({play_language:'zh-Hans',texts:data.possessions?{intact:'完好'}:{}}));
+ const run=vi.spyOn(host as any,'run').mockImplementation((_action:any,data:any)=>Promise.resolve({play_language:'zh-Hans',texts:data.possessions?{intact:'完好'}:data.clues?{'Pools of blood':'血泊'}:{}}));
  const base={campaign:'c1',play_language:'zh-Hans'};
- const [standing,possessions]=await Promise.all([host.presentation({...base,standing:true}),host.presentation({...base,possessions:true})]);
- expect(run).toHaveBeenCalledTimes(2);
- expect(standing.texts).toEqual({});expect(possessions.texts).toEqual({intact:'完好'});
- expect((run.mock.calls[1]![1] as any).possessions).toBe(true);
- // A done job is not kept: the next sheet read that finds a new word starts a fresh run.
- await host.presentation({...base,possessions:true});
+ const [standing,possessions,clues]=await Promise.all([host.presentation({...base,standing:true}),host.presentation({...base,possessions:true}),host.presentation({...base,clues:true})]);
  expect(run).toHaveBeenCalledTimes(3);
+ expect(standing.texts).toEqual({});expect(possessions.texts).toEqual({intact:'完好'});expect(clues.texts).toEqual({'Pools of blood':'血泊'});
+ expect((run.mock.calls[1]![1] as any).possessions).toBe(true);expect((run.mock.calls[2]![1] as any).clues).toBe(true);
+ // A done job is not kept: the next sheet read that finds a new word starts a fresh run.
+ await host.presentation({...base,possessions:true});await host.presentation({...base,clues:true});
+ expect(run).toHaveBeenCalledTimes(5);
 });

@@ -92,6 +92,17 @@ describe('a discovered clue is named, not handled', () => {
     const body = container.querySelector('details.coc-clue-fold .coc-clue-body');
     expect(body?.textContent).toBe('房东霍华德·克兰出价每天 20 美元，要求查清克罗宅的事。');
   });
+
+  it('reads a clue label through the glossary too, so a graph name the Keeper never renamed is projected', async () => {
+    const withGraphName = view({
+      clues: { discovered: [{ clue: 'blood-pool-manifest', label: 'Pools of blood' }] },
+      labels: { ...view().labels, 'Pools of blood': '血泊' },
+    });
+    render(<Panel api={host({ ok: true, data: { status: 'ready', view: withGraphName, campaign: 'c1' } })} />);
+    await screen.findByText('血泊');
+    expect(screen.queryByText('Pools of blood')).toBeNull();
+    expect(screen.queryByText('blood-pool-manifest')).toBeNull();
+  });
 });
 
 describe('the time section reads the clock in the fiction', () => {

@@ -97,6 +97,26 @@ export function possessionTexts(view:Row):string[] {
 export function preparePossessionPresentation(options:TextOptions&{campaign:string;view:Row}):Promise<Row> {
   return prepareGrowingPresentation(options,'possessions',possessionTexts);
 }
+/**
+ * The words a discovered clue puts on the sheet: the name the table filed it under and what the
+ * book says it is. The name is the Keeper's own play-language word when `apply clue` gave one and
+ * otherwise the graph's display name; the summary is always the module's, in the language the book
+ * was read in. The row does not say which, so both are asked, exactly as a scene's name is, and a
+ * word already in the play language comes back as itself. The handle never enters, and a clue the
+ * scene offers but nobody has found stays the Keeper's business.
+ */
+export function clueTexts(view:Row):string[] {
+  const texts=new Set<string>();
+  const add=(value:unknown)=>{if(typeof value==='string'&&value.trim())texts.add(value)};
+  const clues=view?.clues&&typeof view.clues==='object'&&!Array.isArray(view.clues)?view.clues:{};
+  const found=[...(Array.isArray(clues.here)?clues.here:[]).filter((row:unknown)=>(row as Row)?.discovered===true),
+    ...(Array.isArray(clues.discovered)?clues.discovered:[])];
+  for(const row of found){if(row&&typeof row==='object'){add((row as Row).label);add((row as Row).summary);}}
+  return [...texts].sort();
+}
+export function prepareCluePresentation(options:TextOptions&{campaign:string;view:Row}):Promise<Row> {
+  return prepareGrowingPresentation(options,'clues',clueTexts);
+}
 /** A projection that grows with the table: what its saved file lacks is asked, what it has is kept. */
 async function prepareGrowingPresentation(options:TextOptions&{campaign:string;view:Row},kind:string,collect:(view:Row)=>string[]):Promise<Row> {
   if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(options.campaign)||!['zh-Hans','en'].includes(options.play_language))throw new Error('Invalid presentation request');
