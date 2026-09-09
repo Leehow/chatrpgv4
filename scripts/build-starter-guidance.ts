@@ -4,6 +4,7 @@ import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {KernelClient} from '../extensions/kernel/client.ts';
 import {prepareCharacterGuidance, guidanceFingerprint} from '../extensions/module/character-guidance.ts';
+import {loadPlayLanguages} from '../runtime/ui-words.ts';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const [moduleId, homeArg]=process.argv.slice(2);
@@ -16,7 +17,9 @@ try {
   await kernel.call('module.register',{module_id:moduleId});
   const {occupations}=await kernel.call<any>('setup.occupations');
   const meta=JSON.parse(await readFile(join(home,'.coc/modules',moduleId,'module.json'),'utf8'));
-  for(const language of ['zh-Hans','en']) {
+  // One bundle per declared play language: the loop is `content/languages.json`, so adding a
+  // language publishes its starter guidance without a line changing here (contract §23).
+  for(const language of Object.keys((await loadPlayLanguages(join(root,'content'))).languages)) {
     const options={home,module_id:moduleId,play_language:language,occupations,buildBundle:true};
     const guidance=await prepareCharacterGuidance(options);
     const fingerprint=await guidanceFingerprint(options);

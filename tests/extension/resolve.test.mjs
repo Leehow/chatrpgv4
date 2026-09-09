@@ -7,6 +7,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { extensionWords } from "../../extensions/ui/words.ts";
 import { assistantTexts, customMessages, openTable, waitForIdle } from "./harness.mjs";
 
 function toolResults(session, toolName) {
@@ -199,7 +200,21 @@ test("战斗：待决防御用 ask 交回玩家，下一回合用 defense 作答
 
 	const opened = statusLines(table);
 	assert.equal(opened.length, 1, "战斗开起来时状态行写一次");
-	assert.equal(opened[0].text, "combat  round 1  turn: 看门人  defence: player (dodge/fight_back)");
+	// The session kind and the defence options are the kernel's closed enums, shown verbatim; the
+	// round, turn and defence words come from the campaign's `extension` surface (contract §23).
+	const words = await extensionWords("zh-Hans");
+	assert.equal(
+		opened[0].text,
+		["combat", words.line("session_round", { round: 1 }), words.line("session_turn", { who: "看门人" }),
+			words.line("session_defence_options", { who: words.word("session_defender_player"), options: "dodge/fight_back" })].join("  "),
+	);
+	assert.ok(opened[0].text.startsWith("combat  ") && opened[0].text.includes("dodge/fight_back"), "the closed enums are not rewritten");
+	const english = await extensionWords("en");
+	assert.notEqual(
+		words.line("session_defence_options", { who: words.word("session_defender_player"), options: "dodge/fight_back" }),
+		english.line("session_defence_options", { who: english.word("session_defender_player"), options: "dodge/fight_back" }),
+		"a second language draws the same row with its own words",
+	);
 
 	const attackRow = table.telemetry().find((row) => row.tool === "resolve");
 	assert.equal(attackRow.outcome_kind, "combat");

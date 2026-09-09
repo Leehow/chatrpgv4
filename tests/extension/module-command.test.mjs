@@ -14,6 +14,7 @@ import { execPath } from "node:process";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { extensionWords } from "../../extensions/ui/words.ts";
 import { createFakeUI, openTable, waitFor } from "./harness.mjs";
 
 /** Two books in the store: one that can be played right now, one still being built. */
@@ -111,8 +112,14 @@ test("/coc module parse forwards the original quoted path and keeps progress out
  // Command-view fixtures; source processing is tested at its own seam.
  table.emit("coc:module-ingest-progress",{stage:"index",page:10,of:20});
  table.emit("coc:module-ingest-done",{module_id:"a-book",opening_ready:true});
- assert.ok(table.ui.notifications.some(r=>r.message.includes("page 10/20")));
- assert.match(lastNotice(table).message,/opening ready/);
+ // The parse job's unprompted lines read their words from the campaign's `extension` surface
+ // (contract §23); the page numbers and the module id inside them stay the job's own.
+ const words = await extensionWords("zh-Hans");
+ const english = await extensionWords("en");
+ const page = words.line("parse_page",{page:10,of:20});
+ assert.notEqual(page, english.line("parse_page",{page:10,of:20}), "a second language reports pages in its own words");
+ await waitFor(()=>table.ui.notifications.some(r=>r.message.includes(page)),{label:"the progress line reaches the person"});
+ await waitFor(()=>lastNotice(table).message.includes(words.word("parse_opening_ready")),{label:"the done line reaches the person"});
  assert.equal(table.session.messages.filter(m=>m.role==="user").length,1);
 });
 

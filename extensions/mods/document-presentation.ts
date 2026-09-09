@@ -3,9 +3,13 @@ import {createHash, randomUUID} from "node:crypto";
 import {mkdir, readFile, writeFile, rename} from "node:fs/promises";
 import {join} from "node:path";
 import {resourceRootFrom,runtimeEntryUrl} from "../../runtime/deployment.mjs";
+import {loadPlayLanguages} from "../../runtime/ui-words.ts";
+import {coded} from "../ui/errors.ts";
+import {extensionContentRoot} from "../ui/words.ts";
 import type {ReaderRequest, ReaderOutcome} from "../module/reader.ts";
 
-const defaultPrompt = join(resourceRootFrom(import.meta.url), 'extensions/mods/document-presentation.md');
+const resourceRoot = resourceRootFrom(import.meta.url);
+const defaultPrompt = join(resourceRoot, 'extensions/mods/document-presentation.md');
 type Row = Record<string, any>;
 type Options = {home:string; owner?:object; resourceRoot?:string; model?:string; thinking?:string; signal?:AbortSignal;
   runner?:(request:ReaderRequest)=>Promise<ReaderOutcome>};
@@ -45,7 +49,7 @@ export function validateDocumentReading(value:any, source:{text:string}):{title:
       || typeof value.text !== "string" || value.text.length > 64000
       || (source.text === "" ? value.text !== "" : !value.text.trim())
       || Object.keys(value).some(key => !["title", "text"].includes(key))) {
-    throw new Error("Invalid document reading");
+    throw coded("preparation_failed", "Invalid document reading");
   }
   return {title:value.title, text:value.text};
 }
@@ -63,7 +67,7 @@ async function reading(options:Options, title:string, text:string, language:stri
   const {pending} = cacheFor(options);
   if (pending.has(key)) return pending.get(key)!;
   const runner = options.runner;
-  if (!runner) throw new Error('Document presentation requires its owner runtime');
+  if (!runner) throw coded("preparation_failed", "Document presentation requires its owner runtime");
   const task = (async () => {
     const attempt = join(directory, "attempts", randomUUID());
     await mkdir(attempt, {recursive:true});
@@ -81,7 +85,8 @@ validateDocumentReading(JSON.parse(readFileSync("result.json","utf8")),JSON.pars
         brief:"Read request.json and write result.json. Run node check.mjs and repair any error."
           + (round > 1 ? " Read findings.json and repair the retained result." : "")});
       await writeFile(join(attempt, `run-${round}.json`), JSON.stringify(outcome));
-      if (!outcome.ok || options.signal?.aborted) throw new Error("Document reading could not be prepared");
+      if (!outcome.ok || options.signal?.aborted)
+        throw coded(options.signal?.aborted ? "presentation_timeout" : "preparation_failed", "Document reading could not be prepared");
       try {
         result = validateDocumentReading(JSON.parse(await readFile(join(attempt, "result.json"), "utf8")), request);
         break;
@@ -90,7 +95,7 @@ validateDocumentReading(JSON.parse(readFileSync("result.json","utf8")),JSON.pars
         if (round === 2) throw error;
       }
     }
-    if (!result) throw new Error("Document reading could not be validated");
+    if (!result) throw coded("preparation_failed", "Document reading could not be validated");
     const temporary = join(directory, randomUUID() + ".tmp");
     await writeFile(temporary, JSON.stringify(result)); await rename(temporary, accepted);
     return result;
@@ -100,11 +105,13 @@ validateDocumentReading(JSON.parse(readFileSync("result.json","utf8")),JSON.pars
 }
 
 export async function presentDocument(options:Options, document:Row):Promise<Row> {
-  if (!["zh-Hans", "en"].includes(document.play_language)
+  // The play languages are `content/languages.json` (contract §23), never a list written here.
+  const known = await loadPlayLanguages(options.resourceRoot ? join(options.resourceRoot, "content") : extensionContentRoot());
+  if (!known.languages[document.play_language]
       || typeof document.name !== "string" || !document.name.trim()
       || typeof document.text !== "string" || typeof document.original !== "string"
       || document.text.length > 64000 || document.original.length > 64000) {
-    throw new Error("Invalid document presentation request");
+    throw coded("invalid_params", "Invalid document presentation request");
   }
   const original = await reading(options, document.name, document.original, document.play_language);
   const text = document.player_edited ? document.text : document.text === document.original ? original.text

@@ -5,6 +5,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { extensionWords } from "../../extensions/ui/words.ts";
 import { assistantTexts, customMessages, openTable, waitForIdle } from "./harness.mjs";
 
 const SEVEN = ["apply", "ask", "look", "lookup", "narrate", "recall", "resolve"];
@@ -153,12 +154,25 @@ test("一个玩家回合：七个工具、胶囊、call_id、rendered_text 交�
 	);
 	assert.deepEqual(table.mechanics().at(-1), { campaign: "test-camp", turn: 1, mechanics: projected.mechanics },
 		"同一份投影也发上总线 coc:mechanics");
-	// 桌况扩展从投影画一行紧凑的状态行，用的是语言中立的英文词；正文一个字都不动。
+	// The table extension draws one compact status line from the projection. The numbers and the
+	// names are the kernel's, untouched; the words around them come from the campaign's own
+	// `extension` surface (contract §23), never from a literal written in the extension.
 	const painted = table.ui.statuses.filter((entry) => entry.key === "coc-mechanics");
-	assert.deepEqual(
-		painted.map((entry) => entry.text),
-		["t1  roll 42/55 pass  clue 地窖的 抓痕  move -> 前院  +10m"],
-		"一回合画一行，机制词是英文，名字是数据",
+	const words = await extensionWords("zh-Hans");
+	const expected = [
+		words.line("mechanics_turn", { turn: 1 }),
+		words.line("receipt_roll", { roll: 42, target: 55, outcome: words.word("receipt_roll_pass") }),
+		words.line("receipt_clue", { name: "地窖的 抓痕" }),
+		words.line("receipt_move", { scene: "前院" }),
+		words.line("receipt_time", { minutes: 10 }),
+	].join("  ");
+	assert.deepEqual(painted.map((entry) => entry.text), [expected], "一回合画一行，机制词按战役语言，名字是数据");
+	assert.ok(/42\/55/.test(painted[0].text) && painted[0].text.includes("地窖的 抓痕"), "the roll and the clue name are the kernel's own, verbatim");
+	const english = await extensionWords("en");
+	assert.notEqual(
+		words.line("receipt_roll", { roll: 42, target: 55, outcome: words.word("receipt_roll_pass") }),
+		english.line("receipt_roll", { roll: 42, target: 55, outcome: english.word("receipt_roll_pass") }),
+		"a second language draws the same receipt with its own words",
 	);
 	assert.ok(!texts.includes("守秘人在 narrate 之后又写的正文，应该被换掉"), "守秘人自写的收尾正文被丢掉");
 	const toolCallMessages = table.session.messages.filter(

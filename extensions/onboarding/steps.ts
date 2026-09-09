@@ -300,13 +300,27 @@ export function declaredSources(raw: unknown): string[] {
 	return rows.map((row) => asString(row)).filter((row): row is string => row !== undefined && row.length > 0);
 }
 
-/** One progress line for the status bar: how many steps are done and which is next (contract §14.4). */
-export function progressLine(steps: Step[], state: GateState): string | undefined {
+/**
+ * How far the table has come: how many of its applicable steps are done, and which is next.
+ * Undefined when this lane has no applicable step at all, and the caller draws nothing.
+ */
+export function progressCounts(steps: Step[], state: GateState): { done: number; total: number; next?: Step } | undefined {
 	const applicable = steps.filter((step) => applies(step, state) || state.completed.has(step.id));
 	if (applicable.length === 0) return undefined;
 	const done = applicable.filter((step) => state.completed.has(step.id)).length;
 	const next = nextStep(steps, state);
-	return `setup ${done}/${applicable.length}  ${next ? `next ${next.id}` : "ready"}`;
+	return { done, total: applicable.length, ...(next ? { next } : {}) };
+}
+
+/**
+ * One progress line for the setup tool's own result (contract §14.4). This one is read by the model,
+ * so it is English like every other word the model reads; the status line the player sees is drawn
+ * from the same counts through the `extension` surface instead.
+ */
+export function progressLine(steps: Step[], state: GateState): string | undefined {
+	const counts = progressCounts(steps, state);
+	if (!counts) return undefined;
+	return `setup ${counts.done}/${counts.total}  ${counts.next ? `next ${counts.next.id}` : "ready"}`;
 }
 
 export type GateVerdict = { ok: true; step: Step } | { ok: false; reason: string };

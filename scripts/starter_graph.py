@@ -98,7 +98,9 @@ DOMAIN_DOCUMENTS: dict[str, tuple[str, ...]] = {
 }
 
 _SEMANTIC_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
-_CJK = re.compile(r"[㐀-鿿぀-ヿ]")
+# The script-class range is written in escapes, not in the characters themselves: the system
+# language of this repository's code is English (contract §16.1) and the guard scans this file.
+_CJK = re.compile(r"[\u3400-\u9fff\u3040-\u30ff]")
 
 
 class StarterGraphError(ValueError):

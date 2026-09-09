@@ -5,7 +5,8 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
-import { createFakeUI, customMessages, openTable, waitForIdle } from "./harness.mjs";
+import { extensionWords } from "../../extensions/ui/words.ts";
+import { createFakeUI, customMessages, openTable, waitFor, waitForIdle } from "./harness.mjs";
 
 function resultText(message) {
 	return (message.content ?? [])
@@ -229,13 +230,21 @@ test("开桌欢迎：战役、场景、调查员各报一次", async (t) => {
 	const table = await openTable({ responses: [fauxAssistantMessage("好")] });
 	t.after(() => table.dispose());
 
-	const messages = table.ui.notifications.map((entry) => entry.message);
-	assert.ok(
-		messages.some((message) => /COC table open/.test(message) && /科比特宅/.test(message)),
-		"内核扩展报一行桌况",
+	// Both welcome lines read their caption from the campaign's `extension` surface (contract §23);
+	// the title, the scene and the investigator inside them are the kernel's own words. Reading the
+	// surface is a file read, so the welcome lands one turn of the loop after the table opens.
+	const words = await extensionWords("zh-Hans");
+	const english = await extensionWords("en");
+	const caption = (drawn) => drawn.word("kernel_table_open").split("{")[0];
+	assert.ok(caption(words).trim().length > 0, "the open line has a caption of its own");
+	assert.notEqual(caption(words), caption(english), "a second language opens the table with its own caption");
+	const messages = () => table.ui.notifications.map((entry) => entry.message);
+	await waitFor(
+		() => messages().some((message) => message.startsWith(caption(words)) && /科比特宅/.test(message)),
+		{ label: "内核扩展报一行桌况" },
 	);
-	assert.ok(
-		messages.some((message) => /闹鬼的房子/.test(message) && /托马斯·海耶斯/.test(message) && /SAN 55/.test(message)),
-		"table 扩展报欢迎：战役、场景、调查员",
+	await waitFor(
+		() => messages().some((message) => /闹鬼的房子/.test(message) && /托马斯·海耶斯/.test(message) && /SAN 55/.test(message)),
+		{ label: "table 扩展报欢迎：战役、场景、调查员" },
 	);
 });

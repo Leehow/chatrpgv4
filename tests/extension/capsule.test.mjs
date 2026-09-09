@@ -7,7 +7,11 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { extensionWords } from "../../extensions/ui/words.ts";
 import { customMessages, openTable } from "./harness.mjs";
+
+/** The harness opens its campaign in this play language; the status lines must come back in it. */
+const PLAYED = "zh-Hans";
 
 /** 契约 §13.1 的九节；`head` 与 `turn` 不计预算，`recent` 是切片 0 就有的。 */
 const NINE = [
@@ -77,7 +81,16 @@ test("状态行挂上 Director 的建议节拍", async (t) => {
 
 	const painted = directorStatuses(table);
 	assert.equal(painted.length, 1, "一回合一次，节拍没变就不重画");
-	assert.equal(painted[0].text, "beat REVEAL");
+	// The beat name is the kernel's closed enum; the word in front of it is the campaign's
+	// (contract §23), read from content/ui/<tag>/extension.json rather than written here.
+	const played = await extensionWords(PLAYED);
+	const other = await extensionWords("en");
+	assert.equal(painted[0].text, played.line("director_beat", { beat: "REVEAL" }));
+	assert.notEqual(
+		played.line("director_beat", { beat: "REVEAL" }),
+		other.line("director_beat", { beat: "REVEAL" }),
+		"a second language draws the same row with its own word",
+	);
 });
 
 test("有 override 时状态行把硬规则一起显示", async (t) => {
@@ -90,7 +103,9 @@ test("有 override 时状态行把硬规则一起显示", async (t) => {
 	await table.session.prompt("我朝它冲过去");
 
 	const painted = directorStatuses(table);
-	assert.equal(painted.at(-1)?.text, "beat SUBSYSTEM  override session-active");
+	const words = await extensionWords(PLAYED);
+	assert.equal(painted.at(-1)?.text, words.line("director_beat_override", { beat: "SUBSYSTEM", override: "session-active" }));
+	assert.ok(painted.at(-1)?.text.includes("SUBSYSTEM") && painted.at(-1)?.text.includes("session-active"), "the two closed enums are still shown verbatim");
 });
 
 test("内核不给 director 节时状态行上不挂东西", async (t) => {
