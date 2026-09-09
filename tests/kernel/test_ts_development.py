@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import RpcClient, stating
+from conftest import RpcClient, in_play_language
 from rpc_support import differences, python_command, snapshot
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -117,7 +117,7 @@ def prepare(root, name):
             (root / "fixture-identities.json").write_text(json.dumps({"library_id": saved["library_id"]}) + "\n")
         if name in {"late-accounting", "legacy-chapter-correction", "completed-pending", "earlier-pending"}:
             method, params = narrate("t1-c2")
-            client.ok(method, {**params, "text": stating(client, params["text"])})
+            client.ok(method, {**params, "text": in_play_language(client, params["text"])})
     finally:
         client.close()
     directory = base / ".coc/campaigns/c1"
@@ -183,7 +183,7 @@ def observe(root, name, label, command, base):
             else:
                 method, params = step
                 if method == "table.narrate":
-                    params = {**params, "text": stating(client, params["text"])}
+                    params = {**params, "text": in_play_language(client, params["text"])}
                 if params.get("library_id") == "fixture-library":
                     params = {**params, "library_id": json.loads((root / "fixture-identities.json").read_text())["library_id"]}
                 response = client.call(method, params)

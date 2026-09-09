@@ -1,12 +1,11 @@
-"""§5 narrate under §16: the text is delivered verbatim and the receipts ride beside it as
-the language-neutral `mechanics` projection.
+"""§5 narrate under §16: the text is delivered verbatim, the receipts ride beside it as
+the language-neutral `mechanics` projection, and no number is required in story prose.
 
-The kernel inserts no number into the prose -- but the keeper must still state each public
-receipt's figures there in their own words, and §16.3 checks it. That check was deleted with
-the mechanics lines in `ffb6361a` and this docstring said so ("without requiring numbers in
-story prose"); the real table disagreed, at the price of defect #64, and it is back (#84)."""
+The figure check went in on 2026-09-06, out on 09-07, back on 09-08 (#84) and out for good
+on 09-09 by the user's decision: numbers live on the frontend's cards, the prose is fiction.
+`tests/kernel/test_narrate_numbers.py` guards the last word."""
 
-from conftest import campaign_dir, git_log, narrate, open_turn, read_json, read_jsonl, stating
+from conftest import campaign_dir, git_log, narrate, open_turn, read_json, read_jsonl
 
 
 def stage_receipts(client):
@@ -71,18 +70,13 @@ def test_every_receipt_is_projected_and_the_turn_closes(kernel):
     assert finalized[-1]["data"] == {"receipts": [r["id"] for r in record["receipts"]]}
 
 
-def test_the_kernel_never_renders_a_mechanics_line_into_the_prose(kernel):
-    """§16: the kernel stopped rendering mechanics lines; the numbers travel as a projection.
-
-    That is not the same as the prose being free of numbers -- §16.3 obliges the keeper to
-    state each public receipt's figures in their own words, and the kernel checks it (#84).
-    The two live together: the keeper writes the number, the kernel never inserts one. This
-    test's subject is the second half, so the delivery below states its figures and the
-    assertion is that what came back is exactly what was written, with nothing added.
-    """
+def test_system_numbers_are_only_required_in_json(kernel):
+    """§16: the kernel renders no mechanics line and demands no figure. A delivery that names
+    neither the roll nor the target nor the minutes is delivered exactly as written; the
+    numbers reach the player as projection rows."""
     open_turn(kernel)
     roll = stage_receipts(kernel)[0]
-    prose = stating(kernel, "你没有发现其他痕迹，收起了手里的材料。")
+    prose = "你没有发现其他痕迹，收起了手里的材料。"
     done = kernel.table("narrate", call_id="t1-c3", text=prose)
     assert done["rendered_text"] == prose
     assert "【" not in done["rendered_text"], "no mechanics line was rendered into the prose"

@@ -16,8 +16,6 @@
  *   FAKE_KERNEL_NO_DIRECTOR "1" 时胶囊不带 `director` 节（切片 0–2 的内核）
  *   FAKE_KERNEL_HANDOUT    JSON 对象，`apply` 带 handout 效果时作为 `attachment` 回（契约 §14.8）
  *   FAKE_KERNEL_CASH       调查员起始现金，缺省 50（`apply` 的 cash 效果按它算前后，契约 §5）
- *   FAKE_KERNEL_REQUIRE_NUMBERS "1" 时 narrate／ask 跑契约 §5 的机制核对：本回合每条公开收据的
- *                          关键数字必须以字符串出现在 text 里，缺了回 mechanics_missing
  *   FAKE_KERNEL_BACKFILL   JSON 整数数组：还没抽过的回合，`memory.job` 的缺省派发按序取（#20 补抽）；
  *                          空了就回 job_id: null
  *   FAKE_KERNEL_MODULE     JSON 对象，配模组存储那一面（契约 §14.1、§14.3）：
@@ -67,17 +65,10 @@ let cash = process.env.FAKE_KERNEL_CASH ? Number(process.env.FAKE_KERNEL_CASH) :
  * 随结果给出去，扩展落成 `coc-mechanics` 会话条目，交付的正文一个字都不动。
  */
 let turnMechanics = [];
-/**
- * 机制核对的账（契约 §5 第 2 步）：每条公开收据要求正文里出现哪几个数字。
- * `FAKE_KERNEL_REQUIRE_NUMBERS=1` 时 narrate／ask 拿它做纯字符串包含检查，不做语义判断。
- */
-let numberChecks = [];
-const REQUIRE_NUMBERS = process.env.FAKE_KERNEL_REQUIRE_NUMBERS === "1";
 
-/** 一条收据进投影，并登记它要求正文交代的数字。 */
-function mechanic(row, receipt, expected = []) {
+/** 一条收据进投影。正文里要不要出现它的数字，内核不管（§16.3，2026-09-09）。 */
+function mechanic(row) {
 	turnMechanics.push(row);
-	if (expected.length > 0) numberChecks.push({ receipt, expected });
 }
 
 /** Contract §16.3: zh-Hans player-facing fields must carry a CJK character. Bytes, not semantics. */
@@ -99,27 +90,6 @@ function checkPlayLanguage(fields) {
 			message: "player-facing text is not in the campaign's play_language",
 			fix: `rewrite ${missing.join(", ")} in the campaign's play_language (${playLanguage}) and call again`,
 			details: { fields: missing, play_language: playLanguage },
-		},
-	};
-}
-
-/** 契约 §5 第 2 步：缺一个数字就整条 narrate 退回，`fix` 说明补哪些数。 */
-function checkNumbers(text) {
-	if (!REQUIRE_NUMBERS) return undefined;
-	const body = String(text ?? "");
-	const missing = numberChecks
-		.map((row) => ({ receipt: row.receipt, expected: row.expected.filter((value) => !body.includes(String(value))) }))
-		.filter((row) => row.expected.length > 0);
-	if (missing.length === 0) return undefined;
-	const numbers = missing.flatMap((row) => row.expected).join(", ");
-	return {
-		ok: false,
-		error: {
-			code: "invalid_params",
-			code_detail: "mechanics_missing",
-			message: "the prose does not account for this turn's public receipts",
-			fix: `write these numbers into the text, copied from the tool results: ${numbers}`,
-			details: { missing },
 		},
 	};
 }
@@ -359,11 +329,7 @@ function resolve(params) {
 		};
 	}
 	if (action.defense) {
-		mechanic(
-			{ kind: "roll", actor: INVESTIGATOR, skill: "Dodge", roll: 18, target: 40, level: "regular", passed: true, visibility: "public" },
-			`roll:dodge-${params.call_id}`,
-			[18, 40],
-		);
+		mechanic({ kind: "roll", actor: INVESTIGATOR, skill: "Dodge", roll: 18, target: 40, level: "regular", passed: true, visibility: "public" });
 		return {
 			ok: true,
 			result: {
@@ -377,11 +343,7 @@ function resolve(params) {
 		};
 	}
 	if (action.intent === "combat") {
-		mechanic(
-			{ kind: "roll", actor: INVESTIGATOR, skill: "Fighting (Brawl)", roll: 31, target: 50, level: "regular", passed: true, visibility: "public" },
-			`roll:fighting-brawl-${params.call_id}`,
-			[31, 50],
-		);
+		mechanic({ kind: "roll", actor: INVESTIGATOR, skill: "Fighting (Brawl)", roll: 31, target: 50, level: "regular", passed: true, visibility: "public" });
 		return {
 			ok: true,
 			result: {
@@ -415,11 +377,7 @@ function resolve(params) {
 		};
 	}
 	if (action.push === true) {
-		mechanic(
-			{ kind: "roll", actor: INVESTIGATOR, skill: "Spot Hidden", roll: 12, target: 55, level: "hard", passed: true, pushed: true, visibility: "public" },
-			`roll:spot-hidden-${params.call_id}`,
-			[12, 55],
-		);
+		mechanic({ kind: "roll", actor: INVESTIGATOR, skill: "Spot Hidden", roll: 12, target: 55, level: "hard", passed: true, pushed: true, visibility: "public" });
 		return {
 			ok: true,
 			result: {
@@ -455,8 +413,6 @@ function resolve(params) {
 			passed: true,
 			visibility: "public",
 		},
-		`roll:spot-hidden-${params.call_id}`,
-		[42, 55],
 	);
 	return {
 		ok: true,
@@ -712,7 +668,6 @@ function handle(method, params) {
 			turn += 1;
 			state = "open";
 			turnMechanics = [];
-			numberChecks = [];
 			return { ok: true, result: { turn, state, capsule: capsule(params.text) } };
 		case "table.capsule":
 			return { ok: true, result: capsule(null) };
@@ -745,7 +700,7 @@ function handle(method, params) {
 				}
 			}
 			// Every receipt joins this turn's mechanics projection (contract §16.2). The kernel renders no
-			// lines: the prose is the Keeper's, the numbers are checked by checkNumbers, and the front end
+			// lines and looks for no number in the prose: the prose is the Keeper's, and the front end
 			// and the driver read this JSON.
 			for (const effect of effects) {
 				if (effect.kind === "item") {
@@ -758,17 +713,12 @@ function handle(method, params) {
 							quantity,
 							to: effect.to ?? INVESTIGATOR,
 						},
-						`item:${slug(effect.name)}-${params.call_id}`,
 					);
 				}
 				if (effect.kind === "cash") {
 					const before = cash;
 					cash += effect.delta;
-					mechanic(
-						{ kind: "cash", subject: effect.subject ?? INVESTIGATOR, before, after: cash },
-						`cash:${params.call_id}`,
-						[before, cash],
-					);
+					mechanic({ kind: "cash", subject: effect.subject ?? INVESTIGATOR, before, after: cash });
 				}
 				if (effect.kind === "move") {
 					mechanic(
@@ -778,25 +728,20 @@ function handle(method, params) {
 							to: effect.to,
 							...(typeof effect.travel_minutes === "number" ? { minutes: effect.travel_minutes } : {}),
 						},
-						`move:${params.call_id}`,
-						typeof effect.travel_minutes === "number" ? [effect.travel_minutes] : [],
 					);
 				}
 				if (effect.kind === "clue") {
-					mechanic(
-						{ kind: "clue", clue: effect.clue, ...(effect.label ? { label: effect.label } : {}) },
-						`clue:${params.call_id}`,
-					);
+					mechanic({ kind: "clue", clue: effect.clue, ...(effect.label ? { label: effect.label } : {}) });
 				}
 				if (effect.kind === "time") {
-					mechanic({ kind: "time", minutes: effect.minutes }, `time:${params.call_id}`, [effect.minutes]);
+					mechanic({ kind: "time", minutes: effect.minutes });
 				}
 			}
 			// Handouts (contract §14.8): the projection carries only the name, and the extension fills in
 			// where the file is from `attachment` (§16.2).
 			const handout = effects.find((effect) => effect.kind === "handout");
 			if (handout) {
-				mechanic({ kind: "handout", name: handout.label ?? handout.name }, `handout:${handout.name ?? "handout-1"}`);
+				mechanic({ kind: "handout", name: handout.label ?? handout.name });
 			}
 			const attachment = handout
 				? (process.env.FAKE_KERNEL_HANDOUT
@@ -829,9 +774,6 @@ function handle(method, params) {
 				...(params.text ? { text: params.text } : {}),
 			});
 			if (refusedAskLanguage) return refusedAskLanguage;
-			// Contract §5: `text` must account for the public receipts' numbers too, by the same check.
-			const refusedAsk = checkNumbers(params.text ?? "");
-			if (refusedAsk) return refusedAsk;
 			state = "asked";
 			// Delivery = text (optional) plus the prompt plus language-neutral numbered options; mechanics travel only in `mechanics`.
 			const askBody = params.kind==='mechanics' ? (params.text||'') : [
@@ -841,7 +783,6 @@ function handle(method, params) {
 			].join("\n");
 			const askMechanics = [...turnMechanics];
 			turnMechanics = [];
-			numberChecks = [];
 			return {
 				ok: true,
 				result: {
@@ -862,9 +803,6 @@ function handle(method, params) {
 		case "table.narrate": {
 			const refusedLanguage = checkPlayLanguage({ text: params.text ?? "" });
 			if (refusedLanguage) return refusedLanguage;
-			// Contract §5 step 2: the kernel inserts no mechanics lines and only checks whether this turn's public receipt numbers are in the prose.
-			const refused = checkNumbers(params.text ?? "");
-			if (refused) return refused;
 			const closed = turn;
 			state = "awaiting_player";
 			const facts = process.env.FAKE_KERNEL_NO_FACTS === "1"
@@ -884,7 +822,6 @@ function handle(method, params) {
 			// Contract §16.2: `rendered_text` is the text verbatim, and the mechanics are a language-neutral JSON projection.
 			const mechanics = [...turnMechanics];
 			turnMechanics = [];
-			numberChecks = [];
 			return {
 				ok: true,
 				result: {

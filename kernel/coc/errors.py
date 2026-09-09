@@ -35,7 +35,7 @@ class RpcError(Exception):
         self.fix = fix
         self.details = details
         #: a closed refinement of `code` the caller can branch on (contract §16.3:
-        #: `mechanics_missing`); never a free-text reason.
+        #: `play_language_mismatch`); never a free-text reason.
         self.code_detail = code_detail
 
     def to_json(self) -> dict[str, Any]:

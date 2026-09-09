@@ -187,10 +187,7 @@ def test_three_committed_turns_move_the_row_and_last_turn_tracks_them(seeded_ker
     kernel.ok("table.player_input", {"campaign": SECOND, "text": "I climb the ladder."})
     kernel.ok("table.apply", {"campaign": SECOND, "call_id": "t1-c1",
                               "effects": [{"kind": "damage", "dice": "1D3", "why": "a fall"}]})
-    status = kernel.ok("table.status", {"campaign": SECOND})
-    from coc.render import expected_numbers
-    owed = " ".join(n for r in status["receipts"] for n in expected_numbers(r))
-    first = kernel.ok("table.narrate", {"campaign": SECOND, "call_id": "t1-c2", "text": f"You fall. ({owed})"})
+    first = kernel.ok("table.narrate", {"campaign": SECOND, "call_id": "t1-c2", "text": "You fall."})
     row1 = after_turn(1, first["commit"])
     assert row1["sheet"]["current_hp"] < hp0
 
@@ -199,9 +196,7 @@ def test_three_committed_turns_move_the_row_and_last_turn_tracks_them(seeded_ker
     kernel.ok("table.resolve", {"campaign": SECOND, "call_id": "t2-c1",
                                 "action": {"intent": "investigate", "goal": "the thing in the crater", "method": "",
                                            "decision": "sanity:check", "san_loss": "1/1D3", "involuntary": "freeze"}})
-    status = kernel.ok("table.status", {"campaign": SECOND})
-    owed = " ".join(n for r in status["receipts"] for n in expected_numbers(r))
-    second = kernel.ok("table.narrate", {"campaign": SECOND, "call_id": "t2-c2", "text": f"It moves. ({owed})"})
+    second = kernel.ok("table.narrate", {"campaign": SECOND, "call_id": "t2-c2", "text": "It moves."})
     row2 = after_turn(2, second["commit"])
     assert row2["sheet"]["current_san"] < san0
 
@@ -245,9 +240,7 @@ def test_one_card_at_two_tables_last_writer_wins_and_provenance_says_who(kernel)
                                            "campaigns": [CAMPAIGN, "c2", "c3"]}
     kernel.ok("table.player_input", {"campaign": "c2", "text": "I wait."})
     kernel.ok("table.apply", {"campaign": "c2", "call_id": "t1-c1", "effects": [{"kind": "damage", "dice": "1D3"}]})
-    from coc.render import expected_numbers
-    owed = " ".join(n for r in kernel.ok("table.status", {"campaign": "c2"})["receipts"] for n in expected_numbers(r))
-    kernel.ok("table.narrate", {"campaign": "c2", "call_id": "t1-c2", "text": f"Ouch. ({owed})"})
+    kernel.ok("table.narrate", {"campaign": "c2", "call_id": "t1-c2", "text": "Ouch."})
     row = read_json(row_path)
     assert row["play"]["last_campaign"] == "c2" and row["play"]["last_turn"] == 1
     assert row["sheet"] == read_json(sheet_path(kernel.workspace, "c2", "inv-1"))

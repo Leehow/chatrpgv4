@@ -204,8 +204,8 @@
 **mechanics projection（机制投影）** — `narrate`/`ask`/`table.status` 结果里的 `mechanics` 数组，语言中立，每条对应一条收据（`roll`/`dice`/`change`/`scene`/`clue`/`time`/`item`/`cash`/`session`/`choice`/`handout` 十一种 kind，见 §16.2 的字段表）。产生：内核；消费：扩展写成 `coc-mechanics` 会话条目与总线 `coc:mechanics`，供前端渲染骰子卡，TUI 不显示。契约 §16.2。代码：`kernel/coc/render.py` 的 `mechanics_of`/`mechanics`。
 不是：正文里的任何文字——§16 之前内核会把机制拼成【明骰】【变化】这类中文行插进正文，§16 起这条彻底废止：正文只有守秘人自己写的字，机制只活在 `mechanics` 这个并行的结构化通道里。
 
-**「核对数字」（the number check）** — 不是字段名，是 §16.3 的确定性底线：内核不再插入任何机制行，改成核对——每条**公开**收据的关键数字（掷值/目标、伤害前后、分钟数）必须以数字形式（纯字符串包含）出现在守秘人正文里，缺了报 `invalid_params`（`code_detail: "mechanics_missing"`），列出缺了哪些数。名字（技能、场景、线索）不核对。契约 §5（`narrate` 第 2 步）、§16.3。代码：`kernel/coc/render.py` 的 `missing_numbers`、`mechanics_missing`（`code_detail` 常量 `MECHANICS_MISSING`）。
-不是：`facts.committed` 的句子生成——`facts.committed` 是内核**自己拼**的确定性事实句（给校验车道用），核对数字是**检查守秘人写的正文**里有没有抄对收据上的数字，两件事都发生在 `narrate`，但一个是生成、一个是校验，顺序上核对先于生成 `facts`（见 `kernel/coc/table.py` 的 `narrate` 方法体：`check_numbers` 在 `self._facts` 之前调用）。
+**「核对数字」（the number check）——已废止（2026-09-09 用户裁定）** — 曾是 §16.3 的一道地板：每条公开收据的关键数字必须以纯字符串出现在守秘人正文里，缺了报 `mechanics_missing`。09-06 加、09-07 退、09-08 以 #64 为由恢复（#64 其实早于这道核存在）、09-09 永久移除：它在真桌上把每张骰子卡都配上一句「掷出 25，对照 53……用了 15 分钟」，因为扩展的催促就是这么教守秘人的。现在数字（含分钟数）只走 §16.2 的投影，由前端画卡片与时钟；正文一个数字都没有才是对的。代码里不再有 `expected_numbers` / `check_numbers` / `MECHANICS_MISSING`；`code_detail` 今天只有 `play_language_mismatch` 一个值。守着它的用例：`tests/kernel/test_narrate_numbers.py`。
+不是：`facts.committed` 的句子生成——那是内核**自己拼**的确定性事实句（给校验车道用），从来不是对正文的检查。
 
 ## 世界线（§15，票 #23，已实现）
 

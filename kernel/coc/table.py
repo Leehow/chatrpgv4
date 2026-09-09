@@ -27,7 +27,7 @@ from .ontology import Ontology, ontology_not_ready
 from .mods.adapter import ModAdapter
 from .mods import objects as mod_objects
 from . import npc as npc_lane
-from .render import bind_markers, check_numbers, check_play_language, markers_for, mechanics, strip_markers
+from .render import bind_markers, check_play_language, markers_for, mechanics, strip_markers
 from .resolve import ResolvePipeline, full_decision_ref
 from .rules import RuleTables, development
 from .rules.combat import TRANSIENT_COMBAT_CONDITIONS, resolve_module_weapons
@@ -2214,11 +2214,9 @@ class Table:
         placed = bind_markers(text, receipts)
         rendered = strip_markers(text) if placed else text
         # §16.3: deliver story text verbatim; receipts travel as the separate mechanics projection.
-        # Script check first, then figures — #84: the figure check was specified, its materials
-        # (`expected_numbers`) and its error code (`mechanics_missing`) were both written, and
-        # nothing ever called them, so a delivery could say "HP 3" over a receipt that took 7.
+        # The play-language script is the only floor. Figures are never looked for in the prose
+        # (2026-09-09 user decision): the frontend draws them from the projection.
         check_play_language(language_of(campaign.read_campaign()), {"text": rendered})
-        check_numbers(rendered, receipts)
         projected = mechanics(receipts, placed)
         receipt_id = f"turn:{turn_number}"
         subject = " ".join(text.split())[:COMMIT_SUBJECT_CHARS]

@@ -10,7 +10,7 @@ import tempfile
 
 import pytest
 
-from conftest import RpcClient, stating
+from conftest import RpcClient, in_play_language
 from rpc_support import differences, python_command, snapshot
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -161,7 +161,7 @@ def observe(root, label, command, case):
                     path.rename(root / f"{label}-retained-unused-combat.json")
         # A real ordinary check is the next RNG observation, even after rejected healing calls.
         client.ok("table.resolve", {"campaign": "c1", "call_id": "t1-c90", "action": {"intent": "investigate", "actor": HEALER, "skill": "Listen", "method": "Listen at the door", "goal": "Hear an approaching visitor"}})
-        client.ok("table.narrate", {"campaign": "c1", "call_id": "t1-c91", "text": stating(client, "The treatment and its consequences are accounted for. The case continues.")})
+        client.ok("table.narrate", {"campaign": "c1", "call_id": "t1-c91", "text": in_play_language(client, "The treatment and its consequences are accounted for. The case continues.")})
     finally:
         exchanges.extend(client.exchanges)
         client.close()

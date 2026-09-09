@@ -23,7 +23,7 @@ import { registerStarter } from './source.js';
 import { resolveStartScene } from '../modules/visual.js';
 import { loadModuleContract } from '../modules/contract.js';
 import { defaultModPlan, preflightCampaign as validateContributions, rebuildNpcLedger, updateNpcLedger, stanceTable, writeEpisode } from './contributions.js';
-import { bindMarkers, stripMarkers, checkLanguage, checkNumbers, asciiSlug, facts, directorAdoption } from './text.js';
+import { bindMarkers, stripMarkers, checkLanguage, asciiSlug, facts, directorAdoption } from './text.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
 import {eventOf} from '../worldline/index.js';
@@ -743,10 +743,12 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         await validateMods(snapshot.world);
         const text = required(params, 'text')!, receipts = [...array(turn.receipts)], placed = bindMarkers(text, receipts), rendered = truth(placed) ? stripMarkers(text) : text;
         const language = string(snapshot.meta.play_language || 'zh-Hans');
+        // The only floor under a delivery is the play-language script. Figures are never looked
+        // for in the prose: they travel as the mechanics projection and the frontend draws them
+        // (2026-09-09 user decision, contract §16.3).
         checkLanguage(language, {
             text: rendered
         });
-        checkNumbers(rendered, receipts);
         await stanceTable(context);
         const projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts)), n = number(turn.turn), receipt = `turn:${n}`, world = tableSnapshot(snapshot, module.graph);
         const factLists = facts(module.graph, snapshot.world, snapshot.party, receipts, world, turn.player_text), labels = await playerGlossary(context, language);

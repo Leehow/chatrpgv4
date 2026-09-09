@@ -9,7 +9,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 export interface KernelErrorPayload {
 	code: string;
 	message: string;
-	/** The narrower reason inside a coarse `code`, e.g. `mechanics_missing` under `invalid_params` (contract §5). */
+	/** The narrower reason inside a coarse `code`, e.g. `play_language_mismatch` under `invalid_params` (contract §5). */
 	code_detail?: string;
 	fix?: string;
 	details?: Record<string, unknown>;
