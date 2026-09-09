@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from rpc_support import fixed_environment, python_command, read_command
+from rpc_support import fixed_environment, read_command, ts_command
 
 WORKTREE = Path(__file__).resolve().parents[2]
 KERNEL_DIR = WORKTREE / "kernel"
@@ -40,7 +40,7 @@ class RpcClient:
         if frozen_clock:
             merged = fixed_environment(merged)
         entry = read_command(json.dumps(command)) if command is not None else read_command(merged.get("COC_TEST_KERNEL_CMD"))
-        entry = entry if entry is not None else python_command()
+        entry = entry if entry is not None else ts_command()
         self.proc = subprocess.Popen(
             [*entry, "--workspace", str(self.workspace), "--content", str(self.content)],
             cwd=WORKTREE, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

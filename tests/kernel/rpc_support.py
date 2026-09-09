@@ -15,6 +15,12 @@ HERE = Path(__file__).resolve().parent
 FIXED_CLOCK = "2000-01-02T03:04:05Z"
 
 
+def ts_command() -> list[str]:
+    """The product kernel: the built TypeScript RPC (`npm run build:runtime`). The Python kernel is
+    retired (2026-09-09); a suite that names no kernel speaks to this one."""
+    return ["node", str(Path(__file__).resolve().parents[2] / "build/kernel/rpc.mjs")]
+
+
 def python_command() -> list[str]:
     return [sys.executable, str(HERE / "rpc_reference.py")]
 

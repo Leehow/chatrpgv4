@@ -1988,12 +1988,16 @@ Deviations and residue, each a decision or a ticket rather than a silent gap:
 - **Guard scope.** The CJK guard scans `pipicoc/` and only the COC files under
   `Electron/` (`Coc*.tsx`, `coc-*.ts`). The rest of `Electron/packages/ui/src`
   and `pi-backend/src` is the PipiUI host's own chrome (93 and 19 files of it),
-  another product's words; localising the host application is its own ticket.
-- **Python differential suites.** `tests/kernel/test_ts_*.py` compare the
-  TypeScript kernel against the retired Python kernel, which cannot read a
-  per-language Mod manifest, so 112 of them fail on `campaign.create`. The
-  Python kernel is retired by decision; these suites need retiring with it or a
-  frozen pre-contract fixture. Not decided here.
+  another product's words; localising the host application is issue #63
+  (user ruling 2026-09-09: a ticket of its own).
+- **Python differential suites retired** (user ruling 2026-09-09). The ten
+  `tests/kernel/test_ts_*.py` suites compared the TypeScript kernel against the
+  retired Python kernel, which cannot read a per-language Mod manifest; they
+  are deleted rather than fed a frozen fixture. `tests/kernel` now speaks to the
+  built TypeScript kernel by default (`rpc_support.ts_command`), as the product
+  does; `COC_TEST_KERNEL_CMD` still overrides. `test_corpus.py` replays its
+  recorded payloads on that default and only compares against a second kernel
+  when `COC_TEST_COMPARE_CMD` names one.
 - **Starter guidance bundles.** The guidance prompt now states each field's
   language, which changes the bundle fingerprint. The-haunting's bundles were
   rebuilt in parallel; mystery-house's shipped text already satisfied the prompt
