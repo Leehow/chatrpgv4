@@ -93,6 +93,15 @@ export function describeCondition(when: any): string {
     const slug = conditionFlag(when);
     return slug == null ? canonicalJson(when) : `flag_set: ${slug}${row(when).value != null ? ` = ${repr(when.value)}` : ""}`;
 }
+/** The phrase's words appear in the key in the same order with nothing between, and the key holds more (equal would have been an exact match). */
+const phraseWithin = (phrase: string[], key: string[]): boolean => {
+    if (phrase.length >= key.length)
+        return false;
+    for (let start = 0; start + phrase.length <= key.length; start++)
+        if (phrase.every((word, i) => key[start + i] === word))
+            return true;
+    return false;
+};
 export class ModuleGraph {
     readonly nodes = new Map<string, Row>();
     readonly byKind = new Map<string, Row[]>();
@@ -142,20 +151,40 @@ export class ModuleGraph {
     }
     resolve(name: string, kinds?: string[], what = "entity"): Row {
         const key = normalize(name),
-            exact = [...this.nodes.values()].filter(n => (!kinds?.length || kinds.includes(n.node_kind)) && key === normalize(this.handle(n)));
+            wanted = (id: string) => !kinds?.length || kinds.includes(this.nodes.get(id)!.node_kind),
+            exact = [...this.nodes.values()].filter(n => wanted(n.node_id) && key === normalize(this.handle(n)));
         if (exact.length === 1)
             return exact[0];
-        const ids = [...(this.names.get(key) ?? [])].filter(id => !kinds?.length || kinds.includes(this.nodes.get(id)!.node_kind));
+        const ambiguous = (ids: string[]) => new RpcError("unknown_entity", `${what} ${repr(name)} is ambiguous`, {
+            fix: "use one of details.candidates by its exact name",
+            details: {
+                query: name,
+                candidates: sorted(ids).map(id => this.describe(this.nodes.get(id)!))
+            }
+        });
+        const ids = [...(this.names.get(key) ?? [])].filter(wanted);
         if (ids.length === 1)
             return this.nodes.get(ids[0])!;
         if (ids.length > 1)
-            throw new RpcError("unknown_entity", `${what} ${repr(name)} is ambiguous`, {
-                fix: "use one of details.candidates by its exact name",
-                details: {
-                    query: name,
-                    candidates: sorted(ids).map(id => this.describe(this.nodes.get(id)!))
-                }
-            });
+            throw ambiguous(ids);
+        // Both exact paths missed. The book prints "Professor Nemesio Sánchez"; the Keeper says
+        // "Nemesio Sánchez". No title list exists (the rules forbid one), so the only mechanical
+        // bridge is the shape itself: the query's words, in order and unbroken, inside a name key
+        // (contract section 2). One word is a hint for candidates, not an identity, so a phrase it
+        // must be; and one owner it must have, or the ambiguity is reported, never resolved.
+        const phrase = key.split(" ");
+        if (phrase.length >= 2) {
+            const owners = new Set<string>();
+            for (const [normalized, holders] of this.names)
+                if (phraseWithin(phrase, normalized.split(" ")))
+                    for (const id of holders)
+                        if (wanted(id))
+                            owners.add(id);
+            if (owners.size === 1)
+                return this.nodes.get([...owners][0])!;
+            if (owners.size > 1)
+                throw ambiguous([...owners]);
+        }
         throw new RpcError("unknown_entity", `no ${what} named ${repr(name)} in the module graph`, {
             fix: "pick a name from details.candidates or look first",
             details: {
