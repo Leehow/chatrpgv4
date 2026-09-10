@@ -62,6 +62,21 @@ export class ModJobs {
         }
         return result;
     }
+    /**
+     * Only the table that can answer this job travels with it. A definition is pinned to its category
+     * before the child starts -- `job` validates it and `accept` re-pins name and category -- so an
+     * item can never reach a weapon or spell preset. It carried them anyway: 24 of the 25 definitions
+     * on record were items, and every one shipped all 88 KB of both tables.
+     *
+     * An oversized packet does not merely cost tokens, because the child cannot query a file. The
+     * children answered it by building their own extraction instead: a quarter of their shell calls
+     * are ad-hoc `python3 -c "import json ..."` against request.json.
+     */
+    private async presets(category: string): Promise<Row> {
+        if (category === 'weapon') return {weapons: await this.tables.weaponsTable()};
+        if (category === 'spell') return {spells: await this.tables.spellsTable()};
+        return {};
+    }
     async job(params: Row): Promise<Row> {
         const {campaign, graph, world, turn, meta} = await this.load(params), role = params.role;
         if (!['create', 'audit'].includes(role)) throw new RpcError('invalid_params', 'Mod job role must be create or audit');
@@ -79,7 +94,7 @@ export class ModJobs {
             scene: whereSection(graph, world, graph.scene(world.active_scene as string)), party, objects: objectContext(world), receipts: field(turn, 'receipts', []),
             known_handouts: (await this.knownHandouts(graph, world)).map(item => ({name: item.name, preview: chars(item.text, 240)})),
             unregistered_equipment: unregisteredEquipment(party)};
-        if (role === 'create') request.catalogs = {weapons: await this.tables.weaponsTable(), spells: await this.tables.spellsTable()};
+        if (role === 'create') request.catalogs = await this.presets(string(row(params.input).category));
         const identity: Row = {campaign: campaign.id, turn: turn.turn, worldline: meta.active_worldline ?? null, mod: packageRow.id, digest: packageRow.digest,
             packages: candidates.map(mod => ({id: mod.id, digest: mod.digest})), request: role === 'audit' ? request : {input: params.input ?? null, role}};
         const key = jsonDigest(identity), root = join(this.runtime.root, 'jobs', key);

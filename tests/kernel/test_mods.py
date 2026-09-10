@@ -377,3 +377,18 @@ def test_same_owner_damage_updates_instance_and_cannot_be_hidden_in_legacy_rows(
     row=next(r for r in kernel.table("status")["mechanics"] if r.get("item")=="My launcher")
     assert row["kind"]=="change" and row["before"]=="intact" and row["after"]=="broken"
     assert kernel.table_err("apply",call_id="t1-c3",effects=[{"kind":"item","name":"My launcher","quantity":-1}])["code"]=="invalid_params"
+
+
+def test_a_definition_job_carries_only_the_table_its_category_can_use(kernel):
+    open_turn(kernel)
+
+    def catalogs(category, name):
+        job = kernel.ok("mods.job", {"campaign":CAMPAIGN, "role":"create",
+                                     "input":{"name":name, "category":category, "description":"A fixture object."}})
+        return read_json(Path(job["cwd"], "request.json"))["catalogs"]
+
+    assert list(catalogs("weapon", "Fixture launcher")) == ["weapons"]
+    assert list(catalogs("spell", "Fixture rite")) == ["spells"]
+    # The category is pinned before the child starts, so an item can never reach either preset table.
+    # It used to carry both anyway, and the packet is a file the child cannot query.
+    assert catalogs("item", "Fixture pencil") == {}
