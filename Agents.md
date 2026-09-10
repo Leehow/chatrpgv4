@@ -2,6 +2,16 @@
 
 这份文件管这个分支上的一切工作。先读它，再按下面的路由读需要的契约；不要在开工时把所有文档都读一遍。
 
+## 当前重构边界：Python 内核已退役（开工先读）
+
+**当前产品只有一套生产内核：`kernel-ts/`。Python → TypeScript 的迁移和旧源码退役已经落地，不是待完成的迁移计划。** 宿主组合在 `runtime/`，Pi 扩展在 `extensions/`，PipiCOC 接线在 `pipicoc/` 与 `Electron/`；`build/` 是编译产物，不是修复入口。
+
+- **缺失的 Python 文件是有意删除，不是仓库缺文件。** `kernel/coc/`、旧规则包的 Python 实现和 `scripts/starter_graph.py` 都已退役。遇到旧路径，按 RPC 方法名和当前契约定位 TS 实现；定位不到就报告当前实现缺口，不能恢复旧内核代替修复。
+- **当前功能开发与修复，不去历史 Git 或旧 worktree 找 Python 实现继续改。** 不因文件不存在就用 `git show`、历史检出、复制或 cherry-pick 找回旧 Python；不重建 `kernel/`、不重新接入 Python 后端或启动旧 Python 内核。只有用户明确要求历史考古或兼容性调查时才只读查阅历史，调查结果仍不能成为恢复生产 Python 的理由。
+- **冻结对照不是第二套开发树。** `tests/python-oracle.json` 与 `.cache/python-oracle/` 只服务历史兼容性测试；不能修改缓存、解除只读，或通过更换历史提交、改造对照输出来配合当前 TS 功能。新功能的断言直接检查 TS；不得通过“同步两套内核”或改历史预期把回归刷绿。
+- Python 测试控制器和原生扩展构建工具可以保留；运行了 Python 测试，不代表产品还应有 Python 实现，也不代表测试覆盖了当前 TS 行为。玩家安装包不依赖 Python/uv。
+- 委派 worker 时必须传递这条边界。旧分支、旧工单、历史文档与记忆中的 Python 路径均不是当前维护入口；以下旧树参照说明不授予默认回溯 Python 的许可。
+
 ## 分支地图（先看这个，别搞混）
 
 | 分支 | 是什么 | 怎么用 |
@@ -9,7 +19,7 @@
 | **`0.9.2a`** | 重构后的产品：一个 Pi 包 + 一个编译后的 TypeScript 内核子进程，守秘人只见七个动词。从孤儿分支重建，**从来没有包含过旧树**。 | 只在这里开发。检出在 worktree `chatrpgv4-wt-pi-coc-v2`（或你自己的 worktree）。 |
 | `0.9.1a` | 同一棵树在 2026-09-08 的封版快照，停在 `91092c9a`。 | **保留，不在上面开发。** 要看那一版用 `git show 0.9.1a:<路径>`。 |
 | `0.9.0a` | 同一棵树在 2026-09-08 的封版快照，停在 `41417a24`。 | **保留，不在上面开发。** 要看那一版用 `git show 0.9.0a:<路径>`。 |
-| `0.8.2a`、`main` 及所有 `claude/*`、`codex/*` 旧分支 | 重构前的旧树（`plugins/coc-keeper/`、MCP、typed tools、七文件 IR、steward……）。 | **只读参照，不清空，不在上面开发，不合并进来。** 还有东西没搬完（见下），要搬的时候用 `git show 0.8.2a:<路径>` 读，或者读主检出 `/Users/haoli/leehow/code/chatrpgv4`（它停在 `0.8.2a`）。搬的是想法和数据（规则表、图、测试断言），不是机器。 |
+| `0.8.2a`、`main` 及所有 `claude/*`、`codex/*` 旧分支 | 重构前的旧树（`plugins/coc-keeper/`、MCP、typed tools、七文件 IR、steward……）。 | **只读参照，不清空，不在上面开发，不合并进来。** 仅在用户明确要求历史调查或迁移指定内容时只读查阅；日常开发与缺文件排查先定位当前 TS 实现。旧 Python 不恢复、不修改、不移植回生产路径。 |
 
 明确**没搬、也不打算按旧样子搬**的：旧 web/Electron 前端、steward 子代理车道（职责归图与深读队列）、世界线/时间线分叉与汇流、跨战役记忆、house rules 的提议/确认流程、Director 的 storylet、战报导出与地图供应技能、OCR worker（原 PDF 由宿主页面访问器与带工具 Pi 读者处理）。真桌暴露的 #19–#22 已做完并关票；世界线按契约 §15 在票 #23 重做（不是搬旧树）。
 
@@ -123,7 +133,7 @@ Grok 系模型屡次把「交付」当目标、把意图当配菜，也屡次静
 
 生产内核、检查器和准备入口使用发出的 JavaScript；Python 仅供显式开发对照与原生模块构建工具使用。
 
-当前内核实现只在 `kernel-ts/` 维护。旧 Python 内核已退役；测试通过 `tests/python-oracle.json` 指定的 Git 提交导出只读对照缓存。该缓存只验证历史兼容性，不同步新功能、不修补其实现。普通 RPC 测试默认启动 TS；Python 实现内部的测试只证明固定历史版本。历史文档中的 `kernel/coc/` 路径按这个固定版本查阅。
+当前内核实现只在 `kernel-ts/` 维护。旧 Python 内核已退役；测试通过 `tests/python-oracle.json` 指定的 Git 提交导出只读对照缓存。该缓存只验证历史兼容性，不同步新功能、不修补其实现。普通 RPC 测试默认启动 TS；Python 实现内部的测试只证明固定历史版本。历史文档中的 `kernel/coc/` 路径不是默认查阅入口；是否查历史遵守开头的重构边界。
 
 唯一环境由 `.python-version`、`pyproject.toml` 与提交的 `uv.lock` 定义。所有 Python 命令从仓库根以 `uv run --frozen python …` 运行（别处加 `--project <repo>`）；子进程用 `sys.executable`；不从 `PATH` 挑 `python`。升级 Python 或依赖是一次跨 `.python-version`/`pyproject`/`uv.lock`/文档的原子改动。
 
