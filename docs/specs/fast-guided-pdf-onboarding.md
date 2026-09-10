@@ -398,3 +398,11 @@ Evidence is retained in .coc/playtests/scene-prefetch-20260910/ in both the prim
 The design follows bounded concurrent requests ([xAI](https://docs.x.ai/developers/advanced-api-usage/async))
 and separate resource budgets for lower-priority work ([Microsoft bulkhead pattern](https://learn.microsoft.com/azure/architecture/patterns/bulkhead)).
 These support capacity reservation, not an assumed linear speedup or a global provider-rate guarantee.
+
+## 2026-09-10: Correct same-name scene material readiness
+
+The next investigation corrected the earlier interpretation of the museum wait: a prepared scene and an unready location shared the same short handle. Scene/exit/apply projections incorrectly combined their readiness and told the Keeper material was missing; the apply preflight could also skip that ambiguous name. Readiness now uses the canonical node selected by the operation kind, while source requests retain their semantic focus for cache/prefetch reuse. Published content and the genuine missing-material gate remain authoritative.
+
+The installed cc582f64 kernel fails both regression cases (false missing for the prepared scene, and allowing the inverse unread scene); the fixed native TS RPC passes. The focused related run passes125 tests and the kernel type check. Evidence: .coc/playtests/scene-material-latency-20260910/report.md. This is a regression repair, not a new cold-PDF or whole-turn latency A/B.
+
+The prior UI transcript establishes479.028s submit-to-final time, including300.007s until provider timeout,87.904s source lookup,30.539s narrate and10.172s post-narrate model tail. It does not identify the upstream cause of the timeout. New provider request/response-header timestamps support a subsequent diagnosis; timeout/retry policy is unchanged, as described in docs/pi-host-contract.md. Packaging and canonical App verification are pending.

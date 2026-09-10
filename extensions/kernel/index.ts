@@ -1259,8 +1259,13 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("before_provider_request", async (event, ctx) => {
 		const payload = event.payload as {model?: string; reasoning?: {effort?: string}; reasoning_effort?: string};
-		await record({lane: "provider-request", model: payload?.model, provider: ctx.model?.provider,
+		await record({lane: "provider-request", at: new Date().toISOString(), model: payload?.model, provider: ctx.model?.provider,
 			reasoning_effort: payload?.reasoning?.effort ?? payload?.reasoning_effort ?? null});
+	});
+	pi.on("after_provider_response", async (event, ctx) => {
+		const requestId = Object.entries(event.headers).find(([name]) => ["x-request-id", "request-id"].includes(name.toLowerCase()))?.[1];
+		await record({lane: "provider-response", at: new Date().toISOString(), provider: ctx.model?.provider,
+			status: event.status, ...(requestId ? {request_id: requestId} : {})});
 	});
 
 	pi.on("agent_end", async () => {

@@ -156,11 +156,13 @@ export class Reading {
         for (const name of names) {
             if (typeof name !== 'string' || !name || await this.materialReady(mid, name))
                 continue;
-            if (graph.find(name) === null && !indexed.has(normalize(name)))
+            const node = graph.find(name);
+            if (node === null && !indexed.has(normalize(name)))
                 continue;
-            throw new RpcError('needs', `the source material for ${repr(name)} is not prepared`, {
+            const focus = node ? graph.handle(node) : name;
+            throw new RpcError('needs', `the source material for ${repr(focus)} is not prepared`, {
                 fix: 'read the required material before retrying this unchanged action',
-                details: { reason: 'material_pending', read: { purpose: 'detail', focus: name } },
+                details: { reason: 'material_pending', read: { purpose: 'detail', focus } },
             });
         }
     }
@@ -169,7 +171,7 @@ export class Reading {
         if (!await this.store.exists(mid) || !truth((await this.store.module(mid)).reading_version))
             return queued;
         for (const exit of graph.sceneExits(scene)) {
-            if (await this.materialReady(mid, exit.to))
+            if (await this.materialReady(mid, graph.scene(exit.to).node_id))
                 continue;
             let reply: Row;
             try {
