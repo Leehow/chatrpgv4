@@ -322,3 +322,23 @@ def test_only_a_word_an_active_package_establishes_is_accepted(tmp_path):
         assert "favourite_colour" in refused["message"]
     finally:
         client.close()
+
+
+def test_a_table_whose_module_never_carried_the_word_can_still_establish_it(tmp_path):
+    """28.7's whole reason: a module built before the package was installed carries no label for the
+    word, and reading the table's own record back through that build-time spine would leave the value
+    written and unreadable -- the feature dead in exactly the case it exists for."""
+    client = emitted_client(tmp_path / "ws")
+    try:
+        # Built with only Natural NPC installed: this module was never asked for `dialect` at all.
+        mid, packet = built_module(client, tmp_path, {"agenda": "Keep the room."})
+        assert [entry["key"] for entry in packet["vocabulary"]["actor_dossier"]["contributed"]] == ["language"]
+        client.ok("mods.install", {"path": str(package(tmp_path, name="dialects"))})
+        campaign = played(client, tmp_path, mid)
+        assert words(client, campaign)["dialect"]["bound"] is False
+
+        open_turn(client, campaign)
+        apply_dossier(client, campaign, "Tenant", {"dialect": "Sicilian, little English"})
+        assert table_npcs(client, campaign)["Tenant"]["dialect"] == "Sicilian, little English"
+    finally:
+        client.close()

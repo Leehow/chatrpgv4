@@ -105,7 +105,12 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
             if (!Object.hasOwn(namespaces[id], 'dossier')) namespaces[id].dossier = {};
             const recorded = namespaces[id].dossier;
             if (!Object.hasOwn(recorded, node.node_id)) recorded[node.node_id] = {};
-            recorded[node.node_id][key] = {value: value.trim(), turn, mod: id};
+            // The record carries the word's Keeper-facing name with it. The label a module recorded at
+            // build is exactly what a table this feature exists for does not have, so reading one back
+            // through the build-time spine would leave the value written and unreadable.
+            const label = array(row(row(mod.contributes).vocabulary).actor_profile_keys)
+                .find(entry => string(entry.key) === key);
+            recorded[node.node_id][key] = {value: value.trim(), label: string(row(label).label) || key, turn, mod: id};
             written.push(key);
         }
         return {receipt: {id: mint(`dossier:${handle}-t${turn}`), kind: 'dossier', call_id: callId, npc: node.node_id, handle,

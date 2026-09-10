@@ -133,10 +133,20 @@ function dossier(graph: ModuleGraph, world: Row, node: Row): Row {
     // The Keeper-facing names and their order come from the contract's actor_dossier, not from a
     // copy kept here: a profile key the spine gains must reach the table, or it was never added
     // (contract 28.4). A key the spine labels nothing arrives under its own name.
-    const profile = graph.npcProfile(node), established = tableWords(world, node);
-    return Object.fromEntries(dossierLabels(graph.dossier)
-        .map(([key, label]) => [label, truth(profile[key]) ? profile[key] : established[key]] as [string, any])
-        .filter(([, value]) => truth(value)));
+    const profile = graph.npcProfile(node), established = tableWords(world, node), spine = new Set<string>();
+    const result: Row = {};
+    for (const [key, label] of dossierLabels(graph.dossier)) {
+        spine.add(key);
+        const value = truth(profile[key]) ? profile[key] : row(established[key]).value;
+        if (truth(value))
+            result[label] = value;
+    }
+    // A word the module was never built under has no place on the build-time spine, and that is the
+    // table this door exists for (contract 28.7). The record carries its own name so it still arrives.
+    for (const [key, entry] of entries(established))
+        if (!spine.has(key) && truth(row(entry).value))
+            result[string(row(entry).label) || key] = row(entry).value;
+    return result;
 }
 /** Contract 28.7: what a package established at the table, under a word it contributes. The book is
  *  read first and is never overwritten; this fills only where the source is silent. It is read out of
@@ -149,7 +159,7 @@ function tableWords(world: Row, node: Row): Row {
             continue;
         for (const [key, entry] of entries(row(row(namespace).dossier)[string(node.node_id)] ?? {}))
             if (!Object.hasOwn(result, key))
-                result[key] = row(entry).value;
+                result[key] = entry;
     }
     return result;
 }
