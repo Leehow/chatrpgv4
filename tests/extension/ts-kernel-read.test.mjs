@@ -1,3 +1,4 @@
+import {expected as outcome} from "./oracle-fixture.mjs";
 import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
@@ -125,11 +126,19 @@ else: raise ValueError(op)
 json.dump(output,sys.stdout,ensure_ascii=False)
 `;
 function oracle(operation,data) {
-  const result=spawnSync('uv',['run','--frozen','python','-c',REFERENCE],{cwd:ROOT,
-    env:{...process.env,PYTHONPATH: join(pythonOracleRoot(), "kernel"),PYTHONDONTWRITEBYTECODE:'1',UV_OFFLINE:'1',UV_NO_SYNC:'1'},
-    input:api.pythonJsonDumps({operation,graph_path:graphPath,content:CONTENT,...data}),encoding:'utf8',maxBuffer:8*1024*1024,timeout:30000});
-  assert.equal(result.status,0,result.stderr||String(result.error));
-  return api.parsePythonJson(result.stdout);
+  // Keyed by the question, not by the order it was asked in: the runner is free to reorder.
+  // A question can carry a path or an id minted for this run; those are the run, not the question.
+  const question=api.pythonJsonDumps({operation,...data})
+    .replaceAll(ROOT,'<root>').replace(/\/(?:private\/)?(?:tmp|var)\/[^"']*/g,'<temp>')
+    .replace(/\b[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}\b/g,'<id>');
+  const key=`read-${operation}-${createHash('sha256').update(question).digest('hex').slice(0,16)}`;
+  return api.parsePythonJson(outcome(key,()=>{
+    const result=spawnSync('uv',['run','--frozen','python','-c',REFERENCE],{cwd:ROOT,
+      env:{...process.env,PYTHONPATH: join(pythonOracleRoot(), "kernel"),PYTHONDONTWRITEBYTECODE:'1',UV_OFFLINE:'1',UV_NO_SYNC:'1'},
+      input:api.pythonJsonDumps({operation,graph_path:graphPath,content:CONTENT,...data}),encoding:'utf8',maxBuffer:8*1024*1024,timeout:30000});
+    assert.equal(result.status,0,result.stderr||String(result.error));
+    return result.stdout;
+  }));
 }
 function captured(run) {try{return {value:run()};}catch(error){if(typeof error.toJson==='function')return {error:error.toJson()};throw error;}}
 function same(actual,expected,label) {assert.equal(api.canonicalJson(actual),api.canonicalJson(expected),label);}
@@ -288,7 +297,11 @@ test('mechanics match Python without exposing unlabeled NPC identities',async()=
     {id:'note:one',kind:'note',text:'No mechanics projection'},
   ];
   const placed={'listen':'roll:one','damage':'delta:one'},before=api.pythonJsonDumps(receipts);
-  same(api.mechanics(receipts,placed,new Map([[path,text]])),oracle('mechanics',{receipts,placed}),'mechanics');
+  // The handout's attachment carries this run's own temporary path; the captured outcome carries
+  // the run it was captured in. The path is the run, not the projection.
+  const withoutPath=value=>api.pythonJsonDumps(value).replace(/"(?:\/private)?\/(?:var|tmp)\/[^"]*handout\.md"/g,'"<attachment>"');
+  assert.equal(withoutPath(api.mechanics(receipts,placed,new Map([[path,text]]))),
+    withoutPath(oracle('mechanics',{receipts,placed})),'mechanics');
   assert.equal(api.pythonJsonDumps(receipts),before);
 });
 

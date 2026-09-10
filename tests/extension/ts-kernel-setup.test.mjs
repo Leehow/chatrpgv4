@@ -1,3 +1,4 @@
+import {expected as outcome} from "./oracle-fixture.mjs";
 import {pythonOracleEnvironment} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
@@ -20,44 +21,47 @@ test('shared creation table methods preserve Python finance types and damage-tab
     ].join('\n'), resolveDir: REPO, sourcefile: 'setup-table-test.ts'}, outfile: join(temporary, 'api.mjs'),
       bundle: true, format: 'esm', platform: 'node', target: 'node22', logLevel: 'silent'});
     const api = await import(pathToFileURL(join(temporary, 'api.mjs')).href);
-    const oracle = spawnSync('uv', ['run', '--frozen', 'python', '-c', [
-      'import json, sys',
-      'from pathlib import Path',
-      'from coc.rules.tables import RuleTables',
-      'from coc.fileio import canonical_json',
-      'tables = RuleTables(Path("content/rulesets/coc7/rules-json"))',
-      'cases = []',
-      'totals = {0, 1000}',
-      'for row in tables.load("damage-bonus-build"):',
-      '    totals.update([row["min"] - 1, row["min"], row["max"], row["max"] + 1])',
-      'for total in sorted(totals):',
-      '    cases.append(("damageBonusBuild", [total, 0], lambda total=total: tables.damage_bonus_build(total, 0)))',
-      'for period, rows in tables.load("cash-assets")["periods"].items():',
-      '    ratings = {-1, 100}',
-      '    for row in rows:',
-      '        ratings.update([row["credit_rating_min"], row["credit_rating_max"]])',
-      '    for rating in sorted(ratings):',
-      '        cases.append(("cashAndAssets", [rating, period], lambda rating=rating, period=period: tables.cash_and_assets(rating, period)))',
-      'cases.append(("cashAndAssets", [30, "unknown"], lambda: tables.cash_and_assets(30, "unknown")))',
-      'for name in [next(iter(tables.weapons_table())), "unknown"]:',
-      '    cases.append(("weaponByName", [name], lambda name=name: tables.weapon_by_name(name)))',
-      'for name in ["Language (Own)", "unknown"]:',
-      '    cases.append(("skillByName", [name], lambda name=name: tables.skill_by_name(name)))',
-      'output = []',
-      'for method, args, invoke in cases:',
-      '    try:',
-      '        expected = {"result": canonical_json(invoke())}',
-      '    except (ValueError, KeyError) as exc:',
-      '        expected = {"error": f"{type(exc).__name__}: {exc}"}',
-      '    output.append({"method": method, "args": args, **expected})',
-      'print(json.dumps(output))',
-    ].join('\n')], {cwd: REPO, env:pythonOracleEnvironment(), encoding: 'utf8', timeout: 30000});
-    assert.equal(oracle.error, undefined);
-    assert.equal(oracle.status, 0, oracle.stderr);
+    const oracleText = outcome('setup-1', () => {
+      const oracle = spawnSync('uv', ['run', '--frozen', 'python', '-c', [
+        'import json, sys',
+        'from pathlib import Path',
+        'from coc.rules.tables import RuleTables',
+        'from coc.fileio import canonical_json',
+        'tables = RuleTables(Path("content/rulesets/coc7/rules-json"))',
+        'cases = []',
+        'totals = {0, 1000}',
+        'for row in tables.load("damage-bonus-build"):',
+        '    totals.update([row["min"] - 1, row["min"], row["max"], row["max"] + 1])',
+        'for total in sorted(totals):',
+        '    cases.append(("damageBonusBuild", [total, 0], lambda total=total: tables.damage_bonus_build(total, 0)))',
+        'for period, rows in tables.load("cash-assets")["periods"].items():',
+        '    ratings = {-1, 100}',
+        '    for row in rows:',
+        '        ratings.update([row["credit_rating_min"], row["credit_rating_max"]])',
+        '    for rating in sorted(ratings):',
+        '        cases.append(("cashAndAssets", [rating, period], lambda rating=rating, period=period: tables.cash_and_assets(rating, period)))',
+        'cases.append(("cashAndAssets", [30, "unknown"], lambda: tables.cash_and_assets(30, "unknown")))',
+        'for name in [next(iter(tables.weapons_table())), "unknown"]:',
+        '    cases.append(("weaponByName", [name], lambda name=name: tables.weapon_by_name(name)))',
+        'for name in ["Language (Own)", "unknown"]:',
+        '    cases.append(("skillByName", [name], lambda name=name: tables.skill_by_name(name)))',
+        'output = []',
+        'for method, args, invoke in cases:',
+        '    try:',
+        '        expected = {"result": canonical_json(invoke())}',
+        '    except (ValueError, KeyError) as exc:',
+        '        expected = {"error": f"{type(exc).__name__}: {exc}"}',
+        '    output.append({"method": method, "args": args, **expected})',
+        'print(json.dumps(output))',
+      ].join('\n')], {cwd: REPO, env:pythonOracleEnvironment(), encoding: 'utf8', timeout: 30000});
+      assert.equal(oracle.error, undefined);
+      assert.equal(oracle.status, 0, oracle.stderr);
+      return oracle.stdout;
+    });
     const context = await api.createKernelContext({workspace: temporary, content: join(REPO, 'content'), seed: 'table-proof'});
     try {
       const tables = new api.RuleTables(context);
-      for (const expected of JSON.parse(oracle.stdout)) {
+      for (const expected of JSON.parse(oracleText)) {
         let actual;
         try { actual = {result: api.canonicalJson(await tables[expected.method](...expected.args))}; }
         catch (error) { actual = {error: `${error.name}: ${error.message}`}; }
@@ -84,32 +88,35 @@ test('stated-aptitude assignment matches the Python oracle roll for roll', async
     ].join('\n'), resolveDir: REPO, sourcefile: 'setup-aptitude-test.ts'}, outfile: join(temporary, 'aptitude.mjs'),
       bundle: true, format: 'esm', platform: 'node', target: 'node22', logLevel: 'silent'});
     const api = await import(pathToFileURL(join(temporary, 'aptitude.mjs')).href);
-    const oracle = spawnSync('uv', ['run', '--frozen', 'python', '-c', [
-      'import json, random, sys',
-      'from pathlib import Path',
-      'from coc.rules.tables import RuleTables',
-      'from coc.chargen import Chargen',
-      'from coc.fileio import canonical_json',
-      'steps = json.loads(Path("content/setup/steps.json").read_text(encoding="utf-8"))',
-      'policy = next(s for s in steps["steps"] if s["id"] == "create-investigator")',
-      'chargen = Chargen(RuleTables(Path("content/rulesets/coc7/rules-json")), policy)',
-      `data = json.loads(${JSON.stringify(JSON.stringify({seeds: SEEDS, cases: CASES}))})`,
-      'seeds, cases = data["seeds"], data["cases"]',
-      'output = [{"pools": canonical_json(chargen.dice_pools())}]',
-      'for seed in seeds:',
-      '    for case in cases:',
-      '        generated = chargen.rolled(random.Random(seed), chargen.aptitude(case))',
-      '        output.append({"seed": seed, "aptitude": case, "generated": canonical_json(generated)})',
-      'print(json.dumps(output))',
-    ].join('\n')], {cwd: REPO, env:pythonOracleEnvironment(), encoding: 'utf8', timeout: 30000});
-    assert.equal(oracle.error, undefined);
-    assert.equal(oracle.status, 0, oracle.stderr);
+    const oracleText = outcome('setup-2', () => {
+      const oracle = spawnSync('uv', ['run', '--frozen', 'python', '-c', [
+        'import json, random, sys',
+        'from pathlib import Path',
+        'from coc.rules.tables import RuleTables',
+        'from coc.chargen import Chargen',
+        'from coc.fileio import canonical_json',
+        'steps = json.loads(Path("content/setup/steps.json").read_text(encoding="utf-8"))',
+        'policy = next(s for s in steps["steps"] if s["id"] == "create-investigator")',
+        'chargen = Chargen(RuleTables(Path("content/rulesets/coc7/rules-json")), policy)',
+        `data = json.loads(${JSON.stringify(JSON.stringify({seeds: SEEDS, cases: CASES}))})`,
+        'seeds, cases = data["seeds"], data["cases"]',
+        'output = [{"pools": canonical_json(chargen.dice_pools())}]',
+        'for seed in seeds:',
+        '    for case in cases:',
+        '        generated = chargen.rolled(random.Random(seed), chargen.aptitude(case))',
+        '        output.append({"seed": seed, "aptitude": case, "generated": canonical_json(generated)})',
+        'print(json.dumps(output))',
+      ].join('\n')], {cwd: REPO, env:pythonOracleEnvironment(), encoding: 'utf8', timeout: 30000});
+      assert.equal(oracle.error, undefined);
+      assert.equal(oracle.status, 0, oracle.stderr);
+      return oracle.stdout;
+    });
     const context = await api.createKernelContext({workspace: temporary, content: join(REPO, 'content'), seed: 'aptitude-proof'});
     try {
       const steps = JSON.parse(await readFile(join(REPO, 'content/setup/steps.json'), 'utf8'));
       const policy = steps.steps.find(step => step.id === 'create-investigator');
       const chargen = await api.Chargen.create(new api.RuleTables(context), policy);
-      const [pools, ...rows] = JSON.parse(oracle.stdout);
+      const [pools, ...rows] = JSON.parse(oracleText);
       assert.equal(api.canonicalJson(chargen.dicePools()), pools.pools, 'the dice pools are read from the same table');
       for (const {seed, aptitude, generated} of rows) {
         const actual = chargen.rolled(new api.PythonRandom(seed), chargen.aptitude(aptitude));
@@ -136,32 +143,35 @@ test('both kernels allocate the same skill points for either interest policy', a
     ].join('\n'), resolveDir: REPO, sourcefile: 'setup-interest-test.ts'}, outfile: join(temporary, 'interest.mjs'),
       bundle: true, format: 'esm', platform: 'node', target: 'node22', logLevel: 'silent'});
     const api = await import(pathToFileURL(join(temporary, 'interest.mjs')).href);
-    const oracle = spawnSync('uv', ['run', '--frozen', 'python', '-c', [
-      'import json, sys',
-      'from pathlib import Path',
-      'from coc.rules.tables import RuleTables',
-      'from coc.chargen import Chargen',
-      'from coc.fileio import canonical_json',
-      'steps = json.loads(Path("content/setup/steps.json").read_text(encoding="utf-8"))',
-      'policy = next(s for s in steps["steps"] if s["id"] == "create-investigator")',
-      'chargen = Chargen(RuleTables(Path("content/rulesets/coc7/rules-json")), policy)',
-      `data = json.loads(${JSON.stringify(JSON.stringify({options: OPTIONS, cases: CASES}))})`,
-      'output = []',
-      'for case in data["cases"]:',
-      '    sheet, receipt = chargen.build(investigator_id="a", name="A", concept=None, sex=None,',
-      '                                   interest_allocation=case, **data["options"])',
-      '    output.append({"case": case, "skills": canonical_json(sheet["skills"]),',
-      '                   "interest": canonical_json(sheet["creation"]["skills"]["interest"]),',
-      '                   "receipt": canonical_json(receipt["interest_allocation"])})',
-      'print(json.dumps(output))',
-    ].join('\n')], {cwd: REPO, env:pythonOracleEnvironment(), encoding: 'utf8', timeout: 30000});
-    assert.equal(oracle.error, undefined);
-    assert.equal(oracle.status, 0, oracle.stderr);
+    const oracleText = outcome('setup-3', () => {
+      const oracle = spawnSync('uv', ['run', '--frozen', 'python', '-c', [
+        'import json, sys',
+        'from pathlib import Path',
+        'from coc.rules.tables import RuleTables',
+        'from coc.chargen import Chargen',
+        'from coc.fileio import canonical_json',
+        'steps = json.loads(Path("content/setup/steps.json").read_text(encoding="utf-8"))',
+        'policy = next(s for s in steps["steps"] if s["id"] == "create-investigator")',
+        'chargen = Chargen(RuleTables(Path("content/rulesets/coc7/rules-json")), policy)',
+        `data = json.loads(${JSON.stringify(JSON.stringify({options: OPTIONS, cases: CASES}))})`,
+        'output = []',
+        'for case in data["cases"]:',
+        '    sheet, receipt = chargen.build(investigator_id="a", name="A", concept=None, sex=None,',
+        '                                   interest_allocation=case, **data["options"])',
+        '    output.append({"case": case, "skills": canonical_json(sheet["skills"]),',
+        '                   "interest": canonical_json(sheet["creation"]["skills"]["interest"]),',
+        '                   "receipt": canonical_json(receipt["interest_allocation"])})',
+        'print(json.dumps(output))',
+      ].join('\n')], {cwd: REPO, env:pythonOracleEnvironment(), encoding: 'utf8', timeout: 30000});
+      assert.equal(oracle.error, undefined);
+      assert.equal(oracle.status, 0, oracle.stderr);
+      return oracle.stdout;
+    });
     const context = await api.createKernelContext({workspace: temporary, content: join(REPO, 'content'), seed: 'interest-proof'});
     try {
       const steps = JSON.parse(await readFile(join(REPO, 'content/setup/steps.json'), 'utf8'));
       const chargen = await api.Chargen.create(new api.RuleTables(context), steps.steps.find(step => step.id === 'create-investigator'));
-      for (const expected of JSON.parse(oracle.stdout)) {
+      for (const expected of JSON.parse(oracleText)) {
         const [sheet, receipt] = await chargen.build({investigatorId: 'a', name: 'A', concept: null, sex: null,
           occupationId: OPTIONS.occupation_id, seed: OPTIONS.seed, era: OPTIONS.era, age: OPTIONS.age, method: OPTIONS.method,
           occupationSkills: OPTIONS.occupation_skills, interestSkills: OPTIONS.interest_skills, interestAllocation: expected.case});

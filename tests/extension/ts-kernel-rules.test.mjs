@@ -1,3 +1,5 @@
+import {expected as outcome} from "./oracle-fixture.mjs";
+import {createHash} from "node:crypto";
 import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { test, after } from 'node:test';
@@ -127,12 +129,19 @@ print(json.dumps(output,ensure_ascii=False))
 let referenceCount = 0;
 async function oracle(operation, input) {
   const packet = { operation, content: join(ROOT, 'content'), ...input };
-  const run = spawnSync('uv', ['run', '--frozen', 'python', '-c', REFERENCE], { cwd: ROOT, env: { ...process.env, PYTHONPATH: join(pythonOracleRoot(), "kernel"), PYTHONDONTWRITEBYTECODE: '1' }, input: api.pythonJsonDumps(packet), encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, timeout: 30_000 });
-  assert.equal(run.status, 0, run.stderr);
-  const value = JSON.parse(run.stdout), stem = `${++referenceCount}-${operation}`;
+  // Keyed by the question, not by the order it was asked in: the runner is free to reorder.
+  const question = api.pythonJsonDumps({operation, ...input}).replaceAll(evidence, '<evidence>').replaceAll(ROOT, '<root>')
+    .replace(/\/(?:private\/)?(?:tmp|var)\/[^"']*/g, '<temp>')
+    .replace(/\b[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}\b/g, '<id>');
+  const key = `rules-${operation}-${createHash('sha256').update(question).digest('hex').slice(0, 16)}`;
+  const text = outcome(key, () => {
+    const run = spawnSync('uv', ['run', '--frozen', 'python', '-c', REFERENCE], { cwd: ROOT, env: { ...process.env, PYTHONPATH: join(pythonOracleRoot(), "kernel"), PYTHONDONTWRITEBYTECODE: '1' }, input: api.pythonJsonDumps(packet), encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, timeout: 30_000 });
+    assert.equal(run.status, 0, run.stderr);
+    return run.stdout;
+  });
+  const stem = `${++referenceCount}-${operation}`;
   await writeFile(join(evidence, stem + '-input.json'), api.pythonJsonDumps(packet, { indent: 2 }) + '\n');
-  await writeFile(join(evidence, stem + '-reference.json'), run.stdout);
-  return value;
+  return JSON.parse(text);
 }
 
 test('every catalog kind retains the Python record count and canonical content digest', async () => {

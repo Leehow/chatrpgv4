@@ -1,3 +1,4 @@
+import {expected as outcome} from "./oracle-fixture.mjs";
 import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
@@ -43,10 +44,13 @@ print(json.dumps(output,ensure_ascii=False))
 `;
 async function compare(name, cases) {
   const input = { content: join(ROOT, 'content'), cases };
-  const child = spawnSync('uv', ['run', '--frozen', 'python', '-c', PYTHON], { cwd: ROOT,
-    env: { ...process.env, PYTHONPATH: join(pythonOracleRoot(), "kernel"), PYTHONDONTWRITEBYTECODE: '1' }, input: api.pythonJsonDumps(input), encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
-  assert.equal(child.status, 0, child.stderr);
-  const expected = api.parsePythonJson(child.stdout), actual = [];
+  const captured = outcome('development-' + name, () => {
+    const child = spawnSync('uv', ['run', '--frozen', 'python', '-c', PYTHON], { cwd: ROOT,
+      env: { ...process.env, PYTHONPATH: join(pythonOracleRoot(), "kernel"), PYTHONDONTWRITEBYTECODE: '1' }, input: api.pythonJsonDumps(input), encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
+    assert.equal(child.status, 0, child.stderr);
+    return child.stdout;
+  });
+  const expected = api.parsePythonJson(captured), actual = [];
   for (const item of cases) {
     try {
       const value = item.op === 'plan' ? await api.deterministicDevelopmentPlan(tables, { skills: item.skills, luck: item.luck, sanity: item.sanity, seedMaterial: item.seed,

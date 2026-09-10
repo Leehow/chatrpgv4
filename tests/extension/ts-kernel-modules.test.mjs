@@ -1,3 +1,4 @@
+import {expected as outcome} from "./oracle-fixture.mjs";
 import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -87,12 +88,15 @@ function capture(case_) {
 
 async function compare(name, cases, t) {
   const input = api.pythonJsonDumps({ cases });
-  const reference = spawnSync('uv', ['run', '--frozen', 'python', '-c', REFERENCE], { cwd: ROOT, input, encoding: 'utf8', timeout: 30000,
-    env: { ...process.env, PYTHONPATH: join(pythonOracleRoot(), "kernel"), PYTHONDONTWRITEBYTECODE: '1' } });
-  assert.equal(reference.status, 0, reference.stderr);
-  const expected = api.parsePythonJson(reference.stdout), actual = cases.map(capture);
+  const captured = outcome('modules-' + name, () => {
+    const reference = spawnSync('uv', ['run', '--frozen', 'python', '-c', REFERENCE], { cwd: ROOT, input, encoding: 'utf8', timeout: 30000,
+      env: { ...process.env, PYTHONPATH: join(pythonOracleRoot(), "kernel"), PYTHONDONTWRITEBYTECODE: '1' } });
+    assert.equal(reference.status, 0, reference.stderr);
+    return reference.stdout;
+  });
+  const expected = api.parsePythonJson(captured), actual = cases.map(capture);
   await writeFile(join(evidence, name + '-input.json'), input);
-  await writeFile(join(evidence, name + '-python.json'), reference.stdout);
+  await writeFile(join(evidence, name + '-captured.json'), captured);
   await writeFile(join(evidence, name + '-typescript.json'), api.pythonJsonDumps(actual));
   for (const [i, item] of cases.entries()) await t.test(item.name ?? String(i), () => assert.equal(api.canonicalJson(actual[i]), api.canonicalJson(expected[i]), `Evidence: ${evidence}`));
 }
