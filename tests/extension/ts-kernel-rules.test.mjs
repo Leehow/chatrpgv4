@@ -138,7 +138,7 @@ async function oracle(operation, input) {
     const run = spawnSync('uv', ['run', '--frozen', 'python', '-c', REFERENCE], { cwd: ROOT, env: { ...process.env, PYTHONPATH: join(pythonOracleRoot(), "kernel"), PYTHONDONTWRITEBYTECODE: '1' }, input: api.pythonJsonDumps(packet), encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, timeout: 30_000 });
     assert.equal(run.status, 0, run.stderr);
     return run.stdout;
-  });
+  }, REFERENCE);
   const stem = `${++referenceCount}-${operation}`;
   await writeFile(join(evidence, stem + '-input.json'), api.pythonJsonDumps(packet, { indent: 2 }) + '\n');
   return JSON.parse(text);

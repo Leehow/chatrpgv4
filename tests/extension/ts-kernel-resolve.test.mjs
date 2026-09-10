@@ -69,7 +69,7 @@ async function compare(name, cases) {
     const run = spawnSync('uv', ['run', '--frozen', 'python', '-c', PYTHON], { cwd: ROOT, env: { ...globalThis.process.env, PYTHONPATH: join(pythonOracleRoot(), "kernel"), PYTHONDONTWRITEBYTECODE: '1' }, input: api.pythonJsonDumps(input), encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
     assert.equal(run.status, 0, run.stderr);
     return run.stdout;
-  }));
+  }, PYTHON));
   const candidate = [];
   for (const item of cases) {
     const rng = new api.PythonRandom(item.seed ?? 'checks'), args = item.args ?? [];

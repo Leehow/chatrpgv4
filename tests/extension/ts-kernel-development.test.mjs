@@ -49,7 +49,7 @@ async function compare(name, cases) {
       env: { ...process.env, PYTHONPATH: join(pythonOracleRoot(), "kernel"), PYTHONDONTWRITEBYTECODE: '1' }, input: api.pythonJsonDumps(input), encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
     assert.equal(child.status, 0, child.stderr);
     return child.stdout;
-  });
+  }, PYTHON);
   const expected = api.parsePythonJson(captured), actual = [];
   for (const item of cases) {
     try {

@@ -127,7 +127,7 @@ async function compare(name, cases, t) {
       env: { ...process.env, PYTHONPATH: join(pythonOracleRoot(), "kernel"), PYTHONDONTWRITEBYTECODE: '1' } });
     assert.equal(reference.status, 0, reference.stderr);
     return reference.stdout;
-  });
+  }, PYTHON);
   const expected = api.parsePythonJson(captured), actual = [];
   for (const c of cases) actual.push(await capture(() => execute(c)));
   await writeFile(join(evidence, name + '-input.json'), api.pythonJsonDumps(cases));

@@ -138,7 +138,7 @@ function oracle(operation,data) {
       input:api.pythonJsonDumps({operation,graph_path:graphPath,content:CONTENT,...data}),encoding:'utf8',maxBuffer:8*1024*1024,timeout:30000});
     assert.equal(result.status,0,result.stderr||String(result.error));
     return result.stdout;
-  }));
+  },REFERENCE));
 }
 function captured(run) {try{return {value:run()};}catch(error){if(typeof error.toJson==='function')return {error:error.toJson()};throw error;}}
 function same(actual,expected,label) {assert.equal(api.canonicalJson(actual),api.canonicalJson(expected),label);}

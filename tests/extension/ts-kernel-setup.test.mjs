@@ -21,8 +21,7 @@ test('shared creation table methods preserve Python finance types and damage-tab
     ].join('\n'), resolveDir: REPO, sourcefile: 'setup-table-test.ts'}, outfile: join(temporary, 'api.mjs'),
       bundle: true, format: 'esm', platform: 'node', target: 'node22', logLevel: 'silent'});
     const api = await import(pathToFileURL(join(temporary, 'api.mjs')).href);
-    const oracleText = outcome('setup-1', () => {
-      const oracle = spawnSync('uv', ['run', '--frozen', 'python', '-c', [
+    const program = [
         'import json, sys',
         'from pathlib import Path',
         'from coc.rules.tables import RuleTables',
@@ -53,11 +52,13 @@ test('shared creation table methods preserve Python finance types and damage-tab
         '        expected = {"error": f"{type(exc).__name__}: {exc}"}',
         '    output.append({"method": method, "args": args, **expected})',
         'print(json.dumps(output))',
-      ].join('\n')], {cwd: REPO, env:pythonOracleEnvironment(), encoding: 'utf8', timeout: 30000});
+    ].join('\n');
+    const oracleText = outcome('setup-1', () => {
+      const oracle = spawnSync('uv', ['run', '--frozen', 'python', '-c', program], {cwd: REPO, env:pythonOracleEnvironment(), encoding: 'utf8', timeout: 30000});
       assert.equal(oracle.error, undefined);
       assert.equal(oracle.status, 0, oracle.stderr);
       return oracle.stdout;
-    });
+    }, program);
     const context = await api.createKernelContext({workspace: temporary, content: join(REPO, 'content'), seed: 'table-proof'});
     try {
       const tables = new api.RuleTables(context);
@@ -88,8 +89,7 @@ test('stated-aptitude assignment matches the Python oracle roll for roll', async
     ].join('\n'), resolveDir: REPO, sourcefile: 'setup-aptitude-test.ts'}, outfile: join(temporary, 'aptitude.mjs'),
       bundle: true, format: 'esm', platform: 'node', target: 'node22', logLevel: 'silent'});
     const api = await import(pathToFileURL(join(temporary, 'aptitude.mjs')).href);
-    const oracleText = outcome('setup-2', () => {
-      const oracle = spawnSync('uv', ['run', '--frozen', 'python', '-c', [
+    const program = [
         'import json, random, sys',
         'from pathlib import Path',
         'from coc.rules.tables import RuleTables',
@@ -106,11 +106,13 @@ test('stated-aptitude assignment matches the Python oracle roll for roll', async
         '        generated = chargen.rolled(random.Random(seed), chargen.aptitude(case))',
         '        output.append({"seed": seed, "aptitude": case, "generated": canonical_json(generated)})',
         'print(json.dumps(output))',
-      ].join('\n')], {cwd: REPO, env:pythonOracleEnvironment(), encoding: 'utf8', timeout: 30000});
+    ].join('\n');
+    const oracleText = outcome('setup-2', () => {
+      const oracle = spawnSync('uv', ['run', '--frozen', 'python', '-c', program], {cwd: REPO, env:pythonOracleEnvironment(), encoding: 'utf8', timeout: 30000});
       assert.equal(oracle.error, undefined);
       assert.equal(oracle.status, 0, oracle.stderr);
       return oracle.stdout;
-    });
+    }, program);
     const context = await api.createKernelContext({workspace: temporary, content: join(REPO, 'content'), seed: 'aptitude-proof'});
     try {
       const steps = JSON.parse(await readFile(join(REPO, 'content/setup/steps.json'), 'utf8'));
@@ -143,8 +145,7 @@ test('both kernels allocate the same skill points for either interest policy', a
     ].join('\n'), resolveDir: REPO, sourcefile: 'setup-interest-test.ts'}, outfile: join(temporary, 'interest.mjs'),
       bundle: true, format: 'esm', platform: 'node', target: 'node22', logLevel: 'silent'});
     const api = await import(pathToFileURL(join(temporary, 'interest.mjs')).href);
-    const oracleText = outcome('setup-3', () => {
-      const oracle = spawnSync('uv', ['run', '--frozen', 'python', '-c', [
+    const program = [
         'import json, sys',
         'from pathlib import Path',
         'from coc.rules.tables import RuleTables',
@@ -162,11 +163,13 @@ test('both kernels allocate the same skill points for either interest policy', a
         '                   "interest": canonical_json(sheet["creation"]["skills"]["interest"]),',
         '                   "receipt": canonical_json(receipt["interest_allocation"])})',
         'print(json.dumps(output))',
-      ].join('\n')], {cwd: REPO, env:pythonOracleEnvironment(), encoding: 'utf8', timeout: 30000});
+    ].join('\n');
+    const oracleText = outcome('setup-3', () => {
+      const oracle = spawnSync('uv', ['run', '--frozen', 'python', '-c', program], {cwd: REPO, env:pythonOracleEnvironment(), encoding: 'utf8', timeout: 30000});
       assert.equal(oracle.error, undefined);
       assert.equal(oracle.status, 0, oracle.stderr);
       return oracle.stdout;
-    });
+    }, program);
     const context = await api.createKernelContext({workspace: temporary, content: join(REPO, 'content'), seed: 'interest-proof'});
     try {
       const steps = JSON.parse(await readFile(join(REPO, 'content/setup/steps.json'), 'utf8'));
