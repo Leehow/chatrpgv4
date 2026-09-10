@@ -112,7 +112,10 @@ def test_reveal_on_investigate_intent_with_gates_and_registry_grounding(seeded_k
     reveal = director["reveal"]
     assert 0 < len(reveal) <= 5 and {r["clue"] for r in reveal} == set(BRIEFING_CLUES) - {"knott-keys"}
     gates = {r["clue"]: r["gate"] for r in reveal}
-    assert gates["knott-commission"] == "npc_dialogue" and gates["knott-research-leads"] == "npc_dialogue"
+    # The gate names the delivery kind and the check the book writes; a clue the book gates with nothing says so
+    # rather than leaving the Keeper to read it out of an absence (§30.12).
+    assert gates["knott-commission"] == "npc_dialogue: no check in the book"
+    assert gates["knott-research-leads"] == "npc_dialogue: no check in the book"
     assert director["grounded_by"] == grounded_names("scoring-rule:reveal:investigate-intent")
     assert "core-check:ordinary-check" in director["grounded_by"]
     assert "effect:coc7:magic:learn-spell-spell-learned" in director["grounded_by"]

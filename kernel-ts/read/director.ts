@@ -221,22 +221,31 @@ export function score(dg: DirectorGraph, sig: Row, scene: Row, options: {
         hit_rules: conditions.map(c => dg.ruleIds.get(`${chosen}\0${c}`)).filter(Boolean)
     };
 }
+/** How the book delivers this clue and what it asks for it: `<delivery kind>: <check>` and then any condition.
+ *  The check half is never left to be inferred from its own absence. Before 2026-09-10 a clue the book gates with
+ *  nothing read `"environmental"`, exactly like a clue whose check simply had not been projected, and a live table
+ *  showed what that costs: the Keeper invented a Strength check for the boarded cupboard holding the Corbitt
+ *  diaries, failed it six times across thirteen turns, and the critical line never opened (§30.12). So a clue with
+ *  no authored skill says so, and a `skill_check` delivery says the book wants a check without naming the skill. */
 export function clueGate(graph: ModuleGraph, node: Row): string {
     const props = row(node.properties),
-        parts = [string(props.delivery_kind || "unknown")];
+        delivery = string(props.delivery_kind || "unknown"),
+        conditions: string[] = [];
+    let authored = "";
     for (const conclusion of graph.kind("conclusion"))
         for (const entry of array(recordOf(conclusion).clues))
             if (entry.clue_id === node.node_id) {
                 if (typeof entry.skill === "string" && entry.skill)
-                    parts.push(entry.skill + (typeof entry.difficulty === "string" && entry.difficulty ? ` (${entry.difficulty})` : ""));
+                    authored = entry.skill + (typeof entry.difficulty === "string" && entry.difficulty ? ` (${entry.difficulty})` : "");
                 break;
             }
     for (const key of ["unlock", "requires", "unlock_when", "when"]) {
         const condition = Object.hasOwn(props, key) ? props[key] : recordOf(node)[key];
         if (truth(condition))
-            parts.push(describeCondition(condition));
+            conditions.push(describeCondition(condition));
     }
-    return parts.slice(0, 2).join(": ") + (parts.length > 2 ? "; " + parts.slice(2).join("; ") : "");
+    const check = authored || (delivery === "skill_check" ? "the book names no skill" : "no check in the book");
+    return `${delivery}: ${check}` + (conditions.length ? "; " + conditions.join("; ") : "");
 }
 export function directorSection(dg: DirectorGraph, ontology: Ontology, graph: ModuleGraph, world: Row, scene: Row, sig: Row, memory: Row[], present: Row[]): Row {
     const scored = score(dg, sig, scene, {
