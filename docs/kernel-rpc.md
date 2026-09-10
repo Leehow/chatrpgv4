@@ -3696,11 +3696,11 @@ asserts it reaches the capsule, so the whitelist cannot silently close again.
 `npcs_without_material` keeps counting the **core** keys only. A book silent about
 language must not report every actor in it as thin.
 
-Backfill uses the existing on-demand deepen (§14.6, `focus: {npc: <name>}`); no
-bulk re-read runs on enable. A deepen is queued for an actor that lacks a
-contributed key only once the party has actually met them (`turns_present` in the
-ledger), which bounds the cost to what this table will see. A deepen that comes
-back with nothing records that absence so the same actor is not asked twice.
+Backfill was to use the existing on-demand deepen (§14.6, `focus: {npc: <name>}`)
+for an actor the party had actually met. It is **withdrawn**: it writes a
+contributed key into a shared, persistent module at play time, which is the very
+disagreement between campaigns that 28.2 exists to prevent. A campaign whose
+module was built without the word fills it at the table instead (28.7).
 
 Disabling a package stops its instructions, its auditor and its future asks. It
 does not stop the word. A module records the vocabulary it was read under, and the
@@ -3738,11 +3738,52 @@ null` -- the word still reaches the table (28.5) and the Keeper still sees it in
 dossier. The field is omitted entirely when no active package contributes a word and
 the module records none, so an ordinary table pays nothing for it.
 
-### 28.7 Out of this version
+### 28.7 `graph.vocabulary.table.v1` -- door 4, opened for contributed words
 
-A Mod-namespaced `apply` (door 4) and call-named check values (door 3) are named
-here so they are not reinvented, and are not built in this version. A package that
-needs a value the book never gave has the Keeper play it without state.
+Binding at build made the feature safe and left it inert. No shipped book names
+anyone's tongue: The Haunting gives its eleven actors the five core keys and
+nothing else, and the only `language` in that graph is on a handout, which the
+document reader already gates with `language_skill`. A package that could only
+read `speaks` off the source could only ever read nothing.
+
+Backfill (28.5) is withdrawn rather than built. Re-reading a book on demand to
+fill a contributed key writes into a module -- shared by every campaign compiled
+from it, and persistent. That is the boundary 28.2 rests on: two campaigns cannot
+disagree about what their reader was asked. Backfill makes them disagree over
+time, decided by whichever campaign happens to play first, and the mutation stays
+after the package is gone.
+
+Door 4 is therefore opened, narrowly. A package requiring
+`graph.vocabulary.table.v1` (which requires `graph.vocabulary.v1`, and is refused
+without a contribution to write) may establish, at the table, a value for a word
+it contributes:
+
+```
+apply {"kind": "dossier", "name": "<actor>",
+       "values": {"language": "<what the table established>"},
+       "why": "<what in the fiction settled it>"}
+```
+
+The write lands in `world.mods.state[<id>].dossier[<node_id>][<key>]`, and the
+per-turn dossier reads it only where the source is silent and only while that
+package is enabled. Three properties follow, and they are the point:
+
+* **The book is never written to.** A key the source gives is refused, not
+  overwritten -- one actor, one answer, and the authored one.
+* **The word dies with the package.** Disabling stops the read; the graph is
+  exactly as it was found. This is the opposite of 28.5's rule for *build-bound*
+  words, and deliberately so: a word the reader extracted is the book's own
+  material, a word the table established is the package's.
+* **It is campaign-scoped.** `world.mods.state` survives worldlines and upgrades
+  and never leaves the campaign that wrote it.
+
+Establishing is a Keeper judgement in fiction, never a derivation. No list maps
+names, trades or places to languages, and the instructions forbid inferring one.
+
+### 28.8 Out of this version
+
+Call-named check values (door 3) are named here so they are not reinvented, and
+are not built in this version.
 
 ## 29. 宿主向记忆线：全图读取与桌级分支（2026-09-09）
 

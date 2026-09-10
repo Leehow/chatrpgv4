@@ -129,12 +129,29 @@ export function cluesHere(graph: ModuleGraph, world: Row, scene: Row): Row[] {
         };
     });
 }
-function dossier(graph: ModuleGraph, node: Row): Row {
+function dossier(graph: ModuleGraph, world: Row, node: Row): Row {
     // The Keeper-facing names and their order come from the contract's actor_dossier, not from a
     // copy kept here: a profile key the spine gains must reach the table, or it was never added
     // (contract 28.4). A key the spine labels nothing arrives under its own name.
-    const profile = graph.npcProfile(node);
-    return Object.fromEntries(dossierLabels(graph.dossier).filter(([key]) => truth(profile[key])).map(([key, label]) => [label, profile[key]]));
+    const profile = graph.npcProfile(node), established = tableWords(world, node);
+    return Object.fromEntries(dossierLabels(graph.dossier)
+        .map(([key, label]) => [label, truth(profile[key]) ? profile[key] : established[key]] as [string, any])
+        .filter(([, value]) => truth(value)));
+}
+/** Contract 28.7: what a package established at the table, under a word it contributes. The book is
+ *  read first and is never overwritten; this fills only where the source is silent. It is read out of
+ *  the package's own namespace and only while that package is on, so disabling one takes its words
+ *  with it and leaves the book exactly as it was found. */
+function tableWords(world: Row, node: Row): Row {
+    const mods = row(world.mods), locks = row(mods.active), result: Row = {};
+    for (const [id, namespace] of entries(row(mods.state))) {
+        if (!truth(row(locks[id]).enabled))
+            continue;
+        for (const [key, entry] of entries(row(row(namespace).dossier)[string(node.node_id)] ?? {}))
+            if (!Object.hasOwn(result, key))
+                result[key] = row(entry).value;
+    }
+    return result;
 }
 function npcHistory(ledger: Row, memories: Map<string, Row>): Row | null {
     const result: Row = {},
@@ -168,7 +185,7 @@ function npcHistory(ledger: Row, memories: Map<string, Row>): Row | null {
 export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row, memories: Map<string, Row>, across: (node: Row) => Row[] = () => []): Row {
     const entry: Row = {
         name: graph.displayName(node),
-        ...dossier(graph, node)
+        ...dossier(graph, world, node)
     },
         discovered = new Set(array(world.discovered_clues));
     const knows = graph.npcKnows(node).map(item => ({
@@ -227,7 +244,7 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
         scene: row(world.npc_presence)[handle] ?? null,
         summary: node.summary ?? null,
         visibility: node.visibility ?? null,
-        ...dossier(graph, node)
+        ...dossier(graph, world, node)
     };
     const knows = graph.npcKnows(node).map(entry => ({
         clue: entry.handle,

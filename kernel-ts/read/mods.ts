@@ -11,7 +11,7 @@ import { threadSection } from "./thread.js";
 import { pacingSection } from "./pacing.js";
 import { entries, values, array, row, truth, string, number, integer, numeric, normalize, sorted, chars, length, clone, pick, type Row } from "./values.js";
 import { claimedEquipment } from "../mods/queue.js";
-export const MOD_CAPABILITIES = new Set(["checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "context.thread.v1", "context.pacing.v1"]);
+export const MOD_CAPABILITIES = new Set(["checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1"]);
 const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
 };
@@ -71,8 +71,17 @@ export async function buildVocabulary(context: KernelContext): Promise<Row> {
  *  spine known. */
 export function validateVocabulary(manifest: Row): void {
     const contributed = manifest.contributes.vocabulary;
-    if (contributed == null)
+    // Contract 28.7: establishing a word at the table is a write into this package's own namespace,
+    // under a word it contributes. Claiming the capability without contributing one asks for the
+    // power to write nothing, which is a manifest that does not mean what it says.
+    if (contributed == null) {
+        if (array(manifest.requires).includes("graph.vocabulary.table.v1"))
+            invalid("A package requiring graph.vocabulary.table.v1 must contribute the vocabulary it establishes");
         return;
+    }
+    if (array(manifest.requires).includes("graph.vocabulary.table.v1")
+        && !array(manifest.requires).includes("graph.vocabulary.v1"))
+        invalid("A package requiring graph.vocabulary.table.v1 must also require graph.vocabulary.v1");
     if (!plain(contributed) || Object.keys(contributed).some(key => key !== "actor_profile_keys"))
         invalid("Unknown Mod vocabulary contribution in game interface v1");
     if (!array(manifest.requires).includes("graph.vocabulary.v1"))

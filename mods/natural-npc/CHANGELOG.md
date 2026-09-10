@@ -1,5 +1,17 @@
 # Natural NPC
 
+## 1.2.0
+
+Requires `graph.vocabulary.table.v1`. No shipped book names anyone's tongue -- The Haunting
+gives its eleven people the five core words and nothing else -- so a feature that could only
+read `speaks` off the source was a feature that never ran. Where the source is silent, the
+Keeper can now establish a person's tongue at the table and keep it, and that record lives in
+this package's own state: the book is not written to, and turning this package off takes the
+word with it. A word the source does give still wins, and establishing over it is refused.
+
+The Keeper is told to default to a shared language and to establish one only where the
+fiction already settled it. Never from a name, a trade or a neighbourhood.
+
 ## 1.1.2
 
 A word is bound when a module is built, not when this package is enabled, so this package

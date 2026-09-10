@@ -232,3 +232,93 @@ def test_a_bound_word_outlives_the_package_that_asked_for_it(tmp_path):
                                                      "mod": None, "bound": True}
     finally:
         client.close()
+
+
+# ---- establishing at the table (contract 28.7) --------------------------------------------------
+
+def open_turn(client, campaign):
+    client.ok("table.player_input", {"campaign": campaign, "text": "I try talking to them."})
+
+
+def apply_dossier(client, campaign, name, values, call="t1-c1", why="The party heard them switch."):
+    return client.ok("table.apply", {"campaign": campaign, "call_id": call, "effects": [
+        {"kind": "dossier", "name": name, "values": values, "why": why}]})
+
+
+def test_the_table_may_establish_a_word_the_book_left_silent(tmp_path):
+    """28.7: no shipped book names anyone's tongue, so a word that could only be read off the source
+    could only ever be read as nothing. What the table settles is kept, and reads back like any other
+    word in the dossier -- so the same person is played the same way on every later turn."""
+    client = emitted_client(tmp_path / "ws")
+    try:
+        client.ok("mods.install", {"path": str(package(tmp_path, name="dialects"))})
+        # Built with the word bound but the book silent about this person.
+        mid, _ = built_module(client, tmp_path, {"agenda": "Keep the room."})
+        campaign = played(client, tmp_path, mid)
+        open_turn(client, campaign)
+        assert "dialect" not in table_npcs(client, campaign)["Tenant"]
+
+        apply_dossier(client, campaign, "Tenant", {"dialect": "Sicilian, little English"})
+        assert table_npcs(client, campaign)["Tenant"]["dialect"] == "Sicilian, little English"
+    finally:
+        client.close()
+
+
+def test_what_the_table_established_goes_when_the_package_does(tmp_path):
+    """28.7 against 28.5: a word the reader extracted is the book's own material and survives the
+    package. A word the table established is the package's, and must not -- otherwise turning a Mod
+    off leaves its fiction behind in a book that never said it."""
+    client = emitted_client(tmp_path / "ws")
+    try:
+        client.ok("mods.install", {"path": str(package(tmp_path, name="dialects"))})
+        mid, _ = built_module(client, tmp_path, {"agenda": "Keep the room."})
+        campaign = played(client, tmp_path, mid)
+        open_turn(client, campaign)
+        apply_dossier(client, campaign, "Tenant", {"dialect": "Sicilian, little English"})
+
+        # A turn in flight defers a Mod change to `mods.pending`, so the narration closes this one first.
+        client.ok("table.narrate", {"campaign": campaign, "call_id": "t1-c2", "text": "The tenant shrugs."})
+
+        client.ok("mods.configure", {"campaign": campaign, "id": "dialects", "enabled": False})
+        assert "dialect" not in table_npcs(client, campaign)["Tenant"]
+        client.ok("mods.configure", {"campaign": campaign, "id": "dialects", "enabled": True})
+        assert table_npcs(client, campaign)["Tenant"]["dialect"] == "Sicilian, little English"
+    finally:
+        client.close()
+
+
+def test_the_book_is_not_the_tables_to_overwrite(tmp_path):
+    """28.7: one actor, one answer, and the authored one. Accepting the write and letting the source
+    win on read would leave two answers on record and no way to see which the Keeper meant."""
+    client = emitted_client(tmp_path / "ws")
+    try:
+        client.ok("mods.install", {"path": str(package(tmp_path, name="dialects"))})
+        mid, _ = built_module(client, tmp_path, {"agenda": "Keep the room.", "dialect": "Sicilian"})
+        campaign = played(client, tmp_path, mid)
+        open_turn(client, campaign)
+
+        refused = client.err("table.apply", {"campaign": campaign, "call_id": "t1-c1", "effects": [
+            {"kind": "dossier", "name": "Tenant", "values": {"dialect": "Neapolitan"}}]})
+        assert refused["code"] == "invalid_params"
+        assert "Sicilian" in refused["message"]
+        assert table_npcs(client, campaign)["Tenant"]["dialect"] == "Sicilian"
+    finally:
+        client.close()
+
+
+def test_only_a_word_an_active_package_establishes_is_accepted(tmp_path):
+    """28.7: the write is namespaced by the package that owns the word. A key nobody contributes has
+    no namespace to land in, and accepting it would put an unowned fact on an actor."""
+    client = emitted_client(tmp_path / "ws")
+    try:
+        client.ok("mods.install", {"path": str(package(tmp_path, name="dialects"))})
+        mid, _ = built_module(client, tmp_path, {"agenda": "Keep the room."})
+        campaign = played(client, tmp_path, mid)
+        open_turn(client, campaign)
+
+        refused = client.err("table.apply", {"campaign": campaign, "call_id": "t1-c1", "effects": [
+            {"kind": "dossier", "name": "Tenant", "values": {"favourite_colour": "green"}}]})
+        assert refused["code"] == "invalid_params"
+        assert "favourite_colour" in refused["message"]
+    finally:
+        client.close()

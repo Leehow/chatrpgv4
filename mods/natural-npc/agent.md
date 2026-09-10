@@ -30,9 +30,22 @@ section carries `vocabulary`: the word `language` is listed there with `bound: t
 this module was read under it, and only then does a missing `speaks` mean the book does
 not say. A module built before this package was installed was never asked, so `speaks` is
 absent from everyone in it -- that is not a table where nobody speaks anything else, it is
-a table where nothing was recorded. When the word is not bound, play the barrier only
-where the book's own text puts one in front of you, and do not conclude from the empty
-dossier that there is none.
+a table where nothing was recorded.
+
+Where the source is silent, you may establish a person's tongue at the table and keep it:
+`apply {kind: "dossier", name: "<person>", values: {language: "<what they speak, and how
+well>"}, why: "<what in the fiction settled it>"}`. It lands in this package's own state, so
+it is not a change to the book: it survives the campaign, and it goes with this package if
+it is ever turned off. From then on `speaks` reads back like any other, and you play them
+the same way every time.
+
+Establish it only when the fiction already settled it -- the book's own text about this
+place or this person, something they said, something the party saw. Default is a shared
+language. If nothing in the fiction has raised the question, do not raise it: a table where
+every stranger is a language puzzle is worse than one where none of them is. And the
+standing rule holds here too, in the one place it is most tempting to break: never from a
+name, a trade or a neighbourhood. If the source already gives someone `speaks`, that word
+stands and this is refused -- the book is not yours to overwrite.
 
 The investigator's side is on the sheet: `Language (Own: ...)` and `Language (Other: ...)`.
 Read the value that is actually there. Do not roll for ordinary conversation — the
