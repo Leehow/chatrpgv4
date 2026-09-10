@@ -3954,6 +3954,10 @@ chain organised by need changed the first turn.
   exits (§6 `where.exits`) and the way back (`scene_trail`), one entry per scene that holds an undiscovered clue of
   that line, a clue counted at the first scene that holds it; `beyond` is the remainder. `locked` is the exit's
   `unlock_when` condition when it is not known to be met; `via: back` marks a scene reached only by the trail.
+- A row's `gate` is `<delivery kind>: <check>`, and the check half is never left to be read out of its own absence
+  (2026-09-10, §30.12): the conclusion's authored skill and difficulty when the book names one, `the book names no
+  skill` for a `skill_check` delivery that names none, and `no check in the book` otherwise; unlock conditions
+  follow after `;`. Story Thread 1.0.3 says what to do with each.
 - `handed` is structural: an undiscovered clue here whose `delivery_kind` is `obvious`, or `npc_dialogue` with one of
   its `source_npc_ids` on stage. No semantic judgement chooses it.
 - **Budget 3072 bytes**, because the `mods` section has none of its own. Over budget, the least important lines
@@ -4269,6 +4273,27 @@ an open question or a "handle" must be present before stopping; that texture sho
 every recovery costs time, exposure or alarm; that the thread is a per-turn plan. Nothing replaces them with
 event, clue, paragraph, twist or progress quotas; the verifier (§12.5) and `narration-audit` keep their remits;
 no foreground model call is added.
+
+**A clue the book gates with nothing (2026-09-10, #80, after `knq-live-1`).** The chain was whole and the Keeper
+invented a check anyway. `where.affordances` carried `force-cupboard` — *"Pry open the nailed-shut cupboard in the
+storage room and inspect the old books inside"* — naming the clue, on every one of the thirteen turns spent in that
+room; the thread's `here` row carried the clue with the book's own delivery words; and the conclusion's clue entry
+records `skill: null`, which is how a module says the book asks for no roll (nine other clues in the same book do
+name a skill and a difficulty, and `clueGate` has always projected those). The one thing no row ever said was that
+last fact. `environmental` alone had to be read as "the book writes no check", an inference from a missing second
+half, and the Keeper read it instead as room to invent: a Strength check against the cupboard, six times across
+thirteen turns, every failure treated as final, and the critical line `corbitt-is-undead-sorcerer` never opened.
+
+So the diagnosis is an adjudication failure, and the change is the one that makes it harder: the gate states its
+check half rather than leaving it to be inferred — the authored skill when the book names one,
+`the book names no skill` for a `skill_check` delivery that names none, `no check in the book` otherwise — and
+`story-thread` 1.0.3 says what that means at the table: no roll to pass, and a cost is time, noise, a tool or
+another pair of hands rather than a check that can fail the line for good. This is not a hole in the graph, and it
+is worth saying plainly because the first diagnosis filed on #80 claimed one twice over (a clue projected as `next`
+rather than `here`, then a check no producer ever wrote) and both were wrong; the run's own capsules disprove them.
+
+The clue entry's own `affordance.skills` — here `Spot Hidden` and `Occult` — still has no consumer, and stays that
+way on purpose: naming skills beside a clue the book leaves unrolled invites exactly the roll that closed this line.
 
 **Settings across a version change (#70).** §26 now says it: a version-only request carries forward only the
 keys the target version declares and records the retired keys in telemetry; an explicit unknown key is still
