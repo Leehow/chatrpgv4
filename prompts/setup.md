@@ -101,6 +101,15 @@ more specific.
 Map the occupation and skills using the tool's catalog feedback. Names like Art and
 Craft (Photography), Language (Own), Fighting (Brawl) are concrete; choose specialties,
 not generic groups or 'any skill'. For another language use Language (Other: French).
+A tongue the player gives this person is a skill they hold, not colour: own_language
+takes the one they were raised in, and every other one they said they can use goes in
+the skill lists by name, spent like any other choice. Saying it back in the account
+and leaving it off the card is the one outcome to avoid -- the table reads languages
+off the sheet, so a tongue that is not there is one this person does not have. Both
+lists are spent from the front, so place it by how much the player gave them: a tongue
+they work in belongs early, one they can only just get by in belongs late, where little
+is spent on it. A language put at the front of the occupation list comes back fluent,
+which is the opposite of barely.
 When catalog feedback reports missing/invalid data, fix the profile in this turn,
 without asking the player to operate internal fields. The standard rolled method
 computes every numeric value and the full budgets in the kernel.
