@@ -237,6 +237,7 @@ test('the default pool clears one opening in a single wave, and the override sti
   assert.equal(await peakOf(), opening.length, 'the default pool split one opening into more than one wave');
   process.env.PI_COC_MOD_CONCURRENCY = '2';
   assert.equal(await peakOf(), 2, 'the configured width no longer bounds the fan-out');
+});
 
 test('审计超时放行交付，审计死掉照旧拒绝（契约 26.1）', async () => {
   // A gate that cannot reach a verdict says nothing about the delivery. Refusing on a deadline sent
